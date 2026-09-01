@@ -4,10 +4,16 @@
 import json
 from pathlib import Path
 
-from check_records import reject_json_constant
-from census import factory_identity_for_path
-from exact_json import parse_finite_json_float
-from mill_family import MillFinding, MillIndex, summarize
+if __package__:
+    from .census import factory_identity_for_path
+    from .check_records import reject_json_constant
+    from .exact_json import parse_finite_json_float
+    from .mill_family import MillFinding, MillIndex, summarize
+else:
+    from census import factory_identity_for_path
+    from check_records import reject_json_constant
+    from exact_json import parse_finite_json_float
+    from mill_family import MillFinding, MillIndex, summarize
 
 
 def _finding_row(finding: MillFinding) -> dict:

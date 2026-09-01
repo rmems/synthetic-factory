@@ -5,13 +5,22 @@ from __future__ import annotations
 
 import math
 
-from reward_mapping import _decimal, _json_number
-from reward_policy import (
-    CANONICAL_UNIT_USD,
-    MIGRATION_FACTOR_FIELD,
-    MIGRATION_SCOPE_FIELD,
-    RECORD_ID_RE,
-)
+if __package__:
+    from .reward_mapping import _decimal, _json_number
+    from .reward_policy import (
+        CANONICAL_UNIT_USD,
+        MIGRATION_FACTOR_FIELD,
+        MIGRATION_SCOPE_FIELD,
+        RECORD_ID_RE,
+    )
+else:
+    from reward_mapping import _decimal, _json_number
+    from reward_policy import (
+        CANONICAL_UNIT_USD,
+        MIGRATION_FACTOR_FIELD,
+        MIGRATION_SCOPE_FIELD,
+        RECORD_ID_RE,
+    )
 
 
 def _entry_calibrations(entry, *, path, index):

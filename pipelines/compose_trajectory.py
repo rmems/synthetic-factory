@@ -14,36 +14,62 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
-import curate_agentic  # noqa: E402
-import curate_coding  # noqa: E402
-from compose_contract import (  # noqa: E402
-    ACTION_EXCLUDED,
-    ACTION_NOT_APPLICABLE,
-    ACTION_RETAINED,
-    PREFERENCE_CANDIDATE_KEYS,
-    REASON_TRAJECTORY_GATE_PASSED,
-    REASON_TRAJECTORY_GOAL_NORMALIZED,
-    REASON_TRAJECTORY_IDENTICAL,
-    REASON_TRAJECTORY_OUTCOME_MISSING,
-    REASON_TRAJECTORY_OUTCOME_NOT_DIVERGENT,
-    REASON_TRAJECTORY_PREFIX_ABSENT,
-    REASON_TRAJECTORY_REWARD_MISSING,
-    REASON_TRAJECTORY_REWARD_NOT_DIVERGENT,
-    REASON_TRAJECTORY_SIDE_INVALID,
-    REASON_TRAJECTORY_STEPS_EMPTY,
-    REASON_TRAJECTORY_STEPS_INVALID,
-    TRAJECTORY_GOAL_LOCATIONS,
-    _TrajectoryPreferenceDecision,
-    canonical_json,
-    _canonical_sha256,
-)
-from record_kind import PREFERENCE_SIDE_KINDS  # noqa: E402
-from trajectory_pair_gate import preference_direction_failures  # noqa: E402
-from validate_run import THALAMIC_CORE_KEYS, check_episode  # noqa: E402
+if __package__:
+    from . import curate_agentic, curate_coding
+    from .compose_contract import (
+        ACTION_EXCLUDED,
+        ACTION_NOT_APPLICABLE,
+        ACTION_RETAINED,
+        PREFERENCE_CANDIDATE_KEYS,
+        REASON_TRAJECTORY_GATE_PASSED,
+        REASON_TRAJECTORY_GOAL_NORMALIZED,
+        REASON_TRAJECTORY_IDENTICAL,
+        REASON_TRAJECTORY_OUTCOME_MISSING,
+        REASON_TRAJECTORY_OUTCOME_NOT_DIVERGENT,
+        REASON_TRAJECTORY_PREFIX_ABSENT,
+        REASON_TRAJECTORY_REWARD_MISSING,
+        REASON_TRAJECTORY_REWARD_NOT_DIVERGENT,
+        REASON_TRAJECTORY_SIDE_INVALID,
+        REASON_TRAJECTORY_STEPS_EMPTY,
+        REASON_TRAJECTORY_STEPS_INVALID,
+        TRAJECTORY_GOAL_LOCATIONS,
+        _TrajectoryPreferenceDecision,
+        _canonical_sha256,
+        canonical_json,
+    )
+    from .record_kind import PREFERENCE_SIDE_KINDS
+    from .trajectory_pair_gate import preference_direction_failures
+    from .validate_run import THALAMIC_CORE_KEYS, check_episode
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    import curate_agentic
+    import curate_coding
+    from compose_contract import (
+        ACTION_EXCLUDED,
+        ACTION_NOT_APPLICABLE,
+        ACTION_RETAINED,
+        PREFERENCE_CANDIDATE_KEYS,
+        REASON_TRAJECTORY_GATE_PASSED,
+        REASON_TRAJECTORY_GOAL_NORMALIZED,
+        REASON_TRAJECTORY_IDENTICAL,
+        REASON_TRAJECTORY_OUTCOME_MISSING,
+        REASON_TRAJECTORY_OUTCOME_NOT_DIVERGENT,
+        REASON_TRAJECTORY_PREFIX_ABSENT,
+        REASON_TRAJECTORY_REWARD_MISSING,
+        REASON_TRAJECTORY_REWARD_NOT_DIVERGENT,
+        REASON_TRAJECTORY_SIDE_INVALID,
+        REASON_TRAJECTORY_STEPS_EMPTY,
+        REASON_TRAJECTORY_STEPS_INVALID,
+        TRAJECTORY_GOAL_LOCATIONS,
+        _TrajectoryPreferenceDecision,
+        _canonical_sha256,
+        canonical_json,
+    )
+    from record_kind import PREFERENCE_SIDE_KINDS
+    from trajectory_pair_gate import preference_direction_failures
+    from validate_run import THALAMIC_CORE_KEYS, check_episode
 
 def is_bridge_record(record: Mapping[str, Any]) -> bool:
     """Mirror the shape gate ``curate_bridge.curate_record`` applies itself."""

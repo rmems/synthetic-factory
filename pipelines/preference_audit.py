@@ -19,16 +19,23 @@ import sys
 from pathlib import Path
 from typing import Any
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
-from preference_model import (  # noqa: E402
-    ACTION_EXCLUDED,
-    ACTION_REPAIRED,
-    CurationRun,
-    PreferenceCurationError,
-)
+if __package__:
+    from .preference_model import (
+        ACTION_EXCLUDED,
+        ACTION_REPAIRED,
+        CurationRun,
+        PreferenceCurationError,
+    )
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from preference_model import (
+        ACTION_EXCLUDED,
+        ACTION_REPAIRED,
+        CurationRun,
+        PreferenceCurationError,
+    )
 
 __all__ = [
     "AUDIT_NAME",

@@ -25,11 +25,18 @@ import json
 import re
 from typing import Any
 
-from coding_constants import HIDDEN_REASONING_KEYS, HIDDEN_REASONING_PREFIX
-from record_kind import (
-    classify_kind as classify_payload_kind,
-    preference_side_kinds,
-)
+if __package__:
+    from .coding_constants import HIDDEN_REASONING_KEYS, HIDDEN_REASONING_PREFIX
+    from .record_kind import (
+        classify_kind as classify_payload_kind,
+        preference_side_kinds,
+    )
+else:
+    from coding_constants import HIDDEN_REASONING_KEYS, HIDDEN_REASONING_PREFIX
+    from record_kind import (
+        classify_kind as classify_payload_kind,
+        preference_side_kinds,
+    )
 
 HIDDEN_THOUGHT_KEYS = frozenset(
     {"thought", "chain_of_thought", "scratch", "inner_monologue"}

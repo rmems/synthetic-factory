@@ -31,20 +31,36 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
 
-from record_kind import (
-    PREFERENCE_SIDE_KINDS,
-    SUPPORTED_RECORD_KINDS,
-    classify_kind,
-    preference_side_kinds,
-)
-from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
-from validate_run import (
-    check_episode,
-    check_multi_agent,
-    check_safety_case,
-    check_spike_order,
-    check_thalamic,
-)
+if __package__:
+    from .record_kind import (
+        PREFERENCE_SIDE_KINDS,
+        SUPPORTED_RECORD_KINDS,
+        classify_kind,
+        preference_side_kinds,
+    )
+    from .round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
+    from .validate_run import (
+        check_episode,
+        check_multi_agent,
+        check_safety_case,
+        check_spike_order,
+        check_thalamic,
+    )
+else:
+    from record_kind import (
+        PREFERENCE_SIDE_KINDS,
+        SUPPORTED_RECORD_KINDS,
+        classify_kind,
+        preference_side_kinds,
+    )
+    from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
+    from validate_run import (
+        check_episode,
+        check_multi_agent,
+        check_safety_case,
+        check_spike_order,
+        check_thalamic,
+    )
 
 TRANSFORM_NAME = "curate_identity"
 TRANSFORM_VERSION = "identity-provenance-v2"

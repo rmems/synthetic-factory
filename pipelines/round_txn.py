@@ -42,16 +42,17 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
-from check_records import FactoryStaging, check_jsonl  # noqa: E402
-import round_txn_raster as _round_txn_raster  # noqa: E402
-from validate_run import (  # noqa: E402
-    THALAMIC_CORE_KEYS,
-    terminal_outcome_agrees,
-)
+if __package__:
+    from .check_records import FactoryStaging, check_jsonl
+    from . import round_txn_raster as _round_txn_raster
+    from .validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from check_records import FactoryStaging, check_jsonl
+    import round_txn_raster as _round_txn_raster
+    from validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees
 
 # Compatibility exports retained after the raster contract moved to its own
 # module. These explicit assignments are intentional API, not unused imports.
@@ -374,49 +375,103 @@ CANONICAL_EXECUTION_VERIFICATION_KEYS = frozenset(
 )
 EXECUTION_COUNT_KEYS = frozenset({"failed", "inconclusive", "total", "verified"})
 
-from round_txn_execution import (  # noqa: E402
-    comparable_execution_verification,
-    execution_gate,
-    load_execution_verifier,  # noqa: F401 - public compatibility re-export
-    normalized_execution_override,
-    recorded_execution_override,
-    validate_completed_execution_verification,
-    validated_execution_verification_summary,
-)
-from round_txn_coverage import (  # noqa: E402
-    abandoned_failed_hypotheses,
-    banned_agentic_wrapper_paths,
-    contiguous_step_number_errors,
-    demonstrates_ordered_scenario,
-    has_long_horizon_debug_loop,
-    long_horizon_scenario_signature,
-    nested_key_paths,
-    nested_strings,
-    normalized_category,
-    numbered_horizon_errors,
-    shares_visible_terms,
-    sparse_step_progress_errors,
-    visibly_names_fault,
-)
-from round_txn_preference import (  # noqa: E402
-    CommittedPreferenceRound,
-    PreferenceHandoffExpectation,
-    PreferenceMarkerReview,
-    _completed_preference_isolation_matches,
-    _completed_preference_marker_is_sealed,
-    _read_json_from_expected_inode,  # noqa: F401 - patched through round_txn by tests
-    _require_expected_path_identity,  # noqa: F401 - public compatibility re-export
-    _same_file_identity,  # noqa: F401 - public compatibility re-export
-    _stable_preference_gate_evidence,
-    _supported_reservation_version,
-    link_verified_completion_marker,
-    migrate_preference_v1_markers,
-    quota_is_locked,
-    read_readonly_json,
-    require_preference_isolation,
-    reservation_matches_completed_round,
-    validate_preference_diagnosis_handoff,
-    validated_preference_v1_ledger,  # noqa: F401 - public compatibility re-export
+if __package__:
+    from .round_txn_execution import (
+        comparable_execution_verification,
+        execution_gate,
+        load_execution_verifier,
+        normalized_execution_override,
+        recorded_execution_override,
+        validate_completed_execution_verification,
+        validated_execution_verification_summary,
+    )
+    from .round_txn_coverage import (
+        abandoned_failed_hypotheses,
+        banned_agentic_wrapper_paths,
+        contiguous_step_number_errors,
+        demonstrates_ordered_scenario,
+        has_long_horizon_debug_loop,
+        long_horizon_scenario_signature,
+        nested_key_paths,
+        nested_strings,
+        normalized_category,
+        numbered_horizon_errors,
+        shares_visible_terms,
+        sparse_step_progress_errors,
+        visibly_names_fault,
+    )
+    from .round_txn_preference import (
+        CommittedPreferenceRound,
+        PreferenceHandoffExpectation,
+        PreferenceMarkerReview,
+        _completed_preference_isolation_matches,
+        _completed_preference_marker_is_sealed,
+        _read_json_from_expected_inode,
+        _require_expected_path_identity,
+        _same_file_identity,
+        _stable_preference_gate_evidence,
+        _supported_reservation_version,
+        link_verified_completion_marker,
+        migrate_preference_v1_markers,
+        quota_is_locked,
+        read_readonly_json,
+        require_preference_isolation,
+        reservation_matches_completed_round,
+        validate_preference_diagnosis_handoff,
+        validated_preference_v1_ledger,
+    )
+else:
+    from round_txn_execution import (
+        comparable_execution_verification,
+        execution_gate,
+        load_execution_verifier,
+        normalized_execution_override,
+        recorded_execution_override,
+        validate_completed_execution_verification,
+        validated_execution_verification_summary,
+    )
+    from round_txn_coverage import (
+        abandoned_failed_hypotheses,
+        banned_agentic_wrapper_paths,
+        contiguous_step_number_errors,
+        demonstrates_ordered_scenario,
+        has_long_horizon_debug_loop,
+        long_horizon_scenario_signature,
+        nested_key_paths,
+        nested_strings,
+        normalized_category,
+        numbered_horizon_errors,
+        shares_visible_terms,
+        sparse_step_progress_errors,
+        visibly_names_fault,
+    )
+    from round_txn_preference import (
+        CommittedPreferenceRound,
+        PreferenceHandoffExpectation,
+        PreferenceMarkerReview,
+        _completed_preference_isolation_matches,
+        _completed_preference_marker_is_sealed,
+        _read_json_from_expected_inode,
+        _require_expected_path_identity,
+        _same_file_identity,
+        _stable_preference_gate_evidence,
+        _supported_reservation_version,
+        link_verified_completion_marker,
+        migrate_preference_v1_markers,
+        quota_is_locked,
+        read_readonly_json,
+        require_preference_isolation,
+        reservation_matches_completed_round,
+        validate_preference_diagnosis_handoff,
+        validated_preference_v1_ledger,
+    )
+
+_COMPATIBILITY_EXPORTS = (
+    load_execution_verifier,
+    _read_json_from_expected_inode,
+    _require_expected_path_identity,
+    _same_file_identity,
+    validated_preference_v1_ledger,
 )
 
 

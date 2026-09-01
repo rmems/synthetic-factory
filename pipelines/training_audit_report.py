@@ -5,12 +5,20 @@ import json
 import math
 import statistics
 
-from check_records import ALLOWED_PROVENANCE
-from distillation_audit import (
-    BRIDGE_FACTORY_SLUG,
-    OUROBOROS_FACTORY_SLUG,
-    THALAMIC_FACTORY_SLUG,
-)
+if __package__:
+    from .check_records import ALLOWED_PROVENANCE
+    from .distillation_audit import (
+        BRIDGE_FACTORY_SLUG,
+        OUROBOROS_FACTORY_SLUG,
+        THALAMIC_FACTORY_SLUG,
+    )
+else:
+    from check_records import ALLOWED_PROVENANCE
+    from distillation_audit import (
+        BRIDGE_FACTORY_SLUG,
+        OUROBOROS_FACTORY_SLUG,
+        THALAMIC_FACTORY_SLUG,
+    )
 
 
 def _corpus_blockers(state):

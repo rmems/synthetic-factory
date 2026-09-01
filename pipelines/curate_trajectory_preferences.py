@@ -54,41 +54,117 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
-from check_records import reject_json_constant
-from curate_agentic import (
-    REASON_GOAL_DIVERGES,
-    REASON_GOAL_MISSING,
-    REASON_GOAL_NOT_TEXT,
-    REASON_THOUGHT_REMOVED,
-    canonical_json,
-    prefix_overlap,
-    shared_preference_goal,
-    strip_hidden_thought_keys,
-)
-from curate_preferences import PreferenceCurationError, write_run
-from validate_run import THALAMIC_CORE_KEYS, check_episode
-from trajectory_pair_curation import (
-    changed_top_level_fields,
-    curate_trajectory_pair,
-    normalize_goal_whitespace,
-)
-from trajectory_pair_gate import (
-    first_step_differs_by_branch_label_only,
-    gate_failures,
-    pair_passes_gate,
-    preference_direction_failures,
-    side_field_failures,
-)
-from trajectory_pair_shape import (
-    classify_pair_schema,
-    is_pair_candidate,
-    is_same_state_pair,
-    pair_envelope_validation_errors,
-    side_episode_validation_errors,
-    step_number_errors,
-    steps_of,
-)
-from trajectory_pair_vocabulary import (
+if __package__:
+    from .check_records import reject_json_constant
+    from .curate_agentic import (
+        REASON_GOAL_DIVERGES,
+        REASON_GOAL_MISSING,
+        REASON_GOAL_NOT_TEXT,
+        REASON_THOUGHT_REMOVED,
+        canonical_json,
+        prefix_overlap,
+        shared_preference_goal,
+        strip_hidden_thought_keys,
+    )
+    from .curate_preferences import PreferenceCurationError, write_run
+    from .trajectory_pair_curation import (
+        changed_top_level_fields,
+        curate_trajectory_pair,
+        normalize_goal_whitespace,
+    )
+    from .trajectory_pair_gate import (
+        first_step_differs_by_branch_label_only,
+        gate_failures,
+        pair_passes_gate,
+        preference_direction_failures,
+        side_field_failures,
+    )
+    from .trajectory_pair_shape import (
+        classify_pair_schema,
+        is_pair_candidate,
+        is_same_state_pair,
+        pair_envelope_validation_errors,
+        side_episode_validation_errors,
+        step_number_errors,
+        steps_of,
+    )
+    from .trajectory_pair_vocabulary import (
+        ACTION_EXCLUDED,
+        ACTION_REPAIRED,
+        ACTION_RETAINED,
+        ACTION_SKIPPED,
+        BRANCH_LABEL_MASK,
+        BRANCH_LABEL_RE,
+        DEFAULT_POLICY,
+        GOAL_LOCATIONS,
+        GOAL_REASONS,
+        PAIR_SIDES,
+        REASON_BRANCH_LABEL_ONLY,
+        REASON_GATE_PASSED,
+        REASON_GOAL_WHITESPACE_NORMALIZED,
+        REASON_NOT_A_PAIR,
+        REASON_OUTCOME_INVALID,
+        REASON_OUTCOME_MISSING,
+        REASON_OUTCOME_NOT_DIVERGENT,
+        REASON_PAIR_ENVELOPE_INVALID,
+        REASON_PAIR_IDENTICAL,
+        REASON_PREFERENCE_DIRECTION_INVALID,
+        REASON_PREFIX_ABSENT,
+        REASON_RECORD_NOT_OBJECT,
+        REASON_REWARD_INVALID,
+        REASON_REWARD_MISSING,
+        REASON_REWARD_NOT_DIVERGENT,
+        REASON_SAME_STATE_SCHEMA,
+        REASON_SIDE_EPISODE_INVALID,
+        REASON_SIDES_NOT_OBJECTS,
+        REASON_STEPS_EMPTY,
+        REASON_STEPS_INVALID,
+        SAME_STATE_FIELDS,
+        TRANSFORM_NAME,
+        TRANSFORM_VERSION,
+        CurationRun,
+        GatePolicy,
+        TrajectoryCurationError,
+        TrajectoryDecision,
+        is_finite_json_number,
+        parse_finite_json_float,
+    )
+    from .validate_run import THALAMIC_CORE_KEYS, check_episode
+else:
+    from check_records import reject_json_constant
+    from curate_agentic import (
+        REASON_GOAL_DIVERGES,
+        REASON_GOAL_MISSING,
+        REASON_GOAL_NOT_TEXT,
+        REASON_THOUGHT_REMOVED,
+        canonical_json,
+        prefix_overlap,
+        shared_preference_goal,
+        strip_hidden_thought_keys,
+    )
+    from curate_preferences import PreferenceCurationError, write_run
+    from trajectory_pair_curation import (
+        changed_top_level_fields,
+        curate_trajectory_pair,
+        normalize_goal_whitespace,
+    )
+    from trajectory_pair_gate import (
+        first_step_differs_by_branch_label_only,
+        gate_failures,
+        pair_passes_gate,
+        preference_direction_failures,
+        side_field_failures,
+    )
+    from trajectory_pair_shape import (
+        classify_pair_schema,
+        is_pair_candidate,
+        is_same_state_pair,
+        pair_envelope_validation_errors,
+        side_episode_validation_errors,
+        step_number_errors,
+        steps_of,
+    )
+    from trajectory_pair_vocabulary import (
     ACTION_EXCLUDED,
     ACTION_REPAIRED,
     ACTION_RETAINED,
@@ -128,7 +204,8 @@ from trajectory_pair_vocabulary import (
     TrajectoryDecision,
     is_finite_json_number,
     parse_finite_json_float,
-)
+    )
+    from validate_run import THALAMIC_CORE_KEYS, check_episode
 
 __all__ = [
     "ACTION_EXCLUDED",

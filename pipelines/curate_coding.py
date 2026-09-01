@@ -37,38 +37,67 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
-from coding_constants import (  # noqa: E402
-    HIDDEN_REASONING_KEYS,
-    HIDDEN_REASONING_PREFIX,
-    MAX_DECISION_BASIS_CHARS,
-    REASON_BASIS_CONCISED,
-    REASON_BASIS_FROM_OBSERVATION,
-    REASON_BASIS_FROM_PLAN,
-    REASON_BASIS_FROM_REFLECTION,
-    REASON_BASIS_FROM_TOOL_CALL,
-    REASON_HIDDEN_REASONING_REMOVED,
-    REASON_INVALID_JSON,
-    REASON_INVALID_UTF8,
-    REASON_NO_RETAINABLE_STEPS,
-    REASON_NO_VISIBLE_EVIDENCE,
-    REASON_RECORD_NOT_OBJECT,
-    REASON_STEP_NOT_OBJECT,
-    REASON_STEPS_EXCLUDED,
-    REASON_STEPS_MIGRATED,
-    REASON_STEPS_NOT_ARRAY,
-    REASON_THOUGHT_REMOVED,
-    REASON_WRAP_RECORD,
-    RUN_MANIFEST_FILENAME,
-    TRANSFORM_NAME,
-    TRANSFORM_VERSION,
-    WRAP_STEPS_PARENT,
-    _EVIDENCE_REASON,
-)
-from record_kind import classify_kind  # noqa: E402
+if __package__:
+    from .coding_constants import (
+        HIDDEN_REASONING_KEYS,
+        HIDDEN_REASONING_PREFIX,
+        MAX_DECISION_BASIS_CHARS,
+        REASON_BASIS_CONCISED,
+        REASON_BASIS_FROM_OBSERVATION,
+        REASON_BASIS_FROM_PLAN,
+        REASON_BASIS_FROM_REFLECTION,
+        REASON_BASIS_FROM_TOOL_CALL,
+        REASON_HIDDEN_REASONING_REMOVED,
+        REASON_INVALID_JSON,
+        REASON_INVALID_UTF8,
+        REASON_NO_RETAINABLE_STEPS,
+        REASON_NO_VISIBLE_EVIDENCE,
+        REASON_RECORD_NOT_OBJECT,
+        REASON_STEP_NOT_OBJECT,
+        REASON_STEPS_EXCLUDED,
+        REASON_STEPS_MIGRATED,
+        REASON_STEPS_NOT_ARRAY,
+        REASON_THOUGHT_REMOVED,
+        REASON_WRAP_RECORD,
+        RUN_MANIFEST_FILENAME,
+        TRANSFORM_NAME,
+        TRANSFORM_VERSION,
+        WRAP_STEPS_PARENT,
+        _EVIDENCE_REASON,
+    )
+    from .record_kind import classify_kind
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from coding_constants import (
+        HIDDEN_REASONING_KEYS,
+        HIDDEN_REASONING_PREFIX,
+        MAX_DECISION_BASIS_CHARS,
+        REASON_BASIS_CONCISED,
+        REASON_BASIS_FROM_OBSERVATION,
+        REASON_BASIS_FROM_PLAN,
+        REASON_BASIS_FROM_REFLECTION,
+        REASON_BASIS_FROM_TOOL_CALL,
+        REASON_HIDDEN_REASONING_REMOVED,
+        REASON_INVALID_JSON,
+        REASON_INVALID_UTF8,
+        REASON_NO_RETAINABLE_STEPS,
+        REASON_NO_VISIBLE_EVIDENCE,
+        REASON_RECORD_NOT_OBJECT,
+        REASON_STEP_NOT_OBJECT,
+        REASON_STEPS_EXCLUDED,
+        REASON_STEPS_MIGRATED,
+        REASON_STEPS_NOT_ARRAY,
+        REASON_THOUGHT_REMOVED,
+        REASON_WRAP_RECORD,
+        RUN_MANIFEST_FILENAME,
+        TRANSFORM_NAME,
+        TRANSFORM_VERSION,
+        WRAP_STEPS_PARENT,
+        _EVIDENCE_REASON,
+    )
+    from record_kind import classify_kind
 
 
 def canonical_json(value: Any) -> str:
@@ -538,7 +567,10 @@ def curate_jsonl(
     }
     return {"records": records, "manifest": manifests, "summary": summary}
 
-from coding_verify import verify_curation, verify_manifest  # noqa: E402
+if __package__:
+    from .coding_verify import verify_curation, verify_manifest
+else:
+    from coding_verify import verify_curation, verify_manifest
 
 __all__ = [
     "HIDDEN_REASONING_KEYS",

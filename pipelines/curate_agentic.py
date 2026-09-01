@@ -32,48 +32,84 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from check_records import reject_json_constant
-from curate_agentic_output import (
-    preflight_out as _preflight_out,
-    write_cleaned_tree,
-)
-from curate_agentic_shapes import (
-    HIDDEN_THOUGHT_KEYS,
-    INVALID_PREFERENCE_KIND,
-    REASON_GOAL_DIVERGES,
-    REASON_GOAL_MISSING,
-    REASON_GOAL_NOT_TEXT,
-    REASON_SIDES_NOT_OBJECTS,
-    canonical_json,
-    classify_record,
-    contains_hidden_thought_key,
-    hash_bytes,
-    hash_value,
-    iter_turn_locations,
-    missing_decision_basis_paths,
-    normalized_key_name,
-    preference_goals,
-    prefix_overlap,
-    record_identifier as _record_id,
-    shared_preference_goal,
-    strip_hidden_thought_keys,
-)
-from curate_identity import default_registry
-from mill_family import (
-    REASON_FOREIGN_MILL_GOAL_FAMILY,
-    REASON_FOREIGN_MILL_ID_PREFIX,
-    REASON_FOREIGN_PAYLOAD_FACTORY,
-    MillFinding,
-    MillIndex,
-    factory_identity_for_path,
-    summarize as summarize_mill_mix,
-)
-from record_kind import preference_side_kinds
-from round_txn import (
-    TransactionError,
-    committed_jsonl_paths,
-    marker_mode_path,
-)
+if __package__:
+    from .check_records import reject_json_constant
+    from .curate_agentic_output import (
+        preflight_out as _preflight_out,
+        write_cleaned_tree,
+    )
+    from .curate_agentic_shapes import (
+        HIDDEN_THOUGHT_KEYS,
+        INVALID_PREFERENCE_KIND,
+        REASON_GOAL_DIVERGES,
+        REASON_GOAL_MISSING,
+        REASON_GOAL_NOT_TEXT,
+        REASON_SIDES_NOT_OBJECTS,
+        canonical_json,
+        classify_record,
+        contains_hidden_thought_key,
+        hash_bytes,
+        hash_value,
+        iter_turn_locations,
+        missing_decision_basis_paths,
+        normalized_key_name,
+        preference_goals,
+        prefix_overlap,
+        record_identifier as _record_id,
+        shared_preference_goal,
+        strip_hidden_thought_keys,
+    )
+    from .curate_identity import default_registry
+    from .mill_family import (
+        REASON_FOREIGN_MILL_GOAL_FAMILY,
+        REASON_FOREIGN_MILL_ID_PREFIX,
+        REASON_FOREIGN_PAYLOAD_FACTORY,
+        MillFinding,
+        MillIndex,
+        factory_identity_for_path,
+        summarize as summarize_mill_mix,
+    )
+    from .record_kind import preference_side_kinds
+    from .round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
+else:
+    from check_records import reject_json_constant
+    from curate_agentic_output import (
+        preflight_out as _preflight_out,
+        write_cleaned_tree,
+    )
+    from curate_agentic_shapes import (
+        HIDDEN_THOUGHT_KEYS,
+        INVALID_PREFERENCE_KIND,
+        REASON_GOAL_DIVERGES,
+        REASON_GOAL_MISSING,
+        REASON_GOAL_NOT_TEXT,
+        REASON_SIDES_NOT_OBJECTS,
+        canonical_json,
+        classify_record,
+        contains_hidden_thought_key,
+        hash_bytes,
+        hash_value,
+        iter_turn_locations,
+        missing_decision_basis_paths,
+        normalized_key_name,
+        preference_goals,
+        prefix_overlap,
+        record_identifier as _record_id,
+        shared_preference_goal,
+        strip_hidden_thought_keys,
+    )
+    from curate_identity import default_registry
+    from mill_family import (
+        REASON_FOREIGN_MILL_GOAL_FAMILY,
+        REASON_FOREIGN_MILL_ID_PREFIX,
+        REASON_FOREIGN_PAYLOAD_FACTORY,
+        MillFinding,
+        MillIndex,
+        factory_identity_for_path,
+        summarize as summarize_mill_mix,
+    )
+    from record_kind import preference_side_kinds
+    from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
 
 
 TRANSFORM_NAME = "agentic_observability"

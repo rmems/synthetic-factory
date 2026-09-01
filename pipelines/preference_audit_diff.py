@@ -16,16 +16,20 @@ silently overwriting its twin, so both inventories report a repeated key.
 
 from __future__ import annotations
 
+from importlib import import_module
 import json
 import sys
 from pathlib import Path
 from typing import Any
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
+if not __package__ and str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-from preference_model import json_equal, json_key  # noqa: E402
+_SIBLING_PREFIX = f"{__package__}." if __package__ else ""
+_preference_model = import_module(f"{_SIBLING_PREFIX}preference_model")
+json_equal = _preference_model.json_equal
+json_key = _preference_model.json_key
 
 __all__ = [
     "AUDIT_COLLECTIONS",

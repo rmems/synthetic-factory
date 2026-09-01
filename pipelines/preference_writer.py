@@ -18,16 +18,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
-from preference_model import (  # noqa: E402
-    CurationRun,
-    PreferenceCurationError,
-    canonical_json,
-    is_under_raw,
-)
+if __package__:
+    from .preference_model import (
+        CurationRun,
+        PreferenceCurationError,
+        canonical_json,
+        is_under_raw,
+    )
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from preference_model import (
+        CurationRun,
+        PreferenceCurationError,
+        canonical_json,
+        is_under_raw,
+    )
 
 __all__ = ["write_run"]
 

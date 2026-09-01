@@ -16,11 +16,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
-import curate_identity  # noqa: E402
+if __package__:
+    from . import curate_identity
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    import curate_identity
 
 COMPOSE_NAME = "compose_curated"
 COMPOSE_VERSION = "curated-compose-v4"

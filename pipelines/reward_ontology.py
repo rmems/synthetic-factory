@@ -6,7 +6,45 @@ from __future__ import annotations
 import copy
 from decimal import Decimal
 
-from reward_mapping import (
+if __package__:
+    from .reward_mapping import (
+        DISPOSITION_AMBIGUOUS,
+        DISPOSITION_CONTAINER,
+        DISPOSITION_DECLARED_TOTAL,
+        DISPOSITION_MAGNITUDE_TERM,
+        DISPOSITION_NARRATIVE,
+        DISPOSITION_STRUCTURAL,
+        DISPOSITION_UNIT_CALIBRATION,
+        MAGNITUDE_COMPARABLE,
+        RewardOntologyError,
+        _UNSET,
+        _decimal,
+        _escape_signature_token,
+        _json_number,
+        _pointer,
+        _pointer_unescape,
+    )
+    from .reward_policy import (
+        ANNOTATION_FIELD,
+        CALIBRATION_KEYS,
+        CANONICAL_SCOPE,
+        CANONICAL_UNIT,
+        CANONICAL_UNIT_USD,
+        COMPARABILITY_RULES,
+        DECLARED_TOTAL_KEY,
+        MAGNITUDE_AGGREGATION,
+        NARRATIVE_KEYS,
+        PREFERENCE_POINTERS,
+        PREFERENCE_RELATION,
+        REASON_CODES,
+        REWARD_KEYS,
+        SOURCE_VOCABULARY,
+        UNWEIGHTED_EXCLUDE,
+        WEIGHTED_CONTAINERS,
+    )
+    from .reward_units import _component_value, _extract_unit_usd
+else:
+    from reward_mapping import (
     DISPOSITION_AMBIGUOUS,
     DISPOSITION_CONTAINER,
     DISPOSITION_DECLARED_TOTAL,
@@ -22,8 +60,8 @@ from reward_mapping import (
     _json_number,
     _pointer,
     _pointer_unescape,
-)
-from reward_policy import (
+    )
+    from reward_policy import (
     ANNOTATION_FIELD,
     CALIBRATION_KEYS,
     CANONICAL_SCOPE,
@@ -40,8 +78,8 @@ from reward_policy import (
     SOURCE_VOCABULARY,
     UNWEIGHTED_EXCLUDE,
     WEIGHTED_CONTAINERS,
-)
-from reward_units import _component_value, _extract_unit_usd
+    )
+    from reward_units import _component_value, _extract_unit_usd
 
 
 def _walk_rewards(value, tokens=(), reward_keys=None):

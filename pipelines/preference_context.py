@@ -14,15 +14,18 @@ derived from. Nothing here mutates a record or decides its fate.
 
 from __future__ import annotations
 
+from importlib import import_module
 import sys
 from pathlib import Path
 from typing import Any
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
+if not __package__ and str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-from preference_model import canonical_json  # noqa: E402
+_SIBLING_PREFIX = f"{__package__}." if __package__ else ""
+_preference_model = import_module(f"{_SIBLING_PREFIX}preference_model")
+canonical_json = _preference_model.canonical_json
 
 __all__ = [
     "all_context_diffs",

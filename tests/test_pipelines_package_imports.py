@@ -75,6 +75,7 @@ class PipelinesPackageImports(unittest.TestCase):
                     self.assertNotIn(str(PIPELINES), sys.path)
                     module = importlib.import_module(f"pipelines.{name}")
                     self.assertEqual(module.__name__, f"pipelines.{name}")
+                    self.assertNotIn(str(PIPELINES), sys.path)
 
     def _new_split_module_aliases(self) -> tuple[str, ...]:
         return ("pipelines",) + tuple(

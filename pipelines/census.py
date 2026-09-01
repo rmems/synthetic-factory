@@ -18,24 +18,31 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
-from curate_identity import default_registry  # noqa: E402
-from mill_family import (  # noqa: E402
-    MillFinding,
-    MillIndex,
-    factory_identity_for_path as shared_factory_identity_for_path,
-    summarize as summarize_mill_mix,
-)
-from record_kind import THALAMIC_REQUIRED, classify_kind  # noqa: E402
-from round_txn import (  # noqa: E402
-    TransactionError,
-    committed_jsonl_paths,
-    marker_mode_path,
-)
-from validate_run import reject_json_constant  # noqa: E402
+if __package__:
+    from .curate_identity import default_registry
+    from .mill_family import (
+        MillFinding,
+        MillIndex,
+        factory_identity_for_path as shared_factory_identity_for_path,
+        summarize as summarize_mill_mix,
+    )
+    from .record_kind import THALAMIC_REQUIRED, classify_kind
+    from .round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
+    from .validate_run import reject_json_constant
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from curate_identity import default_registry
+    from mill_family import (
+        MillFinding,
+        MillIndex,
+        factory_identity_for_path as shared_factory_identity_for_path,
+        summarize as summarize_mill_mix,
+    )
+    from record_kind import THALAMIC_REQUIRED, classify_kind
+    from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
+    from validate_run import reject_json_constant
 
 KINDS = (
     "thalamic",

@@ -12,36 +12,68 @@ import re
 from decimal import Decimal
 from pathlib import Path
 
-from reward_mapping import (
-    COMPONENT_DISPOSITIONS,
-    DISPOSITION_DECLARED_TOTAL,
-    DISPOSITION_NARRATIVE,
-    DISPOSITION_UNIT_CALIBRATION,
-    EXCLUDE,
-    MAGNITUDE_COMPARABLE,
-    MAPPING_PATH,
-    MAPPING_VERSION,
-    ONTOLOGY_VERSION,
-    POLICY_DOCUMENT_TYPE,
-    REQUIRED_ARITHMETIC_METHODS,
-    REQUIRED_CLASSIFICATION_RULE_IDS,
-    REQUIRED_RULE_COMPARABILITY,
-    RULE_SCOPES,
-    SIGN_ORDER_ONLY,
-    RewardOntologyError,
-    _mapping_object,
-    _mapping_pattern,
-    _mapping_positive,
-    _mapping_str,
-    _mapping_str_list,
-    _pointer,
-    _pointer_unescape,
-    _policy_error,
-)
-from reward_vocabulary import (
-    _validate_expected_classification,
-    _validate_source_vocabulary,
-)
+if __package__:
+    from .reward_mapping import (
+        COMPONENT_DISPOSITIONS,
+        DISPOSITION_DECLARED_TOTAL,
+        DISPOSITION_NARRATIVE,
+        DISPOSITION_UNIT_CALIBRATION,
+        EXCLUDE,
+        MAGNITUDE_COMPARABLE,
+        MAPPING_PATH,
+        MAPPING_VERSION,
+        ONTOLOGY_VERSION,
+        POLICY_DOCUMENT_TYPE,
+        REQUIRED_ARITHMETIC_METHODS,
+        REQUIRED_CLASSIFICATION_RULE_IDS,
+        REQUIRED_RULE_COMPARABILITY,
+        RULE_SCOPES,
+        SIGN_ORDER_ONLY,
+        RewardOntologyError,
+        _mapping_object,
+        _mapping_pattern,
+        _mapping_positive,
+        _mapping_str,
+        _mapping_str_list,
+        _pointer,
+        _pointer_unescape,
+        _policy_error,
+    )
+    from .reward_vocabulary import (
+        _validate_expected_classification,
+        _validate_source_vocabulary,
+    )
+else:
+    from reward_mapping import (
+        COMPONENT_DISPOSITIONS,
+        DISPOSITION_DECLARED_TOTAL,
+        DISPOSITION_NARRATIVE,
+        DISPOSITION_UNIT_CALIBRATION,
+        EXCLUDE,
+        MAGNITUDE_COMPARABLE,
+        MAPPING_PATH,
+        MAPPING_VERSION,
+        ONTOLOGY_VERSION,
+        POLICY_DOCUMENT_TYPE,
+        REQUIRED_ARITHMETIC_METHODS,
+        REQUIRED_CLASSIFICATION_RULE_IDS,
+        REQUIRED_RULE_COMPARABILITY,
+        RULE_SCOPES,
+        SIGN_ORDER_ONLY,
+        RewardOntologyError,
+        _mapping_object,
+        _mapping_pattern,
+        _mapping_positive,
+        _mapping_str,
+        _mapping_str_list,
+        _pointer,
+        _pointer_unescape,
+        _policy_error,
+    )
+    from reward_vocabulary import (
+        _validate_expected_classification,
+        _validate_source_vocabulary,
+    )
 
 
 def _validate_conversion_block(policy, where):

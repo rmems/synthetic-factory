@@ -356,7 +356,7 @@ try:  # PR #93 is a sibling stack; consume its reviewed contract when present.
         from . import curate_trajectory_preferences
     else:
         import curate_trajectory_preferences
-except ModuleNotFoundError as missing_import:  # pragma: no cover - branch topology decides this
+except ModuleNotFoundError as missing_import:
     allowed_missing = {
         "curate_trajectory_preferences",
         f"{__package__}.curate_trajectory_preferences",

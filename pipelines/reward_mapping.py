@@ -13,7 +13,10 @@ import re
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from exact_json import dumps_exact_json
+if __package__:
+    from .exact_json import dumps_exact_json
+else:
+    from exact_json import dumps_exact_json
 
 ONTOLOGY_VERSION = "reward-ontology-v1"
 # The classifier's own behavioral revision, recorded as the lane's declared

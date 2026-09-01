@@ -46,97 +46,181 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
 # Re-export the historical curate_rewards surface for tests and curate_gate.
 # Every binding is a static import (not a dynamic getattr loop) so linters and
 # readers can see exactly which sibling owns each name; ``__all__`` below
 # declares the re-exported surface.
-from exact_json import dumps_exact_json, parse_finite_json_float  # noqa: E402
-from reward_mapping import (  # noqa: E402
-    ARITHMETIC_STATUSES,
-    COMPONENT_DISPOSITIONS,
-    DISPOSITION_AMBIGUOUS,
-    DISPOSITION_DECLARED_TOTAL,
-    DISPOSITION_MAGNITUDE_TERM,
-    EXCLUDE,
-    MAGNITUDE_COMPARABLE,
-    MAPPING_PATH,
-    ONTOLOGY_VERSION,
-    REWARD_TRANSFORM_VERSION,
-    REQUIRED_ARITHMETIC_METHODS,
-    RUN_CALIBRATION_FILENAME,
-    RUN_MANIFEST_FILENAME,
-    RUN_SIDECAR_FILENAME,
-    SIGN_ORDER_ONLY,
-    MagnitudeNotComparable,
-    RewardOntologyError,
-    _UNSET as _UNSET,
-    _canonical_bytes as _canonical_bytes,
-    _canonical_record_id as _canonical_record_id,
-    _decimal as _decimal,
-    _json_number as _json_number,
-    _reject_nonfinite_numbers as _reject_nonfinite_numbers,
-    _sha256 as _sha256,
-    canonical_bytes,
-    canonical_source_record_id,
-)
-from reward_policy import (  # noqa: E402  — mapping loads at import
-    ANNOTATION_FIELD,
-    ARITHMETIC_METHODS,
-    CANONICAL_SCOPE,
-    CANONICAL_UNIT,
-    CANONICAL_UNIT_USD,
-    COMPARABILITY_CLASSES,
-    COMPARABILITY_RULES,
-    CONVERSION_POLICY,
-    DECLARED_TOTAL_KEY,
-    MAGNITUDE_AGGREGATION,
-    MIGRATION_FACTOR_FIELD,
-    MIGRATION_SCOPE_FIELD,
-    PREFERENCE_POINTERS,
-    REASON_CODES,
-    RECORD_ID_RE,
-    REWARD_KEYS,
-    SOURCE_VOCABULARY,
-    UNWEIGHTED_EXCLUDE,
-    USD_UNIT_RE,
-    WEIGHT_ALIASES,
-    WEIGHTED_CONTAINERS,
-    WEIGHTS_FIELD,
-    load_conversion_policy,
-    validate_conversion_policy,
-)
-from reward_units import (  # noqa: E402
-    assess_arithmetic,
-    normalize_calibration,
-    _extract_unit_usd as _extract_unit_usd,
-    _normalize_calibration as _normalize_calibration,
-)
-from reward_ontology import (  # noqa: E402
-    _classify as _classify,
-    _require_declared_rule as _require_declared_rule,
-    _walk_rewards as _walk_rewards,
-    classify_source_rewards,
-    comparability_rule,
-    component_disposition,
-    contributes_to_total,
-    disposition_for_observed_types,
-    reward_signature,
-    value_type,
-)
-from reward_document import (  # noqa: E402
-    canonical_magnitudes,
-    comparability_of,
-    curate_record,
-    magnitude_training_cohort,
-    restore_source_record,
-    reward_census,
-    validate_ontology_document,
-)
-from reward_calibration import _entry_calibrations  # noqa: E402
+if __package__:
+    from .exact_json import dumps_exact_json, parse_finite_json_float
+    from .reward_calibration import _entry_calibrations
+    from .reward_document import (
+        canonical_magnitudes,
+        comparability_of,
+        curate_record,
+        magnitude_training_cohort,
+        restore_source_record,
+        reward_census,
+        validate_ontology_document,
+    )
+    from .reward_mapping import (
+        ARITHMETIC_STATUSES,
+        COMPONENT_DISPOSITIONS,
+        DISPOSITION_AMBIGUOUS,
+        DISPOSITION_DECLARED_TOTAL,
+        DISPOSITION_MAGNITUDE_TERM,
+        EXCLUDE,
+        MAGNITUDE_COMPARABLE,
+        MAPPING_PATH,
+        ONTOLOGY_VERSION,
+        REWARD_TRANSFORM_VERSION,
+        REQUIRED_ARITHMETIC_METHODS,
+        RUN_CALIBRATION_FILENAME,
+        RUN_MANIFEST_FILENAME,
+        RUN_SIDECAR_FILENAME,
+        SIGN_ORDER_ONLY,
+        MagnitudeNotComparable,
+        RewardOntologyError,
+        _UNSET as _UNSET,
+        _canonical_bytes as _canonical_bytes,
+        _canonical_record_id as _canonical_record_id,
+        _decimal as _decimal,
+        _json_number as _json_number,
+        _reject_nonfinite_numbers as _reject_nonfinite_numbers,
+        _sha256 as _sha256,
+        canonical_bytes,
+        canonical_source_record_id,
+    )
+    from .reward_ontology import (
+        _classify as _classify,
+        _require_declared_rule as _require_declared_rule,
+        _walk_rewards as _walk_rewards,
+        classify_source_rewards,
+        comparability_rule,
+        component_disposition,
+        contributes_to_total,
+        disposition_for_observed_types,
+        reward_signature,
+        value_type,
+    )
+    from .reward_policy import (
+        ANNOTATION_FIELD,
+        ARITHMETIC_METHODS,
+        CANONICAL_SCOPE,
+        CANONICAL_UNIT,
+        CANONICAL_UNIT_USD,
+        COMPARABILITY_CLASSES,
+        COMPARABILITY_RULES,
+        CONVERSION_POLICY,
+        DECLARED_TOTAL_KEY,
+        MAGNITUDE_AGGREGATION,
+        MIGRATION_FACTOR_FIELD,
+        MIGRATION_SCOPE_FIELD,
+        PREFERENCE_POINTERS,
+        REASON_CODES,
+        RECORD_ID_RE,
+        REWARD_KEYS,
+        SOURCE_VOCABULARY,
+        UNWEIGHTED_EXCLUDE,
+        USD_UNIT_RE,
+        WEIGHT_ALIASES,
+        WEIGHTED_CONTAINERS,
+        WEIGHTS_FIELD,
+        load_conversion_policy,
+        validate_conversion_policy,
+    )
+    from .reward_units import (
+        _extract_unit_usd as _extract_unit_usd,
+        _normalize_calibration as _normalize_calibration,
+        assess_arithmetic,
+        normalize_calibration,
+    )
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from exact_json import dumps_exact_json, parse_finite_json_float
+    from reward_calibration import _entry_calibrations
+    from reward_document import (
+        canonical_magnitudes,
+        comparability_of,
+        curate_record,
+        magnitude_training_cohort,
+        restore_source_record,
+        reward_census,
+        validate_ontology_document,
+    )
+    from reward_mapping import (
+        ARITHMETIC_STATUSES,
+        COMPONENT_DISPOSITIONS,
+        DISPOSITION_AMBIGUOUS,
+        DISPOSITION_DECLARED_TOTAL,
+        DISPOSITION_MAGNITUDE_TERM,
+        EXCLUDE,
+        MAGNITUDE_COMPARABLE,
+        MAPPING_PATH,
+        ONTOLOGY_VERSION,
+        REWARD_TRANSFORM_VERSION,
+        REQUIRED_ARITHMETIC_METHODS,
+        RUN_CALIBRATION_FILENAME,
+        RUN_MANIFEST_FILENAME,
+        RUN_SIDECAR_FILENAME,
+        SIGN_ORDER_ONLY,
+        MagnitudeNotComparable,
+        RewardOntologyError,
+        _UNSET as _UNSET,
+        _canonical_bytes as _canonical_bytes,
+        _canonical_record_id as _canonical_record_id,
+        _decimal as _decimal,
+        _json_number as _json_number,
+        _reject_nonfinite_numbers as _reject_nonfinite_numbers,
+        _sha256 as _sha256,
+        canonical_bytes,
+        canonical_source_record_id,
+    )
+    from reward_ontology import (
+        _classify as _classify,
+        _require_declared_rule as _require_declared_rule,
+        _walk_rewards as _walk_rewards,
+        classify_source_rewards,
+        comparability_rule,
+        component_disposition,
+        contributes_to_total,
+        disposition_for_observed_types,
+        reward_signature,
+        value_type,
+    )
+    from reward_policy import (
+        ANNOTATION_FIELD,
+        ARITHMETIC_METHODS,
+        CANONICAL_SCOPE,
+        CANONICAL_UNIT,
+        CANONICAL_UNIT_USD,
+        COMPARABILITY_CLASSES,
+        COMPARABILITY_RULES,
+        CONVERSION_POLICY,
+        DECLARED_TOTAL_KEY,
+        MAGNITUDE_AGGREGATION,
+        MIGRATION_FACTOR_FIELD,
+        MIGRATION_SCOPE_FIELD,
+        PREFERENCE_POINTERS,
+        REASON_CODES,
+        RECORD_ID_RE,
+        REWARD_KEYS,
+        SOURCE_VOCABULARY,
+        UNWEIGHTED_EXCLUDE,
+        USD_UNIT_RE,
+        WEIGHT_ALIASES,
+        WEIGHTED_CONTAINERS,
+        WEIGHTS_FIELD,
+        load_conversion_policy,
+        validate_conversion_policy,
+    )
+    from reward_units import (
+        _extract_unit_usd as _extract_unit_usd,
+        _normalize_calibration as _normalize_calibration,
+        assess_arithmetic,
+        normalize_calibration,
+    )
 
 # These private names are deliberate compatibility exports for direct callers
 # of the pre-split ``curate_rewards`` module. Keeping one explicit reference
