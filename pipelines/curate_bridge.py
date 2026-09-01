@@ -68,26 +68,26 @@ else:
 _EVENT_CLOCK_DOMAIN_KEYS = _bridge_events.CLOCK_DOMAIN_KEYS
 _EVENT_EXPLICIT_ORDER_KEYS = _bridge_events.EXPLICIT_ORDER_KEYS
 TIME_KEYS = _bridge_events.TIME_KEYS
-_adjacent_descents = _bridge_events._adjacent_descents
-_event_canonical_marker = _bridge_events._canonical_marker
-_declared_clock_domains = _bridge_events._declared_clock_domains
-_explicit_order_fields = _bridge_events._explicit_order_fields
-_record_locator = _bridge_events._record_locator
+_adjacent_descents = _bridge_events.adjacent_descents
+_event_canonical_marker = _bridge_events.canonical_marker
+_declared_clock_domains = _bridge_events.declared_clock_domains
+_explicit_order_fields = _bridge_events.explicit_order_fields
+_record_locator = _bridge_events.record_locator
 
-_validate_gate_compute = _bridge_gate._validate_gate_compute
-_validate_gate_snn = _bridge_gate._validate_gate_snn
+_validate_gate_compute = _bridge_gate.validate_gate_compute
+_validate_gate_snn = _bridge_gate.validate_gate_snn
 
 BridgeCurationError = _bridge_materialize.BridgeCurationError
 MaterializationConfig = _bridge_materialize.MaterializationConfig
 MaterializationContext = _bridge_materialize.MaterializationContext
-_materialize_safe_relative_path = _bridge_materialize._safe_relative_path
+_materialize_safe_relative_path = _bridge_materialize.safe_relative_path
 _materialize_paths = _bridge_materialize.materialize_paths
 
-_raster_finite_float = _bridge_raster._finite_float
-_is_finite_number = _bridge_raster._is_finite_number
-_nonnegative_json_integer = _bridge_raster._nonnegative_json_integer
-_validate_raster = _bridge_raster._validate_raster
-_raster_validate_third_factor = _bridge_raster._validate_third_factor
+_raster_finite_float = _bridge_raster.finite_float
+_is_finite_number = _bridge_raster.is_finite_number
+_nonnegative_json_integer = _bridge_raster.nonnegative_json_integer
+_validate_raster = _bridge_raster.validate_raster
+_raster_validate_third_factor = _bridge_raster.validate_third_factor
 
 dumps_exact_json = _exact_json.dumps_exact_json
 exact_fraction = _exact_json.exact_fraction

@@ -116,5 +116,14 @@ def _adjacent_descents(times: Sequence[Any]) -> list[dict[str, Any]]:
     ]
 
 
+# Public cross-module API.  The leading-underscore names remain compatibility
+# implementation details for callers that historically imported the facade.
+adjacent_descents = _adjacent_descents
+canonical_marker = _canonical_marker
+declared_clock_domains = _declared_clock_domains
+explicit_order_fields = _explicit_order_fields
+record_locator = _record_locator
+
+
 if __package__:
     _expose_package_sibling(__name__)

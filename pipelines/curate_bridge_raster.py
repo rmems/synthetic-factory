@@ -434,5 +434,13 @@ def _validate_raster(
     _validate_raster_excerpt(raster.get("excerpt"), window_ms, neurons, state)
 
 
+# Public cross-module API used by the Bridge facade and gate validators.
+finite_float = _finite_float
+is_finite_number = _is_finite_number
+nonnegative_json_integer = _nonnegative_json_integer
+validate_raster = _validate_raster
+validate_third_factor = _validate_third_factor
+
+
 if __package__:
     _expose_package_sibling(__name__)

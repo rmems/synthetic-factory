@@ -39,6 +39,31 @@ class PipelinesPackageImports(unittest.TestCase):
 
         self.assertTrue(callable(curate_bridge.curate_jsonl))
 
+    def test_bridge_siblings_expose_public_facade_contracts(self):
+        from pipelines import curate_bridge_events
+        from pipelines import curate_bridge_gate
+        from pipelines import curate_bridge_materialize
+        from pipelines import curate_bridge_raster
+
+        public_helpers = (
+            (curate_bridge_events, "adjacent_descents"),
+            (curate_bridge_events, "canonical_marker"),
+            (curate_bridge_events, "declared_clock_domains"),
+            (curate_bridge_events, "explicit_order_fields"),
+            (curate_bridge_events, "record_locator"),
+            (curate_bridge_gate, "validate_gate_compute"),
+            (curate_bridge_gate, "validate_gate_snn"),
+            (curate_bridge_materialize, "safe_relative_path"),
+            (curate_bridge_raster, "finite_float"),
+            (curate_bridge_raster, "is_finite_number"),
+            (curate_bridge_raster, "nonnegative_json_integer"),
+            (curate_bridge_raster, "validate_raster"),
+            (curate_bridge_raster, "validate_third_factor"),
+        )
+        for module, name in public_helpers:
+            with self.subTest(module=module.__name__, name=name):
+                self.assertTrue(callable(getattr(module, name)))
+
     def test_exact_json_has_one_identity_in_package_and_direct_modes(self):
         from pipelines import exact_json as packaged_exact_json
 

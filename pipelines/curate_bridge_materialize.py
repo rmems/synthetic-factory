@@ -54,6 +54,7 @@ else:
 _rename_linux = _fs_rename_linux
 _rename_windows = _fs_rename_windows
 _unsafe_relative_path = _fs_unsafe_relative_path
+safe_relative_path = _safe_relative_path
 
 
 @dataclass(frozen=True)

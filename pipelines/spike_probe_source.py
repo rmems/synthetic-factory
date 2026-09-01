@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable, Iterator, Optional
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
@@ -46,7 +46,7 @@ def _is_raster_factory_path(path: Path) -> bool:
     return _raster_factory_kind(path) is not None
 
 
-def _raster_factory_kind(path: Path) -> str | None:
+def _raster_factory_kind(path: Path) -> Optional[str]:
     """Return the distillation record kind implied by a raster factory path."""
 
     for parts in (path.parts, _resolved_identity(path).parts):

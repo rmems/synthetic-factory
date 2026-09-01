@@ -419,5 +419,10 @@ def _validate_gate_compute(
     _validate_gate_energy(gate_compute, total_spikes, reason_codes, evidence)
 
 
+# Public cross-module API used by the Bridge facade.
+validate_gate_compute = _validate_gate_compute
+validate_gate_snn = _validate_gate_snn
+
+
 if __package__:
     _expose_package_sibling(__name__)

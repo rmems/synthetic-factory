@@ -25,7 +25,7 @@ import json
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
@@ -68,7 +68,7 @@ def _is_supported_raster_record(record: Any) -> bool:
     return is_bridge_record(record) or is_thalamic_record(record)
 
 
-def _raster_record_kind(record: Any) -> str | None:
+def _raster_record_kind(record: Any) -> Optional[str]:
     """Return the supported distillation lane kind for one record."""
 
     if is_bridge_record(record):
@@ -123,7 +123,7 @@ def _problem(
 def _probe_record(
     where: str,
     record: Any,
-    input_problem: str | None,
+    input_problem: Optional[str],
     *,
     raster_path_kind: str | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
