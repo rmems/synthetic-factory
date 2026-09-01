@@ -6,6 +6,7 @@ from pathlib import Path
 
 from check_records import reject_json_constant
 from census import factory_identity_for_path
+from exact_json import parse_finite_json_float
 from mill_family import MillFinding, MillIndex, summarize
 
 
@@ -24,13 +25,17 @@ def _index_findings(run_dir: Path, files: list[Path]):
     for path in files:
         relative = path.relative_to(run_dir)
         factory, verified = factory_identity_for_path(run_dir, path)
-        for line_number, raw_line in enumerate(path.read_bytes().splitlines(), 1):
+        for line_number, raw_line in enumerate(path.read_bytes().split(b"\n"), 1):
             if not raw_line.strip():
                 continue
             try:
                 line = raw_line.decode("utf-8")
-                record = json.loads(line, parse_constant=reject_json_constant)
-            except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                record = json.loads(
+                    line,
+                    parse_constant=reject_json_constant,
+                    parse_float=parse_finite_json_float,
+                )
+            except (ValueError, RecursionError):
                 continue
             mills.add(
                 factory,

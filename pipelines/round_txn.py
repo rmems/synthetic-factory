@@ -47,7 +47,24 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from check_records import FactoryStaging, check_jsonl  # noqa: E402
-from validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees  # noqa: E402
+import round_txn_raster as _round_txn_raster  # noqa: E402
+from validate_run import (  # noqa: E402
+    THALAMIC_CORE_KEYS,
+    terminal_outcome_agrees,
+)
+
+# Compatibility exports retained after the raster contract moved to its own
+# module. These explicit assignments are intentional API, not unused imports.
+BRIDGE_FACTORY_SLUG = _round_txn_raster.BRIDGE_FACTORY_SLUG
+OUROBOROS_FACTORY_SLUG = _round_txn_raster.OUROBOROS_FACTORY_SLUG
+RASTER_FACTORY_SLUGS = _round_txn_raster.RASTER_FACTORY_SLUGS
+THALAMIC_FACTORY_SLUG = _round_txn_raster.THALAMIC_FACTORY_SLUG
+_distillation_kind_error = _round_txn_raster.distillation_kind_error
+_jsonl_records = _round_txn_raster.jsonl_records
+_raster_contract_errors = _round_txn_raster.raster_contract_errors
+_validate_distillation_record = _round_txn_raster.validate_distillation_record
+enforce_bridge_envelope = _round_txn_raster.enforce_bridge_envelope
+validate_bridge_envelope = _round_txn_raster.validate_bridge_envelope
 
 MODE_FILE = ".round-marker-mode.json"
 PREFERENCE_V1_LEDGER_FILE = ".preference-v1-marker-ledger.json"
@@ -338,6 +355,7 @@ def _is_nonneg_int(value):
 def _is_positive_int(value):
     return _is_int(value) and value >= 1
 
+
 # An operator waiver has to read as a written reason, not as a keystroke.
 EXECUTION_OVERRIDE_MIN_CHARS = 8
 EXECUTION_OVERRIDE_MAX_CHARS = 500
@@ -448,8 +466,6 @@ def read_json(path: Path):
     return value
 
 
-
-
 def marker_mode_path(factory_dir: Path) -> Path | None:
     """Return a safe marker-mode file, or ``None`` when marker mode is absent."""
     mode_path = factory_dir / MODE_FILE
@@ -458,8 +474,6 @@ def marker_mode_path(factory_dir: Path) -> Path | None:
     if not mode_path.is_file() or mode_path.is_symlink():
         raise TransactionError(f"unsafe marker mode file: {mode_path}")
     return mode_path
-
-
 
 
 def regular_file_metadata(path: Path):
@@ -860,6 +874,7 @@ def completed_rounds(factory_dir: Path):
         rounds.append(round_number)
     return sorted(set(rounds))
 
+
 SUPPORTED_COMPLETION_MARKER_VERSIONS = frozenset(
     {
         LEGACY_COMPLETION_MARKER_VERSION,
@@ -913,13 +928,9 @@ def _validated_completion_file_names(payload, round_number, path, factory_dir):
     batch_name = f"batch-r{round_number:02d}.jsonl"
     notes_name = f"NOTES-r{round_number:02d}.md"
     if batch_name not in names:
-        raise TransactionError(
-            f"completion marker has no unique batch entry: {path}"
-        )
+        raise TransactionError(f"completion marker has no unique batch entry: {path}")
     if notes_name not in names:
-        raise TransactionError(
-            f"completion marker has no unique notes entry: {path}"
-        )
+        raise TransactionError(f"completion marker has no unique notes entry: {path}")
     return names, batch_name, notes_name
 
 
@@ -939,8 +950,7 @@ def _bind_completion_execution_verdict(
     if marker_version == LEGACY_COMPLETION_MARKER_VERSION:
         if gated_round:
             raise TransactionError(
-                "completion marker version downgrade cannot skip execution "
-                f"verification: {path}"
+                f"completion marker version downgrade cannot skip execution verification: {path}"
             )
         return False
     validate_completed_execution_verification(factory_dir / batch_name, payload)
@@ -985,8 +995,6 @@ def _load_completion_marker_payload(path, factory_dir):
     return round_number, payload
 
 
-
-
 def completed_manifests(
     factory_dir: Path,
     *,
@@ -1002,9 +1010,7 @@ def completed_manifests(
     and matching regular, hashed files for every artifact it declares.
     """
     seen_ids = sibling_committed_and_inflight_ids(factory_dir)
-    _validate_legacy_baseline_ids(
-        factory_dir, seen_ids, quarantined_kinds=quarantined_kinds
-    )
+    _validate_legacy_baseline_ids(factory_dir, seen_ids, quarantined_kinds=quarantined_kinds)
     cutover, bound_verified_rounds = execution_gate_policy(factory_dir)
     manifests = {}
     loaded_markers = []
@@ -1013,9 +1019,7 @@ def completed_manifests(
         if loaded is None:
             continue
         loaded_markers.append((loaded[0], path, loaded[1]))
-    for round_number, path, payload in sorted(
-        loaded_markers, key=lambda item: item[0]
-    ):
+    for round_number, path, payload in sorted(loaded_markers, key=lambda item: item[0]):
         names, batch_name, notes_name = _validated_completion_file_names(
             payload, round_number, path, factory_dir
         )
@@ -1233,14 +1237,9 @@ def remember_execution_gate_cutover(factory_dir: Path, round_number: int):
             if loaded is None:
                 continue
             marker_round, payload = loaded
-            if (
-                completion_marker_version(payload, path)
-                == LEGACY_COMPLETION_MARKER_VERSION
-            ):
+            if completion_marker_version(payload, path) == LEGACY_COMPLETION_MARKER_VERSION:
                 legacy_rounds.append(marker_round)
-        cutover = max(
-            [round_number, *(legacy_round + 1 for legacy_round in legacy_rounds)]
-        )
+        cutover = max([round_number, *(legacy_round + 1 for legacy_round in legacy_rounds)])
         updated = dict(mode)
         updated[EXECUTION_CUTOVER_KEY] = cutover
         if round_number < cutover:
@@ -1497,9 +1496,8 @@ def committed_ids(factory_dir: Path):
                 check_jsonl(path, label, seen_ids=seen_ids)
     return seen_ids
 
+
 @contextlib.contextmanager
-
-
 def run_publish_lock(factory_dir: Path):
     """Serialize publish validation and the completion marker for one run."""
     path = factory_dir.parent / ".round-publish.lock"
@@ -1528,26 +1526,15 @@ def validate_agentic_envelope(
     """Return fixed-contract envelope errors for one staged agentic batch."""
     if factory_dir.name not in AGENTIC_FACTORY_KINDS:
         return []
-    errors = []
+    records, errors = _jsonl_records(batch)
     safety_case_types = []
     cascade_fault_kinds = []
     cascade_recovery_values = []
     long_horizon_success_values = []
     long_horizon_scenario_signatures = []
     tool_use_lesson_signatures = []
-    # JSONL framing is literal LF. ``splitlines()`` would also split U+2028
-    # and U+2029 characters that are valid payload inside a JSON string.
-    for lineno, line in enumerate(batch.read_text().split("\n"), 1):
-        if not line.strip():
-            continue
+    for lineno, record in records:
         if lineno in factory_staging_exempt_lines:
-            continue
-        # JSON parsing and base shape errors have already been checked by
-        # check_jsonl. Keep this narrow pass focused on the factory-specific
-        # values that only the transaction layer can know.
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
             continue
         where = f"{batch.name}:{lineno}"
         if factory_dir.name == "safety-calibration-factory" and isinstance(record, dict):
@@ -2115,20 +2102,6 @@ def validate_preference_arm_gate(
     return summary
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def _completed_batch_is_training_ready(batch, seen_ids, factory_staging):
     errors, warnings, kinds, records = check_jsonl(
         batch,
@@ -2164,9 +2137,7 @@ def _completed_counts_match_manifest(manifest, records, kinds, batch):
         raise TransactionError(f"completion marker kinds do not match batch: {batch}")
 
 
-def _completed_agentic_envelope_matches(
-    factory_dir, round_number, batch, kinds, records
-):
+def _completed_agentic_envelope_matches(factory_dir, round_number, batch, kinds, records):
     expected_kind = AGENTIC_FACTORY_KINDS[factory_dir.name]
     if set(kinds) != {expected_kind}:
         raise TransactionError(
@@ -2187,8 +2158,6 @@ def _completed_agentic_envelope_matches(
         )
 
 
-
-
 def validate_completed_batch(
     factory_dir: Path,
     round_number: int,
@@ -2200,9 +2169,7 @@ def validate_completed_batch(
     """Re-run publication record, quota, and envelope checks for one marker."""
     batch = factory_dir / f"batch-r{round_number:02d}.jsonl"
     factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
-    kinds, records = _completed_batch_is_training_ready(
-        batch, seen_ids, factory_staging
-    )
+    kinds, records = _completed_batch_is_training_ready(batch, seen_ids, factory_staging)
     _completed_counts_match_manifest(manifest, records, kinds, batch)
     manifest_version = completion_marker_version(manifest, batch, for_batch=True)
     _completed_preference_isolation_matches(
@@ -2217,9 +2184,7 @@ def validate_completed_batch(
         )
     )
     if factory_staging:
-        _completed_agentic_envelope_matches(
-            factory_dir, round_number, batch, kinds, records
-        )
+        _completed_agentic_envelope_matches(factory_dir, round_number, batch, kinds, records)
 
 
 def validate_novel_coverage(
@@ -2381,6 +2346,7 @@ def validate_stage(
                 "staged batch violates the agentic factory envelope:\n"
                 + "\n".join(f"ERROR: {error}" for error in envelope_errors)
             )
+        enforce_bridge_envelope(batch, factory_dir, TransactionError)
         if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
             preference_arm_gate = validate_preference_arm_gate(batch, records, preference_isolation)
             preference_diagnosis_handoff = validate_preference_diagnosis_handoff(
@@ -2396,9 +2362,7 @@ def validate_stage(
             )
         # Frontier gate: run over the captured copy so the verdict describes the
         # same bytes the manifest hashes, not a batch swapped in mid-validation.
-        verification = execution_gate(
-            batch, stage / batch_name, override=execution_override
-        )
+        verification = execution_gate(batch, stage / batch_name, override=execution_override)
 
     files = [
         {
@@ -2411,15 +2375,11 @@ def validate_stage(
     return files, kinds, records, verification, preference_arm_gate, preference_diagnosis_handoff
 
 
-def publish(
-    factory_dir: Path, round_number: int, token: str, execution_override=None
-):
+def publish(factory_dir: Path, round_number: int, token: str, execution_override=None):
     override = normalized_execution_override(execution_override)
     factory_dir = Path(factory_dir).resolve()
     with run_publish_lock(factory_dir):
         return _publish_locked(factory_dir, round_number, token, override)
-
-
 
 
 def finish_completed_publish(factory_dir: Path, round_number: int, token: str, paths: dict):
@@ -2489,12 +2449,11 @@ def _reservation_expected_records(factory_dir, reservation):
     if not _is_positive_int(expected):
         raise TransactionError("reservation has an invalid expected_records value")
     configured_quota = FACTORY_QUOTAS.get(factory_dir.name)
-    if (
-        factory_dir.name not in AGENTIC_FACTORY_KINDS
-        and factory_dir.name != PREFERENCE_ISOLATION_FACTORY
-    ):
-        return expected
-    if expected != configured_quota:
+    fixed_quota = (
+        factory_dir.name in AGENTIC_FACTORY_KINDS
+        or factory_dir.name == PREFERENCE_ISOLATION_FACTORY
+    )
+    if fixed_quota and expected != configured_quota:
         raise TransactionError(
             f"reservation for {factory_dir.name} requires exactly "
             f"{configured_quota} records; found {expected}"
@@ -2502,13 +2461,30 @@ def _reservation_expected_records(factory_dir, reservation):
     return expected
 
 
-def _publishing_marker_identity_matches(existing, factory_dir, round_number, token, path):
-    if existing.get("factory") != factory_dir.name:
-        raise TransactionError(f"publishing marker identity mismatch: {path}")
-    if existing.get("round") != round_number:
-        raise TransactionError(f"publishing marker identity mismatch: {path}")
-    if existing.get("token") != token:
-        raise TransactionError(f"publishing marker identity mismatch: {path}")
+def _validated_publish_reservation(factory_dir, round_number, token, reservation):
+    if not _supported_reservation_version(reservation):
+        raise TransactionError("reservation has an unsupported version")
+    if (reservation.get("round"), reservation.get("token")) != (round_number, token):
+        raise TransactionError("reservation round/token does not match publish request")
+    stage = validated_reservation_stage(
+        factory_dir, round_number, token, reservation.get("staging_dir")
+    )
+    expected = _reservation_expected_records(factory_dir, reservation)
+    preference_isolation = reservation.get("preference_isolation")
+    expected_isolation = {PREFERENCE_ISOLATION_FACTORY: PREFERENCE_TWO_SESSION}.get(
+        factory_dir.name
+    )
+    if preference_isolation != expected_isolation:
+        message = {
+            PREFERENCE_ISOLATION_FACTORY: (
+                "reservation lacks the two-session orchestration assertion"
+            )
+        }.get(
+            factory_dir.name,
+            "reservation carries preference isolation for an unrelated factory",
+        )
+        raise TransactionError(message)
+    return stage, expected, preference_isolation
 
 
 def _resume_execution_override(existing, execution_override, path):
@@ -2518,8 +2494,7 @@ def _resume_execution_override(existing, execution_override, path):
     if missing_block:
         if not legacy_marker:
             raise TransactionError(
-                "version 2 publishing marker is missing execution verification: "
-                f"{path}"
+                f"version 2 publishing marker is missing execution verification: {path}"
             )
         return execution_override, True
     recorded_override = recorded_execution_override(existing)
@@ -2528,26 +2503,26 @@ def _resume_execution_override(existing, execution_override, path):
     return execution_override, legacy_marker
 
 
-def _load_resumed_publishing_state(
-    paths, factory_dir, round_number, token, execution_override
-):
-    publishing_exists = (
-        paths["publishing"].exists() or paths["publishing"].is_symlink()
-    )
+def _load_resumed_publishing_state(paths, factory_dir, round_number, token, execution_override):
+    publishing_exists = paths["publishing"].exists() or paths["publishing"].is_symlink()
     if not publishing_exists:
         return None, execution_override, False
-    if not paths["publishing"].is_file():
-        raise TransactionError(f"unsafe publishing marker: {paths['publishing']}")
-    if paths["publishing"].is_symlink():
+    unsafe_marker = not paths["publishing"].is_file()
+    unsafe_marker |= paths["publishing"].is_symlink()
+    if unsafe_marker:
         raise TransactionError(f"unsafe publishing marker: {paths['publishing']}")
     existing = (
         read_readonly_json(paths["publishing"], label="publishing plan")
         if factory_dir.name == PREFERENCE_ISOLATION_FACTORY
         else read_json(paths["publishing"])
     )
-    _publishing_marker_identity_matches(
-        existing, factory_dir, round_number, token, paths["publishing"]
+    existing_identity = (
+        existing.get("factory"),
+        existing.get("round"),
+        existing.get("token"),
     )
+    if existing_identity != (factory_dir.name, round_number, token):
+        raise TransactionError(f"publishing marker identity mismatch: {paths['publishing']}")
     override, migrate = _resume_execution_override(
         existing, execution_override, paths["publishing"]
     )
@@ -2555,11 +2530,7 @@ def _load_resumed_publishing_state(
 
 
 def _plan_without_volatile_keys(payload, *, drop_version=False):
-    plan = {
-        key: value
-        for key, value in payload.items()
-        if key not in PUBLISH_PLAN_VOLATILE_KEYS
-    }
+    plan = {key: value for key, value in payload.items() if key not in PUBLISH_PLAN_VOLATILE_KEYS}
     if drop_version:
         plan.pop("version", None)
     gate = plan.get("preference_arm_gate")
@@ -2574,19 +2545,11 @@ def _reconcile_resumed_publish_plan(existing, manifest, path, migrate_marker):
     # Timestamps differ across retries. Every other plan field is immutable,
     # including the schema version and declared completion marker. Version 1
     # publishing markers may still cut over onto the v2 verification contract.
-    legacy_publishing_marker = (
-        existing.get("version") == LEGACY_COMPLETION_MARKER_VERSION
-    )
-    existing_plan = _plan_without_volatile_keys(
-        existing, drop_version=legacy_publishing_marker
-    )
-    manifest_plan = _plan_without_volatile_keys(
-        manifest, drop_version=legacy_publishing_marker
-    )
+    legacy_publishing_marker = existing.get("version") == LEGACY_COMPLETION_MARKER_VERSION
+    existing_plan = _plan_without_volatile_keys(existing, drop_version=legacy_publishing_marker)
+    manifest_plan = _plan_without_volatile_keys(manifest, drop_version=legacy_publishing_marker)
     if existing_plan != manifest_plan:
-        raise TransactionError(
-            f"publishing plan conflicts with staged content: {path}"
-        )
+        raise TransactionError(f"publishing plan conflicts with staged content: {path}")
     if migrate_marker:
         # A publish interrupted before the execution gate was introduced
         # has no persisted verdict to reuse. Re-derive it above and migrate
@@ -2604,8 +2567,7 @@ def _reconcile_resumed_publish_plan(existing, manifest, path, migrate_marker):
         existing["execution_verification"]
     ) != comparable_execution_verification(manifest["execution_verification"]):
         raise TransactionError(
-            "publishing marker execution verification conflicts with "
-            f"staged content: {path}"
+            f"publishing marker execution verification conflicts with staged content: {path}"
         )
     return existing
 
@@ -2626,54 +2588,18 @@ def _copy_published_files(stage, factory_dir, manifest, resumed):
             copy_verified_exclusive(source, destination, item["sha256"])
             continue
         if not resumed:
-            raise TransactionError(
-                f"refusing to replace existing output: {destination}"
-            )
+            raise TransactionError(f"refusing to replace existing output: {destination}")
         if _existing_published_file_is_reusable(destination, item["sha256"]):
             continue
-        raise TransactionError(
-            f"refusing to replace conflicting output: {destination}"
-        )
+        raise TransactionError(f"refusing to replace conflicting output: {destination}")
 
 
-def _link_completion_marker(paths, factory_dir, manifest):
-    # Linking this exact, revalidated inode is the atomic visibility point for
-    # the whole round. Recovery state is removed only after the linked marker
-    # is proven to carry the in-memory plan bytes.
-    link_verified_completion_marker(
-        paths["publishing"],
-        paths["complete"],
-        manifest,
-        require_readonly=factory_dir.name == PREFERENCE_ISOLATION_FACTORY,
-    )
-
-
-def _publish_locked(
-    factory_dir: Path, round_number: int, token: str, execution_override=None
+def _build_publish_manifest(
+    factory_dir,
+    reservation,
+    paths,
+    validated_stage,
 ):
-    """Publish while holding the run-wide identity/commit lock."""
-    paths = marker_paths(factory_dir, round_number)
-    if paths["complete"].exists() or paths["complete"].is_symlink():
-        return finish_completed_publish(factory_dir, round_number, token, paths)
-    reservation = read_json(paths["reservation"])
-    if not _supported_reservation_version(reservation):
-        raise TransactionError("reservation has an unsupported version")
-    if reservation.get("round") != round_number or reservation.get("token") != token:
-        raise TransactionError("reservation round/token does not match publish request")
-    stage = validated_reservation_stage(
-        factory_dir, round_number, token, reservation.get("staging_dir")
-    )
-    expected = _reservation_expected_records(factory_dir, reservation)
-    preference_isolation = reservation.get("preference_isolation")
-    if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
-        if preference_isolation != PREFERENCE_TWO_SESSION:
-            raise TransactionError("reservation lacks the two-session orchestration assertion")
-    elif preference_isolation is not None:
-        raise TransactionError("reservation carries preference isolation for an unrelated factory")
-    existing, execution_override, migrate_marker = _load_resumed_publishing_state(
-        paths, factory_dir, round_number, token, execution_override
-    )
-
     (
         files,
         kinds,
@@ -2681,21 +2607,13 @@ def _publish_locked(
         verification,
         preference_arm_gate,
         preference_diagnosis_handoff,
-    ) = validate_stage(
-        factory_dir,
-        stage,
-        round_number,
-        expected,
-        token,
-        preference_isolation,
-        execution_override=execution_override,
-    )
+    ) = validated_stage
     manifest = {
         "version": EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION,
         "factory": factory_dir.name,
-        "round": round_number,
-        "token": token,
-        "expected_records": expected,
+        "round": reservation["round"],
+        "token": reservation["token"],
+        "expected_records": reservation["expected_records"],
         "records": records,
         "kinds": kinds,
         "files": files,
@@ -2706,9 +2624,35 @@ def _publish_locked(
         "commit_point": paths["complete"].name,
     }
     if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
-        manifest["preference_isolation"] = preference_isolation
+        manifest["preference_isolation"] = reservation["preference_isolation"]
         manifest["preference_arm_gate"] = preference_arm_gate
         manifest["preference_diagnosis_handoff"] = preference_diagnosis_handoff
+    return manifest
+
+
+def _publish_locked(factory_dir: Path, round_number: int, token: str, execution_override=None):
+    """Publish while holding the run-wide identity/commit lock."""
+    paths = marker_paths(factory_dir, round_number)
+    if paths["complete"].exists() or paths["complete"].is_symlink():
+        return finish_completed_publish(factory_dir, round_number, token, paths)
+    reservation = read_json(paths["reservation"])
+    stage, expected, preference_isolation = _validated_publish_reservation(
+        factory_dir, round_number, token, reservation
+    )
+    existing, execution_override, migrate_marker = _load_resumed_publishing_state(
+        paths, factory_dir, round_number, token, execution_override
+    )
+
+    validated_stage = validate_stage(
+        factory_dir,
+        stage,
+        round_number,
+        expected,
+        token,
+        preference_isolation,
+        execution_override=execution_override,
+    )
+    manifest = _build_publish_manifest(factory_dir, reservation, paths, validated_stage)
 
     resumed = existing is not None
     if resumed:
@@ -2724,7 +2668,15 @@ def _publish_locked(
 
     remember_execution_gate_cutover(factory_dir, round_number)
     _copy_published_files(stage, factory_dir, manifest, resumed)
-    _link_completion_marker(paths, factory_dir, manifest)
+    # Linking this exact, revalidated inode is the atomic visibility point for
+    # the whole round. Recovery state is removed only after the linked marker
+    # is proven to carry the in-memory plan bytes.
+    link_verified_completion_marker(
+        paths["publishing"],
+        paths["complete"],
+        manifest,
+        require_readonly=factory_dir.name == PREFERENCE_ISOLATION_FACTORY,
+    )
 
     paths["publishing"].unlink(missing_ok=True)
     paths["reservation"].unlink(missing_ok=True)
@@ -2844,6 +2796,7 @@ def main(argv=None):
         return 1
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

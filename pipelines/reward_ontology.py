@@ -124,6 +124,16 @@ def value_type(value):
     return "unknown"
 
 
+def _reward_signature_type(value):
+    if isinstance(value, dict):
+        return "value-object" if isinstance(value.get("value"), (int, float)) else "object"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, float):
+        return "float"
+    return type(value).__name__
+
+
 def reward_signature(value):
     """Return the structural shape signature for one reward scope.
 
@@ -132,21 +142,11 @@ def reward_signature(value):
     ``tests/test_curate_rewards.py`` pins the two definitions together.
     """
     if not isinstance(value, dict):
-        return type(value).__name__
-    parts = []
-    for key, item in sorted(value.items()):
-        if isinstance(item, dict):
-            subtype = (
-                "value-object"
-                if isinstance(item.get("value"), (int, float))
-                else "object"
-            )
-        elif isinstance(item, list):
-            subtype = "array"
-        else:
-            subtype = type(item).__name__
-        parts.append(f"{_escape_signature_token(key)}:{subtype}")
-    return "|".join(parts)
+        return _reward_signature_type(value)
+    return "|".join(
+        f"{_escape_signature_token(key)}:{_reward_signature_type(item)}"
+        for key, item in sorted(value.items())
+    )
 
 
 def _disposition_for_types(key, types):
@@ -528,5 +528,3 @@ def _require_declared_rule(comparability, reason_codes, rule_id):
         raise RewardOntologyError(f"rule {rule_id} emitted duplicate reason codes")
     _require_catalogued_reasons(emitted)
     return rule
-
-
