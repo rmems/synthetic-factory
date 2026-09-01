@@ -1,0 +1,49 @@
+tests/test_quality_gate_gate_snn_identity.py
+  s_98712805c1499b::t_89435dc9ad2eb9 21-25,68,78,124-170
+pipelines/exact_json.py
+  s_98712805c1499b::t_d0593297007a58 311,315-322,383
+pipelines/validate_run.py
+  s_98712805c1499b::t_52cf9eb01e327a 1456
+  s_98712805c1499b::t_d0593297007a58 1434-1437
+tests/test_check_records_framing.py
+  s_98712805c1499b::t_89435dc9ad2eb9 108-130
+tests/test_exact_json.py
+  s_98712805c1499b::t_89435dc9ad2eb9 152-165
+tests/test_spike_probe.py
+  s_98712805c1499b::t_0cc8b0e31025de 440,448-449,455-459
+pipelines/curate_bridge_raster.py
+  s_98712805c1499b::t_d0593297007a58 48-57,82,88,345,347,370,421
+pipelines/quality_gate_identity.py
+  s_98712805c1499b::t_d0593297007a58 176-182,185,212,543-546
+tests/test_quality_gate_audit.py
+  s_98712805c1499b::t_92a4d18f4f66d4 43-57,60-63
+  s_98712805c1499b::t_89435dc9ad2eb9 25,39-41
+tests/test_curate_bridge_raster_regressions.py
+  s_98712805c1499b::t_89435dc9ad2eb9 282-308
+  s_98712805c1499b::t_75161244a542f2 52-59
+tests/test_validate_run_cli.py
+  s_98712805c1499b::t_0d527b5f515b3e 158-159,161-163,165-167
+  s_98712805c1499b::t_92a4d18f4f66d4 171-192
+  s_98712805c1499b::t_89435dc9ad2eb9 144-157,160,164,168-170
+tests/test_curate_bridge.py
+  s_98712805c1499b::t_184860aea41410 382-385
+tests/test_training_audit_framing.py
+  s_98712805c1499b::t_89435dc9ad2eb9 125-129,133
+  s_98712805c1499b::t_41ea28ed94dbc3 27-40,114,132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "73bc65ca12387cf15aa93011b4da55e3e3f642b0",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
