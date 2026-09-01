@@ -597,6 +597,52 @@ def _discard_created_destination(
         )
 
 
+def _verify_destination_parent_residency(
+    parent: Path,
+    parent_descriptor: int,
+    expected_identity: tuple[int, int, int],
+) -> None:
+    """Require the pinned parent to remain at its requested non-raw path."""
+
+    _assert_descriptor_outside_raw(parent_descriptor, "destination parent")
+    _verify_directory_binding(
+        parent,
+        parent_descriptor,
+        "destination parent",
+        expected_identity=expected_identity,
+    )
+
+
+def _created_destination_identity(
+    parent_descriptor: int, destination: Path
+) -> tuple[int, int, int]:
+    """Validate and identify the directory created under the pinned parent."""
+
+    created = os.stat(
+        destination.name,
+        dir_fd=parent_descriptor,
+        follow_symlinks=False,
+    )
+    if not stat.S_ISDIR(created.st_mode):
+        raise ComposeError(f"new destination is not a directory: {destination}")
+    return _directory_identity(created)
+
+
+def _open_created_destination(
+    parent_descriptor: int,
+    destination: Path,
+    flags: int,
+    expected_identity: tuple[int, int, int],
+) -> int:
+    """Open the new destination and retain only its expected identity."""
+
+    descriptor = os.open(destination.name, flags, dir_fd=parent_descriptor)
+    if _directory_identity(os.fstat(descriptor)) != expected_identity:
+        os.close(descriptor)
+        raise ComposeError("destination identity changed while opening")
+    return descriptor
+
+
 def create_pinned_destination(
     source_run: Path, destination: Path
 ) -> PinnedDestination:
@@ -616,30 +662,33 @@ def create_pinned_destination(
     destination_descriptor: int | None = None
     created_identity: tuple[int, int, int] | None = None
     try:
-        _verify_directory_binding(
-            parent,
-            parent_descriptor,
-            "destination parent",
-            expected_identity=expected_parent_identity,
+        _verify_destination_parent_residency(
+            parent, parent_descriptor, expected_parent_identity
         )
         _refuse_existing_destination(parent_descriptor, destination)
-        _assert_descriptor_outside_raw(parent_descriptor, "destination parent")
+        _verify_destination_parent_residency(
+            parent, parent_descriptor, expected_parent_identity
+        )
         os.mkdir(destination.name, 0o755, dir_fd=parent_descriptor)
-        created = os.stat(
-            destination.name,
-            dir_fd=parent_descriptor,
-            follow_symlinks=False,
+        created_identity = _created_destination_identity(
+            parent_descriptor, destination
         )
-        created_identity = _directory_identity(created)
-        if not stat.S_ISDIR(created.st_mode):
-            raise ComposeError(f"new destination is not a directory: {destination}")
-        destination_descriptor = os.open(
-            destination.name,
-            flags,
-            dir_fd=parent_descriptor,
+        _verify_destination_parent_residency(
+            parent, parent_descriptor, expected_parent_identity
         )
-        if _directory_identity(os.fstat(destination_descriptor)) != created_identity:
-            raise ComposeError("destination identity changed while opening")
+        destination_descriptor = _open_created_destination(
+            parent_descriptor, destination, flags, created_identity
+        )
+        _verify_destination_parent_residency(
+            parent, parent_descriptor, expected_parent_identity
+        )
+        _assert_descriptor_outside_raw(destination_descriptor, "destination")
+        _verify_directory_binding(
+            destination,
+            destination_descriptor,
+            "destination",
+            expected_identity=created_identity,
+        )
         return PinnedDestination(
             path=destination,
             root=_pinned_root_path(destination_descriptor),
@@ -674,7 +723,7 @@ def _destination_write_parts(relative: Any, label: str) -> tuple[str, ...]:
 
 def _open_pinned_child_directory(
     parent_descriptor: int, name: str, label: str
-) -> int:
+) -> tuple[int, bool]:
     """Create or reuse one child directory and pin it without following links.
 
     ``mkdir`` and the matching ``open`` are two syscalls, so a same-user
@@ -684,6 +733,40 @@ def _open_pinned_child_directory(
     entry refuses a swap that lands between the two calls.
     """
 
+    created = _create_child_directory(parent_descriptor, name, label)
+    try:
+        descriptor = _open_child_directory_entry(parent_descriptor, name, label)
+    except BaseException:
+        _rollback_child_directory(created, parent_descriptor, name)
+        raise
+    try:
+        _verify_pinned_child(descriptor, parent_descriptor, name, label)
+    except BaseException:
+        os.close(descriptor)
+        _rollback_child_directory(created, parent_descriptor, name)
+        raise
+    return descriptor, created
+
+
+def _create_child_directory(parent_descriptor: int, name: str, label: str) -> bool:
+    """Create one component and report whether this call created it."""
+
+    try:
+        os.mkdir(name, 0o755, dir_fd=parent_descriptor)
+    except FileExistsError:
+        return False
+    except OSError as exc:
+        raise ComposeError(
+            f"{label}: cannot create directory component {name!r}: {exc}"
+        ) from exc
+    return True
+
+
+def _open_child_directory_entry(
+    parent_descriptor: int, name: str, label: str
+) -> int:
+    """Open one exact directory entry without following links."""
+
     flags = (
         os.O_RDONLY
         | getattr(os, "O_DIRECTORY", 0)
@@ -691,25 +774,20 @@ def _open_pinned_child_directory(
         | getattr(os, "O_CLOEXEC", 0)
     )
     try:
-        os.mkdir(name, 0o755, dir_fd=parent_descriptor)
-    except FileExistsError:
-        pass
-    except OSError as exc:
-        raise ComposeError(
-            f"{label}: cannot create directory component {name!r}: {exc}"
-        ) from exc
-    try:
-        descriptor = os.open(name, flags, dir_fd=parent_descriptor)
+        return os.open(name, flags, dir_fd=parent_descriptor)
     except OSError as exc:
         raise ComposeError(
             f"{label}: directory component {name!r} is not an exact directory"
         ) from exc
-    try:
-        _verify_pinned_child(descriptor, parent_descriptor, name, label)
-    except BaseException:
-        os.close(descriptor)
-        raise
-    return descriptor
+
+
+def _rollback_child_directory(
+    created: bool, parent_descriptor: int, name: str
+) -> None:
+    """Remove a failed component only when this call created it."""
+
+    if created:
+        _remove_created_directory(parent_descriptor, name)
 
 
 def _assert_descriptor_contained(
@@ -780,14 +858,15 @@ def _open_bound_destination_directory(
     _verify_destination_target(target)
     _assert_descriptor_contained(root_descriptor, parent_descriptor, label)
     _assert_descriptor_outside_raw(parent_descriptor, label)
-    child_descriptor = _open_pinned_child_directory(
+    child_descriptor, created = _open_pinned_child_directory(
         parent_descriptor, name, label
     )
     try:
         _verify_destination_target(target)
         _assert_descriptor_contained(root_descriptor, child_descriptor, label)
     except BaseException:
-        _remove_created_directory(parent_descriptor, name)
+        if created:
+            _remove_created_directory(parent_descriptor, name)
         os.close(child_descriptor)
         raise
     return child_descriptor

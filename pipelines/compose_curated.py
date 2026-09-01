@@ -326,16 +326,21 @@ def _stage(lane: str, name: str, version: str, action: str, **extra: Any) -> dic
     return stage
 
 
+def _container_calibration_id_candidates(container: Mapping[str, Any]):
+    """Yield usable legacy IDs from one identity container."""
+
+    for key in curate_identity.LEGACY_ID_KEYS:
+        value = container.get(key)
+        if isinstance(value, str) and value.strip():
+            yield value.strip()
+
+
 def _owner_calibration_id_candidates(owner: Mapping[str, Any]):
     """Yield legacy IDs from one identity owner and its nested containers."""
 
     for container in (owner, owner.get("meta"), owner.get("state")):
-        if not isinstance(container, Mapping):
-            continue
-        for key in curate_identity.LEGACY_ID_KEYS:
-            value = container.get(key)
-            if isinstance(value, str) and value.strip():
-                yield value.strip()
+        if isinstance(container, Mapping):
+            yield from _container_calibration_id_candidates(container)
 
 
 def _calibration_id_candidates(record: Mapping[str, Any]):

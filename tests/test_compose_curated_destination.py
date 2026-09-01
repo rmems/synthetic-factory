@@ -381,11 +381,13 @@ class ComposeDestinationSafety(unittest.TestCase):
 
             def open_then_move(parent_descriptor, name, label):
                 nonlocal moved
-                child_descriptor = real_open_child(parent_descriptor, name, label)
+                child_descriptor, created = real_open_child(
+                    parent_descriptor, name, label
+                )
                 if not moved:
                     moved = True
                     (destination / name).rename(outside / name)
-                return child_descriptor
+                return child_descriptor, created
 
             try:
                 with mock.patch.object(
@@ -594,9 +596,9 @@ class PinnedWriterRawRelocation(unittest.TestCase):
             real_open = compose_destination._open_pinned_child_directory
 
             def open_then_move(parent_descriptor, name, label):
-                descriptor = real_open(parent_descriptor, name, label)
+                descriptor, created = real_open(parent_descriptor, name, label)
                 destination.rename(moved)
-                return descriptor
+                return descriptor, created
 
             try:
                 with mock.patch.object(
@@ -614,6 +616,49 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                             "destination",
                         )
                 self.assertEqual(list(moved.rglob("*")), [])
+            finally:
+                pinned.cleanup()
+
+    def test_reused_component_survives_post_open_binding_failure(self):
+        """Rollback must not remove an empty directory it did not create."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            source.mkdir()
+            destination = root / "curated"
+            pinned = compose_curated.create_pinned_destination(source, destination)
+            existing = destination / compose_curated.RECORDS_DIRNAME
+            existing.mkdir()
+            real_verify = compose_destination._verify_destination_target
+            calls = 0
+
+            def fail_after_open(target):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise compose_curated.ComposeError(
+                        "simulated post-open binding failure"
+                    )
+                real_verify(target)
+
+            try:
+                with mock.patch.object(
+                    compose_destination,
+                    "_verify_destination_target",
+                    side_effect=fail_after_open,
+                ):
+                    with self.assertRaisesRegex(
+                        compose_curated.ComposeError,
+                        "simulated post-open binding failure",
+                    ):
+                        compose_curated.write_pinned_new_bytes(
+                            pinned,
+                            f"{compose_curated.RECORDS_DIRNAME}/row.jsonl",
+                            b"data\n",
+                        )
+                self.assertTrue(existing.is_dir())
+                self.assertEqual(list(existing.iterdir()), [])
             finally:
                 pinned.cleanup()
 
@@ -700,6 +745,43 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                 ):
                     compose_curated.create_pinned_destination(source, destination)
 
+            self.assertFalse((relocated_parent / destination.name).exists())
+
+    def test_post_mkdir_parent_relocation_is_rolled_back(self):
+        """Destination creation must not survive a parent move into raw."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            source.mkdir()
+            parent = root / "destination-parent"
+            parent.mkdir()
+            raw = root / "outputs" / "raw"
+            raw.mkdir(parents=True)
+            relocated_parent = raw / parent.name
+            destination = parent / "curated"
+            real_mkdir = os.mkdir
+            relocated = False
+
+            def mkdir_then_relocate(path, mode=0o777, *, dir_fd=None):
+                nonlocal relocated
+                real_mkdir(path, mode, dir_fd=dir_fd)
+                if path == destination.name and dir_fd is not None and not relocated:
+                    relocated = True
+                    parent.rename(relocated_parent)
+
+            with mock.patch.object(
+                compose_destination.os,
+                "mkdir",
+                side_effect=mkdir_then_relocate,
+            ):
+                with self.assertRaisesRegex(
+                    compose_curated.ComposeError,
+                    "relocated into immutable raw evidence",
+                ):
+                    compose_curated.create_pinned_destination(source, destination)
+
+            self.assertTrue(relocated)
             self.assertFalse((relocated_parent / destination.name).exists())
 
     def test_initial_compose_directories_refuse_a_relocated_destination(self):

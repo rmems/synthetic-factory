@@ -15,6 +15,8 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
+from tag_jsonutil import reject_duplicate_object_keys
+
 EXPORT_NAME = "export_hf"
 EXPORT_VERSION = "export-hf-v3"
 CREATED_BY = f"synthetic-factory {EXPORT_NAME} ({EXPORT_VERSION})"
@@ -74,6 +76,7 @@ def _loads_json(payload: str, label: str) -> Any:
     try:
         return json.loads(
             payload,
+            object_pairs_hook=reject_duplicate_object_keys,
             parse_constant=_reject_json_constant,
             parse_float=_reject_nonfinite_json_float,
         )

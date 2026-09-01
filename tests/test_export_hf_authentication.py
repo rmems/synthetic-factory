@@ -613,6 +613,20 @@ class StrictExportJsonLoading(unittest.TestCase):
             with self.assertRaisesRegex(export_hf.ExportError, "invalid JSON"):
                 export_hf._loads_json("[]", "payload")
 
+    def test_duplicate_object_keys_are_rejected_at_every_depth(self):
+        """Authenticated JSON must have one unambiguous value per key."""
+
+        for payload in (
+            '{"action":"bogus","action":"retained"}',
+            '{"entry":{"action":"bogus","action":"retained"}}',
+        ):
+            with self.subTest(payload=payload):
+                with self.assertRaisesRegex(
+                    export_hf.ExportError,
+                    "duplicate JSON object key 'action'",
+                ):
+                    export_hf._loads_json(payload, "authenticated evidence")
+
 
 if __name__ == "__main__":
     unittest.main()
