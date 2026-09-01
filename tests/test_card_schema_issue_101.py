@@ -109,6 +109,20 @@ def _ids_where(records, predicate):
     return {record["id"] for _shard, record in records if predicate(record)}
 
 
+def _variant_column_values(records, field):
+    """Every value one variant column takes across the payload."""
+    return [record[field] for _shard, record in records if field in record]
+
+
+def _variant_column_census(records, field):
+    """Measure one variant column: value shapes, object keys, object count."""
+    present = _variant_column_values(records, field)
+    objects = [value for value in present if isinstance(value, dict)]
+    shapes = {type(value).__name__ for value in present}
+    object_keys = {key for value in objects for key in value}
+    return shapes, object_keys, len(objects)
+
+
 class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
     """Issue #38: the fault-report fields carry two shapes, so the cast fails.
 
@@ -130,11 +144,13 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
         }
         self.card = publisher.render_card(
             self.item,
-            records=4722,
-            bytes_=31062016,
-            first="r01",
-            last="r2361",
-            payload_names=["batch-r01.jsonl", "batch-r2021.jsonl"],
+            summary=publisher.PayloadSummary(
+                records=4722,
+                bytes_=31062016,
+                first="r01",
+                last="r2361",
+                names=["batch-r01.jsonl", "batch-r2021.jsonl"],
+            ),
         )
 
     def test_declaration_matches_the_observed_union_schema(self):
@@ -337,20 +353,16 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
         _shards, records = _scan_mirror()
         features, _optional = _feature_index(self.declaration["features"])
         for field in self.VARIANTS:
-            present = [r for _s, r in records if field in r]
-            objects = [r for r in present if isinstance(r[field], dict)]
+            shapes, object_keys, object_count = _variant_column_census(
+                records, field
+            )
             with self.subTest(field=field):
                 # Exactly two shapes reach the column: string, or the one object.
-                self.assertEqual(
-                    {type(r[field]).__name__ for r in present}, {"str", "dict"}
-                )
-                self.assertEqual(
-                    {key for obj in objects for key in obj[field]},
-                    OBJECT_FORMS[field],
-                )
-                self.assertEqual(len(objects), 182)
+                self.assertEqual(shapes, {"str", "dict"})
+                self.assertEqual(object_keys, OBJECT_FORMS[field])
+                self.assertEqual(object_count, 182)
                 self.assertIn("an object", features[field]["note"])
-                self.assertIn(f"on {len(objects)}", features[field]["note"])
+                self.assertIn(f"on {object_count}", features[field]["note"])
 
     @_needs_mirror
     def test_the_object_family_is_the_same_records_in_all_four_columns(self):
