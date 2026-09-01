@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 import importlib
+import io
 import sys
 import unittest
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
 from types import ModuleType
 from unittest import mock
@@ -77,6 +78,8 @@ class PipelinesPackageImports(unittest.TestCase):
         "compose_curated_preferences",
         "compose_curated_record",
         "compose_curated_run",
+        "compose_curated_run_cli",
+        "compose_curated_run_facade",
         "compose_curated_source",
         "compose_destination_binding",
         "compose_destination_creation",
@@ -97,6 +100,10 @@ class PipelinesPackageImports(unittest.TestCase):
         "curate_agentic",
         "curate_trajectory_preferences",
         "validate_run_provenance",
+    )
+    RUN_SUPPORT_MODULES = (
+        "compose_curated_run_cli",
+        "compose_curated_run_facade",
     )
 
     @staticmethod
@@ -175,10 +182,7 @@ class PipelinesPackageImports(unittest.TestCase):
         with self._clean_package_imports():
             sys.path.insert(0, str(PIPELINES))
             try:
-                direct = {
-                    name: importlib.import_module(name)
-                    for name in self.REFACTORED_FACADES
-                }
+                direct = {name: importlib.import_module(name) for name in self.REFACTORED_FACADES}
             finally:
                 sys.path.remove(str(PIPELINES))
             for name, module in direct.items():
@@ -193,14 +197,10 @@ class PipelinesPackageImports(unittest.TestCase):
             for module_name in (name, f"pipelines.{name}")
         )
 
-    def _saved_package_attributes(
-        self, package: ModuleType | None
-    ) -> dict[str, ModuleType | None]:
+    def _saved_package_attributes(self, package: ModuleType | None) -> dict[str, ModuleType | None]:
         if package is None:
             return {}
-        return {
-            name: getattr(package, name, None) for name in self.NEW_SPLIT_MODULES
-        }
+        return {name: getattr(package, name, None) for name in self.NEW_SPLIT_MODULES}
 
     @staticmethod
     def _restore_module_aliases(
@@ -208,9 +208,7 @@ class PipelinesPackageImports(unittest.TestCase):
     ) -> None:
         for name in names:
             sys.modules.pop(name, None)
-        sys.modules.update(
-            {name: module for name, module in saved.items() if module is not None}
-        )
+        sys.modules.update({name: module for name, module in saved.items() if module is not None})
 
     @staticmethod
     def _restore_package_attributes(
@@ -243,8 +241,7 @@ class PipelinesPackageImports(unittest.TestCase):
                 sys.path.insert(0, str(PIPELINES))
                 try:
                     direct = {
-                        name: importlib.import_module(name)
-                        for name in self.NEW_SPLIT_MODULES
+                        name: importlib.import_module(name) for name in self.NEW_SPLIT_MODULES
                     }
                 finally:
                     sys.path.remove(str(PIPELINES))
@@ -260,8 +257,7 @@ class PipelinesPackageImports(unittest.TestCase):
                 sys.path.insert(0, str(PIPELINES))
                 try:
                     direct = {
-                        name: importlib.import_module(name)
-                        for name in self.NEW_SPLIT_MODULES
+                        name: importlib.import_module(name) for name in self.NEW_SPLIT_MODULES
                     }
                 finally:
                     sys.path.remove(str(PIPELINES))
@@ -294,6 +290,54 @@ class PipelinesPackageImports(unittest.TestCase):
 
     def test_all_new_split_modules_retain_identity_package_first(self):
         self._assert_new_split_module_identity("package")
+
+    def _assert_run_support_module_identity(self, name: str, first: str) -> None:
+        """Import run support first, before its core module can mask a cycle."""
+
+        with self._isolated_new_split_modules():
+            if first == "direct":
+                sys.path.insert(0, str(PIPELINES))
+                try:
+                    direct = importlib.import_module(name)
+                finally:
+                    sys.path.remove(str(PIPELINES))
+                packaged = importlib.import_module(f"pipelines.{name}")
+            else:
+                packaged = importlib.import_module(f"pipelines.{name}")
+                sys.path.insert(0, str(PIPELINES))
+                try:
+                    direct = importlib.import_module(name)
+                finally:
+                    sys.path.remove(str(PIPELINES))
+            self.assertIs(direct, packaged)
+
+    def test_run_support_modules_import_first_in_both_modes(self):
+        for name in self.RUN_SUPPORT_MODULES:
+            for first in ("direct", "package"):
+                with self.subTest(name=name, first=first):
+                    self._assert_run_support_module_identity(name, first)
+
+    def test_split_cli_preserves_original_help_contract(self):
+        """Extraction retains the core CLI's published description and option text."""
+
+        with self._isolated_new_split_modules():
+            core = importlib.import_module("pipelines.compose_curated_run")
+            cli = importlib.import_module("pipelines.compose_curated_run_cli")
+            output = io.StringIO()
+            with redirect_stdout(output), self.assertRaises(SystemExit) as raised:
+                cli.parse_args(["--help"])
+            self.assertEqual(raised.exception.code, 0)
+            help_text = output.getvalue()
+            normalized_help = " ".join(help_text.split())
+            self.assertIn(core.__doc__.split("\n\n")[0], help_text)
+            self.assertIn(
+                "explicit reward calibration sidecar; defaults to the FFPC sidecar",
+                normalized_help,
+            )
+            self.assertIn(
+                "exit 1 when the composed tree is not training_ready",
+                normalized_help,
+            )
 
     @contextmanager
     def _isolated_validate_run_provenance_modules(self):

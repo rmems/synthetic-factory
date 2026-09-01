@@ -59,6 +59,9 @@ else:
     from compose_curated_calibration import CalibrationContext
 
 
+CLI_DESCRIPTION = __doc__.split("\n\n")[0]
+
+
 @dataclass(frozen=True)
 class ComposeRunContext:
     source_run: Path
@@ -244,9 +247,7 @@ def claim_output_id(state: ComposeRunState, output_id: Any, location: str) -> No
         return
     previous = state.emitted_ids.get(output_id)
     if previous is not None:
-        raise ComposeError(
-            f"canonical ID collision {output_id!r}: {previous} and {location}"
-        )
+        raise ComposeError(f"canonical ID collision {output_id!r}: {previous} and {location}")
     state.emitted_ids[output_id] = location
 
 
@@ -386,9 +387,7 @@ def write_emitted_records(
         output_path,
         "".join(line + "\n" for line in emitted),
     )
-    state.outputs.append(
-        {"path": output_path, "records": len(emitted), "sha256": digest}
-    )
+    state.outputs.append({"path": output_path, "records": len(emitted), "sha256": digest})
     state.counts["output_files"] += 1
 
 
@@ -402,9 +401,7 @@ def compose_source_file(
     source_file_sha256 = sha256_hex(context.raw_file)
     state.counts["source_files"] += 1
     emitted: list[str] = []
-    for line_number, physical_line in enumerate(
-        active.jsonl_physical_lines(context.raw_file), 1
-    ):
+    for line_number, physical_line in enumerate(active.jsonl_physical_lines(context.raw_file), 1):
         if not physical_line.strip():
             state.counts["blank_lines"] += 1
             continue
@@ -432,9 +429,9 @@ def captured_source_payloads(
     read_exact_regular_file: Callable[..., tuple[Path, bytes]],
 ) -> dict[str, bytes]:
     return {
-        relative: read_exact_regular_file(
-            resolved_source, relative, f"compose source {relative}"
-        )[1]
+        relative: read_exact_regular_file(resolved_source, relative, f"compose source {relative}")[
+            1
+        ]
         for relative in source_members
     }
 
@@ -446,14 +443,10 @@ def capture_source_snapshot(
     identities = services.source_snapshot_identities(resolved_source, source_members)
     payloads = services.captured_source_payloads(resolved_source, source_members)
     if services.source_jsonl_members(resolved_source) != source_members:
-        raise ComposeError(
-            "source member set changed while capturing the source snapshot"
-        )
+        raise ComposeError("source member set changed while capturing the source snapshot")
     current = services.source_snapshot_identities(resolved_source, source_members)
     if current != identities:
-        raise ComposeError(
-            "source member identity changed while capturing the source snapshot"
-        )
+        raise ComposeError("source member identity changed while capturing the source snapshot")
     factory_identities = {
         relative: (factory, verified)
         for relative, (_file_identity, factory, verified) in identities.items()
@@ -466,13 +459,9 @@ def _published_source_coordinate(relative: str, factory: str) -> str:
 
     factory_path = PurePosixPath(factory)
     if factory_path.name != factory:
-        raise ComposeError(
-            f"invalid factory identity for published source coordinate: {factory!r}"
-        )
+        raise ComposeError(f"invalid factory identity for published source coordinate: {factory!r}")
     if factory == "..":
-        raise ComposeError(
-            f"invalid factory identity for published source coordinate: {factory!r}"
-        )
+        raise ComposeError(f"invalid factory identity for published source coordinate: {factory!r}")
     source_path = PurePosixPath(relative)
     if source_path.parts[: len(factory_path.parts)] == factory_path.parts:
         return source_path.as_posix()
@@ -532,9 +521,7 @@ def authenticate_composed_artifacts(
             f"compose artifact {relative}",
         )
         if sha256_hex(payload) != expected_digest:
-            raise ComposeError(
-                f"compose artifact {relative} changed before compose commit"
-            )
+            raise ComposeError(f"compose artifact {relative} changed before compose commit")
     pinned_destination.verify_binding()
 
 
@@ -567,8 +554,7 @@ def compose_run_summary(
         "calibrated_records": context.calibrated_records,
         "counts": _summary_counts(state),
         "lane_actions": {
-            lane: dict(sorted(actions.items()))
-            for lane, actions in state.lane_actions.items()
+            lane: dict(sorted(actions.items())) for lane, actions in state.lane_actions.items()
         },
         "exclusions": dict(sorted(state.exclusions.items())),
         "outputs": state.outputs,
@@ -582,9 +568,7 @@ def compose_run_summary(
             "entries": len(state.sidecar_lines),
             "sha256": context.sidecar_sha256,
         },
-        "audit": services.audit_records(
-            context.records_dir, state.counts["retained"]
-        ),
+        "audit": services.audit_records(context.records_dir, state.counts["retained"]),
     }
 
 
@@ -688,9 +672,7 @@ def compose_run(
     hooks: ComposeRunHooks | None = None,
 ) -> dict[str, Any]:
     active = hooks or default_run_hooks()
-    resolved_source = services.source.require_exact_directory(
-        context.source_run, "source run"
-    )
+    resolved_source = services.source.require_exact_directory(context.source_run, "source run")
     source_members, payload_by_member, identities = active.capture_source_snapshot(
         resolved_source, services.source
     )
@@ -751,139 +733,33 @@ def default_run_hooks() -> ComposeRunHooks:
 def facade_run_services(
     facade: Any, index_compose_mills: Callable[..., Mapping[tuple[str, int], Any]]
 ) -> ComposeRunServices:
-    """Resolve one service graph from a live compatibility-facade namespace."""
+    """Resolve facade services after the core module has initialized."""
 
-    source = SourceServices(
-        facade._require_exact_directory,
-        facade.source_jsonl_members,
-        facade._captured_source_payloads,
-        facade._source_snapshot_identities,
-        index_compose_mills,
-        facade.compose_source_line,
-    )
-    destination = DestinationServices(
-        facade.create_pinned_destination,
-        facade._create_pinned_new_directory,
-        facade._write_new_text,
-        facade._read_exact_regular_file,
-    )
-    report = ReportServices(
-        lambda context: facade._load_calibration(
-            context.source_run, context.units_migration
-        ),
-        facade._audit_records,
-        facade.transform_contract,
-    )
-    return ComposeRunServices(source, destination, report)
-
-
-def _facade_line_hooks(facade: Any) -> tuple[Callable[..., Any], ...]:
-    return (
-        lambda context, digest: facade._new_manifest_entry(
-            context.relative,
-            context.line_number,
-            digest,
-            context.source_file_sha256,
-        ),
-        facade._claim_output_id,
-        lambda state, decision, context: facade._record_retained_line(
-            state,
-            decision,
-            context.entry,
-            relative=context.relative,
-            location=context.location,
-            emitted=context.emitted,
-        ),
-        facade._record_excluded_line,
-        facade.mill_quarantined_decision,
-        lambda state, source_line, _services, _hooks: facade._compose_one_line(
-            state,
-            source_line.payload,
-            relative=source_line.context.relative,
-            line_number=source_line.context.line_number,
-            source_file_sha256=source_line.context.source_file_sha256,
-            catalog=source_line.context.catalog,
-            emitted=source_line.context.emitted,
-            mill_findings=source_line.context.mill_findings,
-        ),
-    )
-
-
-def _facade_source_hooks(facade: Any) -> tuple[Callable[..., Any], ...]:
-    return (
-        lambda state, context, emitted, _services: facade._write_emitted_records(
-            state, context.destination_target, context.relative, emitted
-        ),
-        lambda state, context, _services: facade._compose_source_file(
-            state,
-            relative=context.relative,
-            raw_file=context.raw_file,
-            destination_target=context.destination_target,
-            catalog=context.catalog,
-            mill_findings=context.mill_findings,
-        ),
-        lambda resolved, _services: facade._capture_source_snapshot(resolved),
-    )
-
-
-def _facade_finalize_hooks(facade: Any) -> tuple[Callable[..., Any], ...]:
-    return (
-        lambda state, destination, _services: facade._write_compose_provenance(
-            state, destination
-        ),
-        lambda pinned, expected, _services: facade._authenticate_composed_artifacts(
-            pinned, expected
-        ),
-        lambda state, context, _services: facade._compose_run_summary(
-            state,
-            resolved_source=context.resolved_source,
-            destination_path=context.destination_path,
-            calibration_descriptor=context.calibration_descriptor,
-            calibrated_records=context.calibrated_records,
-            manifest_sha256=context.manifest_sha256,
-            sidecar_sha256=context.sidecar_sha256,
-            records_dir=context.records_dir,
-        ),
-        lambda state, context, _services: facade._commit_compose_summary(
-            state,
-            context.pinned_destination,
-            context.summary,
-            context.manifest_sha256,
-            context.sidecar_sha256,
-        ),
-    )
+    if __package__:
+        from .compose_curated_run_facade import facade_run_services as implementation
+    else:
+        from compose_curated_run_facade import facade_run_services as implementation
+    return implementation(facade, index_compose_mills)
 
 
 def facade_run_hooks(facade: Any) -> ComposeRunHooks:
-    """Resolve every run helper through a live compatibility facade."""
+    """Resolve facade hooks after the core module has initialized."""
 
-    return ComposeRunHooks(
-        *_facade_line_hooks(facade),
-        *_facade_source_hooks(facade),
-        *_facade_finalize_hooks(facade),
-        facade.jsonl_physical_lines,
-    )
+    if __package__:
+        from .compose_curated_run_facade import facade_run_hooks as implementation
+    else:
+        from compose_curated_run_facade import facade_run_hooks as implementation
+    return implementation(facade)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("source_run", help="source run directory (read-only)")
-    parser.add_argument("destination", help="new curated destination (must not exist)")
-    parser.add_argument(
-        "--units-migration",
-        help="explicit reward calibration sidecar; defaults to the FFPC sidecar",
-    )
-    parser.add_argument(
-        "--strict",
-        action="store_true",
-        help="exit 1 when the composed tree is not training_ready",
-    )
-    return parser.parse_args(argv)
+    """Parse the public CLI arguments without an import-time support cycle."""
 
-
-def _print_strict_blockers(summary: Mapping[str, Any]) -> None:
-    for blocker in summary["audit"]["blockers"]:
-        print(f"blocker: {blocker}", file=sys.stderr)
+    if __package__:
+        from .compose_curated_run_cli import parse_args as implementation
+    else:
+        from compose_curated_run_cli import parse_args as implementation
+    return implementation(argv)
 
 
 def main(
@@ -891,22 +767,13 @@ def main(
     services: ComposeCliServices,
     hooks: ComposeRunHooks | None = None,
 ) -> int:
-    args = parse_args(argv)
-    context = ComposeRunContext(
-        Path(args.source_run),
-        Path(args.destination),
-        Path(args.units_migration) if args.units_migration is not None else None,
-    )
-    try:
-        summary = compose_run(context, services.run, hooks)
-    except services.caught_errors as exc:
-        print(f"compose_curated: {exc}", file=sys.stderr)
-        return 2
-    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
-    if args.strict and not summary["audit"]["training_ready"]:
-        _print_strict_blockers(summary)
-        return 1
-    return 0
+    """Run the public CLI without an import-time support cycle."""
+
+    if __package__:
+        from .compose_curated_run_cli import main as implementation
+    else:
+        from compose_curated_run_cli import main as implementation
+    return implementation(argv, services, hooks)
 
 
 if __package__:
