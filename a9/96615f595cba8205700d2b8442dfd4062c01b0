@@ -1,0 +1,19 @@
+tests/test_curate_bridge_integer_precision.py
+  s_98712805c1499b::t_57e7896068fa17 29-42,75-80,151-156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a996615f595cba8205700d2b8442dfd4062c01b0",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
