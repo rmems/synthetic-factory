@@ -268,6 +268,41 @@ class RasterAndGateSnnCuration(unittest.TestCase):
                     decision.manifest["reason_codes"],
                 )
 
+    def test_gate_snn_population_shape_stays_fail_closed(self):
+        invalid_populations = (
+            "not-an-object",
+            {"name": "", "neurons": 8, "threshold": 1.0},
+            {"name": "g", "neurons": None, "threshold": 1.0},
+            {"name": "g", "neurons": True, "threshold": 1.0},
+            {"name": "g", "neurons": 0, "threshold": 1.0},
+            {"name": "g", "neurons": -1, "threshold": 1.0},
+            {"name": "g", "neurons": 10**4097, "threshold": 1.0},
+            {"name": "g", "neurons": 8},
+            {"name": "g", "neurons": 8, "threshold": float("inf")},
+        )
+        for population in invalid_populations:
+            with self.subTest(population=population):
+                record = gate_snn_fixture()
+                record["gate_snn"]["populations"][0] = population
+
+                decision = decide(record)
+
+                self.assertEqual(decision.action, "quarantine")
+                self.assertIn(
+                    curate_bridge.REASON_GATE_SNN_INVALID,
+                    decision.manifest["reason_codes"],
+                )
+                self.assertEqual(
+                    decision.manifest["evidence"]["raster"][
+                        "gate_snn_invalid_population_indices"
+                    ],
+                    [0],
+                )
+
+        record = gate_snn_fixture()
+        record["gate_snn"]["populations"][0]["neurons"] = 64.0
+        self.assertEqual(decide(record).action, "retain")
+
     def test_gate_snn_population_spike_budget_is_enforced(self):
         record = gate_snn_fixture()
         record["gate_snn"]["populations"][0]["spikes"] = 999

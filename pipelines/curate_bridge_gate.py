@@ -138,14 +138,15 @@ def _gate_decision(
 def _gate_population_neurons(population: Any) -> int | None:
     if not isinstance(population, dict):
         return None
-    if not _nonblank_text(population.get("name")):
-        return None
     neurons = _nonnegative_json_integer(population.get("neurons"))
-    if neurons is None or neurons <= 0:
-        return None
-    if not _is_finite_number(population.get("threshold")):
-        return None
-    return neurons
+    valid = all(
+        (
+            _nonblank_text(population.get("name")),
+            neurons not in (None, 0),
+            _is_finite_number(population.get("threshold")),
+        )
+    )
+    return neurons if valid else None
 
 
 def _gate_population_budget(
@@ -203,10 +204,8 @@ def _gate_population_budget_outcome(
     outcome: tuple[str, int | None, int],
 ) -> tuple[bool, bool, int]:
     budget, expected, neurons = outcome
-    if budget == "absent":
-        return True, False, neurons
-    if budget == "invalid":
-        return False, True, neurons
+    if budget in ("absent", "invalid"):
+        return budget == "absent", budget == "invalid", neurons
     spikes = _nonnegative_json_integer(population["spikes"])
     if spikes is None:
         return False, True, neurons
