@@ -26,6 +26,20 @@ class BridgeIntegerPrecision(unittest.TestCase):
         self.assertEqual(status["evidence"][evidence_key][0]["expected"], self.neurons)
         self.assertIn(curate_bridge.REASON_RASTER_SPIKE_BUDGET, status["reason_codes"])
 
+    def _gate_compute_status(self, *, neurons, rate, window_s, spikes):
+        record = gate_snn_fixture()
+        record["gate_compute"] = {
+            "per_check": [
+                {
+                    "neurons": neurons,
+                    "mean_rate_hz": rate,
+                    "window_s": window_s,
+                    "spikes": spikes,
+                }
+            ]
+        }
+        return curate_bridge.raster_status(record)
+
     def test_large_raster_population_keeps_unit_precision(self):
         self.assertEqual(float(self.neurons), float(self.rounded_collision))
         raster_record = gate_snn_fixture()
@@ -58,18 +72,12 @@ class BridgeIntegerPrecision(unittest.TestCase):
         self._assert_spike_mismatch(gate_status, "gate_snn_spike_mismatches")
 
     def test_large_gate_compute_population_keeps_unit_precision(self):
-        compute_record = gate_snn_fixture()
-        compute_record["gate_compute"] = {
-            "per_check": [
-                {
-                    "neurons": self.neurons,
-                    "mean_rate_hz": 25,
-                    "window_s": 0.04,
-                    "spikes": float(self.rounded_collision),
-                }
-            ]
-        }
-        compute_status = curate_bridge.raster_status(compute_record)
+        compute_status = self._gate_compute_status(
+            neurons=self.neurons,
+            rate=25,
+            window_s=0.04,
+            spikes=float(self.rounded_collision),
+        )
         self._assert_spike_mismatch(compute_status, "gate_compute_spike_mismatches")
 
     def test_decimal_factors_do_not_magnify_binary_noise(self):
@@ -140,18 +148,12 @@ class BridgeIntegerPrecision(unittest.TestCase):
         self.assertTrue(gate_status["raster_valid"], gate_status["reason_codes"])
 
     def test_extreme_integer_rate_keeps_an_exact_gate_compute_product(self):
-        compute_record = gate_snn_fixture()
-        compute_record["gate_compute"] = {
-            "per_check": [
-                {
-                    "neurons": 1,
-                    "mean_rate_hz": self.extreme_rate,
-                    "window_s": 0.02,
-                    "spikes": self.extreme_expected_spikes,
-                }
-            ]
-        }
-        compute_status = curate_bridge.raster_status(compute_record)
+        compute_status = self._gate_compute_status(
+            neurons=1,
+            rate=self.extreme_rate,
+            window_s=0.02,
+            spikes=self.extreme_expected_spikes,
+        )
         self.assertTrue(compute_status["raster_valid"], compute_status["reason_codes"])
 
     def test_large_exact_gate_spike_product_is_checked_without_overflow(self):
