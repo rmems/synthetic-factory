@@ -18,6 +18,8 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO / "pipelines") not in sys.path:
     sys.path.insert(0, str(REPO / "pipelines"))
 
+from distillation_test_helpers import distillation_sidecars
+
 
 def trajectory(action="noop", provenance="designed", domain="compose-test"):
     """A complete Thalamic trajectory body that clears the shape validator."""
@@ -37,6 +39,7 @@ def thalamic(tag):
     record = trajectory(domain=f"compose-{tag}")
     record["id"] = f"legacy-{tag}"
     record["meta"]["factory"] = "thalamic-trajectory-factory"
+    record.update(distillation_sidecars())
     return record
 
 
@@ -51,7 +54,7 @@ def spike(time_ms, index):
 
 def bridge_pair(*, unsorted=False):
     times = [3.0, 1.0, 2.0] if unsorted else [1.0, 2.0, 3.0]
-    return {
+    record = {
         "id": "legacy-bridge-1",
         "language_view": {
             "summary": "three relay events",
@@ -66,6 +69,8 @@ def bridge_pair(*, unsorted=False):
             "round": 1,
         },
     }
+    record.update(distillation_sidecars())
+    return record
 
 
 def preference_pair(*, pure=True):

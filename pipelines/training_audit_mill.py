@@ -6,6 +6,7 @@ from pathlib import Path
 
 from check_records import reject_json_constant
 from census import factory_identity_for_path
+from exact_json import parse_finite_json_float
 from mill_family import MillFinding, MillIndex, summarize
 
 
@@ -19,17 +20,30 @@ def _finding_row(finding: MillFinding) -> dict:
     return row
 
 
-def _index_findings(run_dir: Path, files: list[tuple[Path, bytes]]):
+def _index_findings(
+    run_dir: Path,
+    files: list[Path] | list[tuple[Path, bytes]],
+):
     mills = MillIndex()
-    for relative, payload in files:
+    for item in files:
+        if isinstance(item, tuple):
+            relative, payload = item
+        else:
+            path = Path(item)
+            relative = path.relative_to(run_dir)
+            payload = path.read_bytes()
         factory, verified = factory_identity_for_path(run_dir, run_dir / relative)
-        for line_number, raw_line in enumerate(payload.splitlines(), 1):
+        for line_number, raw_line in enumerate(payload.split(b"\n"), 1):
             if not raw_line.strip():
                 continue
             try:
                 line = raw_line.decode("utf-8")
-                record = json.loads(line, parse_constant=reject_json_constant)
-            except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                record = json.loads(
+                    line,
+                    parse_constant=reject_json_constant,
+                    parse_float=parse_finite_json_float,
+                )
+            except (ValueError, RecursionError):
                 continue
             mills.add(
                 factory,
@@ -40,11 +54,15 @@ def _index_findings(run_dir: Path, files: list[tuple[Path, bytes]]):
     return mills.findings()
 
 
-def index_mill_quarantine(run_dir: Path, files: list[tuple[Path, bytes]]):
+def index_mill_quarantine(
+    run_dir: Path,
+    files: list[Path] | list[tuple[Path, bytes]],
+):
     """Return lookup and report views from one shared-detector pass.
 
-    ``files`` is the audited byte snapshot — (relative path, payload bytes)
-    pairs — so the detector and the audit read exactly the same bytes.
+    Audit callers pass the immutable ``(relative path, payload bytes)``
+    snapshot. Plain paths remain accepted for compatibility with direct
+    callers and are captured once before detection.
     """
 
     findings = _index_findings(run_dir, files)

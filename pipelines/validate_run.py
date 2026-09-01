@@ -19,24 +19,36 @@ import re
 import sys
 from pathlib import Path
 
-from validate_run_spikes import (
-    BRIDGE_SPIKE_EVENT_KEYS,
-    REPO,
-    SCHEMA_PATH,
-    SPIKE_CLOCK_DOMAIN_KEYS,
-    SPIKE_CLOCK_DOMAIN_MISMATCH,
-    SPIKE_EVENT_NUMBER_KEYS,
-    SPIKE_EVENT_STRING_KEYS,
-    SPIKE_ORDER_MISMATCH,
-    SPIKE_TIME_KEYS,
-    SPIKE_TIME_KEY_MISMATCH,
-    THALAMIC_SCHEMA,
-    check_spike_order as _check_spike_order,
-    check_spike_stream as _check_spike_stream,
-    declared_clock_domains as _declared_clock_domains,
-    event_time as _event_time,
-    is_number as _is_number,
-)
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    if _local_sibling_module("validate_run", allow_initializing=True) is not None:
+        import validate_run as _direct_validate_run
+        _require_local_sibling(_direct_validate_run, "validate_run")
+        del _direct_validate_run
+    from . import validate_run_spikes as _validate_run_spikes
+    from .validate_run_input import parse_exact_json_record as _parse_exact_json_record
+else:
+    import validate_run_spikes as _validate_run_spikes
+    from validate_run_input import parse_exact_json_record as _parse_exact_json_record
+
+# Historical public compatibility surface. Explicit binding keeps these names
+# importable without asking static analyzers to treat unused imports as use.
+BRIDGE_SPIKE_EVENT_KEYS = _validate_run_spikes.BRIDGE_SPIKE_EVENT_KEYS
+REPO = _validate_run_spikes.REPO
+SCHEMA_PATH = _validate_run_spikes.SCHEMA_PATH
+SPIKE_CLOCK_DOMAIN_KEYS = _validate_run_spikes.SPIKE_CLOCK_DOMAIN_KEYS
+SPIKE_CLOCK_DOMAIN_MISMATCH = _validate_run_spikes.SPIKE_CLOCK_DOMAIN_MISMATCH
+SPIKE_EVENT_NUMBER_KEYS = _validate_run_spikes.SPIKE_EVENT_NUMBER_KEYS
+SPIKE_EVENT_STRING_KEYS = _validate_run_spikes.SPIKE_EVENT_STRING_KEYS
+SPIKE_ORDER_MISMATCH = _validate_run_spikes.SPIKE_ORDER_MISMATCH
+SPIKE_TIME_KEYS = _validate_run_spikes.SPIKE_TIME_KEYS
+SPIKE_TIME_KEY_MISMATCH = _validate_run_spikes.SPIKE_TIME_KEY_MISMATCH
+THALAMIC_SCHEMA = _validate_run_spikes.THALAMIC_SCHEMA
+_check_spike_order = _validate_run_spikes.check_spike_order
+_check_spike_stream = _validate_run_spikes.check_spike_stream
+_declared_clock_domains = _validate_run_spikes.declared_clock_domains
+_event_time = _validate_run_spikes.event_time
+_is_number = _validate_run_spikes.is_number
 
 # The spike-train surface lived here before it split into validate_run_spikes;
 # ``__all__`` declares the names this module still re-exports so existing
@@ -1491,7 +1503,10 @@ def main(argv=None):
         rel = path.relative_to(run_dir)
         entry = {"file": str(rel), "records": 0, "kinds": {}, "errors": []}
         try:
-            text = path.read_text()
+            # Decode the physical bytes without universal-newline translation.
+            # JSONL uses literal LF delimiters; a bare CR is JSON whitespace
+            # inside one physical record, not a second record boundary.
+            text = path.read_bytes().decode("utf-8")
         except UnicodeDecodeError as exc:
             entry["errors"].append(f"{rel}: invalid UTF-8: {exc}")
             manifest["files"].append(entry)
@@ -1504,10 +1519,9 @@ def main(argv=None):
             if not line.strip():
                 continue
             where = f"{rel}:{lineno}"
-            try:
-                obj = json.loads(line, parse_constant=reject_json_constant)
-            except (json.JSONDecodeError, ValueError) as exc:
-                entry["errors"].append(f"{where}: JSON parse error: {exc}")
+            obj, input_error = _parse_exact_json_record(line)
+            if input_error is not None:
+                entry["errors"].append(f"{where}: {input_error}")
                 continue
             errs, kind = check_line(obj, where)
             entry["records"] += 1
@@ -1530,6 +1544,10 @@ def main(argv=None):
     for err in manifest["errors"]:
         print("ERROR:", err, file=sys.stderr)
     sys.exit(1 if manifest["errors"] else 0)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

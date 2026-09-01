@@ -199,7 +199,10 @@ def _read_census_records(path: Path, source: str):
     decoded = []
     parse_failures = 0
     unreadable = []
-    for lineno, raw_line in enumerate(path.read_bytes().splitlines(), 1):
+    # A JSONL record ends only at a literal LF byte.  CRLF leaves JSON
+    # whitespace on the record; a bare CR remains within the physical record
+    # and must not turn malformed bytes into two apparently valid records.
+    for lineno, raw_line in enumerate(path.read_bytes().split(b"\n"), 1):
         if not raw_line.strip():
             continue
         try:
