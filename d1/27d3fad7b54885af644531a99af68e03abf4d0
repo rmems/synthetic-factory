@@ -1,0 +1,69 @@
+tests/test_curate_bridge_raster_regressions.py
+  s_98712805c1499b::t_3438a2fabac394 84,95
+  s_98712805c1499b::t_1e0b48acd328c3 99-127
+pipelines/curate_bridge_events.py
+  s_98712805c1499b::t_9836ec52e90566 43-46,59
+pipelines/training_audit_mill.py
+  s_98712805c1499b::t_62ffca03619556 38
+tests/test_quality_gate_audit.py
+  s_98712805c1499b::t_433592dd7d7746 22,25-42
+pipelines/quality_gate_audit.py
+  s_98712805c1499b::t_8d25f67b01d833 251
+  s_98712805c1499b::t_28ea41c3338097 256,262,300,302,312-314,317
+pipelines/reward_mapping.py
+  s_98712805c1499b::t_9836ec52e90566 342-344,352-357,359
+tests/test_curate_bridge_source_bounds.py
+  s_98712805c1499b::t_9836ec52e90566 1-49
+pipelines/curate_bridge.py
+  s_98712805c1499b::t_4e8f0dfa40007d 913
+tests/test_spike_probe_source.py
+  s_98712805c1499b::t_c4186dd70ff71f 6,14,18-43
+pipelines/curate_bridge_gate.py
+  s_98712805c1499b::t_b2983e93b13d61 8,239-241,307-308,311-317,343-348
+pipelines/spike_probe_source.py
+  s_98712805c1499b::t_1123ca4fec0056 22-25,98
+tests/test_training_audit_framing.py
+  s_98712805c1499b::t_1e0b48acd328c3 12,90-106
+tests/test_curate_bridge_materialization_contract.py
+  s_98712805c1499b::t_9836ec52e90566 1-62
+tests/test_promote_exact_json.py
+  s_98712805c1499b::t_433592dd7d7746 14,18-36
+tests/test_exact_json.py
+  s_98712805c1499b::t_1e0b48acd328c3 21-22,35-42,54-61
+  s_98712805c1499b::t_62ffca03619556 43-53
+pipelines/training_audit.py
+  s_98712805c1499b::t_b2983e93b13d61 372
+  s_98712805c1499b::t_4e8f0dfa40007d 373
+pipelines/promote.py
+  s_98712805c1499b::t_8d25f67b01d833 471
+pipelines/curate_rewards.py
+  s_98712805c1499b::t_1123ca4fec0056 273-274
+  s_98712805c1499b::t_9836ec52e90566 94
+pipelines/curate_gate.py
+  s_98712805c1499b::t_9836ec52e90566 340
+pipelines/curate_bridge_raster.py
+  s_98712805c1499b::t_b2983e93b13d61 11-16,131,504
+pipelines/exact_json.py
+  s_98712805c1499b::t_4e8f0dfa40007d 263-266
+  s_98712805c1499b::t_b2983e93b13d61 26,30,55,60-62,70-109,203,233,286,289,294-300,321
+tests/test_curate_rewards_exact_json.py
+  s_98712805c1499b::t_9836ec52e90566 1-14,16-18,39,41-47,49-56,60-61,63,67-70
+  s_98712805c1499b::t_62ffca03619556 40,48,57-59,62,64-66
+  s_98712805c1499b::t_1123ca4fec0056 15,19-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d127d3fad7b54885af644531a99af68e03abf4d0",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
