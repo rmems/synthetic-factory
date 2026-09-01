@@ -109,6 +109,8 @@ class SourceLineContext:
         _reject_duplicate_object_keys
     )
     constant_rejector: Callable[[str], Any] = reject_json_constant
+    excluded_source_line: Callable[[str, dict[str, Any]], ComposeDecision] | None = None
+    deduplicate_curated_record: Callable[..., ComposeDecision] | None = None
 
 
 def _identity_owner(record: dict[str, Any], pointer: Any) -> dict[str, Any] | None:
@@ -321,13 +323,22 @@ def _excluded_source_line(reason: str, detail: dict[str, Any]) -> ComposeDecisio
     return ComposeDecision(ACTION_EXCLUDED, None, (reason,), (evidence,), None, None)
 
 
-def _decode_source_line(physical_line: bytes) -> str | ComposeDecision:
+def _source_exclusion(
+    context: SourceLineContext, reason: str, detail: dict[str, Any]
+) -> ComposeDecision:
+    implementation = context.excluded_source_line or _excluded_source_line
+    return implementation(reason, detail)
+
+
+def _decode_source_line(
+    physical_line: bytes, context: SourceLineContext
+) -> str | ComposeDecision:
     """Decode one physical line or return its UTF-8 exclusion."""
 
     try:
         return physical_line.decode("utf-8")
     except UnicodeDecodeError as exc:
-        return _excluded_source_line(REASON_INVALID_UTF8, {"error": str(exc)})
+        return _source_exclusion(context, REASON_INVALID_UTF8, {"error": str(exc)})
 
 
 def _parse_source_record(
@@ -343,7 +354,7 @@ def _parse_source_record(
         )
         return record, context.canonical_sha256(record)
     except (ValueError, RecursionError) as exc:
-        return _excluded_source_line(REASON_INVALID_JSON, {"error": str(exc)})
+        return _source_exclusion(context, REASON_INVALID_JSON, {"error": str(exc)})
 
 
 def _duplicate_source_decision(
@@ -355,7 +366,8 @@ def _duplicate_source_decision(
     first = seen.get(semantic_sha256) if seen is not None else None
     if first is None:
         return None
-    return _excluded_source_line(
+    return _source_exclusion(
+        context,
         REASON_DUPLICATE_SOURCE_RECORD,
         {
             "semantic_sha256": semantic_sha256,
@@ -385,9 +397,18 @@ def _curate_source_record(
     )
     try:
         decision = context.record_composer(record, record_context)
-        return _deduplicate_curated_record(decision, context)
+        deduplicate = context.deduplicate_curated_record
+        if deduplicate is None:
+            return _deduplicate_curated_record(decision, context)
+        return deduplicate(
+            decision,
+            source_path=context.source_path,
+            source_line=context.source_line,
+            seen_curated_semantics=context.seen_curated_semantics,
+        )
     except RecursionError as exc:
-        return _excluded_source_line(
+        return _source_exclusion(
+            context,
             REASON_INVALID_JSON,
             {"error": f"recursion depth exhausted during curation: {exc}"},
         )
@@ -411,7 +432,7 @@ def compose_source_line(
 ) -> ComposeDecision:
     """Compose one LF-framed source line using the run writer's contract."""
 
-    decoded = _decode_source_line(physical_line)
+    decoded = _decode_source_line(physical_line, context)
     if isinstance(decoded, ComposeDecision):
         return decoded
     parsed = _parse_source_record(decoded, context)

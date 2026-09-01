@@ -13,8 +13,12 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any
 
-from curate_bridge import raster_status
-from training_audit_bridge import event_stream_status
+if __package__:
+    from .curate_bridge import raster_status
+    from .training_audit_bridge import event_stream_status
+else:
+    from curate_bridge import raster_status
+    from training_audit_bridge import event_stream_status
 
 BRIDGE_FACTORY_SLUG = "neuromorphic-event-language-bridge"
 THALAMIC_FACTORY_SLUG = "thalamic-trajectory-factory"

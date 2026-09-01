@@ -24,41 +24,78 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Mapping
 
-from exact_json import dumps_exact_json, parse_finite_json_float as _parse_exact_json_float
-
-from check_records import (  # noqa: E402
-    ALLOWED_PROVENANCE,
-    canonical_record_id,
-    check_record,
-    expected_states,
-    reject_json_constant,
-    root_record_id,
-    shape_check,
-    walk_key,
-)
-from census import factory_for_path
-from round_txn import TransactionError
-from quality_gate_identity import canonical_numeric_value as _canonical_numeric_value  # noqa: E402
-from curate_coding import (  # noqa: E402
-    HIDDEN_REASONING_KEYS,
-    HIDDEN_REASONING_PREFIX,
-    normalized_key_name,
-)
-from validate_run import (  # noqa: E402
-    HIDDEN_THOUGHT_KEYS,
-    check_episode,
-    episode_like,
-)
-from training_audit_bridge import event_stream_status as _event_stream_status  # noqa: E402
-import distillation_audit as _distillation_audit  # noqa: E402
-from distillation_audit import DistillationAudit  # noqa: E402
-from training_audit_mill import index_mill_quarantine  # noqa: E402
-from training_audit_report import (  # noqa: E402
-    build_report,
-    percentile as _percentile,
-    render_markdown as _render_markdown,
-)
-import training_audit_snapshot as _snapshot
+if __package__:
+    from . import distillation_audit as _distillation_audit
+    from . import training_audit_snapshot as _snapshot
+    from .census import factory_for_path
+    from .check_records import (
+        ALLOWED_PROVENANCE,
+        canonical_record_id,
+        check_record,
+        expected_states,
+        reject_json_constant,
+        root_record_id,
+        shape_check,
+        walk_key,
+    )
+    from .curate_coding import (
+        HIDDEN_REASONING_KEYS,
+        HIDDEN_REASONING_PREFIX,
+        normalized_key_name,
+    )
+    from .distillation_audit import DistillationAudit
+    from .exact_json import (
+        dumps_exact_json,
+        parse_finite_json_float as _parse_exact_json_float,
+    )
+    from .quality_gate_identity import (
+        canonical_numeric_value as _canonical_numeric_value,
+    )
+    from .round_txn import TransactionError
+    from .training_audit_bridge import event_stream_status as _event_stream_status
+    from .training_audit_mill import index_mill_quarantine
+    from .training_audit_report import (
+        build_report,
+        percentile as _percentile,
+        render_markdown as _render_markdown,
+    )
+    from .validate_run import HIDDEN_THOUGHT_KEYS, check_episode, episode_like
+else:
+    import distillation_audit as _distillation_audit
+    import training_audit_snapshot as _snapshot
+    from census import factory_for_path
+    from check_records import (
+        ALLOWED_PROVENANCE,
+        canonical_record_id,
+        check_record,
+        expected_states,
+        reject_json_constant,
+        root_record_id,
+        shape_check,
+        walk_key,
+    )
+    from curate_coding import (
+        HIDDEN_REASONING_KEYS,
+        HIDDEN_REASONING_PREFIX,
+        normalized_key_name,
+    )
+    from distillation_audit import DistillationAudit
+    from exact_json import (
+        dumps_exact_json,
+        parse_finite_json_float as _parse_exact_json_float,
+    )
+    from quality_gate_identity import (
+        canonical_numeric_value as _canonical_numeric_value,
+    )
+    from round_txn import TransactionError
+    from training_audit_bridge import event_stream_status as _event_stream_status
+    from training_audit_mill import index_mill_quarantine
+    from training_audit_report import (
+        build_report,
+        percentile as _percentile,
+        render_markdown as _render_markdown,
+    )
+    from validate_run import HIDDEN_THOUGHT_KEYS, check_episode, episode_like
 
 _PIPELINES = Path(__file__).resolve().parent
 

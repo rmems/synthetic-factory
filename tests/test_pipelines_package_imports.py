@@ -38,6 +38,44 @@ class PipelinesPackageImports(unittest.TestCase):
         "validate_run_provenance",
     )
 
+    @staticmethod
+    def _repository_pipeline_module(module: ModuleType) -> bool:
+        origin = getattr(module, "__file__", None)
+        if origin is None:
+            return False
+        try:
+            return Path(origin).resolve().is_relative_to(PIPELINES)
+        except OSError:
+            return False
+
+    @contextmanager
+    def _clean_package_imports(self):
+        original_path = list(sys.path)
+        saved = {
+            name: module
+            for name, module in tuple(sys.modules.items())
+            if self._repository_pipeline_module(module)
+        }
+        for name in saved:
+            sys.modules.pop(name, None)
+        sys.path[:] = [entry for entry in sys.path if entry != str(PIPELINES)]
+        try:
+            yield
+        finally:
+            for name, module in tuple(sys.modules.items()):
+                if self._repository_pipeline_module(module):
+                    sys.modules.pop(name, None)
+            sys.modules.update(saved)
+            sys.path[:] = original_path
+
+    def test_existing_facades_import_cleanly_from_the_package(self):
+        for name in ("compose_curated", "compose_destination", "training_audit"):
+            with self.subTest(name=name):
+                with self._clean_package_imports():
+                    self.assertNotIn(str(PIPELINES), sys.path)
+                    module = importlib.import_module(f"pipelines.{name}")
+                    self.assertEqual(module.__name__, f"pipelines.{name}")
+
     def _new_split_module_aliases(self) -> tuple[str, ...]:
         return ("pipelines",) + tuple(
             module_name
