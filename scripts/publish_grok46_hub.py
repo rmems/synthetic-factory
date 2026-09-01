@@ -11,7 +11,11 @@ Usage:
     python3 scripts/publish_grok46_hub.py upload [--only HUB_NAME]
     python3 scripts/publish_grok46_hub.py collect
     python3 scripts/publish_grok46_hub.py status
+    python3 scripts/publish_grok46_hub.py schemas [--strict]
     python3 scripts/publish_grok46_hub.py all
+
+Card viewer schemas are declared one JSON file per dataset under
+config/card-schemas/<hub-dataset-name>.json; see pipelines/card_schema.py.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import cast
 
 FACTORY_ROOT = Path("/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-08-19-agentic")
 HF_ROOT = Path("/home/raulmc/rmems/hf")
@@ -39,6 +44,9 @@ PIPELINES_ROOT = REPO_ROOT / "pipelines"
 if str(PIPELINES_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINES_ROOT))
 
+import card_schema  # noqa: E402
+from card_payload import PayloadSummary, resolve_payload_summary  # noqa: E402
+from card_schema import CardSchemaError  # noqa: E402
 import leftover_mill  # noqa: E402
 from round_txn import (  # noqa: E402
     TransactionError,
@@ -48,7 +56,6 @@ from round_txn import (  # noqa: E402
     discover_legacy_named_baseline as transaction_legacy_named_baseline,
     validate_legacy_baseline_payloads as transaction_validate_legacy_baseline_payloads,
 )
-import leftover_mill  # noqa: E402
 
 LICENSE_SRC = REPO_ROOT / "LICENSE"
 
@@ -296,6 +303,116 @@ def hub_name(slug: str) -> str:
 
 def pretty_name(hub: str) -> str:
     return hub.replace("-", " ").title()
+
+
+def known_hub_names() -> list[str]:
+    """Every Hub dataset name this publisher can produce, from META alone.
+
+    Derived from the slug table rather than the factory tree so the schema
+    audit runs anywhere, including a checkout with no ``outputs/raw`` mirror.
+    """
+    return sorted(hub_name(slug) for slug in META)
+
+
+def card_declaration(hub: str) -> dict | None:
+    """Return the validated card schema declaration for one Hub dataset.
+
+    Returns ``None`` only when the dataset owns no declaration file at all. A
+    declaration that exists but does not validate is a hard failure: a broken
+    file must never degrade into an undeclared card.
+    """
+    try:
+        return card_schema.load(hub)
+    except CardSchemaError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def card_schema_audit() -> tuple[list[str], list[str], list[str]]:
+    """Return ``(declared, undeclared, orphaned)`` Hub dataset names."""
+    known = known_hub_names()
+    try:
+        on_disk = card_schema.declared_datasets()
+    except CardSchemaError as exc:
+        raise SystemExit(str(exc)) from exc
+    have = set(on_disk)
+    expected = set(known)
+    declared = [name for name in known if name in have]
+    undeclared = [name for name in known if name not in have]
+    orphaned = [name for name in on_disk if name not in expected]
+    return declared, undeclared, orphaned
+
+
+def require_no_orphaned_declarations() -> None:
+    """Refuse snapshot/upload when a declaration file names no known dataset."""
+    _declared, _undeclared, orphaned = card_schema_audit()
+    if not orphaned:
+        return
+    for name in orphaned:
+        print(
+            f"ORPHANED    config/card-schemas/{name}.json names no known dataset",
+            file=sys.stderr,
+        )
+    raise SystemExit(
+        "orphaned card schema declaration(s) block snapshot/upload: "
+        + ", ".join(orphaned)
+    )
+
+
+def require_renderable_declarations() -> None:
+    """Load and render every declared schema before any publication work.
+
+    ``snapshot`` and ``upload`` mutate one mirror at a time, so a declaration
+    that fails to load or render must abort the run before the first dataset
+    is touched, not when its own loop iteration reaches it. Payload coverage
+    still runs per dataset inside the loop because coverage needs the scanned
+    payload names.
+    """
+    declared, _undeclared, _orphaned = card_schema_audit()
+    for name in declared:
+        declaration = card_declaration(name)
+        if declaration is None:  # pragma: no cover - declared files exist
+            continue
+        try:
+            rendered_card_schema(declaration)
+        except (CardSchemaError, UnicodeEncodeError) as exc:
+            raise SystemExit(
+                f"cannot render card schema for {name}: {exc}"
+            ) from exc
+
+
+def rendered_card_schema(declaration: dict) -> tuple[str, str]:
+    """Render and UTF-8-check one validated declaration's card fragments."""
+    schema_yaml = card_schema.metadata_yaml(declaration)
+    schema_body = card_schema.body_section(declaration)
+    schema_yaml.encode("utf-8")
+    schema_body.encode("utf-8")
+    return schema_yaml, schema_body
+
+
+def card_declaration_for_payload(
+    hub: str, payload_names: list[str]
+) -> tuple[dict | None, str, str]:
+    """Load and fully preflight one declaration against the source payload.
+
+    Returns ``(declaration, schema_yaml, schema_body)``. ``declaration`` is
+    ``None`` only when the dataset owns no file; ``schema_yaml`` is then empty
+    and ``schema_body`` is the undeclared placeholder. Callers that mutate a
+    snapshot must reuse these strings instead of loading the declaration again.
+    """
+    declaration = card_declaration(hub)
+    if declaration is None:
+        return None, "", card_schema.undeclared_body_section(hub)
+    errors = card_schema.payload_coverage_errors(declaration, payload_names)
+    if errors:
+        raise SystemExit(
+            f"card schema for {hub} does not cover the published payload: "
+            + "; ".join(errors)
+        )
+    try:
+        schema_yaml, schema_body = rendered_card_schema(declaration)
+    except (CardSchemaError, UnicodeEncodeError) as exc:
+        raise SystemExit(f"cannot render card schema for {hub}: {exc}") from exc
+    return declaration, schema_yaml, schema_body
 
 
 def factory_source(slug: str) -> Path:
@@ -919,19 +1036,15 @@ def snapshot_one(item: dict) -> dict:
     # leftover-mill leak leaves the mirror untouched, and again on the copies
     # below, so the card describes the bytes that actually landed.
     gate_leftover_mill(item, [(batch, batch.name) for batch in batches])
-    raw, meta = snapshot_directories(dest)
     desired_batch_names = {batch.name for batch in batches}
     desired_note_names = {note.name for note in notes}
-    reconcile_snapshot_entries(
-        dest,
-        {"data", "README.md", "LICENSE", "ATTRIBUTION.md"},
-        "snapshot root entry",
+    # Validate against source names before creating, deleting, or copying any
+    # destination entry. A rejected schema must leave the previous mirror whole.
+    _, schema_yaml, schema_body = card_declaration_for_payload(
+        item["hub"], sorted(desired_batch_names)
     )
-    reconcile_snapshot_entries(
-        dest / "data", {"raw", "metadata"}, "snapshot data entry"
-    )
-    reconcile_snapshot_entries(raw, desired_batch_names, "snapshot payload")
-    reconcile_snapshot_entries(meta, desired_note_names, "snapshot metadata")
+    raw, meta = snapshot_directories(dest)
+    _reconcile_snapshot_layout(dest, raw, meta, desired_batch_names, desired_note_names)
     records, bytes_ = _copy_payload_batches(batches, raw, marker_state)
     kind_mix = gate_leftover_mill(item, [(raw / b.name, b.name) for b in batches])
     for n in notes:
@@ -939,11 +1052,14 @@ def snapshot_one(item: dict) -> dict:
     first, last_s = _published_round_range(batches)
     card = render_card(
         item,
-        records=records,
-        bytes_=bytes_,
-        first=first,
-        last=last_s,
-        payload_names=[batch.name for batch in batches],
+        summary=PayloadSummary(
+            records=records,
+            bytes_=bytes_,
+            first=first,
+            last=last_s,
+            names=[batch.name for batch in batches],
+        ),
+        schema=(schema_yaml, schema_body),
         kind_mix=kind_mix,
     )
     replace_snapshot_text(dest / "README.md", card)
@@ -964,6 +1080,64 @@ def snapshot_one(item: dict) -> dict:
         "last": last_s,
         "quarantined": len(kind_mix),
     }
+
+
+def _reconcile_snapshot_layout(
+    dest: Path,
+    raw: Path,
+    meta: Path,
+    desired_batch_names: set[str],
+    desired_note_names: set[str],
+) -> None:
+    reconcile_snapshot_entries(
+        dest,
+        {"data", "README.md", "LICENSE", "ATTRIBUTION.md"},
+        "snapshot root entry",
+    )
+    reconcile_snapshot_entries(
+        dest / "data", {"raw", "metadata"}, "snapshot data entry"
+    )
+    reconcile_snapshot_entries(raw, desired_batch_names, "snapshot payload")
+    reconcile_snapshot_entries(meta, desired_note_names, "snapshot metadata")
+
+
+def _resolved_card_schema(
+    item: dict,
+    payload_names: list[str] | None,
+    schema: tuple[str, str] | None,
+) -> tuple[str, str]:
+    if schema is None:
+        _, schema_yaml, schema_body = card_declaration_for_payload(
+            item["hub"], payload_names or []
+        )
+        return schema_yaml, schema_body
+    return schema
+
+
+def _release_payload_text(
+    records: int,
+    kb: int,
+    first: str | None,
+    last: str | None,
+    payload_names: list[str] | None,
+) -> str:
+    if first is not None and last is not None:
+        return (
+            f"The release contains {records} raw records across\n"
+            f"`data/raw/batch-{first}.jsonl` through `data/raw/batch-{last}.jsonl` "
+            f"(~{kb} KB), snapshotted from"
+        )
+    if payload_names:
+        names = ", ".join(f"`data/raw/{name}`" for name in payload_names)
+        return (
+            f"The release contains {records} raw records across {len(payload_names)} "
+            f"published JSONL payload(s) ({names}; ~{kb} KB), snapshotted from"
+        )
+    return (
+        "This snapshot currently contains no published raw batch files. "
+        "It does not claim a `data/raw/batch-rNN.jsonl` payload. The factory "
+        "source tree is"
+    )
 
 
 def render_quarantine_section(
@@ -1046,48 +1220,29 @@ schema; the raw snapshot is intentionally not rewritten.
     return ""
 
 
-def _unranged_payload_sentence(
-    records: int, kb: int, payload_names: list[str] | None
-) -> str:
-    """Describe a payload that cannot claim a contiguous batch-rNN span.
+def render_card(item: dict, **keywords: object) -> str:
+    """Render one Hub dataset card.
 
-    Named payloads are listed individually; no payload at all says so
-    explicitly rather than implying an empty range.
+    Payload facts arrive as summary=PayloadSummary(...) or as the legacy
+    records=/bytes_=/first=/last=/payload_names= keywords still used by the
+    stacked card leaves; both styles render byte-identical cards, and unknown,
+    mixed, or incomplete keywords fail closed with TypeError. schema= and
+    kind_mix= keep their prior meanings on either surface.
     """
-    if not payload_names:
-        return (
-            "This snapshot currently contains no published raw batch files. "
-            "It does not claim a `data/raw/batch-rNN.jsonl` payload. The factory "
-            "source tree is"
-        )
-    names = ", ".join(f"`data/raw/{name}`" for name in payload_names)
-    return (
-        f"The release contains {records} raw records across {len(payload_names)} "
-        f"published JSONL payload(s) ({names}; ~{kb} KB), snapshotted from"
+
+    schema = cast("tuple[str, str] | None", keywords.pop("schema", None))
+    kind_mix_arg = cast(
+        "list[leftover_mill.KindMixFinding] | None", keywords.pop("kind_mix", None)
     )
-
-
-def render_card(
-    item: dict,
-    *,
-    records: int,
-    bytes_: int,
-    first: str | None,
-    last: str | None,
-    payload_names: list[str] | None = None,
-    kind_mix: list[leftover_mill.KindMixFinding] | None = None,
-) -> str:
+    summary = resolve_payload_summary(keywords)
     tags = "\n".join(f"- {t}" for t in item["tags"])
-    kb = max(1, bytes_ // 1024)
-    if first is None or last is None:
-        payload = _unranged_payload_sentence(records, kb, payload_names)
-    else:
-        payload = (
-            f"The release contains {records} raw records across\n"
-            f"`data/raw/batch-{first}.jsonl` through `data/raw/batch-{last}.jsonl` "
-            f"(~{kb} KB), snapshotted from"
-        )
-    kind_mix = list(kind_mix or ())
+    records = summary.records
+    kb = max(1, summary.bytes_ // 1024)
+    schema_block, schema_section = _resolved_card_schema(item, summary.names, schema)
+    payload = _release_payload_text(
+        records, kb, summary.first, summary.last, summary.names
+    )
+    kind_mix = list(kind_mix_arg or ())
     quarantine = render_quarantine_section(records, kind_mix)
     factory_mix = leftover_mill.render_factory_mix_card_section(item["slug"], records)
     return f"""---
@@ -1097,7 +1252,7 @@ language:
 - en
 tags:
 {tags}
----
+{schema_block}---
 
 # {item['pretty']}
 
@@ -1138,6 +1293,7 @@ raw Hub copy is evidence only. The curated export drops those keys and keeps a
 short `decision_basis` grounded in visible plan, tool call, observation, or
 reflection evidence instead.
 
+{schema_section}
 ## Planned curated release
 
 Curated training publication remains blocked until a later audit and export
@@ -1157,6 +1313,8 @@ training-ready or factual real-world measurements.
 
 
 def cmd_snapshot(only: str | None = None) -> list[dict]:
+    require_no_orphaned_declarations()
+    require_renderable_declarations()
     items = factories()
     stats = []
     for item in items:
@@ -1360,11 +1518,13 @@ def _validate_upload_snapshot_card(item: dict, dest: Path, raw: Path, batches, k
     first, last = _published_round_range(batches)
     expected_card = render_card(
         item,
-        records=records,
-        bytes_=bytes_,
-        first=first,
-        last=last,
-        payload_names=[batch.name for batch in batches],
+        summary=PayloadSummary(
+            records=records,
+            bytes_=bytes_,
+            first=first,
+            last=last,
+            names=[batch.name for batch in batches],
+        ),
         kind_mix=kind_mix,
     )
     card = _read_snapshot_card(dest)
@@ -1395,7 +1555,10 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
     )
     _validate_upload_snapshot_card(item, dest, raw, batches, kind_mix)
 
+
 def cmd_upload(only: str | None = None) -> None:
+    require_no_orphaned_declarations()
+    require_renderable_declarations()
     for item in factories():
         if not is_selected(item, only):
             continue
@@ -1462,27 +1625,124 @@ def cmd_status() -> None:
         print(f"{item['hub']:48} {local:9d} {factory:9d}")
 
 
-def main() -> int:
+def cmd_schemas(strict: bool = False) -> int:
+    """Report every dataset's card schema declaration state, loudly.
+
+    Exits nonzero on a declaration file that is malformed or does not name a
+    real Hub dataset, so a typo'd filename can never sit unnoticed. With
+    ``--strict`` an undeclared dataset is also a failure.
+    """
+    declared, undeclared, orphaned = card_schema_audit()
+    for name in declared:
+        _report_declared_dataset(name)
+    for name in undeclared:
+        print(f"UNDECLARED  {name:48} no config/card-schemas/{name}.json")
+    print(
+        f"\n{len(declared)} declared, {len(undeclared)} undeclared, "
+        f"{len(orphaned)} orphaned of {len(declared) + len(undeclared)} datasets"
+    )
+    if orphaned:
+        _report_orphaned(orphaned)
+        return 2
+    if undeclared and strict:
+        print(
+            f"strict: {len(undeclared)} dataset(s) still publish a card with no "
+            "declared viewer schema",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+def _report_declared_dataset(name: str) -> None:
+    declaration = card_declaration(name)
+    if declaration is None:
+        raise SystemExit(f"card schema for {name} disappeared during the audit")
+    try:
+        rendered_card_schema(declaration)
+    except (CardSchemaError, UnicodeEncodeError) as exc:
+        raise SystemExit(f"cannot render card schema for {name}: {exc}") from exc
+    kind = "schema" if declaration["features"] else "disclosure-only"
+    issues = (
+        " " + ", ".join(f"#{number}" for number in declaration["issues"])
+        if declaration["issues"]
+        else ""
+    )
+    print(f"declared    {name:48} {kind}{issues}")
+
+
+def _report_orphaned(orphaned: list[str]) -> None:
+    for name in orphaned:
+        print(
+            f"ORPHANED    config/card-schemas/{name}.json names no known dataset",
+            file=sys.stderr,
+        )
+
+
+def _parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["snapshot", "create", "upload", "collect", "status", "all"])
+    ap.add_argument(
+        "cmd",
+        choices=["snapshot", "create", "upload", "collect", "status", "schemas", "all"],
+    )
     ap.add_argument("--only")
-    args = ap.parse_args()
+    ap.add_argument(
+        "--strict",
+        action="store_true",
+        help="schemas: fail when any dataset has no card schema declaration",
+    )
+    return ap.parse_args()
+
+
+def _schemas_exit_code(args: argparse.Namespace) -> int:
+    if args.only:
+        print("schemas does not accept --only", file=sys.stderr)
+        return 2
+    return cmd_schemas(strict=args.strict)
+
+
+def _auth_error(args: argparse.Namespace) -> int | None:
+    """Return an exit code when a Hub-writing command lacks the rmems identity."""
+    if args.cmd not in {"create", "upload", "collect", "all"}:
+        return None
+    return _require_hf_identity()
+
+
+def main() -> int:
+    args = _parse_args()
+    if args.cmd == "schemas":
+        return _schemas_exit_code(args)
+    if args.strict:
+        print("--strict only applies to the schemas command", file=sys.stderr)
+        return 2
     if args.only and not any(is_selected(item, args.only) for item in factories()):
         print(f"unknown --only target: {args.only}", file=sys.stderr)
         return 2
-    if args.cmd in {"create", "upload", "collect", "all"}:
-        who = subprocess.run(
-            ["hf", "auth", "whoami", "--format", "json"],
-            capture_output=True,
-            text=True,
-        )
-        if who.returncode != 0:
-            print(who.stderr, file=sys.stderr)
-            return 2
-        ident = json.loads(who.stdout)
-        if ident.get("user") != "rmems":
-            print(f"refusing: whoami={ident!r}", file=sys.stderr)
-            return 2
+    auth_error = _auth_error(args)
+    if auth_error is not None:
+        return auth_error
+    _dispatch_command(args)
+    return 0
+
+
+def _require_hf_identity() -> int | None:
+    """Confirm the local ``hf`` CLI is authenticated as rmems, or return an exit code."""
+    who = subprocess.run(
+        ["hf", "auth", "whoami", "--format", "json"],
+        capture_output=True,
+        text=True,
+    )
+    if who.returncode != 0:
+        print(who.stderr, file=sys.stderr)
+        return 2
+    ident = json.loads(who.stdout)
+    if ident.get("user") != "rmems":
+        print(f"refusing: whoami={ident!r}", file=sys.stderr)
+        return 2
+    return None
+
+
+def _dispatch_command(args: argparse.Namespace) -> None:
     if args.cmd == "snapshot":
         cmd_snapshot(args.only)
     elif args.cmd == "create":
@@ -1498,7 +1758,6 @@ def main() -> int:
         cmd_create(args.only)
         cmd_upload(args.only)
         cmd_collect(args.only)
-    return 0
 
 
 if __name__ == "__main__":

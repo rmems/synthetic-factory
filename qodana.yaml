@@ -24,3 +24,10 @@ exclude:
   - name: PyUnreachableCodeInspection
     paths:
       - pipelines/check_records.py
+  # Card-schema validator failure messages repr() arbitrary payload values on
+  # purpose: parameters stay object-typed as the fail-closed narrowing
+  # contract, and tests assert on the rendered !r messages.
+  - name: PyStringConversionWithoutDunderMethodInspection
+    paths:
+      - pipelines/card_schema_validate.py
+      - pipelines/card_schema_yaml.py
