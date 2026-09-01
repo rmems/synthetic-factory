@@ -56,13 +56,11 @@ def validate(payload: object, dataset: str) -> dict:
 
     raw_features = payload.get("features", [])
     _require(isinstance(raw_features, list), "features must be a list")
-    raw_features = cast(list, raw_features)
     features = [_validate_feature(node, ()) for node in raw_features]
     _reject_duplicate_names(features, ())
 
     raw_disclosures = payload.get("disclosures", [])
     _require(isinstance(raw_disclosures, list), "disclosures must be a list")
-    raw_disclosures = cast(list, raw_disclosures)
     disclosures = [_validate_disclosure(item) for item in raw_disclosures]
 
     issues = _validate_issues(payload.get("issues", []), "issues")
@@ -125,7 +123,6 @@ def _validate_data_files(raw_data_files: object) -> list[str]:
             isinstance(pattern, str) and DATA_FILE_RE.fullmatch(pattern) is not None,
             f"data_files pattern must be a repo-relative data/raw/ path: {pattern!r}",
         )
-        pattern = cast(str, pattern)
         _require(".." not in pattern, f"data_files pattern escapes the repo: {pattern!r}")
         _require(
             all("**" not in segment or segment == "**" for segment in pattern.split("/")),
@@ -145,7 +142,6 @@ def _validate_issues(value: object, label: str) -> list[int]:
             isinstance(number, int) and not isinstance(number, bool) and number > 0,
             f"{label} entries must be positive integers: {number!r}",
         )
-        number = cast(int, number)
         issues.append(number)
     return issues
 
@@ -272,14 +268,12 @@ def _validate_disclosure(item: object) -> dict:
     summary = cast(str, summary)
     raw_ids = item.get("ids", [])
     _require(isinstance(raw_ids, list), "disclosure ids must be a list")
-    raw_ids = cast(list, raw_ids)
     ids = []
     for record_id in raw_ids:
         _require(
             isinstance(record_id, str) and record_id.strip() != "",
             f"disclosure id must be a non-empty string: {record_id!r}",
         )
-        record_id = cast(str, record_id)
         ids.append(record_id.strip())
     return {
         "summary": summary.strip(),
