@@ -1,0 +1,75 @@
+pipelines/curate_bridge_materialize.py
+  s_98712805c1499b::t_67577816ed9f8b 15-42
+pipelines/training_audit_report.py
+  s_98712805c1499b::t_67577816ed9f8b 9-13,62-63,69,73,85,329
+pipelines/curate_bridge_materialize_fs.py
+  s_98712805c1499b::t_67577816ed9f8b 28
+pipelines/spike_probe.py
+  s_98712805c1499b::t_3543133ce2d8e3 181-185,190-192,198
+  s_98712805c1499b::t_b9e2901e490074 95,104,110,114,150
+  s_98712805c1499b::t_67577816ed9f8b 71-82,93,108,115-117,137,140,148,186-189,199,202-204,206
+.qlty/qlty.toml
+  s_98712805c1499b::t_f9089e2695b91f 1-104
+tests/test_reward_vocabulary.py
+  s_98712805c1499b::t_f26ec56f4aba75 34-35,102-115
+pipelines/exact_json_encoding.py
+  s_98712805c1499b::t_631ea76d8cf761 1-161
+pipelines/check_records.py
+  s_98712805c1499b::t_975c4ac3add257 272-299,302-318
+  s_98712805c1499b::t_5d53f051b85b96 332-335,337-339
+  s_98712805c1499b::t_12706ef6edb9d9 301,319-320
+tests/test_exact_json.py
+  s_98712805c1499b::t_fb1ebf1e4f90a2 7-8,62-81
+  s_98712805c1499b::t_bd305cf2635c59 17,38-61
+.qlty/configs/.hadolint.yaml
+  s_98712805c1499b::t_f9089e2695b91f 1
+pipelines/reward_ontology.py
+  s_98712805c1499b::t_3543133ce2d8e3 127-136,145-149
+tests/test_curate_bridge_materialization.py
+  s_98712805c1499b::t_ec7db503bbf08f 488
+  s_98712805c1499b::t_f26ec56f4aba75 7,10,14,471-487,489-494
+tests/test_check_records_rewards.py
+  s_98712805c1499b::t_975c4ac3add257 26,28
+  s_98712805c1499b::t_13caeae61bfb12 27
+  s_98712805c1499b::t_6e9535344023da 25,29-46
+tests/test_spike_probe.py
+  s_98712805c1499b::t_f26ec56f4aba75 239-244,273,277-305,364,366
+tests/test_training_audit_distillation.py
+  s_98712805c1499b::t_3543133ce2d8e3 213,223
+  s_98712805c1499b::t_f26ec56f4aba75 206-210,222,224-230
+pipelines/training_audit.py
+  s_98712805c1499b::t_3543133ce2d8e3 143-152,155-158
+pipelines/curate_bridge.py
+  s_98712805c1499b::t_7b04f5e83798fe 41,667
+  s_98712805c1499b::t_ed7f249d12e666 604,612-613
+  s_98712805c1499b::t_fb53d5452dd07a 602-603,605-611,664-666
+tests/test_curate_bridge.py
+  s_98712805c1499b::t_fb53d5452dd07a 60,63-64
+  s_98712805c1499b::t_9f24d68d7e40f7 56-59,61-62,65
+tests/test_round_txn.py
+  s_98712805c1499b::t_4b8f96684c2772 981,1002,1019
+  s_98712805c1499b::t_2a60aeb78755ef 18,924-938
+  s_98712805c1499b::t_83261ee23f0ba3 917
+pipelines/exact_json.py
+  s_98712805c1499b::t_bd305cf2635c59 18-21
+  s_98712805c1499b::t_631ea76d8cf761 16,257-265
+tests/round_txn_test_helpers.py
+  s_98712805c1499b::t_1556da238143f6 61,63-83
+  s_98712805c1499b::t_83261ee23f0ba3 60,62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9ff3d873dc85a4bfa8ed6e75d2f90a14f1c49f8b",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
