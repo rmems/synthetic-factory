@@ -54,27 +54,28 @@ EXPECTED_FEATURE_MANIFEST = (
 )
 
 
-def feature_manifest(features, prefix=""):
-    """Flatten a declaration without consulting the independent expected manifest."""
-    manifest = []
+def _walk_features(features, prefix):
+    """Yield (path, encoding-or-dtype, optional) rows in declaration order."""
+    child_prefixes = {"list": "{path}[].", "struct": "{path}."}
     for feature in features:
         path = f"{prefix}{feature['name']}"
         encodings = [key for key in ("dtype", "list", "struct") if key in feature]
         if len(encodings) != 1:
             raise AssertionError(f"{path} has {len(encodings)} feature encodings")
         encoding = encodings[0]
-        manifest.append(
-            (
-                path,
-                feature[encoding] if encoding == "dtype" else encoding,
-                feature.get("optional", False),
-            )
+        yield (
+            path,
+            feature[encoding] if encoding == "dtype" else encoding,
+            feature.get("optional", False),
         )
-        if encoding == "list":
-            manifest.extend(feature_manifest(feature["list"], f"{path}[]."))
-        elif encoding == "struct":
-            manifest.extend(feature_manifest(feature["struct"], f"{path}."))
-    return tuple(manifest)
+        if encoding in child_prefixes:
+            child_prefix = child_prefixes[encoding].format(path=path)
+            yield from _walk_features(feature[encoding], child_prefix)
+
+
+def feature_manifest(features, prefix=""):
+    """Flatten a declaration without consulting the independent expected manifest."""
+    return tuple(_walk_features(features, prefix))
 
 
 class ToolUsePreferenceDeclarationTests(unittest.TestCase):
