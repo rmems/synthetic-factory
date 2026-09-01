@@ -16,6 +16,7 @@ for _path in (TESTS, REPO / "pipelines"):
         sys.path.insert(0, str(_path))
 
 import compose_curated  # noqa: E402
+import compose_destination  # noqa: E402
 from compose_curated_test_support import (  # noqa: E402
     build_source_run,
     thalamic,
@@ -237,7 +238,7 @@ class ComposeDestinationSafety(unittest.TestCase):
             self.assertFalse((root / "curated").exists())
 
     def test_composition_rejects_nonfinite_calibration_even_when_ignored(self):
-        for constant in ("NaN", "Infinity", "-Infinity"):
+        for constant in ("NaN", "Infinity", "-Infinity", "1e400", "-1e400"):
             with self.subTest(constant=constant), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
                 source = build_source_run(root / "run")
@@ -257,6 +258,39 @@ class ComposeDestinationSafety(unittest.TestCase):
                         units_migration=calibration,
                     )
                 self.assertFalse((root / "curated").exists())
+
+    def test_completed_compose_artifacts_are_reauthenticated_before_finish(self):
+        """A post-audit mutation must roll back the composed destination."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = build_source_run(root / "run")
+            destination = root / "curated"
+            real_write = compose_curated._write_new_text
+
+            def write_then_mutate(root_descriptor, relative, text):
+                digest = real_write(root_descriptor, relative, text)
+                if relative == compose_curated.SUMMARY_FILENAME:
+                    member = (
+                        destination
+                        / compose_curated.RECORDS_DIRNAME
+                        / "thalamic-trajectory-factory"
+                        / "batch-r01.jsonl"
+                    )
+                    member.write_bytes(b"{}\n")
+                return digest
+
+            with mock.patch.object(
+                compose_curated,
+                "_write_new_text",
+                side_effect=write_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    compose_curated.ComposeError,
+                    "changed before compose commit",
+                ):
+                    compose_curated.compose_run(source, destination)
+            self.assertFalse(destination.exists())
 
     def test_refuses_unsafe_destinations(self):
         with tempfile.TemporaryDirectory() as td:
@@ -334,8 +368,6 @@ class ComposeDestinationSafety(unittest.TestCase):
 
     def test_pinned_writer_refuses_an_opened_child_moved_outside_the_root(self):
         """A pinned child renamed elsewhere must not receive later leaf writes."""
-
-        import compose_destination
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -508,7 +540,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                     "relocated into immutable raw evidence",
                 ):
                     compose_curated.write_pinned_new_bytes(
-                        pinned.destination_descriptor,
+                        pinned,
                         "records/x.jsonl",
                         b"data\n",
                     )
@@ -524,10 +556,123 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                 except compose_curated.ComposeError:
                     pass
 
+    def test_destination_renamed_elsewhere_refuses_the_write(self):
+        """The pinned root remains bound to the originally requested path."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            source.mkdir()
+            destination = root / "curated"
+            moved = root / "moved-curated"
+            pinned = compose_curated.create_pinned_destination(source, destination)
+            try:
+                destination.rename(moved)
+                with self.assertRaisesRegex(
+                    compose_curated.ComposeError,
+                    "destination changed while it was pinned",
+                ):
+                    compose_curated.write_pinned_new_bytes(
+                        pinned,
+                        "records/x.jsonl",
+                        b"data\n",
+                    )
+                self.assertEqual(list(moved.rglob("*")), [])
+            finally:
+                pinned.cleanup()
+
+    def test_post_create_root_relocation_rolls_back_directory(self):
+        """A root rename after mkdir must remove the just-created directory."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            source.mkdir()
+            destination = root / "curated"
+            moved = root / "moved-curated"
+            pinned = compose_curated.create_pinned_destination(source, destination)
+            real_open = compose_destination._open_pinned_child_directory
+
+            def open_then_move(parent_descriptor, name, label):
+                descriptor = real_open(parent_descriptor, name, label)
+                destination.rename(moved)
+                return descriptor
+
+            try:
+                with mock.patch.object(
+                    compose_destination,
+                    "_open_pinned_child_directory",
+                    side_effect=open_then_move,
+                ):
+                    with self.assertRaisesRegex(
+                        compose_curated.ComposeError,
+                        "destination changed while it was pinned",
+                    ):
+                        compose_destination._create_pinned_new_directory(
+                            pinned,
+                            compose_curated.RECORDS_DIRNAME,
+                            "destination",
+                        )
+                self.assertEqual(list(moved.rglob("*")), [])
+            finally:
+                pinned.cleanup()
+
+    def test_post_leaf_open_root_relocation_rolls_back_file(self):
+        """A root rename after leaf creation must remove the new leaf."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            source.mkdir()
+            destination = root / "curated"
+            moved = root / "moved-curated"
+            pinned = compose_curated.create_pinned_destination(source, destination)
+            real_open = os.open
+
+            def open_then_move(path, flags, mode=0o777, *, dir_fd=None):
+                descriptor = real_open(path, flags, mode, dir_fd=dir_fd)
+                if path == "row.jsonl":
+                    destination.rename(moved)
+                return descriptor
+
+            try:
+                with mock.patch.object(
+                    compose_destination.os,
+                    "open",
+                    side_effect=open_then_move,
+                ):
+                    with self.assertRaisesRegex(
+                        compose_curated.ComposeError,
+                        "destination changed while it was pinned",
+                    ):
+                        compose_curated.write_pinned_new_bytes(
+                            pinned,
+                            "row.jsonl",
+                            b"data\n",
+                        )
+                self.assertEqual(list(moved.rglob("*")), [])
+            finally:
+                pinned.cleanup()
+
+    def test_closed_pin_rejects_revalidation(self):
+        """A released destination pin cannot be reused as a write authority."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            source.mkdir()
+            pinned = compose_curated.create_pinned_destination(
+                source, root / "curated"
+            )
+            pinned.finish()
+            with self.assertRaisesRegex(
+                compose_curated.ComposeError,
+                "destination pin was already closed",
+            ):
+                pinned.verify_binding()
+
     def test_destination_parent_relocated_into_raw_refuses_creation(self):
         """A pinned parent moved into raw must not receive the destination."""
-        import compose_destination
-
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             source = root / "run"
@@ -596,8 +741,6 @@ class PinnedWriterRawRelocation(unittest.TestCase):
         source-member open and the pinned calibration-child open return so
         the identity validation can reject the descriptor.
         """
-        import compose_destination
-
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             member_fifo = root / "member.jsonl"

@@ -4,7 +4,6 @@
 import hashlib
 import json
 import os
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +15,7 @@ from export_test_support import (  # noqa: E402
     compose_fixture,
 )
 import compose_curated  # noqa: E402
+import export_contract  # noqa: E402
 import export_hf  # noqa: E402
 
 
@@ -605,14 +605,13 @@ class StrictExportJsonLoading(unittest.TestCase):
                     export_hf._loads_json(f'{{"value":{literal}}}', "payload")
 
     def test_deep_json_is_wrapped_as_an_export_error(self):
-        previous_limit = sys.getrecursionlimit()
-        try:
-            sys.setrecursionlimit(1000)
-            payload = "[" * 100_000 + "]" * 100_000
+        with mock.patch.object(
+            export_contract.json,
+            "loads",
+            side_effect=RecursionError("decoder recursion limit"),
+        ):
             with self.assertRaisesRegex(export_hf.ExportError, "invalid JSON"):
-                export_hf._loads_json(payload, "payload")
-        finally:
-            sys.setrecursionlimit(previous_limit)
+                export_hf._loads_json("[]", "payload")
 
 
 if __name__ == "__main__":

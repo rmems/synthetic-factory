@@ -549,6 +549,7 @@ class ComposeCurated(unittest.TestCase):
         can repair it.
         """
         pair = bridge_pair()
+        pair["internal_reasoning"] = "hidden outer bridge reasoning"
         pair["language_view"]["trajectory"]["executed_action"] = {
             "steps": [
                 {
@@ -586,9 +587,17 @@ class ComposeCurated(unittest.TestCase):
             self.assertEqual(
                 coding_stage["detail"]["embedded_at"], "language_view.trajectory"
             )
+            self.assertEqual(
+                coding_stage["detail"]["hidden_reasoning_fields_removed"], 2
+            )
+            self.assertEqual(
+                coding_stage["detail"]["wrapper_hidden_reasoning_fields_removed"], 1
+            )
             records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
             emitted = next(records_dir.rglob("*.jsonl")).read_text(encoding="utf-8")
             self.assertNotIn("hidden nested reasoning", emitted)
+            self.assertNotIn("hidden outer bridge reasoning", emitted)
+            self.assertNotIn("internal_reasoning", emitted)
             self.assertNotIn('"thought"', emitted)
 
     def test_wrap_records_with_incidental_root_steps_ground_the_wrapped_episode(self):

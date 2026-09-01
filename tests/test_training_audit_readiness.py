@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
@@ -78,6 +79,54 @@ class TrainingAuditReadinessReport(unittest.TestCase):
 
                 with self.assertRaises(ValueError):
                     training_audit.audit_run(root)
+
+    def test_member_added_during_capture_fails_the_audit_closed(self):
+        """Standalone readiness must describe the final captured membership."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            factory = root / "thalamic-trajectory-factory"
+            write(factory / "batch-r01.jsonl", [thalamic("captured")])
+            real_read = training_audit._read_pinned_member
+            added = False
+
+            def read_then_add(run_dir, relative):
+                nonlocal added
+                payload = real_read(run_dir, relative)
+                if not added:
+                    added = True
+                    write(factory / "late.jsonl", [thalamic("late")])
+                return payload
+
+            with mock.patch.object(
+                training_audit,
+                "_read_pinned_member",
+                side_effect=read_then_add,
+            ):
+                with self.assertRaisesRegex(ValueError, "member set changed"):
+                    training_audit.audit_run(root)
+
+    def test_overflowed_json_number_is_a_record_parse_error(self):
+        """The strict audit and export must reject the same JSON numbers."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "thalamic-trajectory-factory" / "batch-r01.jsonl"
+            path.parent.mkdir(parents=True)
+            document = json.dumps(thalamic("overflow"))
+            path.write_text(document[:-1] + ',"probe":1e400}\n', encoding="utf-8")
+
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(report["record_invariants"]["errors"], 1)
+        self.assertTrue(
+            any(
+                "JSON parse error" in item
+                for item in report["record_invariants"]["error_examples"]
+            ),
+            report["record_invariants"]["error_examples"],
+        )
 
     def test_a_symlinked_directory_in_the_run_tree_fails_the_audit_closed(self):
         """Codex #97 P2: an aliased subtree must fail the audit, not vanish.

@@ -67,7 +67,10 @@ import curate_rewards  # noqa: E402
 import training_audit  # noqa: E402
 from check_records import reject_json_constant  # noqa: E402
 from census import factory_identity_for_path  # noqa: E402
-from curate_identity import _reject_duplicate_object_keys  # noqa: E402
+from curate_identity import (  # noqa: E402
+    _parse_finite_json_float,
+    _reject_duplicate_object_keys,
+)
 from record_kind import preference_side_kinds  # noqa: E402
 from round_txn import TransactionError  # noqa: E402
 
@@ -1096,12 +1099,28 @@ def _compose_bridge_view_coding(
         module = curate_agentic
         curated_trajectory, detail = _strip_hidden_only_side(trajectory)
     detail["embedded_at"] = "language_view.trajectory"
-    outcome = _append_coding_lane_stage(stages, module, curated_trajectory, detail)
-    if isinstance(outcome, ComposeDecision):
-        return outcome
+    if curated_trajectory is None:
+        return _append_coding_lane_stage(stages, module, None, detail)
     updated = copy.deepcopy(current)
     updated["language_view"]["trajectory"] = curated_trajectory
-    return updated
+    if curate_coding.contains_hidden_reasoning_key(updated):
+        updated, wrapper_detail = _strip_hidden_only_side(updated)
+        wrapper_removed = wrapper_detail["hidden_reasoning_fields_removed"]
+        detail["hidden_reasoning_fields_removed"] = (
+            detail.get("hidden_reasoning_fields_removed", 0) + wrapper_removed
+        )
+        detail["wrapper_hidden_reasoning_fields_removed"] = wrapper_removed
+        detail["reason_codes"] = list(
+            dict.fromkeys(
+                [
+                    *detail.get("reason_codes", []),
+                    *wrapper_detail.get("reason_codes", []),
+                ]
+            )
+        )
+        if wrapper_removed:
+            detail["action"] = "modified"
+    return _append_coding_lane_stage(stages, module, updated, detail)
 
 
 def _hidden_only_curation_applies(
@@ -1109,7 +1128,11 @@ def _hidden_only_curation_applies(
 ) -> bool:
     """Whether a retained non-episode wrapper still carries private fields."""
 
-    governed_shape = registered_kind == "thalamic" or is_preference_record(current)
+    governed_shape = (
+        registered_kind == "thalamic"
+        or is_preference_record(current)
+        or is_bridge_record(current)
+    )
     return governed_shape and curate_coding.contains_hidden_reasoning_key(current)
 
 
@@ -1775,6 +1798,7 @@ def _load_calibration(
             payload.decode("utf-8"),
             object_pairs_hook=_reject_duplicate_object_keys,
             parse_constant=reject_json_constant,
+            parse_float=_parse_finite_json_float,
         )
     except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
         raise ComposeError(
@@ -2010,14 +2034,14 @@ def _compose_one_line(
 
 def _write_emitted_records(
     state: _ComposeRunState,
-    destination_descriptor: int,
+    destination_target: int | PinnedDestination,
     relative: Any,
     emitted: list[str],
 ) -> None:
     """Write one source file's retained records to the destination."""
 
     digest = _write_new_text(
-        destination_descriptor,
+        destination_target,
         f"{RECORDS_DIRNAME}/{relative}",
         "".join(line + "\n" for line in emitted),
     )
@@ -2036,7 +2060,7 @@ def _compose_source_file(
     *,
     relative: Any,
     raw_file: bytes,
-    destination_descriptor: int,
+    destination_target: int | PinnedDestination,
     catalog: Mapping[str, Any] | None,
     mill_findings: Mapping[tuple[str, int], Any] | None = None,
 ) -> None:
@@ -2062,7 +2086,7 @@ def _compose_source_file(
         )
 
     if emitted:
-        _write_emitted_records(state, destination_descriptor, relative, emitted)
+        _write_emitted_records(state, destination_target, relative, emitted)
 
 
 def _captured_source_payloads(
@@ -2125,21 +2149,41 @@ def _capture_source_snapshot(
 
 
 def _write_compose_provenance(
-    state: _ComposeRunState, destination_descriptor: int
+    state: _ComposeRunState, destination_target: int | PinnedDestination
 ) -> tuple[str, str]:
     """Write the manifest and reward sidecar files; return their digests."""
 
     manifest_sha256 = _write_new_text(
-        destination_descriptor,
+        destination_target,
         f"{MANIFEST_DIRNAME}/{MANIFEST_FILENAME}",
         "".join(line + "\n" for line in state.manifest_lines),
     )
     sidecar_sha256 = _write_new_text(
-        destination_descriptor,
+        destination_target,
         f"{MANIFEST_DIRNAME}/{REWARD_SIDECAR_FILENAME}",
         "".join(line + "\n" for line in state.sidecar_lines),
     )
     return manifest_sha256, sidecar_sha256
+
+
+def _authenticate_composed_artifacts(
+    pinned_destination: PinnedDestination,
+    expected_digests: Mapping[str, str],
+) -> None:
+    """Reopen every declared compose artifact immediately before commit."""
+
+    pinned_destination.verify_binding()
+    for relative, expected_digest in sorted(expected_digests.items()):
+        _path, payload = _read_exact_regular_file(
+            pinned_destination.root,
+            relative,
+            f"compose artifact {relative}",
+        )
+        if sha256_hex(payload) != expected_digest:
+            raise ComposeError(
+                f"compose artifact {relative} changed before compose commit"
+            )
+    pinned_destination.verify_binding()
 
 
 def _compose_run_summary(
@@ -2194,6 +2238,33 @@ def _compose_run_summary(
     }
 
 
+def _commit_compose_summary(
+    state: _ComposeRunState,
+    pinned_destination: PinnedDestination,
+    summary: Mapping[str, Any],
+    manifest_sha256: str,
+    sidecar_sha256: str,
+) -> None:
+    """Write the summary and authenticate the complete declared artifact set."""
+
+    summary_sha256 = _write_new_text(
+        pinned_destination,
+        SUMMARY_FILENAME,
+        json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+    )
+    expected_digests = {
+        item["path"]: item["sha256"] for item in state.outputs
+    }
+    expected_digests.update(
+        {
+            summary["manifest"]["path"]: manifest_sha256,
+            summary["reward_sidecars"]["path"]: sidecar_sha256,
+            SUMMARY_FILENAME: summary_sha256,
+        }
+    )
+    _authenticate_composed_artifacts(pinned_destination, expected_digests)
+
+
 def compose_run(
     source_run: str | Path,
     destination: str | Path,
@@ -2216,7 +2287,7 @@ def compose_run(
         Path(units_migration) if units_migration is not None else None,
     )
     pinned_destination = create_pinned_destination(resolved_source, destination)
-    destination_descriptor = pinned_destination.destination_descriptor
+    destination_target = pinned_destination
     records_dir = pinned_destination.root / RECORDS_DIRNAME
     state = _ComposeRunState()
 
@@ -2226,23 +2297,23 @@ def compose_run(
         # after it was opened, and the path would follow it there. The checked
         # helper refuses first, from the kernel's view of the descriptor.
         _create_pinned_new_directory(
-            destination_descriptor, RECORDS_DIRNAME, "destination"
+            destination_target, RECORDS_DIRNAME, "destination"
         )
         _create_pinned_new_directory(
-            destination_descriptor, MANIFEST_DIRNAME, "destination"
+            destination_target, MANIFEST_DIRNAME, "destination"
         )
         for relative in source_members:
             _compose_source_file(
                 state,
                 relative=relative,
                 raw_file=payload_by_member[relative],
-                destination_descriptor=destination_descriptor,
+                destination_target=destination_target,
                 catalog=catalog,
                 mill_findings=mill_findings,
             )
 
         manifest_sha256, sidecar_sha256 = _write_compose_provenance(
-            state, destination_descriptor
+            state, destination_target
         )
         summary = _compose_run_summary(
             state,
@@ -2254,10 +2325,12 @@ def compose_run(
             sidecar_sha256=sidecar_sha256,
             records_dir=records_dir,
         )
-        _write_new_text(
-            destination_descriptor,
-            SUMMARY_FILENAME,
-            json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        _commit_compose_summary(
+            state,
+            pinned_destination,
+            summary,
+            manifest_sha256,
+            sidecar_sha256,
         )
     except BaseException:
         pinned_destination.cleanup()

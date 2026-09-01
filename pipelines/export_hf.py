@@ -36,7 +36,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
@@ -94,6 +94,7 @@ from export_members import (  # noqa: E402,F401
     _read_exact_regular_file,
     _require_exact_directory,
 )
+from export_provenance import build_export_provenance  # noqa: E402
 from export_replay import (  # noqa: E402,F401
     _authenticate_source_replay,
     _replay_source_lines,
@@ -212,7 +213,11 @@ def collect_rows(records_dir: Path) -> list[ViewerRow]:
     return [row for curated in collect_files(records_dir) for row in curated.rows]
 
 
-def _write_new_bytes(root_descriptor: int, relative: Any, payload: bytes) -> str:
+def _write_new_bytes(
+    destination_target: int | compose_curated.PinnedDestination,
+    relative: Any,
+    payload: bytes,
+) -> str:
     """Create one new export file with every path component pinned.
 
     Export shares compose's pinned writer so a same-user process cannot swap a
@@ -222,7 +227,7 @@ def _write_new_bytes(root_descriptor: int, relative: Any, payload: bytes) -> str
 
     try:
         return compose_curated.write_pinned_new_bytes(
-            root_descriptor, relative, payload, f"export {relative}"
+            destination_target, relative, payload, f"export {relative}"
         )
     except compose_curated.ComposeError as exc:
         raise ExportError(str(exc)) from exc
@@ -383,14 +388,23 @@ def _require_curated_snapshot_unchanged(
     """Re-enumerate curated members after authentication and compare exact bytes."""
 
     current = collect_files(records_dir)
-    expected_members = tuple(item.source_file for item in expected)
-    current_members = tuple(item.source_file for item in current)
+    expected_members, expected_payloads = _curated_snapshot_fingerprint(expected)
+    current_members, current_payloads = _curated_snapshot_fingerprint(current)
     if current_members != expected_members:
         raise ExportError("curated member set changed after the initial snapshot")
-    expected_payloads = tuple(item.payload for item in expected)
-    current_payloads = tuple(item.payload for item in current)
     if current_payloads != expected_payloads:
         raise ExportError("curated payload changed after the initial snapshot")
+
+
+def _curated_snapshot_fingerprint(
+    files: Sequence[CuratedFile],
+) -> tuple[tuple[str, ...], tuple[bytes, ...]]:
+    """Return the member names and payloads that define one curated snapshot."""
+
+    return (
+        tuple(item.source_file for item in files),
+        tuple(item.payload for item in files),
+    )
 
 
 def _training_ready_audit(
@@ -414,14 +428,15 @@ def _training_ready_audit(
 
 
 def _write_curated_payloads(
-    destination_descriptor: int, curated_files: list[CuratedFile]
+    destination_target: int | compose_curated.PinnedDestination,
+    curated_files: list[CuratedFile],
 ) -> list[dict[str, Any]]:
     """Copy every curated payload byte-identically into the destination."""
 
     files: list[dict[str, Any]] = []
     for curated in curated_files:
         digest = _write_new_bytes(
-            destination_descriptor, curated.source_file, curated.payload
+            destination_target, curated.source_file, curated.payload
         )
         files.append(
             {
@@ -434,7 +449,8 @@ def _write_curated_payloads(
 
 
 def _write_viewer_projection(
-    destination_descriptor: int, rows: list[ViewerRow]
+    destination_target: int | compose_curated.PinnedDestination,
+    rows: list[ViewerRow],
 ) -> str:
     """Write the viewer parquet only after it proves losslessly re-readable."""
 
@@ -442,7 +458,7 @@ def _write_viewer_projection(
     round_trip = read_viewer_parquet(viewer_bytes)
     if round_trip != list(rows):
         raise ExportError("viewer projection failed its lossless round-trip check")
-    return _write_new_bytes(destination_descriptor, VIEWER_PATH, viewer_bytes)
+    return _write_new_bytes(destination_target, VIEWER_PATH, viewer_bytes)
 
 
 def _authenticate_written_artifacts(
@@ -469,7 +485,7 @@ def _write_export_metadata(
     provenance["splits"]["protocol_sha256"] = protocol_digest
     expected_digests[PROTOCOL_PATH] = protocol_digest
     provenance_digest = _write_new_bytes(
-        pinned_destination.destination_descriptor,
+        pinned_destination,
         PROVENANCE_PATH,
         (json.dumps(provenance, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(
             "utf-8"
@@ -477,6 +493,19 @@ def _write_export_metadata(
     )
     expected_digests[PROVENANCE_PATH] = provenance_digest
     _authenticate_written_artifacts(pinned_destination.root, expected_digests)
+
+
+def _refuse_authenticated_source_destination(
+    compose_metadata: Mapping[str, Any], destination: Path
+) -> None:
+    """Keep derived export bytes outside the authenticated compose source."""
+
+    source_root = Path(compose_metadata["source"]["path"])
+    resolved_destination = destination.resolve(strict=False)
+    if source_root == resolved_destination or source_root in resolved_destination.parents:
+        raise ExportError(
+            "destination cannot be written inside the authenticated compose source"
+        )
 
 
 def export_run(
@@ -497,69 +526,52 @@ def export_run(
     curated_files, rows, snapshot = _curated_snapshot(records_dir)
     report, audit = _training_ready_audit(records_dir, snapshot)
     compose_metadata = _compose_metadata(curated_root, curated_files, report)
-    source_root = Path(compose_metadata["source"]["path"])
-    resolved_destination = destination.resolve(strict=False)
-    if source_root == resolved_destination or source_root in resolved_destination.parents:
-        raise ExportError(
-            "destination cannot be written inside the authenticated compose source"
-        )
+    _refuse_authenticated_source_destination(compose_metadata, destination)
     _require_curated_snapshot_unchanged(records_dir, curated_files)
 
     train, evaluate = split_rows(rows, eval_fraction=eval_fraction, salt=split_salt)
 
     pinned_destination = _create_pinned_destination(resolved_root, destination)
-    destination_descriptor = pinned_destination.destination_descriptor
+    destination_target = pinned_destination
     try:
-        files = _write_curated_payloads(destination_descriptor, curated_files)
+        files = _write_curated_payloads(destination_target, curated_files)
         expected_digests = {item["path"]: item["sha256"] for item in files}
-        viewer_digest = _write_viewer_projection(destination_descriptor, rows)
+        viewer_digest = _write_viewer_projection(destination_target, rows)
         expected_digests[VIEWER_PATH] = viewer_digest
 
         train_digest = _write_new_bytes(
-            destination_descriptor, TRAIN_PATH, _jsonl_payload(train)
+            destination_target, TRAIN_PATH, _jsonl_payload(train)
         )
         eval_digest = _write_new_bytes(
-            destination_descriptor, EVAL_PATH, _jsonl_payload(evaluate)
+            destination_target, EVAL_PATH, _jsonl_payload(evaluate)
         )
         expected_digests.update(
             {TRAIN_PATH: train_digest, EVAL_PATH: eval_digest}
         )
 
-        provenance = {
-            "document_type": "curated_export_provenance",
-            "export_name": EXPORT_NAME,
-            "export_version": EXPORT_VERSION,
-            "dataset_name": dataset_name,
-            "curated_root": str(resolved_root),
-            "compose": compose_metadata,
-            "records": len(rows),
-            "training_ready": audit["training_ready"],
-            "audit": audit,
-            "payload_published": False,
-            "trainer_launched": False,
-            "files": files,
-            "viewer": {
-                "path": VIEWER_PATH,
-                "rows": len(rows),
-                "columns": list(VIEWER_COLUMNS),
-                "encoding": "PLAIN/uncompressed",
-                "sha256": viewer_digest,
-                "lossless": True,
-            },
-            "splits": {
-                "policy": SPLIT_POLICY,
-                "scope": "post_curation_snapshot_future_trainer_holdout",
-                "eval_fraction": eval_fraction,
-                "salt": split_salt,
-                "train": {"path": TRAIN_PATH, "records": len(train), "sha256": train_digest},
-                "eval": {"path": EVAL_PATH, "records": len(evaluate), "sha256": eval_digest},
-                "train_records": len(train),
-                "eval_records": len(evaluate),
-                "protocol": PROTOCOL_PATH,
-            },
-        }
+        provenance = build_export_provenance(
+            {
+                "resolved_root": resolved_root,
+                "compose_metadata": compose_metadata,
+                "rows": rows,
+                "audit": audit,
+                "options": {
+                    "dataset_name": dataset_name,
+                    "eval_fraction": eval_fraction,
+                    "split_salt": split_salt,
+                },
+                "written": {
+                    "files": files,
+                    "viewer_digest": viewer_digest,
+                    "train": train,
+                    "evaluate": evaluate,
+                    "train_digest": train_digest,
+                    "eval_digest": eval_digest,
+                },
+            }
+        )
         protocol_digest = _write_new_bytes(
-            destination_descriptor,
+            destination_target,
             PROTOCOL_PATH,
             render_eval_protocol(provenance).encode("utf-8"),
         )

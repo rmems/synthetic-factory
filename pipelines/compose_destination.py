@@ -115,6 +115,24 @@ class PinnedDestination:
     destination_identity: tuple[int, int, int]
     closed: bool = False
 
+    def verify_binding(self) -> None:
+        """Require both descriptors to retain their original path bindings."""
+
+        if self.closed:
+            raise ComposeError("destination pin was already closed")
+        _verify_directory_binding(
+            self.path.parent,
+            self.parent_descriptor,
+            "destination parent",
+            expected_identity=self.parent_identity,
+        )
+        _verify_directory_binding(
+            self.path,
+            self.destination_descriptor,
+            "destination",
+            expected_identity=self.destination_identity,
+        )
+
     def _entry_is_ours(self) -> bool:
         try:
             current = os.stat(
@@ -150,24 +168,29 @@ class PinnedDestination:
         if self.closed:
             raise ComposeError("destination pin was already closed")
         try:
-            _verify_directory_binding(
-                self.path.parent,
-                self.parent_descriptor,
-                "destination parent",
-                expected_identity=self.parent_identity,
-            )
-            _verify_directory_binding(
-                self.path,
-                self.destination_descriptor,
-                "destination",
-                expected_identity=self.destination_identity,
-            )
+            self.verify_binding()
         except BaseException:
             self.cleanup()
             raise
         os.close(self.destination_descriptor)
         os.close(self.parent_descriptor)
         self.closed = True
+
+
+def _destination_descriptor(target: int | PinnedDestination) -> int:
+    """Return the root descriptor carried by a raw or fully bound target."""
+
+    if isinstance(target, PinnedDestination):
+        return target.destination_descriptor
+    return target
+
+
+def _verify_destination_target(target: int | PinnedDestination) -> None:
+    """Reject relocation when the caller retained the complete root binding."""
+
+    if isinstance(target, PinnedDestination):
+        _assert_descriptor_outside_raw(target.destination_descriptor, "destination")
+        target.verify_binding()
 
 
 def _validated_member_relative(raw_path: Any, label: str) -> PurePosixPath:
@@ -727,8 +750,51 @@ def _verify_pinned_child(
         )
 
 
+def _remove_created_directory(parent_descriptor: int, name: str) -> None:
+    """Best-effort rollback for a directory created through ``parent_descriptor``."""
+
+    try:
+        os.rmdir(name, dir_fd=parent_descriptor)
+    except OSError:
+        pass
+
+
+def _remove_created_file(parent_descriptor: int, name: str) -> None:
+    """Best-effort rollback for a file created through ``parent_descriptor``."""
+
+    try:
+        os.unlink(name, dir_fd=parent_descriptor)
+    except OSError:
+        pass
+
+
+def _open_bound_destination_directory(
+    target: int | PinnedDestination,
+    parent_descriptor: int,
+    name: str,
+    label: str,
+) -> int:
+    """Create and pin one directory while retaining the root path binding."""
+
+    root_descriptor = _destination_descriptor(target)
+    _verify_destination_target(target)
+    _assert_descriptor_contained(root_descriptor, parent_descriptor, label)
+    _assert_descriptor_outside_raw(parent_descriptor, label)
+    child_descriptor = _open_pinned_child_directory(
+        parent_descriptor, name, label
+    )
+    try:
+        _verify_destination_target(target)
+        _assert_descriptor_contained(root_descriptor, child_descriptor, label)
+    except BaseException:
+        _remove_created_directory(parent_descriptor, name)
+        os.close(child_descriptor)
+        raise
+    return child_descriptor
+
+
 def _create_pinned_new_directory(
-    parent_descriptor: int, name: str, label: str
+    target: int | PinnedDestination, name: str, label: str
 ) -> None:
     """Create one child directory through its checked pinned parent.
 
@@ -740,12 +806,83 @@ def _create_pinned_new_directory(
     pinned leaf writer.
     """
 
+    parent_descriptor = _destination_descriptor(target)
+    child_descriptor = _open_bound_destination_directory(
+        target,
+        parent_descriptor,
+        name,
+        label,
+    )
+    os.close(child_descriptor)
+
+
+def _open_bound_destination_leaf(
+    target: int | PinnedDestination,
+    parent_descriptor: int,
+    leaf: str,
+    label: str,
+) -> int:
+    """Create one new leaf and verify the bound root before returning it."""
+
+    root_descriptor = _destination_descriptor(target)
+    _verify_destination_target(target)
+    _assert_descriptor_contained(root_descriptor, parent_descriptor, label)
     _assert_descriptor_outside_raw(parent_descriptor, label)
-    os.close(_open_pinned_child_directory(parent_descriptor, name, label))
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    try:
+        descriptor = os.open(leaf, flags, 0o644, dir_fd=parent_descriptor)
+    except OSError as exc:
+        raise ComposeError(
+            f"{label}: cannot create new file {leaf!r}: {exc}"
+        ) from exc
+    try:
+        _verify_destination_target(target)
+        _assert_descriptor_contained(root_descriptor, descriptor, label)
+    except BaseException:
+        _remove_created_file(parent_descriptor, leaf)
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def _write_bound_destination_leaf(
+    target: int | PinnedDestination,
+    parent_descriptor: int,
+    leaf: str,
+    payload: bytes,
+    label: str,
+) -> None:
+    """Write and revalidate one exclusively created destination leaf."""
+
+    descriptor = _open_bound_destination_leaf(
+        target, parent_descriptor, leaf, label
+    )
+    root_descriptor = _destination_descriptor(target)
+    try:
+        written = 0
+        while written < len(payload):
+            written += os.write(descriptor, payload[written:])
+        _assert_descriptor_contained(root_descriptor, descriptor, label)
+        _assert_descriptor_outside_raw(descriptor, label)
+        _verify_destination_target(target)
+    except BaseException:
+        _remove_created_file(parent_descriptor, leaf)
+        raise
+    finally:
+        os.close(descriptor)
 
 
 def write_pinned_new_bytes(
-    root_descriptor: int, relative: Any, payload: bytes, label: str = "destination"
+    target: int | PinnedDestination,
+    relative: Any,
+    payload: bytes,
+    label: str = "destination",
 ) -> str:
     """Create one new file under a pinned root, pinning every component.
 
@@ -756,51 +893,28 @@ def write_pinned_new_bytes(
     derived output from escaping into the immutable ``outputs/raw/`` tree.
     """
 
+    root_descriptor = _destination_descriptor(target)
     parts = _destination_write_parts(relative, label)
     opened: list[int] = []
     current = root_descriptor
     try:
         for name in parts[:-1]:
-            _assert_descriptor_contained(root_descriptor, current, label)
-            _assert_descriptor_outside_raw(current, label)
-            current = _open_pinned_child_directory(current, name, label)
+            parent_descriptor = current
+            current = _open_bound_destination_directory(
+                target,
+                parent_descriptor,
+                name,
+                label,
+            )
             opened.append(current)
-            _assert_descriptor_contained(root_descriptor, current, label)
         leaf = parts[-1]
-        _assert_descriptor_contained(root_descriptor, current, label)
-        _assert_descriptor_outside_raw(current, label)
-        flags = (
-            os.O_WRONLY
-            | os.O_CREAT
-            | os.O_EXCL
-            | getattr(os, "O_NOFOLLOW", 0)
-            | getattr(os, "O_CLOEXEC", 0)
+        _write_bound_destination_leaf(
+            target,
+            current,
+            leaf,
+            payload,
+            label,
         )
-        try:
-            descriptor = os.open(leaf, flags, 0o644, dir_fd=current)
-        except OSError as exc:
-            raise ComposeError(
-                f"{label}: cannot create new file {parts[-1]!r}: {exc}"
-            ) from exc
-        try:
-            _assert_descriptor_contained(root_descriptor, descriptor, label)
-            written = 0
-            while written < len(payload):
-                written += os.write(descriptor, payload[written:])
-            # A same-user rename can move the opened destination — and every
-            # descriptor under it — into ``outputs/raw`` after the open. The
-            # descriptor's current path is authoritative: refuse, and remove
-            # the leaf through its pinned parent so nothing lands in raw.
-            _assert_descriptor_contained(root_descriptor, descriptor, label)
-            _assert_descriptor_outside_raw(descriptor, label)
-        except BaseException:
-            try:
-                os.unlink(leaf, dir_fd=current)
-            except OSError:
-                pass
-            raise
-        finally:
-            os.close(descriptor)
     finally:
         for descriptor in reversed(opened):
             os.close(descriptor)
@@ -827,11 +941,13 @@ def _assert_descriptor_outside_raw(descriptor: int, label: str) -> None:
         )
 
 
-def _write_new_text(root_descriptor: int, relative: Any, text: str) -> str:
+def _write_new_text(
+    target: int | PinnedDestination, relative: Any, text: str
+) -> str:
     """Create one new destination file exclusively and hash its bytes."""
 
     return write_pinned_new_bytes(
-        root_descriptor,
+        target,
         relative,
         text.encode("utf-8"),
         f"destination {relative}",

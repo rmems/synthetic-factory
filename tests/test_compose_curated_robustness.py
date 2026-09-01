@@ -24,6 +24,7 @@ import curate_coding  # noqa: E402
 from compose_curated_test_support import (  # noqa: E402
     episode,
     thalamic,
+    write_jsonl,
 )
 
 
@@ -207,6 +208,29 @@ class ComposeSourceLineResourceLimits(unittest.TestCase):
 
         self.assertEqual(added[0][0][0], "captured-factory")
         self.assertIs(added[0][1]["factory_verified"], True)
+
+    def test_factory_identity_change_during_capture_is_refused(self):
+        """The mill index must never resolve ownership from a later tree state."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            write_jsonl(
+                source / "thalamic-trajectory-factory" / "batch-r01.jsonl",
+                [thalamic("factory-snapshot")],
+            )
+
+            with mock.patch.object(
+                compose_curated,
+                "factory_identity_for_path",
+                side_effect=(("captured-factory", True), ("later-factory", True)),
+            ):
+                with self.assertRaisesRegex(
+                    compose_curated.ComposeError,
+                    "identity changed while capturing the source snapshot",
+                ):
+                    compose_curated.compose_run(source, root / "curated")
+            self.assertFalse((root / "curated").exists())
 
     def test_a_fatal_line_does_not_roll_back_the_whole_run(self):
         # The unguarded ``RecursionError`` escaped ``compose_run``, which

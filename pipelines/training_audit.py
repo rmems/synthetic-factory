@@ -52,6 +52,7 @@ from curate_coding import (  # noqa: E402
     HIDDEN_REASONING_PREFIX,
     normalized_key_name,
 )
+from curate_identity import _parse_finite_json_float  # noqa: E402
 from validate_run import (  # noqa: E402
     HIDDEN_THOUGHT_KEYS,
     _episode_like,
@@ -421,6 +422,47 @@ def _enumerated_run_members(run_dir: Path) -> list[Path]:
     return sorted(members)
 
 
+def _run_membership(run_dir: Path) -> tuple[frozenset[Path], tuple[Path, ...]]:
+    """Return the visible and enumerated members relative to ``run_dir``."""
+
+    visible = frozenset(
+        path.relative_to(run_dir) for path in visible_jsonl_paths(run_dir)
+    )
+    members = tuple(
+        path.relative_to(run_dir) for path in _enumerated_run_members(run_dir)
+    )
+    return visible, members
+
+
+def _capture_run_member(
+    run_dir: Path,
+    relative: Path,
+    visible: frozenset[Path],
+    digest_cache: dict[Path, dict[str, str]],
+) -> tuple[Path, bytes] | None:
+    """Capture one visible regular member, or validate and skip an invisible one."""
+
+    path = run_dir / relative
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise ValueError(
+            f"audit member cannot be captured: {relative}: {exc}"
+        ) from exc
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ValueError(f"audit member is not an exact regular file: {relative}")
+    if relative not in visible:
+        return None
+    payload = _read_pinned_member(run_dir, relative)
+    _require_committed_digest(
+        payload,
+        relative,
+        census._enclosing_marker_root(run_dir, path),
+        digest_cache,
+    )
+    return relative, payload
+
+
 def _captured_run_files(run_dir: Path) -> list[tuple[Path, bytes]]:
     """Capture every visible JSONL member of ``run_dir`` as exact bytes.
 
@@ -430,30 +472,18 @@ def _captured_run_files(run_dir: Path) -> list[tuple[Path, bytes]]:
     ``training_ready: true``. Regular files the round-transaction contract
     keeps invisible are excluded by that contract, not silently lost.
     """
-    visible = set(visible_jsonl_paths(run_dir))
+    visible, members = _run_membership(run_dir)
     digest_cache: dict[Path, dict[str, str]] = {}
     files = []
-    for path in _enumerated_run_members(run_dir):
-        relative = path.relative_to(run_dir)
-        try:
-            metadata = path.lstat()
-        except OSError as exc:
-            raise ValueError(
-                f"audit member cannot be captured: {relative}: {exc}"
-            ) from exc
-        if not stat.S_ISREG(metadata.st_mode):
-            raise ValueError(
-                f"audit member is not an exact regular file: {relative}"
-            )
-        if path in visible:
-            payload = _read_pinned_member(run_dir, relative)
-            _require_committed_digest(
-                payload,
-                relative,
-                census._enclosing_marker_root(run_dir, path),
-                digest_cache,
-            )
-            files.append((relative, payload))
+    for relative in members:
+        captured = _capture_run_member(
+            run_dir, relative, visible, digest_cache
+        )
+        if captured is not None:
+            files.append(captured)
+    visible_after, members_after = _run_membership(run_dir)
+    if visible_after != visible or members_after != members:
+        raise ValueError("audit member set changed while capturing the run snapshot")
     return files
 
 
@@ -576,7 +606,11 @@ def audit_run(
             bucket["records"] += 1
             token_estimate = max(1, math.ceil(len(line.encode("utf-8")) / 4))
             try:
-                obj = json.loads(line, parse_constant=reject_json_constant)
+                obj = json.loads(
+                    line,
+                    parse_constant=reject_json_constant,
+                    parse_float=_parse_finite_json_float,
+                )
             except (json.JSONDecodeError, ValueError) as exc:
                 # Preserve the existing raw-input accounting for malformed
                 # records; unlike a proven mill quarantine, they have not been
