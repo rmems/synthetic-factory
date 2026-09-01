@@ -55,6 +55,7 @@ __all__ = [
     "bucket_sim_or_real",
     "census_dir",
     "classify_kind",
+    "enclosing_marker_root",
     "factory_for_path",
     "factory_identity_for_path",
     "iter_sim_or_real",
