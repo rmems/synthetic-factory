@@ -21,6 +21,23 @@ write_declaration = _shared.write_declaration
 
 PROTO_BREAKING = "proto-breaking-change-trajectories"
 
+# The Hub item and published-payload facts the card must render, derived from
+# the mirror at ~/rmems/hf/grok-4.6/proto-breaking-change-trajectories.
+PROTO_ITEM = {
+    "slug": "proto-breaking-change-factory",
+    "hub": PROTO_BREAKING,
+    "pretty": "Proto Breaking Change Trajectories",
+    "blurb": "Protobuf leftover-compat breaking-change episodes.",
+    "tags": ["synthetic-data", "trajectories", "protobuf", "api"],
+}
+PROTO_SUMMARY = dict(
+    records=3414,
+    bytes_=25953665,
+    first="r01",
+    last="r1707",
+    names=["batch-r01.jsonl", "batch-r1707.jsonl"],
+)
+
 
 class ProtoBreakingChangeDeclarationTests(unittest.TestCase):
     """Issue #49: `reward` is a seven-shape key-bag, so the parquet index fails.
@@ -33,20 +50,9 @@ class ProtoBreakingChangeDeclarationTests(unittest.TestCase):
     def setUp(self):
         self.declaration = card_schema.load(PROTO_BREAKING)
         self.assertIsNotNone(self.declaration, "config/card-schemas is missing #49")
-        self.item = {
-            "slug": "proto-breaking-change-factory",
-            "hub": PROTO_BREAKING,
-            "pretty": "Proto Breaking Change Trajectories",
-            "blurb": "Protobuf leftover-compat breaking-change episodes.",
-            "tags": ["synthetic-data", "trajectories", "protobuf", "api"],
-        }
+        self.item = dict(PROTO_ITEM)
         self.card = publisher.render_card(
-            self.item,
-            records=3414,
-            bytes_=25953665,
-            first="r01",
-            last="r1707",
-            payload_names=["batch-r01.jsonl", "batch-r1707.jsonl"],
+            self.item, summary=publisher.PayloadSummary(**PROTO_SUMMARY)
         )
 
     def test_declaration_matches_the_observed_union_schema(self):
