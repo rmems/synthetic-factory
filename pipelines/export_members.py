@@ -82,6 +82,20 @@ def _compose_member_path(curated_root: Path, raw_path: Any, label: str) -> Path:
     return candidate
 
 
+def _stable_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    """Return the fields that must remain unchanged across an exact read."""
+
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
 def _read_pinned_descriptor(
     path: Path, before: os.stat_result, raw_path: Any, label: str
 ) -> tuple[os.stat_result, bytes]:
@@ -98,7 +112,7 @@ def _read_pinned_descriptor(
         opened = os.fstat(descriptor)
         if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
             raise ExportError(f"{label}: opened identity is not a unique regular file")
-        if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino):
+        if _stable_file_identity(before) != _stable_file_identity(opened):
             raise ExportError(f"{label}: path identity changed while opening")
         chunks: list[bytes] = []
         while True:
@@ -106,6 +120,9 @@ def _read_pinned_descriptor(
             if not chunk:
                 break
             chunks.append(chunk)
+        opened_after = os.fstat(descriptor)
+        if _stable_file_identity(opened) != _stable_file_identity(opened_after):
+            raise ExportError(f"{label}: source identity changed while reading")
     finally:
         os.close(descriptor)
     return opened, b"".join(chunks)
@@ -118,7 +135,7 @@ def _read_exact_regular_file(root: Path, raw_path: Any, label: str) -> tuple[Pat
     before = path.lstat()
     opened, payload = _read_pinned_descriptor(path, before, raw_path, label)
     after = path.lstat()
-    if (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino):
+    if _stable_file_identity(after) != _stable_file_identity(opened):
         raise ExportError(f"{label}: path identity changed while reading")
     if path.resolve(strict=True) != root.resolve(strict=True).joinpath(
         *PurePosixPath(str(raw_path)).parts

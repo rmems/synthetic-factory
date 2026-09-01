@@ -600,6 +600,7 @@ def create_pinned_destination(
             expected_identity=expected_parent_identity,
         )
         _refuse_existing_destination(parent_descriptor, destination)
+        _assert_descriptor_outside_raw(parent_descriptor, "destination parent")
         os.mkdir(destination.name, 0o755, dir_fd=parent_descriptor)
         created = os.stat(
             destination.name,

@@ -420,6 +420,39 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                 except compose_curated.ComposeError:
                     pass
 
+    def test_destination_parent_relocated_into_raw_refuses_creation(self):
+        """A pinned parent moved into raw must not receive the destination."""
+        import compose_destination
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            source.mkdir()
+            parent = root / "destination-parent"
+            parent.mkdir()
+            raw = root / "outputs" / "raw"
+            raw.mkdir(parents=True)
+            relocated_parent = raw / parent.name
+            destination = parent / "curated"
+            original = compose_destination._refuse_existing_destination
+
+            def relocate_before_creation(parent_descriptor, requested_destination):
+                original(parent_descriptor, requested_destination)
+                parent.rename(relocated_parent)
+
+            with mock.patch.object(
+                compose_destination,
+                "_refuse_existing_destination",
+                relocate_before_creation,
+            ):
+                with self.assertRaisesRegex(
+                    compose_curated.ComposeError,
+                    "relocated into immutable raw evidence",
+                ):
+                    compose_curated.create_pinned_destination(source, destination)
+
+            self.assertFalse((relocated_parent / destination.name).exists())
+
     def test_initial_compose_directories_refuse_a_relocated_destination(self):
         """Codex #97 P1: the first mkdirs must not follow a raw relocation.
 

@@ -332,6 +332,47 @@ class ExportSnapshotCoherence(unittest.TestCase):
 
 
 class ExportMemberFifoSwap(unittest.TestCase):
+    def test_same_inode_mutation_during_chunked_read_is_rejected(self):
+        """A reader must never return bytes from two source-file states."""
+        import export_members
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            member = root / "member.jsonl"
+            chunk_size = 1024 * 1024
+            member.write_bytes(b"A" * (chunk_size * 2))
+            real_read = export_members.os.read
+            mutated = False
+
+            def read_then_mutate(descriptor, size):
+                nonlocal mutated
+                chunk = real_read(descriptor, size)
+                if chunk and not mutated:
+                    mutated = True
+                    writer = os.open(member, os.O_WRONLY)
+                    try:
+                        os.pwrite(writer, b"B" * chunk_size, chunk_size)
+                    finally:
+                        os.close(writer)
+                return chunk
+
+            with mock.patch.object(
+                export_members.os,
+                "read",
+                side_effect=read_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    export_hf.ExportError,
+                    "changed while reading",
+                ):
+                    export_members._read_exact_regular_file(
+                        root,
+                        member.name,
+                        "curated payload",
+                    )
+
+            self.assertTrue(mutated)
+
     def test_a_member_swapped_for_a_fifo_is_rejected_without_blocking(self):
         """Codex #97 P2: a FIFO swapped in after lstat must not hang the open.
 
