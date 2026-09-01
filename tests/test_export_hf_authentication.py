@@ -551,6 +551,8 @@ class CalibrationPayloadLoading(unittest.TestCase):
                 {"usd_conversion_factor": -2, "scope": "ffpc-r5-004"},
                 {"usd_conversion_factor": "0.5", "scope": "ffpc-r5-005"},
                 {"usd_conversion_factor": 0.25, "scope": 17},
+                {"usd_conversion_factor": 10**400, "scope": "ffpc-r5-006"},
+                {"usd_conversion_factor": 10**305, "scope": "ffpc-r5-007"},
                 {"usd_conversion_factor": 0.25, "scope": "ffpc-r5-002"},
             )
         )
@@ -559,7 +561,7 @@ class CalibrationPayloadLoading(unittest.TestCase):
         # or non-string scope is evidence we cannot convert, not a hard error.
         self.assertEqual(set(catalog), {"ffpc-r5-002"})
         self.assertEqual(catalog["ffpc-r5-002"]["canonical_factor"], 0.25)
-        self.assertTrue(catalog["ffpc-r5-002"]["evidence_ref"].endswith("#/records/5"))
+        self.assertTrue(catalog["ffpc-r5-002"]["evidence_ref"].endswith("#/records/7"))
 
     def test_one_scope_calibrates_every_record_it_names(self):
         catalog = self.load(

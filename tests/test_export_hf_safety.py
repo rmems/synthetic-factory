@@ -73,6 +73,21 @@ class ExportDestinationSafety(unittest.TestCase):
                 export_hf.export_run(curated, symlink_parent / "export")
             self.assertFalse((real_parent / "export").exists())
 
+    def test_refuses_a_destination_under_the_authenticated_compose_source(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            curated = compose_fixture(root)
+            summary = json.loads(
+                (curated / compose_curated.SUMMARY_FILENAME).read_text(encoding="utf-8")
+            )
+            destination = Path(summary["source_run"]) / "export"
+
+            with self.assertRaisesRegex(
+                export_hf.ExportError, "authenticated compose source"
+            ):
+                export_hf.export_run(curated, destination)
+            self.assertFalse(destination.exists())
+
     def test_destination_parent_swap_cannot_redirect_creation_or_cleanup(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

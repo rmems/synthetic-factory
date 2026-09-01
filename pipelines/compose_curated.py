@@ -66,6 +66,7 @@ import curate_preferences  # noqa: E402
 import curate_rewards  # noqa: E402
 import training_audit  # noqa: E402
 from check_records import reject_json_constant  # noqa: E402
+from census import factory_identity_for_path  # noqa: E402
 from curate_identity import _reject_duplicate_object_keys  # noqa: E402
 from record_kind import preference_side_kinds  # noqa: E402
 from round_txn import TransactionError  # noqa: E402
@@ -2079,22 +2080,30 @@ def _captured_source_payloads(
 
 def _source_snapshot_identities(
     resolved_source: Path, source_members: tuple[str, ...]
-) -> dict[str, tuple[int, ...]]:
-    """Capture the stable identity of every member in one source census."""
+) -> dict[str, tuple[tuple[int, ...], str, bool]]:
+    """Capture file and factory identities for every member in one census."""
 
-    return {
-        relative: _stable_file_identity(
-            _source_member_path(
-                resolved_source, relative, f"compose source {relative}"
-            ).lstat()
+    identities = {}
+    for relative in source_members:
+        path = _source_member_path(
+            resolved_source, relative, f"compose source {relative}"
         )
-        for relative in source_members
-    }
+        factory, verified = factory_identity_for_path(resolved_source, path)
+        identities[relative] = (
+            _stable_file_identity(path.lstat()),
+            factory,
+            verified,
+        )
+    return identities
 
 
 def _capture_source_snapshot(
     resolved_source: Path,
-) -> tuple[tuple[str, ...], dict[str, bytes]]:
+) -> tuple[
+    tuple[str, ...],
+    dict[str, bytes],
+    dict[str, tuple[str, bool]],
+]:
     """Capture one complete, identity-stable source member census."""
 
     source_members = source_jsonl_members(resolved_source)
@@ -2108,7 +2117,11 @@ def _capture_source_snapshot(
         raise ComposeError(
             "source member identity changed while capturing the source snapshot"
         )
-    return source_members, payloads
+    factory_identities = {
+        relative: (factory, verified)
+        for relative, (_file_identity, factory, verified) in identities.items()
+    }
+    return source_members, payloads, factory_identities
 
 
 def _write_compose_provenance(
@@ -2192,9 +2205,11 @@ def compose_run(
     source_run = Path(source_run)
     destination = Path(destination)
     resolved_source = _require_exact_directory(source_run, "source run")
-    source_members, payload_by_member = _capture_source_snapshot(resolved_source)
+    source_members, payload_by_member, factory_identities = _capture_source_snapshot(
+        resolved_source
+    )
     mill_findings = compose_mill.index_compose_mills(
-        resolved_source, payload_by_member, _jsonl_physical_lines
+        payload_by_member, factory_identities, _jsonl_physical_lines
     )
     catalog, calibration_descriptor = _load_calibration(
         resolved_source,

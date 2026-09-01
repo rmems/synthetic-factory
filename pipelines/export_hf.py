@@ -497,6 +497,12 @@ def export_run(
     curated_files, rows, snapshot = _curated_snapshot(records_dir)
     report, audit = _training_ready_audit(records_dir, snapshot)
     compose_metadata = _compose_metadata(curated_root, curated_files, report)
+    source_root = Path(compose_metadata["source"]["path"])
+    resolved_destination = destination.resolve(strict=False)
+    if source_root == resolved_destination or source_root in resolved_destination.parents:
+        raise ExportError(
+            "destination cannot be written inside the authenticated compose source"
+        )
     _require_curated_snapshot_unchanged(records_dir, curated_files)
 
     train, evaluate = split_rows(rows, eval_fraction=eval_fraction, salt=split_salt)

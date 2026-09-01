@@ -13,22 +13,21 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Callable, Mapping
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-from census import factory_identity_for_path  # noqa: E402
 from check_records import reject_json_constant  # noqa: E402
 from mill_family import MillFinding, MillIndex  # noqa: E402
 from curate_identity import _reject_duplicate_object_keys  # noqa: E402
 
 
 def index_compose_mills(
-    source_run: Path,
     payload_by_member: Mapping[str, bytes],
+    factory_identity_by_member: Mapping[str, tuple[str, bool]],
     frame_lines: Callable[[bytes], list[bytes]],
 ) -> dict[tuple[str, int], MillFinding]:
     """Return {(member, line): finding} for foreign-mill source lines.
@@ -41,8 +40,7 @@ def index_compose_mills(
 
     mills = MillIndex()
     for relative in sorted(payload_by_member):
-        path = source_run.joinpath(*PurePosixPath(relative).parts)
-        factory, verified = factory_identity_for_path(source_run, path)
+        factory, verified = factory_identity_by_member[relative]
         for line_number, raw_line in enumerate(
             frame_lines(payload_by_member[relative]), 1
         ):

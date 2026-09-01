@@ -176,11 +176,37 @@ class ComposeSourceLineResourceLimits(unittest.TestCase):
             compose_curated.compose_mill, "MillIndex", return_value=CapturingIndex()
         ):
             findings = compose_curated.compose_mill.index_compose_mills(
-                Path("/source"), payloads, compose_curated._jsonl_physical_lines
+                payloads,
+                {"factory/batch.jsonl": ("factory", True)},
+                compose_curated._jsonl_physical_lines,
             )
 
         self.assertEqual(findings, {})
         self.assertEqual(added, [])
+
+    def test_mill_index_uses_the_captured_factory_identity(self):
+        added = []
+
+        class CapturingIndex:
+            def add(self, *args, **kwargs):
+                added.append((args, kwargs))
+
+            @staticmethod
+            def findings():
+                return ()
+
+        payloads = {"missing/batch.jsonl": b'{"id":"example"}\n'}
+        with mock.patch.object(
+            compose_curated.compose_mill, "MillIndex", return_value=CapturingIndex()
+        ):
+            compose_curated.compose_mill.index_compose_mills(
+                payloads,
+                {"missing/batch.jsonl": ("captured-factory", True)},
+                compose_curated._jsonl_physical_lines,
+            )
+
+        self.assertEqual(added[0][0][0], "captured-factory")
+        self.assertIs(added[0][1]["factory_verified"], True)
 
     def test_a_fatal_line_does_not_roll_back_the_whole_run(self):
         # The unguarded ``RecursionError`` escaped ``compose_run``, which

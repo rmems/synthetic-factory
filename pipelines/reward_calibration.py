@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import math
+
 from reward_mapping import _decimal, _json_number
 from reward_policy import (
     CANONICAL_UNIT_USD,
@@ -23,9 +25,13 @@ def _entry_calibrations(entry, *, path, index):
     scope = entry.get(MIGRATION_SCOPE_FIELD)
     if not isinstance(scope, str):
         return
+    canonical_factor = _json_number(factor)
+    source_unit_usd = _json_number(factor * CANONICAL_UNIT_USD)
+    if not math.isfinite(canonical_factor) or not math.isfinite(source_unit_usd):
+        return
     for record_id in sorted(set(RECORD_ID_RE.findall(scope))):
         yield record_id, {
-            "source_unit_usd": _json_number(factor * CANONICAL_UNIT_USD),
-            "canonical_factor": _json_number(factor),
+            "source_unit_usd": source_unit_usd,
+            "canonical_factor": canonical_factor,
             "evidence_ref": f"{path.as_posix()}#/records/{index}",
         }

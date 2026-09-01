@@ -21,6 +21,7 @@ if str(_PIPELINES) not in sys.path:
 
 import compose_curated  # noqa: E402
 import compose_mill  # noqa: E402
+from census import factory_identity_for_path  # noqa: E402
 from round_txn import TransactionError  # noqa: E402
 from export_calibration import _authenticated_calibration  # noqa: E402
 from export_contract import CuratedFile, ExportError  # noqa: E402
@@ -258,7 +259,9 @@ def _replay_source_file(
         _record_replayed_output_file(state, relative, emitted)
 
 
-def _member_identity(source_root: Path, relative: str) -> tuple[int, ...]:
+def _member_identity(
+    source_root: Path, relative: str
+) -> tuple[tuple[int, ...], str, bool]:
     path = source_root.joinpath(*relative.split("/"))
     try:
         entry = path.lstat()
@@ -266,12 +269,13 @@ def _member_identity(source_root: Path, relative: str) -> tuple[int, ...]:
         raise ExportError(
             f"compose source {relative}: member cannot be inspected: {exc}"
         ) from exc
-    return _stable_file_identity(entry)
+    factory, verified = factory_identity_for_path(source_root, path)
+    return _stable_file_identity(entry), factory, verified
 
 
 def _member_identities(
     source_root: Path, source_members: tuple[str, ...]
-) -> dict[str, tuple[int, ...]]:
+) -> dict[str, tuple[tuple[int, ...], str, bool]]:
     return {
         relative: _member_identity(source_root, relative)
         for relative in source_members
@@ -281,7 +285,7 @@ def _member_identities(
 def _require_coherent_capture(
     source_root: Path,
     source_members: tuple[str, ...],
-    identities_before: dict[str, tuple[int, ...]],
+    identities_before: dict[str, tuple[tuple[int, ...], str, bool]],
 ) -> None:
     """Refuse a capture whose members changed while it was being taken.
 
@@ -333,8 +337,12 @@ def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
         for relative in source_members
     }
     _require_coherent_capture(source_root, source_members, identities_before)
+    factory_identities = {
+        relative: (factory, verified)
+        for relative, (_file_identity, factory, verified) in identities_before.items()
+    }
     mill_findings = compose_mill.index_compose_mills(
-        source_root, payload_by_member, _replay_physical_lines
+        payload_by_member, factory_identities, _replay_physical_lines
     )
 
     state = _ReplayState()
