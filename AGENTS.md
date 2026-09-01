@@ -57,6 +57,27 @@ Cite this section instead of inventing defensive defaults.
   restacks, GitHub rebases, Grok recovery merges, or any later commit.
   A copied Claude trailer on a later SHA is a restack, not new Claude work.
 
+## Hugging Face card viewer schemas
+
+Published cards declare their Dataset Viewer schema by hand, one JSON file per
+dataset at `config/card-schemas/<hub-dataset-name>.json`. The format and the
+rules live in `pipelines/card_schema.py`. Audit the set with:
+
+```bash
+python3 scripts/publish_grok46_hub.py schemas          # lists declared/undeclared
+python3 scripts/publish_grok46_hub.py schemas --strict # nonzero while any gap remains
+```
+
+A dataset with no declaration publishes a card that says so. Never rewrite
+historical raw JSONL to fix a viewer schema — declare the union on the card.
+When even a declared union cannot describe a record honestly, the record is
+defective, not the schema: escalate through the quarantine-ledger path
+(`KIND_MIX_QUARANTINE` in `pipelines/leftover_mill.py`, documented in
+`docs/leftover-mill-quarantine.md`) — add the record's provenance to the
+ledger, open a tracking issue so the operator can review the quarantine, and
+let the published card report the exclusion. Both routes keep the raw bytes
+untouched.
+
 ## Cursor Cloud specific instructions
 
 Cloud agents should start from `.cursor/environment.json`, which builds

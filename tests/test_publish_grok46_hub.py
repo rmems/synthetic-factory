@@ -24,6 +24,13 @@ ITEM = {
     "tags": ["synthetic-data"],
 }
 
+# A Hub name that deliberately owns no config/card-schemas/<name>.json. Legacy
+# payload fixtures publish `episodes.jsonl`, which the declared
+# `data/raw/batch-*.jsonl` glob does not cover; the coverage guard is a real
+# defect check, so the fixture moves off a declared dataset rather than the
+# guard being loosened for it.
+LEGACY_ITEM = {**ITEM, "hub": "legacy-payload-fixture"}
+
 
 def valid_legacy_episode(record_id, round_number=1, success=True):
     alternate_scenario = str(record_id).endswith("-1")
@@ -148,7 +155,347 @@ def write_valid_completed_long_horizon(path, round_number):
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
 
+def mirror_file_bytes(mirror):
+    """Snapshot every mirror file's bytes, keyed by mirror-relative path."""
+    return {
+        path.relative_to(mirror): path.read_bytes()
+        for path in mirror.rglob("*")
+        if path.is_file()
+    }
+
+
+def seed_mirror_with_previous_snapshot(destination_root):
+    """Create ITEM's mirror holding a previous publish; return it and its bytes."""
+    mirror = destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
+    mirror.mkdir(parents=True)
+    (mirror / "README.md").write_text("previous card\n", encoding="utf-8")
+    (mirror / "previous-snapshot.json").write_text(
+        '{"state":"complete"}\n',
+        encoding="utf-8",
+    )
+    return mirror, mirror_file_bytes(mirror)
+
+
 class PublishGrok46HubTests(unittest.TestCase):
+    def test_schema_coverage_failure_preserves_the_existing_mirror(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            write_valid_legacy(source / "batch-r01.jsonl")
+
+            destination_root = root / "hf"
+            mirror, before = seed_mirror_with_previous_snapshot(destination_root)
+
+            schema_root = root / "card-schemas"
+            schema_root.mkdir()
+            (schema_root / f"{ITEM['hub']}.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "dataset": ITEM["hub"],
+                        "note": "Fixture declaration deliberately misses the source batch.",
+                        "data_files": ["data/raw/episodes.jsonl"],
+                        "features": [{"name": "id", "dtype": "string"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(
+                publisher, "HF_ROOT", destination_root
+            ), mock.patch.object(
+                publisher.card_schema, "SCHEMA_ROOT", schema_root
+            ):
+                with self.assertRaisesRegex(
+                    SystemExit, "does not cover the published payload"
+                ):
+                    publisher.snapshot_one(ITEM)
+
+            self.assertEqual(mirror_file_bytes(mirror), before)
+            self.assertFalse((mirror / "data").exists())
+
+    def test_schema_render_failure_preserves_the_existing_mirror(self):
+        cases = (
+            ("config_name", {"config_name": "bad---name"}),
+            ("split", {"split": "bad---name"}),
+            ("body_utf8", {"note": "bad\ud800note"}),
+        )
+        for case, overrides in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                source = root / "raw" / ITEM["slug"]
+                source.mkdir(parents=True)
+                write_valid_legacy(source / "batch-r01.jsonl")
+
+                destination_root = root / "hf"
+                mirror, before = seed_mirror_with_previous_snapshot(destination_root)
+
+                schema_root = root / "card-schemas"
+                schema_root.mkdir()
+                declaration = {
+                    "version": 1,
+                    "dataset": ITEM["hub"],
+                    "note": "Fixture declaration reaches YAML rendering.",
+                    "features": [{"name": "id", "dtype": "string"}],
+                }
+                declaration.update(overrides)
+                (schema_root / f"{ITEM['hub']}.json").write_text(
+                    json.dumps(declaration),
+                    encoding="utf-8",
+                )
+
+                with mock.patch.object(
+                    publisher, "FACTORY_ROOT", root / "raw"
+                ), mock.patch.object(
+                    publisher, "HF_ROOT", destination_root
+                ), mock.patch.object(
+                    publisher.card_schema, "SCHEMA_ROOT", schema_root
+                ):
+                    with self.assertRaisesRegex(SystemExit, "cannot render card schema"):
+                        publisher.snapshot_one(ITEM)
+
+                self.assertEqual(mirror_file_bytes(mirror), before)
+                self.assertFalse((mirror / "data").exists())
+
+    def test_snapshot_and_upload_refuse_orphaned_declarations(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            write_valid_legacy(source / "batch-r01.jsonl")
+
+            destination_root = root / "hf"
+            mirror = destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
+            mirror.mkdir(parents=True)
+            (mirror / "README.md").write_text("previous card\n", encoding="utf-8")
+            before = {
+                path.relative_to(mirror): path.read_bytes()
+                for path in mirror.rglob("*")
+                if path.is_file()
+            }
+
+            schema_root = root / "card-schemas"
+            schema_root.mkdir()
+            (schema_root / "typoed-dataset-name.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "dataset": "typoed-dataset-name",
+                        "note": "Orphaned filename must block snapshot and upload.",
+                        "features": [{"name": "id", "dtype": "string"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(
+                publisher, "HF_ROOT", destination_root
+            ), mock.patch.object(
+                publisher.card_schema, "SCHEMA_ROOT", schema_root
+            ), mock.patch.object(
+                publisher, "factories", return_value=[ITEM]
+            ), mock.patch.object(publisher, "run") as run:
+                with self.assertRaisesRegex(SystemExit, "orphaned card schema"):
+                    publisher.cmd_snapshot(ITEM["hub"])
+                with self.assertRaisesRegex(SystemExit, "orphaned card schema"):
+                    publisher.cmd_upload(ITEM["hub"])
+
+            after = {
+                path.relative_to(mirror): path.read_bytes()
+                for path in mirror.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(after, before)
+            run.assert_not_called()
+
+    def _assert_declaration_blocks_publication(self, hub, declaration_text, message):
+        """Prove one broken declaration for ``hub`` aborts snapshot and upload
+        before any mirror byte changes and before any ``hf`` invocation."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            write_valid_legacy(source / "batch-r01.jsonl")
+
+            destination_root = root / "hf"
+            mirror, before = seed_mirror_with_previous_snapshot(destination_root)
+
+            schema_root = root / "card-schemas"
+            schema_root.mkdir()
+            (schema_root / f"{hub}.json").write_text(
+                declaration_text, encoding="utf-8"
+            )
+
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(
+                publisher, "HF_ROOT", destination_root
+            ), mock.patch.object(
+                publisher.card_schema, "SCHEMA_ROOT", schema_root
+            ), mock.patch.object(
+                publisher, "factories", return_value=[ITEM]
+            ), mock.patch.object(publisher, "run") as run:
+                with self.assertRaisesRegex(SystemExit, message):
+                    publisher.cmd_snapshot()
+                with self.assertRaisesRegex(SystemExit, message):
+                    publisher.cmd_upload()
+
+            after = {
+                path.relative_to(mirror): path.read_bytes()
+                for path in mirror.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(after, before)
+            self.assertFalse((mirror / "data").exists())
+            run.assert_not_called()
+
+    def test_snapshot_and_upload_preflight_every_declared_schema(self):
+        """A broken later declaration aborts before any mirror is touched.
+
+        The publication loop mutates one mirror at a time, so a known
+        declaration that fails to load or render must fail the whole run up
+        front — not when its own loop iteration is reached, after earlier
+        datasets were already rewritten or uploaded.
+        """
+        other_hub = "agent-memory-compaction-trajectories"
+        self.assertIn(other_hub, publisher.known_hub_names())
+        unrenderable = json.dumps(
+            {
+                "version": 1,
+                "dataset": other_hub,
+                "note": "Fixture declaration renders a bad config name.",
+                "config_name": "bad---name",
+                "features": [{"name": "id", "dtype": "string"}],
+            }
+        )
+        cases = (
+            ("malformed", "{not json", "card schema"),
+            ("unrenderable", unrenderable, f"cannot render card schema for {other_hub}"),
+        )
+        for case, declaration_text, message in cases:
+            with self.subTest(case=case):
+                self._assert_declaration_blocks_publication(
+                    other_hub, declaration_text, message
+                )
+
+    def test_snapshot_reuses_the_preflighted_schema_during_final_render(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            write_valid_legacy(source / "batch-r01.jsonl")
+
+            destination_root = root / "hf"
+            schema_root = root / "card-schemas"
+            schema_root.mkdir()
+            note = "Fixture declaration used to prove preflight reuse."
+            path = schema_root / f"{ITEM['hub']}.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "dataset": ITEM["hub"],
+                        "note": note,
+                        "data_files": ["data/raw/batch-*.jsonl"],
+                        "features": [{"name": "id", "dtype": "string"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            original_load = publisher.card_schema.load
+            loads = []
+
+            def load_then_poison(dataset, root=None):
+                result = original_load(dataset, root)
+                loads.append(dataset)
+                path.write_text("{", encoding="utf-8")
+                return result
+
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(
+                publisher, "HF_ROOT", destination_root
+            ), mock.patch.object(
+                publisher.card_schema, "SCHEMA_ROOT", schema_root
+            ), mock.patch.object(
+                publisher.card_schema, "load", load_then_poison
+            ):
+                publisher.snapshot_one(ITEM)
+
+            self.assertEqual(loads, [ITEM["hub"]])
+            card = (
+                destination_root
+                / publisher.HF_DATASETS_DIRNAME
+                / ITEM["hub"]
+                / "README.md"
+            ).read_text(encoding="utf-8")
+            self.assertIn("configs:", card)
+            self.assertIn(note, card)
+            self.assertNotIn("**Not declared yet.**", card)
+
+    def test_upload_validation_reuses_one_preflighted_declaration(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            write_valid_legacy(source / "batch-r01.jsonl")
+
+            destination_root = root / "hf"
+            schema_root = root / "card-schemas"
+            schema_root.mkdir()
+            note = "Fixture declaration used to prove upload preflight reuse."
+            path = schema_root / f"{ITEM['hub']}.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "dataset": ITEM["hub"],
+                        "note": note,
+                        "data_files": ["data/raw/batch-*.jsonl"],
+                        "features": [{"name": "id", "dtype": "string"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(
+                publisher, "HF_ROOT", destination_root
+            ), mock.patch.object(
+                publisher.card_schema, "SCHEMA_ROOT", schema_root
+            ):
+                publisher.snapshot_one(ITEM)
+
+            dest = destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
+            original_load = publisher.card_schema.load
+            loads = []
+
+            def load_then_poison(dataset, root=None):
+                result = original_load(dataset, root)
+                loads.append(dataset)
+                path.write_text("{", encoding="utf-8")
+                return result
+
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(
+                publisher, "HF_ROOT", destination_root
+            ), mock.patch.object(
+                publisher.card_schema, "SCHEMA_ROOT", schema_root
+            ), mock.patch.object(
+                publisher.card_schema, "load", load_then_poison
+            ):
+                publisher.validate_upload_snapshot(ITEM, dest)
+
+            self.assertEqual(loads, [ITEM["hub"]])
+
     def test_factory_discovery_and_snapshot_reject_symlinked_factory_roots(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -274,11 +621,13 @@ class PublishGrok46HubTests(unittest.TestCase):
         }
         card = publisher.render_card(
             item,
-            records=100,
-            bytes_=4096,
-            first="r56",
-            last="r58",
-            payload_names=["batch-r56.jsonl", "batch-r57.jsonl", "batch-r58.jsonl"],
+            summary=publisher.PayloadSummary(
+                records=100,
+                bytes_=4096,
+                first="r56",
+                last="r58",
+                names=["batch-r56.jsonl", "batch-r57.jsonl", "batch-r58.jsonl"],
+            ),
         )
         self.assertIn("## Factory-mix quarantine", card)
         self.assertIn("**94**, not 100", card)
@@ -291,10 +640,9 @@ class PublishGrok46HubTests(unittest.TestCase):
             hub = publisher.hub_name(slug)
             card = publisher.render_card(
                 {**ITEM, "slug": slug, "hub": hub},
-                records=3,
-                bytes_=4096,
-                first="r01",
-                last="r02",
+                summary=publisher.PayloadSummary(
+                    records=3, bytes_=4096, first="r01", last="r02"
+                ),
             )
 
             self.assertTrue(hub.endswith("-preference-pairs"), hub)
@@ -324,10 +672,9 @@ class PublishGrok46HubTests(unittest.TestCase):
                 "slug": "code-review-preference-factory",
                 "hub": "code-review-preference-pairs",
             },
-            records=2976,
-            bytes_=4096,
-            first="r01",
-            last="r02",
+            summary=publisher.PayloadSummary(
+                records=2976, bytes_=4096, first="r01", last="r02"
+            ),
             kind_mix=kind_mix,
         )
 
@@ -337,8 +684,18 @@ class PublishGrok46HubTests(unittest.TestCase):
         self.assertNotIn("Each line is a **trajectory preference pair**", card)
 
     def test_trajectory_cards_omit_the_preference_pair_disclosure(self):
+        # ITEM's hub owns a card-schema declaration, so the render must name
+        # the payload the declared data_files glob covers, exactly as
+        # snapshot_one does; an empty payload list is a coverage failure.
         card = publisher.render_card(
-            ITEM, records=1, bytes_=1024, first="r01", last="r01"
+            ITEM,
+            summary=publisher.PayloadSummary(
+                records=1,
+                bytes_=1024,
+                first="r01",
+                last="r01",
+                names=["batch-r01.jsonl"],
+            ),
         )
 
         self.assertNotIn("## Record schema", card)
@@ -485,7 +842,7 @@ class PublishGrok46HubTests(unittest.TestCase):
     def test_snapshot_keeps_legacy_named_marker_baseline_payload(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            source = root / "raw" / ITEM["slug"]
+            source = root / "raw" / LEGACY_ITEM["slug"]
             source.mkdir(parents=True)
             (source / ".round-marker-mode.json").write_text(
                 '{"version":1,"legacy_baseline":1,"commit_point":"ROUND-rNN.complete.json"}\n'
@@ -500,25 +857,25 @@ class PublishGrok46HubTests(unittest.TestCase):
             with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
                 publisher, "HF_ROOT", root / "hf"
             ):
-                stats = publisher.snapshot_one(ITEM)
+                stats = publisher.snapshot_one(LEGACY_ITEM)
 
-            raw = root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "raw"
-            meta = root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "metadata"
-            card = (root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "README.md").read_text()
+            raw = root / "hf" / publisher.HF_DATASETS_DIRNAME / LEGACY_ITEM["hub"] / "data" / "raw"
+            meta = root / "hf" / publisher.HF_DATASETS_DIRNAME / LEGACY_ITEM["hub"] / "data" / "metadata"
+            card = (root / "hf" / publisher.HF_DATASETS_DIRNAME / LEGACY_ITEM["hub"] / "README.md").read_text()
             self.assertEqual(stats["records"], 2)
             self.assertTrue((raw / legacy.name).is_file())
             self.assertTrue((meta / "NOTES-r01.md").is_file())
             self.assertIn("data/raw/episodes.jsonl", card)
 
-            other = {**ITEM, "slug": "other-factory", "hub": "other"}
+            other = {**LEGACY_ITEM, "slug": "other-factory", "hub": "other"}
             other_source = root / "raw" / other["slug"]
             other_source.mkdir()
             write_valid_thalamic(other_source / "batch-r01.jsonl", "other")
             with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
                 publisher, "HF_ROOT", root / "hf"
-            ), mock.patch.object(publisher, "factories", return_value=[ITEM, other]):
+            ), mock.patch.object(publisher, "factories", return_value=[LEGACY_ITEM, other]):
                 publisher.cmd_snapshot(other["hub"])
-                local = publisher.local_snapshot_stats(ITEM)
+                local = publisher.local_snapshot_stats(LEGACY_ITEM)
 
             inventory = (root / "hf" / "SYNTHETIC-DATA-FACTORY-GROK46.md").read_text()
             self.assertEqual(local["records"], 2)
@@ -526,16 +883,16 @@ class PublishGrok46HubTests(unittest.TestCase):
             # The inventory must point at the grouped mirror location an
             # operator will actually find on disk, not the pre-grouping path.
             group = publisher.HF_DATASETS_DIRNAME
-            self.assertIn(f"| `{group}/{ITEM['hub']}/`", inventory)
+            self.assertIn(f"| `{group}/{LEGACY_ITEM['hub']}/`", inventory)
             self.assertIn(f"| `{group}/{other['hub']}/`", inventory)
-            self.assertNotIn(f"| `{ITEM['hub']}/`", inventory)
+            self.assertNotIn(f"| `{LEGACY_ITEM['hub']}/`", inventory)
             self.assertIn(f"| `{publisher.HF_DATASETS_DIRNAME}/{other['hub']}/` |", inventory)
             self.assertIn(f"| `{other['slug']}` | 1 | 1 |", inventory)
 
     def test_snapshot_keeps_legacy_named_payload_before_marker_mode(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            source = root / "raw" / ITEM["slug"]
+            source = root / "raw" / LEGACY_ITEM["slug"]
             source.mkdir(parents=True)
             legacy = source / "episodes.jsonl"
             write_valid_legacy(legacy)
@@ -549,9 +906,9 @@ class PublishGrok46HubTests(unittest.TestCase):
             with mock.patch.object(
                 publisher, "FACTORY_ROOT", root / "raw"
             ), mock.patch.object(publisher, "HF_ROOT", root / "hf"):
-                stats = publisher.snapshot_one(ITEM)
+                stats = publisher.snapshot_one(LEGACY_ITEM)
 
-            mirror = root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
+            mirror = root / "hf" / publisher.HF_DATASETS_DIRNAME / LEGACY_ITEM["hub"]
             self.assertEqual(stats["records"], 2)
             self.assertTrue((mirror / "data" / "raw" / legacy.name).is_file())
             self.assertTrue((mirror / "data" / "metadata" / notes.name).is_file())
@@ -1319,6 +1676,97 @@ class PublishGrok46HubTests(unittest.TestCase):
             self.assertEqual(publisher.main(), 2)
 
         whoami.assert_not_called()
+
+
+class RenderCardLegacySurfaceTests(unittest.TestCase):
+    """The stacked card leaf PRs still call the pre-PayloadSummary keywords.
+
+    Until every leaf migrates to summary=PayloadSummary(...), render_card must
+    keep accepting records=/bytes_=/first=/last=/payload_names= and render
+    byte-identical cards for both call styles, while refusing mixed or unknown
+    keywords instead of silently guessing.
+    """
+
+    def test_legacy_keywords_render_byte_identical_declared_card(self):
+        declared = publisher.render_card(
+            ITEM,
+            summary=publisher.PayloadSummary(
+                records=1,
+                bytes_=1024,
+                first="r01",
+                last="r01",
+                names=["batch-r01.jsonl"],
+            ),
+        )
+        legacy = publisher.render_card(
+            ITEM,
+            records=1,
+            bytes_=1024,
+            first="r01",
+            last="r01",
+            payload_names=["batch-r01.jsonl"],
+        )
+
+        self.assertEqual(declared, legacy)
+
+    def test_legacy_keywords_render_byte_identical_undeclared_card(self):
+        # payload_names stays optional on the legacy surface, exactly as before
+        # the PayloadSummary split.
+        declared = publisher.render_card(
+            LEGACY_ITEM,
+            summary=publisher.PayloadSummary(
+                records=3, bytes_=4096, first="r01", last="r02"
+            ),
+        )
+        legacy = publisher.render_card(
+            LEGACY_ITEM, records=3, bytes_=4096, first="r01", last="r02"
+        )
+
+        self.assertEqual(declared, legacy)
+
+    def test_mixing_summary_and_legacy_keywords_fails_closed(self):
+        with self.assertRaises(TypeError) as caught:
+            publisher.render_card(
+                ITEM,
+                summary=publisher.PayloadSummary(
+                    records=1, bytes_=1024, first="r01", last="r01"
+                ),
+                records=1,
+            )
+
+        self.assertIn("not both", str(caught.exception))
+
+    def test_unknown_keywords_fail_closed_on_both_surfaces(self):
+        with self.assertRaises(TypeError) as caught:
+            publisher.render_card(
+                ITEM,
+                summary=publisher.PayloadSummary(
+                    records=1, bytes_=1024, first="r01", last="r01"
+                ),
+                recordz=1,
+            )
+        self.assertIn("unexpected keyword arguments: recordz", str(caught.exception))
+
+        with self.assertRaises(TypeError) as caught:
+            publisher.render_card(
+                ITEM, records=1, bytes_=1024, first="r01", last="r01", recordz=1
+            )
+        self.assertIn("unexpected keyword arguments: recordz", str(caught.exception))
+
+    def test_incomplete_legacy_call_fails_closed(self):
+        with self.assertRaises(TypeError) as caught:
+            publisher.render_card(ITEM, records=1)
+        self.assertIn(
+            "missing required keyword arguments: bytes_, first, last",
+            str(caught.exception),
+        )
+
+        with self.assertRaises(TypeError) as caught:
+            publisher.render_card(ITEM)
+        self.assertIn(
+            "missing required keyword arguments: records, bytes_, first, last",
+            str(caught.exception),
+        )
 
 
 if __name__ == "__main__":
