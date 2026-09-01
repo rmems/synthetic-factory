@@ -24,6 +24,8 @@ if str(_PIPELINES) not in sys.path:
 from compose_contract import ComposeError, sha256_hex  # noqa: E402
 from round_txn import committed_jsonl_paths, marker_mode_path  # noqa: E402
 
+_DESTINATION_PARENT_LABEL = "destination parent"
+
 def _contains_raw_segments(parts: tuple[str, ...]) -> bool:
     return any(
         parts[index : index + 2] == ("outputs", "raw") for index in range(len(parts) - 1)
@@ -90,7 +92,7 @@ def _verify_directory_binding(
         metadata = path.lstat()
         resolved = path.resolve(strict=True)
         opened = os.fstat(descriptor)
-    except (FileNotFoundError, OSError) as exc:
+    except OSError as exc:
         raise ComposeError(f"{label} changed while it was pinned: {path}") from exc
 
     if not _directory_binding_matches(
@@ -123,7 +125,7 @@ class PinnedDestination:
         _verify_directory_binding(
             self.path.parent,
             self.parent_descriptor,
-            "destination parent",
+            _DESTINATION_PARENT_LABEL,
             expected_identity=self.parent_identity,
         )
         _verify_directory_binding(
@@ -140,7 +142,7 @@ class PinnedDestination:
                 dir_fd=self.parent_descriptor,
                 follow_symlinks=False,
             )
-        except (FileNotFoundError, OSError):
+        except OSError:
             return False
         return (
             stat.S_ISDIR(current.st_mode)
@@ -453,8 +455,45 @@ def _collect_source_directory(
             continue
         if stat.S_ISDIR(metadata.st_mode):
             child_directories.append(path)
-            continue
     return child_directories
+
+
+def _enclosing_marker_root(
+    root: Path,
+    parent: Path,
+    marker_roots: dict[Path, Path | None],
+) -> Path | None:
+    """Return and memoize the nearest enclosing marker-mode directory."""
+
+    visited = []
+    current = parent
+    while current not in marker_roots:
+        visited.append(current)
+        if marker_mode_path(current) is not None:
+            found = current
+            break
+        if current == root or current.parent == current:
+            found = None
+            break
+        current = current.parent
+    else:
+        found = marker_roots[current]
+    for directory in visited:
+        marker_roots[directory] = found
+    return found
+
+
+def _committed_paths(
+    marker_root: Path,
+    committed: dict[Path, set[Path]],
+) -> set[Path]:
+    """Return and memoize the committed JSONL paths below one marker root."""
+
+    if marker_root not in committed:
+        committed[marker_root] = {
+            candidate.resolve() for candidate in committed_jsonl_paths(marker_root)
+        }
+    return committed[marker_root]
 
 
 def _round_visible_members(root: Path, members: list[str]) -> list[str]:
@@ -470,38 +509,14 @@ def _round_visible_members(root: Path, members: list[str]) -> list[str]:
     marker_roots: dict[Path, Path | None] = {}
     committed: dict[Path, set[Path]] = {}
 
-    def enclosing_marker_root(parent: Path) -> Path | None:
-        visited = []
-        current = parent
-        while True:
-            if current in marker_roots:
-                found = marker_roots[current]
-                break
-            visited.append(current)
-            if marker_mode_path(current) is not None:
-                found = current
-                break
-            if current == root or current.parent == current:
-                found = None
-                break
-            current = current.parent
-        for directory in visited:
-            marker_roots[directory] = found
-        return found
-
     visible: list[str] = []
     for relative in members:
         path = root.joinpath(*PurePosixPath(relative).parts)
-        marker_root = enclosing_marker_root(path.parent)
+        marker_root = _enclosing_marker_root(root, path.parent, marker_roots)
         if marker_root is None:
             visible.append(relative)
             continue
-        if marker_root not in committed:
-            committed[marker_root] = {
-                candidate.resolve()
-                for candidate in committed_jsonl_paths(marker_root)
-            }
-        if path.resolve() in committed[marker_root]:
+        if path.resolve() in _committed_paths(marker_root, committed):
             visible.append(relative)
     return visible
 
@@ -545,7 +560,7 @@ def _assert_new_destination(
     _assert_destination_disjoint(
         source_run.resolve(), destination.resolve(strict=False)
     )
-    parent = _require_exact_directory(destination.parent, "destination parent")
+    parent = _require_exact_directory(destination.parent, _DESTINATION_PARENT_LABEL)
     return parent, _directory_identity(parent.lstat())
 
 
@@ -587,7 +602,7 @@ def _discard_created_destination(
             dir_fd=parent_descriptor,
             follow_symlinks=False,
         )
-    except (FileNotFoundError, OSError):
+    except OSError:
         current = None
     if current is not None and _directory_identity(current) == created_identity:
         shutil.rmtree(
@@ -604,11 +619,11 @@ def _verify_destination_parent_residency(
 ) -> None:
     """Require the pinned parent to remain at its requested non-raw path."""
 
-    _assert_descriptor_outside_raw(parent_descriptor, "destination parent")
+    _assert_descriptor_outside_raw(parent_descriptor, _DESTINATION_PARENT_LABEL)
     _verify_directory_binding(
         parent,
         parent_descriptor,
-        "destination parent",
+        _DESTINATION_PARENT_LABEL,
         expected_identity=expected_identity,
     )
 

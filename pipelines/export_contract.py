@@ -80,5 +80,5 @@ def _loads_json(payload: str, label: str) -> Any:
             parse_constant=_reject_json_constant,
             parse_float=_reject_nonfinite_json_float,
         )
-    except (json.JSONDecodeError, ValueError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:
         raise ExportError(f"{label}: invalid JSON: {exc}") from exc

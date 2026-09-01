@@ -45,7 +45,7 @@ def _load_calibration_payload(payload: bytes, path: Path) -> dict[str, Any]:
             parse_constant=_reject_json_constant,
             parse_float=_reject_nonfinite_json_float,
         )
-    except (json.JSONDecodeError, ValueError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:
         raise ExportError(f"calibration {path}: invalid JSON: {exc}") from exc
     records = document.get("records") if isinstance(document, dict) else None
     if not isinstance(records, list):

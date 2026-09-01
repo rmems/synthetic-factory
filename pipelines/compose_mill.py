@@ -52,12 +52,7 @@ def index_compose_mills(
                     object_pairs_hook=_reject_duplicate_object_keys,
                     parse_constant=reject_json_constant,
                 )
-            except (
-                UnicodeDecodeError,
-                json.JSONDecodeError,
-                ValueError,
-                RecursionError,
-            ):
+            except (ValueError, RecursionError):
                 # No ownership evidence; the per-line pass excludes it anyway.
                 continue
             mills.add(

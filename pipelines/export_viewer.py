@@ -39,6 +39,7 @@ _ENCODING_RLE = 3
 _CODEC_UNCOMPRESSED = 0
 _PAGE_TYPE_DATA_PAGE = 0
 _PARQUET_MAGIC = b"PAR1"
+_TRUNCATED_PARQUET_PAGE = "Parquet page is truncated"
 
 
 def _uvarint(value: int) -> bytes:
@@ -319,11 +320,11 @@ def _decode_byte_array_at(data: bytes, offset: int) -> tuple[str, int]:
     """Decode one length-prefixed UTF-8 value, returning it and the next offset."""
 
     if offset + 4 > len(data):
-        raise ValueError("Parquet page is truncated")
+        raise ValueError(_TRUNCATED_PARQUET_PAGE)
     length = int.from_bytes(data[offset : offset + 4], "little")
     offset += 4
     if offset + length > len(data):
-        raise ValueError("Parquet page is truncated")
+        raise ValueError(_TRUNCATED_PARQUET_PAGE)
     return data[offset : offset + length].decode("utf-8"), offset + length
 
 
@@ -331,7 +332,7 @@ def _decode_int64_at(data: bytes, offset: int) -> tuple[int, int]:
     """Decode one little-endian signed 64-bit value and the next offset."""
 
     if offset + 8 > len(data):
-        raise ValueError("Parquet page is truncated")
+        raise ValueError(_TRUNCATED_PARQUET_PAGE)
     value = int.from_bytes(data[offset : offset + 8], "little", signed=True)
     return value, offset + 8
 

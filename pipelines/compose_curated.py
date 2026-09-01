@@ -1676,7 +1676,7 @@ def compose_source_line(
             parse_constant=reject_json_constant,
         )
         semantic_sha256 = _canonical_sha256(record)
-    except (json.JSONDecodeError, ValueError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:
         return _excluded_source_line(REASON_INVALID_JSON, {"error": str(exc)})
     if seen_source_semantics is not None:
         first_coordinate = seen_source_semantics.get(semantic_sha256)
@@ -1814,7 +1814,7 @@ def _load_calibration(
             parse_constant=reject_json_constant,
             parse_float=_parse_finite_json_float,
         )
-    except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
+    except ValueError as exc:
         raise ComposeError(
             f"{calibration_path}: invalid calibration JSON: {exc}"
         ) from exc

@@ -18,7 +18,9 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO / "pipelines") not in sys.path:
     sys.path.insert(0, str(REPO / "pipelines"))
 
-from distillation_test_helpers import distillation_sidecars
+from distillation_test_helpers import distillation_sidecars  # noqa: E402
+
+_BATCH_R01 = "batch-r01.jsonl"
 
 
 def trajectory(action="noop", provenance="designed", domain="compose-test"):
@@ -227,19 +229,19 @@ def build_source_run(root):
 
     run = Path(root)
     write_jsonl(
-        run / "thalamic-trajectory-factory" / "batch-r01.jsonl",
+        run / "thalamic-trajectory-factory" / _BATCH_R01,
         [thalamic("a"), thalamic("b"), thalamic("c")],
     )
     write_jsonl(
-        run / "neuromorphic-event-language-bridge" / "batch-r01.jsonl",
+        run / "neuromorphic-event-language-bridge" / _BATCH_R01,
         [bridge_pair()],
     )
     write_jsonl(
-        run / "failure-as-fuel-preference-cascade" / "batch-r01.jsonl",
+        run / "failure-as-fuel-preference-cascade" / _BATCH_R01,
         [preference_pair(pure=True), preference_pair(pure=False)],
     )
     write_jsonl(
-        run / "agentic-coding-trajectory-factory" / "batch-r01.jsonl",
+        run / "agentic-coding-trajectory-factory" / _BATCH_R01,
         [episode("1"), episode("2")],
     )
     return run
