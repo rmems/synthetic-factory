@@ -3,18 +3,9 @@
 import json
 from pathlib import Path
 
+from distillation_test_helpers import distillation_sidecars, load_bridge_fixture
+
 REPO = Path(__file__).resolve().parents[1]
-BRIDGE_FIXTURE = REPO / "tests" / "fixtures" / "bridge_gate_snn.jsonl"
-
-
-def distillation_sidecars(decision="ACCEPT"):
-    record = json.loads(BRIDGE_FIXTURE.read_text(encoding="utf-8").splitlines()[0])
-    sidecars = {
-        "raster": record["raster"],
-        "gate_snn": dict(record["gate_snn"]),
-    }
-    sidecars["gate_snn"]["decision"] = decision
-    return sidecars
 
 
 def thalamic(record_id, round_number=1):
@@ -51,7 +42,7 @@ def thalamic(record_id, round_number=1):
 def bridge(record_id, *, gate_snn=True):
     """Return the committed raster/gate-SNN Bridge fixture with fresh IDs."""
 
-    record = json.loads(BRIDGE_FIXTURE.read_text(encoding="utf-8").splitlines()[0])
+    record = load_bridge_fixture()
     record["id"] = record_id
     trajectory = record["language_view"]["trajectory"]
     trajectory["id"] = f"{record_id}-traj"

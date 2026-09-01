@@ -20,26 +20,26 @@ import sys
 from pathlib import Path
 
 from exact_json import parse_finite_json_float as _parse_exact_json_float
-from validate_run_spikes import (  # noqa: F401 - compatibility re-exports
-    BRIDGE_SPIKE_EVENT_KEYS,
-    REPO as _REPO,
-    SCHEMA_PATH,
-    SPIKE_CLOCK_DOMAIN_KEYS,
-    SPIKE_CLOCK_DOMAIN_MISMATCH,
-    SPIKE_EVENT_NUMBER_KEYS,
-    SPIKE_EVENT_STRING_KEYS,
-    SPIKE_ORDER_MISMATCH,
-    SPIKE_TIME_KEYS,
-    SPIKE_TIME_KEY_MISMATCH,
-    THALAMIC_SCHEMA,
-    check_spike_order as _check_spike_order,
-    check_spike_stream as _check_spike_stream,
-    declared_clock_domains as _declared_clock_domains,
-    event_time as _event_time,
-    is_number as _is_number,
-)
+import validate_run_spikes as _validate_run_spikes
 
-REPO = _REPO
+# Historical public compatibility surface. Explicit binding keeps these names
+# importable without asking static analyzers to treat unused imports as use.
+BRIDGE_SPIKE_EVENT_KEYS = _validate_run_spikes.BRIDGE_SPIKE_EVENT_KEYS
+REPO = _validate_run_spikes.REPO
+SCHEMA_PATH = _validate_run_spikes.SCHEMA_PATH
+SPIKE_CLOCK_DOMAIN_KEYS = _validate_run_spikes.SPIKE_CLOCK_DOMAIN_KEYS
+SPIKE_CLOCK_DOMAIN_MISMATCH = _validate_run_spikes.SPIKE_CLOCK_DOMAIN_MISMATCH
+SPIKE_EVENT_NUMBER_KEYS = _validate_run_spikes.SPIKE_EVENT_NUMBER_KEYS
+SPIKE_EVENT_STRING_KEYS = _validate_run_spikes.SPIKE_EVENT_STRING_KEYS
+SPIKE_ORDER_MISMATCH = _validate_run_spikes.SPIKE_ORDER_MISMATCH
+SPIKE_TIME_KEYS = _validate_run_spikes.SPIKE_TIME_KEYS
+SPIKE_TIME_KEY_MISMATCH = _validate_run_spikes.SPIKE_TIME_KEY_MISMATCH
+THALAMIC_SCHEMA = _validate_run_spikes.THALAMIC_SCHEMA
+_check_spike_order = _validate_run_spikes.check_spike_order
+_check_spike_stream = _validate_run_spikes.check_spike_stream
+_declared_clock_domains = _validate_run_spikes.declared_clock_domains
+_event_time = _validate_run_spikes.event_time
+_is_number = _validate_run_spikes.is_number
 
 THALAMIC_REQUIRED = tuple(THALAMIC_SCHEMA["required"])
 # Type-check required keys against the schema's own declared types: the six

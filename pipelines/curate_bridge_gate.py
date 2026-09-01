@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from exact_json import dumps_exact_json
 from curate_bridge_raster import (
     RASTER_ENERGY_PJ_PER_SPIKE,
     RASTER_ENERGY_UJ_PER_SPIKE,
@@ -233,9 +234,19 @@ def _gate_populations(
         reason_codes.append(REASON_GATE_SNN_INVALID)
         evidence["gate_snn_invalid_population_indices"] = bad
     evidence["gate_snn_population_count"] = len(population_list)
-    evidence["gate_snn_total_neurons"] = sum(result[2] for result in results)
-    evidence["gate_snn_populations_valid"] = not bad
-    return all(result[0] for result in results)
+    populations_valid = all(result[0] for result in results)
+    total_neurons = sum(result[2] for result in results)
+    try:
+        dumps_exact_json(total_neurons)
+    except (TypeError, ValueError):
+        reason_codes.append(REASON_GATE_SNN_INVALID)
+        evidence["gate_snn_total_neurons_valid"] = False
+        evidence["gate_snn_populations_valid"] = False
+        return False
+    evidence["gate_snn_total_neurons"] = total_neurons
+    evidence["gate_snn_total_neurons_valid"] = True
+    evidence["gate_snn_populations_valid"] = populations_valid
+    return populations_valid
 
 
 def _validate_gate_snn(

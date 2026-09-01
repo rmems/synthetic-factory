@@ -87,6 +87,15 @@ class NormalizeRaster(unittest.TestCase):
         self.assertIsInstance(populations[0]["neurons"], float)
         self.assertIsInstance(populations[0]["spikes"], float)
 
+    def test_gate_decision_is_normalized_without_mutating_the_source(self):
+        record = gate_snn_record()
+        record["gate_snn"]["decision"] = " accept "
+
+        raster = spike_probe.normalize_raster(record)
+
+        self.assertEqual(raster["gate_snn"]["decision"], "ACCEPT")
+        self.assertEqual(record["gate_snn"]["decision"], " accept ")
+
     def test_declared_channel_is_preserved_or_rejected_by_type(self):
         self.assertEqual(
             spike_probe._normalized_event({"t_us": 800, "neuron_id": 7, "channel": ""}),
@@ -477,6 +486,23 @@ class ProbeCli(unittest.TestCase):
             report["problems"][0]["reason_codes"],
             ["BRIDGE_RECORD_SHAPE_INVALID"],
         )
+
+    def test_bridge_near_match_does_not_require_a_trajectory_carrier(self):
+        for language_view in ({"description": "broken"}, []):
+            with self.subTest(language_view=language_view), tempfile.TemporaryDirectory() as td:
+                path = Path(td) / "candidate.jsonl"
+                write(path, [{"language_view": language_view, "spike_events": "bad"}])
+                stdout = io.StringIO()
+                with redirect_stdout(stdout):
+                    code = spike_probe.main(["--strict", str(path)])
+
+            report = json.loads(stdout.getvalue())
+            self.assertEqual(code, 1)
+            self.assertEqual((report["loaded"], report["unloadable"]), (0, 1))
+            self.assertEqual(
+                report["problems"][0]["reason_codes"],
+                ["BRIDGE_RECORD_SHAPE_INVALID"],
+            )
 
     def test_strict_mode_fails_on_missing_and_invalid_inputs(self):
         with tempfile.TemporaryDirectory() as td:

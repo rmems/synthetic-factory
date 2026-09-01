@@ -8,11 +8,12 @@ policy validation and record classification can stay in smaller modules.
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 import re
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+
+from exact_json import dumps_exact_json
 
 ONTOLOGY_VERSION = "reward-ontology-v1"
 MAPPING_VERSION = "reward-mapping-v1"
@@ -339,12 +340,10 @@ def _policy_disposition(key, observed_types, arithmetic):
 
 
 def _canonical_bytes(value) -> bytes:
-    return json.dumps(
+    return dumps_exact_json(
         value,
         ensure_ascii=False,
         sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
     ).encode("utf-8")
 
 

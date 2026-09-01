@@ -337,10 +337,10 @@ def corpus_digest(root: Path) -> str:
 
 def record_sha256(value: Any) -> str:
     try:
-        blob = dumps_exact_json(value, ensure_ascii=False, sort_keys=True)
+        blob = curate_rewards._canonical_bytes(value)
     except (TypeError, ValueError) as exc:
         raise GateError(f"record is not canonical JSON data: {exc}") from exc
-    return sha256_hex(blob.encode("utf-8"))
+    return sha256_hex(blob)
 
 
 def _normalized_sha256(value: Any, label: str) -> str:

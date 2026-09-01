@@ -2,6 +2,7 @@
 """Focused tests for reward ontology v1 and conservative conversion."""
 
 import copy
+import hashlib
 import json
 import sys
 import tempfile
@@ -26,9 +27,36 @@ if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
 import curate_rewards  # noqa: E402
+from exact_json import parse_finite_json_float  # noqa: E402
 
 
 class RewardOntologyV1Tests(unittest.TestCase):
+    def test_conversion_preserves_precision_sensitive_reward_tokens(self):
+        token = "0.10000000000000001"
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source.jsonl"
+            output = root / "output.jsonl"
+            sidecars = root / "sidecars.jsonl"
+            source.write_text(
+                '{"id":"exact","reward_components":'
+                f'{{"task_progress":{token},"total":{token}}}}}\n',
+                encoding="utf-8",
+            )
+
+            curate_rewards.convert_jsonl(source, output, sidecars)
+
+            output_text = output.read_text(encoding="utf-8")
+            sidecar_text = sidecars.read_text(encoding="utf-8")
+
+        self.assertIn(token, output_text)
+        self.assertIn(token, sidecar_text)
+        value = parse_finite_json_float(token)
+        self.assertEqual(
+            curate_rewards._sha256(value),
+            "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest(),
+        )
+
     def test_schema_declares_exclusive_comparability_classes(self):
         schema = json.loads(SCHEMA.read_text())
         annotation = schema["$defs"]["annotation"]

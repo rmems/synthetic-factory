@@ -18,25 +18,9 @@ if str(PIPELINES) not in sys.path:
 import curate_gate  # noqa: E402
 import curate_identity  # noqa: E402
 import curate_rewards  # noqa: E402
+from distillation_test_helpers import distillation_sidecars as _distillation_sidecars  # noqa: E402
 
-BRIDGE_FIXTURE = REPO / "tests" / "fixtures" / "bridge_gate_snn.jsonl"
 REWARD_SIDECARS_FILE = "reward-sidecars.jsonl"
-
-
-def _distillation_sidecars(decision="ACCEPT"):
-    """The committed raster + gate-as-SNN sidecars, re-keyed for a fresh decision.
-
-    ``neuromorphic-event-language-bridge`` / ``thalamic-trajectory-factory``
-    are ``RASTER_FACTORY_SLUGS`` members, so a bridge fixture needs these
-    sidecars or the corpus-level training_audit gate blocks it.
-    """
-    record = json.loads(BRIDGE_FIXTURE.read_text(encoding="utf-8").splitlines()[0])
-    sidecars = {
-        "raster": record["raster"],
-        "gate_snn": dict(record["gate_snn"]),
-    }
-    sidecars["gate_snn"]["decision"] = decision
-    return sidecars
 
 
 def _thalamic(record_id, **overrides):

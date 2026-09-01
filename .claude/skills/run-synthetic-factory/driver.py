@@ -551,17 +551,49 @@ def cmd_snapshot(run_dir, label):
 
 
 def distillation_sidecars(decision="ACCEPT"):
-    record = json.loads(
-        (REPO / "tests" / "fixtures" / "bridge_gate_snn.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()[0]
-    )
-    sidecars = {
-        "raster": record["raster"],
-        "gate_snn": dict(record["gate_snn"]),
+    """Return a self-contained, valid raster/gate smoke fixture."""
+
+    return {
+        "raster": {
+            "window_ms": 40,
+            "window_s": 0.04,
+            "neurons": 256,
+            "mean_rate_hz": 12,
+            "spikes": 123,
+            "energy_pJ": 2829,
+            "energy_uJ": 0.002829,
+            "routing": {
+                "source": "pop_gate_exc_256",
+                "target": "pop_gate_out_64",
+                "table": [
+                    {
+                        "from": "pop_gate_exc_256",
+                        "to": "pop_gate_out_64",
+                        "weight": 0.7,
+                    }
+                ],
+                "third_factor": {
+                    "modulator": "dopamine",
+                    "tau_e_s": 2.0,
+                    "eligibility": "pre_post_stdp",
+                },
+            },
+            "excerpt": [{"t_us": 800, "neuron_id": 7, "channel": "gate_in"}],
+        },
+        "gate_snn": {
+            "decision_window_ms": 25,
+            "decision": decision,
+            "populations": [
+                {
+                    "name": "gate_accept",
+                    "neurons": 64,
+                    "threshold": 1.0,
+                    "mean_rate_hz": 40,
+                    "spikes": 64,
+                }
+            ],
+        },
     }
-    sidecars["gate_snn"]["decision"] = decision
-    return sidecars
 
 
 def thalamic(record_id="smoke-t1"):

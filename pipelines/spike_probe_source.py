@@ -38,8 +38,17 @@ def _is_raster_factory_path(path: Path) -> bool:
     """Return whether a JSONL path is enclosed by a raster-gated factory."""
 
     supplied_parts = path.parts
-    resolved_parts = path.resolve(strict=False).parts
+    resolved_parts = _resolved_identity(path).parts
     return any(part in RASTER_FACTORY_SLUGS for part in (*supplied_parts, *resolved_parts))
+
+
+def _resolved_identity(path: Path) -> Path:
+    """Resolve aliases when possible, retaining a stable lexical fallback."""
+
+    try:
+        return path.resolve(strict=False)
+    except (OSError, RuntimeError):
+        return path.absolute()
 
 
 def jsonl_paths(targets: Iterable[str | Path]) -> list[Path]:
@@ -55,21 +64,17 @@ def jsonl_paths(targets: Iterable[str | Path]) -> list[Path]:
 
     unique: dict[Path, Path] = {}
     for path in _expanded_jsonl_targets(targets):
-        unique.setdefault(path.resolve(strict=False), path)
+        unique.setdefault(_resolved_identity(path), path)
     return list(unique.values())
 
 
-def _read_jsonl(path: Path) -> tuple[str | None, str | None]:
-    """Read UTF-8 without universal-newline translation."""
+def _read_jsonl(path: Path) -> tuple[bytes | None, str | None]:
+    """Read raw JSONL bytes so one bad line cannot hide valid neighbors."""
 
     try:
-        payload = path.read_bytes()
+        return path.read_bytes(), None
     except OSError:
         return None, REASON_INPUT_UNREADABLE
-    try:
-        return payload.decode("utf-8"), None
-    except UnicodeDecodeError:
-        return None, REASON_INVALID_UTF8
 
 
 def _parse_finite_json_float(text: str) -> float:
@@ -95,14 +100,20 @@ def _parse_record(line: str) -> tuple[Any, str | None]:
 def _records_in_path(path: Path) -> Iterator[tuple[str, Any, str | None]]:
     """Yield parsed records and named input problems from one JSONL path."""
 
-    text, read_problem = _read_jsonl(path)
+    payload, read_problem = _read_jsonl(path)
     if read_problem is not None:
         yield f"{path}:0", None, read_problem
         return
-    for line_number, line in enumerate(text.split("\n"), 1):
-        if line.strip():
-            record, parse_problem = _parse_record(line)
-            yield f"{path}:{line_number}", record, parse_problem
+    for line_number, raw_line in enumerate(payload.split(b"\n"), 1):
+        if not raw_line.strip():
+            continue
+        try:
+            line = raw_line.decode("utf-8")
+        except UnicodeDecodeError:
+            yield f"{path}:{line_number}", None, REASON_INVALID_UTF8
+            continue
+        record, parse_problem = _parse_record(line)
+        yield f"{path}:{line_number}", record, parse_problem
 
 
 def iter_records(paths: Iterable[Path]) -> Iterator[tuple[str, Any, str | None]]:

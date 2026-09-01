@@ -70,6 +70,9 @@ def _normalized_gate_snn(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
     normalized = dict(value)
+    decision = value.get("decision")
+    if isinstance(decision, str):
+        normalized["decision"] = decision.strip().upper()
     populations = value.get("populations")
     if isinstance(populations, list):
         normalized["populations"] = [

@@ -27,7 +27,7 @@ except ModuleNotFoundError:
     )
 
 import spike_probe  # noqa: E402
-from exact_json import parse_finite_json_float  # noqa: E402
+from exact_json import dumps_exact_json, exact_fraction, parse_finite_json_float  # noqa: E402
 
 
 class RasterArithmeticReviewFollowUps(unittest.TestCase):
@@ -78,6 +78,31 @@ class RasterArithmeticReviewFollowUps(unittest.TestCase):
 
         self.assertFalse(status["raster_valid"])
         json.dumps(status["evidence"], allow_nan=False)
+
+    def test_gate_population_total_is_bounded_before_evidence_serialization(self):
+        record = gate_snn_fixture()
+        huge_population = 6 * 10**4299
+        for population in record["gate_snn"]["populations"]:
+            population["neurons"] = huge_population
+            population.pop("mean_rate_hz", None)
+            population.pop("spikes", None)
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertFalse(status["raster_valid"])
+        self.assertIn(curate_bridge.REASON_GATE_SNN_INVALID, status["reason_codes"])
+        self.assertFalse(status["evidence"]["gate_snn_populations_valid"])
+        self.assertNotIn("gate_snn_total_neurons", status["evidence"])
+        dumps_exact_json(status["evidence"])
+
+    def test_population_budget_mismatch_marks_population_evidence_invalid(self):
+        record = gate_snn_fixture()
+        record["gate_snn"]["populations"][0]["spikes"] += 10
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertFalse(status["raster_valid"])
+        self.assertFalse(status["evidence"]["gate_snn_populations_valid"])
 
     def test_a_malformed_declared_gate_compute_carrier_is_not_skipped(self):
         record = gate_snn_fixture()
@@ -213,6 +238,30 @@ class RasterArithmeticReviewFollowUps(unittest.TestCase):
         status = curate_bridge.raster_status(record)
 
         self.assertTrue(status["raster_valid"], status["reason_codes"])
+
+    def test_precision_sensitive_rate_is_preserved_in_evidence(self):
+        record = gate_snn_fixture()
+        rate = parse_finite_json_float("12.000000000000001")
+        record["raster"]["mean_rate_hz"] = rate
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertTrue(status["raster_valid"], status["reason_codes"])
+        emitted = status["evidence"]["raster_rate_hz"]
+        self.assertEqual(exact_fraction(emitted), exact_fraction(rate))
+        self.assertIn("12.000000000000001", dumps_exact_json(status["evidence"]))
+
+    def test_subnormal_third_factor_tau_is_preserved_in_evidence(self):
+        record = gate_snn_fixture()
+        tau = parse_finite_json_float("1e-400")
+        record["raster"]["routing"]["third_factor"]["tau_e_s"] = tau
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertTrue(status["raster_valid"], status["reason_codes"])
+        emitted = status["evidence"]["raster_third_factor_tau_e_s"]
+        self.assertEqual(exact_fraction(emitted), exact_fraction(tau))
+        self.assertIn("1e-400", dumps_exact_json(status["evidence"]))
 
     def test_derived_alias_beyond_exact_bound_fails_closed(self):
         record = gate_snn_fixture()

@@ -61,8 +61,7 @@ def _is_bridge_near_match(record: Any) -> bool:
 
     if not isinstance(record, dict):
         return False
-    view = record.get("language_view")
-    return isinstance(view, dict) and "trajectory" in view and "spike_events" in record
+    return "language_view" in record and "spike_events" in record
 
 
 def _is_supported_raster_record(record: Any) -> bool:

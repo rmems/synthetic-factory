@@ -68,7 +68,7 @@ E. Spike-implemented gate — at least one record per round:
   Accepted carriers: top-level `gate_snn`, `meta.gate_snn`,
   `language_view.trajectory.gate_snn`, or
   `language_view.trajectory.safety_decision.gate_snn`.
-- Required fields: `decision_window_ms` (>0; alias `decision_window_s`) and a non-empty
+- Required fields: `decision`, `decision_window_ms` (>0; alias `decision_window_s`), and a non-empty
   `populations` array whose entries each declare `name`, `neurons` (>0), and a numeric
   firing `threshold`. A population that also declares `mean_rate_hz` and `spikes` is held
   to the same `spikes = round(neurons * mean_rate_hz * decision_window_s)` ±1 budget.

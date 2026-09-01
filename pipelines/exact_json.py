@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Callable, Iterable
 from fractions import Fraction
 from typing import Any, NamedTuple
@@ -25,6 +26,9 @@ MAX_DECIMAL_DIGITS = 4096
 _MAX_JSON_NUMBER_TOKEN_LENGTH = MAX_DECIMAL_DIGITS + 32
 _MAX_EXPONENT_DIGITS = len(str(MAX_DECIMAL_DIGITS))
 _MAX_DECIMAL_BITS = (MAX_DECIMAL_DIGITS * 3322 // 1000) + 8
+_JSON_NUMBER_RE = re.compile(
+    r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\Z"
+)
 
 
 def _bounded_exponent(marker: str, exponent_text: str) -> int:
@@ -51,6 +55,8 @@ def _validate_decimal_token_bounds(token: str) -> None:
 
     if not isinstance(token, str) or len(token) > _MAX_JSON_NUMBER_TOKEN_LENGTH:
         raise ValueError("JSON number token exceeds the exact-decimal limit")
+    if _JSON_NUMBER_RE.fullmatch(token) is None:
+        raise ValueError("invalid JSON number syntax")
     mantissa, marker, exponent_text = token.lower().partition("e")
     exponent = _bounded_exponent(marker, exponent_text)
     coefficient_digits, decimal_places = _decimal_shape(mantissa)

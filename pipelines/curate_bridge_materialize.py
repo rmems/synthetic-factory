@@ -234,6 +234,18 @@ def _require(condition: bool, message: str) -> None:
         raise BridgeCurationError(message)
 
 
+def _symlinked_ancestor(path: Path) -> Path | None:
+    """Return the first lexical path component that is a symlink."""
+
+    absolute = path.absolute()
+    current = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            return current
+    return None
+
+
 def _materialization_roots(
     source_root: str | Path,
     output_dir: str | Path,
@@ -253,6 +265,11 @@ def _materialization_roots(
     _require(
         not destination.parent.is_symlink(),
         f"destination parent must be a real directory: {destination.parent}",
+    )
+    linked_ancestor = _symlinked_ancestor(destination.parent)
+    _require(
+        linked_ancestor is None,
+        f"destination parent has a symlinked ancestor: {linked_ancestor}",
     )
     _require(
         not _is_under_raw(destination),
@@ -391,6 +408,10 @@ def materialize_paths(
 ) -> list[Any]:
     """Publish one atomically validated, gate-compatible Bridge lane tree."""
 
+    _require(
+        config.require_raster is True,
+        "materialize_paths require_raster contract cannot be disabled",
+    )
     root, destination, root_resolved = _materialization_roots(
         config.source_root,
         config.output_dir,

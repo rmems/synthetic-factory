@@ -311,6 +311,26 @@ class BridgeMaterialization(unittest.TestCase):
                     output_dir=temporary / "linked-output",
                 )
 
+    def test_materialization_refuses_a_symlinked_destination_ancestor(self):
+        with tempfile.TemporaryDirectory() as td:
+            temporary = Path(td)
+            source_root = temporary / "source"
+            sources = self._source_tree(source_root)
+            real_parent = temporary / "real-parent"
+            (real_parent / "nested").mkdir(parents=True)
+            alias = temporary / "alias"
+            alias.symlink_to(real_parent, target_is_directory=True)
+            destination = alias / "nested" / "lane-bridge"
+
+            with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "symlink"):
+                curate_bridge.materialize_paths(
+                    sources,
+                    source_root=source_root,
+                    output_dir=destination,
+                )
+
+            self.assertFalse((real_parent / "nested" / "lane-bridge").exists())
+
     def test_materialize_paths_in_process_and_rejects_unsafe_layout(self):
         with tempfile.TemporaryDirectory() as td:
             temporary = Path(td)
@@ -482,25 +502,22 @@ class BridgeMaterialization(unittest.TestCase):
                 Path("unused-destination"),
             )
 
-    def test_routing_validation_is_independent_of_raster_requirement(self):
+    def test_materialization_cannot_disable_the_raster_contract(self):
         record = gate_snn_fixture()
-        record["raster"]["routing"]["table"] = []
         with tempfile.TemporaryDirectory() as td:
             temporary = Path(td)
             root = temporary / "source"
             source = self._write_source(root, "bridge/batch-r01.jsonl", [record])
-            decisions = curate_bridge.materialize_paths(
-                [source],
-                source_root=root,
-                output_dir=temporary / "tree",
-                require_raster=False,
-            )
+            destination = temporary / "tree"
+            with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "require_raster"):
+                curate_bridge.materialize_paths(
+                    [source],
+                    source_root=root,
+                    output_dir=destination,
+                    require_raster=False,
+                )
 
-        self.assertEqual([decision.action for decision in decisions], ["quarantine"])
-        self.assertIn(
-            curate_bridge.REASON_RASTER_ROUTING,
-            decisions[0].manifest["reason_codes"],
-        )
+            self.assertFalse(destination.exists())
 
     def test_each_materialized_source_batch_requires_a_valid_gate_head(self):
         gated = gate_snn_fixture()

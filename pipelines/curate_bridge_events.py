@@ -43,12 +43,14 @@ EXPLICIT_ORDER_KEYS = (
 def _record_locator(record: Any) -> str | None:
     if not isinstance(record, dict):
         return None
+    meta = record.get("meta")
     view = record.get("language_view")
     trajectory = view.get("trajectory") if isinstance(view, dict) else None
     state = trajectory.get("state") if isinstance(trajectory, dict) else None
     candidates = (
         record.get("id"),
         state.get("episode_id") if isinstance(state, dict) else None,
+        meta.get("id") if isinstance(meta, dict) else None,
     )
     return next(
         (value for value in candidates if isinstance(value, str) and bool(value.strip())),

@@ -239,7 +239,7 @@ def _validate_third_factor(
         return
     evidence["raster_third_factor_valid"] = True
     evidence["raster_third_factor_modulator"] = modulator
-    evidence["raster_third_factor_tau_e_s"] = float(tau.primary)
+    evidence["raster_third_factor_tau_e_s"] = tau.primary
     evidence["raster_third_factor_eligibility"] = eligibility.strip()
 
 
@@ -303,7 +303,7 @@ def _raster_spike_budget(
             neurons,
             neurons is not None and neurons > 0,
         ),
-        ("raster_rate_hz", "raster_rate_valid", _finite_float(rate), _positive_number(rate)),
+        ("raster_rate_hz", "raster_rate_valid", rate, _positive_number(rate)),
         ("raster_spikes", "raster_spikes_valid", spikes, spikes is not None),
     )
     for value_key, valid_key, value, valid in fields:

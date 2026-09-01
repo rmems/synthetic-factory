@@ -55,6 +55,7 @@ import reward_mapping as _reward_mapping  # noqa: E402
 import reward_ontology as _reward_ontology  # noqa: E402
 import reward_policy as _reward_policy  # noqa: E402  — mapping loads at import
 import reward_units as _reward_units  # noqa: E402
+from exact_json import dumps_exact_json, parse_finite_json_float  # noqa: E402
 
 
 def _export(module, *names):
@@ -263,7 +264,11 @@ def _load_jsonl_with_source_bytes(path):
             continue
         try:
             line = raw_line.decode("utf-8")
-            record = json.loads(line, parse_constant=_reject_json_constant)
+            record = json.loads(
+                line,
+                parse_constant=_reject_json_constant,
+                parse_float=parse_finite_json_float,
+            )
         except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
             raise RewardOntologyError(
                 f"{path}:{line_number}: invalid JSON: {exc}"
@@ -306,8 +311,8 @@ def _converted_jsonl_rows(
             "output_hash": hashlib.sha256(_canonical_bytes(curated)).hexdigest(),
         }
         yield (
-            json.dumps(curated, ensure_ascii=False, sort_keys=True),
-            json.dumps(sidecar, ensure_ascii=False, sort_keys=True),
+            dumps_exact_json(curated, ensure_ascii=False, sort_keys=True),
+            dumps_exact_json(sidecar, ensure_ascii=False, sort_keys=True),
             manifest_entry,
             annotation["comparability"],
         )

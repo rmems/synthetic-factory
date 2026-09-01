@@ -392,6 +392,25 @@ class BridgeTimingCuration(unittest.TestCase):
         self.assertEqual(decision.manifest["output_id_status"], "pending_identity_transform")
         self.assertEqual(decision.manifest["source_record_locator"], "bridge-fixture")
 
+    def test_legacy_meta_id_is_a_supported_source_locator(self):
+        source = bridge([event(1, "a")])
+        del source["id"]
+        del source["language_view"]["trajectory"]["state"]["episode_id"]
+        source["meta"] = {"id": "legacy-meta-id"}
+
+        decision = decide(source)
+
+        self.assertEqual(decision.manifest["source_record_locator"], "legacy-meta-id")
+
+    def test_nested_episode_locator_keeps_precedence_over_legacy_meta_id(self):
+        source = bridge([event(1, "a")])
+        del source["id"]
+        source["meta"] = {"id": "legacy-meta-id"}
+
+        decision = decide(source)
+
+        self.assertEqual(decision.manifest["source_record_locator"], "bridge-fixture")
+
     def test_jsonl_framing_preserves_unicode_line_separators_inside_strings(self):
         record = bridge([event(1, "line\u2028separator\u2029payload")], "unicode-lines")
         payload = json.dumps(record, ensure_ascii=False).encode("utf-8") + b"\r\n"
@@ -588,3 +607,7 @@ def gate_snn_fixture():
 
     line = (FIXTURES / "bridge_gate_snn.jsonl").read_text(encoding="utf-8").splitlines()[0]
     return json.loads(line)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -38,6 +38,23 @@ class ValidateSpikeOrderIdempotent(unittest.TestCase):
     def test_repo_remains_a_compatibility_reexport(self):
         self.assertEqual(validate_run.REPO, validate_run_spikes.REPO)
 
+    def test_spike_contract_names_remain_compatibility_reexports(self):
+        names = (
+            "BRIDGE_SPIKE_EVENT_KEYS",
+            "SCHEMA_PATH",
+            "SPIKE_CLOCK_DOMAIN_KEYS",
+            "SPIKE_CLOCK_DOMAIN_MISMATCH",
+            "SPIKE_EVENT_NUMBER_KEYS",
+            "SPIKE_EVENT_STRING_KEYS",
+            "SPIKE_ORDER_MISMATCH",
+            "SPIKE_TIME_KEYS",
+            "SPIKE_TIME_KEY_MISMATCH",
+            "THALAMIC_SCHEMA",
+        )
+        for name in names:
+            with self.subTest(name=name):
+                self.assertIs(getattr(validate_run, name), getattr(validate_run_spikes, name))
+
     def test_spike_order_sorted_passes(self):
         rec = copy.deepcopy(TINY_THALAMIC)
         bridge = {

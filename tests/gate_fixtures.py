@@ -4,34 +4,16 @@ import json
 import sys
 from pathlib import Path
 
+from distillation_test_helpers import distillation_sidecars
+
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 import round_txn  # noqa: E402
 
-BRIDGE_FIXTURE = REPO / "tests" / "fixtures" / "bridge_gate_snn.jsonl"
-
-
 def write(path, records):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
-
-
-def distillation_sidecars(decision="ACCEPT"):
-    """The committed raster + gate-as-SNN sidecars, re-keyed for a fresh decision.
-
-    ``thalamic-trajectory-factory`` is a ``RASTER_FACTORY_SLUGS`` member, so
-    every record this module stages for publish needs these sidecars or the
-    live bridge/raster envelope gate in ``round_txn.publish`` refuses it.
-    """
-    record = json.loads(BRIDGE_FIXTURE.read_text(encoding="utf-8").splitlines()[0])
-    sidecars = {
-        "raster": record["raster"],
-        "gate_snn": dict(record["gate_snn"]),
-    }
-    sidecars["gate_snn"]["decision"] = decision
-    return sidecars
-
 
 def thalamic(record_id, observable=True, rationale="bounded fixture"):
     """A thalamic record that the strict execution gate can verify.

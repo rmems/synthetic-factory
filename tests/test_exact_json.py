@@ -61,6 +61,13 @@ class ExactJSONNumbers(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "non-finite JSON number"):
             parse_finite_json_float("1e999")
 
+    def test_direct_parser_rejects_non_json_number_spellings(self):
+        for token in ("+1.0", ".5", "1.", "01.0", "-01.0", "1e", "1e+", " 1.0 "):
+            with self.subTest(token=token), self.assertRaisesRegex(
+                ValueError, "JSON number syntax"
+            ):
+                parse_finite_json_float(token)
+
     def test_exact_decimal_expansion_is_bounded_before_fraction_construction(self):
         self.assertEqual(float(parse_finite_json_float("1e308")), 1e308)
         self.assertEqual(exact_fraction(parse_finite_json_float("1e-00000")), 1)

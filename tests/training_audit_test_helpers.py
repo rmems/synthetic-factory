@@ -13,26 +13,12 @@ import json
 import sys
 from pathlib import Path
 
+from distillation_test_helpers import distillation_sidecars, load_bridge_fixture
+
 REPO = Path(__file__).resolve().parents[1]
 
 if str(REPO / "pipelines") not in sys.path:
     sys.path.insert(0, str(REPO / "pipelines"))
-
-
-def distillation_sidecars(decision="ACCEPT"):
-    """Return independent copies of the committed raster and gate fixtures."""
-    record = json.loads(
-        (REPO / "tests" / "fixtures" / "bridge_gate_snn.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()[0]
-    )
-    sidecars = {
-        "raster": record["raster"],
-        "gate_snn": dict(record["gate_snn"]),
-    }
-    sidecars["gate_snn"]["decision"] = decision
-    return sidecars
-
 
 def thalamic(record_id, provenance="designed", decision="ACCEPT"):
     record = {
@@ -51,11 +37,7 @@ def thalamic(record_id, provenance="designed", decision="ACCEPT"):
 
 def gate_snn_bridge(record_id="raster-bridge-1"):
     """Return the committed raster + third-factor + gate-as-SNN record."""
-    record = json.loads(
-        (REPO / "tests" / "fixtures" / "bridge_gate_snn.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()[0]
-    )
+    record = load_bridge_fixture()
     record["id"] = record_id
     return record
 
