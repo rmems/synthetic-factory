@@ -256,6 +256,10 @@ def _raster_energy_checks(spikes: Any) -> tuple[tuple[Any, ...], ...]:
     )
 
 
+def _derived_energy_is_bounded(checks: tuple[tuple[Any, ...], ...]) -> bool:
+    return all(check[1] is not None for check in checks)
+
+
 def _validate_raster_energy(
     raster: dict[str, Any],
     spikes: Any,
@@ -272,6 +276,14 @@ def _validate_raster_energy(
     if not budget_ready:
         return
     checks = _raster_energy_checks(spikes)
+    if not _derived_energy_is_bounded(checks):
+        _mark_invalid(
+            state.reason_codes,
+            state.evidence,
+            REASON_RASTER_ENERGY,
+            "raster_derived_energy_valid",
+        )
+        return
     results = [
         (
             expected_key,
@@ -438,6 +450,7 @@ def _validate_raster(
 finite_float = _finite_float
 is_finite_number = _is_finite_number
 nonnegative_json_integer = _nonnegative_json_integer
+spike_energy = _spike_energy
 validate_raster = _validate_raster
 validate_third_factor = _validate_third_factor
 

@@ -86,6 +86,7 @@ _materialize_paths = _bridge_materialize.materialize_paths
 _raster_finite_float = _bridge_raster.finite_float
 _is_finite_number = _bridge_raster.is_finite_number
 _nonnegative_json_integer = _bridge_raster.nonnegative_json_integer
+spike_energy = _bridge_raster.spike_energy
 _validate_raster = _bridge_raster.validate_raster
 _raster_validate_third_factor = _bridge_raster.validate_third_factor
 
@@ -442,6 +443,7 @@ def _raster_reasons(
     if require_routing_table and expected_gate_decision is None:
         reason_codes.append(REASON_GATE_SNN_INVALID)
         evidence["gate_snn_decision_valid"] = False
+    raster_reason_start = len(reason_codes)
     raster_present = _validate_declared_sidecars(
         _raster_candidates(record),
         lambda value, reasons, details: _validate_raster(
@@ -465,6 +467,7 @@ def _raster_reasons(
         state,
         "gate_compute",
     )
+    evidence["raster_reason_codes"] = sorted(set(reason_codes[raster_reason_start:]))
     gate_snn_present = _validate_declared_sidecars(
         _gate_snn_candidates(record),
         lambda value, reasons, details: _validate_gate_snn(

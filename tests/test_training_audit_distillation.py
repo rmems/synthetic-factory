@@ -175,9 +175,44 @@ class DistillationRasterAudit(unittest.TestCase):
         self.assertFalse(report["training_ready"])
         self.assertEqual(report["bridge"]["gate_snn_records"], 1)
         self.assertEqual(report["bridge"]["gate_snn_valid_records"], 0)
+        self.assertEqual(report["bridge"]["raster_valid_pairs"], 1)
+        self.assertEqual(report["bridge"]["raster_defect_pairs"], 0)
+        self.assertEqual(report["bridge"]["raster_spikes"], 123)
+        self.assertEqual(report["bridge"]["raster_defect_codes"], {})
+        self.assertEqual(report["bridge"]["raster_coverage_pct"], 100.0)
         self.assertTrue(
             any("gate specs are invalid" in item for item in report["blockers"]),
             report["blockers"],
+        )
+
+    def test_gate_spike_mismatch_does_not_reduce_raster_coverage(self):
+        record = gate_snn_bridge("bad-gate-spikes")
+        record["gate_snn"]["populations"][0]["spikes"] += 10
+        temporary, report = self._audit(BRIDGE_FACTORY, [record])
+        temporary.cleanup()
+
+        bridge = report["bridge"]
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(bridge["gate_snn_valid_records"], 0)
+        self.assertEqual(bridge["raster_valid_pairs"], 1)
+        self.assertEqual(bridge["raster_coverage_pct"], 100.0)
+        self.assertEqual(bridge["raster_defect_codes"], {})
+
+    def test_raster_and_gate_defects_remain_separately_accounted(self):
+        record = gate_snn_bridge("bad-raster-and-gate")
+        record["raster"]["spikes"] = 999
+        record["gate_snn"]["populations"] = [{"name": "gate", "neurons": 0}]
+        temporary, report = self._audit(BRIDGE_FACTORY, [record])
+        temporary.cleanup()
+
+        bridge = report["bridge"]
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(bridge["gate_snn_valid_records"], 0)
+        self.assertEqual(bridge["raster_valid_pairs"], 0)
+        self.assertEqual(bridge["raster_coverage_pct"], 0)
+        self.assertEqual(
+            bridge["raster_defect_codes"],
+            {"BRIDGE_ENERGY_MISMATCH": 1, "BRIDGE_SPIKE_BUDGET_MISMATCH": 1},
         )
 
     def test_other_factory_thalamic_record_is_not_distillation_data(self):

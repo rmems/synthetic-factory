@@ -178,8 +178,7 @@ def _expose_package_sibling(qualified_name: str) -> None:
     if not is_local:
         return
     direct_candidate = _local_sibling_module(sibling_name)
-    direct_spec = getattr(direct_candidate, "__spec__", None)
-    if direct_candidate is not None and not getattr(direct_spec, "_initializing", False):
+    if direct_candidate is not None:
         sys.modules[qualified_name] = direct_candidate
     else:
         sys.modules.setdefault(sibling_name, candidate)

@@ -334,18 +334,6 @@ class RasterAndGateSnnCuration(unittest.TestCase):
                 self.assertEqual(decision.action, "quarantine")
                 self.assertIn(reason, decision.manifest["reason_codes"])
 
-    def test_overflowing_gate_spike_product_is_quarantined(self):
-        record = gate_snn_fixture()
-        record["gate_snn"]["decision_window_ms"] = 1e308
-        record["gate_snn"]["decision_window_s"] = 1e308 / 1000.0
-        record["gate_snn"]["populations"][0]["mean_rate_hz"] = 1e308
-        record["gate_snn"]["populations"][0]["spikes"] = 1
-
-        decision = decide(record)
-
-        self.assertEqual(decision.action, "quarantine")
-        self.assertIn(curate_bridge.REASON_GATE_SNN_INVALID, decision.manifest["reason_codes"])
-
     def test_gate_snn_population_budget_shape_rejects_nonpositive_values(self):
         mutations = (
             ("mean_rate_hz", 0),

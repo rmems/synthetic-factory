@@ -123,6 +123,87 @@ class StrictContractFixtures(unittest.TestCase):
                 self.assertIn(marker, shape.stderr)
                 self.assertEqual(deep["exit_code"], 1, deep)
 
+    def test_shape_validator_enforces_the_exact_json_output_contract(self):
+        nested = copy.deepcopy(TINY_THALAMIC)
+        extension = None
+        for _ in range(129):
+            extension = [extension]
+        nested["extension"] = extension
+        valid = copy.deepcopy(TINY_THALAMIC)
+        valid["state"]["episode_id"] = "tiny-valid-😀"
+
+        with tempfile.TemporaryDirectory() as raw:
+            run_dir = Path(raw) / "run"
+            run_dir.mkdir()
+            (run_dir / "nested.jsonl").write_text(
+                json.dumps(nested) + "\n" + json.dumps(valid, ensure_ascii=False) + "\n"
+            )
+            nested_result = _invoke(str(run_dir))
+
+        self.assertEqual(nested_result.returncode, 1, nested_result.stderr)
+        self.assertNotIn("Traceback", nested_result.stderr)
+        self.assertIn("nested.jsonl:1", nested_result.stderr)
+        self.assertNotIn("nested.jsonl:2", nested_result.stderr)
+        self.assertIn("exact JSON contract error", nested_result.stderr)
+        self.assertIn("JSON nesting", nested_result.stderr)
+        self.assertEqual(
+            json.loads(nested_result.stdout),
+            {
+                "files": 1,
+                "records": 1,
+                "by_kind": {"thalamic": 1},
+                "error_count": 1,
+            },
+        )
+
+        surrogate = json.dumps(TINY_THALAMIC).replace(
+            '"tiny-001"',
+            '"tiny-\\ud800"',
+            1,
+        )
+        with tempfile.TemporaryDirectory() as raw:
+            run_dir = Path(raw) / "run"
+            run_dir.mkdir()
+            (run_dir / "surrogate.jsonl").write_text(surrogate + "\n")
+            surrogate_result = _invoke(str(run_dir))
+
+        self.assertEqual(surrogate_result.returncode, 1, surrogate_result.stderr)
+        self.assertNotIn("Traceback", surrogate_result.stderr)
+        self.assertIn("surrogate.jsonl:1", surrogate_result.stderr)
+        self.assertIn("exact JSON contract error", surrogate_result.stderr)
+        self.assertIn("unpaired UTF-16 surrogate", surrogate_result.stderr)
+        self.assertEqual(
+            json.loads(surrogate_result.stdout),
+            {"files": 1, "records": 0, "by_kind": {}, "error_count": 1},
+        )
+
+    def test_shape_validator_bounds_decoder_recursion_and_continues(self):
+        too_deep = "[" * 100_000 + "0" + "]" * 100_000
+        valid = copy.deepcopy(TINY_THALAMIC)
+        valid["state"]["episode_id"] = "after-deep-input"
+
+        with tempfile.TemporaryDirectory() as raw:
+            run_dir = Path(raw) / "run"
+            run_dir.mkdir()
+            (run_dir / "deep-input.jsonl").write_text(
+                too_deep + "\n" + json.dumps(valid) + "\n"
+            )
+            result = _invoke(str(run_dir))
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("deep-input.jsonl:1: JSON parse error", result.stderr)
+        self.assertNotIn("deep-input.jsonl:2", result.stderr)
+        self.assertEqual(
+            json.loads(result.stdout),
+            {
+                "files": 1,
+                "records": 1,
+                "by_kind": {"thalamic": 1},
+                "error_count": 1,
+            },
+        )
+
 
 class TransactionalRoundPassesHardenedValidator(unittest.TestCase):
     """A round published through round_txn must satisfy the hardened contract.

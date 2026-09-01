@@ -67,11 +67,11 @@ def _finite_float(value: Any) -> float | None:
 
 
 def _is_finite_number(value: Any) -> bool:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and _finite_float(value) is not None
-    )
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    if isinstance(value, int):
+        return json_integer_is_bounded(value)
+    return _finite_float(value) is not None
 
 
 def _is_exact_finite_number(value: Any) -> bool:
@@ -104,22 +104,18 @@ def _expected_spikes(neurons: Any, mean_rate_hz: Any, window_s: Any) -> int | No
     normalized_neurons = _nonnegative_json_integer(neurons)
     if normalized_neurons is None:
         return None
-    rate_float = _finite_float(mean_rate_hz)
-    window_float = _finite_float(window_s)
     rate = exact_fraction(mean_rate_hz)
     window = exact_fraction(window_s)
-    if any(value is None for value in (rate_float, window_float, rate, window)):
-        return None
-    scale = rate_float * window_float
-    if not math.isfinite(scale):
+    if rate is None or window is None:
         return None
     try:
         # Keep the validated population exact and interpret both factors using
         # their JSON-decimal spellings. Float conversion can erase spike units
         # above 2**53 or magnify the approximation of 0.1 into a false defect.
-        return round(rate * window * normalized_neurons)
+        expected = round(rate * window * normalized_neurons)
     except (OverflowError, ValueError):
         return None
+    return expected if json_integer_is_bounded(expected) else None
 
 
 def _raster_spike_budget(

@@ -12,6 +12,9 @@ try:
 except ModuleNotFoundError:
     from test_curate_bridge import curate_bridge, gate_snn_fixture  # type: ignore[no-redef]
 
+import spike_probe  # noqa: E402
+from exact_json import dumps_exact_json  # noqa: E402
+
 
 class BridgeIntegerPrecision(unittest.TestCase):
     neurons = 10**18 + 2
@@ -89,6 +92,78 @@ class BridgeIntegerPrecision(unittest.TestCase):
         self.assertEqual(mismatch["expected"], expected)
         self.assertEqual(mismatch["actual"], declared)
         self.assertIn(curate_bridge.REASON_RASTER_SPIKE_BUDGET, status["reason_codes"])
+
+    def test_extreme_integer_rate_keeps_a_bounded_exact_spike_product(self):
+        rate = 10**309
+        expected = 2 * 10**307
+
+        raster_record = gate_snn_fixture()
+        raster_record["raster"].update(
+            {
+                "window_ms": 20,
+                "window_s": 0.02,
+                "neurons": 1,
+                "mean_rate_hz": rate,
+                "spikes": expected,
+            }
+        )
+        raster_record["raster"].pop("energy_pJ", None)
+        raster_record["raster"].pop("energy_uJ", None)
+        raster_record["raster"]["excerpt"] = [{"t_us": 1000, "neuron_id": 0}]
+        raster_status = curate_bridge.raster_status(raster_record)
+        self.assertTrue(raster_status["raster_valid"], raster_status["reason_codes"])
+        self.assertEqual(raster_status["evidence"]["raster_expected_spikes"], expected)
+        normalized = spike_probe.normalize_raster(raster_record)
+        self.assertIsNotNone(normalized)
+        dumps_exact_json(normalized)
+
+        gate_record = gate_snn_fixture()
+        gate_record["gate_snn"].update(
+            {
+                "decision_window_ms": 20,
+                "decision_window_s": 0.02,
+                "populations": [
+                    {
+                        "name": "exact-rate",
+                        "neurons": 1,
+                        "threshold": 1,
+                        "mean_rate_hz": rate,
+                        "spikes": expected,
+                    }
+                ],
+            }
+        )
+        gate_status = curate_bridge.raster_status(gate_record)
+        self.assertTrue(gate_status["raster_valid"], gate_status["reason_codes"])
+
+        compute_record = gate_snn_fixture()
+        compute_record["gate_compute"] = {
+            "per_check": [
+                {
+                    "neurons": 1,
+                    "mean_rate_hz": rate,
+                    "window_s": 0.02,
+                    "spikes": expected,
+                }
+            ]
+        }
+        compute_status = curate_bridge.raster_status(compute_record)
+        self.assertTrue(compute_status["raster_valid"], compute_status["reason_codes"])
+
+    def test_large_exact_gate_spike_product_is_checked_without_overflow(self):
+        record = gate_snn_fixture()
+        record["gate_snn"]["decision_window_ms"] = 1e308
+        record["gate_snn"]["decision_window_s"] = 1e308 / 1000.0
+        record["gate_snn"]["populations"][0]["mean_rate_hz"] = 1e308
+        record["gate_snn"]["populations"][0]["spikes"] = 1
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertFalse(status["raster_valid"])
+        self.assertIn(curate_bridge.REASON_RASTER_SPIKE_BUDGET, status["reason_codes"])
+        mismatch = status["evidence"]["gate_snn_spike_mismatches"][0]
+        self.assertGreater(mismatch["expected"], 10**600)
+        self.assertEqual(mismatch["actual"], 1)
 
     def _literal_decimal_record(self, declared_spikes):
         record = gate_snn_fixture()

@@ -24,6 +24,7 @@ from curate_bridge import (  # noqa: E402
     gate_snn_sidecar,
     raster_sidecar,
     raster_status,
+    spike_energy,
 )
 from exact_json import (  # noqa: E402
     exact_fraction,
@@ -205,7 +206,11 @@ def normalize_raster(record: Any, *, source: str | None = None) -> dict[str, Any
         # first overflows to ``inf`` for an extreme but schema-valid raster,
         # and ``--jsonl`` would then emit the non-standard ``Infinity`` token
         # that the probe's own reader (reject_json_constant) refuses.
-        "energy_pJ": spikes * RASTER_ENERGY_PJ_PER_SPIKE if spikes is not None else None,
+        "energy_pJ": (
+            spike_energy(spikes, RASTER_ENERGY_PJ_PER_SPIKE)
+            if spikes is not None
+            else None
+        ),
         "routing": _routing(raster),
         "gate_snn": _normalized_gate_snn(gate_snn),
         "events": _events_us(raster),

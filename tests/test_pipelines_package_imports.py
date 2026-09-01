@@ -57,6 +57,7 @@ class PipelinesPackageImports(unittest.TestCase):
             (curate_bridge_raster, "finite_float"),
             (curate_bridge_raster, "is_finite_number"),
             (curate_bridge_raster, "nonnegative_json_integer"),
+            (curate_bridge_raster, "spike_energy"),
             (curate_bridge_raster, "validate_raster"),
             (curate_bridge_raster, "validate_third_factor"),
         )

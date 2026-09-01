@@ -102,7 +102,7 @@ class DistillationAudit:
     def _raster_quality_observer(self, status):
         if not status["raster_present"]:
             return self._observe_missing_raster
-        if status["reason_codes"]:
+        if status["evidence"]["raster_reason_codes"]:
             return self._observe_defective_raster
         return self._observe_valid_raster
 
@@ -113,9 +113,10 @@ class DistillationAudit:
 
     def _observe_defective_raster(self, status, where):
         self.metrics["raster_defect_pairs"] += 1
-        self.raster_defect_codes.update(status["reason_codes"])
+        raster_reasons = status["evidence"]["raster_reason_codes"]
+        self.raster_defect_codes.update(raster_reasons)
         if len(self.raster_defect_examples) < 5:
-            joined = ",".join(status["reason_codes"])
+            joined = ",".join(raster_reasons)
             self.raster_defect_examples.append(f"{where}: {joined}")
 
     def _observe_valid_raster(self, status, _where):

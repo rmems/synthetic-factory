@@ -24,11 +24,11 @@ if __package__:
     if _local_sibling_module("validate_run", allow_initializing=True) is not None:
         import validate_run as _direct_validate_run
         del _direct_validate_run
-    from .exact_json import parse_finite_json_float as _parse_exact_json_float
     from . import validate_run_spikes as _validate_run_spikes
+    from .validate_run_input import parse_exact_json_record as _parse_exact_json_record
 else:
-    from exact_json import parse_finite_json_float as _parse_exact_json_float
     import validate_run_spikes as _validate_run_spikes
+    from validate_run_input import parse_exact_json_record as _parse_exact_json_record
 
 # Historical public compatibility surface. Explicit binding keeps these names
 # importable without asking static analyzers to treat unused imports as use.
@@ -1455,14 +1455,9 @@ def main(argv=None):
             if not line.strip():
                 continue
             where = f"{rel}:{lineno}"
-            try:
-                obj = json.loads(
-                    line,
-                    parse_constant=reject_json_constant,
-                    parse_float=_parse_exact_json_float,
-                )
-            except ValueError as exc:
-                entry["errors"].append(f"{where}: JSON parse error: {exc}")
+            obj, input_error = _parse_exact_json_record(line)
+            if input_error is not None:
+                entry["errors"].append(f"{where}: {input_error}")
                 continue
             errs, kind = check_line(obj, where)
             entry["records"] += 1

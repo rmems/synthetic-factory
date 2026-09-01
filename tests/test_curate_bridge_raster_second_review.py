@@ -14,20 +14,23 @@ try:
 except ModuleNotFoundError:
     from test_curate_bridge import curate_bridge, gate_snn_fixture  # type: ignore[no-redef]
 
+from exact_json import MAX_DECIMAL_DIGITS  # noqa: E402
+
 
 class RasterContractSecondReviewRound(unittest.TestCase):
     """PR #94 follow-up review: crashes and gaps the first round left open."""
 
     def test_an_oversized_declared_number_is_a_defect_not_an_overflow(self):
-        """``math.isfinite(10**400)`` raises rather than returning False.
+        """An integer beyond the exact-JSON digit contract is invalid.
 
         Every numeric raster/gate guard runs through ``_is_finite_number``, so
         a staged record declaring an unbounded JSON integer crashed the
         publish gate, the training audit and strict probing instead of
         reporting an invalid contract.
         """
-        self.assertFalse(curate_bridge._is_finite_number(10**400))
-        self.assertFalse(curate_bridge._is_finite_number(-(10**400)))
+        oversized = 10**MAX_DECIMAL_DIGITS
+        self.assertFalse(curate_bridge._is_finite_number(oversized))
+        self.assertFalse(curate_bridge._is_finite_number(-oversized))
 
         for field, reason in (
             ("window_ms", curate_bridge.REASON_RASTER_WINDOW),
@@ -38,7 +41,7 @@ class RasterContractSecondReviewRound(unittest.TestCase):
         ):
             with self.subTest(field=field):
                 record = gate_snn_fixture()
-                record["raster"][field] = 10**400
+                record["raster"][field] = oversized
 
                 status = curate_bridge.raster_status(record)
 
