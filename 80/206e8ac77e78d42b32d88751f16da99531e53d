@@ -1,0 +1,55 @@
+pipelines/__init__.py
+  s_98712805c1499b::t_4fbf7f320df414 181
+pipelines/curate_bridge_raster_numbers.py
+  s_98712805c1499b::t_f22a588cf20dac 70-74,109,115,118
+pipelines/validate_run_input.py
+  s_98712805c1499b::t_7cd6059bd2d695 1-23,25-35
+  s_98712805c1499b::t_156fa9da44f913 24
+  s_98712805c1499b::t_1c139fac0f6862 36
+tests/test_curate_bridge_raster_second_review.py
+  s_98712805c1499b::t_d3a475e5cc96dd 17-18,24,31-33,44
+tests/test_curate_bridge_integer_precision.py
+  s_98712805c1499b::t_6695ce9e763658 153-167
+  s_98712805c1499b::t_e724b0a618e692 96-111,113-115,119-152
+  s_98712805c1499b::t_d3a475e5cc96dd 15-16,112,116-118
+pipelines/curate_bridge_raster.py
+  s_98712805c1499b::t_f22a588cf20dac 280-286,453
+  s_98712805c1499b::t_4fbf7f320df414 259-262,279
+tests/test_pipelines_package_imports.py
+  s_98712805c1499b::t_f22a588cf20dac 60
+tests/test_curate_bridge_exact_energy.py
+  s_98712805c1499b::t_6695ce9e763658 6-8,10-11,22,64-133
+pipelines/validate_run.py
+  s_98712805c1499b::t_7cd6059bd2d695 28,31,1458-1460
+pipelines/curate_bridge.py
+  s_98712805c1499b::t_4fbf7f320df414 470
+  s_98712805c1499b::t_f22a588cf20dac 89
+  s_98712805c1499b::t_0d1dfe9282a854 446
+pipelines/distillation_audit.py
+  s_98712805c1499b::t_f73aba7b1e9c0f 105,116-117,119
+tests/test_validate_run_contracts.py
+  s_98712805c1499b::t_156fa9da44f913 180-206
+  s_98712805c1499b::t_10b2560ae9e1bc 132-133,138-140,144-146,149-157,171-172,175-178
+  s_98712805c1499b::t_e724b0a618e692 126-131,134-137,141-143,147-148,158-170,173-174,179
+pipelines/spike_probe_normalize.py
+  s_98712805c1499b::t_f22a588cf20dac 27,209-213
+tests/test_training_audit_distillation.py
+  s_98712805c1499b::t_0d1dfe9282a854 178-179,181-182
+  s_98712805c1499b::t_4fbf7f320df414 180,188-215
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "80206e8ac77e78d42b32d88751f16da99531e53d",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
