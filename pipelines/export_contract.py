@@ -11,6 +11,7 @@ the strict-JSON primitives that two or more of the siblings need.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -62,8 +63,19 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"non-finite JSON constant {value!r}")
 
 
+def _reject_nonfinite_json_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"non-finite JSON number {value!r}")
+    return parsed
+
+
 def _loads_json(payload: str, label: str) -> Any:
     try:
-        return json.loads(payload, parse_constant=_reject_json_constant)
-    except (json.JSONDecodeError, ValueError) as exc:
+        return json.loads(
+            payload,
+            parse_constant=_reject_json_constant,
+            parse_float=_reject_nonfinite_json_float,
+        )
+    except (json.JSONDecodeError, ValueError, RecursionError) as exc:
         raise ExportError(f"{label}: invalid JSON: {exc}") from exc

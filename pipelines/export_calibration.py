@@ -20,8 +20,11 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 import compose_curated  # noqa: E402
-import curate_rewards  # noqa: E402
-from export_contract import ExportError, _reject_json_constant  # noqa: E402
+from export_contract import (  # noqa: E402
+    ExportError,
+    _reject_json_constant,
+    _reject_nonfinite_json_float,
+)
 from export_members import _read_exact_regular_file  # noqa: E402
 from curate_identity import _reject_duplicate_object_keys  # noqa: E402
 from reward_calibration import _entry_calibrations  # noqa: E402,F401
@@ -40,8 +43,9 @@ def _load_calibration_payload(payload: bytes, path: Path) -> dict[str, Any]:
             text,
             object_pairs_hook=_reject_duplicate_object_keys,
             parse_constant=_reject_json_constant,
+            parse_float=_reject_nonfinite_json_float,
         )
-    except (json.JSONDecodeError, ValueError) as exc:
+    except (json.JSONDecodeError, ValueError, RecursionError) as exc:
         raise ExportError(f"calibration {path}: invalid JSON: {exc}") from exc
     records = document.get("records") if isinstance(document, dict) else None
     if not isinstance(records, list):

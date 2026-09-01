@@ -67,6 +67,48 @@ class ComposeDestinationSafety(unittest.TestCase):
                     compose_curated.compose_run(source_argument, root / "curated")
                 self.assertFalse((root / "curated").exists())
 
+    def test_composition_rejects_a_jsonl_named_source_directory(self):
+        """A payload-looking directory may not disappear from the source census."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = build_source_run(root / "run")
+            (source / "ignored.jsonl").mkdir()
+
+            with self.assertRaisesRegex(
+                compose_curated.ComposeError, "not a regular file"
+            ):
+                compose_curated.compose_run(source, root / "curated")
+            self.assertFalse((root / "curated").exists())
+
+    def test_composition_rejects_a_source_member_added_after_capture(self):
+        """The published counts must describe one complete source snapshot."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = build_source_run(root / "run")
+            original_capture = compose_curated._captured_source_payloads
+
+            def capture_then_add(resolved_source, source_members):
+                payloads = original_capture(resolved_source, source_members)
+                write_jsonl(
+                    source / "thalamic-trajectory-factory" / "late.jsonl",
+                    [thalamic("late-member")],
+                )
+                return payloads
+
+            with mock.patch.object(
+                compose_curated,
+                "_captured_source_payloads",
+                side_effect=capture_then_add,
+            ):
+                with self.assertRaisesRegex(
+                    compose_curated.ComposeError,
+                    "member set changed while capturing the source snapshot",
+                ):
+                    compose_curated.compose_run(source, root / "curated")
+            self.assertFalse((root / "curated").exists())
+
     def test_composition_rejects_hard_linked_calibration_evidence(self):
         for mode in ("explicit", "source_run"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as td:
@@ -289,6 +331,48 @@ class ComposeDestinationSafety(unittest.TestCase):
             finally:
                 os.close(descriptor)
             self.assertEqual(sorted(path.name for path in raw.iterdir()), [])
+
+    def test_pinned_writer_refuses_an_opened_child_moved_outside_the_root(self):
+        """A pinned child renamed elsewhere must not receive later leaf writes."""
+
+        import compose_destination
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            destination = root / "curated"
+            destination.mkdir()
+            outside = root / "outside"
+            outside.mkdir()
+            descriptor = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)
+            real_open_child = compose_destination._open_pinned_child_directory
+            moved = False
+
+            def open_then_move(parent_descriptor, name, label):
+                nonlocal moved
+                child_descriptor = real_open_child(parent_descriptor, name, label)
+                if not moved:
+                    moved = True
+                    (destination / name).rename(outside / name)
+                return child_descriptor
+
+            try:
+                with mock.patch.object(
+                    compose_destination,
+                    "_open_pinned_child_directory",
+                    side_effect=open_then_move,
+                ):
+                    with self.assertRaisesRegex(
+                        compose_curated.ComposeError,
+                        "escaped its pinned destination root",
+                    ):
+                        compose_curated._write_new_text(
+                            descriptor, "records/factory/rows.jsonl", "{}\n"
+                        )
+            finally:
+                os.close(descriptor)
+
+            self.assertTrue(moved)
+            self.assertFalse((outside / "records" / "factory" / "rows.jsonl").exists())
 
     def test_pinned_writer_refuses_a_final_name_swapped_for_a_symlink(self):
         with tempfile.TemporaryDirectory() as td:

@@ -215,6 +215,45 @@ class ComposePreferenceGates(unittest.TestCase):
                 retained.record[side_name]["steps"][0]["decision_basis"].strip()
             )
 
+    def test_same_state_wrapper_hidden_reasoning_is_stripped(self):
+        """Hidden fields on the retained wrapper are governed like its sides."""
+
+        pure = self._impure_same_state_pair()
+        pure["rejected"]["state"] = copy.deepcopy(pure["chosen"]["state"])
+        pure["rejected"]["proposed_action"] = copy.deepcopy(
+            pure["chosen"]["proposed_action"]
+        )
+        pure["internal_reasoning"] = "private wrapper rationale"
+
+        retained = self._compose_pair(pure, line=3, sha_digit="a")
+
+        self.assertEqual(retained.action, compose_curated.ACTION_RETAINED)
+        self.assertNotIn("internal_reasoning", retained.record)
+        coding_stage = next(
+            stage for stage in retained.stages if stage["lane"] == "coding"
+        )
+        self.assertEqual(coding_stage["lane_action"], "modified")
+        self.assertGreater(
+            coding_stage["detail"]["hidden_reasoning_fields_removed"], 0
+        )
+
+    def test_compatibility_gate_rejects_an_inverted_preference_direction(self):
+        """The fallback must bind chosen=success and rejected=failure."""
+
+        inverted = trajectory_preference_pair()
+        inverted["chosen"]["reward"]["success"] = False
+        inverted["rejected"]["reward"]["success"] = True
+
+        with mock.patch.object(
+            compose_curated, "curate_trajectory_preferences", None
+        ):
+            rejected = self._compose_pair(inverted, line=4, sha_digit="b")
+
+        self.assertEqual(rejected.action, compose_curated.ACTION_EXCLUDED)
+        self.assertIn(
+            "TRAJECTORY_PREFERENCE_DIRECTION_INVALID", rejected.reason_codes
+        )
+
     def test_reviewed_trajectory_module_is_used_when_the_stack_provides_it(self):
         pair = trajectory_preference_pair()
 

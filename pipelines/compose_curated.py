@@ -124,6 +124,7 @@ from compose_contract import (  # noqa: E402,F401
 )
 from compose_destination import (  # noqa: E402,F401
     PinnedDestination,
+    _assert_descriptor_contained,
     _assert_destination_disjoint,
     _assert_new_destination,
     _assert_opened_source_identity,
@@ -220,6 +221,7 @@ __all__ = [
     "PinnedDestination",
     "_TRAJECTORY_DIVERGENCE_FIELDS",
     "_TrajectoryPreferenceDecision",
+    "_assert_descriptor_contained",
     "_assert_destination_disjoint",
     "_assert_new_destination",
     "_assert_opened_source_identity",
@@ -1101,6 +1103,15 @@ def _compose_bridge_view_coding(
     return updated
 
 
+def _hidden_only_curation_applies(
+    current: dict[str, Any], registered_kind: Any
+) -> bool:
+    """Whether a retained non-episode wrapper still carries private fields."""
+
+    governed_shape = registered_kind == "thalamic" or is_preference_record(current)
+    return governed_shape and curate_coding.contains_hidden_reasoning_key(current)
+
+
 def _compose_coding_stage(
     current: dict[str, Any],
     registered_kind: Any,
@@ -1129,9 +1140,7 @@ def _compose_coding_stage(
                 source_path=source_path,
                 source_line=source_line,
             )
-        if registered_kind == "thalamic" and curate_coding.contains_hidden_reasoning_key(
-            current
-        ):
+        if _hidden_only_curation_applies(current, registered_kind):
             # A Thalamic record without any episode step array is not a
             # coding episode, but hidden reasoning it carries (for example
             # ``proposed_action.internal_reasoning``) still blocks the strict
@@ -1481,7 +1490,13 @@ def _strip_provenance_labels(semantic: dict[str, Any]) -> None:
         meta = owner.get("meta")
         if not isinstance(meta, dict):
             continue
-        for provenance_field in ("factory", "generator", "run", "round"):
+        for provenance_field in (
+            "factory",
+            "generator",
+            "generator_version",
+            "run",
+            "round",
+        ):
             meta.pop(provenance_field, None)
 
 
@@ -1832,8 +1847,12 @@ def _jsonl_physical_lines(raw_file: bytes) -> list[bytes]:
     """
 
     physical_lines = raw_file.split(b"\n")
+    terminated_lines = len(physical_lines) - 1
     if physical_lines and physical_lines[-1] == b"":
         physical_lines.pop()
+    for index in range(min(terminated_lines, len(physical_lines))):
+        if physical_lines[index].endswith(b"\r"):
+            physical_lines[index] = physical_lines[index][:-1]
     return physical_lines
 
 
@@ -2058,6 +2077,40 @@ def _captured_source_payloads(
     }
 
 
+def _source_snapshot_identities(
+    resolved_source: Path, source_members: tuple[str, ...]
+) -> dict[str, tuple[int, ...]]:
+    """Capture the stable identity of every member in one source census."""
+
+    return {
+        relative: _stable_file_identity(
+            _source_member_path(
+                resolved_source, relative, f"compose source {relative}"
+            ).lstat()
+        )
+        for relative in source_members
+    }
+
+
+def _capture_source_snapshot(
+    resolved_source: Path,
+) -> tuple[tuple[str, ...], dict[str, bytes]]:
+    """Capture one complete, identity-stable source member census."""
+
+    source_members = source_jsonl_members(resolved_source)
+    identities = _source_snapshot_identities(resolved_source, source_members)
+    payloads = _captured_source_payloads(resolved_source, source_members)
+    if source_jsonl_members(resolved_source) != source_members:
+        raise ComposeError(
+            "source member set changed while capturing the source snapshot"
+        )
+    if _source_snapshot_identities(resolved_source, source_members) != identities:
+        raise ComposeError(
+            "source member identity changed while capturing the source snapshot"
+        )
+    return source_members, payloads
+
+
 def _write_compose_provenance(
     state: _ComposeRunState, destination_descriptor: int
 ) -> tuple[str, str]:
@@ -2139,8 +2192,7 @@ def compose_run(
     source_run = Path(source_run)
     destination = Path(destination)
     resolved_source = _require_exact_directory(source_run, "source run")
-    source_members = source_jsonl_members(resolved_source)
-    payload_by_member = _captured_source_payloads(resolved_source, source_members)
+    source_members, payload_by_member = _capture_source_snapshot(resolved_source)
     mill_findings = compose_mill.index_compose_mills(
         resolved_source, payload_by_member, _jsonl_physical_lines
     )

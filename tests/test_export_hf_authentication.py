@@ -3,9 +3,12 @@
 
 import hashlib
 import json
+import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from export_test_support import (  # noqa: E402
     ONE_CALIBRATION,
@@ -483,6 +486,42 @@ class CalibrationAuthentication(unittest.TestCase):
                 "calibrated record count does not authenticate",
             )
 
+    def test_calibration_rewritten_during_source_replay_is_refused(self):
+        """Replay may not combine source bytes with stale calibration evidence."""
+
+        import export_replay
+        from compose_curated_test_support import build_source_run
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = build_source_run(root / "run")
+            calibration, _digest = self.write_calibration(source)
+            curated = root / "curated"
+            compose_curated.compose_run(source, curated)
+            real_replay = export_replay._replay_source_lines
+
+            def replay_then_rewrite(*args, **kwargs):
+                snapshot = real_replay(*args, **kwargs)
+                before = calibration.stat()
+                calibration.write_bytes(calibration.read_bytes())
+                os.utime(
+                    calibration,
+                    ns=(before.st_atime_ns, before.st_mtime_ns),
+                )
+                return snapshot
+
+            with mock.patch.object(
+                export_replay,
+                "_replay_source_lines",
+                side_effect=replay_then_rewrite,
+            ):
+                with self.assertRaisesRegex(
+                    export_hf.ExportError,
+                    "calibration evidence changed during source replay",
+                ):
+                    export_hf.export_run(curated, root / "export")
+            self.assertFalse((root / "export").exists())
+
 
 class CalibrationPayloadLoading(unittest.TestCase):
     """Only well-formed calibration entries reach the catalog."""
@@ -554,6 +593,24 @@ class CalibrationPayloadLoading(unittest.TestCase):
             ),
             "conflicting calibrations for ffpc-r5-002",
         )
+
+
+class StrictExportJsonLoading(unittest.TestCase):
+    def test_overflowed_json_numbers_are_refused(self):
+        for literal in ("1e9999", "-1e9999"):
+            with self.subTest(literal=literal):
+                with self.assertRaisesRegex(export_hf.ExportError, "non-finite"):
+                    export_hf._loads_json(f'{{"value":{literal}}}', "payload")
+
+    def test_deep_json_is_wrapped_as_an_export_error(self):
+        previous_limit = sys.getrecursionlimit()
+        try:
+            sys.setrecursionlimit(1000)
+            payload = "[" * 100_000 + "]" * 100_000
+            with self.assertRaisesRegex(export_hf.ExportError, "invalid JSON"):
+                export_hf._loads_json(payload, "payload")
+        finally:
+            sys.setrecursionlimit(previous_limit)
 
 
 if __name__ == "__main__":

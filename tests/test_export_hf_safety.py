@@ -334,6 +334,59 @@ class ExportSnapshotCoherence(unittest.TestCase):
                     export_hf.export_run(curated, root / "export")
             self.assertFalse((root / "export").exists())
 
+    def test_a_curated_member_added_after_the_initial_snapshot_is_refused(self):
+        """Audit, compose authentication, and exported bytes use one member set."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            curated = compose_fixture(root)
+            records_dir = curated / compose_curated.RECORDS_DIRNAME
+            real_metadata = export_hf._compose_metadata
+
+            def authenticate_then_add(*args, **kwargs):
+                metadata = real_metadata(*args, **kwargs)
+                write_jsonl(
+                    records_dir / "late-factory" / "late.jsonl",
+                    [multi_agent("late-curated")],
+                )
+                return metadata
+
+            with mock.patch.object(
+                export_hf,
+                "_compose_metadata",
+                side_effect=authenticate_then_add,
+            ):
+                with self.assertRaisesRegex(
+                    export_hf.ExportError,
+                    "curated member set changed after the initial snapshot",
+                ):
+                    export_hf.export_run(curated, root / "export")
+            self.assertFalse((root / "export").exists())
+
+    def test_a_completed_export_artifact_is_reauthenticated_before_finish(self):
+        """A post-write mutation must roll back the whole new destination."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            curated = compose_fixture(root)
+            destination = root / "export"
+            real_write = export_hf._write_new_bytes
+
+            def write_then_mutate(root_descriptor, relative, payload):
+                digest = real_write(root_descriptor, relative, payload)
+                if relative == export_hf.PROVENANCE_PATH:
+                    (destination / export_hf.TRAIN_PATH).write_bytes(b"{}\n")
+                return digest
+
+            with mock.patch.object(
+                export_hf, "_write_new_bytes", side_effect=write_then_mutate
+            ):
+                with self.assertRaisesRegex(
+                    export_hf.ExportError, "changed before export commit"
+                ):
+                    export_hf.export_run(curated, destination)
+            self.assertFalse(destination.exists())
+
 
 class ExportMemberFifoSwap(unittest.TestCase):
     def test_same_inode_mutation_during_chunked_read_is_rejected(self):

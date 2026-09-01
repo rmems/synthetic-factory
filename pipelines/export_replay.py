@@ -73,10 +73,7 @@ class _ReplayState:
 def _replay_physical_lines(raw_file: bytes) -> list[bytes]:
     """Split LF-framed JSONL exactly as the compose writer framed it."""
 
-    physical_lines = raw_file.split(b"\n")
-    if physical_lines and physical_lines[-1] == b"":
-        physical_lines.pop()
-    return physical_lines
+    return compose_curated._jsonl_physical_lines(raw_file)
 
 
 def _replayed_manifest_entry(
@@ -435,6 +432,41 @@ def _verify_replay_matches(
     _require_replayed_counts(snapshot, summary)
 
 
+def _require_calibration_state_unchanged(
+    expected: tuple[Any, ...], current: tuple[Any, ...]
+) -> None:
+    """Refuse a source replay that crossed calibration evidence states."""
+
+    if current != expected:
+        raise ExportError("calibration evidence changed during source replay")
+
+
+def _calibration_evidence_identity(
+    descriptor: dict[str, Any], source_root: Path
+) -> tuple[Any, ...]:
+    """Identity token for already-authenticated calibration evidence."""
+
+    if descriptor["mode"] == "none":
+        return ("none", str(source_root / compose_curated.FFPC_UNITS_MIGRATION))
+    path = Path(descriptor["path"])
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise ExportError("calibration evidence changed during source replay") from exc
+    return ("file", str(path), *_stable_file_identity(metadata))
+
+
+def _authenticated_calibration_state(
+    summary: dict[str, Any], source_root: Path
+) -> tuple[dict[str, Any], dict[str, Any], tuple[Any, ...]]:
+    """Return catalog, descriptor, and its post-authentication identity token."""
+
+    catalog, descriptor = _authenticated_calibration(summary, source_root)
+    return catalog, descriptor, _calibration_evidence_identity(
+        descriptor, source_root
+    )
+
+
 def _authenticate_source_replay(
     summary: dict[str, Any],
     actual_outputs: dict[str, CuratedFile],
@@ -454,9 +486,14 @@ def _authenticate_source_replay(
     source_root = _require_exact_directory(Path(raw_source_root), "COMPOSE source_run")
     if raw_source_root != str(source_root):
         raise ExportError("COMPOSE.json: source_run must use its exact canonical path")
-    catalog, calibration_descriptor = _authenticated_calibration(summary, source_root)
+    calibration_state = _authenticated_calibration_state(summary, source_root)
+    catalog, calibration_descriptor, _calibration_evidence = calibration_state
 
     snapshot = _replay_source_lines(source_root, catalog)
+    _require_calibration_state_unchanged(
+        calibration_state,
+        _authenticated_calibration_state(summary, source_root),
+    )
     _verify_replay_matches(
         snapshot,
         summary=summary,

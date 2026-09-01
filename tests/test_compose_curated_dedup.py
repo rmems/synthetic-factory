@@ -156,6 +156,28 @@ class ComposeSemanticDeduplication(unittest.TestCase):
             self.assertEqual(len(output), 1)
             self.assertNotEqual(output[0]["meta"]["id"], output[0]["id"])
 
+    def test_generator_version_does_not_hide_post_curation_duplicates(self):
+        """Model build labels are provenance, not trainable semantic content."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run" / "agentic-coding-trajectory-factory"
+            first = episode("same-versioned-content")
+            second = copy.deepcopy(first)
+            first["meta"]["generator_version"] = "2026.08-a"
+            second["id"] = "legacy-episode-other-version"
+            second["meta"]["generator_version"] = "2026.08-b"
+            write_jsonl(source / "batch-r01.jsonl", [first, second])
+
+            summary = compose_curated.compose_run(root / "run", root / "curated")
+
+            self.assertEqual(summary["counts"]["retained"], 1)
+            self.assertEqual(summary["counts"]["excluded"], 1)
+            self.assertEqual(
+                summary["exclusions"],
+                {compose_curated.REASON_DUPLICATE_CURATED_RECORD: 1},
+            )
+
     def test_cross_factory_episode_duplicates_are_deduplicated_by_content_not_provenance(self):
         """Codex #97 P1: the semantic-dedup digest must ignore factory/generator labels.
 

@@ -42,6 +42,7 @@ from compose_contract import (  # noqa: E402
     _canonical_sha256,
 )
 from record_kind import PREFERENCE_SIDE_KINDS  # noqa: E402
+from trajectory_pair_gate import preference_direction_failures  # noqa: E402
 from validate_run import THALAMIC_CORE_KEYS, check_episode  # noqa: E402
 
 def is_bridge_record(record: Mapping[str, Any]) -> bool:
@@ -293,6 +294,7 @@ def _compat_trajectory_preference(
         reasons.append(REASON_TRAJECTORY_SIDE_INVALID)
     reasons.extend(_trajectory_step_reasons(chosen, rejected, overlap))
     reasons.extend(_trajectory_divergence_reasons(chosen, rejected))
+    reasons.extend(preference_direction_failures(curated))
 
     if reasons:
         return _TrajectoryPreferenceDecision(

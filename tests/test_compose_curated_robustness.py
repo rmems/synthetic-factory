@@ -145,6 +145,43 @@ class ComposeSourceLineResourceLimits(unittest.TestCase):
             "duplicate JSON object key", decision.stages[0]["detail"]["error"]
         )
 
+    def test_jsonl_framing_normalizes_only_crlf_terminators(self):
+        import export_replay
+
+        payload = b'{"a":1}\r\n{"b":2}\n{"c":3}\r\r\n{"d":4}\r'
+        expected = [b'{"a":1}', b'{"b":2}', b'{"c":3}\r', b'{"d":4}\r']
+
+        self.assertEqual(compose_curated._jsonl_physical_lines(payload), expected)
+        self.assertEqual(export_replay._replay_physical_lines(payload), expected)
+
+    def test_duplicate_key_lines_do_not_reach_the_mill_index(self):
+        """Ambiguous ownership metadata cannot become foreign-mill evidence."""
+
+        added = []
+
+        class CapturingIndex:
+            def add(self, *args, **kwargs):
+                added.append((args, kwargs))
+
+            @staticmethod
+            def findings():
+                return ()
+
+        payloads = {
+            "factory/batch.jsonl": (
+                b'{"meta":{"factory":"trusted","factory":"foreign"}}\n'
+            )
+        }
+        with mock.patch.object(
+            compose_curated.compose_mill, "MillIndex", return_value=CapturingIndex()
+        ):
+            findings = compose_curated.compose_mill.index_compose_mills(
+                Path("/source"), payloads, compose_curated._jsonl_physical_lines
+            )
+
+        self.assertEqual(findings, {})
+        self.assertEqual(added, [])
+
     def test_a_fatal_line_does_not_roll_back_the_whole_run(self):
         # The unguarded ``RecursionError`` escaped ``compose_run``, which
         # discards the destination on any error, so one deep line destroyed

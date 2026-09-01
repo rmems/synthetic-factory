@@ -23,6 +23,7 @@ if str(_PIPELINES) not in sys.path:
 from census import factory_identity_for_path  # noqa: E402
 from check_records import reject_json_constant  # noqa: E402
 from mill_family import MillFinding, MillIndex  # noqa: E402
+from curate_identity import _reject_duplicate_object_keys  # noqa: E402
 
 
 def index_compose_mills(
@@ -50,6 +51,7 @@ def index_compose_mills(
             try:
                 record = json.loads(
                     raw_line.decode("utf-8"),
+                    object_pairs_hook=_reject_duplicate_object_keys,
                     parse_constant=reject_json_constant,
                 )
             except (

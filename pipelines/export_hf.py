@@ -31,6 +31,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -68,6 +69,7 @@ from export_contract import (  # noqa: E402,F401
     ViewerRow,
     _loads_json,
     _reject_json_constant,
+    _reject_nonfinite_json_float,
 )
 from export_compose_auth import (  # noqa: E402,F401
     _authenticated_compose_summary,
@@ -137,6 +139,7 @@ __all__ = [
     "_loads_json",
     "_read_exact_regular_file",
     "_reject_json_constant",
+    "_reject_nonfinite_json_float",
     "_replay_source_lines",
     "_require_exact_directory",
     "_validated_calibration_descriptor",
@@ -374,6 +377,22 @@ def _curated_snapshot(
     return curated_files, rows, snapshot
 
 
+def _require_curated_snapshot_unchanged(
+    records_dir: Path, expected: list[CuratedFile]
+) -> None:
+    """Re-enumerate curated members after authentication and compare exact bytes."""
+
+    current = collect_files(records_dir)
+    expected_members = tuple(item.source_file for item in expected)
+    current_members = tuple(item.source_file for item in current)
+    if current_members != expected_members:
+        raise ExportError("curated member set changed after the initial snapshot")
+    expected_payloads = tuple(item.payload for item in expected)
+    current_payloads = tuple(item.payload for item in current)
+    if current_payloads != expected_payloads:
+        raise ExportError("curated payload changed after the initial snapshot")
+
+
 def _training_ready_audit(
     records_dir: Path, snapshot: dict[str, bytes]
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -426,6 +445,40 @@ def _write_viewer_projection(
     return _write_new_bytes(destination_descriptor, VIEWER_PATH, viewer_bytes)
 
 
+def _authenticate_written_artifacts(
+    destination_root: Path, expected_digests: dict[str, str]
+) -> None:
+    """Reopen every declared export artifact immediately before commit."""
+
+    for relative, expected_digest in sorted(expected_digests.items()):
+        _path, payload = _read_exact_regular_file(
+            destination_root, relative, f"export artifact {relative}"
+        )
+        if hashlib.sha256(payload).hexdigest() != expected_digest:
+            raise ExportError(f"export artifact {relative} changed before export commit")
+
+
+def _write_export_metadata(
+    pinned_destination: compose_curated.PinnedDestination,
+    provenance: dict[str, Any],
+    protocol_digest: str,
+    expected_digests: dict[str, str],
+) -> None:
+    """Write final metadata, then authenticate every artifact before commit."""
+
+    provenance["splits"]["protocol_sha256"] = protocol_digest
+    expected_digests[PROTOCOL_PATH] = protocol_digest
+    provenance_digest = _write_new_bytes(
+        pinned_destination.destination_descriptor,
+        PROVENANCE_PATH,
+        (json.dumps(provenance, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(
+            "utf-8"
+        ),
+    )
+    expected_digests[PROVENANCE_PATH] = provenance_digest
+    _authenticate_written_artifacts(pinned_destination.root, expected_digests)
+
+
 def export_run(
     curated_root: str | Path,
     destination: str | Path,
@@ -444,6 +497,7 @@ def export_run(
     curated_files, rows, snapshot = _curated_snapshot(records_dir)
     report, audit = _training_ready_audit(records_dir, snapshot)
     compose_metadata = _compose_metadata(curated_root, curated_files, report)
+    _require_curated_snapshot_unchanged(records_dir, curated_files)
 
     train, evaluate = split_rows(rows, eval_fraction=eval_fraction, salt=split_salt)
 
@@ -451,13 +505,18 @@ def export_run(
     destination_descriptor = pinned_destination.destination_descriptor
     try:
         files = _write_curated_payloads(destination_descriptor, curated_files)
+        expected_digests = {item["path"]: item["sha256"] for item in files}
         viewer_digest = _write_viewer_projection(destination_descriptor, rows)
+        expected_digests[VIEWER_PATH] = viewer_digest
 
         train_digest = _write_new_bytes(
             destination_descriptor, TRAIN_PATH, _jsonl_payload(train)
         )
         eval_digest = _write_new_bytes(
             destination_descriptor, EVAL_PATH, _jsonl_payload(evaluate)
+        )
+        expected_digests.update(
+            {TRAIN_PATH: train_digest, EVAL_PATH: eval_digest}
         )
 
         provenance = {
@@ -498,13 +557,8 @@ def export_run(
             PROTOCOL_PATH,
             render_eval_protocol(provenance).encode("utf-8"),
         )
-        provenance["splits"]["protocol_sha256"] = protocol_digest
-        _write_new_bytes(
-            destination_descriptor,
-            PROVENANCE_PATH,
-            (json.dumps(provenance, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(
-                "utf-8"
-            ),
+        _write_export_metadata(
+            pinned_destination, provenance, protocol_digest, expected_digests
         )
     except BaseException:
         pinned_destination.cleanup()

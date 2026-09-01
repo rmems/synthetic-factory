@@ -423,14 +423,14 @@ def _collect_source_directory(
     for entry in _scan_source_directory(directory):
         path = Path(entry.path)
         metadata = _source_entry_metadata(entry, path)
+        if entry.name.endswith(".jsonl"):
+            relative = path.relative_to(root).as_posix()
+            _source_member_path(root, relative, f"compose source {relative}")
+            members.append(relative)
+            continue
         if stat.S_ISDIR(metadata.st_mode):
             child_directories.append(path)
             continue
-        if not entry.name.endswith(".jsonl"):
-            continue
-        relative = path.relative_to(root).as_posix()
-        _source_member_path(root, relative, f"compose source {relative}")
-        members.append(relative)
     return child_directories
 
 
@@ -689,6 +689,28 @@ def _open_pinned_child_directory(
     return descriptor
 
 
+def _assert_descriptor_contained(
+    root_descriptor: int, descriptor: int, label: str
+) -> None:
+    """Require a pinned component to remain below its pinned destination root.
+
+    Descriptor-relative traversal follows an opened directory after a same-user
+    rename.  That is useful for race-free identity checks, but without this
+    containment check a renamed child could receive later components outside
+    the destination tree.  Linux exposes the kernel's current bindings through
+    ``/proc/self/fd``; on platforms without procfs the open-time guarantees
+    remain the available fallback.
+    """
+
+    try:
+        root_path = Path(os.readlink(f"/proc/self/fd/{root_descriptor}"))
+        current_path = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
+    except OSError:  # pragma: no cover - non-procfs platforms
+        return
+    if current_path != root_path and root_path not in current_path.parents:
+        raise ComposeError(f"{label}: component escaped its pinned destination root")
+
+
 def _verify_pinned_child(
     descriptor: int, parent_descriptor: int, name: str, label: str
 ) -> None:
@@ -739,10 +761,13 @@ def write_pinned_new_bytes(
     current = root_descriptor
     try:
         for name in parts[:-1]:
+            _assert_descriptor_contained(root_descriptor, current, label)
             _assert_descriptor_outside_raw(current, label)
             current = _open_pinned_child_directory(current, name, label)
             opened.append(current)
+            _assert_descriptor_contained(root_descriptor, current, label)
         leaf = parts[-1]
+        _assert_descriptor_contained(root_descriptor, current, label)
         _assert_descriptor_outside_raw(current, label)
         flags = (
             os.O_WRONLY
@@ -758,6 +783,7 @@ def write_pinned_new_bytes(
                 f"{label}: cannot create new file {parts[-1]!r}: {exc}"
             ) from exc
         try:
+            _assert_descriptor_contained(root_descriptor, descriptor, label)
             written = 0
             while written < len(payload):
                 written += os.write(descriptor, payload[written:])
@@ -765,6 +791,7 @@ def write_pinned_new_bytes(
             # descriptor under it — into ``outputs/raw`` after the open. The
             # descriptor's current path is authoritative: refuse, and remove
             # the leaf through its pinned parent so nothing lands in raw.
+            _assert_descriptor_contained(root_descriptor, descriptor, label)
             _assert_descriptor_outside_raw(descriptor, label)
         except BaseException:
             try:
