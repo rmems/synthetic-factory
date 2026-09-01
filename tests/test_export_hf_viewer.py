@@ -17,6 +17,7 @@ from test_compose_curated import (  # noqa: E402
 )
 import compose_curated  # noqa: E402
 import export_hf  # noqa: E402
+import export_split  # noqa: E402
 import verify_hf_release  # noqa: E402
 
 
@@ -151,7 +152,7 @@ class ExportSplitDeterminism(unittest.TestCase):
         ]
         for bucket in (0.0, 0.99):
             with self.subTest(bucket=bucket), mock.patch.object(
-                export_hf, "split_bucket", return_value=bucket
+                export_split, "split_bucket", return_value=bucket
             ):
                 first = export_hf.split_rows(rows, eval_fraction=0.1, salt="snapshot")
                 second = export_hf.split_rows(rows, eval_fraction=0.1, salt="snapshot")

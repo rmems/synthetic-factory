@@ -27,6 +27,7 @@ from export_contract import CuratedFile, ExportError  # noqa: E402
 from export_members import (  # noqa: E402
     _read_exact_regular_file,
     _require_exact_directory,
+    _stable_file_identity,
 )
 
 @dataclass(frozen=True)
@@ -268,7 +269,7 @@ def _member_identity(source_root: Path, relative: str) -> tuple[int, ...]:
         raise ExportError(
             f"compose source {relative}: member cannot be inspected: {exc}"
         ) from exc
-    return entry.st_dev, entry.st_ino, entry.st_size, entry.st_mtime_ns
+    return _stable_file_identity(entry)
 
 
 def _member_identities(

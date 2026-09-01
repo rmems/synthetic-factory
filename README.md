@@ -70,7 +70,7 @@ same unit tests and operator smoke check.
 - `schemas/` — Thalamic schema + `provenance.md`
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
-- `outputs/curated/` — compose destinations (`records/`, `manifest/`, `COMPOSE.json`) and their exports; gitignored, built by `pipelines/compose_curated.py`
+- `outputs/curated/` — gitignored compose destinations (`records/`, `manifest/`, `COMPOSE.json`) and exports written by `pipelines/compose_curated.py`, plus reviewed promotion snapshots written by `pipelines/curate_gate.py promote`
 - `config/` — reviewed factory registry (`FACTORY-REGISTRY.json`). Identity authority is this file (exact `path_id` + `payload_factory`), not a slug allowlist. Onboard a generator by adding a row.
 - `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, curation integration/promotion, compose, and export
 - `experiments/` — harvest notes (`2026-08-17-quality-report.md` is a mid-run snapshot; `2026-08-17-grok-census.md` is current)
@@ -160,7 +160,7 @@ mixed side families are excluded with an explicit reason code.
 # 1. Compose: identity -> bridge -> preferences -> coding -> rewards
 #    (tag normalization is not composed yet). Never overwrites a destination.
 python3 pipelines/compose_curated.py outputs/raw/2026-08-17 outputs/curated/2026-08-23
-python3 pipelines/compose_curated.py --strict <source_run> <destination>   # exit 1 unless training_ready
+python3 pipelines/compose_curated.py --strict outputs/raw/2026-08-17 outputs/curated/2026-08-23-strict   # exit 1 unless training_ready
 
 # 2. Export: refuses unless training_audit reports training_ready: true
 python3 pipelines/export_hf.py outputs/curated/2026-08-23 outputs/curated/2026-08-23-export

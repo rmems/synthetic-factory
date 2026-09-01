@@ -135,7 +135,12 @@ class ComposeDestinationSafety(unittest.TestCase):
 
             def swap_parent_before_open(path, flags, mode=0o777, *, dir_fd=None):
                 nonlocal swapped
-                if Path(path) == calibration_parent and dir_fd is None and not swapped:
+                should_swap = (
+                    Path(path) == calibration_parent
+                    and dir_fd is None
+                    and not swapped
+                )
+                if should_swap:
                     swapped = True
                     calibration_parent.rename(moved_parent)
                     calibration_parent.symlink_to(
@@ -217,15 +222,25 @@ class ComposeDestinationSafety(unittest.TestCase):
             source = build_source_run(root / "run")
             compose_curated.compose_run(source, root / "curated")
 
-            with self.assertRaises(compose_curated.ComposeError):
+            with self.assertRaisesRegex(
+                compose_curated.ComposeError, "refusing to overwrite"
+            ):
                 compose_curated.compose_run(source, root / "curated")
-            with self.assertRaises(compose_curated.ComposeError):
+            with self.assertRaisesRegex(
+                compose_curated.ComposeError, "cannot be written inside the source run"
+            ):
                 compose_curated.compose_run(source, source / "nested")
-            with self.assertRaises(compose_curated.ComposeError):
+            with self.assertRaisesRegex(
+                compose_curated.ComposeError, "refusing to overwrite"
+            ):
                 compose_curated.compose_run(source, source)
-            with self.assertRaises(compose_curated.ComposeError):
+            with self.assertRaisesRegex(
+                compose_curated.ComposeError, "destination parent is missing"
+            ):
                 compose_curated.compose_run(source, root / "missing-parent" / "dest")
-            with self.assertRaises(compose_curated.ComposeError):
+            with self.assertRaisesRegex(
+                compose_curated.ComposeError, "source run is missing"
+            ):
                 compose_curated.compose_run(root / "absent-run", root / "other")
 
             raw = root / "outputs" / "raw"
@@ -356,7 +371,12 @@ class ComposeDestinationSafety(unittest.TestCase):
 
             def swap_parent_before_create(path, mode=0o777, *, dir_fd=None):
                 nonlocal swapped
-                if path == destination.name and dir_fd is not None and not swapped:
+                should_swap = (
+                    path == destination.name
+                    and dir_fd is not None
+                    and not swapped
+                )
+                if should_swap:
                     swapped = True
                     parent.rename(moved_parent)
                     real_mkdir(replacement_parent, 0o755)

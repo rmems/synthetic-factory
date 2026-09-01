@@ -38,6 +38,7 @@ from check_records import (  # noqa: E402
     shape_check,
     walk_key,
 )
+import census  # noqa: E402
 from census import (  # noqa: E402
     factory_for_path,
     visible_jsonl_paths,
@@ -45,7 +46,6 @@ from census import (  # noqa: E402
 from round_txn import (  # noqa: E402
     TransactionError,
     completed_manifests,
-    marker_mode_path,
 )
 from curate_coding import (  # noqa: E402
     HIDDEN_REASONING_KEYS,
@@ -326,18 +326,6 @@ def _read_pinned_member(run_dir: Path, relative: Path) -> bytes:
             os.close(descriptor)
 
 
-def _enclosing_marker_root(run_dir: Path, path: Path) -> Path | None:
-    """Return the nearest marker-mode factory enclosing ``path``, if any."""
-
-    current = path.parent
-    while True:
-        if marker_mode_path(current) is not None:
-            return current
-        if current == run_dir or current.parent == current:
-            return None
-        current = current.parent
-
-
 def _marker_digest_index(marker_root: Path) -> dict[str, str]:
     """Map committed artifact names to the digests their round markers declare."""
 
@@ -462,7 +450,7 @@ def _captured_run_files(run_dir: Path) -> list[tuple[Path, bytes]]:
             _require_committed_digest(
                 payload,
                 relative,
-                _enclosing_marker_root(run_dir, path),
+                census._enclosing_marker_root(run_dir, path),
                 digest_cache,
             )
             files.append((relative, payload))
@@ -954,7 +942,7 @@ def main(argv=None):
     args = parse_args(argv)
     try:
         report = audit_run(Path(args.run_dir))
-    except TransactionError as exc:
+    except (TransactionError, ValueError) as exc:
         print(f"training_audit failed: {exc}", file=sys.stderr)
         return 1
     if args.markdown:

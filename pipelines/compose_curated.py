@@ -351,7 +351,7 @@ def calibration_for(record: Mapping[str, Any], catalog: Mapping[str, Any] | None
     if not catalog or not isinstance(record, Mapping):
         return None
     for candidate in _calibration_id_candidates(record):
-        calibration = catalog.get(candidate.lower())
+        calibration = catalog.get(curate_rewards.catalog_record_key(candidate))
         if calibration is not None:
             return calibration
     return None

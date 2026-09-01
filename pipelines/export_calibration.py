@@ -24,7 +24,7 @@ import curate_rewards  # noqa: E402
 from export_contract import ExportError, _reject_json_constant  # noqa: E402
 from export_members import _read_exact_regular_file  # noqa: E402
 from curate_identity import _reject_duplicate_object_keys  # noqa: E402
-from reward_mapping import _decimal, _json_number  # noqa: E402
+from reward_calibration import _entry_calibrations  # noqa: E402,F401
 
 def _load_calibration_payload(payload: bytes, path: Path) -> dict[str, Any]:
     """Load reward calibration from pinned bytes while preserving evidence labels."""
@@ -49,7 +49,9 @@ def _load_calibration_payload(payload: bytes, path: Path) -> dict[str, Any]:
 
     catalog: dict[str, Any] = {}
     for index, entry in enumerate(records):
-        for record_id, calibration in _entry_calibrations(entry, index, path):
+        for record_id, calibration in _entry_calibrations(
+            entry, path=path, index=index
+        ):
             key = record_id.lower()
             previous = catalog.get(key)
             if previous is not None and previous != calibration:
@@ -58,32 +60,6 @@ def _load_calibration_payload(payload: bytes, path: Path) -> dict[str, Any]:
                 )
             catalog[key] = calibration
     return catalog
-
-
-def _entry_calibrations(entry: Any, index: int, path: Path):
-    """Yield (record id, calibration) for one usable calibration entry.
-
-    Entries without an explicit positive factor or a string scope are skipped
-    rather than fatal, matching ``curate_rewards.units_migration_catalog``.
-    """
-
-    if not isinstance(entry, dict):
-        return
-    factor = _decimal(entry.get("usd_conversion_factor"))
-    if factor is None or factor <= 0:
-        return
-    scope = entry.get("scope")
-    if not isinstance(scope, str):
-        return
-    for record_id in sorted(set(curate_rewards.RECORD_ID_RE.findall(scope))):
-        yield record_id, {
-            "source_unit_usd": _json_number(
-                factor * curate_rewards.CANONICAL_UNIT_USD
-            ),
-            "canonical_factor": _json_number(factor),
-            "evidence_ref": f"{path.as_posix()}#/records/{index}",
-        }
-
 
 def _validated_calibration_descriptor(
     summary: dict[str, Any],

@@ -371,8 +371,8 @@ def _curate_one_trajectory_side(
     *,
     source_path: str,
     source_line: int,
-) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    """Run the owning transform over one side, returning (curated, manifest)."""
+) -> tuple[bool, dict[str, Any] | None, dict[str, Any]]:
+    """Return whether curation applies, its result, and its manifest."""
 
     if _trajectory_side_needs_coding(side):
         curated_side, manifest = curate_coding.curate_episode(
@@ -384,10 +384,11 @@ def _curate_one_trajectory_side(
         detail = copy.deepcopy(manifest)
         detail["transform_name"] = curate_coding.TRANSFORM_NAME
         detail["transform_version"] = curate_coding.TRANSFORM_VERSION
-        return curated_side, detail
+        return True, curated_side, detail
     if isinstance(side, dict) and curate_coding.contains_hidden_reasoning_key(side):
-        return _strip_hidden_only_side(side)
-    return None, _not_applicable_side_manifest()
+        curated_side, detail = _strip_hidden_only_side(side)
+        return True, curated_side, detail
+    return False, None, _not_applicable_side_manifest()
 
 
 def _curate_trajectory_sides(
@@ -405,22 +406,15 @@ def _curate_trajectory_sides(
     failed = False
     for side_name in ("chosen", "rejected"):
         side = curated.get(side_name)
-        if not (
-            _trajectory_side_needs_coding(side)
-            or (
-                isinstance(side, dict)
-                and curate_coding.contains_hidden_reasoning_key(side)
-            )
-        ):
-            manifests[side_name] = _not_applicable_side_manifest()
-            continue
-        curated_side, detail = _curate_one_trajectory_side(
+        applicable, curated_side, detail = _curate_one_trajectory_side(
             side,
             side_name,
             source_path=source_path,
             source_line=source_line,
         )
         manifests[side_name] = detail
+        if not applicable:
+            continue
         reasons.extend(detail.get("reason_codes", []))
         if curated_side is None:
             failed = True

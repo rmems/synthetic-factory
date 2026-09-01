@@ -78,19 +78,38 @@ class ComposeSourceLineResourceLimits(unittest.TestCase):
         # hash can still exhaust the stack inside a lane (``copy.deepcopy``
         # spends several frames per level), so the curation and deduplication
         # path needs the same per-line guard.
-        record = episode()
-        deep = None
-        for _ in range(500):
-            deep = [deep]
-        record["extra"] = deep
-        payload = json.dumps(record).encode("utf-8")
+        previous_limit = sys.getrecursionlimit()
+        try:
+            sys.setrecursionlimit(1000)
+            record = episode()
+            deep = None
+            for _ in range(500):
+                deep = [deep]
+            record["extra"] = deep
+            payload = json.dumps(record).encode("utf-8")
 
-        decision = compose_curated.compose_source_line(
-            payload,
-            source_path="agentic-coding-trajectory-factory/batch-r01.jsonl",
-            source_line=1,
-            source_file_sha256="7" * 64,
-        )
+            decoded = json.loads(payload)
+            self.assertIsInstance(compose_curated._canonical_sha256(decoded), str)
+            with self.assertRaises(RecursionError):
+                compose_curated.curate_identity.curate_record(
+                    compose_curated.curate_identity.SourceRecord(
+                        record=decoded,
+                        source_path=(
+                            "agentic-coding-trajectory-factory/batch-r01.jsonl"
+                        ),
+                        source_line=1,
+                        source_sha256="7" * 64,
+                    )
+                )
+
+            decision = compose_curated.compose_source_line(
+                payload,
+                source_path="agentic-coding-trajectory-factory/batch-r01.jsonl",
+                source_line=1,
+                source_file_sha256="7" * 64,
+            )
+        finally:
+            sys.setrecursionlimit(previous_limit)
 
         self.assertEqual(decision.action, compose_curated.ACTION_EXCLUDED)
         self.assertEqual(
@@ -253,6 +272,9 @@ class CodingStepRepairDeferral(unittest.TestCase):
         decision = self.compose(record)
 
         self.assertEqual(decision.action, compose_curated.ACTION_EXCLUDED)
+        self.assertEqual(
+            decision.reason_codes, ("identity.unsupported_record_shape",)
+        )
 
 
 class CalibrationLookup(unittest.TestCase):
@@ -371,7 +393,11 @@ class DefaultCalibrationEvidence(unittest.TestCase):
         from compose_curated_test_support import thalamic as support_thalamic
         from compose_curated_test_support import write_jsonl
 
-        for member in ("directory", "broken_symlink"):
+        cases = (
+            ("directory", "not an exact regular file"),
+            ("broken_symlink", "symlink alias"),
+        )
+        for member, refusal in cases:
             with self.subTest(member=member), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
                 source = root / "run"
@@ -390,7 +416,7 @@ class DefaultCalibrationEvidence(unittest.TestCase):
                 # symlink is already refused by the alias-hardened scanner.
                 with self.assertRaisesRegex(
                     compose_curated.ComposeError,
-                    "not an exact regular file|symlink alias",
+                    refusal,
                 ):
                     compose_curated.compose_run(source, root / "curated")
                 self.assertFalse((root / "curated").exists())

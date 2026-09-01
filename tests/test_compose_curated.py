@@ -374,9 +374,9 @@ class ComposeCurated(unittest.TestCase):
             coding_stage["action"], compose_curated.ACTION_NOT_APPLICABLE
         )
         self.assertEqual(coding_stage["transform_name"], curate_coding.TRANSFORM_NAME)
-        if decision.record is not None:
-            steps = decision.record[curate_coding.WRAP_STEPS_PARENT]["steps"]
-            self.assertNotIn("thought", steps[0])
+        self.assertIsNotNone(decision.record)
+        steps = decision.record[curate_coding.WRAP_STEPS_PARENT]["steps"]
+        self.assertNotIn("thought", steps[0])
 
 
     def test_rewardless_record_adopts_the_curators_annotation_stripped_result(self):

@@ -17,7 +17,7 @@ sys.path.insert(0, str(REPO / "pipelines"))
 
 import compose_curated  # noqa: E402
 
-from test_compose_curated import build_source_run  # noqa: E402
+from compose_curated_test_support import build_source_run  # noqa: E402
 
 HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 

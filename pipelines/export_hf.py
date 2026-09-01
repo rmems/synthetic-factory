@@ -144,6 +144,7 @@ __all__ = [
     "collect_files",
     "collect_rows",
     "export_run",
+    "iter_alias_free_jsonl",
     "main",
     "parse_args",
     "read_viewer_parquet",

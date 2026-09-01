@@ -229,8 +229,12 @@ class ExportSnapshotCoherence(unittest.TestCase):
                     # After the first member is captured, rewrite the last one.
                     mutated["done"] = True
                     victim = members[-1]
+                    original = victim.stat()
                     victim.write_bytes(victim.read_bytes())
-                    os.utime(victim, ns=(1, 1))
+                    os.utime(
+                        victim,
+                        ns=(original.st_atime_ns, original.st_mtime_ns),
+                    )
                 return result
 
             with mock.patch.object(
