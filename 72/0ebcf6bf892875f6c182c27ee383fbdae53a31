@@ -1,0 +1,50 @@
+pipelines/exact_json.py
+  s_98712805c1499b::t_f39fc659816ef1 32
+tests/test_curate_bridge_materialization.py
+  s_98712805c1499b::t_f39fc659816ef1 44
+  s_98712805c1499b::t_f0a24ae84d10bd 26,460-461,472
+pipelines/curate_bridge.py
+  s_98712805c1499b::t_f39fc659816ef1 624,629-630
+  s_98712805c1499b::t_de744340a95281 91,593-599,623
+pipelines/curate_bridge_raster_numbers.py
+  s_98712805c1499b::t_9ea5c8736e618f 200-209
+  s_98712805c1499b::t_f39fc659816ef1 1-6,8-15,47-75,77,83-104,108-110,149-159,182-199
+  s_98712805c1499b::t_0be9ea038d8694 18-20,111-148,160-181
+  s_98712805c1499b::t_954962569640b8 7,16-17,21-46
+  s_98712805c1499b::t_0749dfa2763ebe 76,78-82,105-107
+tests/test_curate_bridge.py
+  s_98712805c1499b::t_b42b20e4f54d89 56-63
+pipelines/curate_bridge_materialize.py
+  s_98712805c1499b::t_9ea5c8736e618f 18
+  s_98712805c1499b::t_511f2acac344c7 20,22,25,29-32
+  s_98712805c1499b::t_f39fc659816ef1 15-17,21,23-24,26-27
+  s_98712805c1499b::t_0be9ea038d8694 19
+pipelines/curate_bridge_materialize_fs.py
+  s_98712805c1499b::t_f39fc659816ef1 1-9,11-41,64-138
+  s_98712805c1499b::t_0be9ea038d8694 10,47-61
+  s_98712805c1499b::t_9ea5c8736e618f 42-46,62-63
+pipelines/curate_bridge_raster.py
+  s_98712805c1499b::t_9ea5c8736e618f 26
+  s_98712805c1499b::t_0a81e439310b23 10,32
+  s_98712805c1499b::t_b809b113243744 14,33
+  s_98712805c1499b::t_511f2acac344c7 15,19,21,30-31,34-36
+  s_98712805c1499b::t_0be9ea038d8694 23-24
+  s_98712805c1499b::t_f39fc659816ef1 9,16-18,20,22,25,29
+  s_98712805c1499b::t_954962569640b8 11-13,27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "720ebcf6bf892875f6c182c27ee383fbdae53a31",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
