@@ -1,0 +1,82 @@
+tests/test_pipelines_package_imports.py
+  s_98712805c1499b::t_52ca1228d8ff5d 377-379
+  s_98712805c1499b::t_cf525d9a9c085a 150
+  s_98712805c1499b::t_9c549a286d189f 27-44,140,361-368,370-376,380-389,394-412
+  s_98712805c1499b::t_5d0e8538832e84 390-393
+  s_98712805c1499b::t_e968e5f1c664e3 369,459-462
+  s_98712805c1499b::t_7735b351562a90 8,20-26,47-49,52,54-59,61,66,68-73,441-458,463-468
+pipelines/compose_curated_facade_bootstrap.py
+  s_98712805c1499b::t_54387eb249443f 1-68
+pipelines/compose_destination.py
+  s_98712805c1499b::t_2830489052fdbc 20-26,92-94,234,292,308,375,502,511-514
+tests/compose_curated_import_contract_support.py
+  s_98712805c1499b::t_9c51eff14b20b9 12-15,39,45-55
+  s_98712805c1499b::t_2c2686021abf84 1-11,16-38,40-44,56
+pipelines/compose_curated_run_bootstrap.py
+  s_98712805c1499b::t_dee0088b986538 1-33,47-58
+  s_98712805c1499b::t_d560ce0bc3329b 34-46
+tests/test_compose_curated_destination_relocation.py
+  s_98712805c1499b::t_908bddbd6b0882 94,99,110-111,116,122,133-134
+tests/test_compose_curated_record_services.py
+  s_98712805c1499b::t_bdd8e2e7198f71 13,15
+  s_98712805c1499b::t_13e3c01cfeb73c 11,14,16,37,46-69
+  s_98712805c1499b::t_2c2686021abf84 18,38,43,45,73
+  s_98712805c1499b::t_ac388ac6a6a70b 1-10,12,17,19-36,44,70-72,74-116
+  s_98712805c1499b::t_2dffb80d5b93fb 39-42
+pipelines/compose_curated_record_facade.py
+  s_98712805c1499b::t_70cb52be5d5d8d 26,29-31,41,44-46,295,303-305,413,420-422
+  s_98712805c1499b::t_b686a2d7d21688 27-28,42-43,296-302,414-419
+  s_98712805c1499b::t_dee0088b986538 32,47,453
+tests/compose_curated_facade_contract_data.py
+  s_98712805c1499b::t_1c7e84c0406f6e 1-71
+  s_98712805c1499b::t_e968e5f1c664e3 165
+  s_98712805c1499b::t_53138613e343ae 72-164,166-194
+tests/test_compose_curated_run_adapters.py
+  s_98712805c1499b::t_ac388ac6a6a70b 1-6,8-14,20-26,29-34,43,45-61,63-84,86-127,129-132
+  s_98712805c1499b::t_2c2686021abf84 7,15,27-28,35-42,44,62,85,128
+  s_98712805c1499b::t_bdd8e2e7198f71 16-19
+pipelines/compose_curated_run_facade.py
+  s_98712805c1499b::t_dee0088b986538 9,15,18,24,139
+tests/test_compose_curated_facade_contract.py
+  s_98712805c1499b::t_bdd8e2e7198f71 15-28
+tests/test_compose_curated_split_lanes.py
+  s_98712805c1499b::t_7ccf655eb180f2 1-73,75-80,82-93,100-128,130-133,135-166,168-196
+  s_98712805c1499b::t_728d41fa2b52f6 74,81,94-99,129,134,167
+pipelines/compose_curated_record_services.py
+  s_98712805c1499b::t_dee0088b986538 1-62
+pipelines/compose_curated_run_cli.py
+  s_98712805c1499b::t_dee0088b986538 13,19,22,28,74
+pipelines/compose_curated.py
+  s_98712805c1499b::t_ea9bfdef62410f 14
+  s_98712805c1499b::t_54387eb249443f 25-29,431
+  s_98712805c1499b::t_449c4eca45a505 30-57
+  s_98712805c1499b::t_5d6b50ae114bde 123-124,539-545,547-548
+pipelines/__init__.py
+  s_98712805c1499b::t_2830489052fdbc 201-206,296
+pipelines/compose_curated_record_dispatch.py
+  s_98712805c1499b::t_4e1face5a2acf0 7,14-30,32-145
+  s_98712805c1499b::t_70cb52be5d5d8d 1-6,8-13,31
+pipelines/compose_curated_identity.py
+  s_98712805c1499b::t_41946471f5e562 134
+tests/test_compose_curated_source_semantics.py
+  s_98712805c1499b::t_9e75633e0940e4 152
+  s_98712805c1499b::t_de7e02f7418f90 130
+  s_98712805c1499b::t_f94c776ca7b9dd 1-26,56,74,79,84,89-90,93,122,125-129,131-136,138-147,154-158,160-187,190-192,194-202
+  s_98712805c1499b::t_05d4fff4c94142 27-55,57-73,75-78,80-83,85-88,91-92,94-121,123-124,137,148-151,153,159,188-189,193
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "80eaf1f0192473f4f1883dae64901a2447e4f235",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
