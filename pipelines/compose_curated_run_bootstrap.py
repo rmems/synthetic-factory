@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import sys
+from typing import Callable, cast
 
 if __package__:
     from . import _expose_package_sibling
@@ -51,7 +52,7 @@ def expose_run_adapter(module_name: str) -> None:
     package = sys.modules.get("pipelines")
     expose = getattr(package, "_expose_package_sibling", None)
     if callable(expose):
-        expose(module_name)
+        cast(Callable[[str], None], expose)(module_name)
 
 
 if __package__:

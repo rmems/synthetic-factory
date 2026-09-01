@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable, cast
 
 if __package__:
     from . import _expose_package_sibling
@@ -142,4 +142,4 @@ else:
     package = sys.modules.get("pipelines")
     expose = getattr(package, "_expose_package_sibling", None)
     if callable(expose):
-        expose(__name__)
+        cast(Callable[[str], None], expose)(__name__)
