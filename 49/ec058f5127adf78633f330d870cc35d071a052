@@ -1,0 +1,35 @@
+pipelines/check_records.py
+  s_98712805c1499b::t_407986b433beb4 646
+  s_98712805c1499b::t_ec8ef1a105321e 25,649-652
+pipelines/training_audit.py
+  s_98712805c1499b::t_ec8ef1a105321e 388-389,392-395
+tests/test_check_records_framing.py
+  s_98712805c1499b::t_ac98e561b67790 19,82-103
+tests/test_quality_gate_gate_snn_identity.py
+  s_98712805c1499b::t_96f359fa288ca4 76-103
+  s_98712805c1499b::t_52658a8652d8d5 1-75,104-121
+tests/test_round_txn_rasters.py
+  s_98712805c1499b::t_ac98e561b67790 17,170-190
+pipelines/quality_gate_identity.py
+  s_98712805c1499b::t_ec8ef1a105321e 113-116,262-264,269-271,297-304,420,427-430,440-461,464-465
+  s_98712805c1499b::t_4a7bcdfd4d5890 51-54
+  s_98712805c1499b::t_95b68e6e2ef58e 117-123,265-268,418-419,421-426,431-439
+tests/test_training_audit_mill.py
+  s_98712805c1499b::t_ac98e561b67790 18,110-142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "49ec058f5127adf78633f330d870cc35d071a052",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
