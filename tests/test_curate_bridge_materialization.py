@@ -6,7 +6,6 @@ from __future__ import annotations
 import contextlib
 import io
 import json
-import sys
 import tempfile
 import unittest
 from fractions import Fraction
@@ -491,17 +490,6 @@ class BridgeMaterialization(unittest.TestCase):
         rooted = PureWindowsPath(r"\escape.json")
 
         self.assertTrue(curate_bridge_materialize._unsafe_relative_path(rooted))
-
-    def test_materializer_imports_through_the_pipelines_namespace(self):
-        pipelines_path = str(Path(__file__).resolve().parents[1] / "pipelines")
-        with mock.patch.object(
-            sys,
-            "path",
-            [entry for entry in sys.path if entry != pipelines_path],
-        ):
-            from pipelines import curate_bridge_materialize as packaged_materializer
-
-        self.assertTrue(issubclass(packaged_materializer.BridgeCurationError, ValueError))
 
     def test_linux_publication_fails_explicitly_without_renameat2(self):
         with (

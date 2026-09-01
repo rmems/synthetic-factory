@@ -43,9 +43,10 @@ from typing import Any, Callable, Iterable, Sequence, cast
 
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
     if _local_sibling_module("curate_bridge", allow_initializing=True) is not None:
         import curate_bridge as _direct_curate_bridge
+        _require_local_sibling(_direct_curate_bridge, "curate_bridge")
         del _direct_curate_bridge
     from . import curate_bridge_events as _bridge_events
     from . import curate_bridge_gate as _bridge_gate
@@ -439,9 +440,7 @@ def _raster_reasons(
     state = _SidecarValidationState([], {})
     reason_codes, evidence = state.reason_codes, state.evidence
     expected_gate_decision = _expected_gate_decision(record)
-    if require_routing_table and expected_gate_decision is None:
-        reason_codes.append(REASON_GATE_SNN_INVALID)
-        evidence["gate_snn_decision_valid"] = False
+    _bridge_gate.require_expected_decision(expected_gate_decision, require_routing_table, state)
     raster_reason_start = len(reason_codes)
     raster_present = _validate_declared_sidecars(
         _raster_candidates(record),
@@ -454,10 +453,9 @@ def _raster_reasons(
         state,
         "raster",
     )
-    if not raster_present:
-        evidence["raster_present"] = False
-        if require_raster:
-            reason_codes.append(REASON_RASTER_MISSING)
+    evidence.setdefault("raster_present", raster_present)
+    if require_raster and not raster_present:
+        reason_codes.append(REASON_RASTER_MISSING)
     evidence["raster_reason_codes"] = sorted(set(reason_codes[raster_reason_start:]))
     gate_compute_reason_start = len(reason_codes)
     _validate_declared_sidecars(
@@ -480,8 +478,7 @@ def _raster_reasons(
         state,
         "gate_snn",
     )
-    if not gate_snn_present:
-        evidence["gate_snn_present"] = False
+    evidence.setdefault("gate_snn_present", gate_snn_present)
     return reason_codes, evidence
 
 

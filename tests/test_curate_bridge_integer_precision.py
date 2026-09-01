@@ -19,6 +19,8 @@ from exact_json import dumps_exact_json  # noqa: E402
 class BridgeIntegerPrecision(unittest.TestCase):
     neurons = 10**18 + 2
     rounded_collision = 10**18
+    extreme_rate = 10**309
+    extreme_expected_spikes = 2 * 10**307
 
     def _assert_spike_mismatch(self, status, evidence_key):
         self.assertEqual(status["evidence"][evidence_key][0]["expected"], self.neurons)
@@ -93,18 +95,15 @@ class BridgeIntegerPrecision(unittest.TestCase):
         self.assertEqual(mismatch["actual"], declared)
         self.assertIn(curate_bridge.REASON_RASTER_SPIKE_BUDGET, status["reason_codes"])
 
-    def test_extreme_integer_rate_keeps_a_bounded_exact_spike_product(self):
-        rate = 10**309
-        expected = 2 * 10**307
-
+    def test_extreme_integer_rate_keeps_an_exact_raster_spike_product(self):
         raster_record = gate_snn_fixture()
         raster_record["raster"].update(
             {
                 "window_ms": 20,
                 "window_s": 0.02,
                 "neurons": 1,
-                "mean_rate_hz": rate,
-                "spikes": expected,
+                "mean_rate_hz": self.extreme_rate,
+                "spikes": self.extreme_expected_spikes,
             }
         )
         raster_record["raster"].pop("energy_pJ", None)
@@ -112,11 +111,15 @@ class BridgeIntegerPrecision(unittest.TestCase):
         raster_record["raster"]["excerpt"] = [{"t_us": 1000, "neuron_id": 0}]
         raster_status = curate_bridge.raster_status(raster_record)
         self.assertTrue(raster_status["raster_valid"], raster_status["reason_codes"])
-        self.assertEqual(raster_status["evidence"]["raster_expected_spikes"], expected)
+        self.assertEqual(
+            raster_status["evidence"]["raster_expected_spikes"],
+            self.extreme_expected_spikes,
+        )
         normalized = spike_probe.normalize_raster(raster_record)
         self.assertIsNotNone(normalized)
         dumps_exact_json(normalized)
 
+    def test_extreme_integer_rate_keeps_an_exact_gate_spike_product(self):
         gate_record = gate_snn_fixture()
         gate_record["gate_snn"].update(
             {
@@ -127,8 +130,8 @@ class BridgeIntegerPrecision(unittest.TestCase):
                         "name": "exact-rate",
                         "neurons": 1,
                         "threshold": 1,
-                        "mean_rate_hz": rate,
-                        "spikes": expected,
+                        "mean_rate_hz": self.extreme_rate,
+                        "spikes": self.extreme_expected_spikes,
                     }
                 ],
             }
@@ -136,14 +139,15 @@ class BridgeIntegerPrecision(unittest.TestCase):
         gate_status = curate_bridge.raster_status(gate_record)
         self.assertTrue(gate_status["raster_valid"], gate_status["reason_codes"])
 
+    def test_extreme_integer_rate_keeps_an_exact_gate_compute_product(self):
         compute_record = gate_snn_fixture()
         compute_record["gate_compute"] = {
             "per_check": [
                 {
                     "neurons": 1,
-                    "mean_rate_hz": rate,
+                    "mean_rate_hz": self.extreme_rate,
                     "window_s": 0.02,
-                    "spikes": expected,
+                    "spikes": self.extreme_expected_spikes,
                 }
             ]
         }

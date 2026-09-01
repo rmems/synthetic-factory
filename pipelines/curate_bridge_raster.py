@@ -7,9 +7,10 @@ from fractions import Fraction
 from typing import Any
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
     if _local_sibling_module("curate_bridge_raster", allow_initializing=True) is not None:
         import curate_bridge_raster as _direct_curate_bridge_raster
+        _require_local_sibling(_direct_curate_bridge_raster, "curate_bridge_raster")
         del _direct_curate_bridge_raster
     from .curate_bridge_raster_numbers import (
         REASON_RASTER_SPIKE_BUDGET as _NUMERIC_REASON_RASTER_SPIKE_BUDGET,

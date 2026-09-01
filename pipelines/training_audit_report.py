@@ -52,6 +52,19 @@ def _bridge_blockers(bridge):
     return blockers
 
 
+def _gate_compute_blockers(bridge):
+    invalid = bridge.get("gate_compute_records", 0) - bridge.get(
+        "gate_compute_valid_records", 0
+    )
+    if invalid <= 0:
+        return []
+    codes = ", ".join(sorted(bridge.get("gate_compute_defect_codes", {})))
+    return [
+        f"{invalid}/{bridge.get('gate_compute_records', 0)} "
+        f"gate-compute specs are invalid ({codes})"
+    ]
+
+
 def _distillation_blockers(bridge):
     blockers = []
     denominator = bridge.get("distillation_records", 0)
@@ -86,15 +99,7 @@ def _distillation_blockers(bridge):
             f"spike-budget defects ({codes})"
         )
 
-    invalid_gate_compute = bridge.get("gate_compute_records", 0) - bridge.get(
-        "gate_compute_valid_records", 0
-    )
-    if invalid_gate_compute > 0:
-        codes = ", ".join(sorted(bridge.get("gate_compute_defect_codes", {})))
-        blockers.append(
-            f"{invalid_gate_compute}/{bridge.get('gate_compute_records', 0)} "
-            f"gate-compute specs are invalid ({codes})"
-        )
+    blockers.extend(_gate_compute_blockers(bridge))
 
     missing_batches = bridge.get("gate_snn_missing_batches", 0)
     batch_count = bridge.get("gate_snn_batches", 0)

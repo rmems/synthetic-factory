@@ -23,9 +23,24 @@ class PipelinesPackageImports(unittest.TestCase):
         finally:
             sys.path.remove(str(PIPELINES))
 
+        import pipelines
         from pipelines import curate_bridge as packaged_bridge
         from pipelines import curate_bridge_materialize_fs as packaged_materialize_fs
 
+        sibling_names = (
+            "curate_bridge",
+            "curate_bridge_events",
+            "curate_bridge_gate",
+            "curate_bridge_materialize",
+            "curate_bridge_materialize_fs",
+            "curate_bridge_raster",
+            "curate_bridge_raster_numbers",
+            "validate_run",
+            "validate_run_spikes",
+        )
+        for name in sibling_names:
+            with self.subTest(name=name):
+                self.assertIs(sys.modules[name], getattr(pipelines, name))
         self.assertIs(direct_bridge, packaged_bridge)
         self.assertIs(direct_bridge.CurationDecision, packaged_bridge.CurationDecision)
         self.assertIs(direct_materialize_fs, packaged_materialize_fs)
@@ -38,6 +53,17 @@ class PipelinesPackageImports(unittest.TestCase):
         from pipelines import curate_bridge
 
         self.assertTrue(callable(curate_bridge.curate_jsonl))
+
+    def test_materializer_imports_through_the_pipelines_namespace(self):
+        pipelines_path = str(PIPELINES)
+        with mock.patch.object(
+            sys,
+            "path",
+            [entry for entry in sys.path if entry != pipelines_path],
+        ):
+            from pipelines import curate_bridge_materialize as packaged_materializer
+
+        self.assertTrue(issubclass(packaged_materializer.BridgeCurationError, ValueError))
 
     def test_bridge_siblings_expose_public_facade_contracts(self):
         from pipelines import curate_bridge_events

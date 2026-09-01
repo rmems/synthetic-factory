@@ -39,6 +39,13 @@ def _local_sibling_module(name: str, *, allow_initializing: bool = False):
     return _local_module(name, name, allow_initializing=allow_initializing)
 
 
+def _require_local_sibling(module, name: str) -> None:
+    """Require an imported direct-name module to be this package's sibling."""
+
+    if _local_sibling_module(name, allow_initializing=True) is not module:
+        raise ImportError(f"{name} did not resolve to the local pipeline sibling")
+
+
 def _local_package_sibling(name: str, *, allow_initializing: bool = False):
     """Return a repository-local package child, optionally while it initializes."""
 

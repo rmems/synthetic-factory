@@ -6,9 +6,10 @@ from __future__ import annotations
 from typing import Any
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
     if _local_sibling_module("curate_bridge_gate", allow_initializing=True) is not None:
         import curate_bridge_gate as _direct_curate_bridge_gate
+        _require_local_sibling(_direct_curate_bridge_gate, "curate_bridge_gate")
         del _direct_curate_bridge_gate
     from .exact_json import json_integer_is_bounded
     from .curate_bridge_raster import (
@@ -58,6 +59,14 @@ else:
 
 
 _NO_EXPECTED_DECISION = object()
+
+
+def require_expected_decision(expected_decision: Any, required: bool, state: Any) -> None:
+    """Record the strict-mode failure when no safety decision can bind the gate."""
+
+    if required and expected_decision is None:
+        state.reason_codes.append(REASON_GATE_SNN_INVALID)
+        state.evidence["gate_snn_decision_valid"] = False
 
 
 def _rate_aliases(container: dict[str, Any]) -> _PositiveAliases:
