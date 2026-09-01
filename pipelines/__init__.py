@@ -110,6 +110,12 @@ def _load_validate_run_spikes():
     return validate_run_spikes
 
 
+def _load_validate_run_provenance():
+    from . import validate_run_provenance
+
+    return validate_run_provenance
+
+
 def _load_validate_run():
     from . import validate_run
 
@@ -132,6 +138,7 @@ _PACKAGE_SIBLING_LOADERS = {
     "curate_bridge_raster": _load_curate_bridge_raster,
     "curate_bridge_raster_numbers": _load_curate_bridge_raster_numbers,
     "validate_run_spikes": _load_validate_run_spikes,
+    "validate_run_provenance": _load_validate_run_provenance,
     "validate_run": _load_validate_run,
     "curate_bridge": _load_curate_bridge,
 }

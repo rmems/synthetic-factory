@@ -19,11 +19,9 @@ import argparse
 import hashlib
 import json
 import math
-import os
-import stat
 import sys
 from collections import Counter, defaultdict
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Mapping
 
 from exact_json import dumps_exact_json, parse_finite_json_float as _parse_exact_json_float
@@ -42,12 +40,8 @@ from check_records import (  # noqa: E402
     shape_check,
     walk_key,
 )
-from census import (  # noqa: E402
-    enclosing_marker_root,
-    factory_for_path,
-    visible_jsonl_paths,
-)
-from round_txn import TransactionError, completed_manifests  # noqa: E402
+from census import factory_for_path  # noqa: E402
+from round_txn import TransactionError  # noqa: E402
 from quality_gate_identity import canonical_numeric_value as _canonical_numeric_value  # noqa: E402
 from curate_coding import (  # noqa: E402
     HIDDEN_REASONING_KEYS,
@@ -68,6 +62,7 @@ from training_audit_report import (  # noqa: E402
     percentile as _percentile,
     render_markdown as _render_markdown,
 )
+import training_audit_snapshot as _snapshot  # noqa: E402
 
 # Compatibility exports retained for callers that imported the factory slugs
 # from this module before distillation accounting moved into its own helper.
@@ -294,82 +289,22 @@ def hidden_thought_paths(value, path=""):
             yield from hidden_thought_paths(item, f"{path}[{index}]")
 
 
-_PINNED_DIRECTORY_FLAGS = (
-    os.O_RDONLY
-    | getattr(os, "O_DIRECTORY", 0)
-    | getattr(os, "O_NOFOLLOW", 0)
-    | getattr(os, "O_CLOEXEC", 0)
-)
+_PINNED_DIRECTORY_FLAGS = _snapshot.PINNED_DIRECTORY_FLAGS
+_open_audit_descriptor = _snapshot.open_audit_descriptor
+_read_regular_audit_descriptor = _snapshot.read_regular_audit_descriptor
 
 
 def _read_pinned_member(run_dir: Path, relative: Path) -> bytes:
-    """Read one member through descriptors that cannot follow a swapped path.
-
-    A plain ``lstat`` + ``read_bytes`` pair leaves a window where the member
-    — or any directory above it — can be replaced by a symlink between the
-    check and the read; ``O_NOFOLLOW`` on the final open protects only the
-    last component. Every component is therefore opened relative to its
-    pinned parent descriptor, the final open adds ``O_NONBLOCK`` so a swapped
-    FIFO cannot hang it, and ``fstat`` validates the very descriptor the
-    bytes are then read from.
-    """
-    opened: list[int] = []
-    try:
-        try:
-            current = os.open(run_dir, _PINNED_DIRECTORY_FLAGS)
-        except OSError as exc:
-            raise ValueError(
-                f"audit member cannot be captured: {relative}: {exc}"
-            ) from exc
-        opened.append(current)
-        for part in relative.parts[:-1]:
-            try:
-                current = os.open(part, _PINNED_DIRECTORY_FLAGS, dir_fd=current)
-            except OSError as exc:
-                raise ValueError(
-                    f"audit member cannot be captured: {relative}: {exc}"
-                ) from exc
-            opened.append(current)
-        try:
-            fd = os.open(
-                relative.name,
-                os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
-                dir_fd=current,
-            )
-        except OSError as exc:
-            raise ValueError(
-                f"audit member cannot be captured: {relative}: {exc}"
-            ) from exc
-        opened.append(fd)
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise ValueError(
-                f"audit member is not an exact regular file: {relative}"
-            )
-        chunks = []
-        while True:
-            chunk = os.read(fd, 1 << 20)
-            if not chunk:
-                break
-            chunks.append(chunk)
-        return b"".join(chunks)
-    finally:
-        for descriptor in opened:
-            os.close(descriptor)
+    """Read through the compatibility facade's descriptor seams."""
+    return _snapshot.read_pinned_member(
+        run_dir,
+        relative,
+        open_descriptor=_open_audit_descriptor,
+        read_descriptor=_read_regular_audit_descriptor,
+    )
 
 
-def _marker_digest_index(marker_root: Path) -> dict[str, str]:
-    """Map committed artifact names to the digests their round markers declare."""
-
-    digests: dict[str, str] = {}
-    for manifest in completed_manifests(marker_root).values():
-        for entry in manifest.get("files", []):
-            if not isinstance(entry, dict):
-                continue
-            name = entry.get("name")
-            digest = entry.get("sha256")
-            if isinstance(name, str) and isinstance(digest, str):
-                digests[name] = digest
-    return digests
+_marker_digest_index = _snapshot.marker_digest_index
 
 
 def _require_committed_digest(
@@ -378,90 +313,37 @@ def _require_committed_digest(
     marker_root: Path | None,
     digest_cache: dict[Path, dict[str, str]],
 ) -> None:
-    """Bind captured marker-mode bytes to the digest their round committed.
-
-    Visibility is digest-checked when the committed set is resolved, but a
-    member swapped for another regular file after that check would still be
-    read here under a committed coordinate. Members a marker round declares
-    must therefore hash to exactly what the round committed; legacy-baseline
-    members carry no declared digest and keep their legacy contract.
-    """
-    if marker_root is None:
-        return
-    if marker_root not in digest_cache:
-        digest_cache[marker_root] = _marker_digest_index(marker_root)
-    declared = digest_cache[marker_root].get(relative.name)
-    if declared is None:
-        return
-    if hashlib.sha256(payload).hexdigest() != declared:
-        raise ValueError(
-            f"audit member does not match its committed round digest: {relative}"
-        )
+    """Check committed bytes through the facade's manifest-index seam."""
+    _snapshot.require_bound_committed_digest(
+        payload,
+        relative,
+        _snapshot.DigestBinding(
+            marker_root,
+            digest_cache,
+            _marker_digest_index,
+        ),
+    )
 
 
-def _scanned_audit_entries(directory: Path) -> list[os.DirEntry]:
-    """List one directory's entries in stable name order, failing closed."""
-    try:
-        with os.scandir(directory) as scan:
-            return sorted(scan, key=lambda entry: entry.name)
-    except OSError as exc:
-        raise ValueError(
-            f"audit tree cannot be enumerated: {directory}: {exc}"
-        ) from exc
-
-
-def _classified_audit_entry(entry: os.DirEntry) -> str:
-    """Classify one entry as ``descend``, ``member``, or ``ignore``.
-
-    A symlink of any kind refuses the audit outright. A directory or fifo
-    named ``*.jsonl`` is surfaced as a member so the capture step refuses
-    its irregular identity.
-    """
-    try:
-        metadata = entry.stat(follow_symlinks=False)
-    except OSError as exc:
-        raise ValueError(
-            f"audit member cannot be captured: {entry.path}: {exc}"
-        ) from exc
-    if stat.S_ISLNK(metadata.st_mode):
-        raise ValueError(f"audit tree contains a symlink alias: {entry.path}")
-    if stat.S_ISDIR(metadata.st_mode) and not entry.name.endswith(".jsonl"):
-        return "descend"
-    if entry.name.endswith(".jsonl"):
-        return "member"
-    return "ignore"
+_scanned_audit_entries = _snapshot.scan_audit_entries
+_classified_audit_entry = _snapshot.classify_audit_entry
 
 
 def _enumerated_run_members(run_dir: Path) -> list[Path]:
-    """Enumerate every ``*.jsonl`` entry explicitly, refusing symlink aliases.
-
-    ``Path.rglob`` neither returns a symlinked directory (its name does not
-    match the pattern) nor descends through it, so an aliased subtree — and
-    every JSONL member visible through it — would simply vanish from a
-    standalone audit instead of failing closed.
-    """
-    members: list[Path] = []
-    pending = [Path(run_dir)]
-    while pending:
-        for entry in _scanned_audit_entries(pending.pop()):
-            action = _classified_audit_entry(entry)
-            if action == "descend":
-                pending.append(Path(entry.path))
-            elif action == "member":
-                members.append(Path(entry.path))
-    return sorted(members)
+    """Enumerate through the facade's scanner and classifier seams."""
+    return _snapshot.enumerate_run_members(
+        run_dir,
+        scan_entries=_scanned_audit_entries,
+        classify_entry=_classified_audit_entry,
+    )
 
 
 def _run_membership(run_dir: Path) -> tuple[frozenset[Path], tuple[Path, ...]]:
-    """Return the visible and enumerated members relative to ``run_dir``."""
-
-    visible = frozenset(
-        path.relative_to(run_dir) for path in visible_jsonl_paths(run_dir)
+    """Resolve membership through the facade's enumerator seam."""
+    return _snapshot.run_membership(
+        run_dir,
+        enumerate_members=_enumerated_run_members,
     )
-    members = tuple(
-        path.relative_to(run_dir) for path in _enumerated_run_members(run_dir)
-    )
-    return visible, members
 
 
 def _capture_run_member(
@@ -470,72 +352,39 @@ def _capture_run_member(
     visible: frozenset[Path],
     digest_cache: dict[Path, dict[str, str]],
 ) -> tuple[Path, bytes] | None:
-    """Capture one visible regular member, or validate and skip an invisible one."""
-
-    path = run_dir / relative
-    try:
-        metadata = path.lstat()
-    except OSError as exc:
-        raise ValueError(
-            f"audit member cannot be captured: {relative}: {exc}"
-        ) from exc
-    if not stat.S_ISREG(metadata.st_mode):
-        raise ValueError(f"audit member is not an exact regular file: {relative}")
-    if relative not in visible:
-        return None
-    payload = _read_pinned_member(run_dir, relative)
-    _require_committed_digest(
-        payload,
-        relative,
-        enclosing_marker_root(run_dir, path),
-        digest_cache,
+    """Compatibility facade for one snapshot member capture."""
+    capture = _snapshot.SnapshotCapture(
+        run_dir,
+        visible,
+        _read_pinned_member,
+        _require_committed_digest,
     )
-    return relative, payload
+    capture.digest_cache = digest_cache
+    return capture.member(relative)
 
 
 def _captured_run_files(run_dir: Path) -> list[tuple[Path, bytes]]:
-    """Capture every visible JSONL member of ``run_dir`` as exact bytes.
-
-    Fail closed on any discovered ``.jsonl`` member that is not an exact
-    regular file. Skipping a broken symlink, a directory, or a fifo would let
-    ``--strict`` certify a subset of the apparent corpus while still reporting
-    ``training_ready: true``. Regular files the round-transaction contract
-    keeps invisible are excluded by that contract, not silently lost.
-    """
+    """Compatibility facade for a stable, authenticated run snapshot."""
     visible, members = _run_membership(run_dir)
     digest_cache: dict[Path, dict[str, str]] = {}
     files = []
     for relative in members:
         captured = _capture_run_member(
-            run_dir, relative, visible, digest_cache
+            run_dir,
+            relative,
+            visible,
+            digest_cache,
         )
         if captured is not None:
             files.append(captured)
-    visible_after, members_after = _run_membership(run_dir)
-    if visible_after != visible or members_after != members:
+    if _run_membership(run_dir) != (visible, members):
         raise ValueError("audit member set changed while capturing the run snapshot")
     return files
 
 
-def _validated_snapshot_files(
-    snapshot: Mapping[str, bytes],
-) -> list[tuple[Path, bytes]]:
-    """Validate caller-supplied snapshot bytes into audit members."""
-    files = []
-    for raw_relative, payload in sorted(snapshot.items()):
-        if not isinstance(raw_relative, str) or not raw_relative:
-            raise ValueError("audit snapshot paths must be nonempty strings")
-        relative = PurePosixPath(raw_relative)
-        if relative.is_absolute() or any(
-            part in {"", ".", ".."} for part in relative.parts
-        ):
-            raise ValueError(f"unsafe audit snapshot path: {raw_relative!r}")
-        if not isinstance(payload, bytes):
-            raise TypeError(
-                f"audit snapshot payload for {raw_relative!r} must be bytes"
-            )
-        files.append((Path(*relative.parts), payload))
-    return files
+_validated_snapshot_path = _snapshot.validate_snapshot_path
+_validated_snapshot_member = _snapshot.validate_snapshot_member
+_validated_snapshot_files = _snapshot.validate_snapshot_files
 
 
 class _CorpusAudit:

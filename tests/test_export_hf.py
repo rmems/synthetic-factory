@@ -139,7 +139,7 @@ class ExportPayloadAndProvenance(unittest.TestCase):
         )
 
         stored = json.loads(
-        (export / export_hf.PROVENANCE_PATH).read_text(encoding="utf-8")
+            (export / export_hf.PROVENANCE_PATH).read_text(encoding="utf-8")
         )
         self.assertEqual(stored, provenance)
 
@@ -167,6 +167,24 @@ class ExportPayloadAndProvenance(unittest.TestCase):
 
 
 class ExportSemanticDuplicateReplay(unittest.TestCase):
+    def _assert_duplicate_excluded(self, root, source, reason):
+        """Compose/export once and require one duplicate to stay excluded."""
+
+        curated = root / "curated"
+        summary = compose_curated.compose_run(source, curated)
+        provenance = export_hf.export_run(curated, root / "export")
+        split_rows = []
+        for relative in (export_hf.TRAIN_PATH, export_hf.EVAL_PATH):
+            split_rows.extend(
+                (root / "export" / relative).read_text(encoding="utf-8").splitlines()
+            )
+
+        self.assertEqual(summary["exclusions"][reason], 1)
+        self.assertEqual(provenance["compose"]["source"]["records"], 9)
+        self.assertEqual(provenance["records"], 7)
+        self.assertEqual(len(split_rows), 7)
+        self.assertEqual(len(set(split_rows)), 7)
+
     def test_export_replays_foreign_mill_quarantine(self):
         """Codex #97 P1: the replay applies the same corpus-level mill pass.
 
@@ -214,26 +232,11 @@ class ExportSemanticDuplicateReplay(unittest.TestCase):
             with source_file.open("a", encoding="utf-8") as handle:
                 handle.write(duplicate + "\n")
 
-            curated = root / "curated"
-            summary = compose_curated.compose_run(source, curated)
-            provenance = export_hf.export_run(curated, root / "export")
-            train = (root / "export" / export_hf.TRAIN_PATH).read_text(
-                encoding="utf-8"
-            ).splitlines()
-            evaluate = (root / "export" / export_hf.EVAL_PATH).read_text(
-                encoding="utf-8"
-            ).splitlines()
-
-            self.assertEqual(
-                summary["exclusions"][
-                    compose_curated.REASON_DUPLICATE_SOURCE_RECORD
-                ],
-                1,
+            self._assert_duplicate_excluded(
+                root,
+                source,
+                compose_curated.REASON_DUPLICATE_SOURCE_RECORD,
             )
-            self.assertEqual(provenance["compose"]["source"]["records"], 9)
-            self.assertEqual(provenance["records"], 7)
-            self.assertEqual(len(train) + len(evaluate), 7)
-            self.assertEqual(len(set(train + evaluate)), 7)
 
     def test_export_replays_post_curation_semantic_duplicate_exclusions(self):
         with tempfile.TemporaryDirectory() as td:
@@ -249,26 +252,11 @@ class ExportSemanticDuplicateReplay(unittest.TestCase):
             with source_file.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(converged) + "\n")
 
-            curated = root / "curated"
-            summary = compose_curated.compose_run(source, curated)
-            provenance = export_hf.export_run(curated, root / "export")
-            train = (root / "export" / export_hf.TRAIN_PATH).read_text(
-                encoding="utf-8"
-            ).splitlines()
-            evaluate = (root / "export" / export_hf.EVAL_PATH).read_text(
-                encoding="utf-8"
-            ).splitlines()
-
-            self.assertEqual(
-                summary["exclusions"][
-                    compose_curated.REASON_DUPLICATE_CURATED_RECORD
-                ],
-                1,
+            self._assert_duplicate_excluded(
+                root,
+                source,
+                compose_curated.REASON_DUPLICATE_CURATED_RECORD,
             )
-            self.assertEqual(provenance["compose"]["source"]["records"], 9)
-            self.assertEqual(provenance["records"], 7)
-            self.assertEqual(len(train) + len(evaluate), 7)
-            self.assertEqual(len(set(train + evaluate)), 7)
 
 
 class ExportCorpusGating(unittest.TestCase):

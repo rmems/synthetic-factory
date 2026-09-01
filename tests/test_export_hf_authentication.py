@@ -15,6 +15,7 @@ from export_test_support import (  # noqa: E402
     compose_fixture,
 )
 import compose_curated  # noqa: E402
+import export_compose_auth  # noqa: E402
 import export_contract  # noqa: E402
 import export_hf  # noqa: E402
 
@@ -125,6 +126,22 @@ class ExportSourceReplayAuthentication(unittest.TestCase):
         documents = cls._documents_of(ctx["sidecar_path"])
         documents[0]["classification"]["reason_codes"].append("tampered")
         cls._reseal_documents(ctx, ctx["sidecar_path"], documents, "reward_sidecars")
+
+    def test_duplicate_captured_output_paths_are_refused(self):
+        """One compose path must bind to exactly one captured byte snapshot."""
+
+        captured = export_contract.CuratedFile(
+            source_file="data/curated/duplicate.jsonl",
+            payload=b"",
+            rows=(),
+        )
+
+        with self.assertRaisesRegex(
+            export_hf.ExportError, "duplicate captured output path"
+        ):
+            export_compose_auth._curated_outputs_by_compose_path(
+                [captured, captured]
+            )
 
     def test_compose_paths_digests_coordinates_and_sidecars_are_authenticated(self):
         mutations = (
@@ -306,10 +323,19 @@ class CalibrationAuthentication(unittest.TestCase):
         path.write_bytes(payload)
         return path, hashlib.sha256(payload).hexdigest()
 
-    def summary_for(self, path, digest, *, mode="source_run", records=1, calibrated=None):
+    def summary_for(self, path, digest, overrides=None):
+        values = {
+            "mode": "source_run",
+            "records": 1,
+            "calibrated": None,
+        }
+        if overrides is not None:
+            values.update(overrides)
+        records = values["records"]
+        calibrated = values["calibrated"]
         return {
             "calibration": {
-                "mode": mode,
+                "mode": values["mode"],
                 "path": None if path is None else str(path),
                 "sha256": digest,
                 "records": records,
@@ -362,7 +388,7 @@ class CalibrationAuthentication(unittest.TestCase):
             for bad in (True, -1, "1", 1.0):
                 with self.subTest(records=bad):
                     self.assert_refused(
-                        self.summary_for(path, digest, records=bad),
+                        self.summary_for(path, digest, {"records": bad}),
                         root,
                         "calibration.records must be nonnegative",
                     )
@@ -373,12 +399,12 @@ class CalibrationAuthentication(unittest.TestCase):
             path, digest = self.write_calibration(root)
 
             self.assert_refused(
-                self.summary_for(path, None, mode="none", records=0),
+                self.summary_for(path, None, {"mode": "none", "records": 0}),
                 root,
                 "absent calibration must not name a file",
             )
             self.assert_refused(
-                self.summary_for(None, digest, mode="none", records=0),
+                self.summary_for(None, digest, {"mode": "none", "records": 0}),
                 root,
                 "absent calibration must not name a file",
             )
@@ -388,7 +414,7 @@ class CalibrationAuthentication(unittest.TestCase):
             root = Path(td)
 
             catalog, descriptor = self.authenticate(
-                self.summary_for(None, None, mode="none", records=0), root
+                self.summary_for(None, None, {"mode": "none", "records": 0}), root
             )
 
         self.assertEqual(catalog, {})
@@ -404,7 +430,7 @@ class CalibrationAuthentication(unittest.TestCase):
             self.write_calibration(root)
 
             self.assert_refused(
-                self.summary_for(None, None, mode="none", records=0),
+                self.summary_for(None, None, {"mode": "none", "records": 0}),
                 root,
                 "recompose the source run before exporting",
             )
@@ -440,7 +466,7 @@ class CalibrationAuthentication(unittest.TestCase):
             path, digest = self.write_calibration(root, canonical=False)
 
             catalog, descriptor = self.authenticate(
-                self.summary_for(path, digest, mode="explicit"), root
+                self.summary_for(path, digest, {"mode": "explicit"}), root
             )
 
         self.assertEqual(set(catalog), {"ffpc-r5-002"})
@@ -463,7 +489,7 @@ class CalibrationAuthentication(unittest.TestCase):
             path, digest = self.write_calibration(root)
 
             self.assert_refused(
-                self.summary_for(path, digest, mode="inherited"),
+                self.summary_for(path, digest, {"mode": "inherited"}),
                 root,
                 "unsupported calibration mode",
             )
@@ -475,13 +501,15 @@ class CalibrationAuthentication(unittest.TestCase):
 
             # The descriptor claims two calibrated records; the file has one.
             self.assert_refused(
-                self.summary_for(path, digest, records=2),
+                self.summary_for(path, digest, {"records": 2}),
                 root,
                 "calibrated record count does not authenticate",
             )
             # The descriptor agrees with the file, but the summary disagrees.
             self.assert_refused(
-                self.summary_for(path, digest, records=1, calibrated=2),
+                self.summary_for(
+                    path, digest, {"records": 1, "calibrated": 2}
+                ),
                 root,
                 "calibrated record count does not authenticate",
             )

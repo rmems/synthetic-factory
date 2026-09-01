@@ -13,6 +13,7 @@ from typing import Sequence
 
 from export_contract import ExportError, ViewerRow
 
+
 def split_bucket(row: ViewerRow, salt: str) -> float:
     """Map a row to a stable [0,1) bucket that does not depend on ordering."""
 
@@ -81,21 +82,33 @@ def _rebalance_one_sided_split(
         evaluation.remove((row.source_file, row.source_line))
 
 
-def split_rows(
-    rows: Sequence[ViewerRow], *, eval_fraction: float, salt: str
-) -> tuple[list[ViewerRow], list[ViewerRow]]:
-    """Partition one immutable snapshot deterministically, with two-sided fallback."""
+def _validate_split_request(rows: Sequence[ViewerRow], eval_fraction: float) -> None:
+    """Reject requests that cannot produce a meaningful two-sided split."""
 
     if not 0 < eval_fraction < 1:
         raise ExportError("eval_fraction must be between 0 and 1 exclusive")
     if len(rows) < 2:
         raise ExportError("refusing to split a corpus with fewer than two records")
 
-    evaluation = _eval_keys_by_factory(rows, eval_fraction=eval_fraction, salt=salt)
-    _rebalance_one_sided_split(rows, evaluation, salt)
+
+def _partition_by_eval_keys(
+    rows: Sequence[ViewerRow], evaluation: set[tuple[str, int]]
+) -> tuple[list[ViewerRow], list[ViewerRow]]:
+    """Materialize both split sides from the authenticated row identities."""
 
     train = [row for row in rows if (row.source_file, row.source_line) not in evaluation]
     evaluate = [row for row in rows if (row.source_file, row.source_line) in evaluation]
-    if not train or not evaluate:  # defensive: len(rows) >= 2 makes this unreachable
+    if not train or not evaluate:  # defensive: request validation makes this unreachable
         raise ExportError("deterministic fallback failed to produce both split sides")
     return train, evaluate
+
+
+def split_rows(
+    rows: Sequence[ViewerRow], *, eval_fraction: float, salt: str
+) -> tuple[list[ViewerRow], list[ViewerRow]]:
+    """Partition one immutable snapshot deterministically, with two-sided fallback."""
+
+    _validate_split_request(rows, eval_fraction)
+    evaluation = _eval_keys_by_factory(rows, eval_fraction=eval_fraction, salt=salt)
+    _rebalance_one_sided_split(rows, evaluation, salt)
+    return _partition_by_eval_keys(rows, evaluation)

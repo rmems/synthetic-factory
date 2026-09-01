@@ -30,7 +30,128 @@ from training_audit_test_helpers import (  # noqa: E402
 import training_audit  # noqa: E402
 
 
+class FacadeSeamReached(Exception):
+    """Sentinel proving a compatibility facade seam was resolved at call time."""
+
+
 class TrainingAuditReadinessReport(unittest.TestCase):
+    def assert_facade_seam_reached(self, seam, action):
+        """Require one facade patch to be resolved by the supplied action."""
+        message = f"{seam} reached"
+        with mock.patch.object(
+            training_audit,
+            seam,
+            side_effect=FacadeSeamReached(message),
+        ):
+            with self.assertRaisesRegex(FacadeSeamReached, message):
+                action()
+
+    def test_pinned_reader_resolves_facade_opener_at_call_time(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            member = Path("batch-r01.jsonl")
+            (root / member).write_bytes(b'{}\n')
+            self.assert_facade_seam_reached(
+                "_open_audit_descriptor",
+                lambda: training_audit._read_pinned_member(root, member),
+            )
+
+    def test_pinned_reader_resolves_facade_descriptor_reader_at_call_time(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            member = Path("batch-r01.jsonl")
+            (root / member).write_bytes(b'{}\n')
+            self.assert_facade_seam_reached(
+                "_read_regular_audit_descriptor",
+                lambda: training_audit._read_pinned_member(root, member),
+            )
+
+    def test_committed_digest_resolves_facade_marker_index_at_call_time(self):
+        with tempfile.TemporaryDirectory() as td:
+            marker_root = Path(td) / "factory"
+            marker_root.mkdir()
+            self.assert_facade_seam_reached(
+                "_marker_digest_index",
+                lambda: training_audit._require_committed_digest(
+                    b'{}\n', Path("batch-r01.jsonl"), marker_root, {}
+                ),
+            )
+
+    def test_member_enumerator_resolves_facade_scanner_at_call_time(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.assert_facade_seam_reached(
+                "_scanned_audit_entries",
+                lambda: training_audit._enumerated_run_members(root),
+            )
+
+    def test_member_enumerator_resolves_facade_classifier_at_call_time(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "batch-r01.jsonl").write_bytes(b'{}\n')
+            self.assert_facade_seam_reached(
+                "_classified_audit_entry",
+                lambda: training_audit._enumerated_run_members(root),
+            )
+
+    def test_membership_resolves_facade_enumerator_at_call_time(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.assert_facade_seam_reached(
+                "_enumerated_run_members",
+                lambda: training_audit._run_membership(root),
+            )
+
+    def test_member_capture_resolves_facade_digest_check_at_call_time(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            member = Path("batch-r01.jsonl")
+            (root / member).write_bytes(b'{}\n')
+            self.assert_facade_seam_reached(
+                "_require_committed_digest",
+                lambda: training_audit._capture_run_member(
+                    root, member, frozenset({member}), {}
+                ),
+            )
+
+    def test_snapshot_capture_resolves_facade_membership_at_call_time(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.assert_facade_seam_reached(
+                "_run_membership",
+                lambda: training_audit._captured_run_files(root),
+            )
+
+    def test_snapshot_capture_resolves_facade_member_capture_at_call_time(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            member = root / "batch-r01.jsonl"
+            member.write_bytes(b'{}\n')
+            self.assert_facade_seam_reached(
+                "_capture_run_member",
+                lambda: training_audit._captured_run_files(root),
+            )
+
+    def test_snapshot_boundary_captures_exact_visible_member_bytes(self):
+        """The reusable snapshot boundary preserves the bytes it authenticates."""
+
+        try:
+            import training_audit_snapshot
+        except ModuleNotFoundError as exc:
+            self.fail(f"training-audit snapshot boundary is unavailable: {exc}")
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            relative = Path("thalamic-trajectory-factory/batch-r01.jsonl")
+            payload = b'{"id":"first"}\r\n{"id":"second"}\n'
+            path = root / relative
+            path.parent.mkdir(parents=True)
+            path.write_bytes(payload)
+
+            captured = training_audit_snapshot.capture_run_files(root)
+
+        self.assertEqual(captured, [(relative, payload)])
+
     def test_jsonl_framing_preserves_literal_unicode_line_separators(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -105,6 +226,37 @@ class TrainingAuditReadinessReport(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(ValueError, "member set changed"):
                     training_audit.audit_run(root)
+
+    def test_pinned_member_read_refuses_an_aliased_parent_directory(self):
+        """Every parent component is descriptor-pinned with no symlink following."""
+
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as outside:
+            root = Path(td)
+            outside_file = Path(outside) / "batch-r01.jsonl"
+            outside_file.write_bytes(b'{}\n')
+            (root / "alias").symlink_to(outside, target_is_directory=True)
+
+            with self.assertRaisesRegex(ValueError, "cannot be captured"):
+                training_audit._read_pinned_member(
+                    root,
+                    Path("alias/batch-r01.jsonl"),
+                )
+
+    def test_authenticated_snapshot_rejects_unsafe_paths_and_non_bytes(self):
+        """Exporter snapshots keep strict relative-path and byte-payload types."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            unsafe_paths = ("", "/absolute.jsonl", "../escape.jsonl", "a/../b.jsonl")
+            for path in unsafe_paths:
+                with self.subTest(path=path), self.assertRaises(ValueError):
+                    training_audit.audit_run(root, snapshot={path: b'{}\n'})
+
+            with self.assertRaisesRegex(TypeError, "must be bytes"):
+                training_audit.audit_run(
+                    root,
+                    snapshot={"factory/batch-r01.jsonl": "{}\n"},
+                )
 
     def test_overflowed_json_number_is_a_record_parse_error(self):
         """The strict audit and export must reject the same JSON numbers."""

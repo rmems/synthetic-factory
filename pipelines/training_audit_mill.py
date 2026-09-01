@@ -20,31 +20,43 @@ def _finding_row(finding: MillFinding) -> dict:
     return row
 
 
+def _captured_member(
+    run_dir: Path,
+    item: Path | tuple[Path, bytes],
+) -> tuple[Path, bytes]:
+    """Return one member as a relative coordinate and immutable bytes."""
+    if isinstance(item, tuple):
+        return item
+    path = Path(item)
+    return path.relative_to(run_dir), path.read_bytes()
+
+
+def _parsed_records(payload: bytes):
+    """Yield valid JSON records with their physical LF line coordinates."""
+    for line_number, raw_line in enumerate(payload.split(b"\n"), 1):
+        if not raw_line.strip():
+            continue
+        try:
+            line = raw_line.decode("utf-8")
+            record = json.loads(
+                line,
+                parse_constant=reject_json_constant,
+                parse_float=parse_finite_json_float,
+            )
+        except (ValueError, RecursionError):
+            continue
+        yield line_number, record
+
+
 def _index_findings(
     run_dir: Path,
     files: list[Path] | list[tuple[Path, bytes]],
 ):
     mills = MillIndex()
     for item in files:
-        if isinstance(item, tuple):
-            relative, payload = item
-        else:
-            path = Path(item)
-            relative = path.relative_to(run_dir)
-            payload = path.read_bytes()
+        relative, payload = _captured_member(run_dir, item)
         factory, verified = factory_identity_for_path(run_dir, run_dir / relative)
-        for line_number, raw_line in enumerate(payload.split(b"\n"), 1):
-            if not raw_line.strip():
-                continue
-            try:
-                line = raw_line.decode("utf-8")
-                record = json.loads(
-                    line,
-                    parse_constant=reject_json_constant,
-                    parse_float=parse_finite_json_float,
-                )
-            except (ValueError, RecursionError):
-                continue
+        for line_number, record in _parsed_records(payload):
             mills.add(
                 factory,
                 record,

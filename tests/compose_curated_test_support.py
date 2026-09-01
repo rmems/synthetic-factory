@@ -4,9 +4,12 @@
 tests/test_compose_curated.py outgrew one file (CodeScene: Low Cohesion,
 Lines of Code in a Single File) and is now split by responsibility across
 test_compose_curated.py (lane composition and manifests),
-test_compose_curated_preferences.py, test_compose_curated_dedup.py, and
-test_compose_curated_destination.py. This module holds what two or more of
-those files need in common. Not named ``test_*`` so it is not collected.
+test_compose_curated_preferences.py, test_compose_curated_dedup.py,
+test_compose_curated_record_safety.py, test_compose_curated_run_contracts.py,
+test_compose_curated_destination.py, and
+test_compose_curated_destination_relocation.py. This module holds what two or
+more of those files need in common. Not named ``test_*`` so it is not
+collected.
 """
 
 import copy

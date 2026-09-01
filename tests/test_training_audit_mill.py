@@ -15,6 +15,7 @@ if str(TESTS) not in sys.path:
 from training_audit_test_helpers import REPO, thalamic, write  # noqa: E402
 
 import training_audit  # noqa: E402
+import training_audit_mill  # noqa: E402
 from exact_json import MAX_JSON_NESTING_DEPTH  # noqa: E402
 
 
@@ -205,6 +206,26 @@ class LeftoverMillDenominator(unittest.TestCase):
             2,
         )
         self.assertFalse(report["training_ready"])
+
+    def test_snapshot_index_preserves_physical_line_coordinates(self):
+        """Malformed rows are skipped without renumbering later mill findings."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            relative = Path("email-webhook-retry-factory/batch-r56.jsonl")
+            foreign = self._episode(
+                "sir-r56-meili-swap-leftover3c-rebuild",
+                "search-index-rebuild-factory",
+            )
+            payload = b'{"id":"bad-\xff"}\n\n' + json.dumps(foreign).encode() + b"\n"
+
+            findings = training_audit_mill._index_findings(
+                root,
+                [(relative, payload)],
+            )
+
+        self.assertTrue(findings)
+        self.assertEqual({finding.ref for finding in findings}, {(relative.as_posix(), 3)})
 
     def test_clean_corpus_reports_a_full_eligible_denominator(self):
         with tempfile.TemporaryDirectory() as td:

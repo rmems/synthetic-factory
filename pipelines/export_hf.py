@@ -35,6 +35,7 @@ import hashlib
 import json
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -91,6 +92,7 @@ from export_members import (  # noqa: E402,F401
     _contains_raw_segments,
     _is_under_raw,
     _lf_jsonl_documents,
+    _lf_jsonl_lines,
     _read_exact_regular_file,
     _require_exact_directory,
 )
@@ -136,6 +138,7 @@ __all__ = [
     "_file_calibration_catalog",
     "_is_under_raw",
     "_lf_jsonl_documents",
+    "_lf_jsonl_lines",
     "_load_calibration_payload",
     "_loads_json",
     "_read_exact_regular_file",
@@ -169,20 +172,9 @@ def _read_curated_file(
 
     source_file = f"{CURATED_DIRNAME}/{relative}"
     payload = path.read_bytes() if payload is None else payload
-    try:
-        text = payload.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ExportError(f"{relative}: curated payload is not UTF-8: {exc}") from exc
-    # Split on LF only: ``str.splitlines`` also breaks on U+2028/U+2029, which
-    # curated records may legitimately contain inside a JSON string.
-    lines = text.split("\n")
-    trailing = lines.pop() if lines else ""
-    if trailing:
-        raise ExportError(f"{relative}: curated JSONL must end with a newline")
+    lines = _lf_jsonl_lines(payload, f"{relative}: curated")
     rows: list[ViewerRow] = []
     for line_number, line in enumerate(lines, 1):
-        if not line.strip():
-            raise ExportError(f"{relative}:{line_number}: curated JSONL has a blank line")
         _loads_json(line, f"{relative}:{line_number}: curated line")
         rows.append(
             ViewerRow(
@@ -257,12 +249,12 @@ def _finish_pinned_destination(pinned: compose_curated.PinnedDestination) -> Non
 
 
 
-def render_eval_protocol(provenance: dict[str, Any]) -> str:
-    """Render the one-page evaluation protocol that ships with the split."""
+def _protocol_overview_lines(provenance: dict[str, Any]) -> list[str]:
+    """Render the export identity, scope, and fail-closed audit gate."""
 
     splits = provenance["splits"]
     audit = provenance["audit"]
-    lines = [
+    return [
         "# Evaluation protocol",
         "",
         f"Export version: `{provenance['export_version']}`  ",
@@ -284,6 +276,13 @@ def render_eval_protocol(provenance: dict[str, Any]) -> str:
         f"- Blockers: {json.dumps(audit['blockers'])}",
         "- The export refuses to write anything when a blocker is present.",
         "",
+    ]
+
+
+def _protocol_split_lines(splits: Mapping[str, Any]) -> list[str]:
+    """Render the deterministic split rule and evaluation procedure."""
+
+    return [
         "## Split rule",
         "",
         f"- Policy: {splits['policy']}",
@@ -320,6 +319,13 @@ def render_eval_protocol(provenance: dict[str, Any]) -> str:
         "   - `sign_order_only`: compare sign and order only.",
         "   - `exclude_from_reward_training`: omit reward-derived metrics.",
         "",
+    ]
+
+
+def _protocol_losslessness_lines() -> list[str]:
+    """Render the viewer projection's byte-losslessness contract."""
+
+    return [
         "## Losslessness",
         "",
         "`data/viewer/records.parquet` carries `{source_file, source_line,",
@@ -328,13 +334,19 @@ def render_eval_protocol(provenance: dict[str, Any]) -> str:
         "projection and never a second source of truth.",
         "",
     ]
+
+
+def render_eval_protocol(provenance: dict[str, Any]) -> str:
+    """Render the one-page evaluation protocol that ships with the split."""
+
+    lines = _protocol_overview_lines(provenance)
+    lines.extend(_protocol_split_lines(provenance["splits"]))
+    lines.extend(_protocol_losslessness_lines())
     return "\n".join(lines)
 
 
-def _validated_export_paths(
-    curated_root: Path, destination: Path
-) -> tuple[Path, Path, Path]:
-    """Validate both trees and return (curated root, records dir, resolved root)."""
+def _validated_curated_tree(curated_root: Path) -> tuple[Path, Path]:
+    """Require the exact curated root and its exact records directory."""
 
     curated_root = _require_exact_directory(curated_root, "curated root")
     records_dir = curated_root / compose_curated.RECORDS_DIRNAME
@@ -345,6 +357,12 @@ def _validated_export_paths(
             f"curated root has no exact {compose_curated.RECORDS_DIRNAME}/ payload: "
             f"{curated_root}"
         ) from exc
+    return curated_root, records_dir
+
+
+def _require_new_export_destination(destination: Path) -> None:
+    """Require a new destination under one exact non-raw parent."""
+
     if os.path.lexists(destination):
         raise ExportError(f"refusing to overwrite an existing destination: {destination}")
     if _is_under_raw(destination):
@@ -354,11 +372,51 @@ def _validated_export_paths(
     if not destination.parent.is_dir():
         raise ExportError(f"destination parent does not exist: {destination.parent}")
     _require_exact_directory(destination.parent, "destination parent")
-    resolved_root = curated_root.resolve()
+
+
+def _require_destination_outside_curated(
+    resolved_root: Path, destination: Path
+) -> None:
+    """Refuse a destination at or below the curated source root."""
+
     resolved_destination = destination.resolve(strict=False)
-    if resolved_root == resolved_destination or resolved_root in resolved_destination.parents:
+    if resolved_root == resolved_destination:
         raise ExportError("destination cannot be written inside the curated root")
+    if resolved_root in resolved_destination.parents:
+        raise ExportError("destination cannot be written inside the curated root")
+
+
+def _validated_export_paths(
+    curated_root: Path, destination: Path
+) -> tuple[Path, Path, Path]:
+    """Validate both trees and return (curated root, records dir, resolved root)."""
+
+    curated_root, records_dir = _validated_curated_tree(curated_root)
+    _require_new_export_destination(destination)
+    resolved_root = curated_root.resolve()
+    _require_destination_outside_curated(resolved_root, destination)
     return curated_root, records_dir, resolved_root
+
+
+def _snapshot_relative_path(curated: CuratedFile) -> str:
+    """Return one curated payload path relative to the records directory."""
+
+    prefix = f"{CURATED_DIRNAME}/"
+    if not curated.source_file.startswith(prefix):
+        raise ExportError(f"invalid curated source path: {curated.source_file}")
+    return curated.source_file.removeprefix(prefix)
+
+
+def _snapshot_payloads(curated_files: Sequence[CuratedFile]) -> dict[str, bytes]:
+    """Build an unambiguous relative-path to exact-byte snapshot."""
+
+    snapshot: dict[str, bytes] = {}
+    for curated in curated_files:
+        relative = _snapshot_relative_path(curated)
+        if relative in snapshot:
+            raise ExportError(f"duplicate curated snapshot path: {relative}")
+        snapshot[relative] = curated.payload
+    return snapshot
 
 
 def _curated_snapshot(
@@ -370,16 +428,7 @@ def _curated_snapshot(
     rows = [row for curated in curated_files for row in curated.rows]
     if not rows:
         raise ExportError("refusing to export an empty curated corpus")
-    snapshot: dict[str, bytes] = {}
-    prefix = f"{CURATED_DIRNAME}/"
-    for curated in curated_files:
-        if not curated.source_file.startswith(prefix):
-            raise ExportError(f"invalid curated source path: {curated.source_file}")
-        relative = curated.source_file.removeprefix(prefix)
-        if relative in snapshot:
-            raise ExportError(f"duplicate curated snapshot path: {relative}")
-        snapshot[relative] = curated.payload
-    return curated_files, rows, snapshot
+    return curated_files, rows, _snapshot_payloads(curated_files)
 
 
 def _require_curated_snapshot_unchanged(
@@ -508,16 +557,45 @@ def _refuse_authenticated_source_destination(
         )
 
 
+@dataclass(frozen=True)
+class ExportOptions:
+    """The cohesive policy knobs for one deterministic export."""
+
+    eval_fraction: float = DEFAULT_EVAL_FRACTION
+    split_salt: str = DEFAULT_SPLIT_SALT
+    dataset_name: str | None = None
+
+
+def _requested_export_options(
+    options: ExportOptions | None, legacy_options: Mapping[str, Any]
+) -> ExportOptions:
+    """Normalize the options object while preserving keyword-call compatibility."""
+
+    if options is not None:
+        if legacy_options:
+            raise TypeError("export options object cannot be combined with keyword options")
+        return options
+    accepted = {"eval_fraction", "split_salt", "dataset_name"}
+    unexpected = set(legacy_options) - accepted
+    if unexpected:
+        name = sorted(unexpected)[0]
+        raise TypeError(f"export_run() got an unexpected keyword argument {name!r}")
+    return ExportOptions(
+        eval_fraction=legacy_options.get("eval_fraction", DEFAULT_EVAL_FRACTION),
+        split_salt=legacy_options.get("split_salt", DEFAULT_SPLIT_SALT),
+        dataset_name=legacy_options.get("dataset_name"),
+    )
+
+
 def export_run(
     curated_root: str | Path,
     destination: str | Path,
-    *,
-    eval_fraction: float = DEFAULT_EVAL_FRACTION,
-    split_salt: str = DEFAULT_SPLIT_SALT,
-    dataset_name: str | None = None,
+    options: ExportOptions | None = None,
+    **legacy_options: Any,
 ) -> dict[str, Any]:
     """Export one composed curated tree, refusing anything not training-ready."""
 
+    requested = _requested_export_options(options, legacy_options)
     destination = Path(destination)
     curated_root, records_dir, resolved_root = _validated_export_paths(
         Path(curated_root), destination
@@ -529,7 +607,11 @@ def export_run(
     _refuse_authenticated_source_destination(compose_metadata, destination)
     _require_curated_snapshot_unchanged(records_dir, curated_files)
 
-    train, evaluate = split_rows(rows, eval_fraction=eval_fraction, salt=split_salt)
+    train, evaluate = split_rows(
+        rows,
+        eval_fraction=requested.eval_fraction,
+        salt=requested.split_salt,
+    )
 
     pinned_destination = _create_pinned_destination(resolved_root, destination)
     destination_target = pinned_destination
@@ -556,9 +638,9 @@ def export_run(
                 "rows": rows,
                 "audit": audit,
                 "options": {
-                    "dataset_name": dataset_name,
-                    "eval_fraction": eval_fraction,
-                    "split_salt": split_salt,
+                    "dataset_name": requested.dataset_name,
+                    "eval_fraction": requested.eval_fraction,
+                    "split_salt": requested.split_salt,
                 },
                 "written": {
                     "files": files,

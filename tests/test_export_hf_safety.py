@@ -21,6 +21,16 @@ import compose_curated  # noqa: E402
 import export_hf  # noqa: E402
 
 
+def _should_swap_destination_parent(path, destination, dir_fd, already_swapped):
+    """Return whether this mkdir is the one guarded parent-race injection."""
+
+    if path != destination.name:
+        return False
+    if dir_fd is None:
+        return False
+    return not already_swapped
+
+
 class ExportDestinationSafety(unittest.TestCase):
     def test_refuses_empty_missing_and_existing_destinations(self):
         with tempfile.TemporaryDirectory() as td:
@@ -102,7 +112,9 @@ class ExportDestinationSafety(unittest.TestCase):
 
             def swap_parent_before_create(path, mode=0o777, *, dir_fd=None):
                 nonlocal swapped
-                if path == destination.name and dir_fd is not None and not swapped:
+                if _should_swap_destination_parent(
+                    path, destination, dir_fd, swapped
+                ):
                     swapped = True
                     parent.rename(moved_parent)
                     raw.mkdir(parents=True)
@@ -215,6 +227,26 @@ class ExportCompositionMemberSafety(unittest.TestCase):
                 with self.assertRaises(export_hf.ExportError):
                     export_hf.export_run(curated, root / "export")
                 self.assertFalse((root / "export").exists())
+
+    def test_rejects_a_compose_member_symlink_loop_as_export_error(self):
+        """An unresolvable member alias must stay inside the export contract."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            curated = compose_fixture(root)
+            member = curated / compose_curated.SUMMARY_FILENAME
+            member.unlink()
+            member.symlink_to(member)
+
+            try:
+                export_hf.export_run(curated, root / "export")
+            except export_hf.ExportError as exc:
+                self.assertIn("cannot resolve", str(exc))
+            except (OSError, RuntimeError) as exc:
+                self.fail(f"filesystem exception escaped the export contract: {exc}")
+            else:
+                self.fail("symlink-loop member was accepted")
+            self.assertFalse((root / "export").exists())
 
 
 class ExportSnapshotCoherence(unittest.TestCase):

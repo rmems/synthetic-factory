@@ -82,6 +82,20 @@ class ViewerParquet(unittest.TestCase):
 
 
 class ExportViewerRecordFraming(unittest.TestCase):
+    def test_every_export_reader_rejects_crlf_as_non_lf_jsonl(self):
+        payload = b'{"id":"one"}\r\n'
+        readers = (
+            lambda: export_hf._lf_jsonl_documents(payload, "manifest.jsonl"),
+            lambda: export_hf._read_curated_file(
+                Path("unused.jsonl"), "factory/batch-r01.jsonl", payload=payload
+            ),
+        )
+
+        for reader in readers:
+            with self.subTest(reader=reader):
+                with self.assertRaisesRegex(export_hf.ExportError, "LF-only"):
+                    reader()
+
     def test_viewer_rows_keep_line_separators_inside_records(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

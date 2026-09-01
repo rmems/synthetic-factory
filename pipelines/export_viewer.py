@@ -163,26 +163,38 @@ class _CompactDecoder:
             mapping[key] = self._value(value_type)
         return mapping
 
+    def _true_value(self) -> bool:
+        return True
+
+    def _false_value(self) -> bool:
+        return False
+
+    def _double_value(self) -> float:
+        return struct.unpack("<d", self._read(8))[0]
+
+    def _binary_value(self) -> bytes:
+        return self._read(self._uvarint())
+
     def _value(self, field_type: int) -> Any:
-        if field_type == _TRUE:
-            return True
-        if field_type == _FALSE:
-            return False
-        if field_type == _BYTE:
-            return self._signed_byte()
-        if field_type in {_I16, _I32, _I64}:
-            return self._integer()
-        if field_type == _DOUBLE:
-            return struct.unpack("<d", self._read(8))[0]
-        if field_type == _BINARY:
-            return self._read(self._uvarint())
-        if field_type in {_LIST, _SET}:
-            return self._sequence_value()
-        if field_type == _MAP:
-            return self._mapping_value()
-        if field_type == _STRUCT:
-            return self.read_struct()
-        raise ValueError(f"unsupported Thrift field type {field_type}")
+        readers = {
+            _TRUE: self._true_value,
+            _FALSE: self._false_value,
+            _BYTE: self._signed_byte,
+            _I16: self._integer,
+            _I32: self._integer,
+            _I64: self._integer,
+            _DOUBLE: self._double_value,
+            _BINARY: self._binary_value,
+            _LIST: self._sequence_value,
+            _SET: self._sequence_value,
+            _MAP: self._mapping_value,
+            _STRUCT: self.read_struct,
+        }
+        try:
+            reader = readers[field_type]
+        except KeyError as exc:
+            raise ValueError(f"unsupported Thrift field type {field_type}") from exc
+        return reader()
 
     def read_struct(self) -> dict[int, Any]:
         fields: dict[int, Any] = {}
@@ -357,18 +369,33 @@ def _decode_plain(physical_type: int, data: bytes, num_values: int) -> list[Any]
     return values
 
 
-def _viewer_footer_metadata(payload: bytes) -> dict[int, Any]:
-    """Validate the Parquet envelope and decode its footer metadata struct."""
+def _require_parquet_envelope(payload: bytes) -> None:
+    """Require the fixed magic bytes around a minimally sized payload."""
 
-    if len(payload) < 12 or not payload.startswith(_PARQUET_MAGIC):
+    if len(payload) < 12:
+        raise ValueError("not a Parquet file")
+    if not payload.startswith(_PARQUET_MAGIC):
         raise ValueError("not a Parquet file")
     if not payload.endswith(_PARQUET_MAGIC):
         raise ValueError("Parquet footer magic is missing")
+
+
+def _footer_start(payload: bytes) -> int:
+    """Validate the encoded footer length and return its first byte."""
+
     footer_size = int.from_bytes(payload[-8:-4], "little")
-    if footer_size <= 0 or footer_size > len(payload) - 8:
+    if footer_size <= 0:
         raise ValueError("Parquet footer length is invalid")
-    footer_start = len(payload) - 8 - footer_size
-    return _CompactDecoder(payload, footer_start).read_struct()
+    if footer_size > len(payload) - 8:
+        raise ValueError("Parquet footer length is invalid")
+    return len(payload) - 8 - footer_size
+
+
+def _viewer_footer_metadata(payload: bytes) -> dict[int, Any]:
+    """Validate the Parquet envelope and decode its footer metadata struct."""
+
+    _require_parquet_envelope(payload)
+    return _CompactDecoder(payload, _footer_start(payload)).read_struct()
 
 
 def _require_viewer_columns(metadata: dict[int, Any]) -> None:
@@ -384,17 +411,29 @@ def _require_viewer_columns(metadata: dict[int, Any]) -> None:
         raise ValueError(f"unexpected viewer columns: {names}")
 
 
-def _decode_column_chunk(
-    payload: bytes, chunk: dict[int, Any], num_rows: int
-) -> tuple[str, list[Any]]:
-    """Decode one single-page PLAIN column chunk into (column name, values)."""
+def _uncompressed_column_metadata(chunk: dict[int, Any]) -> dict[int, Any]:
+    """Return metadata for an uncompressed column chunk."""
 
     meta = chunk.get(3) or {}
     if meta.get(4, _CODEC_UNCOMPRESSED) != _CODEC_UNCOMPRESSED:
         raise ValueError("compressed Parquet chunks are not supported")
+    return meta
+
+
+def _single_column_name(meta: dict[int, Any]) -> str:
+    """Return the sole flat column name declared by a chunk."""
+
     path = [item.decode("utf-8") for item in meta.get(3) or []]
     if len(path) != 1:
         raise ValueError("nested Parquet columns are not supported")
+    return path[0]
+
+
+def _plain_data_page(
+    payload: bytes, meta: dict[int, Any], num_rows: int
+) -> tuple[bytes, int]:
+    """Authenticate one PLAIN v1 data page and return its bytes and value count."""
+
     decoder = _CompactDecoder(payload, meta.get(9, 0))
     page_header = decoder.read_struct()
     if page_header.get(1) != _PAGE_TYPE_DATA_PAGE:
@@ -406,8 +445,18 @@ def _decode_column_chunk(
     if page_values != num_rows:
         raise ValueError("Parquet column chunk must hold exactly one page")
     page_size = page_header.get(3, 0)
-    page = payload[decoder.offset : decoder.offset + page_size]
-    return path[0], _decode_plain(meta.get(1), page, page_values)
+    return payload[decoder.offset : decoder.offset + page_size], page_values
+
+
+def _decode_column_chunk(
+    payload: bytes, chunk: dict[int, Any], num_rows: int
+) -> tuple[str, list[Any]]:
+    """Decode one single-page PLAIN column chunk into (column name, values)."""
+
+    meta = _uncompressed_column_metadata(chunk)
+    name = _single_column_name(meta)
+    page, page_values = _plain_data_page(payload, meta, num_rows)
+    return name, _decode_plain(meta.get(1), page, page_values)
 
 
 def _row_group_rows(payload: bytes, row_group: dict[int, Any]) -> list[ViewerRow]:

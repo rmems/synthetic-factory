@@ -1,166 +1,46 @@
 #!/usr/bin/env python3
-"""Exact-member filesystem reading for the export authenticator.
+"""Exact-member authentication and alias-free export-tree enumeration.
 
-Split out of ``export_hf.py`` by responsibility: every COMPOSE member is
-resolved without symlink or hard-link aliases, read through a pinned
-descriptor that rejects identity changes, and parsed as LF-framed JSONL.
+The filesystem path, pinned-read, strict JSONL, and descriptor responsibilities
+live in focused sibling modules. Their names remain re-exported here so the
+historical ``export_members`` and ``export_hf`` compatibility surfaces do not
+change.
 """
 
 from __future__ import annotations
 
-import hashlib
 import os
 import stat
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
-from export_contract import ExportError, _loads_json
+from export_contract import ExportError
+from export_members_auth import (
+    AuthenticationDependencies as _AuthenticationDependencies,
+    AuthenticationRequest as _AuthenticationRequest,
+    authenticate_descriptor as _authenticate_descriptor,
+)
+from export_members_jsonl import (
+    lf_jsonl_documents as _lf_jsonl_documents,
+    lf_jsonl_lines as _lf_jsonl_lines,
+)
+from export_members_path import (
+    compose_member_path as _compose_member_path,
+    is_under_raw as _is_under_raw,
+    member_relative as _member_relative,
+    require_exact_directory as _require_exact_directory,
+    require_unique_regular as _require_unique_regular,
+    require_inside_root as _require_inside_root,
+)
+from export_members_read import (
+    read_exact_regular_file as _read_exact_regular_file,
+    read_pinned_descriptor as _read_pinned_descriptor,
+    stable_file_identity as _stable_file_identity,
+)
 from raw_tree_guard import contains_raw_segments
 
-# Compatibility alias retained for ``export_hf`` and external callers of the
-# pre-split module surface.
+# Compatibility alias retained for ``export_hf`` and pre-split callers.
 _contains_raw_segments = contains_raw_segments
-
-
-def _is_under_raw(path: Path) -> bool:
-    """Reject both a lexical raw path and a symlink-resolved raw destination."""
-
-    return _contains_raw_segments(path.parts) or _contains_raw_segments(
-        path.resolve(strict=False).parts
-    )
-
-
-def _member_relative(raw_path: Any, label: str) -> PurePosixPath:
-    """Validate one member path as a canonical, contained POSIX relative."""
-
-    if not isinstance(raw_path, str) or not raw_path or "\\" in raw_path:
-        raise ExportError(f"{label}: path must be a nonempty POSIX string")
-    relative = PurePosixPath(raw_path)
-    non_canonical = relative.as_posix() != raw_path or relative.is_absolute()
-    if non_canonical or any(part in {"", ".", ".."} for part in relative.parts):
-        raise ExportError(f"{label}: unsafe relative path {raw_path!r}")
-    return relative
-
-
-def _require_inside_root(
-    curated_root: Path, candidate: Path, relative: PurePosixPath, label: str
-) -> None:
-    """Refuse a member whose resolution aliases or escapes its root."""
-
-    raw_path = relative.as_posix()
-    try:
-        root_resolved = curated_root.resolve(strict=True)
-        resolved = candidate.resolve(strict=True)
-    except FileNotFoundError as exc:
-        raise ExportError(f"{label}: declared file is missing: {raw_path}") from exc
-    expected = root_resolved.joinpath(*relative.parts)
-    if resolved != expected or root_resolved not in resolved.parents:
-        raise ExportError(f"{label}: path is a symlink alias or escapes its root: {raw_path}")
-
-
-def _require_unique_regular(candidate: Path, raw_path: str, label: str) -> None:
-    """Refuse anything but a hard-link-free regular file at the member path."""
-
-    try:
-        metadata = candidate.lstat()
-    except FileNotFoundError as exc:
-        raise ExportError(f"{label}: declared file is missing: {raw_path}") from exc
-    if not stat.S_ISREG(metadata.st_mode):
-        raise ExportError(f"{label}: path is not an exact regular file: {raw_path}")
-    if metadata.st_nlink != 1:
-        raise ExportError(f"{label}: hard-link aliases are not accepted: {raw_path}")
-
-
-def _compose_member_path(curated_root: Path, raw_path: Any, label: str) -> Path:
-    """Resolve one exact regular COMPOSE member without aliases or tree escape."""
-
-    relative = _member_relative(raw_path, label)
-    candidate = curated_root.joinpath(*relative.parts)
-    _require_inside_root(curated_root, candidate, relative, label)
-    _require_unique_regular(candidate, raw_path, label)
-    return candidate
-
-
-def _stable_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
-    """Return the fields that must remain unchanged across an exact read."""
-
-    return (
-        metadata.st_dev,
-        metadata.st_ino,
-        metadata.st_mode,
-        metadata.st_nlink,
-        metadata.st_size,
-        metadata.st_mtime_ns,
-        metadata.st_ctime_ns,
-    )
-
-
-def _read_pinned_descriptor(
-    path: Path, before: os.stat_result, raw_path: Any, label: str
-) -> tuple[os.stat_result, bytes]:
-    """Open without following links, validate the descriptor, read it fully."""
-
-    # O_NONBLOCK keeps a member swapped for a FIFO from hanging the open;
-    # the fstat below then rejects it. Regular-file reads ignore the flag.
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | os.O_NONBLOCK
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as exc:
-        raise ExportError(f"{label}: cannot open exact regular file {raw_path!r}: {exc}") from exc
-    try:
-        opened = os.fstat(descriptor)
-        if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
-            raise ExportError(f"{label}: opened identity is not a unique regular file")
-        if _stable_file_identity(before) != _stable_file_identity(opened):
-            raise ExportError(f"{label}: path identity changed while opening")
-        chunks: list[bytes] = []
-        while True:
-            chunk = os.read(descriptor, 1024 * 1024)
-            if not chunk:
-                break
-            chunks.append(chunk)
-        opened_after = os.fstat(descriptor)
-        if _stable_file_identity(opened) != _stable_file_identity(opened_after):
-            raise ExportError(f"{label}: source identity changed while reading")
-    finally:
-        os.close(descriptor)
-    return opened, b"".join(chunks)
-
-
-def _read_exact_regular_file(root: Path, raw_path: Any, label: str) -> tuple[Path, bytes]:
-    """Read one path through a pinned descriptor and reject identity changes."""
-
-    path = _compose_member_path(root, raw_path, label)
-    before = path.lstat()
-    opened, payload = _read_pinned_descriptor(path, before, raw_path, label)
-    after = path.lstat()
-    if _stable_file_identity(after) != _stable_file_identity(opened):
-        raise ExportError(f"{label}: path identity changed while reading")
-    if path.resolve(strict=True) != root.resolve(strict=True).joinpath(
-        *PurePosixPath(str(raw_path)).parts
-    ):
-        raise ExportError(f"{label}: path became a symlink alias while reading")
-    return path, payload
-
-
-def _lf_jsonl_documents(payload: bytes, label: str) -> list[Any]:
-    """Parse JSONL with LF as the only record separator."""
-
-    try:
-        text = payload.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ExportError(f"{label}: payload is not UTF-8: {exc}") from exc
-    if text and not text.endswith("\n"):
-        raise ExportError(f"{label}: JSONL must end with a newline")
-    lines = text.split("\n")
-    if lines and lines[-1] == "":
-        lines.pop()
-    documents: list[Any] = []
-    for line_number, line in enumerate(lines, 1):
-        if not line.strip():
-            raise ExportError(f"{label}:{line_number}: JSONL has a blank line")
-        documents.append(_loads_json(line, f"{label}:{line_number}"))
-    return documents
 
 
 def _authenticated_descriptor(
@@ -169,43 +49,32 @@ def _authenticated_descriptor(
     key: str,
     expected_path: str,
 ) -> tuple[dict[str, Any], list[Any]]:
-    descriptor = summary.get(key)
-    if not isinstance(descriptor, dict):
-        raise ExportError(f"COMPOSE.json: {key} descriptor must be an object")
-    if descriptor.get("path") != expected_path:
-        raise ExportError(
-            f"COMPOSE.json: {key} path must be {expected_path!r}, "
-            f"got {descriptor.get('path')!r}"
-        )
-    _path, payload = _read_exact_regular_file(
-        curated_root, descriptor["path"], f"COMPOSE {key}"
+    """Authenticate through the compatibility facade's call-time seams."""
+    return _authenticate_descriptor(
+        _AuthenticationRequest(curated_root, summary, key, expected_path),
+        _AuthenticationDependencies(
+            _read_exact_regular_file,
+            _lf_jsonl_documents,
+        ),
     )
-    digest = hashlib.sha256(payload).hexdigest()
-    if descriptor.get("sha256") != digest:
-        raise ExportError(f"COMPOSE.json: {key} digest mismatch")
-    documents = _lf_jsonl_documents(payload, descriptor["path"])
-    entries = descriptor.get("entries")
-    if isinstance(entries, bool) or not isinstance(entries, int) or entries < 0:
-        raise ExportError(f"COMPOSE.json: {key}.entries must be nonnegative")
-    if entries != len(documents):
-        raise ExportError(
-            f"COMPOSE.json: {key} entry count {entries} != {len(documents)}"
-        )
-    return dict(descriptor), documents
 
+__all__ = [
+    "_authenticated_descriptor",
+    "_compose_member_path",
+    "_contains_raw_segments",
+    "_is_under_raw",
+    "_lf_jsonl_documents",
+    "_lf_jsonl_lines",
+    "_member_relative",
+    "_read_exact_regular_file",
+    "_read_pinned_descriptor",
+    "_require_exact_directory",
+    "_require_inside_root",
+    "_require_unique_regular",
+    "_stable_file_identity",
+    "iter_alias_free_jsonl",
+]
 
-def _require_exact_directory(path: Path, label: str) -> Path:
-    """Require a real directory reached without a symlinked path alias."""
-
-    try:
-        metadata = path.lstat()
-        resolved = path.resolve(strict=True)
-    except FileNotFoundError as exc:
-        raise ExportError(f"{label}: directory is missing: {path}") from exc
-    absolute = Path(os.path.abspath(path))
-    if not stat.S_ISDIR(metadata.st_mode) or resolved != absolute:
-        raise ExportError(f"{label}: directory path must be an exact non-symlink identity")
-    return resolved
 
 def _scanned_snapshot_entries(directory: Path, label: str) -> list[os.DirEntry]:
     """List one directory's entries in stable name order, failing closed."""
@@ -217,45 +86,61 @@ def _scanned_snapshot_entries(directory: Path, label: str) -> list[os.DirEntry]:
         raise ExportError(f"{label}: cannot enumerate {directory}: {exc}") from exc
 
 
-def _classified_snapshot_entry(entry: os.DirEntry, label: str) -> str:
-    """Classify one entry as ``descend``, ``member``, or ``ignore``.
-
-    Any symlink refuses the snapshot outright, and so does a ``.jsonl``-named
-    entry that is not an exact regular file: a directory named ``x.jsonl``
-    would otherwise be descended as a container, leaving an apparent curated
-    payload entry in the tree that was never authenticated.
-    """
+def _entry_metadata(entry: os.DirEntry, label: str) -> os.stat_result:
+    """Inspect one tree entry without following a symlink."""
 
     try:
-        metadata = entry.stat(follow_symlinks=False)
+        return entry.stat(follow_symlinks=False)
     except OSError as exc:
         raise ExportError(f"{label}: cannot inspect {entry.path}: {exc}") from exc
-    if stat.S_ISLNK(metadata.st_mode):
-        raise ExportError(f"{label}: tree contains a symlink alias: {entry.path}")
-    if entry.name.endswith(".jsonl"):
-        if not stat.S_ISREG(metadata.st_mode):
-            raise ExportError(
-                f"{label}: JSONL entry is not an exact regular file: {entry.path}"
-            )
-        return "member"
+
+
+def _jsonl_entry_action(entry: os.DirEntry, metadata: os.stat_result, label: str) -> str:
+    """Classify a JSONL-named entry, requiring one exact regular file."""
+
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ExportError(
+            f"{label}: JSONL entry is not an exact regular file: {entry.path}"
+        )
+    return "member"
+
+
+def _ordinary_entry_action(metadata: os.stat_result) -> str:
+    """Classify a non-JSONL entry as a directory or ignored file."""
+
     return "descend" if stat.S_ISDIR(metadata.st_mode) else "ignore"
 
 
-def iter_alias_free_jsonl(root: Path, label: str) -> list[Path]:
-    """Enumerate every JSONL under ``root``, refusing any symlink entry.
+def _classified_snapshot_entry(entry: os.DirEntry, label: str) -> str:
+    """Classify one alias-free tree entry for snapshot traversal."""
 
-    ``Path.rglob`` silently skips a symlinked directory, so an aliased
-    subtree — and every JSONL visible through it — would simply vanish from
-    the snapshot instead of failing closed.
-    """
+    metadata = _entry_metadata(entry, label)
+    if stat.S_ISLNK(metadata.st_mode):
+        raise ExportError(f"{label}: tree contains a symlink alias: {entry.path}")
+    if entry.name.endswith(".jsonl"):
+        return _jsonl_entry_action(entry, metadata, label)
+    return _ordinary_entry_action(metadata)
+
+
+def _record_snapshot_entry(
+    entry: os.DirEntry, action: str, pending: list[Path], members: list[Path]
+) -> None:
+    """Record one classified entry in the traversal's matching collection."""
+
+    if action == "descend":
+        pending.append(Path(entry.path))
+        return
+    if action == "member":
+        members.append(Path(entry.path))
+
+
+def iter_alias_free_jsonl(root: Path, label: str) -> list[Path]:
+    """Enumerate every JSONL under ``root`` while refusing symlink entries."""
 
     members: list[Path] = []
     pending = [Path(root)]
     while pending:
         for entry in _scanned_snapshot_entries(pending.pop(), label):
             action = _classified_snapshot_entry(entry, label)
-            if action == "descend":
-                pending.append(Path(entry.path))
-            elif action == "member":
-                members.append(Path(entry.path))
+            _record_snapshot_entry(entry, action, pending, members)
     return sorted(members)

@@ -26,9 +26,11 @@ if __package__:
         _require_local_sibling(_direct_validate_run, "validate_run")
         del _direct_validate_run
     from . import validate_run_spikes as _validate_run_spikes
+    from . import validate_run_provenance as _validate_run_provenance
     from .validate_run_input import parse_exact_json_record as _parse_exact_json_record
 else:
     import validate_run_spikes as _validate_run_spikes
+    import validate_run_provenance as _validate_run_provenance
     from validate_run_input import parse_exact_json_record as _parse_exact_json_record
 
 # Historical public compatibility surface. Explicit binding keeps these names
@@ -49,6 +51,8 @@ _check_spike_stream = _validate_run_spikes.check_spike_stream
 _declared_clock_domains = _validate_run_spikes.declared_clock_domains
 _event_time = _validate_run_spikes.event_time
 _is_number = _validate_run_spikes.is_number
+_typed_enum_errors = _validate_run_provenance._typed_enum_errors
+check_provenance_publish = _validate_run_provenance.check_provenance_publish
 
 # The spike-train surface lived here before it split into validate_run_spikes;
 # ``__all__`` declares the names this module still re-exports so existing
@@ -135,12 +139,8 @@ SAFETY_DECISIONS = frozenset(
 
 # provenance.kind allows 'unknown'; state.sim_or_real does not. Both
 # vocabularies are the schema's own enums.
-ALLOWED_PROVENANCE_KIND = frozenset(
-    THALAMIC_SCHEMA["properties"]["provenance"]["properties"]["kind"]["enum"]
-)
-ALLOWED_SIM_OR_REAL = frozenset(
-    THALAMIC_SCHEMA["properties"]["state"]["properties"]["sim_or_real"]["enum"]
-)
+ALLOWED_PROVENANCE_KIND = _validate_run_provenance.ALLOWED_PROVENANCE_KIND
+ALLOWED_SIM_OR_REAL = _validate_run_provenance.ALLOWED_SIM_OR_REAL
 # Bookkeeping keys that are not counted toward the arithmetic sum. This is the
 # single exclusion vocabulary for reward arithmetic: check_records imports it
 # so the shape layer and the deep layer agree on what is a component, and a
@@ -347,104 +347,29 @@ def check_reward_total(rc, where):
     return errs
 
 
+def _state_provenance_errors(obj, where):
+    """Validate state provenance using this facade's live vocabulary seam."""
+    return _validate_run_provenance._state_provenance_errors(
+        obj,
+        where,
+        ALLOWED_SIM_OR_REAL,
+        _typed_enum_errors,
+    )
+
+
+def _provenance_object_errors(obj, where):
+    """Validate provenance using this facade's live vocabulary seam."""
+    return _validate_run_provenance._provenance_object_errors(
+        obj,
+        where,
+        ALLOWED_PROVENANCE_KIND,
+        _typed_enum_errors,
+    )
+
+
 def check_provenance(obj, where):
-    """Strict provenance checks for top-level record, including publish-time gate.
-
-    - state.sim_or_real must be exactly one of {designed, simulated, hil}
-      (never 'real', never 'unknown', never missing for thalamic shapes).
-    - provenance.kind must be one of {designed, simulated, hil, unknown}
-      (never 'real').
-    - Any occurrence of the string 'real' (case-insensitive) in sim_or_real
-      or provenance.kind is rejected explicitly.
-    This function is the publish-time provenance gate: it is invoked for every
-    trajectory (top-level, chosen/rejected, and language_view.trajectory).
-    """
-    errs = []
-    # state.sim_or_real strict — required for v2 thalamic trajectories
-    state = obj.get("state")
-    if isinstance(state, dict):
-        if "sim_or_real" in state:
-            val = state.get("sim_or_real")
-            # One violation, one error: a 'real' value gets the specific
-            # (more actionable) message instead of that message plus the
-            # generic enum error, since inflated counts feed training_audit.
-            if isinstance(val, str) and "real" in val.lower():
-                errs.append(f"{where}: state.sim_or_real must not be 'real' (use 'designed')")
-            elif not isinstance(val, str) or val not in ALLOWED_SIM_OR_REAL:
-                errs.append(
-                    f"{where}: state.sim_or_real must be one of {sorted(ALLOWED_SIM_OR_REAL)}"
-                )
-        else:
-            # For v2 thalamic shapes, sim_or_real is mandatory; flag missing
-            # only when state looks like a thalamic state (has any expected key)
-            # to avoid false positives on unrelated objects.
-            if any(k in state for k in ("episode_id", "domain", "t0_us", "sim_or_real")):
-                # Only require when caller is a thalamic trajectory (checked via required keys)
-                pass  # defer to caller (check_thalamic) to enforce presence
-    elif "state" in obj:
-        # state present but not a dict
-        errs.append(f"{where}: state must be an object")
-
-    # provenance.kind strict — global check
-    if "provenance" in obj:
-        prov = obj.get("provenance")
-        if not isinstance(prov, dict):
-            errs.append(f"{where}: provenance must be an object")
-        else:
-            kind = prov.get("kind")
-            # Keep validation total: an unhashable kind is invalid, not a crash.
-            if not isinstance(kind, str) or kind not in ALLOWED_PROVENANCE_KIND:
-                errs.append(
-                    f"{where}: provenance.kind must be one of {sorted(ALLOWED_PROVENANCE_KIND)}"
-                )
-            if isinstance(kind, str) and "real" in kind.lower():
-                errs.append(f"{where}: provenance.kind must not be 'real'")
-            # claimed should be string/null if present
-            if "claimed" in prov:
-                claimed = prov.get("claimed")
-                if claimed is not None and not isinstance(claimed, str):
-                    errs.append(f"{where}: provenance.claimed must be a string or null")
-            # v2 publish: unknown provenance is discouraged for new data
-            # but still allowed per legacy schema — no error, just strict enum above.
-    # Deep provenance: walk any nested provenance objects (e.g. inside state)
-    # to catch hidden 'real' claims. Report once via top-level check above;
-    # nested walk is handled in check_provenance_publish for full run.
-    return errs
-
-
-def check_provenance_publish(obj, where):
-    """Publish-time deep provenance scan: any nested sim_or_real/provenance.kind == 'real' fails.
-
-    Called from check_thalamic and bridge/choice helpers to ensure staged batches
-    cannot publish hidden 'real' provenance. Spike order is already enforced
-    elsewhere.
-    """
-    errs = []
-
-    def walk(node, path):
-        if isinstance(node, dict):
-            for k, v in node.items():
-                cur = f"{path}.{k}" if path else k
-                if k == "sim_or_real" and isinstance(v, str) and "real" in v.lower():
-                    errs.append(f"{where}: {cur} must not be 'real' (use 'designed')")
-                if k == "provenance" and isinstance(v, dict):
-                    kind = v.get("kind")
-                    if isinstance(kind, str) and "real" in kind.lower():
-                        errs.append(f"{where}: {cur}.kind must not be 'real'")
-                walk(v, cur)
-        elif isinstance(node, list):
-            for i, item in enumerate(node):
-                walk(item, f"{path}[{i}]")
-
-    walk(obj, "")
-    # Deduplicate while preserving order
-    seen = set()
-    uniq = []
-    for e in errs:
-        if e not in seen:
-            seen.add(e)
-            uniq.append(e)
-    return uniq
+    """Validate direct state and provenance objects for every trajectory route."""
+    return _state_provenance_errors(obj, where) + _provenance_object_errors(obj, where)
 
 
 def check_meta_round(obj, where):
@@ -471,39 +396,65 @@ def check_meta_round(obj, where):
     return errs
 
 
-def check_thalamic(obj, where):
-    errs = []
+def _required_object_field_errors(obj, key, where):
+    if key not in obj:
+        return [f"{where}: missing required key '{key}'"]
+    if not isinstance(obj[key], dict):
+        return [f"{where}: '{key}' must be an object"]
+    return []
+
+
+def _optional_nonempty_string_errors(obj, key, where):
+    if key not in obj:
+        return []
+    value = obj[key]
+    if not isinstance(value, str) or not value.strip():
+        return [f"{where}: '{key}' must be a non-empty string"]
+    return []
+
+
+def _thalamic_shape_errors(obj, where):
+    """Validate required object fields and optional canonical string fields."""
     # Shape layer: the object-typed fields (incl. meta) are required here.
     # Canonical `id` presence/coverage is a deep-layer concern
     # (check_records / training_audit); at this layer it is only
     # type-checked when present.
-    for key in THALAMIC_OBJECT_KEYS:
-        if key not in obj:
-            errs.append(f"{where}: missing required key '{key}'")
-        elif not isinstance(obj[key], dict):
-            errs.append(f"{where}: '{key}' must be an object")
-    for key in THALAMIC_STRING_KEYS:
-        if key in obj and (not isinstance(obj[key], str) or not obj[key].strip()):
-            errs.append(f"{where}: '{key}' must be a non-empty string")
-    sd = obj.get("safety_decision")
-    if isinstance(sd, dict):
-        # The isinstance guard keeps validation total over decoded JSON: an
-        # unhashable decision (list/object) must report as invalid, not raise.
-        decision = sd.get("decision")
-        if not isinstance(decision, str) or decision not in SAFETY_DECISIONS:
-            errs.append(f"{where}: safety_decision.decision must be ACCEPT|MODIFY|REJECT")
-        rationale = sd.get("rationale")
-        if not isinstance(rationale, str) or not rationale.strip():
-            errs.append(f"{where}: safety_decision.rationale must be a non-empty string")
+    object_errors = [
+        error
+        for key in THALAMIC_OBJECT_KEYS
+        for error in _required_object_field_errors(obj, key, where)
+    ]
+    string_errors = [
+        error
+        for key in THALAMIC_STRING_KEYS
+        for error in _optional_nonempty_string_errors(obj, key, where)
+    ]
+    return object_errors + string_errors
+
+
+def _safety_decision_errors(safety_decision, where):
+    """Validate one object-typed safety decision without unhashable crashes."""
+    if not isinstance(safety_decision, dict):
+        return []
+    errs = _typed_enum_errors(
+        safety_decision.get("decision"),
+        SAFETY_DECISIONS,
+        f"{where}: safety_decision.decision must be ACCEPT|MODIFY|REJECT",
+    )
+    rationale = safety_decision.get("rationale")
+    if not isinstance(rationale, str) or not rationale.strip():
+        errs.append(
+            f"{where}: safety_decision.rationale must be a non-empty string"
+        )
+    return errs
+
+
+def check_thalamic(obj, where):
+    errs = _thalamic_shape_errors(obj, where)
+    errs += _safety_decision_errors(obj.get("safety_decision"), where)
     rc = obj.get("reward_components")
     if isinstance(rc, dict):
         errs += check_reward_total(rc, where)
-    # A non-object reward_components is already reported by the required-key
-    # loop above; do not emit a second error for the same violation.
-    else:
-        # rc missing already reported via required-key loop; also handle explicit missing total
-        if rc is None:
-            pass
     # strict provenance and meta checks (including publish-time deep scan)
     errs += check_provenance(obj, where)
     # Deep publish-time provenance: any nested 'real' fails

@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import importlib
 import sys
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType
 from unittest import mock
@@ -15,6 +17,60 @@ PIPELINES = REPO / "pipelines"
 
 
 class PipelinesPackageImports(unittest.TestCase):
+    @contextmanager
+    def _isolated_validate_run_provenance_modules(self):
+        names = (
+            "pipelines",
+            "pipelines.validate_run_provenance",
+            "pipelines.validate_run_spikes",
+            "validate_run_provenance",
+            "validate_run_spikes",
+        )
+        saved = {name: sys.modules.pop(name, None) for name in names}
+        original_package = saved["pipelines"]
+        original_attribute = getattr(
+            original_package,
+            "validate_run_provenance",
+            None,
+        )
+        try:
+            yield
+        finally:
+            for name in names:
+                sys.modules.pop(name, None)
+            sys.modules.update(
+                {name: module for name, module in saved.items() if module is not None}
+            )
+            if original_package is not None:
+                if original_attribute is None:
+                    original_package.__dict__.pop("validate_run_provenance", None)
+                else:
+                    original_package.validate_run_provenance = original_attribute
+
+    def _assert_validate_run_provenance_identity(self, first):
+        with self._isolated_validate_run_provenance_modules():
+            if first == "direct":
+                sys.path.insert(0, str(PIPELINES))
+                try:
+                    direct = importlib.import_module("validate_run_provenance")
+                finally:
+                    sys.path.remove(str(PIPELINES))
+                packaged = importlib.import_module("pipelines.validate_run_provenance")
+            else:
+                packaged = importlib.import_module("pipelines.validate_run_provenance")
+                sys.path.insert(0, str(PIPELINES))
+                try:
+                    direct = importlib.import_module("validate_run_provenance")
+                finally:
+                    sys.path.remove(str(PIPELINES))
+            self.assertIs(direct, packaged)
+
+    def test_direct_first_validate_run_provenance_retains_identity(self):
+        self._assert_validate_run_provenance_identity("direct")
+
+    def test_package_first_validate_run_provenance_retains_identity(self):
+        self._assert_validate_run_provenance_identity("package")
+
     def test_00_direct_first_bridge_modules_retain_identity(self):
         sys.path.insert(0, str(PIPELINES))
         try:

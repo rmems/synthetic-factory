@@ -147,10 +147,13 @@ Tests: `python3 -m unittest discover -s tests -p 'test_*.py' -q`
 
 ## Compose and export (curated → train/eval split)
 
-The five curation lanes (`curate_identity`, `curate_bridge`,
-`curate_preferences`, `curate_rewards`, `curate_coding`) are record-level and
-independent. `compose_curated.py` applies them in one documented order and
-`export_hf.py` turns the result into a lossless export plus a tiny split.
+The five ordered curation lanes are identity, bridge, preferences, coding, and
+rewards. Six record-level transform modules implement those five positions:
+the coding position dispatches ordinary episodes to `curate_coding` and
+registered multi-agent or safety-case records to `curate_agentic`; it does not
+run both transforms or add a sixth pass. `compose_curated.py` applies the lanes
+in one documented order and `export_hf.py` turns the result into a lossless
+export plus a tiny split.
 Preference sides are classified explicitly: same-state Thalamic pairs use the
 same-context gate, homogeneous episode pairs use the reviewed trajectory gate
 (or its fail-closed compatible core until that sibling module is stacked), and

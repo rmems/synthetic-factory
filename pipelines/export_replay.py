@@ -31,6 +31,7 @@ from export_members import (  # noqa: E402
     _stable_file_identity,
 )
 
+
 @dataclass(frozen=True)
 class _ReplaySnapshot:
     """Everything replaying the source lines accumulates for authentication.
@@ -69,6 +70,38 @@ class _ReplayState:
     source_files: list[dict[str, Any]] = field(default_factory=list)
     seen_source_semantics: dict[str, tuple[str, int]] = field(default_factory=dict)
     seen_curated_semantics: dict[str, tuple[str, int]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _SourceReplay:
+    """Captured inputs needed to replay one source file."""
+
+    relative: str
+    raw_file: bytes
+    catalog: Any
+    mill_findings: dict[tuple[str, int], Any]
+
+
+@dataclass(frozen=True)
+class _LineReplay:
+    """Stable coordinate and policy inputs for one replayed source line."""
+
+    relative: str
+    line_number: int
+    output_line: int
+    source_file_sha256: str
+    catalog: Any
+    mill_finding: Any
+
+
+@dataclass(frozen=True)
+class _PublishedReplay:
+    """Published artifacts that one source replay must authenticate."""
+
+    summary: dict[str, Any]
+    actual_outputs: dict[str, CuratedFile]
+    manifest_documents: Sequence[Any]
+    sidecar_documents: Sequence[Any]
 
 
 def _replay_physical_lines(raw_file: bytes) -> list[bytes]:
@@ -113,24 +146,22 @@ def _claim_replayed_output_id(
     state.emitted_ids[output_id] = location
 
 
-def _record_replayed_retained(
+def _record_replayed_retained_context(
     state: _ReplayState,
     decision: Any,
     entry: dict[str, Any],
-    relative: str,
-    emitted: list[str],
-) -> None:
+    replay: _LineReplay,
+) -> str:
     """Account one replayed record that compose would have emitted."""
 
     line = compose_curated.canonical_json(decision.record)
     _claim_replayed_output_id(
-        state, decision.output_id, f"{relative}:{entry['source_line']}"
+        state, decision.output_id, f"{replay.relative}:{replay.line_number}"
     )
-    emitted.append(line)
     entry.update(
         {
-            "output_path": f"{compose_curated.RECORDS_DIRNAME}/{relative}",
-            "output_line": len(emitted),
+            "output_path": f"{compose_curated.RECORDS_DIRNAME}/{replay.relative}",
+            "output_line": replay.output_line,
             "output_id": decision.output_id,
             "output_sha256": hashlib.sha256(line.encode("utf-8")).hexdigest(),
         }
@@ -139,6 +170,31 @@ def _record_replayed_retained(
     if decision.reward_sidecar is not None:
         entry["reward_sidecar_id"] = decision.reward_sidecar["sidecar_id"]
         state.expected_sidecars.append(decision.reward_sidecar)
+    return line
+
+
+def _record_replayed_retained(
+    state: _ReplayState,
+    *legacy: Any,
+) -> None:
+    """Adapt ``(decision, entry, relative, emitted)`` to replay context."""
+
+    decision, entry, relative, emitted = legacy
+    emitted.append(
+        _record_replayed_retained_context(
+            state,
+            decision,
+            entry,
+            _LineReplay(
+                relative=relative,
+                line_number=entry["source_line"],
+                output_line=len(emitted) + 1,
+                source_file_sha256="",
+                catalog=None,
+                mill_finding=None,
+            ),
+        )
+    )
 
 
 def _record_replayed_excluded(
@@ -159,36 +215,31 @@ def _record_replayed_excluded(
         state.exclusions[reason] += 1
 
 
-def _replay_one_line(
+def _replay_one_line_context(
     state: _ReplayState,
     physical_line: bytes,
-    coordinate: tuple[str, int],
-    context: tuple[str, Any, list[str]],
-    mill_findings: dict,
-) -> None:
+    replay: _LineReplay,
+) -> str | None:
     """Replay one non-blank source line through the compose lanes."""
 
-    relative, line_number = coordinate
-    source_file_sha256, catalog, emitted = context
     state.counts["source_records"] += 1
-    finding = mill_findings.get((relative, line_number))
-    if finding is not None:
-        decision = compose_curated.mill_quarantined_decision(finding)
+    if replay.mill_finding is not None:
+        decision = compose_curated.mill_quarantined_decision(replay.mill_finding)
     else:
         decision = compose_curated.compose_source_line(
             physical_line,
-            source_path=relative,
-            source_line=line_number,
-            source_file_sha256=source_file_sha256,
-            calibration_catalog=catalog,
+            source_path=replay.relative,
+            source_line=replay.line_number,
+            source_file_sha256=replay.source_file_sha256,
+            calibration_catalog=replay.catalog,
             seen_source_semantics=state.seen_source_semantics,
             seen_curated_semantics=state.seen_curated_semantics,
         )
     entry = _replayed_manifest_entry(
         decision,
-        relative,
-        line_number,
-        (hashlib.sha256(physical_line).hexdigest(), source_file_sha256),
+        replay.relative,
+        replay.line_number,
+        (hashlib.sha256(physical_line).hexdigest(), replay.source_file_sha256),
     )
     for stage in decision.stages:
         lane = stage["lane"]
@@ -199,10 +250,40 @@ def _replay_one_line(
         decision.action == compose_curated.ACTION_RETAINED
         and decision.record is not None
     ):
-        _record_replayed_retained(state, decision, entry, relative, emitted)
+        emitted_line = _record_replayed_retained_context(
+            state, decision, entry, replay
+        )
     else:
         _record_replayed_excluded(state, decision, entry)
+        emitted_line = None
     state.expected_manifest.append(entry)
+    return emitted_line
+
+
+def _replay_one_line(
+    state: _ReplayState,
+    physical_line: bytes,
+    *legacy: Any,
+) -> None:
+    """Adapt ``(coordinate, context, mill_findings)`` to line context."""
+
+    coordinate, context, mill_findings = legacy
+    relative, line_number = coordinate
+    source_file_sha256, catalog, emitted = context
+    emitted_line = _replay_one_line_context(
+        state,
+        physical_line,
+        _LineReplay(
+            relative=relative,
+            line_number=line_number,
+            output_line=len(emitted) + 1,
+            source_file_sha256=source_file_sha256,
+            catalog=catalog,
+            mill_finding=mill_findings.get((relative, line_number)),
+        ),
+    )
+    if emitted_line is not None:
+        emitted.append(emitted_line)
 
 
 def _record_replayed_output_file(
@@ -223,40 +304,66 @@ def _record_replayed_output_file(
     state.counts["output_files"] += 1
 
 
-def _replay_source_file(
+def _replay_source_file_context(
     state: _ReplayState,
-    relative: str,
-    raw_file: bytes,
-    catalog: Any,
-    mill_findings: dict,
+    replay: _SourceReplay,
 ) -> None:
     """Replay every record of one captured source file and its output."""
 
-    source_file_sha256 = hashlib.sha256(raw_file).hexdigest()
+    source_file_sha256 = hashlib.sha256(replay.raw_file).hexdigest()
     state.source_files.append(
         {
-            "path": relative,
-            "bytes": len(raw_file),
+            "path": replay.relative,
+            "bytes": len(replay.raw_file),
             "sha256": source_file_sha256,
         }
     )
     state.counts["source_files"] += 1
     emitted: list[str] = []
 
-    for line_number, physical_line in enumerate(_replay_physical_lines(raw_file), 1):
+    for line_number, physical_line in enumerate(
+        _replay_physical_lines(replay.raw_file), 1
+    ):
         if not physical_line.strip():
             state.counts["blank_lines"] += 1
             continue
-        _replay_one_line(
+        emitted_line = _replay_one_line_context(
             state,
             physical_line,
-            (relative, line_number),
-            (source_file_sha256, catalog, emitted),
-            mill_findings,
+            _LineReplay(
+                relative=replay.relative,
+                line_number=line_number,
+                output_line=len(emitted) + 1,
+                source_file_sha256=source_file_sha256,
+                catalog=replay.catalog,
+                mill_finding=replay.mill_findings.get(
+                    (replay.relative, line_number)
+                ),
+            ),
         )
+        if emitted_line is not None:
+            emitted.append(emitted_line)
 
     if emitted:
-        _record_replayed_output_file(state, relative, emitted)
+        _record_replayed_output_file(state, replay.relative, emitted)
+
+
+def _replay_source_file(
+    state: _ReplayState,
+    *legacy: Any,
+) -> None:
+    """Adapt ``(relative, raw_file, catalog, findings)`` to source context."""
+
+    relative, raw_file, catalog, mill_findings = legacy
+    _replay_source_file_context(
+        state,
+        _SourceReplay(
+            relative=relative,
+            raw_file=raw_file,
+            catalog=catalog,
+            mill_findings=mill_findings,
+        ),
+    )
 
 
 def _member_identity(
@@ -347,8 +454,14 @@ def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
 
     state = _ReplayState()
     for relative in source_members:
-        _replay_source_file(
-            state, relative, payload_by_member[relative], catalog, mill_findings
+        _replay_source_file_context(
+            state,
+            _SourceReplay(
+                relative=relative,
+                raw_file=payload_by_member[relative],
+                catalog=catalog,
+                mill_findings=mill_findings,
+            ),
         )
 
     state.counts["reward_sidecars"] = len(state.expected_sidecars)
@@ -402,42 +515,57 @@ def _require_replayed_counts(
 ) -> None:
     """Every published aggregate must replay under the same transforms."""
 
-    expected_counts = {
-        "source_files": snapshot.counts["source_files"],
-        "source_records": snapshot.counts["source_records"],
-        "blank_lines": snapshot.counts["blank_lines"],
-        "retained": snapshot.counts["retained"],
-        "excluded": snapshot.counts["excluded"],
-        "output_files": snapshot.counts["output_files"],
-        "reward_sidecars": snapshot.counts["reward_sidecars"],
+    expected = {
+        "counts": {
+            "source_files": snapshot.counts["source_files"],
+            "source_records": snapshot.counts["source_records"],
+            "blank_lines": snapshot.counts["blank_lines"],
+            "retained": snapshot.counts["retained"],
+            "excluded": snapshot.counts["excluded"],
+            "output_files": snapshot.counts["output_files"],
+            "reward_sidecars": snapshot.counts["reward_sidecars"],
+        },
+        "lane_actions": {
+            lane: dict(sorted(actions.items()))
+            for lane, actions in snapshot.lane_actions.items()
+        },
+        "exclusions": dict(sorted(snapshot.exclusions.items())),
+        "transforms": compose_curated.transform_contract(),
     }
-    if summary.get("counts") != expected_counts:
-        raise ExportError("COMPOSE.json: source/output counts do not reproduce")
-    expected_lane_actions = {
-        lane: dict(sorted(actions.items()))
-        for lane, actions in snapshot.lane_actions.items()
+    failures = {
+        "counts": "COMPOSE.json: source/output counts do not reproduce",
+        "lane_actions": "COMPOSE.json: lane action counts do not reproduce",
+        "exclusions": "COMPOSE.json: exclusions do not reproduce",
+        "transforms": "COMPOSE.json: transform declarations do not match this contract",
     }
-    if summary.get("lane_actions") != expected_lane_actions:
-        raise ExportError("COMPOSE.json: lane action counts do not reproduce")
-    if summary.get("exclusions") != dict(sorted(snapshot.exclusions.items())):
-        raise ExportError("COMPOSE.json: exclusions do not reproduce")
-    if summary.get("transforms") != compose_curated.transform_contract():
-        raise ExportError("COMPOSE.json: transform declarations do not match this contract")
+    for field_name, expected_value in expected.items():
+        if summary.get(field_name) != expected_value:
+            raise ExportError(failures[field_name])
+
+
+def _verify_replay_matches_context(
+    snapshot: _ReplaySnapshot,
+    published: _PublishedReplay,
+) -> None:
+    """Raise ``ExportError`` unless every declared artifact reproduces from ``snapshot``."""
+
+    _require_replayed_documents(
+        snapshot, published.manifest_documents, published.sidecar_documents
+    )
+    _require_replayed_outputs(snapshot, published.summary, published.actual_outputs)
+    _require_replayed_counts(snapshot, published.summary)
 
 
 def _verify_replay_matches(
     snapshot: _ReplaySnapshot,
-    *,
-    summary: dict[str, Any],
-    actual_outputs: dict[str, CuratedFile],
-    manifest_documents: Sequence[Any],
-    sidecar_documents: Sequence[Any],
+    **published: Any,
 ) -> None:
-    """Raise ``ExportError`` unless every declared artifact reproduces from ``snapshot``."""
+    """Adapt the historical keyword-only artifacts to published context."""
 
-    _require_replayed_documents(snapshot, manifest_documents, sidecar_documents)
-    _require_replayed_outputs(snapshot, summary, actual_outputs)
-    _require_replayed_counts(snapshot, summary)
+    _verify_replay_matches_context(
+        snapshot,
+        _PublishedReplay(**published),
+    )
 
 
 def _require_calibration_state_unchanged(
@@ -502,12 +630,14 @@ def _authenticate_source_replay(
         calibration_state,
         _authenticated_calibration_state(summary, source_root),
     )
-    _verify_replay_matches(
+    _verify_replay_matches_context(
         snapshot,
-        summary=summary,
-        actual_outputs=actual_outputs,
-        manifest_documents=manifest_documents,
-        sidecar_documents=sidecar_documents,
+        _PublishedReplay(
+            summary=summary,
+            actual_outputs=actual_outputs,
+            manifest_documents=manifest_documents,
+            sidecar_documents=sidecar_documents,
+        ),
     )
 
     snapshot_digest = hashlib.sha256(

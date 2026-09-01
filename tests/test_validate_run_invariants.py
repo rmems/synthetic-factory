@@ -7,12 +7,14 @@ import copy
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
 from validate_run_test_helpers import TINY_THALAMIC, _run_with_record  # noqa: E402
+import validate_run  # noqa: E402
 
 
 class ValidateRewardTotal(unittest.TestCase):
@@ -89,6 +91,48 @@ class ValidateRewardTotal(unittest.TestCase):
 
 
 class ValidateProvenanceStrict(unittest.TestCase):
+    def test_state_vocabulary_rebinding_changes_parent_provenance_gate(self):
+        with mock.patch.object(
+            validate_run,
+            "ALLOWED_SIM_OR_REAL",
+            frozenset({"declared"}),
+        ):
+            self.assertEqual(
+                validate_run.check_provenance(
+                    {"state": {"sim_or_real": "declared"}}, "record"
+                ),
+                [],
+            )
+            self.assertEqual(
+                validate_run.check_provenance(
+                    {"state": {"sim_or_real": "designed"}}, "record"
+                ),
+                [
+                    "record: state.sim_or_real must be one of ['declared']",
+                ],
+            )
+
+    def test_kind_vocabulary_rebinding_changes_parent_provenance_gate(self):
+        with mock.patch.object(
+            validate_run,
+            "ALLOWED_PROVENANCE_KIND",
+            frozenset({"declared"}),
+        ):
+            self.assertEqual(
+                validate_run.check_provenance(
+                    {"provenance": {"kind": "declared"}}, "record"
+                ),
+                [],
+            )
+            self.assertEqual(
+                validate_run.check_provenance(
+                    {"provenance": {"kind": "designed"}}, "record"
+                ),
+                [
+                    "record: provenance.kind must be one of ['declared']",
+                ],
+            )
+
     def test_provenance_valid_kinds(self):
         for kind in ["designed", "simulated", "hil", "unknown"]:
             rec = copy.deepcopy(TINY_THALAMIC)
@@ -207,6 +251,14 @@ class ValidationIsTotalOverDecodedJson(unittest.TestCase):
         result = _run_with_record(rec)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("provenance.kind must be one of", result.stdout + result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_unhashable_state_provenance_reports_invalid(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["state"]["sim_or_real"] = {"designed": True}
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("state.sim_or_real must be one of", result.stdout + result.stderr)
         self.assertNotIn("Traceback", result.stderr)
 
 
