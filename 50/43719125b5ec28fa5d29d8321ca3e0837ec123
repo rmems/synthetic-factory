@@ -1,0 +1,21 @@
+pipelines/training_audit.py
+  s_98712805c1499b::t_f444394b5e935f 7-11,26,29-30,50-51,63-64,66-76,91-92,96-108,143,147-156,159-162,165-185,188-199,205,210,220-248,251-252,254,256,258,262-265,541-902,921-925,929-930
+tests/compose_curated_test_support.py
+  s_98712805c1499b::t_55e643264c416b 21-22,42,57,72-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5043719125b5ec28fa5d29d8321ca3e0837ec123",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
