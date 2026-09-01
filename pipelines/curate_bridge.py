@@ -436,9 +436,8 @@ def _raster_reasons(
     the training audit, and the distillation probe never disagree.
     """
 
-    reason_codes: list[str] = []
-    evidence: dict[str, Any] = {}
-    state = _SidecarValidationState(reason_codes, evidence)
+    state = _SidecarValidationState([], {})
+    reason_codes, evidence = state.reason_codes, state.evidence
     expected_gate_decision = _expected_gate_decision(record)
     if require_routing_table and expected_gate_decision is None:
         reason_codes.append(REASON_GATE_SNN_INVALID)
@@ -459,6 +458,8 @@ def _raster_reasons(
         evidence["raster_present"] = False
         if require_raster:
             reason_codes.append(REASON_RASTER_MISSING)
+    evidence["raster_reason_codes"] = sorted(set(reason_codes[raster_reason_start:]))
+    gate_compute_reason_start = len(reason_codes)
     _validate_declared_sidecars(
         _gate_compute_candidates(record),
         lambda value, reasons, details: _validate_gate_compute(
@@ -467,7 +468,7 @@ def _raster_reasons(
         state,
         "gate_compute",
     )
-    evidence["raster_reason_codes"] = sorted(set(reason_codes[raster_reason_start:]))
+    evidence["gate_compute_reason_codes"] = sorted(set(reason_codes[gate_compute_reason_start:]))
     gate_snn_present = _validate_declared_sidecars(
         _gate_snn_candidates(record),
         lambda value, reasons, details: _validate_gate_snn(

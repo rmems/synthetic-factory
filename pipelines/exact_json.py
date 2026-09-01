@@ -38,6 +38,7 @@ _MAX_JSON_INTEGER_MAGNITUDE = 10**MAX_DECIMAL_DIGITS
 _JSON_NUMBER_RE = re.compile(
     r"(?a)-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?\Z"
 )
+_JSON_INTEGER_RE = re.compile(r"(?a)-?(?:0|[1-9]\d*)\Z")
 
 
 def _bounded_exponent(marker: str, exponent_text: str) -> int:
@@ -91,6 +92,24 @@ def json_integer_is_bounded(value: Any) -> bool:
         and not isinstance(value, bool)
         and abs(value) < _MAX_JSON_INTEGER_MAGNITUDE
     )
+
+
+def parse_json_integer(token: str) -> int:
+    """Decode one JSON integer without materializing an oversized token."""
+
+    if not isinstance(token, str):
+        raise ValueError("invalid JSON integer syntax")
+    negative = token.startswith("-")
+    if len(token) - int(negative) > MAX_DECIMAL_DIGITS:
+        raise ValueError("JSON integer precision exceeds the exact-decimal limit")
+    if _JSON_INTEGER_RE.fullmatch(token) is None:
+        raise ValueError("invalid JSON integer syntax")
+    digits = token[1:] if negative else token
+    value = 0
+    for offset in range(0, len(digits), 9):
+        chunk = digits[offset : offset + 9]
+        value = value * (10 ** len(chunk)) + int(chunk)
+    return -value if negative else value
 
 
 def _validate_json_integer_bounds(value: int) -> None:

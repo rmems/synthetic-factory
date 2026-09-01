@@ -25,6 +25,7 @@ from exact_json import (  # noqa: E402
     exact_fraction,
     exact_json_integer,
     json_number_from_fraction,
+    parse_json_integer,
     parse_finite_json_float,
 )
 import spike_probe  # noqa: E402
@@ -80,6 +81,17 @@ class ExactJSONNumbers(unittest.TestCase):
 
         self.assertEqual(len(rendered), 1000)
         self.assertEqual(rendered, "1" + "0" * 999)
+
+    def test_integer_parsing_is_bounded_before_materialization(self):
+        original_limit = sys.get_int_max_str_digits()
+        try:
+            sys.set_int_max_str_digits(0)
+            at_limit = "9" * MAX_DECIMAL_DIGITS
+            self.assertEqual(parse_json_integer(at_limit), int(at_limit))
+            with self.assertRaisesRegex(ValueError, "integer precision"):
+                parse_json_integer("9" * (MAX_DECIMAL_DIGITS + 1))
+        finally:
+            sys.set_int_max_str_digits(original_limit)
 
     def test_container_nesting_is_bounded_before_python_recursion(self):
         payload = 0

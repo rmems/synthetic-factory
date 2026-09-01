@@ -198,9 +198,33 @@ class DistillationRasterAudit(unittest.TestCase):
         self.assertEqual(bridge["raster_coverage_pct"], 100.0)
         self.assertEqual(bridge["raster_defect_codes"], {})
 
+    def test_gate_compute_defect_is_not_counted_as_a_raster_defect(self):
+        record = gate_snn_bridge("bad-gate-compute")
+        record["gate_compute"] = {"per_check": "not-an-array"}
+        temporary, report = self._audit(BRIDGE_FACTORY, [record])
+        temporary.cleanup()
+
+        bridge = report["bridge"]
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(bridge["raster_valid_pairs"], 1)
+        self.assertEqual(bridge["raster_spikes"], 123)
+        self.assertEqual(bridge["raster_coverage_pct"], 100.0)
+        self.assertEqual(bridge["raster_defect_codes"], {})
+        self.assertEqual(bridge["gate_compute_records"], 1)
+        self.assertEqual(bridge["gate_compute_valid_records"], 0)
+        self.assertEqual(
+            bridge["gate_compute_defect_codes"],
+            {"BRIDGE_SPIKE_BUDGET_MISMATCH": 1},
+        )
+        self.assertTrue(
+            any("gate-compute specs are invalid" in item for item in report["blockers"]),
+            report["blockers"],
+        )
+
     def test_raster_and_gate_defects_remain_separately_accounted(self):
         record = gate_snn_bridge("bad-raster-and-gate")
         record["raster"]["spikes"] = 999
+        record["gate_compute"] = {"per_check": "not-an-array"}
         record["gate_snn"]["populations"] = [{"name": "gate", "neurons": 0}]
         temporary, report = self._audit(BRIDGE_FACTORY, [record])
         temporary.cleanup()
@@ -213,6 +237,12 @@ class DistillationRasterAudit(unittest.TestCase):
         self.assertEqual(
             bridge["raster_defect_codes"],
             {"BRIDGE_ENERGY_MISMATCH": 1, "BRIDGE_SPIKE_BUDGET_MISMATCH": 1},
+        )
+        self.assertEqual(bridge["gate_compute_records"], 1)
+        self.assertEqual(bridge["gate_compute_valid_records"], 0)
+        self.assertEqual(
+            bridge["gate_compute_defect_codes"],
+            {"BRIDGE_SPIKE_BUDGET_MISMATCH": 1},
         )
 
     def test_other_factory_thalamic_record_is_not_distillation_data(self):

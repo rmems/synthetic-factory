@@ -161,9 +161,33 @@ class BridgeIntegerPrecision(unittest.TestCase):
 
         self.assertFalse(status["raster_valid"])
         self.assertIn(curate_bridge.REASON_RASTER_SPIKE_BUDGET, status["reason_codes"])
+        self.assertNotIn(curate_bridge.REASON_GATE_SNN_INVALID, status["reason_codes"])
         mismatch = status["evidence"]["gate_snn_spike_mismatches"][0]
         self.assertGreater(mismatch["expected"], 10**600)
         self.assertEqual(mismatch["actual"], 1)
+
+    def test_unrepresentable_gate_spike_product_fails_closed(self):
+        record = gate_snn_fixture()
+        record["gate_snn"].pop("decision_window_ms")
+        record["gate_snn"]["decision_window_s"] = 10**2000
+        record["gate_snn"]["populations"] = [
+            {
+                "name": "unbounded-product",
+                "neurons": 1,
+                "threshold": 1,
+                "mean_rate_hz": 10**3000,
+                "spikes": 0,
+            }
+        ]
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertFalse(status["raster_valid"])
+        self.assertIn(curate_bridge.REASON_GATE_SNN_INVALID, status["reason_codes"])
+        self.assertFalse(status["evidence"]["gate_snn_populations_valid"])
+        self.assertNotIn("gate_snn_spike_mismatches", status["evidence"])
+        dumps_exact_json(record)
+        dumps_exact_json(status["evidence"])
 
     def _literal_decimal_record(self, declared_spikes):
         record = gate_snn_fixture()

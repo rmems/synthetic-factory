@@ -43,6 +43,36 @@ class StrictContractFixtures(unittest.TestCase):
             (run_dir / name).write_text((STRICT_FIXTURES / name).read_text())
             return _invoke(str(run_dir))
 
+    def _assert_invalid_line_continues(
+        self, filename, invalid_line, valid_record, marker_groups
+    ):
+        with tempfile.TemporaryDirectory() as raw:
+            run_dir = Path(raw) / "run"
+            run_dir.mkdir()
+            (run_dir / filename).write_text(
+                invalid_line + "\n" + json.dumps(valid_record, ensure_ascii=False) + "\n"
+            )
+            result = _invoke(str(run_dir))
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn(f"{filename}:1:", result.stderr)
+        self.assertNotIn(f"{filename}:2", result.stderr)
+        for markers in marker_groups:
+            self.assertTrue(
+                any(marker in result.stderr for marker in markers),
+                result.stderr,
+            )
+        self.assertEqual(
+            json.loads(result.stdout),
+            {
+                "files": 1,
+                "records": 1,
+                "by_kind": {"thalamic": 1},
+                "error_count": 1,
+            },
+        )
+
     def test_baseline_passes_both_layers(self):
         with tempfile.TemporaryDirectory() as raw:
             run_dir = Path(raw) / "run"
@@ -132,28 +162,11 @@ class StrictContractFixtures(unittest.TestCase):
         valid = copy.deepcopy(TINY_THALAMIC)
         valid["state"]["episode_id"] = "tiny-valid-😀"
 
-        with tempfile.TemporaryDirectory() as raw:
-            run_dir = Path(raw) / "run"
-            run_dir.mkdir()
-            (run_dir / "nested.jsonl").write_text(
-                json.dumps(nested) + "\n" + json.dumps(valid, ensure_ascii=False) + "\n"
-            )
-            nested_result = _invoke(str(run_dir))
-
-        self.assertEqual(nested_result.returncode, 1, nested_result.stderr)
-        self.assertNotIn("Traceback", nested_result.stderr)
-        self.assertIn("nested.jsonl:1", nested_result.stderr)
-        self.assertNotIn("nested.jsonl:2", nested_result.stderr)
-        self.assertIn("exact JSON contract error", nested_result.stderr)
-        self.assertIn("JSON nesting", nested_result.stderr)
-        self.assertEqual(
-            json.loads(nested_result.stdout),
-            {
-                "files": 1,
-                "records": 1,
-                "by_kind": {"thalamic": 1},
-                "error_count": 1,
-            },
+        self._assert_invalid_line_continues(
+            "nested.jsonl",
+            json.dumps(nested),
+            valid,
+            (("exact JSON contract error",), ("JSON nesting",)),
         )
 
         surrogate = json.dumps(TINY_THALAMIC).replace(
@@ -182,26 +195,23 @@ class StrictContractFixtures(unittest.TestCase):
         valid = copy.deepcopy(TINY_THALAMIC)
         valid["state"]["episode_id"] = "after-deep-input"
 
-        with tempfile.TemporaryDirectory() as raw:
-            run_dir = Path(raw) / "run"
-            run_dir.mkdir()
-            (run_dir / "deep-input.jsonl").write_text(
-                too_deep + "\n" + json.dumps(valid) + "\n"
-            )
-            result = _invoke(str(run_dir))
+        self._assert_invalid_line_continues(
+            "deep-input.jsonl",
+            too_deep,
+            valid,
+            (("JSON parse error", "exact JSON contract error"),),
+        )
 
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertNotIn("Traceback", result.stderr)
-        self.assertIn("deep-input.jsonl:1: JSON parse error", result.stderr)
-        self.assertNotIn("deep-input.jsonl:2", result.stderr)
-        self.assertEqual(
-            json.loads(result.stdout),
-            {
-                "files": 1,
-                "records": 1,
-                "by_kind": {"thalamic": 1},
-                "error_count": 1,
-            },
+    def test_shape_validator_bounds_integer_tokens_before_materialization(self):
+        oversized = '{"oversized":' + "9" * 4097 + "}"
+        valid = copy.deepcopy(TINY_THALAMIC)
+        valid["state"]["episode_id"] = "after-oversized-integer"
+
+        self._assert_invalid_line_continues(
+            "oversized-integer.jsonl",
+            oversized,
+            valid,
+            (("JSON parse error: JSON integer precision",),),
         )
 
 

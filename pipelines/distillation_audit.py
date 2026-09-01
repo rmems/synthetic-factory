@@ -42,12 +42,16 @@ class DistillationAudit:
             third_factor_pairs=0,
             gate_snn_records=0,
             gate_snn_valid_records=0,
+            gate_compute_records=0,
+            gate_compute_valid_records=0,
             wrong_kind_records=0,
         )
         self.batches: defaultdict[str, Counter] = defaultdict(Counter)
         self.raster_missing_examples: list[str] = []
         self.raster_defect_examples: list[str] = []
         self.raster_defect_codes: Counter = Counter()
+        self.gate_compute_defect_examples: list[str] = []
+        self.gate_compute_defect_codes: Counter = Counter()
         self.wrong_kind_examples: list[str] = []
 
     def observe(
@@ -97,6 +101,7 @@ class DistillationAudit:
         status = raster_status(record)
         self._raster_quality_observer(status)(status, where)
         self._observe_routing(status)
+        self._observe_gate_compute(status, where)
         self._observe_gate(status, batch)
 
     def _raster_quality_observer(self, status):
@@ -136,6 +141,19 @@ class DistillationAudit:
             batch["gate_snn_records"] += 1
             batch["gate_snn_valid_records"] += int(status["gate_snn_valid"])
 
+    def _observe_gate_compute(self, status, where):
+        evidence = status["evidence"]
+        if not evidence.get("gate_compute_present"):
+            return
+        self.metrics["gate_compute_records"] += 1
+        reasons = evidence["gate_compute_reason_codes"]
+        if not reasons:
+            self.metrics["gate_compute_valid_records"] += 1
+            return
+        self.gate_compute_defect_codes.update(reasons)
+        if len(self.gate_compute_defect_examples) < 5:
+            self.gate_compute_defect_examples.append(f"{where}: {','.join(reasons)}")
+
     def report(self) -> dict[str, Any]:
         """Return the stable public ``bridge`` report mapping."""
 
@@ -158,5 +176,7 @@ class DistillationAudit:
             "raster_missing_examples": self.raster_missing_examples,
             "raster_defect_examples": self.raster_defect_examples,
             "raster_defect_codes": dict(sorted(self.raster_defect_codes.items())),
+            "gate_compute_defect_examples": self.gate_compute_defect_examples,
+            "gate_compute_defect_codes": dict(sorted(self.gate_compute_defect_codes.items())),
             "wrong_kind_examples": self.wrong_kind_examples,
         }
