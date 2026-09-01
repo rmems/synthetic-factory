@@ -1,0 +1,135 @@
+pipelines/export_viewer_writer.py
+  s_98712805c1499b::t_65495745206120 180-184
+  s_98712805c1499b::t_9e8311d793bb9e 1-179,185-208
+pipelines/export_members.py
+  s_98712805c1499b::t_41f19b5e1f261d 14,18-77,98,141,184-187
+tests/test_pipeline_split_module_identity.py
+  s_98712805c1499b::t_93c92a89737978 1-70,72-74,76-132
+  s_98712805c1499b::t_9fa27cd6b21327 71,75
+pipelines/export_compose_auth.py
+  s_98712805c1499b::t_4d7886d5b2d64f 15,45-50,183,242,274,298,346,365,381,455,469,478-479,484,499-500,517,529,546,550
+pipelines/export_members_jsonl.py
+  s_98712805c1499b::t_41f19b5e1f261d 18,24,30-33
+pipelines/export_split.py
+  s_98712805c1499b::t_41f19b5e1f261d 12,15-28,129-132
+tests/compose_curated_test_support.py
+  s_98712805c1499b::t_8c713e19f589fb 6-7,10-12
+pipelines/export_viewer_reader.py
+  s_98712805c1499b::t_7d0d7eb64f7bd5 52,54-56,60-62,64,66-72
+  s_98712805c1499b::t_5007fae82a7c93 1-30,32-35,45-51,53,57-59,63,65,73-84,86-101,103-116,118-128,130-153
+  s_98712805c1499b::t_f9922608741d8a 31,40-44,102,117
+  s_98712805c1499b::t_126d42ca45f9b7 36-39
+  s_98712805c1499b::t_0544e6f330c549 85,129
+pipelines/export_provenance.py
+  s_98712805c1499b::t_41f19b5e1f261d 6,9-40,88-91
+tests/test_export_hf_safety.py
+  s_98712805c1499b::t_0544e6f330c549 16
+pipelines/export_calibration.py
+  s_98712805c1499b::t_41f19b5e1f261d 22,32,70,76,88,126,138,162,167
+pipelines/strict_jsonl.py
+  s_98712805c1499b::t_f9922608741d8a 26,28,31-33,37-46
+  s_98712805c1499b::t_7b1a0719f9c9f8 27,29,34-35,47-57
+  s_98712805c1499b::t_41f19b5e1f261d 1-25,30,36,58-61
+tests/test_pipeline_bridge_imports.py
+  s_98712805c1499b::t_fdb6f7a7fa0b55 1-159
+tests/test_export_hf_authentication.py
+  s_98712805c1499b::t_7e6ac36227478d 2,73,84-97,234
+tests/test_export_replay.py
+  s_98712805c1499b::t_0e4fedb22f5956 8,15-22
+  s_98712805c1499b::t_33d0d893663c97 11
+tests/compose_curated_import_contract_support.py
+  s_98712805c1499b::t_886d7e9f1259bc 10-14,23,28-35,50
+tests/pipeline_import_catalog.py
+  s_98712805c1499b::t_333631c0712fe4 2-4,7,12,63,65-67,69-73
+  s_98712805c1499b::t_d326600e1313b1 1,13-62,64,68,74
+  s_98712805c1499b::t_78c23df0b8182e 5-6,8-11
+tests/pipeline_import_catalog_export.py
+  s_98712805c1499b::t_a9104244e90652 1-138
+tests/test_export_source_replay_authentication.py
+  s_98712805c1499b::t_7b41ad406b9483 10,19-24,31,33-40,43,45,57,62,102,109,152-153,275
+  s_98712805c1499b::t_ab56237f94e398 1-9,12-18,46-56,58-61,63-101,103-108,110-151,154-274,276-317
+  s_98712805c1499b::t_e50aa1b9487274 11,26,32,41-42
+  s_98712805c1499b::t_5cf5da8f2449d4 25,27-30,44
+tests/test_pipelines_package_imports.py
+  s_98712805c1499b::t_cad7a38ec4a367 2,9-14,16-21,25-73,76,80,82,89,91-92,100,103,108,111,114-116,122
+pipelines/training_audit_mill.py
+  s_98712805c1499b::t_41f19b5e1f261d 12,18,51
+pipelines/export_replay.py
+  s_98712805c1499b::t_3322bcdc4585d2 24-28,66,136,144,158,198,245-246,280,313,326,354,359,367,390,417,425-432,495,509,531,578
+  s_98712805c1499b::t_41f19b5e1f261d 563
+pipelines/compose_destination_binding.py
+  s_98712805c1499b::t_ffe3318f378f8a 486-491,493
+  s_98712805c1499b::t_4d7886d5b2d64f 492
+tests/test_validate_run_invariants.py
+  s_98712805c1499b::t_bac866bc8fb38c 94-103,140,142-145,148,150-153,192
+  s_98712805c1499b::t_33d0d893663c97 104-111,190-191,193-200
+tests/test_export_package_imports.py
+  s_98712805c1499b::t_565e0d72ab91e8 16
+  s_98712805c1499b::t_0e4fedb22f5956 1-15,17-21
+pipelines/compose_curated_calibration.py
+  s_98712805c1499b::t_41f19b5e1f261d 26,36,72
+tests/test_training_audit_framing.py
+  s_98712805c1499b::t_41f19b5e1f261d 59,61
+  s_98712805c1499b::t_0e4fedb22f5956 40-46,65-94,97
+tests/test_export_members.py
+  s_98712805c1499b::t_33d0d893663c97 19-20,38-39,41-42,44-45,47-48
+pipelines/compose_trajectory.py
+  s_98712805c1499b::t_4d7886d5b2d64f 220-221,223-230,232-243
+tests/test_compose_curated_imports.py
+  s_98712805c1499b::t_acc830bd774a1a 53-61,123,155
+  s_98712805c1499b::t_55e4a19dbfba0c 1-52,62-122,124-154,156-252
+tests/test_pipeline_import_catalog.py
+  s_98712805c1499b::t_e1237beaaf12d0 1-37
+pipelines/__init__.py
+  s_98712805c1499b::t_41f19b5e1f261d 255-278,329-332
+tests/pipeline_import_catalog_foundation.py
+  s_98712805c1499b::t_dd1ae414e627d7 624-634
+  s_98712805c1499b::t_faa723f4db8e8d 1-621
+pipelines/export_viewer.py
+  s_98712805c1499b::t_65495745206120 30,32
+  s_98712805c1499b::t_baa0475663f3ae 33,35-36,38-39,244
+  s_98712805c1499b::t_1803467f76cbea 34,37,250
+  s_98712805c1499b::t_0ed2dc79d24b02 13
+  s_98712805c1499b::t_0544e6f330c549 31
+tests/pipeline_import_catalog_compose.py
+  s_98712805c1499b::t_18a0f5b417b1ae 309-392,394-395
+  s_98712805c1499b::t_5e4d8480aca5d6 1-308,393
+tests/test_compose_curated.py
+  s_98712805c1499b::t_9812a81b118917 70-71,82-85,89,117,138,140,159-160,178-179,217,246,271,273,323
+tests/pipeline_import_test_support.py
+  s_98712805c1499b::t_d83a4a796e6a5a 1-60,72-112
+  s_98712805c1499b::t_e50da504248f52 61-71
+pipelines/compose_contract.py
+  s_98712805c1499b::t_41f19b5e1f261d 82-88,125-126
+  s_98712805c1499b::t_3322bcdc4585d2 15-16,89-124
+tests/test_compose_curated_run_context.py
+  s_98712805c1499b::t_0e4fedb22f5956 81-94
+tests/test_compose_curated_source_safety.py
+  s_98712805c1499b::t_f2e49980ebb3e2 1-170,172-230,232-281
+tests/test_compose_curated_destination.py
+  s_98712805c1499b::t_12c76759937ae5 2,32,38,44,52,107,175,214
+pipelines/compose_curated_run.py
+  s_98712805c1499b::t_ff39a84ea50ae9 36,59,67
+  s_98712805c1499b::t_3322bcdc4585d2 11,37,60,646
+pipelines/training_audit.py
+  s_98712805c1499b::t_7b1a0719f9c9f8 62,100,503,507
+  s_98712805c1499b::t_41f19b5e1f261d 63,101,194,204,502,504-506,527
+tests/test_compose_curated_agentic.py
+  s_98712805c1499b::t_3791239eb40bb9 1-153,155-208
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ff57e41adbae1410801257a2764e4c9f955772c4",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
