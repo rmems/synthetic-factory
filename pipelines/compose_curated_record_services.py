@@ -58,5 +58,5 @@ if __package__:
 else:
     package = sys.modules.get("pipelines")
     expose = getattr(package, "_expose_package_sibling", None)
-    if expose is not None:
+    if callable(expose):
         expose(__name__)
