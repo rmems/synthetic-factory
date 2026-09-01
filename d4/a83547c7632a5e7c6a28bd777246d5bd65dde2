@@ -1,0 +1,45 @@
+pipelines/quality_gate_identity.py
+  s_98712805c1499b::t_2b77069adb7c65 158-161,167
+  s_98712805c1499b::t_cddf5ab55db161 162-163
+tests/test_training_audit_preferences.py
+  s_98712805c1499b::t_b25f8a40feea2b 10-11,27,33-35,38-74
+  s_98712805c1499b::t_8570eb6825213d 28-32,36-37
+pipelines/training_audit.py
+  s_98712805c1499b::t_2b77069adb7c65 47,95,98,165-166,169-170
+  s_98712805c1499b::t_cddf5ab55db161 96-97,99-100,304,385-389,410-416
+pipelines/quality_gate_audit.py
+  s_98712805c1499b::t_cddf5ab55db161 249-253,261,267-271,273,275,279,283,305,307-309,320
+tests/test_spike_probe_source.py
+  s_98712805c1499b::t_b25f8a40feea2b 14,19-29
+pipelines/spike_probe_source.py
+  s_98712805c1499b::t_cddf5ab55db161 98
+pipelines/training_audit_report.py
+  s_98712805c1499b::t_cddf5ab55db161 272
+pipelines/curate_rewards.py
+  s_98712805c1499b::t_cddf5ab55db161 273
+prompts/02-multi-agent-ouroboros-swarm.md
+  s_98712805c1499b::t_cddf5ab55db161 63-66
+tests/test_workflow_contract.py
+  s_98712805c1499b::t_b25f8a40feea2b 186-190,192-197
+  s_98712805c1499b::t_4da45c1e433274 191
+prompts/01-thalamic-trajectory-factory.md
+  s_98712805c1499b::t_cddf5ab55db161 72-75
+tests/test_training_audit_framing.py
+  s_98712805c1499b::t_b25f8a40feea2b 104-112,115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d4a83547c7632a5e7c6a28bd777246d5bd65dde2",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
