@@ -32,6 +32,11 @@ YAML_RESERVED = frozenset(
     }
 )
 
+# The domain of a parsed-JSON value reaching the YAML emitters. Rejection
+# messages repr these, and every member renders a useful repr (unlike a
+# value typed as bare object).
+_JsonValue = str | int | float | bool | list | dict | None
+
 __all__ = (
     "_yaml_scalar",
     "metadata_yaml",
@@ -39,7 +44,7 @@ __all__ = (
 )
 
 
-def _yaml_scalar(value: object) -> str:
+def _yaml_scalar(value: _JsonValue) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, int):
@@ -55,7 +60,7 @@ def _yaml_scalar(value: object) -> str:
     return json.dumps(value)
 
 
-def _yaml_block(value: object, indent: int) -> list[str]:
+def _yaml_block(value: _JsonValue, indent: int) -> list[str]:
     """Render a mapping or list as block-style YAML lines."""
     if isinstance(value, dict):
         return _yaml_block_mapping(value, indent)
