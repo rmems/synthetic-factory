@@ -53,7 +53,7 @@
   ],
   "disclosures": [
     {
-      "summary": "Five records are dest-stamped leftover-mill payload from `sparse-reward-long-task-factory`, not from this dump's `eval-harness-trajectory-factory`. They keep `meta.factory = sparse-reward-long-task-factory`, `meta.plant = designed`, and the sparse-reward reward keys `terminal_only` / `horizon_steps` / `mid_reward_steps`. They are kept exactly as generated and are counted in the frozen factory-mix census, not re-censused here.",
+      "summary": "Five records are factory-mix leftover-mill payload from `sparse-reward-long-task-factory`, not from this dump's `eval-harness-trajectory-factory`. They keep `meta.factory = sparse-reward-long-task-factory`, `meta.plant = designed`, and the sparse-reward reward keys `terminal_only` / `horizon_steps` / `mid_reward_steps`. They are kept exactly as generated and are counted in the frozen factory-mix census, not re-censused here.",
       "ids": [
         "srl-r641-networkd-dhcp-ipv4-only-c67a",
         "srl-r642-chrony-maxslewrate-vs-ntpd-ffb5",

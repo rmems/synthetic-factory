@@ -127,6 +127,8 @@ class EvalHarnessDeclarationTests(unittest.TestCase):
             with self.subTest(record_id=record_id):
                 self.assertIn(f"`{record_id}`", self.card)
         self.assertIn("issues/43", self.card)
+        self.assertIn("factory-mix leftover-mill payload", self.card)
+        self.assertNotIn("dest-stamped leftover-mill payload", self.card)
         self.assertIn("| `plan` | present on every record |", self.card)
         self.assertIn("| `steps[].reflection` | optional |", self.card)
         self.assertNotIn("scripts/eval_harness_unique_mill", self.card)
