@@ -1,0 +1,79 @@
+tests/test_curate_bridge.py
+  s_98712805c1499b::t_ef7098e9b4352c 610-613
+  s_98712805c1499b::t_37e4d159801247 395-404
+  s_98712805c1499b::t_799dfbd8d86e0d 405-413
+tests/test_validate_run_spikes.py
+  s_98712805c1499b::t_ef7098e9b4352c 41-57
+pipelines/curate_bridge_materialize.py
+  s_98712805c1499b::t_39db6e0386cc15 237-248,269-273,411-414
+prompts/03-neuromorphic-event-language-bridge.md
+  s_98712805c1499b::t_39db6e0386cc15 71
+pipelines/spike_probe_normalize.py
+  s_98712805c1499b::t_39db6e0386cc15 73-75
+pipelines/curate_gate.py
+  s_98712805c1499b::t_799dfbd8d86e0d 340,343
+pipelines/curate_bridge_raster.py
+  s_98712805c1499b::t_39db6e0386cc15 242,306
+pipelines/curate_rewards.py
+  s_98712805c1499b::t_39db6e0386cc15 58,267-271,314-315
+.claude/skills/run-synthetic-factory/driver.py
+  s_98712805c1499b::t_39db6e0386cc15 554-595
+tests/test_exact_json.py
+  s_98712805c1499b::t_37e4d159801247 64-70
+tests/test_curate_bridge_raster_regressions.py
+  s_98712805c1499b::t_37e4d159801247 30,82-106,242-264
+tests/test_curate_rewards.py
+  s_98712805c1499b::t_ef7098e9b4352c 5,57
+  s_98712805c1499b::t_37e4d159801247 30,34-56,58-59
+tests/gate_fixture.py
+  s_98712805c1499b::t_ef7098e9b4352c 21
+pipelines/exact_json.py
+  s_98712805c1499b::t_39db6e0386cc15 15,29-31,58-59
+pipelines/curate_bridge_events.py
+  s_98712805c1499b::t_39db6e0386cc15 46
+  s_98712805c1499b::t_799dfbd8d86e0d 53
+tests/test_spike_probe_source.py
+  s_98712805c1499b::t_ef7098e9b4352c 38-44
+  s_98712805c1499b::t_37e4d159801247 17-37
+pipelines/curate_bridge_gate.py
+  s_98712805c1499b::t_39db6e0386cc15 8,237-249
+pipelines/validate_run.py
+  s_98712805c1499b::t_ef7098e9b4352c 23,25-42
+tests/test_curate_bridge_materialization.py
+  s_98712805c1499b::t_37e4d159801247 314-333,505,511-518,520
+tests/training_audit_test_helpers.py
+  s_98712805c1499b::t_ef7098e9b4352c 16-17,40
+pipelines/spike_probe.py
+  s_98712805c1499b::t_799dfbd8d86e0d 64
+pipelines/reward_mapping.py
+  s_98712805c1499b::t_39db6e0386cc15 16-17,343
+tests/test_spike_probe.py
+  s_98712805c1499b::t_799dfbd8d86e0d 491-505
+  s_98712805c1499b::t_37e4d159801247 90-98,490
+pipelines/spike_probe_source.py
+  s_98712805c1499b::t_39db6e0386cc15 41,45-53,67,71-72,75,103,107-116
+tests/distillation_test_helpers.py
+  s_98712805c1499b::t_ef7098e9b4352c 1-25
+tests/round_txn_test_helpers.py
+  s_98712805c1499b::t_ef7098e9b4352c 6,8,45
+tests/gate_fixtures.py
+  s_98712805c1499b::t_ef7098e9b4352c 7-8
+tests/test_factory_driver.py
+  s_98712805c1499b::t_37e4d159801247 29-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "58664d4672be5208e717759bf82d118c85eec606",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
