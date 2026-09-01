@@ -149,6 +149,20 @@ class ExactJSONNumbers(unittest.TestCase):
         with self.assertRaises(TypeError):
             dumps_exact_json(object())
 
+    def test_unpaired_surrogates_are_rejected_in_values_and_member_names(self):
+        for payload in ({"value": "\ud800"}, {"bad\udfff": "value"}):
+            for ensure_ascii in (False, True):
+                with (
+                    self.subTest(payload=payload, ensure_ascii=ensure_ascii),
+                    self.assertRaisesRegex(ValueError, "unpaired UTF-16 surrogate"),
+                ):
+                    dumps_exact_json(payload, ensure_ascii=ensure_ascii)
+
+        self.assertEqual(
+            dumps_exact_json({"astral": "\U0001f600"}, ensure_ascii=False),
+            '{"astral":"\U0001f600"}',
+        )
+
     def test_indented_serialization_matches_json_dumps_layout(self):
         payload = {
             "outer": {"inner": [1, 2.5, "x"], "empty_list": [], "empty_map": {}},

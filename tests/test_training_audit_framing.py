@@ -24,6 +24,20 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
             path.write_bytes(payload)
             return training_audit.audit_run(root)
 
+    def assert_exact_contract_error(self, serialized, expected_fragment):
+        report = self._audit_payload((serialized + "\n").encode("utf-8"))
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(report["totals"]["eligible_records"], 0)
+        self.assertEqual(report["totals"]["exact_json_contract_errors"], 1)
+        self.assertTrue(
+            any(
+                expected_fragment in item
+                for item in report["record_invariants"]["error_examples"]
+            ),
+            report["record_invariants"],
+        )
+        return report
+
     def test_bare_cr_is_not_a_boundary_or_a_mill_coordinate(self):
         foreign = thalamic("sir-r56-meili-swap-leftover3c-rebuild")
         foreign["meta"]["factory"] = "search-index-rebuild-factory"
@@ -97,11 +111,8 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
             1,
         )
 
-        report = self._audit_payload((record + "\n").encode("utf-8"))
+        report = self.assert_exact_contract_error(record, "JSON nesting")
 
-        self.assertFalse(report["training_ready"])
-        self.assertEqual(report["totals"]["eligible_records"], 0)
-        self.assertEqual(report["totals"]["exact_json_contract_errors"], 1)
         self.assertEqual(
             report["totals"]["by_kind"],
             {"exact_json_contract_error": 1},
@@ -110,13 +121,15 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
             report["factories"][THALAMIC_FACTORY]["exact_json_contract_errors"],
             1,
         )
-        self.assertTrue(
-            any(
-                "exact JSON contract error" in item and "JSON nesting" in item
-                for item in report["record_invariants"]["error_examples"]
-            ),
-            report["record_invariants"],
+
+    def test_lone_surrogate_is_reported_instead_of_aborting_utf8_hashing(self):
+        serialized = json.dumps(thalamic("ttf-surrogate")).replace(
+            '"state": {',
+            '"state": {"extension": "\\ud800", ',
+            1,
         )
+
+        self.assert_exact_contract_error(serialized, "unpaired UTF-16 surrogate")
 
 
 class TrainingAuditCompatibilityExports(unittest.TestCase):

@@ -141,6 +141,55 @@ class ValidateRunWriteFlag(unittest.TestCase):
             self.assertEqual(json.loads(stdout.getvalue()), EXPECTED_TOTALS)
             self.assertEqual(stderr.getvalue(), "")
 
+    def test_bare_carriage_return_is_not_a_jsonl_record_boundary(self):
+        first = copy.deepcopy(TINY_THALAMIC)
+        first["id"] = "bare-cr-first"
+        second = copy.deepcopy(TINY_THALAMIC)
+        second["id"] = "bare-cr-second"
+        with tempfile.TemporaryDirectory() as raw:
+            run_dir = Path(raw) / "run"
+            run_dir.mkdir()
+            (run_dir / "bare-cr.jsonl").write_bytes(
+                json.dumps(first).encode("utf-8")
+                + b"\r"
+                + json.dumps(second).encode("utf-8")
+                + b"\n"
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as raised:
+                    validate_run.main([str(run_dir)])
+
+        self.assertEqual(raised.exception.code, 1, stderr.getvalue())
+        self.assertIn("JSON parse error", stderr.getvalue())
+        totals = json.loads(stdout.getvalue())
+        self.assertEqual(totals["records"], 0)
+        self.assertEqual(totals["error_count"], 1)
+
+    def test_crlf_remains_an_accepted_physical_record_boundary(self):
+        first = copy.deepcopy(TINY_THALAMIC)
+        first["id"] = "crlf-first"
+        second = copy.deepcopy(TINY_THALAMIC)
+        second["id"] = "crlf-second"
+        with tempfile.TemporaryDirectory() as raw:
+            run_dir = Path(raw) / "run"
+            run_dir.mkdir()
+            (run_dir / "crlf.jsonl").write_bytes(
+                b"\r\n".join(
+                    (json.dumps(first).encode("utf-8"), json.dumps(second).encode("utf-8"))
+                )
+                + b"\r\n"
+            )
+
+            result = _invoke(str(run_dir))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        totals = json.loads(result.stdout)
+        self.assertEqual(totals["records"], 2)
+        self.assertEqual(totals["error_count"], 0)
+
     def test_non_object_episode_step_is_error_not_traceback(self):
         with tempfile.TemporaryDirectory() as raw:
             run_dir = Path(raw) / "run"

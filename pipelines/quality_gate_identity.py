@@ -173,10 +173,16 @@ def canonical_numeric_value(value):
 
 
 def _canonical_record_blob(value):
-    """Return collision-safe record identity with numeric values canonicalized."""
+    """Return collision-safe identity without reapplying source depth limits.
+
+    The typed projection adds container tags, so its internal nesting is deeper
+    than the source JSON.  ``record_hash`` validates the source contract before
+    projecting it; the ordinary canonical encoder here keeps that valid source
+    from being rejected solely because of the added identity tags.
+    """
 
     normalized = canonical_numeric_value(value)
-    return dumps_exact_json(normalized, sort_keys=True, ensure_ascii=False)
+    return canonical_blob(normalized)
 
 
 def _preference_identity_side(value):
@@ -203,7 +209,7 @@ def _preference_identity_view(obj):
     for key in _PREFERENCE_WRAPPER_FIELDS:
         if key in obj:
             view[key] = obj[key]
-    return view
+    return _with_bridge_gate_snn(obj, view)
 
 
 def _bridge_raster_sidecar(obj):
@@ -214,8 +220,6 @@ def _bridge_raster_sidecar(obj):
     resolution order but normalizes either location to the modeled ``raster``
     field so carrier placement alone does not change the training identity.
     """
-    if "language_view" not in obj or "spike_events" not in obj:
-        return None, None
     top_level = obj.get("raster")
     if isinstance(top_level, dict):
         return top_level, _RASTER_ROOT
@@ -373,8 +377,6 @@ def _unselected_raster_carriers(obj, selected, carrier):
 
 def _malformed_meta_raster_carrier(obj):
     """Return an explicit metadata-only raster that curation would reject."""
-    if "language_view" not in obj or "spike_events" not in obj:
-        return None
     meta = obj.get("meta")
     if not isinstance(meta, dict) or "raster" not in meta:
         return None
@@ -538,5 +540,9 @@ def semantic_similarity_view(obj):
 
 def record_hash(obj):
     """Return the quality gate's compact SHA-256 exact-identity digest."""
+    # Validate source JSON before the collision-safe identity projection adds
+    # its typed container tags.  Those tags intentionally do not consume the
+    # source's 128-level nesting budget.
+    dumps_exact_json(obj, sort_keys=False, ensure_ascii=False)
     blob = _canonical_record_blob(exact_identity_view(obj))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]

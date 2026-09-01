@@ -379,7 +379,10 @@ class BridgeTimingCuration(unittest.TestCase):
             [[curate_bridge.REASON_INVALID_JSON]] * 2,
         )
         self.assertIn("non-finite JSON number", decisions[0].manifest["evidence"]["parse_error"])
-        self.assertIn("surrogates not allowed", decisions[1].manifest["evidence"]["parse_error"])
+        self.assertIn(
+            "unpaired UTF-16 surrogate",
+            decisions[1].manifest["evidence"]["parse_error"],
+        )
 
     def test_missing_top_level_id_is_left_for_identity_lane(self):
         source = bridge([event(2, "b"), event(1, "a")])

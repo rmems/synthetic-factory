@@ -1431,7 +1431,10 @@ def main(argv=None):
         rel = path.relative_to(run_dir)
         entry = {"file": str(rel), "records": 0, "kinds": {}, "errors": []}
         try:
-            text = path.read_text()
+            # Decode the physical bytes without universal-newline translation.
+            # JSONL uses literal LF delimiters; a bare CR is JSON whitespace
+            # inside one physical record, not a second record boundary.
+            text = path.read_bytes().decode("utf-8")
         except UnicodeDecodeError as exc:
             entry["errors"].append(f"{rel}: invalid UTF-8: {exc}")
             manifest["files"].append(entry)
@@ -1450,7 +1453,7 @@ def main(argv=None):
                     parse_constant=reject_json_constant,
                     parse_float=_parse_exact_json_float,
                 )
-            except (json.JSONDecodeError, ValueError) as exc:
+            except ValueError as exc:
                 entry["errors"].append(f"{where}: JSON parse error: {exc}")
                 continue
             errs, kind = check_line(obj, where)

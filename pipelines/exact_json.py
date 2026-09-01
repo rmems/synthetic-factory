@@ -308,8 +308,16 @@ def _encode_scalar(value: Any, ensure_ascii: bool) -> str:
     if isinstance(value, (int, float)):
         return _encode_number(value)
     if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=ensure_ascii)
+        return _encode_json_string(value, ensure_ascii)
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _encode_json_string(value: str, ensure_ascii: bool) -> str:
+    """Encode one Unicode scalar string accepted by UTF-8 JSON output."""
+
+    if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+        raise ValueError("unpaired UTF-16 surrogate in JSON string")
+    return json.dumps(value, ensure_ascii=ensure_ascii)
 
 
 def _encode_number(value: int | float) -> str:
@@ -372,7 +380,7 @@ def _encode_mapping(
             keys,
             formatting,
             lambda key, entry: (
-                f"{json.dumps(key, ensure_ascii=state.ensure_ascii)}{key_separator}"
+                f"{_encode_json_string(key, state.ensure_ascii)}{key_separator}"
                 f"{_encode_exact_json(entry, state, active, depth + 1)}"
             ),
         )

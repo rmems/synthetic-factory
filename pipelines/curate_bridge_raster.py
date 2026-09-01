@@ -45,6 +45,16 @@ def _is_finite_number(value: Any) -> bool:
     )
 
 
+def _is_exact_finite_number(value: Any) -> bool:
+    """Return whether a JSON number is finite under the exact contract."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    if isinstance(value, int) and not json_integer_is_bounded(value):
+        return False
+    return exact_fraction(value) is not None
+
+
 def _expected_spikes(neurons: Any, mean_rate_hz: Any, window_s: Any) -> int | None:
     normalized_neurons = _nonnegative_json_integer(neurons)
     if normalized_neurons is None or _finite_float(normalized_neurons) is None:
@@ -69,18 +79,15 @@ def _expected_spikes(neurons: Any, mean_rate_hz: Any, window_s: Any) -> int | No
         return None
 
 
-def _spike_energy(spikes: int, per_spike: float) -> float | int | None:
-    if _finite_float(spikes) is None or _finite_float(per_spike) is None:
-        return None
+def _spike_energy(spikes: int, per_spike: float | int) -> float | int | None:
     spike_fraction = exact_fraction(spikes)
     per_spike_fraction = exact_fraction(per_spike)
     if spike_fraction is None or per_spike_fraction is None:
         return None
     try:
-        energy = json_number_from_fraction(spike_fraction * per_spike_fraction)
+        return json_number_from_fraction(spike_fraction * per_spike_fraction)
     except (OverflowError, ValueError):
         return None
-    return energy if _finite_float(energy) is not None else None
 
 
 @dataclass(frozen=True)
@@ -335,9 +342,9 @@ def _raster_energy_field(
     expected: float | int | None,
     tolerance: float,
 ) -> bool:
-    if expected is None or not _is_finite_number(expected):
+    if expected is None or not _is_exact_finite_number(expected):
         return False
-    if not _is_finite_number(value):
+    if not _is_exact_finite_number(value):
         return False
     value_fraction = exact_fraction(value)
     expected_fraction = exact_fraction(expected)
@@ -360,7 +367,7 @@ def _invalid_declared_energy_keys(raster: dict[str, Any]) -> list[str]:
     return [
         evidence_key
         for key, evidence_key in declared
-        if all((key in raster, not _is_finite_number(raster.get(key))))
+        if all((key in raster, not _is_exact_finite_number(raster.get(key))))
     ]
 
 
@@ -411,7 +418,7 @@ def _validate_raster_energy(
             _raster_energy_field(raster[key], expected, tolerance),
         )
         for key, expected, tolerance, expected_key, expected_value, evidence_key in checks
-        if all((key in raster, _is_finite_number(raster.get(key))))
+        if all((key in raster, _is_exact_finite_number(raster.get(key))))
     ]
     for expected_key, expected_value, evidence_key, valid in results:
         state.evidence[expected_key] = expected_value

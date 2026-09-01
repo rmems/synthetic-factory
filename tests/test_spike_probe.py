@@ -437,7 +437,7 @@ class ProbeCli(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual((report["loaded"], report["input_errors"]), (1, 0))
 
-    def test_jsonl_output_escapes_a_lone_surrogate(self):
+    def test_jsonl_output_rejects_a_lone_surrogate(self):
         record = gate_snn_record()
         record["id"] = "\ud800"
         with tempfile.TemporaryDirectory() as td:
@@ -445,15 +445,18 @@ class ProbeCli(unittest.TestCase):
             path.write_text(json.dumps(record) + "\n", encoding="utf-8")
             output_bytes = io.BytesIO()
             stdout = io.TextIOWrapper(output_bytes, encoding="utf-8", errors="strict")
-            with redirect_stdout(stdout), redirect_stderr(io.StringIO()):
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
                 code = spike_probe.main(["--jsonl", str(path)])
             stdout.flush()
             output = output_bytes.getvalue().decode("utf-8")
             stdout.detach()
 
-        self.assertEqual(code, 0)
-        self.assertIn("\\ud800", output)
-        self.assertEqual(json.loads(output)["record_id"], "\ud800")
+        self.assertEqual(code, 1)
+        self.assertEqual(output, "")
+        problem = json.loads(stderr.getvalue())
+        self.assertEqual(problem["scope"], "input")
+        self.assertEqual(problem["reason_codes"], ["BRIDGE_SOURCE_JSON_INVALID"])
 
     def test_strict_mode_fails_on_an_unloadable_raster(self):
         with tempfile.TemporaryDirectory() as td:

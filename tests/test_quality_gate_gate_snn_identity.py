@@ -18,6 +18,11 @@ from gate_fixtures import thalamic as thalamic_fixture  # noqa: E402
 import quality_gate_identity  # noqa: E402
 
 
+# Exact-identity digest of the deliberately mutated, gate-SNN-free Bridge
+# record in ``test_ungated_bridge_hash_keeps_its_published_baseline``.
+UNGATED_BRIDGE_IDENTITY_BASELINE = "a6ce0b1a9c3f4981"
+
+
 def gate_snn_fixture():
     """Return a fresh Bridge record with spike-gate supervision."""
 
@@ -60,7 +65,7 @@ class QualityGateGateSnnIdentity(unittest.TestCase):
         )
         self.assertEqual(records, originals)
 
-    def test_identity_does_not_change_unrelated_bridge_hashes(self):
+    def test_ungated_bridge_hash_keeps_its_published_baseline(self):
         fixture = TESTS / "fixtures" / "bridge_raster_valid.jsonl"
         record = json.loads(fixture.read_text(encoding="utf-8").splitlines()[0])
         record["language_view"]["trajectory"]["safety_decision"] = {
@@ -70,7 +75,7 @@ class QualityGateGateSnnIdentity(unittest.TestCase):
 
         self.assertEqual(
             quality_gate_identity.record_hash(record),
-            "a6ce0b1a9c3f4981",
+            UNGATED_BRIDGE_IDENTITY_BASELINE,
         )
 
     def test_redundant_and_conflicting_lower_carriers_remain_distinct(self):
@@ -114,6 +119,55 @@ class QualityGateGateSnnIdentity(unittest.TestCase):
         self.assertEqual(
             quality_gate_identity.record_hash(top_level),
             quality_gate_identity.record_hash(meta),
+        )
+
+    def test_preference_wrapper_root_and_meta_gate_carriers_share_identity(self):
+        pair = {
+            "chosen": thalamic_fixture("wrapper-chosen"),
+            "rejected": thalamic_fixture("wrapper-rejected"),
+            "critique": "the chosen trajectory preserves the safety gate",
+        }
+        gate_snn = copy.deepcopy(gate_snn_fixture()["gate_snn"])
+        root = copy.deepcopy(pair)
+        root["gate_snn"] = copy.deepcopy(gate_snn)
+        meta = copy.deepcopy(pair)
+        meta["meta"] = {"gate_snn": copy.deepcopy(gate_snn)}
+        originals = copy.deepcopy((root, meta))
+
+        root_view = quality_gate_identity.exact_identity_view(root)
+        meta_view = quality_gate_identity.exact_identity_view(meta)
+
+        self.assertEqual(root_view["gate_snn"], gate_snn)
+        self.assertEqual(root_view, meta_view)
+        self.assertEqual(
+            quality_gate_identity.record_hash(root),
+            quality_gate_identity.record_hash(meta),
+        )
+        changed = copy.deepcopy(root)
+        changed_population = changed["gate_snn"]["populations"][0]
+        changed_population["neurons"] = 128
+        changed_population["spikes"] = 128
+        self.assertNotEqual(
+            quality_gate_identity.record_hash(root),
+            quality_gate_identity.record_hash(changed),
+        )
+        self.assertEqual((root, meta), originals)
+
+    def test_thalamic_meta_raster_is_normalized_into_identity(self):
+        top_level = thalamic_fixture("thalamic-raster")
+        meta = thalamic_fixture("thalamic-raster")
+        meta["meta"]["raster"] = meta.pop("raster")
+
+        top_view = quality_gate_identity.exact_identity_view(top_level)
+        meta_view = quality_gate_identity.exact_identity_view(meta)
+
+        self.assertEqual(meta_view["raster"], meta["meta"]["raster"])
+        self.assertEqual(top_view, meta_view)
+        changed = copy.deepcopy(meta)
+        changed["meta"]["raster"]["routing"]["target"] = "pop_output_100"
+        self.assertNotEqual(
+            quality_gate_identity.record_hash(meta),
+            quality_gate_identity.record_hash(changed),
         )
 
 
