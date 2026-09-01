@@ -1,0 +1,33 @@
+pipelines/curate_bridge_gate.py
+  s_98712805c1499b::t_372aba4ad049f9 422-426
+pipelines/spike_probe.py
+  s_98712805c1499b::t_372aba4ad049f9 28,71,126
+pipelines/curate_bridge_raster.py
+  s_98712805c1499b::t_372aba4ad049f9 437-444
+pipelines/curate_bridge_events.py
+  s_98712805c1499b::t_372aba4ad049f9 119-127
+pipelines/curate_bridge_materialize.py
+  s_98712805c1499b::t_372aba4ad049f9 57
+pipelines/curate_bridge.py
+  s_98712805c1499b::t_372aba4ad049f9 71-75,77-78,83,86-90
+tests/test_pipelines_package_imports.py
+  s_98712805c1499b::t_a313b70ed0790f 42-66
+pipelines/spike_probe_source.py
+  s_98712805c1499b::t_372aba4ad049f9 14,49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bbb9e08ca98f0b60f01687c1f5dd7b1c8c075b37",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
