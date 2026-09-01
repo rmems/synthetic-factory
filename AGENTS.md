@@ -70,6 +70,13 @@ python3 scripts/publish_grok46_hub.py schemas --strict # nonzero while any gap r
 
 A dataset with no declaration publishes a card that says so. Never rewrite
 historical raw JSONL to fix a viewer schema — declare the union on the card.
+When even a declared union cannot describe a record honestly, the record is
+defective, not the schema: escalate through the quarantine-ledger path
+(`KIND_MIX_QUARANTINE` in `pipelines/leftover_mill.py`, documented in
+`docs/leftover-mill-quarantine.md`) — add the record's provenance to the
+ledger, open a tracking issue so the operator can review the quarantine, and
+let the published card report the exclusion. Both routes keep the raw bytes
+untouched.
 
 ## Cursor Cloud specific instructions
 
