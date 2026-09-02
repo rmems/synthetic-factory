@@ -126,6 +126,15 @@ def _open_child_directory_entry(
         ) from exc
 
 
+def _rollback_owned_entry(
+    kind: str, parent_descriptor: int, name: str, expected_identity: tuple[int, int, int]
+) -> None:
+    """Best-effort rollback that never removes a different destination entry."""
+
+    label = f"destination {kind} rollback"
+    _quarantine_owned_entry(parent_descriptor, name, expected_identity, label)
+
+
 def _remove_created_directory_if_identity(
     parent_descriptor: int,
     name: str,
@@ -133,12 +142,7 @@ def _remove_created_directory_if_identity(
 ) -> None:
     """Best-effort rollback that never removes a different directory entry."""
 
-    _quarantine_owned_entry(
-        parent_descriptor,
-        name,
-        expected_identity,
-        "destination directory rollback",
-    )
+    _rollback_owned_entry("directory", parent_descriptor, name, expected_identity)
 
 
 def _remove_created_file_if_identity(
@@ -148,12 +152,7 @@ def _remove_created_file_if_identity(
 ) -> None:
     """Best-effort rollback that never removes a different file entry."""
 
-    _quarantine_owned_entry(
-        parent_descriptor,
-        name,
-        expected_identity,
-        "destination file rollback",
-    )
+    _rollback_owned_entry("file", parent_descriptor, name, expected_identity)
 
 
 def _verify_pinned_child(
