@@ -27,7 +27,11 @@ else:
 
 ADAPTER_FIRST_CASES = tuple(
     itertools.product(
-        ("compose_curated_identity_facade", "compose_curated_record_facade"),
+        (
+            "compose_curated_identity_facade",
+            "compose_curated_identity_facade_binding",
+            "compose_curated_record_facade",
+        ),
         ("direct", "package"),
         ("direct", "package"),
     )

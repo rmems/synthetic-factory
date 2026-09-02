@@ -42,6 +42,18 @@ def _package_compose_curated_calibration() -> ModuleType:
     return module
 
 
+def _direct_compose_curated_calibration_lookup() -> ModuleType:
+    import compose_curated_calibration_lookup as module
+
+    return module
+
+
+def _package_compose_curated_calibration_lookup() -> ModuleType:
+    import pipelines.compose_curated_calibration_lookup as module
+
+    return module
+
+
 def _direct_compose_curated_coding() -> ModuleType:
     import compose_curated_coding as module
 
@@ -90,6 +102,30 @@ def _package_compose_curated_identity() -> ModuleType:
     return module
 
 
+def _direct_compose_curated_identity_repairs() -> ModuleType:
+    import compose_curated_identity_repairs as module
+
+    return module
+
+
+def _package_compose_curated_identity_repairs() -> ModuleType:
+    import pipelines.compose_curated_identity_repairs as module
+
+    return module
+
+
+def _direct_compose_curated_identity_deferral() -> ModuleType:
+    import compose_curated_identity_deferral as module
+
+    return module
+
+
+def _package_compose_curated_identity_deferral() -> ModuleType:
+    import pipelines.compose_curated_identity_deferral as module
+
+    return module
+
+
 def _direct_compose_curated_identity_facade() -> ModuleType:
     import compose_curated_identity_facade as module
 
@@ -98,6 +134,42 @@ def _direct_compose_curated_identity_facade() -> ModuleType:
 
 def _package_compose_curated_identity_facade() -> ModuleType:
     import pipelines.compose_curated_identity_facade as module
+
+    return module
+
+
+def _direct_compose_curated_identity_facade_binding() -> ModuleType:
+    import compose_curated_identity_facade_binding as module
+
+    return module
+
+
+def _package_compose_curated_identity_facade_binding() -> ModuleType:
+    import pipelines.compose_curated_identity_facade_binding as module
+
+    return module
+
+
+def _direct_compose_curated_identity_facade_lanes() -> ModuleType:
+    import compose_curated_identity_facade_lanes as module
+
+    return module
+
+
+def _package_compose_curated_identity_facade_lanes() -> ModuleType:
+    import pipelines.compose_curated_identity_facade_lanes as module
+
+    return module
+
+
+def _direct_compose_curated_identity_facade_semantics() -> ModuleType:
+    import compose_curated_identity_facade_semantics as module
+
+    return module
+
+
+def _package_compose_curated_identity_facade_semantics() -> ModuleType:
+    import pipelines.compose_curated_identity_facade_semantics as module
 
     return module
 
@@ -174,6 +246,42 @@ def _package_compose_curated_run() -> ModuleType:
     return module
 
 
+def _direct_compose_curated_run_context() -> ModuleType:
+    import compose_curated_run_context as module
+
+    return module
+
+
+def _package_compose_curated_run_context() -> ModuleType:
+    import pipelines.compose_curated_run_context as module
+
+    return module
+
+
+def _direct_compose_curated_run_lines() -> ModuleType:
+    import compose_curated_run_lines as module
+
+    return module
+
+
+def _package_compose_curated_run_lines() -> ModuleType:
+    import pipelines.compose_curated_run_lines as module
+
+    return module
+
+
+def _direct_compose_curated_run_artifacts() -> ModuleType:
+    import compose_curated_run_artifacts as module
+
+    return module
+
+
+def _package_compose_curated_run_artifacts() -> ModuleType:
+    import pipelines.compose_curated_run_artifacts as module
+
+    return module
+
+
 def _direct_compose_curated_run_bootstrap() -> ModuleType:
     import compose_curated_run_bootstrap as module
 
@@ -218,6 +326,30 @@ def _direct_compose_curated_source() -> ModuleType:
 
 def _package_compose_curated_source() -> ModuleType:
     import pipelines.compose_curated_source as module
+
+    return module
+
+
+def _direct_compose_curated_source_pointers() -> ModuleType:
+    import compose_curated_source_pointers as module
+
+    return module
+
+
+def _package_compose_curated_source_pointers() -> ModuleType:
+    import pipelines.compose_curated_source_pointers as module
+
+    return module
+
+
+def _direct_compose_curated_source_semantics() -> ModuleType:
+    import compose_curated_source_semantics as module
+
+    return module
+
+
+def _package_compose_curated_source_semantics() -> ModuleType:
+    import pipelines.compose_curated_source_semantics as module
 
     return module
 
@@ -398,6 +530,10 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
         _direct_compose_curated_calibration,
         _package_compose_curated_calibration,
     ),
+    "compose_curated_calibration_lookup": (
+        _direct_compose_curated_calibration_lookup,
+        _package_compose_curated_calibration_lookup,
+    ),
     "compose_curated_coding": (
         _direct_compose_curated_coding,
         _package_compose_curated_coding,
@@ -414,9 +550,29 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
         _direct_compose_curated_identity,
         _package_compose_curated_identity,
     ),
+    "compose_curated_identity_repairs": (
+        _direct_compose_curated_identity_repairs,
+        _package_compose_curated_identity_repairs,
+    ),
+    "compose_curated_identity_deferral": (
+        _direct_compose_curated_identity_deferral,
+        _package_compose_curated_identity_deferral,
+    ),
     "compose_curated_identity_facade": (
         _direct_compose_curated_identity_facade,
         _package_compose_curated_identity_facade,
+    ),
+    "compose_curated_identity_facade_binding": (
+        _direct_compose_curated_identity_facade_binding,
+        _package_compose_curated_identity_facade_binding,
+    ),
+    "compose_curated_identity_facade_lanes": (
+        _direct_compose_curated_identity_facade_lanes,
+        _package_compose_curated_identity_facade_lanes,
+    ),
+    "compose_curated_identity_facade_semantics": (
+        _direct_compose_curated_identity_facade_semantics,
+        _package_compose_curated_identity_facade_semantics,
     ),
     "compose_curated_preferences": (
         _direct_compose_curated_preferences,
@@ -439,6 +595,18 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
         _package_compose_curated_record_services,
     ),
     "compose_curated_run": (_direct_compose_curated_run, _package_compose_curated_run),
+    "compose_curated_run_context": (
+        _direct_compose_curated_run_context,
+        _package_compose_curated_run_context,
+    ),
+    "compose_curated_run_lines": (
+        _direct_compose_curated_run_lines,
+        _package_compose_curated_run_lines,
+    ),
+    "compose_curated_run_artifacts": (
+        _direct_compose_curated_run_artifacts,
+        _package_compose_curated_run_artifacts,
+    ),
     "compose_curated_run_bootstrap": (
         _direct_compose_curated_run_bootstrap,
         _package_compose_curated_run_bootstrap,
@@ -454,6 +622,14 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "compose_curated_source": (
         _direct_compose_curated_source,
         _package_compose_curated_source,
+    ),
+    "compose_curated_source_pointers": (
+        _direct_compose_curated_source_pointers,
+        _package_compose_curated_source_pointers,
+    ),
+    "compose_curated_source_semantics": (
+        _direct_compose_curated_source_semantics,
+        _package_compose_curated_source_semantics,
     ),
     "compose_destination": (_direct_compose_destination, _package_compose_destination),
     "compose_destination_binding": (

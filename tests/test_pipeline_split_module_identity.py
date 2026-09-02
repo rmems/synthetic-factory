@@ -24,18 +24,29 @@ NEW_SPLIT_MODULES = (
     "compose_curated",
     "compose_mill",
     "compose_curated_calibration",
+    "compose_curated_calibration_lookup",
     "compose_curated_coding",
     "compose_curated_context",
     "compose_curated_facade_bootstrap",
     "compose_curated_identity",
+    "compose_curated_identity_repairs",
+    "compose_curated_identity_deferral",
     "compose_curated_identity_facade",
+    "compose_curated_identity_facade_binding",
+    "compose_curated_identity_facade_lanes",
+    "compose_curated_identity_facade_semantics",
     "compose_curated_preferences",
     "compose_curated_record",
     "compose_curated_record_facade",
     "compose_curated_run",
+    "compose_curated_run_context",
+    "compose_curated_run_lines",
+    "compose_curated_run_artifacts",
     "compose_curated_run_cli",
     "compose_curated_run_facade",
     "compose_curated_source",
+    "compose_curated_source_pointers",
+    "compose_curated_source_semantics",
     "compose_destination",
     "compose_destination_binding",
     "compose_destination_creation",
@@ -112,6 +123,10 @@ class SplitModuleIdentityContracts(unittest.TestCase):
             )
             self.assertIs(
                 direct["compose_curated_run"].ComposeRunState,
+                packaged["compose_curated_run"].ComposeRunState,
+            )
+            self.assertIs(
+                direct["compose_curated_run_context"].ComposeRunState,
                 packaged["compose_curated_run"].ComposeRunState,
             )
             self.assertIs(

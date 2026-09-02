@@ -24,6 +24,8 @@ exclude:
       - pipelines/tag_regex.py
       - pipelines/tag_regex_domain.py
       - pipelines/compose_curated_identity_facade.py
+      - pipelines/compose_curated_identity_facade_lanes.py
+      - pipelines/compose_curated_identity_facade_semantics.py
       - pipelines/compose_curated_record_facade.py
       - pipelines/compose_curated_run_facade.py
       - pipelines/compose_curated_record_dispatch.py

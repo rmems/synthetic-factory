@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import copy
 import json
 import sys
 from dataclasses import dataclass
@@ -13,6 +12,8 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("compose_curated_source")
+    from . import compose_curated_source_pointers as _pointers
+    from . import compose_curated_source_semantics as _semantics
     from . import (
         curate_agentic,
         curate_bridge,
@@ -24,12 +25,10 @@ if __package__:
     from .check_records import reject_json_constant
     from .compose_contract import (
         ACTION_EXCLUDED,
-        ACTION_RETAINED,
         COMPOSE_NAME,
         COMPOSE_VERSION,
         ComposeDecision,
         ComposeError,
-        REASON_DUPLICATE_CURATED_RECORD,
         REASON_DUPLICATE_SOURCE_RECORD,
         REASON_INVALID_JSON,
         REASON_INVALID_UTF8,
@@ -49,6 +48,8 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_curated_source"
     )
+    import compose_curated_source_pointers as _pointers
+    import compose_curated_source_semantics as _semantics
     import curate_agentic
     import curate_bridge
     import curate_coding
@@ -58,12 +59,10 @@ else:
     from check_records import reject_json_constant
     from compose_contract import (
         ACTION_EXCLUDED,
-        ACTION_RETAINED,
         COMPOSE_NAME,
         COMPOSE_VERSION,
         ComposeDecision,
         ComposeError,
-        REASON_DUPLICATE_CURATED_RECORD,
         REASON_DUPLICATE_SOURCE_RECORD,
         REASON_INVALID_JSON,
         REASON_INVALID_UTF8,
@@ -80,9 +79,39 @@ else:
     from compose_curated_record import compose_record
     from curate_identity import reject_duplicate_object_keys
 
+# JSON Pointer and identity-owner helpers, re-exported for importers.
+_identity_owner = _pointers._identity_owner
+_descendant_mapping = _pointers._descendant_mapping
+_is_child_json_pointer = _pointers._is_child_json_pointer
+_json_pointer_tokens = _pointers._json_pointer_tokens
+_pop_json_pointer = _pointers._pop_json_pointer
+_original_id_paths = _pointers._original_id_paths
+_mapped_legacy_id_paths = _pointers._mapped_legacy_id_paths
+
+# Semantic normalisation and post-transform dedup, re-exported likewise.
+DEDUP_STAGE = _semantics.DEDUP_STAGE
+_semantic_identity_owners = _semantics._semantic_identity_owners
+_identity_stage_detail_of = _semantics._identity_stage_detail_of
+_strip_assigned_ids = _semantics._strip_assigned_ids
+_strip_provenance_labels = _semantics._strip_provenance_labels
+_strip_sidecar_binding = _semantics._strip_sidecar_binding
+_post_transform_semantic_sha256 = _semantics._post_transform_semantic_sha256
+_is_retained_record = _semantics._is_retained_record
+_deduplicate_curated_record = _semantics._deduplicate_curated_record
+
+__all__ = """
+DEDUP_STAGE SOURCE_STAGE SourceLineContext _curate_source_record _curated_deduplicator
+_decode_source_line _deduplicate_curated_record _descendant_mapping
+_duplicate_source_decision _excluded_source_line _identity_owner
+_identity_stage_detail_of _is_child_json_pointer _is_retained_record
+_json_pointer_tokens _mapped_legacy_id_paths _original_id_paths _parse_source_record
+_pop_json_pointer _post_transform_semantic_sha256 _remember_source_semantics
+_semantic_identity_owners _source_exclusion _strip_assigned_ids
+_strip_provenance_labels _strip_sidecar_binding compose_source_line transform_contract
+""".split()
+
 
 SOURCE_STAGE = StageDefinition("source", COMPOSE_NAME, COMPOSE_VERSION)
-DEDUP_STAGE = StageDefinition("post_transform_dedup", COMPOSE_NAME, COMPOSE_VERSION)
 
 
 @dataclass(frozen=True)
@@ -107,204 +136,6 @@ class SourceLineContext:
     constant_rejector: Callable[[str], Any] = reject_json_constant
     excluded_source_line: Callable[[str, dict[str, Any]], ComposeDecision] | None = None
     deduplicate_curated_record: Callable[..., ComposeDecision] | None = None
-
-
-def _identity_owner(record: dict[str, Any], pointer: Any) -> dict[str, Any] | None:
-    """Resolve an identity manifest owner pointer within one curated record."""
-
-    if pointer == "/":
-        return record
-    tokens = _json_pointer_tokens(pointer)
-    if tokens is None:
-        return None
-    return _descendant_mapping(record, tokens)
-
-
-def _descendant_mapping(
-    record: dict[str, Any], tokens: list[str]
-) -> dict[str, Any] | None:
-    """Traverse decoded pointer tokens and return only mapping owners."""
-
-    owner: Any = record
-    for token in tokens:
-        if not isinstance(owner, dict):
-            return None
-        owner = owner.get(token)
-    return owner if isinstance(owner, dict) else None
-
-
-def _is_child_json_pointer(pointer: Any) -> bool:
-    """Whether a value identifies a non-root JSON Pointer path."""
-
-    return isinstance(pointer, str) and pointer.startswith("/") and pointer != "/"
-
-
-def _json_pointer_tokens(pointer: Any) -> list[str] | None:
-    """Decode a non-root JSON Pointer into unescaped path tokens."""
-
-    if not _is_child_json_pointer(pointer):
-        return None
-    return [
-        token.replace("~1", "/").replace("~0", "~")
-        for token in pointer[1:].split("/")
-    ]
-
-
-def _pop_json_pointer(record: dict[str, Any], pointer: Any) -> None:
-    """Drop one JSON-pointer field from a copied record when it exists."""
-
-    tokens = _json_pointer_tokens(pointer)
-    if tokens is None:
-        return
-    owner: Any = record
-    for token in tokens[:-1]:
-        if not isinstance(owner, dict):
-            return
-        owner = owner.get(token)
-    if isinstance(owner, dict) and tokens[-1]:
-        owner.pop(tokens[-1], None)
-
-
-def _original_id_paths(originals: Any) -> list[str]:
-    """Return every valid path carried by original-id entries."""
-
-    if not isinstance(originals, list):
-        return []
-    return [
-        item["path"]
-        for item in originals
-        if isinstance(item, dict) and isinstance(item.get("path"), str)
-    ]
-
-
-def _mapped_legacy_id_paths(detail: Mapping[str, Any] | None) -> tuple[str, ...]:
-    """Collect all identity-mapped legacy identifier paths."""
-
-    if not isinstance(detail, Mapping):
-        return ()
-    paths = _original_id_paths(detail.get("original_ids"))
-    mappings = detail.get("id_mappings")
-    if isinstance(mappings, list):
-        for mapping in mappings:
-            if isinstance(mapping, dict):
-                paths.extend(_original_id_paths(mapping.get("original_ids")))
-    return tuple(dict.fromkeys(paths))
-
-
-def _semantic_identity_owners(record: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return every owner whose production labels are not training content."""
-
-    owners = [record]
-    for side in ("chosen", "rejected"):
-        owner = record.get(side)
-        if isinstance(owner, dict):
-            owners.append(owner)
-    view = record.get("language_view")
-    trajectory = view.get("trajectory") if isinstance(view, Mapping) else None
-    if isinstance(trajectory, dict):
-        owners.append(trajectory)
-    return owners
-
-
-def _identity_stage_detail_of(decision: ComposeDecision) -> dict[str, Any] | None:
-    """Return the recorded identity-stage detail mapping."""
-
-    identity_stage = next(
-        (item for item in decision.stages if item.get("lane") == "identity"), None
-    )
-    detail = identity_stage.get("detail") if isinstance(identity_stage, dict) else None
-    return detail if isinstance(detail, dict) else None
-
-
-def _strip_assigned_ids(semantic: dict[str, Any], detail: dict[str, Any] | None) -> None:
-    """Drop coordinate-derived identifiers assigned by identity curation."""
-
-    mappings = detail.get("id_mappings") if isinstance(detail, dict) else None
-    for mapping in mappings if isinstance(mappings, list) else ():
-        if not isinstance(mapping, dict):
-            continue
-        owner = _identity_owner(semantic, mapping.get("owner_path"))
-        if owner is not None and owner.get("id") == mapping.get("output_id"):
-            owner.pop("id", None)
-    for path in _mapped_legacy_id_paths(detail):
-        _pop_json_pointer(semantic, path)
-
-
-def _strip_provenance_labels(semantic: dict[str, Any]) -> None:
-    """Drop pipeline provenance labels from every semantic identity owner."""
-
-    labels = ("factory", "generator", "generator_version", "run", "round")
-    for owner in _semantic_identity_owners(semantic):
-        meta = owner.get("meta")
-        if not isinstance(meta, dict):
-            continue
-        for label in labels:
-            meta.pop(label, None)
-
-
-def _strip_sidecar_binding(semantic: dict[str, Any]) -> None:
-    """Drop source-coordinate bindings while retaining reward semantics."""
-
-    annotation = semantic.get(curate_rewards.ANNOTATION_FIELD)
-    if not isinstance(annotation, dict):
-        return
-    annotation.pop("source_sidecar_id", None)
-    magnitude = annotation.get("magnitude")
-    values = magnitude.get("values") if isinstance(magnitude, dict) else None
-    for value in values if isinstance(values, list) else ():
-        if isinstance(value, dict):
-            value.pop("calibration_source", None)
-
-
-def _post_transform_semantic_sha256(
-    decision: ComposeDecision, context: SourceLineContext
-) -> str:
-    """Hash training content without coordinate-derived bindings."""
-
-    if decision.record is None:
-        raise ComposeError("cannot hash a missing curated record")
-    semantic = copy.deepcopy(decision.record)
-    _strip_assigned_ids(semantic, _identity_stage_detail_of(decision))
-    _strip_provenance_labels(semantic)
-    _strip_sidecar_binding(semantic)
-    return context.canonical_sha256(semantic)
-
-
-def _is_retained_record(decision: ComposeDecision) -> bool:
-    """Whether a decision carries a record eligible for semantic indexing."""
-
-    return decision.action == ACTION_RETAINED and decision.record is not None
-
-
-def _deduplicate_curated_record(
-    decision: ComposeDecision, context: SourceLineContext
-) -> ComposeDecision:
-    """Exclude records that converge only after lossy curation lanes."""
-
-    seen = context.seen_curated_semantics
-    if seen is None or not _is_retained_record(decision):
-        return decision
-    semantic_sha256 = _post_transform_semantic_sha256(decision, context)
-    first = seen.get(semantic_sha256)
-    if first is None:
-        seen[semantic_sha256] = (context.source_path, context.source_line)
-        return decision
-    duplicate = stage(
-        DEDUP_STAGE,
-        ACTION_EXCLUDED,
-        reason_codes=[REASON_DUPLICATE_CURATED_RECORD],
-        semantic_sha256=semantic_sha256,
-        first_source_path=first[0],
-        first_source_line=first[1],
-    )
-    return ComposeDecision(
-        ACTION_EXCLUDED,
-        None,
-        (REASON_DUPLICATE_CURATED_RECORD,),
-        (*decision.stages, duplicate),
-        None,
-        None,
-    )
 
 
 def _excluded_source_line(reason: str, detail: dict[str, Any]) -> ComposeDecision:

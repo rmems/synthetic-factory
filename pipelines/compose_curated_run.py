@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Transactional orchestration supplied with facade-owned call boundaries."""
+"""Transactional orchestration supplied with facade-owned call boundaries.
+
+The run coordinates and services, the per-line framing and manifest
+accounting, and the destination artifacts live in the
+``compose_curated_run_context``, ``compose_curated_run_lines``, and
+``compose_curated_run_artifacts`` siblings; this module keeps the orchestration
+that ``default_run_hooks`` resolves and re-exports every sibling name.
+"""
 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
-from collections import Counter
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -15,330 +19,64 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("compose_curated_run")
-    from .compose_contract import (
-        ACTION_EXCLUDED,
-        ACTION_RETAINED,
-        COMPOSE_NAME,
-        COMPOSE_VERSION,
-        LANE_ORDER,
-        MANIFEST_DIRNAME,
-        MANIFEST_FILENAME,
-        RECORDS_DIRNAME,
-        REWARD_SIDECAR_FILENAME,
-        SUMMARY_FILENAME,
-        ComposeDecision,
-        ComposeError,
-        canonical_json,
-        published_source_coordinate,
-        published_source_snapshot,
-        sha256_hex,
-    )
+    from . import compose_contract as _contract
+    from . import compose_curated_run_artifacts as _artifacts
+    from . import compose_curated_run_context as _run_context
+    from . import compose_curated_run_lines as _lines
     from .compose_curated_calibration import CalibrationContext
-    from .compose_curated_context import SemanticRegistry, SourceLineCoordinate
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_curated_run"
     )
-    from compose_contract import (
-        ACTION_EXCLUDED,
-        ACTION_RETAINED,
-        COMPOSE_NAME,
-        COMPOSE_VERSION,
-        LANE_ORDER,
-        MANIFEST_DIRNAME,
-        MANIFEST_FILENAME,
-        RECORDS_DIRNAME,
-        REWARD_SIDECAR_FILENAME,
-        SUMMARY_FILENAME,
-        ComposeDecision,
-        ComposeError,
-        canonical_json,
-        published_source_coordinate,
-        published_source_snapshot,
-        sha256_hex,
-    )
+    import compose_contract as _contract
+    import compose_curated_run_artifacts as _artifacts
+    import compose_curated_run_context as _run_context
+    import compose_curated_run_lines as _lines
     from compose_curated_calibration import CalibrationContext
-    from compose_curated_context import SemanticRegistry, SourceLineCoordinate
+
+ACTION_RETAINED = _contract.ACTION_RETAINED
+MANIFEST_DIRNAME = _contract.MANIFEST_DIRNAME
+RECORDS_DIRNAME = _contract.RECORDS_DIRNAME
+ComposeError = _contract.ComposeError
+canonical_json = _contract.canonical_json
+published_source_coordinate = _contract.published_source_coordinate
+published_source_snapshot = _contract.published_source_snapshot
+sha256_hex = _contract.sha256_hex
+ComposeCliServices = _run_context.ComposeCliServices
+ComposeRunContext = _run_context.ComposeRunContext
+ComposeRunHooks = _run_context.ComposeRunHooks
+ComposeRunServices = _run_context.ComposeRunServices
+ComposeRunState = _run_context.ComposeRunState
+DestinationServices = _run_context.DestinationServices
+PhysicalSourceLine = _run_context.PhysicalSourceLine
+ReportServices = _run_context.ReportServices
+RetainedLineContext = _run_context.RetainedLineContext
+SourceBatchContext = _run_context.SourceBatchContext
+SourceFileContext = _run_context.SourceFileContext
+SourceLineContext = _run_context.SourceLineContext
+SourceServices = _run_context.SourceServices
+SummaryCommitContext = _run_context.SummaryCommitContext
+SummaryContext = _run_context.SummaryContext
+TransactionContext = _run_context.TransactionContext
+_account_lane_actions = _lines._account_lane_actions
+_line_decision = _lines._line_decision
+_without_terminal_cr = _lines._without_terminal_cr
+claim_output_id = _lines.claim_output_id
+jsonl_physical_lines = _lines.jsonl_physical_lines
+mill_quarantined_decision = _lines.mill_quarantined_decision
+new_manifest_entry = _lines.new_manifest_entry
+record_excluded_line = _lines.record_excluded_line
+record_retained_line = _lines.record_retained_line
+_summary_counts = _artifacts._summary_counts
+authenticate_composed_artifacts = _artifacts.authenticate_composed_artifacts
+commit_compose_summary = _artifacts.commit_compose_summary
+compose_run_summary = _artifacts.compose_run_summary
+write_compose_provenance = _artifacts.write_compose_provenance
+write_emitted_records = _artifacts.write_emitted_records
 
 
 CLI_DESCRIPTION = __doc__.split("\n\n")[0]
 _published_source_coordinate = published_source_coordinate
-
-
-@dataclass(frozen=True)
-class ComposeRunContext:
-    source_run: Path
-    destination: Path
-    units_migration: Path | None = None
-
-
-@dataclass(frozen=True)
-class SourceServices:
-    require_exact_directory: Callable[[Path, str], Path]
-    source_jsonl_members: Callable[[Path], tuple[str, ...]]
-    captured_source_payloads: Callable[[Path, tuple[str, ...]], dict[str, bytes]]
-    source_snapshot_identities: Callable[..., dict[str, tuple[tuple[int, ...], str, bool]]]
-    index_compose_mills: Callable[..., Mapping[tuple[str, int], Any]]
-    compose_source_line: Callable[..., ComposeDecision]
-
-
-@dataclass(frozen=True)
-class DestinationServices:
-    create_pinned_destination: Callable[[Path, Path], Any]
-    create_pinned_new_directory: Callable[[Any, str, str], None]
-    write_new_text: Callable[[Any, str, str], str]
-    read_exact_regular_file: Callable[..., tuple[Path, bytes]]
-
-
-@dataclass(frozen=True)
-class ReportServices:
-    load_calibration: Callable[..., tuple[dict[str, Any], dict[str, Any]]]
-    audit_records: Callable[[Path, int], dict[str, Any]]
-    transform_contract: Callable[[], dict[str, Any]]
-
-
-@dataclass(frozen=True)
-class ComposeRunServices:
-    source: SourceServices
-    destination: DestinationServices
-    report: ReportServices
-
-
-@dataclass(frozen=True)
-class ComposeRunHooks:
-    """Facade-owned orchestration seams resolved for one compose invocation."""
-
-    new_manifest_entry: Callable[..., dict[str, Any]]
-    claim_output_id: Callable[..., None]
-    record_retained_line: Callable[..., None]
-    record_excluded_line: Callable[..., None]
-    mill_quarantined_decision: Callable[[Any], ComposeDecision]
-    compose_one_line: Callable[..., None]
-    write_emitted_records: Callable[..., None]
-    compose_source_file: Callable[..., None]
-    capture_source_snapshot: Callable[..., Any]
-    write_compose_provenance: Callable[..., tuple[str, str]]
-    authenticate_composed_artifacts: Callable[..., None]
-    compose_run_summary: Callable[..., dict[str, Any]]
-    commit_compose_summary: Callable[..., None]
-    jsonl_physical_lines: Callable[[bytes], list[bytes]]
-
-
-@dataclass(frozen=True)
-class ComposeCliServices:
-    run: ComposeRunServices
-    caught_errors: tuple[type[BaseException], ...]
-
-
-@dataclass(frozen=True)
-class SourceLineContext:
-    relative: str
-    line_number: int
-    source_file_sha256: str
-    catalog: Mapping[str, Any] | None
-    emitted: list[str]
-    mill_findings: Mapping[tuple[str, int], Any] | None = None
-
-
-@dataclass(frozen=True)
-class PhysicalSourceLine:
-    payload: bytes
-    context: SourceLineContext
-
-
-@dataclass(frozen=True)
-class RetainedLineContext:
-    entry: dict[str, Any]
-    relative: str
-    location: str
-    emitted: list[str]
-
-
-@dataclass(frozen=True)
-class SourceFileContext:
-    relative: str
-    raw_file: bytes
-    destination_target: Any
-    catalog: Mapping[str, Any] | None
-    mill_findings: Mapping[tuple[str, int], Any] | None = None
-
-
-@dataclass(frozen=True)
-class SummaryContext:
-    resolved_source: Path
-    destination_path: Path
-    calibration_descriptor: Any
-    calibrated_records: int
-    manifest_sha256: str
-    sidecar_sha256: str
-    records_dir: Path
-
-
-@dataclass(frozen=True)
-class SourceBatchContext:
-    source_members: tuple[str, ...]
-    payload_by_member: Mapping[str, bytes]
-    destination_target: Any
-    catalog: Mapping[str, Any]
-    mill_findings: Mapping[tuple[str, int], Any]
-
-
-@dataclass(frozen=True)
-class TransactionContext:
-    pinned_destination: Any
-    resolved_source: Path
-    source_members: tuple[str, ...]
-    payload_by_member: Mapping[str, bytes]
-    mill_findings: Mapping[tuple[str, int], Any]
-    catalog: Mapping[str, Any]
-    calibration_descriptor: Mapping[str, Any]
-
-
-@dataclass(frozen=True)
-class SummaryCommitContext:
-    pinned_destination: Any
-    summary: Mapping[str, Any]
-    manifest_sha256: str | None = None
-    sidecar_sha256: str | None = None
-
-
-@dataclass
-class ComposeRunState:
-    counts: Counter[str] = field(default_factory=Counter)
-    exclusions: Counter[str] = field(default_factory=Counter)
-    lane_actions: dict[str, Counter[str]] = field(
-        default_factory=lambda: {lane: Counter() for lane in LANE_ORDER}
-    )
-    manifest_lines: list[str] = field(default_factory=list)
-    sidecar_lines: list[str] = field(default_factory=list)
-    outputs: list[dict[str, Any]] = field(default_factory=list)
-    emitted_ids: dict[str, str] = field(default_factory=dict)
-    seen_source_semantics: dict[str, tuple[str, int]] = field(default_factory=dict)
-    seen_curated_semantics: dict[str, tuple[str, int]] = field(default_factory=dict)
-
-
-def jsonl_physical_lines(raw_file: bytes) -> list[bytes]:
-    physical_lines = raw_file.split(b"\n")
-    terminated_lines = len(physical_lines) - 1
-    if physical_lines and physical_lines[-1] == b"":
-        physical_lines.pop()
-    framed = min(terminated_lines, len(physical_lines))
-    physical_lines[:framed] = map(_without_terminal_cr, physical_lines[:framed])
-    return physical_lines
-
-
-def _without_terminal_cr(physical_line: bytes) -> bytes:
-    """Remove JSONL framing's CR only when the line ended in CRLF."""
-
-    return physical_line[:-1] if physical_line.endswith(b"\r") else physical_line
-
-
-def new_manifest_entry(context: SourceLineContext, source_sha256: str) -> dict[str, Any]:
-    return {
-        "compose_name": COMPOSE_NAME,
-        "compose_version": COMPOSE_VERSION,
-        "lane_order": list(LANE_ORDER),
-        "source_path": context.relative,
-        "source_line": context.line_number,
-        "source_sha256": source_sha256,
-        "source_file_sha256": context.source_file_sha256,
-    }
-
-
-def claim_output_id(state: ComposeRunState, output_id: Any, location: str) -> None:
-    if output_id is None:
-        return
-    previous = state.emitted_ids.get(output_id)
-    if previous is not None:
-        raise ComposeError(f"canonical ID collision {output_id!r}: {previous} and {location}")
-    state.emitted_ids[output_id] = location
-
-
-def record_retained_line(
-    state: ComposeRunState,
-    decision: ComposeDecision,
-    context: RetainedLineContext,
-    claim_output_id_fn: Callable[..., None] = claim_output_id,
-) -> None:
-    line = canonical_json(decision.record)
-    claim_output_id_fn(state, decision.output_id, context.location)
-    context.emitted.append(line)
-    context.entry.update(
-        {
-            "output_path": f"{RECORDS_DIRNAME}/{context.relative}",
-            "output_line": len(context.emitted),
-            "output_id": decision.output_id,
-            "output_sha256": sha256_hex(line.encode("utf-8")),
-        }
-    )
-    state.counts["retained"] += 1
-    if decision.reward_sidecar is not None:
-        context.entry["reward_sidecar_id"] = decision.reward_sidecar["sidecar_id"]
-        state.sidecar_lines.append(canonical_json(decision.reward_sidecar))
-
-
-def record_excluded_line(
-    state: ComposeRunState, decision: ComposeDecision, entry: dict[str, Any]
-) -> None:
-    entry.update(
-        {
-            "output_path": None,
-            "output_line": None,
-            "output_id": None,
-            "output_sha256": None,
-        }
-    )
-    state.counts["excluded"] += 1
-    for reason in decision.reason_codes or ("compose.unspecified",):
-        state.exclusions[reason] += 1
-
-
-def mill_quarantined_decision(finding: Any) -> ComposeDecision:
-    reasons = list(finding.reason_codes)
-    stage = {
-        "lane": "source",
-        "transform_name": COMPOSE_NAME,
-        "transform_version": COMPOSE_VERSION,
-        "action": ACTION_EXCLUDED,
-        "reason_codes": reasons,
-        "classification": "foreign_mill_quarantined",
-        "detail": finding.as_dict(),
-    }
-    return ComposeDecision(
-        ACTION_EXCLUDED,
-        None,
-        tuple(reasons),
-        (stage,),
-        None,
-        None,
-    )
-
-
-def _line_decision(
-    state: ComposeRunState,
-    source_line: PhysicalSourceLine,
-    services: SourceServices,
-    hooks: ComposeRunHooks,
-) -> ComposeDecision:
-    context = source_line.context
-    finding = None
-    if context.mill_findings is not None:
-        finding = context.mill_findings.get((context.relative, context.line_number))
-    if finding is not None:
-        return hooks.mill_quarantined_decision(finding)
-    return services.compose_source_line(
-        source_line.payload,
-        SourceLineCoordinate(context.relative, context.line_number, context.source_file_sha256),
-        calibration_catalog=context.catalog,
-        semantics=SemanticRegistry(state.seen_source_semantics, state.seen_curated_semantics),
-    )
-
-
-def _account_lane_actions(state: ComposeRunState, decision: ComposeDecision) -> None:
-    for stage in decision.stages:
-        lane = stage["lane"]
-        if lane in state.lane_actions:
-            state.lane_actions[lane][stage["action"]] += 1
 
 
 def compose_one_line(
@@ -373,22 +111,6 @@ def compose_one_line(
     else:
         active.record_excluded_line(state, decision, entry)
     state.manifest_lines.append(canonical_json(entry))
-
-
-def write_emitted_records(
-    state: ComposeRunState,
-    context: SourceFileContext,
-    emitted: list[str],
-    services: DestinationServices,
-) -> None:
-    output_path = f"{RECORDS_DIRNAME}/{context.relative}"
-    digest = services.write_new_text(
-        context.destination_target,
-        output_path,
-        "".join(line + "\n" for line in emitted),
-    )
-    state.outputs.append({"path": output_path, "records": len(emitted), "sha256": digest})
-    state.counts["output_files"] += 1
 
 
 def compose_source_file(
@@ -452,118 +174,6 @@ def capture_source_snapshot(
         for relative, (_file_identity, factory, verified) in identities.items()
     }
     return source_members, payloads, factory_identities
-
-
-def write_compose_provenance(
-    state: ComposeRunState, destination_target: Any, services: DestinationServices
-) -> tuple[str, str]:
-    manifest_sha256 = services.write_new_text(
-        destination_target,
-        f"{MANIFEST_DIRNAME}/{MANIFEST_FILENAME}",
-        "".join(line + "\n" for line in state.manifest_lines),
-    )
-    sidecar_sha256 = services.write_new_text(
-        destination_target,
-        f"{MANIFEST_DIRNAME}/{REWARD_SIDECAR_FILENAME}",
-        "".join(line + "\n" for line in state.sidecar_lines),
-    )
-    return manifest_sha256, sidecar_sha256
-
-
-def authenticate_composed_artifacts(
-    pinned_destination: Any,
-    expected_digests: Mapping[str, str],
-    services: DestinationServices,
-) -> None:
-    pinned_destination.verify_binding()
-    for relative, expected_digest in sorted(expected_digests.items()):
-        _path, payload = services.read_exact_regular_file(
-            pinned_destination.root,
-            relative,
-            f"compose artifact {relative}",
-        )
-        if sha256_hex(payload) != expected_digest:
-            raise ComposeError(f"compose artifact {relative} changed before compose commit")
-    pinned_destination.verify_binding()
-
-
-def _summary_counts(state: ComposeRunState) -> dict[str, int]:
-    counts = state.counts
-    return {
-        "source_files": counts["source_files"],
-        "source_records": counts["source_records"],
-        "blank_lines": counts["blank_lines"],
-        "retained": counts["retained"],
-        "excluded": counts["excluded"],
-        "output_files": counts["output_files"],
-        "reward_sidecars": len(state.sidecar_lines),
-    }
-
-
-def compose_run_summary(
-    state: ComposeRunState,
-    context: SummaryContext,
-    services: ReportServices,
-) -> dict[str, Any]:
-    return {
-        "compose_name": COMPOSE_NAME,
-        "compose_version": COMPOSE_VERSION,
-        "source_run": str(context.resolved_source),
-        "destination": str(context.destination_path),
-        "lane_order": list(LANE_ORDER),
-        "transforms": services.transform_contract(),
-        "calibration": context.calibration_descriptor,
-        "calibrated_records": context.calibrated_records,
-        "counts": _summary_counts(state),
-        "lane_actions": {
-            lane: dict(sorted(actions.items())) for lane, actions in state.lane_actions.items()
-        },
-        "exclusions": dict(sorted(state.exclusions.items())),
-        "outputs": state.outputs,
-        "manifest": {
-            "path": f"{MANIFEST_DIRNAME}/{MANIFEST_FILENAME}",
-            "entries": len(state.manifest_lines),
-            "sha256": context.manifest_sha256,
-        },
-        "reward_sidecars": {
-            "path": f"{MANIFEST_DIRNAME}/{REWARD_SIDECAR_FILENAME}",
-            "entries": len(state.sidecar_lines),
-            "sha256": context.sidecar_sha256,
-        },
-        "audit": services.audit_records(context.records_dir, state.counts["retained"]),
-    }
-
-
-def commit_compose_summary(
-    state: ComposeRunState,
-    context: SummaryCommitContext,
-    services: DestinationServices,
-    authenticate: Callable[..., None] = authenticate_composed_artifacts,
-) -> None:
-    pinned_destination = context.pinned_destination
-    summary = context.summary
-    summary_sha256 = services.write_new_text(
-        pinned_destination,
-        SUMMARY_FILENAME,
-        json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-    )
-    expected_digests = {item["path"]: item["sha256"] for item in state.outputs}
-    expected_digests.update(
-        {
-            summary["manifest"]["path"]: (
-                summary["manifest"]["sha256"]
-                if context.manifest_sha256 is None
-                else context.manifest_sha256
-            ),
-            summary["reward_sidecars"]["path"]: (
-                summary["reward_sidecars"]["sha256"]
-                if context.sidecar_sha256 is None
-                else context.sidecar_sha256
-            ),
-            SUMMARY_FILENAME: summary_sha256,
-        }
-    )
-    authenticate(pinned_destination, expected_digests, services)
 
 
 def _write_source_members(
@@ -736,6 +346,23 @@ def main(
     else:
         from compose_curated_run_cli import main as implementation
     return implementation(argv, services, hooks)
+
+
+__all__ = """
+CLI_DESCRIPTION ComposeCliServices ComposeRunContext ComposeRunHooks
+ComposeRunServices ComposeRunState DestinationServices PhysicalSourceLine
+ReportServices RetainedLineContext SourceBatchContext SourceFileContext
+SourceLineContext SourceServices SummaryCommitContext SummaryContext
+TransactionContext _account_lane_actions _line_decision
+_published_source_coordinate _summary_counts _without_terminal_cr
+_write_source_members _write_transaction authenticate_composed_artifacts
+capture_source_snapshot captured_source_payloads claim_output_id
+commit_compose_summary compose_one_line compose_run compose_run_summary
+compose_source_file default_run_hooks facade_run_hooks facade_run_services
+jsonl_physical_lines main mill_quarantined_decision new_manifest_entry
+parse_args record_excluded_line record_retained_line write_compose_provenance
+write_emitted_records
+""".split()
 
 
 if __package__:

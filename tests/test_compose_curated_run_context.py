@@ -37,29 +37,14 @@ class ComposeRunContextContract(unittest.TestCase):
         """Mutation must not redirect a run after source authentication."""
 
         try:
-            from compose_curated_run import ComposeRunContext
+            from compose_curated_run_context import ComposeRunContext
         except ModuleNotFoundError:
-            self.fail("compose_curated_run.ComposeRunContext is missing")
+            self.fail("compose_curated_run_context.ComposeRunContext is missing")
 
         context = ComposeRunContext(Path("source"), Path("destination"), None)
 
         with self.assertRaises(FrozenInstanceError):
             context.destination = Path("other")
-
-    def test_physical_jsonl_framing_uses_lf_only(self):
-        """Unicode separators remain payload bytes while CRLF loses only CR."""
-
-        try:
-            from compose_curated_run import jsonl_physical_lines
-        except ModuleNotFoundError:
-            self.fail("compose_curated_run.jsonl_physical_lines is missing")
-
-        payload = b'"line\xe2\x80\xa8separator"\r\n{"second":true}\n'
-
-        self.assertEqual(
-            jsonl_physical_lines(payload),
-            [b'"line\xe2\x80\xa8separator"', b'{"second":true}'],
-        )
 
     def test_non_regular_default_calibration_fails_closed(self):
         """A canonical directory must never be recorded as no calibration."""

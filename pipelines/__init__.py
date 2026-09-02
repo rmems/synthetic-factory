@@ -145,6 +145,12 @@ def _load_compose_curated_calibration():
     return compose_curated_calibration
 
 
+def _load_compose_curated_calibration_lookup():
+    from . import compose_curated_calibration_lookup
+
+    return compose_curated_calibration_lookup
+
+
 def _load_compose_contract():
     from . import compose_contract
 
@@ -175,10 +181,40 @@ def _load_compose_curated_identity():
     return compose_curated_identity
 
 
+def _load_compose_curated_identity_repairs():
+    from . import compose_curated_identity_repairs
+
+    return compose_curated_identity_repairs
+
+
+def _load_compose_curated_identity_deferral():
+    from . import compose_curated_identity_deferral
+
+    return compose_curated_identity_deferral
+
+
 def _load_compose_curated_identity_facade():
     from . import compose_curated_identity_facade
 
     return compose_curated_identity_facade
+
+
+def _load_compose_curated_identity_facade_binding():
+    from . import compose_curated_identity_facade_binding
+
+    return compose_curated_identity_facade_binding
+
+
+def _load_compose_curated_identity_facade_lanes():
+    from . import compose_curated_identity_facade_lanes
+
+    return compose_curated_identity_facade_lanes
+
+
+def _load_compose_curated_identity_facade_semantics():
+    from . import compose_curated_identity_facade_semantics
+
+    return compose_curated_identity_facade_semantics
 
 
 def _load_compose_curated_preferences():
@@ -205,10 +241,40 @@ def _load_compose_curated_run():
     return compose_curated_run
 
 
+def _load_compose_curated_run_context():
+    from . import compose_curated_run_context
+
+    return compose_curated_run_context
+
+
+def _load_compose_curated_run_lines():
+    from . import compose_curated_run_lines
+
+    return compose_curated_run_lines
+
+
+def _load_compose_curated_run_artifacts():
+    from . import compose_curated_run_artifacts
+
+    return compose_curated_run_artifacts
+
+
 def _load_compose_curated_source():
     from . import compose_curated_source
 
     return compose_curated_source
+
+
+def _load_compose_curated_source_pointers():
+    from . import compose_curated_source_pointers
+
+    return compose_curated_source_pointers
+
+
+def _load_compose_curated_source_semantics():
+    from . import compose_curated_source_semantics
+
+    return compose_curated_source_semantics
 
 
 def _load_compose_destination():
@@ -411,15 +477,26 @@ _PACKAGE_SIBLING_LOADERS = {
     "compose_contract": _load_compose_contract,
     "compose_curated": _load_compose_curated,
     "compose_curated_calibration": _load_compose_curated_calibration,
+    "compose_curated_calibration_lookup": _load_compose_curated_calibration_lookup,
     "compose_curated_coding": _load_compose_curated_coding,
     "compose_curated_context": _load_compose_curated_context,
     "compose_curated_identity": _load_compose_curated_identity,
+    "compose_curated_identity_repairs": _load_compose_curated_identity_repairs,
+    "compose_curated_identity_deferral": _load_compose_curated_identity_deferral,
     "compose_curated_identity_facade": _load_compose_curated_identity_facade,
+    "compose_curated_identity_facade_binding": _load_compose_curated_identity_facade_binding,
+    "compose_curated_identity_facade_lanes": _load_compose_curated_identity_facade_lanes,
+    "compose_curated_identity_facade_semantics": _load_compose_curated_identity_facade_semantics,
     "compose_curated_preferences": _load_compose_curated_preferences,
     "compose_curated_record": _load_compose_curated_record,
     "compose_curated_record_facade": _load_compose_curated_record_facade,
     "compose_curated_run": _load_compose_curated_run,
+    "compose_curated_run_context": _load_compose_curated_run_context,
+    "compose_curated_run_lines": _load_compose_curated_run_lines,
+    "compose_curated_run_artifacts": _load_compose_curated_run_artifacts,
     "compose_curated_source": _load_compose_curated_source,
+    "compose_curated_source_pointers": _load_compose_curated_source_pointers,
+    "compose_curated_source_semantics": _load_compose_curated_source_semantics,
     "compose_destination": _load_compose_destination,
     "compose_destination_binding": _load_compose_destination_binding,
     "compose_destination_creation": _load_compose_destination_creation,

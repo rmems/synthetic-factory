@@ -3,18 +3,18 @@
 
 from __future__ import annotations
 
-import contextlib
 import copy
-import re
 import sys
-from dataclasses import dataclass
-from typing import Any, Callable, Mapping
+from typing import Any, Mapping
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("compose_curated_identity")
-    from . import curate_bridge, curate_coding, curate_identity, curate_rewards
+    from . import compose_curated_calibration_lookup as _calibration_lookup
+    from . import compose_curated_identity_deferral as _deferral
+    from . import compose_curated_identity_repairs as _repairs
+    from . import curate_bridge, curate_identity
     from .compose_contract import (
         ACTION_EXCLUDED,
         ACTION_NOT_APPLICABLE,
@@ -24,7 +24,6 @@ if __package__:
     )
     from .compose_curated_context import SourceCoordinates, StageDefinition, stage
     from .compose_trajectory import (
-        _curate_trajectory_sides,
         _is_same_state_pair,
         _mixed_preference_families,
         is_bridge_record,
@@ -35,10 +34,11 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_curated_identity"
     )
+    import compose_curated_calibration_lookup as _calibration_lookup
+    import compose_curated_identity_deferral as _deferral
+    import compose_curated_identity_repairs as _repairs
     import curate_bridge
-    import curate_coding
     import curate_identity
-    import curate_rewards
     from compose_contract import (
         ACTION_EXCLUDED,
         ACTION_NOT_APPLICABLE,
@@ -48,13 +48,57 @@ else:
     )
     from compose_curated_context import SourceCoordinates, StageDefinition, stage
     from compose_trajectory import (
-        _curate_trajectory_sides,
         _is_same_state_pair,
         _mixed_preference_families,
         is_bridge_record,
         is_preference_record,
     )
     from record_kind import preference_side_kinds
+
+# Calibration lookup by pre-identity identifiers, re-exported for importers.
+_container_calibration_id_candidates = _calibration_lookup._container_calibration_id_candidates
+_usable_calibration_id = _calibration_lookup._usable_calibration_id
+_owner_calibration_id_candidates = _calibration_lookup._owner_calibration_id_candidates
+_calibration_id_candidates = _calibration_lookup._calibration_id_candidates
+calibration_for = _calibration_lookup.calibration_for
+
+# Narrow-refusal classification and lane-repair probes, re-exported likewise.
+REASON_IDENTITY_INVALID_PAYLOAD_SHAPE = _repairs.REASON_IDENTITY_INVALID_PAYLOAD_SHAPE
+BRIDGE_ORDER_ERROR_FRAGMENT = _repairs.BRIDGE_ORDER_ERROR_FRAGMENT
+CODING_STEP_ERROR_RE = _repairs.CODING_STEP_ERROR_RE
+PREFERENCE_STEP_ERROR_RE = _repairs.PREFERENCE_STEP_ERROR_RE
+PROBE_FAILED = _repairs.PROBE_FAILED
+only_identity_shape_details = _repairs.only_identity_shape_details
+_is_bridge_order_only_rejection = _repairs._is_bridge_order_only_rejection
+_bridge_order_repaired_copy_with_source = _repairs._bridge_order_repaired_copy_with_source
+_is_coding_step_only_rejection = _repairs._is_coding_step_only_rejection
+_coding_steps_repaired_copy_with_source = _repairs._coding_steps_repaired_copy_with_source
+_is_preference_step_only_rejection = _repairs._is_preference_step_only_rejection
+_replace_coding_steps = _repairs._replace_coding_steps
+_preference_steps_repaired_copy_with_source = _repairs._preference_steps_repaired_copy_with_source
+_restore_deferred_payload = _repairs._restore_deferred_payload
+
+# Deferred downstream-lane repair orchestration, re-exported likewise.
+DeferredLaneRepair = _deferral.DeferredLaneRepair
+_identity_retry_with_source = _deferral._identity_retry_with_source
+_lane_retry = _deferral._lane_retry
+_run_deferred_lane_repairs = _deferral._run_deferred_lane_repairs
+_deferred_lane_repair_with_source = _deferral._deferred_lane_repair_with_source
+
+__all__ = """
+BRIDGE_ORDER_ERROR_FRAGMENT BRIDGE_STAGE CODING_STEP_ERROR_RE DeferredLaneRepair
+IDENTITY_STAGE PREFERENCE_STEP_ERROR_RE PROBE_FAILED REASON_IDENTITY_INVALID_PAYLOAD_SHAPE
+SourceCoordinates _PROBE_FAILED _bridge_order_repaired_copy_with_source
+_calibration_id_candidates _coding_steps_repaired_copy_with_source
+_compose_bridge_stage_with_source _compose_identity_stage_with_source
+_container_calibration_id_candidates _deferred_lane_repair_with_source
+_identity_retry_with_source _identity_stage_evidence _is_bridge_order_only_rejection
+_is_coding_step_only_rejection _is_preference_step_only_rejection _lane_retry
+_only_identity_shape_details _owner_calibration_id_candidates
+_preference_steps_repaired_copy_with_source _replace_coding_steps
+_restore_deferred_payload _run_deferred_lane_repairs _source_preference_shape
+_usable_calibration_id calibration_for only_identity_shape_details
+""".split()
 
 
 IDENTITY_STAGE = StageDefinition(
@@ -63,179 +107,6 @@ IDENTITY_STAGE = StageDefinition(
 BRIDGE_STAGE = StageDefinition(
     "bridge", curate_bridge.TRANSFORM_NAME, curate_bridge.TRANSFORM_VERSION
 )
-REASON_IDENTITY_INVALID_PAYLOAD_SHAPE = "identity.invalid_payload_shape"
-BRIDGE_ORDER_ERROR_FRAGMENT = "spike_events not globally non-decreasing"
-CODING_STEP_ERROR_RE = re.compile(r"^record step \d+: ")
-PREFERENCE_STEP_ERROR_RE = re.compile(r"^record/(?:chosen|rejected) step \d+: ")
-PROBE_FAILED: Any = object()
-
-
-@dataclass(frozen=True)
-class DeferredLaneRepair:
-    """One downstream lane that may repair an identity-only refusal."""
-
-    lane: str
-    applies: bool
-    repair: Callable[[Mapping[str, Any]], dict[str, Any] | None]
-
-
-def _container_calibration_id_candidates(container: Mapping[str, Any]):
-    """Yield usable legacy IDs from one identity container."""
-
-    values = map(container.get, curate_identity.LEGACY_ID_KEYS)
-    yield from filter(None, map(_usable_calibration_id, values))
-
-
-def _usable_calibration_id(value: Any) -> str | None:
-    """Normalize one legacy identifier without nesting generator branches."""
-
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return None
-
-
-def _owner_calibration_id_candidates(owner: Mapping[str, Any]):
-    """Yield legacy IDs from one identity owner and its nested containers."""
-
-    for container in (owner, owner.get("meta"), owner.get("state")):
-        if isinstance(container, Mapping):
-            yield from _container_calibration_id_candidates(container)
-
-
-def _calibration_id_candidates(record: Mapping[str, Any]):
-    """Yield source identifiers using the identity lane's vocabulary/order."""
-
-    yield from _owner_calibration_id_candidates(record)
-    for side in ("chosen", "rejected"):
-        owner = record.get(side)
-        if isinstance(owner, Mapping):
-            yield from _owner_calibration_id_candidates(owner)
-
-
-def calibration_for(record: Mapping[str, Any], catalog: Mapping[str, Any] | None) -> Any:
-    """Look up calibration by pre-identity source identifiers."""
-
-    if not catalog or not isinstance(record, Mapping):
-        return None
-    for candidate in _calibration_id_candidates(record):
-        calibration = catalog.get(curate_rewards.catalog_record_key(candidate))
-        if calibration is not None:
-            return calibration
-    return None
-
-
-def only_identity_shape_details(mapping: Mapping[str, Any], matches: Any) -> bool:
-    """Whether identity's only diagnostics all match one lane-owned defect."""
-
-    if list(mapping.get("reason_codes", [])) != [REASON_IDENTITY_INVALID_PAYLOAD_SHAPE]:
-        return False
-    details = mapping.get("details")
-    if not isinstance(details, list) or not details:
-        return False
-    return all(isinstance(detail, str) and matches(detail) for detail in details)
-
-
-def _is_bridge_order_only_rejection(mapping: Mapping[str, Any]) -> bool:
-    """Whether identity refused a record for spike ordering and nothing else."""
-
-    return only_identity_shape_details(
-        mapping, lambda detail: BRIDGE_ORDER_ERROR_FRAGMENT in detail
-    )
-
-
-def _bridge_order_repaired_copy_with_source(
-    record: Mapping[str, Any], source: SourceCoordinates
-) -> dict[str, Any] | None:
-    """Return the bridge lane's stable-sorted copy when it can repair."""
-
-    decision: Any = PROBE_FAILED
-    with contextlib.suppress(Exception):
-        decision = curate_bridge.curate_record(
-            record,
-            source_path=source.path,
-            source_line=source.line,
-            source_hash=source.sha256,
-            source_file_hash=None,
-        )
-    if decision is PROBE_FAILED:
-        return None
-    if decision.action != "repair" or not isinstance(decision.output_record, dict):
-        return None
-    return decision.output_record
-
-
-def _is_coding_step_only_rejection(mapping: Mapping[str, Any]) -> bool:
-    """Whether identity refused an episode for step shape and nothing else."""
-
-    return only_identity_shape_details(
-        mapping, lambda detail: CODING_STEP_ERROR_RE.match(detail) is not None
-    )
-
-
-def _coding_steps_repaired_copy_with_source(
-    record: Mapping[str, Any], source: SourceCoordinates
-) -> dict[str, Any] | None:
-    """Return the coding lane's repaired copy when it can retain the episode."""
-
-    curated: Any = PROBE_FAILED
-    with contextlib.suppress(Exception):
-        curated, _manifest = curate_coding.curate_episode(
-            copy.deepcopy(dict(record)),
-            source_path=source.path,
-            source_line=source.line,
-            source_hash=source.sha256,
-        )
-    if curated is PROBE_FAILED:
-        return None
-    return curated if isinstance(curated, dict) else None
-
-
-def _is_preference_step_only_rejection(mapping: Mapping[str, Any]) -> bool:
-    """Whether identity refused only coding-owned preference-side steps."""
-
-    return only_identity_shape_details(
-        mapping, lambda detail: PREFERENCE_STEP_ERROR_RE.match(detail) is not None
-    )
-
-
-def _replace_coding_steps(target: dict[str, Any], curated: Mapping[str, Any]) -> bool:
-    """Copy only a coding lane's repaired step array into ``target``."""
-
-    steps_path = curate_coding.steps_path(dict(curated))
-    if steps_path == "steps":
-        target["steps"] = copy.deepcopy(curated["steps"])
-        return True
-    if steps_path == "executed_action.steps":
-        target_action = target.get("executed_action")
-        curated_action = curated.get("executed_action")
-        if not isinstance(target_action, dict) or not isinstance(curated_action, Mapping):
-            return False
-        target_action["steps"] = copy.deepcopy(curated_action["steps"])
-        return True
-    return False
-
-
-def _preference_steps_repaired_copy_with_source(
-    record: Mapping[str, Any], source: SourceCoordinates
-) -> dict[str, Any] | None:
-    """Probe the canonical side repair without leaking unrelated changes."""
-
-    curated, _manifests, _reasons, _changed = _curate_trajectory_sides(
-        dict(record),
-        source_path=source.path,
-        source_line=source.line,
-    )
-    if not isinstance(curated, Mapping):
-        return None
-    repaired = copy.deepcopy(dict(record))
-    for side_name in ("chosen", "rejected"):
-        target = repaired.get(side_name)
-        curated_side = curated.get(side_name)
-        if not isinstance(curated_side, Mapping) or not isinstance(target, dict):
-            return None
-        if not _replace_coding_steps(target, curated_side):
-            return None
-    return repaired
 
 
 def _source_preference_shape(record: Any) -> tuple[Any, bool]:
@@ -246,93 +117,6 @@ def _source_preference_shape(record: Any) -> tuple[Any, bool]:
     side_kinds = preference_side_kinds(record)
     mixed = not _is_same_state_pair(record) and _mixed_preference_families(side_kinds)
     return side_kinds, mixed
-
-
-def _identity_retry_with_source(repaired: dict[str, Any] | None, source: SourceCoordinates):
-    """Revalidate identity against a downstream lane's repaired copy."""
-
-    if repaired is None:
-        return None
-    retry = curate_identity.curate_record(
-        curate_identity.SourceRecord(
-            record=repaired,
-            source_path=source.path,
-            source_line=source.line,
-            source_sha256=source.sha256,
-        )
-    )
-    if retry.action == "retained" and isinstance(retry.record, dict):
-        return retry
-    return None
-
-
-def _lane_retry(
-    applies: bool,
-    repair,
-    record: Mapping[str, Any],
-    source: SourceCoordinates,
-):
-    """Try one owning lane's repair and identity revalidation."""
-
-    if not applies:
-        return None
-    return _identity_retry_with_source(repair(record, source), source)
-
-
-def _run_deferred_lane_repairs(
-    record: Any,
-    identity_result: Any,
-    lanes: tuple[DeferredLaneRepair, ...],
-    retry: Callable[[dict[str, Any] | None], Any],
-) -> tuple[Any, str | None]:
-    """Return the first identity-valid downstream repair, in lane order."""
-
-    if identity_result.action == "retained" or not isinstance(record, Mapping):
-        return identity_result, None
-    for lane in lanes:
-        if not lane.applies:
-            continue
-        repaired = retry(lane.repair(record))
-        if repaired is not None:
-            return repaired, lane.lane
-    return identity_result, None
-
-
-def _deferred_lane_repair_with_source(
-    record: Any,
-    identity_result: Any,
-    source: SourceCoordinates,
-) -> tuple[Any, str | None]:
-    """Let the owning downstream lane repair a narrowly refused invariant."""
-
-    if identity_result.action == "retained" or not isinstance(record, Mapping):
-        return identity_result, None
-    lanes = (
-        DeferredLaneRepair(
-            "bridge",
-            is_bridge_record(record) and _is_bridge_order_only_rejection(identity_result.mapping),
-            lambda current: _bridge_order_repaired_copy_with_source(current, source),
-        ),
-        DeferredLaneRepair(
-            "coding",
-            isinstance(record.get("steps"), list)
-            and _is_coding_step_only_rejection(identity_result.mapping),
-            lambda current: _coding_steps_repaired_copy_with_source(current, source),
-        ),
-        DeferredLaneRepair(
-            "preferences",
-            is_preference_record(record)
-            and preference_side_kinds(record) == ("episode", "episode")
-            and _is_preference_step_only_rejection(identity_result.mapping),
-            lambda current: _preference_steps_repaired_copy_with_source(current, source),
-        ),
-    )
-    return _run_deferred_lane_repairs(
-        record,
-        identity_result,
-        lanes,
-        lambda repaired: _identity_retry_with_source(repaired, source),
-    )
 
 
 def _identity_stage_evidence(
@@ -357,24 +141,6 @@ def _identity_stage_evidence(
         identity_detail["identity_reason_codes"] = identity_reasons
         identity_reasons = [REASON_MIXED_PREFERENCE_FAMILIES]
     return identity_reasons, identity_detail
-
-
-def _restore_deferred_payload(
-    current: dict[str, Any], record: Mapping[str, Any], deferred_lane: str | None
-) -> None:
-    """Restore source-owned data so the downstream lane records its repair."""
-
-    if deferred_lane == "bridge":
-        current["spike_events"] = copy.deepcopy(record["spike_events"])
-    if deferred_lane == "coding":
-        current["steps"] = copy.deepcopy(record["steps"])
-    if deferred_lane == "preferences":
-        for side_name in ("chosen", "rejected"):
-            source_side = record.get(side_name)
-            current_side = current.get(side_name)
-            if not isinstance(source_side, Mapping) or not isinstance(current_side, dict):
-                continue
-            _replace_coding_steps(current_side, source_side)
 
 
 def _compose_identity_stage_with_source(
