@@ -1,0 +1,24 @@
+tests/test_training_audit_framing.py
+  s_f3cacfd2022aec::t_74b432f0d107ba 27-29,31,34-35,37-38,47-54,94-95,116-117
+qodana.yaml
+  s_f3cacfd2022aec::t_a991fbcca29f83 18-21,26-30
+pipelines/raw_tree_guard.py
+  s_f3cacfd2022aec::t_d8ef9436786ec5 9
+  s_f3cacfd2022aec::t_a991fbcca29f83 207-212,222
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b61ee29b085c91418dda1ba1a31f1a2d7c292fb2",
+  "prompts": {},
+  "sessions": {
+    "s_f3cacfd2022aec": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34953d1c-aaea-46a5-86f5-2aa118320be2",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
