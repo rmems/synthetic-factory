@@ -99,9 +99,7 @@ from export_members import (  # noqa: E402,F401
 )
 from export_curated import (  # noqa: E402,F401
     _curated_snapshot_fingerprint,
-    _read_curated_file,
     _snapshot_payloads,
-    _snapshot_relative_path,
     collect_files,
     collect_rows,
 )
@@ -110,16 +108,10 @@ from export_destination import (  # noqa: E402,F401
     _finish_pinned_destination,
     _jsonl_payload,
     _refuse_authenticated_source_destination,
-    _require_destination_outside_curated,
-    _require_new_export_destination,
-    _validated_curated_tree,
     _validated_export_paths,
     _write_new_bytes,
 )
 from export_protocol import (  # noqa: E402,F401
-    _protocol_losslessness_lines,
-    _protocol_overview_lines,
-    _protocol_split_lines,
     render_eval_protocol,
 )
 from export_provenance import build_export_provenance  # noqa: E402
