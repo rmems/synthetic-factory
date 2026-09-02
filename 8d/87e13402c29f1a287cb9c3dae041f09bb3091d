@@ -1,0 +1,71 @@
+pipelines/compose_curated_identity_deferral.py
+  s_f3cacfd2022aec::t_e9aeee2a617cab 1-134
+pipelines/compose_curated_identity.py
+  s_f3cacfd2022aec::t_73d06b7c7d9c97 14,16-17,37,39,58-80,88-101
+  s_f3cacfd2022aec::t_e9aeee2a617cab 8,15,38,81-87
+pipelines/compose_curated_calibration_lookup.py
+  s_f3cacfd2022aec::t_7cdd5cadba25cd 1-68
+pipelines/compose_curated_identity_facade_semantics.py
+  s_f3cacfd2022aec::t_080e490517de90 1-166
+tests/pipeline_import_catalog_compose.py
+  s_f3cacfd2022aec::t_9f8241f6418134 45-56,105-113,333-356,533-536,553-555,560,626-632
+  s_f3cacfd2022aec::t_e9aeee2a617cab 117-128,556-559
+  s_f3cacfd2022aec::t_0f3a1b6662d0a4 141-176,249-284,565-576,598-609
+pipelines/compose_curated_identity_facade.py
+  s_f3cacfd2022aec::t_4be65ed4adbbb3 2-10,17,23-25,31-33,36-62,68
+tests/test_compose_curated_run_context.py
+  s_f3cacfd2022aec::t_dbcd17d7c04c18 40,42
+pipelines/compose_curated_source_pointers.py
+  s_f3cacfd2022aec::t_7cd188f62b9e3a 1-102
+pipelines/compose_curated_run_lines.py
+  s_f3cacfd2022aec::t_f0feb0e135a908 1-166
+pipelines/compose_curated_run.py
+  s_f3cacfd2022aec::t_8fa9618862f873 2-9,22-25,31-34,36-75,351-365
+pipelines/__init__.py
+  s_f3cacfd2022aec::t_9f8241f6418134 148-153,184-187,268-279,480,484,498-499
+  s_f3cacfd2022aec::t_8d35638f5d0ae1 202-219,244-259,487-489,494-496
+  s_f3cacfd2022aec::t_e9aeee2a617cab 190-195,485
+pipelines/compose_curated_identity_facade_binding.py
+  s_f3cacfd2022aec::t_cfe62e35ce63a6 1-40
+pipelines/compose_curated_run_artifacts.py
+  s_f3cacfd2022aec::t_ba16db14f3af3e 1-170
+pipelines/compose_curated_identity_facade_lanes.py
+  s_f3cacfd2022aec::t_b7d096f88afbd4 1-283
+pipelines/compose_curated_source.py
+  s_f3cacfd2022aec::t_73d06b7c7d9c97 15-16,51-52,82-111
+pipelines/compose_curated_run_context.py
+  s_f3cacfd2022aec::t_2441a2df49c7e7 1-177
+tests/test_compose_curated_source_semantics.py
+  s_f3cacfd2022aec::t_e9aeee2a617cab 189-194
+  s_f3cacfd2022aec::t_9f8241f6418134 18,116,163
+tests/test_compose_curated_run_lines.py
+  s_f3cacfd2022aec::t_dbcd17d7c04c18 1-28
+qodana.yaml
+  s_f3cacfd2022aec::t_0fc3997ccd7344 27-28
+pipelines/compose_curated_identity_repairs.py
+  s_f3cacfd2022aec::t_7cdd5cadba25cd 1-169
+tests/test_pipeline_split_module_identity.py
+  s_f3cacfd2022aec::t_9f8241f6418134 27,32,48-49
+  s_f3cacfd2022aec::t_288c417ade5518 35-37,42-44,128-129
+  s_f3cacfd2022aec::t_e9aeee2a617cab 33
+pipelines/compose_curated_source_semantics.py
+  s_f3cacfd2022aec::t_7cd188f62b9e3a 1-166
+tests/test_compose_curated_imports.py
+  s_f3cacfd2022aec::t_288c417ade5518 30-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8d87e13402c29f1a287cb9c3dae041f09bb3091d",
+  "prompts": {},
+  "sessions": {
+    "s_f3cacfd2022aec": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34953d1c-aaea-46a5-86f5-2aa118320be2",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
