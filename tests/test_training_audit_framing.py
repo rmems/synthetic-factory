@@ -24,11 +24,18 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
             path.write_bytes(payload)
             return training_audit.audit_run(root)
 
-    def assert_exact_contract_error(self, serialized, expected_fragment):
-        report = self._audit_payload((serialized + "\n").encode("utf-8"))
+    @staticmethod
+    def _serialized(text):
+        return (text + "\n").encode("utf-8")
+
+    def _assert_refused(self, payload, expected_fragment, *, contract_errors=None, records=None):
+        report = self._audit_payload(payload)
         self.assertFalse(report["training_ready"])
+        if records is not None:
+            self.assertEqual(report["totals"]["records"], records)
         self.assertEqual(report["totals"]["eligible_records"], 0)
-        self.assertEqual(report["totals"]["exact_json_contract_errors"], 1)
+        if contract_errors is not None:
+            self.assertEqual(report["totals"]["exact_json_contract_errors"], contract_errors)
         self.assertTrue(
             any(
                 expected_fragment in item for item in report["record_invariants"]["error_examples"]
@@ -37,17 +44,13 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
         )
         return report
 
-    def assert_framing_refused(self, payload, expected_fragment):
-        report = self._audit_payload(payload)
-        self.assertFalse(report["training_ready"])
-        self.assertEqual(report["totals"]["eligible_records"], 0)
-        self.assertTrue(
-            any(
-                expected_fragment in item for item in report["record_invariants"]["error_examples"]
-            ),
-            report["record_invariants"],
+    def assert_exact_contract_error(self, serialized, expected_fragment):
+        return self._assert_refused(
+            self._serialized(serialized), expected_fragment, contract_errors=1
         )
-        return report
+
+    def assert_framing_refused(self, payload, expected_fragment):
+        return self._assert_refused(payload, expected_fragment)
 
     def test_bare_cr_is_not_a_boundary_or_a_mill_coordinate(self):
         foreign = thalamic("sir-r56-meili-swap-leftover3c-rebuild")
@@ -88,16 +91,8 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
         serialized = json.dumps(thalamic("ttf-duplicate-key"))
         serialized = serialized[:-1] + ',"duplicate":1,"duplicate":2}'
 
-        report = self._audit_payload((serialized + "\n").encode("utf-8"))
-
-        self.assertFalse(report["training_ready"])
-        self.assertEqual(report["totals"]["eligible_records"], 0)
-        self.assertTrue(
-            any(
-                "duplicate JSON object key 'duplicate'" in item
-                for item in report["record_invariants"]["error_examples"]
-            ),
-            report["record_invariants"],
+        self.assert_framing_refused(
+            self._serialized(serialized), "duplicate JSON object key 'duplicate'"
         )
 
     def test_unicode_line_separators_remain_json_string_data(self):
@@ -118,17 +113,8 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
             1,
         )
 
-        report = self._audit_payload((serialized + "\n").encode("utf-8"))
-
-        self.assertFalse(report["training_ready"])
-        self.assertEqual(report["totals"]["records"], 1)
-        self.assertEqual(report["totals"]["eligible_records"], 0)
-        self.assertTrue(
-            any(
-                "non-finite JSON number 1e999" in item
-                for item in report["record_invariants"]["error_examples"]
-            ),
-            report["record_invariants"],
+        self._assert_refused(
+            self._serialized(serialized), "non-finite JSON number 1e999", records=1
         )
 
     def test_excessive_json_nesting_is_reported_instead_of_aborting(self):

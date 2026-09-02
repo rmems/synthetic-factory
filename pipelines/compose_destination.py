@@ -55,7 +55,6 @@ if __package__:
         _open_pinned_child_directory as _pin_child_directory,
         _remove_created_directory_if_identity,
         _remove_created_file_if_identity,
-        _rollback_child_directory,
         _verify_pinned_child,
         _write_all,
     )
@@ -123,7 +122,6 @@ else:
         _open_pinned_child_directory as _pin_child_directory,
         _remove_created_directory_if_identity,
         _remove_created_file_if_identity,
-        _rollback_child_directory,
         _verify_pinned_child,
         _write_all,
     )
@@ -190,7 +188,6 @@ __all__ = (
     "_read_pinned_child_bytes",
     "_refuse_existing_destination",
     "_require_exact_directory",
-    "_rollback_child_directory",
     "_round_visible_members",
     "_scan_source_directory",
     "_source_entry_metadata",

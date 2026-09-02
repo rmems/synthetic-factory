@@ -126,14 +126,6 @@ def _open_child_directory_entry(
         ) from exc
 
 
-def _remove_created_directory(parent_descriptor: int, name: str) -> None:
-    """Compatibility no-op: identity-free deletion cannot be made safe."""
-
-
-def _remove_created_file(parent_descriptor: int, name: str) -> None:
-    """Compatibility no-op: identity-free deletion cannot be made safe."""
-
-
 def _remove_created_directory_if_identity(
     parent_descriptor: int,
     name: str,
@@ -162,12 +154,6 @@ def _remove_created_file_if_identity(
         expected_identity,
         "destination file rollback",
     )
-
-
-def _rollback_child_directory(
-    created: bool, parent_descriptor: int, name: str
-) -> None:
-    """Compatibility no-op when no created-entry identity is available."""
 
 
 def _verify_pinned_child(
