@@ -733,6 +733,26 @@ def _reject_session_b_outputs(names: list[str], phrase: str) -> None:
         raise PreferenceArmsError(phrase + ", ".join(names))
 
 
+def _fresh_directory_names(directory_fd: int) -> list[str]:
+    """List a bound directory without consuming its long-lived cursor."""
+
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    fresh_fd = os.open(".", flags, dir_fd=directory_fd)
+    try:
+        if not _same_file_identity(os.fstat(directory_fd), os.fstat(fresh_fd)):
+            raise PreferenceArmsError(
+                "staging directory changed while it was enumerated"
+            )
+        return os.listdir(fresh_fd)
+    finally:
+        os.close(fresh_fd)
+
+
 def _discard_partial_receipt(stage_fd: int, receipt_name: str) -> None:
     try:
         os.unlink(receipt_name, dir_fd=stage_fd)
@@ -746,9 +766,13 @@ def _require_no_late_session_b_outputs(
 ) -> None:
     """Both scans run before either is raised, so a late output is still caught."""
 
-    post_create_outputs = _session_b_outputs(os.listdir(stage_fd), round_number, count)
+    post_create_outputs = _session_b_outputs(
+        _fresh_directory_names(stage_fd), round_number, count
+    )
     _require_open_directory_identity(stage, stage_fd, label="staging directory")
-    final_outputs = _session_b_outputs(os.listdir(stage_fd), round_number, count)
+    final_outputs = _session_b_outputs(
+        _fresh_directory_names(stage_fd), round_number, count
+    )
     _reject_session_b_outputs(
         post_create_outputs,
         "Session B outputs appeared during diagnosis receipt creation: ",
@@ -798,7 +822,9 @@ def write_diagnosis_handoff_receipt(
         encoded = _encoded_receipt(receipt)
         _require_open_directory_identity(stage, stage_fd, label="staging directory")
         _reject_session_b_outputs(
-            _session_b_outputs(os.listdir(stage_fd), round_number, count),
+            _session_b_outputs(
+                _fresh_directory_names(stage_fd), round_number, count
+            ),
             "diagnosis receipt must be created before Session B outputs: ",
         )
         receipt_fd = os.open(receipt_name, _receipt_write_flags(), 0o600, dir_fd=stage_fd)

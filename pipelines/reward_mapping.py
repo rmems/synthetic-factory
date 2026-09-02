@@ -10,12 +10,30 @@ from __future__ import annotations
 import hashlib
 import math
 import re
+import sys
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from exact_json import dumps_exact_json
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("reward_mapping")
+    from .exact_json import dumps_exact_json
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "reward_mapping"
+    )
+    from exact_json import dumps_exact_json
 
 ONTOLOGY_VERSION = "reward-ontology-v1"
+# The classifier's own behavioral revision, recorded as the lane's declared
+# transform_version. classifier-2: preference-scope routing follows
+# ``_layout_scope`` exactly, so an episode-style ``/chosen/reward`` record is
+# retained under the dedicated P01 verdict instead of raising. The ontology
+# version above is the frozen mapping identity and must not move with
+# classifier behavior; artifacts produced before and after a classifier
+# change must not share one transform identity.
+REWARD_TRANSFORM_VERSION = f"{ONTOLOGY_VERSION}.classifier-2"
 MAPPING_VERSION = "reward-mapping-v1"
 POLICY_DOCUMENT_TYPE = "reward_conversion_policy"
 MAPPING_PATH = (
@@ -398,3 +416,7 @@ def _canonical_record_id(record):
 
 
 canonical_source_record_id = _canonical_record_id
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -18,26 +18,45 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-from exact_json import (  # noqa: E402
-    dumps_exact_json,
-    exact_fraction,
-    parse_finite_json_float as _parse_exact_json_float,
-)
-from validate_run import (  # noqa: E402
-    ALLOWED_SIM_OR_REAL,
-    BRIDGE_SPIKE_EVENT_KEYS,
-    REWARD_ARITHMETIC_MARKERS,
-    REWARD_NON_COMPONENT_KEYS,
-    _episode_like,
-    check_line,
-    check_spike_order,
-    declared_clock_domains,
-    event_time,
-    reject_json_constant,
-)
+if __package__:
+    from .exact_json import (
+        dumps_exact_json,
+        exact_fraction,
+        parse_finite_json_float as _parse_exact_json_float,
+    )
+    from .validate_run import (
+        ALLOWED_SIM_OR_REAL,
+        BRIDGE_SPIKE_EVENT_KEYS,
+        REWARD_ARITHMETIC_MARKERS,
+        REWARD_NON_COMPONENT_KEYS,
+        check_line,
+        check_spike_order,
+        declared_clock_domains,
+        episode_like,
+        event_time,
+        reject_json_constant,
+    )
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from exact_json import (
+        dumps_exact_json,
+        exact_fraction,
+        parse_finite_json_float as _parse_exact_json_float,
+    )
+    from validate_run import (
+        ALLOWED_SIM_OR_REAL,
+        BRIDGE_SPIKE_EVENT_KEYS,
+        REWARD_ARITHMETIC_MARKERS,
+        REWARD_NON_COMPONENT_KEYS,
+        check_line,
+        check_spike_order,
+        declared_clock_domains,
+        episode_like,
+        event_time,
+        reject_json_constant,
+    )
 
 TOL = 1e-6
 # Ceiling on a record-declared rounding tolerance (see reward_tolerance).
@@ -345,7 +364,7 @@ def expected_states(obj, kind):
             if not isinstance(sub, dict):
                 continue
             # Episode-sided DPO pairs have no Thalamic state object.
-            if _episode_like(sub):
+            if episode_like(sub):
                 continue
             yield f"{side}.state", sub.get("state")
     elif kind == "bridge_pair":

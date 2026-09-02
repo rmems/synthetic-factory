@@ -11,11 +11,18 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from check_records import read_utf8_jsonl
-from curate_bridge import is_bridge_record, is_thalamic_record, raster_status
-from exact_json import parse_finite_json_float as _parse_exact_json_float
-from record_kind import classify_kind
-from validate_run import reject_json_constant
+if __package__:
+    from .check_records import read_utf8_jsonl
+    from .curate_bridge import is_bridge_record, is_thalamic_record, raster_status
+    from .exact_json import parse_finite_json_float as _parse_exact_json_float
+    from .record_kind import classify_kind
+    from .validate_run import reject_json_constant
+else:
+    from check_records import read_utf8_jsonl
+    from curate_bridge import is_bridge_record, is_thalamic_record, raster_status
+    from exact_json import parse_finite_json_float as _parse_exact_json_float
+    from record_kind import classify_kind
+    from validate_run import reject_json_constant
 
 # Every lane that emits neuromorphic records carries the raster / gate-as-SNN
 # publication contract. NELB emits paired Bridge records; TTF and the

@@ -46,6 +46,29 @@ def _require_local_sibling(module, name: str) -> None:
         raise ImportError(f"{name} did not resolve to the local pipeline sibling")
 
 
+def _assert_direct_sibling(name: str) -> None:
+    """Require any already-loaded direct-name twin of ``name`` to be this package's sibling.
+
+    Every sibling module calls this from its package-mode prelude so the direct
+    CLI copy (``import name``) and the package copy (``pipelines.name``) can never
+    silently diverge into two module objects.
+    """
+
+    direct = _local_sibling_module(name, allow_initializing=True)
+    if direct is not None:
+        _require_local_sibling(direct, name)
+
+
+def _canonical_sibling_binding(name: str, bound):
+    """Prefer a fully initialized local module over an abandoned import object."""
+
+    for module_key in (name, f"{__name__}.{name}"):
+        candidate = _local_module(name, module_key)
+        if candidate is not None:
+            return candidate
+    return bound
+
+
 def _local_package_sibling(name: str, *, allow_initializing: bool = False):
     """Return a repository-local package child, optionally while it initializes."""
 
@@ -110,6 +133,324 @@ def _load_validate_run_spikes():
     return validate_run_spikes
 
 
+def _load_validate_run_provenance():
+    from . import validate_run_provenance
+
+    return validate_run_provenance
+
+
+def _load_compose_curated_calibration():
+    from . import compose_curated_calibration
+
+    return compose_curated_calibration
+
+
+def _load_compose_curated_calibration_lookup():
+    from . import compose_curated_calibration_lookup
+
+    return compose_curated_calibration_lookup
+
+
+def _load_compose_contract():
+    from . import compose_contract
+
+    return compose_contract
+
+
+def _load_compose_curated():
+    from . import compose_curated
+
+    return compose_curated
+
+
+def _load_compose_curated_coding():
+    from . import compose_curated_coding
+
+    return compose_curated_coding
+
+
+def _load_compose_curated_context():
+    from . import compose_curated_context
+
+    return compose_curated_context
+
+
+def _load_compose_curated_identity():
+    from . import compose_curated_identity
+
+    return compose_curated_identity
+
+
+def _load_compose_curated_identity_repairs():
+    from . import compose_curated_identity_repairs
+
+    return compose_curated_identity_repairs
+
+
+def _load_compose_curated_identity_deferral():
+    from . import compose_curated_identity_deferral
+
+    return compose_curated_identity_deferral
+
+
+def _load_compose_curated_identity_facade():
+    from . import compose_curated_identity_facade
+
+    return compose_curated_identity_facade
+
+
+def _load_compose_curated_identity_facade_binding():
+    from . import compose_curated_identity_facade_binding
+
+    return compose_curated_identity_facade_binding
+
+
+def _load_compose_curated_identity_facade_lanes():
+    from . import compose_curated_identity_facade_lanes
+
+    return compose_curated_identity_facade_lanes
+
+
+def _load_compose_curated_identity_facade_semantics():
+    from . import compose_curated_identity_facade_semantics
+
+    return compose_curated_identity_facade_semantics
+
+
+def _load_compose_curated_preferences():
+    from . import compose_curated_preferences
+
+    return compose_curated_preferences
+
+
+def _load_compose_curated_record():
+    from . import compose_curated_record
+
+    return compose_curated_record
+
+
+def _load_compose_curated_record_facade():
+    from . import compose_curated_record_facade
+
+    return compose_curated_record_facade
+
+
+def _load_compose_curated_run():
+    from . import compose_curated_run
+
+    return compose_curated_run
+
+
+def _load_compose_curated_run_context():
+    from . import compose_curated_run_context
+
+    return compose_curated_run_context
+
+
+def _load_compose_curated_run_lines():
+    from . import compose_curated_run_lines
+
+    return compose_curated_run_lines
+
+
+def _load_compose_curated_run_artifacts():
+    from . import compose_curated_run_artifacts
+
+    return compose_curated_run_artifacts
+
+
+def _load_compose_curated_source():
+    from . import compose_curated_source
+
+    return compose_curated_source
+
+
+def _load_compose_curated_source_pointers():
+    from . import compose_curated_source_pointers
+
+    return compose_curated_source_pointers
+
+
+def _load_compose_curated_source_semantics():
+    from . import compose_curated_source_semantics
+
+    return compose_curated_source_semantics
+
+
+def _load_compose_destination():
+    from . import compose_destination
+
+    return compose_destination
+
+
+def _load_compose_destination_binding():
+    from . import compose_destination_binding
+
+    return compose_destination_binding
+
+
+def _load_compose_destination_creation():
+    from . import compose_destination_creation
+
+    return compose_destination_creation
+
+
+def _load_compose_destination_writer():
+    from . import compose_destination_writer
+
+    return compose_destination_writer
+
+
+def _load_compose_destination_directory():
+    from . import compose_destination_directory
+
+    return compose_destination_directory
+
+
+def _load_compose_destination_rename():
+    from . import compose_destination_rename
+
+    return compose_destination_rename
+
+
+def _load_compose_destination_tree():
+    from . import compose_destination_tree
+
+    return compose_destination_tree
+
+
+def _load_compose_source_snapshot():
+    from . import compose_source_snapshot
+
+    return compose_source_snapshot
+
+
+def _load_compose_source_snapshot_members():
+    from . import compose_source_snapshot_members
+
+    return compose_source_snapshot_members
+
+
+def _load_compose_source_snapshot_visibility():
+    from . import compose_source_snapshot_visibility
+
+    return compose_source_snapshot_visibility
+
+
+def _load_compose_trajectory_gate():
+    from . import compose_trajectory_gate
+
+    return compose_trajectory_gate
+
+
+def _load_compose_trajectory_goals():
+    from . import compose_trajectory_goals
+
+    return compose_trajectory_goals
+
+
+def _load_export_compose_manifest():
+    from . import export_compose_manifest
+
+    return export_compose_manifest
+
+
+def _load_export_curated():
+    from . import export_curated
+
+    return export_curated
+
+
+def _load_export_destination():
+    from . import export_destination
+
+    return export_destination
+
+
+def _load_export_members_auth():
+    from . import export_members_auth
+
+    return export_members_auth
+
+
+def _load_export_members_jsonl():
+    from . import export_members_jsonl
+
+    return export_members_jsonl
+
+
+def _load_export_members_path():
+    from . import export_members_path
+
+    return export_members_path
+
+
+def _load_export_members_read():
+    from . import export_members_read
+
+    return export_members_read
+
+
+def _load_export_members():
+    from . import export_members
+
+    return export_members
+
+
+def _load_export_protocol():
+    from . import export_protocol
+
+    return export_protocol
+
+
+def _load_export_provenance():
+    from . import export_provenance
+
+    return export_provenance
+
+
+def _load_export_split():
+    from . import export_split
+
+    return export_split
+
+
+def _load_export_viewer():
+    from . import export_viewer
+
+    return export_viewer
+
+
+def _load_export_viewer_codec():
+    from . import export_viewer_codec
+
+    return export_viewer_codec
+
+
+def _load_export_viewer_reader():
+    from . import export_viewer_reader
+
+    return export_viewer_reader
+
+
+def _load_export_viewer_writer():
+    from . import export_viewer_writer
+
+    return export_viewer_writer
+
+
+def _load_strict_jsonl():
+    from . import strict_jsonl
+
+    return strict_jsonl
+
+
+def _load_training_audit_snapshot():
+    from . import training_audit_snapshot
+
+    return training_audit_snapshot
+
+
 def _load_validate_run():
     from . import validate_run
 
@@ -132,6 +473,59 @@ _PACKAGE_SIBLING_LOADERS = {
     "curate_bridge_raster": _load_curate_bridge_raster,
     "curate_bridge_raster_numbers": _load_curate_bridge_raster_numbers,
     "validate_run_spikes": _load_validate_run_spikes,
+    "validate_run_provenance": _load_validate_run_provenance,
+    "compose_contract": _load_compose_contract,
+    "compose_curated": _load_compose_curated,
+    "compose_curated_calibration": _load_compose_curated_calibration,
+    "compose_curated_calibration_lookup": _load_compose_curated_calibration_lookup,
+    "compose_curated_coding": _load_compose_curated_coding,
+    "compose_curated_context": _load_compose_curated_context,
+    "compose_curated_identity": _load_compose_curated_identity,
+    "compose_curated_identity_repairs": _load_compose_curated_identity_repairs,
+    "compose_curated_identity_deferral": _load_compose_curated_identity_deferral,
+    "compose_curated_identity_facade": _load_compose_curated_identity_facade,
+    "compose_curated_identity_facade_binding": _load_compose_curated_identity_facade_binding,
+    "compose_curated_identity_facade_lanes": _load_compose_curated_identity_facade_lanes,
+    "compose_curated_identity_facade_semantics": _load_compose_curated_identity_facade_semantics,
+    "compose_curated_preferences": _load_compose_curated_preferences,
+    "compose_curated_record": _load_compose_curated_record,
+    "compose_curated_record_facade": _load_compose_curated_record_facade,
+    "compose_curated_run": _load_compose_curated_run,
+    "compose_curated_run_context": _load_compose_curated_run_context,
+    "compose_curated_run_lines": _load_compose_curated_run_lines,
+    "compose_curated_run_artifacts": _load_compose_curated_run_artifacts,
+    "compose_curated_source": _load_compose_curated_source,
+    "compose_curated_source_pointers": _load_compose_curated_source_pointers,
+    "compose_curated_source_semantics": _load_compose_curated_source_semantics,
+    "compose_destination": _load_compose_destination,
+    "compose_destination_binding": _load_compose_destination_binding,
+    "compose_destination_creation": _load_compose_destination_creation,
+    "compose_destination_writer": _load_compose_destination_writer,
+    "compose_destination_directory": _load_compose_destination_directory,
+    "compose_destination_rename": _load_compose_destination_rename,
+    "compose_destination_tree": _load_compose_destination_tree,
+    "compose_source_snapshot": _load_compose_source_snapshot,
+    "compose_source_snapshot_members": _load_compose_source_snapshot_members,
+    "compose_source_snapshot_visibility": _load_compose_source_snapshot_visibility,
+    "compose_trajectory_gate": _load_compose_trajectory_gate,
+    "compose_trajectory_goals": _load_compose_trajectory_goals,
+    "export_compose_manifest": _load_export_compose_manifest,
+    "export_curated": _load_export_curated,
+    "export_destination": _load_export_destination,
+    "export_members_auth": _load_export_members_auth,
+    "export_members_jsonl": _load_export_members_jsonl,
+    "export_members_path": _load_export_members_path,
+    "export_members_read": _load_export_members_read,
+    "export_members": _load_export_members,
+    "export_protocol": _load_export_protocol,
+    "export_provenance": _load_export_provenance,
+    "export_split": _load_export_split,
+    "export_viewer": _load_export_viewer,
+    "export_viewer_codec": _load_export_viewer_codec,
+    "export_viewer_reader": _load_export_viewer_reader,
+    "export_viewer_writer": _load_export_viewer_writer,
+    "strict_jsonl": _load_strict_jsonl,
+    "training_audit_snapshot": _load_training_audit_snapshot,
     "validate_run": _load_validate_run,
     "curate_bridge": _load_curate_bridge,
 }

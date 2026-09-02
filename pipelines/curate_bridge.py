@@ -43,11 +43,8 @@ from typing import Any, Callable, Iterable, Sequence, cast
 
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
-    if _local_sibling_module("curate_bridge", allow_initializing=True) is not None:
-        import curate_bridge as _direct_curate_bridge
-        _require_local_sibling(_direct_curate_bridge, "curate_bridge")
-        del _direct_curate_bridge
+    from . import _assert_direct_sibling, _expose_package_sibling
+    _assert_direct_sibling("curate_bridge")
     from . import curate_bridge_events as _bridge_events
     from . import curate_bridge_gate as _bridge_gate
     from . import curate_bridge_materialize as _bridge_materialize

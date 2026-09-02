@@ -22,48 +22,86 @@ import math
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import Mapping
 
-from exact_json import dumps_exact_json, parse_finite_json_float as _parse_exact_json_float
+if __package__:
+    from . import distillation_audit as _distillation_audit
+    from . import training_audit_snapshot as _snapshot
+    from .census import factory_for_path
+    from .check_records import (
+        ALLOWED_PROVENANCE,
+        canonical_record_id,
+        check_record,
+        expected_states,
+        reject_json_constant,
+        root_record_id,
+        shape_check,
+        walk_key,
+    )
+    from .curate_coding import (
+        HIDDEN_REASONING_KEYS,
+        HIDDEN_REASONING_PREFIX,
+        normalized_key_name,
+    )
+    from .distillation_audit import DistillationAudit
+    from .exact_json import (
+        dumps_exact_json,
+        parse_finite_json_float as _parse_exact_json_float,
+    )
+    from .quality_gate_identity import (
+        canonical_numeric_value as _canonical_numeric_value,
+    )
+    from .round_txn import TransactionError
+    from .training_audit_bridge import event_stream_status as _event_stream_status
+    from .training_audit_mill import index_mill_quarantine
+    from .training_audit_report import (
+        build_report,
+        percentile as _percentile,
+        render_markdown as _render_markdown,
+    )
+    from .strict_jsonl import StrictJsonlError, strict_lf_jsonl_records
+    from .tag_jsonutil import reject_duplicate_object_keys
+    from .validate_run import HIDDEN_THOUGHT_KEYS, check_episode, episode_like
+else:
+    import distillation_audit as _distillation_audit
+    import training_audit_snapshot as _snapshot
+    from census import factory_for_path
+    from check_records import (
+        ALLOWED_PROVENANCE,
+        canonical_record_id,
+        check_record,
+        expected_states,
+        reject_json_constant,
+        root_record_id,
+        shape_check,
+        walk_key,
+    )
+    from curate_coding import (
+        HIDDEN_REASONING_KEYS,
+        HIDDEN_REASONING_PREFIX,
+        normalized_key_name,
+    )
+    from distillation_audit import DistillationAudit
+    from exact_json import (
+        dumps_exact_json,
+        parse_finite_json_float as _parse_exact_json_float,
+    )
+    from quality_gate_identity import (
+        canonical_numeric_value as _canonical_numeric_value,
+    )
+    from round_txn import TransactionError
+    from training_audit_bridge import event_stream_status as _event_stream_status
+    from training_audit_mill import index_mill_quarantine
+    from training_audit_report import (
+        build_report,
+        percentile as _percentile,
+        render_markdown as _render_markdown,
+    )
+    from strict_jsonl import StrictJsonlError, strict_lf_jsonl_records
+    from tag_jsonutil import reject_duplicate_object_keys
+    from validate_run import HIDDEN_THOUGHT_KEYS, check_episode, episode_like
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
-from check_records import (  # noqa: E402
-    ALLOWED_PROVENANCE,
-    canonical_record_id,
-    check_record,
-    expected_states,
-    reject_json_constant,
-    root_record_id,
-    shape_check,
-    walk_key,
-)
-from census import (  # noqa: E402
-    factory_for_path,
-    visible_jsonl_paths,
-)
-from round_txn import TransactionError  # noqa: E402
-from quality_gate_identity import canonical_numeric_value as _canonical_numeric_value  # noqa: E402
-from curate_coding import (  # noqa: E402
-    HIDDEN_REASONING_KEYS,
-    HIDDEN_REASONING_PREFIX,
-    normalized_key_name,
-)
-from validate_run import (  # noqa: E402
-    HIDDEN_THOUGHT_KEYS,
-    _episode_like,
-    check_episode,
-)
-from training_audit_bridge import event_stream_status as _event_stream_status  # noqa: E402
-import distillation_audit as _distillation_audit  # noqa: E402
-from distillation_audit import DistillationAudit  # noqa: E402
-from training_audit_mill import index_mill_quarantine  # noqa: E402
-from training_audit_report import (  # noqa: E402
-    build_report,
-    percentile as _percentile,
-    render_markdown as _render_markdown,
-)
 
 # Compatibility exports retained for callers that imported the factory slugs
 # from this module before distillation accounting moved into its own helper.
@@ -153,9 +191,7 @@ def _reward_shape_type(value):
 def reward_shape(value):
     if not isinstance(value, dict):
         return _reward_shape_type(value)
-    return "|".join(
-        f"{key}:{_reward_shape_type(item)}" for key, item in sorted(value.items())
-    )
+    return "|".join(f"{key}:{_reward_shape_type(item)}" for key, item in sorted(value.items()))
 
 
 def _thalamic_context_purity(chosen, rejected):
@@ -165,8 +201,7 @@ def _thalamic_context_purity(chosen, rejected):
         for key in ("state", "proposed_action")
     )
     same_state = valid_context and (
-        _semantic_context_value(chosen["state"])
-        == _semantic_context_value(rejected["state"])
+        _semantic_context_value(chosen["state"]) == _semantic_context_value(rejected["state"])
     )
     same_proposal = valid_context and (
         _semantic_context_value(chosen["proposed_action"])
@@ -219,7 +254,7 @@ def preference_context_purity(obj, chosen, rejected):
     Thalamic pairs hold state and proposal constant. Episode-sided pairs use
     one shared task goal, including an optional outer pair goal.
     """
-    if _episode_like(chosen) or _episode_like(rejected):
+    if episode_like(chosen) or episode_like(rejected):
         return _episode_context_purity(obj, chosen, rejected)
     return _thalamic_context_purity(chosen, rejected)
 
@@ -232,7 +267,7 @@ def _list_field(value, key):
 def _preference_turns(obj):
     for side_name in ("chosen", "rejected"):
         side = dict_field(obj, side_name)
-        if _episode_like(side):
+        if episode_like(side):
             yield from _list_field(side, "steps")
 
 
@@ -290,6 +325,104 @@ def hidden_thought_paths(value, path=""):
             yield from hidden_thought_paths(item, f"{path}[{index}]")
 
 
+_PINNED_DIRECTORY_FLAGS = _snapshot.PINNED_DIRECTORY_FLAGS
+_open_audit_descriptor = _snapshot.open_audit_descriptor
+_read_regular_audit_descriptor = _snapshot.read_regular_audit_descriptor
+
+
+def _read_pinned_member(run_dir: Path, relative: Path) -> bytes:
+    """Read through the compatibility facade's descriptor seams."""
+    return _snapshot.read_pinned_member(
+        run_dir,
+        relative,
+        open_descriptor=_open_audit_descriptor,
+        read_descriptor=_read_regular_audit_descriptor,
+    )
+
+
+_marker_digest_index = _snapshot.marker_digest_index
+
+
+def _require_committed_digest(
+    payload: bytes,
+    relative: Path,
+    marker_root: Path | None,
+    digest_cache: dict[Path, dict[str, str]],
+) -> None:
+    """Check committed bytes through the facade's manifest-index seam."""
+    _snapshot.require_bound_committed_digest(
+        payload,
+        relative,
+        _snapshot.DigestBinding(
+            marker_root,
+            digest_cache,
+            _marker_digest_index,
+        ),
+    )
+
+
+_scanned_audit_entries = _snapshot.scan_audit_entries
+_classified_audit_entry = _snapshot.classify_audit_entry
+
+
+def _enumerated_run_members(run_dir: Path) -> list[Path]:
+    """Enumerate through the facade's scanner and classifier seams."""
+    return _snapshot.enumerate_run_members(
+        run_dir,
+        scan_entries=_scanned_audit_entries,
+        classify_entry=_classified_audit_entry,
+    )
+
+
+def _run_membership(run_dir: Path) -> tuple[frozenset[Path], tuple[Path, ...]]:
+    """Resolve membership through the facade's enumerator seam."""
+    return _snapshot.run_membership(
+        run_dir,
+        enumerate_members=_enumerated_run_members,
+    )
+
+
+def _capture_run_member(
+    run_dir: Path,
+    relative: Path,
+    visible: frozenset[Path],
+    digest_cache: dict[Path, dict[str, str]],
+) -> tuple[Path, bytes] | None:
+    """Compatibility facade for one snapshot member capture."""
+    capture = _snapshot.SnapshotCapture(
+        run_dir,
+        visible,
+        _read_pinned_member,
+        _require_committed_digest,
+    )
+    capture.digest_cache = digest_cache
+    return capture.member(relative)
+
+
+def _captured_run_files(run_dir: Path) -> list[tuple[Path, bytes]]:
+    """Compatibility facade for a stable, authenticated run snapshot."""
+    visible, members = _run_membership(run_dir)
+    digest_cache: dict[Path, dict[str, str]] = {}
+    files = []
+    for relative in members:
+        captured = _capture_run_member(
+            run_dir,
+            relative,
+            visible,
+            digest_cache,
+        )
+        if captured is not None:
+            files.append(captured)
+    if _run_membership(run_dir) != (visible, members):
+        raise ValueError("audit member set changed while capturing the run snapshot")
+    return files
+
+
+_validated_snapshot_path = _snapshot.validate_snapshot_path
+_validated_snapshot_member = _snapshot.validate_snapshot_member
+_validated_snapshot_files = _snapshot.validate_snapshot_files
+
+
 class _CorpusAudit:
     """Mutable counters for one read-only training-audit pass."""
 
@@ -342,24 +475,36 @@ class _CorpusAudit:
         self.reward_shapes = Counter()
         self.tags = Counter()
         self.distillation = DistillationAudit()
-        self.episodes = Counter()
+        self.episodes = Counter(
+            episodes=0,
+            steps=0,
+            decision_basis_steps=0,
+            missing_decision_basis_steps=0,
+            legacy_thought_only_steps=0,
+            hidden_thought_fields=0,
+        )
         self.hidden_thought_examples = []
 
-    def observe_file(self, path):
-        rel = path.relative_to(self.run_dir)
-        factory = factory_for_path(self.run_dir, path)
+    def observe_file(self, relative, payload=None):
+        if payload is None:
+            path = Path(relative)
+            rel = path.relative_to(self.run_dir)
+            payload = path.read_bytes()
+        else:
+            rel = Path(relative)
+        factory = factory_for_path(self.run_dir, self.run_dir / rel)
         bucket = self.factories[factory]
-        payload = path.read_bytes()
         bucket["files"] += 1
         bucket["bytes"] += len(payload)
         self.totals["files"] += 1
         self.totals["bytes"] += len(payload)
 
-        # JSONL record boundaries are literal LF bytes. CRLF leaves JSON
-        # whitespace at the end of a record, while a bare CR stays within one
-        # physical record and is rejected as extra JSON data. Literal UTF-8
-        # U+2028/U+2029 bytes remain ordinary JSON string content.
-        for line_number, raw_line in enumerate(payload.split(b"\n"), 1):
+        try:
+            raw_lines = strict_lf_jsonl_records(payload, rel.as_posix())
+        except StrictJsonlError as exc:
+            self.record_errors.append(str(exc))
+            return
+        for line_number, raw_line in enumerate(raw_lines, 1):
             self._observe_line(raw_line, line_number, rel, factory)
 
     def _observe_line(self, raw_line, line_number, rel, factory):
@@ -379,6 +524,7 @@ class _CorpusAudit:
         try:
             obj = json.loads(
                 line,
+                object_pairs_hook=reject_duplicate_object_keys,
                 parse_constant=reject_json_constant,
                 parse_float=_parse_finite_json_float,
             )
@@ -462,7 +608,7 @@ class _CorpusAudit:
             )
         )
         preference = {"chosen", "rejected"} <= keys and any(
-            _episode_like(obj.get(side)) for side in ("chosen", "rejected")
+            episode_like(obj.get(side)) for side in ("chosen", "rejected")
         )
         return direct or preference
 
@@ -641,13 +787,26 @@ class _CorpusAudit:
         )
 
 
-def audit_run(run_dir: Path):
+def audit_run(
+    run_dir: Path,
+    *,
+    snapshot: Mapping[str, bytes] | None = None,
+):
+    """Audit one immutable byte snapshot.
+
+    Normal callers get a snapshot captured from ``run_dir`` once at entry.
+    Exporters may pass the already-authenticated bytes they will publish, which
+    prevents the audit and writer from observing different filesystem states.
+    """
+
     run_dir = Path(run_dir).resolve()
-    files = visible_jsonl_paths(run_dir)
+    files = (
+        _captured_run_files(run_dir) if snapshot is None else _validated_snapshot_files(snapshot)
+    )
     mill_findings, mill_mix = index_mill_quarantine(run_dir, files)
     audit = _CorpusAudit(run_dir, mill_findings, mill_mix)
-    for path in files:
-        audit.observe_file(path)
+    for relative, payload in files:
+        audit.observe_file(relative, payload)
     return audit.report()
 
 
@@ -668,7 +827,7 @@ def main(argv=None):
     args = parse_args(argv)
     try:
         report = audit_run(Path(args.run_dir))
-    except TransactionError as exc:
+    except (TransactionError, ValueError) as exc:
         print(f"training_audit failed: {exc}", file=sys.stderr)
         return 1
     if args.markdown:

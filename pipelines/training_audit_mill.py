@@ -4,10 +4,18 @@
 import json
 from pathlib import Path
 
-from check_records import reject_json_constant
-from census import factory_identity_for_path
-from exact_json import parse_finite_json_float
-from mill_family import MillFinding, MillIndex, summarize
+if __package__:
+    from .census import factory_identity_for_path
+    from .check_records import reject_json_constant
+    from .exact_json import parse_finite_json_float
+    from .mill_family import MillFinding, MillIndex, summarize
+    from .tag_jsonutil import reject_duplicate_object_keys
+else:
+    from census import factory_identity_for_path
+    from check_records import reject_json_constant
+    from exact_json import parse_finite_json_float
+    from mill_family import MillFinding, MillIndex, summarize
+    from tag_jsonutil import reject_duplicate_object_keys
 
 
 def _finding_row(finding: MillFinding) -> dict:
@@ -20,23 +28,44 @@ def _finding_row(finding: MillFinding) -> dict:
     return row
 
 
-def _index_findings(run_dir: Path, files: list[Path]):
+def _captured_member(
+    run_dir: Path,
+    item: Path | tuple[Path, bytes],
+) -> tuple[Path, bytes]:
+    """Return one member as a relative coordinate and immutable bytes."""
+    if isinstance(item, tuple):
+        return item
+    path = Path(item)
+    return path.relative_to(run_dir), path.read_bytes()
+
+
+def _parsed_records(payload: bytes):
+    """Yield valid JSON records with their physical LF line coordinates."""
+    for line_number, raw_line in enumerate(payload.split(b"\n"), 1):
+        if not raw_line.strip():
+            continue
+        try:
+            line = raw_line.decode("utf-8")
+            record = json.loads(
+                line,
+                object_pairs_hook=reject_duplicate_object_keys,
+                parse_constant=reject_json_constant,
+                parse_float=parse_finite_json_float,
+            )
+        except (ValueError, RecursionError):
+            continue
+        yield line_number, record
+
+
+def _index_findings(
+    run_dir: Path,
+    files: list[Path] | list[tuple[Path, bytes]],
+):
     mills = MillIndex()
-    for path in files:
-        relative = path.relative_to(run_dir)
-        factory, verified = factory_identity_for_path(run_dir, path)
-        for line_number, raw_line in enumerate(path.read_bytes().split(b"\n"), 1):
-            if not raw_line.strip():
-                continue
-            try:
-                line = raw_line.decode("utf-8")
-                record = json.loads(
-                    line,
-                    parse_constant=reject_json_constant,
-                    parse_float=parse_finite_json_float,
-                )
-            except (ValueError, RecursionError):
-                continue
+    for item in files:
+        relative, payload = _captured_member(run_dir, item)
+        factory, verified = factory_identity_for_path(run_dir, run_dir / relative)
+        for line_number, record in _parsed_records(payload):
             mills.add(
                 factory,
                 record,
@@ -46,8 +75,16 @@ def _index_findings(run_dir: Path, files: list[Path]):
     return mills.findings()
 
 
-def index_mill_quarantine(run_dir: Path, files: list[Path]):
-    """Return lookup and report views from one shared-detector pass."""
+def index_mill_quarantine(
+    run_dir: Path,
+    files: list[Path] | list[tuple[Path, bytes]],
+):
+    """Return lookup and report views from one shared-detector pass.
+
+    Audit callers pass the immutable ``(relative path, payload bytes)``
+    snapshot. Plain paths remain accepted for compatibility with direct
+    callers and are captured once before detection.
+    """
 
     findings = _index_findings(run_dir, files)
     report = summarize(findings)

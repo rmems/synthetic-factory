@@ -31,20 +31,36 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
 
-from record_kind import (
-    PREFERENCE_SIDE_KINDS,
-    SUPPORTED_RECORD_KINDS,
-    classify_kind,
-    preference_side_kinds,
-)
-from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
-from validate_run import (
-    check_episode,
-    check_multi_agent,
-    check_safety_case,
-    check_spike_order,
-    check_thalamic,
-)
+if __package__:
+    from .record_kind import (
+        PREFERENCE_SIDE_KINDS,
+        SUPPORTED_RECORD_KINDS,
+        classify_kind,
+        preference_side_kinds,
+    )
+    from .round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
+    from .validate_run import (
+        check_episode,
+        check_multi_agent,
+        check_safety_case,
+        check_spike_order,
+        check_thalamic,
+    )
+else:
+    from record_kind import (
+        PREFERENCE_SIDE_KINDS,
+        SUPPORTED_RECORD_KINDS,
+        classify_kind,
+        preference_side_kinds,
+    )
+    from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
+    from validate_run import (
+        check_episode,
+        check_multi_agent,
+        check_safety_case,
+        check_spike_order,
+        check_thalamic,
+    )
 
 TRANSFORM_NAME = "curate_identity"
 TRANSFORM_VERSION = "identity-provenance-v2"
@@ -203,7 +219,7 @@ def canonical_json(value: Any) -> str:
         raise IdentityCurationError(f"record is not canonical JSON data: {exc}") from exc
 
 
-def _sha256_json(value: Any) -> str:
+def sha256_json(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
@@ -222,7 +238,7 @@ def _require_canonical_json_equal(actual: Any, expected: Any, where: str) -> Non
         raise IdentityTreeError(f"{where} does not match the hash-verified source replay")
 
 
-def _sha256_bytes(payload: bytes) -> str:
+def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
@@ -230,14 +246,14 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"non-standard JSON numeric constant {value}")
 
 
-def _parse_finite_json_float(value: str) -> float:
+def parse_finite_json_float(value: str) -> float:
     parsed = float(value)
     if not math.isfinite(parsed):
         raise ValueError(f"JSON numeric literal is not finitely representable: {value}")
     return parsed
 
 
-def _reject_duplicate_object_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+def reject_duplicate_object_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     value: dict[str, Any] = {}
     for key, item in pairs:
         if key in value:
@@ -251,9 +267,9 @@ def _strict_json_loads(payload: str) -> Any:
 
     value = json.loads(
         payload,
-        object_pairs_hook=_reject_duplicate_object_keys,
+        object_pairs_hook=reject_duplicate_object_keys,
         parse_constant=_reject_json_constant,
-        parse_float=_parse_finite_json_float,
+        parse_float=parse_finite_json_float,
     )
     _reject_unpaired_surrogates(value)
     return value
@@ -441,7 +457,7 @@ def load_registry(path: Path | None = None) -> FactoryRegistry:
         by_path_id[row.path_id] = row
     return FactoryRegistry(
         schema_version=schema_version,
-        sha256=_sha256_bytes(raw_bytes),
+        sha256=sha256_bytes(raw_bytes),
         raw_bytes=raw_bytes,
         by_path_id=by_path_id,
     )
@@ -504,7 +520,7 @@ def _source_identity(source: SourceRecord) -> _SourceIdentity:
             raise IdentityCurationError("source_json does not decode to source record")
     if source.source_sha256 is None:
         original = canonical_source
-        digest = _sha256_bytes(original.encode("utf-8"))
+        digest = sha256_bytes(original.encode("utf-8"))
         basis = "canonical-json-sha256"
     else:
         digest = str(source.source_sha256).lower()
@@ -512,9 +528,9 @@ def _source_identity(source: SourceRecord) -> _SourceIdentity:
             raise IdentityCurationError("source_sha256 must be exactly 64 hexadecimal characters")
         basis = "source-json-line-sha256"
         if original is not None:
-            if _sha256_bytes(original.encode("utf-8")) != digest:
+            if sha256_bytes(original.encode("utf-8")) != digest:
                 raise IdentityCurationError("source_json does not match source_sha256")
-        elif _sha256_bytes(canonical_source.encode("utf-8")) == digest:
+        elif sha256_bytes(canonical_source.encode("utf-8")) == digest:
             # A caller-provided line digest binds the canonical source
             # representation only when the bytes actually coincide. Otherwise
             # retain the digest without claiming a hash-verified snapshot.
@@ -976,7 +992,7 @@ def _collect_state_resolutions(
 def _provenance_mapping_sha256(mapping: Mapping[str, Any]) -> str:
     payload = dict(mapping)
     payload.pop("mapping_sha256", None)
-    return _sha256_json(payload)
+    return sha256_json(payload)
 
 
 def _seal_provenance_mapping(mapping: Mapping[str, Any]) -> dict[str, Any]:
@@ -1352,7 +1368,7 @@ def curate_record(
             "action": "retained",
             "reason_codes": ["identity.assigned", "provenance.canonicalized"],
             "output_id": output_id,
-            "output_sha256": _sha256_json(curated),
+            "output_sha256": sha256_json(curated),
             "id_mappings": id_mappings,
             "provenance_mappings": provenance_mappings,
         }
@@ -1458,7 +1474,7 @@ def _hash_verified_manifest_source(source_meta: Mapping[str, Any], index: int) -
         raise IdentityTreeError(f"{where}.original must be a hash-verifiable JSONL snapshot")
     if "\n" in original:
         raise IdentityTreeError(f"{where}.original must contain exactly one JSONL record")
-    if _sha256_bytes(original.encode("utf-8")) != source_sha256:
+    if sha256_bytes(original.encode("utf-8")) != source_sha256:
         raise IdentityTreeError(f"{where}.original does not match source.sha256")
     try:
         original_record = _strict_json_loads(original)
@@ -1910,8 +1926,8 @@ def _validate_manifest_ids(
         not isinstance(expected_output_sha256, str)
         or not SHA256_RE.fullmatch(expected_output_sha256)
         or mapping.get("output_sha256") != expected_output_sha256
-        or _sha256_json(expected_result.record) != expected_output_sha256
-        or _sha256_json(record) != expected_output_sha256
+        or sha256_json(expected_result.record) != expected_output_sha256
+        or sha256_json(record) != expected_output_sha256
     ):
         raise IdentityTreeError(
             f"IDENTITY-MANIFEST.json[{index}].output_sha256 does not match the source replay"
@@ -2051,7 +2067,7 @@ def validate_identity_tree(
         manifest_bytes = manifest_path.read_bytes()
     except OSError as exc:
         raise IdentityTreeError(f"IDENTITY-MANIFEST.json is unreadable: {exc}") from exc
-    manifest_digest = _sha256_bytes(manifest_bytes)
+    manifest_digest = sha256_bytes(manifest_bytes)
     if expected_manifest_digest is not None:
         if not isinstance(expected_manifest_digest, str) or not SHA256_RE.fullmatch(
             expected_manifest_digest
@@ -2090,7 +2106,7 @@ def validate_identity_tree(
         for line_no, (index, mapping, replay) in expected_by_line.items():
             output_record = actual_by_line[line_no]
             try:
-                actual_hash = _sha256_json(output_record)
+                actual_hash = sha256_json(output_record)
             except IdentityCurationError as exc:
                 raise IdentityTreeError(
                     f"identity output is not canonical JSON data: {rel}:{line_no}: {exc}"
@@ -2290,7 +2306,7 @@ def write_run(
             )
             + "\n"
         ).encode("utf-8")
-        manifest_digest = _sha256_bytes(manifest_bytes)
+        manifest_digest = sha256_bytes(manifest_bytes)
         _write_exclusive(dest / IDENTITY_MANIFEST_SIDECAR, manifest_bytes)
         created_files.append(dest / IDENTITY_MANIFEST_SIDECAR)
         retained_by_rel: dict[str, dict[int, dict[str, Any]]] = {}
@@ -2384,6 +2400,13 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, IdentityCurationError, ValueError) as exc:
         print(f"identity curation failed: {exc}", file=sys.stderr)
         return 1
+
+
+# Historical private spellings, kept for direct importers and tests.
+_parse_finite_json_float = parse_finite_json_float
+_reject_duplicate_object_keys = reject_duplicate_object_keys
+_sha256_bytes = sha256_bytes
+_sha256_json = sha256_json
 
 
 if __name__ == "__main__":

@@ -14,11 +14,8 @@ from typing import Any, Callable, Iterable, Sequence
 
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
-    if _local_sibling_module("curate_bridge_materialize", allow_initializing=True) is not None:
-        import curate_bridge_materialize as _direct_curate_bridge_materialize
-        _require_local_sibling(_direct_curate_bridge_materialize, "curate_bridge_materialize")
-        del _direct_curate_bridge_materialize
+    from . import _assert_direct_sibling, _expose_package_sibling
+    _assert_direct_sibling("curate_bridge_materialize")
     from .curate_bridge_materialize_fs import (
         BridgeCurationError,
         _is_under_raw,

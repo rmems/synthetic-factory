@@ -24,19 +24,33 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
             path.write_bytes(payload)
             return training_audit.audit_run(root)
 
-    def assert_exact_contract_error(self, serialized, expected_fragment):
-        report = self._audit_payload((serialized + "\n").encode("utf-8"))
+    @staticmethod
+    def _serialized(text):
+        return (text + "\n").encode("utf-8")
+
+    def _assert_refused(self, payload, expected_fragment, *, contract_errors=None, records=None):
+        report = self._audit_payload(payload)
         self.assertFalse(report["training_ready"])
+        if records is not None:
+            self.assertEqual(report["totals"]["records"], records)
         self.assertEqual(report["totals"]["eligible_records"], 0)
-        self.assertEqual(report["totals"]["exact_json_contract_errors"], 1)
+        if contract_errors is not None:
+            self.assertEqual(report["totals"]["exact_json_contract_errors"], contract_errors)
         self.assertTrue(
             any(
-                expected_fragment in item
-                for item in report["record_invariants"]["error_examples"]
+                expected_fragment in item for item in report["record_invariants"]["error_examples"]
             ),
             report["record_invariants"],
         )
         return report
+
+    def assert_exact_contract_error(self, serialized, expected_fragment):
+        return self._assert_refused(
+            self._serialized(serialized), expected_fragment, contract_errors=1
+        )
+
+    def assert_framing_refused(self, payload, expected_fragment):
+        return self._assert_refused(payload, expected_fragment)
 
     def test_bare_cr_is_not_a_boundary_or_a_mill_coordinate(self):
         foreign = thalamic("sir-r56-meili-swap-leftover3c-rebuild")
@@ -45,30 +59,41 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
             "utf-8"
         )
 
-        report = self._audit_payload(payload)
+        report = self.assert_framing_refused(payload, "carriage returns")
 
-        self.assertEqual(report["totals"]["records"], 1)
-        self.assertEqual(report["totals"]["eligible_records"], 0)
+        self.assertEqual(report["totals"]["records"], 0)
         self.assertEqual(report["mill_mix"]["records"], 0)
         self.assertEqual(report["mill_mix"]["quarantined_records"], [])
-        self.assertTrue(
-            any(
-                "batch-r01.jsonl:1: JSON parse error" in item
-                for item in report["record_invariants"]["error_examples"]
-            ),
-            report["record_invariants"],
-        )
 
-    def test_crlf_is_a_supported_physical_record_boundary(self):
+    def test_crlf_is_refused_by_the_training_export_contract(self):
         records = [thalamic("ttf-first"), thalamic("ttf-second")]
         payload = ("\r\n".join(map(json.dumps, records)) + "\r\n").encode()
 
-        report = self._audit_payload(payload)
+        self.assert_framing_refused(payload, "carriage returns")
 
-        self.assertTrue(report["training_ready"], report["blockers"])
-        self.assertEqual(report["totals"]["records"], 2)
-        self.assertEqual(report["totals"]["eligible_records"], 2)
-        self.assertEqual(report["bridge"]["distillation_records"], 2)
+    def test_blank_physical_record_is_refused_by_the_training_export_contract(self):
+        serialized = json.dumps(thalamic("ttf-blank"))
+
+        self.assert_framing_refused(
+            (serialized + "\n\n").encode("utf-8"),
+            "blank line",
+        )
+
+    def test_missing_final_lf_is_refused_by_the_training_export_contract(self):
+        serialized = json.dumps(thalamic("ttf-final-lf"))
+
+        self.assert_framing_refused(
+            serialized.encode("utf-8"),
+            "must end with a newline",
+        )
+
+    def test_duplicate_object_keys_are_not_training_eligible(self):
+        serialized = json.dumps(thalamic("ttf-duplicate-key"))
+        serialized = serialized[:-1] + ',"duplicate":1,"duplicate":2}'
+
+        self.assert_framing_refused(
+            self._serialized(serialized), "duplicate JSON object key 'duplicate'"
+        )
 
     def test_unicode_line_separators_remain_json_string_data(self):
         record = thalamic("ttf-unicode-separators")
@@ -88,23 +113,15 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
             1,
         )
 
-        report = self._audit_payload((serialized + "\n").encode("utf-8"))
-
-        self.assertFalse(report["training_ready"])
-        self.assertEqual(report["totals"]["records"], 1)
-        self.assertEqual(report["totals"]["eligible_records"], 0)
-        self.assertTrue(
-            any(
-                "non-finite JSON number 1e999" in item
-                for item in report["record_invariants"]["error_examples"]
-            ),
-            report["record_invariants"],
+        self._assert_refused(
+            self._serialized(serialized), "non-finite JSON number 1e999", records=1
         )
 
     def test_excessive_json_nesting_is_reported_instead_of_aborting(self):
         record = json.dumps(thalamic("ttf-deep")).replace(
             '"state": {',
-            '"state": {"nested": ' + ("[" * (MAX_JSON_NESTING_DEPTH + 1))
+            '"state": {"nested": '
+            + ("[" * (MAX_JSON_NESTING_DEPTH + 1))
             + "0"
             + ("]" * (MAX_JSON_NESTING_DEPTH + 1))
             + ", ",
