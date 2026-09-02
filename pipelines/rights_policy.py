@@ -6,8 +6,10 @@ from __future__ import annotations
 import json
 import math
 import sys
+from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 if __package__:
@@ -445,12 +447,47 @@ def load_rights_policy(path: str | Path | None = None) -> dict:
     return document
 
 
+@dataclass(frozen=True)
+class RightsAuthorization:
+    """One fully compiled verdict containing no mutable policy nodes."""
+
+    intended_use: str
+    project_training_policy: str
+    research_retention_status: str
+    research_evaluation_status: str
+    redistribution_status: str
+    provider_training_status: str
+    weight_publication_status: str
+    reason_codes: tuple[str, ...]
+
+
+def _compile_authorizations(document: dict) -> MappingProxyType:
+    profiles = {profile["id"]: profile for profile in document["profiles"]}
+    compiled = {}
+    for rule in document["rules"]:
+        profile = profiles[rule["rights_profile_id"]]
+        statuses = profile["evidence_statuses"]
+        authorization = RightsAuthorization(
+            intended_use=rule["intended_use"],
+            project_training_policy=rule["project_training_policy"],
+            research_retention_status=statuses["research_retention_status"],
+            research_evaluation_status=statuses["research_evaluation_status"],
+            redistribution_status=statuses["redistribution_status"],
+            provider_training_status=statuses["provider_training_status"],
+            weight_publication_status=statuses["weight_publication_status"],
+            reason_codes=tuple(rule["reason_codes"]),
+        )
+        for provider, channel in product(rule["providers"], rule["channels"]):
+            compiled[(provider, channel, rule["rights_profile_id"])] = authorization
+    return MappingProxyType(compiled)
+
+
 RIGHTS_POLICY, RIGHTS_POLICY_BYTES = _load_rights_policy(MAPPING_PATH)
 RIGHTS_POLICY_SHA256 = sha256_digest(RIGHTS_POLICY_BYTES)
 PROVIDERS = frozenset(RIGHTS_POLICY["vocabularies"]["providers"])
 RIGHTS_CHANNELS = frozenset(RIGHTS_POLICY["vocabularies"]["channels"])
-RIGHTS_PROFILES = tuple(RIGHTS_POLICY["profiles"])
-RIGHTS_RULES = tuple(RIGHTS_POLICY["rules"])
+RIGHTS_PROFILE_IDS = frozenset(profile["id"] for profile in RIGHTS_POLICY["profiles"])
+RIGHTS_AUTHORIZATIONS = _compile_authorizations(RIGHTS_POLICY)
 REASON_CODES = frozenset(item["id"] for item in RIGHTS_POLICY["reason_codes"])
 
 

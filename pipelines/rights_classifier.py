@@ -22,10 +22,10 @@ if __package__:
         PROVIDERS,
         REASON_CODES,
         RIGHTS_CHANNELS,
+        RIGHTS_AUTHORIZATIONS,
         RIGHTS_POLICY_BYTES,
+        RIGHTS_PROFILE_IDS,
         RIGHTS_POLICY_SHA256,
-        RIGHTS_PROFILES,
-        RIGHTS_RULES,
         load_rights_policy_bytes,
     )
 else:
@@ -42,10 +42,10 @@ else:
         PROVIDERS,
         REASON_CODES,
         RIGHTS_CHANNELS,
+        RIGHTS_AUTHORIZATIONS,
         RIGHTS_POLICY_BYTES,
+        RIGHTS_PROFILE_IDS,
         RIGHTS_POLICY_SHA256,
-        RIGHTS_PROFILES,
-        RIGHTS_RULES,
         load_rights_policy_bytes,
     )
 
@@ -64,9 +64,6 @@ PUBLIC_PAYLOAD_FIELDS = frozenset(
         "rights_policy_sha256",
     }
 )
-
-_PROFILES_BY_ID = {profile["id"]: profile for profile in RIGHTS_PROFILES}
-
 
 @dataclass(frozen=True)
 class RightsDecision:
@@ -110,20 +107,14 @@ class RightsDecision:
         return MappingProxyType(self.to_public_payload())
 
 
-def _authorizing_rule(provider: str, channel: str, profile_id: str) -> dict:
-    matches = [
-        rule
-        for rule in RIGHTS_RULES
-        if provider in rule["providers"]
-        and channel in rule["channels"]
-        and profile_id == rule["rights_profile_id"]
-    ]
-    if len(matches) != 1:
+def _authorization(provider: str, channel: str, profile_id: str):
+    authorization = RIGHTS_AUTHORIZATIONS.get((provider, channel, profile_id))
+    if authorization is None:
         raise policy_error(
             "rights classification",
             "provider/channel/profile combination is not authorized by policy",
         )
-    return matches[0]
+    return authorization
 
 
 def classify_rights(
@@ -142,7 +133,7 @@ def classify_rights(
         raise policy_error(where, f"unknown channel {channel!r}")
     if (
         not isinstance(rights_profile_id, str)
-        or rights_profile_id not in _PROFILES_BY_ID
+        or rights_profile_id not in RIGHTS_PROFILE_IDS
     ):
         raise policy_error(where, f"unknown rights profile {rights_profile_id!r}")
     source_digest = require_hash(source_sha256, "source_sha256", where=where)
@@ -151,21 +142,19 @@ def classify_rights(
         "factory_registry_sha256",
         where=where,
     )
-    rule = _authorizing_rule(provider, channel, rights_profile_id)
-    profile = _PROFILES_BY_ID[rights_profile_id]
-    statuses = profile["evidence_statuses"]
+    authorization = _authorization(provider, channel, rights_profile_id)
     return RightsDecision(
         rights_profile_id=rights_profile_id,
         provider=provider,
         channel=channel,
-        intended_use=rule["intended_use"],
-        project_training_policy=rule["project_training_policy"],
-        research_retention_status=statuses["research_retention_status"],
-        research_evaluation_status=statuses["research_evaluation_status"],
-        redistribution_status=statuses["redistribution_status"],
-        provider_training_status=statuses["provider_training_status"],
-        weight_publication_status=statuses["weight_publication_status"],
-        reason_codes=tuple(rule["reason_codes"]),
+        intended_use=authorization.intended_use,
+        project_training_policy=authorization.project_training_policy,
+        research_retention_status=authorization.research_retention_status,
+        research_evaluation_status=authorization.research_evaluation_status,
+        redistribution_status=authorization.redistribution_status,
+        provider_training_status=authorization.provider_training_status,
+        weight_publication_status=authorization.weight_publication_status,
+        reason_codes=authorization.reason_codes,
         source_sha256=source_digest,
         factory_registry_sha256=registry_digest,
         rights_policy_sha256=RIGHTS_POLICY_SHA256,

@@ -154,6 +154,83 @@ class RightsPolicyTests(unittest.TestCase):
         self.assertEqual(profile["project_training_policy"], "blocked")
         self.assertIs(validated, document)
 
+    def test_mutating_loaded_policy_cannot_change_or_validate_bound_decision(self):
+        profile = next(
+            item
+            for item in rights_policy.RIGHTS_POLICY["profiles"]
+            if item["id"] == rights_policy.HOSTED_FRONTIER_PROFILE_ID
+        )
+        rule = next(
+            item
+            for item in rights_policy.RIGHTS_POLICY["rules"]
+            if item["id"] == "HOSTED_ANTHROPIC_CONSUMER"
+        )
+        original_profile = copy.deepcopy(profile)
+        original_rule = copy.deepcopy(rule)
+        try:
+            try:
+                profile.update(
+                    intended_use="training_candidate",
+                    project_training_policy="allowed",
+                )
+                profile["evidence_statuses"].update(
+                    {
+                        field: "allowed"
+                        for field in rights_policy.EVIDENCE_STATUS_FIELDS
+                    }
+                )
+                rule.update(
+                    intended_use="training_candidate",
+                    project_training_policy="allowed",
+                    reason_codes=["UNKNOWN_PROVENANCE"],
+                )
+            except (AttributeError, TypeError):
+                # Deep-freezing is also a valid way to seal the imported state.
+                pass
+
+            decision = self.classify()
+            promoted = decision.to_public_payload()
+            promoted.update(
+                intended_use="training_candidate",
+                project_training_policy="allowed",
+                research_retention_status="allowed",
+                research_evaluation_status="allowed",
+                redistribution_status="allowed",
+                provider_training_status="allowed",
+                weight_publication_status="allowed",
+                reason_codes=["UNKNOWN_PROVENANCE"],
+            )
+
+            with self.assertRaises(rights_policy.RightsPolicyError):
+                rights_classifier.verify_rights_envelope(
+                    promoted,
+                    source_bytes=self.SOURCE_BYTES,
+                    factory_registry_bytes=self.REGISTRY_BYTES,
+                    policy_bytes=MAPPING.read_bytes(),
+                )
+            self.assertEqual(
+                (
+                    decision.intended_use,
+                    decision.project_training_policy,
+                    decision.provider_training_status,
+                    decision.reason_codes,
+                ),
+                (
+                    "research_only",
+                    "blocked",
+                    "unresolved",
+                    ("HOSTED_FRONTIER_RESEARCH_ONLY",),
+                ),
+            )
+        finally:
+            try:
+                profile.clear()
+                profile.update(original_profile)
+                rule.clear()
+                rule.update(original_rule)
+            except (AttributeError, TypeError):
+                pass
+
     def test_decision_is_immutable(self):
         decision = self.classify()
 
