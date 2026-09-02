@@ -4,7 +4,10 @@
 Split out of ``compose_curated.py`` by responsibility: classify a preference
 pair's side families, curate each episode side through the coding lane, and
 apply the reviewed PR #93 trajectory gate (or its fail-closed compatible core
-until that sibling module is stacked).
+until that sibling module is stacked).  Goal repair lives in
+``compose_trajectory_goals`` and the compatible gate core in
+``compose_trajectory_gate``; both are re-exported here so ``compose_curated``
+keeps one trajectory surface.
 """
 
 from __future__ import annotations
@@ -15,61 +18,66 @@ from pathlib import Path
 from typing import Any, Mapping
 
 if __package__:
+    from . import compose_trajectory_gate as _gate_module
+    from . import compose_trajectory_goals as _goals_module
     from . import curate_agentic, curate_coding
     from .compose_contract import (
-        ACTION_EXCLUDED,
         ACTION_NOT_APPLICABLE,
-        ACTION_RETAINED,
         PREFERENCE_CANDIDATE_KEYS,
-        REASON_TRAJECTORY_GATE_PASSED,
-        REASON_TRAJECTORY_GOAL_NORMALIZED,
-        REASON_TRAJECTORY_IDENTICAL,
-        REASON_TRAJECTORY_OUTCOME_MISSING,
-        REASON_TRAJECTORY_OUTCOME_NOT_DIVERGENT,
-        REASON_TRAJECTORY_PREFIX_ABSENT,
-        REASON_TRAJECTORY_REWARD_MISSING,
-        REASON_TRAJECTORY_REWARD_NOT_DIVERGENT,
-        REASON_TRAJECTORY_SIDE_INVALID,
-        REASON_TRAJECTORY_STEPS_EMPTY,
-        REASON_TRAJECTORY_STEPS_INVALID,
-        TRAJECTORY_GOAL_LOCATIONS,
-        _TrajectoryPreferenceDecision,
         _canonical_sha256,
-        canonical_json,
     )
     from .record_kind import PREFERENCE_SIDE_KINDS
-    from .trajectory_pair_gate import preference_direction_failures
-    from .validate_run import THALAMIC_CORE_KEYS, check_episode
 else:
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
+    import compose_trajectory_gate as _gate_module
+    import compose_trajectory_goals as _goals_module
     import curate_agentic
     import curate_coding
     from compose_contract import (
-        ACTION_EXCLUDED,
         ACTION_NOT_APPLICABLE,
-        ACTION_RETAINED,
         PREFERENCE_CANDIDATE_KEYS,
-        REASON_TRAJECTORY_GATE_PASSED,
-        REASON_TRAJECTORY_GOAL_NORMALIZED,
-        REASON_TRAJECTORY_IDENTICAL,
-        REASON_TRAJECTORY_OUTCOME_MISSING,
-        REASON_TRAJECTORY_OUTCOME_NOT_DIVERGENT,
-        REASON_TRAJECTORY_PREFIX_ABSENT,
-        REASON_TRAJECTORY_REWARD_MISSING,
-        REASON_TRAJECTORY_REWARD_NOT_DIVERGENT,
-        REASON_TRAJECTORY_SIDE_INVALID,
-        REASON_TRAJECTORY_STEPS_EMPTY,
-        REASON_TRAJECTORY_STEPS_INVALID,
-        TRAJECTORY_GOAL_LOCATIONS,
-        _TrajectoryPreferenceDecision,
         _canonical_sha256,
-        canonical_json,
     )
     from record_kind import PREFERENCE_SIDE_KINDS
-    from trajectory_pair_gate import preference_direction_failures
-    from validate_run import THALAMIC_CORE_KEYS, check_episode
+
+_normalize_trajectory_goal_whitespace = _goals_module._normalize_trajectory_goal_whitespace
+_present_trajectory_goals = _goals_module._present_trajectory_goals
+_trajectory_goal_owner = _goals_module._trajectory_goal_owner
+_trajectory_side_validation_errors = _goals_module._trajectory_side_validation_errors
+_whitespace_only_goal = _goals_module._whitespace_only_goal
+_TRAJECTORY_DIVERGENCE_FIELDS = _gate_module._TRAJECTORY_DIVERGENCE_FIELDS
+_compat_trajectory_preference = _gate_module._compat_trajectory_preference
+_trajectory_divergence_reasons = _gate_module._trajectory_divergence_reasons
+_trajectory_gate_passed = _gate_module._trajectory_gate_passed
+_trajectory_step_reasons = _gate_module._trajectory_step_reasons
+_trajectory_step_shape_reason = _gate_module._trajectory_step_shape_reason
+_trajectory_steps = _gate_module._trajectory_steps
+
+__all__ = (
+    "_TRAJECTORY_DIVERGENCE_FIELDS",
+    "_compat_trajectory_preference",
+    "_curate_one_trajectory_side",
+    "_curate_trajectory_sides",
+    "_is_same_state_pair",
+    "_mixed_preference_families",
+    "_normalize_trajectory_goal_whitespace",
+    "_present_trajectory_goals",
+    "_strip_hidden_only_side",
+    "_trajectory_divergence_reasons",
+    "_trajectory_gate_passed",
+    "_trajectory_goal_owner",
+    "_trajectory_side_needs_coding",
+    "_trajectory_side_validation_errors",
+    "_trajectory_step_reasons",
+    "_trajectory_step_shape_reason",
+    "_trajectory_steps",
+    "_whitespace_only_goal",
+    "is_bridge_record",
+    "is_episode_record",
+    "is_preference_record",
+)
 
 
 def is_bridge_record(record: Mapping[str, Any]) -> bool:
@@ -124,222 +132,6 @@ def _is_same_state_pair(record: Mapping[str, Any]) -> bool:
             isinstance(side.get(field_name), Mapping) for field_name in ("state", "proposed_action")
         )
         for side in sides
-    )
-
-
-def _trajectory_side_validation_errors(
-    record: Mapping[str, Any],
-) -> dict[str, tuple[str, ...]]:
-    """Run the canonical episode validator over each trajectory-preference side."""
-
-    found: dict[str, tuple[str, ...]] = {}
-    for side_name in ("chosen", "rejected"):
-        side = record.get(side_name)
-        if not isinstance(side, dict):
-            continue
-        errors = check_episode(side, side_name, require_goal=False)
-        if all(key in side for key in THALAMIC_CORE_KEYS):
-            errors.append(f"{side_name}: Thalamic trajectory side is not an episode")
-        if errors:
-            found[side_name] = tuple(errors)
-    return found
-
-
-def _trajectory_goal_owner(record: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any] | None:
-    owner: Any = record
-    for key in path[:-1]:
-        owner = owner.get(key) if isinstance(owner, dict) else None
-    return owner if isinstance(owner, dict) else None
-
-
-def _present_trajectory_goals(
-    record: dict[str, Any],
-) -> list[tuple[tuple[str, ...], str]]:
-    """Every goal location this record actually carries as a string."""
-
-    present: list[tuple[tuple[str, ...], str]] = []
-    for path in TRAJECTORY_GOAL_LOCATIONS:
-        owner = _trajectory_goal_owner(record, path)
-        if owner is None:
-            continue
-        value = owner.get(path[-1])
-        if isinstance(value, str):
-            present.append((path, value))
-    return present
-
-
-def _whitespace_only_goal(present: list[tuple[tuple[str, ...], str]]) -> str | None:
-    """The single canonical goal, when the goals differ only in whitespace.
-
-    ``None`` whenever the repair would invent evidence: fewer than two goals
-    to reconcile, goals that already agree, goals that still differ once
-    whitespace is collapsed, or a goal that collapses to nothing.
-    """
-
-    if len(present) < 2:
-        return None
-    values = [value for _path, value in present]
-    normalized = {" ".join(value.split()) for value in values}
-    if len(set(values)) == 1 or len(normalized) != 1:
-        return None
-    return normalized.pop() or None
-
-
-def _normalize_trajectory_goal_whitespace(
-    record: dict[str, Any],
-) -> dict[str, Any] | None:
-    """Apply PR #93's evidence-preserving goal whitespace repair."""
-
-    present = _present_trajectory_goals(record)
-    canonical_goal = _whitespace_only_goal(present)
-    if canonical_goal is None:
-        return None
-
-    repaired = copy.deepcopy(record)
-    for path, _value in present:
-        owner = _trajectory_goal_owner(repaired, path)
-        if owner is not None:
-            owner[path[-1]] = canonical_goal
-    return repaired
-
-
-_TRAJECTORY_DIVERGENCE_FIELDS = (
-    (
-        "outcome",
-        REASON_TRAJECTORY_OUTCOME_MISSING,
-        REASON_TRAJECTORY_OUTCOME_NOT_DIVERGENT,
-    ),
-    (
-        "reward",
-        REASON_TRAJECTORY_REWARD_MISSING,
-        REASON_TRAJECTORY_REWARD_NOT_DIVERGENT,
-    ),
-)
-
-
-def _trajectory_steps(side: Any) -> Any:
-    """Return one side's steps without treating non-objects as mappings."""
-
-    return side.get("steps") if isinstance(side, dict) else None
-
-
-def _trajectory_step_shape_reason(chosen_steps: Any, rejected_steps: Any) -> str | None:
-    """Return the first structural step-array failure in gate order."""
-
-    if not isinstance(chosen_steps, list) or not isinstance(rejected_steps, list):
-        return REASON_TRAJECTORY_STEPS_INVALID
-    if not chosen_steps or not rejected_steps:
-        return REASON_TRAJECTORY_STEPS_EMPTY
-    return None
-
-
-def _trajectory_step_reasons(chosen: Any, rejected: Any, overlap: Mapping[str, Any]) -> list[str]:
-    """Why the pair's step arrays fail PR #93's gate, in gate order."""
-
-    chosen_steps = _trajectory_steps(chosen)
-    rejected_steps = _trajectory_steps(rejected)
-    shape_reason = _trajectory_step_shape_reason(chosen_steps, rejected_steps)
-    if shape_reason is not None:
-        return [shape_reason]
-
-    reasons: list[str] = []
-    if canonical_json(chosen_steps) == canonical_json(rejected_steps):
-        reasons.append(REASON_TRAJECTORY_IDENTICAL)
-    if not overlap["shared_steps"]:
-        reasons.append(REASON_TRAJECTORY_PREFIX_ABSENT)
-    return reasons
-
-
-def _trajectory_divergence_reasons(chosen: Any, rejected: Any) -> list[str]:
-    """Why the pair's outcome and reward evidence fails to diverge."""
-
-    if not isinstance(chosen, dict) or not isinstance(rejected, dict):
-        return []
-
-    reasons: list[str] = []
-    for field_name, missing_reason, same_reason in _TRAJECTORY_DIVERGENCE_FIELDS:
-        if chosen.get(field_name) is None or rejected.get(field_name) is None:
-            reasons.append(missing_reason)
-        elif canonical_json(chosen[field_name]) == canonical_json(rejected[field_name]):
-            reasons.append(same_reason)
-    return reasons
-
-
-def _trajectory_gate_passed(
-    curated: dict[str, Any],
-    overlap: Mapping[str, Any],
-    *,
-    removed_thoughts: Any,
-    normalized: Any,
-) -> _TrajectoryPreferenceDecision:
-    """The accepted decision, repaired if the gate had to touch the record."""
-
-    repaired = bool(removed_thoughts) or normalized is not None
-    reasons: list[str] = []
-    if removed_thoughts:
-        reasons.append(curate_agentic.REASON_THOUGHT_REMOVED)
-    if normalized is not None:
-        reasons.append(REASON_TRAJECTORY_GOAL_NORMALIZED)
-    reasons.append(REASON_TRAJECTORY_GATE_PASSED)
-    return _TrajectoryPreferenceDecision(
-        action="repaired" if repaired else ACTION_RETAINED,
-        classification=("trajectory_pair_repaired" if repaired else "trajectory_pair_gate_passed"),
-        reason_codes=tuple(reasons),
-        record=curated,
-        shared_goal=True,
-        overlap=overlap,
-    )
-
-
-def _compat_trajectory_preference(
-    record: dict[str, Any],
-) -> _TrajectoryPreferenceDecision:
-    """Enforce PR #93's non-repairing core when its sibling module is absent.
-
-    The sibling owns richer reject diagnostics. This compatibility path keeps
-    its acceptance contract and evidence-preserving repairs: valid episode
-    sides, one goal, a non-empty shared step prefix, non-identical trajectories,
-    divergent outcome and reward evidence, hidden-thought removal, and
-    whitespace-only goal normalization.
-    """
-
-    curated, removed_thoughts = curate_agentic.strip_hidden_thought_keys(record)
-    normalized = _normalize_trajectory_goal_whitespace(curated)
-    if normalized is not None:
-        curated = normalized
-
-    shared_goal, goal_reason = curate_agentic.shared_preference_goal(curated)
-    side_errors = _trajectory_side_validation_errors(curated)
-    chosen = curated.get("chosen")
-    rejected = curated.get("rejected")
-    overlap = curate_agentic.prefix_overlap(chosen, rejected)
-
-    # Collected in gate order: the reason codes are public evidence, so the
-    # sequence a reader sees has to stay stable.
-    reasons: list[str] = []
-    if not shared_goal and goal_reason is not None:
-        reasons.append(goal_reason)
-    if side_errors:
-        reasons.append(REASON_TRAJECTORY_SIDE_INVALID)
-    reasons.extend(_trajectory_step_reasons(chosen, rejected, overlap))
-    reasons.extend(_trajectory_divergence_reasons(chosen, rejected))
-    reasons.extend(preference_direction_failures(curated))
-
-    if reasons:
-        return _TrajectoryPreferenceDecision(
-            action=ACTION_EXCLUDED,
-            classification="unsupported_trajectory_pair",
-            reason_codes=tuple(dict.fromkeys(reasons)),
-            record=None,
-            shared_goal=shared_goal,
-            overlap=overlap,
-            side_validation_errors=side_errors or None,
-        )
-    return _trajectory_gate_passed(
-        curated,
-        overlap,
-        removed_thoughts=removed_thoughts,
-        normalized=normalized,
     )
 
 

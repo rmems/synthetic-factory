@@ -235,10 +235,52 @@ def _load_compose_destination_writer():
     return compose_destination_writer
 
 
+def _load_compose_destination_directory():
+    from . import compose_destination_directory
+
+    return compose_destination_directory
+
+
+def _load_compose_destination_rename():
+    from . import compose_destination_rename
+
+    return compose_destination_rename
+
+
+def _load_compose_destination_tree():
+    from . import compose_destination_tree
+
+    return compose_destination_tree
+
+
 def _load_compose_source_snapshot():
     from . import compose_source_snapshot
 
     return compose_source_snapshot
+
+
+def _load_compose_source_snapshot_members():
+    from . import compose_source_snapshot_members
+
+    return compose_source_snapshot_members
+
+
+def _load_compose_source_snapshot_visibility():
+    from . import compose_source_snapshot_visibility
+
+    return compose_source_snapshot_visibility
+
+
+def _load_compose_trajectory_gate():
+    from . import compose_trajectory_gate
+
+    return compose_trajectory_gate
+
+
+def _load_compose_trajectory_goals():
+    from . import compose_trajectory_goals
+
+    return compose_trajectory_goals
 
 
 def _load_export_compose_manifest():
@@ -382,7 +424,14 @@ _PACKAGE_SIBLING_LOADERS = {
     "compose_destination_binding": _load_compose_destination_binding,
     "compose_destination_creation": _load_compose_destination_creation,
     "compose_destination_writer": _load_compose_destination_writer,
+    "compose_destination_directory": _load_compose_destination_directory,
+    "compose_destination_rename": _load_compose_destination_rename,
+    "compose_destination_tree": _load_compose_destination_tree,
     "compose_source_snapshot": _load_compose_source_snapshot,
+    "compose_source_snapshot_members": _load_compose_source_snapshot_members,
+    "compose_source_snapshot_visibility": _load_compose_source_snapshot_visibility,
+    "compose_trajectory_gate": _load_compose_trajectory_gate,
+    "compose_trajectory_goals": _load_compose_trajectory_goals,
     "export_compose_manifest": _load_export_compose_manifest,
     "export_curated": _load_export_curated,
     "export_destination": _load_export_destination,

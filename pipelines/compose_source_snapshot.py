@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Exact source-member reads and transaction-visible source enumeration."""
+"""Exact source-member reads and transaction-visible source enumeration.
+
+Member-path validation lives in ``compose_source_snapshot_members`` and
+source enumeration plus round visibility in
+``compose_source_snapshot_visibility``; this module keeps the
+descriptor-authenticated reads and re-exports both siblings so
+``compose_destination`` sees one snapshot surface.
+"""
 
 from __future__ import annotations
 
@@ -14,122 +21,91 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("compose_source_snapshot")
+    from . import compose_source_snapshot_members as _members_module
+    from . import compose_source_snapshot_visibility as _visibility_module
     from .compose_contract import ComposeError
     from .compose_destination_binding import (
         _directory_identity,
         _require_exact_directory,
         _verify_directory_binding,
     )
-    from .round_txn import committed_jsonl_paths, marker_mode_path
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_source_snapshot"
     )
+    import compose_source_snapshot_members as _members_module
+    import compose_source_snapshot_visibility as _visibility_module
     from compose_contract import ComposeError
     from compose_destination_binding import (
         _directory_identity,
         _require_exact_directory,
         _verify_directory_binding,
     )
-    from round_txn import committed_jsonl_paths, marker_mode_path
+
+_assert_unaliased_regular_member = _members_module._assert_unaliased_regular_member
+_reject_member_separator = _members_module._reject_member_separator
+_reject_unsafe_member_text = _members_module._reject_unsafe_member_text
+_require_canonical_member = _members_module._require_canonical_member
+_require_member_text = _members_module._require_member_text
+_source_member_path = _members_module._source_member_path
+_stable_file_identity = _members_module._stable_file_identity
+_unsafe_relative_component = _members_module._unsafe_relative_component
+_validated_member_relative = _members_module._validated_member_relative
+RoundVisibilityFilter = _visibility_module.RoundVisibilityFilter
+RoundVisibilityHooks = _visibility_module.RoundVisibilityHooks
+_collect_source_directory = _visibility_module._collect_source_directory
+_committed_paths = _visibility_module._committed_paths
+_enclosing_marker_root = _visibility_module._enclosing_marker_root
+_scan_source_directory = _visibility_module._scan_source_directory
+_source_entry_metadata = _visibility_module._source_entry_metadata
+round_visible_members = _visibility_module.round_visible_members
+source_jsonl_members = _visibility_module.source_jsonl_members
+
+__all__ = (
+    "DescriptorDrain",
+    "DescriptorReadHooks",
+    "ExactReadHooks",
+    "MemberResolver",
+    "OpenedIdentityCheck",
+    "PinnedChildRead",
+    "PinnedChildReader",
+    "RoundVisibilityFilter",
+    "RoundVisibilityHooks",
+    "SourcePathCheck",
+    "SourcePathRead",
+    "_assert_opened_source_identity",
+    "_assert_unaliased_regular_member",
+    "_collect_source_directory",
+    "_committed_paths",
+    "_drain_descriptor",
+    "_enclosing_marker_root",
+    "_open_pinned_child",
+    "_reject_member_separator",
+    "_reject_unsafe_member_text",
+    "_require_canonical_member",
+    "_require_completed_read",
+    "_require_matching_source_identity",
+    "_require_member_text",
+    "_scan_source_directory",
+    "_source_entry_metadata",
+    "_source_member_path",
+    "_source_metadata_after",
+    "_stable_file_identity",
+    "_unsafe_relative_component",
+    "_validated_member_relative",
+    "assert_source_path_unchanged",
+    "read_exact_child_file",
+    "read_exact_regular_file",
+    "read_pinned_child_bytes",
+    "round_visible_members",
+    "source_jsonl_members",
+)
 
 MemberResolver = Callable[[Path, Any, str], Path]
 OpenedIdentityCheck = Callable[[os.stat_result, os.stat_result, str], None]
 DescriptorDrain = Callable[[int], bytes]
 SourcePathCheck = Callable[[Path, Path, Any, os.stat_result | None, str], None]
 PinnedChildReader = Callable[..., bytes]
-RoundVisibilityFilter = Callable[[Path, list[str]], list[str]]
-
-
-def _unsafe_relative_component(relative: PurePosixPath) -> bool:
-    """Whether a normalized relative path contains traversal components."""
-
-    return any(part in {"", ".", ".."} for part in relative.parts)
-
-
-def _require_member_text(raw_path: Any, label: str) -> str:
-    if not isinstance(raw_path, str):
-        raise ComposeError(f"{label}: path must be a nonempty POSIX string")
-    if not raw_path:
-        raise ComposeError(f"{label}: path must be a nonempty POSIX string")
-    return raw_path
-
-
-def _reject_member_separator(raw_path: str, label: str) -> None:
-    if "\\" in raw_path:
-        raise ComposeError(f"{label}: path must be a nonempty POSIX string")
-
-
-def _reject_unsafe_member_text(raw_path: str, label: str) -> None:
-    if "\0" in raw_path:
-        raise ComposeError(f"{label}: unsafe relative path {raw_path!r}")
-
-
-def _require_canonical_member(
-    relative: PurePosixPath, raw_path: str, label: str
-) -> None:
-    if relative.as_posix() != raw_path:
-        raise ComposeError(f"{label}: unsafe relative path {raw_path!r}")
-    if relative.is_absolute():
-        raise ComposeError(f"{label}: unsafe relative path {raw_path!r}")
-    if _unsafe_relative_component(relative):
-        raise ComposeError(f"{label}: unsafe relative path {raw_path!r}")
-
-
-def _validated_member_relative(raw_path: Any, label: str) -> PurePosixPath:
-    """Reject anything that is not a plain, in-tree POSIX relative path."""
-
-    raw_path = _require_member_text(raw_path, label)
-    _reject_member_separator(raw_path, label)
-    _reject_unsafe_member_text(raw_path, label)
-    relative = PurePosixPath(raw_path)
-    _require_canonical_member(relative, raw_path, label)
-    return relative
-
-
-def _assert_unaliased_regular_member(
-    metadata: os.stat_result, *, label: str, raw_path: Any
-) -> None:
-    """A source member must be exactly one regular file, not an alias of one."""
-
-    if not stat.S_ISREG(metadata.st_mode):
-        raise ComposeError(f"{label}: source member is not a regular file: {raw_path}")
-    if metadata.st_nlink != 1:
-        raise ComposeError(f"{label}: hard-link aliases are not accepted: {raw_path}")
-
-
-def _source_member_path(root: Path, raw_path: Any, label: str) -> Path:
-    """Resolve one exact regular source member without aliases or tree escape."""
-
-    relative = _validated_member_relative(raw_path, label)
-    root_resolved = root.resolve(strict=True)
-    candidate = root_resolved.joinpath(*relative.parts)
-    try:
-        resolved = candidate.resolve(strict=True)
-        metadata = candidate.lstat()
-    except FileNotFoundError as exc:
-        raise ComposeError(f"{label}: source member is missing: {raw_path}") from exc
-    expected = root_resolved.joinpath(*relative.parts)
-    if resolved != expected:
-        raise ComposeError(f"{label}: source member is a symlink alias: {raw_path}")
-    if root_resolved not in resolved.parents:
-        raise ComposeError(f"{label}: source member is a symlink alias: {raw_path}")
-    _assert_unaliased_regular_member(metadata, label=label, raw_path=raw_path)
-    return candidate
-
-
-def _stable_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
-    """Fields that must remain stable while one source member is read."""
-
-    return (
-        metadata.st_dev,
-        metadata.st_ino,
-        metadata.st_mode,
-        metadata.st_nlink,
-        metadata.st_size,
-        metadata.st_mtime_ns,
-        metadata.st_ctime_ns,
-    )
 
 
 def _drain_descriptor(descriptor: int) -> bytes:
@@ -355,131 +331,6 @@ def read_exact_child_file(
         if file_descriptor is not None:
             os.close(file_descriptor)
         os.close(parent_descriptor)
-
-
-def _scan_source_directory(directory: Path) -> list[Any]:
-    """List one source directory in a stable, name-sorted order."""
-
-    try:
-        with os.scandir(directory) as scan:
-            return sorted(scan, key=lambda entry: entry.name)
-    except OSError as exc:
-        raise ComposeError(f"cannot enumerate source directory {directory}: {exc}") from exc
-
-
-def _source_entry_metadata(entry: Any, path: Path) -> os.stat_result:
-    """Stat one source entry without following, or accepting, an alias."""
-
-    try:
-        metadata = entry.stat(follow_symlinks=False)
-    except OSError as exc:
-        raise ComposeError(f"cannot inspect source member {path}: {exc}") from exc
-    if stat.S_ISLNK(metadata.st_mode):
-        raise ComposeError(f"source tree contains a symlink alias: {path}")
-    return metadata
-
-
-def _collect_source_directory(
-    root: Path, directory: Path, members: list[str]
-) -> list[Path]:
-    """Append this directory's JSONL members; return its child directories."""
-
-    child_directories: list[Path] = []
-    for entry in _scan_source_directory(directory):
-        path = Path(entry.path)
-        metadata = _source_entry_metadata(entry, path)
-        if entry.name.endswith(".jsonl"):
-            relative = path.relative_to(root).as_posix()
-            _source_member_path(root, relative, f"compose source {relative}")
-            members.append(relative)
-        elif stat.S_ISDIR(metadata.st_mode):
-            child_directories.append(path)
-    return child_directories
-
-
-def _enclosing_marker_root(
-    root: Path,
-    parent: Path,
-    marker_roots: dict[Path, Path | None],
-) -> Path | None:
-    """Return and memoize the nearest enclosing marker-mode directory."""
-
-    visited = []
-    current = parent
-    while current not in marker_roots:
-        visited.append(current)
-        if marker_mode_path(current) is not None:
-            found = current
-            break
-        if current in {root, current.parent}:
-            found = None
-            break
-        current = current.parent
-    else:
-        found = marker_roots[current]
-    for directory in visited:
-        marker_roots[directory] = found
-    return found
-
-
-def _committed_paths(
-    marker_root: Path,
-    committed: dict[Path, set[Path]],
-) -> set[Path]:
-    """Return and memoize committed JSONL paths below one marker root."""
-
-    if marker_root not in committed:
-        committed[marker_root] = {
-            candidate.resolve() for candidate in committed_jsonl_paths(marker_root)
-        }
-    return committed[marker_root]
-
-
-@dataclass(frozen=True)
-class RoundVisibilityHooks:
-    """Facade-selected lookups for round-transaction visibility."""
-
-    enclosing_marker_root: Callable[..., Path | None]
-    committed_paths: Callable[..., set[Path]]
-
-
-def round_visible_members(
-    root: Path,
-    members: list[str],
-    hooks: RoundVisibilityHooks,
-) -> list[str]:
-    """Keep only members exposed by the round-transaction contract."""
-
-    marker_roots: dict[Path, Path | None] = {}
-    committed: dict[Path, set[Path]] = {}
-    visible: list[str] = []
-    for relative in members:
-        path = root.joinpath(*PurePosixPath(relative).parts)
-        marker_root = hooks.enclosing_marker_root(root, path.parent, marker_roots)
-        if marker_root is None:
-            visible.append(relative)
-            continue
-        if path.resolve() in hooks.committed_paths(marker_root, committed):
-            visible.append(relative)
-    return visible
-
-
-def source_jsonl_members(
-    root: Path,
-    visible_members: RoundVisibilityFilter,
-) -> tuple[str, ...]:
-    """Enumerate a source tree without following filesystem aliases."""
-
-    root = _require_exact_directory(root, "source run")
-    members: list[str] = []
-    pending = [root]
-    while pending:
-        directory = pending.pop()
-        if _require_exact_directory(directory, "source directory") != directory:
-            raise ComposeError(f"source directory identity changed: {directory}")
-        child_directories = _collect_source_directory(root, directory, members)
-        pending.extend(reversed(child_directories))
-    return tuple(sorted(visible_members(root, members)))
 
 
 if __package__:
