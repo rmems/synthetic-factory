@@ -1,0 +1,119 @@
+pipelines/__init__.py
+  s_f3cacfd2022aec::t_e0327f230d6b00 49-61
+pipelines/compose_destination_binding.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 17,19
+pipelines/export_members_read.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 12,14
+pipelines/reward_policy.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 17,19
+pipelines/curate_trajectory_preferences.py
+  s_f3cacfd2022aec::t_47c34a3e524ea8 58,60
+pipelines/export_provenance.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 10,12
+pipelines/compose_curated_preferences.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 11,13
+pipelines/validate_run.py
+  s_f3cacfd2022aec::t_47c34a3e524ea8 23-24
+pipelines/validate_run_spikes.py
+  s_f3cacfd2022aec::t_47c34a3e524ea8 11-12
+pipelines/preference_audit.py
+  s_f3cacfd2022aec::t_9492385ea4b8f4 22-24,27-28,237-240
+  s_f3cacfd2022aec::t_76caa0993f757e 25,30-35
+pipelines/compose_destination_writer.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 13,15
+pipelines/export_members_auth.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 13,15
+pipelines/compose_curated_source.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 13,15
+pipelines/export_members_jsonl.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 10,12
+pipelines/export_viewer.py
+  s_f3cacfd2022aec::t_76caa0993f757e 19,24-29
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 16,18
+pipelines/curate_bridge_events.py
+  s_f3cacfd2022aec::t_47c34a3e524ea8 9-10
+pipelines/curate_bridge_materialize.py
+  s_f3cacfd2022aec::t_47c34a3e524ea8 17-18
+pipelines/curate_bridge_materialize_fs.py
+  s_f3cacfd2022aec::t_47c34a3e524ea8 15-16
+pipelines/compose_curated_identity_facade.py
+  s_f3cacfd2022aec::t_47c34a3e524ea8 14,16
+pipelines/curate_bridge_raster.py
+  s_f3cacfd2022aec::t_47c34a3e524ea8 10-11
+pipelines/preference_writer.py
+  s_f3cacfd2022aec::t_76caa0993f757e 25,30-35
+  s_f3cacfd2022aec::t_9492385ea4b8f4 22-24,27-28,204-207
+pipelines/compose_curated_context.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 16,18
+pipelines/curate_bridge_raster_numbers.py
+  s_f3cacfd2022aec::t_47c34a3e524ea8 11-12
+pipelines/strict_jsonl.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 9,11
+pipelines/export_contract.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 20,22
+pipelines/compose_curated_coding.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 11,13
+pipelines/preference_audit_diff.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 24,26
+pipelines/export_members_path.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 13,15
+pipelines/compose_mill.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 20,22
+pipelines/raw_tree_guard.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 207,209
+pipelines/compose_source_snapshot.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 14,16
+pipelines/compose_destination_creation.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 14,16
+pipelines/compose_curated_calibration.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 14-16
+  s_f3cacfd2022aec::t_76caa0993f757e 17,22-27
+pipelines/curate_bridge.py
+  s_f3cacfd2022aec::t_47c34a3e524ea8 46-47
+pipelines/compose_destination.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 20,22
+pipelines/curate_bridge_gate.py
+  s_f3cacfd2022aec::t_47c34a3e524ea8 9-10
+pipelines/validate_run_provenance.py
+  s_f3cacfd2022aec::t_47c34a3e524ea8 7-8
+pipelines/compose_curated_facade_bootstrap.py
+  s_f3cacfd2022aec::t_cf8cd1c2e713fd 14
+pipelines/compose_curated_identity.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 14,16
+pipelines/compose_contract.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 19,21
+pipelines/export_split.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 16,18
+pipelines/compose_curated_record.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 11,13
+pipelines/training_audit_snapshot.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 19,21
+pipelines/curate_agentic.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 36,38
+pipelines/reward_mapping.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 18,20
+pipelines/compose_curated_run.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 15,17
+pipelines/export_members.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 19,21
+pipelines/preference_context.py
+  s_f3cacfd2022aec::t_bd6bff7aa22d72 21,23
+pipelines/compose_curated_record_facade.py
+  s_f3cacfd2022aec::t_47c34a3e524ea8 15,17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9e524049bfd92b97b1a2a7e7d5b765a4c9846725",
+  "prompts": {},
+  "sessions": {
+    "s_f3cacfd2022aec": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34953d1c-aaea-46a5-86f5-2aa118320be2",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
