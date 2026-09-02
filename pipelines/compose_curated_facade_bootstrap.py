@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import importlib
 import sys
-from typing import Any
+from types import ModuleType
+from typing import Any, Callable
 
 
 def _prepare_facade_identity(package: str | None) -> None:
@@ -36,11 +37,120 @@ def _facade_import_order(package: str | None) -> list[str]:
         """.split()
 
 
-def _optional_trajectory_module(package: str | None, prefix: str):
-    optional_name = f"{prefix}curate_trajectory_preferences"
+# Every facade dependency is imported through a literal module name, in both
+# the direct-CLI and the package spelling.  The allow-list is the table itself:
+# a name that is not declared here cannot be imported by the facade.
+_FACADE_LOADERS: dict[str, tuple[Callable[[], ModuleType], Callable[[str], ModuleType]]] = {
+    "compose_mill": (
+        lambda: importlib.import_module("compose_mill"),
+        lambda package: importlib.import_module(".compose_mill", package),
+    ),
+    "curate_agentic": (
+        lambda: importlib.import_module("curate_agentic"),
+        lambda package: importlib.import_module(".curate_agentic", package),
+    ),
+    "curate_bridge": (
+        lambda: importlib.import_module("curate_bridge"),
+        lambda package: importlib.import_module(".curate_bridge", package),
+    ),
+    "curate_coding": (
+        lambda: importlib.import_module("curate_coding"),
+        lambda package: importlib.import_module(".curate_coding", package),
+    ),
+    "curate_identity": (
+        lambda: importlib.import_module("curate_identity"),
+        lambda package: importlib.import_module(".curate_identity", package),
+    ),
+    "curate_preferences": (
+        lambda: importlib.import_module("curate_preferences"),
+        lambda package: importlib.import_module(".curate_preferences", package),
+    ),
+    "curate_rewards": (
+        lambda: importlib.import_module("curate_rewards"),
+        lambda package: importlib.import_module(".curate_rewards", package),
+    ),
+    "training_audit": (
+        lambda: importlib.import_module("training_audit"),
+        lambda package: importlib.import_module(".training_audit", package),
+    ),
+    "compose_contract": (
+        lambda: importlib.import_module("compose_contract"),
+        lambda package: importlib.import_module(".compose_contract", package),
+    ),
+    "compose_curated_calibration": (
+        lambda: importlib.import_module("compose_curated_calibration"),
+        lambda package: importlib.import_module(".compose_curated_calibration", package),
+    ),
+    "compose_curated_coding": (
+        lambda: importlib.import_module("compose_curated_coding"),
+        lambda package: importlib.import_module(".compose_curated_coding", package),
+    ),
+    "compose_curated_identity": (
+        lambda: importlib.import_module("compose_curated_identity"),
+        lambda package: importlib.import_module(".compose_curated_identity", package),
+    ),
+    "compose_curated_identity_facade": (
+        lambda: importlib.import_module("compose_curated_identity_facade"),
+        lambda package: importlib.import_module(".compose_curated_identity_facade", package),
+    ),
+    "compose_curated_record_facade": (
+        lambda: importlib.import_module("compose_curated_record_facade"),
+        lambda package: importlib.import_module(".compose_curated_record_facade", package),
+    ),
+    "compose_curated_record": (
+        lambda: importlib.import_module("compose_curated_record"),
+        lambda package: importlib.import_module(".compose_curated_record", package),
+    ),
+    "compose_curated_run": (
+        lambda: importlib.import_module("compose_curated_run"),
+        lambda package: importlib.import_module(".compose_curated_run", package),
+    ),
+    "compose_curated_run_facade": (
+        lambda: importlib.import_module("compose_curated_run_facade"),
+        lambda package: importlib.import_module(".compose_curated_run_facade", package),
+    ),
+    "compose_destination": (
+        lambda: importlib.import_module("compose_destination"),
+        lambda package: importlib.import_module(".compose_destination", package),
+    ),
+    "compose_trajectory": (
+        lambda: importlib.import_module("compose_trajectory"),
+        lambda package: importlib.import_module(".compose_trajectory", package),
+    ),
+    "check_records": (
+        lambda: importlib.import_module("check_records"),
+        lambda package: importlib.import_module(".check_records", package),
+    ),
+    "census": (
+        lambda: importlib.import_module("census"),
+        lambda package: importlib.import_module(".census", package),
+    ),
+    "record_kind": (
+        lambda: importlib.import_module("record_kind"),
+        lambda package: importlib.import_module(".record_kind", package),
+    ),
+    "round_txn": (
+        lambda: importlib.import_module("round_txn"),
+        lambda package: importlib.import_module(".round_txn", package),
+    ),
+    "curate_trajectory_preferences": (
+        lambda: importlib.import_module("curate_trajectory_preferences"),
+        lambda package: importlib.import_module(".curate_trajectory_preferences", package),
+    ),
+}
+
+
+def _import_facade_module(name: str, package: str | None) -> ModuleType:
+    """Import one allow-listed facade dependency in the requested import mode."""
+
+    direct_loader, package_loader = _FACADE_LOADERS[name]
+    return package_loader(package) if package else direct_loader()
+
+
+def _optional_trajectory_module(package: str | None):
     allowed_missing = {"curate_trajectory_preferences", f"{package}.curate_trajectory_preferences"}
     try:
-        return importlib.import_module(optional_name), allowed_missing
+        return _import_facade_module("curate_trajectory_preferences", package), allowed_missing
     except ModuleNotFoundError as missing_import:
         if missing_import.name not in allowed_missing:
             raise
@@ -51,13 +161,8 @@ def bootstrap_facade_imports(package: str | None) -> dict[str, Any]:
     """Load facade dependencies in their canonical direct/package order."""
 
     _prepare_facade_identity(package)
-    prefix = f"{package}." if package else ""
-    modules = {
-        name: importlib.import_module(f"{prefix}{name}") for name in _facade_import_order(package)
-    }
-    modules["curate_trajectory_preferences"], allowed_missing = _optional_trajectory_module(
-        package, prefix
-    )
+    modules = {name: _import_facade_module(name, package) for name in _facade_import_order(package)}
+    modules["curate_trajectory_preferences"], allowed_missing = _optional_trajectory_module(package)
     modules["allowed_missing"] = allowed_missing
     return modules
 

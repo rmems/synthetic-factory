@@ -100,16 +100,17 @@ def _assert_adapter_first_process(
 
 
 def _missing_optional_recorder(imported: list[str], optional_name: str):
-    def record_import(name: str) -> ModuleType:
-        imported.append(name)
-        if name == optional_name:
-            raise ModuleNotFoundError(f"No module named {name!r}", name=name)
-        return ModuleType(name)
+    def record_import(name: str, package: str | None = None) -> ModuleType:
+        full_name = f"{package}{name}" if package else name
+        imported.append(full_name)
+        if full_name == optional_name:
+            raise ModuleNotFoundError(f"No module named {full_name!r}", name=full_name)
+        return ModuleType(full_name)
 
     return record_import
 
 
-def _missing_optional_dependency(name: str) -> ModuleType:
+def _missing_optional_dependency(name: str, package: str | None = None) -> ModuleType:
     if name == "curate_trajectory_preferences":
         raise ModuleNotFoundError(
             "No module named 'trajectory_dependency'",

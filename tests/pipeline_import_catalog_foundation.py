@@ -570,65 +570,64 @@ def _package_validate_run_provenance() -> ModuleType:
     return module
 
 
-DIRECT_LOADERS: dict[str, Callable[[], ModuleType]] = {
-    "census": _direct_census,
-    "check_records": _direct_check_records,
-    "coding_constants": _direct_coding_constants,
-    "coding_verify": _direct_coding_verify,
-    "coding_verify_manifest": _direct_coding_verify_manifest,
-    "coding_verify_steps": _direct_coding_verify_steps,
-    "curate_agentic": _direct_curate_agentic,
-    "curate_agentic_output": _direct_curate_agentic_output,
-    "curate_agentic_shapes": _direct_curate_agentic_shapes,
-    "curate_coding": _direct_curate_coding,
-    "curate_identity": _direct_curate_identity,
-    "curate_preferences": _direct_curate_preferences,
-    "curate_rewards": _direct_curate_rewards,
-    "curate_trajectory_preferences": _direct_curate_trajectory_preferences,
-    "leftover_mill": _direct_leftover_mill,
-    "mill_evidence": _direct_mill_evidence,
-    "mill_family": _direct_mill_family,
-    "mill_ownership": _direct_mill_ownership,
-    "mill_resolution": _direct_mill_resolution,
-    "preference_audit": _direct_preference_audit,
-    "preference_audit_diff": _direct_preference_audit_diff,
-    "preference_context": _direct_preference_context,
-    "preference_model": _direct_preference_model,
-    "preference_reconcile": _direct_preference_reconcile,
-    "preference_record": _direct_preference_record,
-    "preference_repair": _direct_preference_repair,
-    "preference_writer": _direct_preference_writer,
-    "raw_tree_guard": _direct_raw_tree_guard,
-    "reward_calibration": _direct_reward_calibration,
-    "reward_document": _direct_reward_document,
-    "reward_mapping": _direct_reward_mapping,
-    "reward_ontology": _direct_reward_ontology,
-    "reward_policy": _direct_reward_policy,
-    "reward_units": _direct_reward_units,
-    "reward_vocabulary": _direct_reward_vocabulary,
-    "round_txn": _direct_round_txn,
-    "round_txn_preference": _direct_round_txn_preference,
-    "round_txn_raster": _direct_round_txn_raster,
-    "training_audit": _direct_training_audit,
-    "training_audit_mill": _direct_training_audit_mill,
-    "training_audit_report": _direct_training_audit_report,
-    "training_audit_snapshot": _direct_training_audit_snapshot,
-    "trajectory_pair_curation": _direct_trajectory_pair_curation,
-    "trajectory_pair_gate": _direct_trajectory_pair_gate,
-    "trajectory_pair_shape": _direct_trajectory_pair_shape,
-    "trajectory_pair_vocabulary": _direct_trajectory_pair_vocabulary,
-    "validate_run_provenance": _direct_validate_run_provenance,
+Loader = Callable[[], ModuleType]
+LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
+    "census": (_direct_census, _package_census),
+    "check_records": (_direct_check_records, _package_check_records),
+    "coding_constants": (_direct_coding_constants, _package_coding_constants),
+    "coding_verify": (_direct_coding_verify, _package_coding_verify),
+    "coding_verify_manifest": (_direct_coding_verify_manifest, _package_coding_verify_manifest),
+    "coding_verify_steps": (_direct_coding_verify_steps, _package_coding_verify_steps),
+    "curate_agentic": (_direct_curate_agentic, _package_curate_agentic),
+    "curate_agentic_output": (_direct_curate_agentic_output, _package_curate_agentic_output),
+    "curate_agentic_shapes": (_direct_curate_agentic_shapes, _package_curate_agentic_shapes),
+    "curate_coding": (_direct_curate_coding, _package_curate_coding),
+    "curate_identity": (_direct_curate_identity, _package_curate_identity),
+    "curate_preferences": (_direct_curate_preferences, _package_curate_preferences),
+    "curate_rewards": (_direct_curate_rewards, _package_curate_rewards),
+    "curate_trajectory_preferences": (
+        _direct_curate_trajectory_preferences,
+        _package_curate_trajectory_preferences,
+    ),
+    "leftover_mill": (_direct_leftover_mill, _package_leftover_mill),
+    "mill_evidence": (_direct_mill_evidence, _package_mill_evidence),
+    "mill_family": (_direct_mill_family, _package_mill_family),
+    "mill_ownership": (_direct_mill_ownership, _package_mill_ownership),
+    "mill_resolution": (_direct_mill_resolution, _package_mill_resolution),
+    "preference_audit": (_direct_preference_audit, _package_preference_audit),
+    "preference_audit_diff": (_direct_preference_audit_diff, _package_preference_audit_diff),
+    "preference_context": (_direct_preference_context, _package_preference_context),
+    "preference_model": (_direct_preference_model, _package_preference_model),
+    "preference_reconcile": (_direct_preference_reconcile, _package_preference_reconcile),
+    "preference_record": (_direct_preference_record, _package_preference_record),
+    "preference_repair": (_direct_preference_repair, _package_preference_repair),
+    "preference_writer": (_direct_preference_writer, _package_preference_writer),
+    "raw_tree_guard": (_direct_raw_tree_guard, _package_raw_tree_guard),
+    "reward_calibration": (_direct_reward_calibration, _package_reward_calibration),
+    "reward_document": (_direct_reward_document, _package_reward_document),
+    "reward_mapping": (_direct_reward_mapping, _package_reward_mapping),
+    "reward_ontology": (_direct_reward_ontology, _package_reward_ontology),
+    "reward_policy": (_direct_reward_policy, _package_reward_policy),
+    "reward_units": (_direct_reward_units, _package_reward_units),
+    "reward_vocabulary": (_direct_reward_vocabulary, _package_reward_vocabulary),
+    "round_txn": (_direct_round_txn, _package_round_txn),
+    "round_txn_preference": (_direct_round_txn_preference, _package_round_txn_preference),
+    "round_txn_raster": (_direct_round_txn_raster, _package_round_txn_raster),
+    "training_audit": (_direct_training_audit, _package_training_audit),
+    "training_audit_mill": (_direct_training_audit_mill, _package_training_audit_mill),
+    "training_audit_report": (_direct_training_audit_report, _package_training_audit_report),
+    "training_audit_snapshot": (_direct_training_audit_snapshot, _package_training_audit_snapshot),
+    "trajectory_pair_curation": (
+        _direct_trajectory_pair_curation,
+        _package_trajectory_pair_curation,
+    ),
+    "trajectory_pair_gate": (_direct_trajectory_pair_gate, _package_trajectory_pair_gate),
+    "trajectory_pair_shape": (_direct_trajectory_pair_shape, _package_trajectory_pair_shape),
+    "trajectory_pair_vocabulary": (
+        _direct_trajectory_pair_vocabulary,
+        _package_trajectory_pair_vocabulary,
+    ),
+    "validate_run_provenance": (_direct_validate_run_provenance, _package_validate_run_provenance),
 }
-
-
-def _package_loader_for(direct_loader: Callable[[], ModuleType]):
-    """Return the statically declared package twin of one direct loader."""
-
-    package_name = direct_loader.__name__.replace("_direct_", "_package_", 1)
-    package_loader = globals().get(package_name)
-    if not callable(package_loader):
-        raise RuntimeError(f"missing package loader twin {package_name}")
-    return package_loader
-
-
-PACKAGE_LOADERS = {name: _package_loader_for(loader) for name, loader in DIRECT_LOADERS.items()}
+DIRECT_LOADERS = {name: loaders[0] for name, loaders in LOADER_PAIRS.items()}
+PACKAGE_LOADERS = {name: loaders[1] for name, loaders in LOADER_PAIRS.items()}

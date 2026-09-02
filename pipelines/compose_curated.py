@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import copy
-import importlib
 import json
 import os
 import re
@@ -22,9 +21,10 @@ from pathlib import Path
 from typing import Any, Mapping, MutableMapping
 
 
-_bootstrap_module = importlib.import_module(
-    f"{__package__ + '.' if __package__ else ''}compose_curated_facade_bootstrap"
-)
+if __package__:
+    from . import compose_curated_facade_bootstrap as _bootstrap_module
+else:
+    import compose_curated_facade_bootstrap as _bootstrap_module
 _modules = _bootstrap_module.bootstrap_facade_imports(__package__)
 del _bootstrap_module
 _contract = _modules["compose_contract"]
