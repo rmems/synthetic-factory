@@ -1,0 +1,9 @@
+tests/pipeline_import_catalog_export.py
+  ai_agent 201-218,220-221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2fe32d9e139cb5b0ff1efaff9af7070b42c2d005",
+  "prompts": {}
+}
