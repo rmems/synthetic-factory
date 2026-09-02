@@ -1,0 +1,25 @@
+pipelines/compose_curated_facade_bootstrap.py
+  s_f3cacfd2022aec::t_1a7de7a50a1255 8-9,40-150,153,164-165
+pipelines/compose_curated.py
+  s_f3cacfd2022aec::t_d04dca8cee100d 24-27
+tests/pipeline_import_catalog_foundation.py
+  s_f3cacfd2022aec::t_fbf65e8901925f 573-630,632-633
+tests/test_compose_curated_imports.py
+  s_f3cacfd2022aec::t_1a7de7a50a1255 103-108,113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fce863dacd1dcc5e593e047caaa7b362c7001b63",
+  "prompts": {},
+  "sessions": {
+    "s_f3cacfd2022aec": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34953d1c-aaea-46a5-86f5-2aa118320be2",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
