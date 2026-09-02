@@ -50,11 +50,16 @@ curate_trajectory_preferences = _modules["curate_trajectory_preferences"]
 allowed_missing = _modules["allowed_missing"]
 reject_json_constant = _modules["check_records"].reject_json_constant
 factory_identity_for_path = _modules["census"].factory_identity_for_path
-_parse_finite_json_float = _modules["curate_identity"]._parse_finite_json_float
-_reject_duplicate_object_keys = _modules["curate_identity"]._reject_duplicate_object_keys
+_parse_finite_json_float = _modules["curate_identity"].parse_finite_json_float
+_reject_duplicate_object_keys = _modules["curate_identity"].reject_duplicate_object_keys
 preference_side_kinds = _modules["record_kind"].preference_side_kinds
 TransactionError = _modules["round_txn"].TransactionError
 del _modules
+
+if __package__:
+    from . import compose_curated_source as _source_impl
+else:
+    import compose_curated_source as _source_impl
 
 
 def _reexport(module: Any, names: str) -> None:
@@ -117,9 +122,9 @@ ComposeDecision = _contract.ComposeDecision
 ComposeError = _contract.ComposeError
 PinnedDestination = _destination.PinnedDestination
 TRAJECTORY_GOAL_LOCATIONS = _contract.TRAJECTORY_GOAL_LOCATIONS
-_TrajectoryPreferenceDecision = _contract._TrajectoryPreferenceDecision
-_facade_delegate = _record_facade._facade_delegate
-_stage = _record_facade._stage
+_TrajectoryPreferenceDecision = _contract.TrajectoryPreferenceDecision
+_facade_delegate = _record_facade.facade_delegate
+_stage = _record_facade.facade_stage
 _reexport(_identity_facade, " ".join(_identity_facade.__all__))
 _reexport(_record_facade, " ".join(_record_facade.__all__))
 
@@ -130,7 +135,7 @@ REASON_IDENTITY_INVALID_PAYLOAD_SHAPE = _identity_impl.REASON_IDENTITY_INVALID_P
 BRIDGE_ORDER_ERROR_FRAGMENT = _identity_impl.BRIDGE_ORDER_ERROR_FRAGMENT
 CODING_STEP_ERROR_RE = _identity_impl.CODING_STEP_ERROR_RE
 PREFERENCE_STEP_ERROR_RE = _identity_impl.PREFERENCE_STEP_ERROR_RE
-_PROBE_FAILED = _identity_impl._PROBE_FAILED
+_PROBE_FAILED = _identity_impl.PROBE_FAILED
 _captured_source_payloads_impl = _run_impl.captured_source_payloads
 _load_calibration_impl = _calibration_impl.load_calibration
 _compact_audit_report_impl = _calibration_impl.compact_audit_report
@@ -144,20 +149,17 @@ SemanticRegistry = _record_facade.SemanticRegistry
 SideCuration = _record_facade.SideCuration
 SideFailure = _record_facade.SideFailure
 SourceCoordinates = _identity_impl.SourceCoordinates
-SourceLineContext = _identity_facade._source_impl.SourceLineContext
+SourceLineContext = _source_impl.SourceLineContext
 SourceLineCoordinate = _record_facade.SourceLineCoordinate
 StageDefinition = _coding_stage_impl.StageDefinition
 stage = _coding_stage_impl.stage
-_only_identity_shape_details = _identity_impl._only_identity_shape_details
-_calibration_services = _identity_facade._calibration_services
-_record_services = _record_facade._record_services
-_compose_record_from_context = _record_facade._compose_record_from_context
+_only_identity_shape_details = _identity_impl.only_identity_shape_details
 _compose_record_impl = _record_impl.compose_record
-_compose_source_line_impl = _identity_facade._source_impl.compose_source_line
-_retained_rewards_impl = _coding_stage_impl._retained_rewards
-_reward_not_applicable_impl = _coding_stage_impl._reward_not_applicable
-_reward_refusal_impl = _coding_stage_impl._reward_refusal
-_transform_contract_impl = _identity_facade._source_impl.transform_contract
+_compose_source_line_impl = _source_impl.compose_source_line
+_retained_rewards_impl = _coding_stage_impl.retained_rewards
+_reward_not_applicable_impl = _coding_stage_impl.reward_not_applicable
+_reward_refusal_impl = _coding_stage_impl.reward_refusal
+_transform_contract_impl = _source_impl.transform_contract
 _authenticate_composed_artifacts_impl = _run_impl.authenticate_composed_artifacts
 _capture_source_snapshot_impl = _run_impl.capture_source_snapshot
 _claim_output_id_impl = _run_impl.claim_output_id

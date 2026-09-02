@@ -21,14 +21,14 @@ if __package__:
 
     _assert_direct_sibling("compose_mill")
     from .check_records import reject_json_constant
-    from .curate_identity import _reject_duplicate_object_keys
+    from .curate_identity import reject_duplicate_object_keys
     from .mill_family import MillFinding, MillIndex
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_mill"
     )
     from check_records import reject_json_constant
-    from curate_identity import _reject_duplicate_object_keys
+    from curate_identity import reject_duplicate_object_keys
     from mill_family import MillFinding, MillIndex
 
 
@@ -48,7 +48,7 @@ def _decode_mill_record(raw_line: bytes) -> object | None:
     try:
         return json.loads(
             raw_line.decode("utf-8"),
-            object_pairs_hook=_reject_duplicate_object_keys,
+            object_pairs_hook=reject_duplicate_object_keys,
             parse_constant=reject_json_constant,
         )
     except (ValueError, RecursionError):

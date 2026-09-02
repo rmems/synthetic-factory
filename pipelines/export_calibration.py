@@ -26,7 +26,7 @@ from export_contract import (  # noqa: E402
     _reject_nonfinite_json_float,
 )
 from export_members import _read_exact_regular_file  # noqa: E402
-from curate_identity import _reject_duplicate_object_keys  # noqa: E402
+from curate_identity import reject_duplicate_object_keys  # noqa: E402
 from reward_calibration import _entry_calibrations  # noqa: E402,F401
 
 _NONNEGATIVE_RECORDS_ERROR = "COMPOSE.json: calibration.records must be nonnegative"
@@ -47,7 +47,7 @@ def _parsed_calibration_document(text: str, path: Path) -> dict[str, Any]:
     try:
         document = json.loads(
             text,
-            object_pairs_hook=_reject_duplicate_object_keys,
+            object_pairs_hook=reject_duplicate_object_keys,
             parse_constant=_reject_json_constant,
             parse_float=_reject_nonfinite_json_float,
         )

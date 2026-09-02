@@ -18,7 +18,7 @@ if __package__:
         ACTION_RETAINED,
         ComposeDecision,
         REASON_REWARD_ONTOLOGY,
-        _canonical_sha256,
+        canonical_sha256,
     )
     from .compose_curated_context import RecordContext, StageDefinition, stage
     from .compose_trajectory import (
@@ -40,7 +40,7 @@ else:
         ACTION_RETAINED,
         ComposeDecision,
         REASON_REWARD_ONTOLOGY,
-        _canonical_sha256,
+        canonical_sha256,
     )
     from compose_curated_context import RecordContext, StageDefinition, stage
     from compose_trajectory import (
@@ -126,7 +126,7 @@ def _curate_bridge_trajectory(
         trajectory,
         source_path=f"{context.source.path}#language_view.trajectory",
         source_line=context.source.line,
-        source_hash=_canonical_sha256(trajectory),
+        source_hash=canonical_sha256(trajectory),
     )
     return curate_coding, curated, copy.deepcopy(manifest)
 
@@ -235,7 +235,7 @@ def _compose_coding_stage(
     return _append_coding_lane_stage(stages, module, curated, manifest)
 
 
-def _reward_refusal(
+def reward_refusal(
     stages: list[dict[str, Any]], exc: curate_rewards.RewardOntologyError
 ) -> ComposeDecision:
     """Record one fail-closed reward ontology refusal."""
@@ -259,7 +259,7 @@ def _reward_refusal(
     )
 
 
-def _retained_rewards(
+def retained_rewards(
     annotated: dict[str, Any],
     sidecar: dict[str, Any],
     stages: list[dict[str, Any]],
@@ -281,7 +281,7 @@ def _retained_rewards(
     return annotated, sidecar
 
 
-def _reward_not_applicable(
+def reward_not_applicable(
     annotated: dict[str, Any], stages: list[dict[str, Any]]
 ) -> tuple[dict[str, Any], None]:
     """Remove stale annotations from a record with no source rewards."""
@@ -313,11 +313,11 @@ def _compose_rewards_stage(
             calibration=context.calibration,
         )
     except curate_rewards.RewardOntologyError as exc:
-        return _reward_refusal(stages, exc)
+        return reward_refusal(stages, exc)
     annotation = annotated[curate_rewards.ANNOTATION_FIELD]
     if annotation["source_reward_count"]:
-        return _retained_rewards(annotated, sidecar, stages)
-    return _reward_not_applicable(annotated, stages)
+        return retained_rewards(annotated, sidecar, stages)
+    return reward_not_applicable(annotated, stages)
 
 
 if __package__:

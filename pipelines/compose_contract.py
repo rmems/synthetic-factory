@@ -133,7 +133,7 @@ class ComposeDecision:
 
 
 @dataclass(frozen=True)
-class _TrajectoryPreferenceDecision:
+class TrajectoryPreferenceDecision:
     """Small compatibility surface for the reviewed PR #93 trajectory gate."""
 
     action: str
@@ -148,8 +148,12 @@ class _TrajectoryPreferenceDecision:
 # Identity owns the byte-stable JSON and digest primitives.  Re-export those
 # exact callables here instead of wrapping them in a second utility layer.
 canonical_json = curate_identity.canonical_json
-sha256_hex = curate_identity._sha256_bytes
-_canonical_sha256 = curate_identity._sha256_json
+sha256_hex = curate_identity.sha256_bytes
+canonical_sha256 = curate_identity.sha256_json
+
+# Historical private spellings, kept for direct importers and tests.
+_TrajectoryPreferenceDecision = TrajectoryPreferenceDecision
+_canonical_sha256 = canonical_sha256
 
 
 if __package__:

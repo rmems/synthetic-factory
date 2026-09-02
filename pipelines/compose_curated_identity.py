@@ -67,7 +67,7 @@ REASON_IDENTITY_INVALID_PAYLOAD_SHAPE = "identity.invalid_payload_shape"
 BRIDGE_ORDER_ERROR_FRAGMENT = "spike_events not globally non-decreasing"
 CODING_STEP_ERROR_RE = re.compile(r"^record step \d+: ")
 PREFERENCE_STEP_ERROR_RE = re.compile(r"^record/(?:chosen|rejected) step \d+: ")
-_PROBE_FAILED: Any = object()
+PROBE_FAILED: Any = object()
 
 
 @dataclass(frozen=True)
@@ -124,7 +124,7 @@ def calibration_for(record: Mapping[str, Any], catalog: Mapping[str, Any] | None
     return None
 
 
-def _only_identity_shape_details(mapping: Mapping[str, Any], matches: Any) -> bool:
+def only_identity_shape_details(mapping: Mapping[str, Any], matches: Any) -> bool:
     """Whether identity's only diagnostics all match one lane-owned defect."""
 
     if list(mapping.get("reason_codes", [])) != [REASON_IDENTITY_INVALID_PAYLOAD_SHAPE]:
@@ -138,7 +138,7 @@ def _only_identity_shape_details(mapping: Mapping[str, Any], matches: Any) -> bo
 def _is_bridge_order_only_rejection(mapping: Mapping[str, Any]) -> bool:
     """Whether identity refused a record for spike ordering and nothing else."""
 
-    return _only_identity_shape_details(
+    return only_identity_shape_details(
         mapping, lambda detail: BRIDGE_ORDER_ERROR_FRAGMENT in detail
     )
 
@@ -148,7 +148,7 @@ def _bridge_order_repaired_copy_with_source(
 ) -> dict[str, Any] | None:
     """Return the bridge lane's stable-sorted copy when it can repair."""
 
-    decision: Any = _PROBE_FAILED
+    decision: Any = PROBE_FAILED
     with contextlib.suppress(Exception):
         decision = curate_bridge.curate_record(
             record,
@@ -157,7 +157,7 @@ def _bridge_order_repaired_copy_with_source(
             source_hash=source.sha256,
             source_file_hash=None,
         )
-    if decision is _PROBE_FAILED:
+    if decision is PROBE_FAILED:
         return None
     if decision.action != "repair" or not isinstance(decision.output_record, dict):
         return None
@@ -167,7 +167,7 @@ def _bridge_order_repaired_copy_with_source(
 def _is_coding_step_only_rejection(mapping: Mapping[str, Any]) -> bool:
     """Whether identity refused an episode for step shape and nothing else."""
 
-    return _only_identity_shape_details(
+    return only_identity_shape_details(
         mapping, lambda detail: CODING_STEP_ERROR_RE.match(detail) is not None
     )
 
@@ -177,7 +177,7 @@ def _coding_steps_repaired_copy_with_source(
 ) -> dict[str, Any] | None:
     """Return the coding lane's repaired copy when it can retain the episode."""
 
-    curated: Any = _PROBE_FAILED
+    curated: Any = PROBE_FAILED
     with contextlib.suppress(Exception):
         curated, _manifest = curate_coding.curate_episode(
             copy.deepcopy(dict(record)),
@@ -185,7 +185,7 @@ def _coding_steps_repaired_copy_with_source(
             source_line=source.line,
             source_hash=source.sha256,
         )
-    if curated is _PROBE_FAILED:
+    if curated is PROBE_FAILED:
         return None
     return curated if isinstance(curated, dict) else None
 
@@ -193,7 +193,7 @@ def _coding_steps_repaired_copy_with_source(
 def _is_preference_step_only_rejection(mapping: Mapping[str, Any]) -> bool:
     """Whether identity refused only coding-owned preference-side steps."""
 
-    return _only_identity_shape_details(
+    return only_identity_shape_details(
         mapping, lambda detail: PREFERENCE_STEP_ERROR_RE.match(detail) is not None
     )
 
@@ -453,6 +453,11 @@ def _compose_bridge_stage_with_source(
     if not retained:
         return ComposeDecision(ACTION_EXCLUDED, None, tuple(reasons), tuple(stages), None, None)
     return decision.output_record
+
+
+# Historical private spellings, kept for direct importers and tests.
+_PROBE_FAILED = PROBE_FAILED
+_only_identity_shape_details = only_identity_shape_details
 
 
 if __package__:

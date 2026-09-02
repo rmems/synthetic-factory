@@ -27,7 +27,7 @@ ALLOWED_SIM_OR_REAL = frozenset(
 )
 
 
-def _typed_enum_errors(value, allowed, message):
+def typed_enum_errors(value, allowed, message):
     """Return one bounded enum error for any decoded JSON value."""
     if isinstance(value, str) and value in allowed:
         return []
@@ -55,7 +55,7 @@ def _state_provenance_errors(
     obj,
     where,
     allowed_sim_or_real=ALLOWED_SIM_OR_REAL,
-    typed_enum_errors=_typed_enum_errors,
+    typed_enum_errors=typed_enum_errors,
 ):
     """Validate the state provenance enum without assuming a string value."""
     state = obj.get("state")
@@ -84,7 +84,7 @@ def _provenance_object_errors(
     obj,
     where,
     allowed_provenance_kind=ALLOWED_PROVENANCE_KIND,
-    typed_enum_errors=_typed_enum_errors,
+    typed_enum_errors=typed_enum_errors,
 ):
     """Validate the provenance object and its schema-derived kind enum."""
     if "provenance" not in obj:

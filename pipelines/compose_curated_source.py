@@ -33,7 +33,7 @@ if __package__:
         REASON_DUPLICATE_SOURCE_RECORD,
         REASON_INVALID_JSON,
         REASON_INVALID_UTF8,
-        _canonical_sha256,
+        canonical_sha256,
         sha256_hex,
     )
     from .compose_curated_context import (
@@ -44,7 +44,7 @@ if __package__:
     )
     from .compose_curated_identity import calibration_for
     from .compose_curated_record import compose_record
-    from .curate_identity import _reject_duplicate_object_keys
+    from .curate_identity import reject_duplicate_object_keys
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_curated_source"
@@ -67,7 +67,7 @@ else:
         REASON_DUPLICATE_SOURCE_RECORD,
         REASON_INVALID_JSON,
         REASON_INVALID_UTF8,
-        _canonical_sha256,
+        canonical_sha256,
         sha256_hex,
     )
     from compose_curated_context import (
@@ -78,7 +78,7 @@ else:
     )
     from compose_curated_identity import calibration_for
     from compose_curated_record import compose_record
-    from curate_identity import _reject_duplicate_object_keys
+    from curate_identity import reject_duplicate_object_keys
 
 
 SOURCE_STAGE = StageDefinition("source", COMPOSE_NAME, COMPOSE_VERSION)
@@ -96,13 +96,13 @@ class SourceLineContext:
     seen_source_semantics: MutableMapping[str, tuple[str, int]] | None = None
     seen_curated_semantics: MutableMapping[str, tuple[str, int]] | None = None
     trajectory_preferences: Any = None
-    canonical_sha256: Any = _canonical_sha256
+    canonical_sha256: Any = canonical_sha256
     record_composer: Callable[[Any, RecordContext], ComposeDecision] = compose_record
     calibration_lookup: Callable[[Mapping[str, Any], Mapping[str, Any] | None], Any] = (
         calibration_for
     )
     duplicate_key_rejector: Callable[[list[tuple[str, Any]]], dict[str, Any]] = (
-        _reject_duplicate_object_keys
+        reject_duplicate_object_keys
     )
     constant_rejector: Callable[[str], Any] = reject_json_constant
     excluded_source_line: Callable[[str, dict[str, Any]], ComposeDecision] | None = None
@@ -373,6 +373,24 @@ def _duplicate_source_decision(
     )
 
 
+def _curated_deduplicator(
+    context: SourceLineContext,
+) -> Callable[[ComposeDecision], ComposeDecision]:
+    """Resolve the post-transform deduplicator this line's context supplies."""
+
+    supplied: Any = context.deduplicate_curated_record
+    if supplied is None:
+        return lambda decision: _deduplicate_curated_record(decision, context)
+    if not callable(supplied):
+        raise ComposeError("source-line deduplicator must be callable or None")
+    return lambda decision: supplied(
+        decision,
+        source_path=context.source_path,
+        source_line=context.source_line,
+        seen_curated_semantics=context.seen_curated_semantics,
+    )
+
+
 def _curate_source_record(
     record: Any,
     source_sha256: str,
@@ -393,19 +411,7 @@ def _curate_source_record(
     )
     try:
         decision = context.record_composer(record, record_context)
-        deduplicate = context.deduplicate_curated_record
-        if deduplicate is None:
-            return _deduplicate_curated_record(decision, context)
-        if not callable(deduplicate):
-            raise ComposeError(
-                "source-line deduplicator must be callable or None"
-            )
-        return deduplicate(
-            decision,
-            source_path=context.source_path,
-            source_line=context.source_line,
-            seen_curated_semantics=context.seen_curated_semantics,
-        )
+        return _curated_deduplicator(context)(decision)
     except RecursionError as exc:
         return _source_exclusion(
             context,

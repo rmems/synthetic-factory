@@ -536,6 +536,7 @@ _original_id_paths _pop_json_pointer _post_transform_semantic_sha256
 _semantic_identity_owners _source_preference_shape _source_snapshot_identities
 _strip_assigned_ids _strip_provenance_labels _strip_sidecar_binding
 calibration_for compact_audit_report transform_contract
+_calibration_services
 """.split()
 
 

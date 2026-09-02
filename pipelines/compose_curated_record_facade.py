@@ -74,8 +74,11 @@ def _facade() -> ModuleType:
     return _FACADE
 
 
-def _facade_delegate(callable_: Any, *args: Any, **kwargs: Any):
+def facade_delegate(callable_: Any, *args: Any, **kwargs: Any):
     return callable_(*args, **kwargs)
+
+
+_facade_delegate = facade_delegate
 
 
 def _trajectory_preference(record: dict[str, Any]) -> tuple[Any, str, str, str]:
@@ -96,9 +99,12 @@ def _trajectory_preference(record: dict[str, Any]) -> tuple[Any, str, str, str]:
     )
 
 
-def _stage(definition: StageDefinition, action: str, **extra: Any) -> dict[str, Any]:
+def facade_stage(definition: StageDefinition, action: str, **extra: Any) -> dict[str, Any]:
     facade = _facade()
     return facade._facade_delegate(facade.stage, definition, action, **extra)
+
+
+_stage = facade_stage
 
 
 def _coding_steps_repaired_copy(
@@ -470,6 +476,7 @@ _compose_bridge_view_coding _compose_coding_stage _compose_episode_preference _c
 _compose_mixed_family_preference_exclusion _compose_preferences_stage
 _compose_rewards_stage _compose_same_state_preference _facade_delegate
 _hidden_only_curation_applies _side_curation_failed_decision _stage _trajectory_preference compose_record compose_source_line
+_record_services _compose_record_from_context
 """.split()
 
 

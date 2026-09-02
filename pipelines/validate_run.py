@@ -48,7 +48,7 @@ _check_spike_stream = _validate_run_spikes.check_spike_stream
 _declared_clock_domains = _validate_run_spikes.declared_clock_domains
 _event_time = _validate_run_spikes.event_time
 _is_number = _validate_run_spikes.is_number
-_typed_enum_errors = _validate_run_provenance._typed_enum_errors
+_typed_enum_errors = _validate_run_provenance.typed_enum_errors
 check_provenance_publish = _validate_run_provenance.check_provenance_publish
 
 # The spike-train surface lived here before it split into validate_run_spikes;
