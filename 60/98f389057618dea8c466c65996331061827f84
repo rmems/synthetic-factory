@@ -1,0 +1,41 @@
+pipelines/export_calibration.py
+  s_f3cacfd2022aec::t_1427babe03d83f 29,50
+pipelines/compose_curated.py
+  s_f3cacfd2022aec::t_1427babe03d83f 53-54,59-63,125-127,138,152,156,158-162
+pipelines/compose_curated_coding.py
+  s_f3cacfd2022aec::t_1427babe03d83f 21,43,129,238,262,284,316,319-320
+pipelines/validate_run_provenance.py
+  s_f3cacfd2022aec::t_1427babe03d83f 30,58,87
+pipelines/compose_contract.py
+  s_f3cacfd2022aec::t_1427babe03d83f 136,151-156
+pipelines/compose_curated_identity_facade.py
+  s_f3cacfd2022aec::t_1427babe03d83f 539
+pipelines/validate_run.py
+  s_f3cacfd2022aec::t_1427babe03d83f 51
+pipelines/compose_mill.py
+  s_f3cacfd2022aec::t_1427babe03d83f 24,31,51
+pipelines/compose_curated_source.py
+  s_f3cacfd2022aec::t_1427babe03d83f 36,47,70,81,99,105,376-393,414
+pipelines/curate_identity.py
+  s_f3cacfd2022aec::t_1427babe03d83f 222,241,249,256,270,272,460,523,531,533,995,1371,1477,1929-1930,2070,2109,2309,2405-2409
+pipelines/compose_curated_identity.py
+  s_f3cacfd2022aec::t_1427babe03d83f 70,127,141,151,160,170,180,188,196,458-460
+pipelines/compose_curated_record_facade.py
+  s_f3cacfd2022aec::t_1427babe03d83f 77,81-83,102,107-109,479
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6098f389057618dea8c466c65996331061827f84",
+  "prompts": {},
+  "sessions": {
+    "s_f3cacfd2022aec": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34953d1c-aaea-46a5-86f5-2aa118320be2",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
