@@ -1229,6 +1229,23 @@ def _manifest_bytes(manifest):
 
 
 class TestFactoryRegistryRightsContract(unittest.TestCase):
+    def test_policy_known_fallback_profile_cannot_replace_hosted_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(
+                identity.IdentityCurationError,
+                "rights_profile_id must be hosted-frontier-research-only-v1",
+            ):
+                _load_temp_registry(
+                    tmp,
+                    _registry_payload(
+                        [
+                            _valid_row(
+                                rights_profile_id="unknown-provenance-fail-closed-v1"
+                            )
+                        ]
+                    ),
+                )
+
     def test_legacy_schema_and_missing_rights_fields_fail_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(

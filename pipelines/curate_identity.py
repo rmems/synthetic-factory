@@ -50,6 +50,7 @@ if __package__:
     from .rights_mapping import (
         CANONICAL_PROVIDERS,
         CHANNELS,
+        HOSTED_FRONTIER_PROFILE_ID,
         INTENDED_USES,
         PROJECT_TRAINING_POLICIES,
     )
@@ -77,6 +78,7 @@ else:
     from rights_mapping import (
         CANONICAL_PROVIDERS,
         CHANNELS,
+        HOSTED_FRONTIER_PROFILE_ID,
         INTENDED_USES,
         PROJECT_TRAINING_POLICIES,
     )
@@ -403,6 +405,11 @@ def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
     for field, value, vocabulary in rights_vocabularies:
         if not isinstance(value, str) or value not in vocabulary:
             raise IdentityCurationError(f"factories[{index}] has unknown {field}")
+    if profile_id != HOSTED_FRONTIER_PROFILE_ID:
+        raise IdentityCurationError(
+            f"factories[{index}].rights_profile_id must be "
+            f"{HOSTED_FRONTIER_PROFILE_ID}"
+        )
     expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(generator)
     if expected_assignment is None:
         raise IdentityCurationError(f"factories[{index}] has unknown reviewed generator")
