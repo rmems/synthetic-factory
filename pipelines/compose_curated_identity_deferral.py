@@ -26,12 +26,12 @@ else:
     from compose_trajectory import is_bridge_record, is_preference_record
     from record_kind import preference_side_kinds
 
-_is_bridge_order_only_rejection = _repairs._is_bridge_order_only_rejection
-_bridge_order_repaired_copy_with_source = _repairs._bridge_order_repaired_copy_with_source
-_is_coding_step_only_rejection = _repairs._is_coding_step_only_rejection
-_coding_steps_repaired_copy_with_source = _repairs._coding_steps_repaired_copy_with_source
-_is_preference_step_only_rejection = _repairs._is_preference_step_only_rejection
-_preference_steps_repaired_copy_with_source = _repairs._preference_steps_repaired_copy_with_source
+_is_bridge_order_only_rejection = _repairs.is_bridge_order_only_rejection
+_bridge_order_repaired_copy_with_source = _repairs.bridge_order_repaired_copy_with_source
+_is_coding_step_only_rejection = _repairs.is_coding_step_only_rejection
+_coding_steps_repaired_copy_with_source = _repairs.coding_steps_repaired_copy_with_source
+_is_preference_step_only_rejection = _repairs.is_preference_step_only_rejection
+_preference_steps_repaired_copy_with_source = _repairs.preference_steps_repaired_copy_with_source
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,7 @@ class DeferredLaneRepair:
     repair: Callable[[Mapping[str, Any]], dict[str, Any] | None]
 
 
-def _identity_retry_with_source(repaired: dict[str, Any] | None, source: SourceCoordinates):
+def identity_retry_with_source(repaired: dict[str, Any] | None, source: SourceCoordinates):
     """Revalidate identity against a downstream lane's repaired copy."""
 
     if repaired is None:
@@ -61,7 +61,7 @@ def _identity_retry_with_source(repaired: dict[str, Any] | None, source: SourceC
     return None
 
 
-def _lane_retry(
+def lane_retry(
     applies: bool,
     repair,
     record: Mapping[str, Any],
@@ -71,10 +71,10 @@ def _lane_retry(
 
     if not applies:
         return None
-    return _identity_retry_with_source(repair(record, source), source)
+    return identity_retry_with_source(repair(record, source), source)
 
 
-def _run_deferred_lane_repairs(
+def run_deferred_lane_repairs(
     record: Any,
     identity_result: Any,
     lanes: tuple[DeferredLaneRepair, ...],
@@ -93,7 +93,7 @@ def _run_deferred_lane_repairs(
     return identity_result, None
 
 
-def _deferred_lane_repair_with_source(
+def deferred_lane_repair_with_source(
     record: Any,
     identity_result: Any,
     source: SourceCoordinates,
@@ -122,11 +122,11 @@ def _deferred_lane_repair_with_source(
             lambda current: _preference_steps_repaired_copy_with_source(current, source),
         ),
     )
-    return _run_deferred_lane_repairs(
+    return run_deferred_lane_repairs(
         record,
         identity_result,
         lanes,
-        lambda repaired: _identity_retry_with_source(repaired, source),
+        lambda repaired: identity_retry_with_source(repaired, source),
     )
 
 

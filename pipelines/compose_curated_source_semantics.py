@@ -18,9 +18,9 @@ if __package__:
     from . import curate_rewards
     from .compose_curated_context import StageDefinition, stage
     from .compose_curated_source_pointers import (
-        _identity_owner,
-        _mapped_legacy_id_paths,
-        _pop_json_pointer,
+        identity_owner,
+        mapped_legacy_id_paths,
+        pop_json_pointer,
     )
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -30,9 +30,9 @@ else:
     import curate_rewards
     from compose_curated_context import StageDefinition, stage
     from compose_curated_source_pointers import (
-        _identity_owner,
-        _mapped_legacy_id_paths,
-        _pop_json_pointer,
+        identity_owner,
+        mapped_legacy_id_paths,
+        pop_json_pointer,
     )
 
 ACTION_EXCLUDED = _compose_contract.ACTION_EXCLUDED
@@ -46,7 +46,7 @@ DEDUP_STAGE = StageDefinition(
 )
 
 
-def _semantic_identity_owners(record: dict[str, Any]) -> list[dict[str, Any]]:
+def semantic_identity_owners(record: dict[str, Any]) -> list[dict[str, Any]]:
     """Return every owner whose production labels are not training content."""
 
     owners = [record]
@@ -61,7 +61,7 @@ def _semantic_identity_owners(record: dict[str, Any]) -> list[dict[str, Any]]:
     return owners
 
 
-def _identity_stage_detail_of(decision: ComposeDecision) -> dict[str, Any] | None:
+def identity_stage_detail_of(decision: ComposeDecision) -> dict[str, Any] | None:
     """Return the recorded identity-stage detail mapping."""
 
     identity_stage = next(
@@ -71,25 +71,25 @@ def _identity_stage_detail_of(decision: ComposeDecision) -> dict[str, Any] | Non
     return detail if isinstance(detail, dict) else None
 
 
-def _strip_assigned_ids(semantic: dict[str, Any], detail: dict[str, Any] | None) -> None:
+def strip_assigned_ids(semantic: dict[str, Any], detail: dict[str, Any] | None) -> None:
     """Drop coordinate-derived identifiers assigned by identity curation."""
 
     mappings = detail.get("id_mappings") if isinstance(detail, dict) else None
     for mapping in mappings if isinstance(mappings, list) else ():
         if not isinstance(mapping, dict):
             continue
-        owner = _identity_owner(semantic, mapping.get("owner_path"))
+        owner = identity_owner(semantic, mapping.get("owner_path"))
         if owner is not None and owner.get("id") == mapping.get("output_id"):
             owner.pop("id", None)
-    for path in _mapped_legacy_id_paths(detail):
-        _pop_json_pointer(semantic, path)
+    for path in mapped_legacy_id_paths(detail):
+        pop_json_pointer(semantic, path)
 
 
-def _strip_provenance_labels(semantic: dict[str, Any]) -> None:
+def strip_provenance_labels(semantic: dict[str, Any]) -> None:
     """Drop pipeline provenance labels from every semantic identity owner."""
 
     labels = ("factory", "generator", "generator_version", "run", "round")
-    for owner in _semantic_identity_owners(semantic):
+    for owner in semantic_identity_owners(semantic):
         meta = owner.get("meta")
         if not isinstance(meta, dict):
             continue
@@ -97,7 +97,7 @@ def _strip_provenance_labels(semantic: dict[str, Any]) -> None:
             meta.pop(label, None)
 
 
-def _strip_sidecar_binding(semantic: dict[str, Any]) -> None:
+def strip_sidecar_binding(semantic: dict[str, Any]) -> None:
     """Drop source-coordinate bindings while retaining reward semantics."""
 
     annotation = semantic.get(curate_rewards.ANNOTATION_FIELD)
@@ -111,7 +111,7 @@ def _strip_sidecar_binding(semantic: dict[str, Any]) -> None:
             value.pop("calibration_source", None)
 
 
-def _post_transform_semantic_sha256(
+def post_transform_semantic_sha256(
     decision: ComposeDecision, context: SourceLineContext
 ) -> str:
     """Hash training content without coordinate-derived bindings."""
@@ -119,27 +119,27 @@ def _post_transform_semantic_sha256(
     if decision.record is None:
         raise ComposeError("cannot hash a missing curated record")
     semantic = copy.deepcopy(decision.record)
-    _strip_assigned_ids(semantic, _identity_stage_detail_of(decision))
-    _strip_provenance_labels(semantic)
-    _strip_sidecar_binding(semantic)
+    strip_assigned_ids(semantic, identity_stage_detail_of(decision))
+    strip_provenance_labels(semantic)
+    strip_sidecar_binding(semantic)
     return context.canonical_sha256(semantic)
 
 
-def _is_retained_record(decision: ComposeDecision) -> bool:
+def is_retained_record(decision: ComposeDecision) -> bool:
     """Whether a decision carries a record eligible for semantic indexing."""
 
     return decision.action == ACTION_RETAINED and decision.record is not None
 
 
-def _deduplicate_curated_record(
+def deduplicate_curated_record(
     decision: ComposeDecision, context: SourceLineContext
 ) -> ComposeDecision:
     """Exclude records that converge only after lossy curation lanes."""
 
     seen = context.seen_curated_semantics
-    if seen is None or not _is_retained_record(decision):
+    if seen is None or not is_retained_record(decision):
         return decision
-    semantic_sha256 = _post_transform_semantic_sha256(decision, context)
+    semantic_sha256 = post_transform_semantic_sha256(decision, context)
     first = seen.get(semantic_sha256)
     if first is None:
         seen[semantic_sha256] = (context.source_path, context.source_line)

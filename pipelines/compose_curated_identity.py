@@ -56,10 +56,10 @@ else:
     from record_kind import preference_side_kinds
 
 # Calibration lookup by pre-identity identifiers, re-exported for importers.
-_container_calibration_id_candidates = _calibration_lookup._container_calibration_id_candidates
-_usable_calibration_id = _calibration_lookup._usable_calibration_id
-_owner_calibration_id_candidates = _calibration_lookup._owner_calibration_id_candidates
-_calibration_id_candidates = _calibration_lookup._calibration_id_candidates
+_container_calibration_id_candidates = _calibration_lookup.container_calibration_id_candidates
+_usable_calibration_id = _calibration_lookup.usable_calibration_id
+_owner_calibration_id_candidates = _calibration_lookup.owner_calibration_id_candidates
+_calibration_id_candidates = _calibration_lookup.calibration_id_candidates
 calibration_for = _calibration_lookup.calibration_for
 
 # Narrow-refusal classification and lane-repair probes, re-exported likewise.
@@ -69,21 +69,21 @@ CODING_STEP_ERROR_RE = _repairs.CODING_STEP_ERROR_RE
 PREFERENCE_STEP_ERROR_RE = _repairs.PREFERENCE_STEP_ERROR_RE
 PROBE_FAILED = _repairs.PROBE_FAILED
 only_identity_shape_details = _repairs.only_identity_shape_details
-_is_bridge_order_only_rejection = _repairs._is_bridge_order_only_rejection
-_bridge_order_repaired_copy_with_source = _repairs._bridge_order_repaired_copy_with_source
-_is_coding_step_only_rejection = _repairs._is_coding_step_only_rejection
-_coding_steps_repaired_copy_with_source = _repairs._coding_steps_repaired_copy_with_source
-_is_preference_step_only_rejection = _repairs._is_preference_step_only_rejection
-_replace_coding_steps = _repairs._replace_coding_steps
-_preference_steps_repaired_copy_with_source = _repairs._preference_steps_repaired_copy_with_source
-_restore_deferred_payload = _repairs._restore_deferred_payload
+_is_bridge_order_only_rejection = _repairs.is_bridge_order_only_rejection
+_bridge_order_repaired_copy_with_source = _repairs.bridge_order_repaired_copy_with_source
+_is_coding_step_only_rejection = _repairs.is_coding_step_only_rejection
+_coding_steps_repaired_copy_with_source = _repairs.coding_steps_repaired_copy_with_source
+_is_preference_step_only_rejection = _repairs.is_preference_step_only_rejection
+_replace_coding_steps = _repairs.replace_coding_steps
+_preference_steps_repaired_copy_with_source = _repairs.preference_steps_repaired_copy_with_source
+_restore_deferred_payload = _repairs.restore_deferred_payload
 
 # Deferred downstream-lane repair orchestration, re-exported likewise.
 DeferredLaneRepair = _deferral.DeferredLaneRepair
-_identity_retry_with_source = _deferral._identity_retry_with_source
-_lane_retry = _deferral._lane_retry
-_run_deferred_lane_repairs = _deferral._run_deferred_lane_repairs
-_deferred_lane_repair_with_source = _deferral._deferred_lane_repair_with_source
+_identity_retry_with_source = _deferral.identity_retry_with_source
+_lane_retry = _deferral.lane_retry
+_run_deferred_lane_repairs = _deferral.run_deferred_lane_repairs
+_deferred_lane_repair_with_source = _deferral.deferred_lane_repair_with_source
 
 __all__ = """
 BRIDGE_ORDER_ERROR_FRAGMENT BRIDGE_STAGE CODING_STEP_ERROR_RE DeferredLaneRepair

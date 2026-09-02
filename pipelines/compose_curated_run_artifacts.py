@@ -87,7 +87,7 @@ def authenticate_composed_artifacts(
     pinned_destination.verify_binding()
 
 
-def _summary_counts(state: ComposeRunState) -> dict[str, int]:
+def summary_counts(state: ComposeRunState) -> dict[str, int]:
     counts = state.counts
     return {
         "source_files": counts["source_files"],
@@ -114,7 +114,7 @@ def compose_run_summary(
         "transforms": services.transform_contract(),
         "calibration": context.calibration_descriptor,
         "calibrated_records": context.calibrated_records,
-        "counts": _summary_counts(state),
+        "counts": summary_counts(state),
         "lane_actions": {
             lane: dict(sorted(actions.items())) for lane, actions in state.lane_actions.items()
         },

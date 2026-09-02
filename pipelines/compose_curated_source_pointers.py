@@ -16,18 +16,18 @@ else:
     )
 
 
-def _identity_owner(record: dict[str, Any], pointer: Any) -> dict[str, Any] | None:
+def identity_owner(record: dict[str, Any], pointer: Any) -> dict[str, Any] | None:
     """Resolve an identity manifest owner pointer within one curated record."""
 
     if pointer == "/":
         return record
-    tokens = _json_pointer_tokens(pointer)
+    tokens = json_pointer_tokens(pointer)
     if tokens is None:
         return None
-    return _descendant_mapping(record, tokens)
+    return descendant_mapping(record, tokens)
 
 
-def _descendant_mapping(
+def descendant_mapping(
     record: dict[str, Any], tokens: list[str]
 ) -> dict[str, Any] | None:
     """Traverse decoded pointer tokens and return only mapping owners."""
@@ -40,16 +40,16 @@ def _descendant_mapping(
     return owner if isinstance(owner, dict) else None
 
 
-def _is_child_json_pointer(pointer: Any) -> bool:
+def is_child_json_pointer(pointer: Any) -> bool:
     """Whether a value identifies a non-root JSON Pointer path."""
 
     return isinstance(pointer, str) and pointer.startswith("/") and pointer != "/"
 
 
-def _json_pointer_tokens(pointer: Any) -> list[str] | None:
+def json_pointer_tokens(pointer: Any) -> list[str] | None:
     """Decode a non-root JSON Pointer into unescaped path tokens."""
 
-    if not _is_child_json_pointer(pointer):
+    if not is_child_json_pointer(pointer):
         return None
     return [
         token.replace("~1", "/").replace("~0", "~")
@@ -57,10 +57,10 @@ def _json_pointer_tokens(pointer: Any) -> list[str] | None:
     ]
 
 
-def _pop_json_pointer(record: dict[str, Any], pointer: Any) -> None:
+def pop_json_pointer(record: dict[str, Any], pointer: Any) -> None:
     """Drop one JSON-pointer field from a copied record when it exists."""
 
-    tokens = _json_pointer_tokens(pointer)
+    tokens = json_pointer_tokens(pointer)
     if tokens is None:
         return
     owner: Any = record
@@ -72,7 +72,7 @@ def _pop_json_pointer(record: dict[str, Any], pointer: Any) -> None:
         owner.pop(tokens[-1], None)
 
 
-def _original_id_paths(originals: Any) -> list[str]:
+def original_id_paths(originals: Any) -> list[str]:
     """Return every valid path carried by original-id entries."""
 
     if not isinstance(originals, list):
@@ -84,17 +84,17 @@ def _original_id_paths(originals: Any) -> list[str]:
     ]
 
 
-def _mapped_legacy_id_paths(detail: Mapping[str, Any] | None) -> tuple[str, ...]:
+def mapped_legacy_id_paths(detail: Mapping[str, Any] | None) -> tuple[str, ...]:
     """Collect all identity-mapped legacy identifier paths."""
 
     if not isinstance(detail, Mapping):
         return ()
-    paths = _original_id_paths(detail.get("original_ids"))
+    paths = original_id_paths(detail.get("original_ids"))
     mappings = detail.get("id_mappings")
     if isinstance(mappings, list):
         for mapping in mappings:
             if isinstance(mapping, dict):
-                paths.extend(_original_id_paths(mapping.get("original_ids")))
+                paths.extend(original_id_paths(mapping.get("original_ids")))
     return tuple(dict.fromkeys(paths))
 
 

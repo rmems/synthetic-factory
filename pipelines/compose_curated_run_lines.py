@@ -44,11 +44,11 @@ def jsonl_physical_lines(raw_file: bytes) -> list[bytes]:
     if physical_lines and physical_lines[-1] == b"":
         physical_lines.pop()
     framed = min(terminated_lines, len(physical_lines))
-    physical_lines[:framed] = map(_without_terminal_cr, physical_lines[:framed])
+    physical_lines[:framed] = map(without_terminal_cr, physical_lines[:framed])
     return physical_lines
 
 
-def _without_terminal_cr(physical_line: bytes) -> bytes:
+def without_terminal_cr(physical_line: bytes) -> bytes:
     """Remove JSONL framing's CR only when the line ended in CRLF."""
 
     return physical_line[:-1] if physical_line.endswith(b"\r") else physical_line
@@ -135,7 +135,7 @@ def mill_quarantined_decision(finding: Any) -> ComposeDecision:
     )
 
 
-def _line_decision(
+def line_decision(
     state: ComposeRunState,
     source_line: PhysicalSourceLine,
     services: SourceServices,
@@ -155,7 +155,7 @@ def _line_decision(
     )
 
 
-def _account_lane_actions(state: ComposeRunState, decision: ComposeDecision) -> None:
+def account_lane_actions(state: ComposeRunState, decision: ComposeDecision) -> None:
     for stage in decision.stages:
         lane = stage["lane"]
         if lane in state.lane_actions:

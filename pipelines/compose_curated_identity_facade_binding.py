@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sys
 from types import ModuleType
+from typing import Any, Callable
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -28,7 +29,9 @@ def bind_facade(facade: ModuleType) -> None:
 
 def _facade() -> ModuleType:
     global _FACADE
-    resolver = getattr(sys.modules.get("pipelines"), "_canonical_sibling_binding", None)
+    resolver: Callable[[str, Any], Any] | None = getattr(
+        sys.modules.get("pipelines"), "_canonical_sibling_binding", None
+    )
     if resolver is not None:
         _FACADE = resolver("compose_curated", _FACADE)
     if _FACADE is None:

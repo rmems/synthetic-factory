@@ -35,28 +35,28 @@ else:
     from raw_tree_guard import contains_raw_segments, is_under_raw
 
 DirectoryBinding = _directory_module.DirectoryBinding
-_directory_identity = _directory_module._directory_identity
-_directory_observations = _directory_module._directory_observations
-_fresh_directory_names = _directory_module._fresh_directory_names
-_require_empty_directory = _directory_module._require_empty_directory
-_require_exact_directory = _directory_module._require_exact_directory
-_require_safe_new_directory = _directory_module._require_safe_new_directory
-_required_directory_observations = _directory_module._required_directory_observations
-_verify_directory_binding = _directory_module._verify_directory_binding
+_directory_identity = _directory_module.directory_identity
+_directory_observations = _directory_module.directory_observations
+_fresh_directory_names = _directory_module.fresh_directory_names
+_require_empty_directory = _directory_module.require_empty_directory
+_require_exact_directory = _directory_module.require_exact_directory
+_require_safe_new_directory = _directory_module.require_safe_new_directory
+_required_directory_observations = _directory_module.required_directory_observations
+_verify_directory_binding = _directory_module.verify_directory_binding
 directory_binding_matches = _directory_module.directory_binding_matches
-_ATOMIC_RENAME_UNSUPPORTED = _rename_module._ATOMIC_RENAME_UNSUPPORTED
-_OwnedEntryMove = _rename_module._OwnedEntryMove
-_PRIVATE_NAME_ATTEMPTS = _rename_module._PRIVATE_NAME_ATTEMPTS
-_RENAME_NOREPLACE = _rename_module._RENAME_NOREPLACE
-_entry_identity = _rename_module._entry_identity
-_move_owned_entry = _rename_module._move_owned_entry
-_private_entry_name = _rename_module._private_entry_name
-_quarantine_owned_entry = _rename_module._quarantine_owned_entry
-_rename_noreplace = _rename_module._rename_noreplace
-_stage_owned_entry = _rename_module._stage_owned_entry
-_DestinationTreeSnapshot = _tree_module._DestinationTreeSnapshot
-_TreeEntry = _tree_module._TreeEntry
-_TreePath = _tree_module._TreePath
+_ATOMIC_RENAME_UNSUPPORTED = _rename_module.ATOMIC_RENAME_UNSUPPORTED
+_OwnedEntryMove = _rename_module.OwnedEntryMove
+_PRIVATE_NAME_ATTEMPTS = _rename_module.PRIVATE_NAME_ATTEMPTS
+_RENAME_NOREPLACE = _rename_module.RENAME_NOREPLACE
+_entry_identity = _rename_module.entry_identity
+_move_owned_entry = _rename_module.move_owned_entry
+_private_entry_name = _rename_module.private_entry_name
+_quarantine_owned_entry = _rename_module.quarantine_owned_entry
+_rename_noreplace = _rename_module.rename_noreplace
+_stage_owned_entry = _rename_module.stage_owned_entry
+_DestinationTreeSnapshot = _tree_module.DestinationTreeSnapshot
+_TreeEntry = _tree_module.TreeEntry
+_TreePath = _tree_module.TreePath
 
 __all__ = (
     "DESTINATION_PARENT_LABEL",

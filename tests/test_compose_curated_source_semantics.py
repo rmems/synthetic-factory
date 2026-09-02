@@ -113,7 +113,7 @@ def _capture_semantic_hash(record):
         "f" * 64,
         canonical_sha256=capture_semantic,
     )
-    digest = compose_curated_source_semantics._post_transform_semantic_sha256(decision, context)
+    digest = compose_curated_source_semantics.post_transform_semantic_sha256(decision, context)
     return digest, captured
 
 
@@ -160,7 +160,7 @@ class SourceSemanticNormalization(unittest.TestCase):
         context = compose_curated_source.SourceLineContext("factory/batch-r01.jsonl", 1, "f" * 64)
 
         with self.assertRaisesRegex(ComposeError, "missing curated record"):
-            compose_curated_source_semantics._post_transform_semantic_sha256(decision, context)
+            compose_curated_source_semantics.post_transform_semantic_sha256(decision, context)
 
     def test_post_transform_duplicate_is_excluded_with_first_source_evidence(self):
         record = {"payload": {"training": "same"}}
@@ -186,10 +186,10 @@ class SourceSemanticNormalization(unittest.TestCase):
             seen_curated_semantics=seen,
         )
 
-        first = compose_curated_source_semantics._deduplicate_curated_record(
+        first = compose_curated_source_semantics.deduplicate_curated_record(
             retained, first_context
         )
-        duplicate = compose_curated_source_semantics._deduplicate_curated_record(
+        duplicate = compose_curated_source_semantics.deduplicate_curated_record(
             retained, second_context
         )
 

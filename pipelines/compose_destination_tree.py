@@ -16,17 +16,17 @@ if __package__:
 
     _assert_direct_sibling("compose_destination_tree")
     from .compose_contract import ComposeError
-    from .compose_destination_directory import _directory_identity, _fresh_directory_names
+    from .compose_destination_directory import directory_identity, fresh_directory_names
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_destination_tree"
     )
     from compose_contract import ComposeError
-    from compose_destination_directory import _directory_identity, _fresh_directory_names
+    from compose_destination_directory import directory_identity, fresh_directory_names
 
 
 @dataclass(frozen=True)
-class _TreePath:
+class TreePath:
     """Descriptor-relative name used during exact-tree capture."""
 
     parent_descriptor: int
@@ -39,10 +39,10 @@ class _TreePath:
 
 
 @dataclass(frozen=True)
-class _TreeEntry:
+class TreeEntry:
     """One path and metadata observation from the destination tree."""
 
-    path: _TreePath
+    path: TreePath
     metadata: os.stat_result
 
     @property
@@ -51,7 +51,7 @@ class _TreeEntry:
 
 
 @dataclass
-class _DestinationTreeSnapshot:
+class DestinationTreeSnapshot:
     """Exact topology and byte digests observed through pinned descriptors.
 
     ``outside_raw`` is the caller's raw-relocation guard for one opened
@@ -75,7 +75,7 @@ class _DestinationTreeSnapshot:
         )
 
     @staticmethod
-    def _open(path: _TreePath, *, directory: bool) -> int:
+    def _open(path: TreePath, *, directory: bool) -> int:
         flags = (
             os.O_RDONLY
             | getattr(os, "O_NOFOLLOW", 0)
@@ -95,7 +95,7 @@ class _DestinationTreeSnapshot:
             ) from exc
 
     @staticmethod
-    def _metadata(path: _TreePath) -> os.stat_result:
+    def _metadata(path: TreePath) -> os.stat_result:
         try:
             return os.stat(
                 path.name,
@@ -124,7 +124,7 @@ class _DestinationTreeSnapshot:
             digest.update(chunk)
         return digest.hexdigest()
 
-    def _read_file(self, entry: _TreeEntry) -> str:
+    def _read_file(self, entry: TreeEntry) -> str:
         """Hash one unique regular entry through a stable pinned descriptor."""
 
         if not stat.S_ISREG(entry.metadata.st_mode) or entry.metadata.st_nlink != 1:
@@ -150,7 +150,7 @@ class _DestinationTreeSnapshot:
         finally:
             os.close(descriptor)
 
-    def _scan_child_directory(self, entry: _TreeEntry) -> None:
+    def _scan_child_directory(self, entry: TreeEntry) -> None:
         self.directories.add(entry.relative)
         child = self._open(entry.path, directory=True)
         try:
@@ -159,11 +159,11 @@ class _DestinationTreeSnapshot:
                 child,
                 f"destination tree directory {entry.relative}",
             )
-            if _directory_identity(entry.metadata) != _directory_identity(opened):
+            if directory_identity(entry.metadata) != directory_identity(opened):
                 raise ComposeError(f"destination tree directory changed: {entry.relative}")
             self._scan_directory(child, entry.path.relative_parts)
             current = self._metadata(entry.path)
-            if _directory_identity(opened) != _directory_identity(current):
+            if directory_identity(opened) != directory_identity(current):
                 raise ComposeError(f"destination tree directory changed: {entry.relative}")
         finally:
             os.close(child)
@@ -173,9 +173,9 @@ class _DestinationTreeSnapshot:
         descriptor: int,
         prefix: tuple[str, ...],
     ) -> None:
-        for name in _fresh_directory_names(descriptor, "destination tree"):
-            path = _TreePath(descriptor, name, (*prefix, name))
-            entry = _TreeEntry(path, self._metadata(path))
+        for name in fresh_directory_names(descriptor, "destination tree"):
+            path = TreePath(descriptor, name, (*prefix, name))
+            entry = TreeEntry(path, self._metadata(path))
             if stat.S_ISDIR(entry.metadata.st_mode):
                 self._scan_child_directory(entry)
             elif stat.S_ISREG(entry.metadata.st_mode):

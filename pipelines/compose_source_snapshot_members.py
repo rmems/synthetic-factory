@@ -21,13 +21,13 @@ else:
     from compose_contract import ComposeError
 
 
-def _unsafe_relative_component(relative: PurePosixPath) -> bool:
+def unsafe_relative_component(relative: PurePosixPath) -> bool:
     """Whether a normalized relative path contains traversal components."""
 
     return any(part in {"", ".", ".."} for part in relative.parts)
 
 
-def _require_member_text(raw_path: Any, label: str) -> str:
+def require_member_text(raw_path: Any, label: str) -> str:
     if not isinstance(raw_path, str):
         raise ComposeError(f"{label}: path must be a nonempty POSIX string")
     if not raw_path:
@@ -35,39 +35,39 @@ def _require_member_text(raw_path: Any, label: str) -> str:
     return raw_path
 
 
-def _reject_member_separator(raw_path: str, label: str) -> None:
+def reject_member_separator(raw_path: str, label: str) -> None:
     if "\\" in raw_path:
         raise ComposeError(f"{label}: path must be a nonempty POSIX string")
 
 
-def _reject_unsafe_member_text(raw_path: str, label: str) -> None:
+def reject_unsafe_member_text(raw_path: str, label: str) -> None:
     if "\0" in raw_path:
         raise ComposeError(f"{label}: unsafe relative path {raw_path!r}")
 
 
-def _require_canonical_member(
+def require_canonical_member(
     relative: PurePosixPath, raw_path: str, label: str
 ) -> None:
     if relative.as_posix() != raw_path:
         raise ComposeError(f"{label}: unsafe relative path {raw_path!r}")
     if relative.is_absolute():
         raise ComposeError(f"{label}: unsafe relative path {raw_path!r}")
-    if _unsafe_relative_component(relative):
+    if unsafe_relative_component(relative):
         raise ComposeError(f"{label}: unsafe relative path {raw_path!r}")
 
 
-def _validated_member_relative(raw_path: Any, label: str) -> PurePosixPath:
+def validated_member_relative(raw_path: Any, label: str) -> PurePosixPath:
     """Reject anything that is not a plain, in-tree POSIX relative path."""
 
-    raw_path = _require_member_text(raw_path, label)
-    _reject_member_separator(raw_path, label)
-    _reject_unsafe_member_text(raw_path, label)
+    raw_path = require_member_text(raw_path, label)
+    reject_member_separator(raw_path, label)
+    reject_unsafe_member_text(raw_path, label)
     relative = PurePosixPath(raw_path)
-    _require_canonical_member(relative, raw_path, label)
+    require_canonical_member(relative, raw_path, label)
     return relative
 
 
-def _assert_unaliased_regular_member(
+def assert_unaliased_regular_member(
     metadata: os.stat_result, *, label: str, raw_path: Any
 ) -> None:
     """A source member must be exactly one regular file, not an alias of one."""
@@ -78,10 +78,10 @@ def _assert_unaliased_regular_member(
         raise ComposeError(f"{label}: hard-link aliases are not accepted: {raw_path}")
 
 
-def _source_member_path(root: Path, raw_path: Any, label: str) -> Path:
+def source_member_path(root: Path, raw_path: Any, label: str) -> Path:
     """Resolve one exact regular source member without aliases or tree escape."""
 
-    relative = _validated_member_relative(raw_path, label)
+    relative = validated_member_relative(raw_path, label)
     root_resolved = root.resolve(strict=True)
     candidate = root_resolved.joinpath(*relative.parts)
     try:
@@ -94,11 +94,11 @@ def _source_member_path(root: Path, raw_path: Any, label: str) -> Path:
         raise ComposeError(f"{label}: source member is a symlink alias: {raw_path}")
     if root_resolved not in resolved.parents:
         raise ComposeError(f"{label}: source member is a symlink alias: {raw_path}")
-    _assert_unaliased_regular_member(metadata, label=label, raw_path=raw_path)
+    assert_unaliased_regular_member(metadata, label=label, raw_path=raw_path)
     return candidate
 
 
-def _stable_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
+def stable_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
     """Fields that must remain stable while one source member is read."""
 
     return (

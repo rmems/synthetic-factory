@@ -21,25 +21,25 @@ else:
     from compose_contract import ComposeError
 
 
-def _directory_observations(path: Path) -> tuple[os.stat_result, Path]:
+def directory_observations(path: Path) -> tuple[os.stat_result, Path]:
     return path.lstat(), path.resolve(strict=True)
 
 
-def _required_directory_observations(path: Path, label: str) -> tuple[os.stat_result, Path]:
+def required_directory_observations(path: Path, label: str) -> tuple[os.stat_result, Path]:
     """Observe a required directory while normalizing resolution failures."""
 
     try:
-        return _directory_observations(path)
+        return directory_observations(path)
     except FileNotFoundError as exc:
         raise ComposeError(f"{label} is missing: {path}") from exc
     except (OSError, RuntimeError) as exc:
         raise ComposeError(f"{label} cannot be resolved safely: {path}") from exc
 
 
-def _require_exact_directory(path: Path, label: str) -> Path:
+def require_exact_directory(path: Path, label: str) -> Path:
     """Require a real directory reached without a symlinked path alias."""
 
-    metadata, resolved = _required_directory_observations(path, label)
+    metadata, resolved = required_directory_observations(path, label)
     absolute = Path(os.path.abspath(path))
     if not stat.S_ISDIR(metadata.st_mode):
         raise ComposeError(f"{label} must be an exact non-symlink directory: {path}")
@@ -48,13 +48,13 @@ def _require_exact_directory(path: Path, label: str) -> Path:
     return resolved
 
 
-def _directory_identity(metadata: os.stat_result) -> tuple[int, int, int]:
+def directory_identity(metadata: os.stat_result) -> tuple[int, int, int]:
     """Identity fields that do not change when directory entries are added."""
 
     return metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode)
 
 
-def _fresh_directory_names(descriptor: int, label: str) -> list[str]:
+def fresh_directory_names(descriptor: int, label: str) -> list[str]:
     """Enumerate through a fresh open description with an offset at zero."""
 
     flags = (
@@ -68,7 +68,7 @@ def _fresh_directory_names(descriptor: int, label: str) -> list[str]:
     except OSError as exc:
         raise ComposeError(f"{label}: cannot open directory for enumeration") from exc
     try:
-        if _directory_identity(os.fstat(scan_descriptor)) != _directory_identity(
+        if directory_identity(os.fstat(scan_descriptor)) != directory_identity(
             os.fstat(descriptor)
         ):
             raise ComposeError(f"{label}: directory identity changed before enumeration")
@@ -79,15 +79,15 @@ def _fresh_directory_names(descriptor: int, label: str) -> list[str]:
         os.close(scan_descriptor)
 
 
-def _require_empty_directory(descriptor: int, label: str) -> None:
+def require_empty_directory(descriptor: int, label: str) -> None:
     """Require a newly pinned private directory to contain no adopted bytes."""
 
-    entries = _fresh_directory_names(descriptor, label)
+    entries = fresh_directory_names(descriptor, label)
     if entries:
         raise ComposeError(f"{label}: new directory was not empty when pinned")
 
 
-def _require_safe_new_directory(
+def require_safe_new_directory(
     descriptor: int,
     parent_descriptor: int,
     label: str,
@@ -99,7 +99,7 @@ def _require_safe_new_directory(
         parent = os.fstat(parent_descriptor)
     except OSError as exc:
         raise ComposeError(f"{label}: cannot authenticate new directory") from exc
-    if _directory_identity(opened)[2] != stat.S_IFDIR:
+    if directory_identity(opened)[2] != stat.S_IFDIR:
         raise ComposeError(f"{label}: new entry is not an exact directory")
     if opened.st_dev != parent.st_dev or opened.st_uid != os.geteuid():
         raise ComposeError(f"{label}: new directory has unexpected ownership metadata")
@@ -118,12 +118,12 @@ class DirectoryBinding:
     def matches(self) -> bool:
         """Whether every observation still identifies the expected directory."""
 
-        opened_identity = _directory_identity(self.opened)
+        opened_identity = directory_identity(self.opened)
         checks = (
             stat.S_ISDIR(self.metadata.st_mode),
             stat.S_ISDIR(self.opened.st_mode),
             self.resolved == self.absolute,
-            _directory_identity(self.metadata) == opened_identity,
+            directory_identity(self.metadata) == opened_identity,
             (self.expected_identity is None or opened_identity == self.expected_identity),
         )
         return all(checks)
@@ -135,7 +135,7 @@ def directory_binding_matches(binding: DirectoryBinding) -> bool:
     return binding.matches()
 
 
-def _verify_directory_binding(
+def verify_directory_binding(
     path: Path,
     descriptor: int,
     label: str,
@@ -145,7 +145,7 @@ def _verify_directory_binding(
     """Require ``path`` and a pinned descriptor to name the same directory."""
 
     try:
-        metadata, resolved = _directory_observations(path)
+        metadata, resolved = directory_observations(path)
         binding = DirectoryBinding(
             metadata=metadata,
             opened=os.fstat(descriptor),

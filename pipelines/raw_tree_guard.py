@@ -7,6 +7,7 @@ import sys
 from contextlib import suppress
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RAW_OUTPUT_ROOT = REPOSITORY_ROOT / "outputs" / "raw"
@@ -204,7 +205,7 @@ def is_under_raw(path: Path, raw_root: Path | None = None) -> bool:
     return _bind_mount_hits_raw(path, root)
 
 
-def _absent_sibling(_name: str, *, allow_initializing: bool = False) -> ModuleType | None:
+def _absent_sibling(_name: str, **_options: Any) -> ModuleType | None:
     """Stand in for the package sibling lookup when ``pipelines`` is not importable."""
 
     return None

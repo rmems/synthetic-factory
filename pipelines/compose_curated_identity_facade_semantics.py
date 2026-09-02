@@ -104,7 +104,7 @@ def _strip_provenance_labels(semantic: dict[str, Any]) -> None:
 
 
 def _strip_sidecar_binding(semantic: dict[str, Any]) -> None:
-    return _source_impl._strip_sidecar_binding(semantic)
+    _source_impl._strip_sidecar_binding(semantic)
 
 
 def _post_transform_semantic_sha256(decision: ComposeDecision) -> str:

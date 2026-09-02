@@ -42,22 +42,22 @@ else:
         _verify_directory_binding,
     )
 
-_assert_unaliased_regular_member = _members_module._assert_unaliased_regular_member
-_reject_member_separator = _members_module._reject_member_separator
-_reject_unsafe_member_text = _members_module._reject_unsafe_member_text
-_require_canonical_member = _members_module._require_canonical_member
-_require_member_text = _members_module._require_member_text
-_source_member_path = _members_module._source_member_path
-_stable_file_identity = _members_module._stable_file_identity
-_unsafe_relative_component = _members_module._unsafe_relative_component
-_validated_member_relative = _members_module._validated_member_relative
+_assert_unaliased_regular_member = _members_module.assert_unaliased_regular_member
+_reject_member_separator = _members_module.reject_member_separator
+_reject_unsafe_member_text = _members_module.reject_unsafe_member_text
+_require_canonical_member = _members_module.require_canonical_member
+_require_member_text = _members_module.require_member_text
+_source_member_path = _members_module.source_member_path
+_stable_file_identity = _members_module.stable_file_identity
+_unsafe_relative_component = _members_module.unsafe_relative_component
+_validated_member_relative = _members_module.validated_member_relative
 RoundVisibilityFilter = _visibility_module.RoundVisibilityFilter
 RoundVisibilityHooks = _visibility_module.RoundVisibilityHooks
-_collect_source_directory = _visibility_module._collect_source_directory
-_committed_paths = _visibility_module._committed_paths
-_enclosing_marker_root = _visibility_module._enclosing_marker_root
-_scan_source_directory = _visibility_module._scan_source_directory
-_source_entry_metadata = _visibility_module._source_entry_metadata
+_collect_source_directory = _visibility_module.collect_source_directory
+_committed_paths = _visibility_module.committed_paths
+_enclosing_marker_root = _visibility_module.enclosing_marker_root
+_scan_source_directory = _visibility_module.scan_source_directory
+_source_entry_metadata = _visibility_module.source_entry_metadata
 round_visible_members = _visibility_module.round_visible_members
 source_jsonl_members = _visibility_module.source_jsonl_members
 

@@ -346,7 +346,7 @@ def check_reward_total(rc, where):
 
 def _state_provenance_errors(obj, where):
     """Validate state provenance using this facade's live vocabulary seam."""
-    return _validate_run_provenance._state_provenance_errors(
+    return _validate_run_provenance.state_provenance_errors(
         obj,
         where,
         ALLOWED_SIM_OR_REAL,
@@ -356,7 +356,7 @@ def _state_provenance_errors(obj, where):
 
 def _provenance_object_errors(obj, where):
     """Validate provenance using this facade's live vocabulary seam."""
-    return _validate_run_provenance._provenance_object_errors(
+    return _validate_run_provenance.provenance_object_errors(
         obj,
         where,
         ALLOWED_PROVENANCE_KIND,
@@ -1326,7 +1326,7 @@ def check_safety_case(obj, where, factory_staging=False):
     return errs
 
 
-def _route_thalamic(obj, where, factory_staging):
+def _route_thalamic(obj, where, _factory_staging):
     return check_thalamic(obj, where)
 
 
@@ -1374,7 +1374,7 @@ def _route_preference(obj, where, factory_staging):
     return errs
 
 
-def _route_bridge_pair(obj, where, factory_staging):
+def _route_bridge_pair(obj, where, _factory_staging):
     errs = []
     events = obj["spike_events"]
     if not isinstance(events, list) or not events:

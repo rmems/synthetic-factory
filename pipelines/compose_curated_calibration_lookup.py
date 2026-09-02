@@ -19,14 +19,14 @@ else:
     import curate_rewards
 
 
-def _container_calibration_id_candidates(container: Mapping[str, Any]):
+def container_calibration_id_candidates(container: Mapping[str, Any]):
     """Yield usable legacy IDs from one identity container."""
 
     values = map(container.get, curate_identity.LEGACY_ID_KEYS)
-    yield from filter(None, map(_usable_calibration_id, values))
+    yield from filter(None, map(usable_calibration_id, values))
 
 
-def _usable_calibration_id(value: Any) -> str | None:
+def usable_calibration_id(value: Any) -> str | None:
     """Normalize one legacy identifier without nesting generator branches."""
 
     if isinstance(value, str) and value.strip():
@@ -34,22 +34,22 @@ def _usable_calibration_id(value: Any) -> str | None:
     return None
 
 
-def _owner_calibration_id_candidates(owner: Mapping[str, Any]):
+def owner_calibration_id_candidates(owner: Mapping[str, Any]):
     """Yield legacy IDs from one identity owner and its nested containers."""
 
     for container in (owner, owner.get("meta"), owner.get("state")):
         if isinstance(container, Mapping):
-            yield from _container_calibration_id_candidates(container)
+            yield from container_calibration_id_candidates(container)
 
 
-def _calibration_id_candidates(record: Mapping[str, Any]):
+def calibration_id_candidates(record: Mapping[str, Any]):
     """Yield source identifiers using the identity lane's vocabulary/order."""
 
-    yield from _owner_calibration_id_candidates(record)
+    yield from owner_calibration_id_candidates(record)
     for side in ("chosen", "rejected"):
         owner = record.get(side)
         if isinstance(owner, Mapping):
-            yield from _owner_calibration_id_candidates(owner)
+            yield from owner_calibration_id_candidates(owner)
 
 
 def calibration_for(record: Mapping[str, Any], catalog: Mapping[str, Any] | None) -> Any:
@@ -57,7 +57,7 @@ def calibration_for(record: Mapping[str, Any], catalog: Mapping[str, Any] | None
 
     if not catalog or not isinstance(record, Mapping):
         return None
-    for candidate in _calibration_id_candidates(record):
+    for candidate in calibration_id_candidates(record):
         calibration = catalog.get(curate_rewards.catalog_record_key(candidate))
         if calibration is not None:
             return calibration

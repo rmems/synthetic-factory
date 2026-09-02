@@ -16,7 +16,7 @@ if __package__:
     _assert_direct_sibling("compose_source_snapshot_visibility")
     from .compose_contract import ComposeError
     from .compose_destination_binding import _require_exact_directory
-    from .compose_source_snapshot_members import _source_member_path
+    from .compose_source_snapshot_members import source_member_path
     from .round_txn import committed_jsonl_paths, marker_mode_path
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -24,13 +24,13 @@ else:
     )
     from compose_contract import ComposeError
     from compose_destination_binding import _require_exact_directory
-    from compose_source_snapshot_members import _source_member_path
+    from compose_source_snapshot_members import source_member_path
     from round_txn import committed_jsonl_paths, marker_mode_path
 
 RoundVisibilityFilter = Callable[[Path, list[str]], list[str]]
 
 
-def _scan_source_directory(directory: Path) -> list[Any]:
+def scan_source_directory(directory: Path) -> list[Any]:
     """List one source directory in a stable, name-sorted order."""
 
     try:
@@ -40,7 +40,7 @@ def _scan_source_directory(directory: Path) -> list[Any]:
         raise ComposeError(f"cannot enumerate source directory {directory}: {exc}") from exc
 
 
-def _source_entry_metadata(entry: Any, path: Path) -> os.stat_result:
+def source_entry_metadata(entry: Any, path: Path) -> os.stat_result:
     """Stat one source entry without following, or accepting, an alias."""
 
     try:
@@ -52,25 +52,25 @@ def _source_entry_metadata(entry: Any, path: Path) -> os.stat_result:
     return metadata
 
 
-def _collect_source_directory(
+def collect_source_directory(
     root: Path, directory: Path, members: list[str]
 ) -> list[Path]:
     """Append this directory's JSONL members; return its child directories."""
 
     child_directories: list[Path] = []
-    for entry in _scan_source_directory(directory):
+    for entry in scan_source_directory(directory):
         path = Path(entry.path)
-        metadata = _source_entry_metadata(entry, path)
+        metadata = source_entry_metadata(entry, path)
         if entry.name.endswith(".jsonl"):
             relative = path.relative_to(root).as_posix()
-            _source_member_path(root, relative, f"compose source {relative}")
+            source_member_path(root, relative, f"compose source {relative}")
             members.append(relative)
         elif stat.S_ISDIR(metadata.st_mode):
             child_directories.append(path)
     return child_directories
 
 
-def _enclosing_marker_root(
+def enclosing_marker_root(
     root: Path,
     parent: Path,
     marker_roots: dict[Path, Path | None],
@@ -95,7 +95,7 @@ def _enclosing_marker_root(
     return found
 
 
-def _committed_paths(
+def committed_paths(
     marker_root: Path,
     committed: dict[Path, set[Path]],
 ) -> set[Path]:
@@ -150,7 +150,7 @@ def source_jsonl_members(
         directory = pending.pop()
         if _require_exact_directory(directory, "source directory") != directory:
             raise ComposeError(f"source directory identity changed: {directory}")
-        child_directories = _collect_source_directory(root, directory, members)
+        child_directories = collect_source_directory(root, directory, members)
         pending.extend(reversed(child_directories))
     return tuple(sorted(visible_members(root, members)))
 

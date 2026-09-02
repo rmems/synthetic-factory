@@ -26,7 +26,8 @@ class _ParquetReader:
     def __init__(self, payload: bytes):
         self.payload = payload
 
-    def _decode_byte_array_at(self, data: bytes, offset: int) -> tuple[str, int]:
+    @staticmethod
+    def _decode_byte_array_at(data: bytes, offset: int) -> tuple[str, int]:
         if offset + 4 > len(data):
             raise ValueError(codec.TRUNCATED_PARQUET_PAGE)
         length = int.from_bytes(data[offset : offset + 4], "little")
@@ -35,7 +36,8 @@ class _ParquetReader:
             raise ValueError(codec.TRUNCATED_PARQUET_PAGE)
         return data[offset : offset + length].decode("utf-8"), offset + length
 
-    def _decode_int64_at(self, data: bytes, offset: int) -> tuple[int, int]:
+    @staticmethod
+    def _decode_int64_at(data: bytes, offset: int) -> tuple[int, int]:
         if offset + 8 > len(data):
             raise ValueError(codec.TRUNCATED_PARQUET_PAGE)
         value = int.from_bytes(data[offset : offset + 8], "little", signed=True)
@@ -88,7 +90,8 @@ class _ParquetReader:
         decoder = codec.CompactDecoder(self.payload, self._footer_start())
         return decoder.read_struct()
 
-    def _require_viewer_columns(self, metadata: dict[int, Any]) -> None:
+    @staticmethod
+    def _require_viewer_columns(metadata: dict[int, Any]) -> None:
         schema = metadata.get(2) or []
         names = [
             element.get(4, b"").decode("utf-8")
@@ -98,7 +101,8 @@ class _ParquetReader:
         if names != list(VIEWER_COLUMNS):
             raise ValueError(f"unexpected viewer columns: {names}")
 
-    def _column_metadata(self, chunk: dict[int, Any]) -> dict[int, Any]:
+    @staticmethod
+    def _column_metadata(chunk: dict[int, Any]) -> dict[int, Any]:
         metadata = chunk.get(3) or {}
         compression = metadata.get(4, codec.CODEC_UNCOMPRESSED)
         if compression != codec.CODEC_UNCOMPRESSED:

@@ -7,6 +7,7 @@ import ctypes
 import errno
 import os
 import sys
+from typing import Any
 import uuid
 from dataclasses import dataclass
 
@@ -15,17 +16,17 @@ if __package__:
 
     _assert_direct_sibling("compose_destination_rename")
     from .compose_contract import ComposeError
-    from .compose_destination_directory import _directory_identity
+    from .compose_destination_directory import directory_identity
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_destination_rename"
     )
     from compose_contract import ComposeError
-    from compose_destination_directory import _directory_identity
+    from compose_destination_directory import directory_identity
 
-_RENAME_NOREPLACE = 1
-_PRIVATE_NAME_ATTEMPTS = 8
-_ATOMIC_RENAME_UNSUPPORTED = frozenset(
+RENAME_NOREPLACE = 1
+PRIVATE_NAME_ATTEMPTS = 8
+ATOMIC_RENAME_UNSUPPORTED = frozenset(
     {
         errno.ENOSYS,
         errno.EINVAL,
@@ -35,7 +36,7 @@ _ATOMIC_RENAME_UNSUPPORTED = frozenset(
 )
 
 
-def _rename_noreplace(
+def rename_noreplace(
     parent_descriptor: int,
     source_name: str,
     destination_name: str,
@@ -43,7 +44,7 @@ def _rename_noreplace(
     """Atomically rename one sibling without replacing an existing entry."""
 
     libc = ctypes.CDLL(None, use_errno=True)
-    renameat2 = getattr(libc, "renameat2", None)
+    renameat2: Any = getattr(libc, "renameat2", None)
     if renameat2 is None:
         raise OSError(errno.ENOSYS, "renameat2 is unavailable")
     renameat2.argtypes = (
@@ -59,20 +60,20 @@ def _rename_noreplace(
         os.fsencode(source_name),
         parent_descriptor,
         os.fsencode(destination_name),
-        _RENAME_NOREPLACE,
+        RENAME_NOREPLACE,
     )
     if result != 0:
         error = ctypes.get_errno()
         raise OSError(error, os.strerror(error), source_name)
 
 
-def _private_entry_name(prefix: str) -> str:
+def private_entry_name(prefix: str) -> str:
     """Return one bounded private sibling name; no-replace proves uniqueness."""
 
     return f".synthetic-factory-{prefix}-{uuid.uuid4().hex}"
 
 
-def _entry_identity(
+def entry_identity(
     parent_descriptor: int,
     name: str,
 ) -> tuple[int, int, int] | None:
@@ -84,11 +85,11 @@ def _entry_identity(
         )
     except OSError:
         return None
-    return _directory_identity(metadata)
+    return directory_identity(metadata)
 
 
 @dataclass(frozen=True)
-class _OwnedEntryMove:
+class OwnedEntryMove:
     """Policy and identity state for one no-replace private rename."""
 
     parent_descriptor: int
@@ -100,7 +101,7 @@ class _OwnedEntryMove:
 
     def _rename_candidate(self, private_name: str) -> bool | None:
         try:
-            _rename_noreplace(self.parent_descriptor, self.name, private_name)
+            rename_noreplace(self.parent_descriptor, self.name, private_name)
         except FileExistsError:
             return False
         except FileNotFoundError:
@@ -111,17 +112,17 @@ class _OwnedEntryMove:
         return True
 
     def _handle_error(self, error: OSError) -> None:
-        if self.strict or error.errno in _ATOMIC_RENAME_UNSUPPORTED:
+        if self.strict or error.errno in ATOMIC_RENAME_UNSUPPORTED:
             raise ComposeError(f"{self.label}: atomic private rename failed: {error}") from error
 
     def _restore(self, private_name: str) -> None:
         try:
-            _rename_noreplace(self.parent_descriptor, private_name, self.name)
+            rename_noreplace(self.parent_descriptor, private_name, self.name)
         except OSError:
             pass
 
     def _authenticate(self, private_name: str) -> str | None:
-        if _entry_identity(self.parent_descriptor, private_name) == self.expected_identity:
+        if entry_identity(self.parent_descriptor, private_name) == self.expected_identity:
             return private_name
         self._restore(private_name)
         if self.strict:
@@ -131,8 +132,8 @@ class _OwnedEntryMove:
     def move(self) -> str | None:
         """Move the owned entry privately without deleting either identity."""
 
-        for _attempt in range(_PRIVATE_NAME_ATTEMPTS):
-            private_name = _private_entry_name(self.prefix)
+        for _attempt in range(PRIVATE_NAME_ATTEMPTS):
+            private_name = private_entry_name(self.prefix)
             moved = self._rename_candidate(private_name)
             if moved is False:
                 continue
@@ -144,13 +145,13 @@ class _OwnedEntryMove:
         return None
 
 
-def _move_owned_entry(move: _OwnedEntryMove) -> str | None:
+def move_owned_entry(move: OwnedEntryMove) -> str | None:
     """Keep the private seam while its state object owns the algorithm."""
 
     return move.move()
 
 
-def _quarantine_owned_entry(
+def quarantine_owned_entry(
     parent_descriptor: int,
     name: str,
     expected_identity: tuple[int, int, int],
@@ -158,8 +159,8 @@ def _quarantine_owned_entry(
 ) -> str | None:
     """Detach an owned entry for recovery without invoking deletion syscalls."""
 
-    return _move_owned_entry(
-        _OwnedEntryMove(
+    return move_owned_entry(
+        OwnedEntryMove(
             parent_descriptor,
             name,
             expected_identity,
@@ -170,7 +171,7 @@ def _quarantine_owned_entry(
     )
 
 
-def _stage_owned_entry(
+def stage_owned_entry(
     parent_descriptor: int,
     name: str,
     expected_identity: tuple[int, int, int],
@@ -178,8 +179,8 @@ def _stage_owned_entry(
 ) -> str:
     """Detach the verified transaction before its final authentication."""
 
-    staged = _move_owned_entry(
-        _OwnedEntryMove(
+    staged = move_owned_entry(
+        OwnedEntryMove(
             parent_descriptor,
             name,
             expected_identity,

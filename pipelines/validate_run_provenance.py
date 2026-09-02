@@ -51,11 +51,11 @@ def _claimed_value_errors(claimed, where):
     return [f"{where}: provenance.claimed must be a string or null"]
 
 
-def _state_provenance_errors(
+def state_provenance_errors(
     obj,
     where,
     allowed_sim_or_real=ALLOWED_SIM_OR_REAL,
-    typed_enum_errors=typed_enum_errors,
+    enum_errors=typed_enum_errors,
 ):
     """Validate the state provenance enum without assuming a string value."""
     state = obj.get("state")
@@ -70,7 +70,7 @@ def _state_provenance_errors(
             return [
                 f"{where}: state.sim_or_real must not be 'real' (use 'designed')"
             ]
-        return typed_enum_errors(
+        return enum_errors(
             value,
             allowed_sim_or_real,
             f"{where}: state.sim_or_real must be one of {sorted(allowed_sim_or_real)}",
@@ -80,11 +80,11 @@ def _state_provenance_errors(
     return []
 
 
-def _provenance_object_errors(
+def provenance_object_errors(
     obj,
     where,
     allowed_provenance_kind=ALLOWED_PROVENANCE_KIND,
-    typed_enum_errors=typed_enum_errors,
+    enum_errors=typed_enum_errors,
 ):
     """Validate the provenance object and its schema-derived kind enum."""
     if "provenance" not in obj:
@@ -94,7 +94,7 @@ def _provenance_object_errors(
         return [f"{where}: provenance must be an object"]
 
     kind = provenance.get("kind")
-    errors = typed_enum_errors(
+    errors = enum_errors(
         kind,
         allowed_provenance_kind,
         f"{where}: provenance.kind must be one of {sorted(allowed_provenance_kind)}",
@@ -106,7 +106,7 @@ def _provenance_object_errors(
 
 def check_provenance(obj, where):
     """Validate direct state and provenance objects for every trajectory route."""
-    return _state_provenance_errors(obj, where) + _provenance_object_errors(obj, where)
+    return state_provenance_errors(obj, where) + provenance_object_errors(obj, where)
 
 
 def _field_path(path, key):

@@ -70,7 +70,8 @@ class _ParquetWriter:
             ),
         )
 
-    def _schema_element(self, name: str, physical_type: int, *, utf8: bool) -> bytes:
+    @staticmethod
+    def _schema_element(name: str, physical_type: int, *, utf8: bool) -> bytes:
         fields = [
             (1, codec.I32, codec.integer(physical_type)),
             (3, codec.I32, codec.integer(codec.REPETITION_REQUIRED)),

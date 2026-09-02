@@ -42,18 +42,18 @@ else:
     )
     from record_kind import PREFERENCE_SIDE_KINDS
 
-_normalize_trajectory_goal_whitespace = _goals_module._normalize_trajectory_goal_whitespace
-_present_trajectory_goals = _goals_module._present_trajectory_goals
-_trajectory_goal_owner = _goals_module._trajectory_goal_owner
-_trajectory_side_validation_errors = _goals_module._trajectory_side_validation_errors
-_whitespace_only_goal = _goals_module._whitespace_only_goal
-_TRAJECTORY_DIVERGENCE_FIELDS = _gate_module._TRAJECTORY_DIVERGENCE_FIELDS
-_compat_trajectory_preference = _gate_module._compat_trajectory_preference
-_trajectory_divergence_reasons = _gate_module._trajectory_divergence_reasons
-_trajectory_gate_passed = _gate_module._trajectory_gate_passed
-_trajectory_step_reasons = _gate_module._trajectory_step_reasons
-_trajectory_step_shape_reason = _gate_module._trajectory_step_shape_reason
-_trajectory_steps = _gate_module._trajectory_steps
+_normalize_trajectory_goal_whitespace = _goals_module.normalize_trajectory_goal_whitespace
+_present_trajectory_goals = _goals_module.present_trajectory_goals
+_trajectory_goal_owner = _goals_module.trajectory_goal_owner
+_trajectory_side_validation_errors = _goals_module.trajectory_side_validation_errors
+_whitespace_only_goal = _goals_module.whitespace_only_goal
+_TRAJECTORY_DIVERGENCE_FIELDS = _gate_module.TRAJECTORY_DIVERGENCE_FIELDS
+_compat_trajectory_preference = _gate_module.compat_trajectory_preference
+_trajectory_divergence_reasons = _gate_module.trajectory_divergence_reasons
+_trajectory_gate_passed = _gate_module.trajectory_gate_passed
+_trajectory_step_reasons = _gate_module.trajectory_step_reasons
+_trajectory_step_shape_reason = _gate_module.trajectory_step_shape_reason
+_trajectory_steps = _gate_module.trajectory_steps
 
 __all__ = (
     "_TRAJECTORY_DIVERGENCE_FIELDS",

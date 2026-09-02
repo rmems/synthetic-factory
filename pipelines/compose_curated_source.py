@@ -80,24 +80,24 @@ else:
     from curate_identity import reject_duplicate_object_keys
 
 # JSON Pointer and identity-owner helpers, re-exported for importers.
-_identity_owner = _pointers._identity_owner
-_descendant_mapping = _pointers._descendant_mapping
-_is_child_json_pointer = _pointers._is_child_json_pointer
-_json_pointer_tokens = _pointers._json_pointer_tokens
-_pop_json_pointer = _pointers._pop_json_pointer
-_original_id_paths = _pointers._original_id_paths
-_mapped_legacy_id_paths = _pointers._mapped_legacy_id_paths
+_identity_owner = _pointers.identity_owner
+_descendant_mapping = _pointers.descendant_mapping
+_is_child_json_pointer = _pointers.is_child_json_pointer
+_json_pointer_tokens = _pointers.json_pointer_tokens
+_pop_json_pointer = _pointers.pop_json_pointer
+_original_id_paths = _pointers.original_id_paths
+_mapped_legacy_id_paths = _pointers.mapped_legacy_id_paths
 
 # Semantic normalisation and post-transform dedup, re-exported likewise.
 DEDUP_STAGE = _semantics.DEDUP_STAGE
-_semantic_identity_owners = _semantics._semantic_identity_owners
-_identity_stage_detail_of = _semantics._identity_stage_detail_of
-_strip_assigned_ids = _semantics._strip_assigned_ids
-_strip_provenance_labels = _semantics._strip_provenance_labels
-_strip_sidecar_binding = _semantics._strip_sidecar_binding
-_post_transform_semantic_sha256 = _semantics._post_transform_semantic_sha256
-_is_retained_record = _semantics._is_retained_record
-_deduplicate_curated_record = _semantics._deduplicate_curated_record
+_semantic_identity_owners = _semantics.semantic_identity_owners
+_identity_stage_detail_of = _semantics.identity_stage_detail_of
+_strip_assigned_ids = _semantics.strip_assigned_ids
+_strip_provenance_labels = _semantics.strip_provenance_labels
+_strip_sidecar_binding = _semantics.strip_sidecar_binding
+_post_transform_semantic_sha256 = _semantics.post_transform_semantic_sha256
+_is_retained_record = _semantics.is_retained_record
+_deduplicate_curated_record = _semantics.deduplicate_curated_record
 
 __all__ = """
 DEDUP_STAGE SOURCE_STAGE SourceLineContext _curate_source_record _curated_deduplicator
@@ -214,7 +214,8 @@ def _curated_deduplicator(
         return lambda decision: _deduplicate_curated_record(decision, context)
     if not callable(supplied):
         raise ComposeError("source-line deduplicator must be callable or None")
-    return lambda decision: supplied(
+    deduplicate: Callable[..., ComposeDecision] = supplied
+    return lambda decision: deduplicate(
         decision,
         source_path=context.source_path,
         source_line=context.source_line,

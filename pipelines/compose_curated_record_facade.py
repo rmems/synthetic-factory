@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import sys
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import Any, Callable, Mapping, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from compose_curated_record import RecordServices
@@ -66,7 +66,9 @@ def bind_facade(facade: ModuleType) -> None:
 
 def _facade() -> ModuleType:
     global _FACADE
-    resolver = getattr(sys.modules.get("pipelines"), "_canonical_sibling_binding", None)
+    resolver: Callable[[str, Any], Any] | None = getattr(
+        sys.modules.get("pipelines"), "_canonical_sibling_binding", None
+    )
     if resolver is not None:
         _FACADE = resolver("compose_curated", _FACADE)
     if _FACADE is None:

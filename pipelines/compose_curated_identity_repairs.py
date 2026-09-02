@@ -44,7 +44,7 @@ def only_identity_shape_details(mapping: Mapping[str, Any], matches: Any) -> boo
     return all(isinstance(detail, str) and matches(detail) for detail in details)
 
 
-def _is_bridge_order_only_rejection(mapping: Mapping[str, Any]) -> bool:
+def is_bridge_order_only_rejection(mapping: Mapping[str, Any]) -> bool:
     """Whether identity refused a record for spike ordering and nothing else."""
 
     return only_identity_shape_details(
@@ -52,7 +52,7 @@ def _is_bridge_order_only_rejection(mapping: Mapping[str, Any]) -> bool:
     )
 
 
-def _bridge_order_repaired_copy_with_source(
+def bridge_order_repaired_copy_with_source(
     record: Mapping[str, Any], source: SourceCoordinates
 ) -> dict[str, Any] | None:
     """Return the bridge lane's stable-sorted copy when it can repair."""
@@ -73,7 +73,7 @@ def _bridge_order_repaired_copy_with_source(
     return decision.output_record
 
 
-def _is_coding_step_only_rejection(mapping: Mapping[str, Any]) -> bool:
+def is_coding_step_only_rejection(mapping: Mapping[str, Any]) -> bool:
     """Whether identity refused an episode for step shape and nothing else."""
 
     return only_identity_shape_details(
@@ -81,7 +81,7 @@ def _is_coding_step_only_rejection(mapping: Mapping[str, Any]) -> bool:
     )
 
 
-def _coding_steps_repaired_copy_with_source(
+def coding_steps_repaired_copy_with_source(
     record: Mapping[str, Any], source: SourceCoordinates
 ) -> dict[str, Any] | None:
     """Return the coding lane's repaired copy when it can retain the episode."""
@@ -99,7 +99,7 @@ def _coding_steps_repaired_copy_with_source(
     return curated if isinstance(curated, dict) else None
 
 
-def _is_preference_step_only_rejection(mapping: Mapping[str, Any]) -> bool:
+def is_preference_step_only_rejection(mapping: Mapping[str, Any]) -> bool:
     """Whether identity refused only coding-owned preference-side steps."""
 
     return only_identity_shape_details(
@@ -107,7 +107,7 @@ def _is_preference_step_only_rejection(mapping: Mapping[str, Any]) -> bool:
     )
 
 
-def _replace_coding_steps(target: dict[str, Any], curated: Mapping[str, Any]) -> bool:
+def replace_coding_steps(target: dict[str, Any], curated: Mapping[str, Any]) -> bool:
     """Copy only a coding lane's repaired step array into ``target``."""
 
     steps_path = curate_coding.steps_path(dict(curated))
@@ -124,7 +124,7 @@ def _replace_coding_steps(target: dict[str, Any], curated: Mapping[str, Any]) ->
     return False
 
 
-def _preference_steps_repaired_copy_with_source(
+def preference_steps_repaired_copy_with_source(
     record: Mapping[str, Any], source: SourceCoordinates
 ) -> dict[str, Any] | None:
     """Probe the canonical side repair without leaking unrelated changes."""
@@ -142,12 +142,12 @@ def _preference_steps_repaired_copy_with_source(
         curated_side = curated.get(side_name)
         if not isinstance(curated_side, Mapping) or not isinstance(target, dict):
             return None
-        if not _replace_coding_steps(target, curated_side):
+        if not replace_coding_steps(target, curated_side):
             return None
     return repaired
 
 
-def _restore_deferred_payload(
+def restore_deferred_payload(
     current: dict[str, Any], record: Mapping[str, Any], deferred_lane: str | None
 ) -> None:
     """Restore source-owned data so the downstream lane records its repair."""
@@ -162,7 +162,7 @@ def _restore_deferred_payload(
             current_side = current.get(side_name)
             if not isinstance(source_side, Mapping) or not isinstance(current_side, dict):
                 continue
-            _replace_coding_steps(current_side, source_side)
+            replace_coding_steps(current_side, source_side)
 
 
 if __package__:

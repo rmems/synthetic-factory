@@ -26,7 +26,7 @@ else:
     from validate_run import THALAMIC_CORE_KEYS, check_episode
 
 
-def _trajectory_side_validation_errors(
+def trajectory_side_validation_errors(
     record: Mapping[str, Any],
 ) -> dict[str, tuple[str, ...]]:
     """Run the canonical episode validator over each trajectory-preference side."""
@@ -44,21 +44,21 @@ def _trajectory_side_validation_errors(
     return found
 
 
-def _trajectory_goal_owner(record: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any] | None:
+def trajectory_goal_owner(record: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any] | None:
     owner: Any = record
     for key in path[:-1]:
         owner = owner.get(key) if isinstance(owner, dict) else None
     return owner if isinstance(owner, dict) else None
 
 
-def _present_trajectory_goals(
+def present_trajectory_goals(
     record: dict[str, Any],
 ) -> list[tuple[tuple[str, ...], str]]:
     """Every goal location this record actually carries as a string."""
 
     present: list[tuple[tuple[str, ...], str]] = []
     for path in TRAJECTORY_GOAL_LOCATIONS:
-        owner = _trajectory_goal_owner(record, path)
+        owner = trajectory_goal_owner(record, path)
         if owner is None:
             continue
         value = owner.get(path[-1])
@@ -67,7 +67,7 @@ def _present_trajectory_goals(
     return present
 
 
-def _whitespace_only_goal(present: list[tuple[tuple[str, ...], str]]) -> str | None:
+def whitespace_only_goal(present: list[tuple[tuple[str, ...], str]]) -> str | None:
     """The single canonical goal, when the goals differ only in whitespace.
 
     ``None`` whenever the repair would invent evidence: fewer than two goals
@@ -84,19 +84,19 @@ def _whitespace_only_goal(present: list[tuple[tuple[str, ...], str]]) -> str | N
     return normalized.pop() or None
 
 
-def _normalize_trajectory_goal_whitespace(
+def normalize_trajectory_goal_whitespace(
     record: dict[str, Any],
 ) -> dict[str, Any] | None:
     """Apply PR #93's evidence-preserving goal whitespace repair."""
 
-    present = _present_trajectory_goals(record)
-    canonical_goal = _whitespace_only_goal(present)
+    present = present_trajectory_goals(record)
+    canonical_goal = whitespace_only_goal(present)
     if canonical_goal is None:
         return None
 
     repaired = copy.deepcopy(record)
     for path, _value in present:
-        owner = _trajectory_goal_owner(repaired, path)
+        owner = trajectory_goal_owner(repaired, path)
         if owner is not None:
             owner[path[-1]] = canonical_goal
     return repaired
