@@ -10,6 +10,7 @@ import json
 import sys
 import tempfile
 import unittest
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from unittest import mock
 
@@ -785,13 +786,7 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
         self.assertEqual(result.record["state"]["sim_or_real"], "simulated")
         self.assertEqual(result.mapping["provenance_contract"], "synthetic_shape_implies_designed")
 
-    def test_gpt_and_muse_retain_via_registry_json_only(self):
-        text = Path(identity.__file__).read_text(encoding="utf-8")
-        self.assertNotIn("EPISODE_FACTORY", text)
-        self.assertNotIn(FABLE_ACT, text)
-        self.assertNotIn("gpt-5.6-sol", text)
-        self.assertNotIn("muse-spark", text)
-        self.assertNotRegex(text, r"generator\s*==")
+    def test_gpt_and_muse_retain_via_exact_registry_rows_only(self):
         for factory, path in (
             ("gpt-5.6-sol-coding-factory", "gpt-5.6-sol-coding-factory/episodes.jsonl"),
             (
@@ -805,13 +800,24 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
                 self.assertEqual(result.mapping["factory_id"], factory)
                 self.assertEqual(result.record["provenance"]["kind"], "designed")
 
+        for alias in ("openai", "consumer", "hosted-frontier-research-only-v1"):
+            with self.subTest(alias=alias):
+                result = identity.curate_record(
+                    source(episode(alias), f"{alias}/episodes.jsonl", 1)
+                )
+                self.assertEqual(result.action, "exclude")
+                self.assertEqual(
+                    result.mapping["reason_codes"],
+                    ["identity.unknown_factory"],
+                )
+
     def test_mapping_registry_sha256_matches_committed_bytes(self):
         raw = identity.FACTORY_REGISTRY_PATH.read_bytes()
         digest = hashlib.sha256(raw).hexdigest()
         result = identity.curate_record(
             source(episode(FABLE_ACT), f"{FABLE_ACT}/episodes.jsonl", 1)
         )
-        self.assertEqual(result.mapping["registry"]["schema_version"], "factory-registry-v0.1")
+        self.assertEqual(result.mapping["registry"]["schema_version"], "factory-registry-v0.2")
         self.assertEqual(result.mapping["registry"]["sha256"], digest)
         self.assertNotIn("registry", result.record)
         self.assertNotIn("schema_version", result.record)
@@ -1111,13 +1117,34 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
 
     def test_registry_onboard_rows_are_not_training_ready(self):
         payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))
+        expected_rights = {
+            "fable-5": ("anthropic", "consumer"),
+            "gpt-5.6-sol": ("openai", "consumer"),
+            "grok-4.6": ("xai", "consumer"),
+            "muse-spark-1.2": ("meta", "api"),
+        }
         self.assertEqual(len(payload["factories"]), 51)
+        self.assertEqual(payload["schema_version"], "factory-registry-v0.2")
         self.assertEqual(payload["lookup_key"], "path_id")
+        self.assertEqual(
+            {row["generator"] for row in payload["factories"]},
+            set(expected_rights),
+        )
         for row in payload["factories"]:
             self.assertNotIn("training_ready", row)
             self.assertIsNone(row["publication_target"])
             self.assertEqual(row["training_ready_policy"], "never")
             self.assertTrue(row["identity_authoritative"])
+            self.assertEqual(
+                (row["provider"], row["channel"]),
+                expected_rights[row["generator"]],
+            )
+            self.assertEqual(
+                row["rights_profile_id"],
+                "hosted-frontier-research-only-v1",
+            )
+            self.assertEqual(row["intended_use"], "research_only")
+            self.assertEqual(row["project_training_policy"], "blocked")
         grok_rows = [row for row in payload["factories"] if row["generator"] == "grok-4.6"]
         self.assertEqual(len(grok_rows), 44)
         for row in grok_rows:
@@ -1150,8 +1177,13 @@ def _valid_row(**overrides):
     row = {
         "path_id": "tmp-factory",
         "payload_factory": "tmp-factory",
-        "generator": "test",
-        "generator_version": "test",
+        "generator": "fable-5",
+        "generator_version": "fable-5",
+        "provider": "anthropic",
+        "channel": "consumer",
+        "rights_profile_id": "hosted-frontier-research-only-v1",
+        "intended_use": "research_only",
+        "project_training_policy": "blocked",
         "record_kinds": ["episode"],
         "identity_authoritative": True,
         "publication_target": None,
@@ -1167,7 +1199,7 @@ def _valid_row(**overrides):
 
 def _registry_payload(rows, **overrides):
     payload = {
-        "schema_version": "factory-registry-v0.1",
+        "schema_version": "factory-registry-v0.2",
         "lookup_key": "path_id",
         "factories": rows,
     }
@@ -1194,6 +1226,109 @@ def _manifest_bytes(manifest):
         )
         + "\n"
     ).encode("utf-8")
+
+
+class TestFactoryRegistryRightsContract(unittest.TestCase):
+    def test_legacy_schema_and_missing_rights_fields_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(
+                identity.IdentityCurationError,
+                "schema_version must be factory-registry-v0.2",
+            ):
+                _load_temp_registry(
+                    Path(tmp) / "legacy",
+                    _registry_payload(
+                        [_valid_row()],
+                        schema_version="factory-registry-v0.1",
+                    ),
+                )
+
+            for field in (
+                "provider",
+                "channel",
+                "rights_profile_id",
+                "intended_use",
+                "project_training_policy",
+            ):
+                with self.subTest(field=field):
+                    row = _valid_row()
+                    row.pop(field)
+                    with self.assertRaisesRegex(
+                        identity.IdentityCurationError,
+                        rf"missing fields.*{field}",
+                    ):
+                        _load_temp_registry(Path(tmp) / field, _registry_payload([row]))
+
+    def test_unknown_drifting_and_misassigned_rights_fields_fail_closed(self):
+        cases = (
+            ({"provider": "unknown-provider"}, "unknown provider"),
+            ({"channel": "unknown-channel"}, "unknown channel"),
+            ({"rights_profile_id": "unknown-profile"}, "unknown rights_profile_id"),
+            ({"intended_use": "unknown-use"}, "unknown intended_use"),
+            (
+                {"project_training_policy": "unknown-policy"},
+                "unknown project_training_policy",
+            ),
+            (
+                {"intended_use": "training_candidate"},
+                "rights fields drift from loaded policy",
+            ),
+            (
+                {"project_training_policy": "allowed"},
+                "rights fields drift from loaded policy",
+            ),
+            ({"generator": "unknown-generator"}, "unknown reviewed generator"),
+            (
+                {"generator": "fable-5", "provider": "openai"},
+                "generator/provider/channel assignment",
+            ),
+            (
+                {"generator": "fable-5", "channel": "api"},
+                "generator/provider/channel assignment",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            for index, (overrides, message) in enumerate(cases):
+                with self.subTest(overrides=overrides):
+                    with self.assertRaisesRegex(identity.IdentityCurationError, message):
+                        _load_temp_registry(
+                            Path(tmp) / str(index),
+                            _registry_payload([_valid_row(**overrides)]),
+                        )
+
+    def test_loaded_rights_fields_are_immutable_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry = _load_temp_registry(tmp, _registry_payload([_valid_row()]))
+        row = registry.by_path_id["tmp-factory"]
+        self.assertEqual(row.provider, "anthropic")
+        self.assertEqual(row.channel, "consumer")
+        self.assertEqual(row.rights_profile_id, "hosted-frontier-research-only-v1")
+        self.assertEqual(row.intended_use, "research_only")
+        self.assertEqual(row.project_training_policy, "blocked")
+        with self.assertRaises(FrozenInstanceError):
+            row.project_training_policy = "allowed"
+
+    def test_non_string_rights_fields_fail_with_registry_errors(self):
+        cases = (
+            ("provider", []),
+            ("channel", {}),
+            ("rights_profile_id", []),
+            ("intended_use", {}),
+            ("project_training_policy", []),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            for index, (field, value) in enumerate(cases):
+                with self.subTest(field=field):
+                    try:
+                        _load_temp_registry(
+                            Path(tmp) / str(index),
+                            _registry_payload([_valid_row(**{field: value})]),
+                        )
+                    except Exception as exc:
+                        self.assertIsInstance(exc, identity.IdentityCurationError)
+                        self.assertIn(f"unknown {field}", str(exc))
+                    else:
+                        self.fail(f"non-string {field} was accepted")
 
 
 class TestStrictIdentityTrustBoundaries(unittest.TestCase):
@@ -1600,7 +1735,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 ),
                 (
                     {
-                        "schema_version": "factory-registry-v0.1",
+                        "schema_version": "factory-registry-v0.2",
                         "lookup_key": "slug",
                         "factories": [_valid_row()],
                     },
@@ -1608,7 +1743,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 ),
                 (
                     {
-                        "schema_version": "factory-registry-v0.1",
+                        "schema_version": "factory-registry-v0.2",
                         "lookup_key": "path_id",
                         "factories": [],
                     },
@@ -1935,6 +2070,11 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 payload_factory=FABLE_THALAMIC,
                 generator="fable-5",
                 generator_version="fable-5",
+                provider="anthropic",
+                channel="consumer",
+                rights_profile_id="hosted-frontier-research-only-v1",
+                intended_use="research_only",
+                project_training_policy="blocked",
                 record_kinds=frozenset({"thalamic"}),
                 identity_authoritative=False,
                 publication_target=None,
@@ -1943,7 +2083,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 provenance_contract_by_kind={"thalamic": "require_state_claim"},
             )
             registry = identity.FactoryRegistry(
-                schema_version="factory-registry-v0.1",
+                schema_version="factory-registry-v0.2",
                 sha256="a" * 64,
                 raw_bytes=b"{}",
                 by_path_id={FABLE_THALAMIC: not_auth},
@@ -1960,6 +2100,11 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 payload_factory=FABLE_ACT,
                 generator="fable-5",
                 generator_version="fable-5",
+                provider="anthropic",
+                channel="consumer",
+                rights_profile_id="hosted-frontier-research-only-v1",
+                intended_use="research_only",
+                project_training_policy="blocked",
                 record_kinds=frozenset({"episode"}),
                 identity_authoritative=True,
                 publication_target=None,
@@ -1968,7 +2113,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 provenance_contract_by_kind={},
             )
             registry = identity.FactoryRegistry(
-                schema_version="factory-registry-v0.1",
+                schema_version="factory-registry-v0.2",
                 sha256="b" * 64,
                 raw_bytes=b"{}",
                 by_path_id={FABLE_ACT: missing_contract},
@@ -1988,6 +2133,11 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 payload_factory=FABLE_THALAMIC,
                 generator="fable-5",
                 generator_version="fable-5",
+                provider="anthropic",
+                channel="consumer",
+                rights_profile_id="hosted-frontier-research-only-v1",
+                intended_use="research_only",
+                project_training_policy="blocked",
                 record_kinds=frozenset({"thalamic"}),
                 identity_authoritative=True,
                 publication_target=None,
@@ -1996,7 +2146,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 provenance_contract_by_kind={"thalamic": "synthetic_shape_implies_designed"},
             )
             registry = identity.FactoryRegistry(
-                schema_version="factory-registry-v0.1",
+                schema_version="factory-registry-v0.2",
                 sha256="c" * 64,
                 raw_bytes=b"{}",
                 by_path_id={FABLE_THALAMIC: thalamic_shape},

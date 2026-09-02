@@ -29,6 +29,7 @@ import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
 if __package__:
@@ -46,6 +47,18 @@ if __package__:
         check_spike_order,
         check_thalamic,
     )
+    from .rights_mapping import (
+        CANONICAL_PROVIDERS,
+        CHANNELS,
+        INTENDED_USES,
+        PROJECT_TRAINING_POLICIES,
+    )
+    from .rights_policy import (
+        PROVIDERS,
+        RIGHTS_AUTHORIZATIONS,
+        RIGHTS_CHANNELS,
+        RIGHTS_PROFILE_IDS,
+    )
 else:
     from record_kind import (
         PREFERENCE_SIDE_KINDS,
@@ -60,6 +73,18 @@ else:
         check_safety_case,
         check_spike_order,
         check_thalamic,
+    )
+    from rights_mapping import (
+        CANONICAL_PROVIDERS,
+        CHANNELS,
+        INTENDED_USES,
+        PROJECT_TRAINING_POLICIES,
+    )
+    from rights_policy import (
+        PROVIDERS,
+        RIGHTS_AUTHORIZATIONS,
+        RIGHTS_CHANNELS,
+        RIGHTS_PROFILE_IDS,
     )
 
 TRANSFORM_NAME = "curate_identity"
@@ -86,7 +111,18 @@ REAL_WORLD_RE = re.compile(r"^(?:real|live)(?![\w-])", re.IGNORECASE)
 FACTORY_REGISTRY_PATH = Path(__file__).resolve().parents[1] / "config" / "FACTORY-REGISTRY.json"
 FACTORY_REGISTRY_SIDECAR = "FACTORY-REGISTRY.json"
 IDENTITY_MANIFEST_SIDECAR = "IDENTITY-MANIFEST.json"
-REGISTRY_SCHEMA_VERSION = "factory-registry-v0.1"
+REGISTRY_SCHEMA_VERSION = "factory-registry-v0.2"
+
+_REVIEWED_GENERATOR_RIGHTS = MappingProxyType(
+    {
+        "fable-5": ("anthropic", "consumer"),
+        "gpt-5.6-sol": ("openai", "consumer"),
+        "grok-4.6": ("xai", "consumer"),
+        "muse-spark-1.2": ("meta", "api"),
+    }
+)
+if PROVIDERS != CANONICAL_PROVIDERS or RIGHTS_CHANNELS != CHANNELS:
+    raise RuntimeError("loaded rights policy vocabulary drifted from sealed mapping")
 
 _DEFAULT_REGISTRY: FactoryRegistry | None = None
 
@@ -162,6 +198,11 @@ class FactoryRow:
     payload_factory: str
     generator: str
     generator_version: str
+    provider: str
+    channel: str
+    rights_profile_id: str
+    intended_use: str
+    project_training_policy: str
     record_kinds: frozenset[str]
     identity_authoritative: bool
     publication_target: str | None
@@ -300,6 +341,11 @@ def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
         "payload_factory",
         "generator",
         "generator_version",
+        "provider",
+        "channel",
+        "rights_profile_id",
+        "intended_use",
+        "project_training_policy",
         "record_kinds",
         "identity_authoritative",
         "publication_target",
@@ -337,6 +383,45 @@ def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
             raise IdentityCurationError(
                 f"factories[{index}].{field} must be a non-empty normalized string"
             )
+    generator = raw["generator"]
+    provider = raw["provider"]
+    channel = raw["channel"]
+    profile_id = raw["rights_profile_id"]
+    intended_use = raw["intended_use"]
+    project_training_policy = raw["project_training_policy"]
+    rights_vocabularies = (
+        ("provider", provider, PROVIDERS),
+        ("channel", channel, RIGHTS_CHANNELS),
+        ("rights_profile_id", profile_id, RIGHTS_PROFILE_IDS),
+        ("intended_use", intended_use, INTENDED_USES),
+        (
+            "project_training_policy",
+            project_training_policy,
+            PROJECT_TRAINING_POLICIES,
+        ),
+    )
+    for field, value, vocabulary in rights_vocabularies:
+        if not isinstance(value, str) or value not in vocabulary:
+            raise IdentityCurationError(f"factories[{index}] has unknown {field}")
+    expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(generator)
+    if expected_assignment is None:
+        raise IdentityCurationError(f"factories[{index}] has unknown reviewed generator")
+    if (provider, channel) != expected_assignment:
+        raise IdentityCurationError(
+            f"factories[{index}] generator/provider/channel assignment is not reviewed"
+        )
+    authorization = RIGHTS_AUTHORIZATIONS.get((provider, channel, profile_id))
+    if authorization is None:
+        raise IdentityCurationError(
+            f"factories[{index}] rights fields are not authorized by loaded policy"
+        )
+    if (
+        intended_use != authorization.intended_use
+        or project_training_policy != authorization.project_training_policy
+    ):
+        raise IdentityCurationError(
+            f"factories[{index}] rights fields drift from loaded policy"
+        )
     kinds_raw = raw["record_kinds"]
     if not isinstance(kinds_raw, list) or not kinds_raw:
         raise IdentityCurationError(f"factories[{index}].record_kinds must be a non-empty list")
@@ -408,8 +493,13 @@ def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
     return FactoryRow(
         path_id=path_id,
         payload_factory=payload_factory,
-        generator=raw["generator"],
+        generator=generator,
         generator_version=raw["generator_version"],
+        provider=provider,
+        channel=channel,
+        rights_profile_id=profile_id,
+        intended_use=intended_use,
+        project_training_policy=project_training_policy,
         record_kinds=kinds,
         identity_authoritative=raw["identity_authoritative"],
         publication_target=publication_target,
