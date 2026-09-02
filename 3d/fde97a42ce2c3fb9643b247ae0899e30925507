@@ -1,0 +1,9 @@
+pipelines/compose_curated_source.py
+  ai_agent 6,218-219
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3dfde97a42ce2c3fb9643b247ae0899e30925507",
+  "prompts": {}
+}
