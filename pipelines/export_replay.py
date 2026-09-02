@@ -224,12 +224,13 @@ def _replay_one_line_context(
     else:
         decision = compose_curated.compose_source_line(
             physical_line,
-            source_path=replay.relative,
-            source_line=replay.line_number,
-            source_file_sha256=replay.source_file_sha256,
+            compose_curated.SourceLineCoordinate(
+                replay.relative, replay.line_number, replay.source_file_sha256
+            ),
             calibration_catalog=replay.catalog,
-            seen_source_semantics=state.seen_source_semantics,
-            seen_curated_semantics=state.seen_curated_semantics,
+            semantics=compose_curated.SemanticRegistry(
+                state.seen_source_semantics, state.seen_curated_semantics
+            ),
         )
     entry = _replayed_manifest_entry(
         decision,

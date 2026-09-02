@@ -30,15 +30,19 @@ from compose_curated_test_support import (  # noqa: E402
 )
 
 
+def record_context(path: str, line: int, sha256: str) -> compose_curated.RecordContext:
+    return compose_curated.RecordContext(compose_curated.SourceCoordinates(path, line, sha256))
+
+
 class ComposeSourceLineResourceLimits(unittest.TestCase):
     """One malformed line must be excluded, never abort the whole composition."""
 
     def compose(self, physical_line):
         return compose_curated.compose_source_line(
             physical_line,
-            source_path="tool-use-preference-factory/batch-r01.jsonl",
-            source_line=1,
-            source_file_sha256="7" * 64,
+            compose_curated.SourceLineCoordinate(
+                "tool-use-preference-factory/batch-r01.jsonl", 1, "7" * 64
+            ),
         )
 
     def test_deeply_nested_line_is_excluded_instead_of_raising(self):
@@ -107,9 +111,9 @@ class ComposeSourceLineResourceLimits(unittest.TestCase):
 
             decision = compose_curated.compose_source_line(
                 payload,
-                source_path="agentic-coding-trajectory-factory/batch-r01.jsonl",
-                source_line=1,
-                source_file_sha256="7" * 64,
+                compose_curated.SourceLineCoordinate(
+                    "agentic-coding-trajectory-factory/batch-r01.jsonl", 1, "7" * 64
+                ),
             )
         finally:
             sys.setrecursionlimit(previous_limit)
@@ -282,9 +286,7 @@ class IdentityLaneTotality(unittest.TestCase):
 
         decision = compose_curated.compose_record(
             record,
-            source_path="thalamic-trajectory-factory/batch-r01.jsonl",
-            source_line=1,
-            source_sha256="4" * 64,
+            record_context("thalamic-trajectory-factory/batch-r01.jsonl", 1, "4" * 64),
         )
 
         self.assertEqual(decision.action, compose_curated.ACTION_EXCLUDED)
@@ -296,9 +298,7 @@ class IdentityLaneTotality(unittest.TestCase):
 
         decision = compose_curated.compose_record(
             record,
-            source_path="thalamic-trajectory-factory/batch-r01.jsonl",
-            source_line=1,
-            source_sha256="5" * 64,
+            record_context("thalamic-trajectory-factory/batch-r01.jsonl", 1, "5" * 64),
         )
 
         self.assertEqual(decision.action, compose_curated.ACTION_EXCLUDED)
@@ -317,9 +317,7 @@ class CodingStepRepairDeferral(unittest.TestCase):
     def compose(self, record, line=1):
         return compose_curated.compose_record(
             record,
-            source_path="agentic-coding-trajectory-factory/batch-r01.jsonl",
-            source_line=line,
-            source_sha256="6" * 64,
+            record_context("agentic-coding-trajectory-factory/batch-r01.jsonl", line, "6" * 64),
         )
 
     def test_a_repairable_invalid_step_is_dropped_not_the_whole_record(self):

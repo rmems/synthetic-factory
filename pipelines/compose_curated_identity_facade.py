@@ -28,7 +28,7 @@ if __package__:
         REASON_DUPLICATE_CURATED_RECORD,
     )
     from .compose_curated_calibration import CalibrationContext, CalibrationServices
-    from .compose_curated_context import SourceCoordinates
+    from .compose_curated_context import SourceCoordinates, StageDefinition
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_curated_identity_facade"
@@ -45,7 +45,7 @@ else:
         REASON_DUPLICATE_CURATED_RECORD,
     )
     from compose_curated_calibration import CalibrationContext, CalibrationServices
-    from compose_curated_context import SourceCoordinates
+    from compose_curated_context import SourceCoordinates, StageDefinition
 
 
 _FACADE: ModuleType | None = None
@@ -235,43 +235,32 @@ class DeferredRepairService:
 def _deferred_lane_repair(
     record: Any,
     identity_result: Any,
-    *,
-    source_path: str,
-    source_line: int,
-    source_sha256: str,
+    source: SourceCoordinates,
 ) -> tuple[Any, str | None]:
-    source = SourceCoordinates(source_path, source_line, source_sha256)
     return DeferredRepairService(_facade(), source).run(record, identity_result)
 
 
 def _compose_identity_stage(
     record: Any,
     stages: list[dict[str, Any]],
-    *,
-    source_path: str,
-    source_line: int,
-    source_sha256: str,
+    source: SourceCoordinates,
 ) -> "ComposeDecision | tuple[dict[str, Any], Any]":
     facade = _facade()
     side_kinds, mixed = facade._source_preference_shape(record)
     result = facade.curate_identity.curate_record(
-        facade.curate_identity.SourceRecord(record, source_path, source_line, source_sha256)
+        facade.curate_identity.SourceRecord(record, source.path, source.line, source.sha256)
     )
-    result, deferred = facade._deferred_lane_repair(
-        record,
-        result,
-        source_path=source_path,
-        source_line=source_line,
-        source_sha256=source_sha256,
-    )
+    result, deferred = facade._deferred_lane_repair(record, result, source)
     reasons, detail = facade._identity_stage_evidence(result, deferred, side_kinds, mixed)
     retained = not mixed and result.action == "retained"
     public_action = ACTION_RETAINED if retained else ACTION_EXCLUDED
     stages.append(
         facade._stage(
-            "identity",
-            facade.curate_identity.TRANSFORM_NAME,
-            facade.curate_identity.TRANSFORM_VERSION,
+            StageDefinition(
+                "identity",
+                facade.curate_identity.TRANSFORM_NAME,
+                facade.curate_identity.TRANSFORM_VERSION,
+            ),
             public_action,
             reason_codes=reasons,
             lane_action=result.action,
@@ -288,19 +277,18 @@ def _compose_identity_stage(
 def _compose_bridge_stage(
     current: dict[str, Any],
     stages: list[dict[str, Any]],
-    *,
-    source_path: str,
-    source_line: int,
-    source_sha256: str,
-    source_file_sha256: str | None,
+    source: SourceCoordinates,
 ) -> "ComposeDecision | dict[str, Any]":
     facade = _facade()
+    definition = StageDefinition(
+        "bridge",
+        facade.curate_bridge.TRANSFORM_NAME,
+        facade.curate_bridge.TRANSFORM_VERSION,
+    )
     if not facade.is_bridge_record(current):
         stages.append(
             facade._stage(
-                "bridge",
-                facade.curate_bridge.TRANSFORM_NAME,
-                facade.curate_bridge.TRANSFORM_VERSION,
+                definition,
                 facade.ACTION_NOT_APPLICABLE,
                 lane_action=facade.ACTION_NOT_APPLICABLE,
             )
@@ -308,18 +296,16 @@ def _compose_bridge_stage(
         return current
     decision = facade.curate_bridge.curate_record(
         current,
-        source_path=source_path,
-        source_line=source_line,
-        source_hash=source_sha256,
-        source_file_hash=source_file_sha256,
+        source_path=source.path,
+        source_line=source.line,
+        source_hash=source.sha256,
+        source_file_hash=source.file_sha256,
     )
     reasons = list(decision.manifest.get("reason_codes", []))
     retained = decision.output_record is not None
     stages.append(
         facade._stage(
-            "bridge",
-            facade.curate_bridge.TRANSFORM_NAME,
-            facade.curate_bridge.TRANSFORM_VERSION,
+            definition,
             ACTION_RETAINED if retained else ACTION_EXCLUDED,
             reason_codes=reasons,
             lane_action=decision.action,
@@ -433,9 +419,7 @@ def _deduplicate_curated_record(
         seen_curated_semantics[digest] = (source_path, source_line)
         return decision
     duplicate = facade._stage(
-        "post_transform_dedup",
-        COMPOSE_NAME,
-        COMPOSE_VERSION,
+        StageDefinition("post_transform_dedup", COMPOSE_NAME, COMPOSE_VERSION),
         ACTION_EXCLUDED,
         reason_codes=[REASON_DUPLICATE_CURATED_RECORD],
         semantic_sha256=digest,
@@ -454,9 +438,7 @@ def _deduplicate_curated_record(
 
 def _excluded_source_line(reason: str, detail: dict[str, Any]) -> ComposeDecision:
     evidence = _facade()._stage(
-        "source",
-        COMPOSE_NAME,
-        COMPOSE_VERSION,
+        StageDefinition("source", COMPOSE_NAME, COMPOSE_VERSION),
         ACTION_EXCLUDED,
         reason_codes=[reason],
         detail=detail,

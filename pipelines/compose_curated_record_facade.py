@@ -5,10 +5,9 @@ from __future__ import annotations
 
 import sys
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Mapping, MutableMapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 if TYPE_CHECKING:
-    from compose_curated_context import RecordContext
     from compose_curated_record import RecordServices
 
 if __package__:
@@ -19,6 +18,13 @@ if __package__:
         ACTION_EXCLUDED,
         ComposeDecision,
     )
+    from .compose_curated_context import (
+        RecordContext,
+        SemanticRegistry,
+        SourceLineCoordinate,
+        StageDefinition,
+    )
+    from .compose_curated_preferences import SideCuration, SideFailure
     from .compose_curated_record_dispatch import (
         CodingDispatchContext,
         PreferenceDispatchContext,
@@ -34,6 +40,13 @@ else:
         ACTION_EXCLUDED,
         ComposeDecision,
     )
+    from compose_curated_context import (
+        RecordContext,
+        SemanticRegistry,
+        SourceLineCoordinate,
+        StageDefinition,
+    )
+    from compose_curated_preferences import SideCuration, SideFailure
     from compose_curated_record_dispatch import (
         CodingDispatchContext,
         PreferenceDispatchContext,
@@ -83,17 +96,9 @@ def _trajectory_preference(record: dict[str, Any]) -> tuple[Any, str, str, str]:
     )
 
 
-def _stage(
-    lane: str,
-    name: str,
-    version: str,
-    action: str,
-    **extra: Any,
-) -> dict[str, Any]:
+def _stage(definition: StageDefinition, action: str, **extra: Any) -> dict[str, Any]:
     facade = _facade()
-    return facade._facade_delegate(
-        facade.stage, facade.StageDefinition(lane, name, version), action, **extra
-    )
+    return facade._facade_delegate(facade.stage, definition, action, **extra)
 
 
 def _coding_steps_repaired_copy(
@@ -117,67 +122,72 @@ def _coding_steps_repaired_copy(
     return curated if isinstance(curated, dict) else None
 
 
+def _side_failure_extra(failure: SideFailure) -> dict[str, Any]:
+    extra: dict[str, Any] = {}
+    if failure.schema is not None:
+        extra["schema"] = failure.schema
+    if failure.extra is not None:
+        extra.update(failure.extra)
+    return extra
+
+
 def _side_curation_failed_decision(
     stages: list[dict[str, Any]],
-    side_curation: dict[str, dict[str, Any]],
-    side_curation_reasons: list[str],
-    side_curation_changed: bool,
-    *,
-    side_kinds: tuple[str, str],
-    classification: str,
-    **stage_extra: Any,
+    curation: SideCuration,
+    failure: SideFailure,
 ) -> ComposeDecision:
     facade = _facade()
-    reasons = list(dict.fromkeys([facade.REASON_TRAJECTORY_SIDE_INVALID, *side_curation_reasons]))
+    reasons = list(dict.fromkeys([facade.REASON_TRAJECTORY_SIDE_INVALID, *curation.reasons]))
     stages.append(
         facade._stage(
-            "preferences",
-            facade.COMPOSE_NAME,
-            facade.COMPOSE_VERSION,
+            facade.StageDefinition("preferences", facade.COMPOSE_NAME, facade.COMPOSE_VERSION),
             facade.ACTION_EXCLUDED,
             reason_codes=reasons,
             lane_action=facade.ACTION_EXCLUDED,
-            classification=classification,
-            side_kinds=list(side_kinds),
-            **stage_extra,
-            side_curation=side_curation,
-            side_curation_changed=side_curation_changed,
+            classification=failure.classification,
+            side_kinds=list(failure.kinds),
+            **_side_failure_extra(failure),
+            side_curation=curation.manifests,
+            side_curation_changed=curation.changed,
         )
     )
     return ComposeDecision(ACTION_EXCLUDED, None, tuple(reasons), tuple(stages), None, None)
+
+
+def _curated_sides(current: dict[str, Any], context: RecordContext) -> SideCuration:
+    facade = _facade()
+    curated, evidence, reasons, changed = facade._curate_trajectory_sides(
+        current, source_path=context.source.path, source_line=context.source.line
+    )
+    return SideCuration(curated, evidence, tuple(reasons), changed)
 
 
 def _compose_same_state_preference(
     current: dict[str, Any],
     side_kinds: tuple[str, str],
     stages: list[dict[str, Any]],
-    *,
-    source_path: str,
-    source_line: int,
+    context: RecordContext,
 ) -> "ComposeDecision | tuple[Any, list[str]]":
     facade = _facade()
-    curated, evidence, reasons, changed = facade._curate_trajectory_sides(
-        current, source_path=source_path, source_line=source_line
-    )
-    if curated is None:
+    curation = _curated_sides(current, context)
+    if curation.record is None:
         return facade._side_curation_failed_decision(
             stages,
-            evidence,
-            reasons,
-            changed,
-            side_kinds=side_kinds,
-            classification="same_state_side_curation_failed",
-            schema="same_state_pair",
+            curation,
+            SideFailure(side_kinds, "same_state_side_curation_failed", "same_state_pair"),
         )
-    decision = facade.curate_preferences.curate_preference_record(curated)
+    decision = facade.curate_preferences.curate_preference_record(curation.record)
     preference_reasons = list(decision.reason_codes)
     if decision.record is not None:
-        preference_reasons = list(dict.fromkeys([*reasons, *preference_reasons]))
+        preference_reasons = list(dict.fromkeys([*curation.reasons, *preference_reasons]))
+    changed = curation.changed
     stages.append(
         facade._stage(
-            "preferences",
-            facade.curate_preferences.TRANSFORM_NAME,
-            facade.curate_preferences.TRANSFORM_VERSION,
+            facade.StageDefinition(
+                "preferences",
+                facade.curate_preferences.TRANSFORM_NAME,
+                facade.curate_preferences.TRANSFORM_VERSION,
+            ),
             facade.ACTION_RETAINED if decision.record is not None else facade.ACTION_EXCLUDED,
             reason_codes=preference_reasons,
             lane_action="repaired" if decision.record is not None and changed else decision.action,
@@ -185,7 +195,7 @@ def _compose_same_state_preference(
             side_kinds=list(side_kinds),
             schema="same_state_pair",
             context_diff_paths=list(decision.context_diff_paths),
-            side_curation=evidence,
+            side_curation=curation.manifests,
             side_curation_changed=changed,
         )
     )
@@ -199,9 +209,7 @@ def _compose_mixed_family_preference_exclusion(
     reasons = [facade.REASON_MIXED_PREFERENCE_FAMILIES]
     stages.append(
         facade._stage(
-            "preferences",
-            facade.COMPOSE_NAME,
-            facade.COMPOSE_VERSION,
+            facade.StageDefinition("preferences", facade.COMPOSE_NAME, facade.COMPOSE_VERSION),
             facade.ACTION_EXCLUDED,
             reason_codes=reasons,
             lane_action=facade.ACTION_EXCLUDED,
@@ -216,31 +224,23 @@ def _compose_episode_preference(
     current: dict[str, Any],
     side_kinds: tuple[str, str],
     stages: list[dict[str, Any]],
-    *,
-    source_path: str,
-    source_line: int,
+    context: RecordContext,
 ) -> "ComposeDecision | tuple[Any, list[str]]":
     facade = _facade()
-    curated, evidence, reasons, changed = facade._curate_trajectory_sides(
-        current, source_path=source_path, source_line=source_line
-    )
-    if curated is None:
+    curation = _curated_sides(current, context)
+    if curation.record is None:
         return facade._side_curation_failed_decision(
             stages,
-            evidence,
-            reasons,
-            changed,
-            side_kinds=side_kinds,
-            classification="trajectory_side_curation_failed",
+            curation,
+            SideFailure(side_kinds, "trajectory_side_curation_failed"),
         )
-    decision, name, version, implementation = facade._trajectory_preference(curated)
-    preference_reasons = list(dict.fromkeys([*reasons, *decision.reason_codes]))
+    decision, name, version, implementation = facade._trajectory_preference(curation.record)
+    preference_reasons = list(dict.fromkeys([*curation.reasons, *decision.reason_codes]))
     retained = decision.record is not None
+    changed = curation.changed
     stages.append(
         facade._stage(
-            "preferences",
-            name,
-            version,
+            facade.StageDefinition("preferences", name, version),
             facade.ACTION_RETAINED if retained else facade.ACTION_EXCLUDED,
             reason_codes=preference_reasons,
             lane_action="repaired" if retained and changed else decision.action,
@@ -250,7 +250,7 @@ def _compose_episode_preference(
             shared_goal=decision.shared_goal,
             overlap=decision.overlap,
             side_validation_errors=decision.side_validation_errors or {},
-            side_curation=evidence,
+            side_curation=curation.manifests,
             side_curation_changed=changed,
         )
     )
@@ -267,9 +267,11 @@ def _compose_legacy_preference(
     reasons = list(decision.reason_codes)
     stages.append(
         facade._stage(
-            "preferences",
-            facade.curate_preferences.TRANSFORM_NAME,
-            facade.curate_preferences.TRANSFORM_VERSION,
+            facade.StageDefinition(
+                "preferences",
+                facade.curate_preferences.TRANSFORM_NAME,
+                facade.curate_preferences.TRANSFORM_VERSION,
+            ),
             facade.ACTION_RETAINED if decision.record is not None else facade.ACTION_EXCLUDED,
             reason_codes=reasons,
             lane_action=decision.action,
@@ -284,18 +286,10 @@ def _compose_legacy_preference(
 def _compose_preferences_stage(
     current: dict[str, Any],
     stages: list[dict[str, Any]],
-    *,
-    source_path: str,
-    source_line: int,
+    context: RecordContext,
 ) -> "ComposeDecision | dict[str, Any]":
     return compose_preferences_stage(
-        PreferenceDispatchContext(
-            _facade(),
-            ComposeDecision,
-            ACTION_EXCLUDED,
-            source_path,
-            source_line,
-        ),
+        PreferenceDispatchContext(_facade(), ComposeDecision, ACTION_EXCLUDED, context),
         current,
         stages,
     )
@@ -319,9 +313,7 @@ def _append_coding_lane_stage(
     reasons = list(manifest.get("reason_codes", []))
     stages.append(
         facade._stage(
-            "coding",
-            module.TRANSFORM_NAME,
-            module.TRANSFORM_VERSION,
+            facade.StageDefinition("coding", module.TRANSFORM_NAME, module.TRANSFORM_VERSION),
             facade.ACTION_RETAINED if curated is not None else facade.ACTION_EXCLUDED,
             reason_codes=reasons,
             lane_action=manifest.get("action"),
@@ -350,17 +342,15 @@ def _compose_bridge_view_coding(
     current: dict[str, Any],
     trajectory: dict[str, Any],
     stages: list[dict[str, Any]],
-    *,
-    source_path: str,
-    source_line: int,
+    context: RecordContext,
 ) -> "ComposeDecision | dict[str, Any]":
     facade = _facade()
     if facade.curate_coding.steps_path(trajectory) is not None:
         module = facade.curate_coding
         curated, detail = module.curate_episode(
             trajectory,
-            source_path=f"{source_path}#language_view.trajectory",
-            source_line=source_line,
+            source_path=f"{context.source.path}#language_view.trajectory",
+            source_line=context.source.line,
             source_hash=facade._canonical_sha256(trajectory),
         )
         detail = facade.copy.deepcopy(detail)
@@ -401,39 +391,25 @@ def _compose_coding_stage(
     current: dict[str, Any],
     registered_kind: Any,
     stages: list[dict[str, Any]],
-    *,
-    source_path: str,
-    source_line: int,
-    source_sha256: str,
+    context: RecordContext,
 ) -> "ComposeDecision | dict[str, Any]":
     return compose_coding_stage(
-        CodingDispatchContext(
-            _facade(),
-            source_path,
-            source_line,
-            source_sha256,
-        ),
-        current,
-        registered_kind,
-        stages,
+        CodingDispatchContext(_facade(), context), current, registered_kind, stages
     )
 
 
 def _compose_rewards_stage(
     current: dict[str, Any],
     stages: list[dict[str, Any]],
-    *,
-    source_path: str,
-    source_line: int,
-    calibration: Any,
+    context: RecordContext,
 ) -> "ComposeDecision | tuple[dict[str, Any], dict[str, Any] | None]":
     facade = _facade()
     try:
         annotated, reward_sidecar = facade.curate_rewards.curate_record(
             current,
-            source_path=source_path,
-            source_line=source_line,
-            calibration=calibration,
+            source_path=context.source.path,
+            source_line=context.source.line,
+            calibration=context.calibration,
         )
     except facade.curate_rewards.RewardOntologyError as exc:
         return facade._facade_delegate(facade._reward_refusal_impl, stages, exc)
@@ -449,53 +425,33 @@ def _record_services() -> RecordServices:
     return build_record_services(_facade())
 
 
-def compose_record(
-    record: Any,
-    *,
-    source_path: str,
-    source_line: int,
-    source_sha256: str,
-    source_file_sha256: str | None = None,
-    calibration: Any = None,
-) -> ComposeDecision:
+def compose_record(record: Any, context: RecordContext) -> ComposeDecision:
     facade = _facade()
-    source = facade.SourceCoordinates(source_path, source_line, source_sha256, source_file_sha256)
-    context = facade.RecordContext(source, calibration, facade.curate_trajectory_preferences)
     return facade._facade_delegate(
         facade._compose_record_impl, record, context, facade._record_services()
     )
 
 
 def _compose_record_from_context(record: Any, context: RecordContext) -> ComposeDecision:
-    source = context.source
-    return _facade().compose_record(
-        record,
-        source_path=source.path,
-        source_line=source.line,
-        source_sha256=source.sha256,
-        source_file_sha256=source.file_sha256,
-        calibration=context.calibration,
-    )
+    return _facade().compose_record(record, context)
 
 
 def compose_source_line(
     physical_line: bytes,
+    coordinate: SourceLineCoordinate,
     *,
-    source_path: str,
-    source_line: int,
-    source_file_sha256: str,
     calibration_catalog: Mapping[str, Any] | None = None,
-    seen_source_semantics: MutableMapping[str, tuple[str, int]] | None = None,
-    seen_curated_semantics: MutableMapping[str, tuple[str, int]] | None = None,
+    semantics: SemanticRegistry | None = None,
 ) -> ComposeDecision:
     facade = _facade()
+    registry = semantics if semantics is not None else SemanticRegistry()
     context = facade.SourceLineContext(
-        source_path,
-        source_line,
-        source_file_sha256,
+        coordinate.path,
+        coordinate.line,
+        coordinate.file_sha256,
         calibration_catalog,
-        seen_source_semantics,
-        seen_curated_semantics,
+        registry.seen_source,
+        registry.seen_curated,
         facade.curate_trajectory_preferences,
         facade._canonical_sha256,
         facade._compose_record_from_context,

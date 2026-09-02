@@ -16,16 +16,23 @@ class PreferenceDispatchContext:
     facade: Any
     decision_type: type
     excluded_action: str
-    source_path: str
-    source_line: int
+    record_context: Any
 
 
 @dataclass(frozen=True)
 class CodingDispatchContext:
     facade: Any
-    source_path: str
-    source_line: int
-    source_sha256: str
+    record_context: Any
+
+
+def _not_applicable_stage(facade: Any, lane: str, module: Any) -> dict[str, Any]:
+    """Build the evidence for a lane that does not govern this record."""
+
+    return facade._stage(
+        facade.StageDefinition(lane, module.TRANSFORM_NAME, module.TRANSFORM_VERSION),
+        facade.ACTION_NOT_APPLICABLE,
+        lane_action=facade.ACTION_NOT_APPLICABLE,
+    )
 
 
 def compose_preferences_stage(
@@ -36,38 +43,19 @@ def compose_preferences_stage(
     """Dispatch a preference record through live facade-owned branches."""
 
     facade = context.facade
-    source_path = context.source_path
-    source_line = context.source_line
+    record_context = context.record_context
     if not facade.is_preference_record(current):
-        stages.append(
-            facade._stage(
-                "preferences",
-                facade.curate_preferences.TRANSFORM_NAME,
-                facade.curate_preferences.TRANSFORM_VERSION,
-                facade.ACTION_NOT_APPLICABLE,
-                lane_action=facade.ACTION_NOT_APPLICABLE,
-            )
-        )
+        stages.append(_not_applicable_stage(facade, "preferences", facade.curate_preferences))
         return current
     side_kinds = facade.preference_side_kinds(current)
     if facade._is_same_state_pair(current):
         outcome = facade._compose_same_state_preference(
-            current,
-            side_kinds,
-            stages,
-            source_path=source_path,
-            source_line=source_line,
+            current, side_kinds, stages, record_context
         )
     elif facade._mixed_preference_families(side_kinds):
         return facade._compose_mixed_family_preference_exclusion(side_kinds, stages)
     elif side_kinds == ("episode", "episode"):
-        outcome = facade._compose_episode_preference(
-            current,
-            side_kinds,
-            stages,
-            source_path=source_path,
-            source_line=source_line,
-        )
+        outcome = facade._compose_episode_preference(current, side_kinds, stages, record_context)
     else:
         outcome = facade._compose_legacy_preference(current, side_kinds, stages)
     if isinstance(outcome, context.decision_type):
@@ -94,44 +82,30 @@ def compose_coding_stage(
     """Dispatch coding curation while resolving every facade seam live."""
 
     facade = context.facade
-    source_path = context.source_path
-    source_line = context.source_line
+    record_context = context.record_context
     module = facade._coding_lane_curator(current, registered_kind)
     if module is None:
         trajectory = (
             facade._bridge_view_trajectory(current) if facade.is_bridge_record(current) else None
         )
         if trajectory is not None:
-            return facade._compose_bridge_view_coding(
-                current,
-                trajectory,
-                stages,
-                source_path=source_path,
-                source_line=source_line,
-            )
+            return facade._compose_bridge_view_coding(current, trajectory, stages, record_context)
         if facade._hidden_only_curation_applies(current, registered_kind):
             cleaned, detail = facade._strip_hidden_only_side(current)
             return facade._append_coding_lane_stage(stages, facade.curate_agentic, cleaned, detail)
-        stages.append(
-            facade._stage(
-                "coding",
-                facade.curate_coding.TRANSFORM_NAME,
-                facade.curate_coding.TRANSFORM_VERSION,
-                facade.ACTION_NOT_APPLICABLE,
-                lane_action=facade.ACTION_NOT_APPLICABLE,
-            )
-        )
+        stages.append(_not_applicable_stage(facade, "coding", facade.curate_coding))
         return current
     curator = (
         facade.curate_agentic.curate_record
         if module is facade.curate_agentic
         else facade.curate_coding.curate_episode
     )
+    source = record_context.source
     curated, manifest = curator(
         current,
-        source_path=source_path,
-        source_line=source_line,
-        source_hash=context.source_sha256,
+        source_path=source.path,
+        source_line=source.line,
+        source_hash=source.sha256,
     )
     return facade._append_coding_lane_stage(stages, module, curated, manifest)
 

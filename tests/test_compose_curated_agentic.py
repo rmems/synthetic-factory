@@ -32,6 +32,10 @@ from compose_curated_test_support import (  # noqa: E402
 )
 
 
+def record_context(path: str, line: int, sha256: str) -> compose_curated.RecordContext:
+    return compose_curated.RecordContext(compose_curated.SourceCoordinates(path, line, sha256))
+
+
 @dataclass(frozen=True)
 class _AgenticHiddenShape:
     multi: tuple[str, str]
@@ -164,9 +168,7 @@ class ComposeCuratedAgenticAndLaneGates(unittest.TestCase):
         record = thalamic("gate")
         decision = compose_curated.compose_record(
             record,
-            source_path="thalamic-trajectory-factory/batch-r01.jsonl",
-            source_line=1,
-            source_sha256="0" * 64,
+            record_context("thalamic-trajectory-factory/batch-r01.jsonl", 1, "0" * 64),
         )
         self.assertEqual(decision.action, "retained")
         actions = {stage["lane"]: stage["action"] for stage in decision.stages}
@@ -180,9 +182,7 @@ class ComposeCuratedAgenticAndLaneGates(unittest.TestCase):
         unstamped["meta"].pop("factory")
         refused = compose_curated.compose_record(
             unstamped,
-            source_path="thalamic-trajectory-factory/batch-r01.jsonl",
-            source_line=1,
-            source_sha256="0" * 64,
+            record_context("thalamic-trajectory-factory/batch-r01.jsonl", 1, "0" * 64),
         )
         self.assertEqual(refused.action, compose_curated.ACTION_EXCLUDED)
         self.assertEqual(

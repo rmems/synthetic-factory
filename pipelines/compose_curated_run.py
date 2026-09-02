@@ -34,6 +34,7 @@ if __package__:
         sha256_hex,
     )
     from .compose_curated_calibration import CalibrationContext
+    from .compose_curated_context import SemanticRegistry, SourceLineCoordinate
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_curated_run"
@@ -57,6 +58,7 @@ else:
         sha256_hex,
     )
     from compose_curated_calibration import CalibrationContext
+    from compose_curated_context import SemanticRegistry, SourceLineCoordinate
 
 
 CLI_DESCRIPTION = __doc__.split("\n\n")[0]
@@ -326,12 +328,9 @@ def _line_decision(
         return hooks.mill_quarantined_decision(finding)
     return services.compose_source_line(
         source_line.payload,
-        source_path=context.relative,
-        source_line=context.line_number,
-        source_file_sha256=context.source_file_sha256,
+        SourceLineCoordinate(context.relative, context.line_number, context.source_file_sha256),
         calibration_catalog=context.catalog,
-        seen_source_semantics=state.seen_source_semantics,
-        seen_curated_semantics=state.seen_curated_semantics,
+        semantics=SemanticRegistry(state.seen_source_semantics, state.seen_curated_semantics),
     )
 
 

@@ -241,6 +241,24 @@ def _load_compose_source_snapshot():
     return compose_source_snapshot
 
 
+def _load_export_compose_manifest():
+    from . import export_compose_manifest
+
+    return export_compose_manifest
+
+
+def _load_export_curated():
+    from . import export_curated
+
+    return export_curated
+
+
+def _load_export_destination():
+    from . import export_destination
+
+    return export_destination
+
+
 def _load_export_members_auth():
     from . import export_members_auth
 
@@ -271,6 +289,12 @@ def _load_export_members():
     return export_members
 
 
+def _load_export_protocol():
+    from . import export_protocol
+
+    return export_protocol
+
+
 def _load_export_provenance():
     from . import export_provenance
 
@@ -281,6 +305,30 @@ def _load_export_split():
     from . import export_split
 
     return export_split
+
+
+def _load_export_viewer():
+    from . import export_viewer
+
+    return export_viewer
+
+
+def _load_export_viewer_codec():
+    from . import export_viewer_codec
+
+    return export_viewer_codec
+
+
+def _load_export_viewer_reader():
+    from . import export_viewer_reader
+
+    return export_viewer_reader
+
+
+def _load_export_viewer_writer():
+    from . import export_viewer_writer
+
+    return export_viewer_writer
 
 
 def _load_strict_jsonl():
@@ -335,13 +383,21 @@ _PACKAGE_SIBLING_LOADERS = {
     "compose_destination_creation": _load_compose_destination_creation,
     "compose_destination_writer": _load_compose_destination_writer,
     "compose_source_snapshot": _load_compose_source_snapshot,
+    "export_compose_manifest": _load_export_compose_manifest,
+    "export_curated": _load_export_curated,
+    "export_destination": _load_export_destination,
     "export_members_auth": _load_export_members_auth,
     "export_members_jsonl": _load_export_members_jsonl,
     "export_members_path": _load_export_members_path,
     "export_members_read": _load_export_members_read,
     "export_members": _load_export_members,
+    "export_protocol": _load_export_protocol,
     "export_provenance": _load_export_provenance,
     "export_split": _load_export_split,
+    "export_viewer": _load_export_viewer,
+    "export_viewer_codec": _load_export_viewer_codec,
+    "export_viewer_reader": _load_export_viewer_reader,
+    "export_viewer_writer": _load_export_viewer_writer,
     "strict_jsonl": _load_strict_jsonl,
     "training_audit_snapshot": _load_training_audit_snapshot,
     "validate_run": _load_validate_run,

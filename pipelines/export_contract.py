@@ -14,7 +14,7 @@ import json
 import math
 import sys
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeGuard
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -49,6 +49,17 @@ SPLIT_POLICY = (
 )
 
 
+@dataclass(frozen=True)
+class SplitOptions:
+    """Deterministic train/eval split parameters for one export."""
+
+    eval_fraction: float = DEFAULT_EVAL_FRACTION
+    salt: str = DEFAULT_SPLIT_SALT
+
+
+DEFAULT_SPLIT = SplitOptions()
+
+
 class ExportError(RuntimeError):
     """Raised when the export input, gate, or destination is unsafe."""
 
@@ -80,6 +91,19 @@ def _reject_nonfinite_json_float(value: str) -> float:
     if not math.isfinite(parsed):
         raise ValueError(f"non-finite JSON number {value!r}")
     return parsed
+
+
+def _is_json_integer(value: Any) -> TypeGuard[int]:
+    """Accept JSON integers without Python's boolean-as-integer coercion."""
+
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _require_equal(actual: Any, expected: Any, message: str) -> None:
+    """Reject an authenticated declaration that differs from its evidence."""
+
+    if actual != expected:
+        raise ExportError(message)
 
 
 def _loads_json(payload: str, label: str) -> Any:

@@ -3,35 +3,48 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("export_viewer_reader")
+    from . import export_viewer_codec as codec
+    from .export_contract import VIEWER_COLUMNS, ViewerRow
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "export_viewer_reader"
+    )
+    import export_viewer_codec as codec
+    from export_contract import VIEWER_COLUMNS, ViewerRow
 
 
 class _ParquetReader:
     """Authenticate and decode one fixed-schema viewer projection."""
 
-    def __init__(self, payload: bytes, codec: Any):
+    def __init__(self, payload: bytes):
         self.payload = payload
-        self.codec = codec
 
     def _decode_byte_array_at(self, data: bytes, offset: int) -> tuple[str, int]:
         if offset + 4 > len(data):
-            raise ValueError(self.codec._TRUNCATED_PARQUET_PAGE)
+            raise ValueError(codec.TRUNCATED_PARQUET_PAGE)
         length = int.from_bytes(data[offset : offset + 4], "little")
         offset += 4
         if offset + length > len(data):
-            raise ValueError(self.codec._TRUNCATED_PARQUET_PAGE)
+            raise ValueError(codec.TRUNCATED_PARQUET_PAGE)
         return data[offset : offset + length].decode("utf-8"), offset + length
 
     def _decode_int64_at(self, data: bytes, offset: int) -> tuple[int, int]:
         if offset + 8 > len(data):
-            raise ValueError(self.codec._TRUNCATED_PARQUET_PAGE)
+            raise ValueError(codec.TRUNCATED_PARQUET_PAGE)
         value = int.from_bytes(data[offset : offset + 8], "little", signed=True)
         return value, offset + 8
 
     def _plain_decoder(self, physical_type: int):
         decoders = {
-            self.codec._TYPE_BYTE_ARRAY: self._decode_byte_array_at,
-            self.codec._TYPE_INT64: self._decode_int64_at,
+            codec.TYPE_BYTE_ARRAY: self._decode_byte_array_at,
+            codec.TYPE_INT64: self._decode_int64_at,
         }
         decode_at = decoders.get(physical_type)
         if decode_at is None:
@@ -53,9 +66,9 @@ class _ParquetReader:
         payload = self.payload
         if len(payload) < 12:
             raise ValueError("not a Parquet file")
-        if not payload.startswith(self.codec._PARQUET_MAGIC):
+        if not payload.startswith(codec.PARQUET_MAGIC):
             raise ValueError("not a Parquet file")
-        if not payload.endswith(self.codec._PARQUET_MAGIC):
+        if not payload.endswith(codec.PARQUET_MAGIC):
             raise ValueError("Parquet footer magic is missing")
 
     def _footer_size(self) -> int:
@@ -72,7 +85,7 @@ class _ParquetReader:
         return len(self.payload) - 8 - self._footer_size()
 
     def _metadata(self) -> dict[int, Any]:
-        decoder = self.codec._CompactDecoder(self.payload, self._footer_start())
+        decoder = codec.CompactDecoder(self.payload, self._footer_start())
         return decoder.read_struct()
 
     def _require_viewer_columns(self, metadata: dict[int, Any]) -> None:
@@ -82,13 +95,13 @@ class _ParquetReader:
             for element in schema[1:]
             if isinstance(element, dict)
         ]
-        if names != list(self.codec._READER_VIEWER_COLUMNS):
+        if names != list(VIEWER_COLUMNS):
             raise ValueError(f"unexpected viewer columns: {names}")
 
     def _column_metadata(self, chunk: dict[int, Any]) -> dict[int, Any]:
         metadata = chunk.get(3) or {}
-        codec = metadata.get(4, self.codec._CODEC_UNCOMPRESSED)
-        if codec != self.codec._CODEC_UNCOMPRESSED:
+        compression = metadata.get(4, codec.CODEC_UNCOMPRESSED)
+        if compression != codec.CODEC_UNCOMPRESSED:
             raise ValueError("compressed Parquet chunks are not supported")
         return metadata
 
@@ -100,12 +113,12 @@ class _ParquetReader:
         return path[0]
 
     def _plain_data_page(self, metadata: dict[int, Any], num_rows: int) -> tuple[bytes, int]:
-        decoder = self.codec._CompactDecoder(self.payload, metadata.get(9, 0))
+        decoder = codec.CompactDecoder(self.payload, metadata.get(9, 0))
         page_header = decoder.read_struct()
-        if page_header.get(1) != self.codec._PAGE_TYPE_DATA_PAGE:
+        if page_header.get(1) != codec.PAGE_TYPE_DATA_PAGE:
             raise ValueError("only Parquet v1 data pages are supported")
         data_page = page_header.get(5) or {}
-        if data_page.get(2) != self.codec._ENCODING_PLAIN:
+        if data_page.get(2) != codec.ENCODING_PLAIN:
             raise ValueError("only PLAIN-encoded Parquet pages are supported")
         page_values = data_page.get(1, 0)
         if page_values != num_rows:
@@ -126,11 +139,11 @@ class _ParquetReader:
         for chunk in row_group.get(1) or []:
             name, values = self._decode_column(chunk, num_rows)
             column_values[name] = values
-        missing = set(self.codec._READER_VIEWER_COLUMNS) - set(column_values)
+        missing = set(VIEWER_COLUMNS) - set(column_values)
         if missing:
             raise ValueError(f"Parquet row group is missing columns: {sorted(missing)}")
         return [
-            self.codec.ViewerRow(
+            ViewerRow(
                 source_file=column_values["source_file"][index],
                 source_line=column_values["source_line"][index],
                 record_json=column_values["record_json"][index],
@@ -147,7 +160,11 @@ class _ParquetReader:
         return rows
 
 
-def read_viewer_parquet(payload: bytes, codec: Any) -> list[Any]:
-    """Read one viewer projection using the codec module's shared primitives."""
+def read_viewer_parquet(payload: bytes) -> list[Any]:
+    """Read one viewer projection written by ``export_viewer_writer``."""
 
-    return _ParquetReader(payload, codec).read()
+    return _ParquetReader(payload).read()
+
+
+if __package__:
+    _expose_package_sibling(__name__)

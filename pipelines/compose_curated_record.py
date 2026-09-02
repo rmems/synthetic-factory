@@ -44,12 +44,6 @@ class RecordServices:
     rewards: Callable[..., Any] = _compose_rewards_stage
 
 
-def _early_decision(outcome: Any) -> ComposeDecision | None:
-    """Return an early terminal decision, otherwise let composition continue."""
-
-    return outcome if isinstance(outcome, ComposeDecision) else None
-
-
 def _retained_decision(
     current: dict[str, Any],
     stages: list[dict[str, Any]],
@@ -71,6 +65,22 @@ def _retained_decision(
     )
 
 
+def _downstream_lanes(
+    active: RecordServices,
+    registered_kind: Any,
+    stages: list[dict[str, Any]],
+    context: RecordContext,
+) -> tuple[Callable[[Any], Any], ...]:
+    """Order the lanes that follow identity; rewards runs last because it returns a tuple."""
+
+    return (
+        lambda current: active.bridge(current, stages, context.source),
+        lambda current: active.preferences(current, stages, context),
+        lambda current: active.coding(current, registered_kind, stages, context),
+        lambda current: active.rewards(current, stages, context),
+    )
+
+
 def compose_record(
     record: Any,
     context: RecordContext,
@@ -81,30 +91,15 @@ def compose_record(
     active = services or RecordServices()
     stages: list[dict[str, Any]] = []
     identity = active.identity(record, stages, context.source)
-    if terminal := _early_decision(identity):
-        return terminal
+    if isinstance(identity, ComposeDecision):
+        return identity
     current, registered_kind = identity
-
-    bridge = active.bridge(current, stages, context.source)
-    if terminal := _early_decision(bridge):
-        return terminal
-    current = bridge
-
-    preferences = active.preferences(current, stages, context)
-    if terminal := _early_decision(preferences):
-        return terminal
-    current = preferences
-
-    coding = active.coding(current, registered_kind, stages, context)
-    if terminal := _early_decision(coding):
-        return terminal
-    current = coding
-
-    rewards = active.rewards(current, stages, context)
-    if terminal := _early_decision(rewards):
-        return terminal
-    current, sidecar = rewards
-    return _retained_decision(current, stages, sidecar)
+    for lane in _downstream_lanes(active, registered_kind, stages, context):
+        current = lane(current)
+        if isinstance(current, ComposeDecision):
+            return current
+    annotated, sidecar = current
+    return _retained_decision(annotated, stages, sidecar)
 
 
 if __package__:

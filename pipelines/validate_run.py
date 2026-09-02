@@ -1326,110 +1326,138 @@ def check_safety_case(obj, where, factory_staging=False):
     return errs
 
 
+def _route_thalamic(obj, where, factory_staging):
+    return check_thalamic(obj, where)
+
+
+def _preference_side_errors(side, label, episode_pref, episode_kwargs):
+    """Validate one preference side as an episode or as a ThalamicTrajectory."""
+    if not isinstance(side, dict):
+        return [f"{label} must be an object"]
+    if episode_pref:
+        return check_episode(side, label, **episode_kwargs)
+    return check_thalamic(side, label)
+
+
+def _preference_episode_wrapper_errors(obj, where, chosen, factory_staging):
+    """Wrapper-level invariants that only apply to episode preferences."""
+    errs = []
+    if "goal" not in obj and not (isinstance(chosen, dict) and "goal" in chosen):
+        errs.append(f"{where}: preference episode needs a shared or chosen goal")
+    errs += _require_reward(obj, where)
+    reward = obj.get("reward")
+    if (
+        factory_staging
+        and isinstance(reward, dict)
+        and isinstance(reward.get("success"), bool)
+        and reward["success"] is not True
+    ):
+        errs.append(f"{where}: preference wrapper reward.success must be true")
+    return errs
+
+
+def _route_preference(obj, where, factory_staging):
+    errs = []
+    chosen = obj.get("chosen")
+    rejected = obj.get("rejected")
+    episode_pref = episode_like(chosen) or episode_like(rejected)
+    episode_kwargs = {
+        "require_goal": "goal" not in obj,
+        "forbid_hidden_thought": factory_staging,
+    }
+    errs += _preference_side_errors(chosen, f"{where}.chosen", episode_pref, episode_kwargs)
+    errs += _preference_side_errors(rejected, f"{where}.rejected", episode_pref, episode_kwargs)
+    if episode_pref:
+        errs += _preference_episode_wrapper_errors(obj, where, chosen, factory_staging)
+    if not isinstance(obj.get("critique"), str) or not obj["critique"].strip():
+        errs.append(f"{where}: preference record needs a non-empty critique")
+    return errs
+
+
+def _route_bridge_pair(obj, where, factory_staging):
+    errs = []
+    events = obj["spike_events"]
+    if not isinstance(events, list) or not events:
+        errs.append(f"{where}: spike_events must be a non-empty array")
+    else:
+        errs += check_spike_order(events, where, enclosing=obj)
+    view = obj.get("language_view")
+    if not isinstance(view, dict):
+        errs.append(f"{where}: language_view must be an object")
+    else:
+        traj = view.get("trajectory")
+        if isinstance(traj, dict):
+            errs += check_thalamic(traj, f"{where}.language_view.trajectory")
+        else:
+            errs.append(f"{where}: language_view.trajectory missing or not an object")
+    return errs
+
+
+def _route_safety_case(obj, where, factory_staging):
+    return check_safety_case(obj, where, factory_staging=factory_staging)
+
+
+def _route_multi_agent(obj, where, factory_staging):
+    return check_multi_agent(obj, where, factory_staging=factory_staging)
+
+
+def _route_episode(obj, where, factory_staging):
+    return check_episode(
+        obj,
+        where,
+        forbid_hidden_thought=factory_staging,
+        enforce_terminal_outcome=factory_staging,
+    )
+
+
+# Route on the object-typed trajectory fields so legacy v1 records
+# (no canonical `id` yet) still reach the thalamic checker and have their
+# state / reward / provenance / meta.round invariants enforced instead of
+# being skipped as an unrecognized shape. Canonical `id` coverage is owned
+# by the deep layer (check_records / training_audit); this layer only
+# type-checks an `id` that is present. A record matches a route when every
+# listed key is present; precedence is positional, so thalamic outranks
+# preference, which outranks bridge pairs, safety cases, multi-agent
+# transcripts, and episodes.
+def _line_routes():
+    """Return the ordered (required_keys, kind, route) table ``check_line`` walks."""
+    return (
+        (THALAMIC_CORE_KEYS, "thalamic", _route_thalamic),
+        (("chosen", "rejected"), "preference", _route_preference),
+        (("language_view", "spike_events"), "bridge_pair", _route_bridge_pair),
+        (("case_type",), "safety_case", _route_safety_case),
+        (("transcript", "agents"), "multi_agent", _route_multi_agent),
+        (("goal", "steps"), "episode", _route_episode),
+    )
+
+
+_LINE_ROUTES = _line_routes()
+
+# Kinds whose factory-staging pass also runs the shared agentic finishers.
+_STAGING_FINISHED_KINDS = frozenset({"preference", "safety_case", "multi_agent", "episode"})
+
+
+def _finish_agentic(errors, obj, where, kind):
+    errors += _staging_hidden_thought_errors(obj, where)
+    errors += [
+        error for error in check_provenance_publish(obj, where) if error not in errors
+    ]
+    if kind == "preference":
+        errors += _staging_preference_goal_errors(obj, where)
+    return errors
+
+
 def check_line(obj, where, factory_staging=False):
     """Route an object to the right checker based on its shape."""
     if not isinstance(obj, dict):
         return [f"{where}: record must be a JSON object"], "unknown"
-
-    def finish_agentic(errors, kind):
-        if factory_staging:
-            errors += _staging_hidden_thought_errors(obj, where)
-            errors += [
-                error
-                for error in check_provenance_publish(obj, where)
-                if error not in errors
-            ]
-            if kind == "preference":
-                errors += _staging_preference_goal_errors(obj, where)
+    for required_keys, kind, route in _LINE_ROUTES:
+        if not all(k in obj for k in required_keys):
+            continue
+        errors = route(obj, where, factory_staging)
+        if factory_staging and kind in _STAGING_FINISHED_KINDS:
+            errors = _finish_agentic(errors, obj, where, kind)
         return errors, kind
-
-    # Route on the object-typed trajectory fields so legacy v1 records
-    # (no canonical `id` yet) still reach the thalamic checker and have their
-    # state / reward / provenance / meta.round invariants enforced instead of
-    # being skipped as an unrecognized shape. Canonical `id` coverage is owned
-    # by the deep layer (check_records / training_audit); this layer only
-    # type-checks an `id` that is present.
-    if all(k in obj for k in THALAMIC_CORE_KEYS):
-        return check_thalamic(obj, where), "thalamic"
-    if "chosen" in obj and "rejected" in obj:
-        errs = []
-        chosen = obj.get("chosen")
-        rejected = obj.get("rejected")
-        episode_pref = episode_like(chosen) or episode_like(rejected)
-        if not isinstance(chosen, dict):
-            errs.append(f"{where}.chosen must be an object")
-        elif episode_pref:
-            errs += check_episode(
-                chosen,
-                f"{where}.chosen",
-                require_goal="goal" not in obj,
-                forbid_hidden_thought=factory_staging,
-            )
-        else:
-            errs += check_thalamic(chosen, f"{where}.chosen")
-        if not isinstance(rejected, dict):
-            errs.append(f"{where}.rejected must be an object")
-        elif episode_pref:
-            errs += check_episode(
-                rejected,
-                f"{where}.rejected",
-                require_goal="goal" not in obj,
-                forbid_hidden_thought=factory_staging,
-            )
-        else:
-            errs += check_thalamic(rejected, f"{where}.rejected")
-        if episode_pref and "goal" not in obj:
-            if not (isinstance(chosen, dict) and "goal" in chosen):
-                errs.append(f"{where}: preference episode needs a shared or chosen goal")
-        if episode_pref:
-            errs += _require_reward(obj, where)
-            reward = obj.get("reward")
-            if (
-                factory_staging
-                and isinstance(reward, dict)
-                and isinstance(reward.get("success"), bool)
-                and reward["success"] is not True
-            ):
-                errs.append(f"{where}: preference wrapper reward.success must be true")
-        if not isinstance(obj.get("critique"), str) or not obj["critique"].strip():
-            errs.append(f"{where}: preference record needs a non-empty critique")
-        return finish_agentic(errs, "preference")
-    if "language_view" in obj and "spike_events" in obj:
-        errs = []
-        events = obj["spike_events"]
-        if not isinstance(events, list) or not events:
-            errs.append(f"{where}: spike_events must be a non-empty array")
-        else:
-            errs += check_spike_order(events, where, enclosing=obj)
-        view = obj.get("language_view")
-        if not isinstance(view, dict):
-            errs.append(f"{where}: language_view must be an object")
-        else:
-            traj = view.get("trajectory")
-            if isinstance(traj, dict):
-                errs += check_thalamic(traj, f"{where}.language_view.trajectory")
-            else:
-                errs.append(f"{where}: language_view.trajectory missing or not an object")
-        return errs, "bridge_pair"
-    if "case_type" in obj:
-        return finish_agentic(
-            check_safety_case(obj, where, factory_staging=factory_staging),
-            "safety_case",
-        )
-    if "transcript" in obj and "agents" in obj:
-        return finish_agentic(
-            check_multi_agent(obj, where, factory_staging=factory_staging), "multi_agent"
-        )
-    if "goal" in obj and "steps" in obj:
-        return finish_agentic(
-            check_episode(
-                obj,
-                where,
-                forbid_hidden_thought=factory_staging,
-                enforce_terminal_outcome=factory_staging,
-            ),
-            "episode",
-        )
     return [f"{where}: unrecognized record shape (keys: {sorted(obj)[:8]})"], "unknown"
 
 

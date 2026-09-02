@@ -14,42 +14,15 @@ def build_record_services(facade: Any) -> Any:
     """Bind stable callbacks that continue resolving live facade seams."""
 
     return facade.RecordServices(
-        lambda record, stages, source: facade._compose_identity_stage(
-            record,
-            stages,
-            source_path=source.path,
-            source_line=source.line,
-            source_sha256=source.sha256,
-        ),
-        lambda current, stages, source: facade._compose_bridge_stage(
-            current,
-            stages,
-            source_path=source.path,
-            source_line=source.line,
-            source_sha256=source.sha256,
-            source_file_sha256=source.file_sha256,
-        ),
+        lambda record, stages, source: facade._compose_identity_stage(record, stages, source),
+        lambda current, stages, source: facade._compose_bridge_stage(current, stages, source),
         lambda current, stages, context: facade._compose_preferences_stage(
-            current,
-            stages,
-            source_path=context.source.path,
-            source_line=context.source.line,
+            current, stages, context
         ),
         lambda current, kind, stages, context: facade._compose_coding_stage(
-            current,
-            kind,
-            stages,
-            source_path=context.source.path,
-            source_line=context.source.line,
-            source_sha256=context.source.sha256,
+            current, kind, stages, context
         ),
-        lambda current, stages, context: facade._compose_rewards_stage(
-            current,
-            stages,
-            source_path=context.source.path,
-            source_line=context.source.line,
-            calibration=context.calibration,
-        ),
+        lambda current, stages, context: facade._compose_rewards_stage(current, stages, context),
     )
 
 

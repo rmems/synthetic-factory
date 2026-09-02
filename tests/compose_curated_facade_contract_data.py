@@ -132,23 +132,23 @@ HISTORICAL_SIGNATURES = dict(
     _claim_output_id\t(state: '_ComposeRunState', output_id: 'Any', location: 'str') -> 'None'
     _coding_lane_curator\t(current: 'dict[str, Any]', registered_kind: 'Any') -> 'Any'
     _coding_steps_repaired_copy\t(record: 'Mapping[str, Any]', *, source_path: 'str', source_line: 'int', source_sha256: 'str') -> 'dict[str, Any] | None'
-    _commit_compose_summary\t(state: '_ComposeRunState', pinned_destination: 'PinnedDestination', summary: 'Mapping[str, Any]', manifest_sha256: 'str', sidecar_sha256: 'str') -> 'None'
-    _compose_bridge_stage\t(current: 'dict[str, Any]', stages: 'list[dict[str, Any]]', *, source_path: 'str', source_line: 'int', source_sha256: 'str', source_file_sha256: 'str | None') -> "'ComposeDecision | dict[str, Any]'"
-    _compose_bridge_view_coding\t(current: 'dict[str, Any]', trajectory: 'dict[str, Any]', stages: 'list[dict[str, Any]]', *, source_path: 'str', source_line: 'int') -> "'ComposeDecision | dict[str, Any]'"
-    _compose_coding_stage\t(current: 'dict[str, Any]', registered_kind: 'Any', stages: 'list[dict[str, Any]]', *, source_path: 'str', source_line: 'int', source_sha256: 'str') -> "'ComposeDecision | dict[str, Any]'"
-    _compose_episode_preference\t(current: 'dict[str, Any]', side_kinds: 'tuple[str, str]', stages: 'list[dict[str, Any]]', *, source_path: 'str', source_line: 'int') -> "'ComposeDecision | tuple[Any, list[str]]'"
-    _compose_identity_stage\t(record: 'Any', stages: 'list[dict[str, Any]]', *, source_path: 'str', source_line: 'int', source_sha256: 'str') -> "'ComposeDecision | tuple[dict[str, Any], Any]'"
+    _commit_compose_summary\t(state: '_ComposeRunState', context: 'SummaryCommitContext') -> 'None'
+    _compose_bridge_stage\t(current: 'dict[str, Any]', stages: 'list[dict[str, Any]]', source: 'SourceCoordinates') -> "'ComposeDecision | dict[str, Any]'"
+    _compose_bridge_view_coding\t(current: 'dict[str, Any]', trajectory: 'dict[str, Any]', stages: 'list[dict[str, Any]]', context: 'RecordContext') -> "'ComposeDecision | dict[str, Any]'"
+    _compose_coding_stage\t(current: 'dict[str, Any]', registered_kind: 'Any', stages: 'list[dict[str, Any]]', context: 'RecordContext') -> "'ComposeDecision | dict[str, Any]'"
+    _compose_episode_preference\t(current: 'dict[str, Any]', side_kinds: 'tuple[str, str]', stages: 'list[dict[str, Any]]', context: 'RecordContext') -> "'ComposeDecision | tuple[Any, list[str]]'"
+    _compose_identity_stage\t(record: 'Any', stages: 'list[dict[str, Any]]', source: 'SourceCoordinates') -> "'ComposeDecision | tuple[dict[str, Any], Any]'"
     _compose_legacy_preference\t(current: 'dict[str, Any]', side_kinds: 'tuple[str, str]', stages: 'list[dict[str, Any]]') -> 'tuple[Any, list[str]]'
     _compose_mixed_family_preference_exclusion\t(side_kinds: 'tuple[str, str]', stages: 'list[dict[str, Any]]') -> 'ComposeDecision'
-    _compose_one_line\t(state: '_ComposeRunState', physical_line: 'bytes', *, relative: 'Any', line_number: 'int', source_file_sha256: 'str', catalog: 'Mapping[str, Any] | None', emitted: 'list[str]', mill_findings: 'Mapping[tuple[str, int], Any] | None' = None) -> 'None'
-    _compose_preferences_stage\t(current: 'dict[str, Any]', stages: 'list[dict[str, Any]]', *, source_path: 'str', source_line: 'int') -> "'ComposeDecision | dict[str, Any]'"
-    _compose_rewards_stage\t(current: 'dict[str, Any]', stages: 'list[dict[str, Any]]', *, source_path: 'str', source_line: 'int', calibration: 'Any') -> "'ComposeDecision | tuple[dict[str, Any], dict[str, Any] | None]'"
-    _compose_run_summary\t(state: '_ComposeRunState', *, resolved_source: 'Path', destination_path: 'Path', calibration_descriptor: 'Any', calibrated_records: 'int', manifest_sha256: 'str', sidecar_sha256: 'str', records_dir: 'Path') -> 'dict[str, Any]'
-    _compose_same_state_preference\t(current: 'dict[str, Any]', side_kinds: 'tuple[str, str]', stages: 'list[dict[str, Any]]', *, source_path: 'str', source_line: 'int') -> "'ComposeDecision | tuple[Any, list[str]]'"
-    _compose_source_file\t(state: '_ComposeRunState', *, relative: 'Any', raw_file: 'bytes', destination_target: 'int | PinnedDestination', catalog: 'Mapping[str, Any] | None', mill_findings: 'Mapping[tuple[str, int], Any] | None' = None) -> 'None'
+    _compose_one_line\t(state: '_ComposeRunState', source_line: 'PhysicalSourceLine') -> 'None'
+    _compose_preferences_stage\t(current: 'dict[str, Any]', stages: 'list[dict[str, Any]]', context: 'RecordContext') -> "'ComposeDecision | dict[str, Any]'"
+    _compose_rewards_stage\t(current: 'dict[str, Any]', stages: 'list[dict[str, Any]]', context: 'RecordContext') -> "'ComposeDecision | tuple[dict[str, Any], dict[str, Any] | None]'"
+    _compose_run_summary\t(state: '_ComposeRunState', context: 'SummaryContext') -> 'dict[str, Any]'
+    _compose_same_state_preference\t(current: 'dict[str, Any]', side_kinds: 'tuple[str, str]', stages: 'list[dict[str, Any]]', context: 'RecordContext') -> "'ComposeDecision | tuple[Any, list[str]]'"
+    _compose_source_file\t(state: '_ComposeRunState', context: 'SourceFileContext') -> 'None'
     _container_calibration_id_candidates\t(container: 'Mapping[str, Any]')
     _deduplicate_curated_record\t(decision: 'ComposeDecision', *, source_path: 'str', source_line: 'int', seen_curated_semantics: 'MutableMapping[str, tuple[str, int]] | None') -> 'ComposeDecision'
-    _deferred_lane_repair\t(record: 'Any', identity_result: 'Any', *, source_path: 'str', source_line: 'int', source_sha256: 'str') -> 'tuple[Any, str | None]'
+    _deferred_lane_repair\t(record: 'Any', identity_result: 'Any', source: 'SourceCoordinates') -> 'tuple[Any, str | None]'
     _excluded_source_line\t(reason: 'str', detail: 'dict[str, Any]') -> 'ComposeDecision'
     _hidden_only_curation_applies\t(current: 'dict[str, Any]', registered_kind: 'Any') -> 'bool'
     _identity_owner\t(record: 'dict[str, Any]', pointer: 'Any') -> 'dict[str, Any] | None'
@@ -168,12 +168,12 @@ HISTORICAL_SIGNATURES = dict(
     _pop_json_pointer\t(record: 'dict[str, Any]', pointer: 'Any') -> 'None'
     _post_transform_semantic_sha256\t(decision: 'ComposeDecision') -> 'str'
     _record_excluded_line\t(state: '_ComposeRunState', decision: 'ComposeDecision', entry: 'dict[str, Any]') -> 'None'
-    _record_retained_line\t(state: '_ComposeRunState', decision: 'ComposeDecision', entry: 'dict[str, Any]', *, relative: 'Any', location: 'str', emitted: 'list[str]') -> 'None'
+    _record_retained_line\t(state: '_ComposeRunState', decision: 'ComposeDecision', context: 'RetainedLineContext') -> 'None'
     _semantic_identity_owners\t(record: 'dict[str, Any]') -> 'list[dict[str, Any]]'
-    _side_curation_failed_decision\t(stages: 'list[dict[str, Any]]', side_curation: 'dict[str, dict[str, Any]]', side_curation_reasons: 'list[str]', side_curation_changed: 'bool', *, side_kinds: 'tuple[str, str]', classification: 'str', **stage_extra: 'Any') -> 'ComposeDecision'
+    _side_curation_failed_decision\t(stages: 'list[dict[str, Any]]', curation: 'SideCuration', failure: 'SideFailure') -> 'ComposeDecision'
     _source_preference_shape\t(record: 'Any') -> 'tuple[Any, bool]'
     _source_snapshot_identities\t(resolved_source: 'Path', source_members: 'tuple[str, ...]') -> 'dict[str, tuple[tuple[int, ...], str, bool]]'
-    _stage\t(lane: 'str', name: 'str', version: 'str', action: 'str', **extra: 'Any') -> 'dict[str, Any]'
+    _stage\t(definition: 'StageDefinition', action: 'str', **extra: 'Any') -> 'dict[str, Any]'
     _strip_assigned_ids\t(semantic: 'dict[str, Any]', detail: 'dict[str, Any] | None') -> 'None'
     _strip_provenance_labels\t(semantic: 'dict[str, Any]') -> 'None'
     _strip_sidecar_binding\t(semantic: 'dict[str, Any]') -> 'None'
@@ -182,9 +182,9 @@ HISTORICAL_SIGNATURES = dict(
     _write_emitted_records\t(state: '_ComposeRunState', destination_target: 'int | PinnedDestination', relative: 'Any', emitted: 'list[str]') -> 'None'
     calibration_for\t(record: 'Mapping[str, Any]', catalog: 'Mapping[str, Any] | None') -> 'Any'
     compact_audit_report\t(report: 'Mapping[str, Any] | None', record_count: 'int') -> 'dict[str, Any]'
-    compose_record\t(record: 'Any', *, source_path: 'str', source_line: 'int', source_sha256: 'str', source_file_sha256: 'str | None' = None, calibration: 'Any' = None) -> 'ComposeDecision'
+    compose_record\t(record: 'Any', context: 'RecordContext') -> 'ComposeDecision'
     compose_run\t(source_run: 'str | Path', destination: 'str | Path', *, units_migration: 'str | Path | None' = None) -> 'dict[str, Any]'
-    compose_source_line\t(physical_line: 'bytes', *, source_path: 'str', source_line: 'int', source_file_sha256: 'str', calibration_catalog: 'Mapping[str, Any] | None' = None, seen_source_semantics: 'MutableMapping[str, tuple[str, int]] | None' = None, seen_curated_semantics: 'MutableMapping[str, tuple[str, int]] | None' = None) -> 'ComposeDecision'
+    compose_source_line\t(physical_line: 'bytes', coordinate: 'SourceLineCoordinate', *, calibration_catalog: 'Mapping[str, Any] | None' = None, semantics: 'SemanticRegistry | None' = None) -> 'ComposeDecision'
     jsonl_physical_lines\t(raw_file: 'bytes') -> 'list[bytes]'
     main\t(argv: 'list[str] | None' = None) -> 'int'
     mill_quarantined_decision\t(finding: 'Any') -> 'ComposeDecision'

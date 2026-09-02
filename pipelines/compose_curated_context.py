@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, MutableMapping
 
 
 if __package__:
@@ -39,6 +39,23 @@ class RecordContext:
     source: SourceCoordinates
     calibration: Any = None
     trajectory_preferences: Any = None
+
+
+@dataclass(frozen=True)
+class SourceLineCoordinate:
+    """Authenticated location of one physical source line and its file digest."""
+
+    path: str
+    line: int
+    file_sha256: str
+
+
+@dataclass(frozen=True)
+class SemanticRegistry:
+    """Shared semantic indexes that detect duplicate source and curated records."""
+
+    seen_source: MutableMapping[str, tuple[str, int]] | None = None
+    seen_curated: MutableMapping[str, tuple[str, int]] | None = None
 
 
 @dataclass(frozen=True)

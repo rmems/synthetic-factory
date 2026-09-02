@@ -24,6 +24,10 @@ from compose_curated_test_support import (  # noqa: E402
 )
 
 
+def record_context(path: str, line: int, sha256: str) -> compose_curated.RecordContext:
+    return compose_curated.RecordContext(compose_curated.SourceCoordinates(path, line, sha256))
+
+
 class ComposePreferenceGates(unittest.TestCase):
     """Split from test_compose_curated.py: the preferences lane branches."""
 
@@ -31,9 +35,7 @@ class ComposePreferenceGates(unittest.TestCase):
     def _compose_pair(pair, line=1, sha_digit="0"):
         return compose_curated.compose_record(
             pair,
-            source_path="tool-use-preference-factory/batch-r01.jsonl",
-            source_line=line,
-            source_sha256=sha_digit * 64,
+            record_context("tool-use-preference-factory/batch-r01.jsonl", line, sha_digit * 64),
         )
 
     @staticmethod
@@ -299,9 +301,7 @@ class ComposePreferenceGates(unittest.TestCase):
         ):
             decision = compose_curated.compose_record(
                 pair,
-                source_path="tool-use-preference-factory/batch-r01.jsonl",
-                source_line=1,
-                source_sha256="0" * 64,
+                record_context("tool-use-preference-factory/batch-r01.jsonl", 1, "0" * 64),
             )
 
         stage = next(item for item in decision.stages if item["lane"] == "preferences")
@@ -335,9 +335,7 @@ class TrajectorySideGroundingScope(unittest.TestCase):
 
         decision = compose_curated.compose_record(
             pair,
-            source_path="tool-use-preference-factory/batch-r01.jsonl",
-            source_line=1,
-            source_sha256="8" * 64,
+            record_context("tool-use-preference-factory/batch-r01.jsonl", 1, "8" * 64),
         )
 
         self.assertEqual(decision.action, compose_curated.ACTION_RETAINED)
@@ -356,15 +354,11 @@ class TrajectorySideGroundingScope(unittest.TestCase):
         pair = trajectory_preference_pair()
         first = compose_curated.compose_record(
             pair,
-            source_path="tool-use-preference-factory/batch-r01.jsonl",
-            source_line=1,
-            source_sha256="9" * 64,
+            record_context("tool-use-preference-factory/batch-r01.jsonl", 1, "9" * 64),
         )
         second = compose_curated.compose_record(
             copy.deepcopy(first.record),
-            source_path="tool-use-preference-factory/batch-r01.jsonl",
-            source_line=1,
-            source_sha256="9" * 64,
+            record_context("tool-use-preference-factory/batch-r01.jsonl", 1, "9" * 64),
         )
 
         for side_name in ("chosen", "rejected"):

@@ -40,6 +40,14 @@ class FacadeSentinel(RuntimeError):
     """A patched historical seam reached through the current facade."""
 
 
+def record_context(path, line, sha256):
+    return compose_curated.RecordContext(compose_curated.SourceCoordinates(path, line, sha256))
+
+
+def line_coordinate(path, line, file_sha256):
+    return compose_curated.SourceLineCoordinate(path, line, file_sha256)
+
+
 class ComposeCuratedFacadeContract(unittest.TestCase):
     def _assert_facade_seam(self, binding, message, invocation):
         with mock.patch.object(
@@ -70,9 +78,9 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
         self.assertEqual(
             str(inspect.signature(export_hf.export_run)),
             "(curated_root: 'str | Path', destination: 'str | Path', *, "
-            "eval_fraction: 'float' = 0.1, split_salt: 'str' = "
-            "'spikenaut.synthetic-factory.split-v1', dataset_name: 'str | None' = None) "
-            "-> 'dict[str, Any]'",
+            "split: 'SplitOptions' = SplitOptions(eval_fraction=0.1, "
+            "salt='spikenaut.synthetic-factory.split-v1'), "
+            "dataset_name: 'str | None' = None) -> 'dict[str, Any]'",
         )
 
     def test_public_calls_use_python_native_binding_diagnostics(self):
@@ -81,15 +89,13 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                 compose_curated.compose_record,
                 ({},),
                 {},
-                "compose_record() missing 3 required keyword-only arguments: "
-                "'source_path', 'source_line', and 'source_sha256'",
+                "compose_record() missing 1 required positional argument: 'context'",
             ),
             (
                 compose_curated.compose_source_line,
                 (b"{}",),
                 {},
-                "compose_source_line() missing 3 required keyword-only arguments: "
-                "'source_path', 'source_line', and 'source_file_sha256'",
+                "compose_source_line() missing 1 required positional argument: 'coordinate'",
             ),
             (
                 compose_curated.compose_run,
@@ -115,28 +121,19 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
             (
                 "_compose_record_impl",
                 lambda: compose_curated.compose_record(
-                    {},
-                    source_path="factory/batch.jsonl",
-                    source_line=1,
-                    source_sha256="a" * 64,
+                    {}, record_context("factory/batch.jsonl", 1, "a" * 64)
                 ),
             ),
             (
                 "_compose_source_line_impl",
                 lambda: compose_curated.compose_source_line(
-                    b"{}",
-                    source_path="factory/batch.jsonl",
-                    source_line=1,
-                    source_file_sha256="b" * 64,
+                    b"{}", line_coordinate("factory/batch.jsonl", 1, "b" * 64)
                 ),
             ),
             (
                 "_compose_record_from_context",
                 lambda: compose_curated.compose_source_line(
-                    b"{}",
-                    source_path="factory/batch.jsonl",
-                    source_line=1,
-                    source_file_sha256="c" * 64,
+                    b"{}", line_coordinate("factory/batch.jsonl", 1, "c" * 64)
                 ),
             ),
             (
@@ -149,14 +146,16 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                 self._assert_facade_seam(binding, f"live {binding}", invocation)
 
     def test_nested_preference_and_coding_helpers_use_live_facade_nodes(self):
+        context = record_context("batch.jsonl", 1, "0" * 64)
+
         def side_failure():
             return compose_curated._compose_same_state_preference(
-                {}, ("thalamic", "thalamic"), [], source_path="batch.jsonl", source_line=1
+                {}, ("thalamic", "thalamic"), [], context
             )
 
         def episode():
             return compose_curated._compose_episode_preference(
-                {}, ("episode", "episode"), [], source_path="batch.jsonl", source_line=1
+                {}, ("episode", "episode"), [], context
             )
 
         def append_stage():
@@ -169,8 +168,7 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                 {"language_view": {"trajectory": {"inner_monologue": "secret"}}},
                 {"inner_monologue": "secret"},
                 [],
-                source_path="batch.jsonl",
-                source_line=1,
+                context,
             )
 
         cases = (
@@ -206,20 +204,19 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
         ):
             compose_curated._side_curation_failed_decision(
                 [],
-                {},
-                ["side_invalid"],
-                False,
-                side_kinds=("episode", "episode"),
-                classification="side_failure",
-                reason_codes=["overwritten"],
+                compose_curated.SideCuration(None, {}, ("side_invalid",), False),
+                compose_curated.SideFailure(
+                    ("episode", "episode"),
+                    "side_failure",
+                    extra={"reason_codes": ["overwritten"]},
+                ),
             )
         decision = compose_curated._side_curation_failed_decision(
             [],
-            {},
-            [reason, "side_invalid", "side_invalid"],
-            False,
-            side_kinds=("episode", "episode"),
-            classification="side_failure",
+            compose_curated.SideCuration(
+                None, {}, (reason, "side_invalid", "side_invalid"), False
+            ),
+            compose_curated.SideFailure(("episode", "episode"), "side_failure"),
         )
         self.assertEqual(decision.reason_codes, (reason, "side_invalid"))
         self.assertEqual(tuple(decision.stages[-1]["reason_codes"]), decision.reason_codes)
@@ -233,20 +230,14 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                     "_compose_identity_stage",
                     "identity stage",
                     lambda: compose_curated.compose_record(
-                        {},
-                        source_path="batch.jsonl",
-                        source_line=1,
-                        source_sha256="a" * 64,
+                        {}, record_context("batch.jsonl", 1, "a" * 64)
                     ),
                 ),
                 (
                     "compose_record",
                     "record composer",
                     lambda: compose_curated.compose_source_line(
-                        b"{}",
-                        source_path="batch.jsonl",
-                        source_line=1,
-                        source_file_sha256="b" * 64,
+                        b"{}", line_coordinate("batch.jsonl", 1, "b" * 64)
                     ),
                 ),
                 (
@@ -254,12 +245,12 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                     "manifest builder",
                     lambda: compose_curated._compose_one_line(
                         state,
-                        b"{}",
-                        relative="batch.jsonl",
-                        line_number=1,
-                        source_file_sha256="c" * 64,
-                        catalog=None,
-                        emitted=[],
+                        compose_curated.PhysicalSourceLine(
+                            b"{}",
+                            compose_curated.RunSourceLineContext(
+                                "batch.jsonl", 1, "c" * 64, None, []
+                            ),
+                        ),
                     ),
                 ),
                 (
@@ -279,9 +270,7 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                 "calibration candidates",
                 lambda: compose_curated.compose_source_line(
                     b"{}",
-                    source_path="batch.jsonl",
-                    source_line=1,
-                    source_file_sha256="d" * 64,
+                    line_coordinate("batch.jsonl", 1, "d" * 64),
                     calibration_catalog={"sentinel": object()},
                 ),
             ),
@@ -289,10 +278,7 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                 "_excluded_source_line",
                 "source exclusion",
                 lambda: compose_curated.compose_source_line(
-                    b"\xff",
-                    source_path="batch.jsonl",
-                    source_line=1,
-                    source_file_sha256="f" * 64,
+                    b"\xff", line_coordinate("batch.jsonl", 1, "f" * 64)
                 ),
             ),
         )
@@ -327,12 +313,7 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
             ),
         ):
             with self.assertRaisesRegex(FacadeSentinel, "coding curator"):
-                compose_curated.compose_record(
-                    {},
-                    source_path="batch.jsonl",
-                    source_line=1,
-                    source_sha256="e" * 64,
-                )
+                compose_curated.compose_record({}, record_context("batch.jsonl", 1, "e" * 64))
 
     def test_dedup_identity_helpers_resolve_through_the_facade(self):
         decision = compose_curated.ComposeDecision(
@@ -425,7 +406,7 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
         ):
             with self.assertRaisesRegex(FacadeSentinel, "same-state branch"):
                 compose_curated._compose_preferences_stage(
-                    {}, [], source_path="batch.jsonl", source_line=1
+                    {}, [], record_context("batch.jsonl", 1, "0" * 64)
                 )
 
     def test_bridge_coding_dispatch_uses_the_live_facade_helper(self):
@@ -440,12 +421,7 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
         ):
             with self.assertRaisesRegex(FacadeSentinel, "bridge trajectory"):
                 compose_curated._compose_coding_stage(
-                    {},
-                    None,
-                    [],
-                    source_path="batch.jsonl",
-                    source_line=1,
-                    source_sha256="0" * 64,
+                    {}, None, [], record_context("batch.jsonl", 1, "0" * 64)
                 )
 
     def test_run_helpers_use_the_live_facade_graph(self):

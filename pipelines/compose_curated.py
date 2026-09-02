@@ -140,8 +140,12 @@ CalibrationContext = _identity_facade.CalibrationContext
 CalibrationServices = _identity_facade.CalibrationServices
 RecordContext = _coding_stage_impl.RecordContext
 RecordServices = _record_impl.RecordServices
+SemanticRegistry = _record_facade.SemanticRegistry
+SideCuration = _record_facade.SideCuration
+SideFailure = _record_facade.SideFailure
 SourceCoordinates = _identity_impl.SourceCoordinates
 SourceLineContext = _identity_facade._source_impl.SourceLineContext
+SourceLineCoordinate = _record_facade.SourceLineCoordinate
 StageDefinition = _coding_stage_impl.StageDefinition
 stage = _coding_stage_impl.stage
 _only_identity_shape_details = _identity_impl._only_identity_shape_details
@@ -250,13 +254,8 @@ def _claim_output_id(state: _ComposeRunState, output_id: Any, location: str) -> 
 def _record_retained_line(
     state: _ComposeRunState,
     decision: ComposeDecision,
-    entry: dict[str, Any],
-    *,
-    relative: Any,
-    location: str,
-    emitted: list[str],
+    context: RetainedLineContext,
 ) -> None:
-    context = RetainedLineContext(entry, relative, location, emitted)
     return _facade_delegate(_record_retained_line_impl, state, decision, context, _claim_output_id)
 
 
@@ -271,9 +270,7 @@ def _record_excluded_line(
 def mill_quarantined_decision(finding: Any) -> ComposeDecision:
     reasons = list(finding.reason_codes)
     evidence = _stage(
-        "source",
-        COMPOSE_NAME,
-        COMPOSE_VERSION,
+        StageDefinition("source", COMPOSE_NAME, COMPOSE_VERSION),
         ACTION_EXCLUDED,
         reason_codes=reasons,
         classification="foreign_mill_quarantined",
@@ -282,26 +279,9 @@ def mill_quarantined_decision(finding: Any) -> ComposeDecision:
     return ComposeDecision(ACTION_EXCLUDED, None, tuple(reasons), (evidence,), None, None)
 
 
-def _compose_one_line(
-    state: _ComposeRunState,
-    physical_line: bytes,
-    *,
-    relative: Any,
-    line_number: int,
-    source_file_sha256: str,
-    catalog: Mapping[str, Any] | None,
-    emitted: list[str],
-    mill_findings: Mapping[tuple[str, int], Any] | None = None,
-) -> None:
-    context = RunSourceLineContext(
-        relative, line_number, source_file_sha256, catalog, emitted, mill_findings
-    )
+def _compose_one_line(state: _ComposeRunState, source_line: PhysicalSourceLine) -> None:
     return _facade_delegate(
-        _compose_one_line_impl,
-        state,
-        PhysicalSourceLine(physical_line, context),
-        _run_services().source,
-        _run_hooks(),
+        _compose_one_line_impl, state, source_line, _run_services().source, _run_hooks()
     )
 
 
@@ -321,16 +301,7 @@ def _write_emitted_records(
     )
 
 
-def _compose_source_file(
-    state: _ComposeRunState,
-    *,
-    relative: Any,
-    raw_file: bytes,
-    destination_target: int | PinnedDestination,
-    catalog: Mapping[str, Any] | None,
-    mill_findings: Mapping[tuple[str, int], Any] | None = None,
-) -> None:
-    context = SourceFileContext(relative, raw_file, destination_target, catalog, mill_findings)
+def _compose_source_file(state: _ComposeRunState, context: SourceFileContext) -> None:
     return _facade_delegate(
         _compose_source_file_impl, state, context, _run_services(), _run_hooks()
     )
@@ -363,40 +334,13 @@ def _authenticate_composed_artifacts(
     )
 
 
-def _compose_run_summary(
-    state: _ComposeRunState,
-    *,
-    resolved_source: Path,
-    destination_path: Path,
-    calibration_descriptor: Any,
-    calibrated_records: int,
-    manifest_sha256: str,
-    sidecar_sha256: str,
-    records_dir: Path,
-) -> dict[str, Any]:
-    context = SummaryContext(
-        resolved_source,
-        destination_path,
-        calibration_descriptor,
-        calibrated_records,
-        manifest_sha256,
-        sidecar_sha256,
-        records_dir,
-    )
+def _compose_run_summary(state: _ComposeRunState, context: SummaryContext) -> dict[str, Any]:
     return _facade_delegate(_compose_run_summary_impl, state, context, _run_services().report)
 
 
-def _commit_compose_summary(
-    state: _ComposeRunState,
-    pinned_destination: PinnedDestination,
-    summary: Mapping[str, Any],
-    manifest_sha256: str,
-    sidecar_sha256: str,
-) -> None:
-    context = SummaryCommitContext(pinned_destination, summary, manifest_sha256, sidecar_sha256)
-
+def _commit_compose_summary(state: _ComposeRunState, context: SummaryCommitContext) -> None:
     def authenticate(pinned, expected, _services):
-        return _authenticate_composed_artifacts(pinned, expected)
+        _authenticate_composed_artifacts(pinned, expected)
 
     return _facade_delegate(
         _commit_compose_summary_impl, state, context, _run_services().destination, authenticate
