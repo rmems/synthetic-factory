@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import sys
 from dataclasses import dataclass
@@ -214,9 +215,8 @@ def _curated_deduplicator(
         return lambda decision: _deduplicate_curated_record(decision, context)
     if not callable(supplied):
         raise ComposeError("source-line deduplicator must be callable or None")
-    deduplicate: Callable[..., ComposeDecision] = supplied
-    return lambda decision: deduplicate(
-        decision,
+    return functools.partial(
+        supplied,
         source_path=context.source_path,
         source_line=context.source_line,
         seen_curated_semantics=context.seen_curated_semantics,
