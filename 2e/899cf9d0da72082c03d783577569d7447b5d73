@@ -1,0 +1,43 @@
+pipelines/compose_destination_binding.py
+  s_f3cacfd2022aec::t_517f0953fa656d 2-9,22-24,31-33,37-99,168-169
+tests/test_pipeline_split_module_identity.py
+  s_f3cacfd2022aec::t_15a5aa0369a788 43-45,47-50
+pipelines/compose_source_snapshot_members.py
+  s_f3cacfd2022aec::t_50f9d86d9b1b7a 1-116
+pipelines/compose_trajectory.py
+  s_f3cacfd2022aec::t_0b5986e8a188a5 7-10,21-22,34-35,44-80
+pipelines/compose_trajectory_gate.py
+  s_f3cacfd2022aec::t_0b5986e8a188a5 1-194
+pipelines/compose_source_snapshot.py
+  s_f3cacfd2022aec::t_50f9d86d9b1b7a 2-9,24-25,36-37,44-102
+pipelines/compose_destination_tree.py
+  s_f3cacfd2022aec::t_d07b13a7888dc5 1-192
+pipelines/__init__.py
+  s_f3cacfd2022aec::t_15a5aa0369a788 238-255,262-285,427-429,431-434
+tests/pipeline_import_catalog_compose.py
+  s_f3cacfd2022aec::t_15a5aa0369a788 273-308,333-356,369-392,471-482,488-495,497-504
+pipelines/compose_trajectory_goals.py
+  s_f3cacfd2022aec::t_0b5986e8a188a5 1-106
+pipelines/compose_source_snapshot_visibility.py
+  s_f3cacfd2022aec::t_50f9d86d9b1b7a 1-159
+pipelines/compose_destination_directory.py
+  s_f3cacfd2022aec::t_d07b13a7888dc5 1-163
+pipelines/compose_destination_rename.py
+  s_f3cacfd2022aec::t_d07b13a7888dc5 1-197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2e899cf9d0da72082c03d783577569d7447b5d73",
+  "prompts": {},
+  "sessions": {
+    "s_f3cacfd2022aec": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34953d1c-aaea-46a5-86f5-2aa118320be2",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
