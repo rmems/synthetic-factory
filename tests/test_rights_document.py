@@ -279,6 +279,21 @@ class RightsDocumentTests(unittest.TestCase):
         self.assertEqual(result.provider_training_status, "allowed")
         self.assertEqual(result.project_training_policy, "blocked")
 
+    def test_hosted_public_decision_must_match_the_sealed_authorization(self):
+        promoted = anthropic_document()
+        promoted.update(
+            intended_use="training_candidate",
+            project_training_policy="allowed",
+        )
+
+        self.assert_rejected(promoted, "hosted-frontier authorization")
+
+    def test_hosted_public_route_must_have_a_sealed_authorization(self):
+        unauthorized_route = anthropic_document()
+        unauthorized_route["channel"] = "api"
+
+        self.assert_rejected(unauthorized_route, "no hosted-frontier authorization")
+
     def test_non_unresolved_status_requires_complete_real_evidence(self):
         for missing in (
             "terms_document",

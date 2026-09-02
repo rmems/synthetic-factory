@@ -321,6 +321,7 @@ def _validate_rules(
     _catalogue_ids(document.get("rules"), "rules", _RULE_FIELDS, where)
     covered_reasons: set[str] = set()
     covered_providers: set[str] = set()
+    covered_profiles: set[str] = set()
     hosted_providers: set[str] = set()
     combinations: set[tuple[str, str, str]] = set()
     for rule in document["rules"]:
@@ -353,6 +354,7 @@ def _validate_rules(
             combinations.add(key)
         covered_reasons.update(reasons)
         covered_providers.update(providers)
+        covered_profiles.add(profile_id)
         if profile_id == HOSTED_FRONTIER_PROFILE_ID:
             hosted_providers.update(providers)
 
@@ -360,6 +362,12 @@ def _validate_rules(
         raise policy_error(where, "rules do not provide exact canonical provider coverage")
     if hosted_providers != set(CANONICAL_PROVIDERS):
         raise policy_error(where, "hosted rules do not provide canonical provider coverage")
+    missing_profiles = sorted(REQUIRED_PROFILE_IDS - covered_profiles)
+    if missing_profiles:
+        raise policy_error(
+            where,
+            f"required profiles missing authorization paths: {missing_profiles}",
+        )
     uncovered = sorted(reason_ids - covered_reasons)
     if uncovered:
         raise policy_error(where, f"reason codes not covered by rules: {uncovered}")

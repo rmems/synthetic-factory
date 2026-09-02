@@ -21,6 +21,7 @@ if __package__:
         CHANNELS,
         EVIDENCE_STATUSES,
         EVIDENCE_STATUS_FIELDS,
+        HOSTED_FRONTIER_PROFILE_ID,
         INTENDED_USES,
         PROJECT_TRAINING_POLICIES,
         RightsPolicyError,
@@ -28,6 +29,7 @@ if __package__:
         require_hash,
         require_nonempty_string,
     )
+    from .rights_policy import RIGHTS_AUTHORIZATIONS
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "rights_document"
@@ -37,6 +39,7 @@ else:
         CHANNELS,
         EVIDENCE_STATUSES,
         EVIDENCE_STATUS_FIELDS,
+        HOSTED_FRONTIER_PROFILE_ID,
         INTENDED_USES,
         PROJECT_TRAINING_POLICIES,
         RightsPolicyError,
@@ -44,6 +47,7 @@ else:
         require_hash,
         require_nonempty_string,
     )
+    from rights_policy import RIGHTS_AUTHORIZATIONS
 
 
 RIGHTS_DOCUMENT_SCHEMA_VERSION = "0.1.0"
@@ -194,6 +198,34 @@ def _provider_alias(value: object, where: str) -> tuple[str, str]:
     return value, canonical
 
 
+def _validate_hosted_authorization(
+    canonical_provider: str,
+    channel: str,
+    intended_use: str,
+    project_training_policy: str,
+    where: str,
+) -> None:
+    authorization = RIGHTS_AUTHORIZATIONS.get(
+        (canonical_provider, channel, HOSTED_FRONTIER_PROFILE_ID)
+    )
+    if authorization is None:
+        raise policy_error(
+            where,
+            "no hosted-frontier authorization for public provider/channel route",
+        )
+    if (
+        intended_use != authorization.intended_use
+        or project_training_policy != authorization.project_training_policy
+    ):
+        raise policy_error(
+            where,
+            "public rights decision differs from hosted-frontier authorization: "
+            "research_only requires project training to be blocked; "
+            f"sealed decision is {authorization.intended_use}/"
+            f"{authorization.project_training_policy}",
+        )
+
+
 def _validate_evidence(
     document: dict[str, object],
     statuses: dict[str, str],
@@ -297,8 +329,13 @@ def validate_rights_document(
         PROJECT_TRAINING_POLICIES,
         where,
     )
-    if intended_use == "research_only" and project_training_policy != "blocked":
-        raise policy_error(where, "research_only requires project training to be blocked")
+    _validate_hosted_authorization(
+        canonical_provider,
+        channel,
+        intended_use,
+        project_training_policy,
+        where,
+    )
 
     statuses = {
         field: _closed_value(checked[field], field, EVIDENCE_STATUSES, where)

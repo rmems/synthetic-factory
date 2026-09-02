@@ -321,6 +321,40 @@ class RightsPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(rights_policy.RightsPolicyError, "provider coverage"):
             rights_policy.validate_rights_policy(document)
 
+    def test_policy_validation_requires_a_path_for_every_required_profile(self):
+        document = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+        document["rules"] = [
+            rule
+            for rule in document["rules"]
+            if rule["rights_profile_id"]
+            != rights_policy.UNKNOWN_PROVENANCE_PROFILE_ID
+        ]
+        hosted_profile = next(
+            profile
+            for profile in document["profiles"]
+            if profile["id"] == rights_policy.HOSTED_FRONTIER_PROFILE_ID
+        )
+        hosted_profile["reason_codes"].append("UNKNOWN_PROVENANCE")
+        for rule in document["rules"]:
+            rule["reason_codes"].append("UNKNOWN_PROVENANCE")
+
+        checks = (
+            ("object validation", lambda: rights_policy.validate_rights_policy(document)),
+            (
+                "byte loading",
+                lambda: rights_policy.load_rights_policy_bytes(
+                    json.dumps(document).encode("utf-8")
+                ),
+            ),
+        )
+        for label, check in checks:
+            with self.subTest(check=label):
+                with self.assertRaisesRegex(
+                    rights_policy.RightsPolicyError,
+                    "required profile.*authorization path",
+                ):
+                    check()
+
     def test_policy_validation_rejects_profile_or_rule_verdict_drift(self):
         inconsistent_profile = copy.deepcopy(rights_policy.RIGHTS_POLICY)
         inconsistent_profile["profiles"][1]["project_training_policy"] = "allowed"

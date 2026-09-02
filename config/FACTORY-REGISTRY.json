@@ -1,7 +1,7 @@
 {
   "schema_version": "factory-registry-v0.2",
   "lookup_key": "path_id",
-  "notes": "Reviewed factory authority table. pipelines/curate_identity.py loads this file from config/FACTORY-REGISTRY.json. Lookup is exact raw source-directory path_id then exact payload_factory; Hub publication names remain separate in the publisher and are not lookup aliases. There is no suffix rewrite or glob. Unknown path → identity.unknown_factory; registered path with missing or different meta.factory → identity.factory_path_payload_mismatch; kind not in the row's record_kinds → identity.factory_not_authorized_for_kind. Onboard a generator by adding a reviewed row. Identity retain is not publication and not training_ready.",
+  "notes": "Reviewed factory authority table. pipelines/curate_identity.py loads this file from config/FACTORY-REGISTRY.json. Lookup is exact raw source-directory path_id then exact payload_factory; Hub publication names remain separate in the publisher and are not lookup aliases. There is no suffix rewrite or glob. Unknown path → identity.unknown_factory; registered path with missing or different meta.factory → identity.factory_path_payload_mismatch; kind not in the row's record_kinds → identity.factory_not_authorized_for_kind. Onboard a generator by adding a reviewed registry row and adding or updating its exact generator/provider/channel assignment in pipelines/curate_identity.py _REVIEWED_GENERATOR_RIGHTS; both reviewed entries are required. Identity retain is not publication and not training_ready.",
   "factories": [
     {
       "path_id": "agentic-coding-trajectory-factory",

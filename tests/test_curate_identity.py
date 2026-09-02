@@ -1126,6 +1126,10 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
         self.assertEqual(len(payload["factories"]), 51)
         self.assertEqual(payload["schema_version"], "factory-registry-v0.2")
         self.assertEqual(payload["lookup_key"], "path_id")
+        self.assertIn("reviewed registry row", payload["notes"])
+        self.assertIn("_REVIEWED_GENERATOR_RIGHTS", payload["notes"])
+        self.assertIn("reviewed registry row", identity.__doc__)
+        self.assertIn("_REVIEWED_GENERATOR_RIGHTS", identity.__doc__)
         self.assertEqual(
             {row["generator"] for row in payload["factories"]},
             set(expected_rights),
