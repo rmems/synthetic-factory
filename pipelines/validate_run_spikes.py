@@ -8,11 +8,8 @@ import math
 from pathlib import Path
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
-    if _local_sibling_module("validate_run_spikes", allow_initializing=True) is not None:
-        import validate_run_spikes as _direct_validate_run_spikes
-        _require_local_sibling(_direct_validate_run_spikes, "validate_run_spikes")
-        del _direct_validate_run_spikes
+    from . import _assert_direct_sibling, _expose_package_sibling
+    _assert_direct_sibling("validate_run_spikes")
     from .exact_json import dumps_exact_json, exact_fraction
 else:
     from exact_json import dumps_exact_json, exact_fraction

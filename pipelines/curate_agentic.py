@@ -33,13 +33,9 @@ from pathlib import Path
 from typing import Any
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("curate_agentic", allow_initializing=True):
-        import curate_agentic as _direct_curate_agentic
-
-        _require_local_sibling(_direct_curate_agentic, "curate_agentic")
-        del _direct_curate_agentic
+    _assert_direct_sibling("curate_agentic")
     from .check_records import reject_json_constant
     from .curate_agentic_output import (
         preflight_out as _preflight_out,

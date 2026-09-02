@@ -4,16 +4,8 @@
 import sys
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
-    if _local_sibling_module(
-        "validate_run_provenance", allow_initializing=True
-    ) is not None:
-        import validate_run_provenance as _direct_validate_run_provenance
-        _require_local_sibling(
-            _direct_validate_run_provenance,
-            "validate_run_provenance",
-        )
-        del _direct_validate_run_provenance
+    from . import _assert_direct_sibling, _expose_package_sibling
+    _assert_direct_sibling("validate_run_provenance")
     from . import validate_run_spikes as _validate_run_spikes
 else:
     # Join a qualified twin without importing pipelines during normal CLI use.

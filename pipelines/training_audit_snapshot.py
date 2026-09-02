@@ -16,16 +16,9 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, Mapping
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("training_audit_snapshot", allow_initializing=True):
-        import training_audit_snapshot as _direct_training_audit_snapshot
-
-        _require_local_sibling(
-            _direct_training_audit_snapshot,
-            "training_audit_snapshot",
-        )
-        del _direct_training_audit_snapshot
+    _assert_direct_sibling("training_audit_snapshot")
     from .census import enclosing_marker_root, visible_jsonl_paths
     from .round_txn import completed_manifests
 else:

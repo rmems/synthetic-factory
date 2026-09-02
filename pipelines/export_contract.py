@@ -17,13 +17,9 @@ from dataclasses import dataclass
 from typing import Any
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("export_contract", allow_initializing=True):
-        import export_contract as _direct_export_contract
-
-        _require_local_sibling(_direct_export_contract, "export_contract")
-        del _direct_export_contract
+    _assert_direct_sibling("export_contract")
     from .tag_jsonutil import reject_duplicate_object_keys
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(

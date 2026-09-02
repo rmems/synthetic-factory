@@ -21,16 +21,9 @@ import sys
 from typing import Any
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("preference_audit_diff", allow_initializing=True):
-        import preference_audit_diff as _direct_preference_audit_diff
-
-        _require_local_sibling(
-            _direct_preference_audit_diff,
-            "preference_audit_diff",
-        )
-        del _direct_preference_audit_diff
+    _assert_direct_sibling("preference_audit_diff")
     from .preference_model import json_equal, json_key
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(

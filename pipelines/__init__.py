@@ -46,6 +46,19 @@ def _require_local_sibling(module, name: str) -> None:
         raise ImportError(f"{name} did not resolve to the local pipeline sibling")
 
 
+def _assert_direct_sibling(name: str) -> None:
+    """Require any already-loaded direct-name twin of ``name`` to be this package's sibling.
+
+    Every sibling module calls this from its package-mode prelude so the direct
+    CLI copy (``import name``) and the package copy (``pipelines.name``) can never
+    silently diverge into two module objects.
+    """
+
+    direct = _local_sibling_module(name, allow_initializing=True)
+    if direct is not None:
+        _require_local_sibling(direct, name)
+
+
 def _canonical_sibling_binding(name: str, bound):
     """Prefer a fully initialized local module over an abandoned import object."""
 

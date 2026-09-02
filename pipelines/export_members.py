@@ -16,13 +16,9 @@ from pathlib import Path
 from typing import Any
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("export_members", allow_initializing=True):
-        import export_members as _direct_export_members
-
-        _require_local_sibling(_direct_export_members, "export_members")
-        del _direct_export_members
+    _assert_direct_sibling("export_members")
     from .export_contract import ExportError
     from .export_members_auth import (
         AuthenticationDependencies as _AuthenticationDependencies,

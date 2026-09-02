@@ -13,13 +13,9 @@ import sys
 from typing import Sequence
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("export_split", allow_initializing=True):
-        import export_split as _direct_export_split
-
-        _require_local_sibling(_direct_export_split, "export_split")
-        del _direct_export_split
+    _assert_direct_sibling("export_split")
     from .export_contract import ExportError, ViewerRow
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(

@@ -13,19 +13,20 @@ import sys
 from typing import Any, Sequence
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("export_viewer", allow_initializing=True):
-        import export_viewer as _direct_export_viewer
-
-        _require_local_sibling(_direct_export_viewer, "export_viewer")
-        del _direct_export_viewer
-    from .export_contract import CREATED_BY, VIEWER_COLUMNS, ExportError, ViewerRow
+    _assert_direct_sibling("export_viewer")
+    from . import export_contract as _export_contract
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "export_viewer"
     )
-    from export_contract import CREATED_BY, VIEWER_COLUMNS, ExportError, ViewerRow
+    import export_contract as _export_contract
+
+CREATED_BY = _export_contract.CREATED_BY
+VIEWER_COLUMNS = _export_contract.VIEWER_COLUMNS
+ExportError = _export_contract.ExportError
+ViewerRow = _export_contract.ViewerRow
 
 _WRITER_CREATED_BY = CREATED_BY
 _READER_VIEWER_COLUMNS = VIEWER_COLUMNS

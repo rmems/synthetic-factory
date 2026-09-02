@@ -8,14 +8,8 @@ from dataclasses import dataclass
 from typing import Any
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
-    if _local_sibling_module("curate_bridge_raster_numbers", allow_initializing=True) is not None:
-        import curate_bridge_raster_numbers as _direct_curate_bridge_raster_numbers
-        _require_local_sibling(
-            _direct_curate_bridge_raster_numbers,
-            "curate_bridge_raster_numbers",
-        )
-        del _direct_curate_bridge_raster_numbers
+    from . import _assert_direct_sibling, _expose_package_sibling
+    _assert_direct_sibling("curate_bridge_raster_numbers")
     from .exact_json import (
         exact_fraction,
         exact_json_integer,

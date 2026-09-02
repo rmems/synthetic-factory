@@ -10,13 +10,9 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping, MutableMapping
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("compose_curated_source", allow_initializing=True):
-        import compose_curated_source as _direct_compose_curated_source
-
-        _require_local_sibling(_direct_compose_curated_source, "compose_curated_source")
-        del _direct_compose_curated_source
+    _assert_direct_sibling("compose_curated_source")
     from . import (
         curate_agentic,
         curate_bridge,

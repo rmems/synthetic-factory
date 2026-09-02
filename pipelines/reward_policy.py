@@ -14,13 +14,9 @@ from decimal import Decimal
 from pathlib import Path
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("reward_policy", allow_initializing=True):
-        import reward_policy as _direct_reward_policy
-
-        _require_local_sibling(_direct_reward_policy, "reward_policy")
-        del _direct_reward_policy
+    _assert_direct_sibling("reward_policy")
     from .reward_mapping import (
         COMPONENT_DISPOSITIONS,
         DISPOSITION_DECLARED_TOTAL,

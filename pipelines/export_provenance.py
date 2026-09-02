@@ -7,13 +7,9 @@ import sys
 from typing import Any, Mapping
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("export_provenance", allow_initializing=True):
-        import export_provenance as _direct_export_provenance
-
-        _require_local_sibling(_direct_export_provenance, "export_provenance")
-        del _direct_export_provenance
+    _assert_direct_sibling("export_provenance")
     from .export_contract import (
         EVAL_PATH,
         EXPORT_NAME,

@@ -204,13 +204,9 @@ def is_under_raw(path: Path, raw_root: Path | None = None) -> bool:
 
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("raw_tree_guard", allow_initializing=True):
-        import raw_tree_guard as _direct_raw_tree_guard
-
-        _require_local_sibling(_direct_raw_tree_guard, "raw_tree_guard")
-        del _direct_raw_tree_guard
+    _assert_direct_sibling("raw_tree_guard")
     _expose_package_sibling(__name__)
 else:
     _package = sys.modules.get("pipelines")

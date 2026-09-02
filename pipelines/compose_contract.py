@@ -16,13 +16,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("compose_contract", allow_initializing=True):
-        import compose_contract as _direct_compose_contract
-
-        _require_local_sibling(_direct_compose_contract, "compose_contract")
-        del _direct_compose_contract
+    _assert_direct_sibling("compose_contract")
     from . import curate_identity
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(

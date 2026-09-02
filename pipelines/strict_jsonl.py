@@ -6,13 +6,9 @@ from __future__ import annotations
 import sys
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("strict_jsonl", allow_initializing=True):
-        import strict_jsonl as _direct_strict_jsonl
-
-        _require_local_sibling(_direct_strict_jsonl, "strict_jsonl")
-        del _direct_strict_jsonl
+    _assert_direct_sibling("strict_jsonl")
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "strict_jsonl"

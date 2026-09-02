@@ -17,13 +17,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("compose_destination", allow_initializing=True):
-        import compose_destination as _direct_compose_destination
-
-        _require_local_sibling(_direct_compose_destination, "compose_destination")
-        del _direct_compose_destination
+    _assert_direct_sibling("compose_destination")
     from .compose_contract import ComposeError, sha256_hex
     from .compose_destination_binding import (
         DESTINATION_PARENT_LABEL as _DESTINATION_PARENT_LABEL,

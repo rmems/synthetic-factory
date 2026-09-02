@@ -12,13 +12,9 @@ if TYPE_CHECKING:
     from compose_curated_record import RecordServices
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("compose_curated_record_facade", allow_initializing=True):
-        import compose_curated_record_facade as _direct_record_facade
-
-        _require_local_sibling(_direct_record_facade, "compose_curated_record_facade")
-        del _direct_record_facade
+    _assert_direct_sibling("compose_curated_record_facade")
     from .compose_contract import (
         ACTION_EXCLUDED,
         ComposeDecision,

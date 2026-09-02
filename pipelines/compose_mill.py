@@ -17,13 +17,9 @@ from dataclasses import dataclass
 from typing import Callable, Mapping
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("compose_mill", allow_initializing=True):
-        import compose_mill as _direct_compose_mill
-
-        _require_local_sibling(_direct_compose_mill, "compose_mill")
-        del _direct_compose_mill
+    _assert_direct_sibling("compose_mill")
     from .check_records import reject_json_constant
     from .curate_identity import _reject_duplicate_object_keys
     from .mill_family import MillFinding, MillIndex

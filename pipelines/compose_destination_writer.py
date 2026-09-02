@@ -10,16 +10,9 @@ from pathlib import PurePosixPath
 from typing import Any
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("compose_destination_writer", allow_initializing=True):
-        import compose_destination_writer as _direct_compose_destination_writer
-
-        _require_local_sibling(
-            _direct_compose_destination_writer,
-            "compose_destination_writer",
-        )
-        del _direct_compose_destination_writer
+    _assert_direct_sibling("compose_destination_writer")
     from .compose_contract import ComposeError
     from .compose_destination_binding import (
         _directory_identity,

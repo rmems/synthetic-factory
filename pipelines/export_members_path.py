@@ -10,13 +10,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("export_members_path", allow_initializing=True):
-        import export_members_path as _direct_export_members_path
-
-        _require_local_sibling(_direct_export_members_path, "export_members_path")
-        del _direct_export_members_path
+    _assert_direct_sibling("export_members_path")
     from .export_contract import ExportError
     from .raw_tree_guard import contains_raw_segments, is_under_raw as _guard_is_under_raw
 else:

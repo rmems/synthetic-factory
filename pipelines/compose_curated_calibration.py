@@ -11,32 +11,20 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("compose_curated_calibration", allow_initializing=True):
-        import compose_curated_calibration as _direct_compose_curated_calibration
-
-        _require_local_sibling(
-            _direct_compose_curated_calibration,
-            "compose_curated_calibration",
-        )
-        del _direct_compose_curated_calibration
-    from .compose_contract import (
-        ComposeError,
-        default_units_migration_path,
-        REASON_EMPTY_CORPUS,
-        RECORDS_DIRNAME,
-    )
+    _assert_direct_sibling("compose_curated_calibration")
+    from . import compose_contract as _compose_contract
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_curated_calibration"
     )
-    from compose_contract import (
-        ComposeError,
-        default_units_migration_path,
-        REASON_EMPTY_CORPUS,
-        RECORDS_DIRNAME,
-    )
+    import compose_contract as _compose_contract
+
+ComposeError = _compose_contract.ComposeError
+default_units_migration_path = _compose_contract.default_units_migration_path
+REASON_EMPTY_CORPUS = _compose_contract.REASON_EMPTY_CORPUS
+RECORDS_DIRNAME = _compose_contract.RECORDS_DIRNAME
 
 
 @dataclass(frozen=True)

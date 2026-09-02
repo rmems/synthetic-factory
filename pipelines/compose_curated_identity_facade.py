@@ -11,13 +11,9 @@ from types import ModuleType
 from typing import Any, Mapping, MutableMapping
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("compose_curated_identity_facade", allow_initializing=True):
-        import compose_curated_identity_facade as _direct_identity_facade
-
-        _require_local_sibling(_direct_identity_facade, "compose_curated_identity_facade")
-        del _direct_identity_facade
+    _assert_direct_sibling("compose_curated_identity_facade")
     from . import (
         compose_curated_identity as _identity_impl,
         compose_curated_source as _source_impl,

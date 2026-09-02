@@ -8,13 +8,9 @@ import sys
 from typing import Any, Mapping
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("compose_curated_coding", allow_initializing=True):
-        import compose_curated_coding as _direct_compose_curated_coding
-
-        _require_local_sibling(_direct_compose_curated_coding, "compose_curated_coding")
-        del _direct_compose_curated_coding
+    _assert_direct_sibling("compose_curated_coding")
     from . import curate_agentic, curate_coding, curate_rewards
     from .compose_contract import (
         ACTION_EXCLUDED,

@@ -8,16 +8,9 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("compose_curated_preferences", allow_initializing=True):
-        import compose_curated_preferences as _direct_compose_curated_preferences
-
-        _require_local_sibling(
-            _direct_compose_curated_preferences,
-            "compose_curated_preferences",
-        )
-        del _direct_compose_curated_preferences
+    _assert_direct_sibling("compose_curated_preferences")
     from . import curate_preferences
     from .compose_contract import (
         ACTION_EXCLUDED,

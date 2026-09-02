@@ -11,10 +11,7 @@ from typing import Any
 def _prepare_facade_identity(package: str | None) -> None:
     package_api = sys.modules.get(package or "pipelines")
     if package:
-        local_sibling = getattr(package_api, "_local_sibling_module")
-        if local_sibling("compose_curated", allow_initializing=True):
-            direct = importlib.import_module("compose_curated")
-            package_api._require_local_sibling(direct, "compose_curated")
+        getattr(package_api, "_assert_direct_sibling")("compose_curated")
         return
     getattr(package_api, "_join_package_sibling", lambda name: None)("compose_curated")
 

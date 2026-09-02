@@ -16,26 +16,23 @@ from __future__ import annotations
 
 import re
 import sys
-from pathlib import Path
 from typing import Any
 
 if __package__:
-    from .preference_model import (
-        ACTION_EXCLUDED,
-        ACTION_REPAIRED,
-        CurationRun,
-        PreferenceCurationError,
-    )
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("preference_audit")
+    from . import preference_model as _preference_model
 else:
-    _PIPELINES = Path(__file__).resolve().parent
-    if str(_PIPELINES) not in sys.path:
-        sys.path.insert(0, str(_PIPELINES))
-    from preference_model import (
-        ACTION_EXCLUDED,
-        ACTION_REPAIRED,
-        CurationRun,
-        PreferenceCurationError,
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "preference_audit"
     )
+    import preference_model as _preference_model
+
+ACTION_EXCLUDED = _preference_model.ACTION_EXCLUDED
+ACTION_REPAIRED = _preference_model.ACTION_REPAIRED
+CurationRun = _preference_model.CurationRun
+PreferenceCurationError = _preference_model.PreferenceCurationError
 
 __all__ = [
     "AUDIT_NAME",
@@ -237,3 +234,7 @@ def render_audit_markdown(audit: dict[str, Any]) -> str:
             f"| {reasons} |"
         )
     return "\n".join(lines)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

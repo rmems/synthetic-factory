@@ -15,13 +15,9 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("reward_mapping", allow_initializing=True):
-        import reward_mapping as _direct_reward_mapping
-
-        _require_local_sibling(_direct_reward_mapping, "reward_mapping")
-        del _direct_reward_mapping
+    _assert_direct_sibling("reward_mapping")
     from .exact_json import dumps_exact_json
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(

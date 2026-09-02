@@ -11,16 +11,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("compose_source_snapshot", allow_initializing=True):
-        import compose_source_snapshot as _direct_compose_source_snapshot
-
-        _require_local_sibling(
-            _direct_compose_source_snapshot,
-            "compose_source_snapshot",
-        )
-        del _direct_compose_source_snapshot
+    _assert_direct_sibling("compose_source_snapshot")
     from .compose_contract import ComposeError
     from .compose_destination_binding import (
         _directory_identity,

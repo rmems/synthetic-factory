@@ -11,16 +11,9 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("compose_curated_identity", allow_initializing=True):
-        import compose_curated_identity as _direct_compose_curated_identity
-
-        _require_local_sibling(
-            _direct_compose_curated_identity,
-            "compose_curated_identity",
-        )
-        del _direct_compose_curated_identity
+    _assert_direct_sibling("compose_curated_identity")
     from . import curate_bridge, curate_coding, curate_identity, curate_rewards
     from .compose_contract import (
         ACTION_EXCLUDED,

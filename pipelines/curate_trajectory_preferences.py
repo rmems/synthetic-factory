@@ -55,18 +55,9 @@ from pathlib import Path
 from typing import Any, Iterator
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module(
-        "curate_trajectory_preferences", allow_initializing=True
-    ):
-        import curate_trajectory_preferences as _direct_curate_trajectory_preferences
-
-        _require_local_sibling(
-            _direct_curate_trajectory_preferences,
-            "curate_trajectory_preferences",
-        )
-        del _direct_curate_trajectory_preferences
+    _assert_direct_sibling("curate_trajectory_preferences")
     from .check_records import reject_json_constant
     from .curate_agentic import (
         REASON_GOAL_DIVERGES,

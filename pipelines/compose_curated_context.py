@@ -13,16 +13,9 @@ from typing import Any
 
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("compose_curated_context", allow_initializing=True):
-        import compose_curated_context as _direct_compose_curated_context
-
-        _require_local_sibling(
-            _direct_compose_curated_context,
-            "compose_curated_context",
-        )
-        del _direct_compose_curated_context
+    _assert_direct_sibling("compose_curated_context")
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_curated_context"

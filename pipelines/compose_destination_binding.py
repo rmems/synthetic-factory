@@ -14,16 +14,9 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("compose_destination_binding", allow_initializing=True):
-        import compose_destination_binding as _direct_compose_destination_binding
-
-        _require_local_sibling(
-            _direct_compose_destination_binding,
-            "compose_destination_binding",
-        )
-        del _direct_compose_destination_binding
+    _assert_direct_sibling("compose_destination_binding")
     from .compose_contract import ComposeError
     from .raw_tree_guard import contains_raw_segments, is_under_raw
 else:

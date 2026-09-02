@@ -8,16 +8,9 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("compose_curated_record", allow_initializing=True):
-        import compose_curated_record as _direct_compose_curated_record
-
-        _require_local_sibling(
-            _direct_compose_curated_record,
-            "compose_curated_record",
-        )
-        del _direct_compose_curated_record
+    _assert_direct_sibling("compose_curated_record")
     from .compose_contract import ACTION_RETAINED, ComposeDecision
     from .compose_curated_coding import _compose_coding_stage, _compose_rewards_stage
     from .compose_curated_context import RecordContext

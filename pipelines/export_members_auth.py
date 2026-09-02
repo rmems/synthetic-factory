@@ -10,13 +10,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("export_members_auth", allow_initializing=True):
-        import export_members_auth as _direct_export_members_auth
-
-        _require_local_sibling(_direct_export_members_auth, "export_members_auth")
-        del _direct_export_members_auth
+    _assert_direct_sibling("export_members_auth")
     from .export_contract import ExportError
     from .export_members_jsonl import lf_jsonl_documents
     from .export_members_read import read_exact_regular_file

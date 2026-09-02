@@ -18,13 +18,9 @@ import sys
 from typing import Any
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-    if _local_sibling_module("preference_context", allow_initializing=True):
-        import preference_context as _direct_preference_context
-
-        _require_local_sibling(_direct_preference_context, "preference_context")
-        del _direct_preference_context
+    _assert_direct_sibling("preference_context")
     from .preference_model import canonical_json
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
