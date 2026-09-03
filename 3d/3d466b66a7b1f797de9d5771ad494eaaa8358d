@@ -1,0 +1,21 @@
+tests/test_curate_identity.py
+  s_473e2763661832::t_d3187aa94afc26 1232-1248
+pipelines/curate_identity.py
+  s_473e2763661832::t_19f970078c74de 53,81,408-412
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3d3d466b66a7b1f797de9d5771ad494eaaa8358d",
+  "prompts": {},
+  "sessions": {
+    "s_473e2763661832": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05f70-58e6-7d22-af3b-d2ea0989caa0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
