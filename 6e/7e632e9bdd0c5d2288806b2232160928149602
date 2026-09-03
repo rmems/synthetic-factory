@@ -1,0 +1,21 @@
+tests/test_rights_policy_guards.py
+  s_473e2763661832::t_1806426cc86db5 13,32-33,104-147
+pipelines/curate_identity.py
+  s_473e2763661832::t_1806426cc86db5 367-379,560
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6e7e632e9bdd0c5d2288806b2232160928149602",
+  "prompts": {},
+  "sessions": {
+    "s_473e2763661832": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05f70-58e6-7d22-af3b-d2ea0989caa0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
