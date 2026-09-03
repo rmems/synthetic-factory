@@ -32,7 +32,7 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, NamedTuple
 
 if __package__:
     from .record_kind import (
@@ -55,7 +55,6 @@ if __package__:
         HOSTED_FRONTIER_PROFILE_ID,
         INTENDED_USES,
         PROJECT_TRAINING_POLICIES,
-        protect_frozen_slots,
     )
     from .rights_policy import (
         PROVIDERS,
@@ -84,7 +83,6 @@ else:
         HOSTED_FRONTIER_PROFILE_ID,
         INTENDED_USES,
         PROJECT_TRAINING_POLICIES,
-        protect_frozen_slots,
     )
     from rights_policy import (
         PROVIDERS,
@@ -209,9 +207,7 @@ class _ManifestReplay:
     result: CurationResult
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class FactoryRow:
+class FactoryRow(NamedTuple):
     path_id: str
     payload_factory: str
     generator: str

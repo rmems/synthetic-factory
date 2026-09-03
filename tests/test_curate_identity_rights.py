@@ -8,7 +8,6 @@ import hashlib
 import json
 import tempfile
 import unittest
-from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 from test_curate_identity import (
@@ -222,9 +221,7 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
                         )
 
     def test_loaded_rights_fields_are_immutable_values(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            registry = _load_temp_registry(tmp, _registry_payload([_valid_row()]))
-        row = registry.by_path_id["tmp-factory"]
+        row = identity.default_registry().by_path_id[FABLE_ACT]
         self.assertEqual(row.provider, "anthropic")
         self.assertEqual(row.channel, "consumer")
         self.assertEqual(row.rights_profile_id, "hosted-frontier-research-only-v1")
@@ -232,14 +229,17 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
         self.assertEqual(row.project_training_policy, "blocked")
         with self.assertRaises(AttributeError):
             row.__dict__["project_training_policy"] = "allowed"
-        with self.assertRaises(FrozenInstanceError):
+        with self.assertRaises((AttributeError, TypeError)):
             row.project_training_policy = "allowed"
 
-        slots = type(row).__slots__
-        state = [object.__getattribute__(row, name) for name in slots]
-        state[slots.index("project_training_policy")] = "allowed"
-        with self.assertRaisesRegex(TypeError, "initialized"):
-            row.__setstate__(state)
+        original_policy = object.__getattribute__(row, "project_training_policy")
+        try:
+            with self.assertRaises((AttributeError, TypeError)):
+                object.__setattr__(row, "project_training_policy", "allowed")
+        finally:
+            if object.__getattribute__(row, "project_training_policy") != original_policy:
+                object.__setattr__(row, "project_training_policy", original_policy)
+
         self.assertEqual(row.project_training_policy, "blocked")
         self.assertEqual(copy.deepcopy(row), row)
 

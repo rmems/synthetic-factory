@@ -23,6 +23,7 @@ else:
 
 policy_error = _rights_mapping.policy_error
 protect_frozen_slots = _rights_mapping.protect_frozen_slots
+is_exact_string = _rights_mapping.is_exact_string
 require_hash = _rights_mapping.require_hash
 require_nonempty_string = _rights_mapping.require_nonempty_string
 
@@ -216,7 +217,7 @@ def provider_alias(
     where: str,
 ) -> tuple[str, str]:
     """Resolve one exact reviewed public provider alias."""
-    if not isinstance(value, str):
+    if not is_exact_string(value):
         raise policy_error(where, "unknown public provider")
     canonical = aliases.get(value)
     if canonical is None:

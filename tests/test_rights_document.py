@@ -223,6 +223,34 @@ class RightsDocumentTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             rights_document.PROVIDER_ALIASES["Anthropic"] = "xai"
 
+    def test_direct_validation_rejects_spoofed_provider_string_subclasses(self):
+        class SpoofedProvider(str):
+            def __new__(cls, emitted: str, expected: str):
+                instance = super().__new__(cls, emitted)
+                instance.expected = expected
+                return instance
+
+            def __eq__(self, other):
+                return other == self.expected
+
+            @property
+            def __class__(self):
+                return str
+
+            def __ne__(self, other):
+                return other != self.expected
+
+            def __hash__(self):
+                return hash(self.expected)
+
+        document = anthropic_document()
+        document["provider"] = SpoofedProvider("Hacker", "Anthropic")
+        with self.assertRaisesRegex(
+            rights_document.RightsPolicyError,
+            "unknown public provider",
+        ):
+            rights_document.validate_rights_document(document)
+
     def test_provider_aliases_have_no_casefold_substring_or_fallback_path(self):
         for provider in (
             "anthropic",
