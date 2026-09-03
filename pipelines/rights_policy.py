@@ -339,7 +339,7 @@ def load_rights_policy(path: str | Path | None = None) -> dict:
     return document
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _EvidenceStatuses:
     research_retention_status: str
     research_evaluation_status: str
@@ -348,7 +348,7 @@ class _EvidenceStatuses:
     weight_publication_status: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RightsAuthorization:  # noqa: D203,D211
     """One fully compiled verdict containing no mutable policy nodes."""
 

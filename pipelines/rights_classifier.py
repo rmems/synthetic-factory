@@ -70,7 +70,7 @@ _CLASSIFICATION_WHERE = "rights classification"
 _REASON_CODES_ERROR = "reason_codes must be unique strings"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RightsRoute:  # noqa: D203,D211
     """Canonical provider/channel/profile coordinates for one decision."""
 
@@ -79,14 +79,22 @@ class RightsRoute:  # noqa: D203,D211
     rights_profile_id: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
+class RightsVerification:
+    """Trusted route and optional policy bytes for envelope verification."""
+
+    expected_route: RightsRoute
+    policy_bytes: bytes | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class _BoundDigests:
     source_sha256: str
     factory_registry_sha256: str
     rights_policy_sha256: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RightsDecision:  # noqa: D203,D211
     """Immutable rights verdict with byte-bound evidence identifiers."""
 
@@ -106,7 +114,9 @@ class RightsDecision:  # noqa: D203,D211
     def to_public_payload(self) -> dict[str, object]:
         """Return the JSON-ready public envelope without exposing mutable state."""
         payload = {
-            field: getattr(self, field) for field in PUBLIC_PAYLOAD_FIELD_ORDER
+            field: getattr(self, field)
+            for field in PUBLIC_PAYLOAD_FIELD_ORDER
+            if field != "reason_codes"
         }
         payload["reason_codes"] = list(self.reason_codes)
         return payload
@@ -216,7 +226,7 @@ def _bound_bytes(value: object, field: str) -> bytes:
     return value
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _EnvelopeBytes:
     source: bytes
     registry: bytes
@@ -258,11 +268,11 @@ def _verify_bound_digests(payload: dict[str, object], bound: _EnvelopeBytes) -> 
 
 
 def _reason_list(value: object) -> list[object]:
-    if not isinstance(value, list):
+    if not isinstance(value, (list, tuple)):
         raise policy_error(_ENVELOPE_WHERE, _REASON_CODES_ERROR)
     if not value:
         raise policy_error(_ENVELOPE_WHERE, _REASON_CODES_ERROR)
-    return value
+    return list(value)
 
 
 def _require_reason_strings(reasons: list[object]) -> None:
@@ -278,6 +288,7 @@ def _require_unique_reasons(reasons: list[object]) -> None:
 
 def _verify_reason_codes(payload: dict[str, object]) -> None:
     reasons = _reason_list(payload["reason_codes"])
+    payload["reason_codes"] = reasons
     _require_reason_strings(reasons)
     _require_unique_reasons(reasons)
     unknown_reasons = sorted(set(reasons) - REASON_CODES)
@@ -287,14 +298,22 @@ def _verify_reason_codes(payload: dict[str, object]) -> None:
         )
 
 
-def _expected_decision(payload: dict[str, object]) -> RightsDecision:
+def _expected_decision(
+    payload: dict[str, object], expected_route: RightsRoute
+) -> RightsDecision:
     route = RightsRoute(
         provider=payload["provider"],
         channel=payload["channel"],
         rights_profile_id=payload["rights_profile_id"],
     )
+    trusted_route = _validated_route(expected_route)
+    if route != trusted_route:
+        raise policy_error(
+            _ENVELOPE_WHERE,
+            "envelope route does not match trusted expected route",
+        )
     return classify_rights(
-        route,
+        trusted_route,
         source_sha256=payload["source_sha256"],
         factory_registry_sha256=payload["factory_registry_sha256"],
     )
@@ -305,16 +324,22 @@ def verify_rights_envelope(
     *,
     source_bytes: bytes,
     factory_registry_bytes: bytes,
-    policy_bytes: bytes | None = None,
+    verification: RightsVerification,
 ) -> RightsDecision:
-    """Recompute byte digests and require the mapping's exact static verdict."""
+    """Recompute digests and require the trusted route's exact static verdict."""
+    if not isinstance(verification, RightsVerification):
+        raise policy_error(_ENVELOPE_WHERE, "verification must be trusted")
     payload = _payload_object(envelope)
-    bound = _envelope_bytes(source_bytes, factory_registry_bytes, policy_bytes)
-    if policy_bytes is not None:
+    bound = _envelope_bytes(
+        source_bytes,
+        factory_registry_bytes,
+        verification.policy_bytes,
+    )
+    if verification.policy_bytes is not None:
         load_rights_policy_bytes(bound.policy, where="rights envelope policy_bytes")
     _verify_bound_digests(payload, bound)
     _verify_reason_codes(payload)
-    expected_decision = _expected_decision(payload)
+    expected_decision = _expected_decision(payload, verification.expected_route)
     if payload != expected_decision.to_public_payload():
         raise policy_error(
             _ENVELOPE_WHERE,

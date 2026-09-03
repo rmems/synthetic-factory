@@ -117,19 +117,28 @@ class RightsPolicyTestCase(unittest.TestCase):
     SOURCE_SHA256 = digest(SOURCE_BYTES)
     REGISTRY_SHA256 = digest(REGISTRY_BYTES)
 
+    def route(self, provider="anthropic", channel="consumer", profile=None):
+        return rights_classifier.RightsRoute(
+            provider=provider,
+            channel=channel,
+            rights_profile_id=(
+                profile
+                if profile is not None
+                else rights_policy.HOSTED_FRONTIER_PROFILE_ID
+            ),
+        )
+
     def classify(self, provider="anthropic", channel="consumer", profile=None):
         return rights_classifier.classify_rights(
-            rights_classifier.RightsRoute(
-                provider=provider,
-                channel=channel,
-                rights_profile_id=(
-                    profile
-                    if profile is not None
-                    else rights_policy.HOSTED_FRONTIER_PROFILE_ID
-                ),
-            ),
+            self.route(provider, channel, profile),
             source_sha256=self.SOURCE_SHA256,
             factory_registry_sha256=self.REGISTRY_SHA256,
+        )
+
+    def verification(self, *, route=None, policy_bytes=None):
+        return rights_classifier.RightsVerification(
+            expected_route=self.route() if route is None else route,
+            policy_bytes=policy_bytes,
         )
 
     def write_bytes(self, directory: str, name: str, payload: bytes) -> Path:
@@ -267,7 +276,7 @@ class RightsPolicyTests(RightsPolicyTestCase):
                     promoted,
                     source_bytes=self.SOURCE_BYTES,
                     factory_registry_bytes=self.REGISTRY_BYTES,
-                    policy_bytes=MAPPING.read_bytes(),
+                    verification=self.verification(policy_bytes=MAPPING.read_bytes()),
                 )
             self.assertEqual(
                 (
@@ -283,6 +292,14 @@ class RightsPolicyTests(RightsPolicyTestCase):
                     ("HOSTED_FRONTIER_RESEARCH_ONLY",),
                 ),
             )
+
+    def test_compiled_authorizations_have_no_writable_instance_dict(self):
+        authorization = self.classify().authorization
+
+        with self.assertRaises(AttributeError):
+            authorization.__dict__
+        with self.assertRaises(AttributeError):
+            authorization.evidence_statuses.__dict__
 
     def test_decision_is_immutable(self):
         decision = self.classify()

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import copy
+import pickle  # nosec B403 -- test round-trips only an in-process value.
 import subprocess  # nosec B404 -- tests execute only a fixed Python interpreter.
 import sys
 import unittest
@@ -24,14 +25,21 @@ from test_rights_policy import (
 
 @unittest.skipIf(RIGHTS_POLICY_SPEC is None, "rights policy runtime is not implemented")
 class RightsClassifierTests(RightsPolicyTestCase):
-    def test_uninitialized_decision_attribute_lookup_terminates(self):
+    def test_decision_attribute_lookup_and_pickle_roundtrip(self):
         decision = rights_classifier.RightsDecision.__new__(
             rights_classifier.RightsDecision
         )
-        for name in ("__setstate__", "route", "authorization", "bindings"):
+        self.assertTrue(callable(getattr(decision, "__setstate__")))
+        for name in ("route", "authorization", "bindings"):
             with self.subTest(name=name):
                 with self.assertRaises(AttributeError):
                     getattr(decision, name)
+
+        populated = self.classify()
+        self.assertEqual(
+            pickle.loads(pickle.dumps(populated)),  # nosec B301 -- local bytes only.
+            populated,
+        )
 
     def test_route_argument_guards_reject_conflict_and_missing_fields(self):
         route = rights_classifier.RightsRoute(
@@ -139,7 +147,7 @@ assert package_policy.RightsPolicyError is rights_policy.RightsPolicyError
             payload,
             source_bytes=self.SOURCE_BYTES,
             factory_registry_bytes=self.REGISTRY_BYTES,
-            policy_bytes=MAPPING.read_bytes(),
+            verification=self.verification(policy_bytes=MAPPING.read_bytes()),
         )
 
         self.assertEqual(verified, self.classify())
@@ -158,30 +166,76 @@ assert package_policy.RightsPolicyError is rights_policy.RightsPolicyError
                         altered,
                         source_bytes=self.SOURCE_BYTES,
                         factory_registry_bytes=self.REGISTRY_BYTES,
-                        policy_bytes=MAPPING.read_bytes(),
+                        verification=self.verification(
+                            policy_bytes=MAPPING.read_bytes()
+                        ),
                     )
 
         byte_cases = {
             "source": {
                 "source_bytes": self.SOURCE_BYTES + b" ",
                 "factory_registry_bytes": self.REGISTRY_BYTES,
-                "policy_bytes": MAPPING.read_bytes(),
+                "verification": self.verification(
+                    policy_bytes=MAPPING.read_bytes()
+                ),
             },
             "registry": {
                 "source_bytes": self.SOURCE_BYTES,
                 "factory_registry_bytes": self.REGISTRY_BYTES + b" ",
-                "policy_bytes": MAPPING.read_bytes(),
+                "verification": self.verification(
+                    policy_bytes=MAPPING.read_bytes()
+                ),
             },
             "policy": {
                 "source_bytes": self.SOURCE_BYTES,
                 "factory_registry_bytes": self.REGISTRY_BYTES,
-                "policy_bytes": MAPPING.read_bytes() + b"\n",
+                "verification": self.verification(
+                    policy_bytes=MAPPING.read_bytes() + b"\n"
+                ),
             },
         }
         for label, arguments in byte_cases.items():
             with self.subTest(bound_bytes=label):
                 with self.assertRaises(rights_policy.RightsPolicyError):
-                    rights_classifier.verify_rights_envelope(payload, **arguments)
+                    rights_classifier.verify_rights_envelope(
+                        payload,
+                        **arguments,
+                    )
+
+        with self.assertRaisesRegex(
+            rights_policy.RightsPolicyError,
+            "invalid rights policy JSON",
+        ):
+            rights_classifier.verify_rights_envelope(
+                payload,
+                source_bytes=self.SOURCE_BYTES,
+                factory_registry_bytes=self.REGISTRY_BYTES,
+                verification=self.verification(policy_bytes=b"not json"),
+            )
+
+    def test_public_payload_round_trips_and_route_requires_trusted_binding(self):
+        decision = self.classify()
+        self.assertEqual(
+            rights_classifier.verify_rights_envelope(
+                decision.public_payload,
+                source_bytes=self.SOURCE_BYTES,
+                factory_registry_bytes=self.REGISTRY_BYTES,
+                verification=self.verification(route=decision.route),
+            ),
+            decision,
+        )
+
+        misattributed = self.classify(provider="xai").to_public_payload()
+        with self.assertRaisesRegex(
+            rights_policy.RightsPolicyError,
+            "trusted expected route",
+        ):
+            rights_classifier.verify_rights_envelope(
+                misattributed,
+                source_bytes=self.SOURCE_BYTES,
+                factory_registry_bytes=self.REGISTRY_BYTES,
+                verification=self.verification(route=decision.route),
+            )
 
     def test_envelope_verification_rejects_every_policy_controlled_drift(self):
         payload = self.classify().to_public_payload()
@@ -212,6 +266,7 @@ assert package_policy.RightsPolicyError is rights_policy.RightsPolicyError
                         altered,
                         source_bytes=self.SOURCE_BYTES,
                         factory_registry_bytes=self.REGISTRY_BYTES,
+                        verification=self.verification(),
                     )
 
     def test_envelope_verification_rejects_structural_input_drift(self):
@@ -221,12 +276,14 @@ assert package_policy.RightsPolicyError is rights_policy.RightsPolicyError
                 [],
                 source_bytes=self.SOURCE_BYTES,
                 factory_registry_bytes=self.REGISTRY_BYTES,
+                verification=self.verification(),
             )
         with self.assertRaises(rights_policy.RightsPolicyError):
             rights_classifier.verify_rights_envelope(
                 payload,
                 source_bytes="not bytes",
                 factory_registry_bytes=self.REGISTRY_BYTES,
+                verification=self.verification(),
             )
         for reasons in ([], ["UNKNOWN_PROVENANCE"] * 2, [1]):
             altered = copy.deepcopy(payload)
@@ -237,6 +294,7 @@ assert package_policy.RightsPolicyError is rights_policy.RightsPolicyError
                         altered,
                         source_bytes=self.SOURCE_BYTES,
                         factory_registry_bytes=self.REGISTRY_BYTES,
+                        verification=self.verification(),
                     )
 
 

@@ -428,7 +428,7 @@ def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
     )
     if expected_assignment is None:
         raise IdentityCurationError(
-            f"factories[{index}] has unknown reviewed generator version"
+            f"factories[{index}] has unknown reviewed (generator, generator_version)"
         )
     if (provider, channel) != expected_assignment:
         raise IdentityCurationError(
@@ -548,11 +548,11 @@ def _legacy_registry_row(raw: Any, index: int) -> Mapping[str, Any]:
         )
     except TypeError as exc:
         raise IdentityCurationError(
-            f"factories[{index}] has unknown reviewed generator version"
+            f"factories[{index}] has unknown reviewed (generator, generator_version)"
         ) from exc
     if expected_assignment is None:
         raise IdentityCurationError(
-            f"factories[{index}] has unknown reviewed generator version"
+            f"factories[{index}] has unknown reviewed (generator, generator_version)"
         )
     profile_id = HOSTED_FRONTIER_PROFILE_ID
     authorization = RIGHTS_AUTHORIZATIONS.get((*expected_assignment, profile_id))
@@ -2448,6 +2448,10 @@ def write_run(
     if _is_under_raw(dest):
         raise IdentityCurationError(f"refusing to write inside immutable raw evidence: {dest}")
     registry = default_registry() if registry is None else registry
+    if registry.schema_version != REGISTRY_SCHEMA_VERSION:
+        raise IdentityCurationError(
+            f"write_run requires {REGISTRY_SCHEMA_VERSION} registry bytes"
+        )
     results = curate_records(
         iter_source_records(source, registry=registry),
         registry=registry,

@@ -1297,6 +1297,12 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
 
             self.assertEqual(loaded.schema_version, "factory-registry-v0.1")
             self.assertEqual(loaded.sha256, legacy_digest)
+            with self.assertRaisesRegex(
+                identity.IdentityCurationError,
+                "write_run requires factory-registry-v0.2",
+            ):
+                identity.write_run(src, Path(tmp) / "legacy-rewrite", registry=loaded)
+            self.assertFalse((Path(tmp) / "legacy-rewrite").exists())
 
     def test_policy_known_fallback_profile_cannot_replace_hosted_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1359,7 +1365,7 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(
                 identity.IdentityCurationError,
-                "unknown reviewed generator version",
+                r"unknown reviewed \(generator, generator_version\)",
             ):
                 _load_temp_registry(
                     tmp,
@@ -1387,8 +1393,14 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
                 {"project_training_policy": "allowed"},
                 "rights fields drift from loaded policy",
             ),
-            ({"generator": "unknown-generator"}, "unknown reviewed generator"),
-            ({"generator_version": "fable-6"}, "unknown reviewed generator version"),
+            (
+                {"generator": "unknown-generator"},
+                r"unknown reviewed \(generator, generator_version\)",
+            ),
+            (
+                {"generator_version": "fable-6"},
+                r"unknown reviewed \(generator, generator_version\)",
+            ),
             (
                 {"generator": "fable-5", "provider": "openai"},
                 "generator/provider/channel assignment",

@@ -111,7 +111,7 @@ def require_unique_strings(value: object, field: str, *, where: str) -> tuple[st
 
 
 def freeze_json(value: object) -> object:
-    """Return a recursively read-only view of a validated JSON value."""
+    """Return a recursively immutable snapshot copy of a validated JSON value."""
     if isinstance(value, dict):
         return MappingProxyType({key: freeze_json(item) for key, item in value.items()})
     if isinstance(value, list):
