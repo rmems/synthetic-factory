@@ -304,7 +304,9 @@ class RightsPolicyTests(RightsPolicyTestCase):
     def test_decision_is_immutable(self):
         decision = self.classify()
 
-        with self.assertRaises(FrozenInstanceError):
+        # Frozen slotted dataclasses raise either exception across supported
+        # Python releases when assigning a delegated attribute.
+        with self.assertRaises((FrozenInstanceError, TypeError)):
             decision.project_training_policy = "allowed"
         with self.assertRaises(TypeError):
             decision.public_payload["project_training_policy"] = "allowed"

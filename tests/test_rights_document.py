@@ -98,8 +98,8 @@ class RightsDocumentLifecycleTests(unittest.TestCase):
         document = rights_document.RightsDocument.__new__(
             rights_document.RightsDocument
         )
+        self.assertTrue(callable(document.__setstate__))
         section_names = (
-            "__setstate__",
             "identity",
             "route",
             "decision",
@@ -129,6 +129,13 @@ class RightsDocumentTests(unittest.TestCase):
         with context:
             self.load(document)
 
+    def _assert_field_values_rejected(self, field_values):
+        for field, invalid in field_values:
+            document = anthropic_document()
+            document[field] = invalid
+            with self.subTest(field=field, invalid=invalid):
+                self.assert_rejected(document, field)
+
     def test_current_anthropic_and_xai_shapes_normalize_immutably(self):
         cases = (
             (anthropic_document(), "anthropic"),
@@ -142,8 +149,26 @@ class RightsDocumentTests(unittest.TestCase):
                 self.assertEqual(result.model, document["model"])
                 self.assertEqual(result.generated_at, document["generated_at"])
                 self.assertEqual(result.notes, document["notes"])
-                with self.assertRaises(FrozenInstanceError):
+                with self.assertRaises((FrozenInstanceError, TypeError)):
                     result.project_training_policy = "allowed"
+
+    def test_normalized_document_has_no_writable_instance_dict(self):
+        result = self.load(anthropic_document())
+        sections = (
+            result,
+            result.identity,
+            result.route,
+            result.decision,
+            result.decision.evidence_statuses,
+            result.evidence,
+            result.evidence.references,
+            result.legacy,
+        )
+
+        for section in sections:
+            with self.subTest(section=type(section).__name__):
+                with self.assertRaises(AttributeError):
+                    section.__dict__
 
     def test_openai_and_meta_display_aliases_are_explicit(self):
         cases = (
@@ -266,11 +291,7 @@ class RightsDocumentTests(unittest.TestCase):
             ("provider_training_status", "unknown"),
             ("weight_publication_status", "unknown"),
         )
-        for field, invalid in mutations:
-            document = anthropic_document()
-            document[field] = invalid
-            with self.subTest(field=field):
-                self.assert_rejected(document, field)
+        self._assert_field_values_rejected(mutations)
 
     def test_malformed_semantic_types_fail_through_rights_policy_error(self):
         fields = (
@@ -280,11 +301,7 @@ class RightsDocumentTests(unittest.TestCase):
             "project_training_policy",
             "provider_training_status",
         )
-        for field in fields:
-            document = anthropic_document()
-            document[field] = []
-            with self.subTest(field=field):
-                self.assert_rejected(document)
+        self._assert_field_values_rejected((field, []) for field in fields)
 
         document = anthropic_document()
         document["legacy_public_release"] = 1

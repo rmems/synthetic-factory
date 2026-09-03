@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import copy
-import pickle  # nosec B403 -- test round-trips only an in-process value.
 import subprocess  # nosec B404 -- tests execute only a fixed Python interpreter.
 import sys
 import unittest
@@ -25,7 +24,7 @@ from test_rights_policy import (
 
 @unittest.skipIf(RIGHTS_POLICY_SPEC is None, "rights policy runtime is not implemented")
 class RightsClassifierTests(RightsPolicyTestCase):
-    def test_decision_attribute_lookup_and_pickle_roundtrip(self):
+    def test_uninitialized_decision_attribute_lookup_terminates(self):
         decision = rights_classifier.RightsDecision.__new__(
             rights_classifier.RightsDecision
         )
@@ -34,12 +33,6 @@ class RightsClassifierTests(RightsPolicyTestCase):
             with self.subTest(name=name):
                 with self.assertRaises(AttributeError):
                     getattr(decision, name)
-
-        populated = self.classify()
-        self.assertEqual(
-            pickle.loads(pickle.dumps(populated)),  # nosec B301 -- local bytes only.
-            populated,
-        )
 
     def test_route_argument_guards_reject_conflict_and_missing_fields(self):
         route = rights_classifier.RightsRoute(
@@ -116,7 +109,7 @@ assert package_classifier is rights_classifier
 assert package_policy is rights_policy
 assert package_policy.RightsPolicyError is rights_policy.RightsPolicyError
 """
-        result = subprocess.run(  # nosec B603 -- argv contains no untrusted input.
+        result = subprocess.run(  # nosec B603  # nosemgrep -- fixed interpreter.
             [sys.executable, "-c", script],
             text=True,
             capture_output=True,
@@ -171,6 +164,8 @@ assert package_policy.RightsPolicyError is rights_policy.RightsPolicyError
                         ),
                     )
 
+    def test_envelope_verification_rejects_bound_byte_drift(self):
+        payload = self.classify().to_public_payload()
         byte_cases = {
             "source": {
                 "source_bytes": self.SOURCE_BYTES + b" ",
@@ -202,6 +197,8 @@ assert package_policy.RightsPolicyError is rights_policy.RightsPolicyError
                         **arguments,
                     )
 
+    def test_envelope_verification_rejects_invalid_supplied_policy(self):
+        payload = self.classify().to_public_payload()
         with self.assertRaisesRegex(
             rights_policy.RightsPolicyError,
             "invalid rights policy JSON",

@@ -11,30 +11,22 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("rights_policy_validation")
-    from .rights_mapping import (
-        CANONICAL_PROVIDERS,
-        CHANNELS,
-        HOSTED_FRONTIER_PROFILE_ID,
-        REQUIRED_PROFILE_IDS,
-        UNKNOWN_PROVENANCE_PROFILE_ID,
-        policy_error,
-        require_nonempty_string,
-        require_unique_strings,
-    )
+    from . import rights_mapping as _rights_mapping
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "rights_policy_validation"
     )
-    from rights_mapping import (
-        CANONICAL_PROVIDERS,
-        CHANNELS,
-        HOSTED_FRONTIER_PROFILE_ID,
-        REQUIRED_PROFILE_IDS,
-        UNKNOWN_PROVENANCE_PROFILE_ID,
-        policy_error,
-        require_nonempty_string,
-        require_unique_strings,
-    )
+    import rights_mapping as _rights_mapping
+
+
+CANONICAL_PROVIDERS = _rights_mapping.CANONICAL_PROVIDERS
+CHANNELS = _rights_mapping.CHANNELS
+HOSTED_FRONTIER_PROFILE_ID = _rights_mapping.HOSTED_FRONTIER_PROFILE_ID
+REQUIRED_PROFILE_IDS = _rights_mapping.REQUIRED_PROFILE_IDS
+UNKNOWN_PROVENANCE_PROFILE_ID = _rights_mapping.UNKNOWN_PROVENANCE_PROFILE_ID
+policy_error = _rights_mapping.policy_error
+require_nonempty_string = _rights_mapping.require_nonempty_string
+require_unique_strings = _rights_mapping.require_unique_strings
 
 
 _RULE_FIELDS = frozenset({
@@ -109,6 +101,14 @@ class _RuleCoverage:
     combinations: set[tuple[str, str, str]] = field(default_factory=set)
 
 
+def _rule_verdict(rule: dict, reasons: tuple[str, ...]) -> tuple[object, ...]:
+    return (
+        rule.get("intended_use"),
+        rule.get("project_training_policy"),
+        list(reasons),
+    )
+
+
 def _validated_rule(
     rule: dict,
     profiles: dict[str, dict],
@@ -130,11 +130,7 @@ def _validated_rule(
             f"rule {rule_id!r} cites unknown reasons {unknown_reasons}",
         )
     profile = profiles[profile_id]
-    verdict = (
-        rule.get("intended_use"),
-        rule.get("project_training_policy"),
-        list(reasons),
-    )
+    verdict = _rule_verdict(rule, reasons)
     expected = (
         profile["intended_use"],
         profile["project_training_policy"],

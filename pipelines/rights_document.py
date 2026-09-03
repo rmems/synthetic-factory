@@ -105,7 +105,7 @@ _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$", re.ASCII)
 _GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _DocumentIdentity:
     schema_version: str
     dataset_id: str
@@ -114,7 +114,7 @@ class _DocumentIdentity:
     generated_at: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _ProviderRoute:
     provider: str
     canonical_provider: str
@@ -124,7 +124,7 @@ class _ProviderRoute:
     provider_output_attribution: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _EvidenceReferences:
     terms_document: str | None
     terms_effective_date: str | None
@@ -139,7 +139,7 @@ class _EvidenceReferences:
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _EvidenceStatuses:
     research_retention_status: str
     research_evaluation_status: str
@@ -158,28 +158,28 @@ class _EvidenceStatuses:
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _PublicDecision:
     intended_use: str
     project_training_policy: str
     evidence_statuses: _EvidenceStatuses
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _EvidenceReview:
     references: _EvidenceReferences
     status_basis: str
     reviewed_at: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _LegacyRelease:
     original_release_license: str | None
     original_release_commit: str | None
     legacy_public_release: bool
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RightsDocument:  # noqa: D203,D211
     """Normalized immutable public rights declaration."""
 
