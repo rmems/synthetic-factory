@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
 from types import MappingProxyType
+from typing import NamedTuple
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -97,9 +97,7 @@ def load_rights_policy(path: str | Path | None = None) -> dict:
     return document
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class _EvidenceStatuses:
+class _EvidenceStatuses(NamedTuple):
     research_retention_status: str
     research_evaluation_status: str
     redistribution_status: str
@@ -107,9 +105,7 @@ class _EvidenceStatuses:
     weight_publication_status: str
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class RightsAuthorization:  # noqa: D203,D211
+class RightsAuthorization(NamedTuple):  # noqa: D203,D211
     """One fully compiled verdict containing no mutable policy nodes."""
 
     intended_use: str

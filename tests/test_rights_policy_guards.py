@@ -72,31 +72,26 @@ class RightsPolicyGuardTests(unittest.TestCase):
             while len(rules) > original_length:
                 rules.pop()
 
-    def test_initialized_authorization_state_cannot_be_restored(self):
+    def test_shared_authorization_values_reject_base_object_mutation(self):
         authorization = next(iter(rights_policy.RIGHTS_AUTHORIZATIONS.values()))
         statuses = authorization.evidence_statuses
         attempts = (
             (
                 authorization,
-                [
-                    "training_candidate",
-                    "allowed",
-                    statuses,
-                    authorization.reason_codes,
-                ],
+                "project_training_policy",
+                "allowed",
             ),
-            (statuses, ["allowed"] * len(rights_policy.EVIDENCE_STATUS_FIELDS)),
+            (statuses, "provider_training_status", "allowed"),
         )
-        for target, replacement in attempts:
-            slots = type(target).__slots__
-            original = [object.__getattribute__(target, name) for name in slots]
+        for target, field, replacement in attempts:
+            original = object.__getattribute__(target, field)
             try:
-                with self.subTest(target=type(target).__name__):
-                    with self.assertRaisesRegex(TypeError, "initialized"):
-                        target.__setstate__(replacement)
+                with self.subTest(target=type(target).__name__, field=field):
+                    with self.assertRaises((AttributeError, TypeError)):
+                        object.__setattr__(target, field, replacement)
             finally:
-                for name, value in zip(slots, original, strict=True):
-                    object.__setattr__(target, name, value)
+                if object.__getattribute__(target, field) != original:
+                    object.__setattr__(target, field, original)
 
         self.assertEqual(copy.deepcopy(authorization), authorization)
 

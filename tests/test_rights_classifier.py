@@ -24,6 +24,21 @@ from test_rights_policy import (
 
 @unittest.skipIf(RIGHTS_POLICY_SPEC is None, "rights policy runtime is not implemented")
 class RightsClassifierTests(RightsPolicyTestCase):
+    class SpoofedString(str):
+        def __new__(cls, emitted: str, expected: str):
+            instance = super().__new__(cls, emitted)
+            instance.expected = expected
+            return instance
+
+        def __eq__(self, other):
+            return other == self.expected
+
+        def __ne__(self, other):
+            return other != self.expected
+
+        def __hash__(self):
+            return hash(self.expected)
+
     def test_uninitialized_decision_attribute_lookup_terminates(self):
         decision = rights_classifier.RightsDecision.__new__(
             rights_classifier.RightsDecision
@@ -303,6 +318,50 @@ assert packaged["rights_document"].RightsDocument is packaged["rights_document_s
                         factory_registry_bytes=self.REGISTRY_BYTES,
                         verification=self.verification(),
                     )
+
+    def test_envelope_verification_rejects_spoofed_string_values(self):
+        payload = self.classify().to_public_payload()
+        cases = (
+            ("provider", "xai"),
+            ("intended_use", "training_candidate"),
+            ("provider_training_status", "allowed"),
+            ("source_sha256", "sha256:" + "0" * 64),
+        )
+        for field, emitted in cases:
+            altered = copy.deepcopy(payload)
+            altered[field] = self.SpoofedString(emitted, payload[field])
+            with self.subTest(field=field):
+                with self.assertRaises(rights_policy.RightsPolicyError):
+                    rights_classifier.verify_rights_envelope(
+                        altered,
+                        source_bytes=self.SOURCE_BYTES,
+                        factory_registry_bytes=self.REGISTRY_BYTES,
+                        verification=self.verification(),
+                    )
+
+        altered = copy.deepcopy(payload)
+        altered["reason_codes"][0] = self.SpoofedString(
+            "UNKNOWN_PROVENANCE",
+            payload["reason_codes"][0],
+        )
+        with self.assertRaises(rights_policy.RightsPolicyError):
+            rights_classifier.verify_rights_envelope(
+                altered,
+                source_bytes=self.SOURCE_BYTES,
+                factory_registry_bytes=self.REGISTRY_BYTES,
+                verification=self.verification(),
+            )
+
+        altered = copy.deepcopy(payload)
+        provider = altered.pop("provider")
+        altered[self.SpoofedString("spoofed_provider", "provider")] = provider
+        with self.assertRaises(rights_policy.RightsPolicyError):
+            rights_classifier.verify_rights_envelope(
+                altered,
+                source_bytes=self.SOURCE_BYTES,
+                factory_registry_bytes=self.REGISTRY_BYTES,
+                verification=self.verification(),
+            )
 
     def test_envelope_verification_rejects_structural_input_drift(self):
         payload = self.classify().to_public_payload()

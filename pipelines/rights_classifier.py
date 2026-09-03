@@ -70,6 +70,11 @@ PUBLIC_PAYLOAD_FIELDS = frozenset(PUBLIC_PAYLOAD_FIELD_ORDER)
 _ENVELOPE_WHERE = "rights envelope"
 _CLASSIFICATION_WHERE = "rights classification"
 _REASON_CODES_ERROR = "reason_codes must be unique strings"
+_VERDICT_STRING_FIELDS = (
+    "intended_use",
+    "project_training_policy",
+    *EVIDENCE_STATUS_FIELDS,
+)
 
 
 @protect_frozen_slots
@@ -148,11 +153,20 @@ def _authorization(route: RightsRoute) -> RightsAuthorization:
 
 
 def _require_route_value(
-    value: object, vocabulary: frozenset[str], label: str
+    value: object,
+    vocabulary: frozenset[str],
+    label: str,
+    *,
+    where: str = _CLASSIFICATION_WHERE,
 ) -> None:
-    if not isinstance(value, str) or value not in vocabulary:
+    if type(value) is not str:
         raise policy_error(
-            _CLASSIFICATION_WHERE,
+            where,
+            f"unknown {label}",
+        )
+    if value not in vocabulary:
+        raise policy_error(
+            where,
             f"unknown {label}",
         )
 
@@ -218,6 +232,11 @@ def _payload_object(envelope: object) -> dict[str, object]:
     if not isinstance(envelope, Mapping):
         raise policy_error(_ENVELOPE_WHERE, "envelope must be an object")
     payload = dict(envelope)
+    if any(type(field) is not str for field in payload):
+        raise policy_error(
+            _ENVELOPE_WHERE,
+            f"envelope fields must be exactly {sorted(PUBLIC_PAYLOAD_FIELDS)}",
+        )
     if set(payload) != PUBLIC_PAYLOAD_FIELDS:
         raise policy_error(
             _ENVELOPE_WHERE,
@@ -284,7 +303,9 @@ def _reason_list(value: object) -> list[object]:
 
 def _require_reason_strings(reasons: list[object]) -> None:
     for reason in reasons:
-        if not isinstance(reason, str) or not reason:
+        if type(reason) is not str:
+            raise policy_error(_ENVELOPE_WHERE, _REASON_CODES_ERROR)
+        if not reason:
             raise policy_error(_ENVELOPE_WHERE, _REASON_CODES_ERROR)
 
 
@@ -305,14 +326,36 @@ def _verify_reason_codes(payload: dict[str, object]) -> None:
         )
 
 
-def _expected_decision(
-    payload: dict[str, object], expected_route: RightsRoute
-) -> RightsDecision:
-    route = RightsRoute(
+def _require_verdict_strings(payload: dict[str, object]) -> None:
+    for field in _VERDICT_STRING_FIELDS:
+        if type(payload[field]) is not str:
+            raise policy_error(_ENVELOPE_WHERE, f"{field} must be a string")
+
+
+def _payload_route(payload: dict[str, object]) -> RightsRoute:
+    route_fields = (
+        ("provider", PROVIDERS, "canonical provider"),
+        ("channel", RIGHTS_CHANNELS, "channel"),
+        ("rights_profile_id", RIGHTS_PROFILE_IDS, "rights profile"),
+    )
+    for field, vocabulary, label in route_fields:
+        _require_route_value(
+            payload[field],
+            vocabulary,
+            label,
+            where=_ENVELOPE_WHERE,
+        )
+    return RightsRoute(
         provider=payload["provider"],
         channel=payload["channel"],
         rights_profile_id=payload["rights_profile_id"],
     )
+
+
+def _expected_decision(
+    payload: dict[str, object], expected_route: RightsRoute
+) -> RightsDecision:
+    route = _payload_route(payload)
     trusted_route = _validated_route(expected_route)
     if route != trusted_route:
         raise policy_error(
@@ -337,6 +380,7 @@ def verify_rights_envelope(
     if not isinstance(verification, RightsVerification):
         raise policy_error(_ENVELOPE_WHERE, "verification must be trusted")
     payload = _payload_object(envelope)
+    _require_verdict_strings(payload)
     bound = _envelope_bytes(
         source_bytes,
         factory_registry_bytes,

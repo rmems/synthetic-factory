@@ -106,7 +106,9 @@ def sha256_digest(payload: bytes) -> str:
 
 def require_hash(value: object, field: str, *, where: str) -> str:
     """Require one canonical prefixed SHA-256 value."""
-    if not isinstance(value, str) or SHA256_RE.fullmatch(value) is None:
+    if type(value) is not str:
+        raise policy_error(where, f"{field} must be lowercase sha256:<64 hex>")
+    if SHA256_RE.fullmatch(value) is None:
         raise policy_error(where, f"{field} must be lowercase sha256:<64 hex>")
     return value
 
