@@ -1,0 +1,21 @@
+AGENTS.md
+  s_f3ffb7db87dca1::t_b2da11b96fdd90 73-79
+pipelines/card_schema_validate.py
+  s_f3ffb7db87dca1::t_a3440e6de39490 194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0a24fd755abb2588f9f388a356c12a5c79033c85",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
