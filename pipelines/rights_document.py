@@ -239,16 +239,17 @@ def _validate_legacy_provenance(
 def _validate_document_identity(
     document: dict[str, object], where: str
 ) -> _DocumentIdentity:
-    if document["schema_version"] != RIGHTS_DOCUMENT_SCHEMA_VERSION:
-        raise policy_error(
-            where,
-            f"schema_version must be exactly {RIGHTS_DOCUMENT_SCHEMA_VERSION}",
-        )
+    schema_version = _closed_value(
+        document["schema_version"],
+        "schema_version",
+        frozenset({RIGHTS_DOCUMENT_SCHEMA_VERSION}),
+        where,
+    )
     dataset_id = document["dataset_id"]
     if not isinstance(dataset_id, str) or _DATASET_ID_RE.fullmatch(dataset_id) is None:
         raise policy_error(where, "dataset_id must be an exact owner/name identifier")
     return _DocumentIdentity(
-        RIGHTS_DOCUMENT_SCHEMA_VERSION,
+        schema_version,
         dataset_id,
         require_nonempty_string(document["policy_source"], "policy_source", where=where),
         require_nonempty_string(document["model"], "model", where=where),

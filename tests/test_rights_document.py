@@ -8,7 +8,6 @@ import importlib.util
 import json
 import sys
 import unittest
-from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 
@@ -83,6 +82,26 @@ def encode(document: object) -> bytes:
     return json.dumps(document, ensure_ascii=False).encode("utf-8")
 
 
+class SpoofedString(str):
+    def __new__(cls, emitted: str, expected: str):
+        instance = super().__new__(cls, emitted)
+        instance.expected = expected
+        return instance
+
+    def __eq__(self, other):
+        return other == self.expected
+
+    @property
+    def __class__(self):
+        return str
+
+    def __ne__(self, other):
+        return other != self.expected
+
+    def __hash__(self):
+        return hash(self.expected)
+
+
 class RightsDocumentRuntimeExistsTests(unittest.TestCase):
     def test_rights_document_runtime_exists(self):
         self.assertIsNotNone(
@@ -96,46 +115,38 @@ class RightsDocumentRuntimeExistsTests(unittest.TestCase):
     "rights_document public-sidecar validator is not implemented",
 )
 class RightsDocumentLifecycleTests(unittest.TestCase):
-    def test_uninitialized_document_attribute_lookup_terminates(self):
-        document = rights_document.RightsDocument.__new__(
-            rights_document.RightsDocument
-        )
-        self.assertTrue(callable(document.__setstate__))
-        section_names = (
-            "identity",
-            "route",
-            "decision",
-            "evidence",
-            "legacy",
-        )
-        for name in section_names:
-            with self.subTest(name=name):
-                with self.assertRaises(AttributeError):
-                    getattr(document, name)
+    def test_incomplete_document_construction_fails(self):
+        with self.assertRaises(TypeError):
+            rights_document.RightsDocument()
 
-    def test_initialized_document_state_cannot_be_restored(self):
+    def test_initialized_document_values_reject_base_object_mutation(self):
         document = rights_document.load_rights_document_bytes(
             encode(anthropic_document())
         )
-        values = (
-            document,
-            document.identity,
-            document.route,
-            document.decision,
-            document.decision.evidence_statuses,
-            document.evidence,
-            document.evidence.references,
-            document.legacy,
+        attempts = (
+            (document, "notes", "tampered"),
+            (document.identity, "schema_version", "9.9.9"),
+            (document.route, "provider", "Hacker"),
+            (document.decision, "project_training_policy", "allowed"),
+            (
+                document.decision.evidence_statuses,
+                "provider_training_status",
+                "allowed",
+            ),
+            (document.evidence, "status_basis", "tampered"),
+            (document.evidence.references, "terms_document", "tampered"),
+            (document.legacy, "legacy_public_release", False),
         )
 
-        for value in values:
-            state = [
-                object.__getattribute__(value, name)
-                for name in type(value).__slots__
-            ]
-            with self.subTest(value=type(value).__name__):
-                with self.assertRaisesRegex(TypeError, "initialized"):
-                    value.__setstate__(state)
+        for target, field, replacement in attempts:
+            original = object.__getattribute__(target, field)
+            try:
+                with self.subTest(target=type(target).__name__, field=field):
+                    with self.assertRaises((AttributeError, TypeError)):
+                        object.__setattr__(target, field, replacement)
+            finally:
+                if object.__getattribute__(target, field) != original:
+                    object.__setattr__(target, field, original)
 
         self.assertEqual(copy.deepcopy(document), document)
 
@@ -177,7 +188,7 @@ class RightsDocumentTests(unittest.TestCase):
                 self.assertEqual(result.model, document["model"])
                 self.assertEqual(result.generated_at, document["generated_at"])
                 self.assertEqual(result.notes, document["notes"])
-                with self.assertRaises((FrozenInstanceError, TypeError)):
+                with self.assertRaises((AttributeError, TypeError)):
                     result.project_training_policy = "allowed"
 
     def test_normalized_document_has_no_writable_instance_dict(self):
@@ -224,30 +235,36 @@ class RightsDocumentTests(unittest.TestCase):
             rights_document.PROVIDER_ALIASES["Anthropic"] = "xai"
 
     def test_direct_validation_rejects_spoofed_provider_string_subclasses(self):
-        class SpoofedProvider(str):
-            def __new__(cls, emitted: str, expected: str):
-                instance = super().__new__(cls, emitted)
-                instance.expected = expected
-                return instance
-
-            def __eq__(self, other):
-                return other == self.expected
-
-            @property
-            def __class__(self):
-                return str
-
-            def __ne__(self, other):
-                return other != self.expected
-
-            def __hash__(self):
-                return hash(self.expected)
-
         document = anthropic_document()
-        document["provider"] = SpoofedProvider("Hacker", "Anthropic")
+        document["provider"] = SpoofedString("Hacker", "Anthropic")
         with self.assertRaisesRegex(
             rights_document.RightsPolicyError,
             "unknown public provider",
+        ):
+            rights_document.validate_rights_document(document)
+
+    def test_direct_validation_rejects_spoofed_closed_vocabulary_strings(self):
+        cases = (
+            ("schema_version", "9.9.9", "0.1.0"),
+            ("channel", "api", "consumer"),
+            ("intended_use", "training_candidate", "research_only"),
+            ("project_training_policy", "allowed", "blocked"),
+            ("provider_training_status", "allowed", "unresolved"),
+        )
+        for field, emitted, expected in cases:
+            document = anthropic_document()
+            document[field] = SpoofedString(emitted, expected)
+            with self.subTest(field=field):
+                with self.assertRaises(rights_document.RightsPolicyError):
+                    rights_document.validate_rights_document(document)
+
+    def test_direct_validation_rejects_spoofed_field_names(self):
+        document = anthropic_document()
+        provider = document.pop("provider")
+        document[SpoofedString("hacker_provider", "provider")] = provider
+        with self.assertRaisesRegex(
+            rights_document.RightsPolicyError,
+            "fields must be exactly",
         ):
             rights_document.validate_rights_document(document)
 

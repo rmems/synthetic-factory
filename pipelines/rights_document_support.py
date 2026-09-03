@@ -6,8 +6,8 @@ from __future__ import annotations
 import re
 import sys
 from collections.abc import Mapping
-from dataclasses import dataclass
 from datetime import date
+from typing import NamedTuple
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -22,7 +22,6 @@ else:
 
 
 policy_error = _rights_mapping.policy_error
-protect_frozen_slots = _rights_mapping.protect_frozen_slots
 is_exact_string = _rights_mapping.is_exact_string
 require_hash = _rights_mapping.require_hash
 require_nonempty_string = _rights_mapping.require_nonempty_string
@@ -31,9 +30,7 @@ require_nonempty_string = _rights_mapping.require_nonempty_string
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$", re.ASCII)
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class _DocumentIdentity:
+class _DocumentIdentity(NamedTuple):
     schema_version: str
     dataset_id: str
     policy_source: str
@@ -41,9 +38,7 @@ class _DocumentIdentity:
     generated_at: str
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class _ProviderRoute:
+class _ProviderRoute(NamedTuple):
     provider: str
     canonical_provider: str
     channel: str
@@ -52,9 +47,7 @@ class _ProviderRoute:
     provider_output_attribution: str
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class _EvidenceReferences:
+class _EvidenceReferences(NamedTuple):
     terms_document: str | None
     terms_effective_date: str | None
     terms_snapshot_sha256: str | None
@@ -68,9 +61,7 @@ class _EvidenceReferences:
         )
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class _EvidenceStatuses:
+class _EvidenceStatuses(NamedTuple):
     research_retention_status: str
     research_evaluation_status: str
     redistribution_status: str
@@ -88,33 +79,25 @@ class _EvidenceStatuses:
         )
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class _PublicDecision:
+class _PublicDecision(NamedTuple):
     intended_use: str
     project_training_policy: str
     evidence_statuses: _EvidenceStatuses
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class _EvidenceReview:
+class _EvidenceReview(NamedTuple):
     references: _EvidenceReferences
     status_basis: str
     reviewed_at: str
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class _LegacyRelease:
+class _LegacyRelease(NamedTuple):
     original_release_license: str | None
     original_release_commit: str | None
     legacy_public_release: bool
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class RightsDocument:  # noqa: D203,D211
+class RightsDocument(NamedTuple):  # noqa: D203,D211
     """Normalized immutable public rights declaration."""
 
     identity: _DocumentIdentity
@@ -153,6 +136,12 @@ def exact_document(
     """Require the exact public document field set."""
     if not isinstance(value, dict):
         raise policy_error(where, "rights document must be an object")
+    if any(not is_exact_string(field) for field in value):
+        raise policy_error(
+            where,
+            "rights document fields must be exactly the required fields, "
+            "with only notes permitted as optional",
+        )
     fields = set(value)
     allowed_field_sets = (required_fields, required_fields | optional_fields)
     if fields not in allowed_field_sets:
@@ -171,7 +160,7 @@ def closed_value(
     where: str,
 ) -> str:
     """Require one exact closed-vocabulary string."""
-    if not isinstance(value, str) or value not in vocabulary:
+    if not is_exact_string(value) or value not in vocabulary:
         raise policy_error(where, f"{field} has an unknown value")
     return value
 
