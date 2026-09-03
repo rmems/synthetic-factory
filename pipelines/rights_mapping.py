@@ -52,6 +52,7 @@ REQUIRED_PROFILE_IDS = frozenset(
 )
 
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_STATE_PROTECTION_ERROR = "state protection requires a frozen slotted dataclass"
 
 
 class RightsPolicyError(ValueError):  # noqa: D203,D211
@@ -62,8 +63,12 @@ def protect_frozen_slots(cls: type) -> type:
     """Reject state restoration once a frozen slotted value is initialized."""
     generated_setstate = cls.__dict__.get("__setstate__")
     slots = cls.__dict__.get("__slots__")
-    if not callable(generated_setstate) or not isinstance(slots, tuple) or not slots:
-        raise TypeError("state protection requires a frozen slotted dataclass")
+    if not callable(generated_setstate):
+        raise TypeError(_STATE_PROTECTION_ERROR)
+    if not isinstance(slots, tuple):
+        raise TypeError(_STATE_PROTECTION_ERROR)
+    if not slots:
+        raise TypeError(_STATE_PROTECTION_ERROR)
 
     def guarded_setstate(instance: object, state: object) -> None:
         for name in slots:

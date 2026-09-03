@@ -18,6 +18,27 @@ from test_rights_policy import (
 
 @unittest.skipIf(RIGHTS_POLICY_SPEC is None, "rights policy runtime is not implemented")
 class RightsPolicyGuardTests(unittest.TestCase):
+    def test_state_protector_rejects_incompatible_classes(self):
+        class MissingSetstate:
+            __slots__ = ("value",)
+
+        class NonTupleSlots:
+            __slots__ = "value"
+
+            def __setstate__(self, state):
+                del state
+
+        class EmptySlots:
+            __slots__ = ()
+
+            def __setstate__(self, state):
+                del state
+
+        for incompatible in (MissingSetstate, NonTupleSlots, EmptySlots):
+            with self.subTest(incompatible=incompatible.__name__):
+                with self.assertRaisesRegex(TypeError, "frozen slotted dataclass"):
+                    rights_policy.protect_frozen_slots(incompatible)
+
     def test_loaded_policy_tree_is_immutable(self):
         original_version = rights_policy.RIGHTS_POLICY["mapping_version"]
         try:
