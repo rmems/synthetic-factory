@@ -85,6 +85,7 @@ class _BoundDigests:
     factory_registry_sha256: str
     rights_policy_sha256: str
 
+
 @dataclass(frozen=True)
 class RightsDecision:  # noqa: D203,D211
     """Immutable rights verdict with byte-bound evidence identifiers."""
@@ -95,6 +96,8 @@ class RightsDecision:  # noqa: D203,D211
 
     def __getattr__(self, name: str) -> object:
         """Expose immutable aggregate fields through the original flat API."""
+        if name.startswith("__") or name in {"route", "authorization", "bindings"}:
+            raise AttributeError(name)
         for section in (self.route, self.authorization, self.bindings):
             if hasattr(section, name):
                 return getattr(section, name)
@@ -134,7 +137,7 @@ def _require_route_value(
     if not isinstance(value, str) or value not in vocabulary:
         raise policy_error(
             _CLASSIFICATION_WHERE,
-            f"unknown {label} {value!r}",
+            f"unknown {label}",
         )
 
 

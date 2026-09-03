@@ -542,9 +542,14 @@ def _legacy_registry_row(raw: Any, index: int) -> Mapping[str, Any]:
         raise IdentityCurationError(
             f"factories[{index}] v0.1 rows must not declare rights fields: {unexpected}"
         )
-    expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(
-        (raw.get("generator"), raw.get("generator_version"))
-    )
+    try:
+        expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(
+            (raw.get("generator"), raw.get("generator_version"))
+        )
+    except TypeError as exc:
+        raise IdentityCurationError(
+            f"factories[{index}] has unknown reviewed generator version"
+        ) from exc
     if expected_assignment is None:
         raise IdentityCurationError(
             f"factories[{index}] has unknown reviewed generator version"

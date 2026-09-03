@@ -93,6 +93,29 @@ class RightsDocumentRuntimeExistsTests(unittest.TestCase):
     RIGHTS_DOCUMENT_SPEC is None,
     "rights_document public-sidecar validator is not implemented",
 )
+class RightsDocumentLifecycleTests(unittest.TestCase):
+    def test_uninitialized_document_attribute_lookup_terminates(self):
+        document = rights_document.RightsDocument.__new__(
+            rights_document.RightsDocument
+        )
+        section_names = (
+            "__setstate__",
+            "identity",
+            "route",
+            "decision",
+            "evidence",
+            "legacy",
+        )
+        for name in section_names:
+            with self.subTest(name=name):
+                with self.assertRaises(AttributeError):
+                    getattr(document, name)
+
+
+@unittest.skipIf(
+    RIGHTS_DOCUMENT_SPEC is None,
+    "rights_document public-sidecar validator is not implemented",
+)
 class RightsDocumentTests(unittest.TestCase):
     def load(self, document: object):
         return rights_document.load_rights_document_bytes(encode(document))

@@ -1220,24 +1220,15 @@ def _load_temp_registry(directory, payload):
 
 
 def _factory_row(path_id, record_kind, **overrides):
-    values = {
-        "path_id": path_id,
-        "payload_factory": path_id,
-        "generator": "fable-5",
-        "generator_version": "fable-5",
-        "provider": "anthropic",
-        "channel": "consumer",
-        "rights_profile_id": "hosted-frontier-research-only-v1",
-        "intended_use": "research_only",
-        "project_training_policy": "blocked",
-        "record_kinds": frozenset({record_kind}),
-        "identity_authoritative": True,
-        "publication_target": None,
-        "training_ready_policy": "never",
-        "allowed_curation_lanes": ("curate_identity",),
-        "provenance_contract_by_kind": {record_kind: "require_state_claim"},
-    }
+    values = _valid_row(
+        path_id=path_id,
+        payload_factory=path_id,
+        record_kinds=[record_kind],
+        provenance_contract_by_kind={record_kind: "require_state_claim"},
+    )
     values.update(overrides)
+    values["record_kinds"] = frozenset(values["record_kinds"])
+    values["allowed_curation_lanes"] = tuple(values["allowed_curation_lanes"])
     return identity.FactoryRow(**values)
 
 
@@ -1353,6 +1344,30 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
                         rf"missing fields.*{field}",
                     ):
                         _load_temp_registry(Path(tmp) / field, _registry_payload([row]))
+
+    def test_legacy_unhashable_generator_fails_with_identity_error(self):
+        row = _valid_row(generator=["fable-5"])
+        for field in (
+            "provider",
+            "channel",
+            "rights_profile_id",
+            "intended_use",
+            "project_training_policy",
+        ):
+            row.pop(field)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(
+                identity.IdentityCurationError,
+                "unknown reviewed generator version",
+            ):
+                _load_temp_registry(
+                    tmp,
+                    _registry_payload(
+                        [row],
+                        schema_version="factory-registry-v0.1",
+                    ),
+                )
 
     def test_unknown_drifting_and_misassigned_rights_fields_fail_closed(self):
         cases = (

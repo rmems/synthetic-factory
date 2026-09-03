@@ -192,6 +192,9 @@ class RightsDocument:  # noqa: D203,D211
 
     def __getattr__(self, name: str) -> object:
         """Expose immutable aggregate fields through the original flat API."""
+        section_names = {"identity", "route", "decision", "evidence", "legacy"}
+        if name.startswith("__") or name in section_names:
+            raise AttributeError(name)
         sections = (
             self.identity,
             self.route,

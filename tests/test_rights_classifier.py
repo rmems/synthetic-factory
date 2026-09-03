@@ -24,6 +24,40 @@ from test_rights_policy import (
 
 @unittest.skipIf(RIGHTS_POLICY_SPEC is None, "rights policy runtime is not implemented")
 class RightsClassifierTests(RightsPolicyTestCase):
+    def test_uninitialized_decision_attribute_lookup_terminates(self):
+        decision = rights_classifier.RightsDecision.__new__(
+            rights_classifier.RightsDecision
+        )
+        for name in ("__setstate__", "route", "authorization", "bindings"):
+            with self.subTest(name=name):
+                with self.assertRaises(AttributeError):
+                    getattr(decision, name)
+
+    def test_route_argument_guards_reject_conflict_and_missing_fields(self):
+        route = rights_classifier.RightsRoute(
+            "anthropic",
+            "consumer",
+            rights_policy.HOSTED_FRONTIER_PROFILE_ID,
+        )
+        with self.assertRaisesRegex(
+            rights_policy.RightsPolicyError,
+            "route cannot be combined",
+        ):
+            rights_classifier.classify_rights(
+                route,
+                source_sha256=self.SOURCE_SHA256,
+                factory_registry_sha256=self.REGISTRY_SHA256,
+                provider="anthropic",
+            )
+        with self.assertRaisesRegex(
+            rights_policy.RightsPolicyError,
+            "route fields must be exactly",
+        ):
+            rights_classifier.classify_rights(
+                source_sha256=self.SOURCE_SHA256,
+                factory_registry_sha256=self.REGISTRY_SHA256,
+            )
+
     def test_classification_rejects_unknown_or_unauthorized_inputs(self):
         cases = (
             {"provider": "other"},
