@@ -281,17 +281,17 @@ class RightsDocumentTests(unittest.TestCase):
             self.assertEqual(self.load(document).generated_at, provenance)
 
     def test_policy_vocabularies_are_closed(self):
-        mutations = (
-            ("channel", "web"),
-            ("intended_use", "commercial"),
-            ("project_training_policy", "maybe"),
-            ("research_retention_status", "unknown"),
-            ("research_evaluation_status", "unknown"),
-            ("redistribution_status", "unknown"),
-            ("provider_training_status", "unknown"),
-            ("weight_publication_status", "unknown"),
-        )
-        self._assert_field_values_rejected(mutations)
+        mutations = {
+            "channel": "web",
+            "intended_use": "commercial",
+            "project_training_policy": "maybe",
+            "research_retention_status": "unknown",
+            "research_evaluation_status": "unknown",
+            "redistribution_status": "unknown",
+            "provider_training_status": "unknown",
+            "weight_publication_status": "unknown",
+        }
+        self._assert_field_values_rejected(mutations.items())
 
     def test_malformed_semantic_types_fail_through_rights_policy_error(self):
         fields = (
