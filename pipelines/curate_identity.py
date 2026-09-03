@@ -207,7 +207,7 @@ class _ManifestReplay:
     result: CurationResult
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class FactoryRow:
     path_id: str
     payload_factory: str

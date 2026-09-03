@@ -195,6 +195,8 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
         self.assertEqual(row.rights_profile_id, "hosted-frontier-research-only-v1")
         self.assertEqual(row.intended_use, "research_only")
         self.assertEqual(row.project_training_policy, "blocked")
+        with self.assertRaises(AttributeError):
+            row.__dict__["project_training_policy"] = "allowed"
         with self.assertRaises(FrozenInstanceError):
             row.project_training_policy = "allowed"
 
