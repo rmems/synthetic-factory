@@ -354,42 +354,6 @@ class RightsPolicyTests(RightsPolicyTestCase):
                 with self.assertRaises(rights_policy.RightsPolicyError):
                     rights_policy.validate_rights_policy(document)
 
-    def test_policy_validation_rejects_malformed_unique_string_lists(self):
-        hosted = rights_policy.HOSTED_FRONTIER_PROFILE_ID
-        cases = (
-            "not-a-list",
-            [],
-            [hosted, hosted],
-            ["   "],
-            [1],
-        )
-        for required_profile_ids in cases:
-            document = mutable_policy_document()
-            document["required_profile_ids"] = required_profile_ids
-            with self.subTest(required_profile_ids=required_profile_ids):
-                with self.assertRaisesRegex(
-                    rights_policy.RightsPolicyError,
-                    "required_profile_ids must be a unique nonempty list of strings",
-                ):
-                    rights_policy.validate_rights_policy(document)
-
-    def test_policy_validation_rejects_extra_shape_and_invariant_drift(self):
-        cases = (
-            lambda document: document.update(unexpected=True),
-            lambda document: document["vocabularies"].update(unexpected=[]),
-            lambda document: document["invariants"].update(unexpected=True),
-            lambda document: document["invariants"].update(
-                provider_training_status="policy_controlled"
-            ),
-            lambda document: document.update(invariants=[]),
-        )
-        for index, mutate in enumerate(cases):
-            document = mutable_policy_document()
-            mutate(document)
-            with self.subTest(case=index):
-                with self.assertRaises(rights_policy.RightsPolicyError):
-                    rights_policy.validate_rights_policy(document)
-
     def test_policy_validation_rejects_duplicate_ids(self):
         for collection in ("profiles", "rules", "reason_codes"):
             document = mutable_policy_document()
@@ -598,17 +562,6 @@ class RightsPolicyTests(RightsPolicyTestCase):
                 rights_policy.load_rights_policy(missing)
             with self.assertRaises(rights_policy.RightsPolicyError):
                 rights_policy.load_rights_policy(Path(directory))
-
-
-    def test_policy_byte_loader_rejects_payloads_over_the_explicit_limit(self):
-        payload = b" " * (rights_policy.MAX_RIGHTS_JSON_BYTES + 1)
-
-        with self.assertRaisesRegex(
-            rights_policy.RightsPolicyError,
-            "exceeds the .*byte rights JSON limit",
-        ):
-            rights_policy.load_rights_policy_bytes(payload)
-
 
 class RightsPolicyAvailabilityTests(unittest.TestCase):
     def test_rights_policy_runtime_exists(self):

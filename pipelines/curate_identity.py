@@ -364,6 +364,19 @@ def _generator_identity(raw: Mapping[str, Any], index: int) -> tuple[str, str]:
     return values[0], values[1]
 
 
+def _legacy_generator_identity(
+    raw: Mapping[str, Any], index: int
+) -> tuple[str, str]:
+    missing = [
+        field for field in ("generator", "generator_version") if field not in raw
+    ]
+    if missing:
+        raise IdentityCurationError(
+            f"factories[{index}] missing fields: {missing}"
+        )
+    return _generator_identity(raw, index)
+
+
 def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
     if not isinstance(raw, Mapping):
         raise IdentityCurationError(f"factories[{index}] must be an object")
@@ -544,14 +557,7 @@ def _legacy_registry_row(raw: Any, index: int) -> Mapping[str, Any]:
         raise IdentityCurationError(
             f"factories[{index}] v0.1 rows must not declare rights fields: {unexpected}"
         )
-    missing = [
-        field for field in ("generator", "generator_version") if field not in raw
-    ]
-    if missing:
-        raise IdentityCurationError(
-            f"factories[{index}] missing fields: {missing}"
-        )
-    generator, generator_version = _generator_identity(raw, index)
+    generator, generator_version = _legacy_generator_identity(raw, index)
     expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(
         (generator, generator_version)
     )
