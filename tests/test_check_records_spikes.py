@@ -9,6 +9,7 @@ that layering possible must key off the diagnostic body, never off a
 location prefix a JSONL filename could collide with.
 """
 
+import json
 import sys
 import tempfile
 import unittest
@@ -173,6 +174,25 @@ class SpikeOrderHasOneOwner(unittest.TestCase):
         errors = self._order_errors(_thalamic(spike_events=events))
         self.assertEqual(len(errors), 1, errors)
         self.assertIn("9007199254740993 -> 9007199254740992", errors[0])
+
+    def test_decimal_timestamp_order_preserves_source_token_precision(self):
+        record = _thalamic(
+            spike_events=[
+                {"t_rel_ms": 101},
+                {"t_rel_ms": 102},
+            ]
+        )
+        payload = json.dumps(record, separators=(",", ":"))
+        payload = payload.replace('"t_rel_ms":101', '"t_rel_ms":1.0000000000000001')
+        payload = payload.replace('"t_rel_ms":102', '"t_rel_ms":1.0')
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "batch.jsonl"
+            source.write_text(payload + "\n", encoding="utf-8")
+            errors = check_records.check_run(td)["errors"]
+
+        order_errors = [error for error in errors if "non-decreasing" in error]
+        self.assertEqual(len(order_errors), 1, errors)
+        self.assertIn("1.0000000000000001 -> 1.0", order_errors[0])
 
     def test_preference_side_stream_reported_once(self):
         record = {

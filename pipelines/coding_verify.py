@@ -5,47 +5,77 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, NamedTuple
 
-from coding_constants import (
-    MAX_DECISION_BASIS_CHARS,
-    REASON_BASIS_CONCISED,
-    VISIBLE_BASIS_LABELS,
-    WRAP_STEPS_PARENT,
-)
-from coding_verify_manifest import _verify_one_manifest
-from coding_verify_steps import (
-    _dual_removal_mismatch,
-    _hidden_removed,
-    _is_nonnegative_int,
-    _is_positive_int,
-)
+if __package__:
+    from .coding_constants import (
+        MAX_DECISION_BASIS_CHARS,
+        REASON_BASIS_CONCISED,
+        VISIBLE_BASIS_LABELS,
+        WRAP_STEPS_PARENT,
+    )
+    from .coding_verify_manifest import _verify_one_manifest
+    from .coding_verify_steps import (
+        _dual_removal_mismatch,
+        _hidden_removed,
+        _is_nonnegative_int,
+        _is_positive_int,
+    )
+else:
+    from coding_constants import (
+        MAX_DECISION_BASIS_CHARS,
+        REASON_BASIS_CONCISED,
+        VISIBLE_BASIS_LABELS,
+        WRAP_STEPS_PARENT,
+    )
+    from coding_verify_manifest import _verify_one_manifest
+    from coding_verify_steps import (
+        _dual_removal_mismatch,
+        _hidden_removed,
+        _is_nonnegative_int,
+        _is_positive_int,
+    )
 
 
 def _derive_decision_basis(step: dict[str, Any]):
-    from curate_coding import _derive_decision_basis as impl
+    if __package__:
+        from .curate_coding import _derive_decision_basis as impl
+    else:
+        from curate_coding import _derive_decision_basis as impl
 
     return impl(step)
 
 
 def _record_id(record: Any) -> str | None:
-    from curate_coding import _record_id as impl
+    if __package__:
+        from .curate_coding import _record_id as impl
+    else:
+        from curate_coding import _record_id as impl
 
     return impl(record)
 
 
 def _record_steps(record: Any):
-    from curate_coding import _record_steps as impl
+    if __package__:
+        from .curate_coding import _record_steps as impl
+    else:
+        from curate_coding import _record_steps as impl
 
     return impl(record)
 
 
 def contains_thought_key(value: Any) -> bool:
-    from curate_coding import contains_thought_key as impl
+    if __package__:
+        from .curate_coding import contains_thought_key as impl
+    else:
+        from curate_coding import contains_thought_key as impl
 
     return impl(value)
 
 
 def hash_value(value: Any) -> str:
-    from curate_coding import hash_value as impl
+    if __package__:
+        from .curate_coding import hash_value as impl
+    else:
+        from curate_coding import hash_value as impl
 
     return impl(value)
 

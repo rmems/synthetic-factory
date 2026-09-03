@@ -13,14 +13,15 @@ import json
 import sys
 from pathlib import Path
 
+from distillation_test_helpers import distillation_sidecars, load_bridge_fixture
+
 REPO = Path(__file__).resolve().parents[1]
 
 if str(REPO / "pipelines") not in sys.path:
     sys.path.insert(0, str(REPO / "pipelines"))
 
-
 def thalamic(record_id, provenance="designed", decision="ACCEPT"):
-    return {
+    record = {
         "id": record_id,
         "state": {"sim_or_real": provenance, "domain": "audit-test"},
         "proposed_action": {"action": "noop", "decision_basis": "fixture"},
@@ -30,6 +31,15 @@ def thalamic(record_id, provenance="designed", decision="ACCEPT"):
         "reward_components": {"task_progress": 0.5, "safety": 0.5, "total": 1.0},
         "meta": {"tags": ["audit", "fixture"], "round": 1},
     }
+    record.update(distillation_sidecars(decision=decision))
+    return record
+
+
+def gate_snn_bridge(record_id="raster-bridge-1"):
+    """Return the committed raster + third-factor + gate-as-SNN record."""
+    record = load_bridge_fixture()
+    record["id"] = record_id
+    return record
 
 
 def write(path, records):
@@ -40,8 +50,7 @@ def write(path, records):
 def commit_marker_batch(factory: Path, batch: Path):
     """Put ``batch`` behind a valid marker-mode completion point."""
     (factory / ".round-marker-mode.json").write_text(
-        '{"version":1,"legacy_baseline":0,'
-        '"commit_point":"ROUND-rNN.complete.json"}\n'
+        '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
     )
     notes = factory / "NOTES-r01.md"
     notes.write_text("Novel coverage: fixture\n")

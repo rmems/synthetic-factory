@@ -4,16 +4,16 @@ import json
 import sys
 from pathlib import Path
 
+from distillation_test_helpers import distillation_sidecars
+
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 import round_txn  # noqa: E402
 
-
 def write(path, records):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
-
 
 def thalamic(record_id, observable=True, rationale="bounded fixture"):
     """A thalamic record that the strict execution gate can verify.
@@ -31,7 +31,7 @@ def thalamic(record_id, observable=True, rationale="bounded fixture"):
                 "new_state": {"sim_or_real": "designed", "domain": "gate-test"},
             }
         )
-    return {
+    record = {
         "id": record_id,
         "state": {"sim_or_real": "designed", "domain": "gate-test"},
         "proposed_action": {"action": "noop", "decision_basis": "fixture"},
@@ -45,6 +45,8 @@ def thalamic(record_id, observable=True, rationale="bounded fixture"):
             "tags": ["gate-test"],
         },
     }
+    record.update(distillation_sidecars())
+    return record
 
 
 def episode_side():
