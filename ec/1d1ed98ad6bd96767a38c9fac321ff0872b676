@@ -1,0 +1,25 @@
+pipelines/curate_identity.py
+  s_473e2763661832::t_d8ccc0c6d6873a 35,210
+tests/test_rights_document.py
+  s_473e2763661832::t_29e010103366a7 226-253
+pipelines/rights_document_support.py
+  s_473e2763661832::t_d8ccc0c6d6873a 26,220
+tests/test_curate_identity_rights.py
+  s_473e2763661832::t_0dfc22b480236f 224,232,235-241
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ec1d1ed98ad6bd96767a38c9fac321ff0872b676",
+  "prompts": {},
+  "sessions": {
+    "s_473e2763661832": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05f70-58e6-7d22-af3b-d2ea0989caa0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
