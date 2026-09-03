@@ -1,0 +1,22 @@
+tests/test_rights_policy_guards.py
+  s_473e2763661832::t_83fba8162085fb 21-41
+pipelines/rights_mapping.py
+  s_473e2763661832::t_f384cc1a701075 66,68,70
+  s_473e2763661832::t_cb6efe44495d4a 55,67,69,71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d43ea497164f3803a4fb0d406962507f3a6cad5d",
+  "prompts": {},
+  "sessions": {
+    "s_473e2763661832": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05f70-58e6-7d22-af3b-d2ea0989caa0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
