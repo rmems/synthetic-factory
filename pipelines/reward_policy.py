@@ -9,39 +9,78 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from decimal import Decimal
 from pathlib import Path
 
-from reward_mapping import (
-    COMPONENT_DISPOSITIONS,
-    DISPOSITION_DECLARED_TOTAL,
-    DISPOSITION_NARRATIVE,
-    DISPOSITION_UNIT_CALIBRATION,
-    EXCLUDE,
-    MAGNITUDE_COMPARABLE,
-    MAPPING_PATH,
-    MAPPING_VERSION,
-    ONTOLOGY_VERSION,
-    POLICY_DOCUMENT_TYPE,
-    REQUIRED_ARITHMETIC_METHODS,
-    REQUIRED_CLASSIFICATION_RULE_IDS,
-    REQUIRED_RULE_COMPARABILITY,
-    RULE_SCOPES,
-    SIGN_ORDER_ONLY,
-    RewardOntologyError,
-    _mapping_object,
-    _mapping_pattern,
-    _mapping_positive,
-    _mapping_str,
-    _mapping_str_list,
-    _pointer,
-    _pointer_unescape,
-    _policy_error,
-)
-from reward_vocabulary import (
-    _validate_expected_classification,
-    _validate_source_vocabulary,
-)
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("reward_policy")
+    from .reward_mapping import (
+        COMPONENT_DISPOSITIONS,
+        DISPOSITION_DECLARED_TOTAL,
+        DISPOSITION_NARRATIVE,
+        DISPOSITION_UNIT_CALIBRATION,
+        EXCLUDE,
+        MAGNITUDE_COMPARABLE,
+        MAPPING_PATH,
+        MAPPING_VERSION,
+        ONTOLOGY_VERSION,
+        POLICY_DOCUMENT_TYPE,
+        REQUIRED_ARITHMETIC_METHODS,
+        REQUIRED_CLASSIFICATION_RULE_IDS,
+        REQUIRED_RULE_COMPARABILITY,
+        RULE_SCOPES,
+        SIGN_ORDER_ONLY,
+        RewardOntologyError,
+        _mapping_object,
+        _mapping_pattern,
+        _mapping_positive,
+        _mapping_str,
+        _mapping_str_list,
+        _pointer,
+        _pointer_unescape,
+        _policy_error,
+    )
+    from .reward_vocabulary import (
+        _validate_expected_classification,
+        _validate_source_vocabulary,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "reward_policy"
+    )
+    from reward_mapping import (
+        COMPONENT_DISPOSITIONS,
+        DISPOSITION_DECLARED_TOTAL,
+        DISPOSITION_NARRATIVE,
+        DISPOSITION_UNIT_CALIBRATION,
+        EXCLUDE,
+        MAGNITUDE_COMPARABLE,
+        MAPPING_PATH,
+        MAPPING_VERSION,
+        ONTOLOGY_VERSION,
+        POLICY_DOCUMENT_TYPE,
+        REQUIRED_ARITHMETIC_METHODS,
+        REQUIRED_CLASSIFICATION_RULE_IDS,
+        REQUIRED_RULE_COMPARABILITY,
+        RULE_SCOPES,
+        SIGN_ORDER_ONLY,
+        RewardOntologyError,
+        _mapping_object,
+        _mapping_pattern,
+        _mapping_positive,
+        _mapping_str,
+        _mapping_str_list,
+        _pointer,
+        _pointer_unescape,
+        _policy_error,
+    )
+    from reward_vocabulary import (
+        _validate_expected_classification,
+        _validate_source_vocabulary,
+    )
 
 
 def _validate_conversion_block(policy, where):
@@ -401,3 +440,7 @@ COMPARABILITY_CLASSES = frozenset(_POLICY["comparability_classes"])
 REASON_CODES = frozenset(_POLICY["reason_codes"])
 COMPARABILITY_RULES = tuple(_POLICY["comparability_rules"])
 SOURCE_VOCABULARY = CONVERSION_POLICY["source_vocabulary"]
+
+
+if __package__:
+    _expose_package_sibling(__name__)
