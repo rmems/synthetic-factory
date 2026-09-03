@@ -493,7 +493,13 @@ class RightsPolicyTests(RightsPolicyTestCase):
 
     def test_hosted_profile_must_keep_all_evidence_unresolved(self):
         document = mutable_policy_document()
-        document["profiles"][0]["evidence_statuses"][
+        document["profiles"].reverse()
+        hosted_profile = next(
+            profile
+            for profile in document["profiles"]
+            if profile["id"] == rights_policy.HOSTED_FRONTIER_PROFILE_ID
+        )
+        hosted_profile["evidence_statuses"][
             "provider_training_status"
         ] = "allowed"
 
