@@ -14,6 +14,7 @@ if __package__:
     _assert_direct_sibling("rights_classifier")
     from .rights_mapping import (
         EVIDENCE_STATUS_FIELDS,
+        is_exact_string,
         policy_error,
         protect_frozen_slots,
         require_hash,
@@ -36,6 +37,7 @@ else:
     )
     from rights_mapping import (
         EVIDENCE_STATUS_FIELDS,
+        is_exact_string,
         policy_error,
         protect_frozen_slots,
         require_hash,
@@ -159,7 +161,7 @@ def _require_route_value(
     *,
     where: str = _CLASSIFICATION_WHERE,
 ) -> None:
-    if type(value) is not str:
+    if not is_exact_string(value):
         raise policy_error(
             where,
             f"unknown {label}",
@@ -232,17 +234,22 @@ def _payload_object(envelope: object) -> dict[str, object]:
     if not isinstance(envelope, Mapping):
         raise policy_error(_ENVELOPE_WHERE, "envelope must be an object")
     payload = dict(envelope)
-    if any(type(field) is not str for field in payload):
-        raise policy_error(
-            _ENVELOPE_WHERE,
-            f"envelope fields must be exactly {sorted(PUBLIC_PAYLOAD_FIELDS)}",
-        )
+    _require_exact_payload_keys(payload)
     if set(payload) != PUBLIC_PAYLOAD_FIELDS:
         raise policy_error(
             _ENVELOPE_WHERE,
             f"envelope fields must be exactly {sorted(PUBLIC_PAYLOAD_FIELDS)}",
         )
     return payload
+
+
+def _require_exact_payload_keys(payload: dict[object, object]) -> None:
+    for field in payload:
+        if not is_exact_string(field):
+            raise policy_error(
+                _ENVELOPE_WHERE,
+                f"envelope fields must be exactly {sorted(PUBLIC_PAYLOAD_FIELDS)}",
+            )
 
 
 def _bound_bytes(value: object, field: str) -> bytes:
@@ -303,7 +310,7 @@ def _reason_list(value: object) -> list[object]:
 
 def _require_reason_strings(reasons: list[object]) -> None:
     for reason in reasons:
-        if type(reason) is not str:
+        if not is_exact_string(reason):
             raise policy_error(_ENVELOPE_WHERE, _REASON_CODES_ERROR)
         if not reason:
             raise policy_error(_ENVELOPE_WHERE, _REASON_CODES_ERROR)
@@ -328,7 +335,7 @@ def _verify_reason_codes(payload: dict[str, object]) -> None:
 
 def _require_verdict_strings(payload: dict[str, object]) -> None:
     for field in _VERDICT_STRING_FIELDS:
-        if type(payload[field]) is not str:
+        if not is_exact_string(payload[field]):
             raise policy_error(_ENVELOPE_WHERE, f"{field} must be a string")
 
 

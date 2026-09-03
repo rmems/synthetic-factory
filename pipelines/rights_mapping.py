@@ -8,9 +8,10 @@ import json
 import math
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -59,17 +60,18 @@ class RightsPolicyError(ValueError):  # noqa: D203,D211
     """Raised when rights policy or a rights envelope fails closed."""
 
 
-def protect_frozen_slots(cls: type) -> type:
-    """Reject state restoration once a frozen slotted value is initialized."""
-    generated_setstate = cls.__dict__.get("__setstate__")
-    slots = cls.__dict__.get("__slots__")
-    if not callable(generated_setstate):
-        raise TypeError(_STATE_PROTECTION_ERROR)
-    if not isinstance(slots, tuple):
-        raise TypeError(_STATE_PROTECTION_ERROR)
-    if not slots:
-        raise TypeError(_STATE_PROTECTION_ERROR)
+def is_exact_string(value: object) -> bool:
+    """Return whether a value is a built-in string, excluding subclasses."""
+    if not isinstance(value, str):
+        return False
+    return type(value) is str  # pylint: disable=unidiomatic-typecheck
 
+
+def _guarded_state_restorer(
+    cls: type,
+    slots: tuple[str, ...],
+    generated_setstate: Callable[[object, object], None],
+) -> Callable[[object, object], None]:
     def guarded_setstate(instance: object, state: object) -> None:
         for name in slots:
             try:
@@ -81,7 +83,26 @@ def protect_frozen_slots(cls: type) -> type:
             )
         generated_setstate(instance, state)
 
-    setattr(cls, "__setstate__", guarded_setstate)
+    return guarded_setstate
+
+
+def _validated_slot_names(slots: object) -> tuple[str, ...]:
+    if not isinstance(slots, tuple):
+        raise TypeError(_STATE_PROTECTION_ERROR)
+    if not slots:
+        raise TypeError(_STATE_PROTECTION_ERROR)
+    return cast(tuple[str, ...], slots)
+
+
+def protect_frozen_slots(cls: type) -> type:
+    """Reject state restoration once a frozen slotted value is initialized."""
+    generated_setstate = cls.__dict__.get("__setstate__")
+    slots = cls.__dict__.get("__slots__")
+    if not callable(generated_setstate):
+        raise TypeError(_STATE_PROTECTION_ERROR)
+    slot_names = _validated_slot_names(slots)
+    restorer = cast(Callable[[object, object], None], generated_setstate)
+    setattr(cls, "__setstate__", _guarded_state_restorer(cls, slot_names, restorer))
     return cls
 
 
@@ -106,7 +127,7 @@ def sha256_digest(payload: bytes) -> str:
 
 def require_hash(value: object, field: str, *, where: str) -> str:
     """Require one canonical prefixed SHA-256 value."""
-    if type(value) is not str:
+    if not is_exact_string(value):
         raise policy_error(where, f"{field} must be lowercase sha256:<64 hex>")
     if SHA256_RE.fullmatch(value) is None:
         raise policy_error(where, f"{field} must be lowercase sha256:<64 hex>")

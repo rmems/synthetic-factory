@@ -19,6 +19,13 @@ from test_rights_policy import (
 @unittest.skipIf(RIGHTS_POLICY_SPEC is None, "rights policy runtime is not implemented")
 class RightsPolicyGuardTests(unittest.TestCase):
     def test_state_protector_rejects_incompatible_classes(self):
+        class HostileSlots:
+            def __iter__(self):
+                yield "value"
+
+            def __bool__(self):
+                raise RuntimeError("slot truthiness must not be evaluated")
+
         class MissingSetstate:
             __slots__ = ("value",)
 
@@ -34,7 +41,19 @@ class RightsPolicyGuardTests(unittest.TestCase):
             def __setstate__(self, state):
                 del state
 
-        for incompatible in (MissingSetstate, NonTupleSlots, EmptySlots):
+        class HostileNonTupleSlots:
+            __slots__ = HostileSlots()
+
+            def __setstate__(self, state):
+                del state
+
+        incompatible_classes = (
+            MissingSetstate,
+            NonTupleSlots,
+            EmptySlots,
+            HostileNonTupleSlots,
+        )
+        for incompatible in incompatible_classes:
             with self.subTest(incompatible=incompatible.__name__):
                 with self.assertRaisesRegex(TypeError, "frozen slotted dataclass"):
                     rights_policy.protect_frozen_slots(incompatible)

@@ -33,6 +33,10 @@ class RightsClassifierTests(RightsPolicyTestCase):
         def __eq__(self, other):
             return other == self.expected
 
+        @property
+        def __class__(self):
+            return str
+
         def __ne__(self, other):
             return other != self.expected
 
