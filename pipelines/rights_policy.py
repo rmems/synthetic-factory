@@ -3,14 +3,11 @@
 
 from __future__ import annotations
 
-import json
-import math
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from itertools import product
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -31,7 +28,9 @@ if __package__:
         REQUIRED_PROFILE_IDS,
         UNKNOWN_PROVENANCE_PROFILE_ID,
         RightsPolicyError,
+        parse_strict_json_bytes,
         policy_error,
+        reject_unpaired_surrogates,
         require_nonempty_string,
         require_unique_strings,
         sha256_digest,
@@ -55,56 +54,32 @@ else:
         REQUIRED_PROFILE_IDS,
         UNKNOWN_PROVENANCE_PROFILE_ID,
         RightsPolicyError,
+        parse_strict_json_bytes,
         policy_error,
+        reject_unpaired_surrogates,
         require_nonempty_string,
         require_unique_strings,
         sha256_digest,
     )
 
 
-_TOP_LEVEL_FIELDS = frozenset(
-    {
-        "document_type",
-        "policy_version",
-        "mapping_version",
-        "vocabularies",
-        "evidence_status_fields",
-        "invariants",
-        "required_profile_ids",
-        "reason_codes",
-        "profiles",
-        "rules",
-    }
-)
-_VOCABULARY_FIELDS = frozenset(
-    {
-        "providers",
-        "channels",
-        "intended_use",
-        "project_training_policy",
-        "evidence_status",
-    }
-)
-_PROFILE_FIELDS = frozenset(
-    {
-        "id",
-        "intended_use",
-        "project_training_policy",
-        "evidence_statuses",
-        "reason_codes",
-    }
-)
-_RULE_FIELDS = frozenset(
-    {
-        "id",
-        "providers",
-        "channels",
-        "rights_profile_id",
-        "intended_use",
-        "project_training_policy",
-        "reason_codes",
-    }
-)
+_TOP_LEVEL_FIELDS = frozenset({
+    "document_type", "policy_version", "mapping_version", "vocabularies",
+    "evidence_status_fields", "invariants", "required_profile_ids",
+    "reason_codes", "profiles", "rules",
+})
+_VOCABULARY_FIELDS = frozenset({
+    "providers", "channels", "intended_use", "project_training_policy",
+    "evidence_status",
+})
+_PROFILE_FIELDS = frozenset({
+    "id", "intended_use", "project_training_policy", "evidence_statuses",
+    "reason_codes",
+})
+_RULE_FIELDS = frozenset({
+    "id", "providers", "channels", "rights_profile_id", "intended_use",
+    "project_training_policy", "reason_codes",
+})
 _INTENDED_USE_POLICY = {
     "research_only": "blocked",
     "training_candidate": "allowed",
@@ -218,39 +193,67 @@ def _validate_profile(
     where: str,
 ) -> None:
     profile_id = profile["id"]
-    intended_use = profile.get("intended_use")
-    project_policy = profile.get("project_training_policy")
-    if not isinstance(intended_use, str) or intended_use not in INTENDED_USES:
-        raise policy_error(where, f"profile {profile_id!r} has unknown intended_use")
-    if (
-        not isinstance(project_policy, str)
-        or project_policy not in PROJECT_TRAINING_POLICIES
-    ):
-        raise policy_error(
-            where,
-            f"profile {profile_id!r} has unknown project_training_policy",
-        )
+    _validate_profile_decision(profile, profile_id, where)
+    _validate_profile_statuses(profile, profile_id, where)
+    _validate_profile_reasons(profile, profile_id, reason_ids, where)
+
+
+def _validate_profile_decision(profile: dict, profile_id: str, where: str) -> None:
+    intended_use = _profile_value(profile, "intended_use", INTENDED_USES, where)
+    project_policy = _profile_value(
+        profile,
+        "project_training_policy",
+        PROJECT_TRAINING_POLICIES,
+        where,
+    )
     if _INTENDED_USE_POLICY[intended_use] != project_policy:
         raise policy_error(
             where,
             f"profile {profile_id!r} has inconsistent intended_use and project policy",
         )
+
+
+def _profile_value(
+    profile: dict, field_name: str, vocabulary: frozenset[str], where: str
+) -> str:
+    value = profile.get(field_name)
+    if not isinstance(value, str) or value not in vocabulary:
+        raise policy_error(
+            where,
+            f"profile {profile['id']!r} has unknown {field_name}",
+        )
+    return value
+
+
+def _validate_profile_statuses(profile: dict, profile_id: str, where: str) -> None:
     statuses = profile.get("evidence_statuses")
-    if not isinstance(statuses, dict) or set(statuses) != set(EVIDENCE_STATUS_FIELDS):
+    if not isinstance(statuses, dict):
+        raise policy_error(
+            where,
+            f"profile {profile_id!r} evidence status fields must be exactly "
+            f"{list(EVIDENCE_STATUS_FIELDS)}",
+        )
+    if set(statuses) != set(EVIDENCE_STATUS_FIELDS):
         raise policy_error(
             where,
             f"profile {profile_id!r} evidence status fields must be exactly "
             f"{list(EVIDENCE_STATUS_FIELDS)}",
         )
     for field in EVIDENCE_STATUS_FIELDS:
-        if (
-            not isinstance(statuses[field], str)
-            or statuses[field] not in EVIDENCE_STATUSES
-        ):
-            raise policy_error(
-                where,
-                f"profile {profile_id!r} {field} has unknown evidence status",
-            )
+        _profile_value(
+            {"id": profile_id, field: statuses[field]},
+            field,
+            EVIDENCE_STATUSES,
+            where,
+        )
+
+
+def _validate_profile_reasons(
+    profile: dict,
+    profile_id: str,
+    reason_ids: frozenset[str],
+    where: str,
+) -> None:
     reasons = require_unique_strings(
         profile.get("reason_codes"), "reason_codes", where=where
     )
@@ -259,11 +262,7 @@ def _validate_profile(
         raise policy_error(where, f"profile {profile_id!r} cites unknown reasons {unknown}")
 
 
-def _validate_profiles(
-    document: dict,
-    reason_ids: frozenset[str],
-    where: str,
-) -> dict[str, dict]:
+def _profiles_by_id(document: dict, where: str) -> dict[str, dict]:
     required_ids = require_unique_strings(
         document.get("required_profile_ids"), "required_profile_ids", where=where
     )
@@ -277,26 +276,41 @@ def _validate_profiles(
     )
     if set(profile_ids) != set(required_ids):
         raise policy_error(where, "profiles must declare every required profile id exactly")
-    profiles = {profile["id"]: profile for profile in document["profiles"]}
-    for profile in profiles.values():
-        _validate_profile(profile, reason_ids, where)
+    return {profile["id"]: profile for profile in document["profiles"]}
 
+
+def _validate_required_profile_semantics(
+    profiles: dict[str, dict], where: str
+) -> None:
     hosted = profiles[HOSTED_FRONTIER_PROFILE_ID]
-    if (
-        hosted["intended_use"] != "research_only"
-        or hosted["project_training_policy"] != "blocked"
-        or set(hosted["evidence_statuses"].values()) != {"unresolved"}
-    ):
+    hosted_verdict = (
+        hosted["intended_use"],
+        hosted["project_training_policy"],
+        set(hosted["evidence_statuses"].values()),
+    )
+    if hosted_verdict != ("research_only", "blocked", {"unresolved"}):
         raise policy_error(
             where,
             "hosted-frontier profile must be research_only/blocked with all statuses unresolved",
         )
     unknown = profiles[UNKNOWN_PROVENANCE_PROFILE_ID]
-    if (
-        unknown["intended_use"] != "research_only"
-        or unknown["project_training_policy"] != "blocked"
-    ):
+    unknown_verdict = (
+        unknown["intended_use"],
+        unknown["project_training_policy"],
+    )
+    if unknown_verdict != ("research_only", "blocked"):
         raise policy_error(where, "unknown-provenance profile must fail closed")
+
+
+def _validate_profiles(
+    document: dict,
+    reason_ids: frozenset[str],
+    where: str,
+) -> dict[str, dict]:
+    profiles = _profiles_by_id(document, where)
+    for profile in profiles.values():
+        _validate_profile(profile, reason_ids, where)
+    _validate_required_profile_semantics(profiles, where)
     return profiles
 
 
@@ -312,6 +326,108 @@ def _validate_rule_lists(rule: dict, rule_id: str, where: str):
     return providers, channels
 
 
+@dataclass(frozen=True)
+class _ValidatedRule:
+    identifier: str
+    providers: tuple[str, ...]
+    channels: tuple[str, ...]
+    profile_id: str
+    reasons: tuple[str, ...]
+
+
+@dataclass
+class _RuleCoverage:
+    reasons: set[str] = dataclass_field(default_factory=set)
+    providers: set[str] = dataclass_field(default_factory=set)
+    profiles: set[str] = dataclass_field(default_factory=set)
+    hosted_providers: set[str] = dataclass_field(default_factory=set)
+    combinations: set[tuple[str, str, str]] = dataclass_field(default_factory=set)
+
+
+def _validated_rule(
+    rule: dict,
+    profiles: dict[str, dict],
+    reason_ids: frozenset[str],
+    where: str,
+) -> _ValidatedRule:
+    rule_id = rule["id"]
+    providers, channels = _validate_rule_lists(rule, rule_id, where)
+    profile_id = rule.get("rights_profile_id")
+    if not isinstance(profile_id, str) or profile_id not in profiles:
+        raise policy_error(where, f"rule {rule_id!r} cites unknown profile")
+    reasons = require_unique_strings(
+        rule.get("reason_codes"), "reason_codes", where=where
+    )
+    unknown_reasons = sorted(set(reasons) - reason_ids)
+    if unknown_reasons:
+        raise policy_error(
+            where,
+            f"rule {rule_id!r} cites unknown reasons {unknown_reasons}",
+        )
+    profile = profiles[profile_id]
+    verdict = (
+        rule.get("intended_use"),
+        rule.get("project_training_policy"),
+        list(reasons),
+    )
+    expected = (
+        profile["intended_use"],
+        profile["project_training_policy"],
+        profile["reason_codes"],
+    )
+    if verdict != expected:
+        raise policy_error(where, f"rule {rule_id!r} authorizes a verdict outside profile")
+    return _ValidatedRule(rule_id, providers, channels, profile_id, reasons)
+
+
+def _record_rule_coverage(
+    coverage: _RuleCoverage, rule: _ValidatedRule, where: str
+) -> None:
+    for provider, channel in product(rule.providers, rule.channels):
+        key = (provider, channel, rule.profile_id)
+        if key in coverage.combinations:
+            raise policy_error(where, f"duplicate authorized combination {key!r}")
+        coverage.combinations.add(key)
+    coverage.reasons.update(rule.reasons)
+    coverage.providers.update(rule.providers)
+    coverage.profiles.add(rule.profile_id)
+    if rule.profile_id == HOSTED_FRONTIER_PROFILE_ID:
+        coverage.hosted_providers.update(rule.providers)
+
+
+def _require_fallback_coverage(coverage: _RuleCoverage, where: str) -> None:
+    expected = set(product(CANONICAL_PROVIDERS, CHANNELS))
+    actual = {
+        (provider, channel)
+        for provider, channel, profile_id in coverage.combinations
+        if profile_id == UNKNOWN_PROVENANCE_PROFILE_ID
+    }
+    if actual != expected:
+        raise policy_error(
+            where,
+            "unknown-provenance rule must provide exact provider/channel coverage",
+        )
+
+
+def _require_rule_coverage(
+    coverage: _RuleCoverage, reason_ids: frozenset[str], where: str
+) -> None:
+    if coverage.providers != set(CANONICAL_PROVIDERS):
+        raise policy_error(where, "rules do not provide exact canonical provider coverage")
+    if coverage.hosted_providers != set(CANONICAL_PROVIDERS):
+        raise policy_error(where, "hosted rules do not provide canonical provider coverage")
+    missing_profiles = sorted(REQUIRED_PROFILE_IDS - coverage.profiles)
+    if missing_profiles:
+        raise policy_error(
+            where,
+            f"required profiles missing authorization paths: {missing_profiles}",
+        )
+    uncovered = sorted(reason_ids - coverage.reasons)
+    if uncovered:
+        raise policy_error(where, f"reason codes not covered by rules: {uncovered}")
+    _require_fallback_coverage(coverage, where)
+
+
 def _validate_rules(
     document: dict,
     profiles: dict[str, dict],
@@ -319,63 +435,25 @@ def _validate_rules(
     where: str,
 ) -> None:
     _catalogue_ids(document.get("rules"), "rules", _RULE_FIELDS, where)
-    covered_reasons: set[str] = set()
-    covered_providers: set[str] = set()
-    covered_profiles: set[str] = set()
-    hosted_providers: set[str] = set()
-    combinations: set[tuple[str, str, str]] = set()
+    coverage = _RuleCoverage()
     for rule in document["rules"]:
-        rule_id = rule["id"]
-        providers, channels = _validate_rule_lists(rule, rule_id, where)
-        profile_id = rule.get("rights_profile_id")
-        if not isinstance(profile_id, str) or profile_id not in profiles:
-            raise policy_error(where, f"rule {rule_id!r} cites unknown profile")
-        profile = profiles[profile_id]
-        reasons = require_unique_strings(
-            rule.get("reason_codes"), "reason_codes", where=where
-        )
-        unknown_reasons = sorted(set(reasons) - reason_ids)
-        if unknown_reasons:
-            raise policy_error(
-                where,
-                f"rule {rule_id!r} cites unknown reasons {unknown_reasons}",
-            )
-        if (
-            rule.get("intended_use") != profile["intended_use"]
-            or rule.get("project_training_policy")
-            != profile["project_training_policy"]
-            or list(reasons) != profile["reason_codes"]
-        ):
-            raise policy_error(where, f"rule {rule_id!r} authorizes a verdict outside profile")
-        for combination in product(providers, channels):
-            key = (combination[0], combination[1], profile_id)
-            if key in combinations:
-                raise policy_error(where, f"duplicate authorized combination {key!r}")
-            combinations.add(key)
-        covered_reasons.update(reasons)
-        covered_providers.update(providers)
-        covered_profiles.add(profile_id)
-        if profile_id == HOSTED_FRONTIER_PROFILE_ID:
-            hosted_providers.update(providers)
+        checked = _validated_rule(rule, profiles, reason_ids, where)
+        _record_rule_coverage(coverage, checked, where)
+    _require_rule_coverage(coverage, reason_ids, where)
 
-    if covered_providers != set(CANONICAL_PROVIDERS):
-        raise policy_error(where, "rules do not provide exact canonical provider coverage")
-    if hosted_providers != set(CANONICAL_PROVIDERS):
-        raise policy_error(where, "hosted rules do not provide canonical provider coverage")
-    missing_profiles = sorted(REQUIRED_PROFILE_IDS - covered_profiles)
-    if missing_profiles:
-        raise policy_error(
-            where,
-            f"required profiles missing authorization paths: {missing_profiles}",
-        )
-    uncovered = sorted(reason_ids - covered_reasons)
-    if uncovered:
-        raise policy_error(where, f"reason codes not covered by rules: {uncovered}")
+
+def _validate_policy_unicode(document: object, where: str) -> None:
+    try:
+        reject_unpaired_surrogates(document)
+    except ValueError as exc:
+        raise RightsPolicyError(
+            f"{where}: invalid rights policy Unicode: {exc}"
+        ) from exc
 
 
 def validate_rights_policy(document: object, *, where: str = "rights policy") -> dict:
     """Validate policy identity, catalogues, profiles, and authorizing rules."""
-
+    _validate_policy_unicode(document, where)
     checked = _validate_identity(document, where)
     _validate_vocabularies(checked, where)
     reason_ids = _validate_reason_catalogue(checked, where)
@@ -384,58 +462,13 @@ def validate_rights_policy(document: object, *, where: str = "rights policy") ->
     return checked
 
 
-def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate JSON object key {key!r}")
-        result[key] = value
-    return result
-
-
-def _reject_constant(token: str) -> None:
-    raise ValueError(f"non-finite JSON constant {token}")
-
-
-def _parse_finite_float(token: str) -> float:
-    value = float(token)
-    if not math.isfinite(value):
-        raise ValueError(f"JSON number is not finitely representable: {token}")
-    return value
-
-
-def _reject_unpaired_surrogates(value: object, path: str = "$") -> None:
-    if isinstance(value, str):
-        try:
-            value.encode("utf-8")
-        except UnicodeEncodeError as exc:
-            raise ValueError(f"unpaired surrogate at {path}") from exc
-        return
-    if isinstance(value, list):
-        for index, item in enumerate(value):
-            _reject_unpaired_surrogates(item, f"{path}[{index}]")
-        return
-    if isinstance(value, dict):
-        for key, item in value.items():
-            _reject_unpaired_surrogates(key, f"{path}.<key>")
-            _reject_unpaired_surrogates(item, f"{path}.{key}")
-
-
 def load_rights_policy_bytes(payload: bytes, *, where: str = "rights policy bytes") -> dict:
     """Strictly decode and validate rights-policy JSON bytes."""
-
     if not isinstance(payload, bytes):
         raise policy_error(where, "policy input must be bytes")
     try:
-        text = payload.decode("utf-8")
-        document = json.loads(
-            text,
-            object_pairs_hook=_reject_duplicate_keys,
-            parse_constant=_reject_constant,
-            parse_float=_parse_finite_float,
-        )
-        _reject_unpaired_surrogates(document)
-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
+        document = parse_strict_json_bytes(payload)
+    except (ValueError, RecursionError) as exc:
         raise RightsPolicyError(f"{where}: invalid rights policy JSON: {exc}") from exc
     return validate_rights_policy(document, where=where)
 
@@ -450,23 +483,52 @@ def _load_rights_policy(path: Path) -> tuple[dict, bytes]:
 
 def load_rights_policy(path: str | Path | None = None) -> dict:
     """Load an explicit policy path, failing closed on bytes or semantics."""
-
     document, _ = _load_rights_policy(Path(path) if path is not None else MAPPING_PATH)
     return document
 
 
 @dataclass(frozen=True)
-class RightsAuthorization:
-    """One fully compiled verdict containing no mutable policy nodes."""
-
-    intended_use: str
-    project_training_policy: str
+class _EvidenceStatuses:
     research_retention_status: str
     research_evaluation_status: str
     redistribution_status: str
     provider_training_status: str
     weight_publication_status: str
+
+
+@dataclass(frozen=True)
+class RightsAuthorization:  # noqa: D203,D211
+    """One fully compiled verdict containing no mutable policy nodes."""
+
+    intended_use: str
+    project_training_policy: str
+    evidence_statuses: _EvidenceStatuses
     reason_codes: tuple[str, ...]
+
+    @property
+    def research_retention_status(self) -> str:
+        """Return the sealed research-retention evidence status."""
+        return self.evidence_statuses.research_retention_status
+
+    @property
+    def research_evaluation_status(self) -> str:
+        """Return the sealed research-evaluation evidence status."""
+        return self.evidence_statuses.research_evaluation_status
+
+    @property
+    def redistribution_status(self) -> str:
+        """Return the sealed redistribution evidence status."""
+        return self.evidence_statuses.redistribution_status
+
+    @property
+    def provider_training_status(self) -> str:
+        """Return the sealed provider-training evidence status."""
+        return self.evidence_statuses.provider_training_status
+
+    @property
+    def weight_publication_status(self) -> str:
+        """Return the sealed weight-publication evidence status."""
+        return self.evidence_statuses.weight_publication_status
 
 
 def _compile_authorizations(document: dict) -> MappingProxyType:
@@ -478,11 +540,13 @@ def _compile_authorizations(document: dict) -> MappingProxyType:
         authorization = RightsAuthorization(
             intended_use=rule["intended_use"],
             project_training_policy=rule["project_training_policy"],
-            research_retention_status=statuses["research_retention_status"],
-            research_evaluation_status=statuses["research_evaluation_status"],
-            redistribution_status=statuses["redistribution_status"],
-            provider_training_status=statuses["provider_training_status"],
-            weight_publication_status=statuses["weight_publication_status"],
+            evidence_statuses=_EvidenceStatuses(
+                research_retention_status=statuses["research_retention_status"],
+                research_evaluation_status=statuses["research_evaluation_status"],
+                redistribution_status=statuses["redistribution_status"],
+                provider_training_status=statuses["provider_training_status"],
+                weight_publication_status=statuses["weight_publication_status"],
+            ),
             reason_codes=tuple(rule["reason_codes"]),
         )
         for provider, channel in product(rule["providers"], rule["channels"]):

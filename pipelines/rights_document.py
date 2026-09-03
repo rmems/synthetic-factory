@@ -3,14 +3,11 @@
 
 from __future__ import annotations
 
-import json
-import math
 import re
 import sys
 from dataclasses import dataclass
 from datetime import date
 from types import MappingProxyType
-from typing import Any
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -25,7 +22,9 @@ if __package__:
         INTENDED_USES,
         PROJECT_TRAINING_POLICIES,
         RightsPolicyError,
+        parse_strict_json_bytes,
         policy_error,
+        reject_unpaired_surrogates,
         require_hash,
         require_nonempty_string,
     )
@@ -43,7 +42,9 @@ else:
         INTENDED_USES,
         PROJECT_TRAINING_POLICIES,
         RightsPolicyError,
+        parse_strict_json_bytes,
         policy_error,
+        reject_unpaired_surrogates,
         require_hash,
         require_nonempty_string,
     )
@@ -97,48 +98,118 @@ _DATASET_ID_RE = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?/"
     r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$"
 )
-_DATE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$", re.ASCII)
 _GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 @dataclass(frozen=True)
-class RightsDocument:
-    """Normalized immutable public rights declaration."""
-
+class _DocumentIdentity:
     schema_version: str
     dataset_id: str
     policy_source: str
+    model: str
+    generated_at: str
+
+
+@dataclass(frozen=True)
+class _ProviderRoute:
     provider: str
     canonical_provider: str
-    model: str
     channel: str
     subscription_plan: str
     generation_surface: str
-    generated_at: str
+    provider_output_attribution: str
+
+
+@dataclass(frozen=True)
+class _EvidenceReferences:
     terms_document: str | None
     terms_effective_date: str | None
     terms_snapshot_sha256: str | None
-    provider_output_attribution: str
-    intended_use: str
-    project_training_policy: str
+
+    def values(self) -> tuple[str | None, str | None, str | None]:
+        """Return the evidence references in schema order."""
+        return (
+            self.terms_document,
+            self.terms_effective_date,
+            self.terms_snapshot_sha256,
+        )
+
+
+@dataclass(frozen=True)
+class _EvidenceStatuses:
     research_retention_status: str
     research_evaluation_status: str
     redistribution_status: str
     provider_training_status: str
     weight_publication_status: str
+
+    def values(self) -> tuple[str, str, str, str, str]:
+        """Return all evidence statuses in schema order."""
+        return (
+            self.research_retention_status,
+            self.research_evaluation_status,
+            self.redistribution_status,
+            self.provider_training_status,
+            self.weight_publication_status,
+        )
+
+
+@dataclass(frozen=True)
+class _PublicDecision:
+    intended_use: str
+    project_training_policy: str
+    evidence_statuses: _EvidenceStatuses
+
+
+@dataclass(frozen=True)
+class _EvidenceReview:
+    references: _EvidenceReferences
     status_basis: str
     reviewed_at: str
+
+
+@dataclass(frozen=True)
+class _LegacyRelease:
     original_release_license: str | None
     original_release_commit: str | None
     legacy_public_release: bool
+
+
+@dataclass(frozen=True)
+class RightsDocument:  # noqa: D203,D211
+    """Normalized immutable public rights declaration."""
+
+    identity: _DocumentIdentity
+    route: _ProviderRoute
+    decision: _PublicDecision
+    evidence: _EvidenceReview
+    legacy: _LegacyRelease
     notes: str | None
+
+    def __getattr__(self, name: str) -> object:
+        """Expose immutable aggregate fields through the original flat API."""
+        sections = (
+            self.identity,
+            self.route,
+            self.decision,
+            self.decision.evidence_statuses,
+            self.evidence,
+            self.evidence.references,
+            self.legacy,
+        )
+        for section in sections:
+            if hasattr(section, name):
+                return getattr(section, name)
+        raise AttributeError(name)
 
 
 def _exact_document(value: object, where: str) -> dict[str, object]:
     if not isinstance(value, dict):
         raise policy_error(where, "rights document must be an object")
     fields = set(value)
-    if not (fields == REQUIRED_FIELDS or fields == REQUIRED_FIELDS | OPTIONAL_FIELDS):
+    allowed_field_sets = (REQUIRED_FIELDS, REQUIRED_FIELDS | OPTIONAL_FIELDS)
+    if fields not in allowed_field_sets:
         raise policy_error(
             where,
             "rights document fields must be exactly the required fields, "
@@ -199,14 +270,10 @@ def _provider_alias(value: object, where: str) -> tuple[str, str]:
 
 
 def _validate_hosted_authorization(
-    canonical_provider: str,
-    channel: str,
-    intended_use: str,
-    project_training_policy: str,
-    where: str,
+    route: _ProviderRoute, decision: _PublicDecision, where: str
 ) -> None:
     authorization = RIGHTS_AUTHORIZATIONS.get(
-        (canonical_provider, channel, HOSTED_FRONTIER_PROFILE_ID)
+        (route.canonical_provider, route.channel, HOSTED_FRONTIER_PROFILE_ID)
     )
     if authorization is None:
         raise policy_error(
@@ -214,8 +281,8 @@ def _validate_hosted_authorization(
             "no hosted-frontier authorization for public provider/channel route",
         )
     if (
-        intended_use != authorization.intended_use
-        or project_training_policy != authorization.project_training_policy
+        decision.intended_use != authorization.intended_use
+        or decision.project_training_policy != authorization.project_training_policy
     ):
         raise policy_error(
             where,
@@ -228,9 +295,9 @@ def _validate_hosted_authorization(
 
 def _validate_evidence(
     document: dict[str, object],
-    statuses: dict[str, str],
+    decision: _PublicDecision,
     where: str,
-) -> tuple[str | None, str | None, str | None]:
+) -> _EvidenceReview:
     terms_document = _optional_nonempty_string(
         document["terms_document"], "terms_document", where
     )
@@ -240,114 +307,164 @@ def _validate_evidence(
     terms_snapshot_sha256 = _optional_hash(
         document["terms_snapshot_sha256"], "terms_snapshot_sha256", where
     )
-    references = (terms_document, terms_effective_date, terms_snapshot_sha256)
-    populated = tuple(value is not None for value in references)
+    references = _EvidenceReferences(
+        terms_document,
+        terms_effective_date,
+        terms_snapshot_sha256,
+    )
+    populated = tuple(value is not None for value in references.values())
+    _require_complete_references(populated, where)
+    _require_evidence_for_resolved_status(decision, populated, where)
+    status_basis = require_nonempty_string(
+        document["status_basis"], "status_basis", where=where
+    )
+    reviewed_at = _calendar_date(document["reviewed_at"], "reviewed_at", where)
+    return _EvidenceReview(references, status_basis, reviewed_at)
+
+
+def _require_complete_references(populated: tuple[bool, ...], where: str) -> None:
     if any(populated) and not all(populated):
         raise policy_error(
             where,
             "evidence references must be all null or all non-null",
         )
-    if any(status != "unresolved" for status in statuses.values()) and not all(
-        populated
-    ):
+
+
+def _require_evidence_for_resolved_status(
+    decision: _PublicDecision, populated: tuple[bool, ...], where: str
+) -> None:
+    statuses = decision.evidence_statuses.values()
+    if any(status != "unresolved" for status in statuses) and not all(populated):
         raise policy_error(
             where,
             "non-unresolved evidence requires terms_document, "
             "terms_effective_date, terms_snapshot_sha256, and status_basis",
         )
-    return references
+
+
+def _validate_legacy_release(
+    release_license: object, release_commit: object, where: str
+) -> _LegacyRelease:
+    try:
+        checked_license = require_nonempty_string(
+            release_license,
+            "original_release_license",
+            where=where,
+        )
+    except RightsPolicyError as exc:
+        raise policy_error(
+            where,
+            "legacy_public_release true requires a nonempty original_release_license",
+        ) from exc
+    if not isinstance(release_commit, str) or _GIT_COMMIT_RE.fullmatch(release_commit) is None:
+        raise policy_error(
+            where,
+            "legacy_public_release true requires original_release_commit as lowercase 40 hex",
+        )
+    return _LegacyRelease(checked_license, release_commit, True)
 
 
 def _validate_legacy_provenance(
     document: dict[str, object], where: str
-) -> tuple[str | None, str | None, bool]:
+) -> _LegacyRelease:
     legacy = document["legacy_public_release"]
     if not isinstance(legacy, bool):
         raise policy_error(where, "legacy_public_release must be a boolean")
     release_license = document["original_release_license"]
     release_commit = document["original_release_commit"]
     if legacy:
-        try:
-            checked_license = require_nonempty_string(
-                release_license,
-                "original_release_license",
-                where=where,
-            )
-        except RightsPolicyError as exc:
-            raise policy_error(
-                where,
-                "legacy_public_release true requires a nonempty "
-                "original_release_license",
-            ) from exc
-        if (
-            not isinstance(release_commit, str)
-            or _GIT_COMMIT_RE.fullmatch(release_commit) is None
-        ):
-            raise policy_error(
-                where,
-                "legacy_public_release true requires original_release_commit "
-                "as lowercase 40 hex",
-            )
-        return checked_license, release_commit, legacy
+        return _validate_legacy_release(release_license, release_commit, where)
     if release_license is not None or release_commit is not None:
         raise policy_error(
             where,
             "original_release_license and original_release_commit must be null "
             "when legacy_public_release is false",
         )
-    return None, None, legacy
+    return _LegacyRelease(None, None, False)
+
+
+def _validate_document_identity(
+    document: dict[str, object], where: str
+) -> _DocumentIdentity:
+    if document["schema_version"] != RIGHTS_DOCUMENT_SCHEMA_VERSION:
+        raise policy_error(
+            where,
+            f"schema_version must be exactly {RIGHTS_DOCUMENT_SCHEMA_VERSION}",
+        )
+    dataset_id = document["dataset_id"]
+    if not isinstance(dataset_id, str) or _DATASET_ID_RE.fullmatch(dataset_id) is None:
+        raise policy_error(where, "dataset_id must be an exact owner/name identifier")
+    return _DocumentIdentity(
+        RIGHTS_DOCUMENT_SCHEMA_VERSION,
+        dataset_id,
+        require_nonempty_string(document["policy_source"], "policy_source", where=where),
+        require_nonempty_string(document["model"], "model", where=where),
+        require_nonempty_string(document["generated_at"], "generated_at", where=where),
+    )
+
+
+def _validate_provider_route(
+    document: dict[str, object], where: str
+) -> _ProviderRoute:
+    provider, canonical_provider = _provider_alias(document["provider"], where)
+    return _ProviderRoute(
+        provider,
+        canonical_provider,
+        _closed_value(document["channel"], "channel", CHANNELS, where),
+        require_nonempty_string(
+            document["subscription_plan"], "subscription_plan", where=where
+        ),
+        require_nonempty_string(
+            document["generation_surface"], "generation_surface", where=where
+        ),
+        require_nonempty_string(
+            document["provider_output_attribution"],
+            "provider_output_attribution",
+            where=where,
+        ),
+    )
+
+
+def _validate_public_decision(
+    document: dict[str, object], where: str
+) -> _PublicDecision:
+    statuses = {
+        field: _closed_value(document[field], field, EVIDENCE_STATUSES, where)
+        for field in EVIDENCE_STATUS_FIELDS
+    }
+    return _PublicDecision(
+        _closed_value(document["intended_use"], "intended_use", INTENDED_USES, where),
+        _closed_value(
+            document["project_training_policy"],
+            "project_training_policy",
+            PROJECT_TRAINING_POLICIES,
+            where,
+        ),
+        _EvidenceStatuses(**statuses),
+    )
+
+
+def _validate_document_unicode(document: object, where: str) -> None:
+    try:
+        reject_unpaired_surrogates(document)
+    except ValueError as exc:
+        raise RightsPolicyError(
+            f"{where}: invalid rights document Unicode: {exc}"
+        ) from exc
 
 
 def validate_rights_document(
     document: object, *, where: str = "rights document"
 ) -> RightsDocument:
     """Validate one parsed public sidecar and return immutable normalized data."""
-
     checked = _exact_document(document, where)
-    try:
-        _reject_unpaired_surrogates(checked)
-    except ValueError as exc:
-        raise RightsPolicyError(f"{where}: invalid rights document Unicode: {exc}") from exc
-
-    if checked["schema_version"] != RIGHTS_DOCUMENT_SCHEMA_VERSION:
-        raise policy_error(
-            where,
-            f"schema_version must be exactly {RIGHTS_DOCUMENT_SCHEMA_VERSION}",
-        )
-    dataset_id = checked["dataset_id"]
-    if not isinstance(dataset_id, str) or _DATASET_ID_RE.fullmatch(dataset_id) is None:
-        raise policy_error(where, "dataset_id must be an exact owner/name identifier")
-
-    provider, canonical_provider = _provider_alias(checked["provider"], where)
-    channel = _closed_value(checked["channel"], "channel", CHANNELS, where)
-    intended_use = _closed_value(
-        checked["intended_use"], "intended_use", INTENDED_USES, where
-    )
-    project_training_policy = _closed_value(
-        checked["project_training_policy"],
-        "project_training_policy",
-        PROJECT_TRAINING_POLICIES,
-        where,
-    )
-    _validate_hosted_authorization(
-        canonical_provider,
-        channel,
-        intended_use,
-        project_training_policy,
-        where,
-    )
-
-    statuses = {
-        field: _closed_value(checked[field], field, EVIDENCE_STATUSES, where)
-        for field in EVIDENCE_STATUS_FIELDS
-    }
-    status_basis = require_nonempty_string(
-        checked["status_basis"], "status_basis", where=where
-    )
-    evidence = _validate_evidence(checked, statuses, where)
-    release_license, release_commit, legacy = _validate_legacy_provenance(
-        checked, where
-    )
+    _validate_document_unicode(checked, where)
+    identity = _validate_document_identity(checked, where)
+    route = _validate_provider_route(checked, where)
+    decision = _validate_public_decision(checked, where)
+    _validate_hosted_authorization(route, decision, where)
+    evidence = _validate_evidence(checked, decision, where)
+    legacy = _validate_legacy_provenance(checked, where)
     notes = (
         require_nonempty_string(checked["notes"], "notes", where=where)
         if "notes" in checked
@@ -355,101 +472,24 @@ def validate_rights_document(
     )
 
     return RightsDocument(
-        schema_version=RIGHTS_DOCUMENT_SCHEMA_VERSION,
-        dataset_id=dataset_id,
-        policy_source=require_nonempty_string(
-            checked["policy_source"], "policy_source", where=where
-        ),
-        provider=provider,
-        canonical_provider=canonical_provider,
-        model=require_nonempty_string(checked["model"], "model", where=where),
-        channel=channel,
-        subscription_plan=require_nonempty_string(
-            checked["subscription_plan"], "subscription_plan", where=where
-        ),
-        generation_surface=require_nonempty_string(
-            checked["generation_surface"], "generation_surface", where=where
-        ),
-        generated_at=require_nonempty_string(
-            checked["generated_at"], "generated_at", where=where
-        ),
-        terms_document=evidence[0],
-        terms_effective_date=evidence[1],
-        terms_snapshot_sha256=evidence[2],
-        provider_output_attribution=require_nonempty_string(
-            checked["provider_output_attribution"],
-            "provider_output_attribution",
-            where=where,
-        ),
-        intended_use=intended_use,
-        project_training_policy=project_training_policy,
-        research_retention_status=statuses["research_retention_status"],
-        research_evaluation_status=statuses["research_evaluation_status"],
-        redistribution_status=statuses["redistribution_status"],
-        provider_training_status=statuses["provider_training_status"],
-        weight_publication_status=statuses["weight_publication_status"],
-        status_basis=status_basis,
-        reviewed_at=_calendar_date(checked["reviewed_at"], "reviewed_at", where),
-        original_release_license=release_license,
-        original_release_commit=release_commit,
-        legacy_public_release=legacy,
+        identity=identity,
+        route=route,
+        decision=decision,
+        evidence=evidence,
+        legacy=legacy,
         notes=notes,
     )
-
-
-def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate JSON object key {key!r}")
-        result[key] = value
-    return result
-
-
-def _reject_constant(token: str) -> None:
-    raise ValueError(f"non-finite JSON constant {token}")
-
-
-def _parse_finite_float(token: str) -> float:
-    value = float(token)
-    if not math.isfinite(value):
-        raise ValueError(f"JSON number is not finitely representable: {token}")
-    return value
-
-
-def _reject_unpaired_surrogates(value: object, path: str = "$") -> None:
-    if isinstance(value, str):
-        try:
-            value.encode("utf-8")
-        except UnicodeEncodeError as exc:
-            raise ValueError(f"unpaired surrogate at {path}") from exc
-        return
-    if isinstance(value, list):
-        for index, item in enumerate(value):
-            _reject_unpaired_surrogates(item, f"{path}[{index}]")
-        return
-    if isinstance(value, dict):
-        for key, item in value.items():
-            _reject_unpaired_surrogates(key, f"{path}.<key>")
-            _reject_unpaired_surrogates(item, f"{path}.{key}")
 
 
 def load_rights_document_bytes(
     payload: bytes, *, where: str = "rights document bytes"
 ) -> RightsDocument:
     """Strictly decode JSON bytes and validate a public rights declaration."""
-
     if not isinstance(payload, bytes):
         raise policy_error(where, "rights document input must be bytes")
     try:
-        document = json.loads(
-            payload.decode("utf-8"),
-            object_pairs_hook=_reject_duplicate_keys,
-            parse_constant=_reject_constant,
-            parse_float=_parse_finite_float,
-        )
-        _reject_unpaired_surrogates(document)
-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
+        document = parse_strict_json_bytes(payload)
+    except (ValueError, RecursionError) as exc:
         raise RightsPolicyError(f"{where}: invalid rights document JSON: {exc}") from exc
     return validate_rights_document(document, where=where)
 

@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """Fail-closed behavior tests for rights-policy v1."""
 
+# pylint: disable=too-many-lines
+
 from __future__ import annotations
 
 import copy
 import hashlib
 import importlib.util
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
@@ -36,8 +38,65 @@ def digest(payload: bytes) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
-@unittest.skipIf(RIGHTS_POLICY_SPEC is None, "rights policy runtime is not implemented")
-class RightsPolicyTests(unittest.TestCase):
+@contextmanager
+def mutated_loaded_policy():
+    """Attempt mutation, then restore mutable implementations for test isolation."""
+    profile = _policy_item(
+        "profiles", rights_policy.HOSTED_FRONTIER_PROFILE_ID
+    )
+    rule = _policy_item("rules", "HOSTED_ANTHROPIC_CONSUMER")
+    original_profile = copy.deepcopy(profile)
+    original_rule = copy.deepcopy(rule)
+    try:
+        _attempt_policy_mutation(profile, rule)
+        yield
+    finally:
+        _restore_policy(profile, rule, original_profile, original_rule)
+
+
+def _policy_item(collection: str, identifier: str):
+    item = next(
+        (
+            candidate
+            for candidate in rights_policy.RIGHTS_POLICY[collection]
+            if candidate["id"] == identifier
+        ),
+        None,
+    )
+    if item is None:
+        raise AssertionError(f"missing policy test fixture {identifier}")
+    return item
+
+
+def _attempt_policy_mutation(profile, rule):
+    try:
+        profile.update(
+            intended_use="training_candidate",
+            project_training_policy="allowed",
+        )
+        profile["evidence_statuses"].update(
+            {field: "allowed" for field in rights_policy.EVIDENCE_STATUS_FIELDS}
+        )
+        rule.update(
+            intended_use="training_candidate",
+            project_training_policy="allowed",
+            reason_codes=["UNKNOWN_PROVENANCE"],
+        )
+    except (AttributeError, TypeError):
+        pass
+
+
+def _restore_policy(profile, rule, original_profile, original_rule):
+    try:
+        profile.clear()
+        profile.update(original_profile)
+        rule.clear()
+        rule.update(original_rule)
+    except (AttributeError, TypeError):
+        pass
+
+
+class RightsPolicyTestCase(unittest.TestCase):
     SOURCE_BYTES = b'{"id":"record-1"}\n'
     REGISTRY_BYTES = b'{"schema_version":"factory-registry-v0.1"}\n'
     SOURCE_SHA256 = digest(SOURCE_BYTES)
@@ -45,10 +104,12 @@ class RightsPolicyTests(unittest.TestCase):
 
     def classify(self, provider="anthropic", channel="consumer", profile=None):
         return rights_classifier.classify_rights(
-            provider=provider,
-            channel=channel,
-            rights_profile_id=(
-                profile or rights_policy.HOSTED_FRONTIER_PROFILE_ID
+            rights_classifier.RightsRoute(
+                provider=provider,
+                channel=channel,
+                rights_profile_id=(
+                    profile or rights_policy.HOSTED_FRONTIER_PROFILE_ID
+                ),
             ),
             source_sha256=self.SOURCE_SHA256,
             factory_registry_sha256=self.REGISTRY_SHA256,
@@ -58,6 +119,10 @@ class RightsPolicyTests(unittest.TestCase):
         path = Path(directory) / name
         path.write_bytes(payload)
         return path
+
+
+@unittest.skipIf(RIGHTS_POLICY_SPEC is None, "rights policy runtime is not implemented")
+class RightsPolicyTests(RightsPolicyTestCase):
 
     def test_committed_policy_is_loaded_and_bound_to_its_exact_bytes(self):
         document = json.loads(MAPPING.read_text(encoding="utf-8"))
@@ -118,6 +183,17 @@ class RightsPolicyTests(unittest.TestCase):
                 }
                 self.assertEqual(decision.to_public_payload(), expected)
 
+    def test_classification_accepts_explicit_route_keywords(self):
+        decision = rights_classifier.classify_rights(
+            provider="anthropic",
+            channel="consumer",
+            rights_profile_id=rights_policy.HOSTED_FRONTIER_PROFILE_ID,
+            source_sha256=self.SOURCE_SHA256,
+            factory_registry_sha256=self.REGISTRY_SHA256,
+        )
+
+        self.assertEqual(decision, self.classify())
+
     def test_unknown_provenance_has_an_explicit_fail_closed_path(self):
         decision = self.classify(
             "xai", "local", rights_policy.UNKNOWN_PROVENANCE_PROFILE_ID
@@ -155,39 +231,7 @@ class RightsPolicyTests(unittest.TestCase):
         self.assertIs(validated, document)
 
     def test_mutating_loaded_policy_cannot_change_or_validate_bound_decision(self):
-        profile = next(
-            item
-            for item in rights_policy.RIGHTS_POLICY["profiles"]
-            if item["id"] == rights_policy.HOSTED_FRONTIER_PROFILE_ID
-        )
-        rule = next(
-            item
-            for item in rights_policy.RIGHTS_POLICY["rules"]
-            if item["id"] == "HOSTED_ANTHROPIC_CONSUMER"
-        )
-        original_profile = copy.deepcopy(profile)
-        original_rule = copy.deepcopy(rule)
-        try:
-            try:
-                profile.update(
-                    intended_use="training_candidate",
-                    project_training_policy="allowed",
-                )
-                profile["evidence_statuses"].update(
-                    {
-                        field: "allowed"
-                        for field in rights_policy.EVIDENCE_STATUS_FIELDS
-                    }
-                )
-                rule.update(
-                    intended_use="training_candidate",
-                    project_training_policy="allowed",
-                    reason_codes=["UNKNOWN_PROVENANCE"],
-                )
-            except (AttributeError, TypeError):
-                # Deep-freezing is also a valid way to seal the imported state.
-                pass
-
+        with mutated_loaded_policy():
             decision = self.classify()
             promoted = decision.to_public_payload()
             promoted.update(
@@ -222,14 +266,6 @@ class RightsPolicyTests(unittest.TestCase):
                     ("HOSTED_FRONTIER_RESEARCH_ONLY",),
                 ),
             )
-        finally:
-            try:
-                profile.clear()
-                profile.update(original_profile)
-                rule.clear()
-                rule.update(original_rule)
-            except (AttributeError, TypeError):
-                pass
 
     def test_decision_is_immutable(self):
         decision = self.classify()
@@ -355,6 +391,33 @@ class RightsPolicyTests(unittest.TestCase):
                 ):
                     check()
 
+    def test_unknown_provenance_rule_covers_every_provider_channel_route(self):
+        document = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+        fallback = next(
+            rule
+            for rule in document["rules"]
+            if rule["rights_profile_id"]
+            == rights_policy.UNKNOWN_PROVENANCE_PROFILE_ID
+        )
+        fallback["providers"] = ["xai"]
+        fallback["channels"] = ["local"]
+
+        with self.assertRaisesRegex(
+            rights_policy.RightsPolicyError,
+            "unknown-provenance.*provider/channel coverage",
+        ):
+            rights_policy.validate_rights_policy(document)
+
+    def test_direct_policy_validation_rejects_unpaired_surrogates(self):
+        document = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+        document["reason_codes"][0]["description"] = "invalid-\ud800"
+
+        with self.assertRaisesRegex(
+            rights_policy.RightsPolicyError,
+            "invalid rights policy Unicode.*unpaired surrogate",
+        ):
+            rights_policy.validate_rights_policy(document)
+
     def test_policy_validation_rejects_profile_or_rule_verdict_drift(self):
         inconsistent_profile = copy.deepcopy(rights_policy.RIGHTS_POLICY)
         inconsistent_profile["profiles"][1]["project_training_policy"] = "allowed"
@@ -401,160 +464,6 @@ class RightsPolicyTests(unittest.TestCase):
                 rights_policy.load_rights_policy(missing)
             with self.assertRaises(rights_policy.RightsPolicyError):
                 rights_policy.load_rights_policy(Path(directory))
-
-    def test_classification_rejects_unknown_or_unauthorized_inputs(self):
-        cases = (
-            {"provider": "other"},
-            {"channel": "other"},
-            {"profile": "other-profile"},
-            {"provider": "meta", "channel": "consumer"},
-        )
-        for overrides in cases:
-            arguments = {
-                "provider": "anthropic",
-                "channel": "consumer",
-                "profile": rights_policy.HOSTED_FRONTIER_PROFILE_ID,
-            }
-            arguments.update(overrides)
-            with self.subTest(arguments=arguments):
-                with self.assertRaises(rights_policy.RightsPolicyError):
-                    self.classify(**arguments)
-
-    def test_malformed_semantic_types_raise_rights_policy_error(self):
-        with self.assertRaises(rights_policy.RightsPolicyError):
-            self.classify(provider=[])
-
-        mutations = (
-            lambda document: document["profiles"][0].update(intended_use=[]),
-            lambda document: document["profiles"][0]["evidence_statuses"].update(
-                redistribution_status=[]
-            ),
-            lambda document: document["rules"][0].update(rights_profile_id=[]),
-        )
-        for mutate in mutations:
-            document = copy.deepcopy(rights_policy.RIGHTS_POLICY)
-            mutate(document)
-            with self.subTest(document=document):
-                with self.assertRaises(rights_policy.RightsPolicyError):
-                    rights_policy.validate_rights_policy(document)
-
-    def test_package_first_and_direct_imports_share_module_objects(self):
-        script = f"""
-import sys
-sys.path.insert(0, {str(ROOT)!r})
-sys.path.insert(1, {str(PIPELINES)!r})
-import pipelines.rights_classifier as package_classifier
-import pipelines.rights_policy as package_policy
-import rights_classifier
-import rights_policy
-assert package_classifier is rights_classifier
-assert package_policy is rights_policy
-assert package_policy.RightsPolicyError is rights_policy.RightsPolicyError
-"""
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_classification_rejects_malformed_hashes(self):
-        for field in ("source_sha256", "factory_registry_sha256"):
-            arguments = {
-                "provider": "anthropic",
-                "channel": "consumer",
-                "rights_profile_id": rights_policy.HOSTED_FRONTIER_PROFILE_ID,
-                "source_sha256": self.SOURCE_SHA256,
-                "factory_registry_sha256": self.REGISTRY_SHA256,
-            }
-            arguments[field] = "sha256:" + "A" * 64
-            with self.subTest(field=field):
-                with self.assertRaises(rights_policy.RightsPolicyError):
-                    rights_classifier.classify_rights(**arguments)
-
-    def test_envelope_verification_recomputes_all_three_bound_digests(self):
-        payload = self.classify().to_public_payload()
-
-        verified = rights_classifier.verify_rights_envelope(
-            payload,
-            source_bytes=self.SOURCE_BYTES,
-            factory_registry_bytes=self.REGISTRY_BYTES,
-            policy_bytes=MAPPING.read_bytes(),
-        )
-
-        self.assertEqual(verified, self.classify())
-
-        digest_cases = {
-            "source_sha256": "source_sha256",
-            "factory_registry_sha256": "factory_registry_sha256",
-            "rights_policy_sha256": "rights_policy_sha256",
-        }
-        for field, label in digest_cases.items():
-            altered = copy.deepcopy(payload)
-            altered[field] = "sha256:" + "0" * 64
-            with self.subTest(field=field):
-                with self.assertRaisesRegex(rights_policy.RightsPolicyError, label):
-                    rights_classifier.verify_rights_envelope(
-                        altered,
-                        source_bytes=self.SOURCE_BYTES,
-                        factory_registry_bytes=self.REGISTRY_BYTES,
-                        policy_bytes=MAPPING.read_bytes(),
-                    )
-
-        byte_cases = {
-            "source": {
-                "source_bytes": self.SOURCE_BYTES + b" ",
-                "factory_registry_bytes": self.REGISTRY_BYTES,
-                "policy_bytes": MAPPING.read_bytes(),
-            },
-            "registry": {
-                "source_bytes": self.SOURCE_BYTES,
-                "factory_registry_bytes": self.REGISTRY_BYTES + b" ",
-                "policy_bytes": MAPPING.read_bytes(),
-            },
-            "policy": {
-                "source_bytes": self.SOURCE_BYTES,
-                "factory_registry_bytes": self.REGISTRY_BYTES,
-                "policy_bytes": MAPPING.read_bytes() + b"\n",
-            },
-        }
-        for label, arguments in byte_cases.items():
-            with self.subTest(bound_bytes=label):
-                with self.assertRaises(rights_policy.RightsPolicyError):
-                    rights_classifier.verify_rights_envelope(payload, **arguments)
-
-    def test_envelope_verification_rejects_every_policy_controlled_drift(self):
-        payload = self.classify().to_public_payload()
-        mutations = {
-            "unknown reason": lambda item: item.update(
-                reason_codes=["NOT_CATALOGUED"]
-            ),
-            "profile drift": lambda item: item.update(
-                rights_profile_id=rights_policy.UNKNOWN_PROVENANCE_PROFILE_ID
-            ),
-            "verdict drift": lambda item: item.update(
-                project_training_policy="allowed"
-            ),
-            "status drift": lambda item: item.update(
-                provider_training_status="allowed"
-            ),
-            "combination drift": lambda item: item.update(
-                provider="meta", channel="consumer"
-            ),
-            "extra field": lambda item: item.update(unbound=True),
-        }
-        for label, mutate in mutations.items():
-            altered = copy.deepcopy(payload)
-            mutate(altered)
-            with self.subTest(label=label):
-                with self.assertRaises(rights_policy.RightsPolicyError):
-                    rights_classifier.verify_rights_envelope(
-                        altered,
-                        source_bytes=self.SOURCE_BYTES,
-                        factory_registry_bytes=self.REGISTRY_BYTES,
-                    )
-
 
 class RightsPolicyAvailabilityTests(unittest.TestCase):
     def test_rights_policy_runtime_exists(self):

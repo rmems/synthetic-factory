@@ -1219,6 +1219,37 @@ def _load_temp_registry(directory, payload):
     return identity.load_registry(path)
 
 
+def _factory_row(path_id, record_kind, **overrides):
+    values = {
+        "path_id": path_id,
+        "payload_factory": path_id,
+        "generator": "fable-5",
+        "generator_version": "fable-5",
+        "provider": "anthropic",
+        "channel": "consumer",
+        "rights_profile_id": "hosted-frontier-research-only-v1",
+        "intended_use": "research_only",
+        "project_training_policy": "blocked",
+        "record_kinds": frozenset({record_kind}),
+        "identity_authoritative": True,
+        "publication_target": None,
+        "training_ready_policy": "never",
+        "allowed_curation_lanes": ("curate_identity",),
+        "provenance_contract_by_kind": {record_kind: "require_state_claim"},
+    }
+    values.update(overrides)
+    return identity.FactoryRow(**values)
+
+
+def _single_row_registry(row, digest_character):
+    return identity.FactoryRegistry(
+        schema_version="factory-registry-v0.2",
+        sha256=digest_character * 64,
+        raw_bytes=b"{}",
+        by_path_id={row.path_id: row},
+    )
+
+
 def _manifest_bytes(manifest):
     return (
         json.dumps(
@@ -1233,6 +1264,49 @@ def _manifest_bytes(manifest):
 
 
 class TestFactoryRegistryRightsContract(unittest.TestCase):
+    def test_identity_tree_replays_copied_v01_registry_sidecar(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            factory = src / FABLE_ACT
+            factory.mkdir(parents=True)
+            (factory / "records.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            identity.write_run(src, dest)
+
+            registry_path = dest / identity.FACTORY_REGISTRY_SIDECAR
+            registry = json.loads(registry_path.read_text(encoding="utf-8"))
+            registry["schema_version"] = "factory-registry-v0.1"
+            rights_fields = (
+                "provider",
+                "channel",
+                "rights_profile_id",
+                "intended_use",
+                "project_training_policy",
+            )
+            for row in registry["factories"]:
+                for field in rights_fields:
+                    row.pop(field)
+            legacy_bytes = _manifest_bytes(registry)
+            registry_path.write_bytes(legacy_bytes)
+
+            manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            legacy_digest = hashlib.sha256(legacy_bytes).hexdigest()
+            for mapping in manifest:
+                mapping["registry"] = {
+                    "schema_version": "factory-registry-v0.1",
+                    "sha256": legacy_digest,
+                }
+            manifest_path.write_bytes(_manifest_bytes(manifest))
+
+            loaded = identity.validate_identity_tree(dest)
+
+            self.assertEqual(loaded.schema_version, "factory-registry-v0.1")
+            self.assertEqual(loaded.sha256, legacy_digest)
+
     def test_policy_known_fallback_profile_cannot_replace_hosted_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(
@@ -1250,11 +1324,11 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
                     ),
                 )
 
-    def test_legacy_schema_and_missing_rights_fields_fail_closed(self):
+    def test_legacy_rows_cannot_smuggle_rights_fields_and_v02_requires_them(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(
                 identity.IdentityCurationError,
-                "schema_version must be factory-registry-v0.2",
+                "v0.1 rows must not declare rights fields",
             ):
                 _load_temp_registry(
                     Path(tmp) / "legacy",
@@ -2084,102 +2158,51 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 expected_manifest_digest=original_digest,
             )
 
-    def test_exclude_not_authoritative_and_invalid_contract(self):
-        with tempfile.TemporaryDirectory():
-            not_auth = identity.FactoryRow(
-                path_id=FABLE_THALAMIC,
-                payload_factory=FABLE_THALAMIC,
-                generator="fable-5",
-                generator_version="fable-5",
-                provider="anthropic",
-                channel="consumer",
-                rights_profile_id="hosted-frontier-research-only-v1",
-                intended_use="research_only",
-                project_training_policy="blocked",
-                record_kinds=frozenset({"thalamic"}),
-                identity_authoritative=False,
-                publication_target=None,
-                training_ready_policy="never",
-                allowed_curation_lanes=("curate_identity",),
-                provenance_contract_by_kind={"thalamic": "require_state_claim"},
-            )
-            registry = identity.FactoryRegistry(
-                schema_version="factory-registry-v0.2",
-                sha256="a" * 64,
-                raw_bytes=b"{}",
-                by_path_id={FABLE_THALAMIC: not_auth},
-            )
-            result = identity.curate_record(source(thalamic()), registry=registry)
-            self.assertEqual(result.action, "exclude")
-            self.assertEqual(
-                result.mapping["reason_codes"],
-                ["identity.factory_not_identity_authoritative"],
-            )
+    def test_exclude_not_authoritative_factory(self):
+        row = _factory_row(
+            FABLE_THALAMIC,
+            "thalamic",
+            identity_authoritative=False,
+        )
+        result = identity.curate_record(
+            source(thalamic()), registry=_single_row_registry(row, "a")
+        )
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(
+            result.mapping["reason_codes"],
+            ["identity.factory_not_identity_authoritative"],
+        )
 
-            missing_contract = identity.FactoryRow(
-                path_id=FABLE_ACT,
-                payload_factory=FABLE_ACT,
-                generator="fable-5",
-                generator_version="fable-5",
-                provider="anthropic",
-                channel="consumer",
-                rights_profile_id="hosted-frontier-research-only-v1",
-                intended_use="research_only",
-                project_training_policy="blocked",
-                record_kinds=frozenset({"episode"}),
-                identity_authoritative=True,
-                publication_target=None,
-                training_ready_policy="never",
-                allowed_curation_lanes=("curate_identity",),
-                provenance_contract_by_kind={},
-            )
-            registry = identity.FactoryRegistry(
-                schema_version="factory-registry-v0.2",
-                sha256="b" * 64,
-                raw_bytes=b"{}",
-                by_path_id={FABLE_ACT: missing_contract},
-            )
-            result = identity.curate_record(
-                source(episode(FABLE_ACT), f"{FABLE_ACT}/episodes.jsonl", 1),
-                registry=registry,
-            )
-            self.assertEqual(result.action, "exclude")
-            self.assertEqual(
-                result.mapping["reason_codes"],
-                ["identity.factory_contract_invalid"],
-            )
+    def test_exclude_missing_factory_contract(self):
+        row = _factory_row(FABLE_ACT, "episode", provenance_contract_by_kind={})
+        result = identity.curate_record(
+            source(episode(FABLE_ACT), f"{FABLE_ACT}/episodes.jsonl", 1),
+            registry=_single_row_registry(row, "b"),
+        )
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(
+            result.mapping["reason_codes"],
+            ["identity.factory_contract_invalid"],
+        )
 
-            thalamic_shape = identity.FactoryRow(
-                path_id=FABLE_THALAMIC,
-                payload_factory=FABLE_THALAMIC,
-                generator="fable-5",
-                generator_version="fable-5",
-                provider="anthropic",
-                channel="consumer",
-                rights_profile_id="hosted-frontier-research-only-v1",
-                intended_use="research_only",
-                project_training_policy="blocked",
-                record_kinds=frozenset({"thalamic"}),
-                identity_authoritative=True,
-                publication_target=None,
-                training_ready_policy="never",
-                allowed_curation_lanes=("curate_identity",),
-                provenance_contract_by_kind={"thalamic": "synthetic_shape_implies_designed"},
-            )
-            registry = identity.FactoryRegistry(
-                schema_version="factory-registry-v0.2",
-                sha256="c" * 64,
-                raw_bytes=b"{}",
-                by_path_id={FABLE_THALAMIC: thalamic_shape},
-            )
-            raw = thalamic()
-            raw["state"] = {"episode_id": "legacy-episode-17"}
-            result = identity.curate_record(source(raw), registry=registry)
-            self.assertEqual(result.action, "exclude")
-            self.assertEqual(
-                result.mapping["reason_codes"],
-                ["identity.factory_contract_invalid"],
-            )
+    def test_exclude_shape_contract_with_legacy_state(self):
+        row = _factory_row(
+            FABLE_THALAMIC,
+            "thalamic",
+            provenance_contract_by_kind={
+                "thalamic": "synthetic_shape_implies_designed"
+            },
+        )
+        raw = thalamic()
+        raw["state"] = {"episode_id": "legacy-episode-17"}
+        result = identity.curate_record(
+            source(raw), registry=_single_row_registry(row, "c")
+        )
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(
+            result.mapping["reason_codes"],
+            ["identity.factory_contract_invalid"],
+        )
 
     def test_invalid_bridge_and_preference_shapes_exclude(self):
         bad_view = {

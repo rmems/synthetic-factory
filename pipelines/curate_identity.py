@@ -116,6 +116,17 @@ FACTORY_REGISTRY_PATH = Path(__file__).resolve().parents[1] / "config" / "FACTOR
 FACTORY_REGISTRY_SIDECAR = "FACTORY-REGISTRY.json"
 IDENTITY_MANIFEST_SIDECAR = "IDENTITY-MANIFEST.json"
 REGISTRY_SCHEMA_VERSION = "factory-registry-v0.2"
+LEGACY_REGISTRY_SCHEMA_VERSION = "factory-registry-v0.1"
+SUPPORTED_REGISTRY_SCHEMA_VERSIONS = frozenset(
+    {LEGACY_REGISTRY_SCHEMA_VERSION, REGISTRY_SCHEMA_VERSION}
+)
+_RIGHTS_ROW_FIELDS = (
+    "provider",
+    "channel",
+    "rights_profile_id",
+    "intended_use",
+    "project_training_policy",
+)
 
 _REVIEWED_GENERATOR_RIGHTS = MappingProxyType(
     {
@@ -519,6 +530,42 @@ def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
     )
 
 
+def _legacy_registry_row(raw: Any, index: int) -> Mapping[str, Any]:
+    if not isinstance(raw, Mapping):
+        raise IdentityCurationError(f"factories[{index}] must be an object")
+    unexpected = [field for field in _RIGHTS_ROW_FIELDS if field in raw]
+    if unexpected:
+        raise IdentityCurationError(
+            f"factories[{index}] v0.1 rows must not declare rights fields: {unexpected}"
+        )
+    expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(raw.get("generator"))
+    if expected_assignment is None:
+        raise IdentityCurationError(f"factories[{index}] has unknown reviewed generator")
+    profile_id = HOSTED_FRONTIER_PROFILE_ID
+    authorization = RIGHTS_AUTHORIZATIONS.get((*expected_assignment, profile_id))
+    if authorization is None:
+        raise IdentityCurationError(
+            f"factories[{index}] reviewed rights assignment is not authorized by policy"
+        )
+    augmented = dict(raw)
+    augmented.update(
+        provider=expected_assignment[0],
+        channel=expected_assignment[1],
+        rights_profile_id=profile_id,
+        intended_use=authorization.intended_use,
+        project_training_policy=authorization.project_training_policy,
+    )
+    return augmented
+
+
+def _registry_row_for_validation(
+    raw: Any, index: int, schema_version: str
+) -> Any:
+    if schema_version == LEGACY_REGISTRY_SCHEMA_VERSION:
+        return _legacy_registry_row(raw, index)
+    return raw
+
+
 def load_registry(path: Path | None = None) -> FactoryRegistry:
     """Load reviewed registry bytes. Pin = SHA-256 of those exact bytes."""
 
@@ -539,9 +586,13 @@ def load_registry(path: Path | None = None) -> FactoryRegistry:
         raise IdentityCurationError("factory registry must be a JSON object")
     _reject_training_ready_true(payload)
     schema_version = payload.get("schema_version")
-    if schema_version != REGISTRY_SCHEMA_VERSION:
+    if (
+        not isinstance(schema_version, str)
+        or schema_version not in SUPPORTED_REGISTRY_SCHEMA_VERSIONS
+    ):
         raise IdentityCurationError(
-            f"factory registry schema_version must be {REGISTRY_SCHEMA_VERSION}"
+            "factory registry schema_version must be one of "
+            f"{sorted(SUPPORTED_REGISTRY_SCHEMA_VERSIONS)}"
         )
     if payload.get("lookup_key") != "path_id":
         raise IdentityCurationError("factory registry lookup_key must be path_id")
@@ -550,7 +601,8 @@ def load_registry(path: Path | None = None) -> FactoryRegistry:
         raise IdentityCurationError("factory registry factories must be a non-empty list")
     by_path_id: dict[str, FactoryRow] = {}
     for index, raw_row in enumerate(factories):
-        row = _parse_factory_row(raw_row, index)
+        row_payload = _registry_row_for_validation(raw_row, index, schema_version)
+        row = _parse_factory_row(row_payload, index)
         if row.path_id in by_path_id:
             raise IdentityCurationError(f"duplicate registry path_id: {row.path_id}")
         by_path_id[row.path_id] = row

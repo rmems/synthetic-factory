@@ -23,6 +23,7 @@ if __package__:
         REASON_CODES,
         RIGHTS_CHANNELS,
         RIGHTS_AUTHORIZATIONS,
+        RightsAuthorization,
         RIGHTS_POLICY_BYTES,
         RIGHTS_PROFILE_IDS,
         RIGHTS_POLICY_SHA256,
@@ -43,6 +44,7 @@ else:
         REASON_CODES,
         RIGHTS_CHANNELS,
         RIGHTS_AUTHORIZATIONS,
+        RightsAuthorization,
         RIGHTS_POLICY_BYTES,
         RIGHTS_PROFILE_IDS,
         RIGHTS_POLICY_SHA256,
@@ -64,27 +66,43 @@ PUBLIC_PAYLOAD_FIELDS = frozenset(
         "rights_policy_sha256",
     }
 )
+_ENVELOPE_WHERE = "rights envelope"
+_CLASSIFICATION_WHERE = "rights classification"
+_REASON_CODES_ERROR = "reason_codes must be unique strings"
+
 
 @dataclass(frozen=True)
-class RightsDecision:
-    rights_profile_id: str
+class RightsRoute:  # noqa: D203,D211
+    """Canonical provider/channel/profile coordinates for one decision."""
+
     provider: str
     channel: str
-    intended_use: str
-    project_training_policy: str
-    research_retention_status: str
-    research_evaluation_status: str
-    redistribution_status: str
-    provider_training_status: str
-    weight_publication_status: str
-    reason_codes: tuple[str, ...]
+    rights_profile_id: str
+
+
+@dataclass(frozen=True)
+class _BoundDigests:
     source_sha256: str
     factory_registry_sha256: str
     rights_policy_sha256: str
 
+@dataclass(frozen=True)
+class RightsDecision:  # noqa: D203,D211
+    """Immutable rights verdict with byte-bound evidence identifiers."""
+
+    route: RightsRoute
+    authorization: RightsAuthorization
+    bindings: _BoundDigests
+
+    def __getattr__(self, name: str) -> object:
+        """Expose immutable aggregate fields through the original flat API."""
+        for section in (self.route, self.authorization, self.bindings):
+            if hasattr(section, name):
+                return getattr(section, name)
+        raise AttributeError(name)
+
     def to_public_payload(self) -> dict[str, object]:
         """Return the JSON-ready public envelope without exposing mutable state."""
-
         return {
             "rights_profile_id": self.rights_profile_id,
             "provider": self.provider,
@@ -104,60 +122,84 @@ class RightsDecision:
 
     @property
     def public_payload(self) -> Mapping[str, object]:
+        """Return a read-only view of the public envelope."""
         return MappingProxyType(self.to_public_payload())
 
 
-def _authorization(provider: str, channel: str, profile_id: str):
-    authorization = RIGHTS_AUTHORIZATIONS.get((provider, channel, profile_id))
+def _authorization(route: RightsRoute) -> RightsAuthorization:
+    authorization = RIGHTS_AUTHORIZATIONS.get(
+        (route.provider, route.channel, route.rights_profile_id)
+    )
     if authorization is None:
         raise policy_error(
-            "rights classification",
+            _CLASSIFICATION_WHERE,
             "provider/channel/profile combination is not authorized by policy",
         )
     return authorization
 
 
+def _require_route_value(
+    value: object, vocabulary: frozenset[str], label: str
+) -> None:
+    if not isinstance(value, str) or value not in vocabulary:
+        raise policy_error(
+            _CLASSIFICATION_WHERE,
+            f"unknown {label} {value!r}",
+        )
+
+
+def _validated_route(route: object) -> RightsRoute:
+    if not isinstance(route, RightsRoute):
+        raise policy_error(_CLASSIFICATION_WHERE, "route must be a RightsRoute")
+    _require_route_value(route.provider, PROVIDERS, "canonical provider")
+    _require_route_value(route.channel, RIGHTS_CHANNELS, "channel")
+    _require_route_value(route.rights_profile_id, RIGHTS_PROFILE_IDS, "rights profile")
+    return route
+
+
+def _classification_route(
+    route: RightsRoute | None, route_fields: dict[str, object]
+) -> RightsRoute:
+    if route is not None:
+        if route_fields:
+            raise policy_error(
+                _CLASSIFICATION_WHERE,
+                "route cannot be combined with provider/channel/profile keywords",
+            )
+        return _validated_route(route)
+    required = {"provider", "channel", "rights_profile_id"}
+    if set(route_fields) != required:
+        raise policy_error(
+            _CLASSIFICATION_WHERE,
+            f"route fields must be exactly {sorted(required)}",
+        )
+    return _validated_route(RightsRoute(**route_fields))
+
+
 def classify_rights(
-    provider: str,
-    channel: str,
-    rights_profile_id: str,
-    source_sha256: str,
-    factory_registry_sha256: str,
+    route: RightsRoute | None = None,
+    source_sha256: object = None,
+    factory_registry_sha256: object = None,
+    **route_fields: object,
 ) -> RightsDecision:
     """Return the one static verdict authorized for a bound source and registry."""
-
-    where = "rights classification"
-    if not isinstance(provider, str) or provider not in PROVIDERS:
-        raise policy_error(where, f"unknown canonical provider {provider!r}")
-    if not isinstance(channel, str) or channel not in RIGHTS_CHANNELS:
-        raise policy_error(where, f"unknown channel {channel!r}")
-    if (
-        not isinstance(rights_profile_id, str)
-        or rights_profile_id not in RIGHTS_PROFILE_IDS
-    ):
-        raise policy_error(where, f"unknown rights profile {rights_profile_id!r}")
+    where = _CLASSIFICATION_WHERE
+    checked_route = _classification_route(route, route_fields)
     source_digest = require_hash(source_sha256, "source_sha256", where=where)
     registry_digest = require_hash(
         factory_registry_sha256,
         "factory_registry_sha256",
         where=where,
     )
-    authorization = _authorization(provider, channel, rights_profile_id)
+    authorization = _authorization(checked_route)
     return RightsDecision(
-        rights_profile_id=rights_profile_id,
-        provider=provider,
-        channel=channel,
-        intended_use=authorization.intended_use,
-        project_training_policy=authorization.project_training_policy,
-        research_retention_status=authorization.research_retention_status,
-        research_evaluation_status=authorization.research_evaluation_status,
-        redistribution_status=authorization.redistribution_status,
-        provider_training_status=authorization.provider_training_status,
-        weight_publication_status=authorization.weight_publication_status,
-        reason_codes=authorization.reason_codes,
-        source_sha256=source_digest,
-        factory_registry_sha256=registry_digest,
-        rights_policy_sha256=RIGHTS_POLICY_SHA256,
+        route=checked_route,
+        authorization=authorization,
+        bindings=_BoundDigests(
+            source_sha256=source_digest,
+            factory_registry_sha256=registry_digest,
+            rights_policy_sha256=RIGHTS_POLICY_SHA256,
+        ),
     )
 
 
@@ -165,11 +207,11 @@ def _payload_object(envelope: object) -> dict[str, object]:
     if isinstance(envelope, RightsDecision):
         return envelope.to_public_payload()
     if not isinstance(envelope, Mapping):
-        raise policy_error("rights envelope", "envelope must be an object")
+        raise policy_error(_ENVELOPE_WHERE, "envelope must be an object")
     payload = dict(envelope)
     if set(payload) != set(PUBLIC_PAYLOAD_FIELDS):
         raise policy_error(
-            "rights envelope",
+            _ENVELOPE_WHERE,
             f"envelope fields must be exactly {sorted(PUBLIC_PAYLOAD_FIELDS)}",
         )
     return payload
@@ -177,8 +219,92 @@ def _payload_object(envelope: object) -> dict[str, object]:
 
 def _bound_bytes(value: object, field: str) -> bytes:
     if not isinstance(value, bytes):
-        raise policy_error("rights envelope", f"{field} must be bytes")
+        raise policy_error(_ENVELOPE_WHERE, f"{field} must be bytes")
     return value
+
+
+@dataclass(frozen=True)
+class _EnvelopeBytes:
+    source: bytes
+    registry: bytes
+    policy: bytes
+
+
+def _envelope_bytes(
+    source_bytes: object,
+    factory_registry_bytes: object,
+    policy_bytes: object,
+) -> _EnvelopeBytes:
+    policy = (
+        RIGHTS_POLICY_BYTES
+        if policy_bytes is None
+        else _bound_bytes(policy_bytes, "policy_bytes")
+    )
+    return _EnvelopeBytes(
+        _bound_bytes(source_bytes, "source_bytes"),
+        _bound_bytes(factory_registry_bytes, "factory_registry_bytes"),
+        policy,
+    )
+
+
+def _verify_bound_digests(payload: dict[str, object], bound: _EnvelopeBytes) -> None:
+    digest_inputs = (
+        ("source_sha256", bound.source),
+        ("factory_registry_sha256", bound.registry),
+        ("rights_policy_sha256", bound.policy),
+    )
+    for field, bound_bytes in digest_inputs:
+        actual = require_hash(payload[field], field, where=_ENVELOPE_WHERE)
+        if actual != sha256_digest(bound_bytes):
+            raise policy_error(_ENVELOPE_WHERE, f"{field} does not match bound bytes")
+    if payload["rights_policy_sha256"] != RIGHTS_POLICY_SHA256:
+        raise policy_error(
+            _ENVELOPE_WHERE,
+            "rights_policy_sha256 does not identify the committed policy",
+        )
+
+
+def _reason_list(value: object) -> list[object]:
+    if not isinstance(value, list):
+        raise policy_error(_ENVELOPE_WHERE, _REASON_CODES_ERROR)
+    if not value:
+        raise policy_error(_ENVELOPE_WHERE, _REASON_CODES_ERROR)
+    return value
+
+
+def _require_reason_strings(reasons: list[object]) -> None:
+    for reason in reasons:
+        if not isinstance(reason, str) or not reason:
+            raise policy_error(_ENVELOPE_WHERE, _REASON_CODES_ERROR)
+
+
+def _require_unique_reasons(reasons: list[object]) -> None:
+    if len(reasons) != len(set(reasons)):
+        raise policy_error(_ENVELOPE_WHERE, _REASON_CODES_ERROR)
+
+
+def _verify_reason_codes(payload: dict[str, object]) -> None:
+    reasons = _reason_list(payload["reason_codes"])
+    _require_reason_strings(reasons)
+    _require_unique_reasons(reasons)
+    unknown_reasons = sorted(set(reasons) - REASON_CODES)
+    if unknown_reasons:
+        raise policy_error(
+            _ENVELOPE_WHERE, f"unknown reason codes {unknown_reasons}"
+        )
+
+
+def _expected_decision(payload: dict[str, object]) -> RightsDecision:
+    route = RightsRoute(
+        provider=payload["provider"],
+        channel=payload["channel"],
+        rights_profile_id=payload["rights_profile_id"],
+    )
+    return classify_rights(
+        route,
+        source_sha256=payload["source_sha256"],
+        factory_registry_sha256=payload["factory_registry_sha256"],
+    )
 
 
 def verify_rights_envelope(
@@ -189,57 +315,15 @@ def verify_rights_envelope(
     policy_bytes: bytes | None = None,
 ) -> RightsDecision:
     """Recompute byte digests and require the mapping's exact static verdict."""
-
     payload = _payload_object(envelope)
-    source = _bound_bytes(source_bytes, "source_bytes")
-    registry = _bound_bytes(factory_registry_bytes, "factory_registry_bytes")
-    supplied_policy = (
-        RIGHTS_POLICY_BYTES
-        if policy_bytes is None
-        else _bound_bytes(policy_bytes, "policy_bytes")
-    )
-    load_rights_policy_bytes(supplied_policy, where="rights envelope policy_bytes")
-
-    digest_inputs = (
-        ("source_sha256", source),
-        ("factory_registry_sha256", registry),
-        ("rights_policy_sha256", supplied_policy),
-    )
-    for field, bound_bytes in digest_inputs:
-        actual = require_hash(payload.get(field), field, where="rights envelope")
-        expected = sha256_digest(bound_bytes)
-        if actual != expected:
-            raise policy_error("rights envelope", f"{field} does not match bound bytes")
-    if payload["rights_policy_sha256"] != RIGHTS_POLICY_SHA256:
-        raise policy_error(
-            "rights envelope",
-            "rights_policy_sha256 does not identify the committed policy",
-        )
-
-    reasons = payload.get("reason_codes")
-    if (
-        not isinstance(reasons, list)
-        or not reasons
-        or not all(isinstance(reason, str) and reason for reason in reasons)
-        or len(reasons) != len(set(reasons))
-    ):
-        raise policy_error("rights envelope", "reason_codes must be unique strings")
-    unknown_reasons = sorted(set(reasons) - REASON_CODES)
-    if unknown_reasons:
-        raise policy_error(
-            "rights envelope", f"unknown reason codes {unknown_reasons}"
-        )
-
-    expected_decision = classify_rights(
-        provider=payload.get("provider"),
-        channel=payload.get("channel"),
-        rights_profile_id=payload.get("rights_profile_id"),
-        source_sha256=payload["source_sha256"],
-        factory_registry_sha256=payload["factory_registry_sha256"],
-    )
+    bound = _envelope_bytes(source_bytes, factory_registry_bytes, policy_bytes)
+    load_rights_policy_bytes(bound.policy, where="rights envelope policy_bytes")
+    _verify_bound_digests(payload, bound)
+    _verify_reason_codes(payload)
+    expected_decision = _expected_decision(payload)
     if payload != expected_decision.to_public_payload():
         raise policy_error(
-            "rights envelope",
+            _ENVELOPE_WHERE,
             "envelope fields drift from the policy-authorized profile verdict",
         )
     return expected_decision
