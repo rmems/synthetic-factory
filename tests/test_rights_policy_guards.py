@@ -28,7 +28,11 @@ class RightsPolicyGuardTests(unittest.TestCase):
             except TypeError:
                 pass
 
-        profile = rights_policy.RIGHTS_POLICY["profiles"][0]
+        profile = next(
+            item
+            for item in rights_policy.RIGHTS_POLICY["profiles"]
+            if item["id"] == rights_policy.HOSTED_FRONTIER_PROFILE_ID
+        )
         original_use = profile["intended_use"]
         try:
             with self.assertRaises(TypeError):

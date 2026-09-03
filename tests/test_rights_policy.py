@@ -63,7 +63,7 @@ def mutated_loaded_policy():
     original_profile = plain_policy_value(profile)
     original_rule = plain_policy_value(rule)
     try:
-        _attempt_policy_mutation(profile, rule)
+        _assert_policy_mutations_rejected(profile, rule)
         yield
     finally:
         _restore_policy(profile, rule, original_profile, original_rule)
@@ -83,22 +83,36 @@ def _policy_item(collection: str, identifier: str):
     return item
 
 
-def _attempt_policy_mutation(profile, rule):
-    try:
-        profile.update(
-            intended_use="training_candidate",
-            project_training_policy="allowed",
-        )
-        profile["evidence_statuses"].update(
-            {field: "allowed" for field in rights_policy.EVIDENCE_STATUS_FIELDS}
-        )
-        rule.update(
-            intended_use="training_candidate",
-            project_training_policy="allowed",
-            reason_codes=["UNKNOWN_PROVENANCE"],
-        )
-    except (AttributeError, TypeError):
-        pass
+def _assert_policy_mutations_rejected(profile, rule):
+    attempts = (
+        (
+            "profile verdict",
+            lambda: profile.update(
+                intended_use="training_candidate",
+                project_training_policy="allowed",
+            ),
+        ),
+        (
+            "profile evidence statuses",
+            lambda: profile["evidence_statuses"].update(
+                {field: "allowed" for field in rights_policy.EVIDENCE_STATUS_FIELDS}
+            ),
+        ),
+        (
+            "rule verdict",
+            lambda: rule.update(
+                intended_use="training_candidate",
+                project_training_policy="allowed",
+                reason_codes=["UNKNOWN_PROVENANCE"],
+            ),
+        ),
+    )
+    for label, mutate in attempts:
+        try:
+            mutate()
+        except (AttributeError, TypeError):
+            continue
+        raise AssertionError(f"loaded policy mutation unexpectedly succeeded: {label}")
 
 
 def _restore_policy(profile, rule, original_profile, original_rule):
@@ -340,6 +354,42 @@ class RightsPolicyTests(RightsPolicyTestCase):
                 with self.assertRaises(rights_policy.RightsPolicyError):
                     rights_policy.validate_rights_policy(document)
 
+    def test_policy_validation_rejects_malformed_unique_string_lists(self):
+        hosted = rights_policy.HOSTED_FRONTIER_PROFILE_ID
+        cases = (
+            "not-a-list",
+            [],
+            [hosted, hosted],
+            ["   "],
+            [1],
+        )
+        for required_profile_ids in cases:
+            document = mutable_policy_document()
+            document["required_profile_ids"] = required_profile_ids
+            with self.subTest(required_profile_ids=required_profile_ids):
+                with self.assertRaisesRegex(
+                    rights_policy.RightsPolicyError,
+                    "required_profile_ids must be a unique nonempty list of strings",
+                ):
+                    rights_policy.validate_rights_policy(document)
+
+    def test_policy_validation_rejects_extra_shape_and_invariant_drift(self):
+        cases = (
+            lambda document: document.update(unexpected=True),
+            lambda document: document["vocabularies"].update(unexpected=[]),
+            lambda document: document["invariants"].update(unexpected=True),
+            lambda document: document["invariants"].update(
+                provider_training_status="policy_controlled"
+            ),
+            lambda document: document.update(invariants=[]),
+        )
+        for index, mutate in enumerate(cases):
+            document = mutable_policy_document()
+            mutate(document)
+            with self.subTest(case=index):
+                with self.assertRaises(rights_policy.RightsPolicyError):
+                    rights_policy.validate_rights_policy(document)
+
     def test_policy_validation_rejects_duplicate_ids(self):
         for collection in ("profiles", "rules", "reason_codes"):
             document = mutable_policy_document()
@@ -519,6 +569,13 @@ class RightsPolicyTests(RightsPolicyTestCase):
             "policy input must be bytes",
         ):
             rights_policy.load_rights_policy_bytes("not bytes")
+        for invalid_path in ("\x00", "\ud800"):
+            with self.subTest(invalid_path=ascii(invalid_path)):
+                with self.assertRaisesRegex(
+                    rights_policy.RightsPolicyError,
+                    "rights policy is unreadable",
+                ):
+                    rights_policy.load_rights_policy(invalid_path)
 
         with tempfile.TemporaryDirectory() as directory:
             malformed = {
@@ -541,6 +598,17 @@ class RightsPolicyTests(RightsPolicyTestCase):
                 rights_policy.load_rights_policy(missing)
             with self.assertRaises(rights_policy.RightsPolicyError):
                 rights_policy.load_rights_policy(Path(directory))
+
+
+    def test_policy_byte_loader_rejects_payloads_over_the_explicit_limit(self):
+        payload = b" " * (rights_policy.MAX_RIGHTS_JSON_BYTES + 1)
+
+        with self.assertRaisesRegex(
+            rights_policy.RightsPolicyError,
+            "exceeds the .*byte rights JSON limit",
+        ):
+            rights_policy.load_rights_policy_bytes(payload)
+
 
 class RightsPolicyAvailabilityTests(unittest.TestCase):
     def test_rights_policy_runtime_exists(self):

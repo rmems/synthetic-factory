@@ -30,6 +30,7 @@ MAPPING_PATH = (
     / "schemas"
     / "rights-policy-v1.mapping.json"
 )
+MAX_RIGHTS_JSON_BYTES = 1024 * 1024
 
 CANONICAL_PROVIDERS = frozenset({"anthropic", "meta", "openai", "xai"})
 CHANNELS = frozenset({"consumer", "api", "enterprise", "local"})
@@ -60,6 +61,15 @@ class RightsPolicyError(ValueError):  # noqa: D203,D211
 def policy_error(where: str, message: str) -> RightsPolicyError:
     """Build a consistently scoped policy error."""
     return RightsPolicyError(f"{where}: {message}")
+
+
+def require_rights_json_size(payload: bytes, *, where: str) -> None:
+    """Reject rights JSON before an untrusted payload reaches the parser."""
+    if len(payload) > MAX_RIGHTS_JSON_BYTES:
+        raise policy_error(
+            where,
+            f"input exceeds the {MAX_RIGHTS_JSON_BYTES}-byte rights JSON limit",
+        )
 
 
 def sha256_digest(payload: bytes) -> str:

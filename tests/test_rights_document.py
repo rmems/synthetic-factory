@@ -22,8 +22,10 @@ if str(PIPELINES) not in sys.path:
 RIGHTS_DOCUMENT_SPEC = importlib.util.find_spec("rights_document")
 if RIGHTS_DOCUMENT_SPEC is not None:
     import rights_document
+    import rights_mapping
 else:  # Keep the first RED focused on the missing production surface.
     rights_document = None
+    rights_mapping = None
 
 
 def anthropic_document() -> dict[str, object]:
@@ -330,7 +332,10 @@ class RightsDocumentTests(unittest.TestCase):
             project_training_policy="allowed",
         )
 
-        self.assert_rejected(promoted, "hosted-frontier authorization")
+        self.assert_rejected(
+            promoted,
+            "received training_candidate/allowed; sealed decision is research_only/blocked",
+        )
 
     def test_hosted_public_route_must_have_a_sealed_authorization(self):
         unauthorized_routes = (
@@ -462,6 +467,7 @@ class RightsDocumentTests(unittest.TestCase):
             b'{"\\ud800":"provider"}',
             b"\xff",
             b"{not json",
+            b"[" * 2048,
         )
         for payload in malformed:
             with self.subTest(payload=payload):
@@ -470,6 +476,15 @@ class RightsDocumentTests(unittest.TestCase):
 
         with self.assertRaises(rights_document.RightsPolicyError):
             rights_document.load_rights_document_bytes("{}")
+
+    def test_strict_json_rejects_payloads_over_the_explicit_byte_limit(self):
+        payload = b" " * (rights_mapping.MAX_RIGHTS_JSON_BYTES + 1)
+
+        with self.assertRaisesRegex(
+            rights_document.RightsPolicyError,
+            "exceeds the .*byte rights JSON limit",
+        ):
+            rights_document.load_rights_document_bytes(payload)
 
     def test_validate_object_and_byte_loader_return_the_same_value(self):
         document = anthropic_document()

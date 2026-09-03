@@ -786,6 +786,10 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
         self.assertEqual(result.mapping["provenance_contract"], "synthetic_shape_implies_designed")
 
     def test_gpt_and_muse_retain_via_exact_registry_rows_only(self):
+        registry_without_hosted_rows = _single_row_registry(
+            _factory_row(FABLE_ACT, "episode"),
+            "d",
+        )
         for factory, path in (
             ("gpt-5.6-sol-coding-factory", "gpt-5.6-sol-coding-factory/episodes.jsonl"),
             (
@@ -798,6 +802,16 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
                 self.assertEqual(result.action, "retained")
                 self.assertEqual(result.mapping["factory_id"], factory)
                 self.assertEqual(result.record["provenance"]["kind"], "designed")
+
+                without_reviewed_row = identity.curate_record(
+                    source(episode(factory), path, 1),
+                    registry=registry_without_hosted_rows,
+                )
+                self.assertEqual(without_reviewed_row.action, "exclude")
+                self.assertEqual(
+                    without_reviewed_row.mapping["reason_codes"],
+                    ["identity.unknown_factory"],
+                )
 
         for alias in ("openai", "consumer", "hosted-frontier-research-only-v1"):
             with self.subTest(alias=alias):

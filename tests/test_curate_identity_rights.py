@@ -21,6 +21,19 @@ from test_curate_identity import (
 )
 
 
+def _legacy_row(**overrides):
+    row = _valid_row(**overrides)
+    for field in (
+        "provider",
+        "channel",
+        "rights_profile_id",
+        "intended_use",
+        "project_training_policy",
+    ):
+        row.pop(field)
+    return row
+
+
 class TestFactoryRegistryRightsContract(unittest.TestCase):
     def test_identity_tree_replays_copied_v01_registry_sidecar(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -118,29 +131,50 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
                     ):
                         _load_temp_registry(Path(tmp) / field, _registry_payload([row]))
 
-    def test_legacy_unhashable_generator_fails_with_identity_error(self):
-        row = _valid_row(generator=["fable-5"])
-        for field in (
-            "provider",
-            "channel",
-            "rights_profile_id",
-            "intended_use",
-            "project_training_policy",
-        ):
-            row.pop(field)
-
+    def test_legacy_invalid_generator_fails_with_precise_identity_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(
                 identity.IdentityCurationError,
-                r"unknown reviewed \(generator, generator_version\)",
+                r"generator must be a non-empty normalized string",
             ):
                 _load_temp_registry(
                     tmp,
                     _registry_payload(
-                        [row],
+                        [_legacy_row(generator=["fable-5"])],
                         schema_version="factory-registry-v0.1",
                     ),
                 )
+
+    def test_legacy_missing_or_null_generator_fields_get_precise_diagnostics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for field in ("generator", "generator_version"):
+                missing = _legacy_row()
+                missing.pop(field)
+                with self.subTest(field=field, defect="missing"):
+                    with self.assertRaisesRegex(
+                        identity.IdentityCurationError,
+                        rf"missing fields.*{field}",
+                    ):
+                        _load_temp_registry(
+                            Path(tmp) / f"missing-{field}",
+                            _registry_payload(
+                                [missing],
+                                schema_version="factory-registry-v0.1",
+                            ),
+                        )
+
+                with self.subTest(field=field, defect="null"):
+                    with self.assertRaisesRegex(
+                        identity.IdentityCurationError,
+                        rf"{field} must be a non-empty normalized string",
+                    ):
+                        _load_temp_registry(
+                            Path(tmp) / f"null-{field}",
+                            _registry_payload(
+                                [_legacy_row(**{field: None})],
+                                schema_version="factory-registry-v0.1",
+                            ),
+                        )
 
     def test_unknown_drifting_and_misassigned_rights_fields_fail_closed(self):
         cases = (

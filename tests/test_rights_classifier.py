@@ -34,6 +34,9 @@ class RightsClassifierTests(RightsPolicyTestCase):
                 with self.assertRaises(AttributeError):
                     getattr(decision, name)
 
+        classified = self.classify()
+        self.assertEqual(copy.deepcopy(classified), classified)
+
     def test_route_argument_guards_reject_conflict_and_missing_fields(self):
         route = rights_classifier.RightsRoute(
             "anthropic",

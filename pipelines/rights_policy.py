@@ -31,6 +31,7 @@ HOSTED_FRONTIER_PROFILE_ID = _rights_mapping.HOSTED_FRONTIER_PROFILE_ID
 INTENDED_USES = _rights_mapping.INTENDED_USES
 MAPPING_PATH = _rights_mapping.MAPPING_PATH
 MAPPING_VERSION = _rights_mapping.MAPPING_VERSION
+MAX_RIGHTS_JSON_BYTES = _rights_mapping.MAX_RIGHTS_JSON_BYTES
 POLICY_DOCUMENT_TYPE = _rights_mapping.POLICY_DOCUMENT_TYPE
 POLICY_VERSION = _rights_mapping.POLICY_VERSION
 PROJECT_TRAINING_POLICIES = _rights_mapping.PROJECT_TRAINING_POLICIES
@@ -42,6 +43,7 @@ parse_strict_json_bytes = _rights_mapping.parse_strict_json_bytes
 policy_error = _rights_mapping.policy_error
 reject_unpaired_surrogates = _rights_mapping.reject_unpaired_surrogates
 require_nonempty_string = _rights_mapping.require_nonempty_string
+require_rights_json_size = _rights_mapping.require_rights_json_size
 require_unique_strings = _rights_mapping.require_unique_strings
 sha256_digest = _rights_mapping.sha256_digest
 
@@ -68,6 +70,7 @@ def load_rights_policy_bytes(payload: bytes, *, where: str = "rights policy byte
     """Strictly decode and validate rights-policy JSON bytes."""
     if not isinstance(payload, bytes):
         raise policy_error(where, "policy input must be bytes")
+    require_rights_json_size(payload, where=where)
     try:
         document = parse_strict_json_bytes(payload)
     except (ValueError, RecursionError) as exc:
@@ -78,7 +81,7 @@ def load_rights_policy_bytes(payload: bytes, *, where: str = "rights policy byte
 def _load_rights_policy(path: Path) -> tuple[dict, bytes]:
     try:
         payload = path.read_bytes()
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         raise RightsPolicyError(f"{path}: rights policy is unreadable: {exc}") from exc
     return load_rights_policy_bytes(payload, where=str(path)), payload
 

@@ -85,7 +85,6 @@ def _validate_rule_lists(
 
 @dataclass(frozen=True)
 class _ValidatedRule:
-    identifier: str
     providers: tuple[str, ...]
     channels: tuple[str, ...]
     profile_id: str
@@ -138,7 +137,7 @@ def _validated_rule(
     )
     if verdict != expected:
         raise policy_error(where, f"rule {rule_id!r} authorizes a verdict outside profile")
-    return _ValidatedRule(rule_id, providers, channels, profile_id, reasons)
+    return _ValidatedRule(providers, channels, profile_id, reasons)
 
 
 def _record_rule_coverage(

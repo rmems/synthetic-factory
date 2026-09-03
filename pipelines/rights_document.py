@@ -24,6 +24,7 @@ if __package__:
         policy_error,
         reject_unpaired_surrogates,
         require_nonempty_string,
+        require_rights_json_size,
     )
     from .rights_policy import RIGHTS_AUTHORIZATIONS
     from . import rights_document_support as _rights_document_support
@@ -44,6 +45,7 @@ else:
         policy_error,
         reject_unpaired_surrogates,
         require_nonempty_string,
+        require_rights_json_size,
     )
     from rights_policy import RIGHTS_AUTHORIZATIONS
     import rights_document_support as _rights_document_support
@@ -138,7 +140,7 @@ def _validate_hosted_authorization(
         raise policy_error(
             where,
             "public rights decision differs from hosted-frontier authorization: "
-            "research_only requires project training to be blocked; "
+            f"received {decision.intended_use}/{decision.project_training_policy}; "
             f"sealed decision is {authorization.intended_use}/"
             f"{authorization.project_training_policy}",
         )
@@ -340,6 +342,7 @@ def load_rights_document_bytes(
     """Strictly decode JSON bytes and validate a public rights declaration."""
     if not isinstance(payload, bytes):
         raise policy_error(where, "rights document input must be bytes")
+    require_rights_json_size(payload, where=where)
     try:
         document = parse_strict_json_bytes(payload)
     except (ValueError, RecursionError) as exc:

@@ -348,6 +348,22 @@ def _reject_training_ready_true(value: Any, path: str = "$") -> None:
             _reject_training_ready_true(item, f"{path}[{index}]")
 
 
+def _generator_identity(raw: Mapping[str, Any], index: int) -> tuple[str, str]:
+    values: list[str] = []
+    for field in ("generator", "generator_version"):
+        value = raw[field]
+        if (
+            not isinstance(value, str)
+            or not value.strip()
+            or value != value.strip()
+        ):
+            raise IdentityCurationError(
+                f"factories[{index}].{field} must be a non-empty normalized string"
+            )
+        values.append(value)
+    return values[0], values[1]
+
+
 def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
     if not isinstance(raw, Mapping):
         raise IdentityCurationError(f"factories[{index}] must be an object")
@@ -384,17 +400,7 @@ def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
         )
     if not isinstance(payload_factory, str) or not payload_factory.strip():
         raise IdentityCurationError(f"factories[{index}].payload_factory must be a string")
-    for field in ("generator", "generator_version"):
-        field_value = raw[field]
-        if (
-            not isinstance(field_value, str)
-            or not field_value.strip()
-            or field_value != field_value.strip()
-        ):
-            raise IdentityCurationError(
-                f"factories[{index}].{field} must be a non-empty normalized string"
-            )
-    generator = raw["generator"]
+    generator, generator_version = _generator_identity(raw, index)
     provider = raw["provider"]
     channel = raw["channel"]
     profile_id = raw["rights_profile_id"]
@@ -420,7 +426,7 @@ def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
             f"{HOSTED_FRONTIER_PROFILE_ID}"
         )
     expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(
-        (generator, raw["generator_version"])
+        (generator, generator_version)
     )
     if expected_assignment is None:
         raise IdentityCurationError(
@@ -514,7 +520,7 @@ def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
         path_id=path_id,
         payload_factory=payload_factory,
         generator=generator,
-        generator_version=raw["generator_version"],
+        generator_version=generator_version,
         provider=provider,
         channel=channel,
         rights_profile_id=profile_id,
@@ -538,14 +544,17 @@ def _legacy_registry_row(raw: Any, index: int) -> Mapping[str, Any]:
         raise IdentityCurationError(
             f"factories[{index}] v0.1 rows must not declare rights fields: {unexpected}"
         )
-    try:
-        expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(
-            (raw.get("generator"), raw.get("generator_version"))
-        )
-    except TypeError as exc:
+    missing = [
+        field for field in ("generator", "generator_version") if field not in raw
+    ]
+    if missing:
         raise IdentityCurationError(
-            f"factories[{index}] has unknown reviewed (generator, generator_version)"
-        ) from exc
+            f"factories[{index}] missing fields: {missing}"
+        )
+    generator, generator_version = _generator_identity(raw, index)
+    expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(
+        (generator, generator_version)
+    )
     if expected_assignment is None:
         raise IdentityCurationError(
             f"factories[{index}] has unknown reviewed (generator, generator_version)"
