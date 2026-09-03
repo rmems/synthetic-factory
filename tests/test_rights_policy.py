@@ -429,6 +429,28 @@ class RightsPolicyTests(RightsPolicyTestCase):
                 ):
                     check()
 
+    def test_required_profiles_retain_their_defining_reason_codes(self):
+        document = mutable_policy_document()
+        profiles = {
+            profile["id"]: profile
+            for profile in document["profiles"]
+        }
+        hosted_id = rights_policy.HOSTED_FRONTIER_PROFILE_ID
+        fallback_id = rights_policy.UNKNOWN_PROVENANCE_PROFILE_ID
+        profiles[hosted_id]["reason_codes"] = ["UNKNOWN_PROVENANCE"]
+        profiles[fallback_id]["reason_codes"] = ["HOSTED_FRONTIER_RESEARCH_ONLY"]
+        for rule in document["rules"]:
+            if rule["rights_profile_id"] == hosted_id:
+                rule["reason_codes"] = ["UNKNOWN_PROVENANCE"]
+            elif rule["rights_profile_id"] == fallback_id:
+                rule["reason_codes"] = ["HOSTED_FRONTIER_RESEARCH_ONLY"]
+
+        with self.assertRaisesRegex(
+            rights_policy.RightsPolicyError,
+            "required defining reason",
+        ):
+            rights_policy.validate_rights_policy(document)
+
     def test_unknown_provenance_rule_covers_every_provider_channel_route(self):
         document = mutable_policy_document()
         fallback = next(

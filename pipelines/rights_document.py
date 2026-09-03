@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import re
 import sys
-from dataclasses import dataclass
-from datetime import date
 from types import MappingProxyType
 
 if __package__:
@@ -25,10 +23,10 @@ if __package__:
         parse_strict_json_bytes,
         policy_error,
         reject_unpaired_surrogates,
-        require_hash,
         require_nonempty_string,
     )
     from .rights_policy import RIGHTS_AUTHORIZATIONS
+    from . import rights_document_support as _rights_document_support
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "rights_document"
@@ -45,10 +43,28 @@ else:
         parse_strict_json_bytes,
         policy_error,
         reject_unpaired_surrogates,
-        require_hash,
         require_nonempty_string,
     )
     from rights_policy import RIGHTS_AUTHORIZATIONS
+    import rights_document_support as _rights_document_support
+
+
+_DocumentIdentity = _rights_document_support._DocumentIdentity
+_ProviderRoute = _rights_document_support._ProviderRoute
+_EvidenceReferences = _rights_document_support._EvidenceReferences
+_EvidenceStatuses = _rights_document_support._EvidenceStatuses
+_PublicDecision = _rights_document_support._PublicDecision
+_EvidenceReview = _rights_document_support._EvidenceReview
+_LegacyRelease = _rights_document_support._LegacyRelease
+RightsDocument = _rights_document_support.RightsDocument
+_exact_document = _rights_document_support.exact_document
+_closed_value = _rights_document_support.closed_value
+_calendar_date = _rights_document_support.calendar_date
+_optional_nonempty_string = _rights_document_support.optional_nonempty_string
+_optional_date = _rights_document_support.optional_date
+_optional_hash = _rights_document_support.optional_hash
+_provider_alias = _rights_document_support.provider_alias
+require_hash = _rights_document_support.require_hash
 
 
 RIGHTS_DOCUMENT_SCHEMA_VERSION = "0.1.0"
@@ -101,178 +117,7 @@ _DATASET_ID_RE = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?/"
     r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$"
 )
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$", re.ASCII)
 _GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
-
-
-@dataclass(frozen=True, slots=True)
-class _DocumentIdentity:
-    schema_version: str
-    dataset_id: str
-    policy_source: str
-    model: str
-    generated_at: str
-
-
-@dataclass(frozen=True, slots=True)
-class _ProviderRoute:
-    provider: str
-    canonical_provider: str
-    channel: str
-    subscription_plan: str
-    generation_surface: str
-    provider_output_attribution: str
-
-
-@dataclass(frozen=True, slots=True)
-class _EvidenceReferences:
-    terms_document: str | None
-    terms_effective_date: str | None
-    terms_snapshot_sha256: str | None
-
-    def values(self) -> tuple[str | None, str | None, str | None]:
-        """Return the evidence references in schema order."""
-        return (
-            self.terms_document,
-            self.terms_effective_date,
-            self.terms_snapshot_sha256,
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class _EvidenceStatuses:
-    research_retention_status: str
-    research_evaluation_status: str
-    redistribution_status: str
-    provider_training_status: str
-    weight_publication_status: str
-
-    def values(self) -> tuple[str, str, str, str, str]:
-        """Return all evidence statuses in schema order."""
-        return (
-            self.research_retention_status,
-            self.research_evaluation_status,
-            self.redistribution_status,
-            self.provider_training_status,
-            self.weight_publication_status,
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class _PublicDecision:
-    intended_use: str
-    project_training_policy: str
-    evidence_statuses: _EvidenceStatuses
-
-
-@dataclass(frozen=True, slots=True)
-class _EvidenceReview:
-    references: _EvidenceReferences
-    status_basis: str
-    reviewed_at: str
-
-
-@dataclass(frozen=True, slots=True)
-class _LegacyRelease:
-    original_release_license: str | None
-    original_release_commit: str | None
-    legacy_public_release: bool
-
-
-@dataclass(frozen=True, slots=True)
-class RightsDocument:  # noqa: D203,D211
-    """Normalized immutable public rights declaration."""
-
-    identity: _DocumentIdentity
-    route: _ProviderRoute
-    decision: _PublicDecision
-    evidence: _EvidenceReview
-    legacy: _LegacyRelease
-    notes: str | None
-
-    def __getattr__(self, name: str) -> object:
-        """Expose immutable aggregate fields through the original flat API."""
-        section_names = {"identity", "route", "decision", "evidence", "legacy"}
-        if name.startswith("__") or name in section_names:
-            raise AttributeError(name)
-        sections = (
-            self.identity,
-            self.route,
-            self.decision,
-            self.decision.evidence_statuses,
-            self.evidence,
-            self.evidence.references,
-            self.legacy,
-        )
-        for section in sections:
-            if hasattr(section, name):
-                return getattr(section, name)
-        raise AttributeError(name)
-
-
-def _exact_document(value: object, where: str) -> dict[str, object]:
-    if not isinstance(value, dict):
-        raise policy_error(where, "rights document must be an object")
-    fields = set(value)
-    allowed_field_sets = (REQUIRED_FIELDS, REQUIRED_FIELDS | OPTIONAL_FIELDS)
-    if fields not in allowed_field_sets:
-        raise policy_error(
-            where,
-            "rights document fields must be exactly the required fields, "
-            "with only notes permitted as optional",
-        )
-    return value
-
-
-def _closed_value(
-    value: object,
-    field: str,
-    vocabulary: frozenset[str],
-    where: str,
-) -> str:
-    if not isinstance(value, str) or value not in vocabulary:
-        raise policy_error(where, f"{field} has an unknown value")
-    return value
-
-
-def _calendar_date(value: object, field: str, where: str) -> str:
-    if not isinstance(value, str) or _DATE_RE.fullmatch(value) is None:
-        raise policy_error(where, f"{field} must be an ISO YYYY-MM-DD calendar date")
-    try:
-        date.fromisoformat(value)
-    except ValueError as exc:
-        raise policy_error(
-            where,
-            f"{field} must be an ISO YYYY-MM-DD calendar date",
-        ) from exc
-    return value
-
-
-def _optional_nonempty_string(value: object, field: str, where: str) -> str | None:
-    if value is None:
-        return None
-    return require_nonempty_string(value, field, where=where)
-
-
-def _optional_date(value: object, field: str, where: str) -> str | None:
-    if value is None:
-        return None
-    return _calendar_date(value, field, where)
-
-
-def _optional_hash(value: object, field: str, where: str) -> str | None:
-    if value is None:
-        return None
-    return require_hash(value, field, where=where)
-
-
-def _provider_alias(value: object, where: str) -> tuple[str, str]:
-    if not isinstance(value, str):
-        raise policy_error(where, "unknown public provider")
-    canonical = PROVIDER_ALIASES.get(value)
-    if canonical is None:
-        raise policy_error(where, f"unknown public provider {value!r}")
-    return value, canonical
 
 
 def _validate_hosted_authorization(
@@ -412,7 +257,9 @@ def _validate_document_identity(
 def _validate_provider_route(
     document: dict[str, object], where: str
 ) -> _ProviderRoute:
-    provider, canonical_provider = _provider_alias(document["provider"], where)
+    provider, canonical_provider = _provider_alias(
+        document["provider"], PROVIDER_ALIASES, where
+    )
     return _ProviderRoute(
         provider,
         canonical_provider,
@@ -463,7 +310,7 @@ def validate_rights_document(
     document: object, *, where: str = "rights document"
 ) -> RightsDocument:
     """Validate one parsed public sidecar and return immutable normalized data."""
-    checked = _exact_document(document, where)
+    checked = _exact_document(document, REQUIRED_FIELDS, OPTIONAL_FIELDS, where)
     _validate_document_unicode(checked, where)
     identity = _validate_document_identity(checked, where)
     route = _validate_provider_route(checked, where)

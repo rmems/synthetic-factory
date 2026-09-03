@@ -97,25 +97,38 @@ class RightsClassifierTests(RightsPolicyTestCase):
                     rights_policy.validate_rights_policy(document)
 
     def test_package_first_and_direct_imports_share_module_objects(self):
-        script = f"""
+        for package_first in (False, True):
+            script = f"""
+import importlib
 import sys
 sys.path.insert(0, {str(ROOT)!r})
 sys.path.insert(1, {str(PIPELINES)!r})
-import pipelines.rights_classifier as package_classifier
-import pipelines.rights_policy as package_policy
-import rights_classifier
-import rights_policy
-assert package_classifier is rights_classifier
-assert package_policy is rights_policy
-assert package_policy.RightsPolicyError is rights_policy.RightsPolicyError
+names = (
+    "rights_classifier",
+    "rights_document",
+    "rights_document_support",
+    "rights_policy",
+    "rights_policy_profiles",
+)
+if {package_first!r}:
+    packaged = {{name: importlib.import_module(f"pipelines.{{name}}") for name in names}}
+    direct = {{name: importlib.import_module(name) for name in names}}
+else:
+    direct = {{name: importlib.import_module(name) for name in names}}
+    packaged = {{name: importlib.import_module(f"pipelines.{{name}}") for name in names}}
+for name in names:
+    assert packaged[name] is direct[name]
+assert packaged["rights_policy"].RightsPolicyError is direct["rights_policy"].RightsPolicyError
+assert packaged["rights_document"].RightsDocument is packaged["rights_document_support"].RightsDocument
 """
-        result = subprocess.run(  # nosec B603  # nosemgrep -- fixed interpreter.
-            [sys.executable, "-c", script],
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
+            result = subprocess.run(  # nosec B603  # nosemgrep -- fixed interpreter.
+                [sys.executable, "-c", script],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            with self.subTest(package_first=package_first):
+                self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_classification_rejects_malformed_hashes(self):
         for field in ("source_sha256", "factory_registry_sha256"):
