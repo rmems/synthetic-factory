@@ -1,0 +1,41 @@
+pipelines/rights_policy.py
+  s_473e2763661832::t_9f976833c9b083 342,351
+pipelines/rights_classifier.py
+  s_473e2763661832::t_be00b6787012e0 73,90,97,229
+  s_473e2763661832::t_2e3ad6557fbab9 82-89,327,330-331,333-338,342
+  s_473e2763661832::t_5a0065b54ff98c 117-119,271,275,291,301-303,309-314,316,329
+tests/test_rights_policy.py
+  s_473e2763661832::t_345f137227455c 296-303
+  s_473e2763661832::t_823a628ceb8364 120-130,133
+  s_473e2763661832::t_cad02f64e45393 138-143,279
+pipelines/curate_identity.py
+  s_473e2763661832::t_51202bdbcf0a1b 431,551,555
+  s_473e2763661832::t_9f976833c9b083 2451-2454
+tests/test_rights_classifier.py
+  s_473e2763661832::t_a442e606d543e8 28,32-33,38
+  s_473e2763661832::t_1fbde4c2e80229 200-203
+  s_473e2763661832::t_345f137227455c 205-212,214-222,224-236,238
+  s_473e2763661832::t_4e69e92f8ba03b 9,39-42
+  s_473e2763661832::t_cad02f64e45393 150,169-171,178-180,185-187,192-194,213,223,237,269,279,286,297
+pipelines/rights_mapping.py
+  s_473e2763661832::t_9f976833c9b083 114
+tests/test_curate_identity.py
+  s_473e2763661832::t_51202bdbcf0a1b 1368,1396-1403
+  s_473e2763661832::t_823a628ceb8364 1300-1305
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9ae8445afd7fcd610a4442ca6cd913bda53c3ca4",
+  "prompts": {},
+  "sessions": {
+    "s_473e2763661832": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05f70-58e6-7d22-af3b-d2ea0989caa0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
