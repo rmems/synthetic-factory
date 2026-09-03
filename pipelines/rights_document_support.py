@@ -22,6 +22,7 @@ else:
 
 
 policy_error = _rights_mapping.policy_error
+protect_frozen_slots = _rights_mapping.protect_frozen_slots
 require_hash = _rights_mapping.require_hash
 require_nonempty_string = _rights_mapping.require_nonempty_string
 
@@ -29,6 +30,7 @@ require_nonempty_string = _rights_mapping.require_nonempty_string
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$", re.ASCII)
 
 
+@protect_frozen_slots
 @dataclass(frozen=True, slots=True)
 class _DocumentIdentity:
     schema_version: str
@@ -38,6 +40,7 @@ class _DocumentIdentity:
     generated_at: str
 
 
+@protect_frozen_slots
 @dataclass(frozen=True, slots=True)
 class _ProviderRoute:
     provider: str
@@ -48,6 +51,7 @@ class _ProviderRoute:
     provider_output_attribution: str
 
 
+@protect_frozen_slots
 @dataclass(frozen=True, slots=True)
 class _EvidenceReferences:
     terms_document: str | None
@@ -63,6 +67,7 @@ class _EvidenceReferences:
         )
 
 
+@protect_frozen_slots
 @dataclass(frozen=True, slots=True)
 class _EvidenceStatuses:
     research_retention_status: str
@@ -82,6 +87,7 @@ class _EvidenceStatuses:
         )
 
 
+@protect_frozen_slots
 @dataclass(frozen=True, slots=True)
 class _PublicDecision:
     intended_use: str
@@ -89,6 +95,7 @@ class _PublicDecision:
     evidence_statuses: _EvidenceStatuses
 
 
+@protect_frozen_slots
 @dataclass(frozen=True, slots=True)
 class _EvidenceReview:
     references: _EvidenceReferences
@@ -96,6 +103,7 @@ class _EvidenceReview:
     reviewed_at: str
 
 
+@protect_frozen_slots
 @dataclass(frozen=True, slots=True)
 class _LegacyRelease:
     original_release_license: str | None
@@ -103,6 +111,7 @@ class _LegacyRelease:
     legacy_public_release: bool
 
 
+@protect_frozen_slots
 @dataclass(frozen=True, slots=True)
 class RightsDocument:  # noqa: D203,D211
     """Normalized immutable public rights declaration."""

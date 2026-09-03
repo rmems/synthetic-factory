@@ -41,6 +41,7 @@ RightsPolicyError = _rights_mapping.RightsPolicyError
 freeze_json = _rights_mapping.freeze_json
 parse_strict_json_bytes = _rights_mapping.parse_strict_json_bytes
 policy_error = _rights_mapping.policy_error
+protect_frozen_slots = _rights_mapping.protect_frozen_slots
 reject_unpaired_surrogates = _rights_mapping.reject_unpaired_surrogates
 require_nonempty_string = _rights_mapping.require_nonempty_string
 require_rights_json_size = _rights_mapping.require_rights_json_size
@@ -96,6 +97,7 @@ def load_rights_policy(path: str | Path | None = None) -> dict:
     return document
 
 
+@protect_frozen_slots
 @dataclass(frozen=True, slots=True)
 class _EvidenceStatuses:
     research_retention_status: str
@@ -105,6 +107,7 @@ class _EvidenceStatuses:
     weight_publication_status: str
 
 
+@protect_frozen_slots
 @dataclass(frozen=True, slots=True)
 class RightsAuthorization:  # noqa: D203,D211
     """One fully compiled verdict containing no mutable policy nodes."""

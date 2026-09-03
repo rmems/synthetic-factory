@@ -51,6 +51,34 @@ class RightsPolicyGuardTests(unittest.TestCase):
             while len(rules) > original_length:
                 rules.pop()
 
+    def test_initialized_authorization_state_cannot_be_restored(self):
+        authorization = next(iter(rights_policy.RIGHTS_AUTHORIZATIONS.values()))
+        statuses = authorization.evidence_statuses
+        attempts = (
+            (
+                authorization,
+                [
+                    "training_candidate",
+                    "allowed",
+                    statuses,
+                    authorization.reason_codes,
+                ],
+            ),
+            (statuses, ["allowed"] * len(rights_policy.EVIDENCE_STATUS_FIELDS)),
+        )
+        for target, replacement in attempts:
+            slots = type(target).__slots__
+            original = [object.__getattribute__(target, name) for name in slots]
+            try:
+                with self.subTest(target=type(target).__name__):
+                    with self.assertRaisesRegex(TypeError, "initialized"):
+                        target.__setstate__(replacement)
+            finally:
+                for name, value in zip(slots, original, strict=True):
+                    object.__setattr__(target, name, value)
+
+        self.assertEqual(copy.deepcopy(authorization), authorization)
+
     def test_policy_validation_requires_hosted_provider_coverage(self):
         document = mutable_policy_document()
         document["rules"] = [

@@ -55,6 +55,7 @@ if __package__:
         HOSTED_FRONTIER_PROFILE_ID,
         INTENDED_USES,
         PROJECT_TRAINING_POLICIES,
+        protect_frozen_slots,
     )
     from .rights_policy import (
         PROVIDERS,
@@ -83,6 +84,7 @@ else:
         HOSTED_FRONTIER_PROFILE_ID,
         INTENDED_USES,
         PROJECT_TRAINING_POLICIES,
+        protect_frozen_slots,
     )
     from rights_policy import (
         PROVIDERS,
@@ -207,6 +209,7 @@ class _ManifestReplay:
     result: CurationResult
 
 
+@protect_frozen_slots
 @dataclass(frozen=True, slots=True)
 class FactoryRow:
     path_id: str

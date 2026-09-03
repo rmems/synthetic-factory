@@ -58,6 +58,28 @@ class RightsPolicyError(ValueError):  # noqa: D203,D211
     """Raised when rights policy or a rights envelope fails closed."""
 
 
+def protect_frozen_slots(cls: type) -> type:
+    """Reject state restoration once a frozen slotted value is initialized."""
+    generated_setstate = cls.__dict__.get("__setstate__")
+    slots = cls.__dict__.get("__slots__")
+    if not callable(generated_setstate) or not isinstance(slots, tuple) or not slots:
+        raise TypeError("state protection requires a frozen slotted dataclass")
+
+    def guarded_setstate(instance: object, state: object) -> None:
+        for name in slots:
+            try:
+                object.__getattribute__(instance, name)
+            except AttributeError:
+                continue
+            raise TypeError(
+                f"{cls.__name__} state restoration requires an uninitialized instance"
+            )
+        generated_setstate(instance, state)
+
+    setattr(cls, "__setstate__", guarded_setstate)
+    return cls
+
+
 def policy_error(where: str, message: str) -> RightsPolicyError:
     """Build a consistently scoped policy error."""
     return RightsPolicyError(f"{where}: {message}")

@@ -37,6 +37,28 @@ class RightsClassifierTests(RightsPolicyTestCase):
         classified = self.classify()
         self.assertEqual(copy.deepcopy(classified), classified)
 
+    def test_initialized_decision_state_cannot_be_restored(self):
+        decision = self.classify()
+        verification = self.verification()
+        values = (
+            decision,
+            decision.route,
+            decision.bindings,
+            verification,
+        )
+
+        for value in values:
+            state = [
+                object.__getattribute__(value, name)
+                for name in type(value).__slots__
+            ]
+            with self.subTest(value=type(value).__name__):
+                with self.assertRaisesRegex(TypeError, "initialized"):
+                    value.__setstate__(state)
+
+        self.assertEqual(copy.deepcopy(decision), decision)
+        self.assertEqual(copy.deepcopy(verification), verification)
+
     def test_route_argument_guards_reject_conflict_and_missing_fields(self):
         route = rights_classifier.RightsRoute(
             "anthropic",

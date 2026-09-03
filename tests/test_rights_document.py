@@ -113,6 +113,32 @@ class RightsDocumentLifecycleTests(unittest.TestCase):
                 with self.assertRaises(AttributeError):
                     getattr(document, name)
 
+    def test_initialized_document_state_cannot_be_restored(self):
+        document = rights_document.load_rights_document_bytes(
+            encode(anthropic_document())
+        )
+        values = (
+            document,
+            document.identity,
+            document.route,
+            document.decision,
+            document.decision.evidence_statuses,
+            document.evidence,
+            document.evidence.references,
+            document.legacy,
+        )
+
+        for value in values:
+            state = [
+                object.__getattribute__(value, name)
+                for name in type(value).__slots__
+            ]
+            with self.subTest(value=type(value).__name__):
+                with self.assertRaisesRegex(TypeError, "initialized"):
+                    value.__setstate__(state)
+
+        self.assertEqual(copy.deepcopy(document), document)
+
 
 @unittest.skipIf(
     RIGHTS_DOCUMENT_SPEC is None,

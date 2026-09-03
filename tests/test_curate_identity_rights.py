@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import tempfile
@@ -233,6 +234,14 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
             row.__dict__["project_training_policy"] = "allowed"
         with self.assertRaises(FrozenInstanceError):
             row.project_training_policy = "allowed"
+
+        slots = type(row).__slots__
+        state = [object.__getattribute__(row, name) for name in slots]
+        state[slots.index("project_training_policy")] = "allowed"
+        with self.assertRaisesRegex(TypeError, "initialized"):
+            row.__setstate__(state)
+        self.assertEqual(row.project_training_policy, "blocked")
+        self.assertEqual(copy.deepcopy(row), row)
 
     def test_non_string_rights_fields_fail_with_registry_errors(self):
         cases = (

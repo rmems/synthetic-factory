@@ -15,6 +15,7 @@ if __package__:
     from .rights_mapping import (
         EVIDENCE_STATUS_FIELDS,
         policy_error,
+        protect_frozen_slots,
         require_hash,
         sha256_digest,
     )
@@ -36,6 +37,7 @@ else:
     from rights_mapping import (
         EVIDENCE_STATUS_FIELDS,
         policy_error,
+        protect_frozen_slots,
         require_hash,
         sha256_digest,
     )
@@ -70,6 +72,7 @@ _CLASSIFICATION_WHERE = "rights classification"
 _REASON_CODES_ERROR = "reason_codes must be unique strings"
 
 
+@protect_frozen_slots
 @dataclass(frozen=True, slots=True)
 class RightsRoute:  # noqa: D203,D211
     """Canonical provider/channel/profile coordinates for one decision."""
@@ -79,6 +82,7 @@ class RightsRoute:  # noqa: D203,D211
     rights_profile_id: str
 
 
+@protect_frozen_slots
 @dataclass(frozen=True, slots=True)
 class RightsVerification:
     """Trusted route and optional policy bytes for envelope verification."""
@@ -87,6 +91,7 @@ class RightsVerification:
     policy_bytes: bytes | None = None
 
 
+@protect_frozen_slots
 @dataclass(frozen=True, slots=True)
 class _BoundDigests:
     source_sha256: str
@@ -94,6 +99,7 @@ class _BoundDigests:
     rights_policy_sha256: str
 
 
+@protect_frozen_slots
 @dataclass(frozen=True, slots=True)
 class RightsDecision:  # noqa: D203,D211
     """Immutable rights verdict with byte-bound evidence identifiers."""
@@ -226,6 +232,7 @@ def _bound_bytes(value: object, field: str) -> bytes:
     return value
 
 
+@protect_frozen_slots
 @dataclass(frozen=True, slots=True)
 class _EnvelopeBytes:
     source: bytes
