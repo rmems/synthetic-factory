@@ -28,6 +28,7 @@ if __package__:
         REQUIRED_PROFILE_IDS,
         UNKNOWN_PROVENANCE_PROFILE_ID,
         RightsPolicyError,
+        freeze_json,
         parse_strict_json_bytes,
         policy_error,
         reject_unpaired_surrogates,
@@ -54,6 +55,7 @@ else:
         REQUIRED_PROFILE_IDS,
         UNKNOWN_PROVENANCE_PROFILE_ID,
         RightsPolicyError,
+        freeze_json,
         parse_strict_json_bytes,
         policy_error,
         reject_unpaired_surrogates,
@@ -84,6 +86,7 @@ _INTENDED_USE_POLICY = {
     "research_only": "blocked",
     "training_candidate": "allowed",
 }
+_POLICY_LABEL = "rights policy"
 
 
 def _exact_object(value: object, fields: frozenset[str], label: str, where: str) -> dict:
@@ -124,7 +127,7 @@ def _catalogue_ids(entries: object, label: str, fields: frozenset[str], where: s
 
 
 def _validate_identity(document: object, where: str) -> dict:
-    checked = _exact_object(document, _TOP_LEVEL_FIELDS, "rights policy", where)
+    checked = _exact_object(document, _TOP_LEVEL_FIELDS, _POLICY_LABEL, where)
     identities = (
         ("document_type", POLICY_DOCUMENT_TYPE),
         ("policy_version", POLICY_VERSION),
@@ -451,7 +454,7 @@ def _validate_policy_unicode(document: object, where: str) -> None:
         ) from exc
 
 
-def validate_rights_policy(document: object, *, where: str = "rights policy") -> dict:
+def validate_rights_policy(document: object, *, where: str = _POLICY_LABEL) -> dict:
     """Validate policy identity, catalogues, profiles, and authorizing rules."""
     _validate_policy_unicode(document, where)
     checked = _validate_identity(document, where)
@@ -483,7 +486,11 @@ def _load_rights_policy(path: Path) -> tuple[dict, bytes]:
 
 def load_rights_policy(path: str | Path | None = None) -> dict:
     """Load an explicit policy path, failing closed on bytes or semantics."""
-    document, _ = _load_rights_policy(Path(path) if path is not None else MAPPING_PATH)
+    try:
+        policy_path = Path(path) if path is not None else MAPPING_PATH
+    except TypeError as exc:
+        raise policy_error(_POLICY_LABEL, "policy path must be string or Path") from exc
+    document, _ = _load_rights_policy(policy_path)
     return document
 
 
@@ -554,13 +561,16 @@ def _compile_authorizations(document: dict) -> MappingProxyType:
     return MappingProxyType(compiled)
 
 
-RIGHTS_POLICY, RIGHTS_POLICY_BYTES = _load_rights_policy(MAPPING_PATH)
+_RIGHTS_POLICY_DOCUMENT, RIGHTS_POLICY_BYTES = _load_rights_policy(MAPPING_PATH)
 RIGHTS_POLICY_SHA256 = sha256_digest(RIGHTS_POLICY_BYTES)
-PROVIDERS = frozenset(RIGHTS_POLICY["vocabularies"]["providers"])
-RIGHTS_CHANNELS = frozenset(RIGHTS_POLICY["vocabularies"]["channels"])
-RIGHTS_PROFILE_IDS = frozenset(profile["id"] for profile in RIGHTS_POLICY["profiles"])
-RIGHTS_AUTHORIZATIONS = _compile_authorizations(RIGHTS_POLICY)
-REASON_CODES = frozenset(item["id"] for item in RIGHTS_POLICY["reason_codes"])
+PROVIDERS = frozenset(_RIGHTS_POLICY_DOCUMENT["vocabularies"]["providers"])
+RIGHTS_CHANNELS = frozenset(_RIGHTS_POLICY_DOCUMENT["vocabularies"]["channels"])
+RIGHTS_PROFILE_IDS = frozenset(
+    profile["id"] for profile in _RIGHTS_POLICY_DOCUMENT["profiles"]
+)
+RIGHTS_AUTHORIZATIONS = _compile_authorizations(_RIGHTS_POLICY_DOCUMENT)
+REASON_CODES = frozenset(item["id"] for item in _RIGHTS_POLICY_DOCUMENT["reason_codes"])
+RIGHTS_POLICY = freeze_json(_RIGHTS_POLICY_DOCUMENT)
 
 
 if __package__:

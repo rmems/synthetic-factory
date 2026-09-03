@@ -140,6 +140,10 @@ class RightsDocumentTests(unittest.TestCase):
             set(rights_document.PROVIDER_ALIASES.values()),
             {"anthropic", "meta", "openai", "xai"},
         )
+        self.assertEqual(
+            len(rights_document.PROVIDER_ALIASES),
+            len(rights_document.CANONICAL_PROVIDERS),
+        )
         with self.assertRaises(TypeError):
             rights_document.PROVIDER_ALIASES["Anthropic"] = "xai"
 
@@ -289,10 +293,28 @@ class RightsDocumentTests(unittest.TestCase):
         self.assert_rejected(promoted, "hosted-frontier authorization")
 
     def test_hosted_public_route_must_have_a_sealed_authorization(self):
-        unauthorized_route = anthropic_document()
-        unauthorized_route["channel"] = "api"
+        unauthorized_routes = (
+            ("Anthropic", "api"),
+            ("OpenAI", "api"),
+            ("xAI (SpaceXAI)", "api"),
+            ("Meta", "consumer"),
+            ("Anthropic", "enterprise"),
+            ("Anthropic", "local"),
+        )
+        for provider, channel in unauthorized_routes:
+            document = anthropic_document()
+            document.update(provider=provider, channel=channel)
+            with self.subTest(provider=provider, channel=channel):
+                self.assert_rejected(
+                    document,
+                    "no hosted-frontier authorization",
+                )
 
-        self.assert_rejected(unauthorized_route, "no hosted-frontier authorization")
+        with self.assertRaisesRegex(
+            rights_document.RightsPolicyError,
+            "rights document must be an object",
+        ):
+            rights_document.load_rights_document_bytes(b"[]")
 
     def test_non_unresolved_status_requires_complete_real_evidence(self):
         for missing in (

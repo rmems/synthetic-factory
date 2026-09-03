@@ -16,6 +16,7 @@ from test_rights_policy import (
     RIGHTS_POLICY_SPEC,
     ROOT,
     RightsPolicyTestCase,
+    mutable_policy_document,
     rights_classifier,
     rights_policy,
 )
@@ -28,6 +29,7 @@ class RightsClassifierTests(RightsPolicyTestCase):
             {"provider": "other"},
             {"channel": "other"},
             {"profile": "other-profile"},
+            {"profile": ""},
             {"provider": "meta", "channel": "consumer"},
         )
         for overrides in cases:
@@ -53,7 +55,7 @@ class RightsClassifierTests(RightsPolicyTestCase):
             lambda document: document["rules"][0].update(rights_profile_id=[]),
         )
         for mutate in mutations:
-            document = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+            document = mutable_policy_document()
             mutate(document)
             with self.subTest(document=document):
                 with self.assertRaises(rights_policy.RightsPolicyError):
@@ -171,6 +173,31 @@ assert package_policy.RightsPolicyError is rights_policy.RightsPolicyError
             altered = copy.deepcopy(payload)
             mutate(altered)
             with self.subTest(label=label):
+                with self.assertRaises(rights_policy.RightsPolicyError):
+                    rights_classifier.verify_rights_envelope(
+                        altered,
+                        source_bytes=self.SOURCE_BYTES,
+                        factory_registry_bytes=self.REGISTRY_BYTES,
+                    )
+
+    def test_envelope_verification_rejects_structural_input_drift(self):
+        payload = self.classify().to_public_payload()
+        with self.assertRaises(rights_policy.RightsPolicyError):
+            rights_classifier.verify_rights_envelope(
+                [],
+                source_bytes=self.SOURCE_BYTES,
+                factory_registry_bytes=self.REGISTRY_BYTES,
+            )
+        with self.assertRaises(rights_policy.RightsPolicyError):
+            rights_classifier.verify_rights_envelope(
+                payload,
+                source_bytes="not bytes",
+                factory_registry_bytes=self.REGISTRY_BYTES,
+            )
+        for reasons in ([], ["UNKNOWN_PROVENANCE"] * 2, [1]):
+            altered = copy.deepcopy(payload)
+            altered["reason_codes"] = reasons
+            with self.subTest(reason_codes=reasons):
                 with self.assertRaises(rights_policy.RightsPolicyError):
                     rights_classifier.verify_rights_envelope(
                         altered,

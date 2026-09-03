@@ -9,6 +9,7 @@ import math
 import re
 import sys
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 if __package__:
@@ -107,6 +108,15 @@ def require_unique_strings(value: object, field: str, *, where: str) -> tuple[st
     if len(values) != len(set(values)):
         raise _invalid_string_list(field, where)
     return tuple(values)
+
+
+def freeze_json(value: object) -> object:
+    """Return a recursively read-only view of a validated JSON value."""
+    if isinstance(value, dict):
+        return MappingProxyType({key: freeze_json(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(freeze_json(item) for item in value)
+    return value
 
 
 def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

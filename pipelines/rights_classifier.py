@@ -4,9 +4,9 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Mapping
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -52,20 +52,19 @@ else:
     )
 
 
-PUBLIC_PAYLOAD_FIELDS = frozenset(
-    {
-        "rights_profile_id",
-        "provider",
-        "channel",
-        "intended_use",
-        "project_training_policy",
-        *EVIDENCE_STATUS_FIELDS,
-        "reason_codes",
-        "source_sha256",
-        "factory_registry_sha256",
-        "rights_policy_sha256",
-    }
+PUBLIC_PAYLOAD_FIELD_ORDER = (
+    "rights_profile_id",
+    "provider",
+    "channel",
+    "intended_use",
+    "project_training_policy",
+    *EVIDENCE_STATUS_FIELDS,
+    "reason_codes",
+    "source_sha256",
+    "factory_registry_sha256",
+    "rights_policy_sha256",
 )
+PUBLIC_PAYLOAD_FIELDS = frozenset(PUBLIC_PAYLOAD_FIELD_ORDER)
 _ENVELOPE_WHERE = "rights envelope"
 _CLASSIFICATION_WHERE = "rights classification"
 _REASON_CODES_ERROR = "reason_codes must be unique strings"
@@ -103,27 +102,18 @@ class RightsDecision:  # noqa: D203,D211
 
     def to_public_payload(self) -> dict[str, object]:
         """Return the JSON-ready public envelope without exposing mutable state."""
-        return {
-            "rights_profile_id": self.rights_profile_id,
-            "provider": self.provider,
-            "channel": self.channel,
-            "intended_use": self.intended_use,
-            "project_training_policy": self.project_training_policy,
-            "research_retention_status": self.research_retention_status,
-            "research_evaluation_status": self.research_evaluation_status,
-            "redistribution_status": self.redistribution_status,
-            "provider_training_status": self.provider_training_status,
-            "weight_publication_status": self.weight_publication_status,
-            "reason_codes": list(self.reason_codes),
-            "source_sha256": self.source_sha256,
-            "factory_registry_sha256": self.factory_registry_sha256,
-            "rights_policy_sha256": self.rights_policy_sha256,
+        payload = {
+            field: getattr(self, field) for field in PUBLIC_PAYLOAD_FIELD_ORDER
         }
+        payload["reason_codes"] = list(self.reason_codes)
+        return payload
 
     @property
     def public_payload(self) -> Mapping[str, object]:
         """Return a read-only view of the public envelope."""
-        return MappingProxyType(self.to_public_payload())
+        payload = self.to_public_payload()
+        payload["reason_codes"] = self.reason_codes
+        return MappingProxyType(payload)
 
 
 def _authorization(route: RightsRoute) -> RightsAuthorization:
@@ -209,7 +199,7 @@ def _payload_object(envelope: object) -> dict[str, object]:
     if not isinstance(envelope, Mapping):
         raise policy_error(_ENVELOPE_WHERE, "envelope must be an object")
     payload = dict(envelope)
-    if set(payload) != set(PUBLIC_PAYLOAD_FIELDS):
+    if set(payload) != PUBLIC_PAYLOAD_FIELDS:
         raise policy_error(
             _ENVELOPE_WHERE,
             f"envelope fields must be exactly {sorted(PUBLIC_PAYLOAD_FIELDS)}",
@@ -317,7 +307,8 @@ def verify_rights_envelope(
     """Recompute byte digests and require the mapping's exact static verdict."""
     payload = _payload_object(envelope)
     bound = _envelope_bytes(source_bytes, factory_registry_bytes, policy_bytes)
-    load_rights_policy_bytes(bound.policy, where="rights envelope policy_bytes")
+    if policy_bytes is not None:
+        load_rights_policy_bytes(bound.policy, where="rights envelope policy_bytes")
     _verify_bound_digests(payload, bound)
     _verify_reason_codes(payload)
     expected_decision = _expected_decision(payload)

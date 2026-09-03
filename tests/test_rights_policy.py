@@ -12,6 +12,7 @@ import json
 import sys
 import tempfile
 import unittest
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import FrozenInstanceError
 from pathlib import Path
@@ -38,6 +39,20 @@ def digest(payload: bytes) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
+def mutable_policy_document():
+    """Return a mutable copy decoded from the committed policy bytes."""
+    return json.loads(rights_policy.RIGHTS_POLICY_BYTES)
+
+
+def plain_policy_value(value):
+    """Convert the exported immutable tree to ordinary JSON containers."""
+    if isinstance(value, Mapping):
+        return {key: plain_policy_value(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [plain_policy_value(item) for item in value]
+    return value
+
+
 @contextmanager
 def mutated_loaded_policy():
     """Attempt mutation, then restore mutable implementations for test isolation."""
@@ -45,8 +60,8 @@ def mutated_loaded_policy():
         "profiles", rights_policy.HOSTED_FRONTIER_PROFILE_ID
     )
     rule = _policy_item("rules", "HOSTED_ANTHROPIC_CONSUMER")
-    original_profile = copy.deepcopy(profile)
-    original_rule = copy.deepcopy(rule)
+    original_profile = plain_policy_value(profile)
+    original_rule = plain_policy_value(rule)
     try:
         _attempt_policy_mutation(profile, rule)
         yield
@@ -108,7 +123,9 @@ class RightsPolicyTestCase(unittest.TestCase):
                 provider=provider,
                 channel=channel,
                 rights_profile_id=(
-                    profile or rights_policy.HOSTED_FRONTIER_PROFILE_ID
+                    profile
+                    if profile is not None
+                    else rights_policy.HOSTED_FRONTIER_PROFILE_ID
                 ),
             ),
             source_sha256=self.SOURCE_SHA256,
@@ -127,7 +144,7 @@ class RightsPolicyTests(RightsPolicyTestCase):
     def test_committed_policy_is_loaded_and_bound_to_its_exact_bytes(self):
         document = json.loads(MAPPING.read_text(encoding="utf-8"))
 
-        self.assertEqual(rights_policy.RIGHTS_POLICY, document)
+        self.assertEqual(plain_policy_value(rights_policy.RIGHTS_POLICY), document)
         self.assertEqual(
             rights_policy.RIGHTS_POLICY_SHA256,
             digest(MAPPING.read_bytes()),
@@ -214,7 +231,7 @@ class RightsPolicyTests(RightsPolicyTestCase):
         )
 
     def test_provider_training_evidence_cannot_promote_project_policy(self):
-        document = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+        document = mutable_policy_document()
         profile = next(
             item
             for item in document["profiles"]
@@ -274,6 +291,8 @@ class RightsPolicyTests(RightsPolicyTestCase):
             decision.project_training_policy = "allowed"
         with self.assertRaises(TypeError):
             decision.public_payload["project_training_policy"] = "allowed"
+        with self.assertRaises(TypeError):
+            decision.public_payload["reason_codes"][0] = "UNKNOWN_PROVENANCE"
 
     def test_policy_validation_rejects_identity_and_exact_vocabulary_drift(self):
         cases = []
@@ -282,7 +301,7 @@ class RightsPolicyTests(RightsPolicyTestCase):
             ("policy_version", "rights-policy-v2"),
             ("mapping_version", "rights-mapping-v2"),
         ):
-            document = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+            document = mutable_policy_document()
             document[field] = value
             cases.append(document)
 
@@ -293,7 +312,7 @@ class RightsPolicyTests(RightsPolicyTestCase):
             ("project_training_policy", ["allowed", "blocked", "maybe"]),
             ("evidence_status", ["allowed", "restricted"]),
         ):
-            document = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+            document = mutable_policy_document()
             document["vocabularies"][vocabulary] = value
             cases.append(document)
 
@@ -304,7 +323,7 @@ class RightsPolicyTests(RightsPolicyTestCase):
 
     def test_policy_validation_rejects_duplicate_ids(self):
         for collection in ("profiles", "rules", "reason_codes"):
-            document = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+            document = mutable_policy_document()
             document[collection].append(copy.deepcopy(document[collection][0]))
             with self.subTest(collection=collection):
                 with self.assertRaisesRegex(
@@ -314,7 +333,7 @@ class RightsPolicyTests(RightsPolicyTestCase):
 
     def test_policy_validation_rejects_missing_or_extra_status_fields(self):
         for status_change in ("missing", "extra"):
-            document = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+            document = mutable_policy_document()
             statuses = document["profiles"][0]["evidence_statuses"]
             if status_change == "missing":
                 statuses.pop("redistribution_status")
@@ -328,14 +347,14 @@ class RightsPolicyTests(RightsPolicyTestCase):
                     rights_policy.validate_rights_policy(document)
 
     def test_policy_validation_rejects_uncovered_or_unknown_reasons(self):
-        orphan = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+        orphan = mutable_policy_document()
         orphan["reason_codes"].append(
             {"id": "UNUSED_REASON", "description": "never emitted"}
         )
         with self.assertRaisesRegex(rights_policy.RightsPolicyError, "not covered"):
             rights_policy.validate_rights_policy(orphan)
 
-        uncatalogued = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+        uncatalogued = mutable_policy_document()
         uncatalogued["rules"][0]["reason_codes"] = ["NOT_CATALOGUED"]
         with self.assertRaisesRegex(
             rights_policy.RightsPolicyError, "unknown reason"
@@ -343,7 +362,7 @@ class RightsPolicyTests(RightsPolicyTestCase):
             rights_policy.validate_rights_policy(uncatalogued)
 
     def test_policy_validation_requires_provider_coverage(self):
-        document = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+        document = mutable_policy_document()
         for rule in document["rules"]:
             if rule["providers"] == ["anthropic"]:
                 rule["providers"] = ["meta"]
@@ -358,7 +377,7 @@ class RightsPolicyTests(RightsPolicyTestCase):
             rights_policy.validate_rights_policy(document)
 
     def test_policy_validation_requires_a_path_for_every_required_profile(self):
-        document = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+        document = mutable_policy_document()
         document["rules"] = [
             rule
             for rule in document["rules"]
@@ -392,7 +411,7 @@ class RightsPolicyTests(RightsPolicyTestCase):
                     check()
 
     def test_unknown_provenance_rule_covers_every_provider_channel_route(self):
-        document = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+        document = mutable_policy_document()
         fallback = next(
             rule
             for rule in document["rules"]
@@ -409,7 +428,7 @@ class RightsPolicyTests(RightsPolicyTestCase):
             rights_policy.validate_rights_policy(document)
 
     def test_direct_policy_validation_rejects_unpaired_surrogates(self):
-        document = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+        document = mutable_policy_document()
         document["reason_codes"][0]["description"] = "invalid-\ud800"
 
         with self.assertRaisesRegex(
@@ -419,12 +438,12 @@ class RightsPolicyTests(RightsPolicyTestCase):
             rights_policy.validate_rights_policy(document)
 
     def test_policy_validation_rejects_profile_or_rule_verdict_drift(self):
-        inconsistent_profile = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+        inconsistent_profile = mutable_policy_document()
         inconsistent_profile["profiles"][1]["project_training_policy"] = "allowed"
         with self.assertRaisesRegex(rights_policy.RightsPolicyError, "inconsistent"):
             rights_policy.validate_rights_policy(inconsistent_profile)
 
-        drifting_rule = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+        drifting_rule = mutable_policy_document()
         drifting_rule["rules"][0]["project_training_policy"] = "allowed"
         with self.assertRaisesRegex(
             rights_policy.RightsPolicyError, "outside profile"
@@ -432,7 +451,7 @@ class RightsPolicyTests(RightsPolicyTestCase):
             rights_policy.validate_rights_policy(drifting_rule)
 
     def test_hosted_profile_must_keep_all_evidence_unresolved(self):
-        document = copy.deepcopy(rights_policy.RIGHTS_POLICY)
+        document = mutable_policy_document()
         document["profiles"][0]["evidence_statuses"][
             "provider_training_status"
         ] = "allowed"
@@ -443,6 +462,17 @@ class RightsPolicyTests(RightsPolicyTestCase):
             rights_policy.validate_rights_policy(document)
 
     def test_explicit_loader_rejects_every_malformed_input_class(self):
+        with self.assertRaisesRegex(
+            rights_policy.RightsPolicyError,
+            "policy path",
+        ):
+            rights_policy.load_rights_policy(1)
+        with self.assertRaisesRegex(
+            rights_policy.RightsPolicyError,
+            "policy input must be bytes",
+        ):
+            rights_policy.load_rights_policy_bytes("not bytes")
+
         with tempfile.TemporaryDirectory() as directory:
             malformed = {
                 "non-utf-8.json": b"\xff",

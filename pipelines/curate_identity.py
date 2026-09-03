@@ -130,10 +130,10 @@ _RIGHTS_ROW_FIELDS = (
 
 _REVIEWED_GENERATOR_RIGHTS = MappingProxyType(
     {
-        "fable-5": ("anthropic", "consumer"),
-        "gpt-5.6-sol": ("openai", "consumer"),
-        "grok-4.6": ("xai", "consumer"),
-        "muse-spark-1.2": ("meta", "api"),
+        ("fable-5", "fable-5"): ("anthropic", "consumer"),
+        ("gpt-5.6-sol", "gpt-5.6-sol"): ("openai", "consumer"),
+        ("grok-4.6", "grok-4.6"): ("xai", "consumer"),
+        ("muse-spark-1.2", "muse-spark-1.2"): ("meta", "api"),
     }
 )
 if PROVIDERS != CANONICAL_PROVIDERS or RIGHTS_CHANNELS != CHANNELS:
@@ -423,9 +423,13 @@ def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
             f"factories[{index}].rights_profile_id must be "
             f"{HOSTED_FRONTIER_PROFILE_ID}"
         )
-    expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(generator)
+    expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(
+        (generator, raw["generator_version"])
+    )
     if expected_assignment is None:
-        raise IdentityCurationError(f"factories[{index}] has unknown reviewed generator")
+        raise IdentityCurationError(
+            f"factories[{index}] has unknown reviewed generator version"
+        )
     if (provider, channel) != expected_assignment:
         raise IdentityCurationError(
             f"factories[{index}] generator/provider/channel assignment is not reviewed"
@@ -538,9 +542,13 @@ def _legacy_registry_row(raw: Any, index: int) -> Mapping[str, Any]:
         raise IdentityCurationError(
             f"factories[{index}] v0.1 rows must not declare rights fields: {unexpected}"
         )
-    expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(raw.get("generator"))
+    expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(
+        (raw.get("generator"), raw.get("generator_version"))
+    )
     if expected_assignment is None:
-        raise IdentityCurationError(f"factories[{index}] has unknown reviewed generator")
+        raise IdentityCurationError(
+            f"factories[{index}] has unknown reviewed generator version"
+        )
     profile_id = HOSTED_FRONTIER_PROFILE_ID
     authorization = RIGHTS_AUTHORIZATIONS.get((*expected_assignment, profile_id))
     if authorization is None:

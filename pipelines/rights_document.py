@@ -89,7 +89,10 @@ PROVIDER_ALIASES = MappingProxyType(
         "Meta": "meta",
     }
 )
-if frozenset(PROVIDER_ALIASES.values()) != CANONICAL_PROVIDERS:
+if (
+    len(PROVIDER_ALIASES) != len(CANONICAL_PROVIDERS)
+    or frozenset(PROVIDER_ALIASES.values()) != CANONICAL_PROVIDERS
+):
     raise RightsPolicyError(
         "public provider aliases must cover the canonical provider vocabulary exactly"
     )

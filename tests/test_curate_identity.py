@@ -1373,6 +1373,7 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
                 "rights fields drift from loaded policy",
             ),
             ({"generator": "unknown-generator"}, "unknown reviewed generator"),
+            ({"generator_version": "fable-6"}, "unknown reviewed generator version"),
             (
                 {"generator": "fable-5", "provider": "openai"},
                 "generator/provider/channel assignment",
@@ -1414,16 +1415,14 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             for index, (field, value) in enumerate(cases):
                 with self.subTest(field=field):
-                    try:
+                    with self.assertRaisesRegex(
+                        identity.IdentityCurationError,
+                        f"unknown {field}",
+                    ):
                         _load_temp_registry(
                             Path(tmp) / str(index),
                             _registry_payload([_valid_row(**{field: value})]),
                         )
-                    except Exception as exc:
-                        self.assertIsInstance(exc, identity.IdentityCurationError)
-                        self.assertIn(f"unknown {field}", str(exc))
-                    else:
-                        self.fail(f"non-string {field} was accepted")
 
 
 class TestStrictIdentityTrustBoundaries(unittest.TestCase):
