@@ -57,6 +57,41 @@ Cite this section instead of inventing defensive defaults.
   restacks, GitHub rebases, Grok recovery merges, or any later commit.
   A copied Claude trailer on a later SHA is a restack, not new Claude work.
 
+## Generator rule
+
+Frontier hosted-model outputs (Claude Fable 5, GPT-5.6-Sol, Grok 4.6, Muse
+Spark) are research-only under #161 (`intended_use: research_only`,
+`project_training_policy: blocked`). Training-candidate data comes from
+procedural generators, deterministic in-repo simulators, and later DeepSeek /
+Nemotron lanes (#170). Every generator, in either lane, follows this rule:
+
+- **No generator-specific literals in shared pipelines.** `round_txn`,
+  `curate_*`, `compose_*`, and `export_hf` read `config/FACTORY-REGISTRY.json`
+  only. The `grok-4.6` literal in `pipelines/round_txn.py` is tracked as #174;
+  do not copy the pattern.
+- **One generator = one registry row per factory it publishes + one package
+  under `generators/` + one fixture under `tests/fixtures/` + one test
+  module.** Rows are keyed by exact `path_id` + `payload_factory`, so a
+  generator serving several factories owns one row each; missing any of the
+  four parts means the generator is not onboarded.
+- **Provenance stamps carry `generator`, `generator_version`, `catalog_digest`,
+  and `catalog_authorship`.** For new in-repo generators `generator_version`
+  is the source digest; the legacy frontier rows keep their model-version
+  tokens (`fable-5`, `grok-4.6`) and their immutable provenance is not
+  rewritten. A catalog authored in
+  a frontier session makes every record research-only (#173); only
+  human-authored or permissively sourced catalogs with an authorship
+  attestation yield training candidates.
+- **Generators do not hop factories or rewrite `meta.factory`.** A record is
+  published under the factory it was generated for; a mismatch is quarantined
+  by identity, not patched. A generator that needs another factory gets its
+  own registry row.
+- **`outputs/raw/` stays immutable.** Generators append new rounds through the
+  transactional round path; a defective published record is superseded by a
+  new round or a quarantine-ledger entry, not edited in place.
+- **The prompt-driven lane is legacy.** Prompts pasted into a hosted chat
+  produce research-only records; do not scale that lane to accumulate tokens.
+
 ## Hugging Face card viewer schemas
 
 Published cards declare their Dataset Viewer schema by hand, one JSON file per
