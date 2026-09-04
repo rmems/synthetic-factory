@@ -30,37 +30,28 @@ import json
 import sys
 
 
-def _fail(_response):
-    print("protocol double asked to fail", file=sys.stderr)
-    return 3
+def main(argv):
+    mode = argv[1] if len(argv) > 1 else "ok"
+    raw = sys.stdin.read()
+    if mode == "fail":
+        print("protocol double asked to fail", file=sys.stderr)
+        return 3
+    if mode == "badjson":
+        sys.stdout.write("this is not json")
+        return 0
+    if mode == "stdout_flood":
+        sys.stdout.write("x" * (9 * 1024 * 1024))
+        return 0
+    if mode == "stderr_flood":
+        sys.stderr.write("x" * (2 * 1024 * 1024))
+        return 3
+    try:
+        request = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"protocol double got invalid request: {exc}", file=sys.stderr)
+        return 4
 
-
-def _badjson(_response):
-    sys.stdout.write("this is not json")
-    return 0
-
-
-def _stdout_flood(_response):
-    sys.stdout.write("x" * (9 * 1024 * 1024))
-    return 0
-
-
-def _stderr_flood(_response):
-    sys.stderr.write("x" * (2 * 1024 * 1024))
-    return 3
-
-
-# Modes that answer (or die) before the request is even parsed.
-_EARLY_MODES = {
-    "fail": _fail,
-    "badjson": _badjson,
-    "stdout_flood": _stdout_flood,
-    "stderr_flood": _stderr_flood,
-}
-
-
-def _base_response(request):
-    return {
+    response = {
         "protocol": "sf-oracle/1",
         "runtime_version": "0.0.0-double",
         "runtime_commit": "d0b1e00" + "0" * 33,
@@ -71,29 +62,24 @@ def _base_response(request):
         },
         "units": {"protocol_double": "not a measurement"},
     }
-
-
-# Modes that break exactly one contractual field of a well-formed response.
-_TWEAKS = {
-    "wrongproto": lambda response: response.__setitem__("protocol", "sf-oracle/999"),
-    "noversion": lambda response: response.pop("runtime_version"),
-    "empty": lambda response: response.__setitem__("measured", {}),
-    "emptyunits": lambda response: response.__setitem__("units", {}),
-    "unknowncommit": lambda response: response.__setitem__("runtime_commit", "unknown"),
-    "badcommit": lambda response: response.__setitem__(
-        "runtime_commit", "not-a-source-revision"
-    ),
-    "nan": lambda response: response["measured"].__setitem__("nonfinite", float("nan")),
-    "infinity": lambda response: response["measured"].__setitem__(
-        "nonfinite", float("inf")
-    ),
-    "overflow": lambda response: response["measured"].__setitem__(
-        "nonfinite", "OVERFLOW_LITERAL"
-    ),
-}
-
-
-def _serialize(response, mode):
+    if mode == "wrongproto":
+        response["protocol"] = "sf-oracle/999"
+    elif mode == "noversion":
+        response.pop("runtime_version")
+    elif mode == "empty":
+        response["measured"] = {}
+    elif mode == "emptyunits":
+        response["units"] = {}
+    elif mode == "unknowncommit":
+        response["runtime_commit"] = "unknown"
+    elif mode == "badcommit":
+        response["runtime_commit"] = "not-a-source-revision"
+    elif mode == "nan":
+        response["measured"]["nonfinite"] = float("nan")
+    elif mode == "infinity":
+        response["measured"]["nonfinite"] = float("inf")
+    elif mode == "overflow":
+        response["measured"]["nonfinite"] = "OVERFLOW_LITERAL"
     output = json.dumps(response, sort_keys=True)
     if mode == "overflow":
         output = output.replace('"OVERFLOW_LITERAL"', "1e309")
@@ -102,25 +88,7 @@ def _serialize(response, mode):
         # "runtime_version" into the serialized text directly: this is
         # syntactically valid JSON that a last-key-wins decoder would accept.
         output = '{"runtime_version": "duplicate-should-be-rejected", ' + output[1:]
-    return output
-
-
-def main(argv):
-    mode = argv[1] if len(argv) > 1 else "ok"
-    raw = sys.stdin.read()
-    early = _EARLY_MODES.get(mode)
-    if early is not None:
-        return early(None)
-    try:
-        request = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        print(f"protocol double got invalid request: {exc}", file=sys.stderr)
-        return 4
-    response = _base_response(request)
-    tweak = _TWEAKS.get(mode)
-    if tweak is not None:
-        tweak(response)
-    sys.stdout.write(_serialize(response, mode))
+    sys.stdout.write(output)
     return 0
 
 
