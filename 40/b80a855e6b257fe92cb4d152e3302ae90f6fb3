@@ -1,0 +1,21 @@
+.claude/skills/land-stacked-prs/SKILL.md
+  s_9d594476d4f2a1::t_3dd2abe4da39cb 1-126
+.claude/skills/publish-hub-research-run/SKILL.md
+  s_9d594476d4f2a1::t_7c8e96abc4467f 1-124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "40b80a855e6b257fe92cb4d152e3302ae90f6fb3",
+  "prompts": {},
+  "sessions": {
+    "s_9d594476d4f2a1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4d340bfb-34df-47b1-a584-5641cf58831c",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
