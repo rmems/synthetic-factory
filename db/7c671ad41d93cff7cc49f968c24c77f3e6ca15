@@ -1,0 +1,21 @@
+pipelines/card_schema_yaml.py
+  s_f3ffb7db87dca1::t_d18bc1fef0153e 39
+pipelines/card_schema_validate.py
+  s_f3ffb7db87dca1::t_a3440e6de39490 194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "db7c671ad41d93cff7cc49f968c24c77f3e6ca15",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
