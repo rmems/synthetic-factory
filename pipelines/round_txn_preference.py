@@ -15,7 +15,10 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path
 
-from round_txn_execution import rt
+if __package__:
+    from .round_txn_execution import rt
+else:
+    from round_txn_execution import rt
 
 
 @dataclass(frozen=True)

@@ -281,7 +281,7 @@ def _scalar_feature(value) -> str | None:
     if isinstance(value, int):
         return f"int:{value}"
     if isinstance(value, float):
-        return f"float:{value!r}"
+        return f"float:{float(value)!r}"
     return None
 
 

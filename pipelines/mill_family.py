@@ -44,47 +44,90 @@ from __future__ import annotations
 from collections.abc import Hashable, Mapping
 from typing import Any
 
-from mill_evidence import (
-    GOAL_FAMILY_MIN_FOREIGN_TOKENS,
-    GOAL_FAMILY_MIN_SUPPORT,
-    Axes,
-    Entry,
-    foreignness,
-    reported_declaration,
-)
-from mill_findings import (
-    REASON_CODES,
-    REASON_FOREIGN_MILL_GOAL_FAMILY,
-    REASON_FOREIGN_MILL_ID_PREFIX,
-    REASON_FOREIGN_PAYLOAD_FACTORY,
-    MillFinding,
-    summarize,
-)
-from mill_locations import factory_identity_for_path
-from mill_ownership import ownership_context as _ownership_context
-from mill_resolution import (
-    count_goal_tokens,
-    declared_identity,
-    goal_family_homes,
-    goal_vocabulary,
-    prefix_homes,
-)
-from mill_reviewed_vocabulary import (
-    REVIEWED_GOAL_STRONG_ANCHORS,
-    REVIEWED_GOAL_TOKEN_HOMES,
-    REVIEWED_MILL_PREFIX_HOMES,
-)
-from mill_signals import (
-    GOAL_STOPWORDS,
-    GOAL_TOKEN_RE,
-    MILL_ID_RE,
-    declared_factory,
-    declared_factory_claims,
-    goal_family,
-    goal_text,
-    mill_prefix,
-    record_id,
-)
+if __package__:
+    from .mill_evidence import (
+        GOAL_FAMILY_MIN_FOREIGN_TOKENS,
+        GOAL_FAMILY_MIN_SUPPORT,
+        Axes,
+        Entry,
+        foreignness,
+        reported_declaration,
+    )
+    from .mill_findings import (
+        REASON_CODES,
+        REASON_FOREIGN_MILL_GOAL_FAMILY,
+        REASON_FOREIGN_MILL_ID_PREFIX,
+        REASON_FOREIGN_PAYLOAD_FACTORY,
+        MillFinding,
+        summarize,
+    )
+    from .mill_locations import factory_identity_for_path
+    from .mill_ownership import ownership_context as _ownership_context
+    from .mill_resolution import (
+        count_goal_tokens,
+        declared_identity,
+        goal_family_homes,
+        goal_vocabulary,
+        prefix_homes,
+    )
+    from .mill_reviewed_vocabulary import (
+        REVIEWED_GOAL_STRONG_ANCHORS,
+        REVIEWED_GOAL_TOKEN_HOMES,
+        REVIEWED_MILL_PREFIX_HOMES,
+    )
+    from .mill_signals import (
+        GOAL_STOPWORDS,
+        GOAL_TOKEN_RE,
+        MILL_ID_RE,
+        declared_factory,
+        declared_factory_claims,
+        goal_family,
+        goal_text,
+        mill_prefix,
+        record_id,
+    )
+else:
+    from mill_evidence import (
+        GOAL_FAMILY_MIN_FOREIGN_TOKENS,
+        GOAL_FAMILY_MIN_SUPPORT,
+        Axes,
+        Entry,
+        foreignness,
+        reported_declaration,
+    )
+    from mill_findings import (
+        REASON_CODES,
+        REASON_FOREIGN_MILL_GOAL_FAMILY,
+        REASON_FOREIGN_MILL_ID_PREFIX,
+        REASON_FOREIGN_PAYLOAD_FACTORY,
+        MillFinding,
+        summarize,
+    )
+    from mill_locations import factory_identity_for_path
+    from mill_ownership import ownership_context as _ownership_context
+    from mill_resolution import (
+        count_goal_tokens,
+        declared_identity,
+        goal_family_homes,
+        goal_vocabulary,
+        prefix_homes,
+    )
+    from mill_reviewed_vocabulary import (
+        REVIEWED_GOAL_STRONG_ANCHORS,
+        REVIEWED_GOAL_TOKEN_HOMES,
+        REVIEWED_MILL_PREFIX_HOMES,
+    )
+    from mill_signals import (
+        GOAL_STOPWORDS,
+        GOAL_TOKEN_RE,
+        MILL_ID_RE,
+        declared_factory,
+        declared_factory_claims,
+        goal_family,
+        goal_text,
+        mill_prefix,
+        record_id,
+    )
 
 # The full public surface of this module, re-exported from the siblings above.
 # Every name here was importable from ``mill_family`` before the split and

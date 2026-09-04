@@ -19,24 +19,97 @@ import re
 import sys
 from pathlib import Path
 
-from validate_run_spikes import (
-    BRIDGE_SPIKE_EVENT_KEYS,
-    REPO,
-    SCHEMA_PATH,
-    SPIKE_CLOCK_DOMAIN_KEYS,
-    SPIKE_CLOCK_DOMAIN_MISMATCH,
-    SPIKE_EVENT_NUMBER_KEYS,
-    SPIKE_EVENT_STRING_KEYS,
-    SPIKE_ORDER_MISMATCH,
-    SPIKE_TIME_KEYS,
-    SPIKE_TIME_KEY_MISMATCH,
-    THALAMIC_SCHEMA,
-    check_spike_order as _check_spike_order,
-    check_spike_stream as _check_spike_stream,
-    declared_clock_domains as _declared_clock_domains,
-    event_time as _event_time,
-    is_number as _is_number,
-)
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+    _assert_direct_sibling("validate_run")
+    from . import validate_run_spikes as _validate_run_spikes
+    from . import validate_run_provenance as _validate_run_provenance
+    from .validate_run_input import parse_exact_json_record as _parse_exact_json_record
+else:
+    import validate_run_spikes as _validate_run_spikes
+    import validate_run_provenance as _validate_run_provenance
+    from validate_run_input import parse_exact_json_record as _parse_exact_json_record
+
+# Historical public compatibility surface. Explicit binding keeps these names
+# importable without asking static analyzers to treat unused imports as use.
+BRIDGE_SPIKE_EVENT_KEYS = _validate_run_spikes.BRIDGE_SPIKE_EVENT_KEYS
+REPO = _validate_run_spikes.REPO
+SCHEMA_PATH = _validate_run_spikes.SCHEMA_PATH
+SPIKE_CLOCK_DOMAIN_KEYS = _validate_run_spikes.SPIKE_CLOCK_DOMAIN_KEYS
+SPIKE_CLOCK_DOMAIN_MISMATCH = _validate_run_spikes.SPIKE_CLOCK_DOMAIN_MISMATCH
+SPIKE_EVENT_NUMBER_KEYS = _validate_run_spikes.SPIKE_EVENT_NUMBER_KEYS
+SPIKE_EVENT_STRING_KEYS = _validate_run_spikes.SPIKE_EVENT_STRING_KEYS
+SPIKE_ORDER_MISMATCH = _validate_run_spikes.SPIKE_ORDER_MISMATCH
+SPIKE_TIME_KEYS = _validate_run_spikes.SPIKE_TIME_KEYS
+SPIKE_TIME_KEY_MISMATCH = _validate_run_spikes.SPIKE_TIME_KEY_MISMATCH
+THALAMIC_SCHEMA = _validate_run_spikes.THALAMIC_SCHEMA
+_check_spike_order = _validate_run_spikes.check_spike_order
+_check_spike_stream = _validate_run_spikes.check_spike_stream
+_declared_clock_domains = _validate_run_spikes.declared_clock_domains
+_event_time = _validate_run_spikes.event_time
+_is_number = _validate_run_spikes.is_number
+_typed_enum_errors = _validate_run_provenance.typed_enum_errors
+check_provenance_publish = _validate_run_provenance.check_provenance_publish
+
+# The spike-train surface lived here before it split into validate_run_spikes;
+# ``__all__`` declares the names this module still re-exports so existing
+# ``validate_run.X`` consumers (the CLI tests among them) resolve unchanged.
+__all__ = [
+    "ALLOWED_PROVENANCE_KIND",
+    "ALLOWED_SIM_OR_REAL",
+    "BRIDGE_SPIKE_EVENT_KEYS",
+    "HIDDEN_THOUGHT_KEYS",
+    "OBSERVABLE_BASIS_RE",
+    "Path",
+    "REPO",
+    "REWARD_ARITHMETIC_MARKERS",
+    "REWARD_NON_COMPONENT_KEYS",
+    "REWARD_TOL",
+    "REWARD_UNWEIGHTED_MISMATCH",
+    "REWARD_WEIGHTED_MISMATCH",
+    "SAFETY_CASE_DECISIONS",
+    "SAFETY_CASE_SUCCESS",
+    "SAFETY_CASE_TYPES",
+    "SAFETY_DECISIONS",
+    "SCHEMA_PATH",
+    "SPIKE_CLOCK_DOMAIN_KEYS",
+    "SPIKE_CLOCK_DOMAIN_MISMATCH",
+    "SPIKE_EVENT_NUMBER_KEYS",
+    "SPIKE_EVENT_STRING_KEYS",
+    "SPIKE_ORDER_MISMATCH",
+    "SPIKE_TIME_KEYS",
+    "SPIKE_TIME_KEY_MISMATCH",
+    "THALAMIC_CORE_KEYS",
+    "THALAMIC_OBJECT_KEYS",
+    "THALAMIC_REQUIRED",
+    "THALAMIC_SCHEMA",
+    "THALAMIC_STRING_KEYS",
+    "argparse",
+    "check_episode",
+    "check_line",
+    "check_meta_round",
+    "check_multi_agent",
+    "check_provenance",
+    "check_provenance_publish",
+    "check_reward_total",
+    "check_safety_case",
+    "check_spike_order",
+    "check_spike_stream",
+    "check_thalamic",
+    "declared_clock_domains",
+    "event_time",
+    "episode_like",
+    "is_number",
+    "json",
+    "main",
+    "math",
+    "parse_args",
+    "posixpath",
+    "re",
+    "reject_json_constant",
+    "sys",
+    "terminal_outcome_agrees",
+]
 
 THALAMIC_REQUIRED = tuple(THALAMIC_SCHEMA["required"])
 # Type-check required keys against the schema's own declared types: the six
@@ -63,12 +136,8 @@ SAFETY_DECISIONS = frozenset(
 
 # provenance.kind allows 'unknown'; state.sim_or_real does not. Both
 # vocabularies are the schema's own enums.
-ALLOWED_PROVENANCE_KIND = frozenset(
-    THALAMIC_SCHEMA["properties"]["provenance"]["properties"]["kind"]["enum"]
-)
-ALLOWED_SIM_OR_REAL = frozenset(
-    THALAMIC_SCHEMA["properties"]["state"]["properties"]["sim_or_real"]["enum"]
-)
+ALLOWED_PROVENANCE_KIND = _validate_run_provenance.ALLOWED_PROVENANCE_KIND
+ALLOWED_SIM_OR_REAL = _validate_run_provenance.ALLOWED_SIM_OR_REAL
 # Bookkeeping keys that are not counted toward the arithmetic sum. This is the
 # single exclusion vocabulary for reward arithmetic: check_records imports it
 # so the shape layer and the deep layer agree on what is a component, and a
@@ -275,103 +344,29 @@ def check_reward_total(rc, where):
     return errs
 
 
+def _state_provenance_errors(obj, where):
+    """Validate state provenance using this facade's live vocabulary seam."""
+    return _validate_run_provenance.state_provenance_errors(
+        obj,
+        where,
+        ALLOWED_SIM_OR_REAL,
+        _typed_enum_errors,
+    )
+
+
+def _provenance_object_errors(obj, where):
+    """Validate provenance using this facade's live vocabulary seam."""
+    return _validate_run_provenance.provenance_object_errors(
+        obj,
+        where,
+        ALLOWED_PROVENANCE_KIND,
+        _typed_enum_errors,
+    )
+
+
 def check_provenance(obj, where):
-    """Strict provenance checks for top-level record, including publish-time gate.
-
-    - state.sim_or_real must be exactly one of {designed, simulated, hil}
-      (never 'real', never 'unknown', never missing for thalamic shapes).
-    - provenance.kind must be one of {designed, simulated, hil, unknown}
-      (never 'real').
-    - Any occurrence of the string 'real' (case-insensitive) in sim_or_real
-      or provenance.kind is rejected explicitly.
-    This function is the publish-time provenance gate: it is invoked for every
-    trajectory (top-level, chosen/rejected, and language_view.trajectory).
-    """
-    errs = []
-    # state.sim_or_real strict — required for v2 thalamic trajectories
-    state = obj.get("state")
-    if isinstance(state, dict):
-        if "sim_or_real" in state:
-            val = state.get("sim_or_real")
-            # One violation, one error: a 'real' value gets the specific
-            # (more actionable) message instead of that message plus the
-            # generic enum error, since inflated counts feed training_audit.
-            if isinstance(val, str) and "real" in val.lower():
-                errs.append(f"{where}: state.sim_or_real must not be 'real' (use 'designed')")
-            elif not isinstance(val, str) or val not in ALLOWED_SIM_OR_REAL:
-                errs.append(
-                    f"{where}: state.sim_or_real must be one of {sorted(ALLOWED_SIM_OR_REAL)}"
-                )
-        else:
-            # For v2 thalamic shapes, sim_or_real is mandatory; flag missing
-            # only when state looks like a thalamic state (has any expected key)
-            # to avoid false positives on unrelated objects.
-            if any(k in state for k in ("episode_id", "domain", "t0_us", "sim_or_real")):
-                # Only require when caller is a thalamic trajectory (checked via required keys)
-                pass  # defer to caller (check_thalamic) to enforce presence
-    elif "state" in obj:
-        # state present but not a dict
-        errs.append(f"{where}: state must be an object")
-
-    # provenance.kind strict — global check
-    if "provenance" in obj:
-        prov = obj.get("provenance")
-        if not isinstance(prov, dict):
-            errs.append(f"{where}: provenance must be an object")
-        else:
-            kind = prov.get("kind")
-            if kind not in ALLOWED_PROVENANCE_KIND:
-                errs.append(
-                    f"{where}: provenance.kind must be one of {sorted(ALLOWED_PROVENANCE_KIND)}"
-                )
-            if isinstance(kind, str) and "real" in kind.lower():
-                errs.append(f"{where}: provenance.kind must not be 'real'")
-            # claimed should be string/null if present
-            if "claimed" in prov:
-                claimed = prov.get("claimed")
-                if claimed is not None and not isinstance(claimed, str):
-                    errs.append(f"{where}: provenance.claimed must be a string or null")
-            # v2 publish: unknown provenance is discouraged for new data
-            # but still allowed per legacy schema — no error, just strict enum above.
-    # Deep provenance: walk any nested provenance objects (e.g. inside state)
-    # to catch hidden 'real' claims. Report once via top-level check above;
-    # nested walk is handled in check_provenance_publish for full run.
-    return errs
-
-
-def check_provenance_publish(obj, where):
-    """Publish-time deep provenance scan: any nested sim_or_real/provenance.kind == 'real' fails.
-
-    Called from check_thalamic and bridge/choice helpers to ensure staged batches
-    cannot publish hidden 'real' provenance. Spike order is already enforced
-    elsewhere.
-    """
-    errs = []
-
-    def walk(node, path):
-        if isinstance(node, dict):
-            for k, v in node.items():
-                cur = f"{path}.{k}" if path else k
-                if k == "sim_or_real" and isinstance(v, str) and "real" in v.lower():
-                    errs.append(f"{where}: {cur} must not be 'real' (use 'designed')")
-                if k == "provenance" and isinstance(v, dict):
-                    kind = v.get("kind")
-                    if isinstance(kind, str) and "real" in kind.lower():
-                        errs.append(f"{where}: {cur}.kind must not be 'real'")
-                walk(v, cur)
-        elif isinstance(node, list):
-            for i, item in enumerate(node):
-                walk(item, f"{path}[{i}]")
-
-    walk(obj, "")
-    # Deduplicate while preserving order
-    seen = set()
-    uniq = []
-    for e in errs:
-        if e not in seen:
-            seen.add(e)
-            uniq.append(e)
-    return uniq
+    """Validate direct state and provenance objects for every trajectory route."""
+    return _state_provenance_errors(obj, where) + _provenance_object_errors(obj, where)
 
 
 def check_meta_round(obj, where):
@@ -398,36 +393,65 @@ def check_meta_round(obj, where):
     return errs
 
 
-def check_thalamic(obj, where):
-    errs = []
+def _required_object_field_errors(obj, key, where):
+    if key not in obj:
+        return [f"{where}: missing required key '{key}'"]
+    if not isinstance(obj[key], dict):
+        return [f"{where}: '{key}' must be an object"]
+    return []
+
+
+def _optional_nonempty_string_errors(obj, key, where):
+    if key not in obj:
+        return []
+    value = obj[key]
+    if not isinstance(value, str) or not value.strip():
+        return [f"{where}: '{key}' must be a non-empty string"]
+    return []
+
+
+def _thalamic_shape_errors(obj, where):
+    """Validate required object fields and optional canonical string fields."""
     # Shape layer: the object-typed fields (incl. meta) are required here.
     # Canonical `id` presence/coverage is a deep-layer concern
     # (check_records / training_audit); at this layer it is only
     # type-checked when present.
-    for key in THALAMIC_OBJECT_KEYS:
-        if key not in obj:
-            errs.append(f"{where}: missing required key '{key}'")
-        elif not isinstance(obj[key], dict):
-            errs.append(f"{where}: '{key}' must be an object")
-    for key in THALAMIC_STRING_KEYS:
-        if key in obj and (not isinstance(obj[key], str) or not obj[key].strip()):
-            errs.append(f"{where}: '{key}' must be a non-empty string")
-    sd = obj.get("safety_decision")
-    if isinstance(sd, dict):
-        if sd.get("decision") not in SAFETY_DECISIONS:
-            errs.append(f"{where}: safety_decision.decision must be ACCEPT|MODIFY|REJECT")
-        rationale = sd.get("rationale")
-        if not isinstance(rationale, str) or not rationale.strip():
-            errs.append(f"{where}: safety_decision.rationale must be a non-empty string")
+    object_errors = [
+        error
+        for key in THALAMIC_OBJECT_KEYS
+        for error in _required_object_field_errors(obj, key, where)
+    ]
+    string_errors = [
+        error
+        for key in THALAMIC_STRING_KEYS
+        for error in _optional_nonempty_string_errors(obj, key, where)
+    ]
+    return object_errors + string_errors
+
+
+def _safety_decision_errors(safety_decision, where):
+    """Validate one object-typed safety decision without unhashable crashes."""
+    if not isinstance(safety_decision, dict):
+        return []
+    errs = _typed_enum_errors(
+        safety_decision.get("decision"),
+        SAFETY_DECISIONS,
+        f"{where}: safety_decision.decision must be ACCEPT|MODIFY|REJECT",
+    )
+    rationale = safety_decision.get("rationale")
+    if not isinstance(rationale, str) or not rationale.strip():
+        errs.append(
+            f"{where}: safety_decision.rationale must be a non-empty string"
+        )
+    return errs
+
+
+def check_thalamic(obj, where):
+    errs = _thalamic_shape_errors(obj, where)
+    errs += _safety_decision_errors(obj.get("safety_decision"), where)
     rc = obj.get("reward_components")
     if isinstance(rc, dict):
         errs += check_reward_total(rc, where)
-    # A non-object reward_components is already reported by the required-key
-    # loop above; do not emit a second error for the same violation.
-    else:
-        # rc missing already reported via required-key loop; also handle explicit missing total
-        if rc is None:
-            pass
     # strict provenance and meta checks (including publish-time deep scan)
     errs += check_provenance(obj, where)
     # Deep publish-time provenance: any nested 'real' fails
@@ -454,13 +478,17 @@ HIDDEN_THOUGHT_KEYS = frozenset(
 )
 
 
-def _episode_like(obj):
+def episode_like(obj):
     """True when an object is a coding/agent episode rather than Thalamic."""
     return (
         isinstance(obj, dict)
         and "steps" in obj
         and not all(key in obj for key in THALAMIC_CORE_KEYS)
     )
+
+
+# Compatibility alias for callers of the pre-split validator surface.
+_episode_like = episode_like
 
 
 def _hidden_thought_paths(value, path=""):
@@ -1298,110 +1326,138 @@ def check_safety_case(obj, where, factory_staging=False):
     return errs
 
 
+def _route_thalamic(obj, where, _factory_staging):
+    return check_thalamic(obj, where)
+
+
+def _preference_side_errors(side, label, episode_pref, episode_kwargs):
+    """Validate one preference side as an episode or as a ThalamicTrajectory."""
+    if not isinstance(side, dict):
+        return [f"{label} must be an object"]
+    if episode_pref:
+        return check_episode(side, label, **episode_kwargs)
+    return check_thalamic(side, label)
+
+
+def _preference_episode_wrapper_errors(obj, where, chosen, factory_staging):
+    """Wrapper-level invariants that only apply to episode preferences."""
+    errs = []
+    if "goal" not in obj and not (isinstance(chosen, dict) and "goal" in chosen):
+        errs.append(f"{where}: preference episode needs a shared or chosen goal")
+    errs += _require_reward(obj, where)
+    reward = obj.get("reward")
+    if (
+        factory_staging
+        and isinstance(reward, dict)
+        and isinstance(reward.get("success"), bool)
+        and reward["success"] is not True
+    ):
+        errs.append(f"{where}: preference wrapper reward.success must be true")
+    return errs
+
+
+def _route_preference(obj, where, factory_staging):
+    errs = []
+    chosen = obj.get("chosen")
+    rejected = obj.get("rejected")
+    episode_pref = episode_like(chosen) or episode_like(rejected)
+    episode_kwargs = {
+        "require_goal": "goal" not in obj,
+        "forbid_hidden_thought": factory_staging,
+    }
+    errs += _preference_side_errors(chosen, f"{where}.chosen", episode_pref, episode_kwargs)
+    errs += _preference_side_errors(rejected, f"{where}.rejected", episode_pref, episode_kwargs)
+    if episode_pref:
+        errs += _preference_episode_wrapper_errors(obj, where, chosen, factory_staging)
+    if not isinstance(obj.get("critique"), str) or not obj["critique"].strip():
+        errs.append(f"{where}: preference record needs a non-empty critique")
+    return errs
+
+
+def _route_bridge_pair(obj, where, _factory_staging):
+    errs = []
+    events = obj["spike_events"]
+    if not isinstance(events, list) or not events:
+        errs.append(f"{where}: spike_events must be a non-empty array")
+    else:
+        errs += check_spike_order(events, where, enclosing=obj)
+    view = obj.get("language_view")
+    if not isinstance(view, dict):
+        errs.append(f"{where}: language_view must be an object")
+    else:
+        traj = view.get("trajectory")
+        if isinstance(traj, dict):
+            errs += check_thalamic(traj, f"{where}.language_view.trajectory")
+        else:
+            errs.append(f"{where}: language_view.trajectory missing or not an object")
+    return errs
+
+
+def _route_safety_case(obj, where, factory_staging):
+    return check_safety_case(obj, where, factory_staging=factory_staging)
+
+
+def _route_multi_agent(obj, where, factory_staging):
+    return check_multi_agent(obj, where, factory_staging=factory_staging)
+
+
+def _route_episode(obj, where, factory_staging):
+    return check_episode(
+        obj,
+        where,
+        forbid_hidden_thought=factory_staging,
+        enforce_terminal_outcome=factory_staging,
+    )
+
+
+# Route on the object-typed trajectory fields so legacy v1 records
+# (no canonical `id` yet) still reach the thalamic checker and have their
+# state / reward / provenance / meta.round invariants enforced instead of
+# being skipped as an unrecognized shape. Canonical `id` coverage is owned
+# by the deep layer (check_records / training_audit); this layer only
+# type-checks an `id` that is present. A record matches a route when every
+# listed key is present; precedence is positional, so thalamic outranks
+# preference, which outranks bridge pairs, safety cases, multi-agent
+# transcripts, and episodes.
+def _line_routes():
+    """Return the ordered (required_keys, kind, route) table ``check_line`` walks."""
+    return (
+        (THALAMIC_CORE_KEYS, "thalamic", _route_thalamic),
+        (("chosen", "rejected"), "preference", _route_preference),
+        (("language_view", "spike_events"), "bridge_pair", _route_bridge_pair),
+        (("case_type",), "safety_case", _route_safety_case),
+        (("transcript", "agents"), "multi_agent", _route_multi_agent),
+        (("goal", "steps"), "episode", _route_episode),
+    )
+
+
+_LINE_ROUTES = _line_routes()
+
+# Kinds whose factory-staging pass also runs the shared agentic finishers.
+_STAGING_FINISHED_KINDS = frozenset({"preference", "safety_case", "multi_agent", "episode"})
+
+
+def _finish_agentic(errors, obj, where, kind):
+    errors += _staging_hidden_thought_errors(obj, where)
+    errors += [
+        error for error in check_provenance_publish(obj, where) if error not in errors
+    ]
+    if kind == "preference":
+        errors += _staging_preference_goal_errors(obj, where)
+    return errors
+
+
 def check_line(obj, where, factory_staging=False):
     """Route an object to the right checker based on its shape."""
     if not isinstance(obj, dict):
         return [f"{where}: record must be a JSON object"], "unknown"
-
-    def finish_agentic(errors, kind):
-        if factory_staging:
-            errors += _staging_hidden_thought_errors(obj, where)
-            errors += [
-                error
-                for error in check_provenance_publish(obj, where)
-                if error not in errors
-            ]
-            if kind == "preference":
-                errors += _staging_preference_goal_errors(obj, where)
+    for required_keys, kind, route in _LINE_ROUTES:
+        if not all(k in obj for k in required_keys):
+            continue
+        errors = route(obj, where, factory_staging)
+        if factory_staging and kind in _STAGING_FINISHED_KINDS:
+            errors = _finish_agentic(errors, obj, where, kind)
         return errors, kind
-
-    # Route on the object-typed trajectory fields so legacy v1 records
-    # (no canonical `id` yet) still reach the thalamic checker and have their
-    # state / reward / provenance / meta.round invariants enforced instead of
-    # being skipped as an unrecognized shape. Canonical `id` coverage is owned
-    # by the deep layer (check_records / training_audit); this layer only
-    # type-checks an `id` that is present.
-    if all(k in obj for k in THALAMIC_CORE_KEYS):
-        return check_thalamic(obj, where), "thalamic"
-    if "chosen" in obj and "rejected" in obj:
-        errs = []
-        chosen = obj.get("chosen")
-        rejected = obj.get("rejected")
-        episode_pref = _episode_like(chosen) or _episode_like(rejected)
-        if not isinstance(chosen, dict):
-            errs.append(f"{where}.chosen must be an object")
-        elif episode_pref:
-            errs += check_episode(
-                chosen,
-                f"{where}.chosen",
-                require_goal="goal" not in obj,
-                forbid_hidden_thought=factory_staging,
-            )
-        else:
-            errs += check_thalamic(chosen, f"{where}.chosen")
-        if not isinstance(rejected, dict):
-            errs.append(f"{where}.rejected must be an object")
-        elif episode_pref:
-            errs += check_episode(
-                rejected,
-                f"{where}.rejected",
-                require_goal="goal" not in obj,
-                forbid_hidden_thought=factory_staging,
-            )
-        else:
-            errs += check_thalamic(rejected, f"{where}.rejected")
-        if episode_pref and "goal" not in obj:
-            if not (isinstance(chosen, dict) and "goal" in chosen):
-                errs.append(f"{where}: preference episode needs a shared or chosen goal")
-        if episode_pref:
-            errs += _require_reward(obj, where)
-            reward = obj.get("reward")
-            if (
-                factory_staging
-                and isinstance(reward, dict)
-                and isinstance(reward.get("success"), bool)
-                and reward["success"] is not True
-            ):
-                errs.append(f"{where}: preference wrapper reward.success must be true")
-        if not isinstance(obj.get("critique"), str) or not obj["critique"].strip():
-            errs.append(f"{where}: preference record needs a non-empty critique")
-        return finish_agentic(errs, "preference")
-    if "language_view" in obj and "spike_events" in obj:
-        errs = []
-        events = obj["spike_events"]
-        if not isinstance(events, list) or not events:
-            errs.append(f"{where}: spike_events must be a non-empty array")
-        else:
-            errs += check_spike_order(events, where, enclosing=obj)
-        view = obj.get("language_view")
-        if not isinstance(view, dict):
-            errs.append(f"{where}: language_view must be an object")
-        else:
-            traj = view.get("trajectory")
-            if isinstance(traj, dict):
-                errs += check_thalamic(traj, f"{where}.language_view.trajectory")
-            else:
-                errs.append(f"{where}: language_view.trajectory missing or not an object")
-        return errs, "bridge_pair"
-    if "case_type" in obj:
-        return finish_agentic(
-            check_safety_case(obj, where, factory_staging=factory_staging),
-            "safety_case",
-        )
-    if "transcript" in obj and "agents" in obj:
-        return finish_agentic(
-            check_multi_agent(obj, where, factory_staging=factory_staging), "multi_agent"
-        )
-    if "goal" in obj and "steps" in obj:
-        return finish_agentic(
-            check_episode(
-                obj,
-                where,
-                forbid_hidden_thought=factory_staging,
-                enforce_terminal_outcome=factory_staging,
-            ),
-            "episode",
-        )
     return [f"{where}: unrecognized record shape (keys: {sorted(obj)[:8]})"], "unknown"
 
 
@@ -1428,7 +1484,10 @@ def main(argv=None):
         rel = path.relative_to(run_dir)
         entry = {"file": str(rel), "records": 0, "kinds": {}, "errors": []}
         try:
-            text = path.read_text()
+            # Decode the physical bytes without universal-newline translation.
+            # JSONL uses literal LF delimiters; a bare CR is JSON whitespace
+            # inside one physical record, not a second record boundary.
+            text = path.read_bytes().decode("utf-8")
         except UnicodeDecodeError as exc:
             entry["errors"].append(f"{rel}: invalid UTF-8: {exc}")
             manifest["files"].append(entry)
@@ -1441,10 +1500,9 @@ def main(argv=None):
             if not line.strip():
                 continue
             where = f"{rel}:{lineno}"
-            try:
-                obj = json.loads(line, parse_constant=reject_json_constant)
-            except (json.JSONDecodeError, ValueError) as exc:
-                entry["errors"].append(f"{where}: JSON parse error: {exc}")
+            obj, input_error = _parse_exact_json_record(line)
+            if input_error is not None:
+                entry["errors"].append(f"{where}: {input_error}")
                 continue
             errs, kind = check_line(obj, where)
             entry["records"] += 1
@@ -1467,6 +1525,10 @@ def main(argv=None):
     for err in manifest["errors"]:
         print("ERROR:", err, file=sys.stderr)
     sys.exit(1 if manifest["errors"] else 0)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":
