@@ -15,9 +15,6 @@ from typing import cast
 
 from card_schema_core import DEFAULT_CONFIG_NAME, _require
 
-# A parsed front-matter value; the emitters below narrow it fail-closed.
-_YamlValue = str | int | float | bool | list | dict | None
-
 PLAIN_SCALAR_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 YAML_RESERVED = frozenset(
     {
@@ -35,6 +32,11 @@ YAML_RESERVED = frozenset(
     }
 )
 
+# The domain of a parsed-JSON value reaching the YAML emitters. Rejection
+# messages repr these, and every member renders a useful repr (unlike a
+# value typed as bare object).
+_JsonValue = str | int | float | bool | list | dict | None
+
 __all__ = (
     "_yaml_scalar",
     "metadata_yaml",
@@ -42,7 +44,7 @@ __all__ = (
 )
 
 
-def _yaml_scalar(value: _YamlValue) -> str:
+def _yaml_scalar(value: _JsonValue) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, int):
@@ -58,7 +60,7 @@ def _yaml_scalar(value: _YamlValue) -> str:
     return json.dumps(value)
 
 
-def _yaml_block(value: _YamlValue, indent: int) -> list[str]:
+def _yaml_block(value: _JsonValue, indent: int) -> list[str]:
     """Render a mapping or list as block-style YAML lines."""
     if isinstance(value, dict):
         return _yaml_block_mapping(value, indent)
