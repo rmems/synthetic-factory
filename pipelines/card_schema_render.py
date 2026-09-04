@@ -88,8 +88,9 @@ def _body_schema_summary(declaration: dict) -> list[str]:
     if columns:
         listed = ", ".join(f"`{column}`" for column in columns)
         lines.append(
-            f"Key-bag columns are declared as `json` so their keys may differ "
-            f"per record without an Arrow cast error: {listed}."
+            "Columns declared as `json` may differ in object keys or value "
+            "types from record to record; they load without an Arrow cast "
+            f"error: {listed}."
         )
         lines.append("")
     return lines

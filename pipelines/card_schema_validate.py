@@ -19,7 +19,7 @@ DEFAULT_SPLIT = "train"
 DEFAULT_DATA_FILES = ("data/raw/batch-*.jsonl",)
 
 # Value dtypes this repository declares. ``json`` is the ``datasets`` Json()
-# feature and is the only correct choice for a key-bag column.
+# feature and is the correct choice for a key-bag or type-union column.
 SCALAR_DTYPES = frozenset(
     {"string", "bool", "int32", "int64", "float32", "float64", "json"}
 )

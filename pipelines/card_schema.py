@@ -38,9 +38,10 @@ two card-only annotations that are stripped before the YAML is emitted::
     {"name": "tool_call", "struct": [ <feature>, ... ]}
     {"name": "steps", "list": [ <feature>, ... ]}
 
-``dtype: json`` maps to the ``datasets`` ``Json()`` feature, which is what a
-key-bag column (``meta``, ``reward``, ``tool_call.args``) needs: keys may differ
-per record without an Arrow cast error. Every declared field is nullable --
+``dtype: json`` maps to the ``datasets`` ``Json()`` feature. It supports both
+key-bag columns (``meta``, ``reward``, ``tool_call.args``), whose keys may differ
+per record, and type unions such as a value that is sometimes a string and
+sometimes a list. Every declared field is nullable --
 ``datasets`` sets all struct fields nullable -- so declaring an optional field
 makes it read back as ``null`` where the raw record omits it. ``optional`` is
 therefore documentation: it drives the card's field table, not the Arrow schema.
