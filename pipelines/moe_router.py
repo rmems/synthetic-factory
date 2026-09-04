@@ -277,15 +277,18 @@ class RouterOracle:
 
     def oracle_block(self) -> dict[str, Any]:
         return oc.new_oracle(
-            self.name,
-            oracle_type=self.oracle_type,
-            implementation=self.implementation,
-            version=self.version,
-            authority=self.authority,
-            configuration=self.configuration(),
-            seed=getattr(self, "seed", None),
-            commit=None,
-            fingerprint=self.fingerprint(),
+            oc.OracleIdentity(
+                self.name,
+                oracle_type=self.oracle_type,
+                implementation=self.implementation,
+                version=self.version,
+                authority=self.authority,
+            ),
+            oc.OracleRun(
+                configuration=self.configuration(),
+                seed=getattr(self, "seed", None),
+                fingerprint=self.fingerprint(),
+            ),
         )
 
     def configuration(self) -> dict[str, Any]:
@@ -854,7 +857,8 @@ def build_records(
     if not ok:
         raise oc.OracleUnavailable(engine.name, detail)
     generator = oc.new_generator(
-        GENERATOR_NAME, version=GENERATOR_VERSION, kind="programmatic", seed=seed
+        oc.GeneratorIdentity(GENERATOR_NAME, version=GENERATOR_VERSION, kind="programmatic"),
+        seed=seed,
     )
     # The oracle block is built after the first routing call: a real teacher's
     # fingerprint (checkpoint hash, dtype, expert counts) only exists once the
@@ -868,12 +872,14 @@ def build_records(
             oracle_block = engine.oracle_block()
         records.append(
             oc.build_record(
-                record_id=f"{id_prefix}-{seed}-{proposal['index']:04d}",
-                family=FAMILY,
-                generator=generator,
-                scenario=scenario,
-                oracle=oracle_block,
-                result=_routing_result(observation, engine, oracle_block),
+                identity=oc.RecordIdentity(
+                    f"{id_prefix}-{seed}-{proposal['index']:04d}", FAMILY
+                ),
+                proposal=oc.Proposal(generator=generator, scenario=scenario),
+                verdict=oc.Verdict(
+                    oracle=oracle_block,
+                    result=_routing_result(observation, engine, oracle_block),
+                ),
                 provenance=oc.new_provenance("pipelines/moe_router.py"),
             )
         )

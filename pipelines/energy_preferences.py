@@ -988,21 +988,23 @@ def _oracle_block(run: _MeterRun) -> dict[str, Any]:
     # replayed corpus from one metered in place.
     replayed = callable(getattr(meter, "lookup", None))
     return oc.new_oracle(
-        meter.name,
-        oracle_type="recorded_measurement" if replayed else "measured_execution",
-        implementation=f"pipelines/energy_preferences.py:{type(meter).__name__}",
-        version=meter.version,
-        authority=oc.AUTHORITY_AUTHORITATIVE,
-        configuration={
-            "repeats": run.repeats,
-            "warmup": run.warmup,
-            "fine_steps": run.fine_steps,
-            "coarse_steps": run.coarse_steps,
-            "meter_probe": run.probe,
-        },
-        seed=None,
-        commit=None,
-        fingerprint=meter.fingerprint(),
+        oc.OracleIdentity(
+            meter.name,
+            oracle_type="recorded_measurement" if replayed else "measured_execution",
+            implementation=f"pipelines/energy_preferences.py:{type(meter).__name__}",
+            version=meter.version,
+            authority=oc.AUTHORITY_AUTHORITATIVE,
+        ),
+        oc.OracleRun(
+            configuration={
+                "repeats": run.repeats,
+                "warmup": run.warmup,
+                "fine_steps": run.fine_steps,
+                "coarse_steps": run.coarse_steps,
+                "meter_probe": run.probe,
+            },
+            fingerprint=meter.fingerprint(),
+        ),
     )
 
 
@@ -1159,7 +1161,8 @@ def build_records(
         coarse_steps=coarse_steps,
     )
     generator = oc.new_generator(
-        GENERATOR_NAME, version=GENERATOR_VERSION, kind="programmatic", seed=seed
+        oc.GeneratorIdentity(GENERATOR_NAME, version=GENERATOR_VERSION, kind="programmatic"),
+        seed=seed,
     )
     oracle = _oracle_block(run)
     records: list[dict[str, Any]] = []
@@ -1167,12 +1170,11 @@ def build_records(
         scenario = proposal["scenario"]
         records.append(
             oc.build_record(
-                record_id=f"{id_prefix}-{seed}-{proposal['index']:04d}",
-                family=FAMILY,
-                generator=generator,
-                scenario=scenario,
-                oracle=oracle,
-                result=_scenario_result(run, scenario),
+                identity=oc.RecordIdentity(
+                    f"{id_prefix}-{seed}-{proposal['index']:04d}", FAMILY
+                ),
+                proposal=oc.Proposal(generator=generator, scenario=scenario),
+                verdict=oc.Verdict(oracle=oracle, result=_scenario_result(run, scenario)),
                 provenance=oc.new_provenance(
                     "pipelines/energy_preferences.py",
                     host={

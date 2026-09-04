@@ -20,24 +20,29 @@ SCHEMA_PATH = REPO / "schemas" / "oracle-grounded-record.schema.json"
 
 def minimal_record(**overrides):
     record = oc.build_record(
-        record_id="rec-1",
-        family="neuromorphic-fault-recovery",
-        generator=oc.new_generator("gen", version="1.0.0", seed=3),
-        scenario={"mission": "bounded fixture"},
-        intervention={"kind": "sensor_loss", "parameters": {"channels": ["c0"]}},
-        candidate_prediction={"predicted_outcome": "fallback", "confidence": 0.5},
-        oracle=oc.new_oracle(
-            "sim",
-            oracle_type="deterministic_simulator",
-            implementation="pipelines/fault_recovery.py:RelayReflexSimulator",
-            version="1.0.0",
+        identity=oc.RecordIdentity("rec-1", "neuromorphic-fault-recovery"),
+        proposal=oc.Proposal(
+            generator=oc.new_generator(oc.GeneratorIdentity("gen", version="1.0.0"), seed=3),
+            scenario={"mission": "bounded fixture"},
+            intervention={"kind": "sensor_loss", "parameters": {"channels": ["c0"]}},
+            candidate_prediction={"predicted_outcome": "fallback", "confidence": 0.5},
         ),
-        result=oc.new_result(
-            measurements=[
-                oc.new_measurement("recovery_latency_ms", 4.0, "simulator_clock")
-            ],
-            outcome="fallback",
-            reason_codes=["FALLBACK_SOURCE_ENGAGED"],
+        verdict=oc.Verdict(
+            oracle=oc.new_oracle(
+                oc.OracleIdentity(
+                    "sim",
+                    oracle_type="deterministic_simulator",
+                    implementation="pipelines/fault_recovery.py:RelayReflexSimulator",
+                    version="1.0.0",
+                )
+            ),
+            result=oc.new_result(
+                measurements=[
+                    oc.new_measurement("recovery_latency_ms", 4.0, "simulator_clock")
+                ],
+                outcome="fallback",
+                reason_codes=["FALLBACK_SOURCE_ENGAGED"],
+            ),
         ),
         provenance=oc.new_provenance("unit-test"),
     )
@@ -84,7 +89,7 @@ class GeneratorNeverCertifies(unittest.TestCase):
 
     def test_new_generator_refuses_an_unnamed_llm(self):
         with self.assertRaises(oc.ContractError):
-            oc.new_generator("g", version="1", kind="llm")
+            oc.new_generator(oc.GeneratorIdentity("g", version="1", kind="llm"))
 
     def test_oracle_key_inside_scenario_is_a_violation(self):
         record = minimal_record()
@@ -245,7 +250,7 @@ class ValidationIsNotSelfCertified(unittest.TestCase):
         }
         self.assertEqual(oc.check_envelope(record, "x"), [])
         self.assertFalse(oc.stamp_is_bound_to_content(record))
-        eligible, reasons = oc.curation_eligible(record, ["found a problem"])
+        eligible, _ = oc.curation_eligible(record, ["found a problem"])
         self.assertFalse(eligible)
 
     def test_unvalidated_record_may_not_name_a_validator(self):
@@ -487,6 +492,45 @@ class BuiltOnTheSharedEnvelope(unittest.TestCase):
         module = importlib.import_module("pipelines.oracle_grounded.distill_contract")
         self.assertIs(module, oc)
         self.assertIs(module.ContractError, envelope.ContractError)
+
+
+class SplitByResponsibility(unittest.TestCase):
+    """The contract is a facade over sibling modules that bind both import forms."""
+
+    SIBLINGS = (
+        "import_twins",
+        "distill_vocabulary",
+        "distill_builders",
+        "distill_measurements",
+        "distill_blocks",
+        "distill_curation",
+        "distill_jsonl",
+    )
+
+    def test_every_sibling_binds_both_import_forms_to_one_module_object(self):
+        if str(REPO) not in sys.path:
+            sys.path.append(str(REPO))
+        for name in self.SIBLINGS:
+            with self.subTest(name=name):
+                direct = importlib.import_module(f"oracle_grounded.{name}")
+                packaged = importlib.import_module(f"pipelines.oracle_grounded.{name}")
+                self.assertIs(direct, packaged)
+
+    def test_the_facade_exports_every_declared_name(self):
+        for name in oc.__all__:
+            with self.subTest(name=name):
+                self.assertTrue(hasattr(oc, name), name)
+
+    def test_the_facade_names_are_the_siblings_objects(self):
+        from oracle_grounded import distill_builders, distill_vocabulary
+
+        self.assertIs(oc.build_record, distill_builders.build_record)
+        self.assertIs(oc.FAMILIES, distill_vocabulary.FAMILIES)
+        self.assertIs(oc.ContractError, envelope.ContractError)
+
+    def test_an_unknown_measurement_option_is_refused(self):
+        with self.assertRaises(TypeError):
+            oc.new_measurement("latency_ms", 1.0, "clock", bogus=True)
 
 
 if __name__ == "__main__":

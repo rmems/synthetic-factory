@@ -473,17 +473,19 @@ class RelayReflexSimulator(FaultOracle):
 
     def oracle_block(self, scenario: dict[str, Any]) -> dict[str, Any]:
         return oc.new_oracle(
-            self.name,
-            oracle_type=self.oracle_type,
-            implementation=self.implementation,
-            version=self.version,
-            authority=self.authority,
-            configuration={
-                "system": dict(scenario.get("system", {})),
-                "precedence": list(OUTCOME_PRECEDENCE),
-            },
-            seed=None,
-            commit=None,
+            oc.OracleIdentity(
+                self.name,
+                oracle_type=self.oracle_type,
+                implementation=self.implementation,
+                version=self.version,
+                authority=self.authority,
+            ),
+            oc.OracleRun(
+                configuration={
+                    "system": dict(scenario.get("system", {})),
+                    "precedence": list(OUTCOME_PRECEDENCE),
+                }
+            ),
         )
 
     # -- stream construction -------------------------------------------------
@@ -1170,7 +1172,8 @@ def build_records(
     engine = oracle or RelayReflexSimulator()
     meters = _oracle_meters(engine)
     generator = oc.new_generator(
-        GENERATOR_NAME, version=GENERATOR_VERSION, kind="programmatic", seed=seed
+        oc.GeneratorIdentity(GENERATOR_NAME, version=GENERATOR_VERSION, kind="programmatic"),
+        seed=seed,
     )
     records: list[dict[str, Any]] = []
     for proposal in propose_scenarios(seed, count):
@@ -1180,14 +1183,19 @@ def build_records(
         result = engine.run(scenario, intervention)
         records.append(
             oc.build_record(
-                record_id=f"{id_prefix}-{seed}-{proposal['index']:04d}",
-                family=FAMILY,
-                generator=generator,
-                scenario=scenario,
-                intervention=intervention,
-                candidate_prediction=prediction,
-                oracle=engine.oracle_block(scenario),
-                result=_oracle_result(result, intervention, prediction, meters),
+                identity=oc.RecordIdentity(
+                    f"{id_prefix}-{seed}-{proposal['index']:04d}", FAMILY
+                ),
+                proposal=oc.Proposal(
+                    generator=generator,
+                    scenario=scenario,
+                    intervention=intervention,
+                    candidate_prediction=prediction,
+                ),
+                verdict=oc.Verdict(
+                    oracle=engine.oracle_block(scenario),
+                    result=_oracle_result(result, intervention, prediction, meters),
+                ),
                 provenance=oc.new_provenance(
                     "pipelines/fault_recovery.py",
                     oracle_run="in_process_deterministic",
