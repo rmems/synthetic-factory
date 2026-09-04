@@ -1,0 +1,45 @@
+pipelines/card_schema_yaml.py
+  s_f3ffb7db87dca1::t_d18bc1fef0153e 47,63
+pipelines/card_schema_validate.py
+  s_0d456da8ea5328::t_a3c2c25c380f26 194
+tests/test_card_schema_issue_133.py
+  s_f3ffb7db87dca1::t_773642042d7d1a 4-12
+tests/test_card_schema_issue_121.py
+  s_f3ffb7db87dca1::t_5d6cbeaf04ffcc 23-48
+  s_f3ffb7db87dca1::t_05e0ef9c8e7591 105-110
+  s_f3ffb7db87dca1::t_05157bb044393d 2-18
+config/card-schemas/payment-idempotency-trajectories.json
+  s_940326c4ee4215::t_d538bd802af532 5-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "654604a3ef9ebf87d413be5bd69b1083c1eb5d48",
+  "prompts": {},
+  "sessions": {
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
