@@ -15,10 +15,21 @@ exclude:
       - .claude/skills/run-synthetic-factory/driver.py
       - scripts/publish_grok46_hub.py
   # Taxonomy regex safety walks CPython's private opcode tree on purpose.
+  # The compose_curated adapters are the compatibility facade's monkeypatch
+  # seams: every historical ``_name`` is read through the live facade
+  # namespace at call time so tests can patch ``compose_curated.<name>``;
+  # tests/test_compose_curated_facade_contract.py pins those reads.
   - name: PyProtectedMemberInspection
     paths:
       - pipelines/tag_regex.py
       - pipelines/tag_regex_domain.py
+      - pipelines/compose_curated_identity_facade.py
+      - pipelines/compose_curated_identity_facade_lanes.py
+      - pipelines/compose_curated_identity_facade_semantics.py
+      - pipelines/compose_curated_record_facade.py
+      - pipelines/compose_curated_run_facade.py
+      - pipelines/compose_curated_record_dispatch.py
+      - pipelines/compose_curated_record_services.py
   # validate_run deliberately permits legacy thought-only episode steps outside
   # staging; test_legacy_episode_thought_is_warning proves this path is live.
   - name: PyUnreachableCodeInspection

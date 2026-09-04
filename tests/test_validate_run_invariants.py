@@ -7,12 +7,14 @@ import copy
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
 from validate_run_test_helpers import TINY_THALAMIC, _run_with_record  # noqa: E402
+import validate_run  # noqa: E402
 
 
 class ValidateRewardTotal(unittest.TestCase):
@@ -89,6 +91,67 @@ class ValidateRewardTotal(unittest.TestCase):
 
 
 class ValidateProvenanceStrict(unittest.TestCase):
+    def _assert_vocabulary_rebinding(
+        self, attribute, accepted_record, rejected_record, rejected_error
+    ):
+        with mock.patch.object(validate_run, attribute, frozenset({"declared"})):
+            self.assertEqual(validate_run.check_provenance(accepted_record, "record"), [])
+            self.assertEqual(
+                validate_run.check_provenance(rejected_record, "record"),
+                [rejected_error],
+            )
+
+    def _assert_unhashable_provenance_reports_invalid(self, mutate, fragment):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        mutate(rec)
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(fragment, result.stdout + result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_publish_gate_matches_only_real_claim_tokens(self):
+        real_claims = (
+            "real",
+            "real_world",
+            "real-world",
+            "real production",
+            "real-time",
+        )
+        ordinary_values = ("not_real", "non-real", "surreal", "realistic")
+        for value in real_claims:
+            with self.subTest(value=value):
+                errors = validate_run.check_provenance_publish(
+                    {"nested": {"provenance": {"kind": value}}}, "record"
+                )
+                self.assertEqual(
+                    errors,
+                    ["record: nested.provenance.kind must not be 'real'"],
+                )
+        for value in ordinary_values:
+            with self.subTest(value=value):
+                self.assertEqual(
+                    validate_run.check_provenance_publish(
+                        {"nested": {"provenance": {"kind": value}}}, "record"
+                    ),
+                    [],
+                )
+
+    def test_state_vocabulary_rebinding_changes_parent_provenance_gate(self):
+        self._assert_vocabulary_rebinding(
+            "ALLOWED_SIM_OR_REAL",
+            {"state": {"sim_or_real": "declared"}},
+            {"state": {"sim_or_real": "designed"}},
+            "record: state.sim_or_real must be one of ['declared']",
+        )
+
+    def test_kind_vocabulary_rebinding_changes_parent_provenance_gate(self):
+        self._assert_vocabulary_rebinding(
+            "ALLOWED_PROVENANCE_KIND",
+            {"provenance": {"kind": "declared"}},
+            {"provenance": {"kind": "designed"}},
+            "record: provenance.kind must be one of ['declared']",
+        )
+
     def test_provenance_valid_kinds(self):
         for kind in ["designed", "simulated", "hil", "unknown"]:
             rec = copy.deepcopy(TINY_THALAMIC)
@@ -123,6 +186,18 @@ class ValidateProvenanceStrict(unittest.TestCase):
         result = _run_with_record(rec)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("provenance.claimed", result.stderr)
+
+    def test_unhashable_provenance_kind_reports_invalid(self):
+        self._assert_unhashable_provenance_reports_invalid(
+            lambda rec: rec.__setitem__("provenance", {"kind": [], "claimed": "designed"}),
+            "provenance.kind must be one of",
+        )
+
+    def test_unhashable_state_provenance_reports_invalid(self):
+        self._assert_unhashable_provenance_reports_invalid(
+            lambda rec: rec["state"].__setitem__("sim_or_real", {"designed": True}),
+            "state.sim_or_real must be one of",
+        )
 
 
 class ValidateMetaRound(unittest.TestCase):
@@ -180,6 +255,26 @@ class ValidateMetaRound(unittest.TestCase):
         result = _run_with_record(rec)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("meta.round", result.stderr)
+
+
+class ValidationIsTotalOverDecodedJson(unittest.TestCase):
+    """Codex #97 P2: unhashable JSON values must report invalid, never raise.
+
+    ``x not in frozenset`` raises ``TypeError`` for a list or object value,
+    which crashed the validator (and rolled back a whole compose destination)
+    instead of reporting the field as invalid.
+    """
+
+    def test_unhashable_safety_decision_reports_invalid(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["safety_decision"] = {"decision": [], "rationale": "test fixture"}
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(
+            "safety_decision.decision must be ACCEPT|MODIFY|REJECT",
+            result.stdout + result.stderr,
+        )
+        self.assertNotIn("Traceback", result.stderr)
 
 
 if __name__ == "__main__":

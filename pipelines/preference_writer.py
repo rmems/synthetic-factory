@@ -18,16 +18,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-from preference_model import (  # noqa: E402
-    CurationRun,
-    PreferenceCurationError,
-    canonical_json,
-    is_under_raw,
-)
+    _assert_direct_sibling("preference_writer")
+    from . import preference_model as _preference_model
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "preference_writer"
+    )
+    import preference_model as _preference_model
+
+CurationRun = _preference_model.CurationRun
+PreferenceCurationError = _preference_model.PreferenceCurationError
+canonical_json = _preference_model.canonical_json
+is_under_raw = _preference_model.is_under_raw
 
 __all__ = ["write_run"]
 
@@ -196,3 +201,7 @@ def write_run(run: CurationRun, source: Path, output: Path, manifest: Path) -> N
         raise
     finally:
         _close_parents(created)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
