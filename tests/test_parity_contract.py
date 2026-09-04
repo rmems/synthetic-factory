@@ -1,4 +1,7 @@
-"""Tests for pipelines/oracle_contract.py — the shared parity record envelope."""
+"""Tests for pipelines/oracle_grounded/parity_contract.py.
+
+The record contract shared by the two oracle-grounded parity families.
+"""
 
 import copy
 import sys
@@ -10,7 +13,7 @@ REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
 sys.path.insert(0, str(PIPELINES))
 
-import oracle_contract as contract  # noqa: E402
+from oracle_grounded import parity_contract as contract  # noqa: E402
 
 WHERE = "unit:1"
 

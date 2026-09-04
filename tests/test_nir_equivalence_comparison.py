@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import nir_equivalence_support  # noqa: E402,F401
 
 import nir_equivalence as nir  # noqa: E402
-import oracle_contract as contract  # noqa: E402
+from oracle_grounded import parity_contract as contract  # noqa: E402
 
 class Comparison(unittest.TestCase):
     def test_convention_delta_lists_only_differences(self):

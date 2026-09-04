@@ -46,7 +46,7 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-import oracle_contract as contract  # noqa: E402
+from oracle_grounded import parity_contract as contract  # noqa: E402
 from neuro_oracle import (  # noqa: E402
     CAPTURE_DETERMINISM_MEANING,
     PHYSICAL_TARGETS,

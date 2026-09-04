@@ -20,16 +20,43 @@ on top of:
 * a training view derived from a record cannot drop, soften, or relabel a
   parity failure.
 
+The domain-neutral primitives come from the shared ``oracle_grounded.envelope``
+foundation (#172): the repository-wide ``provenance.kind`` vocabulary
+(``PROVENANCE_KINDS``), the NaN/Infinity parse hooks (``reject_json_constant``,
+``reject_nonfinite_float``) and type-strict JSON equality
+(``strict_json_equal``) are bound from there and never redefined here. This
+module owns what the parity families decide for themselves: the record kinds
+and their dataset/schema pins, the verdict and reason-code vocabularies, the
+oracle-only keys, the envelope key list and ``check_envelope``, the immutable
+``outputs/raw`` guard, and the training-view rules.
+
 Stdlib only. No JSON Schema library is available in this repository, so the
 ``schemas/*.schema.json`` files are documentation and these functions are the
-enforcement.
+enforcement. Importable as ``oracle_grounded.parity_contract`` with
+``pipelines/`` on ``sys.path`` (the CLI convention) and as
+``pipelines.oracle_grounded.parity_contract`` from the repository root.
 """
 
 from __future__ import annotations
 
 from collections import Counter
-import math
 from pathlib import Path
+
+from . import envelope as _envelope
+
+# Shared foundation (``oracle_grounded.envelope``), bound explicitly so the
+# family readers and tests keep reaching them as ``contract.<name>`` without
+# asking static analyzers to treat unused imports as use.
+#
+# ``PROVENANCE_KINDS`` is the repository-wide ``provenance.kind`` vocabulary
+# (schemas/provenance.md) as the validator reads it from the thalamic schema.
+# A genuine FPGA run is `hil`; a reference-model run is `simulated`. `real` is
+# never emitted here, as everywhere else in the factory.
+PROVENANCE_KINDS = _envelope.PROVENANCE_KINDS
+reject_json_constant = _envelope.reject_json_constant
+reject_nonfinite_float = _envelope.reject_nonfinite_float
+strict_json_equal = _envelope.strict_json_equal
+_is_enum_value = _envelope.is_enum_value
 
 CONTRACT_VERSION = "1.0.0"
 
@@ -57,11 +84,6 @@ VERDICT_INCONCLUSIVE = "inconclusive"
 VERDICTS = (VERDICT_MATCH, VERDICT_MISMATCH, VERDICT_UNSUPPORTED, VERDICT_INCONCLUSIVE)
 # Everything that is not a clean match is a parity failure for view purposes.
 PASSING_VERDICTS = frozenset({VERDICT_MATCH})
-
-# provenance.kind vocabulary is the repository-wide one from
-# schemas/provenance.md. A genuine FPGA run is `hil`; a reference-model run is
-# `simulated`. `real` is never emitted here, as everywhere else in the factory.
-PROVENANCE_KINDS = ("designed", "simulated", "hil", "unknown")
 
 # Fields only an oracle may fill. A generator's candidate_prediction that
 # carries any of these is trying to author a measurement.
@@ -162,32 +184,6 @@ def _is_object(value):
     return isinstance(value, dict)
 
 
-def reject_json_constant(value):
-    """Reject Python's non-standard NaN/Infinity JSON extensions.
-
-    Pass as ``json.loads(text, parse_constant=reject_json_constant)`` in both
-    family readers so a record smuggling ``NaN``/``Infinity``/``-Infinity``
-    is treated as a parse error rather than silently accepted with a value
-    standards-compliant downstream JSON parsers cannot consume.
-    """
-    raise ValueError(f"non-standard JSON numeric constant {value}")
-
-
-def reject_nonfinite_float(text):
-    """Parse a JSON float token, rejecting overflow-to-infinity values.
-
-    ``parse_constant`` never sees an ordinary numeric token like ``1e9999``,
-    which ``float()`` silently turns into infinity — a value ``digest()``
-    (``allow_nan=False``) can never re-derive. Pass as
-    ``json.loads(text, parse_float=reject_nonfinite_float)`` alongside
-    ``reject_json_constant`` so both smuggling routes fail at the parse.
-    """
-    value = float(text)
-    if not math.isfinite(value):
-        raise ValueError(f"non-finite JSON number {text}")
-    return value
-
-
 def _points_under_raw_tree(candidate):
     """True when consecutive path parts spell an ``outputs/raw`` tree."""
     parts = candidate.parts
@@ -214,33 +210,6 @@ def raw_tree_destination_error(destination):
                 f"{destination}"
             )
     return None
-
-
-def _strict_mapping_equal(recorded, expected):
-    """Same keys, and every value strictly equal."""
-    return recorded.keys() == expected.keys() and all(
-        strict_json_equal(recorded[key], expected[key]) for key in expected
-    )
-
-
-def _strict_sequence_equal(recorded, expected):
-    """Same length, and every element strictly equal in order."""
-    return len(recorded) == len(expected) and all(
-        strict_json_equal(left, right) for left, right in zip(recorded, expected)
-    )
-
-
-def strict_json_equal(recorded, expected):
-    """Compare JSON-shaped evidence without Python's bool/number coercions."""
-    if type(recorded) is not type(expected):
-        return False
-    if isinstance(expected, float):
-        return math.isfinite(recorded) and math.isfinite(expected) and recorded == expected
-    if isinstance(expected, dict):
-        return _strict_mapping_equal(recorded, expected)
-    if isinstance(expected, list):
-        return _strict_sequence_equal(recorded, expected)
-    return recorded == expected
 
 
 def _nonempty_str(value):
@@ -401,9 +370,9 @@ def check_provenance(provenance, where):
     if not _is_object(provenance):
         return [f"{where}.provenance must be an object"]
     kind = provenance.get("kind")
-    if kind not in PROVENANCE_KINDS:
+    if not _is_enum_value(kind, PROVENANCE_KINDS):
         errors.append(
-            f"{where}.provenance.kind must be one of {list(PROVENANCE_KINDS)} "
+            f"{where}.provenance.kind must be one of {sorted(PROVENANCE_KINDS)} "
             f"[PROVENANCE_KIND_INVALID]"
         )
     errors += _check_claimed_not_real(provenance.get("claimed"), where)

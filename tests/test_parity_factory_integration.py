@@ -24,7 +24,7 @@ sys.path.insert(0, str(PIPELINES))
 
 import census  # noqa: E402
 import check_records  # noqa: E402
-import oracle_contract as contract  # noqa: E402
+from oracle_grounded import parity_contract as contract  # noqa: E402
 import validate_run  # noqa: E402
 
 

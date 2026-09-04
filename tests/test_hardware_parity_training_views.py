@@ -18,7 +18,7 @@ from hardware_parity_support import (  # noqa: E402
 
 import hardware_parity as hp  # noqa: E402
 import neuro_oracle as oracle  # noqa: E402
-import oracle_contract as contract  # noqa: E402
+from oracle_grounded import parity_contract as contract  # noqa: E402
 
 class TrainingViews(unittest.TestCase):
     def test_views_preserve_every_record(self):

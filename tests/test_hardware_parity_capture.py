@@ -23,7 +23,7 @@ from hardware_parity_support import (  # noqa: E402
 
 import hardware_parity as hp  # noqa: E402
 import neuro_oracle as oracle  # noqa: E402
-import oracle_contract as contract  # noqa: E402
+from oracle_grounded import parity_contract as contract  # noqa: E402
 
 CAPTURE_MUTATIONS = (
     "bitstream_sha256",

@@ -820,7 +820,7 @@ def smoke_parity_families():
     import hardware_parity
     import neuro_oracle
     import nir_equivalence
-    import oracle_contract
+    from oracle_grounded import parity_contract as oracle_contract
 
     failures = _check_oracle_availability_reasons(neuro_oracle, nir_equivalence)
     family_failures, hardware, graphs = _generate_and_validate_smoke_families(

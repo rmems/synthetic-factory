@@ -234,7 +234,7 @@ corroborated, and `provenance.kind` must be `hil` rather than `simulated`.
 
 ## Training views cannot hide a parity failure
 
-`oracle_contract.build_training_view` copies the verdict, the failure flag,
+`parity_contract.build_training_view` copies the verdict, the failure flag,
 and the reason codes onto the view, and `training_view_errors` re-checks them
 against the record. `view_set_errors` rejects a view set that drops any
 record, that repeats one (duplicating the agreeable half dilutes failures as

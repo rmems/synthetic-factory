@@ -23,7 +23,7 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-import oracle_contract  # noqa: E402
+from oracle_grounded import parity_contract  # noqa: E402
 from validate_run_spikes import (  # noqa: E402
     BRIDGE_SPIKE_EVENT_KEYS,
     REPO,
@@ -1312,7 +1312,7 @@ def check_parity_envelope(obj, where):
     NIR runtimes is the deep layer's job (pipelines/check_records.py), because
     it is far too expensive to do once per line of a whole run directory.
     """
-    return oracle_contract.check_envelope(obj, where)
+    return parity_contract.check_envelope(obj, where)
 
 
 def _finish_agentic(errors, kind, obj, where, factory_staging):
@@ -1404,7 +1404,7 @@ def check_line(obj, where, factory_staging=False):
     # recognised by shape, so they can never be confused with a trajectory
     # that happens to share a key name.
     kind = obj.get("record_kind")
-    if kind in oracle_contract.RECORD_KINDS:
+    if kind in parity_contract.RECORD_KINDS:
         return check_parity_envelope(obj, where), kind
 
     # Route on the object-typed trajectory fields so legacy v1 records

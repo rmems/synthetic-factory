@@ -19,7 +19,7 @@ from nir_equivalence_support import (  # noqa: E402
 )
 
 import nir_equivalence as nir  # noqa: E402
-import oracle_contract as contract  # noqa: E402
+from oracle_grounded import parity_contract as contract  # noqa: E402
 
 class Validation(unittest.TestCase):
     def setUp(self):
