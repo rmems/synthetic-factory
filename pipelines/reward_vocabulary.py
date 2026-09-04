@@ -5,19 +5,34 @@ from __future__ import annotations
 
 from collections import Counter
 
-from reward_mapping import (
-    ARITHMETIC_STATUSES,
-    COMPONENT_DISPOSITIONS,
-    VALUE_TYPES,
-    _SHAPE_STATUS_METHODS,
-    _arithmetic_methods_for_signature,
-    _mapping_integer,
-    _mapping_object,
-    _mapping_str,
-    _mapping_str_list,
-    _policy_disposition,
-    _policy_error,
-)
+if __package__:
+    from .reward_mapping import (
+        ARITHMETIC_STATUSES,
+        COMPONENT_DISPOSITIONS,
+        VALUE_TYPES,
+        _SHAPE_STATUS_METHODS,
+        _arithmetic_methods_for_signature,
+        _mapping_integer,
+        _mapping_object,
+        _mapping_str,
+        _mapping_str_list,
+        _policy_disposition,
+        _policy_error,
+    )
+else:
+    from reward_mapping import (
+        ARITHMETIC_STATUSES,
+        COMPONENT_DISPOSITIONS,
+        VALUE_TYPES,
+        _SHAPE_STATUS_METHODS,
+        _arithmetic_methods_for_signature,
+        _mapping_integer,
+        _mapping_object,
+        _mapping_str,
+        _mapping_str_list,
+        _policy_disposition,
+        _policy_error,
+    )
 
 
 def _validate_vocabulary_counts(vocabulary, reward_keys, where):
@@ -377,4 +392,3 @@ def _validate_expected_classification(document, classes, reason_codes, run, wher
             "by_factory reason-code counts must match the global census",
         )
     return expected
-
