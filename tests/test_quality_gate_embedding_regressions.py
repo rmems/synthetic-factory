@@ -14,6 +14,7 @@ PIPELINES = Path(__file__).resolve().parents[1] / "pipelines"
 sys.path.insert(0, str(PIPELINES))
 
 import quality_gate_embedding as embedding  # noqa: E402
+from exact_json import parse_finite_json_float  # noqa: E402
 
 
 def _pair_vectors(left, right):
@@ -29,6 +30,14 @@ def _pair_vectors(left, right):
 
 
 class EmbeddingOrderRegressions(unittest.TestCase):
+    def test_exact_float_wrapper_preserves_version_13_numeric_features(self):
+        plain = embedding.embedding_tokens({"state": {"rate": 25.0}})
+        exact = embedding.embedding_tokens(
+            {"state": {"rate": parse_finite_json_float("25.000000000000001")}}
+        )
+
+        self.assertEqual(exact, plain)
+
     def test_adjacent_edges_do_not_alias_on_legacy_short_digest_collision(self):
         left = "A token33795 A"
         right = "A token104439 A"
