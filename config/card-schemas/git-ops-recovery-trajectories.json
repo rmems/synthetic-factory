@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "dataset": "git-ops-recovery-trajectories",
+  "issues": [65],
+  "note": "The viewer schema is declared by hand because `meta` is a key-bag: 2562 of 2832 records carry only `{factory, generator, round}`, so the datasets-server infers that thin struct from the first shards and then cannot cast the later records that add `kind` / `plant` / `designed` / `k` / `seed` / `tag` / `dep` / `pr` / `incident` / `steps`, or the four that add `domain` / `stack`. `/is-valid` reports `preview` true with `viewer`, `search`, `filter` and `statistics` false, and the parquet job fails on `config-size`. Declaring the union fixes the index without rewriting a single historical raw record.",
+  "config_name": "default",
+  "split": "train",
+  "data_files": ["data/raw/batch-*.jsonl"],
+  "features": [
+    {"name": "id", "dtype": "string"},
+    {"name": "goal", "dtype": "string"},
+    {
+      "name": "plan",
+      "dtype": "string",
+      "optional": true,
+      "note": "present on 2756 of 2832 records; always a non-empty string where present. The 76 absences are the `meta.plant: designed` incident cohort in `batch-r13.jsonl`-`batch-r50.jsonl`, never a list-versus-string difference"
+    },
+    {
+      "name": "steps",
+      "list": [
+        {"name": "n", "dtype": "int64"},
+        {"name": "decision_basis", "dtype": "string"},
+        {
+          "name": "tool_call",
+          "struct": [
+            {"name": "name", "dtype": "string"},
+            {
+              "name": "args",
+              "dtype": "json",
+              "note": "always an object whose values are strings; the key set differs per tool (`bash` -> `command`, `read` / `read_file` -> `path`, `write_file` -> `path` + `content`, `fetch` -> `url`, `pytest` -> `args`) and also differs within `edit`, which uses `old` / `new` on 1978 steps and `old_string` / `new_string` on 140"
+            }
+          ]
+        },
+        {"name": "observation", "dtype": "string"},
+        {
+          "name": "reflection",
+          "dtype": "string",
+          "optional": true,
+          "note": "present on 7446 of 37388 steps"
+        }
+      ]
+    },
+    {"name": "outcome", "dtype": "string"},
+    {
+      "name": "reward",
+      "dtype": "json",
+      "note": "key-bag of 58 distinct keys over 49 distinct key sets, mixing five JSON types: `success` (bool) on every record, then `tests_passed` (2603), `cost_steps` (2566), `pr` (2499, int or null), `blocked` (659, str), `handoff` (579, str or int), the float triple `process_quality` / `verify_rigor` / `recovery_completeness` (76 each), 25 further multi-record int counters (from `poisoned_caches_deleted` and `live_ci_verified` at 73 each through 12 keys present on 2-6 records), and 24 single-record int extras"
+    },
+    {
+      "name": "meta",
+      "dtype": "json",
+      "note": "key-bag over 7 distinct key sets: `factory`, `generator`, `round` on every record; then `kind` (270), `plant` (266, str), `designed` (194, bool), `seed` (194), `k` (190, bool), `incident` + `steps` (76, where `steps` is an int and unrelated to the top-level step list), `tag` (69), `dep` (26), `pr` (26) and `domain` + `stack` (4). `kind` and `plant` co-occur on 266 records; the four `sir-*` records carry `kind` with no `plant`"
+    }
+  ],
+  "disclosures": [
+    {
+      "summary": "Four dest-stamped rows in `batch-r1194.jsonl` and `batch-r1195.jsonl` keep `meta.factory: git-ops-recovery-factory` but are search-index-rebuild leftover3d episodes (Elasticsearch / Whoosh rebuild and handoff), not git-ops recovery. They are published exactly as generated. Neither frozen leftover-mill census owns them: the factory-mix census tracked in issue 43 keys off `meta.factory` differing from the destination factory and covers four other dumps, and the dest-stamped generic-episode-slug census tracked in issue 44 covers three other dumps and excludes leftover-in-id rows, which these four are. Ownership therefore stays with this dataset.",
+      "ids": [
+        "sir-r1194-es-reindex-leftover3d-rebuild",
+        "sir-r1194-es-drop-reindex-leftover3d-handoff",
+        "sir-r1195-whoosh-writer-leftover3d-rebuild",
+        "sir-r1195-whoosh-drop-leftover3d-handoff"
+      ]
+    },
+    "The other 2828 records are `gor-*` git-ops leftover-state recovery episodes (rebase, LFS, filter-repo). 167 of them carry `leftover` in the id: that is this factory's own advertised leftover-state mechanic on a matching payload kind, not a foreign dump. The only other leftover-in-id rows are the four `sir-*` leftover3d records disclosed above, so the dataset's 171 leftover-in-id names split 167 same-factory plus 4 foreign rather than 171 same-factory.",
+    "Every one of the 2832 records is stamped `meta.factory: git-ops-recovery-factory` and `meta.generator: grok-4.6`; the 1416 shards `batch-r01.jsonl` through `batch-r1416.jsonl` hold exactly two records each with no gaps and no parse failures.",
+    "Every one of the 37388 steps publishes a public `decision_basis`. There are no hidden `thought` or `internal_reasoning` fields."
+  ]
+}
