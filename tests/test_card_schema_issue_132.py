@@ -1,44 +1,45 @@
 #!/usr/bin/env python3
 """PR #132 / issue #66 leaf tests for the per-dataset card schema declaration."""
 
-try:
-    # The shared card-schema test module was renamed on the stack's shared
-    # infrastructure branch (`test_card_schema` -> `test_card_schema_integration`)
-    # after this branch was cut. Prefer the new name so this leaf still imports
-    # on the post-merge tree, where the old monolith no longer exists; fall back
-    # to the old name, which is what this branch's own history carries today.
-    import test_card_schema_integration as _shared
-except ModuleNotFoundError:
-    import test_card_schema as _shared
+import json
+import unittest
 
-unittest = _shared.unittest
-io = _shared.io
-json = _shared.json
-tempfile = _shared.tempfile
-redirect_stderr = _shared.redirect_stderr
-redirect_stdout = _shared.redirect_stdout
-Path = _shared.Path
-mock = _shared.mock
-REPO = _shared.REPO
-card_schema = _shared.card_schema
-publisher = _shared.publisher
-LONG_HORIZON = _shared.LONG_HORIZON
-MINIMAL = _shared.MINIMAL
-write_declaration = _shared.write_declaration
-
+from card_schema_test_support import (
+    EPISODE_FIELD_ORDER,
+    EPISODE_JSON_COLUMNS,
+    FEATURES_YAML,
+    META_JSON_YAML,
+    NOT_DECLARED,
+    PLAN_PRESENT_ROW,
+    REFLECTION_OPTIONAL_ROW,
+    REWARD_JSON_YAML,
+    STEP_FIELDS,
+    TOOL_CALL_FIELDS,
+    VIEWER_SCHEMA_HEADING,
+    DeclarationTestCase,
+    by_name,
+    card_schema,
+    feature_names,
+    mirror_path,
+    needs_mirror,
+    publisher,
+)
 
 INCIDENT_RESPONSE = "incident-response-oncall-trajectories"
-INCIDENT_RESPONSE_MIRROR = (
-    Path.home() / "rmems/hf/grok-4.6/incident-response-oncall-trajectories/data/raw"
-)
+INCIDENT_RESPONSE_MIRROR = mirror_path(INCIDENT_RESPONSE)
 INCIDENT_RESPONSE_PAYLOAD_NAMES = tuple(
     f"batch-r{round_number:02}.jsonl" for round_number in range(1, 5027)
 )
 
-_needs_mirror = unittest.skipUnless(
-    INCIDENT_RESPONSE_MIRROR.is_dir(),
-    "read-only published mirror is not available",
-)
+# The published column order: the OpenSRE seed fields sit between `kind` and
+# `steps`, the on-call RCA fields between `reward` and `meta`.
+INCIDENT_RESPONSE_FIELD_ORDER = [
+    "id", "goal", "plan", "kind", "true_root_cause", "red_herring",
+    "forbidden_diagnosis", "required_evidence", "steps", "outcome", "reward",
+    "false_lead", "rca", "remediate", "meta",
+]
+
+_needs_mirror = needs_mirror(INCIDENT_RESPONSE_MIRROR)
 
 
 def _load_mirror_records(mirror):
@@ -107,7 +108,7 @@ INCIDENT_RESPONSE_SIR_IDS = (
 )
 
 
-class IncidentResponseOncallDeclarationTests(unittest.TestCase):
+class IncidentResponseOncallDeclarationTests(DeclarationTestCase):
     """PR #132 / issue #66: three record families share one destination.
 
     The counts asserted here were derived by scanning every published record in
@@ -121,53 +122,29 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
     key set, or foreign row).
     """
 
-    def setUp(self):
-        self.declaration = card_schema.load(INCIDENT_RESPONSE)
-        self.assertIsNotNone(
-            self.declaration,
-            "PR #132 is missing the config/card-schemas declaration for issue #66",
-        )
-        self.item = {
-            "slug": "incident-response-oncall-factory",
-            "hub": INCIDENT_RESPONSE,
-            "pretty": "Incident Response Oncall Trajectories",
-            "blurb": "On-call leftover-signal RCA trajectories.",
-            "tags": ["synthetic-data", "trajectories", "incident-response", "sre"],
-        }
-        self.card = publisher.render_card(
-            self.item,
-            records=10052,
-            bytes_=85596311,
-            first="01",
-            last="5026",
-            payload_names=list(INCIDENT_RESPONSE_PAYLOAD_NAMES),
-        )
+    DATASET = INCIDENT_RESPONSE
+    ISSUE = 66
+    MISSING_MESSAGE = "PR #132 is missing the config/card-schemas declaration for issue #66"
+    HUB_ITEM = {
+        "slug": "incident-response-oncall-factory",
+        "hub": INCIDENT_RESPONSE,
+        "pretty": "Incident Response Oncall Trajectories",
+        "blurb": "On-call leftover-signal RCA trajectories.",
+        "tags": ["synthetic-data", "trajectories", "incident-response", "sre"],
+    }
+    SUMMARY = publisher.PayloadSummary(
+        records=10052,
+        bytes_=85596311,
+        first="01",
+        last="5026",
+        names=list(INCIDENT_RESPONSE_PAYLOAD_NAMES),
+    )
 
     def test_declaration_matches_the_observed_union_schema(self):
-        features = self.declaration["features"]
-        self.assertEqual(
-            [feature["name"] for feature in features],
-            [
-                "id",
-                "goal",
-                "plan",
-                "kind",
-                "true_root_cause",
-                "red_herring",
-                "forbidden_diagnosis",
-                "required_evidence",
-                "steps",
-                "outcome",
-                "reward",
-                "false_lead",
-                "rca",
-                "remediate",
-                "meta",
-            ],
-        )
-        names = {feature["name"]: feature for feature in features}
+        self.assertEqual(feature_names(self.declaration["features"]), INCIDENT_RESPONSE_FIELD_ORDER)
+        names = self.names()
         # Present on every one of the 10052 records, so never flagged optional.
-        for name in ("id", "goal", "plan", "steps", "outcome", "reward", "meta"):
+        for name in EPISODE_FIELD_ORDER:
             with self.subTest(field=name):
                 self.assertFalse(names[name].get("optional", False))
         # `plan` is a plain string on all 10052 records: it is neither optional
@@ -202,7 +179,7 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
         self.assertTrue(all(isinstance(item, str) for item in opensre["required_evidence"]))
         self.assertNotIn("kind", sir)
 
-        names = {feature["name"]: feature for feature in self.declaration["features"]}
+        names = self.names()
         # The issue asks for these as `json`, but each is a plain string on
         # 100% of the records that carry it, so a nullable string is both
         # castable and searchable in the viewer.
@@ -219,12 +196,7 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
         self.assertTrue(all(isinstance(step, int) for step in observed["survived_steps"]))
         self.assertIsInstance(observed["falsified_at"], int)
 
-        false_lead = next(
-            feature
-            for feature in self.declaration["features"]
-            if feature["name"] == "false_lead"
-        )
-        children = {child["name"]: child for child in false_lead["struct"]}
+        children = by_name(self.feature("false_lead")["struct"])
         # All 10016 on-call episodes carry exactly these three keys, and none of
         # them varies in type, so the nullable struct is castable and more
         # useful in the viewer than an opaque json blob.
@@ -234,42 +206,27 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
         self.assertEqual(children["falsified_at"]["dtype"], "int64")
 
     def test_steps_keep_the_public_decision_basis_and_a_json_arg_bag(self):
-        steps = next(
-            feature
-            for feature in self.declaration["features"]
-            if feature["name"] == "steps"
-        )
-        children = {child["name"]: child for child in steps["list"]}
-        self.assertEqual(
-            set(children), {"n", "decision_basis", "tool_call", "observation", "reflection"}
-        )
+        children = by_name(self.feature("steps")["list"])
+        self.assertEqual(set(children), STEP_FIELDS)
         self.assertFalse(children["decision_basis"].get("optional", False))
         # 54713 of 178998 steps carry a reflection.
         self.assertTrue(children["reflection"]["optional"])
-        tool_call = {child["name"]: child for child in children["tool_call"]["struct"]}
-        self.assertEqual(set(tool_call), {"name", "args"})
+        tool_call = self.tool_call_features(children)
+        self.assertEqual(set(tool_call), TOOL_CALL_FIELDS)
         self.assertEqual(tool_call["args"]["dtype"], "json")
 
     def test_only_the_key_bag_columns_are_declared_json(self):
-        self.assertEqual(
-            card_schema.json_columns(self.declaration["features"]),
-            ["steps[].tool_call.args", "reward", "meta"],
-        )
+        self.assert_json_columns(EPISODE_JSON_COLUMNS)
 
     def test_card_front_matter_declares_the_default_config_over_raw_batches(self):
-        front_matter = self.card.split("---", 2)[1]
-        self.assertIn("configs:\n- config_name: default\n", front_matter)
-        self.assertIn('    path: "data/raw/batch-*.jsonl"\n', front_matter)
-        self.assertIn("dataset_info:\n  features:\n", front_matter)
-        self.assertIn("  - name: meta\n    dtype: json\n", front_matter)
-        self.assertIn("  - name: reward\n    dtype: json\n", front_matter)
-        self.assertIn("  - name: required_evidence\n    list: string\n", front_matter)
-        # The card-only annotations must never reach the YAML.
-        self.assertNotIn("optional:", front_matter)
-        self.assertNotIn("note:", front_matter)
-        # license/tags/status claims stay exactly where they were.
-        self.assertIn("license: apache-2.0", front_matter)
-        self.assertIn("**not training-ready**", self.card)
+        self.assert_front_matter_declares_default_config(
+            FEATURES_YAML,
+            META_JSON_YAML,
+            REWARD_JSON_YAML,
+            "  - name: required_evidence\n    list: string\n",
+            # The card-only annotations must never reach the YAML.
+            absent=("optional:", "note:"),
+        )
 
     def test_declared_glob_covers_the_complete_published_payload_snapshot(self):
         self.assertEqual(len(INCIDENT_RESPONSE_PAYLOAD_NAMES), 5026)
@@ -282,20 +239,20 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
         )
 
     def test_card_body_discloses_all_three_families(self):
-        self.assertIn("## Dataset viewer schema", self.card)
-        self.assertNotIn("**Not declared yet.**", self.card)
-        for record_id in INCIDENT_RESPONSE_SIR_IDS:
-            with self.subTest(record_id=record_id):
-                self.assertIn(f"`{record_id}`", self.card)
-        # The same-factory leftover-signal mechanic is named as such, so it is
-        # not mistaken for the dest-stamped mill rows.
-        self.assertIn("advertised leftover-signal mechanic", self.card)
-        # The OpenSRE rows are disclosed as same-factory, not foreign payload.
-        self.assertIn("`meta.opensre_seed`", self.card)
-        self.assertIn("| `false_lead` | optional |", self.card)
-        self.assertIn("| `steps[].reflection` | optional |", self.card)
-        self.assertIn("| `required_evidence` | optional |", self.card)
-        self.assertIn("| `plan` | present on every record |", self.card)
+        self.assertIn(VIEWER_SCHEMA_HEADING, self.card)
+        self.assertNotIn(NOT_DECLARED, self.card)
+        self.assert_card_names_records(INCIDENT_RESPONSE_SIR_IDS)
+        self.assert_card_has(
+            # The same-factory leftover-signal mechanic is named as such, so it is
+            # not mistaken for the dest-stamped mill rows.
+            "advertised leftover-signal mechanic",
+            # The OpenSRE rows are disclosed as same-factory, not foreign payload.
+            "`meta.opensre_seed`",
+            "| `false_lead` | optional |",
+            REFLECTION_OPTIONAL_ROW,
+            "| `required_evidence` | optional |",
+            PLAN_PRESENT_ROW,
+        )
 
     def test_the_disclosed_mill_rows_carry_the_related_mill_issues(self):
         mill = next(

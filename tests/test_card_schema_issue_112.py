@@ -2,39 +2,35 @@
 """Issue #52 leaf tests for the per-dataset card schema declaration."""
 
 import re
+import unittest
+from pathlib import Path
 
-import test_card_schema_integration as _shared
-
-unittest = _shared.unittest
-io = _shared.io
-json = _shared.json
-tempfile = _shared.tempfile
-redirect_stderr = _shared.redirect_stderr
-redirect_stdout = _shared.redirect_stdout
-Path = _shared.Path
-mock = _shared.mock
-REPO = _shared.REPO
-card_schema = _shared.card_schema
-publisher = _shared.publisher
-LONG_HORIZON = _shared.LONG_HORIZON
-MINIMAL = _shared.MINIMAL
-write_declaration = _shared.write_declaration
-
-
-WEBSOCKET_RECONNECT = "websocket-reconnect-trajectories"
-
-WEBSOCKET_RECONNECT_MIRROR = (
-    Path.home()
-    / "rmems"
-    / "hf"
-    / "grok-4.6"
-    / WEBSOCKET_RECONNECT
-    / "data"
-    / "raw"
+from card_schema_test_support import (
+    EPISODE_FIELDS,
+    EPISODE_JSON_COLUMNS,
+    FEATURES_YAML,
+    META_JSON_YAML,
+    NOT_DECLARED,
+    NO_FOREIGN_PAYLOAD,
+    PLAN_PRESENT_ROW,
+    REFLECTION_OPTIONAL_ROW,
+    REWARD_JSON_YAML,
+    TOOL_CALL_FIELDS,
+    VIEWER_SCHEMA_HEADING,
+    DeclarationTestCase,
+    bag_key_counts,
+    feature_index,
+    iter_steps,
+    mirror_path,
+    needs_mirror,
+    publisher,
+    scan_mirror,
 )
 
+WEBSOCKET_RECONNECT = "websocket-reconnect-trajectories"
+WEBSOCKET_RECONNECT_MIRROR = mirror_path(WEBSOCKET_RECONNECT)
 
-_SCAN: dict = {}
+_needs_mirror = needs_mirror(WEBSOCKET_RECONNECT_MIRROR)
 
 
 def _scan_mirror():
@@ -42,131 +38,68 @@ def _scan_mirror():
 
     Memoized: several tests below re-derive different facts from one scan.
     """
-    if "scan" in _SCAN:
-        return _SCAN["scan"]
-    shards = sorted(WEBSOCKET_RECONNECT_MIRROR.glob("batch-*.jsonl"))
-    records = []
-    for shard in shards:
-        with shard.open(encoding="utf-8") as handle:
-            for line in handle:
-                if line.strip():
-                    records.append((shard.name, json.loads(line)))
-    _SCAN["scan"] = (shards, records)
-    return _SCAN["scan"]
+    return scan_mirror(WEBSOCKET_RECONNECT_MIRROR)
 
 
-_needs_mirror = unittest.skipUnless(
-    WEBSOCKET_RECONNECT_MIRROR.is_dir(),
-    "read-only published mirror is not available",
-)
-
-
-def _feature_index(features):
-    """Split a feature list into a name lookup and the set of optional names."""
-    names = {feature["name"]: feature for feature in features}
-    return names, {n for n, f in names.items() if f.get("optional")}
-
-
-def _iter_steps(records):
-    """Yield every (shard, step) pair, flattening the record/step nesting."""
-    for shard, record in records:
-        for step in record["steps"]:
-            yield shard, step
-
-
-def _bag_key_counts(records, bag):
-    """Count how many records carry each key of a free-form bag."""
-    seen = {}
-    for _shard, record in records:
-        for key in record[bag]:
-            seen[key] = seen.get(key, 0) + 1
-    return seen
-
-
-class WebsocketReconnectDeclarationTests(unittest.TestCase):
+class WebsocketReconnectDeclarationTests(DeclarationTestCase):
     """Issue #52: thin `meta` in batch-r01 vs `designed`/`domain`/`stack` later."""
 
-    def setUp(self):
-        self.declaration = card_schema.load(WEBSOCKET_RECONNECT)
-        self.assertIsNotNone(self.declaration, "config/card-schemas is missing #52")
-        self.item = {
-            "slug": "websocket-reconnect-factory",
-            "hub": WEBSOCKET_RECONNECT,
-            "pretty": "Websocket Reconnect Trajectories",
-            "blurb": "WebSocket leftover-resume / reconnect episodes.",
-            "tags": ["synthetic-data", "trajectories", "websocket"],
-        }
-        self.card = publisher.render_card(
-            self.item,
-            records=322,
-            bytes_=2375680,
-            first="r01",
-            last="r161",
-            payload_names=["batch-r01.jsonl", "batch-r161.jsonl"],
-        )
+    DATASET = WEBSOCKET_RECONNECT
+    ISSUE = 52
+    HUB_ITEM = {
+        "slug": "websocket-reconnect-factory",
+        "hub": WEBSOCKET_RECONNECT,
+        "pretty": "Websocket Reconnect Trajectories",
+        "blurb": "WebSocket leftover-resume / reconnect episodes.",
+        "tags": ["synthetic-data", "trajectories", "websocket"],
+    }
+    SUMMARY = publisher.PayloadSummary(
+        records=322,
+        bytes_=2375680,
+        first="r01",
+        last="r161",
+        names=["batch-r01.jsonl", "batch-r161.jsonl"],
+    )
 
     def test_declaration_matches_the_observed_union_schema(self):
-        names = {feature["name"]: feature for feature in self.declaration["features"]}
-        self.assertEqual(
-            set(names),
-            {"id", "goal", "plan", "steps", "outcome", "reward", "meta"},
-        )
+        names = self.names()
+        self.assertEqual(set(names), EPISODE_FIELDS)
         # Unlike #36's dataset, every one of the 322 records carries a `plan`.
         self.assertNotIn("optional", names["plan"])
         self.assertEqual(names["plan"]["dtype"], "string")
         self.assertEqual(names["meta"]["dtype"], "json")
         self.assertEqual(names["reward"]["dtype"], "json")
-        steps = {feature["name"]: feature for feature in names["steps"]["list"]}
-        self.assertEqual(
-            set(steps), {"n", "decision_basis", "tool_call", "observation", "reflection"}
-        )
-        self.assertTrue(steps["reflection"]["optional"])
-        self.assertIn("5081 of 5314 steps", steps["reflection"]["note"])
-        tool_call = {feature["name"]: feature for feature in steps["tool_call"]["struct"]}
-        self.assertEqual(set(tool_call), {"name", "args"})
-        self.assertEqual(tool_call["args"]["dtype"], "json")
+        _steps, tool_call = self.assert_episode_steps(names, "5081 of 5314 steps")
+        self.assertEqual(set(tool_call), TOOL_CALL_FIELDS)
         self.assertEqual(self.declaration["issues"], [52])
 
     def test_key_bag_columns_are_declared_json(self):
-        self.assertEqual(
-            card_schema.json_columns(self.declaration["features"]),
-            ["steps[].tool_call.args", "reward", "meta"],
-        )
+        self.assert_json_columns(EPISODE_JSON_COLUMNS)
 
     def test_meta_note_records_the_thin_and_lane_subsets(self):
-        meta = next(
-            feature
-            for feature in self.declaration["features"]
-            if feature["name"] == "meta"
-        )
+        meta = self.feature("meta")
         for key in ("kind", "seed", "designed", "domain", "stack"):
             self.assertIn(f"`{key}`", meta["note"])
         self.assertIn("312 of 322", meta["note"])
         self.assertIn("`lane` on 12 of 322", meta["note"])
 
     def test_card_front_matter_declares_the_default_config_over_raw_batches(self):
-        front_matter = self.card.split("---", 2)[1]
-        self.assertIn("configs:\n- config_name: default\n", front_matter)
-        self.assertIn('    path: "data/raw/batch-*.jsonl"\n', front_matter)
-        self.assertIn("dataset_info:\n  features:\n", front_matter)
-        self.assertIn("  - name: meta\n    dtype: json\n", front_matter)
-        self.assertIn("  - name: reward\n    dtype: json\n", front_matter)
-        # license/tags/status claims stay exactly where they were.
-        self.assertIn("license: apache-2.0", front_matter)
-        self.assertIn("**not training-ready**", self.card)
+        self.assert_front_matter_declares_default_config(
+            FEATURES_YAML, META_JSON_YAML, REWARD_JSON_YAML
+        )
 
     def test_card_body_discloses_the_ten_thin_meta_records(self):
-        self.assertIn("## Dataset viewer schema", self.card)
-        self.assertIn("`wsr-r01-resubscribe-on-reconnect`", self.card)
-        self.assertIn("`wsr-r11-close-1005-backoff-7c2d`", self.card)
-        self.assertIn("`meta.lane`", self.card)
-        self.assertIn("no dest-stamped foreign payload", self.card)
-        self.assertIn("does not infer generator-file provenance", self.card)
+        self.assert_card_has(
+            VIEWER_SCHEMA_HEADING,
+            "`wsr-r01-resubscribe-on-reconnect`",
+            "`wsr-r11-close-1005-backoff-7c2d`",
+            "`meta.lane`",
+            NO_FOREIGN_PAYLOAD,
+            "does not infer generator-file provenance",
+        )
         self.assertNotIn("mill_wsr_leftover", self.card)
-        self.assertIn("| `steps[].reflection` | optional |", self.card)
-        self.assertIn("| `plan` | present on every record |", self.card)
-        self.assertNotIn("**Not declared yet.**", self.card)
-
+        self.assert_card_has(REFLECTION_OPTIONAL_ROW, PLAN_PRESENT_ROW)
+        self.assertNotIn(NOT_DECLARED, self.card)
 
     def test_card_payload_prose_names_real_batch_shards(self):
         """Every `data/raw/batch-*.jsonl` the card prints must be a real shard.
@@ -206,7 +139,7 @@ class WebsocketReconnectDeclarationTests(unittest.TestCase):
     @_needs_mirror
     def test_every_record_carries_exactly_the_declared_top_level_fields(self):
         _shards, records = _scan_mirror()
-        names, optional = _feature_index(self.declaration["features"])
+        names, optional = feature_index(self.declaration["features"])
         for shard, record in records:
             self.assertEqual(set(record) - set(names), set(), shard)
             self.assertEqual(set(names) - set(record) - optional, set(), shard)
@@ -217,9 +150,9 @@ class WebsocketReconnectDeclarationTests(unittest.TestCase):
     @_needs_mirror
     def test_every_step_carries_exactly_the_declared_step_fields(self):
         _shards, records = _scan_mirror()
-        names, _optional = _feature_index(self.declaration["features"])
-        step_names, step_optional = _feature_index(names["steps"]["list"])
-        for shard, step in _iter_steps(records):
+        names, _optional = feature_index(self.declaration["features"])
+        step_names, step_optional = feature_index(names["steps"]["list"])
+        for shard, step in iter_steps(records):
             self.assertEqual(set(step) - set(step_names), set(), shard)
             self.assertEqual(set(step_names) - set(step) - step_optional, set(), shard)
             self.assertEqual(set(step["tool_call"]), {"name", "args"})
@@ -227,9 +160,9 @@ class WebsocketReconnectDeclarationTests(unittest.TestCase):
     @_needs_mirror
     def test_step_note_matches_the_published_reflection_count(self):
         _shards, records = _scan_mirror()
-        names, _optional = _feature_index(self.declaration["features"])
-        step_names, _step_optional = _feature_index(names["steps"]["list"])
-        steps = [step for _shard, step in _iter_steps(records)]
+        names, _optional = feature_index(self.declaration["features"])
+        step_names, _step_optional = feature_index(names["steps"]["list"])
+        steps = [step for _shard, step in iter_steps(records)]
         reflections = sum(1 for step in steps if "reflection" in step)
         self.assertIn(
             f"present on {reflections} of {len(steps)} steps",
@@ -244,19 +177,19 @@ class WebsocketReconnectDeclarationTests(unittest.TestCase):
             for _shard, record in records:
                 self.assertIsInstance(record[bag], dict)
         self.assertEqual(
-            {k for k, v in _bag_key_counts(records, "meta").items() if v == total},
+            {k for k, v in bag_key_counts(records, "meta").items() if v == total},
             {"factory", "generator", "round"},
         )
         self.assertEqual(
-            {k for k, v in _bag_key_counts(records, "reward").items() if v == total},
+            {k for k, v in bag_key_counts(records, "reward").items() if v == total},
             {"success", "tests_passed", "cost_steps"},
         )
 
     @_needs_mirror
     def test_meta_note_matches_the_published_key_counts(self):
         _shards, records = _scan_mirror()
-        names, _optional = _feature_index(self.declaration["features"])
-        counts = _bag_key_counts(records, "meta")
+        names, _optional = feature_index(self.declaration["features"])
+        counts = bag_key_counts(records, "meta")
         total = len(records)
         meta_note = names["meta"]["note"]
         self.assertIn(f"`stack` on {counts['kind']} of {total}", meta_note)
@@ -265,8 +198,8 @@ class WebsocketReconnectDeclarationTests(unittest.TestCase):
     @_needs_mirror
     def test_reward_note_matches_the_published_key_counts(self):
         _shards, records = _scan_mirror()
-        names, _optional = _feature_index(self.declaration["features"])
-        counts = _bag_key_counts(records, "reward")
+        names, _optional = feature_index(self.declaration["features"])
+        counts = bag_key_counts(records, "reward")
         total = len(records)
         reward_note = names["reward"]["note"]
         self.assertIn(f"`wasted_calls` on {counts['retries']} of {total}", reward_note)

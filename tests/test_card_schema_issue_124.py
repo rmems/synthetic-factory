@@ -2,25 +2,34 @@
 """Issue #61 leaf tests for the per-dataset card schema declaration."""
 
 import os
+import unittest
+from pathlib import Path
 
-import test_card_schema_integration as _shared
+from card_schema_test_support import (
+    EPISODE_FIELDS,
+    EPISODE_JSON_COLUMNS,
+    FEATURES_YAML,
+    LONG_HORIZON,
+    META_JSON_YAML,
+    NOT_DECLARED,
+    PLAN_PRESENT_ROW,
+    QUOTED_N_YAML,
+    REFLECTION_OPTIONAL_ROW,
+    REWARD_JSON_YAML,
+    STEPS_YAML_FEATURE,
+    TOOL_CALL_FIELDS,
+    VIEWER_SCHEMA_HEADING,
+    DeclarationTestCase,
+    by_name,
+    card_schema,
+    feature_index,
+    iter_steps,
+    mirror_path,
+    publisher,
+    scan_mirror,
+)
 
-unittest = _shared.unittest
-io = _shared.io
-json = _shared.json
-tempfile = _shared.tempfile
-redirect_stderr = _shared.redirect_stderr
-redirect_stdout = _shared.redirect_stdout
-Path = _shared.Path
-mock = _shared.mock
-REPO = _shared.REPO
-card_schema = _shared.card_schema
-publisher = _shared.publisher
-LONG_HORIZON = _shared.LONG_HORIZON
-MINIMAL = _shared.MINIMAL
-write_declaration = _shared.write_declaration
-
-DATASET = "docker-build-cache-trajectories"
+DOCKER_BUILD_CACHE = "docker-build-cache-trajectories"
 
 # The published mirror is read-only and lives outside the repo. Point
 # CARD_SCHEMA_MIRROR_ROOT at the directory holding the dataset folders to run
@@ -31,31 +40,14 @@ MIRROR_ROOT_ENV = "CARD_SCHEMA_MIRROR_ROOT"
 
 def _mirror_root() -> Path:
     override = os.environ.get(MIRROR_ROOT_ENV)
-    base = Path(override) if override else Path.home() / "rmems" / "hf" / "grok-4.6"
-    return base / DATASET / "data" / "raw"
+    if override:
+        return Path(override) / DOCKER_BUILD_CACHE / "data" / "raw"
+    return mirror_path(DOCKER_BUILD_CACHE)
 
 
 DOCKER_BUILD_CACHE_MIRROR = _mirror_root()
 
 SHARD_NAMES = [f"batch-r{number:02d}.jsonl" for number in range(1, 1029)]
-
-_SCAN: dict = {}
-
-
-def _read_shard(shard):
-    """Every non-blank record in one shard, tagged with the shard name."""
-    with shard.open(encoding="utf-8") as handle:
-        return [(shard.name, json.loads(line)) for line in handle if line.strip()]
-
-
-def _scan_mirror():
-    """Read every published shard once and memoize it for the whole module."""
-    if "scan" in _SCAN:
-        return _SCAN["scan"]
-    shards = sorted(DOCKER_BUILD_CACHE_MIRROR.glob("batch-*.jsonl"))
-    records = [row for shard in shards for row in _read_shard(shard)]
-    _SCAN["scan"] = (shards, records)
-    return _SCAN["scan"]
 
 
 def _spelled(number: int) -> str:
@@ -94,19 +86,6 @@ _needs_mirror = unittest.skipUnless(
 )
 
 
-def _feature_index(features):
-    """Split a feature list into a name lookup and the set of optional names."""
-    names = {feature["name"]: feature for feature in features}
-    return names, {n for n, f in names.items() if f.get("optional")}
-
-
-def _iter_steps(records):
-    """Yield every (shard, step) pair, flattening the record/step nesting."""
-    for shard, record in records:
-        for step in record["steps"]:
-            yield shard, step
-
-
 def _meta_shapes(records):
     """The three disjoint `meta` shapes: thin, `plant`-bearing, `kind`-bearing."""
     thin = [
@@ -133,7 +112,7 @@ def _tool_arg_stats(records):
     arg_keys: dict = {}
     arg_types: dict = {}
     tool_names: set = set()
-    for _shard, step in _iter_steps(records):
+    for _shard, step in iter_steps(records):
         tool_names.add(step["tool_call"]["name"])
         for key, value in step["tool_call"]["args"].items():
             arg_keys[key] = arg_keys.get(key, 0) + 1
@@ -147,7 +126,7 @@ def _disclosed_ids_by_size(declaration):
     return {len(item["ids"]): set(item["ids"]) for item in disclosed if "ids" in item}
 
 
-class DockerBuildCacheDeclarationTests(unittest.TestCase):
+class DockerBuildCacheDeclarationTests(DeclarationTestCase):
     """Issue #61: thin `meta` vs the `plant` / `designed` leftover shapes.
 
     Every count asserted here was derived from the published mirror
@@ -155,48 +134,25 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
     from the issue text.
     """
 
-    DATASET = "docker-build-cache-trajectories"
-
-    def setUp(self):
-        self.declaration = card_schema.load(self.DATASET)
-        self.assertIsNotNone(self.declaration, "config/card-schemas is missing #61")
-        self.item = {
-            "slug": "docker-build-cache-factory",
-            "hub": self.DATASET,
-            "pretty": "Docker Build Cache Trajectories",
-            "blurb": "Docker/BuildKit leftover cache-invalidation episodes.",
-            "tags": ["synthetic-data", "trajectories", "docker", "buildkit", "cache"],
-        }
-        self.card = publisher.render_card(
-            self.item,
-            records=2056,
-            bytes_=12548477,
-            first="r01",
-            last="r1028",
-            payload_names=list(SHARD_NAMES),
-        )
+    DATASET = DOCKER_BUILD_CACHE
+    ISSUE = 61
+    HUB_ITEM = {
+        "slug": "docker-build-cache-factory",
+        "hub": DOCKER_BUILD_CACHE,
+        "pretty": "Docker Build Cache Trajectories",
+        "blurb": "Docker/BuildKit leftover cache-invalidation episodes.",
+        "tags": ["synthetic-data", "trajectories", "docker", "buildkit", "cache"],
+    }
+    SUMMARY = publisher.PayloadSummary(
+        records=2056, bytes_=12548477, first="r01", last="r1028", names=list(SHARD_NAMES)
+    )
 
     def test_declaration_matches_the_observed_union_schema(self):
         expected_yaml_features = [
             {"name": "id", "dtype": "string"},
             {"name": "goal", "dtype": "string"},
             {"name": "plan", "dtype": "string"},
-            {
-                "name": "steps",
-                "list": [
-                    {"name": "n", "dtype": "int64"},
-                    {"name": "decision_basis", "dtype": "string"},
-                    {
-                        "name": "tool_call",
-                        "struct": [
-                            {"name": "name", "dtype": "string"},
-                            {"name": "args", "dtype": "json"},
-                        ],
-                    },
-                    {"name": "observation", "dtype": "string"},
-                    {"name": "reflection", "dtype": "string"},
-                ],
-            },
+            STEPS_YAML_FEATURE,
             {"name": "outcome", "dtype": "string"},
             {"name": "reward", "dtype": "json"},
             {"name": "meta", "dtype": "json"},
@@ -205,39 +161,23 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
             card_schema.yaml_features(self.declaration["features"]),
             expected_yaml_features,
         )
-        names = {feature["name"]: feature for feature in self.declaration["features"]}
-        self.assertEqual(
-            set(names),
-            {"id", "goal", "plan", "steps", "outcome", "reward", "meta"},
-        )
+        names = self.names()
+        self.assertEqual(set(names), EPISODE_FIELDS)
         self.assertEqual(names["meta"]["dtype"], "json")
         self.assertEqual(names["reward"]["dtype"], "json")
-        steps = {feature["name"]: feature for feature in names["steps"]["list"]}
-        self.assertEqual(
-            set(steps), {"n", "decision_basis", "tool_call", "observation", "reflection"}
-        )
-        self.assertTrue(steps["reflection"]["optional"])
-        tool_call = {feature["name"]: feature for feature in steps["tool_call"]["struct"]}
-        self.assertEqual(set(tool_call), {"name", "args"})
-        self.assertEqual(tool_call["args"]["dtype"], "json")
+        _steps, tool_call = self.assert_episode_steps(names)
+        self.assertEqual(set(tool_call), TOOL_CALL_FIELDS)
         self.assertEqual(self.declaration["issues"], [61])
 
     def test_plan_is_mandatory_here_unlike_the_sibling_declaration(self):
         """`plan` is on 2056 of 2056 records; optionality is never inherited."""
-        plan = next(
-            feature
-            for feature in self.declaration["features"]
-            if feature["name"] == "plan"
-        )
+        plan = self.feature("plan")
         self.assertEqual(plan["dtype"], "string")
         self.assertNotIn("optional", plan)
         self.assertIn("2056 of 2056", plan["note"])
-        sibling = card_schema.load(LONG_HORIZON)
-        sibling_plan = next(
-            feature for feature in sibling["features"] if feature["name"] == "plan"
-        )
+        sibling_plan = by_name(card_schema.load(LONG_HORIZON)["features"])["plan"]
         self.assertTrue(sibling_plan["optional"])
-        self.assertIn("| `plan` | present on every record |", self.card)
+        self.assertIn(PLAN_PRESENT_ROW, self.card)
 
     def test_the_shard_name_list_matches_the_published_padding(self):
         """The coverage cross-check must be fed names the publisher can emit.
@@ -281,7 +221,7 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
         Glob order is lexicographic (`batch-r100` before `batch-r11`) while
         rounds are numbered numerically.
         """
-        shards, records = _scan_mirror()
+        shards, records = scan_mirror(DOCKER_BUILD_CACHE_MIRROR)
         self.assertEqual(len(shards), 1028)
         self.assertEqual(len(records), 2056)
         published = [shard.name for shard in shards]
@@ -293,8 +233,8 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
 
     @_needs_mirror
     def test_every_record_carries_exactly_the_declared_top_level_fields(self):
-        _shards, records = _scan_mirror()
-        names, optional = _feature_index(self.declaration["features"])
+        _shards, records = scan_mirror(DOCKER_BUILD_CACHE_MIRROR)
+        names, optional = feature_index(self.declaration["features"])
         for shard, record in records:
             self.assertEqual(set(record) - set(names), set(), shard)
             self.assertEqual(set(names) - set(record) - optional, set(), shard)
@@ -305,8 +245,8 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
 
     @_needs_mirror
     def test_meta_splits_into_three_disjoint_shapes_with_the_declared_counts(self):
-        _shards, records = _scan_mirror()
-        names, _optional = _feature_index(self.declaration["features"])
+        _shards, records = scan_mirror(DOCKER_BUILD_CACHE_MIRROR)
+        names, _optional = feature_index(self.declaration["features"])
         total = len(records)
         thin, plant, kinded = _meta_shapes(records)
         self.assertEqual(len(thin) + len(plant) + len(kinded), total)
@@ -328,8 +268,8 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
 
     @_needs_mirror
     def test_the_two_plant_runs_sit_in_the_shard_ranges_the_note_names(self):
-        _shards, records = _scan_mirror()
-        names, _optional = _feature_index(self.declaration["features"])
+        _shards, records = scan_mirror(DOCKER_BUILD_CACHE_MIRROR)
+        names, _optional = feature_index(self.declaration["features"])
         _thin, plant, _kinded = _meta_shapes(records)
         note = names["meta"]["note"]
         for label, rows, note_range in (
@@ -347,7 +287,7 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
         """The 48 `plant: designed` rows are a different set from the 26 whose
         `meta.kind` is `designed`; the disclosure says so, so prove it.
         """
-        _shards, records = _scan_mirror()
+        _shards, records = scan_mirror(DOCKER_BUILD_CACHE_MIRROR)
         _thin, plant, kinded = _meta_shapes(records)
         _named, literal_plant = _plant_runs(plant)
         self.assertEqual(
@@ -357,7 +297,7 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
 
     @_needs_mirror
     def test_enumerated_disclosure_ids_are_exactly_the_derived_sets(self):
-        _shards, records = _scan_mirror()
+        _shards, records = scan_mirror(DOCKER_BUILD_CACHE_MIRROR)
         _thin, _plant, kinded = _meta_shapes(records)
         by_size = _disclosed_ids_by_size(self.declaration)
         published_ids = {r["id"] for _s, r in records}
@@ -376,8 +316,8 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
 
     @_needs_mirror
     def test_reward_key_counts_match_the_declared_note(self):
-        _shards, records = _scan_mirror()
-        names, _optional = _feature_index(self.declaration["features"])
+        _shards, records = scan_mirror(DOCKER_BUILD_CACHE_MIRROR)
+        names, _optional = feature_index(self.declaration["features"])
         counts, _types = _reward_stats(records)
         reward_note = names["reward"]["note"]
         self.assertEqual(
@@ -391,8 +331,8 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
 
     @_needs_mirror
     def test_the_eight_single_record_reward_extras_are_the_disclosed_ids(self):
-        _shards, records = _scan_mirror()
-        names, _optional = _feature_index(self.declaration["features"])
+        _shards, records = scan_mirror(DOCKER_BUILD_CACHE_MIRROR)
+        names, _optional = feature_index(self.declaration["features"])
         counts, _types = _reward_stats(records)
         by_size = _disclosed_ids_by_size(self.declaration)
         singles = {key for key, count in counts.items() if count == 1}
@@ -408,7 +348,7 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
 
     @_needs_mirror
     def test_the_reward_type_spread_is_what_forces_a_json_column(self):
-        _shards, records = _scan_mirror()
+        _shards, records = scan_mirror(DOCKER_BUILD_CACHE_MIRROR)
         counts, types = _reward_stats(records)
         singles = {key for key, count in counts.items() if count == 1}
         self.assertEqual(types["acorn"], {"str"})
@@ -421,20 +361,20 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
 
     @_needs_mirror
     def test_every_step_carries_exactly_the_declared_step_fields(self):
-        _shards, records = _scan_mirror()
-        names, _optional = _feature_index(self.declaration["features"])
-        step_names, step_optional = _feature_index(names["steps"]["list"])
-        for shard, step in _iter_steps(records):
+        _shards, records = scan_mirror(DOCKER_BUILD_CACHE_MIRROR)
+        names, _optional = feature_index(self.declaration["features"])
+        step_names, step_optional = feature_index(names["steps"]["list"])
+        for shard, step in iter_steps(records):
             self.assertEqual(set(step) - set(step_names), set(), shard)
             self.assertEqual(set(step_names) - set(step) - step_optional, set(), shard)
             self.assertEqual(set(step["tool_call"]), {"name", "args"})
 
     @_needs_mirror
     def test_step_notes_match_the_reflection_and_decision_basis_counts(self):
-        _shards, records = _scan_mirror()
-        names, _optional = _feature_index(self.declaration["features"])
-        step_names, _step_optional = _feature_index(names["steps"]["list"])
-        steps = [step for _shard, step in _iter_steps(records)]
+        _shards, records = scan_mirror(DOCKER_BUILD_CACHE_MIRROR)
+        names, _optional = feature_index(self.declaration["features"])
+        step_names, _step_optional = feature_index(names["steps"]["list"])
+        steps = [step for _shard, step in iter_steps(records)]
         total_steps = len(steps)
         reflections = sum(1 for step in steps if "reflection" in step)
         bases = sum(1 for step in steps if step["decision_basis"])
@@ -447,9 +387,9 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
 
     @_needs_mirror
     def test_tool_call_arg_key_counts_match_the_struct_note(self):
-        _shards, records = _scan_mirror()
-        names, _optional = _feature_index(self.declaration["features"])
-        step_names, _step_optional = _feature_index(names["steps"]["list"])
+        _shards, records = scan_mirror(DOCKER_BUILD_CACHE_MIRROR)
+        names, _optional = feature_index(self.declaration["features"])
+        step_names, _step_optional = feature_index(names["steps"]["list"])
         arg_keys, _arg_types, tool_names = _tool_arg_stats(records)
         args_note = step_names["tool_call"]["struct"][1]["note"]
         # "nine tools" counts distinct tool names; the keys listed after it
@@ -478,7 +418,7 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
 
         That is the reason the declaration exists at all.
         """
-        _shards, records = _scan_mirror()
+        _shards, records = scan_mirror(DOCKER_BUILD_CACHE_MIRROR)
         _arg_keys, arg_types, _tool_names = _tool_arg_stats(records)
         self.assertEqual(arg_types["limit"], {"int"})
         for key, kinds in arg_types.items():
@@ -488,7 +428,7 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
 
     @_needs_mirror
     def test_home_dump_provenance_and_the_leftover_count_the_card_prints(self):
-        _shards, records = _scan_mirror()
+        _shards, records = scan_mirror(DOCKER_BUILD_CACHE_MIRROR)
         total = len(records)
         published_ids = {r["id"] for _s, r in records}
         self.assertEqual(
@@ -503,46 +443,41 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
         self.assertIn(f"{leftover} of the {total} record ids contain `leftover`", self.card)
 
     def test_key_bag_columns_are_declared_json(self):
-        self.assertEqual(
-            card_schema.json_columns(self.declaration["features"]),
-            ["steps[].tool_call.args", "reward", "meta"],
-        )
+        self.assert_json_columns(EPISODE_JSON_COLUMNS)
 
     def test_card_front_matter_declares_the_default_config_over_raw_batches(self):
-        front_matter = self.card.split("---", 2)[1]
         # Parent tests pin the stdlib YAML emitter byte-for-byte. This leaf
         # asserts that the complete structurally validated block is inserted
         # once, at the end of the card front matter.
         emitted = card_schema.metadata_yaml(self.declaration)
+        front_matter = self.assert_front_matter_declares_default_config(
+            FEATURES_YAML,
+            META_JSON_YAML,
+            REWARD_JSON_YAML,
+            # `n` is a YAML boolean unless quoted, so the step index must stay a string.
+            QUOTED_N_YAML,
+            # No card-only annotation may reach the YAML: `datasets` reads the
+            # feature type from the first key after `name`.
+            absent=("optional:", "note:"),
+        )
         self.assertEqual(front_matter.count("configs:\n"), 1)
         self.assertEqual(front_matter.count("dataset_info:\n"), 1)
         self.assertTrue(front_matter.endswith(emitted))
-        self.assertIn("configs:\n- config_name: default\n", front_matter)
-        self.assertIn('    path: "data/raw/batch-*.jsonl"\n', front_matter)
-        self.assertIn("dataset_info:\n  features:\n", front_matter)
-        self.assertIn("  - name: meta\n    dtype: json\n", front_matter)
-        self.assertIn("  - name: reward\n    dtype: json\n", front_matter)
-        # `n` is a YAML boolean unless quoted, so the step index must stay a string.
-        self.assertIn('    - name: "n"\n      dtype: int64\n', front_matter)
-        # No card-only annotation may reach the YAML: `datasets` reads the
-        # feature type from the first key after `name`.
-        self.assertNotIn("optional:", front_matter)
-        self.assertNotIn("note:", front_matter)
-        self.assertIn("license: apache-2.0", front_matter)
-        self.assertIn("**not training-ready**", self.card)
 
     def test_card_body_owns_the_designed_l3_records_and_the_leftover_mechanic(self):
-        self.assertIn("## Dataset viewer schema", self.card)
-        self.assertNotIn("**Not declared yet.**", self.card)
-        # The advertised same-factory leftover-cache mechanic, not a foreign dump.
-        self.assertIn("833 of the 2056 record ids contain `leftover`", self.card)
-        # The 26 designed cache-product templates are owned here by name.
-        self.assertIn("`dbc-r634-bk-cachemount-id-alias-l3`", self.card)
-        self.assertIn("`dbc-r646-containerd-gc-root-label-l3`", self.card)
-        # Outbound copies in destination dumps stay with #44, not with this card.
-        self.assertIn("/issues/44", self.card)
-        self.assertIn("| `steps[].reflection` | optional |", self.card)
-        self.assertIn("696 of 36640 steps", self.card)
+        self.assertIn(VIEWER_SCHEMA_HEADING, self.card)
+        self.assertNotIn(NOT_DECLARED, self.card)
+        self.assert_card_has(
+            # The advertised same-factory leftover-cache mechanic, not a foreign dump.
+            "833 of the 2056 record ids contain `leftover`",
+            # The 26 designed cache-product templates are owned here by name.
+            "`dbc-r634-bk-cachemount-id-alias-l3`",
+            "`dbc-r646-containerd-gc-root-label-l3`",
+            # Outbound copies in destination dumps stay with #44, not with this card.
+            "/issues/44",
+            REFLECTION_OPTIONAL_ROW,
+            "696 of 36640 steps",
+        )
 
     def test_disclosures_keep_every_record_with_this_factory(self):
         summaries = [item["summary"] for item in self.declaration["disclosures"]]
