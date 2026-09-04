@@ -19,6 +19,7 @@ _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
+from round_txn_test_helpers import distillation_sidecars  # noqa: E402
 from validate_run_test_helpers import TINY_THALAMIC, _invoke  # noqa: E402
 
 import check_records  # noqa: E402
@@ -42,6 +43,36 @@ class StrictContractFixtures(unittest.TestCase):
             (run_dir / name).write_text((STRICT_FIXTURES / name).read_text())
             return _invoke(str(run_dir))
 
+    def _assert_invalid_line_continues(
+        self, filename, invalid_line, valid_record, marker_groups
+    ):
+        with tempfile.TemporaryDirectory() as raw:
+            run_dir = Path(raw) / "run"
+            run_dir.mkdir()
+            (run_dir / filename).write_text(
+                invalid_line + "\n" + json.dumps(valid_record, ensure_ascii=False) + "\n"
+            )
+            result = _invoke(str(run_dir))
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn(f"{filename}:1:", result.stderr)
+        self.assertNotIn(f"{filename}:2", result.stderr)
+        for markers in marker_groups:
+            self.assertTrue(
+                any(marker in result.stderr for marker in markers),
+                result.stderr,
+            )
+        self.assertEqual(
+            json.loads(result.stdout),
+            {
+                "files": 1,
+                "records": 1,
+                "by_kind": {"thalamic": 1},
+                "error_count": 1,
+            },
+        )
+
     def test_baseline_passes_both_layers(self):
         with tempfile.TemporaryDirectory() as raw:
             run_dir = Path(raw) / "run"
@@ -62,9 +93,7 @@ class StrictContractFixtures(unittest.TestCase):
             with self.subTest(fixture=path.name):
                 result = self._fixture_result(path.name)
                 self.assertEqual(result.returncode, 1, result.stderr)
-                self.assertEqual(
-                    result.stderr.strip().count("ERROR:"), 1, result.stderr
-                )
+                self.assertEqual(result.stderr.strip().count("ERROR:"), 1, result.stderr)
 
     def test_reject_fixtures_name_the_rule_they_break(self):
         expected = {
@@ -124,6 +153,67 @@ class StrictContractFixtures(unittest.TestCase):
                 self.assertIn(marker, shape.stderr)
                 self.assertEqual(deep["exit_code"], 1, deep)
 
+    def test_shape_validator_enforces_the_exact_json_output_contract(self):
+        nested = copy.deepcopy(TINY_THALAMIC)
+        extension = None
+        for _ in range(129):
+            extension = [extension]
+        nested["extension"] = extension
+        valid = copy.deepcopy(TINY_THALAMIC)
+        valid["state"]["episode_id"] = "tiny-valid-😀"
+
+        self._assert_invalid_line_continues(
+            "nested.jsonl",
+            json.dumps(nested),
+            valid,
+            (("exact JSON contract error",), ("JSON nesting",)),
+        )
+
+        surrogate = json.dumps(TINY_THALAMIC).replace(
+            '"tiny-001"',
+            '"tiny-\\ud800"',
+            1,
+        )
+        with tempfile.TemporaryDirectory() as raw:
+            run_dir = Path(raw) / "run"
+            run_dir.mkdir()
+            (run_dir / "surrogate.jsonl").write_text(surrogate + "\n")
+            surrogate_result = _invoke(str(run_dir))
+
+        self.assertEqual(surrogate_result.returncode, 1, surrogate_result.stderr)
+        self.assertNotIn("Traceback", surrogate_result.stderr)
+        self.assertIn("surrogate.jsonl:1", surrogate_result.stderr)
+        self.assertIn("exact JSON contract error", surrogate_result.stderr)
+        self.assertIn("unpaired UTF-16 surrogate", surrogate_result.stderr)
+        self.assertEqual(
+            json.loads(surrogate_result.stdout),
+            {"files": 1, "records": 0, "by_kind": {}, "error_count": 1},
+        )
+
+    def test_shape_validator_bounds_decoder_recursion_and_continues(self):
+        too_deep = "[" * 100_000 + "0" + "]" * 100_000
+        valid = copy.deepcopy(TINY_THALAMIC)
+        valid["state"]["episode_id"] = "after-deep-input"
+
+        self._assert_invalid_line_continues(
+            "deep-input.jsonl",
+            too_deep,
+            valid,
+            (("JSON parse error", "exact JSON contract error"),),
+        )
+
+    def test_shape_validator_bounds_integer_tokens_before_materialization(self):
+        oversized = '{"oversized":' + "9" * 4097 + "}"
+        valid = copy.deepcopy(TINY_THALAMIC)
+        valid["state"]["episode_id"] = "after-oversized-integer"
+
+        self._assert_invalid_line_continues(
+            "oversized-integer.jsonl",
+            oversized,
+            valid,
+            (("JSON parse error: JSON integer precision",),),
+        )
+
 
 class TransactionalRoundPassesHardenedValidator(unittest.TestCase):
     """A round published through round_txn must satisfy the hardened contract.
@@ -140,6 +230,7 @@ class TransactionalRoundPassesHardenedValidator(unittest.TestCase):
             {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.4},
             {"channel": "b", "t_rel_ms": 2.0, "amplitude": 0.6},
         ]
+        record.update(distillation_sidecars())
         # Execution verification (pipelines/round_txn_execution.py) blocks
         # publish on an unverifiable future_outcome; give it well-formed
         # observable evidence so this test exercises the shape/deep
@@ -151,13 +242,7 @@ class TransactionalRoundPassesHardenedValidator(unittest.TestCase):
             "new_state": {"sim_or_real": "designed", "domain": "gate-test"},
         }
         with tempfile.TemporaryDirectory() as raw:
-            factory = (
-                Path(raw)
-                / "outputs"
-                / "raw"
-                / "2099-01-01"
-                / "thalamic-trajectory-factory"
-            )
+            factory = Path(raw) / "outputs" / "raw" / "2099-01-01" / "thalamic-trajectory-factory"
             factory.mkdir(parents=True)
             reservation = round_txn.reserve(factory, 1, 1)
             stage = Path(reservation["staging_dir"])
