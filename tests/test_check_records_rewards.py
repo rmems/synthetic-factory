@@ -22,6 +22,28 @@ import check_records  # noqa: E402
 
 
 class CheckRecordsRewardArithmetic(unittest.TestCase):
+    def test_weighted_helper_marks_missing_components_as_terminal(self):
+        helper = getattr(check_records, "_weighted_reward_findings", None)
+        self.assertIsNotNone(helper, "weighted reward branches need one terminal helper")
+        errors, warnings = helper(
+            {
+                "task_progress": 1.0,
+                "weights": {"task_progress": 0.4, "safety": 0.6},
+                "total": 0.4,
+            },
+            "fixture.reward_components",
+            0.4,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            warnings,
+            [
+                "fixture.reward_components: unsupported weighted reward layout; "
+                "missing components safety; skipped arithmetic check"
+            ],
+        )
+
     def test_reward_mismatch_is_error(self):
         with tempfile.TemporaryDirectory() as td:
             dest = Path(td) / "bad-reward.jsonl"

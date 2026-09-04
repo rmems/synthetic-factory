@@ -15,14 +15,18 @@ derived from. Nothing here mutates a record or decides its fate.
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 from typing import Any
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-from preference_model import canonical_json  # noqa: E402
+    _assert_direct_sibling("preference_context")
+    from .preference_model import canonical_json
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "preference_context"
+    )
+    from preference_model import canonical_json
 
 __all__ = [
     "all_context_diffs",
@@ -37,15 +41,22 @@ __all__ = [
 def _dict_diff_paths(left: dict[str, Any], right: dict[str, Any], prefix: str) -> list[str]:
     paths: list[str] = []
     for key in sorted(set(left) | set(right)):
-        path = f"{prefix}.{key}"
-        if key not in left:
-            paths.append(path)
-            continue
-        if key not in right:
-            paths.append(path)
-            continue
-        paths.extend(diff_paths_between(left[key], right[key], path))
+        paths.extend(_dict_key_diff_paths(left, right, prefix, key))
     return paths
+
+
+def _dict_key_diff_paths(
+    left: dict[str, Any],
+    right: dict[str, Any],
+    prefix: str,
+    key: str,
+) -> list[str]:
+    """Return the diff paths contributed by one dictionary key."""
+
+    path = f"{prefix}.{key}"
+    if key not in left or key not in right:
+        return [path]
+    return diff_paths_between(left[key], right[key], path)
 
 
 def _list_diff_paths(left: list[Any], right: list[Any], prefix: str) -> list[str]:
@@ -163,3 +174,7 @@ def all_context_diffs(chosen: dict[str, Any], rejected: dict[str, Any]) -> tuple
     for field in ("state", "proposed_action"):
         paths.extend(diff_paths_between(chosen[field], rejected[field], field))
     return tuple(paths)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
