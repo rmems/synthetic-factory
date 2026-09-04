@@ -88,9 +88,9 @@ def _body_schema_summary(declaration: dict) -> list[str]:
     if columns:
         listed = ", ".join(f"`{column}`" for column in columns)
         lines.append(
-            "Columns with record-varying JSON shapes are declared as `json` "
-            "so object keys or value types can differ per record without an "
-            f"Arrow cast error: {listed}."
+            "Columns declared as `json` may differ in object keys or value "
+            "types from record to record; they load without an Arrow cast "
+            f"error: {listed}."
         )
         lines.append("")
     return lines

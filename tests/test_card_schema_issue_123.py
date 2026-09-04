@@ -80,7 +80,7 @@ class EvalHarnessDeclarationTests(unittest.TestCase):
             card_schema.json_columns(self.declaration["features"]),
             ["plan", "steps[].tool_call.args", "reward", "meta"],
         )
-        self.assertIn("record-varying JSON shapes", self.card)
+        self.assertIn("Columns declared as `json` may differ", self.card)
         self.assertNotIn("Key-bag columns are declared", self.card)
 
     def test_reward_note_accounts_for_the_four_twice_occurring_keys(self):
