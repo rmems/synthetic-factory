@@ -1,0 +1,11 @@
+tests/test_card_schema_issue_123.py
+  ai_agent 83
+pipelines/card_schema_render.py
+  ai_agent 91-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ed3142028f7aad0f29f75ac2aefb65eddac11df3",
+  "prompts": {}
+}
