@@ -32,13 +32,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
-from census import census_dir, reject_json_constant  # noqa: E402
-from curate_agentic import classify_record  # noqa: E402
-from round_txn import AGENTIC_FACTORY_KINDS, TransactionError  # noqa: E402
+if __package__:
+    from .census import census_dir, reject_json_constant
+    from .curate_agentic import classify_record
+    from .round_txn import AGENTIC_FACTORY_KINDS, TransactionError
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from census import census_dir, reject_json_constant
+    from curate_agentic import classify_record
+    from round_txn import AGENTIC_FACTORY_KINDS, TransactionError
 
 # Frozen issue #43 census: destination factory -> {record id: declared factory}.
 # Detection never consults this table. Tests re-derive each finding through the
