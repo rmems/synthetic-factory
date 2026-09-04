@@ -10,13 +10,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from trajectory_pair_vocabulary import (
-    DEFAULT_POLICY,
-    PAIR_SIDES,
-    SAME_STATE_FIELDS,
-    GatePolicy,
-)
-from validate_run import THALAMIC_CORE_KEYS, check_episode
+if __package__:
+    from .trajectory_pair_vocabulary import (
+        DEFAULT_POLICY,
+        PAIR_SIDES,
+        SAME_STATE_FIELDS,
+        GatePolicy,
+    )
+    from .validate_run import THALAMIC_CORE_KEYS, check_episode
+else:
+    from trajectory_pair_vocabulary import (
+        DEFAULT_POLICY,
+        PAIR_SIDES,
+        SAME_STATE_FIELDS,
+        GatePolicy,
+    )
+    from validate_run import THALAMIC_CORE_KEYS, check_episode
 
 
 def is_pair_candidate(record: Any) -> bool:

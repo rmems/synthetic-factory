@@ -21,29 +21,43 @@ import sys
 from pathlib import Path
 from typing import Any
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
-from preference_context import (  # noqa: E402
-    all_context_diffs,
-    pair_context,
-    context_field_agreement,
-    context_is_pure,
-    is_trajectory_pair,
-)
-from preference_model import (  # noqa: E402
-    ACTION_EXCLUDED,
-    ACTION_RETAINED,
-    CLASSIFICATION_TRAJECTORY_PAIR,
-    REASON_TRAJECTORY_PAIR,
-    CurationDecision,
-    is_canonicalizable as _is_canonicalizable,
-)
-from preference_repair import (  # noqa: E402
-    repair_attested_identity,
-    repair_attested_proposal,
-)
+if __package__:
+    from .preference_context import (
+        all_context_diffs,
+        context_field_agreement,
+        context_is_pure,
+        is_trajectory_pair,
+        pair_context,
+    )
+    from .preference_model import (
+        ACTION_EXCLUDED,
+        ACTION_RETAINED,
+        CLASSIFICATION_TRAJECTORY_PAIR,
+        REASON_TRAJECTORY_PAIR,
+        CurationDecision,
+        is_canonicalizable as _is_canonicalizable,
+    )
+    from .preference_repair import repair_attested_identity, repair_attested_proposal
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from preference_context import (
+        all_context_diffs,
+        context_field_agreement,
+        context_is_pure,
+        is_trajectory_pair,
+        pair_context,
+    )
+    from preference_model import (
+        ACTION_EXCLUDED,
+        ACTION_RETAINED,
+        CLASSIFICATION_TRAJECTORY_PAIR,
+        REASON_TRAJECTORY_PAIR,
+        CurationDecision,
+        is_canonicalizable as _is_canonicalizable,
+    )
+    from preference_repair import repair_attested_identity, repair_attested_proposal
 
 __all__ = [
     "context_field_agreement",

@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
-from validate_run import (
-    BRIDGE_SPIKE_EVENT_KEYS,
-    SPIKE_ORDER_MISMATCH,
-    check_spike_order,
-)
+if __package__:
+    from .validate_run import (
+        BRIDGE_SPIKE_EVENT_KEYS,
+        SPIKE_ORDER_MISMATCH,
+        check_spike_order,
+    )
+else:
+    from validate_run import (
+        BRIDGE_SPIKE_EVENT_KEYS,
+        SPIKE_ORDER_MISMATCH,
+        check_spike_order,
+    )
 
 
 def event_stream_status(events, enclosing=None):
