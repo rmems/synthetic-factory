@@ -1,0 +1,25 @@
+pipelines/oracle_grounded/envelope.py
+  s_9d594476d4f2a1::t_2bebbc1b31ff78 49
+  s_9d594476d4f2a1::t_d4c9d2d9c9a70b 385-405
+  s_9d594476d4f2a1::t_2d6c77fc799ddf 146-150,155-158
+  s_9d594476d4f2a1::t_18339b05fcd57a 124
+tests/test_oracle_envelope.py
+  s_9d594476d4f2a1::t_fb694d6dd1fa33 311-317
+  s_9d594476d4f2a1::t_b04cc4e8c2b6b3 340-350
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "97ddff210ffb69b7f451c7f03eccbd341d06b2fb",
+  "prompts": {},
+  "sessions": {
+    "s_9d594476d4f2a1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4d340bfb-34df-47b1-a584-5641cf58831c",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
