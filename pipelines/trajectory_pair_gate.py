@@ -13,38 +13,72 @@ from __future__ import annotations
 
 from typing import Any
 
-from curate_agentic import canonical_json, prefix_overlap, shared_preference_goal
-from trajectory_pair_shape import (
-    classify_pair_schema,
-    pair_envelope_validation_errors,
-    side_episode_validation_errors,
-    steps_of,
-)
-from trajectory_pair_vocabulary import (
-    BRANCH_LABEL_MASK,
-    BRANCH_LABEL_RE,
-    DEFAULT_POLICY,
-    GOAL_REASONS,
-    PAIR_SIDES,
-    REASON_BRANCH_LABEL_ONLY,
-    REASON_OUTCOME_INVALID,
-    REASON_OUTCOME_MISSING,
-    REASON_OUTCOME_NOT_DIVERGENT,
-    REASON_PAIR_ENVELOPE_INVALID,
-    REASON_PAIR_IDENTICAL,
-    REASON_PREFERENCE_DIRECTION_INVALID,
-    REASON_PREFIX_ABSENT,
-    REASON_REWARD_INVALID,
-    REASON_REWARD_MISSING,
-    REASON_REWARD_NOT_DIVERGENT,
-    REASON_SIDE_EPISODE_INVALID,
-    REASON_SIDES_NOT_OBJECTS,
-    REASON_STEPS_EMPTY,
-    REASON_STEPS_INVALID,
-    REQUIRED_SIDE_SUCCESS,
-    GatePolicy,
-    is_finite_json_number,
-)
+if __package__:
+    from .curate_agentic import canonical_json, prefix_overlap, shared_preference_goal
+    from .trajectory_pair_shape import (
+        classify_pair_schema,
+        pair_envelope_validation_errors,
+        side_episode_validation_errors,
+        steps_of,
+    )
+    from .trajectory_pair_vocabulary import (
+        BRANCH_LABEL_MASK,
+        BRANCH_LABEL_RE,
+        DEFAULT_POLICY,
+        GOAL_REASONS,
+        PAIR_SIDES,
+        REASON_BRANCH_LABEL_ONLY,
+        REASON_OUTCOME_INVALID,
+        REASON_OUTCOME_MISSING,
+        REASON_OUTCOME_NOT_DIVERGENT,
+        REASON_PAIR_ENVELOPE_INVALID,
+        REASON_PAIR_IDENTICAL,
+        REASON_PREFERENCE_DIRECTION_INVALID,
+        REASON_PREFIX_ABSENT,
+        REASON_REWARD_INVALID,
+        REASON_REWARD_MISSING,
+        REASON_REWARD_NOT_DIVERGENT,
+        REASON_SIDE_EPISODE_INVALID,
+        REASON_SIDES_NOT_OBJECTS,
+        REASON_STEPS_EMPTY,
+        REASON_STEPS_INVALID,
+        REQUIRED_SIDE_SUCCESS,
+        GatePolicy,
+        is_finite_json_number,
+    )
+else:
+    from curate_agentic import canonical_json, prefix_overlap, shared_preference_goal
+    from trajectory_pair_shape import (
+        classify_pair_schema,
+        pair_envelope_validation_errors,
+        side_episode_validation_errors,
+        steps_of,
+    )
+    from trajectory_pair_vocabulary import (
+        BRANCH_LABEL_MASK,
+        BRANCH_LABEL_RE,
+        DEFAULT_POLICY,
+        GOAL_REASONS,
+        PAIR_SIDES,
+        REASON_BRANCH_LABEL_ONLY,
+        REASON_OUTCOME_INVALID,
+        REASON_OUTCOME_MISSING,
+        REASON_OUTCOME_NOT_DIVERGENT,
+        REASON_PAIR_ENVELOPE_INVALID,
+        REASON_PAIR_IDENTICAL,
+        REASON_PREFERENCE_DIRECTION_INVALID,
+        REASON_PREFIX_ABSENT,
+        REASON_REWARD_INVALID,
+        REASON_REWARD_MISSING,
+        REASON_REWARD_NOT_DIVERGENT,
+        REASON_SIDE_EPISODE_INVALID,
+        REASON_SIDES_NOT_OBJECTS,
+        REASON_STEPS_EMPTY,
+        REASON_STEPS_INVALID,
+        REQUIRED_SIDE_SUCCESS,
+        GatePolicy,
+        is_finite_json_number,
+    )
 
 # Each entry is (field, missing reason, invalid reason, not-divergent reason).
 DIVERGENCE_FIELDS = (

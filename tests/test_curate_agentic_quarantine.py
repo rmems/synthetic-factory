@@ -37,8 +37,11 @@ class ForeignMillQuarantine(unittest.TestCase):
 
         self.assertEqual(run["summary"]["input_records"], 5)
         self.assertEqual(run["summary"]["output_records"], 4)
-        self.assertEqual(run["summary"]["transform"]["version"], "2")
-        self.assertEqual(TRANSFORM_VERSION, "2")
+        # "3" widened the hidden-thought stripper to the full training_audit
+        # refusal vocabulary; the declared transform identity must move with
+        # every behavioral change so manifests can tell curated bytes apart.
+        self.assertEqual(run["summary"]["transform"]["version"], "3")
+        self.assertEqual(TRANSFORM_VERSION, "3")
         self.assertTrue(run["summary"]["mill_family"]["context_complete"])
         self.assertFalse(
             run["summary"]["mill_family"]["reference_scope_complete"]

@@ -60,55 +60,99 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
-import leftover_mill  # noqa: E402
-
-from preference_audit import (  # noqa: E402
-    AUDIT_NAME,
-    AUDIT_SCHEMA_VERSION,
-    build_audit,
-    render_audit_markdown,
-)
-from preference_audit_diff import (  # noqa: E402
-    AUDIT_HEADER_FIELDS,
-    AUDIT_PAIR_FIELDS,
-    AUDIT_SOURCE_FILE_FIELDS,
-    audit_differences,
-    parse_expected_audit,
-)
-from preference_model import (  # noqa: E402
-    ACTION_EXCLUDED,
-    ACTION_QUARANTINED,
-    ACTION_REPAIRED,
-    ACTION_RETAINED,
-    CLASSIFICATION_TRAJECTORY_PAIR,
-    RAW_OUTPUT_ROOT,
-    REASON_TRAJECTORY_PAIR,
-    REPOSITORY_ROOT,
-    TRANSFORM_NAME,
-    TRANSFORM_VERSION,
-    CurationDecision,
-    CurationRun,
-    PreferenceCurationError,
-    canonical_json,
-)
-from preference_model import is_canonicalizable as _is_canonicalizable  # noqa: E402
-from preference_model import sha256_hex as _sha256  # noqa: E402
-from preference_record import (  # noqa: E402
-    context_field_agreement,
-    context_is_pure,
-    curate_preference_record,
-)
-from preference_reconcile import (  # noqa: E402
-    RECONCILE_COVERAGE_KEYS,
-    RECONCILE_DECISION_FIELDS,
-    RECONCILE_PAYLOAD_FIELDS,
-    reconcile_runs,
-)
-from preference_writer import write_run  # noqa: E402
+if __package__:
+    from . import leftover_mill
+    from .preference_audit import (
+        AUDIT_NAME,
+        AUDIT_SCHEMA_VERSION,
+        build_audit,
+        render_audit_markdown,
+    )
+    from .preference_audit_diff import (
+        AUDIT_HEADER_FIELDS,
+        AUDIT_PAIR_FIELDS,
+        AUDIT_SOURCE_FILE_FIELDS,
+        audit_differences,
+        parse_expected_audit,
+    )
+    from .preference_model import (
+        ACTION_EXCLUDED,
+        ACTION_QUARANTINED,
+        ACTION_REPAIRED,
+        ACTION_RETAINED,
+        CLASSIFICATION_TRAJECTORY_PAIR,
+        RAW_OUTPUT_ROOT,
+        REASON_TRAJECTORY_PAIR,
+        REPOSITORY_ROOT,
+        TRANSFORM_NAME,
+        TRANSFORM_VERSION,
+        CurationDecision,
+        CurationRun,
+        PreferenceCurationError,
+        canonical_json,
+        is_canonicalizable as _is_canonicalizable,
+        sha256_hex as _sha256,
+    )
+    from .preference_record import (
+        context_field_agreement,
+        context_is_pure,
+        curate_preference_record,
+    )
+    from .preference_reconcile import (
+        RECONCILE_COVERAGE_KEYS,
+        RECONCILE_DECISION_FIELDS,
+        RECONCILE_PAYLOAD_FIELDS,
+        reconcile_runs,
+    )
+    from .preference_writer import write_run
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    import leftover_mill
+    from preference_audit import (
+        AUDIT_NAME,
+        AUDIT_SCHEMA_VERSION,
+        build_audit,
+        render_audit_markdown,
+    )
+    from preference_audit_diff import (
+        AUDIT_HEADER_FIELDS,
+        AUDIT_PAIR_FIELDS,
+        AUDIT_SOURCE_FILE_FIELDS,
+        audit_differences,
+        parse_expected_audit,
+    )
+    from preference_model import (
+        ACTION_EXCLUDED,
+        ACTION_QUARANTINED,
+        ACTION_REPAIRED,
+        ACTION_RETAINED,
+        CLASSIFICATION_TRAJECTORY_PAIR,
+        RAW_OUTPUT_ROOT,
+        REASON_TRAJECTORY_PAIR,
+        REPOSITORY_ROOT,
+        TRANSFORM_NAME,
+        TRANSFORM_VERSION,
+        CurationDecision,
+        CurationRun,
+        PreferenceCurationError,
+        canonical_json,
+        is_canonicalizable as _is_canonicalizable,
+        sha256_hex as _sha256,
+    )
+    from preference_record import (
+        context_field_agreement,
+        context_is_pure,
+        curate_preference_record,
+    )
+    from preference_reconcile import (
+        RECONCILE_COVERAGE_KEYS,
+        RECONCILE_DECISION_FIELDS,
+        RECONCILE_PAYLOAD_FIELDS,
+        reconcile_runs,
+    )
+    from preference_writer import write_run
 
 # This module stays the one public entry point for the preference lane: the
 # curation decision, the corpus scan, the writer, the audit, and the
