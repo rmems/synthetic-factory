@@ -120,12 +120,12 @@ same unit tests and operator smoke check.
 
 ## Structure
 - `prompts/` — legacy prompt-lane factory prompts 01–07 (research-only, see below). 01–05 start with a session bootstrap; shared rules in `prompts/_factory-contract.md`
-- `schemas/` — Thalamic schema + `provenance.md`
+- `schemas/` — Thalamic schema + `provenance.md`; `oracle-grounded-v1.schema.json` and `oracle-grounded/` for the oracle-grounded families
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
 - `outputs/curated/` — gitignored compose destinations (`records/`, `manifest/`, `COMPOSE.json`) built by `pipelines/compose_curated.py`, exports written by `pipelines/export_hf.py`, plus reviewed promotion snapshots written by `pipelines/curate_gate.py promote`
 - `config/` — reviewed factory registry (`FACTORY-REGISTRY.json`). Identity authority is this file (exact `path_id` + `payload_factory`), not a slug allowlist. Onboard a generator by adding a registry row and its exact `(generator, generator_version)` provider/channel assignment to `_REVIEWED_GENERATOR_RIGHTS` in `pipelines/curate_identity.py`; both reviews are required.
-- `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, curation integration/promotion, compose, and export
+- `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, curation integration/promotion, compose, and export; `oracle_grounded/` holds the oracle-grounded generators, oracle adapters, and reference simulators
 - `experiments/` — harvest notes (`2026-08-17-quality-report.md` is a mid-run snapshot; `2026-08-17-grok-census.md` is current)
 
 ## Legacy prompt lane (research-only)
@@ -169,6 +169,23 @@ on a destination-specific field being absent: published mixes defeat both.
 Because prefix and goal ownership are cross-factory properties, a single file
 or one-factory source remains dry-run only; cleaned output fails closed until
 the source provides multi-factory ownership context.
+
+Oracle-grounded families (generator proposes, oracle measures — see
+[`docs/oracle-grounded-datasets.md`](docs/oracle-grounded-datasets.md)):
+
+```bash
+python3 pipelines/oracle_generate.py --count 8 outputs/oracle-grounded/2026-09-01
+python3 pipelines/oracle_validate.py --reproduce outputs/oracle-grounded/2026-09-01
+```
+
+None of the runtimes issue #77 names (`axon-encoder`, `neuromod`,
+`synaptic-mesh`, `limbic-critic`, `plasticity-lab`, a validated recurrent SNN)
+are available here, so those runs use deterministic in-repo reference
+simulators and are stamped `implementation: "reference"`. Under [#171] an
+accepted reference record whose `oracle.module_digest` matches the current
+sources is publishable as a reproducible simulator measurement; it is never
+publishable as a measurement of the named runtimes, and a digest the current
+sources cannot reproduce keeps `publishable: false`.
 
 ### Curation integration and promotion gate
 

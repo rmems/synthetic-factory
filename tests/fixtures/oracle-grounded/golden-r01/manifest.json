@@ -1,0 +1,192 @@
+{
+  "count_per_family": 4,
+  "families": {
+    "neuromodulator-credit-assignment": {
+      "accepted": {
+        "candidate_correct": 2,
+        "candidate_scored": 4,
+        "records": 4
+      },
+      "oracle": {
+        "implementation": "reference",
+        "requested_runtime": [
+          "limbic-critic",
+          "plasticity-lab"
+        ]
+      },
+      "proposed": 4,
+      "rejected": {
+        "reasons": [],
+        "records": 0
+      }
+    },
+    "neuron-dynamics-counterfactuals": {
+      "accepted": {
+        "candidate_correct": 2,
+        "candidate_scored": 4,
+        "records": 4
+      },
+      "oracle": {
+        "implementation": "reference",
+        "requested_runtime": [
+          "neuromod"
+        ]
+      },
+      "proposed": 4,
+      "rejected": {
+        "reasons": [],
+        "records": 0
+      }
+    },
+    "spike-encoder-equivalence-pairs": {
+      "accepted": {
+        "candidate_correct": 3,
+        "candidate_scored": 4,
+        "records": 4
+      },
+      "oracle": {
+        "implementation": "reference",
+        "requested_runtime": [
+          "axon-encoder"
+        ]
+      },
+      "proposed": 4,
+      "rejected": {
+        "reasons": [],
+        "records": 0
+      }
+    },
+    "synaptic-delay-causal-trajectories": {
+      "accepted": {
+        "candidate_correct": 3,
+        "candidate_scored": 4,
+        "records": 4
+      },
+      "oracle": {
+        "implementation": "reference",
+        "requested_runtime": [
+          "synaptic-mesh"
+        ]
+      },
+      "proposed": 4,
+      "rejected": {
+        "reasons": [],
+        "records": 0
+      }
+    },
+    "temporal-memory-spike-challenges": {
+      "accepted": {
+        "candidate_correct": 2,
+        "candidate_scored": 2,
+        "records": 2
+      },
+      "oracle": {
+        "implementation": "reference",
+        "requested_runtime": [
+          "recurrent-snn"
+        ]
+      },
+      "proposed": 4,
+      "rejected": {
+        "reasons": [
+          "no temporal dependence: removing the earlier events left the measured response and retained latch state unchanged"
+        ],
+        "records": 2
+      }
+    }
+  },
+  "files": {
+    "neuromodulator-credit-assignment/accepted-r01.jsonl": {
+      "records": 4,
+      "sha256": "735a1ab4c7ed6690e38509b371896ce8e72736e7c57d128c6269c0902ffade26"
+    },
+    "neuromodulator-credit-assignment/rejected-r01.jsonl": {
+      "records": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "neuron-dynamics-counterfactuals/accepted-r01.jsonl": {
+      "records": 4,
+      "sha256": "71ab8f26ca78c11a0728cf214492bc41c559f3273f0c99d015152fd33767230c"
+    },
+    "neuron-dynamics-counterfactuals/rejected-r01.jsonl": {
+      "records": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "spike-encoder-equivalence-pairs/accepted-r01.jsonl": {
+      "records": 4,
+      "sha256": "a7b89a37280c217657e1e68879e010bf7f4f6d2ea7983bdaa01ad0ed1ce2dfbb"
+    },
+    "spike-encoder-equivalence-pairs/rejected-r01.jsonl": {
+      "records": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "synaptic-delay-causal-trajectories/accepted-r01.jsonl": {
+      "records": 4,
+      "sha256": "b753faeac5f31bd571a9b33141779dc37fd066e22e17d58f485e5d0e13a35397"
+    },
+    "synaptic-delay-causal-trajectories/rejected-r01.jsonl": {
+      "records": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "temporal-memory-spike-challenges/accepted-r01.jsonl": {
+      "records": 2,
+      "sha256": "337e352f658f515db7cb4ec199d1e50a9b8edccf07110ce2ee25d280f55c4478"
+    },
+    "temporal-memory-spike-challenges/rejected-r01.jsonl": {
+      "records": 2,
+      "sha256": "0f6961016c669978da27a23db70ee15c35c8cbeaa0151016c6258c9b69f1832e"
+    }
+  },
+  "generation_errors": [],
+  "module_digest": "sha256:31d37f149d41c6e3ec21ac49fb4a35361daf5b1411c657e9f4d529c00281a7c2",
+  "note": "Counts describe this run only. Some records are publishable: they were measured by the in-repo reference simulator at the current module digest (#171) or through the named-runtime protocol; check each record's own validation.publishable and validation.publishable_reason for the authoritative per-record determination.",
+  "oracle_availability": {
+    "all_bound": false,
+    "protocol": "sf-oracle/1",
+    "runtimes": [
+      {
+        "binding_env": "SF_ORACLE_AXON_ENCODER_CMD",
+        "bound": false,
+        "runtime": "axon-encoder"
+      },
+      {
+        "binding_env": "SF_ORACLE_NEUROMOD_CMD",
+        "bound": false,
+        "runtime": "neuromod"
+      },
+      {
+        "binding_env": "SF_ORACLE_SYNAPTIC_MESH_CMD",
+        "bound": false,
+        "runtime": "synaptic-mesh"
+      },
+      {
+        "binding_env": "SF_ORACLE_LIMBIC_CRITIC_CMD",
+        "bound": false,
+        "runtime": "limbic-critic"
+      },
+      {
+        "binding_env": "SF_ORACLE_PLASTICITY_LAB_CMD",
+        "bound": false,
+        "runtime": "plasticity-lab"
+      },
+      {
+        "binding_env": "SF_ORACLE_RECURRENT_SNN_CMD",
+        "bound": false,
+        "runtime": "recurrent-snn"
+      }
+    ],
+    "unbound": [
+      "axon-encoder",
+      "neuromod",
+      "synaptic-mesh",
+      "limbic-critic",
+      "plasticity-lab",
+      "recurrent-snn"
+    ]
+  },
+  "oracle_commit": "4590fcbf484c7fc5bd09b2faea4ec2e7eb26ae24",
+  "oracle_dirty": true,
+  "round": 1,
+  "schema": "oracle-grounded/v1",
+  "seed": 20260823
+}
