@@ -7,6 +7,13 @@ import json
 import math
 from pathlib import Path
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+    _assert_direct_sibling("validate_run_spikes")
+    from .exact_json import dumps_exact_json, exact_fraction
+else:
+    from exact_json import dumps_exact_json, exact_fraction
+
 
 REPO = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = REPO / "schemas" / "thalamic-trajectory.schema.json"
@@ -98,7 +105,7 @@ def _clock_domain_containers(events, enclosing):
 def _clock_domain_marker(value):
     """Make an arbitrary JSON-compatible clock identifier comparable."""
     try:
-        return json.dumps(value, sort_keys=True)
+        return dumps_exact_json(value, ensure_ascii=True, sort_keys=True)
     except (TypeError, ValueError):
         return repr(value)
 
@@ -191,7 +198,7 @@ def _spike_order_errors(timed, where):
     """Report only the first inversion in a comparable stream."""
     previous = None
     for index, key, current in timed:
-        if previous is not None and current < previous[1]:
+        if previous is not None and exact_fraction(current) < exact_fraction(previous[1]):
             return [
                 f"{where}: {SPIKE_ORDER_MISMATCH} at index "
                 f"{index} ({key} {previous[1]} -> {current})"
@@ -238,3 +245,7 @@ def check_spike_stream(obj, where):
     if not isinstance(events, list):
         return [f"{where}: spike_events must be an array"]
     return check_spike_order(events, where, require_keys=(), enclosing=obj)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

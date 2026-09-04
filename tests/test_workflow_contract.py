@@ -9,6 +9,7 @@ REPO = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO / ".claude" / "skills" / "run-synthetic-factory" / "factory-window.workflow.js"
 PROMPTS = REPO / "prompts"
 DOCS = REPO / "docs" / "token-efficiency.md"
+QODANA_WORKFLOW = REPO / ".github" / "workflows" / "qodana.yml"
 
 sys.path.insert(0, str(REPO / "pipelines"))
 import round_txn  # noqa: E402
@@ -67,21 +68,15 @@ class NovelCoverageNotesContract(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.prompts = {
-            path.name: path.read_text() for path in sorted(PROMPTS.glob("*.md"))
-        }
+        cls.prompts = {path.name: path.read_text() for path in sorted(PROMPTS.glob("*.md"))}
         cls.transactional = {
-            name: text
-            for name, text in cls.prompts.items()
-            if "round_txn.py" in text
+            name: text for name, text in cls.prompts.items() if "round_txn.py" in text
         }
 
     def test_every_transactional_prompt_requires_the_notes_line(self):
         self.assertTrue(self.transactional, "no transactional prompts found")
         missing = sorted(
-            name
-            for name, text in self.transactional.items()
-            if "Novel coverage: <N>%" not in text
+            name for name, text in self.transactional.items() if "Novel coverage: <N>%" not in text
         )
         self.assertEqual(missing, [], f"prompts missing the NOTES contract: {missing}")
 
@@ -111,9 +106,7 @@ class NovelCoverageNotesContract(unittest.TestCase):
     def test_strict_publish_and_workflow_parsers_require_one_physical_line(self):
         split_claim = "Novel coverage:\n80% of tests passed.\n"
         self.assertIsNone(round_txn.NOVEL_COVERAGE_RE.search(split_claim))
-        self.assertIsNotNone(
-            round_txn.LEGACY_NOVEL_COVERAGE_RE.search(split_claim)
-        )
+        self.assertIsNotNone(round_txn.LEGACY_NOVEL_COVERAGE_RE.search(split_claim))
         workflow = WORKFLOW.read_text()
         self.assertIn(r"^[ \t]*novel", workflow)
         self.assertNotIn(r"/^\s*novel", workflow)
@@ -141,6 +134,82 @@ class NovelCoverageNotesContract(unittest.TestCase):
         for name, text in self.transactional.items():
             if "docs/token-efficiency.md" in text:
                 self.assertIn("5%", text, name)
+
+
+class RasterGateProducerContract(unittest.TestCase):
+    """Every lane the publish gate holds to the raster contract must say so.
+
+    ``round_txn.RASTER_FACTORY_SLUGS`` refuses a staged round whose records
+    carry no ``raster`` / ``gate_snn`` sidecar. A producer that follows its
+    prompt to the letter and still gets rejected would stall the lane, so the
+    prompt for each gated lane has to name the sidecars and the schema.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.prompts = {
+            path.name: path.read_text(encoding="utf-8") for path in sorted(PROMPTS.glob("*.md"))
+        }
+
+    PROMPT_BY_SLUG = {
+        "thalamic-trajectory-factory": "01-thalamic-trajectory-factory.md",
+        "multi-agent-ouroboros-swarm": "02-multi-agent-ouroboros-swarm.md",
+        "neuromorphic-event-language-bridge": ("03-neuromorphic-event-language-bridge.md"),
+    }
+
+    def test_every_gated_lane_has_a_prompt_that_documents_the_sidecars(self):
+        self.assertEqual(
+            sorted(round_txn.RASTER_FACTORY_SLUGS),
+            sorted(self.PROMPT_BY_SLUG),
+            "a lane joined the raster publish gate without a documented prompt",
+        )
+        for slug in sorted(round_txn.RASTER_FACTORY_SLUGS):
+            name = self.PROMPT_BY_SLUG[slug]
+            text = self.prompts[name]
+            with self.subTest(prompt=name):
+                self.assertIn("`raster`", text)
+                self.assertIn("`gate_snn`", text)
+                self.assertIn("schemas/raster.schema.json", text)
+
+    def test_gate_compute_prompts_describe_all_carrier_validation(self):
+        for name in (
+            "01-thalamic-trajectory-factory.md",
+            "02-multi-agent-ouroboros-swarm.md",
+        ):
+            text = " ".join(self.prompts[name].split())
+            with self.subTest(prompt=name):
+                self.assertIn("first declared carrier is selected", text)
+                self.assertIn("every declared carrier", text)
+                self.assertIn("any malformed declaration rejects the record", text)
+                self.assertNotIn("first declared carrier is the one validated", text)
+
+    def test_producer_prompts_describe_exact_derived_energy(self):
+        for name in (
+            "01-thalamic-trajectory-factory.md",
+            "02-multi-agent-ouroboros-swarm.md",
+        ):
+            text = " ".join(self.prompts[name].split()).lower()
+            with self.subTest(prompt=name):
+                self.assertIn("omitted energy is allowed", text)
+                self.assertIn("exact integer", text)
+                self.assertIn("binary-double overflow", text)
+                self.assertNotIn("not a finite double is rejected", text)
+
+
+class QodanaWorkflowContract(unittest.TestCase):
+    def test_pull_requests_scan_only_changed_files(self):
+        text = QODANA_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("pr-mode: ${{ github.event_name == 'pull_request' }}", text)
+        self.assertNotIn("pr-mode: false", text)
+
+    def test_actions_are_pinned_without_persisted_checkout_credentials(self):
+        text = QODANA_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("actions/checkout@11d5960a326750d5838078e36cf38b85af677262", text)
+        self.assertIn(
+            "JetBrains/qodana-action@4861e015da555e86a72b862892aba6c2b93e6891",
+            text,
+        )
+        self.assertIn("persist-credentials: false", text)
 
 
 if __name__ == "__main__":

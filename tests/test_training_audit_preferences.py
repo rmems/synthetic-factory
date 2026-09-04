@@ -7,6 +7,8 @@ side-goal conflict must block training even when a malformed pair does not
 crash the audit outright.
 """
 
+import copy
+import json
 import sys
 import tempfile
 import unittest
@@ -22,6 +24,54 @@ import training_audit  # noqa: E402
 
 
 class TrainingAuditPreferencePurity(unittest.TestCase):
+    def test_numeric_lexeme_variants_share_one_semantic_context(self):
+        def nested(value):
+            for _ in range(70):
+                value = [value]
+            return value
+
+        chosen = thalamic("numeric-chosen")
+        rejected = copy.deepcopy(chosen)
+        rejected["id"] = "numeric-rejected"
+        chosen["state"]["measurement"] = nested("STATE_CHOSEN_NUMBER")
+        rejected["state"]["measurement"] = nested("STATE_REJECTED_NUMBER")
+        chosen["proposed_action"]["score"] = "PROPOSAL_CHOSEN_NUMBER"
+        rejected["proposed_action"]["score"] = "PROPOSAL_REJECTED_NUMBER"
+        pair = {
+            "id": "numeric-context-preference",
+            "chosen": chosen,
+            "rejected": rejected,
+            "critique": "numeric spellings do not change the modeled context",
+        }
+        payload = (
+            json.dumps(pair)
+            .replace('"STATE_CHOSEN_NUMBER"', "25.0", 1)
+            .replace('"STATE_REJECTED_NUMBER"', "25.00", 1)
+            .replace('"PROPOSAL_CHOSEN_NUMBER"', "2.5e1", 1)
+            .replace('"PROPOSAL_REJECTED_NUMBER"', "25", 1)
+        )
+        parsed = json.loads(
+            payload,
+            parse_float=training_audit._parse_finite_json_float,
+        )
+        self.assertNotEqual(
+            training_audit.canonical_blob(parsed["chosen"]["state"]),
+            training_audit.canonical_blob(parsed["rejected"]["state"]),
+            "evidence/hash serialization must retain source number lexemes",
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "failure-as-fuel-preference-cascade" / "batch-r01.jsonl"
+            source.parent.mkdir(parents=True)
+            source.write_text(payload + "\n", encoding="utf-8")
+
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["preferences"]["same_state"], 1)
+        self.assertEqual(report["preferences"]["same_proposal"], 1)
+        self.assertEqual(report["preferences"]["same_context"], 1)
+
     def test_malformed_preference_does_not_crash_audit(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

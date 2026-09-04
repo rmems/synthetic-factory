@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import NamedTuple, Optional
 
 from check_records import walk_key
+from exact_json import parse_finite_json_float as _parse_exact_json_float
 from quality_gate_embedding import (
     DEFAULT_EMBEDDING_THRESHOLD,
     DEFAULT_MAX_EMBEDDING_PAIRS,
@@ -22,6 +23,7 @@ from quality_gate_embedding import (
 )
 from quality_gate_identity import record_hash
 from training_audit import reward_shape
+from validate_run import reject_json_constant
 
 
 DEFAULT_TARGET_SYNTHETIC_RATIO: float = 0.30
@@ -226,7 +228,8 @@ def _record_unreadable(state, rel, exc):
 
 def _read_jsonl(path, rel, state):
     try:
-        return path.read_text(encoding="utf-8").splitlines()
+        payload = path.read_bytes()
+        return tuple(line.decode("utf-8") for line in payload.split(b"\n"))
     except (OSError, UnicodeDecodeError) as exc:
         _record_unreadable(state, rel, exc)
         return ()
@@ -243,32 +246,41 @@ def _record_malformed(state, rel, lineno, exc):
 _PARSE_FAILED = object()
 
 
+class _ParsedRecord(NamedTuple):
+    value: object
+    digest: str
+
+
 def _parse_record(line, rel, lineno, state):
     try:
-        return json.loads(line)
-    except json.JSONDecodeError as exc:
+        record = json.loads(
+            line,
+            parse_constant=reject_json_constant,
+            parse_float=_parse_exact_json_float,
+        )
+        return _ParsedRecord(record, record_hash(record))
+    except (ValueError, RecursionError) as exc:
         _record_malformed(state, rel, lineno, exc)
         return _PARSE_FAILED
 
 
-def _consume_identity(obj, where, state, embedding_dedup):
-    digest = record_hash(obj)
-    state.hashes[digest] += 1
-    state.exact_clusters[digest].append(where)
-    if state.hashes[digest] == 1:
-        state.first_seen[digest] = where
+def _consume_identity(parsed, where, state, embedding_dedup):
+    state.hashes[parsed.digest] += 1
+    state.exact_clusters[parsed.digest].append(where)
+    if state.hashes[parsed.digest] == 1:
+        state.first_seen[parsed.digest] = where
         if embedding_dedup:
-            state.kept.append({**where, "tokens": embedding_tokens(obj)})
+            state.kept.append({**where, "tokens": embedding_tokens(parsed.value)})
         return
-    origin = state.first_seen[digest]
+    origin = state.first_seen[parsed.digest]
     state.duplicates.append(
         {
             **where,
-            "hash": digest,
+            "hash": parsed.digest,
             "kind": "exact",
             "duplicate_of": dict(origin),
             "reason": (
-                f"exact content hash {digest} already seen at "
+                f"exact content hash {parsed.digest} already seen at "
                 f"{origin['file']}:{origin['line']}"
             ),
         }
@@ -290,11 +302,11 @@ def _consume_rewards(obj, state):
         state.reward_shapes[reward_shape(reward)] += 1
 
 
-def _consume_record(obj, where, state, embedding_dedup):
+def _consume_record(parsed, where, state, embedding_dedup):
     state.total += 1
-    _consume_identity(obj, where, state, embedding_dedup)
-    _consume_provenance(obj, state)
-    _consume_rewards(obj, state)
+    _consume_identity(parsed, where, state, embedding_dedup)
+    _consume_provenance(parsed.value, state)
+    _consume_rewards(parsed.value, state)
 
 
 def _scan_jsonl_file(path, run_dir, state, embedding_dedup):
@@ -302,10 +314,10 @@ def _scan_jsonl_file(path, run_dir, state, embedding_dedup):
     for lineno, line in enumerate(_read_jsonl(path, rel, state), 1):
         if not line.strip():
             continue
-        obj = _parse_record(line, rel, lineno, state)
-        if obj is not _PARSE_FAILED:
+        parsed = _parse_record(line, rel, lineno, state)
+        if parsed is not _PARSE_FAILED:
             _consume_record(
-                obj,
+                parsed,
                 {"file": str(rel), "line": lineno},
                 state,
                 embedding_dedup,
