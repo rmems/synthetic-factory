@@ -308,6 +308,13 @@ class Helpers(unittest.TestCase):
         for value in (True, math.nan, math.inf, "1", None):
             self.assertFalse(envelope.is_number(value), value)
 
+    def test_is_number_accepts_integers_beyond_float_range(self):
+        # A 400-digit integer is valid JSON and a finite number; converting it
+        # to float first raises OverflowError, which would abort validation of
+        # the whole run instead of answering the question.
+        self.assertTrue(envelope.is_number(json.loads("9" * 400)))
+        self.assertTrue(envelope.is_number(2**1024))
+
     def test_utc_now_iso_matches_the_timestamp_shape(self):
         stamp = envelope.utc_now_iso()
         self.assertRegex(stamp, envelope.ISO_8601_RE)

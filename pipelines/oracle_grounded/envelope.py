@@ -119,7 +119,8 @@ class OracleUnavailable(RuntimeError):
         self.detail = detail
 
 
-# From origin/agent/issue-78-distillation-datasets:pipelines/oracle_contract.py:240-276 (verbatim).
+# From origin/agent/issue-78-distillation-datasets:pipelines/oracle_contract.py:240-276 (verbatim,
+# except the integer short-circuit in ``is_number`` explained in its docstring).
 def canonical_json(value: Any) -> str:
     """Return the canonical JSON form used for digests and equality."""
 
@@ -139,11 +140,17 @@ def utc_now_iso() -> str:
 
 
 def is_number(value: Any) -> bool:
-    """True for a real, finite, non-boolean number."""
+    """True for a real, finite, non-boolean number.
+
+    Integers short-circuit: they are always finite, and ``math.isfinite``
+    converts to float first, which raises ``OverflowError`` for a valid JSON
+    integer of 2**1024 or more instead of answering (the one deviation from
+    the verbatim source, from CodeAnt's review of PR #183).
+    """
 
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False
-    return math.isfinite(value)
+    return isinstance(value, int) or math.isfinite(value)
 
 
 def is_enum_value(value: Any, allowed: Container[str]) -> bool:
