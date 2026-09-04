@@ -12,35 +12,66 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from curate_agentic import (
-    REASON_THOUGHT_REMOVED,
-    canonical_json,
-    prefix_overlap,
-    shared_preference_goal,
-    strip_hidden_thought_keys,
-)
-from trajectory_pair_gate import gate_failures
-from trajectory_pair_shape import (
-    classify_pair_schema,
-    pair_envelope_validation_errors,
-    side_episode_validation_errors,
-)
-from trajectory_pair_vocabulary import (
-    ACTION_EXCLUDED,
-    ACTION_REPAIRED,
-    ACTION_RETAINED,
-    ACTION_SKIPPED,
-    DEFAULT_POLICY,
-    GOAL_LOCATIONS,
-    REASON_GATE_PASSED,
-    REASON_GOAL_WHITESPACE_NORMALIZED,
-    REASON_NOT_A_PAIR,
-    REASON_RECORD_NOT_OBJECT,
-    REASON_SAME_STATE_SCHEMA,
-    REASON_SIDES_NOT_OBJECTS,
-    GatePolicy,
-    TrajectoryDecision,
-)
+if __package__:
+    from .curate_agentic import (
+        REASON_THOUGHT_REMOVED,
+        canonical_json,
+        prefix_overlap,
+        shared_preference_goal,
+        strip_hidden_thought_keys,
+    )
+    from .trajectory_pair_gate import gate_failures
+    from .trajectory_pair_shape import (
+        classify_pair_schema,
+        pair_envelope_validation_errors,
+        side_episode_validation_errors,
+    )
+    from .trajectory_pair_vocabulary import (
+        ACTION_EXCLUDED,
+        ACTION_REPAIRED,
+        ACTION_RETAINED,
+        ACTION_SKIPPED,
+        DEFAULT_POLICY,
+        GOAL_LOCATIONS,
+        REASON_GATE_PASSED,
+        REASON_GOAL_WHITESPACE_NORMALIZED,
+        REASON_NOT_A_PAIR,
+        REASON_RECORD_NOT_OBJECT,
+        REASON_SAME_STATE_SCHEMA,
+        REASON_SIDES_NOT_OBJECTS,
+        GatePolicy,
+        TrajectoryDecision,
+    )
+else:
+    from curate_agentic import (
+        REASON_THOUGHT_REMOVED,
+        canonical_json,
+        prefix_overlap,
+        shared_preference_goal,
+        strip_hidden_thought_keys,
+    )
+    from trajectory_pair_gate import gate_failures
+    from trajectory_pair_shape import (
+        classify_pair_schema,
+        pair_envelope_validation_errors,
+        side_episode_validation_errors,
+    )
+    from trajectory_pair_vocabulary import (
+        ACTION_EXCLUDED,
+        ACTION_REPAIRED,
+        ACTION_RETAINED,
+        ACTION_SKIPPED,
+        DEFAULT_POLICY,
+        GOAL_LOCATIONS,
+        REASON_GATE_PASSED,
+        REASON_GOAL_WHITESPACE_NORMALIZED,
+        REASON_NOT_A_PAIR,
+        REASON_RECORD_NOT_OBJECT,
+        REASON_SAME_STATE_SCHEMA,
+        REASON_SIDES_NOT_OBJECTS,
+        GatePolicy,
+        TrajectoryDecision,
+    )
 
 # Schemas whose decision needs no gate evaluation: the record either is not
 # this lane's to judge, or is malformed before any contrast question applies.

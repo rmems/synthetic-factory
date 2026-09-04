@@ -4,33 +4,62 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple
 
-from coding_constants import (
-    EXCLUSION_REASONS,
-    PRE_STEP_EXCLUSION_REASONS,
-    REASON_NO_RETAINABLE_STEPS,
-    REASON_STEPS_EXCLUDED,
-    REASON_STEPS_MIGRATED,
-    REASON_WRAP_RECORD,
-    RECORD_STRUCTURAL_REASONS,
-    RECORD_TRANSFORMATION_REASONS,
-    STEP_EXCLUSION_REASONS,
-    TRANSFORM_NAME,
-    TRANSFORM_VERSION,
-    WRAP_STEPS_PARENT,
-)
-from coding_verify_steps import (
-    ACCEPTED_TRANSFORM_VERSIONS,
-    REMOVAL_REASON_CODES,
-    _ManifestSteps,
-    _dual_removal_mismatch,
-    _has_source_path,
-    _hidden_removed,
-    _is_nonnegative_int,
-    _is_positive_int,
-    _is_sha256,
-    _reason_code_set,
-    _step_action_violations,
-)
+if __package__:
+    from .coding_constants import (
+        EXCLUSION_REASONS,
+        PRE_STEP_EXCLUSION_REASONS,
+        REASON_NO_RETAINABLE_STEPS,
+        REASON_STEPS_EXCLUDED,
+        REASON_STEPS_MIGRATED,
+        REASON_WRAP_RECORD,
+        RECORD_STRUCTURAL_REASONS,
+        RECORD_TRANSFORMATION_REASONS,
+        STEP_EXCLUSION_REASONS,
+        TRANSFORM_NAME,
+        TRANSFORM_VERSION,
+        WRAP_STEPS_PARENT,
+    )
+    from .coding_verify_steps import (
+        ACCEPTED_TRANSFORM_VERSIONS,
+        REMOVAL_REASON_CODES,
+        _ManifestSteps,
+        _dual_removal_mismatch,
+        _has_source_path,
+        _hidden_removed,
+        _is_nonnegative_int,
+        _is_positive_int,
+        _is_sha256,
+        _reason_code_set,
+        _step_action_violations,
+    )
+else:
+    from coding_constants import (
+        EXCLUSION_REASONS,
+        PRE_STEP_EXCLUSION_REASONS,
+        REASON_NO_RETAINABLE_STEPS,
+        REASON_STEPS_EXCLUDED,
+        REASON_STEPS_MIGRATED,
+        REASON_WRAP_RECORD,
+        RECORD_STRUCTURAL_REASONS,
+        RECORD_TRANSFORMATION_REASONS,
+        STEP_EXCLUSION_REASONS,
+        TRANSFORM_NAME,
+        TRANSFORM_VERSION,
+        WRAP_STEPS_PARENT,
+    )
+    from coding_verify_steps import (
+        ACCEPTED_TRANSFORM_VERSIONS,
+        REMOVAL_REASON_CODES,
+        _ManifestSteps,
+        _dual_removal_mismatch,
+        _has_source_path,
+        _hidden_removed,
+        _is_nonnegative_int,
+        _is_positive_int,
+        _is_sha256,
+        _reason_code_set,
+        _step_action_violations,
+    )
 
 
 class _ManifestCheck(NamedTuple):

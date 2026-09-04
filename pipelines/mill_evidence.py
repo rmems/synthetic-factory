@@ -20,10 +20,16 @@ from collections.abc import Hashable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from mill_reviewed_vocabulary import (
-    REVIEWED_GOAL_STRONG_ANCHORS,
-    REVIEWED_GOAL_TOKEN_HOMES,
-)
+if __package__:
+    from .mill_reviewed_vocabulary import (
+        REVIEWED_GOAL_STRONG_ANCHORS,
+        REVIEWED_GOAL_TOKEN_HOMES,
+    )
+else:
+    from mill_reviewed_vocabulary import (
+        REVIEWED_GOAL_STRONG_ANCHORS,
+        REVIEWED_GOAL_TOKEN_HOMES,
+    )
 
 # A goal token has to recur inside a destination before it counts as that
 # destination's vocabulary; one record cannot vouch for itself.
