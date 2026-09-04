@@ -53,7 +53,8 @@ promotion is [#167]. `training_ready` in an audit, `COMPOSE.json`, or
 `provenance.json` is the structural and quality verdict only — it never means
 training-eligible, which is `project_training_policy: allowed`, and no
 registry row carries that value yet. The contract every new generator must
-meet is the "Generator rule" in [`AGENTS.md`](AGENTS.md).
+meet is the "Generator rule" (formerly `AGENTS.md`, retired in [#184];
+preserved [at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md)).
 
 ## Public dataset family
 
@@ -142,7 +143,7 @@ Historical Fable/Grok provenance remains reproducible from Git history and the
 published Hugging Face artifacts above. Do not reintroduce hosted-model prompt
 generation on `main`: new records come from registry-registered generators
 (see [Generator lanes and rights](#generator-lanes-and-rights) and the
-"Generator rule" in `AGENTS.md`).
+retired "Generator rule", preserved [at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md)).
 
 ## Pipelines
 
