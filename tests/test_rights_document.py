@@ -10,6 +10,8 @@ import sys
 import unittest
 from pathlib import Path
 
+from rights_test_support import SpoofedString
+
 
 ROOT = Path(__file__).resolve().parent.parent
 PIPELINES = ROOT / "pipelines"
@@ -80,26 +82,6 @@ def xai_document() -> dict[str, object]:
 
 def encode(document: object) -> bytes:
     return json.dumps(document, ensure_ascii=False).encode("utf-8")
-
-
-class SpoofedString(str):
-    def __new__(cls, emitted: str, expected: str):
-        instance = super().__new__(cls, emitted)
-        instance.expected = expected
-        return instance
-
-    def __eq__(self, other):
-        return other == self.expected
-
-    @property
-    def __class__(self):
-        return str
-
-    def __ne__(self, other):
-        return other != self.expected
-
-    def __hash__(self):
-        return hash(self.expected)
 
 
 class RightsDocumentRuntimeExistsTests(unittest.TestCase):

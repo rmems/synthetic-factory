@@ -1,36 +1,31 @@
 #!/usr/bin/env python3
 """Issue #68 leaf tests for the per-dataset card schema declaration."""
 
-try:
-    # The shared card-schema test module was renamed on the stack's shared
-    # infrastructure branch (`test_card_schema` -> `test_card_schema_integration`)
-    # after this branch was cut. Prefer the new name so this leaf still imports
-    # on the post-merge tree, where the old monolith no longer exists; fall back
-    # to the old name, which is what this branch's own history carries today.
-    import test_card_schema_integration as _shared
-except ModuleNotFoundError:
-    import test_card_schema as _shared
+import unittest
 
-unittest = _shared.unittest
-io = _shared.io
-json = _shared.json
-tempfile = _shared.tempfile
-redirect_stderr = _shared.redirect_stderr
-redirect_stdout = _shared.redirect_stdout
-Path = _shared.Path
-mock = _shared.mock
-REPO = _shared.REPO
-card_schema = _shared.card_schema
-publisher = _shared.publisher
-LONG_HORIZON = _shared.LONG_HORIZON
-MINIMAL = _shared.MINIMAL
-write_declaration = _shared.write_declaration
-
+from card_schema_test_support import (
+    ARGS_JSON_YAML,
+    DISCLOSURES_HEADING,
+    EPISODE_FIELDS,
+    EPISODE_JSON_COLUMNS,
+    FEATURES_YAML,
+    META_JSON_YAML,
+    NOT_DECLARED,
+    PLAN_PRESENT_ROW,
+    REFLECTION_OPTIONAL_ROW,
+    REWARD_JSON_YAML,
+    STEP_FIELDS,
+    TOOL_CALL_FIELDS,
+    TRAIN_SPLIT_YAML,
+    VIEWER_SCHEMA_HEADING,
+    DeclarationTestCase,
+    publisher,
+)
 
 K8S_CRASHLOOP = "k8s-crashloop-trajectories"
 
 
-class K8sCrashloopDeclarationTests(unittest.TestCase):
+class K8sCrashloopDeclarationTests(DeclarationTestCase):
     """Issue #68: thin `meta` vs the late `designed` / `plant` / `kind` records.
 
     Every count asserted here was derived from the published mirror
@@ -60,31 +55,26 @@ class K8sCrashloopDeclarationTests(unittest.TestCase):
         "kcl-r1338-cronjob-concurrency-forbid-b46b",
     )
 
-    def setUp(self):
-        self.declaration = card_schema.load(K8S_CRASHLOOP)
-        self.assertIsNotNone(self.declaration, "config/card-schemas is missing #68")
-        self.item = {
-            "slug": "k8s-crashloop-factory",
-            "hub": K8S_CRASHLOOP,
-            "pretty": "K8S Crashloop Trajectories",
-            "blurb": "Kubernetes CrashLoop leftover-field episodes.",
-            "tags": ["synthetic-data", "kubernetes"],
-        }
-        self.card = publisher.render_card(
-            self.item,
-            records=3286,
-            bytes_=27423440,
-            first="r01",
-            last="r1643",
-            payload_names=["batch-r01.jsonl", "batch-r1330.jsonl", "batch-r1643.jsonl"],
-        )
+    DATASET = K8S_CRASHLOOP
+    ISSUE = 68
+    HUB_ITEM = {
+        "slug": "k8s-crashloop-factory",
+        "hub": K8S_CRASHLOOP,
+        "pretty": "K8S Crashloop Trajectories",
+        "blurb": "Kubernetes CrashLoop leftover-field episodes.",
+        "tags": ["synthetic-data", "kubernetes"],
+    }
+    SUMMARY = publisher.PayloadSummary(
+        records=3286,
+        bytes_=27423440,
+        first="r01",
+        last="r1643",
+        names=["batch-r01.jsonl", "batch-r1330.jsonl", "batch-r1643.jsonl"],
+    )
 
     def test_declaration_matches_the_observed_union_schema(self):
-        names = {feature["name"]: feature for feature in self.declaration["features"]}
-        self.assertEqual(
-            set(names),
-            {"id", "goal", "plan", "steps", "outcome", "reward", "meta"},
-        )
+        names = self.names()
+        self.assertEqual(set(names), EPISODE_FIELDS)
         self.assertEqual(self.declaration["issues"], [68])
         for scalar in ("id", "goal", "plan", "outcome"):
             with self.subTest(scalar=scalar):
@@ -94,10 +84,8 @@ class K8sCrashloopDeclarationTests(unittest.TestCase):
         self.assertEqual(names["reward"]["dtype"], "json")
         self.assertIn("list", names["steps"])
         self.assertNotIn("dtype", names["steps"])
-        steps = {feature["name"]: feature for feature in names["steps"]["list"]}
-        self.assertEqual(
-            set(steps), {"n", "decision_basis", "tool_call", "observation", "reflection"}
-        )
+        steps = self.step_features(names)
+        self.assertEqual(set(steps), STEP_FIELDS)
         self.assertEqual(steps["n"]["dtype"], "int64")
         for scalar in ("decision_basis", "observation", "reflection"):
             with self.subTest(step_scalar=scalar):
@@ -105,66 +93,51 @@ class K8sCrashloopDeclarationTests(unittest.TestCase):
         self.assertTrue(steps["reflection"]["optional"])
         self.assertIn("struct", steps["tool_call"])
         self.assertNotIn("dtype", steps["tool_call"])
-        tool_call = {feature["name"]: feature for feature in steps["tool_call"]["struct"]}
-        self.assertEqual(set(tool_call), {"name", "args"})
+        tool_call = self.tool_call_features(steps)
+        self.assertEqual(set(tool_call), TOOL_CALL_FIELDS)
         self.assertEqual(tool_call["name"]["dtype"], "string")
         self.assertEqual(tool_call["args"]["dtype"], "json")
 
     def test_plan_is_mandatory_here_unlike_the_worked_example(self):
         # `plan` is a string on all 3286 records in this dump. Copying the
         # optional `plan` of #36 would publish a claim the payload denies.
-        plan = next(
-            feature
-            for feature in self.declaration["features"]
-            if feature["name"] == "plan"
-        )
+        plan = self.feature("plan")
         self.assertEqual(plan["dtype"], "string")
         self.assertNotIn("optional", plan)
-        self.assertIn("| `plan` | present on every record |", self.card)
+        self.assertIn(PLAN_PRESENT_ROW, self.card)
 
     def test_key_bag_columns_are_declared_json(self):
-        self.assertEqual(
-            card_schema.json_columns(self.declaration["features"]),
-            ["steps[].tool_call.args", "reward", "meta"],
-        )
+        self.assert_json_columns(EPISODE_JSON_COLUMNS)
 
     def test_card_front_matter_declares_the_default_config_over_raw_batches(self):
-        front_matter = self.card.split("---", 2)[1]
-        self.assertIn("configs:\n- config_name: default\n", front_matter)
-        self.assertIn("  - split: train\n", front_matter)
-        self.assertIn('    path: "data/raw/batch-*.jsonl"\n', front_matter)
-        self.assertIn("dataset_info:\n  features:\n", front_matter)
-        self.assertIn("  - name: meta\n    dtype: json\n", front_matter)
-        self.assertIn("  - name: reward\n    dtype: json\n", front_matter)
-        self.assertIn("      - name: args\n        dtype: json\n", front_matter)
-        # Card-only annotations must never be read back as a feature type.
-        self.assertNotIn("optional", front_matter)
-        self.assertNotIn("note:", front_matter)
-        # license/tags/status claims stay exactly where they were.
-        self.assertIn("license: apache-2.0", front_matter)
-        self.assertIn("**not training-ready**", self.card)
+        self.assert_front_matter_declares_default_config(
+            TRAIN_SPLIT_YAML,
+            FEATURES_YAML,
+            META_JSON_YAML,
+            REWARD_JSON_YAML,
+            ARGS_JSON_YAML,
+            # Card-only annotations must never be read back as a feature type.
+            absent=("optional", "note:"),
+        )
 
     def test_card_body_owns_the_dest_stamped_mill_rows_without_re_filing_them(self):
-        self.assertIn("## Dataset viewer schema", self.card)
-        self.assertIn("### Known payload disclosures", self.card)
-        for record_id in self.MILL_IDS:
-            with self.subTest(record_id=record_id):
-                self.assertIn(f"`{record_id}`", self.card)
+        self.assert_card_has(VIEWER_SCHEMA_HEADING, DISCLOSURES_HEADING)
+        self.assert_card_names_records(self.MILL_IDS)
         # The 12 rows are attributed to the frozen census in #44, not re-filed.
         self.assertIn("issues/44", self.card)
 
     def test_card_body_keeps_the_designed_plant_outlier_with_this_issue(self):
-        for record_id in self.DESIGNED_PLANT_IDS:
-            with self.subTest(record_id=record_id):
-                self.assertIn(f"`{record_id}`", self.card)
+        self.assert_card_names_records(self.DESIGNED_PLANT_IDS)
         self.assertIn("run_terminal_command", self.card)
         self.assertNotIn("issues/43", self.card)
 
     def test_card_body_separates_the_own_leftover_mechanic_from_the_mill(self):
-        self.assertIn("791 of the 3274 `kcl-*` records", self.card)
-        self.assertIn("803 leftover-in-goal", self.card)
-        self.assertIn("| `steps[].reflection` | optional |", self.card)
-        self.assertNotIn("**Not declared yet.**", self.card)
+        self.assert_card_has(
+            "791 of the 3274 `kcl-*` records",
+            "803 leftover-in-goal",
+            REFLECTION_OPTIONAL_ROW,
+        )
+        self.assertNotIn(NOT_DECLARED, self.card)
 
 
 if __name__ == "__main__":

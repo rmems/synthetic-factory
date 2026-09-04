@@ -56,6 +56,12 @@ Cite this section instead of inventing defensive defaults.
   follow-up after that window. Do **not** add `Co-authored-by: Claude` to
   restacks, GitHub rebases, Grok recovery merges, or any later commit.
   A copied Claude trailer on a later SHA is a restack, not new Claude work.
+  The rule is about that Fable 5 window, not about Claude as such: a later
+  Claude model signs only the commits it authored itself, with its own
+  trailer (`Co-Authored-By: Claude Fable 5.1` or `Co-authored-by: Claude
+  Opus 5 (1M context)`, each followed by the usual Anthropic noreply
+  address), and merge, restack or recovery commits carry no Claude trailer
+  at all.
 
 ## Generator rule
 
@@ -102,6 +108,14 @@ rules live in `pipelines/card_schema.py`. Audit the set with:
 python3 scripts/publish_grok46_hub.py schemas          # lists declared/undeclared
 python3 scripts/publish_grok46_hub.py schemas --strict # nonzero while any gap remains
 ```
+
+Each declared dataset has a leaf test module,
+`tests/test_card_schema_issue_<pr>.py`, that subclasses `DeclarationTestCase`
+from `tests/card_schema_test_support.py`: set `DATASET`, `ISSUE`, `HUB_ITEM`
+and `SUMMARY`, then keep only the dataset-specific expectations. The shared
+module owns the load/render fixture and the generic front-matter, key-bag
+and card-body checks; do not re-inline them in a leaf, qlty flags the copies
+as similar code.
 
 A dataset with no declaration publishes a card that says so. Never rewrite
 historical raw JSONL to fix a viewer schema — declare the union on the card.

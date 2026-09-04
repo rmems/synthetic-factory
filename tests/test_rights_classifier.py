@@ -10,6 +10,7 @@ import subprocess  # nosec B404 -- tests execute only a fixed Python interpreter
 import sys
 import unittest
 
+from rights_test_support import SpoofedString
 from test_rights_policy import (
     MAPPING,
     PIPELINES,
@@ -24,25 +25,6 @@ from test_rights_policy import (
 
 @unittest.skipIf(RIGHTS_POLICY_SPEC is None, "rights policy runtime is not implemented")
 class RightsClassifierTests(RightsPolicyTestCase):
-    class SpoofedString(str):
-        def __new__(cls, emitted: str, expected: str):
-            instance = super().__new__(cls, emitted)
-            instance.expected = expected
-            return instance
-
-        def __eq__(self, other):
-            return other == self.expected
-
-        @property
-        def __class__(self):
-            return str
-
-        def __ne__(self, other):
-            return other != self.expected
-
-        def __hash__(self):
-            return hash(self.expected)
-
     def test_uninitialized_decision_attribute_lookup_terminates(self):
         decision = rights_classifier.RightsDecision.__new__(
             rights_classifier.RightsDecision
@@ -333,7 +315,7 @@ assert packaged["rights_document"].RightsDocument is packaged["rights_document_s
         )
         for field, emitted in cases:
             altered = copy.deepcopy(payload)
-            altered[field] = self.SpoofedString(emitted, payload[field])
+            altered[field] = SpoofedString(emitted, payload[field])
             with self.subTest(field=field):
                 with self.assertRaises(rights_policy.RightsPolicyError):
                     rights_classifier.verify_rights_envelope(
@@ -344,7 +326,7 @@ assert packaged["rights_document"].RightsDocument is packaged["rights_document_s
                     )
 
         altered = copy.deepcopy(payload)
-        altered["reason_codes"][0] = self.SpoofedString(
+        altered["reason_codes"][0] = SpoofedString(
             "UNKNOWN_PROVENANCE",
             payload["reason_codes"][0],
         )
@@ -358,7 +340,7 @@ assert packaged["rights_document"].RightsDocument is packaged["rights_document_s
 
         altered = copy.deepcopy(payload)
         provider = altered.pop("provider")
-        altered[self.SpoofedString("spoofed_provider", "provider")] = provider
+        altered[SpoofedString("spoofed_provider", "provider")] = provider
         with self.assertRaises(rights_policy.RightsPolicyError):
             rights_classifier.verify_rights_envelope(
                 altered,

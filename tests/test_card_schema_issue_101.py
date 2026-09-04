@@ -1,41 +1,39 @@
 #!/usr/bin/env python3
 """Issue #38 leaf tests for the per-dataset card schema declaration."""
 
+import json
 import re
+import unittest
+from pathlib import Path
 
-try:
-    # The stack root (agent/hf-card-viewer-schema-infra, PR #91) renames the
-    # shared module to test_card_schema_integration; that split reaches this
-    # branch's merge result once the stack beneath (#100) carries it. A
-    # checkout of this branch alone -- and its current base tip -- still has
-    # the pre-split test_card_schema. Prefer the post-split name so the
-    # post-split merge result works, and fall back so a bare checkout of this
-    # branch collects and runs too.
-    import test_card_schema_integration as _shared
-except ModuleNotFoundError:
-    import test_card_schema as _shared
-
-unittest = _shared.unittest
-io = _shared.io
-json = _shared.json
-tempfile = _shared.tempfile
-redirect_stderr = _shared.redirect_stderr
-redirect_stdout = _shared.redirect_stdout
-Path = _shared.Path
-mock = _shared.mock
-REPO = _shared.REPO
-card_schema = _shared.card_schema
-publisher = _shared.publisher
-LONG_HORIZON = _shared.LONG_HORIZON
-MINIMAL = _shared.MINIMAL
-write_declaration = _shared.write_declaration
-
+from card_schema_test_support import (
+    DISCLOSURES_HEADING,
+    FEATURES_YAML,
+    NOT_DECLARED,
+    PLAN_OPTIONAL_ROW,
+    REFLECTION_OPTIONAL_ROW,
+    STEP_FIELDS,
+    VIEWER_SCHEMA_HEADING,
+    DeclarationTestCase,
+    by_name,
+    feature_index,
+    feature_names,
+    mirror_path,
+    needs_mirror,
+    publisher,
+    scan_mirror,
+)
 
 CASCADING = "cascading-error-recovery-trajectories"
 
-CASCADING_MIRROR = (
-    Path.home() / "rmems" / "hf" / "grok-4.6" / CASCADING / "data" / "raw"
-)
+CASCADING_MIRROR = mirror_path(CASCADING)
+
+# The published column order: the fault-report fields sit between `plan` and
+# `steps`.
+CASCADING_FIELD_ORDER = [
+    "id", "goal", "plan", "error_introduced", "propagation", "diagnosis",
+    "recovery", "verification", "steps", "outcome", "reward", "meta",
+]
 
 # What each declared dtype is allowed to be once decoded from JSONL. `json`
 # is deliberately wide: it is the encoding chosen precisely because the column
@@ -46,24 +44,6 @@ DTYPE_TYPES = {
     "bool": (bool,),
     "json": (str, int, float, bool, list, dict),
 }
-
-_SCAN: dict = {}
-
-
-def _read_shard(shard):
-    """Every non-blank record in one shard, tagged with the shard name."""
-    with shard.open(encoding="utf-8") as handle:
-        return [(shard.name, json.loads(line)) for line in handle if line.strip()]
-
-
-def _scan_mirror():
-    """Read every published shard once and memoize it for the whole module."""
-    if "scan" in _SCAN:
-        return _SCAN["scan"]
-    shards = sorted(CASCADING_MIRROR.glob("batch-*.jsonl"))
-    records = [row for shard in shards for row in _read_shard(shard)]
-    _SCAN["scan"] = (shards, records)
-    return _SCAN["scan"]
 
 
 CASCADING_LEFTOVER_IDS = (
@@ -78,9 +58,7 @@ CASCADING_LEFTOVER_IDS = (
 )
 
 
-_needs_mirror = unittest.skipUnless(
-    CASCADING_MIRROR.is_dir(), "read-only published mirror is not available"
-)
+_needs_mirror = needs_mirror(CASCADING_MIRROR)
 
 # The object shape each two-shape variant column takes when it is not a string.
 OBJECT_FORMS = {
@@ -89,12 +67,6 @@ OBJECT_FORMS = {
     "recovery": {"step", "action"},
     "verification": {"step", "evidence"},
 }
-
-
-def _feature_index(features):
-    """Split a feature list into a name lookup and the set of optional names."""
-    names = {feature["name"]: feature for feature in features}
-    return names, {n for n, f in names.items() if f.get("optional")}
 
 
 def _iter_steps(records):
@@ -123,7 +95,7 @@ def _variant_column_census(records, field):
     return shapes, object_keys, len(objects)
 
 
-class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
+class CascadingErrorRecoveryDeclarationTests(DeclarationTestCase):
     """Issue #38: the fault-report fields carry two shapes, so the cast fails.
 
     The counts asserted here were derived by scanning every published record in
@@ -132,47 +104,26 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
     across 2361 shards, 0 parse failures), not transcribed from the issue.
     """
 
-    def setUp(self):
-        self.declaration = card_schema.load(CASCADING)
-        self.assertIsNotNone(self.declaration, "config/card-schemas is missing #38")
-        self.item = {
-            "slug": "cascading-error-recovery-factory",
-            "hub": CASCADING,
-            "pretty": "Cascading Error Recovery Trajectories",
-            "blurb": "Cascading-error diagnosis and recovery (fault@4, multi-hop).",
-            "tags": ["synthetic-data", "debugging", "recovery", "errors"],
-        }
-        self.card = publisher.render_card(
-            self.item,
-            summary=publisher.PayloadSummary(
-                records=4722,
-                bytes_=31062016,
-                first="r01",
-                last="r2361",
-                names=["batch-r01.jsonl", "batch-r2021.jsonl"],
-            ),
-        )
+    DATASET = CASCADING
+    ISSUE = 38
+    HUB_ITEM = {
+        "slug": "cascading-error-recovery-factory",
+        "hub": CASCADING,
+        "pretty": "Cascading Error Recovery Trajectories",
+        "blurb": "Cascading-error diagnosis and recovery (fault@4, multi-hop).",
+        "tags": ["synthetic-data", "debugging", "recovery", "errors"],
+    }
+    SUMMARY = publisher.PayloadSummary(
+        records=4722,
+        bytes_=31062016,
+        first="r01",
+        last="r2361",
+        names=["batch-r01.jsonl", "batch-r2021.jsonl"],
+    )
 
     def test_declaration_matches_the_observed_union_schema(self):
-        features = self.declaration["features"]
-        self.assertEqual(
-            [feature["name"] for feature in features],
-            [
-                "id",
-                "goal",
-                "plan",
-                "error_introduced",
-                "propagation",
-                "diagnosis",
-                "recovery",
-                "verification",
-                "steps",
-                "outcome",
-                "reward",
-                "meta",
-            ],
-        )
-        names = {feature["name"]: feature for feature in features}
+        self.assertEqual(feature_names(self.declaration["features"]), CASCADING_FIELD_ORDER)
+        names = self.names()
         # Absent on the 8 leftover-mill rows (error_introduced/diagnosis) or on
         # the 2158-record family that publishes only a string diagnosis.
         for name in (
@@ -195,12 +146,7 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
         self.assertEqual(self.declaration["issues"], [38])
 
     def test_error_introduced_declares_both_payload_and_description(self):
-        error_introduced = next(
-            feature
-            for feature in self.declaration["features"]
-            if feature["name"] == "error_introduced"
-        )
-        children = {child["name"]: child for child in error_introduced["struct"]}
+        children = by_name(self.feature("error_introduced")["struct"])
         self.assertEqual(set(children), {"step", "kind", "payload", "description"})
         self.assertEqual(children["step"]["dtype"], "int64")
         self.assertEqual(children["kind"]["dtype"], "string")
@@ -210,20 +156,14 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
         self.assertTrue(children["description"]["optional"])
 
     def test_steps_keep_the_public_decision_basis_and_a_json_arg_bag(self):
-        steps = next(
-            feature for feature in self.declaration["features"] if feature["name"] == "steps"
-        )
-        children = {child["name"]: child for child in steps["list"]}
-        self.assertEqual(
-            set(children), {"n", "decision_basis", "tool_call", "observation", "reflection"}
-        )
+        children = by_name(self.feature("steps")["list"])
+        self.assertEqual(set(children), STEP_FIELDS)
         self.assertTrue(children["reflection"]["optional"])
-        tool_call = {child["name"]: child for child in children["tool_call"]["struct"]}
+        tool_call = self.tool_call_features(children)
         self.assertEqual(tool_call["args"]["dtype"], "json")
 
     def test_key_bag_and_variant_columns_are_declared_json(self):
-        self.assertEqual(
-            card_schema.json_columns(self.declaration["features"]),
+        self.assert_json_columns(
             [
                 "propagation",
                 "diagnosis",
@@ -232,35 +172,30 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
                 "steps[].tool_call.args",
                 "reward",
                 "meta",
-            ],
+            ]
         )
 
     def test_card_front_matter_declares_the_default_config_over_raw_batches(self):
-        front_matter = self.card.split("---", 2)[1]
-        self.assertIn("configs:\n- config_name: default\n", front_matter)
-        self.assertIn('    path: "data/raw/batch-*.jsonl"\n', front_matter)
-        self.assertIn("dataset_info:\n  features:\n", front_matter)
-        self.assertIn("  - name: error_introduced\n    struct:\n", front_matter)
-        self.assertIn("    - name: description\n      dtype: string\n", front_matter)
-        self.assertIn("  - name: diagnosis\n    dtype: json\n", front_matter)
-        # Card-only annotations must never be read back as a feature type.
-        self.assertNotIn("optional", front_matter)
-        # license/tags/status claims stay exactly where they were.
-        self.assertIn("license: apache-2.0", front_matter)
-        self.assertIn("**not training-ready**", self.card)
+        self.assert_front_matter_declares_default_config(
+            FEATURES_YAML,
+            "  - name: error_introduced\n    struct:\n",
+            "    - name: description\n      dtype: string\n",
+            "  - name: diagnosis\n    dtype: json\n",
+            # Card-only annotations must never be read back as a feature type.
+            absent=("optional",),
+        )
 
     def test_card_body_discloses_the_eight_leftover_mill_records(self):
-        self.assertIn("## Dataset viewer schema", self.card)
-        self.assertNotIn("**Not declared yet.**", self.card)
-        self.assertIn("### Known payload disclosures", self.card)
-        for record_id in CASCADING_LEFTOVER_IDS:
-            with self.subTest(record_id=record_id):
-                self.assertIn(f"`{record_id}`", self.card)
-        self.assertIn("| `plan` | optional |", self.card)
-        self.assertIn("| `error_introduced.description` | optional |", self.card)
-        self.assertIn("| `steps[].reflection` | optional |", self.card)
-        self.assertIn("issues/38", self.card)
-
+        self.assertIn(VIEWER_SCHEMA_HEADING, self.card)
+        self.assertNotIn(NOT_DECLARED, self.card)
+        self.assertIn(DISCLOSURES_HEADING, self.card)
+        self.assert_card_names_records(CASCADING_LEFTOVER_IDS)
+        self.assert_card_has(
+            PLAN_OPTIONAL_ROW,
+            "| `error_introduced.description` | optional |",
+            REFLECTION_OPTIONAL_ROW,
+            "issues/38",
+        )
 
     def _assert_conforms(self, value, feature, where):
         """Walk one value against one declared feature node.
@@ -287,11 +222,11 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
 
     def _assert_struct(self, value, struct, where):
         self.assertIsInstance(value, dict, where)
-        self._assert_children(value, {c["name"]: c for c in struct}, where)
+        self._assert_children(value, by_name(struct), where)
 
     def _assert_list(self, value, item_features, where):
         self.assertIsInstance(value, list, where)
-        children = {child["name"]: child for child in item_features}
+        children = by_name(item_features)
         for index, element in enumerate(value):
             at = f"{where}[{index}]"
             self.assertIsInstance(element, dict, at)
@@ -335,9 +270,9 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
         round while saying nothing about the cast. The shape invariants checked
         here and below are what the cast actually depends on.
         """
-        _shards, records = _scan_mirror()
+        _shards, records = scan_mirror(CASCADING_MIRROR)
         self.assertTrue(records)
-        features, optional = _feature_index(self.declaration["features"])
+        features, optional = feature_index(self.declaration["features"])
         for shard, record in records:
             where = f"{shard}:{record['id']}"
             self.assertEqual(set(record) - set(features), set(), where)
@@ -350,8 +285,8 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
     @_needs_mirror
     def test_each_variant_column_takes_exactly_two_declared_shapes(self):
         """The two-shape families the declaration was written for."""
-        _shards, records = _scan_mirror()
-        features, _optional = _feature_index(self.declaration["features"])
+        _shards, records = scan_mirror(CASCADING_MIRROR)
+        features, _optional = feature_index(self.declaration["features"])
         for field in self.VARIANTS:
             shapes, object_keys, object_count = _variant_column_census(
                 records, field
@@ -366,7 +301,7 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
 
     @_needs_mirror
     def test_the_object_family_is_the_same_records_in_all_four_columns(self):
-        _shards, records = _scan_mirror()
+        _shards, records = scan_mirror(CASCADING_MIRROR)
         object_family = _ids_where(
             records, lambda r: isinstance(r.get("diagnosis"), dict)
         )
@@ -385,7 +320,7 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
     @_needs_mirror
     def test_payload_and_description_are_strictly_mutually_exclusive(self):
         """That pair is what the inferred schema died on."""
-        _shards, records = _scan_mirror()
+        _shards, records = scan_mirror(CASCADING_MIRROR)
         object_family = _ids_where(
             records, lambda r: isinstance(r.get("diagnosis"), dict)
         )
@@ -401,7 +336,7 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
     @_needs_mirror
     def test_the_disclosed_leftover_ids_are_the_records_without_a_report(self):
         """The disclosed eight-record set, derived rather than copied."""
-        _shards, records = _scan_mirror()
+        _shards, records = scan_mirror(CASCADING_MIRROR)
         missing_report = _ids_where(records, lambda r: "error_introduced" not in r)
         declared_leftover = {
             record_id
@@ -419,7 +354,7 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
 
     @_needs_mirror
     def test_the_records_without_plan_are_a_different_disclosed_eight(self):
-        _shards, records = _scan_mirror()
+        _shards, records = scan_mirror(CASCADING_MIRROR)
         missing_report = _ids_where(records, lambda r: "error_introduced" not in r)
         missing_plan = _ids_where(records, lambda r: "plan" not in r)
         # `card_schema.load` normalizes every disclosure to a dict, so the
@@ -431,9 +366,9 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
 
     @_needs_mirror
     def test_steps_carry_no_hidden_reasoning_and_a_public_basis(self):
-        _shards, records = _scan_mirror()
-        features, _optional = _feature_index(self.declaration["features"])
-        step_children, _step_optional = _feature_index(features["steps"]["list"])
+        _shards, records = scan_mirror(CASCADING_MIRROR)
+        features, _optional = feature_index(self.declaration["features"])
+        step_children, _step_optional = feature_index(features["steps"]["list"])
         pairs = list(_iter_steps(records))
         for record, step in pairs:
             self.assertEqual(set(step) - set(step_children), set(), record["id"])
@@ -443,7 +378,6 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
             {r["meta"]["factory"] for _s, r in records},
             {"cascading-error-recovery-factory"},
         )
-
 
     # Three representative rows, one per published shape. Written here rather
     # than copied out of the mirror so the union check runs on CI, where the
@@ -533,8 +467,7 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
                 self.assertIsInstance(record[field], (str, dict), f"{where}{field}")
 
     def _walk_record(self, record):
-        features = {f["name"]: f for f in self.declaration["features"]}
-        optional = {n for n, f in features.items() if f.get("optional")}
+        features, optional = feature_index(self.declaration["features"])
         self.assertEqual(set(record) - set(features), set())
         self.assertEqual(set(features) - set(record) - optional, set())
         for name, feature in features.items():

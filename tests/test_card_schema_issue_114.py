@@ -1,33 +1,43 @@
 #!/usr/bin/env python3
 """Issue #41 leaf tests for the per-dataset card schema declaration."""
 
-try:
-    # The shared helpers live in test_card_schema_integration once the infra
-    # branch's split of test_card_schema.py lands beneath this leaf.
-    import test_card_schema_integration as _shared
-except ModuleNotFoundError:  # pre-split trees still ship the monolith
-    import test_card_schema as _shared
+import unittest
 
-unittest = _shared.unittest
-io = _shared.io
-json = _shared.json
-tempfile = _shared.tempfile
-redirect_stderr = _shared.redirect_stderr
-redirect_stdout = _shared.redirect_stdout
-Path = _shared.Path
-mock = _shared.mock
-REPO = _shared.REPO
-card_schema = _shared.card_schema
-publisher = _shared.publisher
-LONG_HORIZON = _shared.LONG_HORIZON
-MINIMAL = _shared.MINIMAL
-write_declaration = _shared.write_declaration
-
+from card_schema_test_support import (
+    FEATURES_YAML,
+    META_JSON_YAML,
+    NOT_DECLARED,
+    QUOTED_N_YAML,
+    REWARD_JSON_YAML,
+    VIEWER_SCHEMA_HEADING,
+    DeclarationTestCase,
+    by_name,
+    card_schema,
+    feature_names,
+    publisher,
+)
 
 MULTI_AGENT = "multi-agent-coordination-transcripts"
 
+# The transcript column order: no `plan` or `steps`, one `agents` list and
+# one `transcript` list around the coordination narrative.
+MULTI_AGENT_FIELD_ORDER = [
+    "id", "goal", "outcome", "agents", "transcript",
+    "disagreements", "resolution", "joint_outcome", "reward", "meta",
+]
 
-class MultiAgentCoordinationDeclarationTests(unittest.TestCase):
+# The same card rendered for a later snapshot, so the schema prose can be
+# checked for counts frozen from the earlier one.
+GROWN_SUMMARY = publisher.PayloadSummary(
+    records=4390,
+    bytes_=11854000,
+    first="r01",
+    last="r4390",
+    names=["batch-r01.jsonl", "batch-r4390.jsonl"],
+)
+
+
+class MultiAgentCoordinationDeclarationTests(DeclarationTestCase):
     """Issue #41: a transcript shape whose `reward` is a per-record key bag.
 
     The counts asserted here were derived read-only from the published mirror
@@ -37,50 +47,30 @@ class MultiAgentCoordinationDeclarationTests(unittest.TestCase):
     holds over all 4390 rounds.
     """
 
+    DATASET = MULTI_AGENT
+    ISSUE = 41
+    HUB_ITEM = {
+        "slug": "multi-agent-coordination-factory",
+        "hub": MULTI_AGENT,
+        "pretty": publisher.pretty_name(MULTI_AGENT),
+        "blurb": "Multi-agent leftover-disagreement coordination transcripts.",
+        "tags": ["synthetic-data", "multi-agent", "coordination"],
+    }
+    SUMMARY = publisher.PayloadSummary(
+        records=3784,
+        bytes_=10212000,
+        first="r01",
+        last="r3784",
+        names=["batch-r01.jsonl", "batch-r3784.jsonl"],
+    )
+
     def setUp(self):
-        self.declaration = card_schema.load(MULTI_AGENT)
-        self.assertIsNotNone(self.declaration, "config/card-schemas is missing #41")
-        self.item = {
-            "slug": "multi-agent-coordination-factory",
-            "hub": MULTI_AGENT,
-            "pretty": publisher.pretty_name(MULTI_AGENT),
-            "blurb": "Multi-agent leftover-disagreement coordination transcripts.",
-            "tags": ["synthetic-data", "multi-agent", "coordination"],
-        }
-        self.card = publisher.render_card(
-            self.item,
-            records=3784,
-            bytes_=10212000,
-            first="r01",
-            last="r3784",
-            payload_names=["batch-r01.jsonl", "batch-r3784.jsonl"],
-        )
-        self.grown_card = publisher.render_card(
-            self.item,
-            records=4390,
-            bytes_=11854000,
-            first="r01",
-            last="r4390",
-            payload_names=["batch-r01.jsonl", "batch-r4390.jsonl"],
-        )
+        super().setUp()
+        self.grown_card = self.render_card(GROWN_SUMMARY)
 
     def test_declaration_matches_the_observed_union_schema(self):
-        names = {feature["name"]: feature for feature in self.declaration["features"]}
-        self.assertEqual(
-            [feature["name"] for feature in self.declaration["features"]],
-            [
-                "id",
-                "goal",
-                "outcome",
-                "agents",
-                "transcript",
-                "disagreements",
-                "resolution",
-                "joint_outcome",
-                "reward",
-                "meta",
-            ],
-        )
+        names = self.names()
+        self.assertEqual(feature_names(self.declaration["features"]), MULTI_AGENT_FIELD_ORDER)
         # `outcome` is the only optional top-level column.
         self.assertTrue(names["outcome"]["optional"])
         self.assertEqual(names["outcome"]["dtype"], "string")
@@ -92,10 +82,10 @@ class MultiAgentCoordinationDeclarationTests(unittest.TestCase):
             ],
             ["outcome", "agents[].name"],
         )
-        agents = {feature["name"]: feature for feature in names["agents"]["list"]}
+        agents = by_name(names["agents"]["list"])
         self.assertEqual(set(agents), {"role", "mandate", "name"})
         self.assertTrue(agents["name"]["optional"])
-        transcript = {feature["name"]: feature for feature in names["transcript"]["list"]}
+        transcript = by_name(names["transcript"]["list"])
         self.assertEqual(set(transcript), {"n", "speaker", "content"})
         self.assertEqual(transcript["n"]["dtype"], "int64")
         self.assertEqual(self.declaration["issues"], [41])
@@ -108,32 +98,31 @@ class MultiAgentCoordinationDeclarationTests(unittest.TestCase):
         struct list. Only `reward` and `meta` are real key bags, so only those
         two give up their columns to `json`.
         """
-        names = {feature["name"]: feature for feature in self.declaration["features"]}
+        names = self.names()
         self.assertEqual(names["resolution"]["dtype"], "string")
         self.assertEqual(names["joint_outcome"]["dtype"], "string")
         self.assertEqual(names["disagreements"]["list"], "string")
         self.assertIsInstance(names["agents"]["list"], list)
-        self.assertEqual(card_schema.json_columns(self.declaration["features"]), ["reward", "meta"])
+        self.assert_json_columns(["reward", "meta"])
 
     def test_card_front_matter_declares_the_default_config_over_raw_batches(self):
-        front_matter = self.card.split("---", 2)[1]
-        self.assertIn("configs:\n- config_name: default\n", front_matter)
-        self.assertIn('    path: "data/raw/batch-*.jsonl"\n', front_matter)
-        self.assertIn("dataset_info:\n  features:\n", front_matter)
-        self.assertIn("  - name: reward\n    dtype: json\n", front_matter)
-        self.assertIn("  - name: meta\n    dtype: json\n", front_matter)
-        self.assertIn("  - name: disagreements\n    list: string\n", front_matter)
-        # `n` is a YAML reserved word and must survive as a quoted scalar.
-        self.assertIn('    - name: "n"\n      dtype: int64\n', front_matter)
-        self.assertIn("license: apache-2.0", front_matter)
-        self.assertIn("**not training-ready**", self.card)
+        self.assert_front_matter_declares_default_config(
+            FEATURES_YAML,
+            REWARD_JSON_YAML,
+            META_JSON_YAML,
+            "  - name: disagreements\n    list: string\n",
+            # `n` is a YAML reserved word and must survive as a quoted scalar.
+            QUOTED_N_YAML,
+        )
 
     def test_card_body_discloses_optional_outcome_and_the_designed_records(self):
-        self.assertIn("## Dataset viewer schema", self.card)
-        self.assertNotIn("**Not declared yet.**", self.card)
-        self.assertIn("| `outcome` | optional |", self.card)
-        self.assertIn("| `agents[].name` | optional |", self.card)
-        self.assertIn("Top-level `outcome` is a genuine optional field", self.card)
+        self.assertIn(VIEWER_SCHEMA_HEADING, self.card)
+        self.assertNotIn(NOT_DECLARED, self.card)
+        self.assert_card_has(
+            "| `outcome` | optional |",
+            "| `agents[].name` | optional |",
+            "Top-level `outcome` is a genuine optional field",
+        )
         designed = [feature for feature in self.declaration["disclosures"] if feature["ids"]]
         self.assertEqual(len(designed), 1)
         self.assertEqual(
@@ -176,8 +165,7 @@ class MultiAgentCoordinationDeclarationTests(unittest.TestCase):
         # #43 froze the published factory_mix census; none of the 30 ids it
         # names is in this dataset, so these 14 are same-factory phrasing.
         self.assertEqual(designed[0]["issues"], [43])
-        for record_id in designed[0]["ids"]:
-            self.assertIn(f"`{record_id}`", self.card)
+        self.assert_card_names_records(designed[0]["ids"])
 
     def test_schema_prose_remains_truthful_when_the_snapshot_grows(self):
         self.assertIn("The release contains 3784 raw records", self.card)

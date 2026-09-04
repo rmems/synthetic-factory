@@ -1,35 +1,30 @@
 #!/usr/bin/env python3
 """Issue #67 leaf tests for the per-dataset card schema declaration."""
 
-import test_card_schema as _shared
+import json
+import unittest
 
-unittest = _shared.unittest
-io = _shared.io
-json = _shared.json
-tempfile = _shared.tempfile
-redirect_stderr = _shared.redirect_stderr
-redirect_stdout = _shared.redirect_stdout
-Path = _shared.Path
-mock = _shared.mock
-REPO = _shared.REPO
-card_schema = _shared.card_schema
-publisher = _shared.publisher
-LONG_HORIZON = _shared.LONG_HORIZON
-MINIMAL = _shared.MINIMAL
-write_declaration = _shared.write_declaration
-
+from card_schema_test_support import (
+    EPISODE_JSON_COLUMNS,
+    FEATURES_YAML,
+    META_JSON_YAML,
+    NOT_DECLARED,
+    PLAN_PRESENT_ROW,
+    PLAN_STRING_YAML,
+    REFLECTION_OPTIONAL_ROW,
+    VIEWER_SCHEMA_HEADING,
+    DeclarationTestCase,
+    mirror_path,
+    needs_mirror,
+    publisher,
+)
 
 INFRA_AS_CODE = "infra-as-code-trajectories"
-INFRA_AS_CODE_MIRROR = (
-    Path.home() / "rmems" / "hf" / "grok-4.6" / INFRA_AS_CODE / "data" / "raw"
-)
+INFRA_AS_CODE_MIRROR = mirror_path(INFRA_AS_CODE)
 
 _SCAN: dict = {}
 
-_needs_mirror = unittest.skipUnless(
-    INFRA_AS_CODE_MIRROR.is_dir(),
-    "read-only published mirror is not available",
-)
+_needs_mirror = needs_mirror(INFRA_AS_CODE_MIRROR)
 
 
 def _scan_mirror():
@@ -84,76 +79,42 @@ def _meta_split(records):
     return thin, wide_rounds
 
 
-def _feature(declaration, name):
-    """The top-level feature declaration called ``name``."""
-    return next(f for f in declaration["features"] if f["name"] == name)
-
-
-def _step_feature(declaration, name):
-    """The step-list feature declaration called ``name``."""
-    return next(
-        f for f in _feature(declaration, "steps")["list"] if f["name"] == name
-    )
-
-
-class InfraAsCodeDeclarationTests(unittest.TestCase):
+class InfraAsCodeDeclarationTests(DeclarationTestCase):
     """Issue #67: thin `meta` vs the `plant` / `kind` rounds kills the cast."""
 
-    def setUp(self):
-        self.declaration = card_schema.load(INFRA_AS_CODE)
-        self.assertIsNotNone(self.declaration, "config/card-schemas is missing #67")
-        self.item = {
-            "slug": "infra-as-code-factory",
-            "hub": INFRA_AS_CODE,
-            "pretty": "Infra As Code Trajectories",
-            "blurb": "Terraform/Kubernetes leftover-object IaC repair.",
-            "tags": ["synthetic-data", "trajectories", "terraform", "kubernetes", "iac"],
-        }
-        self.card = publisher.render_card(
-            self.item,
-            records=5208,
-            bytes_=29388051,
-            first="r01",
-            last="r2604",
-            payload_names=["batch-r01.jsonl", "batch-r1416.jsonl", "batch-r2604.jsonl"],
-        )
+    DATASET = INFRA_AS_CODE
+    ISSUE = 67
+    HUB_ITEM = {
+        "slug": "infra-as-code-factory",
+        "hub": INFRA_AS_CODE,
+        "pretty": "Infra As Code Trajectories",
+        "blurb": "Terraform/Kubernetes leftover-object IaC repair.",
+        "tags": ["synthetic-data", "trajectories", "terraform", "kubernetes", "iac"],
+    }
+    SUMMARY = publisher.PayloadSummary(
+        records=5208,
+        bytes_=29388051,
+        first="r01",
+        last="r2604",
+        names=["batch-r01.jsonl", "batch-r1416.jsonl", "batch-r2604.jsonl"],
+    )
 
     def test_declaration_matches_the_observed_union_schema(self):
-        names = {feature["name"]: feature for feature in self.declaration["features"]}
-        self.assertEqual(
-            set(names),
-            {"id", "goal", "plan", "steps", "outcome", "reward", "meta"},
-        )
         # `plan` is a string on all 5208 records here; the worked example's
         # optional `plan` must not be copied over.
-        self.assertEqual(names["plan"]["dtype"], "string")
-        self.assertNotIn("optional", names["plan"])
-        self.assertEqual(names["meta"]["dtype"], "json")
-        self.assertEqual(names["reward"]["dtype"], "json")
-        steps = {feature["name"]: feature for feature in names["steps"]["list"]}
-        self.assertEqual(
-            set(steps), {"n", "decision_basis", "tool_call", "observation", "reflection"}
-        )
-        self.assertTrue(steps["reflection"]["optional"])
-        self.assertIn("17436 of 87554", steps["reflection"]["note"])
-        tool_call = {feature["name"]: feature for feature in steps["tool_call"]["struct"]}
-        self.assertEqual(tool_call["args"]["dtype"], "json")
-        self.assertEqual(self.declaration["issues"], [67])
+        self.assert_episode_union("17436 of 87554")
 
     def test_key_bag_columns_are_declared_json(self):
-        self.assertEqual(
-            card_schema.json_columns(self.declaration["features"]),
-            ["steps[].tool_call.args", "reward", "meta"],
-        )
+        self.assert_json_columns(EPISODE_JSON_COLUMNS)
 
     def test_meta_note_records_the_split_the_viewer_dies_on(self):
-        meta = _feature(self.declaration, "meta")
+        meta = self.feature("meta")
         # 4190 thin + 1018 wide = 5208 records; the wide rounds are contiguous.
         for fragment in ("1018", "78-586", "4190", "1-77", "587-2604", "sim_or_real"):
             self.assertIn(fragment, meta["note"])
 
     def test_reward_note_names_the_only_type_varying_key(self):
-        reward = _feature(self.declaration, "reward")
+        reward = self.feature("reward")
         # `handoff` is the single int-or-string key; the tests_* counters are not.
         self.assertIn("`handoff` is the only key whose value type varies", reward["note"])
         for singleton in ("wrong_cluster_apply", "replicas", "targets_healthy"):
@@ -188,13 +149,10 @@ class InfraAsCodeDeclarationTests(unittest.TestCase):
         self.assertEqual(thin, 4190)
         self.assertEqual(len(wide_rounds), 1018)
         self.assertEqual((wide_rounds[0], wide_rounds[-1]), (78, 586))
-        self.assertIn(
-            f"on all {len(records)} records",
-            _feature(self.declaration, "meta")["note"],
-        )
+        self.assertIn(f"on all {len(records)} records", self.feature("meta")["note"])
         self.assertIn(
             f"{len(reflections)} of {steps_total}",
-            _step_feature(self.declaration, "reflection")["note"],
+            self.step_features(self.names())["reflection"]["note"],
         )
 
     @_needs_mirror
@@ -206,34 +164,30 @@ class InfraAsCodeDeclarationTests(unittest.TestCase):
         self.assertEqual(reward_counts["tests_failed"], 2576)
         self.assertEqual(handoff_types, {"int": 2593, "str": 13})
         self.assertIn(
-            f"`handoff` on {reward_counts['handoff']}",
-            _feature(self.declaration, "reward")["note"],
+            f"`handoff` on {reward_counts['handoff']}", self.feature("reward")["note"]
         )
 
     def test_card_front_matter_declares_the_default_config_over_raw_batches(self):
-        front_matter = self.card.split("---", 2)[1]
-        self.assertIn("configs:\n- config_name: default\n", front_matter)
-        self.assertIn('    path: "data/raw/batch-*.jsonl"\n', front_matter)
-        self.assertIn("dataset_info:\n  features:\n", front_matter)
-        self.assertIn("  - name: meta\n    dtype: json\n", front_matter)
-        self.assertIn("  - name: plan\n    dtype: string\n", front_matter)
-        self.assertIn("license: apache-2.0", front_matter)
-        self.assertIn("**not training-ready**", self.card)
+        self.assert_front_matter_declares_default_config(
+            FEATURES_YAML, META_JSON_YAML, PLAN_STRING_YAML
+        )
 
     def test_card_body_owns_the_leftover_mechanic_without_claiming_a_mill(self):
-        self.assertIn("## Dataset viewer schema", self.card)
-        self.assertNotIn("**Not declared yet.**", self.card)
-        self.assertIn("| `steps[].reflection` | optional |", self.card)
-        self.assertIn("| `plan` | present on every record |", self.card)
-        # The 13 string-valued handoff ids are named on the card.
-        self.assertIn("`iac-r03-b-helm-reuse-values-tag-drift`", self.card)
-        self.assertIn("`iac-r27-b-helm-history-max-zero`", self.card)
-        # Same-factory leftover naming is disclosed as the advertised mechanic,
-        # and the inbound-mill disclosure defers to the destination dumps.
-        self.assertIn("advertised mechanic", self.card)
-        self.assertIn("There is no inbound leftover mill in this dataset", self.card)
-        self.assertIn("/issues/43", self.card)
-        self.assertIn("/issues/44", self.card)
+        self.assertIn(VIEWER_SCHEMA_HEADING, self.card)
+        self.assertNotIn(NOT_DECLARED, self.card)
+        self.assert_card_has(
+            REFLECTION_OPTIONAL_ROW,
+            PLAN_PRESENT_ROW,
+            # The 13 string-valued handoff ids are named on the card.
+            "`iac-r03-b-helm-reuse-values-tag-drift`",
+            "`iac-r27-b-helm-history-max-zero`",
+            # Same-factory leftover naming is disclosed as the advertised mechanic,
+            # and the inbound-mill disclosure defers to the destination dumps.
+            "advertised mechanic",
+            "There is no inbound leftover mill in this dataset",
+            "/issues/43",
+            "/issues/44",
+        )
 
 
 if __name__ == "__main__":

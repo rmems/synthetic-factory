@@ -1,45 +1,58 @@
 #!/usr/bin/env python3
 """Issue #71 leaf tests for the per-dataset card schema declaration."""
 
-try:
-    # The shared card-schema test module was renamed on the stack's shared
-    # infrastructure branch (`test_card_schema` -> `test_card_schema_integration`)
-    # after this branch was cut. Prefer the new name so this leaf still imports
-    # on the post-merge tree, where the old monolith no longer exists; fall back
-    # to the old name, which is what this branch's own history carries today.
-    import test_card_schema_integration as _shared
-except ModuleNotFoundError:
-    import test_card_schema as _shared
+import json
+import unittest
 
-unittest = _shared.unittest
-io = _shared.io
-json = _shared.json
-tempfile = _shared.tempfile
-redirect_stderr = _shared.redirect_stderr
-redirect_stdout = _shared.redirect_stdout
-Path = _shared.Path
-mock = _shared.mock
-REPO = _shared.REPO
-card_schema = _shared.card_schema
-publisher = _shared.publisher
-LONG_HORIZON = _shared.LONG_HORIZON
-MINIMAL = _shared.MINIMAL
-write_declaration = _shared.write_declaration
-
-
-RAG_RETRIEVAL_DEBUG = "rag-retrieval-debug-trajectories"
-RAG_RETRIEVAL_DEBUG_MIRROR = (
-    Path.home()
-    / "rmems"
-    / "hf"
-    / "grok-4.6"
-    / RAG_RETRIEVAL_DEBUG
-    / "data"
-    / "raw"
+from card_schema_test_support import (
+    META_JSON_YAML,
+    NOT_DECLARED,
+    REFLECTION_OPTIONAL_ROW,
+    REWARD_JSON_YAML,
+    STEPS_YAML_FEATURE,
+    STEP_FIELDS,
+    VIEWER_SCHEMA_HEADING,
+    DeclarationTestCase,
+    card_schema,
+    feature_names,
+    mirror_path,
+    needs_mirror,
+    publisher,
 )
 
+RAG_RETRIEVAL_DEBUG = "rag-retrieval-debug-trajectories"
+RAG_RETRIEVAL_DEBUG_MIRROR = mirror_path(RAG_RETRIEVAL_DEBUG)
+RAG_SLUG = "rag-retrieval-debug-factory"
 
-class RagRetrievalDebugDeclarationTests(unittest.TestCase):
+# The published column order: the five episode-only extras sit between `plan`
+# and `steps`.
+RAG_FIELD_ORDER = [
+    "id", "goal", "plan", "error_introduced", "propagation", "diagnosis",
+    "recovery", "verification", "steps", "outcome", "reward", "meta",
+]
+
+
+def _hub_item():
+    """The publisher's own Hub item for this factory: registry blurb and tags."""
+    blurb, extra_tags = publisher.META[RAG_SLUG]
+    tags = [
+        "synthetic-data",
+        "agentic-workflows",
+        "grok-4.6",
+        "provenance",
+        "trajectories",
+        *extra_tags,
+    ]
+    return {
+        "slug": RAG_SLUG,
+        "hub": publisher.hub_name(RAG_SLUG),
+        "pretty": publisher.pretty_name(RAG_RETRIEVAL_DEBUG),
+        "blurb": blurb,
+        "tags": list(dict.fromkeys(tags)),
+    }
+
+
+class RagRetrievalDebugDeclarationTests(DeclarationTestCase):
     """Issue #71: episode-only top-level extras against an otherwise thin record."""
 
     EVH_IDS = [
@@ -63,67 +76,34 @@ class RagRetrievalDebugDeclarationTests(unittest.TestCase):
         "evh-r29-pinecone-ns-k6d4",
     ]
 
+    DATASET = RAG_RETRIEVAL_DEBUG
+    ISSUE = 71
+    HUB_ITEM = _hub_item()
+    SUMMARY = publisher.PayloadSummary(
+        records=1876,
+        bytes_=10831457,
+        first="r01",
+        last="r938",
+        names=[f"batch-r{n:02d}.jsonl" for n in range(1, 939)],
+    )
+
     def setUp(self):
-        self.declaration = card_schema.load(RAG_RETRIEVAL_DEBUG)
-        self.assertIsNotNone(self.declaration, "config/card-schemas is missing #71")
-        slug = "rag-retrieval-debug-factory"
-        blurb, extra_tags = publisher.META[slug]
-        tags = [
-            "synthetic-data",
-            "agentic-workflows",
-            "grok-4.6",
-            "provenance",
-            "trajectories",
-            *extra_tags,
-        ]
-        self.item = {
-            "slug": slug,
-            "hub": publisher.hub_name(slug),
-            "pretty": publisher.pretty_name(RAG_RETRIEVAL_DEBUG),
-            "blurb": blurb,
-            "tags": list(dict.fromkeys(tags)),
-        }
+        super().setUp()
         self.assertEqual(self.item["hub"], RAG_RETRIEVAL_DEBUG)
-        self.card = publisher.render_card(
-            self.item,
-            records=1876,
-            bytes_=10831457,
-            first="r01",
-            last="r938",
-            payload_names=[f"batch-r{n:02d}.jsonl" for n in range(1, 939)],
-        )
 
     def test_declaration_matches_the_observed_union_schema(self):
         self.assertEqual(self.declaration["issues"], [71])
-        self.assertEqual(
-            [feature["name"] for feature in self.declaration["features"]],
-            [
-                "id",
-                "goal",
-                "plan",
-                "error_introduced",
-                "propagation",
-                "diagnosis",
-                "recovery",
-                "verification",
-                "steps",
-                "outcome",
-                "reward",
-                "meta",
-            ],
-        )
-        names = {feature["name"]: feature for feature in self.declaration["features"]}
+        self.assertEqual(feature_names(self.declaration["features"]), RAG_FIELD_ORDER)
+        names = self.names()
         # `plan` is a string on all 1876 records here, unlike issue #36's dataset.
         self.assertEqual(names["plan"]["dtype"], "string")
         self.assertNotIn("optional", names["plan"])
         self.assertIn("observed snapshot through round 938", names["plan"]["note"])
-        steps = {feature["name"]: feature for feature in names["steps"]["list"]}
-        self.assertEqual(
-            set(steps), {"n", "decision_basis", "tool_call", "observation", "reflection"}
-        )
+        steps = self.step_features(names)
+        self.assertEqual(set(steps), STEP_FIELDS)
         self.assertTrue(steps["reflection"]["optional"])
         self.assertEqual(steps["n"]["dtype"], "int64")
-        tool_call = {feature["name"]: feature for feature in steps["tool_call"]["struct"]}
+        tool_call = self.tool_call_features(steps)
         self.assertEqual(tool_call["args"]["dtype"], "json")
 
     def test_yaml_projection_is_the_complete_annotation_free_feature_tree(self):
@@ -138,22 +118,7 @@ class RagRetrievalDebugDeclarationTests(unittest.TestCase):
                 {"name": "diagnosis", "dtype": "json"},
                 {"name": "recovery", "dtype": "json"},
                 {"name": "verification", "dtype": "json"},
-                {
-                    "name": "steps",
-                    "list": [
-                        {"name": "n", "dtype": "int64"},
-                        {"name": "decision_basis", "dtype": "string"},
-                        {
-                            "name": "tool_call",
-                            "struct": [
-                                {"name": "name", "dtype": "string"},
-                                {"name": "args", "dtype": "json"},
-                            ],
-                        },
-                        {"name": "observation", "dtype": "string"},
-                        {"name": "reflection", "dtype": "string"},
-                    ],
-                },
+                STEPS_YAML_FEATURE,
                 {"name": "outcome", "dtype": "string"},
                 {"name": "reward", "dtype": "json"},
                 {"name": "meta", "dtype": "json"},
@@ -161,7 +126,7 @@ class RagRetrievalDebugDeclarationTests(unittest.TestCase):
         )
 
     def test_episode_only_extras_are_optional_json_columns(self):
-        names = {feature["name"]: feature for feature in self.declaration["features"]}
+        names = self.names()
         expected = [
             "error_introduced",
             "propagation",
@@ -181,8 +146,7 @@ class RagRetrievalDebugDeclarationTests(unittest.TestCase):
                 self.assertRegex(feature["note"], r"(?:drift|cast failure)")
 
     def test_json_columns_include_episode_objects_and_key_bags(self):
-        self.assertEqual(
-            card_schema.json_columns(self.declaration["features"]),
+        self.assert_json_columns(
             [
                 "error_introduced",
                 "propagation",
@@ -192,40 +156,34 @@ class RagRetrievalDebugDeclarationTests(unittest.TestCase):
                 "steps[].tool_call.args",
                 "reward",
                 "meta",
-            ],
+            ]
         )
 
     def test_card_front_matter_declares_the_default_config_over_raw_batches(self):
-        front_matter = self.card.split("---", 2)[1]
-        self.assertIn("configs:\n- config_name: default\n", front_matter)
-        self.assertIn('    path: "data/raw/batch-*.jsonl"\n', front_matter)
-        self.assertIn("  - name: reward\n    dtype: json\n", front_matter)
-        self.assertIn("  - name: meta\n    dtype: json\n", front_matter)
-        self.assertIn("  - name: error_introduced\n    dtype: json\n", front_matter)
-        self.assertIn("  - name: propagation\n    dtype: json\n", front_matter)
-        self.assertNotIn("optional", front_matter)
-        self.assertNotIn("note:", front_matter)
-        self.assertIn("license: apache-2.0", front_matter)
-        self.assertIn("**not training-ready**", self.card)
+        self.assert_front_matter_declares_default_config(
+            REWARD_JSON_YAML,
+            META_JSON_YAML,
+            "  - name: error_introduced\n    dtype: json\n",
+            "  - name: propagation\n    dtype: json\n",
+            absent=("optional", "note:"),
+        )
 
     def test_card_body_discloses_the_eighteen_dest_stamped_mill_records(self):
-        self.assertIn("## Dataset viewer schema", self.card)
-        self.assertNotIn("**Not declared yet.**", self.card)
+        self.assertIn(VIEWER_SCHEMA_HEADING, self.card)
+        self.assertNotIn(NOT_DECLARED, self.card)
         disclosure = self.declaration["disclosures"][0]
         self.assertEqual(disclosure["ids"], self.EVH_IDS)
         self.assertEqual(len(disclosure["ids"]), 18)
-        for record_id in self.EVH_IDS:
-            self.assertIn(f"`{record_id}`", self.card)
-        self.assertIn("issues/43", self.card)
-        self.assertIn("| `error_introduced` | optional |", self.card)
-        self.assertIn("| `steps[].reflection` | optional |", self.card)
-        # The third, unowned `sir-*` class is absent here and says so.
-        self.assertIn("No unowned third leftover class is present here.", self.card)
+        self.assert_card_names_records(self.EVH_IDS)
+        self.assert_card_has(
+            "issues/43",
+            "| `error_introduced` | optional |",
+            REFLECTION_OPTIONAL_ROW,
+            # The third, unowned `sir-*` class is absent here and says so.
+            "No unowned third leftover class is present here.",
+        )
 
-    @unittest.skipUnless(
-        RAG_RETRIEVAL_DEBUG_MIRROR.is_dir(),
-        "read-only published mirror is not available",
-    )
+    @needs_mirror(RAG_RETRIEVAL_DEBUG_MIRROR)
     def test_published_mirror_matches_the_snapshot_claims(self):
         payloads = sorted(RAG_RETRIEVAL_DEBUG_MIRROR.glob("batch-*.jsonl"))
         self.assertEqual(len(payloads), 938)
