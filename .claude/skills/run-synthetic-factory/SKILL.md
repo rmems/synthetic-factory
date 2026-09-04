@@ -117,7 +117,7 @@ python3 .claude/skills/run-synthetic-factory/driver.py \
 and OMIT every factory whose `early_stop` is true — that flag is the current
 trailing two-low streak, not a historical latch (a later healthy NOTES clears
 it). The workflow skips factories with no start. Re-include a still-plateaued
-factory only when its prompt, quotas, or gap targets have changed enough to
+factory only when its generator, quotas, or gap targets have changed enough to
 expect fresh novelty.
 
 The flag only exists if rounds report their novelty, so `round_txn.py publish`

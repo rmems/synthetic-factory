@@ -15,18 +15,21 @@ class ProtocolIsDocumentedAndWired(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.doc = (REPO / "docs" / "preference-isolation.md").read_text()
-        cls.prompt = (REPO / "prompts" / "05-failure-as-fuel-preference-cascade.md").read_text()
         cls.workflow = (
             REPO / ".claude" / "skills" / "run-synthetic-factory" / "factory-window.workflow.js"
         ).read_text()
         cls.publisher = (REPO / "pipelines" / "round_txn.py").read_text()
 
-    def test_single_session_path_is_deprecated_in_docs_and_prompt(self):
+    def test_single_session_path_is_deprecated_in_docs_and_workflow(self):
+        # The retired prompt lane carried this deprecation in
+        # prompts/05-failure-as-fuel-preference-cascade.md (preserved at
+        # tag legacy-prompt-factory-v0.2); on current main the workflow
+        # lane briefs and the protocol doc carry it.
         self.assertIn("single-session path is deprecated", self.doc.lower())
-        self.assertIn("single-session path is DEPRECATED", self.prompt)
+        self.assertIn("single-session path is DEPRECATED", self.workflow)
 
-    def test_docs_and_prompt_name_the_arm_gate_command(self):
-        for text in (self.doc, self.prompt):
+    def test_docs_and_workflow_name_the_arm_gate_command(self):
+        for text in (self.doc, self.workflow):
             self.assertIn("pipelines/preference_arms.py", text)
 
     def test_protocol_docs_do_not_create_markdown_work_items(self):
