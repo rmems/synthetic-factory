@@ -23,7 +23,10 @@ import os
 from pathlib import Path
 from typing import Any
 
-from curate_agentic_shapes import canonical_json
+if __package__:
+    from .curate_agentic_shapes import canonical_json
+else:
+    from curate_agentic_shapes import canonical_json
 
 
 def is_under_raw(path: Path) -> bool:

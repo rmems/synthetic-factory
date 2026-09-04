@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipelines"))
 
 from gate_fixtures import write  # noqa: E402
+from exact_json import parse_finite_json_float  # noqa: E402
 import quality_gate  # noqa: E402
 import quality_gate_identity  # noqa: E402
 
@@ -112,9 +113,9 @@ class QualityGateIdentityRegressions(unittest.TestCase):
                 ],
             },
             "excerpt": [
-                {"t_ms": 1.5, "neuron_id": 1, "channel": f"{label}-onset"},
+                {"t_us": 1500, "neuron_id": 1, "channel": f"{label}-onset"},
                 {
-                    "t_ms": window_ms - 1,
+                    "t_us": (window_ms - 1) * 1000,
                     "neuron_id": neurons - 1,
                     "channel": f"{label}-offset",
                 },
@@ -180,6 +181,71 @@ class QualityGateIdentityRegressions(unittest.TestCase):
         self.assertEqual(report["counts"]["unique_hashes"], 2)
         self.assertEqual(report["counts"]["excluded_records"], 0)
 
+    def test_exact_decimal_raster_tokens_remain_distinct_identities(self):
+        first = self._bridge_fixture()
+        second = copy.deepcopy(first)
+        first_rate = parse_finite_json_float("25.000000000000001")
+        second_rate = parse_finite_json_float("25.0")
+        self.assertEqual(float(first_rate), float(second_rate))
+        first["raster"]["mean_rate_hz"] = first_rate
+        second["raster"]["mean_rate_hz"] = second_rate
+
+        self.assertNotEqual(
+            quality_gate_identity._canonical_record_blob(
+                quality_gate_identity.exact_identity_view(first)
+            ),
+            quality_gate_identity._canonical_record_blob(
+                quality_gate_identity.exact_identity_view(second)
+            ),
+        )
+        self.assertNotEqual(
+            quality_gate_identity.record_hash(first),
+            quality_gate_identity.record_hash(second),
+        )
+
+    def test_equal_decimal_spellings_share_one_identity(self):
+        records = []
+        for token in ("25.0", "25.00", "2.5e1"):
+            record = self._bridge_fixture()
+            record["raster"]["mean_rate_hz"] = parse_finite_json_float(token)
+            records.append(record)
+
+        self.assertEqual(
+            {quality_gate_identity.record_hash(record) for record in records},
+            {quality_gate_identity.record_hash(records[0])},
+        )
+
+    def test_quality_gate_deduplicates_equal_decimal_spellings_from_jsonl(self):
+        record = self._bridge_fixture()
+        record["raster"]["mean_rate_hz"] = "__RATE__"
+        template = json.dumps(record, separators=(",", ":"))
+        payload = "\n".join(
+            template.replace('"__RATE__"', token) for token in ("25.0", "25.00")
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "batch.jsonl").write_text(payload + "\n", encoding="utf-8")
+
+            report = quality_gate.audit_run(root)
+
+        self.assertEqual(len(report["duplicates"]), 1)
+        self.assertEqual(report["duplicates"][0]["kind"], "exact")
+
+    def test_quality_gate_hashes_boundary_decimal_without_expanding_it(self):
+        record = self._bridge_fixture()
+        record["raster"]["mean_rate_hz"] = "__RATE__"
+        payload = json.dumps(record, separators=(",", ":")).replace(
+            '"__RATE__"', "1e-4096"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "batch.jsonl").write_text(payload + "\n", encoding="utf-8")
+
+            report = quality_gate.audit_run(root, embedding_dedup=False)
+
+        self.assertEqual(report["errors"]["malformed_lines"], 0)
+        self.assertEqual(report["counts"]["total"], 1)
+
     def test_bridge_raster_root_and_meta_carriers_share_identity(self):
         for scope in ("standalone", "chosen", "rejected"):
             with self.subTest(scope=scope):
@@ -209,9 +275,7 @@ class QualityGateIdentityRegressions(unittest.TestCase):
                     quality_gate_identity.semantic_similarity_view(meta_object), scope
                 )
                 self.assertEqual(
-                    side["language_view"]["trajectory"]["executed_action"][
-                        "record_id"
-                    ],
+                    side["language_view"]["trajectory"]["executed_action"]["record_id"],
                     "modeled-raster-asset-42",
                 )
                 self.assertEqual((top_object, meta_object), originals)
@@ -241,9 +305,7 @@ class QualityGateIdentityRegressions(unittest.TestCase):
                     }
                     objects.append(self._wrap_bridge(bridge, scope))
                 originals = copy.deepcopy(objects)
-                views = [
-                    quality_gate_identity.exact_identity_view(item) for item in objects
-                ]
+                views = [quality_gate_identity.exact_identity_view(item) for item in objects]
                 sides = [self._bridge_side(view, scope) for view in views]
 
                 self.assertTrue(all(side["raster"] == selected_raster for side in sides))
@@ -268,9 +330,7 @@ class QualityGateIdentityRegressions(unittest.TestCase):
                     quality_gate_identity.semantic_similarity_view(objects[0]), scope
                 )
                 self.assertEqual(
-                    semantic_side["language_view"]["trajectory"]["executed_action"][
-                        "record_id"
-                    ],
+                    semantic_side["language_view"]["trajectory"]["executed_action"]["record_id"],
                     "modeled-raster-asset-42",
                 )
                 self.assertEqual(objects, originals)
@@ -294,10 +354,7 @@ class QualityGateIdentityRegressions(unittest.TestCase):
                     }
                     objects.append(self._wrap_bridge(bridge, scope))
                 originals = copy.deepcopy(objects)
-                views = [
-                    quality_gate_identity.exact_identity_view(item)
-                    for item in objects
-                ]
+                views = [quality_gate_identity.exact_identity_view(item) for item in objects]
                 sides = [self._bridge_side(view, scope) for view in views]
 
                 self.assertEqual(
@@ -320,9 +377,7 @@ class QualityGateIdentityRegressions(unittest.TestCase):
                 self.assertEqual(objects, originals)
                 report = self._audit(objects)
                 self.assertEqual(report["counts"]["duplicate_groups"], 0)
-                self.assertTrue(
-                    all(item["kind"] != "exact" for item in report["duplicates"])
-                )
+                self.assertTrue(all(item["kind"] != "exact" for item in report["duplicates"]))
 
     def test_bridge_root_raster_preserves_nonredundant_meta_carrier(self):
         selected = self._bridge_fixture()["raster"]
@@ -351,16 +406,12 @@ class QualityGateIdentityRegressions(unittest.TestCase):
                     }
                 objects = [self._wrap_bridge(item, scope) for item in records]
                 originals = copy.deepcopy(objects)
-                views = [
-                    quality_gate_identity.exact_identity_view(item) for item in objects
-                ]
+                views = [quality_gate_identity.exact_identity_view(item) for item in objects]
                 sides = [self._bridge_side(view, scope) for view in views]
 
                 self.assertEqual(views[0], views[1])
                 self.assertNotIn("raster_unselected", sides[1])
-                self.assertEqual(
-                    sides[2]["raster_unselected"], {"meta": conflicting}
-                )
+                self.assertEqual(sides[2]["raster_unselected"], {"meta": conflicting})
                 self.assertEqual(
                     sides[3]["raster_unselected"],
                     {"meta": malformed_values[0]},
@@ -386,19 +437,15 @@ class QualityGateIdentityRegressions(unittest.TestCase):
         trajectory = self._bridge_fixture()
         safety_decision = self._bridge_fixture()
         top_level["gate_compute"] = copy.deepcopy(budget)
-        trajectory["language_view"]["trajectory"]["gate_compute"] = copy.deepcopy(
-            budget
+        trajectory["language_view"]["trajectory"]["gate_compute"] = copy.deepcopy(budget)
+        safety_decision["language_view"]["trajectory"]["safety_decision"]["gate_compute"] = (
+            copy.deepcopy(budget)
         )
-        safety_decision["language_view"]["trajectory"]["safety_decision"][
-            "gate_compute"
-        ] = copy.deepcopy(budget)
 
         records = (top_level, trajectory, safety_decision)
         originals = copy.deepcopy(records)
         exact_views = [quality_gate_identity.exact_identity_view(item) for item in records]
-        semantic_views = [
-            quality_gate_identity.semantic_similarity_view(item) for item in records
-        ]
+        semantic_views = [quality_gate_identity.semantic_similarity_view(item) for item in records]
 
         self.assertTrue(all(view == exact_views[0] for view in exact_views[1:]))
         self.assertTrue(all(view == semantic_views[0] for view in semantic_views[1:]))
@@ -423,9 +470,7 @@ class QualityGateIdentityRegressions(unittest.TestCase):
         }
 
         safety_view = quality_gate_identity.exact_identity_view(safety_only)
-        self.assertNotIn(
-            "safety_decision", safety_view["language_view"]["trajectory"]
-        )
+        self.assertNotIn("safety_decision", safety_view["language_view"]["trajectory"])
         self.assertEqual(
             safety_view,
             quality_gate_identity.exact_identity_view(top_level),
@@ -448,13 +493,11 @@ class QualityGateIdentityRegressions(unittest.TestCase):
         self.assertEqual(root_redundant, root_snapshot)
 
         trajectory_only = self._bridge_fixture()
-        trajectory_only["language_view"]["trajectory"]["gate_compute"] = (
+        trajectory_only["language_view"]["trajectory"]["gate_compute"] = copy.deepcopy(budget)
+        trajectory_redundant = copy.deepcopy(trajectory_only)
+        trajectory_redundant["language_view"]["trajectory"]["safety_decision"]["gate_compute"] = (
             copy.deepcopy(budget)
         )
-        trajectory_redundant = copy.deepcopy(trajectory_only)
-        trajectory_redundant["language_view"]["trajectory"]["safety_decision"][
-            "gate_compute"
-        ] = copy.deepcopy(budget)
         self.assertEqual(
             quality_gate_identity.exact_identity_view(trajectory_redundant),
             quality_gate_identity.exact_identity_view(trajectory_only),
@@ -473,24 +516,16 @@ class QualityGateIdentityRegressions(unittest.TestCase):
         self.assertEqual(root_view["gate_compute"], preferred)
         self.assertEqual(root_view["language_view"]["trajectory"]["gate_compute"], conflicting)
         self.assertEqual(
-            root_view["language_view"]["trajectory"]["safety_decision"][
-                "gate_compute"
-            ],
+            root_view["language_view"]["trajectory"]["safety_decision"]["gate_compute"],
             "malformed-budget",
         )
 
         trajectory_selected = self._bridge_fixture()
         trajectory_view = trajectory_selected["language_view"]["trajectory"]
         trajectory_view["gate_compute"] = copy.deepcopy(preferred)
-        trajectory_view["safety_decision"]["gate_compute"] = copy.deepcopy(
-            conflicting
-        )
-        normalized_trajectory = quality_gate_identity.exact_identity_view(
-            trajectory_selected
-        )
-        normalized_trajectory_view = normalized_trajectory["language_view"][
-            "trajectory"
-        ]
+        trajectory_view["safety_decision"]["gate_compute"] = copy.deepcopy(conflicting)
+        normalized_trajectory = quality_gate_identity.exact_identity_view(trajectory_selected)
+        normalized_trajectory_view = normalized_trajectory["language_view"]["trajectory"]
         self.assertEqual(normalized_trajectory["gate_compute"], preferred)
         self.assertNotIn("gate_compute", normalized_trajectory_view)
         self.assertEqual(
@@ -506,9 +541,7 @@ class QualityGateIdentityRegressions(unittest.TestCase):
         normalized_safety_view = normalized_safety["language_view"]["trajectory"]
         self.assertEqual(normalized_safety["gate_compute"], preferred)
         self.assertEqual(normalized_safety_view["gate_compute"], "malformed-budget")
-        self.assertNotIn(
-            "gate_compute", normalized_safety_view["safety_decision"]
-        )
+        self.assertNotIn("gate_compute", normalized_safety_view["safety_decision"])
 
     def test_bridge_malformed_root_survives_nested_budget_normalization(self):
         budget = self._gate_compute(640, 15, 0.05)
@@ -524,9 +557,7 @@ class QualityGateIdentityRegressions(unittest.TestCase):
                         trajectory["gate_compute"] = copy.deepcopy(budget)
                     else:
                         trajectory["gate_compute"] = "malformed-nested-carrier"
-                        trajectory["safety_decision"]["gate_compute"] = (
-                            copy.deepcopy(budget)
-                        )
+                        trajectory["safety_decision"]["gate_compute"] = copy.deepcopy(budget)
 
                 first_view = quality_gate_identity.exact_identity_view(first)
                 second_view = quality_gate_identity.exact_identity_view(second)
@@ -592,9 +623,9 @@ class QualityGateIdentityRegressions(unittest.TestCase):
                 self.assertEqual(report["duplicates"][0]["similarity"], 1.0)
 
                 different_action = copy.deepcopy(second)
-                different_action[arm]["language_view"]["trajectory"][
-                    "executed_action"
-                ]["record_id"] = "modeled-asset-99"
+                different_action[arm]["language_view"]["trajectory"]["executed_action"][
+                    "record_id"
+                ] = "modeled-asset-99"
                 self.assertNotEqual(
                     first_view,
                     quality_gate_identity.semantic_similarity_view(different_action),
@@ -605,9 +636,7 @@ class QualityGateIdentityRegressions(unittest.TestCase):
         top_level = self._bridge_fixture()
         nested = self._bridge_fixture()
         top_level["gate_compute"] = copy.deepcopy(budget)
-        nested["language_view"]["trajectory"]["gate_compute"] = copy.deepcopy(
-            budget
-        )
+        nested["language_view"]["trajectory"]["gate_compute"] = copy.deepcopy(budget)
         rejected = {
             "state": {"task": "compare the same bridge record"},
             "executed_action": {"action": "hold"},

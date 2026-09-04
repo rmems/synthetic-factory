@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "dataset": "sparse-reward-long-tasks",
+  "issues": [45],
+  "note": "The viewer schema is declared by hand because `reward` is a key-bag: the datasets-server infers `struct<success: bool>` from the earliest shards, whose 15 records carry only `success`, then cannot cast the 6536 later records that also carry `terminal_only` and `horizon_steps` (plus `mid_reward_steps` on 1063 of them). Declaring the union fixes the index without rewriting a single historical raw record.",
+  "config_name": "default",
+  "split": "train",
+  "data_files": ["data/raw/batch-*.jsonl"],
+  "features": [
+    {"name": "id", "dtype": "string"},
+    {"name": "goal", "dtype": "string"},
+    {"name": "plan", "dtype": "string"},
+    {
+      "name": "steps",
+      "list": [
+        {"name": "n", "dtype": "int64"},
+        {"name": "decision_basis", "dtype": "string"},
+        {
+          "name": "tool_call",
+          "struct": [
+            {"name": "name", "dtype": "string"},
+            {
+              "name": "args",
+              "dtype": "json",
+              "note": "always an object; keys differ per tool (`path`, `command`, `old`, `new`, `pattern`, `contents`, `glob`, `limit`, `offset`)"
+            }
+          ]
+        },
+        {"name": "observation", "dtype": "string"},
+        {
+          "name": "reflection",
+          "dtype": "string",
+          "optional": true,
+          "note": "present on 16252 of 211140 steps"
+        }
+      ]
+    },
+    {"name": "outcome", "dtype": "string"},
+    {
+      "name": "reward",
+      "dtype": "json",
+      "note": "key-bag: `success` (bool) on all 6551 records, `terminal_only` (bool) and `horizon_steps` (int) on 6536, `mid_reward_steps` (int) on 1063; the three observed key sets are 5473 x {success, terminal_only, horizon_steps}, 1063 x {success, terminal_only, horizon_steps, mid_reward_steps}, 15 x {success}"
+    },
+    {
+      "name": "meta",
+      "dtype": "json",
+      "note": "key-bag: `factory`, `generator`, `round` on all 6551 records, plus `plant` on 939 and `domain` / `shop` on 585"
+    }
+  ],
+  "disclosures": [
+    {
+      "summary": "Six records are designed leftover-mill phrasing: their goal, steps, and outcome repeat the filler token `leftover` (198 occurrences per record, against at most 25 in any other record). They are `sparse-reward-long-task-factory` episodes stamped with this dataset's own factory and carry the same episode schema as their neighbours, so they are a designed artifact of this factory rather than a foreign dump; they are kept exactly as generated.",
+      "ids": [
+        "srl-r6134-networkd-dhcp-ipv4-only-c67a",
+        "srl-r6135-chrony-maxslewrate-vs-ntpd-ffb5",
+        "srl-r6136-nft-flowtable-timeout-vs-ipt-035c",
+        "srl-r6137-podman-events-logger-journald-e10f",
+        "srl-r6138-buildah-format-oci-vs-docker-b703",
+        "srl-r6139-skopeo-dest-tls-verify-db0f"
+      ],
+      "issues": [45]
+    },
+    {
+      "summary": "This factory is the source, not the host, of the published dest-stamped `srl-*` rows in the frozen leftover-mill census: `srl-r500-networkd-dhcp-ipv4-only-c67a` sits in `observability-debug-trajectories` and `srl-r641`-`srl-r645` sit in `eval-harness-trajectories`, all six stamped `meta.factory = sparse-reward-long-task-factory`. None of them is published here, and every one of this dataset's own 6551 records carries `meta.factory = sparse-reward-long-task-factory` and `meta.generator = grok-4.6`, so there is no factory mix and no dest-stamped foreign payload in this dataset.",
+      "issues": [43]
+    },
+    "The `leftover` in this dataset's blurb is its subject matter, so the token alone marks nothing: 5958 of 6551 records mention it somewhere, 32 records beyond the six named above use it in the goal as ordinary leftover-state language (a leftover `_acme-challenge` TXT record, leftover PDFs in `/tmp`, a leftover socket), and 939 records carry `meta.plant = designed`. Only the six records named above are the designed leftover-mill batch.",
+    "Every one of the 211140 steps publishes a public `decision_basis`. There are no hidden `thought` or `internal_reasoning` fields."
+  ]
+}
