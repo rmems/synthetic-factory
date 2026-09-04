@@ -26,6 +26,15 @@ FIXTURES = REPO / "tests" / "fixtures"
 
 
 class FactoryDriverSmoke(unittest.TestCase):
+    def test_runtime_sidecars_do_not_depend_on_the_test_fixture_tree(self):
+        with tempfile.TemporaryDirectory() as td, mock.patch.object(
+            factory_driver, "REPO", Path(td)
+        ):
+            sidecars = factory_driver.distillation_sidecars()
+
+        self.assertEqual(sidecars["gate_snn"]["decision"], "ACCEPT")
+        self.assertTrue(sidecars["raster"]["routing"]["table"])
+
     def test_smoke_exercises_the_notes_gate_and_plateau_latch(self):
         buffer = StringIO()
 

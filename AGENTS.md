@@ -56,6 +56,76 @@ Cite this section instead of inventing defensive defaults.
   follow-up after that window. Do **not** add `Co-authored-by: Claude` to
   restacks, GitHub rebases, Grok recovery merges, or any later commit.
   A copied Claude trailer on a later SHA is a restack, not new Claude work.
+  The rule is about that Fable 5 window, not about Claude as such: a later
+  Claude model signs only the commits it authored itself, with its own
+  trailer (`Co-Authored-By: Claude Fable 5.1` or `Co-authored-by: Claude
+  Opus 5 (1M context)`, each followed by the usual Anthropic noreply
+  address), and merge, restack or recovery commits carry no Claude trailer
+  at all.
+
+## Generator rule
+
+Frontier hosted-model outputs (Claude Fable 5, GPT-5.6-Sol, Grok 4.6, Muse
+Spark) are research-only under #161 (`intended_use: research_only`,
+`project_training_policy: blocked`). Training-candidate data comes from
+procedural generators, deterministic in-repo simulators, and later DeepSeek /
+Nemotron lanes (#170). Every generator, in either lane, follows this rule:
+
+- **No generator-specific literals in shared pipelines.** `round_txn`,
+  `curate_*`, `compose_*`, and `export_hf` read `config/FACTORY-REGISTRY.json`
+  only. The `grok-4.6` literal in `pipelines/round_txn.py` is tracked as #174;
+  do not copy the pattern.
+- **One generator = one registry row per factory it publishes + one package
+  under `generators/` + one fixture under `tests/fixtures/` + one test
+  module.** Rows are keyed by exact `path_id` + `payload_factory`, so a
+  generator serving several factories owns one row each; missing any of the
+  four parts means the generator is not onboarded.
+- **Provenance stamps carry `generator`, `generator_version`, `catalog_digest`,
+  and `catalog_authorship`.** For new in-repo generators `generator_version`
+  is the source digest; the legacy frontier rows keep their model-version
+  tokens (`fable-5`, `grok-4.6`) and their immutable provenance is not
+  rewritten. A catalog authored in
+  a frontier session makes every record research-only (#173); only
+  human-authored or permissively sourced catalogs with an authorship
+  attestation yield training candidates.
+- **Generators do not hop factories or rewrite `meta.factory`.** A record is
+  published under the factory it was generated for; a mismatch is quarantined
+  by identity, not patched. A generator that needs another factory gets its
+  own registry row.
+- **`outputs/raw/` stays immutable.** Generators append new rounds through the
+  transactional round path; a defective published record is superseded by a
+  new round or a quarantine-ledger entry, not edited in place.
+- **The prompt-driven lane is legacy.** Prompts pasted into a hosted chat
+  produce research-only records; do not scale that lane to accumulate tokens.
+
+## Hugging Face card viewer schemas
+
+Published cards declare their Dataset Viewer schema by hand, one JSON file per
+dataset at `config/card-schemas/<hub-dataset-name>.json`. The format and the
+rules live in `pipelines/card_schema.py`. Audit the set with:
+
+```bash
+python3 scripts/publish_grok46_hub.py schemas          # lists declared/undeclared
+python3 scripts/publish_grok46_hub.py schemas --strict # nonzero while any gap remains
+```
+
+Each declared dataset has a leaf test module,
+`tests/test_card_schema_issue_<pr>.py`, that subclasses `DeclarationTestCase`
+from `tests/card_schema_test_support.py`: set `DATASET`, `ISSUE`, `HUB_ITEM`
+and `SUMMARY`, then keep only the dataset-specific expectations. The shared
+module owns the load/render fixture and the generic front-matter, key-bag
+and card-body checks; do not re-inline them in a leaf, qlty flags the copies
+as similar code.
+
+A dataset with no declaration publishes a card that says so. Never rewrite
+historical raw JSONL to fix a viewer schema — declare the union on the card.
+When even a declared union cannot describe a record honestly, the record is
+defective, not the schema: escalate through the quarantine-ledger path
+(`KIND_MIX_QUARANTINE` in `pipelines/leftover_mill.py`, documented in
+`docs/leftover-mill-quarantine.md`) — add the record's provenance to the
+ledger, open a tracking issue so the operator can review the quarantine, and
+let the published card report the exclusion. Both routes keep the raw bytes
+untouched.
 
 ## Parity oracles
 

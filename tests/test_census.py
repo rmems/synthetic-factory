@@ -524,6 +524,20 @@ class CensusBuckets(unittest.TestCase):
                     "unknown",
                 )
 
+    def test_reader_does_not_treat_bare_cr_as_a_jsonl_record_boundary(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "batch.jsonl"
+            path.write_bytes(b'{"id":"first"}\r{"id":"second"}\n')
+
+            decoded, parse_failures, unreadable = self.census._read_census_records(
+                path,
+                "batch.jsonl",
+            )
+
+        self.assertEqual(decoded, [])
+        self.assertEqual(parse_failures, 1)
+        self.assertEqual(unreadable, [])
+
     def test_overlapping_keys_follow_census_agentic_order(self):
         six = {
             "state": {},

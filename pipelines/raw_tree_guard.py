@@ -3,16 +3,26 @@
 from __future__ import annotations
 
 import os
+import sys
+from contextlib import suppress
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RAW_OUTPUT_ROOT = REPOSITORY_ROOT / "outputs" / "raw"
 
 
-def _stat_identity(path: Path) -> tuple[int, int] | None:
-    try:
+def _stat_path(path: Path) -> os.stat_result | None:
+    state = None
+    with suppress(OSError):
         state = path.stat()
-    except OSError:
+    return state
+
+
+def _stat_identity(path: Path) -> tuple[int, int] | None:
+    state = _stat_path(path)
+    if state is None:
         return None
     return state.st_dev, state.st_ino
 
@@ -40,12 +50,17 @@ def _ancestor_identities(path: Path) -> set[tuple[int, int]]:
     return identities
 
 
-def _has_raw_tree_components(path: Path) -> bool:
-    parts = path.parts
+def contains_raw_segments(parts: tuple[str, ...]) -> bool:
+    """Return whether path components contain the immutable raw-tree pair."""
+
     return any(
         parts[index : index + 2] == ("outputs", "raw")
         for index in range(len(parts) - 1)
     )
+
+
+def _has_raw_tree_components(path: Path) -> bool:
+    return contains_raw_segments(path.parts)
 
 
 def _names_raw_tree(path: Path, raw_root: Path) -> bool:
@@ -188,3 +203,28 @@ def is_under_raw(path: Path, raw_root: Path | None = None) -> bool:
     if _shares_root_inode(path, root):
         return True
     return _bind_mount_hits_raw(path, root)
+
+
+def _absent_sibling(_name: str, **_options: Any) -> ModuleType | None:
+    """Stand in for the package sibling lookup when ``pipelines`` is not importable."""
+
+    return None
+
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("raw_tree_guard")
+    _expose_package_sibling(__name__)
+else:
+    _package = sys.modules.get("pipelines")
+    getattr(_package, "_join_package_sibling", lambda name: None)("raw_tree_guard")
+    _current = sys.modules[__name__]
+    _local = getattr(_package, "_local_sibling_module", _absent_sibling)(
+        "raw_tree_guard",
+        allow_initializing=True,
+    )
+    if _local is _current:
+        sys.modules.setdefault("pipelines.raw_tree_guard", _current)
+        setattr(_package, "raw_tree_guard", _current)
+    del _current, _local, _package

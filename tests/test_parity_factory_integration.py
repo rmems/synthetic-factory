@@ -24,6 +24,7 @@ sys.path.insert(0, str(PIPELINES))
 
 import census  # noqa: E402
 import check_records  # noqa: E402
+import exact_json  # noqa: E402
 from oracle_grounded import parity_contract as contract  # noqa: E402
 import validate_run  # noqa: E402
 
@@ -166,6 +167,39 @@ class DeepLayer(unittest.TestCase):
         totals = json.loads(result.stdout)
         self.assertEqual(totals["error_count"], 0)
         self.assertEqual(totals["warning_count"], 0)
+
+    def test_deep_layer_accepts_exactly_decoded_floats(self):
+        # check_jsonl decodes floats as exact_json.ExactJSONFloat, a float
+        # subclass; the family validators compare type-strictly against plain
+        # floats, so the deep layer must hand them the record as their own
+        # readers parse it.
+        for path, expected_kind in (
+            (HARDWARE_BATCH, "hardware_parity"),
+            (NIR_BATCH, "nir_equivalence"),
+        ):
+            line = path.read_text(encoding="utf-8").splitlines()[0]
+            record = json.loads(line, parse_float=exact_json.parse_finite_json_float)
+            errors, warnings, kind, _id = check_records.check_record(record, "unit:1")
+            with self.subTest(kind=expected_kind):
+                self.assertEqual(kind, expected_kind)
+                self.assertEqual(errors, [])
+                self.assertEqual(warnings, [])
+
+    def test_deep_layer_routes_parity_kinds_in_package_mode(self):
+        # round_txn imports the deep layer as pipelines.check_records, where
+        # pipelines/ is not on sys.path; the family validators must still load.
+        code = (
+            "import json\n"
+            "import pipelines.check_records as check_records\n"
+            f"line = open({str(HARDWARE_BATCH)!r}, encoding='utf-8').readline()\n"
+            "errors, _w, kind, _i = check_records.check_record(json.loads(line), 'pkg:1')\n"
+            "print(json.dumps([kind, errors]))\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code], cwd=REPO, capture_output=True, text=True
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), ["hardware_parity", []])
 
     def test_deep_layer_recomputes_hardware_parity_metrics(self):
         record = copy.deepcopy(_records(HARDWARE_BATCH)[0])
