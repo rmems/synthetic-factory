@@ -15,6 +15,8 @@ if str(TESTS) not in sys.path:
 from training_audit_test_helpers import REPO, thalamic, write  # noqa: E402
 
 import training_audit  # noqa: E402
+import training_audit_mill  # noqa: E402
+from exact_json import MAX_JSON_NESTING_DEPTH  # noqa: E402
 
 
 class LeftoverMillDenominator(unittest.TestCase):
@@ -106,6 +108,40 @@ class LeftoverMillDenominator(unittest.TestCase):
             {"median": float(expected), "p95": expected, "max": expected},
         )
 
+    def test_quarantined_record_skips_exact_json_training_invariants(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            foreign = self._episode(
+                "evh-r21-cite-orphan-c3e8",
+                "eval-harness-trajectory-factory",
+            )
+            foreign["extension"] = "DEPTH_SENTINEL"
+            eligible = self._episode(
+                "rag-r21-chunk-leftover-cite",
+                "rag-retrieval-debug-factory",
+            )
+            foreign_payload = json.dumps(foreign).replace(
+                '"DEPTH_SENTINEL"',
+                "[" * (MAX_JSON_NESTING_DEPTH + 1)
+                + "0"
+                + "]" * (MAX_JSON_NESTING_DEPTH + 1),
+                1,
+            )
+            path = root / "rag-retrieval-debug-factory" / "batch-r21.jsonl"
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                foreign_payload + "\n" + json.dumps(eligible) + "\n",
+                encoding="utf-8",
+            )
+
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["mill_mix"]["records"], 1)
+        self.assertEqual(report["totals"]["eligible_records"], 1)
+        self.assertEqual(report["totals"]["exact_json_contract_errors"], 0)
+        self.assertEqual(report["record_invariants"]["errors"], 0)
+        self.assertTrue(report["training_ready"], report["blockers"])
+
     def test_all_foreign_registered_destination_keeps_verified_identity(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -170,6 +206,26 @@ class LeftoverMillDenominator(unittest.TestCase):
             2,
         )
         self.assertFalse(report["training_ready"])
+
+    def test_snapshot_index_preserves_physical_line_coordinates(self):
+        """Malformed rows are skipped without renumbering later mill findings."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            relative = Path("email-webhook-retry-factory/batch-r56.jsonl")
+            foreign = self._episode(
+                "sir-r56-meili-swap-leftover3c-rebuild",
+                "search-index-rebuild-factory",
+            )
+            payload = b'{"id":"bad-\xff"}\n\n' + json.dumps(foreign).encode() + b"\n"
+
+            findings = training_audit_mill._index_findings(
+                root,
+                [(relative, payload)],
+            )
+
+        self.assertTrue(findings)
+        self.assertEqual({finding.ref for finding in findings}, {(relative.as_posix(), 3)})
 
     def test_clean_corpus_reports_a_full_eligible_denominator(self):
         with tempfile.TemporaryDirectory() as td:

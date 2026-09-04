@@ -18,24 +18,31 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
-from curate_identity import default_registry  # noqa: E402
-from mill_family import (  # noqa: E402
-    MillFinding,
-    MillIndex,
-    factory_identity_for_path as shared_factory_identity_for_path,
-    summarize as summarize_mill_mix,
-)
-from record_kind import THALAMIC_REQUIRED, classify_kind  # noqa: E402
-from round_txn import (  # noqa: E402
-    TransactionError,
-    committed_jsonl_paths,
-    marker_mode_path,
-)
-from validate_run import reject_json_constant  # noqa: E402
+if __package__:
+    from .curate_identity import default_registry
+    from .mill_family import (
+        MillFinding,
+        MillIndex,
+        factory_identity_for_path as shared_factory_identity_for_path,
+        summarize as summarize_mill_mix,
+    )
+    from .record_kind import THALAMIC_REQUIRED, classify_kind
+    from .round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
+    from .validate_run import reject_json_constant
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from curate_identity import default_registry
+    from mill_family import (
+        MillFinding,
+        MillIndex,
+        factory_identity_for_path as shared_factory_identity_for_path,
+        summarize as summarize_mill_mix,
+    )
+    from record_kind import THALAMIC_REQUIRED, classify_kind
+    from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
+    from validate_run import reject_json_constant
 
 KINDS = (
     "thalamic",
@@ -55,6 +62,7 @@ __all__ = [
     "bucket_sim_or_real",
     "census_dir",
     "classify_kind",
+    "enclosing_marker_root",
     "factory_for_path",
     "factory_identity_for_path",
     "iter_sim_or_real",
@@ -113,7 +121,7 @@ def iter_sim_or_real(obj):
             yield from iter_sim_or_real(item)
 
 
-def _enclosing_marker_root(run_dir: Path, path: Path) -> Path | None:
+def enclosing_marker_root(run_dir: Path, path: Path) -> Path | None:
     """Return the nearest marker-mode factory enclosing ``path``."""
 
     current = path.parent
@@ -126,6 +134,10 @@ def _enclosing_marker_root(run_dir: Path, path: Path) -> Path | None:
         if parent == current:  # Defensive: ``relative_to`` should prevent this.
             return None
         current = parent
+
+
+# Compatibility alias for direct callers of the pre-split private helper.
+_enclosing_marker_root = enclosing_marker_root
 
 
 def visible_jsonl_paths(run_dir: Path) -> list[Path]:
@@ -142,7 +154,7 @@ def visible_jsonl_paths(run_dir: Path) -> list[Path]:
     for path in sorted(run_dir.rglob("*.jsonl")):
         if not path.is_file() or path.is_symlink():
             continue
-        marker_root = _enclosing_marker_root(run_dir, path)
+        marker_root = enclosing_marker_root(run_dir, path)
         if marker_root is None:
             visible.append(path)
             continue
@@ -164,7 +176,7 @@ def factory_identity_for_path(
     return shared_factory_identity_for_path(
         run_dir,
         path,
-        marker_root=_enclosing_marker_root(run_dir, path),
+        marker_root=enclosing_marker_root(run_dir, path),
         # The reviewed factory registry is the source of truth for which
         # directory names are a known factory. The round-quota table
         # (FACTORY_QUOTAS) only covers factories with an active quota; a
@@ -199,7 +211,10 @@ def _read_census_records(path: Path, source: str):
     decoded = []
     parse_failures = 0
     unreadable = []
-    for lineno, raw_line in enumerate(path.read_bytes().splitlines(), 1):
+    # A JSONL record ends only at a literal LF byte.  CRLF leaves JSON
+    # whitespace on the record; a bare CR remains within the physical record
+    # and must not turn malformed bytes into two apparently valid records.
+    for lineno, raw_line in enumerate(path.read_bytes().split(b"\n"), 1):
         if not raw_line.strip():
             continue
         try:

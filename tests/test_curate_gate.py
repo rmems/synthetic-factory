@@ -107,7 +107,7 @@ class IntegrationTests(unittest.TestCase):
             "order": 4,
             "bead": "sf-c5l.4",
             "transform": "reward_ontology",
-            "version": curate_rewards.ONTOLOGY_VERSION,
+            "version": curate_rewards.REWARD_TRANSFORM_VERSION,
             "outputs_dir": outputs,
             "manifest_path": manifest,
             "manifest_format": "json",

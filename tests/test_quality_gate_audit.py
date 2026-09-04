@@ -19,8 +19,49 @@ from quality_gate_test_support import (  # noqa: E402
     mix_records,
 )
 import quality_gate  # noqa: E402
+from exact_json import MAX_JSON_NESTING_DEPTH  # noqa: E402
 
 class QualityGate(unittest.TestCase):
+    def test_exact_valid_source_depth_is_not_expanded_past_identity_limit(self):
+        identity_depth = MAX_JSON_NESTING_DEPTH // 2 + 1
+        nested = "[" * identity_depth + "0" + "]" * identity_depth
+        payload = (
+            '{"id":"deep","state":{"sim_or_real":"real","extension":'
+            + nested
+            + "}}\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "batch.jsonl").write_text(payload, encoding="utf-8")
+
+            report = quality_gate.audit_run(root)
+
+        self.assertEqual(report["counts"]["total"], 1)
+        self.assertEqual(report["counts"]["malformed_lines"], 0)
+        self.assertEqual(report["counts"]["unique_hashes"], 1)
+
+    def test_source_beyond_exact_depth_limit_remains_malformed(self):
+        nested = "[" * (MAX_JSON_NESTING_DEPTH + 1) + "0" + "]" * (
+            MAX_JSON_NESTING_DEPTH + 1
+        )
+        payload = (
+            '{"id":"too-deep","state":{"sim_or_real":"real","extension":'
+            + nested
+            + "}}\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "batch.jsonl").write_text(payload, encoding="utf-8")
+
+            report = quality_gate.audit_run(root)
+
+        self.assertEqual(report["counts"]["total"], 0)
+        self.assertEqual(report["counts"]["malformed_lines"], 1)
+        self.assertIn(
+            "JSON nesting",
+            report["errors"]["malformed_examples"][0]["error"],
+        )
+
     def test_record_hash_survives_malformed_preference_records(self):
         for malformed in (
             {"chosen": {"state": {"a": 1}}},           # no rejected side
@@ -64,6 +105,18 @@ class QualityGate(unittest.TestCase):
 
         self.assertEqual(report["counts"]["total"], 3)
         self.assertEqual(report["mix"]["unlabeled"], 3)
+
+    def test_bare_cr_does_not_create_two_valid_quality_gate_records(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "batch.jsonl"
+            path.write_bytes(b'{"id":"first"}\r{"id":"second"}\n')
+
+            report = quality_gate.audit_run(root)
+
+        self.assertEqual(report["counts"]["total"], 0)
+        self.assertEqual(report["counts"]["malformed_lines"], 1)
+        self.assertTrue(report["blocked"])
 
     def test_preference_side_provenance_counts_once_per_pair(self):
         pair = {

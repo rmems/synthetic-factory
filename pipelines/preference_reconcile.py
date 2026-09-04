@@ -19,15 +19,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
-from preference_audit_diff import (  # noqa: E402
-    AUDIT_SOURCE_FILE_FIELDS,
-    source_files_by_path,
-)
-from preference_model import CurationRun  # noqa: E402
+if __package__:
+    from .preference_audit_diff import AUDIT_SOURCE_FILE_FIELDS, source_files_by_path
+    from .preference_model import CurationRun
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from preference_audit_diff import AUDIT_SOURCE_FILE_FIELDS, source_files_by_path
+    from preference_model import CurationRun
 
 __all__ = [
     "RECONCILE_COVERAGE_KEYS",
