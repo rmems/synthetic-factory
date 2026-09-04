@@ -39,17 +39,16 @@ _IDENTITY_FIELDS = (
     "bug_class",
     "plan",
     # Cascading-error recovery models the injected fault and its root-cause
-    # diagnosis as training fields (prompts/09-cascading-error-recovery-
-    # factory.md). Without them two records with identical goals, steps,
+    # diagnosis as training fields (cascading-error-recovery factory records). Without them two records with identical goals, steps,
     # outcomes and rewards but different faults and diagnoses collapse to one
     # exact hash, and promotion drops the second as a duplicate.
     "error_introduced",
     "diagnosis",
     # Thalamic distillation is driven by ``spike_events`` + ``state``
-    # (prompts/01-thalamic-trajectory-factory.md), and the event-language
+    # (thalamic-trajectory factory records), and the event-language
     # bridge models the paired language view, bridge notes, raster sidecar,
     # per-check gate-compute budget, and spike-implemented gate head
-    # (prompts/03-neuromorphic-event-language-bridge.md). The gate head is
+    # (neuromorphic-event-language-bridge factory records). The gate head is
     # carrier-normalized below; these fields keep the rest of a bridge
     # record's modeled content in the projection rather than only its stream.
     "spike_events",
@@ -58,7 +57,7 @@ _IDENTITY_FIELDS = (
     "raster",
     "gate_compute",
     # Safety-calibration supervision is the gate label and its observable
-    # reason (prompts/12-safety-calibration-factory.md); goal/outcome/reward
+    # reason (safety-calibration factory records); goal/outcome/reward
     # alone cannot separate a correct refusal from a missed one.
     "case_type",
     "rationale",

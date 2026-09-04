@@ -2,7 +2,10 @@
 
 > Factory: `failure-as-fuel-preference-cascade` (sf-cic)  
 > Co-author: Muse Code powered by Muse Spark  
-> Contract: `prompts/_factory-contract.md` · Prompt: `prompts/05-failure-as-fuel-preference-cascade.md`
+> Contract (retired prompt lane preserved at tag `legacy-prompt-factory-v0.2`):
+> `prompts/_factory-contract.md` · `prompts/05-failure-as-fuel-preference-cascade.md`.
+> Current enforcement lives in `pipelines/preference_arms.py`,
+> `pipelines/round_txn.py publish`, and the workflow launcher below.
 
 ## 1. Purpose
 
@@ -30,8 +33,8 @@ Concretely, for every round generated from this point on:
 
 | Rule | Enforcement |
 |---|---|
-| `rejected` + diagnosis come from Session A only | `prompts/05-…md` Session A isolation rule; the launcher runs it as its own agent |
-| `chosen` comes from a fresh Session B whose only bridge is the diagnosis | `prompts/05-…md` Session B isolation rule; the launcher runs it as a separate agent |
+| `rejected` + diagnosis come from Session A only | §2.1 Session A isolation rule; the launcher runs it as its own agent |
+| `chosen` comes from a fresh Session B whose only bridge is the diagnosis | §2.2 Session B isolation rule; the launcher runs it as a separate agent |
 | A content-blind controller reserves with `--preference-isolation two-session` before Session A starts | The launcher validates the exact receipt, staging path, token, and diagnosis-only handoff; record metadata cannot substitute for the reservation assertion |
 | A separate arm-payload-blind verifier binds the diagnosis handoff before Session B starts | `preference_arms.py verify-handoff --write-receipt` validates the bounded six-section diagnosis format, rejects full-trajectory payload mappings, and exclusively persists exact basenames, byte counts, and SHA-256 digests; publication revalidates structure and receipt against captured bytes |
 | Each record also declares `meta.isolation: "two-session"` | `pipelines/preference_arms.py` rejects a missing, conflicting, or non-`two-session` declaration |
