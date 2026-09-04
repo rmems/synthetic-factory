@@ -1,0 +1,49 @@
+docs/preference-isolation.md
+  s_e110e928b58b00::t_a5f7c989346622 5-8,36-37
+.claude/skills/run-synthetic-factory/factory-window.workflow.js
+  s_e110e928b58b00::t_b36d2608be4eae 155-156,159-161
+  s_e110e928b58b00::t_de0d3f8f055af3 395,451,486,488
+  s_e110e928b58b00::t_c78cb6bcbe4014 1-6
+pipelines/mill_reviewed_vocabulary.py
+  s_e110e928b58b00::t_1510a1e9f0a2d2 21-23
+tests/test_restart_grok46_33.py
+  s_e110e928b58b00::t_97f9c142346d95 4
+  s_e110e928b58b00::t_4804a7ed4f84c5 174-177,190
+  s_e110e928b58b00::t_dca14e2a91210f 16-20
+docs/token-efficiency.md
+  s_e110e928b58b00::t_0a8d5715b4d127 34-41
+schemas/raster.schema.json
+  s_e110e928b58b00::t_4cf2e20a375102 225
+pipelines/coding_constants.py
+  s_e110e928b58b00::t_096868b42d818e 25-26
+pipelines/quality_gate_identity.py
+  s_e110e928b58b00::t_2df66892764e5a 42,48,51,60
+tests/test_workflow_contract.py
+  s_e110e928b58b00::t_81a73e7fb235b1 68,71-75,80-87,91
+  s_e110e928b58b00::t_712b57964a15cf 120,124-126
+  s_e110e928b58b00::t_a138f843a1d5b9 130,133-139,144-145,147-149,151-153
+  s_e110e928b58b00::t_538cf007fba3c2 2,4-11,18
+tests/test_preference_arms_protocol.py
+  s_e110e928b58b00::t_fb0ebd94a43ed4 23-24,29,31-32
+  s_e110e928b58b00::t_8c44eb7c10d13f 25-27
+.claude/skills/run-synthetic-factory/SKILL.md
+  s_e110e928b58b00::t_fe5be83fba1789 120
+README.md
+  s_e110e928b58b00::t_72326ce001c06a 96,130,132-134,137-138,141-145,276
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c3dae70adf3b0bcb8f9101c5b56b6d96efdb4f7e",
+  "prompts": {},
+  "sessions": {
+    "s_e110e928b58b00": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f94324e6cffepAkBi6rj2QU6wG",
+        "model": "muse-spark-1.3-contributor"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
