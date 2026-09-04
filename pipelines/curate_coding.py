@@ -37,37 +37,67 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
-from coding_constants import (  # noqa: E402
-    HIDDEN_REASONING_KEYS,
-    HIDDEN_REASONING_PREFIX,
-    MAX_DECISION_BASIS_CHARS,
-    REASON_BASIS_CONCISED,
-    REASON_BASIS_FROM_OBSERVATION,
-    REASON_BASIS_FROM_PLAN,
-    REASON_BASIS_FROM_REFLECTION,
-    REASON_BASIS_FROM_TOOL_CALL,
-    REASON_HIDDEN_REASONING_REMOVED,
-    REASON_INVALID_JSON,
-    REASON_INVALID_UTF8,
-    REASON_NO_RETAINABLE_STEPS,
-    REASON_NO_VISIBLE_EVIDENCE,
-    REASON_RECORD_NOT_OBJECT,
-    REASON_STEP_NOT_OBJECT,
-    REASON_STEPS_EXCLUDED,
-    REASON_STEPS_MIGRATED,
-    REASON_STEPS_NOT_ARRAY,
-    REASON_THOUGHT_REMOVED,
-    REASON_WRAP_RECORD,
-    RUN_MANIFEST_FILENAME,
-    TRANSFORM_NAME,
-    TRANSFORM_VERSION,
-    WRAP_STEPS_PARENT,
-    _EVIDENCE_REASON,
-)
+if __package__:
+    from .coding_constants import (
+        HIDDEN_REASONING_KEYS,
+        HIDDEN_REASONING_PREFIX,
+        MAX_DECISION_BASIS_CHARS,
+        REASON_BASIS_CONCISED,
+        REASON_BASIS_FROM_OBSERVATION,
+        REASON_BASIS_FROM_PLAN,
+        REASON_BASIS_FROM_REFLECTION,
+        REASON_BASIS_FROM_TOOL_CALL,
+        REASON_HIDDEN_REASONING_REMOVED,
+        REASON_INVALID_JSON,
+        REASON_INVALID_UTF8,
+        REASON_NO_RETAINABLE_STEPS,
+        REASON_NO_VISIBLE_EVIDENCE,
+        REASON_RECORD_NOT_OBJECT,
+        REASON_STEP_NOT_OBJECT,
+        REASON_STEPS_EXCLUDED,
+        REASON_STEPS_MIGRATED,
+        REASON_STEPS_NOT_ARRAY,
+        REASON_THOUGHT_REMOVED,
+        REASON_WRAP_RECORD,
+        RUN_MANIFEST_FILENAME,
+        TRANSFORM_NAME,
+        TRANSFORM_VERSION,
+        WRAP_STEPS_PARENT,
+        _EVIDENCE_REASON,
+    )
+    from .record_kind import classify_kind
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from coding_constants import (
+        HIDDEN_REASONING_KEYS,
+        HIDDEN_REASONING_PREFIX,
+        MAX_DECISION_BASIS_CHARS,
+        REASON_BASIS_CONCISED,
+        REASON_BASIS_FROM_OBSERVATION,
+        REASON_BASIS_FROM_PLAN,
+        REASON_BASIS_FROM_REFLECTION,
+        REASON_BASIS_FROM_TOOL_CALL,
+        REASON_HIDDEN_REASONING_REMOVED,
+        REASON_INVALID_JSON,
+        REASON_INVALID_UTF8,
+        REASON_NO_RETAINABLE_STEPS,
+        REASON_NO_VISIBLE_EVIDENCE,
+        REASON_RECORD_NOT_OBJECT,
+        REASON_STEP_NOT_OBJECT,
+        REASON_STEPS_EXCLUDED,
+        REASON_STEPS_MIGRATED,
+        REASON_STEPS_NOT_ARRAY,
+        REASON_THOUGHT_REMOVED,
+        REASON_WRAP_RECORD,
+        RUN_MANIFEST_FILENAME,
+        TRANSFORM_NAME,
+        TRANSFORM_VERSION,
+        WRAP_STEPS_PARENT,
+        _EVIDENCE_REASON,
+    )
+    from record_kind import classify_kind
 
 
 def canonical_json(value: Any) -> str:
@@ -313,23 +343,31 @@ def _base_manifest(
     }
 
 
-def _steps_path(record: dict[str, Any]) -> str | None:
+def steps_path(record: dict[str, Any]) -> str | None:
     """Return where this record keeps its coding steps, or None.
 
     A plain episode holds them at ``steps``. A Thalamic wrap record embeds the
     coding episode under ``executed_action``, so its steps live one level down.
+    When a record classifies as a Thalamic wrap and carries both — its wrapped
+    episode plus an incidental top-level ``steps`` array — the wrapped episode
+    wins: the strict audit grounds a Thalamic record's ``executed_action.steps``
+    and never the root array, so curating the root array instead would leave
+    the actual wrap ungrounded and block an otherwise repairable corpus.
     """
+    parent = record.get(WRAP_STEPS_PARENT)
+    wrapped = isinstance(parent, dict) and isinstance(parent.get("steps"), list)
+    if wrapped and classify_kind(record) == "thalamic":
+        return f"{WRAP_STEPS_PARENT}.steps"
     if isinstance(record.get("steps"), list):
         return "steps"
-    parent = record.get(WRAP_STEPS_PARENT)
-    if isinstance(parent, dict) and isinstance(parent.get("steps"), list):
+    if wrapped:
         return f"{WRAP_STEPS_PARENT}.steps"
     return None
 
 
-def _steps_holder(record: dict[str, Any], steps_path: str) -> dict[str, Any]:
-    """Return the mapping that owns the step array named by ``steps_path``."""
-    if steps_path == "steps":
+def _steps_holder(record: dict[str, Any], record_steps_path: str) -> dict[str, Any]:
+    """Return the mapping that owns the step array named by ``record_steps_path``."""
+    if record_steps_path == "steps":
         return record
     return record[WRAP_STEPS_PARENT]
 
@@ -338,10 +376,10 @@ def _record_steps(record: Any) -> list[Any] | None:
     """Return the curated step array for a plain or wrap record."""
     if not isinstance(record, dict):
         return None
-    steps_path = _steps_path(record)
-    if steps_path is None:
+    record_steps_path = steps_path(record)
+    if record_steps_path is None:
         return None
-    steps = _steps_holder(record, steps_path).get("steps")
+    steps = _steps_holder(record, record_steps_path).get("steps")
     return steps if isinstance(steps, list) else None
 
 
@@ -363,12 +401,12 @@ def curate_episode(
         manifest["reason_codes"] = [REASON_RECORD_NOT_OBJECT]
         return None, manifest
 
-    steps_path = _steps_path(record)
-    if steps_path is None:
+    record_steps_path = steps_path(record)
+    if record_steps_path is None:
         manifest["reason_codes"] = [REASON_STEPS_NOT_ARRAY]
         return None, manifest
-    manifest["steps_path"] = steps_path
-    steps = _steps_holder(record, steps_path)["steps"]
+    manifest["steps_path"] = record_steps_path
+    steps = _steps_holder(record, record_steps_path)["steps"]
 
     cleaned_record, record_reasoning_removed = _strip_hidden_reasoning_keys(record)
     manifest["hidden_reasoning_fields_removed"] = record_reasoning_removed
@@ -397,11 +435,11 @@ def curate_episode(
         manifest["reason_codes"] = [REASON_NO_RETAINABLE_STEPS]
         return None, manifest
 
-    _steps_holder(cleaned_record, steps_path)["steps"] = retained_steps
+    _steps_holder(cleaned_record, record_steps_path)["steps"] = retained_steps
     reasons = []
     if record_reasoning_removed:
         reasons.append(REASON_HIDDEN_REASONING_REMOVED)
-    if steps_path != "steps":
+    if record_steps_path != "steps":
         reasons.append(REASON_WRAP_RECORD)
     if migrated:
         reasons.append(REASON_STEPS_MIGRATED)
@@ -529,7 +567,10 @@ def curate_jsonl(
     }
     return {"records": records, "manifest": manifests, "summary": summary}
 
-from coding_verify import verify_curation, verify_manifest  # noqa: E402
+if __package__:
+    from .coding_verify import verify_curation, verify_manifest
+else:
+    from coding_verify import verify_curation, verify_manifest
 
 __all__ = [
     "HIDDEN_REASONING_KEYS",
@@ -556,6 +597,7 @@ __all__ = [
     "_derive_decision_basis",
     "_record_id",
     "_record_steps",
+    "steps_path",
     "preflight_destinations",
     "write_new_jsonl",
     "canonical_json",
