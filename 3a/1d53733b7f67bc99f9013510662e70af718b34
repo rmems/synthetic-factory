@@ -1,0 +1,41 @@
+tests/test_distill_contract.py
+  s_9d594476d4f2a1::t_5a9cbf2bd079c7 23-28,30-45,92,253,497-533
+pipelines/oracle_grounded/distill_curation.py
+  s_9d594476d4f2a1::t_ac76fb8f4fc39a 1-138
+pipelines/fault_recovery.py
+  s_9d594476d4f2a1::t_5a9cbf2bd079c7 476-488,1175-1176,1186-1198
+pipelines/oracle_grounded/distill_blocks.py
+  s_9d594476d4f2a1::t_e9bd1b37a821b0 1-298
+pipelines/oracle_grounded/distill_jsonl.py
+  s_9d594476d4f2a1::t_f4f5a3327fc605 1-82
+pipelines/oracle_grounded/distill_vocabulary.py
+  s_9d594476d4f2a1::t_712912b9fa2b11 1-228
+pipelines/oracle_grounded/import_twins.py
+  s_9d594476d4f2a1::t_af51767b7c4a91 1-39
+pipelines/energy_preferences.py
+  s_9d594476d4f2a1::t_5a9cbf2bd079c7 991-1007,1164-1165,1173-1177
+pipelines/oracle_grounded/distill_contract.py
+  s_9d594476d4f2a1::t_588edb811be45e 33-46,51-52,57-60,62-76,78-81,83-88,90-127,129-195,198
+pipelines/oracle_grounded/distill_builders.py
+  s_9d594476d4f2a1::t_10c8db1744d3c3 1-274
+pipelines/oracle_grounded/distill_measurements.py
+  s_9d594476d4f2a1::t_bcc72bdbeb171f 1-232
+pipelines/moe_router.py
+  s_9d594476d4f2a1::t_5a9cbf2bd079c7 280-291,860-861,875-882
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3a1d53733b7f67bc99f9013510662e70af718b34",
+  "prompts": {},
+  "sessions": {
+    "s_9d594476d4f2a1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4d340bfb-34df-47b1-a584-5641cf58831c",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
