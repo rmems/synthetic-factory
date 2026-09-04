@@ -35,13 +35,24 @@ def _normalize_float(value, precision):
     return rounded
 
 
+# Values JSON carries verbatim: booleans, strings, and integers survive a
+# round trip exactly, so they need no normalisation. ``bool`` is listed for
+# clarity even though it is a subclass of ``int``.
+_VERBATIM_TYPES = (bool, str, int)
+
+
+def _is_verbatim(value):
+    """Whether ``value`` passes through canonicalisation untouched."""
+    return value is None or isinstance(value, _VERBATIM_TYPES)
+
+
 def normalize(value, precision=PRECISION):
     """Recursively round floats and normalise -0.0, rejecting NaN/Inf.
 
     Dict keys are left alone (they are always strings in these records) but
     are emitted sorted by ``canonical_json``.
     """
-    if isinstance(value, bool) or value is None or isinstance(value, (str, int)):
+    if _is_verbatim(value):
         return value
     if isinstance(value, float):
         return _normalize_float(value, precision)
