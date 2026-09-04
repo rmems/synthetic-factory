@@ -25,14 +25,30 @@ import json
 import re
 from typing import Any
 
-from record_kind import (
-    classify_kind as classify_payload_kind,
-    preference_side_kinds,
-)
+if __package__:
+    from .coding_constants import HIDDEN_REASONING_KEYS, HIDDEN_REASONING_PREFIX
+    from .record_kind import (
+        classify_kind as classify_payload_kind,
+        preference_side_kinds,
+    )
+else:
+    from coding_constants import HIDDEN_REASONING_KEYS, HIDDEN_REASONING_PREFIX
+    from record_kind import (
+        classify_kind as classify_payload_kind,
+        preference_side_kinds,
+    )
 
 HIDDEN_THOUGHT_KEYS = frozenset(
     {"thought", "chain_of_thought", "scratch", "inner_monologue"}
 )
+# training_audit.is_hidden_thought_key refuses HIDDEN_THOUGHT_KEYS *and*
+# coding_constants.HIDDEN_REASONING_KEYS (the coding-factory ``reasoning``
+# key plus the ``internal_reasoning*`` family Thalamic wrap records carry),
+# via an exact-or-prefix match. A multi_agent or safety_case record this
+# lane retains without stripping one of those keys would still fail that
+# stricter audit downstream, so the stripper below must refuse the same
+# union, not just the narrower scratch-pad vocabulary.
+FORBIDDEN_REASONING_KEYS = HIDDEN_THOUGHT_KEYS | HIDDEN_REASONING_KEYS
 
 INVALID_PREFERENCE_KIND = "invalid_preference"
 
@@ -73,11 +89,24 @@ def normalized_key_name(value: Any) -> str:
     ).strip("_")
 
 
+def _is_forbidden_reasoning_key(key: Any) -> bool:
+    """Whether a JSON key names model-private reasoning text.
+
+    Mirrors ``training_audit.is_hidden_thought_key`` exactly: the shared
+    scratch-pad vocabulary, the exact coding-factory key ``reasoning``, and
+    the whole ``internal_reasoning*`` family.
+    """
+    normalized = normalized_key_name(key)
+    return normalized in FORBIDDEN_REASONING_KEYS or normalized.startswith(
+        HIDDEN_REASONING_PREFIX
+    )
+
+
 def contains_hidden_thought_key(value: Any) -> bool:
     """Return whether any nested mapping exposes a banned hidden-thought key."""
     if isinstance(value, dict):
         return any(
-            normalized_key_name(key) in HIDDEN_THOUGHT_KEYS for key in value
+            _is_forbidden_reasoning_key(key) for key in value
         ) or any(contains_hidden_thought_key(item) for item in value.values())
     if isinstance(value, list):
         return any(contains_hidden_thought_key(item) for item in value)
@@ -89,7 +118,7 @@ def _strip_mapping(value: dict) -> tuple[dict[str, Any], int]:
     cleaned: dict[str, Any] = {}
     removed = 0
     for key, item in value.items():
-        if normalized_key_name(key) in HIDDEN_THOUGHT_KEYS:
+        if _is_forbidden_reasoning_key(key):
             removed += 1
             continue
         clean_item, nested = strip_hidden_thought_keys(item)

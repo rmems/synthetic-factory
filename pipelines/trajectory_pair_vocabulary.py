@@ -21,8 +21,20 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from curate_agentic import REASON_GOAL_DIVERGES, REASON_GOAL_MISSING, REASON_GOAL_NOT_TEXT
-from curate_preferences import PreferenceCurationError
+if __package__:
+    from .curate_agentic import (
+        REASON_GOAL_DIVERGES,
+        REASON_GOAL_MISSING,
+        REASON_GOAL_NOT_TEXT,
+    )
+    from .curate_preferences import PreferenceCurationError
+else:
+    from curate_agentic import (
+        REASON_GOAL_DIVERGES,
+        REASON_GOAL_MISSING,
+        REASON_GOAL_NOT_TEXT,
+    )
+    from curate_preferences import PreferenceCurationError
 
 
 TRANSFORM_NAME = "trajectory-pair-preference-curation"
