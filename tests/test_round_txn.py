@@ -12,36 +12,11 @@ from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
+sys.path.insert(0, str(REPO / "tests"))
 
 import round_txn  # noqa: E402
-
-
-def thalamic(record_id, round_number=1):
-    return {
-        "id": record_id,
-        "state": {"sim_or_real": "designed", "domain": "transaction-test"},
-        "proposed_action": {"action": "noop", "decision_basis": "fixture"},
-        "safety_decision": {"decision": "ACCEPT", "rationale": "bounded fixture"},
-        "executed_action": {"action": "noop"},
-        # The publish gate runs verify_execution in strict mode, so the fixture
-        # has to carry the observable outcome evidence a real record carries.
-        "future_outcome": {
-            "success": True,
-            "timeline": [{"t_ms": 0, "event": "noop accepted"}],
-            "observed_effects": ["no actuator motion"],
-            "new_state": {"sim_or_real": "designed", "domain": "transaction-test"},
-        },
-        "reward_components": {"task_progress": 0.5, "safety": 0.5, "total": 1.0},
-        "meta": {
-            "factory": "thalamic-trajectory-factory",
-            "round": round_number,
-            "tags": ["transaction-test"],
-        },
-    }
-
-
-def write_records(path, records):
-    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+import round_txn_test_helpers  # noqa: E402
+from round_txn_test_helpers import thalamic, write_records  # noqa: E402
 
 
 class RoundTransaction(unittest.TestCase):
@@ -51,13 +26,7 @@ class RoundTransaction(unittest.TestCase):
         return path
 
     def fixed_agentic_factory(self, root):
-        path = (
-            Path(root)
-            / "outputs"
-            / "raw"
-            / "2099-01-01"
-            / "cache-stampede-factory"
-        )
+        path = Path(root) / "outputs" / "raw" / "2099-01-01" / "cache-stampede-factory"
         path.mkdir(parents=True)
         return path
 
@@ -68,6 +37,33 @@ class RoundTransaction(unittest.TestCase):
             "# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n"
         )
         return stage
+
+    def _assert_symlinked_stage_refused(
+        self,
+        root,
+        operation,
+        *,
+        outside_name,
+        populate_outside=False,
+    ):
+        factory = self.factory(root)
+        reservation = round_txn.reserve(factory, 1, 1)
+        stage = Path(reservation["staging_dir"])
+        outside = Path(root) / outside_name
+        outside.mkdir()
+        if populate_outside:
+            write_records(outside / reservation["batch_file"], [thalamic("outside")])
+            (outside / reservation["notes_file"]).write_text("# Critique\n\nExternal.\n")
+        sentinel = outside / "keep.txt"
+        sentinel.write_text("do not delete\n")
+        stage.rmdir()
+        stage.symlink_to(outside, target_is_directory=True)
+
+        with self.assertRaisesRegex(round_txn.TransactionError, "staging directory is unsafe"):
+            operation(factory, 1, reservation["token"])
+
+        self.assertEqual(sentinel.read_text(), "do not delete\n")
+        return factory, outside
 
     def test_reserve_stage_publish_commits_once(self):
         with tempfile.TemporaryDirectory() as td:
@@ -97,9 +93,7 @@ class RoundTransaction(unittest.TestCase):
             staging_root = Path(td) / "outputs" / "staging"
             staging_root.symlink_to(outside, target_is_directory=True)
 
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "staging directory is unsafe"
-            ):
+            with self.assertRaisesRegex(round_txn.TransactionError, "staging directory is unsafe"):
                 round_txn.reserve(factory, 1, 1)
 
             self.assertEqual(list(outside.iterdir()), [])
@@ -187,42 +181,21 @@ class RoundTransaction(unittest.TestCase):
 
     def test_abort_refuses_a_symlinked_staging_directory(self):
         with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            reservation = round_txn.reserve(factory, 1, 1)
-            stage = Path(reservation["staging_dir"])
-            outside = Path(td) / "outside-stage"
-            outside.mkdir()
-            sentinel = outside / "keep.txt"
-            sentinel.write_text("do not delete\n")
-            stage.rmdir()
-            stage.symlink_to(outside, target_is_directory=True)
-
-            with self.assertRaisesRegex(round_txn.TransactionError, "staging directory is unsafe"):
-                round_txn.abort(factory, 1, reservation["token"])
-
-            self.assertEqual(sentinel.read_text(), "do not delete\n")
+            factory, _outside = self._assert_symlinked_stage_refused(
+                td,
+                round_txn.abort,
+                outside_name="outside-stage",
+            )
             self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
 
     def test_publish_refuses_a_symlinked_staging_directory(self):
         with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            reservation = round_txn.reserve(factory, 1, 1)
-            stage = Path(reservation["staging_dir"])
-            outside = Path(td) / "outside-publish-stage"
-            outside.mkdir()
-            write_records(outside / reservation["batch_file"], [thalamic("outside")])
-            (outside / reservation["notes_file"]).write_text("# Critique\n\nExternal.\n")
-            sentinel = outside / "keep.txt"
-            sentinel.write_text("do not delete\n")
-            stage.rmdir()
-            stage.symlink_to(outside, target_is_directory=True)
-
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "staging directory is unsafe"
-            ):
-                round_txn.publish(factory, 1, reservation["token"])
-
-            self.assertEqual(sentinel.read_text(), "do not delete\n")
+            factory, outside = self._assert_symlinked_stage_refused(
+                td,
+                round_txn.publish,
+                outside_name="outside-publish-stage",
+                populate_outside=True,
+            )
             self.assertTrue(outside.is_dir())
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
@@ -349,9 +322,7 @@ class RoundTransaction(unittest.TestCase):
                         raise OSError("simulated interruption")
                     return real_link(*args, **kwargs)
 
-                with mock.patch.object(
-                    round_txn.os, "link", side_effect=interrupt_completion_link
-                ):
+                with mock.patch.object(round_txn.os, "link", side_effect=interrupt_completion_link):
                     with self.assertRaisesRegex(OSError, "simulated interruption"):
                         round_txn.publish(factory, 1, reservation["token"])
 
@@ -403,10 +374,9 @@ class RoundTransaction(unittest.TestCase):
                 with real_lock(lock_factory):
                     yield
 
-            with mock.patch.object(
-                round_txn, "validate_stage", side_effect=pause_validation
-            ), mock.patch.object(
-                round_txn, "run_publish_lock", side_effect=observed_publish_lock
+            with (
+                mock.patch.object(round_txn, "validate_stage", side_effect=pause_validation),
+                mock.patch.object(round_txn, "run_publish_lock", side_effect=observed_publish_lock),
             ):
                 publisher = threading.Thread(target=publish_round, name="publisher")
                 publisher.start()
@@ -555,9 +525,33 @@ class RoundTransaction(unittest.TestCase):
             self.assertEqual(manifest["records"], 1)
             self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
 
-    def _assert_publish_rejects_notes(
-        self, td, notes_text, pattern, record_suffix="txn"
-    ):
+    def test_custom_lane_publish_rejects_exponent_overflow(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "outputs" / "raw" / "2099-01-01" / "custom-factory"
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = Path(reservation["staging_dir"])
+            record = thalamic("custom-overflow")
+            record["meta"]["factory"] = factory.name
+            serialized = json.dumps(record).replace(
+                '"state": {',
+                '"state": {"extra": 1e999, ',
+                1,
+            )
+            (stage / reservation["batch_file"]).write_text(serialized + "\n")
+            (stage / reservation["notes_file"]).write_text(
+                "# Custom critique\n\nNo registered token-efficiency policy.\n"
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "non-finite JSON number 1e999",
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def _assert_publish_rejects_notes(self, td, notes_text, pattern, record_suffix="txn"):
         factory = self.factory(td)
         reservation = round_txn.reserve(factory, 1, 1)
         stage = Path(reservation["staging_dir"])
@@ -571,9 +565,7 @@ class RoundTransaction(unittest.TestCase):
             round_txn.publish(factory, 1, reservation["token"])
         self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
-    def _assert_legacy_notes_tolerance(
-        self, td, notes_text, expected_publish_err
-    ):
+    def _assert_legacy_notes_tolerance(self, td, notes_text, expected_publish_err):
         factory = self.fixed_agentic_factory(td)
         notes = factory / "NOTES-r01.md"
         notes.write_text(notes_text)
@@ -729,12 +721,8 @@ class RoundTransaction(unittest.TestCase):
                     batch.write_text("{not-json\n")
                 return result
 
-            with mock.patch.object(
-                round_txn, "check_jsonl", side_effect=mutate_after_check
-            ):
-                with self.assertRaisesRegex(
-                    round_txn.TransactionError, "changed while publishing"
-                ):
+            with mock.patch.object(round_txn, "check_jsonl", side_effect=mutate_after_check):
+                with self.assertRaisesRegex(round_txn.TransactionError, "changed while publishing"):
                     round_txn.publish(factory, 1, reservation["token"])
 
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
@@ -745,9 +733,7 @@ class RoundTransaction(unittest.TestCase):
             outside = Path(td) / "outside-factory"
             outside.mkdir()
             write_records(outside / "records.jsonl", [thalamic("shared-id")])
-            (factory.parent / "symlinked-sibling").symlink_to(
-                outside, target_is_directory=True
-            )
+            (factory.parent / "symlinked-sibling").symlink_to(outside, target_is_directory=True)
             reservation = round_txn.reserve(factory, 1, 1)
             self.fill_stage(reservation, [thalamic("shared-id")])
 
@@ -776,9 +762,7 @@ class RoundTransaction(unittest.TestCase):
             round_txn.ensure_marker_mode(factory)
             (factory / "ROUND-r01.complete.json").write_bytes(b"{\xff}\n")
 
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "cannot read transaction file"
-            ):
+            with self.assertRaisesRegex(round_txn.TransactionError, "cannot read transaction file"):
                 round_txn.frontier_status(factory)
 
     def test_invalid_utf8_staged_notes_report_a_transaction_error(self):
@@ -880,7 +864,9 @@ class RoundTransaction(unittest.TestCase):
             self.assertEqual(status["highest_flushed"], 2)
             self.assertEqual(status["next_round"], 3)
             reservation = round_txn.reserve(factory, 3, 5)
-            self.assertEqual(json.loads((factory / round_txn.MODE_FILE).read_text())["legacy_baseline"], 2)
+            self.assertEqual(
+                json.loads((factory / round_txn.MODE_FILE).read_text())["legacy_baseline"], 2
+            )
             self.assertEqual(reservation["round"], 3)
 
     def test_marker_baseline_rejects_malformed_lower_legacy_payload(self):
@@ -912,9 +898,7 @@ class RoundTransaction(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
             legacy_records = [thalamic("shared-id")]
-            legacy_records.extend(
-                thalamic(f"legacy-{index}") for index in range(1, 5)
-            )
+            legacy_records.extend(thalamic(f"legacy-{index}") for index in range(1, 5))
             write_records(factory / "trajectories.jsonl", legacy_records)
             (factory / round_txn.MODE_FILE).write_text(
                 json.dumps(
@@ -930,29 +914,28 @@ class RoundTransaction(unittest.TestCase):
             notes = factory / "NOTES-r02.md"
             write_records(batch, [thalamic("shared-id", 2)])
             notes.write_text("# Critique\n\nDuplicate ID fixture.\n")
-            marker = factory / "ROUND-r02.complete.json"
-            marker.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "factory": factory.name,
-                        "round": 2,
-                        "records": 1,
-                        "expected_records": 1,
-                        "commit_point": marker.name,
-                        "files": [
-                            {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
-                            {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
-                        ],
-                    }
-                )
-                + "\n"
-            )
+            round_txn_test_helpers.write_completion_marker(round_txn, factory, batch, notes)
 
             with self.assertRaisesRegex(
                 round_txn.TransactionError, "duplicate record id 'shared-id'"
             ):
                 round_txn.frontier_status(factory)
+
+    def test_completion_marker_helper_writes_a_visible_hash_bound_batch(self):
+        helper = getattr(round_txn_test_helpers, "write_completion_marker", None)
+        self.assertIsNotNone(helper, "completion marker fixtures need one shared writer")
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            round_txn.ensure_marker_mode(factory)
+            batch = factory / "batch-r01.jsonl"
+            notes = factory / "NOTES-r01.md"
+            write_records(batch, [thalamic("helper-visible")])
+            notes.write_text("# Critique\n\nHelper fixture.\n")
+
+            marker = helper(round_txn, factory, batch, notes)
+
+            self.assertEqual(marker, factory / "ROUND-r01.complete.json")
+            self.assertEqual(round_txn.committed_jsonl_paths(factory), [batch])
 
     def test_legacy_baseline_id_cannot_duplicate_a_sibling_factory(self):
         with tempfile.TemporaryDirectory() as td:
@@ -993,26 +976,9 @@ class RoundTransaction(unittest.TestCase):
             round_txn.ensure_marker_mode(factory)
             batch = factory / "batch-r01.jsonl"
             notes = factory / "NOTES-r01.md"
-            marker = factory / "ROUND-r01.complete.json"
             write_records(batch, [thalamic("shared-completed-id")])
             notes.write_text("# Critique\n\nDuplicate sibling ID fixture.\n")
-            marker.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "factory": factory.name,
-                        "round": 1,
-                        "records": 1,
-                        "expected_records": 1,
-                        "commit_point": marker.name,
-                        "files": [
-                            {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
-                            {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
-                        ],
-                    }
-                )
-                + "\n"
-            )
+            round_txn_test_helpers.write_completion_marker(round_txn, factory, batch, notes)
 
             with self.assertRaisesRegex(
                 round_txn.TransactionError, "duplicate record id 'shared-completed-id'"
@@ -1033,29 +999,7 @@ class RoundTransaction(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "identity mismatch"):
                 round_txn.committed_jsonl_paths(factory)
 
-            marker.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "factory": factory.name,
-                        "round": 1,
-                        "records": 1,
-                        "expected_records": 1,
-                        "commit_point": marker.name,
-                        "files": [
-                            {
-                                "name": batch.name,
-                                "sha256": round_txn.file_sha256(batch),
-                            },
-                            {
-                                "name": notes.name,
-                                "sha256": round_txn.file_sha256(notes),
-                            }
-                        ],
-                    }
-                )
-                + "\n"
-            )
+            round_txn_test_helpers.write_completion_marker(round_txn, factory, batch, notes)
             self.assertEqual(round_txn.committed_jsonl_paths(factory), [batch])
 
             batch.write_text("tampered\n")
@@ -1072,24 +1016,7 @@ class RoundTransaction(unittest.TestCase):
             notes = factory / "NOTES-r01.md"
             write_records(batch, [thalamic("semantic-swap")])
             notes.write_text("# Critique\n\nManifest fixture.\n")
-            marker = factory / "ROUND-r01.complete.json"
-            marker.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "factory": factory.name,
-                        "round": 1,
-                        "records": 1,
-                        "expected_records": 1,
-                        "commit_point": marker.name,
-                        "files": [
-                            {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
-                            {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
-                        ],
-                    }
-                )
-                + "\n"
-            )
+            round_txn_test_helpers.write_completion_marker(round_txn, factory, batch, notes)
             real_validate = round_txn.validate_completed_batch
 
             def tamper_after_validation(*args, **kwargs):

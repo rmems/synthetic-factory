@@ -18,21 +18,45 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-from validate_run import (  # noqa: E402
-    ALLOWED_SIM_OR_REAL,
-    BRIDGE_SPIKE_EVENT_KEYS,
-    REWARD_ARITHMETIC_MARKERS,
-    REWARD_NON_COMPONENT_KEYS,
-    _episode_like,
-    check_line,
-    check_spike_order,
-    declared_clock_domains,
-    event_time,
-    reject_json_constant,
-)
+if __package__:
+    from .exact_json import (
+        dumps_exact_json,
+        exact_fraction,
+        parse_finite_json_float as _parse_exact_json_float,
+    )
+    from .validate_run import (
+        ALLOWED_SIM_OR_REAL,
+        BRIDGE_SPIKE_EVENT_KEYS,
+        REWARD_ARITHMETIC_MARKERS,
+        REWARD_NON_COMPONENT_KEYS,
+        check_line,
+        check_spike_order,
+        declared_clock_domains,
+        episode_like,
+        event_time,
+        reject_json_constant,
+    )
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from exact_json import (
+        dumps_exact_json,
+        exact_fraction,
+        parse_finite_json_float as _parse_exact_json_float,
+    )
+    from validate_run import (
+        ALLOWED_SIM_OR_REAL,
+        BRIDGE_SPIKE_EVENT_KEYS,
+        REWARD_ARITHMETIC_MARKERS,
+        REWARD_NON_COMPONENT_KEYS,
+        check_line,
+        check_spike_order,
+        declared_clock_domains,
+        episode_like,
+        event_time,
+        reject_json_constant,
+    )
 
 TOL = 1e-6
 # Ceiling on a record-declared rounding tolerance (see reward_tolerance).
@@ -76,11 +100,7 @@ DEFAULT_SPIKE_STREAM_CONTRACT = SpikeStreamContract()
 
 
 def is_number(value):
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-    )
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def claims_real(value):
@@ -164,7 +184,7 @@ def _timed_spike_events(events):
 def _first_spike_order_violation(where, timed):
     """The first global non-decreasing-order violation among timed events, if any."""
     for (i0, key0, t0), (i1, key1, t1) in zip(timed, timed[1:]):
-        if t1 < t0:
+        if exact_fraction(t1) < exact_fraction(t0):
             key = key1 if key1 == key0 else f"{key0}/{key1}"
             return [
                 f"{where}: spike_events not globally non-decreasing "
@@ -237,18 +257,14 @@ def reward_tolerance(rc):
                 break
     if decimals is None:
         return TOL
-    requested = 0.5 * (10 ** -decimals) + 1e-12
+    requested = 0.5 * (10**-decimals) + 1e-12
     return min(MAX_DECLARED_TOL, max(TOL, requested))
 
 
 def weighted_components(rc, weights):
     """Resolve every declared weight from direct or known nested maps."""
     containers = [rc]
-    containers.extend(
-        rc[key]
-        for key in WEIGHTED_CONTAINERS
-        if isinstance(rc.get(key), dict)
-    )
+    containers.extend(rc[key] for key in WEIGHTED_CONTAINERS if isinstance(rc.get(key), dict))
     values = {}
     missing = []
     for key, weight in weights.items():
@@ -272,6 +288,51 @@ def weighted_components(rc, weights):
     return values, missing
 
 
+def _weighted_reward_findings(rc, where, total):
+    """Return weighted findings, or ``None`` when no numeric weights apply."""
+
+    weights = rc.get("weights")
+    if not isinstance(weights, dict):
+        return None
+    values, missing = weighted_components(rc, weights)
+    if not values and not missing:
+        return None
+    if missing:
+        warning = (
+            f"{where}: unsupported weighted reward layout; missing components "
+            f"{', '.join(sorted(missing))}; skipped arithmetic check"
+        )
+        return [], [warning]
+    recomputed = sum(values[key] * float(weights[key]) for key in values)
+    tolerance = reward_tolerance(rc)
+    if abs(recomputed - total) <= tolerance:
+        return [], []
+    error = (
+        f"{where}.total {total} != recomputed {recomputed} "
+        f"(weighted, diff {abs(recomputed - total)} > {tolerance})"
+    )
+    return [error], []
+
+
+def _unweighted_reward_findings(rc, where, total):
+    """Return an unweighted-total mismatch when numeric siblings exist."""
+    siblings = {
+        key: component_value(val)
+        for key, val in rc.items()
+        if key not in UNWEIGHTED_EXCLUDE and component_value(val) is not None
+    }
+    if not siblings:
+        return []
+    recomputed = sum(siblings.values())
+    tolerance = reward_tolerance(rc)
+    if abs(recomputed - total) <= tolerance:
+        return []
+    return [
+        f"{where}.total {total} != recomputed {recomputed} "
+        f"(unweighted, diff {abs(recomputed - total)} > {tolerance})"
+    ]
+
+
 def check_reward(rc, where):
     """Recompute total from numeric siblings / weights. Strict total==sum (TOL=1e-6)."""
     errors, warnings = [], []
@@ -279,53 +340,18 @@ def check_reward(rc, where):
         return errors, warnings
     total = rc.get("total")
     if isinstance(total, (list, tuple, str)):
-        warnings.append(
-            f"{where}.total is an interval/string; skipped arithmetic check"
-        )
+        warnings.append(f"{where}.total is an interval/string; skipped arithmetic check")
         return errors, warnings
     if not is_number(total):
         return errors, warnings
-
-    weights = rc.get("weights")
-    if isinstance(weights, dict):
-        declared = {
-            key: float(weight)
-            for key, weight in weights.items()
-            if key not in WEIGHTED_SKIP_KEYS and is_number(weight)
-        }
-        if declared:
-            values, missing = weighted_components(rc, weights)
-            if missing:
-                warnings.append(
-                    f"{where}: unsupported weighted reward layout; missing components "
-                    f"{', '.join(sorted(missing))}; skipped arithmetic check"
-                )
-                return errors, warnings
-            recomputed = sum(values[key] * declared[key] for key in declared)
-            tolerance = reward_tolerance(rc)
-            if abs(recomputed - total) > tolerance:
-                errors.append(
-                    f"{where}.total {total} != recomputed {recomputed} "
-                    f"(weighted, diff {abs(recomputed - total)} > {tolerance})"
-                )
-            return errors, warnings
-        # Empty or bookkeeping-only weights: same fallthrough as
-        # validate_run.check_reward_total — unweighted sibling sum.
-
-    siblings = {
-        key: component_value(val)
-        for key, val in rc.items()
-        if key not in UNWEIGHTED_EXCLUDE and component_value(val) is not None
-    }
-    if not siblings:
+    weighted = _weighted_reward_findings(rc, where, total)
+    if weighted is None:
+        # Empty or bookkeeping-only weights follow the ordinary sibling sum.
+        errors.extend(_unweighted_reward_findings(rc, where, total))
         return errors, warnings
-    recomputed = sum(siblings.values())
-    tolerance = reward_tolerance(rc)
-    if abs(recomputed - total) > tolerance:
-        errors.append(
-            f"{where}.total {total} != recomputed {recomputed} "
-            f"(unweighted, diff {abs(recomputed - total)} > {tolerance})"
-        )
+    weighted_errors, weighted_warnings = weighted
+    errors.extend(weighted_errors)
+    warnings.extend(weighted_warnings)
     return errors, warnings
 
 
@@ -338,7 +364,7 @@ def expected_states(obj, kind):
             if not isinstance(sub, dict):
                 continue
             # Episode-sided DPO pairs have no Thalamic state object.
-            if _episode_like(sub):
+            if episode_like(sub):
                 continue
             yield f"{side}.state", sub.get("state")
     elif kind == "bridge_pair":
@@ -378,16 +404,16 @@ def _after_where(msg, where):
     """
     if not msg.startswith(where):
         return msg
-    rest = msg[len(where):]
+    rest = msg[len(where) :]
     if rest.startswith(": "):
         return rest[2:]
     if rest.startswith("."):
         sep = rest.find(": ")
         if sep != -1:
-            return rest[sep + 2:]
+            return rest[sep + 2 :]
     step_match = _WHERE_STEP_INFIX_RE.match(rest)
     if step_match:
-        return rest[step_match.end():]
+        return rest[step_match.end() :]
     return msg
 
 
@@ -463,15 +489,11 @@ def check_provenance_publish(obj, where):
                     # Other invalid values are surfaced as non-training
                     # provenance warnings by check_record; this gate is only
                     # for real-world claims.
-                    errs.append(
-                        f"{where}: {cur} must not be 'real' (use 'designed') — got {v!r}"
-                    )
+                    errs.append(f"{where}: {cur} must not be 'real' (use 'designed') — got {v!r}")
                 if k == "provenance" and isinstance(v, dict):
                     kind = v.get("kind")
                     if claims_real(kind):
-                        errs.append(
-                            f"{where}: {cur}.kind must not be 'real' — got {kind!r}"
-                        )
+                        errs.append(f"{where}: {cur}.kind must not be 'real' — got {kind!r}")
                 walk(v, cur)
         elif isinstance(node, list):
             for i, item in enumerate(node):
@@ -505,8 +527,7 @@ def _is_reward_narrative_spike_events(owner, value, reward_component_entries):
     the publication gate unexamined.
     """
     return isinstance(value, str) and any(
-        owner is reward_components
-        for _path, reward_components in reward_component_entries
+        owner is reward_components for _path, reward_components in reward_component_entries
     )
 
 
@@ -518,9 +539,7 @@ def check_record(obj, where, factory_staging=False):
     if isinstance(obj, dict):
         reward_component_entries = list(walk_key(obj, "reward_components"))
         for path, events, owner in _walk_key_owners(obj, "spike_events"):
-            if _is_reward_narrative_spike_events(
-                owner, events, reward_component_entries
-            ):
+            if _is_reward_narrative_spike_events(owner, events, reward_component_entries):
                 continue
             # Single owner of stream validity: shape_check drops the shape
             # layer's copies, so every stream — top-level, bridge, or nested —
@@ -555,19 +574,13 @@ def check_record(obj, where, factory_staging=False):
                 # 'real' claims are owned by check_provenance_publish so a
                 # single violation is not reported twice with different wording.
                 if not claims_real(value) and value not in ALLOWED_SIM_OR_REAL:
-                    warnings.append(
-                        f"{where}: non-training provenance {value!r} on {path}"
-                    )
+                    warnings.append(f"{where}: non-training provenance {value!r} on {path}")
         # Publish-time deep provenance scan — owns every nested 'real' claim
         errors.extend(check_provenance_publish(obj, where))
         if kind == "episode":
             steps = obj.get("steps")
             for index, step in enumerate(steps if isinstance(steps, list) else ()):
-                if (
-                    isinstance(step, dict)
-                    and "thought" in step
-                    and "decision_basis" not in step
-                ):
+                if isinstance(step, dict) and "thought" in step and "decision_basis" not in step:
                     warnings.append(
                         f"{where}: step {index} uses legacy 'thought' without "
                         "observable decision_basis"
@@ -603,6 +616,26 @@ class FactoryStaging:
 NO_FACTORY_STAGING = FactoryStaging()
 
 
+def read_utf8_jsonl(path):
+    """Decode JSONL bytes without translating physical line endings.
+
+    ``Path.read_text`` enables universal-newline handling and rewrites a bare
+    carriage return to ``\n``.  JSONL records are separated by literal LF
+    bytes only: CRLF leaves a trailing JSON whitespace character, while a
+    bare CR between two objects must remain inside one physical record and
+    fail with ``Extra data``.  Explicit decoding also leaves U+2028/U+2029
+    untouched when they occur inside a JSON string.
+    """
+
+    return Path(path).read_bytes().decode("utf-8")
+
+
+def _parse_finite_json_float(text):
+    """Decode a JSON float token without accepting exponent overflow."""
+
+    return _parse_exact_json_float(text)
+
+
 def _claim_record_id(record_id, where, seen_ids):
     """Claim ``record_id`` for ``where``, or report the collision it hit.
 
@@ -614,10 +647,7 @@ def _claim_record_id(record_id, where, seen_ids):
     if record_id is None:
         return []
     if record_id in seen_ids:
-        return [
-            f"{where}: duplicate record id {record_id!r} "
-            f"(first {seen_ids[record_id]})"
-        ]
+        return [f"{where}: duplicate record id {record_id!r} (first {seen_ids[record_id]})"]
     seen_ids[record_id] = where
     return []
 
@@ -629,7 +659,7 @@ def check_jsonl(path, rel, seen_ids=None, staging=NO_FACTORY_STAGING):
     if seen_ids is None:
         seen_ids = {}
     try:
-        text = Path(path).read_text()
+        text = read_utf8_jsonl(path)
     except UnicodeDecodeError as exc:
         return [f"{rel}: invalid UTF-8: {exc}"], warnings, kinds, records
     # JSONL record boundaries are literal LF only.  U+2028 and U+2029 remain
@@ -639,9 +669,18 @@ def check_jsonl(path, rel, seen_ids=None, staging=NO_FACTORY_STAGING):
             continue
         where = f"{rel}:{lineno}"
         try:
-            obj = json.loads(line, parse_constant=reject_json_constant)
-        except (json.JSONDecodeError, ValueError) as exc:
+            obj = json.loads(
+                line,
+                parse_constant=reject_json_constant,
+                parse_float=_parse_finite_json_float,
+            )
+        except (ValueError, RecursionError) as exc:
             errors.append(f"{where}: JSON parse error: {exc}")
+            continue
+        try:
+            dumps_exact_json(obj, ensure_ascii=False, sort_keys=False)
+        except (ValueError, RecursionError) as exc:
+            errors.append(f"{where}: exact JSON contract error: {exc}")
             continue
         rec_errs, rec_warns, kind, record_id = check_record(
             obj, where, factory_staging=staging.applies_to(lineno)
@@ -665,9 +704,7 @@ def check_run(run_dir, strict=False):
     for path in sorted(run_dir.rglob("*.jsonl")):
         file_count += 1
         rel = path.relative_to(run_dir)
-        file_errs, file_warns, kinds, records = check_jsonl(
-            path, rel, seen_ids=seen_ids
-        )
+        file_errs, file_warns, kinds, records = check_jsonl(path, rel, seen_ids=seen_ids)
         errors.extend(file_errs)
         warnings.extend(file_warns)
         record_count += records

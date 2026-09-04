@@ -1,0 +1,171 @@
+{
+  "document_type": "rights_policy",
+  "policy_version": "rights-policy-v1",
+  "mapping_version": "rights-mapping-v1",
+  "vocabularies": {
+    "providers": [
+      "anthropic",
+      "meta",
+      "openai",
+      "xai"
+    ],
+    "channels": [
+      "consumer",
+      "api",
+      "enterprise",
+      "local"
+    ],
+    "intended_use": [
+      "research_only",
+      "training_candidate"
+    ],
+    "project_training_policy": [
+      "blocked",
+      "allowed"
+    ],
+    "evidence_status": [
+      "allowed",
+      "restricted",
+      "unresolved"
+    ]
+  },
+  "evidence_status_fields": [
+    "research_retention_status",
+    "research_evaluation_status",
+    "redistribution_status",
+    "provider_training_status",
+    "weight_publication_status"
+  ],
+  "invariants": {
+    "provider_training_status": "evidence_only"
+  },
+  "required_profile_ids": [
+    "hosted-frontier-research-only-v1",
+    "unknown-provenance-fail-closed-v1"
+  ],
+  "reason_codes": [
+    {
+      "id": "HOSTED_FRONTIER_RESEARCH_ONLY",
+      "description": "Hosted frontier output is retained for research only and blocked from project training."
+    },
+    {
+      "id": "UNKNOWN_PROVENANCE",
+      "description": "Provenance is insufficient to authorize any less restrictive project decision."
+    }
+  ],
+  "profiles": [
+    {
+      "id": "hosted-frontier-research-only-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "evidence_statuses": {
+        "research_retention_status": "unresolved",
+        "research_evaluation_status": "unresolved",
+        "redistribution_status": "unresolved",
+        "provider_training_status": "unresolved",
+        "weight_publication_status": "unresolved"
+      },
+      "reason_codes": [
+        "HOSTED_FRONTIER_RESEARCH_ONLY"
+      ]
+    },
+    {
+      "id": "unknown-provenance-fail-closed-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "evidence_statuses": {
+        "research_retention_status": "unresolved",
+        "research_evaluation_status": "unresolved",
+        "redistribution_status": "unresolved",
+        "provider_training_status": "unresolved",
+        "weight_publication_status": "unresolved"
+      },
+      "reason_codes": [
+        "UNKNOWN_PROVENANCE"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "HOSTED_ANTHROPIC_CONSUMER",
+      "providers": [
+        "anthropic"
+      ],
+      "channels": [
+        "consumer"
+      ],
+      "rights_profile_id": "hosted-frontier-research-only-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "reason_codes": [
+        "HOSTED_FRONTIER_RESEARCH_ONLY"
+      ]
+    },
+    {
+      "id": "HOSTED_META_API",
+      "providers": [
+        "meta"
+      ],
+      "channels": [
+        "api"
+      ],
+      "rights_profile_id": "hosted-frontier-research-only-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "reason_codes": [
+        "HOSTED_FRONTIER_RESEARCH_ONLY"
+      ]
+    },
+    {
+      "id": "HOSTED_OPENAI_CONSUMER",
+      "providers": [
+        "openai"
+      ],
+      "channels": [
+        "consumer"
+      ],
+      "rights_profile_id": "hosted-frontier-research-only-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "reason_codes": [
+        "HOSTED_FRONTIER_RESEARCH_ONLY"
+      ]
+    },
+    {
+      "id": "HOSTED_XAI_CONSUMER",
+      "providers": [
+        "xai"
+      ],
+      "channels": [
+        "consumer"
+      ],
+      "rights_profile_id": "hosted-frontier-research-only-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "reason_codes": [
+        "HOSTED_FRONTIER_RESEARCH_ONLY"
+      ]
+    },
+    {
+      "id": "UNKNOWN_PROVENANCE_FAIL_CLOSED",
+      "providers": [
+        "anthropic",
+        "meta",
+        "openai",
+        "xai"
+      ],
+      "channels": [
+        "consumer",
+        "api",
+        "enterprise",
+        "local"
+      ],
+      "rights_profile_id": "unknown-provenance-fail-closed-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "reason_codes": [
+        "UNKNOWN_PROVENANCE"
+      ]
+    }
+  ]
+}

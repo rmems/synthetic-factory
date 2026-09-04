@@ -18,31 +18,58 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
-from mill_evidence import (
-    GOAL_FAMILY_MIN_FOREIGN_TOKENS,
-    GOAL_FAMILY_MIN_SUPPORT,
-    Axes,
-    Entry,
-    entry_label,
-    foreignness,
-    is_novel_unreviewed_goal,
-    raw_goal_family_home,
-)
-from mill_resolution import (
-    ambiguous_goal_tokens,
-    count_goal_tokens,
-    declared_identity,
-    goal_family_homes,
-    goal_vocabulary,
-    missing_homes,
-    prefix_homes,
-    reference_scope_state,
-    unresolved_ambiguous_signatures,
-    unresolved_destinations,
-    unresolved_prefixes,
-    verified_factories,
-)
-from mill_reviewed_vocabulary import REVIEWED_GOAL_TOKEN_HOMES
+if __package__:
+    from .mill_evidence import (
+        GOAL_FAMILY_MIN_FOREIGN_TOKENS,
+        GOAL_FAMILY_MIN_SUPPORT,
+        Axes,
+        Entry,
+        entry_label,
+        foreignness,
+        is_novel_unreviewed_goal,
+        raw_goal_family_home,
+    )
+    from .mill_resolution import (
+        ambiguous_goal_tokens,
+        count_goal_tokens,
+        declared_identity,
+        goal_family_homes,
+        goal_vocabulary,
+        missing_homes,
+        prefix_homes,
+        reference_scope_state,
+        unresolved_ambiguous_signatures,
+        unresolved_destinations,
+        unresolved_prefixes,
+        verified_factories,
+    )
+    from .mill_reviewed_vocabulary import REVIEWED_GOAL_TOKEN_HOMES
+else:
+    from mill_evidence import (
+        GOAL_FAMILY_MIN_FOREIGN_TOKENS,
+        GOAL_FAMILY_MIN_SUPPORT,
+        Axes,
+        Entry,
+        entry_label,
+        foreignness,
+        is_novel_unreviewed_goal,
+        raw_goal_family_home,
+    )
+    from mill_resolution import (
+        ambiguous_goal_tokens,
+        count_goal_tokens,
+        declared_identity,
+        goal_family_homes,
+        goal_vocabulary,
+        missing_homes,
+        prefix_homes,
+        reference_scope_state,
+        unresolved_ambiguous_signatures,
+        unresolved_destinations,
+        unresolved_prefixes,
+        verified_factories,
+    )
+    from mill_reviewed_vocabulary import REVIEWED_GOAL_TOKEN_HOMES
 
 
 @dataclass(frozen=True)
