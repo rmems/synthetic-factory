@@ -26,21 +26,25 @@ import sys
 from pathlib import Path
 from typing import Any
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
-from preference_context import (  # noqa: E402
-    all_context_diffs,
-    diff_paths_between,
-    pair_context,
-    context_is_pure,
-)
-from preference_model import (  # noqa: E402
-    ACTION_REPAIRED,
-    CurationDecision,
-    canonical_json,
-)
+if __package__:
+    from .preference_context import (
+        all_context_diffs,
+        context_is_pure,
+        diff_paths_between,
+        pair_context,
+    )
+    from .preference_model import ACTION_REPAIRED, CurationDecision, canonical_json
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from preference_context import (
+        all_context_diffs,
+        context_is_pure,
+        diff_paths_between,
+        pair_context,
+    )
+    from preference_model import ACTION_REPAIRED, CurationDecision, canonical_json
 
 __all__ = [
     "repair_attested_identity",

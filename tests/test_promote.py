@@ -421,6 +421,22 @@ class TestPromoteRun(unittest.TestCase):
             self.assertGreaterEqual(result["files"], 1)
             self.assertGreaterEqual(result["records"], 1)
 
+    def test_bare_cr_is_preserved_as_one_malformed_physical_record(self):
+        with tempfile.TemporaryDirectory() as td:
+            raw = Path(td) / "raw"
+            cleaned = Path(td) / "cleaned"
+            source = raw / "factory" / "batch.jsonl"
+            source.parent.mkdir(parents=True)
+            payload = b'{"id":"first"}\r{"id":"second"}\n'
+            source.write_bytes(payload)
+
+            result = promote.promote_run(raw, cleaned)
+
+            promoted = (cleaned / "factory" / "batch.jsonl").read_bytes()
+
+        self.assertEqual(result["records"], 0)
+        self.assertEqual(promoted, payload)
+
     def test_cleaned_never_emits_real_kind(self):
         with tempfile.TemporaryDirectory() as td:
             raw = Path(td) / "raw"
