@@ -37,12 +37,38 @@ python3 .claude/skills/run-synthetic-factory/driver.py audit outputs/raw/<date>
 
 # Marker-aware, validated per-factory frontiers
 python3 .claude/skills/run-synthetic-factory/driver.py frontiers outputs/raw/<date> --json
+
+# Shared-detector leftover-mill report; names foreign-mill records and prints
+# the eligible denominator per destination without rewriting raw evidence
+python3 pipelines/leftover_mill.py outputs/raw/<date>   # add --strict to gate
 ```
 
 `validate` is structural/invariant evidence. `audit` additionally checks reward
 arithmetic, IDs, provenance, preference context purity, duplicates, reward/tag
-entropy, record lengths, and neuromorphic ordering/density. A nonzero audit is a
+entropy, record lengths, neuromorphic ordering/density, and SNN distillation
+readiness. Every raster-gated record in the NELB, Thalamic trajectory (TTF), and
+Ouroboros swarm lanes needs a 20-50 ms excerpt of source `(neuron_id, t_us)`
+events with integer-microsecond `t_us`, a non-empty routing table, third-factor
+routing with a named modulator, non-empty eligibility rule, and positive
+`tau_e_s` (or `tau_e_ms`), and the
+`spikes = round(neurons * rate * window_s)` budget; every raster-gated round
+also needs at least one spike-implemented `gate_snn` head. A nonzero audit is a
 real training blocker; report it rather than relabeling the corpus as clean.
+
+To load those rasters for a distillation probe — canonical source
+`(neuron_id, t_us)` events (integer microseconds, not converted from `t_ms`),
+populations, routing, third-factor eligibility, and gate heads, all read from
+structured JSON and never from prose counts:
+
+```bash
+python3 pipelines/spike_probe.py --strict outputs/raw/<date>
+python3 pipelines/spike_probe.py --jsonl outputs/raw/<date> > rasters.jsonl
+```
+
+`--jsonl` prints normalized rasters to stdout and unloadable/input problems to
+stderr as `{"unloadable": true, ...}` records, then exits 1 when any record
+could not be loaded. Do not treat an incomplete `rasters.jsonl` as a clean
+export.
 
 ## Snapshot before every launch
 
@@ -163,6 +189,16 @@ Take a stable snapshot or use `driver.py audit`, then report:
 - exact timestamp and whether numbers came from live raw, a snapshot, or a
   workflow journal.
 
+Quote a destination's yield against its **eligible** denominator, not its raw
+record count. `audit`, `census.py`, and `leftover_mill.py` all consume the
+same `mill_family.py` ownership result and subtract proven foreign-mill
+records. `leftover` inside a record id is a goal-naming convention, never
+grounds for quarantine; those records stay eligible unless payload-factory,
+mill-prefix, or goal-family evidence proves that they belong elsewhere. Raw
+JSONL is named and skipped, never rewritten or deleted. In marker mode these
+readers count only transactionally visible batches; a linked batch does not
+enter an eligible denominator before its completion marker exists.
+
 Never estimate agent-token usage from output bytes without labeling the method.
 Output-token estimates (`bytes / 4`) and model usage tokens are different units.
 
@@ -175,8 +211,11 @@ python3 pipelines/promote.py outputs/raw/<date> outputs/cleaned/<new-label>
 ```
 
 The promoter refuses an existing destination and any destination nested inside
-the raw source. Do not promote while `audit` is blocked unless the user explicitly
-asks for a diagnostic cleaned copy; never describe such a copy as curated.
+the raw source. It then runs the blocking quality gate, writes
+`<cleaned_out>/quality-manifest.json`, and exits 1 when the cleaned tree is not
+eligible for curation. Do not promote while `audit` is blocked unless the user
+explicitly asks for a diagnostic cleaned copy; never describe a blocked copy as
+curated.
 
 ## Failure handling
 

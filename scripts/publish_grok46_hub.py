@@ -11,7 +11,11 @@ Usage:
     python3 scripts/publish_grok46_hub.py upload [--only HUB_NAME]
     python3 scripts/publish_grok46_hub.py collect
     python3 scripts/publish_grok46_hub.py status
+    python3 scripts/publish_grok46_hub.py schemas [--strict]
     python3 scripts/publish_grok46_hub.py all
+
+Card viewer schemas are declared one JSON file per dataset under
+config/card-schemas/<hub-dataset-name>.json; see pipelines/card_schema.py.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import cast
 
 FACTORY_ROOT = Path("/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-08-19-agentic")
 HF_ROOT = Path("/home/raulmc/rmems/hf")
@@ -39,6 +44,10 @@ PIPELINES_ROOT = REPO_ROOT / "pipelines"
 if str(PIPELINES_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINES_ROOT))
 
+import card_schema  # noqa: E402
+from card_payload import PayloadSummary, resolve_payload_summary  # noqa: E402
+from card_schema import CardSchemaError  # noqa: E402
+import leftover_mill  # noqa: E402
 from round_txn import (  # noqa: E402
     TransactionError,
     completed_manifests as transaction_completed_manifests,
@@ -296,6 +305,116 @@ def pretty_name(hub: str) -> str:
     return hub.replace("-", " ").title()
 
 
+def known_hub_names() -> list[str]:
+    """Every Hub dataset name this publisher can produce, from META alone.
+
+    Derived from the slug table rather than the factory tree so the schema
+    audit runs anywhere, including a checkout with no ``outputs/raw`` mirror.
+    """
+    return sorted(hub_name(slug) for slug in META)
+
+
+def card_declaration(hub: str) -> dict | None:
+    """Return the validated card schema declaration for one Hub dataset.
+
+    Returns ``None`` only when the dataset owns no declaration file at all. A
+    declaration that exists but does not validate is a hard failure: a broken
+    file must never degrade into an undeclared card.
+    """
+    try:
+        return card_schema.load(hub)
+    except CardSchemaError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def card_schema_audit() -> tuple[list[str], list[str], list[str]]:
+    """Return ``(declared, undeclared, orphaned)`` Hub dataset names."""
+    known = known_hub_names()
+    try:
+        on_disk = card_schema.declared_datasets()
+    except CardSchemaError as exc:
+        raise SystemExit(str(exc)) from exc
+    have = set(on_disk)
+    expected = set(known)
+    declared = [name for name in known if name in have]
+    undeclared = [name for name in known if name not in have]
+    orphaned = [name for name in on_disk if name not in expected]
+    return declared, undeclared, orphaned
+
+
+def require_no_orphaned_declarations() -> None:
+    """Refuse snapshot/upload when a declaration file names no known dataset."""
+    _declared, _undeclared, orphaned = card_schema_audit()
+    if not orphaned:
+        return
+    for name in orphaned:
+        print(
+            f"ORPHANED    config/card-schemas/{name}.json names no known dataset",
+            file=sys.stderr,
+        )
+    raise SystemExit(
+        "orphaned card schema declaration(s) block snapshot/upload: "
+        + ", ".join(orphaned)
+    )
+
+
+def require_renderable_declarations() -> None:
+    """Load and render every declared schema before any publication work.
+
+    ``snapshot`` and ``upload`` mutate one mirror at a time, so a declaration
+    that fails to load or render must abort the run before the first dataset
+    is touched, not when its own loop iteration reaches it. Payload coverage
+    still runs per dataset inside the loop because coverage needs the scanned
+    payload names.
+    """
+    declared, _undeclared, _orphaned = card_schema_audit()
+    for name in declared:
+        declaration = card_declaration(name)
+        if declaration is None:  # pragma: no cover - declared files exist
+            continue
+        try:
+            rendered_card_schema(declaration)
+        except (CardSchemaError, UnicodeEncodeError) as exc:
+            raise SystemExit(
+                f"cannot render card schema for {name}: {exc}"
+            ) from exc
+
+
+def rendered_card_schema(declaration: dict) -> tuple[str, str]:
+    """Render and UTF-8-check one validated declaration's card fragments."""
+    schema_yaml = card_schema.metadata_yaml(declaration)
+    schema_body = card_schema.body_section(declaration)
+    schema_yaml.encode("utf-8")
+    schema_body.encode("utf-8")
+    return schema_yaml, schema_body
+
+
+def card_declaration_for_payload(
+    hub: str, payload_names: list[str]
+) -> tuple[dict | None, str, str]:
+    """Load and fully preflight one declaration against the source payload.
+
+    Returns ``(declaration, schema_yaml, schema_body)``. ``declaration`` is
+    ``None`` only when the dataset owns no file; ``schema_yaml`` is then empty
+    and ``schema_body`` is the undeclared placeholder. Callers that mutate a
+    snapshot must reuse these strings instead of loading the declaration again.
+    """
+    declaration = card_declaration(hub)
+    if declaration is None:
+        return None, "", card_schema.undeclared_body_section(hub)
+    errors = card_schema.payload_coverage_errors(declaration, payload_names)
+    if errors:
+        raise SystemExit(
+            f"card schema for {hub} does not cover the published payload: "
+            + "; ".join(errors)
+        )
+    try:
+        schema_yaml, schema_body = rendered_card_schema(declaration)
+    except (CardSchemaError, UnicodeEncodeError) as exc:
+        raise SystemExit(f"cannot render card schema for {hub}: {exc}") from exc
+    return declaration, schema_yaml, schema_body
+
+
 def factory_source(slug: str) -> Path:
     """Return one in-tree, non-symlinked factory directory."""
     if FACTORY_ROOT.is_symlink() or not FACTORY_ROOT.is_dir():
@@ -311,39 +430,48 @@ def factory_source(slug: str) -> Path:
     return source
 
 
-def factories() -> list[dict]:
+def _factory_slugs() -> list[str]:
     if FACTORY_ROOT.is_symlink() or not FACTORY_ROOT.is_dir():
         raise SystemExit(f"unsafe factory root: {FACTORY_ROOT}")
-    slugs = []
+    slugs: list[str] = []
     for path in sorted(FACTORY_ROOT.iterdir()):
         if path.is_symlink():
             raise SystemExit(f"unsafe factory directory: {path}")
         if path.is_dir():
             factory_source(path.name)
             slugs.append(path.name)
+    return slugs
+
+
+def _factory_tags(hub: str, extra: list[str], slug: str) -> list[str]:
+    tags = ["synthetic-data", "agentic-workflows", "grok-4.6", "provenance",
+            "preference-data" if "pairs" in hub else "trajectories", *extra]
+    clean: list[str] = []
+    for tag in dict.fromkeys(tags):
+        if any(banned in tag.lower() for banned in BANNED_TAG_SUBSTR):
+            raise SystemExit(f"banned tag {tag} on {slug}")
+        clean.append(tag)
+    return clean
+
+
+def _factory_hub(slug: str) -> str:
+    hub = hub_name(slug)
+    expected_hub = leftover_mill.PUBLISHED_HUB_NAME.get(slug)
+    if expected_hub is not None and hub != expected_hub:
+        raise SystemExit(
+            f"issue #43 hub name drift for {slug}: {hub} != {expected_hub}"
+        )
+    return hub
+
+
+def factories() -> list[dict]:
     out = []
-    for slug in slugs:
+    for slug in _factory_slugs():
         if slug not in META:
             raise SystemExit(f"missing META for {slug}")
         blurb, extra = META[slug]
-        hub = hub_name(slug)
-        tags = ["synthetic-data", "agentic-workflows", "grok-4.6", "provenance"]
-        if "pairs" in hub:
-            tags.append("preference-data")
-        else:
-            tags.append("trajectories")
-        tags.extend(extra)
-        # de-dupe preserve order
-        seen = set()
-        clean = []
-        for t in tags:
-            if t in seen:
-                continue
-            low = t.lower()
-            if any(b in low for b in BANNED_TAG_SUBSTR):
-                raise SystemExit(f"banned tag {t} on {slug}")
-            seen.add(t)
-            clean.append(t)
+        hub = _factory_hub(slug)
+        clean = _factory_tags(hub, extra, slug)
         out.append({"slug": slug, "hub": hub, "pretty": pretty_name(hub), "blurb": blurb, "tags": clean})
     return out
 
@@ -480,9 +608,32 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def completed_manifests(src: Path) -> dict[int, dict]:
+def acknowledged_kind_mix_lines(
+    kind_mix: list[leftover_mill.KindMixFinding] | None,
+) -> dict[str, dict[int, str]]:
+    """Return exact legacy lines allowed through strict kind validation."""
+    quarantined_kinds: dict[str, dict[int, str]] = {}
+    for finding in kind_mix or ():
+        if not finding.acknowledged:
+            continue
+        quarantined_kinds.setdefault(finding.source_name, {})[
+            finding.source_line
+        ] = finding.record_kind
+    return quarantined_kinds
+
+
+def completed_manifests(
+    src: Path,
+    kind_mix: list[leftover_mill.KindMixFinding] | None = None,
+) -> dict[int, dict]:
     """Validate completion markers once via the transaction source of truth."""
+    quarantined_kinds = acknowledged_kind_mix_lines(kind_mix)
     try:
+        if quarantined_kinds:
+            return transaction_completed_manifests(
+                src,
+                quarantined_kinds=quarantined_kinds,
+            )
         return transaction_completed_manifests(src)
     except TransactionError as exc:
         raise SystemExit(str(exc)) from exc
@@ -493,12 +644,31 @@ def discovered_legacy_frontier(src: Path) -> tuple[int, int]:
     return transaction_legacy_frontier(src), transaction_legacy_named_baseline(src)
 
 
-def validate_legacy_baseline_payloads(src: Path, baseline: int) -> None:
+def validate_legacy_baseline_payloads(
+    src: Path,
+    baseline: int,
+    kind_mix: list[leftover_mill.KindMixFinding] | None = None,
+) -> None:
     """Translate the allocator's baseline validation into publisher errors."""
     try:
-        transaction_validate_legacy_baseline_payloads(src, baseline)
+        transaction_validate_legacy_baseline_payloads(
+            src,
+            baseline,
+            quarantined_kinds=acknowledged_kind_mix_lines(kind_mix),
+        )
     except TransactionError as exc:
         raise SystemExit(str(exc)) from exc
+
+
+def legacy_kind_mix(
+    src: Path, baseline: int
+) -> list[leftover_mill.KindMixFinding]:
+    """Gate visible legacy payloads before strict destination-kind checks."""
+    payloads = transaction_legacy_baseline_jsonl_paths(src, baseline)
+    item = {"slug": src.name, "hub": src.name}
+    return gate_leftover_mill(
+        item, [(path, path.name) for path in payloads]
+    )
 
 
 def legacy_snapshot_paths(src: Path, baseline: int) -> list[Path]:
@@ -545,10 +715,12 @@ def marker_mode_state(
         paths = legacy_snapshot_paths(src, max(rounds)) if rounds else []
         before = {path.name: file_sha256(path) for path in paths}
         if rounds:
-            validate_legacy_baseline_payloads(src, max(rounds))
+            baseline = max(rounds)
+            kind_mix = legacy_kind_mix(src, baseline)
+            validate_legacy_baseline_payloads(src, baseline, kind_mix)
             after = {
                 path.name: file_sha256(path)
-                for path in legacy_snapshot_paths(src, max(rounds))
+                for path in legacy_snapshot_paths(src, baseline)
             }
         else:
             after = {}
@@ -568,6 +740,15 @@ def marker_mode_state(
     baseline = mode.get("legacy_baseline")
     if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
         raise SystemExit(f"invalid legacy_baseline in {mode_path}")
+    legacy_paths = legacy_snapshot_paths(src, baseline)
+    legacy_sha256 = {path.name: file_sha256(path) for path in legacy_paths}
+    # Pin the complete legacy snapshot before deriving any line-scoped
+    # quarantine exemptions. A writer that replaces an acknowledged row after
+    # the scan is caught by the post-validation digest check below, so stale
+    # findings can never exempt different bytes from strict staging checks.
+    # Keep this gate ahead of the generic frontier check so an unacknowledged
+    # mixed-kind row is reported as the actionable publication failure.
+    kind_mix = legacy_kind_mix(src, baseline)
     legacy_frontier, legacy_named_baseline = discovered_legacy_frontier(src)
     if baseline > legacy_frontier:
         raise SystemExit(
@@ -576,16 +757,14 @@ def marker_mode_state(
         )
     if baseline < legacy_named_baseline:
         raise SystemExit(f"legacy_baseline in {mode_path} excludes legacy r01 payloads")
-    legacy_paths = legacy_snapshot_paths(src, baseline)
-    legacy_sha256 = {path.name: file_sha256(path) for path in legacy_paths}
-    validate_legacy_baseline_payloads(src, baseline)
+    validate_legacy_baseline_payloads(src, baseline, kind_mix)
     validated_legacy_sha256 = {
         path.name: file_sha256(path)
         for path in legacy_snapshot_paths(src, baseline)
     }
     if legacy_sha256 != validated_legacy_sha256:
         raise SystemExit(f"legacy baseline changed during validation: {src}")
-    manifests = completed_manifests(src)
+    manifests = completed_manifests(src, kind_mix)
     return baseline, manifests, validated_legacy_sha256
 
 
@@ -758,20 +937,158 @@ def reconcile_snapshot_entries(
             raise SystemExit(f"unsafe non-file {description}: {existing}")
 
 
+def gate_leftover_mill(
+    item: dict, payloads: list[tuple[Path, str]]
+) -> list[leftover_mill.KindMixFinding]:
+    """Refuse a preference publish carrying unquarantined leftover-mill records.
+
+    The destination kind comes from the factory registry and the record kind
+    comes from the payload, so neither the directory slug nor a ``-leftover``
+    id suffix can vouch for a record. Destinations that do not publish
+    preference pairs are not gated here: factory mix and dest-stamped family
+    mix on episode slugs are separate detectors (issues #43 and #44).
+    """
+    expected = (
+        "preference" if leftover_mill.is_preference_destination(item["slug"]) else None
+    )
+    findings: list[leftover_mill.KindMixFinding] = []
+    for path, name in payloads:
+        findings.extend(
+            leftover_mill.scan_jsonl_kind_mix(
+                path, expected, slug=item["slug"], source_name=name
+            )
+        )
+    unacknowledged = leftover_mill.unacknowledged(findings)
+    if unacknowledged:
+        detail = "; ".join(finding.describe() for finding in unacknowledged[:10])
+        raise SystemExit(
+            f"{item['hub']}: refusing to publish {len(unacknowledged)} "
+            f"unquarantined leftover-mill record(s) into a preference "
+            f"destination: {detail}"
+        )
+    return findings
+
+
+def _copy_payload_batches(batches, raw: Path, marker_state) -> tuple[int, int]:
+    """Copy each published batch into the mirror; return records and bytes.
+
+    The counts are taken from the copies rather than the sources, so the card
+    can only ever describe bytes that actually landed in the mirror.
+    """
+    records = 0
+    bytes_ = 0
+    for batch in batches:
+        copied = raw / batch.name
+        link_or_copy(batch, copied, snapshot_manifest_sha256(batch, marker_state))
+        records += count_jsonl_lines(copied)
+        bytes_ += copied.stat().st_size
+    return records, bytes_
+
+
+def _published_round_range(batches) -> tuple[str | None, str | None]:
+    """Return the first and last round token a card may claim, else two Nones.
+
+    A contiguous ``batch-rNN.jsonl`` span may only be claimed when every batch
+    carries a label and every label agrees with its own filename. Anything
+    else -- one unlabelled payload, or a name that disagrees with the round it
+    encodes -- yields no range, and the card falls back to naming the payload
+    files individually rather than asserting a span the mirror does not have.
+    """
+    labels = [
+        (batch, label)
+        for batch in batches
+        if (label := batch_label(batch)) is not None
+    ]
+    batch_only = len(labels) == len(batches) and all(
+        batch.name == f"batch-{label[2]}.jsonl" for batch, label in labels
+    )
+    if not labels or not batch_only:
+        return None, None
+    return (
+        min(label for _batch, label in labels)[2],
+        max(label for _batch, label in labels)[2],
+    )
+
+
+def _refuse_banned_yaml_tags(card: str, hub: str) -> None:
+    """Refuse a banned tag in the card's YAML front matter.
+
+    Front matter only: the prose body is allowed to say things like "not
+    labeled as Spikenaut", which must not trip the tag ban.
+    """
+    front_matter = card.split("---", 2)
+    tag_block = front_matter[1] if len(front_matter) >= 3 else ""
+    for line in tag_block.splitlines():
+        low = line.strip().lstrip("- ").lower()
+        if any(b == low or low.startswith(b + "-") for b in BANNED_TAG_SUBSTR):
+            raise SystemExit(f"banned YAML tag {low!r} on {hub}")
+
+
 def snapshot_one(item: dict) -> dict:
     src = factory_source(item["slug"])
     dest = hf_datasets_root() / item["hub"]
     if not LICENSE_SRC.is_file():
         raise SystemExit(f"missing repository LICENSE at {LICENSE_SRC}")
-    raw, meta = snapshot_directories(dest)
     marker_state = marker_mode_state(src)
     batches = published_batches(src, marker_state)
     notes = published_notes(src, batches, marker_state)
-    records = 0
-    bytes_ = 0
-    labels = []
+    # Payload-first preference gate. It runs before anything is written, so a
+    # leftover-mill leak leaves the mirror untouched, and again on the copies
+    # below, so the card describes the bytes that actually landed.
+    gate_leftover_mill(item, [(batch, batch.name) for batch in batches])
     desired_batch_names = {batch.name for batch in batches}
     desired_note_names = {note.name for note in notes}
+    # Validate against source names before creating, deleting, or copying any
+    # destination entry. A rejected schema must leave the previous mirror whole.
+    _, schema_yaml, schema_body = card_declaration_for_payload(
+        item["hub"], sorted(desired_batch_names)
+    )
+    raw, meta = snapshot_directories(dest)
+    _reconcile_snapshot_layout(dest, raw, meta, desired_batch_names, desired_note_names)
+    records, bytes_ = _copy_payload_batches(batches, raw, marker_state)
+    kind_mix = gate_leftover_mill(item, [(raw / b.name, b.name) for b in batches])
+    for n in notes:
+        link_or_copy(n, meta / n.name, snapshot_manifest_sha256(n, marker_state))
+    first, last_s = _published_round_range(batches)
+    card = render_card(
+        item,
+        summary=PayloadSummary(
+            records=records,
+            bytes_=bytes_,
+            first=first,
+            last=last_s,
+            names=[batch.name for batch in batches],
+        ),
+        schema=(schema_yaml, schema_body),
+        kind_mix=kind_mix,
+    )
+    replace_snapshot_text(dest / "README.md", card)
+    license_dst = dest / "LICENSE"
+    link_or_copy(LICENSE_SRC, license_dst)
+    replace_snapshot_text(
+        dest / "ATTRIBUTION.md",
+        ATTRIBUTION,
+    )
+    _refuse_banned_yaml_tags(card, item["hub"])
+    return {
+        "hub": item["hub"],
+        "slug": item["slug"],
+        "records": records,
+        "batches": len(batches),
+        "notes": len(notes),
+        "bytes": bytes_,
+        "last": last_s,
+        "quarantined": len(kind_mix),
+    }
+
+
+def _reconcile_snapshot_layout(
+    dest: Path,
+    raw: Path,
+    meta: Path,
+    desired_batch_names: set[str],
+    desired_note_names: set[str],
+) -> None:
     reconcile_snapshot_entries(
         dest,
         {"data", "README.md", "LICENSE", "ATTRIBUTION.md"},
@@ -782,87 +1099,152 @@ def snapshot_one(item: dict) -> dict:
     )
     reconcile_snapshot_entries(raw, desired_batch_names, "snapshot payload")
     reconcile_snapshot_entries(meta, desired_note_names, "snapshot metadata")
-    for b in batches:
-        copied = raw / b.name
-        link_or_copy(b, copied, snapshot_manifest_sha256(b, marker_state))
-        records += count_jsonl_lines(copied)
-        bytes_ += copied.stat().st_size
-        labels.append(batch_label(b))
-    for n in notes:
-        link_or_copy(n, meta / n.name, snapshot_manifest_sha256(n, marker_state))
-    labels = [
-        (batch, label)
-        for batch, label in zip(batches, labels)
-        if label is not None
-    ]
-    batch_only = len(labels) == len(batches) and all(
-        batch.name == f"batch-{label[2]}.jsonl" for batch, label in labels
-    )
-    first = min(label for _batch, label in labels)[2] if labels and batch_only else None
-    last_s = max(label for _batch, label in labels)[2] if labels and batch_only else None
-    card = render_card(
-        item,
-        records=records,
-        bytes_=bytes_,
-        first=first,
-        last=last_s,
-        payload_names=[batch.name for batch in batches],
-    )
-    replace_snapshot_text(dest / "README.md", card)
-    license_dst = dest / "LICENSE"
-    link_or_copy(LICENSE_SRC, license_dst)
-    replace_snapshot_text(
-        dest / "ATTRIBUTION.md",
-        ATTRIBUTION,
-    )
-    # YAML tags only — body may say "not labeled as Spikenaut".
-    fm = card.split("---", 2)
-    tag_block = fm[1] if len(fm) >= 3 else ""
-    for line in tag_block.splitlines():
-        low = line.strip().lstrip("- ").lower()
-        if any(b == low or low.startswith(b + "-") for b in BANNED_TAG_SUBSTR):
-            raise SystemExit(f"banned YAML tag {low!r} on {item['hub']}")
-    return {
-        "hub": item["hub"],
-        "slug": item["slug"],
-        "records": records,
-        "batches": len(batches),
-        "notes": len(notes),
-        "bytes": bytes_,
-        "last": last_s,
-    }
 
 
-def render_card(
+def _resolved_card_schema(
     item: dict,
-    *,
+    payload_names: list[str] | None,
+    schema: tuple[str, str] | None,
+) -> tuple[str, str]:
+    if schema is None:
+        _, schema_yaml, schema_body = card_declaration_for_payload(
+            item["hub"], payload_names or []
+        )
+        return schema_yaml, schema_body
+    return schema
+
+
+def _release_payload_text(
     records: int,
-    bytes_: int,
+    kb: int,
     first: str | None,
     last: str | None,
-    payload_names: list[str] | None = None,
+    payload_names: list[str] | None,
 ) -> str:
-    tags = "\n".join(f"- {t}" for t in item["tags"])
-    kb = max(1, bytes_ // 1024)
-    if first is None or last is None:
-        if payload_names:
-            names = ", ".join(f"`data/raw/{name}`" for name in payload_names)
-            payload = (
-                f"The release contains {records} raw records across {len(payload_names)} "
-                f"published JSONL payload(s) ({names}; ~{kb} KB), snapshotted from"
-            )
-        else:
-            payload = (
-                "This snapshot currently contains no published raw batch files. "
-                "It does not claim a `data/raw/batch-rNN.jsonl` payload. The factory "
-                "source tree is"
-            )
-    else:
-        payload = (
+    if first is not None and last is not None:
+        return (
             f"The release contains {records} raw records across\n"
             f"`data/raw/batch-{first}.jsonl` through `data/raw/batch-{last}.jsonl` "
             f"(~{kb} KB), snapshotted from"
         )
+    if payload_names:
+        names = ", ".join(f"`data/raw/{name}`" for name in payload_names)
+        return (
+            f"The release contains {records} raw records across {len(payload_names)} "
+            f"published JSONL payload(s) ({names}; ~{kb} KB), snapshotted from"
+        )
+    return (
+        "This snapshot currently contains no published raw batch files. "
+        "It does not claim a `data/raw/batch-rNN.jsonl` payload. The factory "
+        "source tree is"
+    )
+
+
+def render_quarantine_section(
+    records: int, kind_mix: list[leftover_mill.KindMixFinding]
+) -> str:
+    """Disclose acknowledged leftover-mill records instead of hiding them."""
+    if not kind_mix:
+        return ""
+    ids = "\n".join(
+        f"- `{finding.record_id}` (`data/raw/{finding.source_name}` line "
+        f"{finding.source_line}, payload kind `{finding.record_kind}`, sha256 "
+        f"`{finding.source_sha256}`)"
+        for finding in kind_mix
+    )
+    return f"""
+## Leftover-mill quarantine
+
+Quarantined: {len(kind_mix)} of the {records} published raw records. They are
+**not preference pairs** — they are leftover-mill records whose payload carries
+a different record kind, classified from the payload itself rather than from the
+file name or the `-leftover` id suffix. The preference-pair count this snapshot
+supports is **{records - len(kind_mix)}**, not {records}.
+
+The raw JSONL is published unmodified: these records stay in `data/raw/` as
+evidence and are quarantined by id here, never by editing the payload to fake a
+preference schema. Preference curation (`pipelines/curate_preferences.py`)
+already excludes them, and any *new* leftover-mill record blocks a snapshot of
+this repository outright.
+
+{ids}
+"""
+
+
+TRAJECTORY_PAIR_SCHEMA_SECTION = """## Record schema
+
+Preference-pair lines use a **trajectory preference pair**, not a same-state
+preference pair. One shared top-level `goal`, then `chosen` and `rejected`
+objects that each carry `steps` (`n`, `decision_basis`, `tool_call`,
+`observation`),
+`outcome`, and `reward`. These records contain no `state` and no
+`proposed_action` field.
+
+What that means for reuse:
+
+- These pairs are **out of scope** for the Fable same-state gate
+  `pipelines/curate_preferences.py`, which compares `state` and
+  `proposed_action`. This repository makes **no FFPC-equivalent same-state
+  purity claim**.
+- The applicable gate is `pipelines/curate_trajectory_preferences.py`: shared
+  goal, shared step prefix greater than zero, non-identical trajectories, and
+  divergent `outcome` and `reward`. See `docs/trajectory-preference-gate.md`
+  in the factory repository.
+- The `data/raw/` payload is unfiltered. Pairs that fail that gate, including
+  pairs whose branches share no leading step, are present in this snapshot and
+  are not silently dropped. Run the gate before training on it.
+
+"""
+
+
+def schema_disclosure(
+    item: dict,
+    records: int,
+    kind_mix: list[leftover_mill.KindMixFinding],
+) -> str:
+    """Disclose the pair schema on preference repos; other repos add nothing."""
+
+    if item["hub"].endswith("-preference-pairs"):
+        disclosure = TRAJECTORY_PAIR_SCHEMA_SECTION
+        if item["hub"] == "code-review-preference-pairs" and kind_mix:
+            disclosure += f"""### Mixed raw payload
+
+`code-review-preference-pairs` contains {records:,} raw lines:
+{records - len(kind_mix):,} trajectory preference pairs and {len(kind_mix):,} quarantined
+leftover-mill episode records without `chosen` / `rejected`
+objects. Consumers must classify the payload before parsing it as a pair
+schema; the raw snapshot is intentionally not rewritten.
+
+"""
+        return disclosure
+    return ""
+
+
+def render_card(item: dict, **keywords: object) -> str:
+    """Render one Hub dataset card.
+
+    Payload facts arrive as summary=PayloadSummary(...) or as the legacy
+    records=/bytes_=/first=/last=/payload_names= keywords still used by the
+    stacked card leaves; both styles render byte-identical cards, and unknown,
+    mixed, or incomplete keywords fail closed with TypeError. schema= and
+    kind_mix= keep their prior meanings on either surface.
+    """
+
+    schema = cast("tuple[str, str] | None", keywords.pop("schema", None))
+    kind_mix_arg = cast(
+        "list[leftover_mill.KindMixFinding] | None", keywords.pop("kind_mix", None)
+    )
+    summary = resolve_payload_summary(keywords)
+    tags = "\n".join(f"- {t}" for t in item["tags"])
+    records = summary.records
+    kb = max(1, summary.bytes_ // 1024)
+    schema_block, schema_section = _resolved_card_schema(item, summary.names, schema)
+    payload = _release_payload_text(
+        records, kb, summary.first, summary.last, summary.names
+    )
+    kind_mix = list(kind_mix_arg or ())
+    quarantine = render_quarantine_section(records, kind_mix)
+    factory_mix = leftover_mill.render_factory_mix_card_section(item["slug"], records)
     return f"""---
 pretty_name: {item['pretty']}
 license: apache-2.0
@@ -870,7 +1252,7 @@ language:
 - en
 tags:
 {tags}
----
+{schema_block}---
 
 # {item['pretty']}
 
@@ -888,7 +1270,7 @@ This is a general agentic research dataset in the Grok 4.6 agentic factory.
 It is independent of the Fable 5 collection and is not labeled as
 Spikenaut training data.
 
-## Generation attribution
+{schema_disclosure(item, records, kind_mix)}## Generation attribution
 
 The underlying synthetic data is generated by **Grok 4.6** through the
 Synthetic Data Factory agentic lane. Factory slug:
@@ -902,6 +1284,7 @@ Synthetic Data Factory agentic lane. Factory slug:
 `data/metadata/NOTES-*.md`. The factory source remains the write destination; this Hub
 copy is a public evidence snapshot, not the curated training export. Public
 visibility is not a training-readiness claim.
+{quarantine}
 
 Raw records may still carry model-private reasoning: `thought` on a step, and
 `internal_reasoning` / `internal_reasoning_verbatim` on a gate record's
@@ -910,11 +1293,12 @@ raw Hub copy is evidence only. The curated export drops those keys and keeps a
 short `decision_basis` grounded in visible plan, tool call, observation, or
 reflection evidence instead.
 
+{schema_section}
 ## Planned curated release
 
 Curated training publication remains blocked until a later audit and export
 pass. Do not treat this repository as a training corpus.
-
+{factory_mix}
 ## Links
 
 - [Synthetic data factory: Grok 4.6]({COLLECTION_URL})
@@ -929,13 +1313,20 @@ training-ready or factual real-world measurements.
 
 
 def cmd_snapshot(only: str | None = None) -> list[dict]:
+    require_no_orphaned_declarations()
+    require_renderable_declarations()
     items = factories()
     stats = []
     for item in items:
         if only and item["hub"] != only and item["slug"] != only:
             continue
         stats.append(snapshot_one(item))
-        print(f"snapshot {item['hub']} batches={stats[-1]['batches']} records={stats[-1]['records']}", flush=True)
+        print(
+            f"snapshot {item['hub']} batches={stats[-1]['batches']} "
+            f"records={stats[-1]['records']} "
+            f"quarantined={stats[-1]['quarantined']}",
+            flush=True,
+        )
     selected = {row["hub"]: row for row in stats}
     inventory_stats = [
         selected[item["hub"]]
@@ -1050,20 +1441,33 @@ def safe_upload_directory(item: dict) -> Path:
     return dest
 
 
-def validate_upload_snapshot(item: dict, dest: Path) -> None:
-    """Require the complete mirror to match the current validated source."""
-    src = factory_source(item["slug"])
-    marker_state = marker_mode_state(src)
-    batches = published_batches(src, marker_state)
-    notes = published_notes(src, batches, marker_state)
-    raw = dest / "data" / "raw"
-    meta = dest / "data" / "metadata"
+def _validate_upload_snapshot_directories(raw: Path, meta: Path) -> None:
     for directory in (raw, meta):
         if not directory.is_dir() or directory.is_symlink():
             raise SystemExit(f"incomplete upload snapshot directory: {directory}")
 
-    expected_batches = {path.name: path for path in batches}
-    expected_notes = {path.name: path for path in notes}
+
+def _validate_snapshot_digests(directory: Path, expected: dict, marker_state) -> None:
+    """Require every mirrored file in ``directory`` to match its source digest.
+
+    A source under a marker-mode legacy baseline is pinned by its recorded
+    manifest digest; anything else is hashed directly.
+    """
+    for name, source in expected.items():
+        expected_sha256 = snapshot_manifest_sha256(source, marker_state)
+        if expected_sha256 is None:
+            expected_sha256 = file_sha256(source)
+        if file_sha256(directory / name) != expected_sha256:
+            raise SystemExit(f"upload snapshot digest mismatch: {directory / name}")
+
+
+def _validate_upload_snapshot_payload(
+    raw: Path,
+    meta: Path,
+    expected_batches: dict,
+    expected_notes: dict,
+    marker_state,
+) -> None:
     actual_batches = {path.name for path in raw.iterdir()}
     actual_notes = {path.name for path in meta.iterdir()}
     if actual_batches != set(expected_batches):
@@ -1071,14 +1475,21 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
     if actual_notes != set(expected_notes):
         raise SystemExit(f"upload snapshot metadata set mismatch: {meta}")
 
-    for directory, expected in ((raw, expected_batches), (meta, expected_notes)):
-        for name, source in expected.items():
-            expected_sha256 = snapshot_manifest_sha256(source, marker_state)
-            if expected_sha256 is None:
-                expected_sha256 = file_sha256(source)
-            if file_sha256(directory / name) != expected_sha256:
-                raise SystemExit(f"upload snapshot digest mismatch: {directory / name}")
+    _validate_snapshot_digests(raw, expected_batches, marker_state)
+    _validate_snapshot_digests(meta, expected_notes, marker_state)
 
+
+def _validate_snapshot_attribution(dest: Path) -> None:
+    """Require the mirrored ATTRIBUTION.md to be exactly the pinned text."""
+    try:
+        attribution = (dest / "ATTRIBUTION.md").read_text()
+    except (OSError, UnicodeError) as exc:
+        raise SystemExit(f"cannot read upload snapshot attribution: {exc}") from exc
+    if attribution != ATTRIBUTION:
+        raise SystemExit(f"upload snapshot digest mismatch: {dest / 'ATTRIBUTION.md'}")
+
+
+def _validate_upload_snapshot_top_level_files(dest: Path) -> None:
     required_top = {
         "README.md": None,
         "LICENSE": LICENSE_SRC,
@@ -1090,42 +1501,64 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
             raise SystemExit(f"incomplete upload snapshot file: {path}")
     if file_sha256(dest / "LICENSE") != file_sha256(LICENSE_SRC):
         raise SystemExit(f"upload snapshot digest mismatch: {dest / 'LICENSE'}")
-    try:
-        attribution = (dest / "ATTRIBUTION.md").read_text()
-    except (OSError, UnicodeError) as exc:
-        raise SystemExit(f"cannot read upload snapshot attribution: {exc}") from exc
-    if attribution != ATTRIBUTION:
-        raise SystemExit(f"upload snapshot digest mismatch: {dest / 'ATTRIBUTION.md'}")
+    _validate_snapshot_attribution(dest)
 
-    records = sum(count_jsonl_lines(raw / batch.name) for batch in batches)
-    bytes_ = sum((raw / batch.name).stat().st_size for batch in batches)
-    labels = [
-        (batch, label)
-        for batch in batches
-        if (label := batch_label(batch)) is not None
-    ]
-    batch_only = len(labels) == len(batches) and all(
-        batch.name == f"batch-{label[2]}.jsonl" for batch, label in labels
-    )
-    first = min(label for _batch, label in labels)[2] if labels and batch_only else None
-    last = max(label for _batch, label in labels)[2] if labels and batch_only else None
-    expected_card = render_card(
-        item,
-        records=records,
-        bytes_=bytes_,
-        first=first,
-        last=last,
-        payload_names=[batch.name for batch in batches],
-    )
+
+def _read_snapshot_card(dest: Path) -> str:
+    """Return the mirrored card text, or exit if it cannot be read."""
     try:
-        card = (dest / "README.md").read_text()
+        return (dest / "README.md").read_text()
     except (OSError, UnicodeError) as exc:
         raise SystemExit(f"cannot read upload snapshot card: {exc}") from exc
+
+
+def _validate_upload_snapshot_card(item: dict, dest: Path, raw: Path, batches, kind_mix) -> None:
+    records = sum(count_jsonl_lines(raw / batch.name) for batch in batches)
+    bytes_ = sum((raw / batch.name).stat().st_size for batch in batches)
+    first, last = _published_round_range(batches)
+    expected_card = render_card(
+        item,
+        summary=PayloadSummary(
+            records=records,
+            bytes_=bytes_,
+            first=first,
+            last=last,
+            names=[batch.name for batch in batches],
+        ),
+        kind_mix=kind_mix,
+    )
+    card = _read_snapshot_card(dest)
     if card != expected_card:
         raise SystemExit(f"upload snapshot digest mismatch: {dest / 'README.md'}")
 
 
+def validate_upload_snapshot(item: dict, dest: Path) -> None:
+    """Require the complete mirror to match the current validated source."""
+    src = factory_source(item["slug"])
+    marker_state = marker_mode_state(src)
+    batches = published_batches(src, marker_state)
+    notes = published_notes(src, batches, marker_state)
+    raw = dest / "data" / "raw"
+    meta = dest / "data" / "metadata"
+    _validate_upload_snapshot_directories(raw, meta)
+
+    expected_batches = {path.name: path for path in batches}
+    expected_notes = {path.name: path for path in notes}
+    _validate_upload_snapshot_payload(
+        raw, meta, expected_batches, expected_notes, marker_state
+    )
+
+    _validate_upload_snapshot_top_level_files(dest)
+
+    kind_mix = gate_leftover_mill(
+        item, [(raw / batch.name, batch.name) for batch in batches]
+    )
+    _validate_upload_snapshot_card(item, dest, raw, batches, kind_mix)
+
+
 def cmd_upload(only: str | None = None) -> None:
+    require_no_orphaned_declarations()
+    require_renderable_declarations()
     for item in factories():
         if not is_selected(item, only):
             continue
@@ -1192,27 +1625,124 @@ def cmd_status() -> None:
         print(f"{item['hub']:48} {local:9d} {factory:9d}")
 
 
-def main() -> int:
+def cmd_schemas(strict: bool = False) -> int:
+    """Report every dataset's card schema declaration state, loudly.
+
+    Exits nonzero on a declaration file that is malformed or does not name a
+    real Hub dataset, so a typo'd filename can never sit unnoticed. With
+    ``--strict`` an undeclared dataset is also a failure.
+    """
+    declared, undeclared, orphaned = card_schema_audit()
+    for name in declared:
+        _report_declared_dataset(name)
+    for name in undeclared:
+        print(f"UNDECLARED  {name:48} no config/card-schemas/{name}.json")
+    print(
+        f"\n{len(declared)} declared, {len(undeclared)} undeclared, "
+        f"{len(orphaned)} orphaned of {len(declared) + len(undeclared)} datasets"
+    )
+    if orphaned:
+        _report_orphaned(orphaned)
+        return 2
+    if undeclared and strict:
+        print(
+            f"strict: {len(undeclared)} dataset(s) still publish a card with no "
+            "declared viewer schema",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+def _report_declared_dataset(name: str) -> None:
+    declaration = card_declaration(name)
+    if declaration is None:
+        raise SystemExit(f"card schema for {name} disappeared during the audit")
+    try:
+        rendered_card_schema(declaration)
+    except (CardSchemaError, UnicodeEncodeError) as exc:
+        raise SystemExit(f"cannot render card schema for {name}: {exc}") from exc
+    kind = "schema" if declaration["features"] else "disclosure-only"
+    issues = (
+        " " + ", ".join(f"#{number}" for number in declaration["issues"])
+        if declaration["issues"]
+        else ""
+    )
+    print(f"declared    {name:48} {kind}{issues}")
+
+
+def _report_orphaned(orphaned: list[str]) -> None:
+    for name in orphaned:
+        print(
+            f"ORPHANED    config/card-schemas/{name}.json names no known dataset",
+            file=sys.stderr,
+        )
+
+
+def _parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["snapshot", "create", "upload", "collect", "status", "all"])
+    ap.add_argument(
+        "cmd",
+        choices=["snapshot", "create", "upload", "collect", "status", "schemas", "all"],
+    )
     ap.add_argument("--only")
-    args = ap.parse_args()
+    ap.add_argument(
+        "--strict",
+        action="store_true",
+        help="schemas: fail when any dataset has no card schema declaration",
+    )
+    return ap.parse_args()
+
+
+def _schemas_exit_code(args: argparse.Namespace) -> int:
+    if args.only:
+        print("schemas does not accept --only", file=sys.stderr)
+        return 2
+    return cmd_schemas(strict=args.strict)
+
+
+def _auth_error(args: argparse.Namespace) -> int | None:
+    """Return an exit code when a Hub-writing command lacks the rmems identity."""
+    if args.cmd not in {"create", "upload", "collect", "all"}:
+        return None
+    return _require_hf_identity()
+
+
+def main() -> int:
+    args = _parse_args()
+    if args.cmd == "schemas":
+        return _schemas_exit_code(args)
+    if args.strict:
+        print("--strict only applies to the schemas command", file=sys.stderr)
+        return 2
     if args.only and not any(is_selected(item, args.only) for item in factories()):
         print(f"unknown --only target: {args.only}", file=sys.stderr)
         return 2
-    if args.cmd in {"create", "upload", "collect", "all"}:
-        who = subprocess.run(
-            ["hf", "auth", "whoami", "--format", "json"],
-            capture_output=True,
-            text=True,
-        )
-        if who.returncode != 0:
-            print(who.stderr, file=sys.stderr)
-            return 2
-        ident = json.loads(who.stdout)
-        if ident.get("user") != "rmems":
-            print(f"refusing: whoami={ident!r}", file=sys.stderr)
-            return 2
+    auth_error = _auth_error(args)
+    if auth_error is not None:
+        return auth_error
+    _dispatch_command(args)
+    return 0
+
+
+def _require_hf_identity() -> int | None:
+    """Confirm the local ``hf`` CLI is authenticated as rmems, or return an exit code."""
+    who = subprocess.run(
+        ["hf", "auth", "whoami", "--format", "json"],
+        capture_output=True,
+        text=True,
+    )
+    if who.returncode != 0:
+        print(who.stderr, file=sys.stderr)
+        return 2
+    ident = json.loads(who.stdout)
+    if ident.get("user") != "rmems":
+        print(f"refusing: whoami={ident!r}", file=sys.stderr)
+        return 2
+    return None
+
+
+def _dispatch_command(args: argparse.Namespace) -> None:
     if args.cmd == "snapshot":
         cmd_snapshot(args.only)
     elif args.cmd == "create":
@@ -1228,7 +1758,6 @@ def main() -> int:
         cmd_create(args.only)
         cmd_upload(args.only)
         cmd_collect(args.only)
-    return 0
 
 
 if __name__ == "__main__":

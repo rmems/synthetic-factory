@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "dataset": "rag-retrieval-debug-trajectories",
+  "issues": [71],
+  "note": "The viewer schema is declared by hand because the published payload is a union of two record shapes plus three key-bag columns: 76 designed-episode records carry five extra top-level objects (`error_introduced`, `propagation`, `diagnosis`, `recovery`, `verification`) that the other 1800 omit, while `meta`, `reward` and `steps[].tool_call.args` gain keys the early shards never show and even change value type (`reward.handoff` is a string on 773 records and an integer on 8; `reward.eval_passed` is an integer on 75 and a boolean on 1). A schema inferred from the first shard therefore cannot cast the later ones, so the datasets-server fails the parquet job. Declaring the union fixes the index without rewriting a single historical raw record.",
+  "config_name": "default",
+  "split": "train",
+  "data_files": ["data/raw/batch-*.jsonl"],
+  "features": [
+    {"name": "id", "dtype": "string"},
+    {"name": "goal", "dtype": "string"},
+    {
+      "name": "plan",
+      "dtype": "string",
+      "note": "observed snapshot through round 938: a non-empty string on all 1876 records; declared without `optional` for this snapshot"
+    },
+    {
+      "name": "error_introduced",
+      "dtype": "json",
+      "optional": true,
+      "note": "observed snapshot through round 938: present on 76 of 1876 records (the `meta.kind=episode` rows), currently as `{step int, kind string, description string}`; kept as `json` so a future nested key or type cannot recreate the Arrow cast failure"
+    },
+    {
+      "name": "propagation",
+      "dtype": "json",
+      "optional": true,
+      "note": "observed snapshot through round 938: present on 76 of 1876 records, currently as `{hops int, survived_steps list[int], mask string, first_symptom_step int}`; kept as `json` so future nested-shape drift remains loadable"
+    },
+    {
+      "name": "diagnosis",
+      "dtype": "json",
+      "optional": true,
+      "note": "observed snapshot through round 938: present on 76 of 1876 records, currently as `{step int, how_survived string}`; kept as `json` to tolerate nested-shape drift"
+    },
+    {
+      "name": "recovery",
+      "dtype": "json",
+      "optional": true,
+      "note": "observed snapshot through round 938: present on 76 of 1876 records, currently as `{step int, action string}`; kept as `json` to tolerate nested-shape drift"
+    },
+    {
+      "name": "verification",
+      "dtype": "json",
+      "optional": true,
+      "note": "observed snapshot through round 938: present on 76 of 1876 records, currently as `{step int, evidence string}`; kept as `json` to tolerate nested-shape drift"
+    },
+    {
+      "name": "steps",
+      "list": [
+        {"name": "n", "dtype": "int64"},
+        {"name": "decision_basis", "dtype": "string"},
+        {
+          "name": "tool_call",
+          "struct": [
+            {"name": "name", "dtype": "string"},
+            {
+              "name": "args",
+              "dtype": "json",
+              "note": "always an object, but both its keys and its value types vary by tool: `bash` uses `command`, `read` uses `path` plus integer `offset` / `limit`, `edit` uses `path` with either `old` / `new` or `old_string` / `new_string`, `grep` and `rg` use `pattern` / `path` / `glob`, `write` uses `path` / `contents`"
+            }
+          ]
+        },
+        {"name": "observation", "dtype": "string"},
+        {
+          "name": "reflection",
+          "dtype": "string",
+          "optional": true,
+          "note": "present on 959 of 25787 steps"
+        }
+      ]
+    },
+    {"name": "outcome", "dtype": "string"},
+    {
+      "name": "reward",
+      "dtype": "json",
+      "note": "key-bag over 20 keys: `success` (bool) and `cost_steps` (int) on every record, plus `faithfulness` 1769, `pr` 1544, `tests_passed` 988, `xfailed` 888, `handoff` 781, `eval_passed` 76, `wasted_steps` 76, `first_patch_failed` 74, `retries` 16, `hit_at_1` 5, `citation_in_set` 3 and seven single-record extras; `handoff` is a string on 773 records and an integer on 8, and `eval_passed` is an integer on 75 records and a boolean on 1, so no fixed dtype can hold this column"
+    },
+    {
+      "name": "meta",
+      "dtype": "json",
+      "note": "key-bag with three observed shapes: `factory` / `generator` / `round` on all 1876 records, plus `kind` / `seed` / `designed` on the 76 designed-episode rows and `plant` / `domain` / `seed` on the 16 designed leftover-lattice rows, so `seed` is on 92 records rather than only on the episode rows"
+    }
+  ],
+  "disclosures": [
+    {
+      "summary": "18 dest-stamped leftover-mill records in `batch-r21.jsonl` through `batch-r29.jsonl` keep `meta.factory: eval-harness-trajectory-factory` and an `evh-` id prefix. They are published unmodified; they carry the thin three-key `meta` shape and none of the episode extras. Re-verified against this payload: exactly 18 records, two per shard across rounds 21 to 29, and no other foreign `meta.factory` value exists anywhere in the dataset.",
+      "ids": [
+        "evh-r21-cite-orphan-c3e8",
+        "evh-r21-hybrid-sku-a91b",
+        "evh-r22-rerank-pad-d7f2",
+        "evh-r22-ragas-param-b4c1",
+        "evh-r23-embed-mismatch-e5a0",
+        "evh-r23-tenant-filter-f2c9",
+        "evh-r24-table-split-a8d3",
+        "evh-r24-mmr-drop-b7e1",
+        "evh-r25-stale-alias-c4b2",
+        "evh-r25-compress-numeral-d9aa",
+        "evh-r26-parent-cite-e1f6",
+        "evh-r26-hnsw-ef-f8c0",
+        "evh-r27-cohere-topn-a6b8",
+        "evh-r27-recency-bury-c2d4",
+        "evh-r28-lost-middle-g3a1",
+        "evh-r28-weaviate-cert-h4b2",
+        "evh-r29-history-embed-j5c3",
+        "evh-r29-pinecone-ns-k6d4"
+      ],
+      "issues": [43]
+    },
+    "16 records in `batch-r670.jsonl` through `batch-r677.jsonl` carry `meta.plant: designed` with `meta.domain` and `meta.seed`. They are this factory's own advertised leftover-lattice mechanic, not a foreign dump: every one of them keeps `meta.factory: rag-retrieval-debug-factory` and a `rag-` id. Eight of them are the `-handoff-lll` rows whose `reward.handoff` is the integer 1 rather than the usual string.",
+    "The leftover vocabulary in this dataset is the advertised same-factory mechanic: 17 records name `leftover` in the `id` and 143 name it in the `goal`, and every one of them is a `rag-` record of `rag-retrieval-debug-factory`.",
+    "No unowned third leftover class is present here. The dataset contains no `sir-` / search-index-rebuild record and no designed-episode row stamped from another factory: all 76 `meta.kind: episode` records are `rag-` ids of `rag-retrieval-debug-factory`, and only two `meta.factory` values occur in the whole payload.",
+    "Every one of the 25787 steps publishes a public `decision_basis`. There are no hidden `thought` or `internal_reasoning` fields."
+  ]
+}
