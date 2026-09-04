@@ -215,6 +215,31 @@ class DeclarationTestCase(unittest.TestCase):
         self.assertEqual(tool_call["args"]["dtype"], "json")
         return steps, tool_call
 
+    def assert_episode_union(self, reflection_note=None):
+        """The plain episode record: seven columns, a mandatory string `plan`,
+        `reward` and `meta` key bags, the shared step list, and this issue.
+
+        Returns the top-level, step and ``tool_call`` feature indexes so a leaf
+        can add what is particular to its own payload.
+        """
+        names = self.names()
+        self.assertEqual(set(names), EPISODE_FIELDS)
+        self.assertNotIn("optional", names["plan"])
+        self.assertEqual(names["plan"]["dtype"], "string")
+        self.assertEqual(names["meta"]["dtype"], "json")
+        self.assertEqual(names["reward"]["dtype"], "json")
+        steps, tool_call = self.assert_episode_steps(names, reflection_note)
+        self.assertEqual(self.declaration["issues"], [self.ISSUE])
+        return names, steps, tool_call
+
+    def assert_steps_carry_declared_fields(self, records, names):
+        """Every published step carries exactly the declared step fields."""
+        step_names, step_optional = feature_index(names["steps"]["list"])
+        for shard, step in iter_steps(records):
+            self.assertEqual(set(step) - set(step_names), set(), shard)
+            self.assertEqual(set(step_names) - set(step) - step_optional, set(), shard)
+            self.assertEqual(set(step["tool_call"]), TOOL_CALL_FIELDS)
+
     def assert_front_matter_declares_default_config(self, *fragments, absent=()):
         """The default config over raw batches, plus each leaf's own fragments.
 

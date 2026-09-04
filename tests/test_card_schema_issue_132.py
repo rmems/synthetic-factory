@@ -31,12 +31,13 @@ INCIDENT_RESPONSE_PAYLOAD_NAMES = tuple(
     f"batch-r{round_number:02}.jsonl" for round_number in range(1, 5027)
 )
 
-# The published column order: the OpenSRE seed fields sit between `kind` and
-# `steps`, the on-call RCA fields between `reward` and `meta`.
+# The published column order interleaves the families: the OpenSRE seed
+# fields follow `kind`, the on-call RCA fields follow `reward`.
+OPENSRE_SEED_FIELDS = ["true_root_cause", "red_herring", "forbidden_diagnosis", "required_evidence"]
+ONCALL_RCA_FIELDS = ["false_lead", "rca", "remediate"]
 INCIDENT_RESPONSE_FIELD_ORDER = [
-    "id", "goal", "plan", "kind", "true_root_cause", "red_herring",
-    "forbidden_diagnosis", "required_evidence", "steps", "outcome", "reward",
-    "false_lead", "rca", "remediate", "meta",
+    "id", "goal", "plan", "kind", *OPENSRE_SEED_FIELDS,
+    "steps", "outcome", "reward", *ONCALL_RCA_FIELDS, "meta",
 ]
 
 _needs_mirror = needs_mirror(INCIDENT_RESPONSE_MIRROR)

@@ -5,7 +5,6 @@ import unittest
 
 from card_schema_test_support import (
     DEFAULT_DATA_FILES,
-    EPISODE_FIELDS,
     EPISODE_JSON_COLUMNS,
     FEATURES_YAML,
     META_JSON_YAML,
@@ -87,18 +86,11 @@ class LogRedactionDeclarationTests(DeclarationTestCase):
         self.assertEqual(feature_manifest(self.declaration["features"]), EXPECTED_FEATURE_MANIFEST)
 
     def test_declaration_matches_the_observed_union_schema(self):
-        names = self.names()
-        self.assertEqual(set(names), EPISODE_FIELDS)
         # Unlike #36, every one of the 344 records carries `plan`, so it is not
         # declared optional here.
-        self.assertNotIn("optional", names["plan"])
-        self.assertEqual(names["plan"]["dtype"], "string")
-        self.assertEqual(names["meta"]["dtype"], "json")
-        self.assertEqual(names["reward"]["dtype"], "json")
-        steps, tool_call = self.assert_episode_steps(names)
+        _names, steps, tool_call = self.assert_episode_union()
         self.assertNotIn("optional", steps["decision_basis"])
         self.assertEqual(set(tool_call), TOOL_CALL_FIELDS)
-        self.assertEqual(self.declaration["issues"], [47])
         self.assertEqual(self.declaration["data_files"], DEFAULT_DATA_FILES)
 
     def test_key_bag_columns_are_declared_json(self):

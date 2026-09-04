@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 
 from card_schema_test_support import (
-    EPISODE_FIELDS,
     EPISODE_JSON_COLUMNS,
     FEATURES_YAML,
     META_JSON_YAML,
@@ -62,16 +61,9 @@ class WebsocketReconnectDeclarationTests(DeclarationTestCase):
     )
 
     def test_declaration_matches_the_observed_union_schema(self):
-        names = self.names()
-        self.assertEqual(set(names), EPISODE_FIELDS)
         # Unlike #36's dataset, every one of the 322 records carries a `plan`.
-        self.assertNotIn("optional", names["plan"])
-        self.assertEqual(names["plan"]["dtype"], "string")
-        self.assertEqual(names["meta"]["dtype"], "json")
-        self.assertEqual(names["reward"]["dtype"], "json")
-        _steps, tool_call = self.assert_episode_steps(names, "5081 of 5314 steps")
+        _names, _steps, tool_call = self.assert_episode_union("5081 of 5314 steps")
         self.assertEqual(set(tool_call), TOOL_CALL_FIELDS)
-        self.assertEqual(self.declaration["issues"], [52])
 
     def test_key_bag_columns_are_declared_json(self):
         self.assert_json_columns(EPISODE_JSON_COLUMNS)
@@ -150,12 +142,7 @@ class WebsocketReconnectDeclarationTests(DeclarationTestCase):
     @_needs_mirror
     def test_every_step_carries_exactly_the_declared_step_fields(self):
         _shards, records = _scan_mirror()
-        names, _optional = feature_index(self.declaration["features"])
-        step_names, step_optional = feature_index(names["steps"]["list"])
-        for shard, step in iter_steps(records):
-            self.assertEqual(set(step) - set(step_names), set(), shard)
-            self.assertEqual(set(step_names) - set(step) - step_optional, set(), shard)
-            self.assertEqual(set(step["tool_call"]), {"name", "args"})
+        self.assert_steps_carry_declared_fields(records, self.names())
 
     @_needs_mirror
     def test_step_note_matches_the_published_reflection_count(self):

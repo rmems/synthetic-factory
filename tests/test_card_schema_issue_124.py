@@ -362,12 +362,7 @@ class DockerBuildCacheDeclarationTests(DeclarationTestCase):
     @_needs_mirror
     def test_every_step_carries_exactly_the_declared_step_fields(self):
         _shards, records = scan_mirror(DOCKER_BUILD_CACHE_MIRROR)
-        names, _optional = feature_index(self.declaration["features"])
-        step_names, step_optional = feature_index(names["steps"]["list"])
-        for shard, step in iter_steps(records):
-            self.assertEqual(set(step) - set(step_names), set(), shard)
-            self.assertEqual(set(step_names) - set(step) - step_optional, set(), shard)
-            self.assertEqual(set(step["tool_call"]), {"name", "args"})
+        self.assert_steps_carry_declared_fields(records, self.names())
 
     @_needs_mirror
     def test_step_notes_match_the_reflection_and_decision_basis_counts(self):

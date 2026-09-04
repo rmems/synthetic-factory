@@ -7,7 +7,6 @@ from card_schema_test_support import (
     ARGS_JSON_YAML,
     DEFAULT_DATA_FILES,
     DISCLOSURES_HEADING,
-    EPISODE_FIELDS,
     EPISODE_JSON_COLUMNS,
     FEATURES_YAML,
     META_JSON_YAML,
@@ -51,18 +50,11 @@ class SecretScanRemediationDeclarationTests(DeclarationTestCase):
     )
 
     def test_declaration_matches_the_observed_union_schema(self):
-        names = self.names()
-        self.assertEqual(set(names), EPISODE_FIELDS)
         # Unlike long-horizon-coding, `plan` is a string on all 2068 records.
-        self.assertNotIn("optional", names["plan"])
-        self.assertEqual(names["plan"]["dtype"], "string")
-        self.assertEqual(names["reward"]["dtype"], "json")
-        self.assertEqual(names["meta"]["dtype"], "json")
-        steps, tool_call = self.assert_episode_steps(names)
+        _names, steps, tool_call = self.assert_episode_union()
         for required in ("n", "decision_basis", "observation"):
             self.assertNotIn("optional", steps[required])
         self.assertEqual(set(tool_call), TOOL_CALL_FIELDS)
-        self.assertEqual(self.declaration["issues"], [48])
 
     def test_key_bag_columns_are_declared_json(self):
         self.assert_json_columns(EPISODE_JSON_COLUMNS)

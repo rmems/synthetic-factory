@@ -58,9 +58,10 @@ Cite this section instead of inventing defensive defaults.
   A copied Claude trailer on a later SHA is a restack, not new Claude work.
   The rule is about that Fable 5 window, not about Claude as such: a later
   Claude model signs only the commits it authored itself, with its own
-  trailer (`Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`,
-  `Co-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>`), and
-  merge, restack or recovery commits carry no Claude trailer at all.
+  trailer (`Co-Authored-By: Claude Fable 5.1` or `Co-authored-by: Claude
+  Opus 5 (1M context)`, each followed by the usual Anthropic noreply
+  address), and merge, restack or recovery commits carry no Claude trailer
+  at all.
 
 ## Hugging Face card viewer schemas
 

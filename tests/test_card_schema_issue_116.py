@@ -4,7 +4,6 @@
 import unittest
 
 from card_schema_test_support import (
-    EPISODE_FIELDS,
     EPISODE_JSON_COLUMNS,
     FEATURES_YAML,
     META_JSON_YAML,
@@ -62,15 +61,8 @@ class PaymentIdempotencyDeclarationTests(DeclarationTestCase):
     )
 
     def test_declaration_matches_the_observed_union_schema(self):
-        names = self.names()
-        self.assertEqual(set(names), EPISODE_FIELDS)
         # Unlike the long-horizon dump, `plan` is on all 694 records here.
-        self.assertNotIn("optional", names["plan"])
-        self.assertEqual(names["plan"]["dtype"], "string")
-        self.assertEqual(names["meta"]["dtype"], "json")
-        self.assertEqual(names["reward"]["dtype"], "json")
-        self.assert_episode_steps(names, "280 of 11385 steps")
-        self.assertEqual(self.declaration["issues"], [55])
+        self.assert_episode_union("280 of 11385 steps")
 
     def test_key_bag_columns_are_declared_json(self):
         self.assert_json_columns(EPISODE_JSON_COLUMNS)

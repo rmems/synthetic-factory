@@ -4,7 +4,6 @@
 import unittest
 
 from card_schema_test_support import (
-    EPISODE_FIELDS,
     EPISODE_JSON_COLUMNS,
     FEATURES_YAML,
     META_JSON_YAML,
@@ -64,17 +63,10 @@ class QueueBackpressureDeclarationTests(DeclarationTestCase):
     )
 
     def test_declaration_matches_the_observed_union_schema(self):
-        names = self.names()
-        self.assertEqual(set(names), EPISODE_FIELDS)
         # `plan` is a string on all 282 records here, unlike #36 where it is
         # optional: declaring it optional would understate the payload.
-        self.assertEqual(names["plan"]["dtype"], "string")
-        self.assertNotIn("optional", names["plan"])
-        self.assertEqual(names["meta"]["dtype"], "json")
-        self.assertEqual(names["reward"]["dtype"], "json")
-        _steps, tool_call = self.assert_episode_steps(names, "4448 of 4649")
+        _names, _steps, tool_call = self.assert_episode_union("4448 of 4649")
         self.assertEqual(tool_call["name"]["dtype"], "string")
-        self.assertEqual(self.declaration["issues"], [70])
 
     def test_key_bag_columns_are_declared_json(self):
         self.assert_json_columns(EPISODE_JSON_COLUMNS)
@@ -190,12 +182,7 @@ class QueueBackpressureDeclarationTests(DeclarationTestCase):
     @_needs_mirror
     def test_every_step_carries_exactly_the_declared_step_fields(self):
         _shards, records = self._mirror()
-        names, _optional = feature_index(self.declaration["features"])
-        step_names, step_optional = feature_index(names["steps"]["list"])
-        for shard, step in iter_steps(records):
-            self.assertEqual(set(step) - set(step_names), set(), shard)
-            self.assertEqual(set(step_names) - set(step) - step_optional, set(), shard)
-            self.assertEqual(set(step["tool_call"]), {"name", "args"})
+        self.assert_steps_carry_declared_fields(records, self.names())
 
     @_needs_mirror
     def test_step_notes_match_the_reflection_and_decision_basis_counts(self):

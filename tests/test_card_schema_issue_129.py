@@ -5,7 +5,6 @@ import json
 import unittest
 
 from card_schema_test_support import (
-    EPISODE_FIELDS,
     EPISODE_JSON_COLUMNS,
     FEATURES_YAML,
     META_JSON_YAML,
@@ -101,16 +100,9 @@ class InfraAsCodeDeclarationTests(DeclarationTestCase):
     )
 
     def test_declaration_matches_the_observed_union_schema(self):
-        names = self.names()
-        self.assertEqual(set(names), EPISODE_FIELDS)
         # `plan` is a string on all 5208 records here; the worked example's
         # optional `plan` must not be copied over.
-        self.assertEqual(names["plan"]["dtype"], "string")
-        self.assertNotIn("optional", names["plan"])
-        self.assertEqual(names["meta"]["dtype"], "json")
-        self.assertEqual(names["reward"]["dtype"], "json")
-        self.assert_episode_steps(names, "17436 of 87554")
-        self.assertEqual(self.declaration["issues"], [67])
+        self.assert_episode_union("17436 of 87554")
 
     def test_key_bag_columns_are_declared_json(self):
         self.assert_json_columns(EPISODE_JSON_COLUMNS)
