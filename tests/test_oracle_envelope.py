@@ -308,12 +308,13 @@ class Helpers(unittest.TestCase):
         for value in (True, math.nan, math.inf, "1", None):
             self.assertFalse(envelope.is_number(value), value)
 
-    def test_is_number_accepts_integers_beyond_float_range(self):
-        # A 400-digit integer is valid JSON and a finite number; converting it
-        # to float first raises OverflowError, which would abort validation of
-        # the whole run instead of answering the question.
-        self.assertTrue(envelope.is_number(json.loads("9" * 400)))
-        self.assertTrue(envelope.is_number(2**1024))
+    def test_is_number_fails_closed_for_integers_beyond_float_range(self):
+        # A 400-digit integer is valid JSON, but converting it to float raises
+        # OverflowError, which would abort validation of the whole run instead
+        # of answering; main's validate_run_spikes.is_number answers False.
+        self.assertFalse(envelope.is_number(json.loads("9" * 400)))
+        self.assertFalse(envelope.is_number(2**1024))
+        self.assertTrue(envelope.is_number(2**1023))
 
     def test_utc_now_iso_matches_the_timestamp_shape(self):
         stamp = envelope.utc_now_iso()
@@ -335,6 +336,17 @@ class ImportModes(unittest.TestCase):
         self.assertEqual(module.GENERATOR_SECTIONS, envelope.GENERATOR_SECTIONS)
         self.assertEqual(module.PROVENANCE_KINDS, envelope.PROVENANCE_KINDS)
         self.assertEqual(module.record_digest(minimal_record()), envelope.record_digest(minimal_record()))
+
+    def test_both_import_forms_are_one_module_object(self):
+        # Whichever form loads first serves both names, as pipelines/__init__.py
+        # arranges for its flat siblings: an exception raised through one form
+        # must be caught through the other.
+        if str(REPO) not in sys.path:
+            sys.path.append(str(REPO))
+        module = importlib.import_module("pipelines.oracle_grounded.envelope")
+        self.assertIs(module, envelope)
+        self.assertIs(module.ContractError, envelope.ContractError)
+        self.assertIs(sys.modules["oracle_grounded.envelope"], sys.modules["pipelines.oracle_grounded.envelope"])
 
 
 if __name__ == "__main__":

@@ -46,6 +46,7 @@ import hashlib
 import json
 import math
 import re
+import sys
 from collections.abc import Callable, Container
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -120,7 +121,7 @@ class OracleUnavailable(RuntimeError):
 
 
 # From origin/agent/issue-78-distillation-datasets:pipelines/oracle_contract.py:240-276 (verbatim,
-# except the integer short-circuit in ``is_number`` explained in its docstring).
+# except the ``OverflowError`` guard in ``is_number`` explained in its docstring).
 def canonical_json(value: Any) -> str:
     """Return the canonical JSON form used for digests and equality."""
 
@@ -142,15 +143,19 @@ def utc_now_iso() -> str:
 def is_number(value: Any) -> bool:
     """True for a real, finite, non-boolean number.
 
-    Integers short-circuit: they are always finite, and ``math.isfinite``
-    converts to float first, which raises ``OverflowError`` for a valid JSON
-    integer of 2**1024 or more instead of answering (the one deviation from
-    the verbatim source, from CodeAnt's review of PR #183).
+    ``math.isfinite`` converts an integer to float first and raises
+    ``OverflowError`` for a valid JSON integer of 2**1024 or more. Such a
+    value fails closed instead of aborting a validation run, exactly as
+    main's ``validate_run_spikes.is_number`` (pipelines/validate_run_spikes.py:62-71)
+    does; this guard is the one deviation from the verbatim source.
     """
 
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False
-    return isinstance(value, int) or math.isfinite(value)
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def is_enum_value(value: Any, allowed: Container[str]) -> bool:
@@ -377,3 +382,24 @@ def check_sections(record: Any, where: str) -> list[str]:
     for section in CONTRACT_SECTIONS:
         errors.extend(_section_errors(record, section, where))
     return errors
+
+
+# The two supported import forms must be one module object, as
+# ``pipelines/__init__.py`` arranges for its flat siblings through
+# ``_expose_package_sibling``: whichever form loads first serves both names, so
+# a ``ContractError`` raised through one form is caught through the other.
+_IMPORT_TWINS = {
+    "oracle_grounded.envelope": "pipelines.oracle_grounded.envelope",
+    "pipelines.oracle_grounded.envelope": "oracle_grounded.envelope",
+}
+
+
+def _bind_import_twin(qualified_name: str) -> None:
+    """Register this fully initialised module under its other supported name."""
+
+    twin = _IMPORT_TWINS.get(qualified_name)
+    if twin is not None:
+        sys.modules.setdefault(twin, sys.modules[qualified_name])
+
+
+_bind_import_twin(__name__)
