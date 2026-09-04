@@ -13,8 +13,9 @@ and no third-party runtime dependency. Dataset payloads live outside git
 published to Hugging Face separately.
 
 `AGENTS.md` is authoritative for the review contracts (fail-closed behaviours
-that must not be "fixed"), the Claude authorship window, the generator rule, and
-the card viewer-schema rules — read it before touching `pipelines/`. `README.md`
+that look like bugs; cite that section rather than "fixing" them), the Claude
+authorship window, the generator rule, and the card viewer-schema rules — read
+it before touching `pipelines/`. `README.md`
 carries the project goal, the rights lanes, and the pipeline command reference.
 
 ## Commands
@@ -60,8 +61,8 @@ refactoring, not suppressed.
 
 ```text
 outputs/raw/<run>/<factory-slug>/batch-rNN.jsonl    append-only, immutable source of truth
-        │  round_txn.py: reserve → stage → validate → publish; a round is visible only once
-        │  ROUND-rNN.complete.json is linked in, and never by replacing an existing path
+        │  round_txn.py: reserve → stage → validate → publish; a round becomes visible when
+        │  ROUND-rNN.complete.json is linked in, and existing paths are left untouched
         ▼
 census.py · validate_run.py · check_records.py · training_audit.py    read-only reports and gates
         │
@@ -82,17 +83,20 @@ and promotes only when every sampled record has a verdict.
 `scripts/publish_grok46_hub.py` snapshots published rounds into `~/rmems/hf/`
 and writes Hub cards from `config/card-schemas/`; `pipelines/verify_hf_release.py`
 is the authority that proves the public release contract still holds.
-`training_ready` is a structural and quality verdict, never training
+`training_ready` is a structural and quality verdict, not training
 eligibility — that is `project_training_policy: allowed` on a registry row,
 and no row carries it yet.
 
 ### Invariants that shape every module
 
-- **Fail closed, never overwrite.** Every writer targets a brand-new destination
-  and refuses one that exists; `raw_tree_guard.py` refuses any write that names
-  or aliases `outputs/raw/`. Unknown provenance, an unknown record kind, a
-  missing mapping, or a rights field that drifts from the loaded policy is a
-  loud error, never a default.
+- **Fail closed; write only to new destinations.** The cleaned, curated,
+  compose, export, and promotion writers target a brand-new destination and
+  refuse one that exists (pick a new label rather than clearing the old tree);
+  `raw_tree_guard.py` refuses any write that names or aliases `outputs/raw/`.
+  The one regenerated file is the `NEXT_ROUND.json` index written by
+  `next_round.py --write-index`, which is an index, not a record. Unknown
+  provenance, an unknown record kind, a missing mapping, or a rights field
+  that drifts from the loaded policy is a loud error rather than a default.
 - **The registry is the identity authority.** `config/FACTORY-REGISTRY.json`
   (`factory-registry-v0.2`) resolves exact `path_id` then exact
   `payload_factory` to a row carrying `record_kinds`, provider/channel,
@@ -101,12 +105,12 @@ and no row carries it yet.
   `(generator, generator_version)` entry in `_REVIEWED_GENERATOR_RIGHTS`
   (`pipelines/curate_identity.py`); the loader rejects one without the other.
   Today every row is `research_only` / `blocked` (hosted-frontier profile).
-- **Record kind comes from the payload, never the directory.**
+- **Record kind comes from the payload, not the directory.**
   `record_kind.classify_kind` is the single classifier (order: thalamic,
   preference, bridge_pair, safety_case, multi_agent, episode). "Mill mix" — a
   record whose `meta.factory`, id prefix, or goal family belongs to another
   lane — is resolved by `mill_family.py`, reported by census, and quarantined by
-  `curate_agentic.py`; the literal `leftover` in an id is never the test
+  `curate_agentic.py`; the literal `leftover` in an id is not the test
   (`leftover_mill.py`).
 - **Policy is data.** `schemas/reward-ontology-v1.mapping.json` and
   `schemas/rights-policy-v1.mapping.json` are loaded and strictly validated at
@@ -114,13 +118,13 @@ and no row carries it yet.
   default taxonomy path. Do not lazy-load a mapping to make an import cheap.
 - **Exact JSON.** `exact_json` / `strict_jsonl` keep decimal tokens and reject
   non-strict input; digests and manifests are computed over those bytes, so
-  payloads are never casually re-serialized.
+  re-serialize a payload only through `exact_json`, not `json.dumps`.
 
 ### Import conventions in `pipelines/`
 
-Every module works both as a direct CLI (`python3 pipelines/x.py`, which puts
+Most modules work both as a direct CLI (`python3 pipelines/x.py`, which puts
 `pipelines/` on `sys.path` and does `import sibling`) and as a package child
-(`from pipelines import x`, which does `from . import sibling`). Modules open
+(`from pipelines import x`, which does `from . import sibling`) by opening
 with the same prelude:
 
 ```python
@@ -137,6 +141,14 @@ else:
 module object so classes such as the exact-JSON decimal token keep one
 identity. Copy the prelude from a sibling when adding a module; a package child
 that others import both ways also needs a loader in `_PACKAGE_SIBLING_LOADERS`.
+Fourteen older modules are direct-execution only because they import siblings
+by bare name (`next_round`, `quality_gate_audit`, `quality_gate_embedding`,
+`card_schema`, `card_schema_validate`, `card_schema_yaml`, `tag_io`,
+`tag_jsonl`, `tag_record`, `tag_regex`, `tag_taxonomy`, `tag_write`,
+`verify_execution`, `verify_execution_shapes`); `import pipelines.next_round`
+raises `ModuleNotFoundError`. That is why `driver.py` and
+`scripts/publish_grok46_hub.py` insert `pipelines/` into `sys.path` before
+importing (`qodana.yaml` documents the resulting inspection exclusion).
 
 Large features are split into many small sibling modules by responsibility
 (`compose_curated_*`, `export_*`, `rights_*`, `mill_*`). `compose_curated.py`

@@ -77,11 +77,13 @@ Nemotron lanes (#170). Every generator, in either lane, follows this rule:
   a frontier session makes every record research-only (#173); only
   human-authored or permissively sourced catalogs with an authorship
   attestation yield training candidates.
-- **Generators never hop factories or rewrite `meta.factory`.** A record is
+- **Generators do not hop factories or rewrite `meta.factory`.** A record is
   published under the factory it was generated for; a mismatch is quarantined
-  by identity, not patched.
+  by identity, not patched. A generator that needs another factory gets its
+  own registry row.
 - **`outputs/raw/` stays immutable.** Generators append new rounds through the
-  transactional round path and never edit published bytes.
+  transactional round path; a defective published record is superseded by a
+  new round or a quarantine-ledger entry, not edited in place.
 - **The prompt-driven lane is legacy.** Prompts pasted into a hosted chat
   produce research-only records; do not scale that lane to accumulate tokens.
 

@@ -136,8 +136,9 @@ it:
 
 ```bash
 python3 pipelines/next_round.py outputs/raw/2026-08-17/<factory-slug>
-# writes only the unused batch-rNN.jsonl + NOTES-rNN.md that it prints
-# never overwrite
+# prints the next unused batch-rNN.jsonl + NOTES-rNN.md names and writes nothing;
+# the session writes only those two files and never overwrites an existing round
+# (transactional writers use round_txn.py reserve / publish instead)
 
 python3 pipelines/next_round.py --write-index outputs/raw/2026-08-17
 ```
