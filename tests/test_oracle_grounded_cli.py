@@ -167,7 +167,7 @@ def write_test_manifest(run_dir):
         note = (
             oracle_validate.MANIFEST_NOTE_PUBLISHABLE
             if any_publishable
-            else oracle_validate.MANIFEST_NOTE_REFERENCE
+            else oracle_validate.MANIFEST_NOTE_UNPUBLISHABLE
         )
         manifest = {
             "schema": record.SCHEMA_ID,
@@ -288,13 +288,19 @@ class GoldenFixture(unittest.TestCase):
             with self.subTest(family=family):
                 self.assertTrue((GOLDEN / family).is_dir())
 
-    def test_no_fixture_record_claims_a_named_runtime_or_publication(self):
+    def test_fixture_records_are_reference_runs_publishable_only_when_accepted(self):
+        # #171: the in-repo simulator at the current module digest is an
+        # authoritative oracle, so an accepted reference record is publishable
+        # and a rejected one never is; none of them claims a named runtime.
         for path in GOLDEN.rglob("*.jsonl"):
             for item in read_jsonl(path):
                 with self.subTest(record=item["id"]):
                     self.assertEqual(item["oracle"]["implementation"], "reference")
-                    self.assertFalse(item["validation"]["publishable"])
                     self.assertFalse(item["oracle"]["runtime_bound"])
+                    self.assertIs(
+                        item["validation"]["publishable"],
+                        item["validation"]["status"] == "accepted",
+                    )
 
     def test_accepted_and_rejected_records_are_filed_separately(self):
         for path in GOLDEN.rglob("accepted-*.jsonl"):
@@ -380,7 +386,7 @@ class InvalidFixtures(unittest.TestCase):
             "result_hash_does_not_cover_result": "result_hash",
             "oracle_commit_unknown": "commit",
             "oracle_module_digest_missing": "module_digest",
-            "reference_oracle_claims_publishable": "publishable",
+            "publishable_reason_claims_the_named_runtime": "publishable_reason",
             "empty_measurement": "measured",
             "no_executed_stages": "stages",
             "reference_run_relabelled_as_named_runtime": "named runtime",
@@ -432,7 +438,9 @@ class ValidateCli(unittest.TestCase):
         self.assertEqual(report["invalid"], 0)
         self.assertEqual(report["parse_failures"], 0)
         self.assertEqual(report["records"], report["accepted"] + report["rejected"])
-        self.assertEqual(report["publishable"], 0)
+        # #171: every accepted reference record at the current digest is
+        # publishable; the two rejected temporal-memory records are not.
+        self.assertEqual(report["publishable"], report["accepted"])
         self.assertEqual(report["named_runtime"], 0)
         self.assertEqual(report["mixed_oracle"], 0)
         self.assertEqual(report["reference_oracle"], report["records"])
@@ -921,42 +929,52 @@ class GenerateCli(unittest.TestCase):
             self.assertEqual(manifest["generation_errors"], [])
 
     def test_the_manifest_note_reflects_whether_anything_is_publishable(self):
-        # A reference-implementation run must not claim any record is
-        # publishable; a run containing a genuinely publishable record must
-        # not claim the opposite. The note is informational text read by
-        # operators and publication tooling, so it must track the records.
+        # A run none of whose records earned publication must not claim
+        # otherwise; a run containing a genuinely publishable record must not
+        # claim the opposite. The note is informational text read by operators
+        # and publication tooling, so it must track the records.
         args = oracle_generate.parse_args(["--count", "1", "ignored-out-dir"])
         availability = oracles.availability_report(())
-        reference_only = build(families.ENCODER_FAMILY)
-        self.assertFalse(reference_only["validation"]["publishable"])
-        manifest = oracle_generate.build_manifest(
-            args,
-            [families.ENCODER_FAMILY],
-            availability,
-            PINNED_COMMIT,
-            False,
-            {families.ENCODER_FAMILY: ([reference_only], [], [])},
-            {},
+
+        def manifest_for(item):
+            return oracle_generate.build_manifest(
+                args,
+                [families.ENCODER_FAMILY],
+                availability,
+                PINNED_COMMIT,
+                False,
+                {families.ENCODER_FAMILY: ([item], [], [])},
+                {},
+            )
+
+        # Unresolved dirty state is unresolved provenance, so even a reference
+        # record at the current digest cannot be published.
+        unpublishable = record.build_record(
+            families.ENCODER_FAMILY, 0, seed=20260823, commit=PINNED_COMMIT, dirty=None, environ={}
         )
+        self.assertFalse(unpublishable["validation"]["publishable"])
+        manifest = manifest_for(unpublishable)
         self.assertIn("no record here", manifest["note"])
         # The validator recomputes the note, so the two vocabularies must be
         # byte-identical or every generated run would fail note validation.
-        self.assertEqual(manifest["note"], oracle_validate.MANIFEST_NOTE_REFERENCE)
+        self.assertEqual(manifest["note"], oracle_validate.MANIFEST_NOTE_UNPUBLISHABLE)
 
-        publishable = relabel_as_named_runtime(reference_only)
-        self.assertTrue(publishable["validation"]["publishable"], publishable["validation"])
-        manifest = oracle_generate.build_manifest(
-            args,
-            [families.ENCODER_FAMILY],
-            availability,
-            PINNED_COMMIT,
-            False,
-            {families.ENCODER_FAMILY: ([publishable], [], [])},
-            {},
+        # #171: an accepted reference record at the current digest is
+        # publishable, and so is the same record measured by a named runtime.
+        reference = next(
+            item
+            for item in (build(families.ENCODER_FAMILY, index) for index in range(24))
+            if item["validation"]["status"] == "accepted"
         )
-        self.assertNotIn("no record here", manifest["note"])
-        self.assertIn("publishable", manifest["note"])
-        self.assertEqual(manifest["note"], oracle_validate.MANIFEST_NOTE_PUBLISHABLE)
+        for publishable in (reference, relabel_as_named_runtime(reference)):
+            with self.subTest(implementation=publishable["oracle"]["implementation"]):
+                self.assertTrue(
+                    publishable["validation"]["publishable"], publishable["validation"]
+                )
+                manifest = manifest_for(publishable)
+                self.assertNotIn("no record here", manifest["note"])
+                self.assertIn("publishable", manifest["note"])
+                self.assertEqual(manifest["note"], oracle_validate.MANIFEST_NOTE_PUBLISHABLE)
 
     def test_it_refuses_to_overwrite_an_existing_run(self):
         with tempfile.TemporaryDirectory(prefix="oracle-twice-") as temp:

@@ -365,18 +365,23 @@ def build_manifest(args, selected, availability, commit, dirty, generated, files
                 ),
             },
         }
+    # Byte-identical to oracle_validate.MANIFEST_NOTE_PUBLISHABLE and
+    # MANIFEST_NOTE_UNPUBLISHABLE, which recompute the note from the records.
     if any_publishable:
         note = (
-            "Counts describe this run only. Some records were measured through "
-            "the named-runtime protocol and are publishable; check each "
-            "record's own validation.publishable and validation.publishable_reason "
-            "for the authoritative per-record determination."
+            "Counts describe this run only. Some records are publishable: they "
+            "were measured by the in-repo reference simulator at the current "
+            "module digest (#171) or through the named-runtime protocol; check "
+            "each record's own validation.publishable and "
+            "validation.publishable_reason for the authoritative per-record "
+            "determination."
         )
     else:
         note = (
-            "Counts describe this run only. A reference-implementation oracle "
-            "measures a real model but is not the named runtime; no record here "
-            "is publishable as a measurement of the named runtime."
+            "Counts describe this run only; no record here is publishable. Each "
+            "record's own validation.publishable_reason states why: a validation "
+            "failure, a module digest the current sources cannot reproduce, or "
+            "unresolved commit or dirty state."
         )
     return {
         "schema": record.SCHEMA_ID,

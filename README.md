@@ -181,8 +181,11 @@ python3 pipelines/oracle_validate.py --reproduce outputs/oracle-grounded/2026-09
 None of the runtimes issue #77 names (`axon-encoder`, `neuromod`,
 `synaptic-mesh`, `limbic-critic`, `plasticity-lab`, a validated recurrent SNN)
 are available here, so those runs use deterministic in-repo reference
-simulators, are stamped `implementation: "reference"`, and are **not**
-publishable as measurements of the named runtimes.
+simulators and are stamped `implementation: "reference"`. Under [#171] an
+accepted reference record whose `oracle.module_digest` matches the current
+sources is publishable as a reproducible simulator measurement; it is never
+publishable as a measurement of the named runtimes, and a digest the current
+sources cannot reproduce keeps `publishable: false`.
 
 ### Curation integration and promotion gate
 

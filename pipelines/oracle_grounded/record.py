@@ -32,6 +32,7 @@ from .envelope import (
     MAX_RESERVED_KEY_HITS,
     PROVENANCE_KINDS as ALLOWED_PROVENANCE_KIND,
     TRAINING_PROVENANCE_KINDS as TRAINING_PROVENANCE_KIND,
+    is_enum_value,
     proposal_of,
     reserved_key_hits,
 )
@@ -269,21 +270,73 @@ def assess(record):
     }
 
 
+# Why a record may be published, by the oracle implementation that measured
+# it. A deterministic in-repo reference simulator is an authoritative oracle
+# for training-candidate data when its measurement is reproducible (#171): the
+# record is simulated provenance and its oracle.module_digest matches the
+# current reference sources. A named external runtime is optional stronger
+# evidence and is recorded exactly as before.
+PUBLISHABLE_REASONS = {
+    "reference": (
+        "measured by the in-repo reference simulator at the current module "
+        "digest with resolved stored provenance (#171); the named runtime is "
+        "not bound, so this is a reproducible simulation, not a runtime "
+        "attestation"
+    ),
+    "mixed": (
+        "measured by the in-repo reference simulator at the current module "
+        "digest and through the named-runtime protocol with resolved stored "
+        "provenance (#171); neither path provides external attestation"
+    ),
+    "named-runtime": (
+        "measured through the named-runtime protocol with resolved stored "
+        "provenance; the protocol does not provide external attestation"
+    ),
+}
+
+
+def _simulator_publication_blockers(record, oracle):
+    """Why a reference or mixed measurement is not publishable (#171).
+
+    The in-repo simulator earns publication only when its measurement can be
+    reproduced from the sources this validator is running: the record must be
+    simulated provenance and carry the current ``oracle.module_digest``. A
+    digest nothing here can reproduce keeps ``publishable`` false.
+    """
+    reasons = []
+    provenance = record.get("provenance")
+    kind = provenance.get("kind") if isinstance(provenance, dict) else None
+    if kind != "simulated":
+        reasons.append(
+            f"provenance.kind is {kind!r}; a reference-simulator measurement is "
+            "publishable only as 'simulated' provenance"
+        )
+    if oracle.get("module_digest") != oracles.module_digest():
+        reasons.append(
+            "oracle.module_digest does not match the current reference sources, "
+            "so the simulator measurement cannot be reproduced here; publication "
+            "requires a reproducible digest"
+        )
+    return reasons
+
+
 def publishability(record, findings=()):
     """Whether this record may be published as an authoritative measurement.
 
-    A reference simulator is a real measurement of a small model, but it is not
-    the runtime the issue names, so it never earns publication on its own.
+    A deterministic in-repo reference simulator is an authoritative oracle when
+    its measurement is reproducible (#171): simulated provenance at the current
+    ``module_digest``. A named external runtime remains optional stronger
+    evidence and is recorded exactly as before. An unresolved commit or dirty
+    state, an unreproducible digest, or any validation finding refuses
+    publication.
     """
     oracle = record["oracle"]
+    implementation = oracle["implementation"]
     reasons = []
-    if oracle["implementation"] != "named-runtime":
-        unbound = oracle["availability"]["unbound"]
-        reasons.append(
-            "measured by a reference implementation, not by "
-            f"{', '.join(unbound) if unbound else 'the named runtime'}; "
-            "publication requires the named oracle to be bound"
-        )
+    if not is_enum_value(implementation, PUBLISHABLE_REASONS):
+        reasons.append(f"unknown oracle.implementation: {implementation!r}")
+    elif implementation != "named-runtime":
+        reasons.extend(_simulator_publication_blockers(record, oracle))
     if oracle["commit"] == "unknown":
         reasons.append("oracle commit could not be resolved")
     if oracle.get("dirty") is None:
@@ -295,11 +348,7 @@ def publishability(record, findings=()):
         reasons.append("record failed validation")
     if reasons:
         return False, "; ".join(reasons)
-    return (
-        True,
-        "measured through the named-runtime protocol with resolved stored "
-        "provenance; the protocol does not provide external attestation",
-    )
+    return True, PUBLISHABLE_REASONS[implementation]
 
 
 def classify(record, require_named_runtime=False, check_declared_status=True, expected_commit=None):

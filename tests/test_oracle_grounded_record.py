@@ -553,24 +553,86 @@ class CurationFailsClosed(unittest.TestCase):
                     )
 
 
+def accepted_reference(family, limit=24):
+    """The first accepted reference record of ``family`` under the test seed."""
+    return next(
+        item
+        for item in (build(family, index) for index in range(limit))
+        if item["validation"]["status"] == "accepted"
+    )
+
+
 class AuthorityCannotBeSelfDeclared(unittest.TestCase):
-    def test_reference_records_are_never_publishable(self):
+    def test_reference_records_at_the_current_digest_are_publishable(self):
+        # #171: a deterministic in-repo simulator is an authoritative oracle
+        # when its measurement is reproducible, so an accepted reference record
+        # is publishable and a rejected one never is.
         for family in families.FAMILY_NAMES:
             with self.subTest(family=family):
                 item = build(family)
                 self.assertEqual(item["oracle"]["implementation"], "reference")
                 self.assertEqual(item["oracle"]["authority"], "reference-simulator")
-                self.assertFalse(item["validation"]["publishable"])
-                self.assertIn(
-                    "measured by a reference implementation",
-                    item["validation"]["publishable_reason"],
-                )
+                self.assertEqual(item["provenance"]["kind"], "simulated")
+                self.assertEqual(item["oracle"]["module_digest"], oracles.module_digest())
+                accepted = item["validation"]["status"] == "accepted"
+                self.assertIs(item["validation"]["publishable"], accepted)
+                reason = item["validation"]["publishable_reason"]
+                if accepted:
+                    self.assertEqual(reason, record.PUBLISHABLE_REASONS["reference"])
+                    self.assertIn("not a runtime attestation", reason)
+                else:
+                    self.assertEqual(reason, "record failed validation")
 
-    def test_claiming_publishable_on_a_reference_record_is_rejected(self):
-        item = build(families.ENCODER_FAMILY)
-        item["validation"]["publishable"] = True
+    def test_a_reference_record_with_an_unreproducible_digest_is_not_publishable(self):
+        item = accepted_reference(families.ENCODER_FAMILY)
+        item["oracle"]["module_digest"] = canon.digest({"different": "reference implementation"})
+        publishable, reason = record.publishability(item, ())
+        self.assertFalse(publishable)
+        self.assertIn("cannot be reproduced here", reason)
+        # Stored, such a record is refused on the digest before its own
+        # validation block is even consulted.
         findings = record.validate_record(item)
-        self.assertTrue(any("publishable" in f for f in findings), findings)
+        self.assertTrue(any("current reference implementation" in f for f in findings), findings)
+
+    def test_a_reference_record_is_publishable_only_as_simulated_provenance(self):
+        item = accepted_reference(families.NEURON_FAMILY)
+        for kind in ("designed", "hil", "unknown"):
+            forged = copy.deepcopy(item)
+            forged["provenance"]["kind"] = kind
+            with self.subTest(kind=kind):
+                publishable, reason = record.publishability(forged, ())
+                self.assertFalse(publishable)
+                self.assertIn("'simulated'", reason)
+
+    def test_an_unknown_implementation_is_never_publishable(self):
+        item = accepted_reference(families.ENCODER_FAMILY)
+        for forged in ("hardware", ["reference"]):
+            candidate = copy.deepcopy(item)
+            candidate["oracle"]["implementation"] = forged
+            with self.subTest(implementation=forged):
+                publishable, reason = record.publishability(candidate, ())
+                self.assertFalse(publishable)
+                self.assertIn("unknown oracle.implementation", reason)
+
+    def test_a_mixed_chain_is_publishable_at_the_current_digest(self):
+        item = relabel_plasticity_stage_as_named(accepted_reference(families.CREDIT_FAMILY))
+        self.assertEqual(item["oracle"]["implementation"], "mixed")
+        publishable, reason = record.publishability(item, ())
+        self.assertTrue(publishable)
+        self.assertEqual(reason, record.PUBLISHABLE_REASONS["mixed"])
+
+    def test_a_declared_publishability_that_disagrees_with_the_recomputed_one_is_rejected(self):
+        item = accepted_reference(families.ENCODER_FAMILY)
+        self.assertTrue(item["validation"]["publishable"])
+        denied = copy.deepcopy(item)
+        denied["validation"]["publishable"] = False
+        findings = record.validate_record(denied)
+        self.assertTrue(any("recomputed value is True" in f for f in findings), findings)
+        # Nor may a simulator run dress its reason up as a runtime measurement.
+        relabelled = copy.deepcopy(item)
+        relabelled["validation"]["publishable_reason"] = "measured by axon-encoder"
+        findings = record.validate_record(relabelled)
+        self.assertTrue(any("publishable_reason" in f for f in findings), findings)
 
     def test_a_rejected_named_runtime_record_cannot_claim_publishability(self):
         item = next(
@@ -630,6 +692,12 @@ class AuthorityCannotBeSelfDeclared(unittest.TestCase):
         publishable, reason = record.publishability(item, ())
         self.assertTrue(publishable)
         self.assertIn("does not provide external attestation", reason)
+        # #171 changed nothing for a bound runtime: recorded exactly as before.
+        self.assertEqual(
+            reason,
+            "measured through the named-runtime protocol with resolved stored "
+            "provenance; the protocol does not provide external attestation",
+        )
 
     def test_a_stage_digest_that_does_not_match_the_oracle_is_rejected(self):
         item = build(families.ENCODER_FAMILY)

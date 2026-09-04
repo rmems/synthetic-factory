@@ -42,11 +42,18 @@ Every record produced without a bound runtime carries:
 }
 ```
 
-and `validation.publishable` is **false**, with the reason spelled out. A
-reference simulator is a real measurement of a real (small) model; it is not a
-measurement of the runtime the issue names, and `record.publishability()`
-refuses to let it claim otherwise. Nothing here is publishable to the Hugging
-Face Hub on the strength of a reference run.
+and `validation.publishable` follows the simulator decision of #171: a
+deterministic in-repo reference simulator is an authoritative oracle for
+training-candidate data when its measurement is reproducible. An accepted
+reference record whose `provenance.kind` is `simulated` and whose
+`oracle.module_digest` matches the current reference sources is therefore
+publishable, and its `publishable_reason` says that it is a reproducible
+simulation, not a runtime attestation. A record whose digest the current
+sources cannot reproduce, whose commit or dirty state is unresolved, or that
+failed validation keeps `publishable: false`, with the reason spelled out.
+Binding a named runtime remains optional stronger evidence and is recorded
+exactly as before. `pipelines/oracle_grounded/*.py` is pinned to LF line
+endings in `.gitattributes` so the digest reproduces across checkouts.
 
 ### What that leaves unverified
 
@@ -323,9 +330,9 @@ curated independently.
   is regenerated and compared byte for byte, including the manifest.
 * **invalid-oracle fixture** — `invalid/invalid-oracle.jsonl`, nine records with
   a missing result, a misattributed result, a stale `result_hash`, an unknown
-  commit, a missing module digest, a reference run claiming publishability, an
-  empty measurement, no executed stages, and a reference run relabelled as a
-  named runtime. Every one must be rejected.
+  commit, a missing module digest, a reference run whose `publishable_reason`
+  claims the named runtime, an empty measurement, no executed stages, and a
+  reference run relabelled as a named runtime. Every one must be rejected.
 * **malformed-generator fixture** — `invalid/malformed-generator.jsonl`, seven
   records where the generator authored a measurement key, edited the scenario
   after the proposal hash, claimed authority, dressed a guess as ground truth,

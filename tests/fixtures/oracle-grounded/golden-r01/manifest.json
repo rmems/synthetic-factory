@@ -98,7 +98,7 @@
   "files": {
     "neuromodulator-credit-assignment/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "528ee5a03866c1f7f1737ed221b2a93fe1337949c0e5c6996201188ce2d63f0b"
+      "sha256": "dc5c6abe13e4ebf970b03bbfde139d6e368a34a9a3f5559753d39c51baf53e1b"
     },
     "neuromodulator-credit-assignment/rejected-r01.jsonl": {
       "records": 0,
@@ -106,7 +106,7 @@
     },
     "neuron-dynamics-counterfactuals/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "7cc8f0fdeeeacca28c67379e47e36cf63729a659a811b2cf57d92fc9ee39bfb4"
+      "sha256": "bbdfef2e00f3fade12e88c2d20e85f441d5ecf45a1570c39f20a4b0d235c85e4"
     },
     "neuron-dynamics-counterfactuals/rejected-r01.jsonl": {
       "records": 0,
@@ -114,7 +114,7 @@
     },
     "spike-encoder-equivalence-pairs/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "853073cccb4f66b4b30be2a0d6074cbb3c0fd3d850bcef819119949073951536"
+      "sha256": "1996f8ff8b4f6c27772f63a49584aa89ed1332a3071e11bd7233d3d5856b03c7"
     },
     "spike-encoder-equivalence-pairs/rejected-r01.jsonl": {
       "records": 0,
@@ -122,7 +122,7 @@
     },
     "synaptic-delay-causal-trajectories/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "7424e8981cddddecf5631afeec982a33fa83cb36f8ef73b2423221101f053dcf"
+      "sha256": "efecf949ae21c956c464d95ff2a9650d9800e079ff5bd115a040fae24a3507d1"
     },
     "synaptic-delay-causal-trajectories/rejected-r01.jsonl": {
       "records": 0,
@@ -130,16 +130,16 @@
     },
     "temporal-memory-spike-challenges/accepted-r01.jsonl": {
       "records": 2,
-      "sha256": "f948041de6733ecda8a2a3ca7bc4e72c6b5ddd6e8799c582e50f1ec92614907a"
+      "sha256": "8c64e5685281ca73a09639914bd4265d258a4dbb5585c914917176c50bb5d1af"
     },
     "temporal-memory-spike-challenges/rejected-r01.jsonl": {
       "records": 2,
-      "sha256": "5b4e61d6b8ce34fc98a0a25e7c33f67ee24c23ad92f10379df35407ac37bdcf9"
+      "sha256": "5e86be4c65c5f01e5f67e047668a1933521444b22ad63bf98604ce018f36e74a"
     }
   },
   "generation_errors": [],
   "module_digest": "sha256:cc92045773f37f5dcb353d1b1f83286cf26ff86d57c09d02106e3dd65bdea42a",
-  "note": "Counts describe this run only. A reference-implementation oracle measures a real model but is not the named runtime; no record here is publishable as a measurement of the named runtime.",
+  "note": "Counts describe this run only. Some records are publishable: they were measured by the in-repo reference simulator at the current module digest (#171) or through the named-runtime protocol; check each record's own validation.publishable and validation.publishable_reason for the authoritative per-record determination.",
   "oracle_availability": {
     "all_bound": false,
     "protocol": "sf-oracle/1",

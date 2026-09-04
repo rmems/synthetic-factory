@@ -149,7 +149,7 @@
         "candidate_prediction_correct": { "type": ["boolean", "null"] },
         "publishable": {
           "type": "boolean",
-          "description": "True only when a named runtime measured the record and provenance resolved. A reference simulator never earns publication."
+          "description": "True when the record is accepted, its commit and dirty state are resolved, and its measurement is reproducible: a reference or mixed record with simulated provenance at the current oracle.module_digest (#171), or a named-runtime record. A digest the current sources cannot reproduce never earns publication."
         },
         "publishable_reason": { "type": "string" }
       },

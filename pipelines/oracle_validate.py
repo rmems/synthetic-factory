@@ -68,15 +68,18 @@ MANIFEST_ALLOWED_KEYS = frozenset(
 # recomputed from the captured records rather than trusted: a manifest may
 # not assert publishability its own records do not carry.
 MANIFEST_NOTE_PUBLISHABLE = (
-    "Counts describe this run only. Some records were measured through "
-    "the named-runtime protocol and are publishable; check each "
-    "record's own validation.publishable and validation.publishable_reason "
-    "for the authoritative per-record determination."
+    "Counts describe this run only. Some records are publishable: they "
+    "were measured by the in-repo reference simulator at the current "
+    "module digest (#171) or through the named-runtime protocol; check "
+    "each record's own validation.publishable and "
+    "validation.publishable_reason for the authoritative per-record "
+    "determination."
 )
-MANIFEST_NOTE_REFERENCE = (
-    "Counts describe this run only. A reference-implementation oracle "
-    "measures a real model but is not the named runtime; no record here "
-    "is publishable as a measurement of the named runtime."
+MANIFEST_NOTE_UNPUBLISHABLE = (
+    "Counts describe this run only; no record here is publishable. Each "
+    "record's own validation.publishable_reason states why: a validation "
+    "failure, a module digest the current sources cannot reproduce, or "
+    "unresolved commit or dirty state."
 )
 
 
@@ -1250,7 +1253,7 @@ def _manifest_note_errors(manifest, parsed_records, context):
         and parsed.item["validation"].get("publishable") is True
         for parsed in parsed_records
     )
-    expected = MANIFEST_NOTE_PUBLISHABLE if any_publishable else MANIFEST_NOTE_REFERENCE
+    expected = MANIFEST_NOTE_PUBLISHABLE if any_publishable else MANIFEST_NOTE_UNPUBLISHABLE
     if manifest.get("note") != expected:
         context.report("note does not match the publishability of the captured records")
 

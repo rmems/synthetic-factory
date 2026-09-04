@@ -77,9 +77,10 @@ def main():
     def no_module_digest(item):
         item["oracle"]["module_digest"] = ""
 
-    def claims_publishable(item):
-        item["validation"]["publishable"] = True
-        item["validation"]["publishable_reason"] = "measured by axon-encoder"
+    def claims_named_runtime_measurement(item):
+        # #171 makes an accepted reference record publishable, so the forgery
+        # is the reason: a simulator run dressed up as the named runtime.
+        item["validation"]["publishable_reason"] = "measured by synaptic-mesh"
 
     def empty_measurement(item):
         item["result"]["measured"] = {}
@@ -101,7 +102,11 @@ def main():
             mutate(encoder, "result_hash_does_not_cover_result", stale_hash),
             mutate(neuron, "oracle_commit_unknown", unknown_commit),
             mutate(neuron, "oracle_module_digest_missing", no_module_digest),
-            mutate(mesh, "reference_oracle_claims_publishable", claims_publishable),
+            mutate(
+                mesh,
+                "publishable_reason_claims_the_named_runtime",
+                claims_named_runtime_measurement,
+            ),
             mutate(mesh, "empty_measurement", empty_measurement),
             mutate(credit, "no_executed_stages", no_stages),
             mutate(

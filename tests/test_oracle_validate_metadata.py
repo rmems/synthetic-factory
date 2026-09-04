@@ -202,11 +202,12 @@ class ManifestAvailabilityTest(GoldenRunFixture):
 class ManifestNoteTest(GoldenRunFixture):
     """The note is derived from record publishability, never free text."""
 
-    def test_note_claiming_publishability_is_rejected(self):
-        # The golden run is reference-only: swapping in the other legitimate
-        # note is a publication claim the captured records do not carry.
+    def test_note_denying_publishability_is_rejected(self):
+        # The golden run's accepted records are publishable reference
+        # measurements (#171): swapping in the other legitimate note denies a
+        # publication status the captured records carry.
         self.assert_reports(
-            lambda m: m.__setitem__("note", oracle_validate.MANIFEST_NOTE_PUBLISHABLE),
+            lambda m: m.__setitem__("note", oracle_validate.MANIFEST_NOTE_UNPUBLISHABLE),
             "note does not match the publishability of the captured records",
         )
 
