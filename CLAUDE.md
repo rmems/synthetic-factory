@@ -38,10 +38,12 @@ python3 pipelines/census.py tests/fixtures/mini-run   # validate_run.py on this 
 # Lint: ruff is configured in pyproject.toml (py312, line length 100) but not run in CI
 ruff check pipelines tests
 
-# Operator audits on a run tree (all read-only)
+# Operator audits on a run tree (read-only)
 python3 pipelines/training_audit.py [--strict] [--markdown] <run_dir>
 python3 pipelines/leftover_mill.py [--strict] <run_dir>
-python3 .claude/skills/run-synthetic-factory/driver.py validate|audit|frontiers|snapshot|token-efficiency <run_dir>
+python3 .claude/skills/run-synthetic-factory/driver.py validate|audit|frontiers|token-efficiency <run_dir>
+# The one driver command that writes: copies the run to the sibling <run_dir>-<label> and refuses an existing one
+python3 .claude/skills/run-synthetic-factory/driver.py snapshot <run_dir> <label>
 
 # Hugging Face: card viewer-schema audit and public release verification (network)
 python3 scripts/publish_grok46_hub.py schemas            # --strict exits nonzero while any gap remains
@@ -67,8 +69,9 @@ outputs/raw/<run>/<factory-slug>/batch-rNN.jsonl    append-only, immutable sourc
 census.py · validate_run.py · check_records.py · training_audit.py    read-only reports and gates
         │
         ▼
-curate_* lanes: identity, bridge, preferences, coding | agentic, rewards, tags    pure record transforms
-        │  compose_curated.py applies them in one documented order into a brand-new tree
+curate_* lanes: identity, bridge, preferences, coding | agentic, rewards    pure record transforms
+        │  compose_curated.py applies those five (compose_contract.LANE_ORDER) into a brand-new tree;
+        │  curate_tags.py exists but is not composed yet
         ▼
 outputs/curated/<label>/{records/, manifest/, COMPOSE.json}
         │  export_hf.py: refuses unless the training audit reports training_ready,
@@ -77,26 +80,37 @@ outputs/curated/<label>/{records/, manifest/, COMPOSE.json}
 data/curated · data/viewer/records.parquet · data/splits · provenance.json · EVAL_PROTOCOL.md
 ```
 
-`curate_gate.py integrate|promote` is the reviewed path over the same lanes: it
-composes from an integration plan, records a stratified human-review sample,
-and promotes only when every sampled record has a verdict.
-`scripts/publish_grok46_hub.py` snapshots published rounds into `~/rmems/hf/`
-and writes Hub cards from `config/card-schemas/`; `pipelines/verify_hf_release.py`
-is the authority that proves the public release contract still holds.
+`curate_gate.py integrate|promote` is the reviewed path: it composes from an
+integration plan that overlays six lane outputs (the five above plus tag
+taxonomy), records a stratified human-review sample, and promotes only when
+every sampled record has a verdict. `scripts/publish_grok46_hub.py` snapshots
+published rounds into a mirror root hard-coded as
+`HF_ROOT = /home/raulmc/rmems/hf` (the factory source root is hard-coded the
+same way, so the publisher is tied to the owner's workstation) and writes Hub
+cards from `config/card-schemas/`; `pipelines/verify_hf_release.py` is the
+authority that proves the public release contract still holds.
 `training_ready` is a structural and quality verdict, not training
 eligibility — that is `project_training_policy: allowed` on a registry row,
 and no row carries it yet.
 
 ### Invariants that shape every module
 
-- **Fail closed; write only to new destinations.** The cleaned, curated,
-  compose, export, and promotion writers target a brand-new destination and
-  refuse one that exists (pick a new label rather than clearing the old tree);
-  `raw_tree_guard.py` refuses any write that names or aliases `outputs/raw/`.
-  The one regenerated file is the `NEXT_ROUND.json` index written by
-  `next_round.py --write-index`, which is an index, not a record. Unknown
-  provenance, an unknown record kind, a missing mapping, or a rights field
-  that drifts from the loaded policy is a loud error rather than a default.
+- **Fail closed; write only to new destinations.** Transactional rounds and
+  the cleaned, curated, compose, export, and promotion writers target a
+  brand-new destination and refuse one that exists (pick a new label rather
+  than clearing the old tree); `raw_tree_guard.py` refuses any write that
+  names or aliases `outputs/raw/`. Generated indexes and reports are the
+  exceptions and are refreshed in place: `NEXT_ROUND.json` from
+  `next_round.py --write-index` and a run's `manifest.json` from
+  `validate_run.py --write`.
+- **Raise at load, exclude per record.** An invalid registry row, a missing or
+  invalid mapping, or a rights field that drifts from the loaded policy raises
+  and stops the run. A record from an unregistered path, with an unsupported
+  shape, or carrying a foreign mill signal is excluded or quarantined with a
+  reason code (`identity.unknown_factory`,
+  `identity.unsupported_record_shape`, …) so the batch continues and the
+  manifest records the disposition; do not turn those exclusions into
+  batch-wide exceptions.
 - **The registry is the identity authority.** `config/FACTORY-REGISTRY.json`
   (`factory-registry-v0.2`) resolves exact `path_id` then exact
   `payload_factory` to a row carrying `record_kinds`, provider/channel,
@@ -135,6 +149,11 @@ if __package__:
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)("x")
     import sibling as _sibling
+
+...  # module body
+
+if __package__:
+    _expose_package_sibling(__name__)  # finalizer: package copy and direct copy stay one object
 ```
 
 `pipelines/__init__.py` binds the direct-name and package-name copies to one
