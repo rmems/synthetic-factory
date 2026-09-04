@@ -2,7 +2,8 @@
 
 Three control-oriented families, all built on the shared oracle-grounded
 envelope in `schemas/oracle-grounded-record.schema.json`, enforced by
-`pipelines/oracle_contract.py`.
+`pipelines/oracle_grounded/distill_contract.py`, the distillation extension of
+the shared envelope in `pipelines/oracle_grounded/envelope.py` (#172).
 
 | Family | Generator proposes | Oracle produces the label | Status here |
 |---|---|---|---|
@@ -25,7 +26,7 @@ Generators propose; oracles decide. Concretely:
 - Producers write `validation.status = "unvalidated"`. Only
   `pipelines/validate_distill.py` stamps a verdict, and the stamp names itself
   and carries the digest it was formed over.
-- `oracle_contract.curation_eligible(record, findings)` fails closed: it needs
+- `distill_contract.curation_eligible(record, findings)` fails closed: it needs
   an `authoritative` oracle, a `measured` result with at least one reading that
   is actually `measured: true`, a present and intact content digest, and no
   findings **from the caller's own validation run**. It deliberately ignores the `validation` block in the record —
@@ -37,7 +38,7 @@ The envelope also holds the reproducibility metadata to its schema types
 rather than to presence alone: `generator.seed` and `oracle.seed` must be
 integers or null, and `oracle.commit` a string or null — `seed: {}` is
 malformed metadata, not an unseeded run. JSONL input is read as a stream
-(`oracle_contract.iter_jsonl`), one line at a time, so validating a scaled
+(`distill_contract.iter_jsonl`), one line at a time, so validating a scaled
 corpus needs memory for one record rather than for the whole raw file plus
 every decoded record at once; a line that is not valid UTF-8 is reported as
 that line's parse failure instead of aborting the entire run.

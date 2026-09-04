@@ -15,7 +15,7 @@ sys.path.insert(0, str(REPO / "pipelines"))
 import energy_preferences as ep  # noqa: E402
 import fault_recovery as fr  # noqa: E402
 import moe_router as mr  # noqa: E402
-import oracle_contract as oc  # noqa: E402
+from oracle_grounded import distill_contract as oc  # noqa: E402
 import router_baseline as rb  # noqa: E402
 import validate_distill as vd  # noqa: E402
 

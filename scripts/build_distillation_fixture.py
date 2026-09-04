@@ -31,7 +31,7 @@ if str(PIPELINES) not in sys.path:
 import energy_preferences  # noqa: E402
 import fault_recovery  # noqa: E402
 import moe_router  # noqa: E402
-import oracle_contract as oc  # noqa: E402
+from oracle_grounded import distill_contract as oc  # noqa: E402
 import router_baseline  # noqa: E402
 import validate_distill  # noqa: E402
 
@@ -206,7 +206,7 @@ def _training_ready_note(meter: Any, router_oracle: Any) -> str:
     return (
         "Structural validity is not training-readiness. The router records "
         f"come from a {router_oracle.authority} oracle and are excluded by "
-        "oracle_contract.curation_eligible; the energy records are "
+        "distill_contract.curation_eligible; the energy records are "
         f"denominated in {meter.cost_quantity} "
         + (
             f"as measured by {meter.name}."

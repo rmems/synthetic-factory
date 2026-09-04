@@ -33,7 +33,7 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-import oracle_contract as oc  # noqa: E402
+from oracle_grounded import distill_contract as oc  # noqa: E402
 
 FAMILY = "neuromorphic-fault-recovery"
 GENERATOR_NAME = "fault-scenario-generator"

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Contract tests for the shared oracle-grounded record envelope."""
+"""Tests for the distillation record contract built on the shared oracle envelope."""
 
 import copy
+import importlib
 import json
 import sys
 import tempfile
@@ -11,7 +12,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
-import oracle_contract as oc  # noqa: E402
+from oracle_grounded import distill_contract as oc  # noqa: E402
+from oracle_grounded import envelope  # noqa: E402
 
 SCHEMA_PATH = REPO / "schemas" / "oracle-grounded-record.schema.json"
 
@@ -429,6 +431,62 @@ class SchemaFileAgreesWithTheModule(unittest.TestCase):
     def test_oracle_authority_enum_matches(self):
         enum = self.schema["$defs"]["oracle"]["properties"]["authority"]["enum"]
         self.assertEqual(set(enum), set(oc.ORACLE_AUTHORITIES))
+
+
+class BuiltOnTheSharedEnvelope(unittest.TestCase):
+    """The domain-neutral primitives are the envelope's own objects (#172)."""
+
+    MOVED = (
+        "GENERATOR_SECTIONS",
+        "SHA256_RE",
+        "ISO_8601_RE",
+        "ContractError",
+        "OracleUnavailable",
+        "canonical_json",
+        "utc_now_iso",
+        "is_number",
+        "is_enum_value",
+        "record_digest",
+    )
+
+    def test_the_moved_primitives_are_the_envelopes_objects(self):
+        for name in self.MOVED:
+            with self.subTest(name=name):
+                self.assertIs(getattr(oc, name), getattr(envelope, name))
+
+    def test_the_reserved_key_scan_is_the_envelopes_bounded_walker(self):
+        record = minimal_record()
+        record["scenario"]["junk"] = [{"outcome": index} for index in range(10_000)]
+        errors = oc.check_generator_oracle_separation(record, "x")
+        reserved = [e for e in errors if "ORACLE_FIELD_IN_GENERATOR_NAMESPACE" in e]
+        self.assertEqual(len(reserved), 1, errors)
+        self.assertLess(len(reserved[0]), 4_000, len(reserved[0]))
+        self.assertIn("scan capped", reserved[0])
+
+    def test_the_prediction_naming_rule_runs_after_the_shared_scan(self):
+        record = minimal_record()
+        record["scenario"]["outcome"] = "leaked"
+        record["candidate_prediction"]["expected_latency_ms"] = 3.0
+        errors = oc.check_generator_oracle_separation(record, "x")
+        shared = envelope.check_generator_oracle_separation(record, oc.ORACLE_ONLY_KEYS, "x")
+        self.assertEqual(errors[: len(shared)], shared)
+        self.assertEqual(len(errors), len(shared) + 1, errors)
+        self.assertIn("predicted_*", errors[-1])
+
+    def test_read_jsonl_uses_the_envelopes_parse_hooks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "overflow.jsonl"
+            path.write_text('{"id": "x", "value": 1e999}\n{"id": "y", "value": 0.5}\n')
+            entries = oc.read_jsonl(path)
+            self.assertIsNone(entries[0][1])
+            self.assertEqual(entries[1][1], {"id": "y", "value": 0.5})
+
+    def test_both_import_forms_are_one_module_object(self):
+        if str(REPO) not in sys.path:
+            sys.path.append(str(REPO))
+        module = importlib.import_module("pipelines.oracle_grounded.distill_contract")
+        self.assertIs(module, oc)
+        self.assertIs(module.ContractError, envelope.ContractError)
 
 
 if __name__ == "__main__":

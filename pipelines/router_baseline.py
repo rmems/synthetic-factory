@@ -43,7 +43,7 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 import moe_router  # noqa: E402
-import oracle_contract as oc  # noqa: E402
+from oracle_grounded import distill_contract as oc  # noqa: E402
 import validate_distill  # noqa: E402
 
 TARGET_TOP1 = "top1_expert"

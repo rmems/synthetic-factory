@@ -22,7 +22,7 @@ sys.path.insert(0, str(REPO / "pipelines"))
 import energy_preferences as ep  # noqa: E402
 import fault_recovery as fr  # noqa: E402
 import moe_router as mr  # noqa: E402
-import oracle_contract as oc  # noqa: E402
+from oracle_grounded import distill_contract as oc  # noqa: E402
 import router_baseline as rb  # noqa: E402
 import validate_distill as vd  # noqa: E402
 
@@ -417,7 +417,7 @@ class EnergyScenarioBindingGaps(unittest.TestCase):
 
 
 class EnvelopeTypeGaps(unittest.TestCase):
-    """oracle_contract.py / validate_distill.py: malformed types are findings."""
+    """distill_contract.py / validate_distill.py: malformed types are findings."""
 
     def test_unhashable_enum_fields_are_findings_not_crashes(self):
         # A JSON array where a string enum belongs used to raise TypeError
@@ -1599,7 +1599,7 @@ class ThirdRoundRouterGaps(unittest.TestCase):
 
 
 class FourthRoundContractGaps(unittest.TestCase):
-    """oracle_contract.py — the fourth review pass."""
+    """distill_contract.py — the fourth review pass."""
 
     def test_oracle_summaries_cannot_hide_in_generator_namespaces(self):
         # `top1_expert` was missing from the oracle-only denylist, so the
@@ -2047,7 +2047,7 @@ class FifthRoundRouterGaps(unittest.TestCase):
 
 
 class SixthRoundContractGaps(unittest.TestCase):
-    """oracle_contract.py and validate_distill.py — sixth pass."""
+    """distill_contract.py and validate_distill.py — sixth pass."""
 
     def test_overflowing_float_literals_are_parse_failures(self):
         # json.loads turns 1e999 into inf; the first canonical

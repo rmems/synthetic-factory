@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Validate oracle-grounded distillation records (issue #78 families).
 
-Routes each record to its family checker on top of the shared envelope in
-``pipelines/oracle_contract.py``, then reports what is structurally valid and,
-separately, what is actually curation-eligible. Structural validity is never
-treated as training-readiness: a ``reference_only`` oracle produces valid
-records that this tool refuses to call curation-eligible.
+Routes each record to its family checker on top of the distillation contract
+in ``pipelines/oracle_grounded/distill_contract.py``, then reports what is
+structurally valid and, separately, what is actually curation-eligible.
+Structural validity is never treated as training-readiness: a
+``reference_only`` oracle produces valid records that this tool refuses to
+call curation-eligible.
 
 Prints a totals JSON to stdout and findings to stderr, like the other
 validators in ``pipelines/``. Exits nonzero when any record has findings.
@@ -35,7 +36,7 @@ if str(_PIPELINES) not in sys.path:
 import energy_preferences  # noqa: E402
 import fault_recovery  # noqa: E402
 import moe_router  # noqa: E402
-import oracle_contract as oc  # noqa: E402
+from oracle_grounded import distill_contract as oc  # noqa: E402
 
 VALIDATOR_NAME = "validate_distill"
 VALIDATOR_VERSION = "1.0.0"

@@ -21,7 +21,7 @@ Three oracles sit behind one :class:`RouterOracle` boundary:
     A deterministic, seeded, pure-Python top-k gate. It is a *real* router
     computation — softmax over an actual linear gate — but it is not an LLM.
     It exists to prove the pipeline shape end to end. Its records are
-    ``reference_only``, are excluded by ``oracle_contract.curation_eligible``,
+    ``reference_only``, are excluded by ``distill_contract.curation_eligible``,
     and must never be presented as teacher-grounded routing data.
 
 Compact targets captured per context: top-k experts, router logits where the
@@ -52,7 +52,7 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-import oracle_contract as oc  # noqa: E402
+from oracle_grounded import distill_contract as oc  # noqa: E402
 
 FAMILY = "moe-router-distillation-trajectories"
 GENERATOR_NAME = "context-corpus-generator"

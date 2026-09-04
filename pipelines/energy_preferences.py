@@ -62,7 +62,7 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-import oracle_contract as oc  # noqa: E402
+from oracle_grounded import distill_contract as oc  # noqa: E402
 
 FAMILY = "snn-energy-routing-preferences"
 GENERATOR_NAME = "equivalent-policy-generator"
@@ -398,7 +398,7 @@ class RecordedEnergyMeter(EnergyOracle):
     The recording carries the meter that produced it. ``lookup`` takes the
     caller's key — a candidate id, or a candidate id joined to a workload
     fingerprint — and fails closed: an unknown key raises
-    :class:`oracle_contract.OracleUnavailable` rather than guessing or
+    :class:`oracle_grounded.envelope.OracleUnavailable` rather than guessing or
     interpolating.
     """
 

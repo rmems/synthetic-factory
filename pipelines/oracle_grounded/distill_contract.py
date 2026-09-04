@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared oracle-grounded record contract for the distillation dataset families.
+"""Oracle-grounded record contract for the distillation dataset families.
 
 Introduced by issue #78 for the three control-oriented families:
 
@@ -26,19 +26,49 @@ Three invariants matter more than the field list:
    with its own name and version attached. Curation fails closed unless an
    *authoritative* oracle actually produced a measured result.
 
-This module is standard library only, like the rest of ``pipelines/``.
+This module is the distillation extension of the shared record envelope in
+:mod:`oracle_grounded.envelope` (#172). The envelope owns the domain-neutral
+primitives -- the section names, ``ContractError`` / ``OracleUnavailable``,
+canonical JSON and ``record_digest``, the bounded reserved-key scan and the
+NaN/Infinity parse hooks -- and this module adds only what the distillation
+families need: the families and the schema-version pin, the kind / type /
+authority / status vocabularies, the oracle-only key set and the
+``predicted_*`` naming rule, the unit / meter / energy registry and its checks,
+the record builders, ``check_envelope`` / ``check_digest``, the validator-owned
+stamp and the fail-closed curation gate, and the JSONL I/O. The envelope's
+primitives are bound here under their own names so ``distill_contract.X``
+keeps working for the family generators, the validator and the tests.
+
+Standard library only, like the rest of ``pipelines/``. Importable both as
+``oracle_grounded.distill_contract`` (with ``pipelines/`` on ``sys.path``, the
+CLI convention) and as ``pipelines.oracle_grounded.distill_contract`` from the
+repository root.
 """
 
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
-import math
-import re
-from datetime import datetime, timezone
+import sys
 from pathlib import Path
 from typing import Any
+
+from . import envelope
+
+# Domain-neutral primitives the shared envelope owns (#172), bound under the
+# names this contract has always exported. They are the envelope's own objects:
+# a ``ContractError`` raised by a family generator is caught through either
+# module, and a digest computed here is the digest the envelope computes.
+GENERATOR_SECTIONS = envelope.GENERATOR_SECTIONS
+SHA256_RE = envelope.SHA256_RE
+ISO_8601_RE = envelope.ISO_8601_RE
+ContractError = envelope.ContractError
+OracleUnavailable = envelope.OracleUnavailable
+canonical_json = envelope.canonical_json
+utc_now_iso = envelope.utc_now_iso
+is_number = envelope.is_number
+is_enum_value = envelope.is_enum_value
+record_digest = envelope.record_digest
 
 SCHEMA_VERSION = "oracle-grounded/1.0.0"
 
@@ -78,11 +108,9 @@ VALIDATION_STATUSES = frozenset(
     {VALIDATION_UNVALIDATED, VALIDATION_PASSED, VALIDATION_FAILED}
 )
 
-# Namespaces a generator owns. Oracle-measured keys may never appear here.
-GENERATOR_NAMESPACES = ("generator", "scenario", "intervention", "candidate_prediction")
-
 # Keys that only an oracle may write. Compared by exact key name at any depth
-# inside a generator-owned namespace.
+# inside a generator-owned section (``GENERATOR_SECTIONS``) by the envelope's
+# bounded reserved-key scan.
 ORACLE_ONLY_KEYS = frozenset(
     {
         "measurements",
@@ -213,68 +241,6 @@ MODELED_METERS = frozenset(
     }
 )
 
-SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-
-ISO_8601_RE = re.compile(
-    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
-)
-
-
-class ContractError(ValueError):
-    """Raised when a record cannot be built inside the contract."""
-
-
-class OracleUnavailable(RuntimeError):
-    """Raised when a named oracle cannot run in this environment.
-
-    Callers must let this propagate or record an explicit abstention. It must
-    never be swallowed into a synthesized result.
-    """
-
-    def __init__(self, oracle: str, detail: str) -> None:
-        super().__init__(f"{oracle} unavailable: {detail}")
-        self.oracle = oracle
-        self.detail = detail
-
-
-def canonical_json(value: Any) -> str:
-    """Return the canonical JSON form used for digests and equality."""
-
-    return json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        allow_nan=False,
-    )
-
-
-def utc_now_iso() -> str:
-    """Return an ISO-8601 UTC timestamp with a trailing ``Z``."""
-
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-
-def is_number(value: Any) -> bool:
-    """True for a real, finite, non-boolean number."""
-
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return False
-    return math.isfinite(value)
-
-
-def is_enum_value(value: Any, allowed) -> bool:
-    """Membership test for enum-like JSON fields that cannot raise.
-
-    A JSON-valid record can put an array or object where a string enum
-    belongs. Testing such an unhashable value against a set (or using it as a
-    dict key) raises ``TypeError``, and ``validate_path`` does not catch that —
-    one malformed line would abort validation of the entire run. A non-string
-    is simply not a member.
-    """
-
-    return isinstance(value, str) and value in allowed
-
 
 def is_true(value: Any) -> bool:
     """Identity test against ``True`` for fields untrusted input controls.
@@ -291,21 +257,6 @@ def is_genuine_int(value: Any) -> bool:
     """True for a genuine integer — never a boolean wearing int's clothes."""
 
     return isinstance(value, int) and not isinstance(value, bool)
-
-
-def record_digest(record: dict[str, Any]) -> str:
-    """SHA-256 over the record with volatile/derived fields removed.
-
-    ``validation`` and ``provenance.record_sha256`` are excluded so stamping a
-    validation verdict does not change the identity of the measured record.
-    """
-
-    payload = copy.deepcopy(record)
-    payload.pop("validation", None)
-    provenance = payload.get("provenance")
-    if isinstance(provenance, dict):
-        provenance.pop("record_sha256", None)
-    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 
 def new_measurement(
@@ -494,7 +445,11 @@ def build_record(
 
 
 def _walk_keys(value: Any, path: str):
-    """Yield ``(path, key, value)`` for every dict entry beneath ``value``."""
+    """Yield ``(path, key, value)`` for every dict entry beneath ``value``.
+
+    Serves the bare-energy scan over ``result``. The generator-side
+    reserved-key scan is the envelope's bounded walker, not this one.
+    """
 
     if isinstance(value, dict):
         for key, item in value.items():
@@ -507,32 +462,33 @@ def _walk_keys(value: Any, path: str):
 
 
 def check_generator_oracle_separation(record: dict[str, Any], where: str) -> list[str]:
-    """Reject oracle-owned keys hiding inside generator-owned namespaces."""
+    """Reject oracle-owned keys hiding inside generator-owned namespaces.
 
+    The reserved-key scan is the envelope's bounded walker over this
+    contract's ``ORACLE_ONLY_KEYS``: one finding per record listing the paths
+    it found, capped at ``envelope.MAX_RESERVED_KEY_HITS``. The ``predicted_*``
+    naming rule for ``candidate_prediction`` is a distillation rule and runs
+    here, after the shared scan.
+    """
+
+    errors = envelope.check_generator_oracle_separation(record, ORACLE_ONLY_KEYS, where)
+    return errors + _check_prediction_naming(record.get("candidate_prediction"), where)
+
+
+def _check_prediction_naming(prediction: Any, where: str) -> list[str]:
+    """A generator guess must be ``predicted_*`` (or one of the free keys)."""
+
+    if not isinstance(prediction, dict):
+        return []
     errors: list[str] = []
-    for namespace in GENERATOR_NAMESPACES:
-        block = record.get(namespace)
-        if block is None:
+    for key in sorted(prediction):
+        if key in PREDICTION_FREE_KEYS or key.startswith(PREDICTION_PREFIX):
             continue
-        if not isinstance(block, (dict, list)):
-            errors.append(f"{where}.{namespace} must be an object")
-            continue
-        for path, key, _ in _walk_keys(block, namespace):
-            if key in ORACLE_ONLY_KEYS:
-                errors.append(
-                    f"{where}: ORACLE_FIELD_IN_GENERATOR_NAMESPACE at {path} "
-                    f"(key {key!r} may only be written by an oracle)"
-                )
-    prediction = record.get("candidate_prediction")
-    if isinstance(prediction, dict):
-        for key in sorted(prediction):
-            if key in PREDICTION_FREE_KEYS or key.startswith(PREDICTION_PREFIX):
-                continue
-            errors.append(
-                f"{where}.candidate_prediction.{key}: generator predictions must be "
-                f"named {PREDICTION_PREFIX}* (or one of "
-                f"{sorted(PREDICTION_FREE_KEYS)})"
-            )
+        errors.append(
+            f"{where}.candidate_prediction.{key}: generator predictions must be "
+            f"named {PREDICTION_PREFIX}* (or one of "
+            f"{sorted(PREDICTION_FREE_KEYS)})"
+        )
     return errors
 
 
@@ -1016,27 +972,6 @@ def stamp_is_bound_to_content(record: dict[str, Any]) -> bool:
     return validator.get("validated_digest") == record_digest(record)
 
 
-def _reject_json_constant(name: str):
-    """Refuse ``NaN`` / ``Infinity``, which json.loads accepts by default."""
-
-    raise ValueError(f"non-finite JSON constant {name!r}")
-
-
-def _finite_json_float(text: str) -> float:
-    """Refuse float literals that overflow to infinity (for example 1e999).
-
-    ``parse_constant`` only covers the bare constants; an overflowing literal
-    otherwise becomes ``inf`` and the first canonical re-serialisation
-    (``allow_nan=False``) raises out of validation instead of reporting the
-    offending line as a parse failure.
-    """
-
-    value = float(text)
-    if not math.isfinite(value):
-        raise ValueError(f"non-finite JSON float {text!r}")
-    return value
-
-
 def _parse_jsonl_line(raw: bytes) -> tuple[bool, Any]:
     """``(has_content, parsed_or_None)`` for one raw JSONL line.
 
@@ -1055,8 +990,8 @@ def _parse_jsonl_line(raw: bytes) -> tuple[bool, Any]:
     try:
         return True, json.loads(
             stripped,
-            parse_constant=_reject_json_constant,
-            parse_float=_finite_json_float,
+            parse_constant=envelope.reject_json_constant,
+            parse_float=envelope.reject_nonfinite_float,
         )
     except ValueError:  # JSONDecodeError included
         return True, None
@@ -1098,3 +1033,15 @@ def write_jsonl(path, records) -> int:
     lines = [canonical_json(record) for record in records]
     destination.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
     return len(lines)
+
+
+# The two supported import forms must be one module object, as the envelope
+# arranges for itself: whichever form loads first serves both names.
+_IMPORT_TWINS = {
+    "oracle_grounded.distill_contract": "pipelines.oracle_grounded.distill_contract",
+    "pipelines.oracle_grounded.distill_contract": "oracle_grounded.distill_contract",
+}
+
+_import_twin = _IMPORT_TWINS.get(__name__)
+if _import_twin is not None:
+    sys.modules.setdefault(_import_twin, sys.modules[__name__])
