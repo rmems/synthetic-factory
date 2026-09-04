@@ -1,0 +1,24 @@
+CLAUDE.md
+  s_e110e928b58b00::t_eed5e335ce81d7 15-19
+  s_e110e928b58b00::t_3d5a6c596dbe06 189-190
+README.md
+  s_e110e928b58b00::t_915e598327f41f 56-57,146
+docs/quality-gate.md
+  s_e110e928b58b00::t_deccbdd59512c6 97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "64cdfdc25e9260652a89b983074729fec7536ed3",
+  "prompts": {},
+  "sessions": {
+    "s_e110e928b58b00": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f94324e6cffepAkBi6rj2QU6wG",
+        "model": "muse-spark-1.3-contributor"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
