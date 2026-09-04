@@ -17,17 +17,30 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 
-from mill_evidence import (
-    GOAL_FAMILY_MIN_SUPPORT,
-    Axes,
-    Entry,
-    foreignness,
-    raw_goal_family_home,
-)
-from mill_reviewed_vocabulary import (
-    REVIEWED_GOAL_TOKEN_HOMES,
-    REVIEWED_MILL_PREFIX_HOMES,
-)
+if __package__:
+    from .mill_evidence import (
+        GOAL_FAMILY_MIN_SUPPORT,
+        Axes,
+        Entry,
+        foreignness,
+        raw_goal_family_home,
+    )
+    from .mill_reviewed_vocabulary import (
+        REVIEWED_GOAL_TOKEN_HOMES,
+        REVIEWED_MILL_PREFIX_HOMES,
+    )
+else:
+    from mill_evidence import (
+        GOAL_FAMILY_MIN_SUPPORT,
+        Axes,
+        Entry,
+        foreignness,
+        raw_goal_family_home,
+    )
+    from mill_reviewed_vocabulary import (
+        REVIEWED_GOAL_TOKEN_HOMES,
+        REVIEWED_MILL_PREFIX_HOMES,
+    )
 
 
 def verified_factories(entries: Sequence[Entry]) -> set[str]:
