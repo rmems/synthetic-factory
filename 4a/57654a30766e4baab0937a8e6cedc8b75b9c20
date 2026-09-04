@@ -1,0 +1,35 @@
+config/card-schemas/payment-idempotency-trajectories.json
+  s_940326c4ee4215::t_d538bd802af532 5-77
+tests/test_card_schema_issue_116.py
+  s_940326c4ee4215::t_d538bd802af532 140-142,146-153
+  s_f3ffb7db87dca1::t_6294385e5c8195 145
+  s_940326c4ee4215::t_980dcfd82d5b0d 143
+  s_f3ffb7db87dca1::t_14fc9ec891e9fc 4-9
+  s_f3ffb7db87dca1::t_1ee9aba343bc8a 27-45
+tests/test_card_schema_issue_133.py
+  s_f3ffb7db87dca1::t_773642042d7d1a 4-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4a57654a30766e4baab0937a8e6cedc8b75b9c20",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
