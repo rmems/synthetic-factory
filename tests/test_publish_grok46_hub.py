@@ -641,7 +641,15 @@ class PublishGrok46HubTests(unittest.TestCase):
             card = publisher.render_card(
                 {**ITEM, "slug": slug, "hub": hub},
                 summary=publisher.PayloadSummary(
-                    records=3, bytes_=4096, first="r01", last="r02"
+                    records=3,
+                    bytes_=4096,
+                    first="r01",
+                    last="r02",
+                    # Payload names satisfy declared-schema coverage for hubs
+                    # that ship a config/card-schemas declaration (issue #37's
+                    # tool-use-preference-pairs declares data/raw/batch-*.jsonl
+                    # and render_card fails closed on an uncovered payload).
+                    names=["batch-r01.jsonl", "batch-r02.jsonl"],
                 ),
             )
 

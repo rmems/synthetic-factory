@@ -21,13 +21,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
-try:
-    from pipelines.raw_tree_guard import is_under_raw as _guard_is_under_raw
-except ImportError:  # python3 pipelines/curate_preferences.py
+if __package__:
+    from .raw_tree_guard import is_under_raw as _guard_is_under_raw
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
     from raw_tree_guard import is_under_raw as _guard_is_under_raw
 
 __all__ = [

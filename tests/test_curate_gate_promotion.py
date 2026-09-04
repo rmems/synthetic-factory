@@ -188,6 +188,33 @@ class PromotionTests(unittest.TestCase):
         reward_sidecars = curated_governance / curate_gate.REWARD_SIDECAR_DIRNAME
         self.assertEqual(len(list(reward_sidecars.rglob("*.evidence"))), 1)
 
+    def test_exact_lane_evidence_tokens_survive_integration_and_promotion(self):
+        # A lane manifest may carry precision-sensitive decimal evidence in its
+        # ``classification`` passthrough.  The integration writer must persist
+        # the exact token: rounding it (``42.0``) desynchronizes the persisted
+        # governance files from the evidence digest that promotion recomputes,
+        # and promotion fails closed on INTEGRATION_EVIDENCE_MISMATCH.
+        exact_decimal = "42.000000000000000001"
+        fixture = GateFixture(self.root / "exact-evidence")
+        lane_manifest = fixture.manifest_paths[0]
+        entries = json.loads(lane_manifest.read_text(encoding="utf-8"))
+        quarantined = [entry for entry in entries if entry.get("action") == "quarantine"]
+        self.assertEqual(len(quarantined), 1)
+        quarantined[0]["classification"] = {"confidence_pct": "__EXACT__"}
+        lane_manifest.write_text(
+            json.dumps(entries, indent=2).replace('"__EXACT__"', exact_decimal) + "\n",
+            encoding="utf-8",
+        )
+
+        self.assertEqual(fixture.integrate(), 0)
+        for governance_name in (curate_gate.MANIFEST_FILENAME, curate_gate.SAMPLE_FILENAME):
+            staged_text = (fixture.cleaned / governance_name).read_text(encoding="utf-8")
+            self.assertIn(f'"confidence_pct": {exact_decimal}', staged_text)
+
+        self.assertEqual(fixture.promote(fixture.accepted_review()), 0)
+        curated_text = (fixture.curated / curate_gate.MANIFEST_FILENAME).read_text(encoding="utf-8")
+        self.assertIn(f'"confidence_pct": {exact_decimal}', curated_text)
+
     def test_promotion_refuses_an_existing_curated_destination(self):
         review = self.fixture.accepted_review()
         self.fixture.curated.mkdir(parents=True)
@@ -567,6 +594,5 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(result["records"], 4)
 
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
