@@ -1,0 +1,19 @@
+tests/fixtures/oracle-grounded/make_invalid_fixtures.py
+  s_f3ffb7db87dca1::t_e39886a4001e1d 105-106,109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6b059da7222dda838eace61e2ad7c1fb36c2ce6b",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "unknown"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
