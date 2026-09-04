@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "dataset": "k8s-crashloop-trajectories",
+  "issues": [68],
+  "note": "The viewer schema is declared by hand because `meta` and `reward` are key-bags that only diverge late in the run: the datasets-server infers `meta` as `{factory, generator, round}` from `batch-r01.jsonl` and then cannot cast the 50 later records that add `designed`, `plant` or `kind`, so `config-parquet` fails and `viewer` / `search` / `filter` / `statistics` all report false while the streaming preview still works. Declaring the union fixes the index without rewriting a single historical raw record.",
+  "config_name": "default",
+  "split": "train",
+  "data_files": ["data/raw/batch-*.jsonl"],
+  "features": [
+    {
+      "name": "id",
+      "dtype": "string",
+      "note": "3274 `kcl-*` Kubernetes CrashLoop episodes and 12 `gql-*` GraphQL leftover-mill rows; no id contains a `leftover` token"
+    },
+    {"name": "goal", "dtype": "string"},
+    {
+      "name": "plan",
+      "dtype": "string",
+      "note": "always a string on all 3286 records; mandatory in this dataset, unlike the optional `plan` of `long-horizon-coding-trajectories`"
+    },
+    {
+      "name": "steps",
+      "list": [
+        {"name": "n", "dtype": "int64"},
+        {
+          "name": "decision_basis",
+          "dtype": "string",
+          "note": "public on 55903 of 55903 steps; there is no hidden `thought` or `internal_reasoning` field"
+        },
+        {
+          "name": "tool_call",
+          "struct": [
+            {"name": "name", "dtype": "string"},
+            {
+              "name": "args",
+              "dtype": "json",
+              "note": "always an object; keys vary by tool and the tool vocabulary itself varies by record class. 3268 records use `bash` (`command`), `edit` (`path`, `old`, `new`) and `read` (`path`); the 12 `gql-*` rows add `write` (`path`, `contents`); the 6 `plant=designed` rows use a disjoint harness (`run_terminal_command` `cmd`, `read_file` `path`/`limit`, `grep` `pattern`/`glob`, `glob` `pattern`, `apply_patch` `path`/`diff`) and carry the only non-string arg value in the dump (`limit`, an int, on 6 calls)"
+            }
+          ]
+        },
+        {"name": "observation", "dtype": "string"},
+        {
+          "name": "reflection",
+          "dtype": "string",
+          "optional": true,
+          "note": "present on 49788 of 55903 steps; absent on every step of the 12 `gql-*` and 6 `plant=designed` records and on 5797 steps spread across 1918 ordinary `kcl-*` records"
+        }
+      ]
+    },
+    {"name": "outcome", "dtype": "string"},
+    {
+      "name": "reward",
+      "dtype": "json",
+      "note": "key-bag with six distinct key sets over 3286 records: `success` (bool), `cost_steps` and `tests_passed` (int) on every record, plus `apply_fails` and `pods_ready` (3268), `plan_changes` (3280), `handoff` (1640), `tests_failed` (1634), `xfailed` (6) and `residual` (3) on subsets"
+    },
+    {
+      "name": "meta",
+      "dtype": "json",
+      "note": "key-bag with four distinct key sets: `factory` (`k8s-crashloop-factory`), `generator` (`grok-4.6`) and `round` (int) on all 3286 records; 3236 carry nothing else, 32 add `designed` (bool), 6 add `plant` (`designed`) and 12 add both `plant` (`lattice-*`) and `kind` (`success` / `partial`)"
+    }
+  ],
+  "disclosures": [
+    {
+      "summary": "Twelve dest-stamped rows in `batch-r1330.jsonl` through `batch-r1335.jsonl` keep `meta.factory=k8s-crashloop-factory` but are GraphQL leftover-mill templates, not Kubernetes CrashLoop episodes: `gql-*` ids, `meta.plant` `lattice-*`, `meta.kind` `success` / `partial`, a `write` tool no other record in this dataset uses, and no `reflection` on any of their 198 steps. They are the 12 k8s-crashloop rows of the frozen 40-record dest-stamped mill census; they are kept exactly as generated and are not re-filed here.",
+      "ids": [
+        "gql-r1330-edgedb-globals-after-access-policy",
+        "gql-r1330-edgedb-drop-session-globals",
+        "gql-r1331-prisma-preview-client-after-generate",
+        "gql-r1331-prisma-disable-preview-flags",
+        "gql-r1332-gqlgen-gofield-after-bind-rename",
+        "gql-r1332-gqlgen-drop-field-bind",
+        "gql-r1333-juniper-field-with-after-executor",
+        "gql-r1333-juniper-drop-executor-with",
+        "gql-r1334-async-graphql-guard-after-complexity",
+        "gql-r1334-async-graphql-disable-field-guard",
+        "gql-r1335-absinthe-pipeline-after-phase-swap",
+        "gql-r1335-absinthe-drop-pipeline-phase"
+      ],
+      "issues": [44]
+    },
+    {
+      "summary": "Six rows in `batch-r1336.jsonl` through `batch-r1338.jsonl` carry `meta.plant=\"designed\"` (a bare string, where every other `meta.plant` in the dataset is a `lattice-*` name) and are the only records generated with the `run_terminal_command` / `read_file` / `grep` / `glob` / `apply_patch` harness instead of `bash` / `read` / `edit`. Their `reward` drops `apply_fails`, `pods_ready` and `plan_changes`, and none of their 120 steps carries a `reflection`. Their goals, plans and outcomes are genuine Kubernetes CrashLoop content from this factory, so they are this dataset's own shape outlier rather than foreign payload, and they are kept exactly as generated.",
+      "ids": [
+        "kcl-r1336-deploy-termination-grace-0-be0a",
+        "kcl-r1336-deploy-startup-probe-fail-1-ed58",
+        "kcl-r1337-deploy-share-process-namespace-332f",
+        "kcl-r1337-deploy-fs-group-change-policy-df26",
+        "kcl-r1338-sts-pod-management-parallel-0394",
+        "kcl-r1338-cronjob-concurrency-forbid-b46b"
+      ]
+    },
+    "Thirty-two `kcl-*` rows in `batch-r1433.jsonl` through `batch-r1448.jsonl` add `meta.designed=true`. They are ordinary Kubernetes CrashLoop episodes of this factory with the ordinary tool vocabulary and the ordinary `reward` key sets; only the extra `meta` key distinguishes them.",
+    "791 of the 3274 `kcl-*` records name a leftover field in their `goal` and none names one in its `id`. That is this factory's own advertised leftover-field mechanic, not a foreign dump. Counting leftover tokens in goals alone cannot separate it from the mill rows: all 12 `gql-*` rows also say `leftover` in their goal, for 803 leftover-in-goal records across the dataset.",
+    "Every one of the 55903 steps publishes a public `decision_basis`. There are no hidden `thought` or `internal_reasoning` fields anywhere in the payload."
+  ]
+}
