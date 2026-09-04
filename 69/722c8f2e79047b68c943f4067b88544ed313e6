@@ -1,0 +1,22 @@
+pipelines/oracle_grounded/envelope.py
+  s_9d594476d4f2a1::t_7d534eaee436c4 1-372
+tests/test_oracle_envelope.py
+  s_9d594476d4f2a1::t_6f106beb4a83bf 1-316,318-334
+  s_9d594476d4f2a1::t_88aa98aa1daabc 317
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "69722c8f2e79047b68c943f4067b88544ed313e6",
+  "prompts": {},
+  "sessions": {
+    "s_9d594476d4f2a1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4d340bfb-34df-47b1-a584-5641cf58831c",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
