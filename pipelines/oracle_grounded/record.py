@@ -1,4 +1,13 @@
-"""The shared oracle-grounded record envelope: build, validate, reproduce.
+"""The neuromorphic oracle-grounded record contract: build, validate, reproduce.
+
+This is the domain contract for the five families of issue #77, built on the
+shared, domain-neutral envelope in ``.envelope`` (#172). The envelope supplies
+the section names, the repository-wide ``provenance.kind`` vocabulary, the
+bounded reserved-key walker, and the ``proposal_of`` subtree; this module owns
+everything the domain contracts disagree on -- the ``canon`` digest dialect
+behind ``proposal_hash`` and ``result_hash``, the neuromorphic reserved-key
+set, oracle stages, availability, ``reproduce``, and the validation-status
+vocabulary.
 
 The envelope keeps generator-authored and oracle-authored content in disjoint
 subtrees, and the split is enforced rather than assumed:
@@ -18,10 +27,17 @@ import re
 from dataclasses import dataclass
 
 from . import canon, families, generators, oracles, schema_validation
+from .envelope import (
+    GENERATOR_SECTIONS,
+    MAX_RESERVED_KEY_HITS,
+    PROVENANCE_KINDS as ALLOWED_PROVENANCE_KIND,
+    TRAINING_PROVENANCE_KINDS as TRAINING_PROVENANCE_KIND,
+    proposal_of,
+    reserved_key_hits,
+)
 from .rng import Rng, seed_from_label
 
 SCHEMA_ID = "oracle-grounded/v1"
-GENERATOR_SECTIONS = ("generator", "scenario", "intervention", "candidate_prediction")
 ENVELOPE_KEYS = (
     "schema",
     "id",
@@ -79,7 +95,8 @@ STAGE_ALLOWED_KEYS = frozenset(
     }
 )
 # Measurement-shaped keys a generator must never author. The scan is over the
-# generator subtrees only; the oracle is of course free to use them.
+# generator subtrees only; the oracle is of course free to use them. The
+# bounded walk itself is the envelope's; this set is the neuromorphic contract's.
 RESERVED_GENERATOR_KEYS = frozenset(
     {
         "ground_truth",
@@ -92,46 +109,23 @@ RESERVED_GENERATOR_KEYS = frozenset(
         "result_hash",
     }
 )
-# Same vocabulary as schemas/provenance.md. `real` is never emitted.
-ALLOWED_PROVENANCE_KIND = frozenset({"designed", "simulated", "hil", "unknown"})
-TRAINING_PROVENANCE_KIND = frozenset({"designed", "simulated", "hil"})
+# ``provenance.kind`` and its training-eligible subset are the envelope's
+# (schemas/provenance.md vocabulary; `real` is never emitted). They are bound
+# above under this module's historical names for its callers.
 
 
 class GenerationError(RuntimeError):
     """A record could not be produced; the caller decides whether to skip."""
 
 
-# One reserved key already rejects the record, so the scan stops collecting
-# paths at this cap: a schema-open stored payload full of reserved keys must
-# not be able to turn path collection into a multi-megabyte finding string.
-MAX_RESERVED_KEY_HITS = 25
+def _reserved_key_hits(value):
+    """Paths of oracle-reserved keys in the generator sections of ``value``.
 
-
-def _reserved_hits_in_mapping(value, path, hits):
-    for key, item in value.items():
-        if len(hits) >= MAX_RESERVED_KEY_HITS:
-            break
-        here = f"{path}.{key}" if path else str(key)
-        if key in RESERVED_GENERATOR_KEYS:
-            hits.append(here)
-        _collect_reserved_key_hits(item, here, hits)
-
-
-def _collect_reserved_key_hits(value, path, hits):
-    if isinstance(value, dict):
-        _reserved_hits_in_mapping(value, path, hits)
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            if len(hits) >= MAX_RESERVED_KEY_HITS:
-                break
-            _collect_reserved_key_hits(item, f"{path}[{index}]", hits)
-
-
-def _reserved_key_hits(value, path=""):
-    """Paths of oracle-reserved keys, capped at ``MAX_RESERVED_KEY_HITS``."""
-    hits = []
-    _collect_reserved_key_hits(value, path, hits)
-    return hits
+    The bounded walk is the envelope's; only the reserved-key set is this
+    contract's. At most ``MAX_RESERVED_KEY_HITS`` paths are collected, because
+    one hit already rejects the record.
+    """
+    return reserved_key_hits(value, RESERVED_GENERATOR_KEYS)
 
 
 def _reserved_key_listing(hits):
@@ -140,11 +134,6 @@ def _reserved_key_listing(hits):
     if len(hits) >= MAX_RESERVED_KEY_HITS:
         listed += ", ... (scan capped)"
     return listed
-
-
-def proposal_of(record):
-    """Exactly the generator-authored subtree that ``proposal_hash`` covers."""
-    return {section: record.get(section) for section in GENERATOR_SECTIONS}
 
 
 def build_record(
@@ -458,7 +447,7 @@ def _validate_generator_side(record):
             findings.append("candidate_prediction must be an object or null")
         elif candidate.get("kind") != "non_authoritative_guess":
             findings.append("candidate_prediction.kind must be 'non_authoritative_guess'")
-    reserved = _reserved_key_hits(proposal_of(record))
+    reserved = _reserved_key_hits(record)
     if reserved:
         findings.append(
             "generator sections carry oracle-reserved keys: " + _reserved_key_listing(reserved)
