@@ -313,6 +313,76 @@ class PublishGrok46HubTests(unittest.TestCase):
             self.assertEqual(after, before)
             run.assert_not_called()
 
+    def _assert_declaration_blocks_publication(self, hub, declaration_text, message):
+        """Prove one broken declaration for ``hub`` aborts snapshot and upload
+        before any mirror byte changes and before any ``hf`` invocation."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            write_valid_legacy(source / "batch-r01.jsonl")
+
+            destination_root = root / "hf"
+            mirror, before = seed_mirror_with_previous_snapshot(destination_root)
+
+            schema_root = root / "card-schemas"
+            schema_root.mkdir()
+            (schema_root / f"{hub}.json").write_text(
+                declaration_text, encoding="utf-8"
+            )
+
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(
+                publisher, "HF_ROOT", destination_root
+            ), mock.patch.object(
+                publisher.card_schema, "SCHEMA_ROOT", schema_root
+            ), mock.patch.object(
+                publisher, "factories", return_value=[ITEM]
+            ), mock.patch.object(publisher, "run") as run:
+                with self.assertRaisesRegex(SystemExit, message):
+                    publisher.cmd_snapshot()
+                with self.assertRaisesRegex(SystemExit, message):
+                    publisher.cmd_upload()
+
+            after = {
+                path.relative_to(mirror): path.read_bytes()
+                for path in mirror.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(after, before)
+            self.assertFalse((mirror / "data").exists())
+            run.assert_not_called()
+
+    def test_snapshot_and_upload_preflight_every_declared_schema(self):
+        """A broken later declaration aborts before any mirror is touched.
+
+        The publication loop mutates one mirror at a time, so a known
+        declaration that fails to load or render must fail the whole run up
+        front — not when its own loop iteration is reached, after earlier
+        datasets were already rewritten or uploaded.
+        """
+        other_hub = "agent-memory-compaction-trajectories"
+        self.assertIn(other_hub, publisher.known_hub_names())
+        unrenderable = json.dumps(
+            {
+                "version": 1,
+                "dataset": other_hub,
+                "note": "Fixture declaration renders a bad config name.",
+                "config_name": "bad---name",
+                "features": [{"name": "id", "dtype": "string"}],
+            }
+        )
+        cases = (
+            ("malformed", "{not json", "card schema"),
+            ("unrenderable", unrenderable, f"cannot render card schema for {other_hub}"),
+        )
+        for case, declaration_text, message in cases:
+            with self.subTest(case=case):
+                self._assert_declaration_blocks_publication(
+                    other_hub, declaration_text, message
+                )
+
     def test_snapshot_reuses_the_preflighted_schema_during_final_render(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -571,7 +641,15 @@ class PublishGrok46HubTests(unittest.TestCase):
             card = publisher.render_card(
                 {**ITEM, "slug": slug, "hub": hub},
                 summary=publisher.PayloadSummary(
-                    records=3, bytes_=4096, first="r01", last="r02"
+                    records=3,
+                    bytes_=4096,
+                    first="r01",
+                    last="r02",
+                    # Payload names satisfy declared-schema coverage for hubs
+                    # that ship a config/card-schemas declaration (issue #37's
+                    # tool-use-preference-pairs declares data/raw/batch-*.jsonl
+                    # and render_card fails closed on an uncovered payload).
+                    names=["batch-r01.jsonl", "batch-r02.jsonl"],
                 ),
             )
 

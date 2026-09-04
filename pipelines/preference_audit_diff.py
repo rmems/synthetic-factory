@@ -18,14 +18,18 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
 from typing import Any
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-from preference_model import json_equal, json_key  # noqa: E402
+    _assert_direct_sibling("preference_audit_diff")
+    from .preference_model import json_equal, json_key
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "preference_audit_diff"
+    )
+    from preference_model import json_equal, json_key
 
 __all__ = [
     "AUDIT_COLLECTIONS",
@@ -58,10 +62,16 @@ def _reject_duplicate_members(members: list[tuple[str, Any]]) -> dict[str, Any]:
 
     parsed: dict[str, Any] = {}
     for key, value in members:
-        if key in parsed:
-            raise ValueError(f"duplicate object member: {key!r}")
-        parsed[key] = value
+        _add_unique_member(parsed, key, value)
     return parsed
+
+
+def _add_unique_member(parsed: dict[str, Any], key: str, value: Any) -> None:
+    """Add one parsed member without permitting last-value-wins semantics."""
+
+    if key in parsed:
+        raise ValueError(f"duplicate object member: {key!r}")
+    parsed[key] = value
 
 
 def parse_expected_audit(text: str) -> Any:
@@ -364,3 +374,7 @@ def audit_differences(expected: Any, actual: dict[str, Any]) -> list[str]:
         *_audit_source_file_differences(expected, actual),
         *_audit_impure_pair_differences(expected, actual),
     ]
+
+
+if __package__:
+    _expose_package_sibling(__name__)
