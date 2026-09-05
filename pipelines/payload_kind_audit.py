@@ -10,8 +10,8 @@ corpus directory, classifies every record with the curation lane's own
 
 It never writes to the corpus. The only output is JSON or Markdown on stdout.
 
-Parse, Markdown, scan, and CLI helpers live in sibling modules so each file's
-complexity stays under analyzer gates. Public callers still
+Parse, Markdown, scan, expect/drift, and CLI helpers live in sibling modules
+so each file's complexity stays under analyzer gates. Public callers still
 ``import payload_kind_audit``.
 
 Usage::
