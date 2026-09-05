@@ -1,0 +1,189 @@
+{
+  "baseline": {
+    "baselines": {
+      "logistic_regression": {
+        "accuracy": 0.515152,
+        "iterations": 120,
+        "l2": 0.0001,
+        "learning_rate": 0.5,
+        "model": "logistic_regression",
+        "train_accuracy": 0.957447
+      },
+      "majority_class": {
+        "accuracy": 0.575758,
+        "model": "majority_class",
+        "predicts": 6,
+        "train_support": 19
+      },
+      "mlp": {
+        "accuracy": 0.545455,
+        "hidden": 12,
+        "iterations": 120,
+        "learning_rate": 0.3,
+        "model": "mlp",
+        "seed": 17,
+        "train_accuracy": 1.0
+      }
+    },
+    "best": {
+      "accuracy": 0.545455,
+      "model": "mlp"
+    },
+    "classes": [
+      1,
+      2,
+      3,
+      4,
+      6,
+      7
+    ],
+    "escalation": {
+      "escalate_to_snn": false,
+      "must_beat": 0.575758,
+      "reason": "no conventional baseline beat the majority class by 0.163858 (max of min_lift and two Agresti-Coull standard errors of the test accuracy) \u2014 the target is not learnable from these compact inputs, so an SNN student is not justified",
+      "verdict": "not_learnable_from_compact_inputs"
+    },
+    "feature_dim": 20,
+    "holdout_pct": 30,
+    "lift_over_majority": -0.030303,
+    "min_lift": 0.05,
+    "min_test_records": 20,
+    "required_lift": 0.163858,
+    "samples": 80,
+    "scaler": {
+      "dim": 20,
+      "fitted_on": "train"
+    },
+    "stderr_method": "agresti_coull",
+    "target": "top1_expert",
+    "test": 33,
+    "test_accuracy_stderr": 0.081929,
+    "train": 47,
+    "verdict": "not_learnable_from_compact_inputs"
+  },
+  "files": {
+    "energy-preferences/batch-r01.jsonl": {
+      "records": 4,
+      "sha256": "46300d3234d2ed676d55258b28bab438bab043aca94c9660088ff5c3f23a1c6f"
+    },
+    "fault-recovery/batch-r01.jsonl": {
+      "records": 18,
+      "sha256": "8d92da6adfcb17d2cffb81f1cb0e169c6720b67129a96009131061f4fbd8aca6"
+    },
+    "moe-router/batch-r01.jsonl": {
+      "records": 80,
+      "sha256": "3e0933dc337c659909c9f082eb267799817648f14e1a689f3933da87ff1a2ef6"
+    }
+  },
+  "generated_by": "scripts/build_distillation_fixture.py",
+  "issue": "rmems/synthetic-factory#78",
+  "oracles": {
+    "moe-router-distillation-trajectories": {
+      "authority": "reference_only",
+      "is_llm_teacher": false,
+      "oracle_probe": {
+        "family": "moe-router-distillation-trajectories",
+        "oracles": [
+          {
+            "authority": "authoritative",
+            "available": false,
+            "detail": "ModuleNotFoundError: No module named 'regex'",
+            "is_llm_teacher": true,
+            "name": "transformers_moe_router",
+            "note": "still needs an MoE checkpoint even when the import works",
+            "type": "real_model_router"
+          },
+          {
+            "authority": "authoritative",
+            "available": false,
+            "detail": "supply a recording from a real teacher run",
+            "is_llm_teacher": true,
+            "name": "recorded_teacher_router",
+            "type": "recorded_measurement"
+          },
+          {
+            "authority": "reference_only",
+            "available": true,
+            "detail": "deterministic stand-in; records are reference_only",
+            "is_llm_teacher": false,
+            "name": "reference_moe_router",
+            "type": "reference_model_router"
+          }
+        ]
+      },
+      "ran": "reference_moe_router",
+      "unavailable": [
+        "transformers_moe_router (ModuleNotFoundError: No module named 'regex')",
+        "recorded_teacher_router (supply a recording from a real teacher run)"
+      ]
+    },
+    "neuromorphic-fault-recovery": {
+      "authority": "authoritative",
+      "ran": "relay-reflex-sim",
+      "type": "deterministic_simulator",
+      "unavailable": [
+        "hardware_replay (no neuromorphic board present)"
+      ]
+    },
+    "snn-energy-routing-preferences": {
+      "cost_is_energy": false,
+      "cost_quantity": "cpu_time_s",
+      "meter_probe": {
+        "cost_is_energy": false,
+        "cost_quantity": "cpu_time_s",
+        "probed": [
+          {
+            "available": false,
+            "detail": "/sys/class/powercap/intel-rapl:0/energy_uj not readable: Permission denied",
+            "measures_energy": true,
+            "meter": "intel_rapl_powercap"
+          },
+          {
+            "available": true,
+            "detail": "process clocks are always readable",
+            "measures_energy": false,
+            "meter": "process_resource_meter"
+          }
+        ],
+        "selected": "process_resource_meter"
+      },
+      "ran": "process_resource_meter",
+      "unavailable": [
+        "intel_rapl_powercap"
+      ]
+    }
+  },
+  "schema_version": "oracle-grounded/1.0.0",
+  "seeds": {
+    "moe-router-distillation-trajectories": 11,
+    "neuromorphic-fault-recovery": 20260823,
+    "snn-energy-routing-preferences": 20260823
+  },
+  "training_ready": false,
+  "training_ready_note": "Structural validity is not training-readiness. The router records come from a reference_only oracle and are excluded by oracle_contract.curation_eligible; the energy records are denominated in cpu_time_s because no energy meter was readable on this host.",
+  "validation": {
+    "curation_eligible": 22,
+    "curation_ineligible_reasons": {
+      "ORACLE_NOT_AUTHORITATIVE:'reference_only'": 80
+    },
+    "families": {
+      "moe-router-distillation-trajectories": 80,
+      "neuromorphic-fault-recovery": 18,
+      "snn-energy-routing-preferences": 4
+    },
+    "fault_outcomes": {
+      "continue": 3,
+      "degrade_gracefully": 7,
+      "fail_closed": 1,
+      "fallback": 5,
+      "quarantine": 1,
+      "reflex_action": 1
+    },
+    "invalid": 0,
+    "preferred_policies": {
+      "analytic_kkt": 4
+    },
+    "records": 102,
+    "valid": 102
+  }
+}
