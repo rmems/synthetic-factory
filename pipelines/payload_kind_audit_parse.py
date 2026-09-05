@@ -197,6 +197,39 @@ def _resolve_payload_paths(corpus: Path, payload_names: Iterable[str] | None) ->
     return payload_paths
 
 
+def _payload_open_flags() -> int:
+    """Open flags that refuse symlink follow for a payload read."""
+    return os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+
+
+def _open_regular_payload(path: Path) -> int:
+    """Open ``path`` as a regular file without following a symlink."""
+    try:
+        descriptor = os.open(path, _payload_open_flags())
+    except OSError as exc:
+        raise PayloadKindAuditError(f"unsafe payload entry: {path}") from exc
+    try:
+        info = os.fstat(descriptor)
+    except OSError as exc:
+        os.close(descriptor)
+        raise PayloadKindAuditError(f"unsafe payload entry: {path}") from exc
+    if not stat.S_ISREG(info.st_mode):
+        os.close(descriptor)
+        raise PayloadKindAuditError(f"unsafe payload entry: {path}")
+    return descriptor
+
+
+def _read_descriptor_bytes(descriptor: int) -> bytes:
+    """Read every remaining byte from an already-opened descriptor."""
+    chunks: list[bytes] = []
+    while True:
+        chunk = os.read(descriptor, 1 << 20)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def _load_payload_bytes(path: Path) -> bytes:
     """Read one payload file without a check-then-open symlink race.
 
@@ -204,24 +237,12 @@ def _load_payload_bytes(path: Path) -> bytes:
     then read from that descriptor — so a TOCTOU swap to a symlink after an
     ``is_file()`` check cannot redirect the read (CodeRabbit CWE-367).
     """
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = _open_regular_payload(path)
     try:
-        descriptor = os.open(path, flags)
-    except OSError as exc:
-        raise PayloadKindAuditError(f"unsafe payload entry: {path}") from exc
-    try:
-        info = os.fstat(descriptor)
-        if not stat.S_ISREG(info.st_mode):
-            raise PayloadKindAuditError(f"unsafe payload entry: {path}")
-        chunks: list[bytes] = []
-        while True:
-            chunk = os.read(descriptor, 1 << 20)
-            if not chunk:
-                break
-            chunks.append(chunk)
-        return b"".join(chunks)
-    except OSError as exc:
-        raise PayloadKindAuditError(f"cannot read payload {path}: {exc}") from exc
+        try:
+            return _read_descriptor_bytes(descriptor)
+        except OSError as exc:
+            raise PayloadKindAuditError(f"cannot read payload {path}: {exc}") from exc
     finally:
         os.close(descriptor)
 
