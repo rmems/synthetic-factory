@@ -53,7 +53,8 @@ promotion is [#167]. `training_ready` in an audit, `COMPOSE.json`, or
 `provenance.json` is the structural and quality verdict only — it never means
 training-eligible, which is `project_training_policy: allowed`, and no
 registry row carries that value yet. The contract every new generator must
-meet is the "Generator rule" in [`AGENTS.md`](AGENTS.md).
+meet is the "Generator rule" (formerly `AGENTS.md`, retired in [#184];
+preserved [at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md)).
 
 ## Public dataset family
 
@@ -93,7 +94,7 @@ datasets (`python3 scripts/publish_grok46_hub.py schemas` lists the gaps).
 
 This repository is licensed under the [Apache License 2.0](LICENSE) — see
 [`NOTICE`](NOTICE) for attribution. This covers the repository's contents:
-factory prompts, schemas, pipelines, skills, tests, and documentation.
+generator registry, schemas, pipelines, skills, tests, and documentation.
 
 **Apache-2.0 is the authorized payload license.** Each Hugging Face dataset
 repository ships the identical Apache-2.0 `LICENSE` file and declares
@@ -119,7 +120,6 @@ Cursor Cloud Agents build from `.cursor/Dockerfile` via
 same unit tests and operator smoke check.
 
 ## Structure
-- `prompts/` — legacy prompt-lane factory prompts 01–07 (research-only, see below). 01–05 start with a session bootstrap; shared rules in `prompts/_factory-contract.md`
 - `schemas/` — Thalamic schema, the two parity-family schemas, + `provenance.md`
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
@@ -128,27 +128,22 @@ same unit tests and operator smoke check.
 - `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, curation integration/promotion, compose, and export
 - `experiments/` — harvest notes (`2026-08-17-quality-report.md` is a mid-run snapshot; `2026-08-17-grok-census.md` is current)
 
-## Legacy prompt lane (research-only)
+## Historical prompt lane
 
-The prompt-driven lane — `prompts/01`–`07` pasted into a hosted frontier chat —
-produced the historical corpora. It is legacy: every record it yields is
-research-only under [#161], so it runs only as a bounded matched research
-campaign, never scaled to accumulate tokens. The round allocator still serves
-it:
+The prompt-driven lane (`prompts/01`–`13` plus the factory contracts) produced
+the historical corpora and was retired in [#184]. The full lane is preserved
+at tag `legacy-prompt-factory-v0.2`:
 
 ```bash
-python3 pipelines/next_round.py outputs/raw/2026-08-17/<factory-slug>
-# prints the next unused batch-rNN.jsonl + NOTES-rNN.md names and writes nothing;
-# the session writes only those two files and never overwrites an existing round
-# (transactional writers use round_txn.py reserve / publish instead)
-
-python3 pipelines/next_round.py --write-index outputs/raw/2026-08-17
+git fetch --tags
+git show legacy-prompt-factory-v0.2:prompts/01-thalamic-trajectory-factory.md
 ```
 
-Do **not** start prompts 06 or 07 until 01–05 have a cleaned slice that passes
-the gates. To run a session, copy `prompts/01`–`05` into a Fable 5 chat
-(bootstrap first). Then:
-"Expand every section significantly. Increase density and realism. Critique what is still weak and improve it. Never summarize previous material."
+Historical Fable/Grok provenance remains reproducible from Git history and the
+published Hugging Face artifacts above. Do not reintroduce hosted-model prompt
+generation on `main`: new records come from registry-registered generators
+(see [Generator lanes and rights](#generator-lanes-and-rights) and the
+retired "Generator rule", preserved [at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md)).
 
 ## Pipelines
 
@@ -317,4 +312,5 @@ approved decision, and only training-candidate rows
 [#171]: https://github.com/rmems/synthetic-factory/issues/171
 [#173]: https://github.com/rmems/synthetic-factory/issues/173
 [#175]: https://github.com/rmems/synthetic-factory/issues/175
+[#184]: https://github.com/rmems/synthetic-factory/issues/184
 [PR #168]: https://github.com/rmems/synthetic-factory/pull/168

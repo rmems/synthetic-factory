@@ -12,10 +12,11 @@ and no third-party runtime dependency. Dataset payloads live outside git
 (`outputs/raw/`, `outputs/cleaned/`, `outputs/curated/` are gitignored) and are
 published to Hugging Face separately.
 
-`AGENTS.md` is authoritative for the review contracts (fail-closed behaviours
-that look like bugs; cite that section rather than "fixing" them), the Claude
-authorship window, the generator rule, and the card viewer-schema rules — read
-it before touching `pipelines/`. `README.md`
+The former `AGENTS.md` (retired in #184; preserved [at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md))
+defined the review contracts (fail-closed behaviours that look like bugs; cite
+that section rather than "fixing" them), the Claude authorship window, the
+generator rule, and the card viewer-schema rules — those contracts are still
+honored, so read it before touching `pipelines/`. `README.md`
 carries the project goal, the rights lanes, and the pipeline command reference.
 
 ## Commands
@@ -185,7 +186,22 @@ trees in temporary directories because raw trees are immutable.
 
 ### Work tracking and environments
 
-Issues are tracked with Beads (`bd`) mirrored to GitHub issues
-(`.claude/skills/plan-github-issue/SKILL.md`); do not add markdown TODO lists.
+Issues are tracked in GitHub issues (Beads tracking was retired in #184);
+do not add markdown TODO lists.
 Cursor Cloud agents build from `.cursor/environment.json` + `.cursor/Dockerfile`;
 do not COPY the repo into the image and do not treat `outputs/raw/` as scratch.
+
+## Parity oracles
+
+The `hardware-parity-spike-trajectories` and `nir-cross-runtime-equivalence`
+families depend on oracles that mostly do **not** exist in this environment.
+No FPGA is attached and no upstream NIR runtime is installed. Do not add a
+fallback that produces a plausible result in their place. See
+[`docs/parity-oracles.md`](docs/parity-oracles.md) and
+`tests/fixtures/parity-run/`.
+
+```bash
+python3 pipelines/neuro_oracle.py
+python3 pipelines/nir_equivalence.py availability
+```
+
