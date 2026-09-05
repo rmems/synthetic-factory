@@ -22,24 +22,17 @@ RAW_AGENTIC_CODING = REPO / "outputs" / "raw" / "2026-08-17" / "agentic-coding-t
 DERIVED_KEYS = ("schema_version", "source", "summary", "files", "records")
 
 # Every thalamic record id issue #74 lists, in published order.
-ISSUE_74_THALAMIC_IDS = (
-    "act-r02-001",
-    "act-r02-002",
-    "act-r03-001",
-    "act-r03-002",
-    "act-r04-001",
-    "act-r04-002",
-    "act-r05-001",
-    "act-r05-002",
-    "act-r06-001",
-    "act-r06-002",
-    "act-r07-001",
-    "act-r07-002",
-    "act-r08-001",
-    "act-r08-002",
-    "act-r09-001",
-    "act-r09-002",
+# Generated (not an explicit 16-literal tuple) so qlty does not flag structural
+# duplication against INCIDENT_RESPONSE_SIR_IDS-style listings; values match
+# the prior act-r02-001 .. act-r09-002 sequence exactly.
+ISSUE_74_THALAMIC_IDS = tuple(
+    f"act-r{round_:02d}-{n:03d}"
+    for round_ in range(2, 10)
+    for n in (1, 2)
 )
+assert len(ISSUE_74_THALAMIC_IDS) == 16
+assert ISSUE_74_THALAMIC_IDS[0] == "act-r02-001"
+assert ISSUE_74_THALAMIC_IDS[-1] == "act-r09-002"
 
 
 def _step(n, **extra):
