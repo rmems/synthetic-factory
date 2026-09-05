@@ -783,10 +783,21 @@ def discover_legacy_named_baseline(factory_dir: Path):
     return 1 if records >= quota else 0
 
 
+# Process-local cache: marker_mode_state calls this twice per factory, and a
+# full snapshot hits every factory under the same run_dir. The sibling map is
+# identical for every factory_dir that shares a parent, so key on the resolved
+# run directory. Callers may mutate the returned dict, so always hand back a
+# shallow copy.
+_SIBLING_ID_CACHE: dict[Path, dict] = {}
+
+
 def sibling_committed_and_inflight_ids(factory_dir: Path):
     """Seed a legacy handoff with IDs already owned by sibling factories."""
     factory_dir = Path(factory_dir)
-    run_dir = factory_dir.parent
+    run_dir = factory_dir.parent.resolve()
+    cached = _SIBLING_ID_CACHE.get(run_dir)
+    if cached is not None:
+        return dict(cached)
     seen_ids = {}
     for path in sorted(run_dir.glob("*.jsonl")):
         if path.is_file() and not path.is_symlink():
@@ -830,7 +841,8 @@ def sibling_committed_and_inflight_ids(factory_dir: Path):
             except ValueError:
                 label = Path(sibling.name) / ".inflight" / path.name
             check_jsonl(path, label, seen_ids=seen_ids)
-    return seen_ids
+    _SIBLING_ID_CACHE[run_dir] = dict(seen_ids)
+    return dict(seen_ids)
 
 
 def validate_legacy_baseline_payloads(
