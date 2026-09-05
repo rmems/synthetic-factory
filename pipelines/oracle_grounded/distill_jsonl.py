@@ -2,7 +2,8 @@
 """JSONL I/O for oracle-grounded records (issue #78).
 
 Reading is streamed and fails per line, never per file: an undecodable byte,
-a malformed line or a bare ``NaN`` is reported as the one bad record it is.
+a malformed line, a bare ``NaN`` or a duplicated object key is reported as the
+one bad record it is.
 Writing is canonical JSON, refuses to overwrite, and refuses any destination
 that names or aliases the immutable raw tree (``raw_tree_guard``) before it
 creates so much as a directory.
@@ -19,8 +20,12 @@ from .import_twins import bind_import_twin
 
 try:
     from pipelines.raw_tree_guard import is_under_raw as _is_under_raw_tree
+    from pipelines.tag_jsonutil import (
+        reject_duplicate_object_keys as _reject_duplicate_object_keys,
+    )
 except ImportError:
     from raw_tree_guard import is_under_raw as _is_under_raw_tree
+    from tag_jsonutil import reject_duplicate_object_keys as _reject_duplicate_object_keys
 
 
 def _parse_jsonl_line(raw: bytes) -> tuple[bool, Any]:
@@ -30,6 +35,12 @@ def _parse_jsonl_line(raw: bytes) -> tuple[bool, Any]:
     the whole file raised ``UnicodeDecodeError`` before any record was seen,
     so one undecodable byte took down the validation of the entire corpus
     instead of being reported as the one bad line it is.
+
+    A duplicated object key is a parse failure too. ``json.loads`` keeps the
+    last value silently, so a line carrying two ``result`` objects would
+    validate, and be digested, as whichever came last; the repository's
+    strict loaders reject the same bytes through
+    ``tag_jsonutil.reject_duplicate_object_keys``, and so does this reader.
     """
 
     try:
@@ -41,6 +52,7 @@ def _parse_jsonl_line(raw: bytes) -> tuple[bool, Any]:
     try:
         return True, json.loads(
             stripped,
+            object_pairs_hook=_reject_duplicate_object_keys,
             parse_constant=envelope.reject_json_constant,
             parse_float=envelope.reject_nonfinite_float,
         )

@@ -411,6 +411,42 @@ class JsonlHelpers(unittest.TestCase):
             self.assertIsNone(entries[1][1])
 
 
+class JsonlDuplicateKeys(unittest.TestCase):
+    """A duplicated object key is a per-line parse failure, never last-wins."""
+
+    def read(self, payload: bytes) -> list:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "batch.jsonl"
+            path.write_bytes(payload)
+            return oc.read_jsonl(path)
+
+    def test_a_duplicated_top_level_key_is_a_parse_failure(self):
+        # json.loads keeps the last value silently, so a line carrying two
+        # `result` objects used to validate, and be digested, as whichever
+        # came last, while main's strict loaders reject the same bytes.
+        self.assertEqual(self.read(b'{"a": 1, "a": 2}\n{"b": 3}\n'), [(1, None), (2, {"b": 3})])
+
+    def test_a_duplicated_key_at_any_depth_is_a_parse_failure(self):
+        payload = b'{"result": {"outcome": "fallback", "outcome": "fail_closed"}}\n'
+        self.assertEqual(self.read(payload), [(1, None)])
+
+    def test_the_reader_uses_the_shared_duplicate_key_rejector(self):
+        # The hook is the repository's existing strict-parsing primitive
+        # (export_contract, training_audit, load_strict_json), not a private
+        # copy grown inside the reader.
+        from oracle_grounded import distill_jsonl
+
+        hook = distill_jsonl._reject_duplicate_object_keys
+        self.assertEqual(hook.__name__, "reject_duplicate_object_keys")
+        self.assertTrue(hook.__module__.endswith("tag_jsonutil"), hook.__module__)
+
+    def test_the_parse_dialect_is_otherwise_unchanged(self):
+        rows = self.read(b'{"x": 1.5, "n": 2, "s": "\xc3\xa9", "t": true}\n{"y": NaN}\n')
+        self.assertEqual(rows[0], (1, {"x": 1.5, "n": 2, "s": "\u00e9", "t": True}))
+        self.assertIsInstance(rows[0][1]["x"], float)
+        self.assertEqual(rows[1], (2, None))
+
+
 class SchemaFileAgreesWithTheModule(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
