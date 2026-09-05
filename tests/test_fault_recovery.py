@@ -539,6 +539,14 @@ class FamilyChecks(unittest.TestCase):
         errors = fr.check_family(record, "x")
         self.assertTrue(any("ORACLE_NAME_MISMATCH" in e for e in errors), errors)
 
+    def test_foreign_name_cannot_escape_simulator_gates(self):
+        record = self._forge_continue_hard_deadline(
+            name="hardware-bench-oracle",
+            implementation="pipelines/fault_recovery.py:SomeOtherOracle",
+        )
+        errors = fr.check_family(record, "x")
+        self.assertTrue(any("ORACLE_NAME_MISMATCH" in e for e in errors), errors)
+
     def test_exact_oracle_name_still_binds_implementation(self):
         # Name identity bind must not weaken FAULT-IMPL: exact name + wrong impl.
         record = self._forge_continue_hard_deadline(

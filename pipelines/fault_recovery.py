@@ -1656,13 +1656,13 @@ def _oracle_name_is_near_miss(name: Any) -> bool:
 def _check_oracle_name_identity(
     record: dict[str, Any], where: str
 ) -> list[str]:
-    """Near-miss ``oracle.name`` orthography must not skip identity gates.
+    """``oracle.name`` must be exact ``ORACLE_NAME`` for this family.
 
-    Trailing/leading space, NBSP, underscore rename, and case variants used to
-    early-return out of type-binding + re-sim (exact ``== ORACLE_NAME``),
-    leaving a forged ``hardware_replay`` continue curation-eligible
-    (FAULT-NAME-IDENTITY-ESCAPE). Reject the near-miss; do not normalize-and-
-    accept.
+    Trailing/leading space, NBSP, underscore rename, case variants, and foreign
+    names used to early-return out of type-binding + re-sim (exact
+    ``== ORACLE_NAME``), leaving a forged ``hardware_replay`` continue
+    curation-eligible (FAULT-NAME-IDENTITY-ESCAPE). Reject any non-exact name;
+    do not normalize-and-accept.
     """
 
     oracle = record.get("oracle")
@@ -1671,13 +1671,17 @@ def _check_oracle_name_identity(
     name = oracle.get("name")
     if name == ORACLE_NAME:
         return []
-    if not _oracle_name_is_near_miss(name):
-        return []
-    return [
-        f"{where}.oracle.name: ORACLE_NAME_MISMATCH — "
-        f"near-miss name {name!r} must be exact {ORACLE_NAME!r} "
-        "(whitespace / underscore / case variants are not accepted)"
-    ]
+    if _oracle_name_is_near_miss(name):
+        detail = (
+            f"near-miss name {name!r} must be exact {ORACLE_NAME!r} "
+            "(whitespace / underscore / case variants are not accepted)"
+        )
+    else:
+        detail = (
+            f"foreign name {name!r} must be exact {ORACLE_NAME!r} "
+            "(this family does not accept other oracle names)"
+        )
+    return [f"{where}.oracle.name: ORACLE_NAME_MISMATCH — {detail}"]
 
 
 def _check_oracle_implementation_identity(
