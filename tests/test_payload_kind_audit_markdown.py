@@ -116,6 +116,24 @@ class PayloadKindMarkdown(PayloadKindAuditCase):
         self.assertIn("!&#91;tracker&#93;(https://example.test/pixel)", rendered)
         self.assertIn("&#91;click me&#93;(https://example.test/bad)", rendered)
 
+    def test_markdown_code_wraps_plain_urls_in_gate_cells(self):
+        """GFM autolinks bare URLs even without bracket syntax, so a gate id
+        or decision that is itself a URL must render as inert code text."""
+        rendered = _render(
+            _row(
+                supervisor_id="https://example.test/pixel",
+                gate_decision="http://example.test/action",
+            )
+        )
+        self.assertIn(
+            "| `https://example.test/pixel` / `http://example.test/action` |",
+            rendered,
+        )
+        self.assertNotIn(
+            "| https://example.test/pixel / http://example.test/action |",
+            rendered,
+        )
+
     def test_markdown_escapes_emphasis_and_backticks_in_gate_cells(self):
         """A gate cell is plain table text, so Markdown syntax in a valid
         supervisor id or decision renders formatting instead of literal audit
@@ -161,6 +179,17 @@ class PayloadKindMarkdown(PayloadKindAuditCase):
         rendered = payload_kind_audit.render_markdown(audit)
         self.assertIn("| <code></code> |", rendered)
         self.assertNotIn("``", rendered)
+
+    def test_markdown_preserves_boundary_spaces_in_identifier_code_spans(self):
+        """GFM removes one leading and trailing space from non-all-space code
+        spans; pad the source delimiter so the rendered identifier stays exact."""
+        record = _episode([])
+        record["id"] = " id "
+        audit = self._audit_corpus({"episodes.jsonl": [record]})
+        self.assertEqual(audit["records"][0]["id"], " id ")
+        rendered = payload_kind_audit.render_markdown(audit)
+        self.assertIn("| episode | `  id  ` |", rendered)
+        self.assertNotIn("| episode | ` id ` |", rendered)
 
     def test_markdown_renders_a_code_span_without_publishing_entities(self):
         """A code span already disables inline syntax, so escaping inside one
