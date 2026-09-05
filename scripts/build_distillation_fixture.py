@@ -11,6 +11,12 @@ corpus. ``MANIFEST.json`` says so in ``training_ready``.
 Usage::
 
     python3 scripts/build_distillation_fixture.py [--out <dir>] [--force]
+
+``--out`` must not exist yet. The script never deletes or overwrites: a
+rebuild of the committed fixture is written to a fresh directory and swapped
+into ``tests/fixtures/distillation-run/`` by hand. ``--force`` is still
+accepted, but in-place rebuilds are refused until a rebuild can preserve the
+previous fixture, and anything else beside it, when a generator fails.
 """
 
 from __future__ import annotations
@@ -18,7 +24,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -34,6 +39,7 @@ import moe_router  # noqa: E402
 from oracle_grounded import distill_contract as oc  # noqa: E402
 import router_baseline  # noqa: E402
 import validate_distill  # noqa: E402
+from raw_tree_guard import is_under_raw  # noqa: E402
 
 DEFAULT_OUT = REPO / "tests" / "fixtures" / "distillation-run"
 
@@ -49,63 +55,8 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-# The identity this script writes into every manifest it produces. --force
-# authenticates against it before deleting anything.
+# The identity this script writes into every manifest it produces.
 MANIFEST_PRODUCER = "scripts/build_distillation_fixture.py"
-
-# The only names a distillation run contains beside its manifest.
-RUN_LAYOUT = frozenset(
-    {"MANIFEST.json", "fault-recovery", "energy-preferences", "moe-router"}
-)
-
-
-def _is_own_manifest(path: Path) -> bool:
-    """True when ``path`` is a manifest this script itself wrote."""
-
-    try:
-        manifest = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return False
-    return (
-        isinstance(manifest, dict)
-        and manifest.get("generated_by") == MANIFEST_PRODUCER
-    )
-
-
-def can_rebuild(out: Path) -> bool:
-    """True when ``out`` is safe for ``--force`` to delete and rewrite.
-
-    ``build()`` hands this directory to ``shutil.rmtree``, so "looks vaguely
-    like a run" is not enough: a dataset or project directory that happens to
-    contain an unrelated file named ``MANIFEST.json`` would be irreversibly
-    deleted. A rebuildable target is empty, or is a distillation run this
-    script wrote — its manifest names this script as the producer and nothing
-    unexpected sits beside it.
-    """
-
-    if not out.is_dir():
-        return False
-    entries = list(out.iterdir())
-    if not entries:
-        return True
-    if any(entry.name not in RUN_LAYOUT for entry in entries):
-        return False
-    manifest = out / "MANIFEST.json"
-    return manifest.is_file() and _is_own_manifest(manifest)
-
-
-def assert_rebuildable(out: Path) -> None:
-    """Refuse ``--force`` unless ``out`` looks like a distillation run."""
-
-    if out.is_dir():
-        if can_rebuild(out):
-            return
-        raise SystemExit(
-            f"{out} is not a distillation run this script wrote (expected an "
-            f"empty directory, or a MANIFEST.json naming {MANIFEST_PRODUCER} "
-            "beside the family directories); refusing to delete it"
-        )
-    raise SystemExit(f"{out} exists but is not a directory; refusing to delete it")
 
 
 def _write_records(out: Path, written: dict[str, Any]) -> dict[str, Any]:
@@ -219,15 +170,14 @@ def _training_ready_note(meter: Any, router_oracle: Any) -> str:
 def _refuse_raw_tree(out: Path) -> None:
     """``outputs/raw`` is the immutable evidence tree; never touch it.
 
-    ``--force`` hands ``out`` to ``shutil.rmtree`` — pointed beneath the raw
-    root, that deletes published evidence, and even without ``--force`` the
-    build would write fixture files into it. Refuse before any filesystem
-    mutation, resolved so relative paths and symlinks cannot dodge the check.
+    The build would write fixture files into it. Refuse before any filesystem
+    mutation through ``raw_tree_guard``, the repository's one raw-path
+    detector: unlike a comparison against this checkout's resolved raw root,
+    it also recognises another checkout's ``outputs/raw``, a symlink alias of
+    the raw root and a bind mount of it.
     """
 
-    resolved = out.resolve()
-    raw_root = (REPO / "outputs" / "raw").resolve()
-    if resolved == raw_root or raw_root in resolved.parents:
+    if is_under_raw(out):
         raise SystemExit(
             f"refusing to build the fixture at {out}: outputs/raw is the "
             "immutable evidence tree (AGENTS.md) and may never be deleted "
@@ -235,13 +185,29 @@ def _refuse_raw_tree(out: Path) -> None:
         )
 
 
+def _refuse_existing(out: Path, force: bool) -> None:
+    """Never build in place: an existing ``out`` is refused before any mutation.
+
+    Deleting the previous fixture ahead of the generators cannot preserve it,
+    or unrelated files beside it, when a generator fails, so ``--force`` is
+    refused as well until a rebuild can. A fresh directory costs nothing and
+    leaves the previous fixture exactly as it was.
+    """
+
+    if not out.exists():
+        return
+    reason = (
+        "in-place --force rebuilds are refused" if force else "it would be overwritten"
+    )
+    raise SystemExit(
+        f"{out} exists and {reason}: build into a fresh --out directory and swap "
+        "it into place by hand, so a failed build never touches the previous fixture"
+    )
+
+
 def build(out: Path, force: bool = False) -> dict[str, Any]:
     _refuse_raw_tree(out)
-    if out.exists():
-        if not force:
-            raise SystemExit(f"{out} exists; pass --force to rebuild it")
-        assert_rebuildable(out)
-        shutil.rmtree(out)
+    _refuse_existing(out, force)
 
     fault_records = fault_recovery.build_records(FAULT_SEED, FAULT_COUNT)
 
@@ -266,10 +232,6 @@ def build(out: Path, force: bool = False) -> dict[str, Any]:
 
     manifest = {
         "issue": "rmems/synthetic-factory#78",
-        # The constant, not a twin literal: `--force` authenticates manifests
-        # against MANIFEST_PRODUCER in `_is_own_manifest`, so a divergence
-        # here would make every manifest this script writes refuse its own
-        # documented rebuild.
         "generated_by": MANIFEST_PRODUCER,
         "schema_version": oc.SCHEMA_VERSION,
         "seeds": {
@@ -293,7 +255,11 @@ def build(out: Path, force: bool = False) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", default=str(DEFAULT_OUT))
-    parser.add_argument("--force", action="store_true")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="accepted for compatibility; in-place rebuilds are refused, use a fresh --out",
+    )
     args = parser.parse_args(argv)
     manifest = build(Path(args.out), force=args.force)
     print(json.dumps(manifest["validation"], indent=2, sort_keys=True))

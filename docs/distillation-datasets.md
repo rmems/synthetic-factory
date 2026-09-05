@@ -400,7 +400,9 @@ read as a learnable target.
 ## The committed fixture run
 
 `tests/fixtures/distillation-run/` is a small real run, rebuilt by
-`python3 scripts/build_distillation_fixture.py --force`, with a `MANIFEST.json`
+`python3 scripts/build_distillation_fixture.py --out <fresh-dir>` and swapped
+into place by hand (the script never deletes or overwrites, so in-place
+`--force` rebuilds are refused), with a `MANIFEST.json`
 recording which oracles ran, which were unavailable, the validation totals and
 the baseline report. It sets `training_ready: false` and says why. It proves the
 shape end to end; it is not a corpus.
