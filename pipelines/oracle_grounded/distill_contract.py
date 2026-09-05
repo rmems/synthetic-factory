@@ -38,8 +38,10 @@ energy registry), ``distill_builders`` (the block and record builders),
 ``distill_measurements`` (the measurement checks and the no-theoretical-energy
 rule), ``distill_blocks`` (the per-block envelope checks, the generator/oracle
 separation rule, ``check_envelope`` and ``check_digest``), ``distill_curation``
-(the validator-owned stamp and the fail-closed curation gate) and
-``distill_jsonl`` (the JSONL I/O) -- and every name is re-exported here so
+(the validator-owned stamp and the fail-closed curation gate),
+``distill_jsonl`` (the JSONL I/O) and ``distill_labels`` (the family-owned
+oracle-label policies and the family leak check, distinct from the structural
+checks) -- and every name is re-exported here so
 ``distill_contract.X`` remains the one entry point the family generators, the
 validator and the tests use. The envelope's primitives are bound under their
 own names too, so a ``ContractError`` raised by a family generator is caught
@@ -81,6 +83,16 @@ from .distill_curation import (
     stamp_validation,
 )
 from .distill_jsonl import iter_jsonl, read_jsonl, write_jsonl
+from .distill_labels import (
+    LABEL_IN_GENERATOR_NAMESPACE,
+    POLICY_MISMATCH,
+    POLICY_MISSING,
+    OracleLabelPolicy,
+    check_oracle_label_leak,
+    declare_oracle_labels,
+    declared_families,
+    oracle_label_policy,
+)
 from .distill_measurements import (
     ENERGY_KEY_HINTS,
     check_measurements,
@@ -140,6 +152,7 @@ __all__ = (
     "GENERATOR_SECTIONS",
     "GeneratorIdentity",
     "ISO_8601_RE",
+    "LABEL_IN_GENERATOR_NAMESPACE",
     "MEASURED_ENERGY_METERS",
     "MODELED_METERS",
     "MeasurementOptions",
@@ -148,8 +161,11 @@ __all__ = (
     "ORACLE_ONLY_KEYS",
     "ORACLE_TYPES",
     "OracleIdentity",
+    "OracleLabelPolicy",
     "OracleRun",
     "OracleUnavailable",
+    "POLICY_MISMATCH",
+    "POLICY_MISSING",
     "PREDICTION_FREE_KEYS",
     "PREDICTION_PREFIX",
     "Proposal",
@@ -173,7 +189,10 @@ __all__ = (
     "check_generator_oracle_separation",
     "check_measurements",
     "check_no_theoretical_energy_claim",
+    "check_oracle_label_leak",
     "curation_eligible",
+    "declare_oracle_labels",
+    "declared_families",
     "is_enum_value",
     "is_genuine_int",
     "is_number",
@@ -185,6 +204,7 @@ __all__ = (
     "new_oracle",
     "new_provenance",
     "new_result",
+    "oracle_label_policy",
     "read_jsonl",
     "record_digest",
     "stamp_is_bound_to_content",
