@@ -33,7 +33,17 @@ import tempfile
 from pathlib import Path
 from typing import cast
 
-FACTORY_ROOT = Path("/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-08-19-agentic")
+# Immutable factory SoT may live outside the git checkout. Prefer:
+# 1) in-repo outputs/raw/... when present,
+# 2) ~/synthetic-factory/outputs (Raul's moved SoT name),
+# 3) ~/synthetic-data/outputs (same tree under the prior folder name).
+_REPO_OUTPUTS = Path(__file__).resolve().parents[1] / "outputs" / "raw" / "2026-08-19-agentic"
+_HOME_FACTORY = Path.home() / "synthetic-factory" / "outputs" / "raw" / "2026-08-19-agentic"
+_HOME_DATA = Path.home() / "synthetic-data" / "outputs" / "raw" / "2026-08-19-agentic"
+FACTORY_ROOT = next(
+    (candidate for candidate in (_REPO_OUTPUTS, _HOME_FACTORY, _HOME_DATA) if candidate.is_dir()),
+    _REPO_OUTPUTS,
+)
 HF_ROOT = Path("/home/raulmc/rmems/hf")
 # Hub clones are grouped by generating model so the Fable 5 and Grok 4.6 lanes
 # stay separated on disk. Dataset mirrors live under this subdirectory;

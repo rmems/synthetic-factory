@@ -962,6 +962,47 @@ class RoundTransaction(unittest.TestCase):
             ):
                 round_txn.frontier_status(first)
 
+    def test_sibling_id_scan_is_cached_per_factory_and_returns_a_copy(self):
+        with tempfile.TemporaryDirectory() as td:
+            run = Path(td) / "run"
+            first = run / "factory-first"
+            second = run / "factory-second"
+            first.mkdir(parents=True)
+            second.mkdir()
+            write_records(first / "trajectories.jsonl", [thalamic("first-id")])
+            write_records(second / "trajectories.jsonl", [thalamic("second-id")])
+            for factory in (first, second):
+                (factory / round_txn.MODE_FILE).write_text(
+                    json.dumps(
+                        {
+                            "version": 1,
+                            "legacy_baseline": 1,
+                            "commit_point": "ROUND-rNN.complete.json",
+                        }
+                    )
+                    + "\n"
+                )
+
+            with mock.patch.object(
+                round_txn, "check_jsonl", wraps=round_txn.check_jsonl
+            ) as mocked:
+                first_ids = round_txn.sibling_committed_and_inflight_ids(first)
+                self.assertGreater(mocked.call_count, 0)
+                mocked.reset_mock()
+                first_again = round_txn.sibling_committed_and_inflight_ids(first)
+                mocked.assert_not_called()
+
+            self.assertIn("second-id", first_ids)
+            self.assertNotIn("first-id", first_ids)
+            self.assertEqual(first_again, first_ids)
+            first_ids["poison"] = "mutated"
+            self.assertNotIn("poison", first_again)
+            self.assertNotIn("poison", round_txn.sibling_committed_and_inflight_ids(first))
+
+            second_ids = round_txn.sibling_committed_and_inflight_ids(second)
+            self.assertIn("first-id", second_ids)
+            self.assertNotIn("second-id", second_ids)
+
     def test_completed_marker_id_cannot_duplicate_a_sibling_factory(self):
         with tempfile.TemporaryDirectory() as td:
             run = Path(td) / "run"
