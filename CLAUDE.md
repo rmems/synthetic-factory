@@ -190,3 +190,18 @@ Issues are tracked in GitHub issues (Beads tracking was retired in #184);
 do not add markdown TODO lists.
 Cursor Cloud agents build from `.cursor/environment.json` + `.cursor/Dockerfile`;
 do not COPY the repo into the image and do not treat `outputs/raw/` as scratch.
+
+## Parity oracles
+
+The `hardware-parity-spike-trajectories` and `nir-cross-runtime-equivalence`
+families depend on oracles that mostly do **not** exist in this environment.
+No FPGA is attached and no upstream NIR runtime is installed. Do not add a
+fallback that produces a plausible result in their place. See
+[`docs/parity-oracles.md`](docs/parity-oracles.md) and
+`tests/fixtures/parity-run/`.
+
+```bash
+python3 pipelines/neuro_oracle.py
+python3 pipelines/nir_equivalence.py availability
+```
+

@@ -24,6 +24,11 @@ EXPECTED = {
         "multi_agent": 0,
         "safety_case": 0,
         "episode": 0,
+        # The oracle-grounded parity families are absent from this fixture but
+        # still reported, so a run that contains none is distinguishable from a
+        # census that cannot see them.
+        "hardware_parity": 0,
+        "nir_equivalence": 0,
         "unknown": 0,
     },
     "sim_or_real": {
@@ -469,13 +474,17 @@ class CensusMillMix(unittest.TestCase):
 
 class CensusBuckets(unittest.TestCase):
     def setUp(self):
-        sys.path.insert(0, str(REPO / "pipelines"))
+        pipeline_path = str(REPO / "pipelines")
+        self._inserted_pipeline_path = pipeline_path not in sys.path
+        if self._inserted_pipeline_path:
+            sys.path.insert(0, pipeline_path)
         import census  # noqa: E402
 
         self.census = census
 
     def tearDown(self):
-        sys.path[:] = [p for p in sys.path if p != str(REPO / "pipelines")]
+        if self._inserted_pipeline_path:
+            sys.path.remove(str(REPO / "pipelines"))
         sys.modules.pop("census", None)
 
     def test_kind_routing(self):
@@ -506,6 +515,14 @@ class CensusBuckets(unittest.TestCase):
             "episode",
         )
         self.assertEqual(self.census.classify_kind({"meta": {}}), "unknown")
+
+    def test_unhashable_declared_kind_is_unknown_instead_of_crashing(self):
+        for malformed in ([], {}):
+            with self.subTest(malformed=malformed):
+                self.assertEqual(
+                    self.census.classify_kind({"record_kind": malformed}),
+                    "unknown",
+                )
 
     def test_reader_does_not_treat_bare_cr_as_a_jsonl_record_boundary(self):
         with tempfile.TemporaryDirectory() as td:

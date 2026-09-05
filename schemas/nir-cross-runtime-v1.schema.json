@@ -1,0 +1,380 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nir-cross-runtime-v1.schema.json",
+  "title": "NirCrossRuntimeEquivalence",
+  "description": "One NIR graph executed on more than one runtime against an identical stimulus. This file is documentation: the repository has no JSON Schema library, and pipelines/nir_equivalence.py is the enforcement. The validator re-executes every in-repo runtime and recomputes the comparison from the recorded outputs, so a fabricated trace cannot pass. A divergence is the product of this family and is never repaired, retried, or filtered.",
+  "type": "object",
+  "required": [
+    "id",
+    "record_kind",
+    "dataset",
+    "schema_version",
+    "generator",
+    "scenario",
+    "intervention",
+    "candidate_prediction",
+    "oracle",
+    "result",
+    "provenance",
+    "validation",
+    "meta"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "record_kind": { "const": "nir_equivalence" },
+    "dataset": { "const": "nir-cross-runtime-equivalence" },
+    "schema_version": { "type": "string", "minLength": 1 },
+    "generator": {
+      "type": "object",
+      "required": ["name", "model", "role", "produced", "may_certify_oracle_result"],
+      "properties": {
+        "produced": {
+          "type": "array",
+          "minItems": 1,
+          "description": "May not contain 'result', 'oracle', or 'measurement'."
+        },
+        "may_certify_oracle_result": { "const": false }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "required": ["id", "graph", "graph_sha256", "structure_digest", "stimulus", "input_fixture"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "class": {
+          "enum": [
+            "feed_forward",
+            "reset_sensitive",
+            "delay_sensitive",
+            "recurrent",
+            "boundary",
+            "unusual_parameters",
+            "coverage_gap",
+            "unsupported"
+          ]
+        },
+        "graph": { "$ref": "#/$defs/graph" },
+        "graph_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "structure_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "Structure only: node types, declared sizes, and the edge set. Recomputed from scenario.graph during validation."
+        },
+        "stimulus": {
+          "type": "object",
+          "required": ["steps", "channels", "events"],
+          "properties": {
+            "steps": { "type": "integer", "minimum": 1 },
+            "channels": { "type": "integer", "minimum": 1 },
+            "events": { "type": "array", "items": { "type": "array", "items": { "type": "number" } } }
+          }
+        },
+        "input_fixture": {
+          "type": "object",
+          "required": ["sha256"],
+          "properties": { "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } }
+        }
+      }
+    },
+    "intervention": { "type": ["object", "null"] },
+    "candidate_prediction": {
+      "type": ["object", "null"],
+      "required": ["source", "authoritative"],
+      "properties": {
+        "source": { "const": "generator" },
+        "authoritative": { "const": false }
+      }
+    },
+    "oracle": {
+      "type": "object",
+      "required": [
+        "runtimes",
+        "input_fixture",
+        "identical_input_fixture",
+        "evidence_scope"
+      ],
+      "properties": {
+        "runtimes": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "description": "The complete fixed inventory, in order: both in-repo interpreters followed by nir_rs, nir_python, and nirtorch_snntorch. Removing unavailable entries is invalid because it would turn incomplete oracle coverage into an apparent clean bill of health.",
+          "items": { "$ref": "#/$defs/runtime" }
+        },
+        "identical_input_fixture": { "const": true },
+        "evidence_scope": {
+          "type": "string",
+          "description": "States plainly which runtimes the record is evidence about. When only in-repo interpreters executed, the record is evidence about the declared conventions and not about nir-rs or any upstream backend."
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["oracle_backed", "verdict", "reason_codes", "derived_from", "comparison"],
+      "properties": {
+        "oracle_backed": { "const": true },
+        "verdict": {
+          "enum": ["match", "mismatch", "unsupported", "inconclusive"],
+          "description": "`match` requires at least two executed runtimes agreeing on parse/write parity, structure, and event outputs. Fewer than two executed runtimes can never be a `match`: it is `unsupported` when a runtime refused a construct and `inconclusive` otherwise."
+        },
+        "reason_codes": { "type": "array", "items": { "type": "string" } },
+        "derived_from": {
+          "type": "array",
+          "minItems": 1,
+          "description": "One ordered identity-bearing lineage entry per oracle.runtimes entry, binding the runtime name and status to its evidence digest (the executed output digest, or this validator's diagnostic/capability digest for a runtime that did not execute).",
+          "items": {
+            "type": "object",
+            "required": ["runtime", "status", "digest"],
+            "properties": {
+              "runtime": { "type": "string" },
+              "status": { "enum": ["executed", "unavailable", "unsupported"] },
+              "digest": { "type": "string" }
+            }
+          }
+        },
+        "comparison": {
+          "type": "object",
+          "required": [
+            "executed_runtimes",
+            "executed_count",
+            "parse_write_parity",
+            "structure_parity",
+            "output_parity",
+            "unsupported",
+            "unavailable",
+            "convention_delta",
+            "attribution"
+          ],
+          "properties": {
+            "executed_count": { "type": "integer", "minimum": 0 },
+            "parse_write_parity": {
+              "type": "object",
+              "description": "Does a write-read-write cycle through each named runtime adapter move the graph? A shared module-level JSON round trip is not accepted as per-runtime evidence.",
+              "properties": { "agree": { "type": "boolean" } }
+            },
+            "structure_parity": {
+              "type": "object",
+              "properties": {
+                "agree": { "type": "boolean" },
+                "declared": { "type": ["string", "null"] },
+                "digests": { "type": "object" }
+              }
+            },
+            "output_parity": {
+              "type": "object",
+              "required": ["comparable", "agree", "pairs"],
+              "properties": {
+                "agree": { "type": ["boolean", "null"] },
+                "tolerance": { "type": "number" },
+                "pairs": { "type": "array", "items": { "$ref": "#/$defs/pair" } }
+              }
+            },
+            "state_parity": {
+              "type": "object",
+              "description": "Internal membrane state at the end of the window. It can diverge while the event outputs agree, which means the agreement may not survive a longer stimulus.",
+              "properties": { "agree": { "type": ["boolean", "null"] } }
+            },
+            "unsupported": {
+              "type": "array",
+              "description": "Coverage diagnostics, preserved. A runtime refusing a construct is evidence, not a failure to retry.",
+              "items": {
+                "type": "object",
+                "required": ["runtime", "reason_code"],
+                "properties": {
+                  "runtime": { "type": "string" },
+                  "reason_code": { "const": "UNSUPPORTED_CONSTRUCT" },
+                  "node": { "type": ["string", "null"] },
+                  "node_type": { "type": ["string", "null"] }
+                }
+              }
+            },
+            "unavailable": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["runtime", "reason_code"],
+                "properties": {
+                  "runtime": { "type": "string" },
+                  "runtime_class": { "type": "string" },
+                  "reason_code": { "type": "string" }
+                }
+              }
+            },
+            "convention_delta": {
+              "type": "array",
+              "description": "Which declared conventions differ between the executed runtimes.",
+              "items": {
+                "type": "object",
+                "required": ["convention", "values"],
+                "properties": {
+                  "convention": { "type": "string" },
+                  "values": { "type": "object" }
+                }
+              }
+            },
+            "attribution": {
+              "type": "object",
+              "description": "Candidate explanations only. A convention is listed only when the graph actually contains the construct it governs, and the basis string says plainly that this is not a proven cause.",
+              "required": ["candidate_reason_codes", "basis"],
+              "properties": {
+                "candidate_reason_codes": { "type": "array", "items": { "type": "string" } },
+                "relevant_conventions": { "type": "array", "items": { "type": "string" } },
+                "basis": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["kind", "tool", "tool_version"],
+      "properties": {
+        "kind": { "enum": ["designed", "simulated", "hil", "unknown"] }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "required": ["validator", "validator_version", "checks"],
+      "properties": { "checks": { "type": "array", "minItems": 1 } }
+    },
+    "meta": {
+      "type": "object",
+      "required": ["round", "factory"],
+      "properties": {
+        "round": { "type": "integer" },
+        "factory": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "graph": {
+      "type": "object",
+      "description": "A NIR-shaped graph. Every node declares its output width explicitly, because inferring it would make a recurrent edge's first read depend on inference order.",
+      "required": ["nodes", "edges"],
+      "properties": {
+        "name": { "type": "string" },
+        "dt_s": { "type": "number", "exclusiveMinimum": 0 },
+        "nodes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "description": "Implemented by nir_reference_v1: Input, Output, Affine, Linear, LIF, IF, LI, Delay, Threshold. Anything else, including CubaLIF and Conv2d, produces an UNSUPPORTED_CONSTRUCT diagnostic rather than a substituted approximation."
+              },
+              "size": { "type": "integer", "minimum": 1 },
+              "shape": { "type": "array", "items": { "type": "integer" } },
+              "weight": { "type": "array" },
+              "bias": { "type": "array" },
+              "tau": { "type": "number", "exclusiveMinimum": 0 },
+              "r": { "type": "number" },
+              "v_leak": { "type": "number" },
+              "v_threshold": { "type": "number" },
+              "threshold": { "type": "number" },
+              "delay": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["runtime", "runtime_class", "status"],
+      "properties": {
+        "runtime": { "type": "string", "minLength": 1 },
+        "runtime_class": {
+          "enum": ["in_repo_reference", "upstream_runtime"],
+          "description": "in_repo_reference results are re-executed during validation. upstream_runtime results cannot be, and a record says so rather than implying they were checked."
+        },
+        "status": {
+          "enum": ["executed", "unsupported", "unavailable"],
+          "description": "A runtime that is not `executed` must carry a reason_code and must carry no outputs and no output_digest."
+        },
+        "reason_code": { "type": "string" },
+        "detail": { "type": "string" },
+        "unsupported_node": { "type": "string" },
+        "unsupported_type": { "type": "string" },
+        "conventions": {
+          "type": "object",
+          "description": "Documented interoperability choices this runtime makes.",
+          "properties": {
+            "reset": { "enum": ["subtract", "zero"] },
+            "delay_unit": { "enum": ["steps", "steps_minus_one"] },
+            "cycle_break_order": { "enum": ["insertion", "reverse_name"] }
+          }
+        },
+        "supported_types": { "type": "array", "items": { "type": "string" } },
+        "roundtrip": {
+          "type": "object",
+          "required": ["runtime", "adapter", "parse_ok", "canonical_stable", "structure_stable"],
+          "properties": {
+            "runtime": { "type": "string" },
+            "adapter": { "type": "string" },
+            "parse_ok": { "type": "boolean" },
+            "canonical_stable": { "type": "boolean" },
+            "structure_stable": { "type": "boolean" },
+            "structure_digest": { "type": ["string", "null"] },
+            "reason_code": { "type": ["string", "null"] }
+          }
+        },
+        "outputs": {
+          "type": "object",
+          "required": ["steps", "output_trace", "spike_events", "spike_count"],
+          "properties": {
+            "steps": { "type": "integer", "minimum": 1 },
+            "output_node": { "type": "string" },
+            "output_trace": { "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
+            "spike_events": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["t_step", "channel"],
+                "properties": {
+                  "t_step": { "type": "integer", "minimum": 0 },
+                  "channel": { "type": "integer", "minimum": 0 }
+                }
+              }
+            },
+            "spike_count": { "type": "integer", "minimum": 0 },
+            "final_membrane": { "type": "object" },
+            "evaluation_order": { "type": "array", "items": { "type": "string" } },
+            "recurrent_edges": { "type": "array" }
+          }
+        },
+        "output_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "pair": {
+      "type": "object",
+      "required": ["a", "b", "agree", "spike_count_a", "spike_count_b", "reason_codes"],
+      "properties": {
+        "a": { "type": "string" },
+        "b": { "type": "string" },
+        "agree": {
+          "type": "boolean",
+          "description": "Event-output agreement. Internal state divergence is reported as DIVERGENCE_INTERNAL_STATE but does not by itself make the verdict a mismatch, because the verdict is about the event stream that leaves the graph."
+        },
+        "shape_match": { "type": "boolean" },
+        "first_divergent_step": { "type": ["integer", "null"] },
+        "max_abs_error": { "type": ["number", "null"] },
+        "state_comparable": { "type": "boolean" },
+        "state_agree": { "type": "boolean" },
+        "max_abs_state_error": { "type": ["number", "null"] },
+        "reason_codes": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}
