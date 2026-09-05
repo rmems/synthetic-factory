@@ -6,7 +6,10 @@ script under a second module name.
 
 from __future__ import annotations
 
-from validate_run import HIDDEN_THOUGHT_KEYS
+if __package__:
+    from .validate_run import HIDDEN_THOUGHT_KEYS
+else:
+    from validate_run import HIDDEN_THOUGHT_KEYS
 
 
 TRANSFORM_NAME = "coding_observability"
@@ -19,8 +22,8 @@ RUN_MANIFEST_FILENAME = "manifest.jsonl"
 # Exact key names that never reach a curated record, plus the
 # ``internal_reasoning`` prefix that covers ``internal_reasoning_verbatim``,
 # ``internal_reasoning_optimizer``, and every other published variant.
-# ``reasoning`` is the coding-factory contract key
-# (prompts/04-agentic-coding-trajectory-factory.md) and is an exact match
+# ``reasoning`` is the coding-factory contract key (retired prompt lane,
+# preserved at tag legacy-prompt-factory-v0.2) and is an exact match
 # only, so nearby names such as ``reasoning_flaw`` stay visible.
 HIDDEN_REASONING_KEYS = HIDDEN_THOUGHT_KEYS | frozenset(
     {"internal_reasoning", "internal_reasoning_verbatim", "reasoning"}

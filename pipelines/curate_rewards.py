@@ -46,108 +46,303 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
-import reward_document as _reward_document  # noqa: E402
-import reward_mapping as _reward_mapping  # noqa: E402
-import reward_ontology as _reward_ontology  # noqa: E402
-import reward_policy as _reward_policy  # noqa: E402  — mapping loads at import
-import reward_units as _reward_units  # noqa: E402
-
-
-def _export(module, *names):
-    """Bind sibling names onto this CLI module without dotted private access."""
-    for name in names:
-        globals()[name] = getattr(module, name)
-
-
 # Re-export the historical curate_rewards surface for tests and curate_gate.
-_export(
-    _reward_mapping,
-    "ARITHMETIC_STATUSES",
-    "COMPONENT_DISPOSITIONS",
-    "DISPOSITION_AMBIGUOUS",
-    "DISPOSITION_DECLARED_TOTAL",
-    "DISPOSITION_MAGNITUDE_TERM",
-    "EXCLUDE",
-    "MAGNITUDE_COMPARABLE",
-    "MAPPING_PATH",
-    "ONTOLOGY_VERSION",
-    "REQUIRED_ARITHMETIC_METHODS",
-    "RUN_CALIBRATION_FILENAME",
-    "RUN_MANIFEST_FILENAME",
-    "RUN_SIDECAR_FILENAME",
-    "SIGN_ORDER_ONLY",
-    "MagnitudeNotComparable",
-    "RewardOntologyError",
-    "_UNSET",
-    "_canonical_bytes",
-    "_canonical_record_id",
-    "_decimal",
-    "_json_number",
-    "_reject_nonfinite_numbers",
-    "_sha256",
-    "canonical_source_record_id",
+# Every binding is a static import (not a dynamic getattr loop) so linters and
+# readers can see exactly which sibling owns each name; ``__all__`` below
+# declares the re-exported surface.
+if __package__:
+    from .exact_json import dumps_exact_json, parse_finite_json_float
+    from .reward_calibration import _entry_calibrations
+    from .reward_document import (
+        canonical_magnitudes,
+        comparability_of,
+        curate_record,
+        magnitude_training_cohort,
+        restore_source_record,
+        reward_census,
+        validate_ontology_document,
+    )
+    from .reward_mapping import (
+        ARITHMETIC_STATUSES,
+        COMPONENT_DISPOSITIONS,
+        DISPOSITION_AMBIGUOUS,
+        DISPOSITION_DECLARED_TOTAL,
+        DISPOSITION_MAGNITUDE_TERM,
+        EXCLUDE,
+        MAGNITUDE_COMPARABLE,
+        MAPPING_PATH,
+        ONTOLOGY_VERSION,
+        REWARD_TRANSFORM_VERSION,
+        REQUIRED_ARITHMETIC_METHODS,
+        RUN_CALIBRATION_FILENAME,
+        RUN_MANIFEST_FILENAME,
+        RUN_SIDECAR_FILENAME,
+        SIGN_ORDER_ONLY,
+        MagnitudeNotComparable,
+        RewardOntologyError,
+        _UNSET as _UNSET,
+        _canonical_bytes as _canonical_bytes,
+        _canonical_record_id as _canonical_record_id,
+        _decimal as _decimal,
+        _json_number as _json_number,
+        _reject_nonfinite_numbers as _reject_nonfinite_numbers,
+        _sha256 as _sha256,
+        canonical_bytes,
+        canonical_source_record_id,
+    )
+    from .reward_ontology import (
+        _classify as _classify,
+        _require_declared_rule as _require_declared_rule,
+        _walk_rewards as _walk_rewards,
+        classify_source_rewards,
+        comparability_rule,
+        component_disposition,
+        contributes_to_total,
+        disposition_for_observed_types,
+        reward_signature,
+        value_type,
+    )
+    from .reward_policy import (
+        ANNOTATION_FIELD,
+        ARITHMETIC_METHODS,
+        CANONICAL_SCOPE,
+        CANONICAL_UNIT,
+        CANONICAL_UNIT_USD,
+        COMPARABILITY_CLASSES,
+        COMPARABILITY_RULES,
+        CONVERSION_POLICY,
+        DECLARED_TOTAL_KEY,
+        MAGNITUDE_AGGREGATION,
+        MIGRATION_FACTOR_FIELD,
+        MIGRATION_SCOPE_FIELD,
+        PREFERENCE_POINTERS,
+        REASON_CODES,
+        RECORD_ID_RE,
+        REWARD_KEYS,
+        SOURCE_VOCABULARY,
+        UNWEIGHTED_EXCLUDE,
+        USD_UNIT_RE,
+        WEIGHT_ALIASES,
+        WEIGHTED_CONTAINERS,
+        WEIGHTS_FIELD,
+        load_conversion_policy,
+        validate_conversion_policy,
+    )
+    from .reward_units import (
+        _extract_unit_usd as _extract_unit_usd,
+        _normalize_calibration as _normalize_calibration,
+        assess_arithmetic,
+        normalize_calibration,
+    )
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from exact_json import dumps_exact_json, parse_finite_json_float
+    from reward_calibration import _entry_calibrations
+    from reward_document import (
+        canonical_magnitudes,
+        comparability_of,
+        curate_record,
+        magnitude_training_cohort,
+        restore_source_record,
+        reward_census,
+        validate_ontology_document,
+    )
+    from reward_mapping import (
+        ARITHMETIC_STATUSES,
+        COMPONENT_DISPOSITIONS,
+        DISPOSITION_AMBIGUOUS,
+        DISPOSITION_DECLARED_TOTAL,
+        DISPOSITION_MAGNITUDE_TERM,
+        EXCLUDE,
+        MAGNITUDE_COMPARABLE,
+        MAPPING_PATH,
+        ONTOLOGY_VERSION,
+        REWARD_TRANSFORM_VERSION,
+        REQUIRED_ARITHMETIC_METHODS,
+        RUN_CALIBRATION_FILENAME,
+        RUN_MANIFEST_FILENAME,
+        RUN_SIDECAR_FILENAME,
+        SIGN_ORDER_ONLY,
+        MagnitudeNotComparable,
+        RewardOntologyError,
+        _UNSET as _UNSET,
+        _canonical_bytes as _canonical_bytes,
+        _canonical_record_id as _canonical_record_id,
+        _decimal as _decimal,
+        _json_number as _json_number,
+        _reject_nonfinite_numbers as _reject_nonfinite_numbers,
+        _sha256 as _sha256,
+        canonical_bytes,
+        canonical_source_record_id,
+    )
+    from reward_ontology import (
+        _classify as _classify,
+        _require_declared_rule as _require_declared_rule,
+        _walk_rewards as _walk_rewards,
+        classify_source_rewards,
+        comparability_rule,
+        component_disposition,
+        contributes_to_total,
+        disposition_for_observed_types,
+        reward_signature,
+        value_type,
+    )
+    from reward_policy import (
+        ANNOTATION_FIELD,
+        ARITHMETIC_METHODS,
+        CANONICAL_SCOPE,
+        CANONICAL_UNIT,
+        CANONICAL_UNIT_USD,
+        COMPARABILITY_CLASSES,
+        COMPARABILITY_RULES,
+        CONVERSION_POLICY,
+        DECLARED_TOTAL_KEY,
+        MAGNITUDE_AGGREGATION,
+        MIGRATION_FACTOR_FIELD,
+        MIGRATION_SCOPE_FIELD,
+        PREFERENCE_POINTERS,
+        REASON_CODES,
+        RECORD_ID_RE,
+        REWARD_KEYS,
+        SOURCE_VOCABULARY,
+        UNWEIGHTED_EXCLUDE,
+        USD_UNIT_RE,
+        WEIGHT_ALIASES,
+        WEIGHTED_CONTAINERS,
+        WEIGHTS_FIELD,
+        load_conversion_policy,
+        validate_conversion_policy,
+    )
+    from reward_units import (
+        _extract_unit_usd as _extract_unit_usd,
+        _normalize_calibration as _normalize_calibration,
+        assess_arithmetic,
+        normalize_calibration,
+    )
+
+# These private names are deliberate compatibility exports for direct callers
+# of the pre-split ``curate_rewards`` module. Keeping one explicit reference
+# set distinguishes that supported surface from accidentally unused imports.
+_PRIVATE_COMPATIBILITY_EXPORTS = (
+    _UNSET,
+    _decimal,
+    _json_number,
+    _sha256,
+    _extract_unit_usd,
+    _normalize_calibration,
+    _classify,
+    _require_declared_rule,
+    _walk_rewards,
 )
-_export(
-    _reward_policy,
+
+__all__ = [
     "ANNOTATION_FIELD",
     "ARITHMETIC_METHODS",
+    "ARITHMETIC_STATUSES",
+    "Counter",
     "CANONICAL_SCOPE",
     "CANONICAL_UNIT",
     "CANONICAL_UNIT_USD",
     "COMPARABILITY_CLASSES",
     "COMPARABILITY_RULES",
+    "COMPONENT_DISPOSITIONS",
     "CONVERSION_POLICY",
     "DECLARED_TOTAL_KEY",
+    "DISPOSITION_AMBIGUOUS",
+    "DISPOSITION_DECLARED_TOTAL",
+    "DISPOSITION_MAGNITUDE_TERM",
+    "EXCLUDE",
     "MAGNITUDE_AGGREGATION",
+    "MAGNITUDE_COMPARABLE",
+    "MAPPING_PATH",
     "MIGRATION_FACTOR_FIELD",
     "MIGRATION_SCOPE_FIELD",
+    "MagnitudeNotComparable",
+    "ONTOLOGY_VERSION",
     "PREFERENCE_POINTERS",
+    "Path",
     "REASON_CODES",
     "RECORD_ID_RE",
+    "REQUIRED_ARITHMETIC_METHODS",
     "REWARD_KEYS",
+    "REWARD_TRANSFORM_VERSION",
+    "RUN_CALIBRATION_FILENAME",
+    "RUN_MANIFEST_FILENAME",
+    "RUN_SIDECAR_FILENAME",
+    "RewardOntologyError",
+    "SIGN_ORDER_ONLY",
     "SOURCE_VOCABULARY",
     "UNWEIGHTED_EXCLUDE",
     "USD_UNIT_RE",
     "WEIGHT_ALIASES",
     "WEIGHTED_CONTAINERS",
     "WEIGHTS_FIELD",
-    "load_conversion_policy",
-    "validate_conversion_policy",
-)
-_export(
-    _reward_units,
+    "annotations",
+    "argparse",
     "assess_arithmetic",
-    "normalize_calibration",
-    "_extract_unit_usd",
-    "_normalize_calibration",
-)
-_export(
-    _reward_ontology,
-    "_classify",
-    "_require_declared_rule",
-    "_walk_rewards",
+    "catalog_record_key",
+    "canonical_bytes",
+    "canonical_magnitudes",
+    "canonical_source_record_id",
+    "census_jsonl",
+    "classify_jsonl",
     "classify_source_rewards",
+    "comparability_of",
     "comparability_rule",
     "component_disposition",
     "contributes_to_total",
-    "disposition_for_observed_types",
-    "reward_signature",
-    "value_type",
-)
-_export(
-    _reward_document,
-    "canonical_magnitudes",
-    "comparability_of",
+    "convert_jsonl",
+    "convert_run",
     "curate_record",
+    "disposition_for_observed_types",
+    "hashlib",
+    "json",
+    "load_conversion_policy",
+    "load_units_migration",
+    "load_units_migration_bytes",
+    "main",
     "magnitude_training_cohort",
+    "normalize_calibration",
+    "os",
+    "parse_args",
     "restore_source_record",
     "reward_census",
+    "reward_signature",
+    "shutil",
+    "sys",
+    "units_migration_catalog",
+    "validate_conversion_policy",
     "validate_ontology_document",
-)
+    "value_type",
+]
+
+def _admit_calibration(catalog, record_id, calibration, *, path):
+    """Insert one calibration, refusing any conflicting duplicate claim."""
+
+    key = catalog_record_key(record_id)
+    previous = catalog.get(key)
+    if previous is not None and previous != calibration:
+        raise RewardOntologyError(
+            f"{path}: conflicting calibrations for {record_id}"
+        )
+    catalog[key] = calibration
+
+
+def units_migration_catalog(document, evidence_path):
+    """Build explicit per-record conversions from authenticated JSON evidence."""
+
+    path = Path(evidence_path)
+    records = document.get("records") if isinstance(document, dict) else None
+    if not isinstance(records, list):
+        raise RewardOntologyError(f"{path}: calibration records must be a list")
+
+    catalog = {}
+    for index, entry in enumerate(records):
+        for record_id, calibration in _entry_calibrations(entry, path=path, index=index):
+            _admit_calibration(catalog, record_id, calibration, path=path)
+    return catalog
 
 
 def load_units_migration(path):
@@ -162,34 +357,7 @@ def load_units_migration(path):
         document = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise RewardOntologyError(f"{path}: invalid calibration JSON: {exc}") from exc
-    records = document.get("records") if isinstance(document, dict) else None
-    if not isinstance(records, list):
-        raise RewardOntologyError(f"{path}: calibration records must be a list")
-
-    catalog = {}
-    for index, entry in enumerate(records):
-        if not isinstance(entry, dict):
-            continue
-        factor = _decimal(entry.get(MIGRATION_FACTOR_FIELD))
-        if factor is None or factor <= 0:
-            continue
-        scope = entry.get(MIGRATION_SCOPE_FIELD)
-        if not isinstance(scope, str):
-            continue
-        for record_id in sorted(set(RECORD_ID_RE.findall(scope))):
-            calibration = {
-                "source_unit_usd": _json_number(factor * CANONICAL_UNIT_USD),
-                "canonical_factor": _json_number(factor),
-                "evidence_ref": f"{path.as_posix()}#/records/{index}",
-            }
-            key = catalog_record_key(record_id)
-            previous = catalog.get(key)
-            if previous is not None and previous != calibration:
-                raise RewardOntologyError(
-                    f"{path}: conflicting calibrations for {record_id}"
-                )
-            catalog[key] = calibration
-    return catalog
+    return units_migration_catalog(document, path)
 
 
 def load_units_migration_bytes(payload, *, label="<memory>"):
@@ -200,33 +368,7 @@ def load_units_migration_bytes(payload, *, label="<memory>"):
         document = json.loads(payload.decode("utf-8"), parse_constant=_reject_json_constant)
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise RewardOntologyError(f"{label}: invalid calibration JSON: {exc}") from exc
-    records = document.get("records") if isinstance(document, dict) else None
-    if not isinstance(records, list):
-        raise RewardOntologyError(f"{label}: calibration records must be a list")
-    catalog = {}
-    for index, entry in enumerate(records):
-        if not isinstance(entry, dict):
-            continue
-        factor = _decimal(entry.get(MIGRATION_FACTOR_FIELD))
-        if factor is None or factor <= 0:
-            continue
-        scope = entry.get(MIGRATION_SCOPE_FIELD)
-        if not isinstance(scope, str):
-            continue
-        for record_id in sorted(set(RECORD_ID_RE.findall(scope))):
-            calibration = {
-                "source_unit_usd": _json_number(factor * CANONICAL_UNIT_USD),
-                "canonical_factor": _json_number(factor),
-                "evidence_ref": f"{label}#/records/{index}",
-            }
-            key = catalog_record_key(record_id)
-            previous = catalog.get(key)
-            if previous is not None and previous != calibration:
-                raise RewardOntologyError(
-                    f"{label}: conflicting calibrations for {record_id}"
-                )
-            catalog[key] = calibration
-    return catalog
+    return units_migration_catalog(document, label)
 
 
 def _record_calibration(record, catalog):
@@ -263,8 +405,13 @@ def _load_jsonl_with_source_bytes(path):
             continue
         try:
             line = raw_line.decode("utf-8")
-            record = json.loads(line, parse_constant=_reject_json_constant)
-        except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
+            record = json.loads(
+                line,
+                parse_constant=_reject_json_constant,
+                parse_float=parse_finite_json_float,
+            )
+            canonical_bytes(record)
+        except (ValueError, RecursionError) as exc:
             raise RewardOntologyError(
                 f"{path}:{line_number}: invalid JSON: {exc}"
             ) from exc
@@ -298,7 +445,7 @@ def _converted_jsonl_rows(
             "source_line": line_number,
             "source_hash": hashlib.sha256(raw_line).hexdigest(),
             "transform_name": "reward_ontology",
-            "transform_version": ONTOLOGY_VERSION,
+            "transform_version": REWARD_TRANSFORM_VERSION,
             "action": "retained",
             "reason_codes": list(annotation["reason_codes"]),
             "classification": annotation["comparability"],
@@ -306,8 +453,8 @@ def _converted_jsonl_rows(
             "output_hash": hashlib.sha256(_canonical_bytes(curated)).hexdigest(),
         }
         yield (
-            json.dumps(curated, ensure_ascii=False, sort_keys=True),
-            json.dumps(sidecar, ensure_ascii=False, sort_keys=True),
+            dumps_exact_json(curated, ensure_ascii=False, sort_keys=True),
+            dumps_exact_json(sidecar, ensure_ascii=False, sort_keys=True),
             manifest_entry,
             annotation["comparability"],
         )

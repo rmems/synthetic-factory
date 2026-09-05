@@ -62,7 +62,9 @@ STRUCTURED_WRITE_CONTENT_KEYS = frozenset(
 COPY_COMMAND_RE = re.compile(
     r"(?:^|(?:&&|\|\||[;|])\s*)(?:(?:command|sudo)\s+)?cp\s+(?P<operands>[^;&|]+)"
 )
-SAFE_COPY_SOURCE_RE = re.compile(r"\.env\.(?:dist|example|sample|template)\b|id_rsa\.pub\b")
+SAFE_COPY_SOURCE_RE = re.compile(
+    r"\.env\.(?:dist|example|sample|template)\b|id_rsa\.pub\b"
+)
 BARE_MARKER_NEGATOR_RE = re.compile(r"\b(?:nothing|none)\s+")
 BARE_MARKER_SPAN_TEXT_RE = re.compile(r"[\w -]*")
 BARE_MARKER_SPAN_WORD_RE = re.compile(r"\w+")

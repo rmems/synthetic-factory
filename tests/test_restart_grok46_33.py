@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression checks for the Grok 4.6 weekly restart launcher."""
 
+import json
 import os
 import subprocess
 import re
@@ -12,7 +13,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "pipelines" / "restart_grok46_33.sh"
 PROMPT = REPO / "pipelines" / "restart_grok46_33.md"
-CONTRACT = REPO / "prompts" / "_agentic-factory-contract.md"
+# The retired prompt lane's per-slug contract table
+# (prompts/_agentic-factory-contract.md, preserved at tag
+# legacy-prompt-factory-v0.2) is superseded by the registry: every restart
+# slug must resolve to an exact path_id row in FACTORY-REGISTRY.json (#184).
+REGISTRY = REPO / "config" / "FACTORY-REGISTRY.json"
 
 
 class RestartGrok46Tests(unittest.TestCase):
@@ -166,7 +171,10 @@ exit 1
 
     def test_prompt_honors_plateau_stops_and_uses_fresh_snapshots(self):
         text = PROMPT.read_text()
-        contract = CONTRACT.read_text()
+        path_ids = {
+            row["path_id"]
+            for row in json.loads(REGISTRY.read_text())["factories"]
+        }
 
         self.assertIn("token-efficiency outputs/raw/2026-08-19-agentic --json", text)
         self.assertIn('"postreset-$(date +%Y%m%d-%H%M%S)"', text)
@@ -179,7 +187,7 @@ exit 1
         slugs = re.findall(r"^\d+\. ([a-z0-9-]+) Q=", text, flags=re.MULTILINE)
         self.assertEqual(len(slugs), 33)
         for slug in slugs:
-            self.assertIn(f"| {slug} |", contract, slug)
+            self.assertIn(slug, path_ids, slug)
 
 
 if __name__ == "__main__":

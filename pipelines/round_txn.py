@@ -15,8 +15,13 @@ completion marker.
 
 Usage:
   round_txn.py frontier <factory_dir>
-  round_txn.py reserve <factory_dir> --round N --expected N
+  round_txn.py reserve <factory_dir> --round N --expected N \
+      [--preference-isolation two-session]
   round_txn.py publish <factory_dir> --round N --token TOKEN
+  round_txn.py migrate-preference-v1 <factory_dir>
+
+``--preference-isolation two-session`` is mandatory when reserving the
+``failure-as-fuel-preference-cascade`` lane.
                        [--allow-inconclusive REASON]
 """
 
@@ -37,14 +42,33 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
+if __package__:
+    from .check_records import FactoryStaging, check_jsonl
+    from . import round_txn_raster as _round_txn_raster
+    from .validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees
+else:
+    _PIPELINES = Path(__file__).resolve().parent
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from check_records import FactoryStaging, check_jsonl
+    import round_txn_raster as _round_txn_raster
+    from validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees
 
-from check_records import check_jsonl  # noqa: E402
-from validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees  # noqa: E402
+# Compatibility exports retained after the raster contract moved to its own
+# module. These explicit assignments are intentional API, not unused imports.
+BRIDGE_FACTORY_SLUG = _round_txn_raster.BRIDGE_FACTORY_SLUG
+OUROBOROS_FACTORY_SLUG = _round_txn_raster.OUROBOROS_FACTORY_SLUG
+RASTER_FACTORY_SLUGS = _round_txn_raster.RASTER_FACTORY_SLUGS
+THALAMIC_FACTORY_SLUG = _round_txn_raster.THALAMIC_FACTORY_SLUG
+_distillation_kind_error = _round_txn_raster.distillation_kind_error
+_jsonl_records = _round_txn_raster.jsonl_records
+_raster_contract_errors = _round_txn_raster.raster_contract_errors
+_validate_distillation_record = _round_txn_raster.validate_distillation_record
+enforce_bridge_envelope = _round_txn_raster.enforce_bridge_envelope
+validate_bridge_envelope = _round_txn_raster.validate_bridge_envelope
 
 MODE_FILE = ".round-marker-mode.json"
+PREFERENCE_V1_LEDGER_FILE = ".preference-v1-marker-ledger.json"
 BATCH_RE = re.compile(r"^batch-r(\d+)([a-z]*)\.jsonl$")
 COMPLETE_RE = re.compile(r"^ROUND-r(\d+)\.complete\.json$")
 PUBLISHING_RE = re.compile(r"^ROUND-r(\d+)\.publishing\.json$")
@@ -108,6 +132,8 @@ FACTORY_QUOTAS = {
     "distributed-lock-factory": 2,
     "cache-stampede-factory": 2,
 }
+PREFERENCE_ISOLATION_FACTORY = "failure-as-fuel-preference-cascade"
+PREFERENCE_TWO_SESSION = "two-session"
 
 # The original five lanes deliberately allow an operator-selected ``expected``
 # count. Every later Grok 4.6 factory is documented with a fixed quota and
@@ -123,9 +149,7 @@ LEGACY_FACTORY_SLUGS = frozenset(
     }
 )
 AGENTIC_FACTORY_KINDS = {
-    slug: "episode"
-    for slug in FACTORY_QUOTAS
-    if slug not in LEGACY_FACTORY_SLUGS
+    slug: "episode" for slug in FACTORY_QUOTAS if slug not in LEGACY_FACTORY_SLUGS
 }
 AGENTIC_FACTORY_KINDS.update(
     {
@@ -332,6 +356,7 @@ def _is_nonneg_int(value):
 def _is_positive_int(value):
     return _is_int(value) and value >= 1
 
+
 # An operator waiver has to read as a written reason, not as a keystroke.
 EXECUTION_OVERRIDE_MIN_CHARS = 8
 EXECUTION_OVERRIDE_MAX_CHARS = 500
@@ -350,29 +375,103 @@ CANONICAL_EXECUTION_VERIFICATION_KEYS = frozenset(
 )
 EXECUTION_COUNT_KEYS = frozenset({"failed", "inconclusive", "total", "verified"})
 
-from round_txn_execution import (  # noqa: E402
-    comparable_execution_verification,
-    execution_gate,
-    load_execution_verifier,  # noqa: F401 - public compatibility re-export
-    normalized_execution_override,
-    recorded_execution_override,
-    validate_completed_execution_verification,
-    validated_execution_verification_summary,
-)
-from round_txn_coverage import (  # noqa: E402
-    abandoned_failed_hypotheses,
-    banned_agentic_wrapper_paths,
-    contiguous_step_number_errors,
-    demonstrates_ordered_scenario,
-    has_long_horizon_debug_loop,
-    long_horizon_scenario_signature,
-    nested_key_paths,
-    nested_strings,
-    normalized_category,
-    numbered_horizon_errors,
-    shares_visible_terms,
-    sparse_step_progress_errors,
-    visibly_names_fault,
+if __package__:
+    from .round_txn_execution import (
+        comparable_execution_verification,
+        execution_gate,
+        load_execution_verifier,
+        normalized_execution_override,
+        recorded_execution_override,
+        validate_completed_execution_verification,
+        validated_execution_verification_summary,
+    )
+    from .round_txn_coverage import (
+        abandoned_failed_hypotheses,
+        banned_agentic_wrapper_paths,
+        contiguous_step_number_errors,
+        demonstrates_ordered_scenario,
+        has_long_horizon_debug_loop,
+        long_horizon_scenario_signature,
+        nested_key_paths,
+        nested_strings,
+        normalized_category,
+        numbered_horizon_errors,
+        shares_visible_terms,
+        sparse_step_progress_errors,
+        visibly_names_fault,
+    )
+    from .round_txn_preference import (
+        CommittedPreferenceRound,
+        PreferenceHandoffExpectation,
+        PreferenceMarkerReview,
+        _completed_preference_isolation_matches,
+        _completed_preference_marker_is_sealed,
+        _read_json_from_expected_inode,
+        _require_expected_path_identity,
+        _same_file_identity,
+        _stable_preference_gate_evidence,
+        _supported_reservation_version,
+        link_verified_completion_marker,
+        migrate_preference_v1_markers,
+        quota_is_locked,
+        read_readonly_json,
+        require_preference_isolation,
+        reservation_matches_completed_round,
+        validate_preference_diagnosis_handoff,
+        validated_preference_v1_ledger,
+    )
+else:
+    from round_txn_execution import (
+        comparable_execution_verification,
+        execution_gate,
+        load_execution_verifier,
+        normalized_execution_override,
+        recorded_execution_override,
+        validate_completed_execution_verification,
+        validated_execution_verification_summary,
+    )
+    from round_txn_coverage import (
+        abandoned_failed_hypotheses,
+        banned_agentic_wrapper_paths,
+        contiguous_step_number_errors,
+        demonstrates_ordered_scenario,
+        has_long_horizon_debug_loop,
+        long_horizon_scenario_signature,
+        nested_key_paths,
+        nested_strings,
+        normalized_category,
+        numbered_horizon_errors,
+        shares_visible_terms,
+        sparse_step_progress_errors,
+        visibly_names_fault,
+    )
+    from round_txn_preference import (
+        CommittedPreferenceRound,
+        PreferenceHandoffExpectation,
+        PreferenceMarkerReview,
+        _completed_preference_isolation_matches,
+        _completed_preference_marker_is_sealed,
+        _read_json_from_expected_inode,
+        _require_expected_path_identity,
+        _same_file_identity,
+        _stable_preference_gate_evidence,
+        _supported_reservation_version,
+        link_verified_completion_marker,
+        migrate_preference_v1_markers,
+        quota_is_locked,
+        read_readonly_json,
+        require_preference_isolation,
+        reservation_matches_completed_round,
+        validate_preference_diagnosis_handoff,
+        validated_preference_v1_ledger,
+    )
+
+_COMPATIBILITY_EXPORTS = (
+    load_execution_verifier,
+    _read_json_from_expected_inode,
+    _require_expected_path_identity,
+    _same_file_identity,
+    validated_preference_v1_ledger,
 )
 
 
@@ -392,12 +491,12 @@ def utc_now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def write_exclusive_json(path: Path, payload: dict):
+def write_exclusive_json(path: Path, payload: dict, *, mode: int = 0o644):
     """Create a JSON file without following or replacing an existing path."""
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
-    fd = os.open(path, flags, 0o644)
+    fd = os.open(path, flags, mode)
     try:
         with os.fdopen(fd, "w") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
@@ -475,9 +574,10 @@ def capture_regular_file(source: Path, destination: Path):
         destination_fd = os.open(destination, destination_flags, 0o600)
         digest = hashlib.sha256()
         size = 0
-        with os.fdopen(source_fd, "rb") as input_handle, os.fdopen(
-            destination_fd, "wb"
-        ) as output_handle:
+        with (
+            os.fdopen(source_fd, "rb") as input_handle,
+            os.fdopen(destination_fd, "wb") as output_handle,
+        ):
             source_fd = -1
             destination_fd = -1
             for chunk in iter(lambda: input_handle.read(1024 * 1024), b""):
@@ -552,27 +652,50 @@ def valid_legacy_file(path: Path):
 
 
 def validate_legacy_payload(
-    path: Path, factory_dir: Path, round_number: int, seen_ids=None
+    path: Path,
+    factory_dir: Path,
+    round_number: int,
+    seen_ids=None,
+    quarantined_kinds: dict[int, str] | None = None,
 ):
     """Return a legacy payload's records and any applicable contract errors."""
     factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
+    quarantined_kinds = dict(quarantined_kinds or {})
     errors, warnings, kinds, records = check_jsonl(
         path,
         path.name,
         seen_ids=seen_ids,
-        factory_staging=factory_staging,
+        staging=FactoryStaging(
+            enabled=factory_staging,
+            exempt_lines=frozenset(quarantined_kinds),
+        ),
     )
     problems = list(errors)
     if factory_staging:
         problems.extend(warnings)
         expected_kind = AGENTIC_FACTORY_KINDS[factory_dir.name]
-        if set(kinds) != {expected_kind}:
+        eligible_kinds = dict(kinds)
+        for kind in quarantined_kinds.values():
+            remaining = eligible_kinds.get(kind, 0) - 1
+            if remaining > 0:
+                eligible_kinds[kind] = remaining
+            else:
+                eligible_kinds.pop(kind, None)
+        unexpected = set(eligible_kinds) - {expected_kind}
+        if unexpected:
             problems.append(
                 f"{factory_dir.name} requires only {expected_kind!r} records; "
-                f"legacy kinds are {sorted(kinds)!r}"
+                f"non-quarantined legacy kinds are {sorted(eligible_kinds)!r}"
             )
         if not errors:
-            problems.extend(validate_agentic_envelope(path, factory_dir, round_number))
+            problems.extend(
+                validate_agentic_envelope(
+                    path,
+                    factory_dir,
+                    round_number,
+                    factory_staging_exempt_lines=frozenset(quarantined_kinds),
+                )
+            )
     return records, problems
 
 
@@ -710,8 +833,14 @@ def sibling_committed_and_inflight_ids(factory_dir: Path):
     return seen_ids
 
 
-def validate_legacy_baseline_payloads(factory_dir: Path, baseline: int):
+def validate_legacy_baseline_payloads(
+    factory_dir: Path,
+    baseline: int,
+    *,
+    quarantined_kinds: dict[str, dict[int, str]] | None = None,
+):
     """Deep-check every regular legacy payload exposed by a marker baseline."""
+    quarantined_kinds = quarantined_kinds or {}
     records_by_round = {}
     seen_ids = sibling_committed_and_inflight_ids(factory_dir)
     for path in sorted(factory_dir.glob("*.jsonl")):
@@ -727,7 +856,11 @@ def validate_legacy_baseline_payloads(factory_dir: Path, baseline: int):
         else:
             continue
         records, problems = validate_legacy_payload(
-            path, factory_dir, round_number, seen_ids=seen_ids
+            path,
+            factory_dir,
+            round_number,
+            seen_ids=seen_ids,
+            quarantined_kinds=quarantined_kinds.get(path.name),
         )
         if records < 1 or problems:
             details = "\n".join(f"ERROR: {problem}" for problem in problems)
@@ -745,8 +878,7 @@ def validate_legacy_baseline_payloads(factory_dir: Path, baseline: int):
             )
         if records < quota:
             raise TransactionError(
-                f"legacy payloads for r{round_number:02d} do not meet quota "
-                f"{quota}: {factory_dir}"
+                f"legacy payloads for r{round_number:02d} do not meet quota {quota}: {factory_dir}"
             )
         if factory_dir.name in AGENTIC_FACTORY_KINDS:
             notes = factory_dir / f"NOTES-r{round_number:02d}.md"
@@ -796,6 +928,7 @@ def completed_rounds(factory_dir: Path):
             )
         rounds.append(round_number)
     return sorted(set(rounds))
+
 
 SUPPORTED_COMPLETION_MARKER_VERSIONS = frozenset(
     {
@@ -850,13 +983,9 @@ def _validated_completion_file_names(payload, round_number, path, factory_dir):
     batch_name = f"batch-r{round_number:02d}.jsonl"
     notes_name = f"NOTES-r{round_number:02d}.md"
     if batch_name not in names:
-        raise TransactionError(
-            f"completion marker has no unique batch entry: {path}"
-        )
+        raise TransactionError(f"completion marker has no unique batch entry: {path}")
     if notes_name not in names:
-        raise TransactionError(
-            f"completion marker has no unique notes entry: {path}"
-        )
+        raise TransactionError(f"completion marker has no unique notes entry: {path}")
     return names, batch_name, notes_name
 
 
@@ -876,19 +1005,22 @@ def _bind_completion_execution_verdict(
     if marker_version == LEGACY_COMPLETION_MARKER_VERSION:
         if gated_round:
             raise TransactionError(
-                "completion marker version downgrade cannot skip execution "
-                f"verification: {path}"
+                f"completion marker version downgrade cannot skip execution verification: {path}"
             )
         return False
     validate_completed_execution_verification(factory_dir / batch_name, payload)
     return True
 
 
-def _validate_legacy_baseline_ids(factory_dir, seen_ids):
+def _validate_legacy_baseline_ids(factory_dir, seen_ids, *, quarantined_kinds=None):
     mode_path = marker_mode_path(factory_dir)
     if mode_path is None:
         return
-    baseline = validated_marker_mode(factory_dir, mode_path)["legacy_baseline"]
+    baseline = validated_marker_mode(
+        factory_dir,
+        mode_path,
+        quarantined_kinds=quarantined_kinds,
+    )["legacy_baseline"]
     for legacy_path in legacy_baseline_jsonl_paths(factory_dir, baseline):
         errors, _warnings, _kinds, _records = check_jsonl(
             legacy_path,
@@ -918,7 +1050,12 @@ def _load_completion_marker_payload(path, factory_dir):
     return round_number, payload
 
 
-def completed_manifests(factory_dir: Path) -> dict[int, dict]:
+def completed_manifests(
+    factory_dir: Path,
+    *,
+    quarantined_kinds: dict[str, dict[int, str]] | None = None,
+    _allow_unmigrated_preference_v1: bool = False,
+) -> dict[int, dict]:
     """Return only completion manifests safe to use for batch visibility.
 
     ``completed_rounds`` intentionally remains a lightweight frontier-report
@@ -928,7 +1065,7 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
     and matching regular, hashed files for every artifact it declares.
     """
     seen_ids = sibling_committed_and_inflight_ids(factory_dir)
-    _validate_legacy_baseline_ids(factory_dir, seen_ids)
+    _validate_legacy_baseline_ids(factory_dir, seen_ids, quarantined_kinds=quarantined_kinds)
     cutover, bound_verified_rounds = execution_gate_policy(factory_dir)
     manifests = {}
     loaded_markers = []
@@ -937,17 +1074,22 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
         if loaded is None:
             continue
         loaded_markers.append((loaded[0], path, loaded[1]))
-    for round_number, path, payload in sorted(
-        loaded_markers, key=lambda item: item[0]
-    ):
+    for round_number, path, payload in sorted(loaded_markers, key=lambda item: item[0]):
         names, batch_name, notes_name = _validated_completion_file_names(
             payload, round_number, path, factory_dir
+        )
+        _completed_preference_marker_is_sealed(
+            PreferenceMarkerReview(factory_dir, round_number, path, payload, names)
         )
         coverage_error = validate_novel_coverage(factory_dir / notes_name, factory_dir)
         if coverage_error:
             raise TransactionError(coverage_error)
         validate_completed_batch(
-            factory_dir, round_number, payload, seen_ids=seen_ids
+            factory_dir,
+            round_number,
+            payload,
+            seen_ids=seen_ids,
+            allow_unmigrated_preference_v1=_allow_unmigrated_preference_v1,
         )
         # The semantic validators reopen the committed artifacts.  Recheck
         # every manifest-bound byte afterwards so content swapped during
@@ -1022,9 +1164,7 @@ def frontier_status(factory_dir: Path):
     noncontiguous = [number for number in markers if number > highest]
     collision = unowned_canonical_batch_collision(factory_dir, highest + 1)
     if collision is not None:
-        raise TransactionError(
-            f"unowned canonical batch collision at next round: {collision}"
-        )
+        raise TransactionError(f"unowned canonical batch collision at next round: {collision}")
     return {
         "factory": factory_dir.name,
         "mode": "marker",
@@ -1059,7 +1199,12 @@ def ensure_marker_mode(factory_dir: Path):
         return validated_marker_mode(factory_dir, existing)
 
 
-def validated_marker_mode(factory_dir: Path, mode_path: Path | None = None):
+def validated_marker_mode(
+    factory_dir: Path,
+    mode_path: Path | None = None,
+    *,
+    quarantined_kinds: dict[str, dict[int, str]] | None = None,
+):
     """Read a marker-mode declaration only when its legacy handoff is real."""
     if mode_path is None:
         mode_path = marker_mode_path(factory_dir)
@@ -1090,7 +1235,11 @@ def validated_marker_mode(factory_dir: Path, mode_path: Path | None = None):
             f"legacy_baseline in {mode_path} excludes validated unmarked legacy "
             f"frontier r{unmarked_frontier:02d}"
         )
-    validate_legacy_baseline_payloads(factory_dir, baseline)
+    validate_legacy_baseline_payloads(
+        factory_dir,
+        baseline,
+        quarantined_kinds=quarantined_kinds,
+    )
     return mode
 
 
@@ -1143,14 +1292,9 @@ def remember_execution_gate_cutover(factory_dir: Path, round_number: int):
             if loaded is None:
                 continue
             marker_round, payload = loaded
-            if (
-                completion_marker_version(payload, path)
-                == LEGACY_COMPLETION_MARKER_VERSION
-            ):
+            if completion_marker_version(payload, path) == LEGACY_COMPLETION_MARKER_VERSION:
                 legacy_rounds.append(marker_round)
-        cutover = max(
-            [round_number, *(legacy_round + 1 for legacy_round in legacy_rounds)]
-        )
+        cutover = max([round_number, *(legacy_round + 1 for legacy_round in legacy_rounds)])
         updated = dict(mode)
         updated[EXECUTION_CUTOVER_KEY] = cutover
         if round_number < cutover:
@@ -1182,17 +1326,11 @@ def staging_dir(factory_dir: Path, round_number: int, token: str):
             "factory_dir must be outputs/raw/<date>/<factory> for transactional staging"
         ) from exc
     return (
-        outputs_dir
-        / "staging"
-        / date_dir.name
-        / factory_dir.name
-        / f"r{round_number:02d}-{token}"
+        outputs_dir / "staging" / date_dir.name / factory_dir.name / f"r{round_number:02d}-{token}"
     )
 
 
-def validated_reservation_stage(
-    factory_dir: Path, round_number: int, token: str, stage_text
-):
+def validated_reservation_stage(factory_dir: Path, round_number: int, token: str, stage_text):
     """Return the lexical reserved stage after rejecting symlinked components."""
     expected = staging_dir(factory_dir, round_number, token)
     if not isinstance(stage_text, str) or Path(stage_text) != expected:
@@ -1219,9 +1357,7 @@ def create_reservation_stage(factory_dir: Path, round_number: int, token: str):
     try:
         parent_fd = os.open(outputs_dir, flags)
     except OSError as exc:
-        raise TransactionError(
-            f"staging directory is unsafe: {outputs_dir}: {exc}"
-        ) from exc
+        raise TransactionError(f"staging directory is unsafe: {outputs_dir}: {exc}") from exc
     try:
         current = outputs_dir
         parts = expected.relative_to(outputs_dir).parts
@@ -1242,9 +1378,7 @@ def create_reservation_stage(factory_dir: Path, round_number: int, token: str):
             try:
                 child_fd = os.open(part, flags, dir_fd=parent_fd)
             except OSError as exc:
-                raise TransactionError(
-                    f"staging directory is unsafe: {current}: {exc}"
-                ) from exc
+                raise TransactionError(f"staging directory is unsafe: {current}: {exc}") from exc
             os.close(parent_fd)
             parent_fd = child_fd
     finally:
@@ -1252,18 +1386,20 @@ def create_reservation_stage(factory_dir: Path, round_number: int, token: str):
     return expected
 
 
-def reserve(factory_dir: Path, round_number: int, expected: int):
+def reserve(
+    factory_dir: Path,
+    round_number: int,
+    expected: int,
+    preference_isolation: str | None = None,
+):
     factory_dir = Path(factory_dir).resolve()
-    if (
-        not isinstance(round_number, int)
-        or isinstance(round_number, bool)
-        or round_number < 1
-    ):
+    if not isinstance(round_number, int) or isinstance(round_number, bool) or round_number < 1:
         raise TransactionError("round number must be at least 1")
     if not isinstance(expected, int) or isinstance(expected, bool) or expected < 1:
         raise TransactionError("expected record count must be at least 1")
+    require_preference_isolation(factory_dir.name, preference_isolation)
     configured_quota = FACTORY_QUOTAS.get(factory_dir.name)
-    if factory_dir.name in AGENTIC_FACTORY_KINDS and expected != configured_quota:
+    if quota_is_locked(factory_dir.name) and expected != configured_quota:
         raise TransactionError(
             f"{factory_dir.name} requires exactly {configured_quota} records; "
             f"got --expected {expected}"
@@ -1272,8 +1408,7 @@ def reserve(factory_dir: Path, round_number: int, expected: int):
     status = frontier_status(factory_dir)
     if round_number != status["next_round"]:
         raise TransactionError(
-            f"round r{round_number:02d} is not the frontier; "
-            f"expected r{status['next_round']:02d}"
+            f"round r{round_number:02d} is not the frontier; expected r{status['next_round']:02d}"
         )
     paths = marker_paths(factory_dir, round_number)
     for role, path in paths.items():
@@ -1293,6 +1428,8 @@ def reserve(factory_dir: Path, round_number: int, expected: int):
         "notes_file": f"NOTES-r{round_number:02d}.md",
         "reserved_at": utc_now(),
     }
+    if preference_isolation is not None:
+        payload["preference_isolation"] = preference_isolation
     try:
         write_exclusive_json(paths["reservation"], payload)
     except BaseException:
@@ -1318,9 +1455,7 @@ def committed_jsonl_paths(factory_dir: Path):
         )
 
     files = sorted(
-        path
-        for path in factory_dir.glob("*.jsonl")
-        if path.is_file() and not path.is_symlink()
+        path for path in factory_dir.glob("*.jsonl") if path.is_file() and not path.is_symlink()
     )
 
     mode = validated_marker_mode(factory_dir, mode_path)
@@ -1334,8 +1469,10 @@ def committed_jsonl_paths(factory_dir: Path):
             suffix = match.group(2)
             if round_number <= baseline:
                 visible.append(path)
-            elif not suffix and round_number in manifests and batch_matches_completion_manifest(
-                path, manifests[round_number]
+            elif (
+                not suffix
+                and round_number in manifests
+                and batch_matches_completion_manifest(path, manifests[round_number])
             ):
                 visible.append(path)
             continue
@@ -1414,9 +1551,8 @@ def committed_ids(factory_dir: Path):
                 check_jsonl(path, label, seen_ids=seen_ids)
     return seen_ids
 
+
 @contextlib.contextmanager
-
-
 def run_publish_lock(factory_dir: Path):
     """Serialize publish validation and the completion marker for one run."""
     path = factory_dir.parent / ".round-publish.lock"
@@ -1435,28 +1571,25 @@ def run_publish_lock(factory_dir: Path):
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int):
+def validate_agentic_envelope(
+    batch: Path,
+    factory_dir: Path,
+    round_number: int,
+    *,
+    factory_staging_exempt_lines=frozenset(),
+):
     """Return fixed-contract envelope errors for one staged agentic batch."""
     if factory_dir.name not in AGENTIC_FACTORY_KINDS:
         return []
-    errors = []
+    records, errors = _jsonl_records(batch)
     safety_case_types = []
     cascade_fault_kinds = []
     cascade_recovery_values = []
     long_horizon_success_values = []
     long_horizon_scenario_signatures = []
     tool_use_lesson_signatures = []
-    # JSONL framing is literal LF. ``splitlines()`` would also split U+2028
-    # and U+2029 characters that are valid payload inside a JSON string.
-    for lineno, line in enumerate(batch.read_text().split("\n"), 1):
-        if not line.strip():
-            continue
-        # JSON parsing and base shape errors have already been checked by
-        # check_jsonl. Keep this narrow pass focused on the factory-specific
-        # values that only the transaction layer can know.
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
+    for lineno, record in records:
+        if lineno in factory_staging_exempt_lines:
             continue
         where = f"{batch.name}:{lineno}"
         if factory_dir.name == "safety-calibration-factory" and isinstance(record, dict):
@@ -1479,9 +1612,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             steps = record.get("steps") if isinstance(record, dict) else None
             diagnosis = record.get("diagnosis") if isinstance(record, dict) else None
             reward = record.get("reward") if isinstance(record, dict) else None
-            errors.extend(
-                contiguous_step_number_errors(where, steps, "cascading-error recovery")
-            )
+            errors.extend(contiguous_step_number_errors(where, steps, "cascading-error recovery"))
             if not isinstance(fault, dict):
                 errors.append(f"{where}: error_introduced must be an object")
             else:
@@ -1549,9 +1680,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                 cascade_recovery_values.append(recovered)
                 success = reward.get("success") if isinstance(reward, dict) else None
                 if isinstance(success, bool) and success != bool(recovered):
-                    errors.append(
-                        f"{where}: reward.success must agree with reward.recovered"
-                    )
+                    errors.append(f"{where}: reward.success must agree with reward.recovered")
                 outcome = record.get("outcome") if isinstance(record, dict) else None
                 outcome_text = outcome.casefold() if isinstance(outcome, str) else ""
                 if recovered == 0:
@@ -1565,10 +1694,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         r"all (?:systems )?(?:fixed|recovered)|all tests passed",
                         outcome_text,
                     )
-                    if (
-                        partial_evidence is None
-                        or contradictory_completion is not None
-                    ):
+                    if partial_evidence is None or contradictory_completion is not None:
                         errors.append(
                             f"{where}: unrecovered cascade outcome must report "
                             "partial containment, mitigation, or handoff without "
@@ -1580,10 +1706,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         r"verified)\b|all tests passed",
                         outcome_text,
                     )
-                    if (
-                        completion_evidence is None
-                        or not terminal_outcome_agrees(outcome, True)
-                    ):
+                    if completion_evidence is None or not terminal_outcome_agrees(outcome, True):
                         errors.append(
                             f"{where}: recovered cascade outcome must report "
                             "verified full recovery without terminal failure, "
@@ -1622,18 +1745,20 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                             f"{where}: each inherited cascade step must visibly reference the fault"
                         )
                     diagnosis_step = steps[diagnosis_index]
-                    diagnosis_text = " ".join(
-                        value
-                        for value in (
-                            diagnosis_step.get("observation"),
-                            diagnosis_step.get("reflection"),
+                    diagnosis_text = (
+                        " ".join(
+                            value
+                            for value in (
+                                diagnosis_step.get("observation"),
+                                diagnosis_step.get("reflection"),
+                            )
+                            if isinstance(value, str)
                         )
-                        if isinstance(value, str)
-                    ) if isinstance(diagnosis_step, dict) else None
+                        if isinstance(diagnosis_step, dict)
+                        else None
+                    )
                     if not shares_visible_terms(diagnosis_text, fault_text):
-                        errors.append(
-                            f"{where}: diagnosis step must visibly name the fault"
-                        )
+                        errors.append(f"{where}: diagnosis step must visibly name the fault")
                     if not (
                         shares_visible_terms(diagnosis, fault_text)
                         and shares_visible_terms(diagnosis, diagnosis_text)
@@ -1649,9 +1774,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         else None
                     )
                     if not shares_visible_terms(recovery_basis, diagnosis):
-                        errors.append(
-                            f"{where}: recovery decision_basis must cite the diagnosis"
-                        )
+                        errors.append(f"{where}: recovery decision_basis must cite the diagnosis")
                     if not (
                         shares_visible_terms(recovery_basis, fault_text)
                         and shares_visible_terms(recovery_basis, diagnosis_text)
@@ -1730,12 +1853,9 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             resolution = record.get("resolution")
             if isinstance(transcript, list):
                 if not 6 <= len(transcript) <= 16:
-                    errors.append(
-                        f"{where}: coordination transcripts require 6 to 16 turns"
-                    )
+                    errors.append(f"{where}: coordination transcripts require 6 to 16 turns")
                 turn_contents = [
-                    turn.get("content") if isinstance(turn, dict) else None
-                    for turn in transcript
+                    turn.get("content") if isinstance(turn, dict) else None for turn in transcript
                 ]
                 grounded = False
                 if isinstance(disagreements, list) and isinstance(resolution, str):
@@ -1775,18 +1895,13 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                             for disagreement_index in disagreement_turns:
                                 for resolution_index in resolution_turns:
                                     candidate = (
-                                        f"{resolution} "
-                                        f"{turn_contents[resolution_index] or ''}"
+                                        f"{resolution} {turn_contents[resolution_index] or ''}"
                                     ).casefold()
                                     if (
                                         disagreement_index < resolution_index
-                                        and any(
-                                            term in candidate
-                                            for term in plan_change_terms
-                                        )
+                                        and any(term in candidate for term in plan_change_terms)
                                         and not any(
-                                            term in candidate
-                                            for term in ignored_plan_terms
+                                            term in candidate for term in ignored_plan_terms
                                         )
                                     ):
                                         grounded = True
@@ -1833,9 +1948,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                     or isinstance(horizon_steps, bool)
                     or horizon_steps != len(steps)
                 ):
-                    errors.append(
-                        f"{where}: reward.horizon_steps must equal the staged step count"
-                    )
+                    errors.append(f"{where}: reward.horizon_steps must equal the staged step count")
                 if len(abandoned_failed_hypotheses(steps)) < 2:
                     errors.append(
                         f"{where}: sparse long-task episodes require at least two "
@@ -1846,10 +1959,12 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             success = reward.get("success") if isinstance(reward, dict) else None
             outcome = record.get("outcome")
             outcome_text = outcome.casefold() if isinstance(outcome, str) else ""
-            completion_evidence = list(re.finditer(
-                r"\b(?:completed|delivered|fixed|passed|repaired|succeeded|verified)\b",
-                outcome_text,
-            ))
+            completion_evidence = list(
+                re.finditer(
+                    r"\b(?:completed|delivered|fixed|passed|repaired|succeeded|verified)\b",
+                    outcome_text,
+                )
+            )
             failed_evidence = list(re.finditer(r"\b(?:failed|failing)\b", outcome_text))
             incomplete_evidence = re.search(
                 r"\b(?:blocked|handoff|handed off|incomplete|partial(?:ly)?|unresolved)\b",
@@ -1874,8 +1989,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         not failed_evidence
                         or (
                             completion_evidence
-                            and completion_evidence[-1].start()
-                            > failed_evidence[-1].start()
+                            and completion_evidence[-1].start() > failed_evidence[-1].start()
                         )
                     )
                 ):
@@ -1884,15 +1998,11 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         "an explicit failure, partial result, or handoff"
                     )
         if AGENTIC_FACTORY_KINDS[factory_dir.name] == "preference":
-            if (
-                factory_dir.name == "tool-use-preference-factory"
-                and isinstance(record, dict)
-            ):
+            if factory_dir.name == "tool-use-preference-factory" and isinstance(record, dict):
                 lesson_category = record.get("lesson_category")
                 if not isinstance(lesson_category, str) or not lesson_category.strip():
                     errors.append(
-                        f"{where}: tool-use preferences require a non-empty "
-                        "lesson_category"
+                        f"{where}: tool-use preferences require a non-empty lesson_category"
                     )
                 else:
                     lesson_signature = normalized_category(lesson_category)
@@ -1906,17 +2016,10 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             for side_name in ("chosen", "rejected"):
                 side = record.get(side_name) if isinstance(record, dict) else None
                 if not isinstance(side, dict) or not isinstance(side.get("steps"), list):
-                    errors.append(
-                        f"{where}: {side_name} must be an episode side with steps"
-                    )
+                    errors.append(f"{where}: {side_name} must be an episode side with steps")
                 elif all(key in side for key in THALAMIC_CORE_KEYS):
-                    errors.append(
-                        f"{where}: {side_name} must not wrap a Thalamic trajectory"
-                    )
-                if (
-                    factory_dir.name == "tool-use-preference-factory"
-                    and isinstance(side, dict)
-                ):
+                    errors.append(f"{where}: {side_name} must not wrap a Thalamic trajectory")
+                if factory_dir.name == "tool-use-preference-factory" and isinstance(side, dict):
                     errors.extend(
                         numbered_horizon_errors(
                             where,
@@ -1937,17 +2040,14 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                     side.get("outcome"), success
                 ):
                     errors.append(
-                        f"{where}: {side_name}.outcome must agree with "
-                        f"{side_name}.reward.success"
+                        f"{where}: {side_name}.outcome must agree with {side_name}.reward.success"
                     )
         meta = record.get("meta") if isinstance(record, dict) else None
         if not isinstance(meta, dict):
             errors.append(f"{where}: agentic record meta must be an object")
             continue
         if meta.get("factory") != factory_dir.name:
-            errors.append(
-                f"{where}: meta.factory must be {factory_dir.name!r}"
-            )
+            errors.append(f"{where}: meta.factory must be {factory_dir.name!r}")
         meta_round = meta.get("round")
         if (
             not isinstance(meta_round, int)
@@ -1963,7 +2063,10 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             "incorrect_refusal",
             "missed_refusal",
         }
-        if len(safety_case_types) != len(required_case_types) or set(safety_case_types) != required_case_types:
+        if (
+            len(safety_case_types) != len(required_case_types)
+            or set(safety_case_types) != required_case_types
+        ):
             errors.append(
                 "safety-calibration-factory requires exactly one each of "
                 "correct_refusal, incorrect_refusal, and missed_refusal per batch"
@@ -1991,14 +2094,11 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             "long-horizon-coding-factory requires one success and one partial "
             "containment, mitigation, or handoff per batch"
         )
-    if (
-        factory_dir.name == "long-horizon-coding-factory"
-        and (
-            len({signature[0] for signature in long_horizon_scenario_signatures})
-            != FACTORY_QUOTAS["long-horizon-coding-factory"]
-            or len({signature[1] for signature in long_horizon_scenario_signatures})
-            != FACTORY_QUOTAS["long-horizon-coding-factory"]
-        )
+    if factory_dir.name == "long-horizon-coding-factory" and (
+        len({signature[0] for signature in long_horizon_scenario_signatures})
+        != FACTORY_QUOTAS["long-horizon-coding-factory"]
+        or len({signature[1] for signature in long_horizon_scenario_signatures})
+        != FACTORY_QUOTAS["long-horizon-coding-factory"]
     ):
         errors.append(
             "long-horizon-coding-factory requires two distinct codebase and "
@@ -2006,8 +2106,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
         )
     if (
         factory_dir.name == "tool-use-preference-factory"
-        and len(set(tool_use_lesson_signatures))
-        != FACTORY_QUOTAS["tool-use-preference-factory"]
+        and len(set(tool_use_lesson_signatures)) != FACTORY_QUOTAS["tool-use-preference-factory"]
     ):
         errors.append(
             "tool-use-preference-factory requires three distinct tool-use lessons per batch"
@@ -2015,12 +2114,55 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
     return errors
 
 
+def validate_preference_arm_gate(
+    batch: Path,
+    records: int,
+    trusted_isolation: str | None,
+) -> dict:
+    """Run the FFPC gate and return a path-independent manifest summary."""
+
+    # Lazy import avoids the existing curation -> census -> round_txn import
+    # cycle while keeping the publisher as the mandatory enforcement point.
+    from preference_arms import GatePolicy, PreferenceArmsError, scan_source
+
+    try:
+        scan = scan_source(
+            batch,
+            GatePolicy(
+                trusted_isolation=trusted_isolation,
+                require_trusted_isolation=True,
+            ),
+        )
+    except (OSError, PreferenceArmsError) as exc:
+        raise TransactionError(f"preference arm gate failed: {exc}") from exc
+
+    summary = {key: value for key, value in scan.summary.items() if key != "source"}
+    if summary["preference_pairs"] != records:
+        raise TransactionError(
+            "preference arm gate did not inspect every staged record: "
+            f"{summary['preference_pairs']} preference pairs for {records} records"
+        )
+    if summary["skipped_non_preference_records"]:
+        raise TransactionError(
+            "preference arm gate skipped non-preference records in the FFPC batch"
+        )
+    if scan.blocked:
+        blocked = [
+            f"{decision.source_path}:{decision.source_line} "
+            f"{decision.record_id or '<no-id>'}: " + ", ".join(decision.reason_codes)
+            for decision in scan.decisions
+            if decision.blocked
+        ]
+        raise TransactionError("preference arm gate blocked publication:\n" + "\n".join(blocked))
+    return summary
+
+
 def _completed_batch_is_training_ready(batch, seen_ids, factory_staging):
     errors, warnings, kinds, records = check_jsonl(
         batch,
         batch.name,
         seen_ids=seen_ids,
-        factory_staging=factory_staging,
+        staging=FactoryStaging(enabled=factory_staging),
     )
     if errors or warnings:
         details = [
@@ -2050,9 +2192,7 @@ def _completed_counts_match_manifest(manifest, records, kinds, batch):
         raise TransactionError(f"completion marker kinds do not match batch: {batch}")
 
 
-def _completed_agentic_envelope_matches(
-    factory_dir, round_number, batch, kinds, records
-):
+def _completed_agentic_envelope_matches(factory_dir, round_number, batch, kinds, records):
     expected_kind = AGENTIC_FACTORY_KINDS[factory_dir.name]
     if set(kinds) != {expected_kind}:
         raise TransactionError(
@@ -2074,20 +2214,32 @@ def _completed_agentic_envelope_matches(
 
 
 def validate_completed_batch(
-    factory_dir: Path, round_number: int, manifest: dict, seen_ids=None
+    factory_dir: Path,
+    round_number: int,
+    manifest: dict,
+    seen_ids=None,
+    *,
+    allow_unmigrated_preference_v1: bool = False,
 ):
     """Re-run publication record, quota, and envelope checks for one marker."""
     batch = factory_dir / f"batch-r{round_number:02d}.jsonl"
     factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
-    kinds, records = _completed_batch_is_training_ready(
-        batch, seen_ids, factory_staging
-    )
+    kinds, records = _completed_batch_is_training_ready(batch, seen_ids, factory_staging)
     _completed_counts_match_manifest(manifest, records, kinds, batch)
-    completion_marker_version(manifest, batch, for_batch=True)
-    if factory_staging:
-        _completed_agentic_envelope_matches(
-            factory_dir, round_number, batch, kinds, records
+    manifest_version = completion_marker_version(manifest, batch, for_batch=True)
+    _completed_preference_isolation_matches(
+        CommittedPreferenceRound(
+            factory_dir,
+            round_number,
+            manifest,
+            batch,
+            records,
+            manifest_version,
+            allow_unmigrated_preference_v1,
         )
+    )
+    if factory_staging:
+        _completed_agentic_envelope_matches(factory_dir, round_number, batch, kinds, records)
 
 
 def validate_novel_coverage(
@@ -2148,6 +2300,8 @@ def validate_stage(
     stage: Path,
     round_number: int,
     expected: int,
+    reservation_token: str,
+    preference_isolation: str | None = None,
     execution_override=None,
 ):
     if not stage.is_dir() or stage.is_symlink():
@@ -2160,9 +2314,7 @@ def validate_stage(
     batch_name = f"batch-r{rr}.jsonl"
     notes_name = f"NOTES-r{rr}.md"
     allowed_core = {batch_name, notes_name}
-    artifact_re = re.compile(
-        rf"^[A-Za-z0-9][A-Za-z0-9._-]*-r{re.escape(rr)}\.(?:md|json|txt)$"
-    )
+    artifact_re = re.compile(rf"^[A-Za-z0-9][A-Za-z0-9._-]*-r{re.escape(rr)}\.(?:md|json|txt)$")
     initial_names = {path.name for path in initial_paths}
     for path in initial_paths:
         if not path.is_file() or path.is_symlink():
@@ -2177,14 +2329,12 @@ def validate_stage(
                 f"files ending in -r{rr}: {path.name}"
             )
     if batch_name not in initial_names:
-        raise TransactionError(
-            f"required staged batch missing or unsafe: {stage / batch_name}"
-        )
+        raise TransactionError(f"required staged batch missing or unsafe: {stage / batch_name}")
     if notes_name not in initial_names:
-        raise TransactionError(
-            f"required staged notes missing or unsafe: {stage / notes_name}"
-        )
+        raise TransactionError(f"required staged notes missing or unsafe: {stage / notes_name}")
 
+    preference_arm_gate = None
+    preference_diagnosis_handoff = None
     with tempfile.TemporaryDirectory(prefix="round-validate-") as temporary:
         captured_dir = Path(temporary)
         captured_files = {
@@ -2227,16 +2377,14 @@ def validate_stage(
             batch,
             batch.name,
             seen_ids=committed_ids(factory_dir),
-            factory_staging=True,
+            staging=FactoryStaging(enabled=True),
         )
         if errors or warnings:
             details = [
                 *(f"ERROR: {item}" for item in errors),
                 *(f"WARNING: {item}" for item in warnings),
             ]
-            raise TransactionError(
-                "staged batch is not training-ready:\n" + "\n".join(details)
-            )
+            raise TransactionError("staged batch is not training-ready:\n" + "\n".join(details))
         if records != expected:
             raise TransactionError(
                 f"staged batch has {records} records; reservation requires exactly {expected}"
@@ -2253,11 +2401,23 @@ def validate_stage(
                 "staged batch violates the agentic factory envelope:\n"
                 + "\n".join(f"ERROR: {error}" for error in envelope_errors)
             )
+        enforce_bridge_envelope(batch, factory_dir, TransactionError)
+        if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
+            preference_arm_gate = validate_preference_arm_gate(batch, records, preference_isolation)
+            preference_diagnosis_handoff = validate_preference_diagnosis_handoff(
+                captured_dir,
+                PreferenceHandoffExpectation(
+                    factory_dir=factory_dir,
+                    round_number=round_number,
+                    expected_records=expected,
+                    reservation_token=reservation_token,
+                    expected_staging_dir=stage,
+                    batch=batch,
+                ),
+            )
         # Frontier gate: run over the captured copy so the verdict describes the
         # same bytes the manifest hashes, not a batch swapped in mid-validation.
-        verification = execution_gate(
-            batch, stage / batch_name, override=execution_override
-        )
+        verification = execution_gate(batch, stage / batch_name, override=execution_override)
 
     files = [
         {
@@ -2267,21 +2427,17 @@ def validate_stage(
         }
         for path in initial_paths
     ]
-    return files, kinds, records, verification
+    return files, kinds, records, verification, preference_arm_gate, preference_diagnosis_handoff
 
 
-def publish(
-    factory_dir: Path, round_number: int, token: str, execution_override=None
-):
+def publish(factory_dir: Path, round_number: int, token: str, execution_override=None):
     override = normalized_execution_override(execution_override)
     factory_dir = Path(factory_dir).resolve()
     with run_publish_lock(factory_dir):
         return _publish_locked(factory_dir, round_number, token, override)
 
 
-def finish_completed_publish(
-    factory_dir: Path, round_number: int, token: str, paths: dict
-):
+def finish_completed_publish(factory_dir: Path, round_number: int, token: str, paths: dict):
     """Finish cleanup after a publish crossed its atomic commit point."""
     manifest = completed_manifests(factory_dir).get(round_number)
     if manifest is None:
@@ -2295,34 +2451,39 @@ def finish_completed_publish(
             raise TransactionError(
                 f"unsafe publishing marker for completed round: {paths['publishing']}"
             )
-        if read_json(paths["publishing"]) != manifest:
+        persisted_plan = (
+            read_readonly_json(paths["publishing"], label="publishing plan")
+            if factory_dir.name == PREFERENCE_ISOLATION_FACTORY
+            else read_json(paths["publishing"])
+        )
+        if persisted_plan != manifest:
             raise TransactionError(
                 f"publishing marker conflicts with completed round: {paths['publishing']}"
             )
 
-    reservation_exists = (
-        paths["reservation"].exists() or paths["reservation"].is_symlink()
-    )
+    reservation_exists = paths["reservation"].exists() or paths["reservation"].is_symlink()
     if reservation_exists:
         if not paths["reservation"].is_file() or paths["reservation"].is_symlink():
             raise TransactionError(
                 f"unsafe reservation for completed round: {paths['reservation']}"
             )
         reservation = read_json(paths["reservation"])
-        if (
-            reservation.get("factory") != factory_dir.name
-            or reservation.get("round") != round_number
-            or reservation.get("token") != token
+        if not reservation_matches_completed_round(
+            reservation, factory_dir.name, round_number, token
         ):
             raise TransactionError(
                 f"reservation conflicts with completed round: {paths['reservation']}"
             )
+        if manifest.get("version") == 2 and reservation.get("preference_isolation") != manifest.get(
+            "preference_isolation"
+        ):
+            raise TransactionError(
+                f"reservation isolation conflicts with completed round: {paths['reservation']}"
+            )
         stage_text = reservation.get("staging_dir")
     else:
         stage_text = str(staging_dir(factory_dir, round_number, token))
-    stage = validated_reservation_stage(
-        factory_dir, round_number, token, stage_text
-    )
+    stage = validated_reservation_stage(factory_dir, round_number, token, stage_text)
     if stage.is_symlink() or (stage.exists() and not stage.is_dir()):
         raise TransactionError(f"staging directory is unsafe: {stage}")
 
@@ -2343,9 +2504,11 @@ def _reservation_expected_records(factory_dir, reservation):
     if not _is_positive_int(expected):
         raise TransactionError("reservation has an invalid expected_records value")
     configured_quota = FACTORY_QUOTAS.get(factory_dir.name)
-    if factory_dir.name not in AGENTIC_FACTORY_KINDS:
-        return expected
-    if expected != configured_quota:
+    fixed_quota = (
+        factory_dir.name in AGENTIC_FACTORY_KINDS
+        or factory_dir.name == PREFERENCE_ISOLATION_FACTORY
+    )
+    if fixed_quota and expected != configured_quota:
         raise TransactionError(
             f"reservation for {factory_dir.name} requires exactly "
             f"{configured_quota} records; found {expected}"
@@ -2353,13 +2516,30 @@ def _reservation_expected_records(factory_dir, reservation):
     return expected
 
 
-def _publishing_marker_identity_matches(existing, factory_dir, round_number, token, path):
-    if existing.get("factory") != factory_dir.name:
-        raise TransactionError(f"publishing marker identity mismatch: {path}")
-    if existing.get("round") != round_number:
-        raise TransactionError(f"publishing marker identity mismatch: {path}")
-    if existing.get("token") != token:
-        raise TransactionError(f"publishing marker identity mismatch: {path}")
+def _validated_publish_reservation(factory_dir, round_number, token, reservation):
+    if not _supported_reservation_version(reservation):
+        raise TransactionError("reservation has an unsupported version")
+    if (reservation.get("round"), reservation.get("token")) != (round_number, token):
+        raise TransactionError("reservation round/token does not match publish request")
+    stage = validated_reservation_stage(
+        factory_dir, round_number, token, reservation.get("staging_dir")
+    )
+    expected = _reservation_expected_records(factory_dir, reservation)
+    preference_isolation = reservation.get("preference_isolation")
+    expected_isolation = {PREFERENCE_ISOLATION_FACTORY: PREFERENCE_TWO_SESSION}.get(
+        factory_dir.name
+    )
+    if preference_isolation != expected_isolation:
+        message = {
+            PREFERENCE_ISOLATION_FACTORY: (
+                "reservation lacks the two-session orchestration assertion"
+            )
+        }.get(
+            factory_dir.name,
+            "reservation carries preference isolation for an unrelated factory",
+        )
+        raise TransactionError(message)
+    return stage, expected, preference_isolation
 
 
 def _resume_execution_override(existing, execution_override, path):
@@ -2369,8 +2549,7 @@ def _resume_execution_override(existing, execution_override, path):
     if missing_block:
         if not legacy_marker:
             raise TransactionError(
-                "version 2 publishing marker is missing execution verification: "
-                f"{path}"
+                f"version 2 publishing marker is missing execution verification: {path}"
             )
         return execution_override, True
     recorded_override = recorded_execution_override(existing)
@@ -2379,22 +2558,26 @@ def _resume_execution_override(existing, execution_override, path):
     return execution_override, legacy_marker
 
 
-def _load_resumed_publishing_state(
-    paths, factory_dir, round_number, token, execution_override
-):
-    publishing_exists = (
-        paths["publishing"].exists() or paths["publishing"].is_symlink()
-    )
+def _load_resumed_publishing_state(paths, factory_dir, round_number, token, execution_override):
+    publishing_exists = paths["publishing"].exists() or paths["publishing"].is_symlink()
     if not publishing_exists:
         return None, execution_override, False
-    if not paths["publishing"].is_file():
+    unsafe_marker = not paths["publishing"].is_file()
+    unsafe_marker |= paths["publishing"].is_symlink()
+    if unsafe_marker:
         raise TransactionError(f"unsafe publishing marker: {paths['publishing']}")
-    if paths["publishing"].is_symlink():
-        raise TransactionError(f"unsafe publishing marker: {paths['publishing']}")
-    existing = read_json(paths["publishing"])
-    _publishing_marker_identity_matches(
-        existing, factory_dir, round_number, token, paths["publishing"]
+    existing = (
+        read_readonly_json(paths["publishing"], label="publishing plan")
+        if factory_dir.name == PREFERENCE_ISOLATION_FACTORY
+        else read_json(paths["publishing"])
     )
+    existing_identity = (
+        existing.get("factory"),
+        existing.get("round"),
+        existing.get("token"),
+    )
+    if existing_identity != (factory_dir.name, round_number, token):
+        raise TransactionError(f"publishing marker identity mismatch: {paths['publishing']}")
     override, migrate = _resume_execution_override(
         existing, execution_override, paths["publishing"]
     )
@@ -2402,13 +2585,14 @@ def _load_resumed_publishing_state(
 
 
 def _plan_without_volatile_keys(payload, *, drop_version=False):
-    plan = {
-        key: value
-        for key, value in payload.items()
-        if key not in PUBLISH_PLAN_VOLATILE_KEYS
-    }
+    plan = {key: value for key, value in payload.items() if key not in PUBLISH_PLAN_VOLATILE_KEYS}
     if drop_version:
         plan.pop("version", None)
+    gate = plan.get("preference_arm_gate")
+    if isinstance(gate, dict):
+        # The installed gate implementation version may differ across retries;
+        # every semantic field of the evidence remains immutable.
+        plan["preference_arm_gate"] = _stable_preference_gate_evidence(gate)
     return plan
 
 
@@ -2416,19 +2600,11 @@ def _reconcile_resumed_publish_plan(existing, manifest, path, migrate_marker):
     # Timestamps differ across retries. Every other plan field is immutable,
     # including the schema version and declared completion marker. Version 1
     # publishing markers may still cut over onto the v2 verification contract.
-    legacy_publishing_marker = (
-        existing.get("version") == LEGACY_COMPLETION_MARKER_VERSION
-    )
-    existing_plan = _plan_without_volatile_keys(
-        existing, drop_version=legacy_publishing_marker
-    )
-    manifest_plan = _plan_without_volatile_keys(
-        manifest, drop_version=legacy_publishing_marker
-    )
+    legacy_publishing_marker = existing.get("version") == LEGACY_COMPLETION_MARKER_VERSION
+    existing_plan = _plan_without_volatile_keys(existing, drop_version=legacy_publishing_marker)
+    manifest_plan = _plan_without_volatile_keys(manifest, drop_version=legacy_publishing_marker)
     if existing_plan != manifest_plan:
-        raise TransactionError(
-            f"publishing plan conflicts with staged content: {path}"
-        )
+        raise TransactionError(f"publishing plan conflicts with staged content: {path}")
     if migrate_marker:
         # A publish interrupted before the execution gate was introduced
         # has no persisted verdict to reuse. Re-derive it above and migrate
@@ -2446,8 +2622,7 @@ def _reconcile_resumed_publish_plan(existing, manifest, path, migrate_marker):
         existing["execution_verification"]
     ) != comparable_execution_verification(manifest["execution_verification"]):
         raise TransactionError(
-            "publishing marker execution verification conflicts with "
-            f"staged content: {path}"
+            f"publishing marker execution verification conflicts with staged content: {path}"
         )
     return existing
 
@@ -2468,56 +2643,32 @@ def _copy_published_files(stage, factory_dir, manifest, resumed):
             copy_verified_exclusive(source, destination, item["sha256"])
             continue
         if not resumed:
-            raise TransactionError(
-                f"refusing to replace existing output: {destination}"
-            )
+            raise TransactionError(f"refusing to replace existing output: {destination}")
         if _existing_published_file_is_reusable(destination, item["sha256"]):
             continue
-        raise TransactionError(
-            f"refusing to replace conflicting output: {destination}"
-        )
+        raise TransactionError(f"refusing to replace conflicting output: {destination}")
 
 
-def _link_completion_marker(paths):
-    try:
-        os.link(paths["publishing"], paths["complete"], follow_symlinks=False)
-    except FileExistsError as exc:
-        raise TransactionError(
-            f"completion marker already exists: {paths['complete']}"
-        ) from exc
-
-
-def _publish_locked(
-    factory_dir: Path, round_number: int, token: str, execution_override=None
+def _build_publish_manifest(
+    factory_dir,
+    reservation,
+    paths,
+    validated_stage,
 ):
-    """Publish while holding the run-wide identity/commit lock."""
-    paths = marker_paths(factory_dir, round_number)
-    if paths["complete"].exists() or paths["complete"].is_symlink():
-        return finish_completed_publish(factory_dir, round_number, token, paths)
-    reservation = read_json(paths["reservation"])
-    if reservation.get("round") != round_number or reservation.get("token") != token:
-        raise TransactionError("reservation round/token does not match publish request")
-    stage = validated_reservation_stage(
-        factory_dir, round_number, token, reservation.get("staging_dir")
-    )
-    expected = _reservation_expected_records(factory_dir, reservation)
-    existing, execution_override, migrate_marker = _load_resumed_publishing_state(
-        paths, factory_dir, round_number, token, execution_override
-    )
-
-    files, kinds, records, verification = validate_stage(
-        factory_dir,
-        stage,
-        round_number,
-        expected,
-        execution_override=execution_override,
-    )
+    (
+        files,
+        kinds,
+        records,
+        verification,
+        preference_arm_gate,
+        preference_diagnosis_handoff,
+    ) = validated_stage
     manifest = {
         "version": EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION,
         "factory": factory_dir.name,
-        "round": round_number,
-        "token": token,
-        "expected_records": expected,
+        "round": reservation["round"],
+        "token": reservation["token"],
+        "expected_records": reservation["expected_records"],
         "records": records,
         "kinds": kinds,
         "files": files,
@@ -2527,6 +2678,36 @@ def _publish_locked(
         "published_at": utc_now(),
         "commit_point": paths["complete"].name,
     }
+    if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
+        manifest["preference_isolation"] = reservation["preference_isolation"]
+        manifest["preference_arm_gate"] = preference_arm_gate
+        manifest["preference_diagnosis_handoff"] = preference_diagnosis_handoff
+    return manifest
+
+
+def _publish_locked(factory_dir: Path, round_number: int, token: str, execution_override=None):
+    """Publish while holding the run-wide identity/commit lock."""
+    paths = marker_paths(factory_dir, round_number)
+    if paths["complete"].exists() or paths["complete"].is_symlink():
+        return finish_completed_publish(factory_dir, round_number, token, paths)
+    reservation = read_json(paths["reservation"])
+    stage, expected, preference_isolation = _validated_publish_reservation(
+        factory_dir, round_number, token, reservation
+    )
+    existing, execution_override, migrate_marker = _load_resumed_publishing_state(
+        paths, factory_dir, round_number, token, execution_override
+    )
+
+    validated_stage = validate_stage(
+        factory_dir,
+        stage,
+        round_number,
+        expected,
+        token,
+        preference_isolation,
+        execution_override=execution_override,
+    )
+    manifest = _build_publish_manifest(factory_dir, reservation, paths, validated_stage)
 
     resumed = existing is not None
     if resumed:
@@ -2534,11 +2715,23 @@ def _publish_locked(
             existing, manifest, paths["publishing"], migrate_marker
         )
     else:
-        write_exclusive_json(paths["publishing"], manifest)
+        write_exclusive_json(
+            paths["publishing"],
+            manifest,
+            mode=0o400 if factory_dir.name == PREFERENCE_ISOLATION_FACTORY else 0o644,
+        )
 
     remember_execution_gate_cutover(factory_dir, round_number)
     _copy_published_files(stage, factory_dir, manifest, resumed)
-    _link_completion_marker(paths)
+    # Linking this exact, revalidated inode is the atomic visibility point for
+    # the whole round. Recovery state is removed only after the linked marker
+    # is proven to carry the in-memory plan bytes.
+    link_verified_completion_marker(
+        paths["publishing"],
+        paths["complete"],
+        manifest,
+        require_readonly=factory_dir.name == PREFERENCE_ISOLATION_FACTORY,
+    )
 
     paths["publishing"].unlink(missing_ok=True)
     paths["reservation"].unlink(missing_ok=True)
@@ -2563,9 +2756,7 @@ def _abort_locked(factory_dir: Path, round_number: int, token: str):
     """Abort only when no publisher owns this run's transaction lock."""
     paths = marker_paths(factory_dir, round_number)
     if paths["complete"].exists():
-        raise TransactionError(
-            f"round r{round_number:02d} is already committed; refusing to abort"
-        )
+        raise TransactionError(f"round r{round_number:02d} is already committed; refusing to abort")
     if paths["publishing"].exists():
         raise TransactionError(
             f"round r{round_number:02d} is mid-publish; resume publish instead of aborting"
@@ -2598,10 +2789,20 @@ def parse_args(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     front = sub.add_parser("frontier")
     front.add_argument("factory_dir")
+    migrate = sub.add_parser("migrate-preference-v1")
+    migrate.add_argument("factory_dir")
     res = sub.add_parser("reserve")
     res.add_argument("factory_dir")
     res.add_argument("--round", type=int, required=True, dest="round_number")
     res.add_argument("--expected", type=int, required=True)
+    res.add_argument(
+        "--preference-isolation",
+        choices=(PREFERENCE_TWO_SESSION,),
+        help=(
+            "reservation-bound generation protocol assertion required by "
+            f"{PREFERENCE_ISOLATION_FACTORY}"
+        ),
+    )
     pub = sub.add_parser("publish")
     pub.add_argument("factory_dir")
     pub.add_argument("--round", type=int, required=True, dest="round_number")
@@ -2627,8 +2828,15 @@ def main(argv=None):
     try:
         if args.command == "frontier":
             result = frontier_status(Path(args.factory_dir))
+        elif args.command == "migrate-preference-v1":
+            result = migrate_preference_v1_markers(Path(args.factory_dir))
         elif args.command == "reserve":
-            result = reserve(Path(args.factory_dir), args.round_number, args.expected)
+            result = reserve(
+                Path(args.factory_dir),
+                args.round_number,
+                args.expected,
+                args.preference_isolation,
+            )
         elif args.command == "abort":
             result = abort(Path(args.factory_dir), args.round_number, args.token)
         else:
@@ -2643,6 +2851,7 @@ def main(argv=None):
         return 1
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

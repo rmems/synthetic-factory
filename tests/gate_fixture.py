@@ -18,6 +18,9 @@ if str(PIPELINES) not in sys.path:
 import curate_gate  # noqa: E402
 import curate_identity  # noqa: E402
 import curate_rewards  # noqa: E402
+from distillation_test_helpers import distillation_sidecars as _distillation_sidecars  # noqa: E402
+
+REWARD_SIDECARS_FILE = "reward-sidecars.jsonl"
 
 
 def _thalamic(record_id, **overrides):
@@ -47,7 +50,7 @@ def _preference(record_id="pref-1"):
 
 
 def _bridge(record_id="bridge-1"):
-    return {
+    record = {
         "id": record_id,
         "spike_events": [
             {"channel": "c0", "t_rel_ms": 1.0, "amplitude": 0.4},
@@ -59,6 +62,8 @@ def _bridge(record_id="bridge-1"):
         },
         "bridge_notes": {"mapping": "fixture", "training_value": "routing"},
     }
+    record.update(_distillation_sidecars())
+    return record
 
 
 def _episode(record_id="episode-1"):
@@ -115,9 +120,7 @@ def _stamp_canonical_identity_ids(records, relative):
         if not isinstance(record, dict):
             continue
         kind = curate_identity.record_kind(record)
-        record["id"] = curate_gate._canonical_identity_output_id(
-            relative, line_no, kind, "/"
-        )
+        record["id"] = curate_gate._canonical_identity_output_id(relative, line_no, kind, "/")
         owners = curate_gate._identity_owner_specs(record, kind, "fixture")
         for owner_path, owner in owners:
             if owner_path != "/":
@@ -229,12 +232,92 @@ def _lane_manifest_entry(
     return entry
 
 
+_INTEGRATION_PLAN = {
+    "schema": "curation-integration-plan/v1",
+    "source_run": "raw",
+    "lanes": [
+        {
+            "bead": "sf-c5l.1",
+            "transform": "bridge_event_time_order",
+            "version": "1.0.0",
+            "outputs": "lane-bridge",
+            "manifest": "lane-bridge/manifest.json",
+        },
+        {
+            "bead": "sf-c5l.2",
+            "transform": "curate_identity",
+            "version": "identity-provenance-v1",
+            "outputs": "lane-core",
+            "manifest": "lane-core/manifest.json",
+        },
+        {
+            "bead": "sf-c5l.3",
+            "transform": "same-context-preference-curation",
+            "version": "1.0.0",
+            "outputs": "lane-preference",
+            "manifest": "lane-preference/manifest.json",
+        },
+        {
+            "bead": "sf-c5l.4",
+            "transform": "reward_ontology",
+            "version": "reward-ontology-v1",
+            "outputs": "lane-reward",
+            "manifest": "lane-reward/manifest.json",
+            "artifacts": [
+                {
+                    "kind": "reward_source_sidecars",
+                    "path": f"lane-reward/{REWARD_SIDECARS_FILE}",
+                    "destination": REWARD_SIDECARS_FILE,
+                }
+            ],
+        },
+        {
+            "bead": "sf-c5l.5",
+            "transform": "coding_observability",
+            "version": "1",
+            "outputs": "lane-coding",
+            "manifest": "lane-coding/manifest.json",
+        },
+        {
+            "bead": "sf-c5l.6",
+            "transform": "tag_taxonomy",
+            "version": "1",
+            "outputs": "lane-tag",
+            "manifest": "lane-tag/manifest.json",
+        },
+    ],
+}
+
+
 class GateFixture:
     """A six-lane curation scenario laid out under one temporary root."""
 
     def __init__(
-        self, root, bridge_records=None, thalamic_records=None, *, canonical_ids=True
-    ):
+        self,
+        root,
+        bridge_records=None,
+        thalamic_records=None,
+        *,
+        canonical_ids=True,
+    ) -> None:
+        self._initialize_paths(root)
+        raw_bridge_records, raw_core_records = self._write_source_records(
+            bridge_records,
+            thalamic_records,
+        )
+        lane_records = self._build_lane_records(
+            raw_bridge_records,
+            raw_core_records,
+            canonical_ids,
+        )
+        self._write_lane_records(lane_records)
+        self._configure_lanes()
+        self._sync_initial_manifests()
+        self._write_integration_plan()
+        self.cleaned = self.root / "cleaned-v1"
+        self.curated = self.root / "curated-v1"
+
+    def _initialize_paths(self, root) -> None:
         self.root = Path(root)
         self.source_run = self.root / "raw"
         self.lane_bridge = self.root / "lane-bridge"
@@ -244,6 +327,12 @@ class GateFixture:
         self.lane_coding = self.root / "lane-coding"
         self.lane_tag = self.root / "lane-tag"
         self.reward_sidecars = []
+
+    def _write_source_records(
+        self,
+        bridge_records,
+        thalamic_records,
+    ) -> tuple[list[dict], list[dict]]:
         raw_bridge_records = copy.deepcopy(
             bridge_records if bridge_records is not None else [_bridge()]
         )
@@ -262,27 +351,38 @@ class GateFixture:
             self.source_run / "thalamic-mini" / "batch-r02.jsonl",
             raw_core_records,
         )
+        return raw_bridge_records, raw_core_records
 
+    def _build_lane_records(
+        self,
+        raw_bridge_records,
+        raw_core_records,
+        canonical_ids,
+    ) -> dict[str, list[dict]]:
         identity_bridge_records = copy.deepcopy(raw_bridge_records)
         identity_core_records = copy.deepcopy(raw_core_records)
         if canonical_ids:
-            _stamp_canonical_identity_ids(
-                identity_bridge_records, "bridge-factory/batch-r02.jsonl"
-            )
-            _stamp_canonical_identity_ids(
-                identity_core_records, "thalamic-mini/batch-r02.jsonl"
-            )
+            _stamp_canonical_identity_ids(identity_bridge_records, "bridge-factory/batch-r02.jsonl")
+            _stamp_canonical_identity_ids(identity_core_records, "thalamic-mini/batch-r02.jsonl")
         annotated_bridge_records = _reward_annotated(
             raw_bridge_records,
             "bridge-factory/batch-r02.jsonl",
             self.reward_sidecars,
         )
-        _write_jsonl(
-            self.lane_bridge / "bridge-factory" / "batch-r02.jsonl",
-            identity_bridge_records,
-        )
         annotated_core_records = _reward_annotated(
             raw_core_records, "thalamic-mini/batch-r02.jsonl", self.reward_sidecars
+        )
+        return {
+            "identity_bridge": identity_bridge_records,
+            "identity_core": identity_core_records,
+            "annotated_bridge": annotated_bridge_records,
+            "annotated_core": annotated_core_records,
+        }
+
+    def _write_lane_records(self, records) -> None:
+        _write_jsonl(
+            self.lane_bridge / "bridge-factory" / "batch-r02.jsonl",
+            records["identity_bridge"],
         )
         for lane_dir in (
             self.lane_core,
@@ -291,20 +391,23 @@ class GateFixture:
             self.lane_tag,
         ):
             _write_jsonl(
-                lane_dir / "thalamic-mini" / "batch-r02.jsonl", identity_core_records
+                lane_dir / "thalamic-mini" / "batch-r02.jsonl",
+                records["identity_core"],
             )
         _write_jsonl(
             self.lane_reward / "bridge-factory" / "batch-r02.jsonl",
-            annotated_bridge_records,
+            records["annotated_bridge"],
         )
         _write_jsonl(
             self.lane_core / "bridge-factory" / "batch-r02.jsonl",
-            identity_bridge_records,
+            records["identity_bridge"],
         )
         _write_jsonl(
             self.lane_reward / "thalamic-mini" / "batch-r02.jsonl",
-            annotated_core_records,
+            records["annotated_core"],
         )
+
+    def _configure_lanes(self) -> None:
         self.lanes = [
             (self.lane_bridge, "bridge_event_time_order", "1.0.0"),
             (self.lane_core, "curate_identity", "identity-provenance-v1"),
@@ -313,75 +416,18 @@ class GateFixture:
             (self.lane_coding, "coding_observability", "1"),
             (self.lane_tag, "tag_taxonomy", "1"),
         ]
+
+    def _sync_initial_manifests(self) -> None:
         self.manifest_paths = []
         for lane_index in range(len(self.lanes)):
             self.sync_lane_manifest(lane_index)
-        with (self.lane_reward / "reward-sidecars.jsonl").open("w", encoding="utf-8") as handle:
+        with (self.lane_reward / REWARD_SIDECARS_FILE).open("w", encoding="utf-8") as handle:
             for sidecar in self.reward_sidecars:
                 handle.write(json.dumps(sidecar, ensure_ascii=False, sort_keys=True) + "\n")
+
+    def _write_integration_plan(self) -> None:
         self.plan_path = self.root / "plan.json"
-        self.plan_path.write_text(
-            json.dumps(
-                {
-                    "schema": "curation-integration-plan/v1",
-                    "source_run": "raw",
-                    "lanes": [
-                        {
-                            "bead": "sf-c5l.1",
-                            "transform": "bridge_event_time_order",
-                            "version": "1.0.0",
-                            "outputs": "lane-bridge",
-                            "manifest": "lane-bridge/manifest.json",
-                        },
-                        {
-                            "bead": "sf-c5l.2",
-                            "transform": "curate_identity",
-                            "version": "identity-provenance-v1",
-                            "outputs": "lane-core",
-                            "manifest": "lane-core/manifest.json",
-                        },
-                        {
-                            "bead": "sf-c5l.3",
-                            "transform": "same-context-preference-curation",
-                            "version": "1.0.0",
-                            "outputs": "lane-preference",
-                            "manifest": "lane-preference/manifest.json",
-                        },
-                        {
-                            "bead": "sf-c5l.4",
-                            "transform": "reward_ontology",
-                            "version": "reward-ontology-v1",
-                            "outputs": "lane-reward",
-                            "manifest": "lane-reward/manifest.json",
-                            "artifacts": [
-                                {
-                                    "kind": "reward_source_sidecars",
-                                    "path": "lane-reward/reward-sidecars.jsonl",
-                                    "destination": "reward-sidecars.jsonl",
-                                }
-                            ],
-                        },
-                        {
-                            "bead": "sf-c5l.5",
-                            "transform": "coding_observability",
-                            "version": "1",
-                            "outputs": "lane-coding",
-                            "manifest": "lane-coding/manifest.json",
-                        },
-                        {
-                            "bead": "sf-c5l.6",
-                            "transform": "tag_taxonomy",
-                            "version": "1",
-                            "outputs": "lane-tag",
-                            "manifest": "lane-tag/manifest.json",
-                        },
-                    ],
-                },
-                indent=2,
-            )
-        )
-        self.cleaned = self.root / "cleaned-v1"
-        self.curated = self.root / "curated-v1"
+        self.plan_path.write_text(json.dumps(_INTEGRATION_PLAN, indent=2))
 
     def source_hash(self, source_path, source_line):
         payload = (self.source_run / source_path).read_bytes().split(b"\n")
@@ -394,7 +440,7 @@ class GateFixture:
         lane_dir, transform, version = self.lanes[lane_index]
         entries = []
         for path in sorted(lane_dir.rglob("*.jsonl")):
-            if path.name == "reward-sidecars.jsonl":
+            if path.name == REWARD_SIDECARS_FILE:
                 continue
             relative = path.relative_to(lane_dir).as_posix()
             records = _read_jsonl(path)
@@ -513,4 +559,3 @@ class GateFixture:
                 str(curated or self.curated),
             ]
         )
-
