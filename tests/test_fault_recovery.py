@@ -462,6 +462,41 @@ class FamilyChecks(unittest.TestCase):
             any("OUTCOME_NOT_REPRODUCIBLE" in e for e in errors), errors
         )
 
+    def _hard_deadline_fail_closed(self):
+        record = next(
+            item
+            for item in fr.build_records(seed=20260823, count=20)
+            if item["intervention"]["kind"] == "delayed_result"
+            and item["result"]["outcome"] == "fail_closed"
+        )
+        return copy.deepcopy(record)
+
+    def test_renamed_implementation_cannot_escape_simulator_gates(self):
+        record = self._hard_deadline_fail_closed()
+        record["oracle"]["type"] = "hardware_replay"
+        record["oracle"]["implementation"] = (
+            "pipelines/fault_recovery.py:RelayReflexSim"
+        )
+        record["result"]["outcome"] = "continue"
+        record["result"]["outcome_label"] = "continue"
+        record["result"]["reason_codes"] = ["WITHIN_TOLERANCE"]
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any("ORACLE_IMPLEMENTATION_MISMATCH" in e for e in errors), errors
+        )
+
+    def test_trailing_space_implementation_cannot_escape_simulator_gates(self):
+        record = self._hard_deadline_fail_closed()
+        record["oracle"]["type"] = "hardware_replay"
+        record["oracle"]["implementation"] = fr.ORACLE_IMPLEMENTATION + " "
+        record["result"]["outcome"] = "continue"
+        record["result"]["outcome_label"] = "continue"
+        record["result"]["reason_codes"] = ["WITHIN_TOLERANCE"]
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any("ORACLE_IMPLEMENTATION_MISMATCH" in e for e in errors), errors
+        )
+
 
 class Cli(unittest.TestCase):
     def test_describe_reports_the_contract(self):

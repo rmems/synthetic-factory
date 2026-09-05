@@ -1629,6 +1629,32 @@ def _check_oracle_configuration_binding(
     return errors
 
 
+
+def _check_oracle_implementation_identity(
+    record: dict[str, Any], where: str
+) -> list[str]:
+    """``relay-reflex-sim`` must declare the exact in-process implementation.
+
+    Trailing whitespace or a truncated class name used to miss both the type
+    binder and the re-sim gate (exact ``== ORACLE_IMPLEMENTATION``), leaving a
+    forged ``hardware_replay`` continue curation-eligible.
+    """
+
+    oracle = record.get("oracle")
+    if not isinstance(oracle, dict):
+        return []
+    if oracle.get("name") != ORACLE_NAME:
+        return []
+    implementation = oracle.get("implementation")
+    if implementation == ORACLE_IMPLEMENTATION:
+        return []
+    return [
+        f"{where}.oracle.implementation: ORACLE_IMPLEMENTATION_MISMATCH — "
+        f"{ORACLE_NAME} must declare implementation {ORACLE_IMPLEMENTATION!r}, "
+        f"got {implementation!r}"
+    ]
+
+
 def _check_simulator_type_binding(record: dict[str, Any], where: str) -> list[str]:
     """Our in-process simulator must declare deterministic_simulator type."""
 
@@ -1658,6 +1684,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
     errors += _check_outcome(result, where)
     errors += _check_prediction_agreement(record, where)
     errors += _check_oracle_configuration_binding(record, where)
+    errors += _check_oracle_implementation_identity(record, where)
     errors += _check_simulator_type_binding(record, where)
     errors += _recheck_deterministic_outcome(record, where)
     return errors
