@@ -86,6 +86,15 @@ def _is_plain_url(text: str) -> bool:
     )
 
 
+def _needs_boundary_padding(text: str) -> bool:
+    """Return whether GFM would trim one meaningful boundary space."""
+    if not text.startswith(" "):
+        return False
+    if not text.endswith(" "):
+        return False
+    return bool(text.strip())
+
+
 def _markdown_cell(value: Any) -> str:
     """Render one value as inert Markdown table text."""
     text = _markdown_text(value)
@@ -122,7 +131,7 @@ def _markdown_code(value: Any) -> str:
     if any(marker in text for marker in ("`", "|", "\r", "\n")):
         return f"<code>{_markdown_cell(text)}</code>"
     rendered = text.translate(_MARKDOWN_CONTROL_ESCAPES)
-    if text.startswith(" ") and text.endswith(" ") and text.strip():
+    if _needs_boundary_padding(text):
         # GFM removes one boundary space from a non-all-space code span. Add
         # one sentinel space to each side so the rendered value preserves the
         # audited leading/trailing spaces exactly.
