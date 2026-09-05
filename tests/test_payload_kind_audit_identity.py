@@ -91,6 +91,24 @@ class PayloadKindIdentity(PayloadKindAuditCase):
         audit = self._audit_corpus({"episodes.jsonl": [record]})
         self.assertEqual(audit["records"][0]["id"], "state-episode-id")
 
+    def test_null_id_does_not_shadow_a_later_record_id_alias(self):
+        # Membership-only lookup used to return None when id:null was present
+        # and hide a usable record_id (NULL-ALIAS-ID-SHADOW / PR #136).
+        record = _episode([])
+        record["id"] = None
+        record["record_id"] = "record-1"
+        audit = self._audit_corpus({"episodes.jsonl": [record]})
+        self.assertEqual(audit["records"][0]["id"], "record-1")
+
+    def test_first_legacy_id_skips_null_aliases(self):
+        self.assertEqual(
+            payload_kind_audit._first_legacy_id(
+                {"id": None, "record_id": "record-1"}
+            ),
+            "record-1",
+        )
+        self.assertIsNone(payload_kind_audit._first_legacy_id({"id": None}))
+
 
 if __name__ == "__main__":
     unittest.main()

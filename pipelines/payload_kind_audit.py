@@ -107,15 +107,19 @@ def _legacy_id_containers(record: Mapping[str, Any]) -> Iterable[Mapping[str, An
 
 
 def _first_legacy_id(record: Mapping[str, Any]) -> Any:
-    """Return the first present identifier supported by identity curation.
+    """Return the first present non-null identifier supported by identity curation.
 
     Precedence is container-major then key-minor, matching
     ``curate_identity._legacy_ids``: every top-level alias outranks every
     ``meta`` alias, which outranks every ``state`` alias.
+
+    JSON ``id: null`` is present-but-empty: it must not shadow a later
+    ``record_id`` / ``trajectory_id`` / ``episode_id`` / ``pair_id`` the way a
+    membership-only lookup would (NULL-ALIAS-ID-SHADOW).
     """
     for container in _legacy_id_containers(record):
         for key in LEGACY_ID_KEYS:
-            if key in container:
+            if key in container and container[key] is not None:
                 return container[key]
     return None
 
