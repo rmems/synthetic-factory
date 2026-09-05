@@ -782,10 +782,31 @@ class RecordedCaptureAdapter(OracleAdapter):
             )
 
     def _quantization_provenance(self, payload):
-        """The Q8.8 conversion the capture claims produced its bitstream."""
-        quantization = self._capture.get("quantization") or payload.get(
-            "quantization"
-        )
+        """The Q8.8 conversion the capture claims produced its bitstream.
+
+        Top-level ``capture.quantization`` and ``payload.quantization`` are both
+        supported locations. When both are present they must agree exactly;
+        otherwise the adapter would silently prefer the top-level block while
+        retaining a conflicting payload conversion in the authenticated source.
+        """
+        top = self._capture.get("quantization")
+        nested = payload.get("quantization") if isinstance(payload, dict) else None
+        if top and nested:
+            try:
+                if canonical_json(top) != canonical_json(nested):
+                    raise OracleUnavailable(
+                        "CAPTURE_QUANTIZATION_CONFLICT",
+                        "capture.quantization and payload.quantization disagree; "
+                        "exactly one location or identical blocks are required",
+                    )
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise OracleUnavailable(
+                    "CAPTURE_UNREADABLE",
+                    f"capture quantization is not canonical finite JSON: {exc}",
+                ) from exc
+            quantization = top
+        else:
+            quantization = top or nested
         if not quantization:
             raise OracleUnavailable(
                 "CAPTURE_QUANTIZATION_MISSING",

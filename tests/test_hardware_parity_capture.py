@@ -462,6 +462,30 @@ class RecordedCapturePath(unittest.TestCase):
             errors,
         )
 
+    def test_conflicting_capture_quantization_blocks_are_rejected(self):
+        # Retaining a contradictory payload conversion while the top-level
+        # block matches the deployment must not validate as MATCH.
+        with tempfile.TemporaryDirectory() as tmp:
+            record = json.loads(json.dumps(self._record(tmp)))
+            source = record["oracle"]["deployment"]["capture"]["source"]
+            nested = json.loads(json.dumps(source["quantization"]))
+            nested["fractional_bits"] = 4
+            nested["total_bits"] = 12
+            nested["step"] = 0.0625
+            nested["saturated_parameter_count"] = 7
+            source["payload"]["quantization"] = nested
+            self._reseal_capture(record)
+            errors = hp.validate_record(record, WHERE)
+        self.assertTrue(
+            any(
+                "capture.source.quantization disagrees with"
+                in error
+                and "Q88_PROVENANCE_MISMATCH" in error
+                for error in errors
+            ),
+            errors,
+        )
+
     def test_capture_payload_latency_types_are_strict(self):
         # latency.measured is documented as a Boolean; the integer 1 in the
         # authenticated capture payload must not project onto the

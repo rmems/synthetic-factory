@@ -402,6 +402,27 @@ class RecordedCapture(unittest.TestCase):
                 caught.exception.reason_code, "CAPTURE_QUANTIZATION_MISSING"
             )
 
+    def test_conflicting_capture_quantization_blocks_are_refused(self):
+        # Top-level and payload conversion must agree when both are present;
+        # silent ``or`` precedence used to keep both and bind only the top.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._capture(tmp)
+            capture = json.loads(path.read_text())
+            nested = json.loads(json.dumps(capture["quantization"]))
+            nested["fractional_bits"] = 4
+            nested["total_bits"] = 12
+            nested["step"] = 0.0625
+            nested["saturated_parameter_count"] = 7
+            capture["payload"]["quantization"] = nested
+            capture["manifest"]["payload_sha256"] = oracle.digest(capture["payload"])
+            path.write_text(json.dumps(capture), encoding="utf-8")
+            adapter = oracle.RecordedCaptureAdapter(path)
+            with self.assertRaises(oracle.OracleUnavailable) as caught:
+                adapter.run(_model(), _stimulus())
+            self.assertEqual(
+                caught.exception.reason_code, "CAPTURE_QUANTIZATION_CONFLICT"
+            )
+
     def test_capture_without_arithmetic_attestation_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = self._capture(tmp)
