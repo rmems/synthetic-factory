@@ -136,7 +136,7 @@
     },
     "measurement": {
       "type": "object",
-      "description": "One oracle-side reading. Energy-class quantities (energy_j, energy_per_op_j, power_w) are rejected unless meter is a real energy meter and measured is true — an operation-count or synaptic-operation model can be recorded but never substituted for a measured joule.",
+      "description": "One oracle-side reading. Energy-class quantities (energy_j, energy_per_op_j, power_w) are rejected unless meter is a real energy meter and measured is true — an operation-count or synaptic-operation model can be recorded but never substituted for a measured joule. A modelled meter (analytic_op_count, synops_model, spike_energy_model, datasheet_estimate) may never carry measured: true for any quantity.",
       "required": ["quantity", "value", "unit", "meter", "measured", "source"],
       "properties": {
         "quantity": { "type": "string", "minLength": 1 },

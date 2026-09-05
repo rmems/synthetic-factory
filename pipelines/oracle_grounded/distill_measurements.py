@@ -2,10 +2,12 @@
 """Measurement checks for the distillation contract (issue #78).
 
 Every measurement carries a registered quantity, its canonical unit, the
-meter that took it and an oracle source; and no energy number may be modelled
-rather than measured -- whether it sits in ``result.measurements`` with a
-modelling meter, as a bare field anywhere under ``result``, or as the
-denomination of a preference with no measured energy behind it.
+meter that took it and an oracle source; a meter that models rather than
+measures may never carry ``measured: true``, for any quantity; and no energy
+number may be modelled rather than measured -- whether it sits in
+``result.measurements`` with a modelling meter, as a bare field anywhere under
+``result``, or as the denomination of a preference with no measured energy
+behind it.
 """
 
 from __future__ import annotations
@@ -65,6 +67,24 @@ def _measurement_value_errors(item: dict[str, Any], quantity: str, spot: str) ->
     return _quantity_domain_errors(quantity, float(item["value"]), spot)
 
 
+def _modelled_meter_claim_error(item: dict[str, Any], spot: str) -> str | None:
+    """A modelled meter wearing ``measured: true``, whatever it counts.
+
+    ``measured`` is what the curation gate's NO_MEASURED_READING check trusts,
+    so it must mean "an instrument took this", not "the producer said so".
+    The energy rule already refuses this for joules; the registry answer is
+    the same for every other quantity.
+    """
+
+    meter = item.get("meter")
+    if envelope.is_enum_value(meter, vocab.MODELED_METERS) and item.get("measured") is True:
+        return (
+            f"{spot}: MODELLED_METER_CLAIMS_MEASURED — meter {meter!r} models "
+            "rather than measures, so measured must be false"
+        )
+    return None
+
+
 def _measurement_provenance_errors(item: dict[str, Any], spot: str) -> list[str]:
     """The meter, the oracle source and the measured flag."""
 
@@ -75,6 +95,9 @@ def _measurement_provenance_errors(item: dict[str, Any], spot: str) -> list[str]
         errors.append(f"{spot}: source must be 'oracle'")
     if not isinstance(item.get("measured"), bool):
         errors.append(f"{spot}: measured must be a boolean")
+    claim_error = _modelled_meter_claim_error(item, spot)
+    if claim_error is not None:
+        errors.append(claim_error)
     return errors
 
 

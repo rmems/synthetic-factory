@@ -24,13 +24,15 @@ class MeasurementOptions:
     """The keyword refinements :func:`new_measurement` accepts.
 
     ``unit`` is the caller's claim about the quantity's unit, cross-checked
-    against the registry rather than written; ``measured`` is ``False`` for a
-    modelled value, which is never legal for an energy quantity; ``detail`` is
-    free-form context copied into the measurement.
+    against the registry rather than written; ``measured`` defaults to what
+    the meter registry says (``True`` for an instrument, ``False`` for a meter
+    in ``MODELED_METERS``), may be lowered to ``False`` for any meter, and can
+    never be raised to ``True`` for a modelled meter; ``detail`` is free-form
+    context copied into the measurement.
     """
 
     unit: str | None = None
-    measured: bool = True
+    measured: bool | None = None
     detail: dict[str, Any] | None = None
 
 
@@ -45,6 +47,25 @@ def _canonical_unit(quantity: str, claimed_unit: str | None) -> str:
             f"{quantity} must be reported in {canonical_unit!r}, got {claimed_unit!r}"
         )
     return canonical_unit
+
+
+def _resolve_measured(meter: str, claimed: bool | None) -> bool:
+    """``measured`` follows the meter registry; a modelled meter cannot claim it.
+
+    For every quantity, not only energy: a reading from ``analytic_op_count``
+    or ``synops_model`` is a model's output whatever it counts, and the
+    curation gate's NO_MEASURED_READING check relies on ``measured`` meaning
+    "an instrument took this" rather than "the producer said so".
+    """
+
+    modelled = meter in vocab.MODELED_METERS
+    if claimed is None:
+        return not modelled
+    if claimed and modelled:
+        raise envelope.ContractError(
+            f"meter {meter!r} models rather than measures; it cannot claim measured=True"
+        )
+    return bool(claimed)
 
 
 def _check_energy_meter(quantity: str, meter: str, measured: bool) -> None:
@@ -76,13 +97,14 @@ def new_measurement(
         raise envelope.ContractError(
             f"{quantity} value must be a finite number, got {value!r}"
         )
-    _check_energy_meter(quantity, meter, chosen.measured)
+    measured = _resolve_measured(meter, chosen.measured)
+    _check_energy_meter(quantity, meter, measured)
     payload: dict[str, Any] = {
         "quantity": quantity,
         "value": float(value),
         "unit": canonical_unit,
         "meter": meter,
-        "measured": bool(chosen.measured),
+        "measured": measured,
         "source": "oracle",
     }
     if chosen.detail:

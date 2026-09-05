@@ -191,7 +191,8 @@ MEASURED_ENERGY_METERS = frozenset(
 )
 
 # Meters that model rather than measure. Legal for non-energy bookkeeping and
-# for explicitly modeled quantities, never for an energy claim.
+# for explicitly modeled quantities, never for an energy claim, and never with
+# ``measured: true`` for any quantity.
 MODELED_METERS = frozenset(
     {
         "analytic_op_count",

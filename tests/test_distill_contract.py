@@ -141,6 +141,37 @@ class MeasurementContract(unittest.TestCase):
         reading = oc.new_measurement("energy_j", 8.0, "intel_rapl_powercap")
         self.assertEqual(reading["unit"], "J")
 
+    def test_a_modelled_meter_never_claims_a_measured_reading(self):
+        # `measured` follows the meter registry for every quantity, not only
+        # energy: a modelled meter with measured: true used to satisfy the
+        # curation gate's NO_MEASURED_READING check on the producer's say-so.
+        reading = oc.new_measurement("latency_ms", 3.5, "analytic_op_count")
+        self.assertFalse(reading["measured"])
+        with self.assertRaises(oc.ContractError):
+            oc.new_measurement("latency_ms", 3.5, "analytic_op_count", measured=True)
+        self.assertTrue(oc.new_measurement("latency_ms", 3.5, "simulator_clock")["measured"])
+        lowered = oc.new_measurement("latency_ms", 3.5, "simulator_clock", measured=False)
+        self.assertFalse(lowered["measured"])
+
+    def test_a_modelled_meter_claiming_measured_is_a_finding_that_blocks_curation(self):
+        record = minimal_record()
+        reading = oc.new_measurement("recovery_latency_ms", 4.0, "analytic_op_count")
+        reading["measured"] = True  # the tamper: a model's output relabelled
+        record["result"]["measurements"] = [reading]
+        record["provenance"]["record_sha256"] = oc.record_digest(record)
+        errors = oc.check_measurements(record, "x")
+        self.assertTrue(any("MODELLED_METER_CLAIMS_MEASURED" in error for error in errors))
+        eligible, _reasons = oc.curation_eligible(record, errors)
+        self.assertFalse(eligible)
+        # Honestly labelled, the same reading is structurally valid but still
+        # not a measured result, so curation refuses it for that reason.
+        reading["measured"] = False
+        record["provenance"]["record_sha256"] = oc.record_digest(record)
+        self.assertEqual(oc.check_measurements(record, "x"), [])
+        eligible, reasons = oc.curation_eligible(record, [])
+        self.assertFalse(eligible)
+        self.assertIn("NO_MEASURED_READING", reasons)
+
     def test_measurements_must_declare_an_oracle_source(self):
         record = minimal_record()
         record["result"]["measurements"][0]["source"] = "generator"
