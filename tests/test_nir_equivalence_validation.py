@@ -57,6 +57,30 @@ class Validation(unittest.TestCase):
     def test_fixture_validates(self):
         self.assertEqual(nir.validate_records(_fixture_records()), [])
 
+    def test_omitted_catalog_provenance_stamps_are_rejected(self):
+        record = copy.deepcopy(_fixture_records()[0])
+        for key in (
+            "generator",
+            "generator_version",
+            "catalog_digest",
+            "catalog_authorship",
+        ):
+            record["provenance"].pop(key, None)
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(
+            any("provenance identity" in error for error in errors),
+            errors,
+        )
+
+    def test_falsified_catalog_digest_is_rejected(self):
+        record = copy.deepcopy(_fixture_records()[0])
+        record["provenance"]["catalog_digest"] = "sha256:" + ("0" * 64)
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(
+            any("provenance identity" in error for error in errors),
+            errors,
+        )
+
     def test_suppressed_divergence_is_caught(self):
         record = copy.deepcopy(self.mismatch)
         record["result"]["verdict"] = contract.VERDICT_MATCH

@@ -113,6 +113,54 @@ GENERATOR_BLOCK = {
 }
 
 
+# Frontier-session catalogs inherit research-only disposition (#173). Stamps are
+# required on every record so training-view consumers cannot strip the signal.
+CATALOG_AUTHORSHIP = {
+    "mode": "frontier_session",
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "attestation": (
+        "Hardware-parity scenario catalogs were authored in a frontier-model "
+        "session; every resulting record is research-only."
+    ),
+}
+
+
+def _module_source_digest():
+    """Immutable source digest used as the in-repo generator_version."""
+    return digest(
+        {
+            "path": "pipelines/hardware_parity.py",
+            "text": Path(__file__).read_text(encoding="utf-8"),
+        }
+    )
+
+
+def _catalog_digest():
+    """Digest of the scenario catalog identity (ids + models + stresses)."""
+    catalog = [
+        {
+            "id": scenario["id"],
+            "name": scenario["name"],
+            "family": scenario["family"],
+            "stress": scenario["stress"],
+            "model_float": scenario["model_float"],
+        }
+        for scenario in build_scenarios(steps=12)
+    ]
+    return digest({"factory": FACTORY_SLUG, "catalog": catalog})
+
+
+def _catalog_provenance_stamps():
+    """generator / generator_version / catalog_digest / catalog_authorship."""
+    return {
+        "generator": GENERATOR_BLOCK["name"],
+        "generator_version": _module_source_digest(),
+        "catalog_digest": _catalog_digest(),
+        "catalog_authorship": copy.deepcopy(CATALOG_AUTHORSHIP),
+    }
+
+
 # ── Scenario catalog ──────────────────────────────────────────────────
 
 
@@ -786,6 +834,7 @@ def build_record(scenario, software_run, deployment_run, unavailable, round_numb
             "latency": "ms",
         },
     }
+    provenance.update(_catalog_provenance_stamps())
 
     record = {
         "id": f"{scenario['id']}-r{round_number:02d}",
@@ -1249,6 +1298,7 @@ def _check_record_identity(record, where):
             "latency": "ms",
         },
     }
+    expected_provenance_identity.update(_catalog_provenance_stamps())
     if not isinstance(provenance, dict) or any(
         not contract.strict_json_equal(provenance.get(key), value)
         for key, value in expected_provenance_identity.items()

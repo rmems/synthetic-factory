@@ -108,6 +108,52 @@ GENERATOR_BLOCK = {
 }
 
 
+CATALOG_AUTHORSHIP = {
+    "mode": "frontier_session",
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "attestation": (
+        "NIR cross-runtime graph catalogs were authored in a frontier-model "
+        "session; every resulting record is research-only."
+    ),
+}
+
+
+def _module_source_digest():
+    """Immutable source digest used as the in-repo generator_version."""
+    return digest(
+        {
+            "path": "pipelines/nir_equivalence.py",
+            "text": Path(__file__).read_text(encoding="utf-8"),
+        }
+    )
+
+
+def _catalog_digest():
+    """Digest of the graph catalog identity (ids + classes + graphs)."""
+    catalog = [
+        {
+            "id": scenario["id"],
+            "name": scenario["name"],
+            "family": scenario["family"],
+            "class": scenario["class"],
+            "graph": scenario["graph"],
+        }
+        for scenario in build_scenarios(steps=10)
+    ]
+    return digest({"factory": FACTORY_SLUG, "catalog": catalog})
+
+
+def _catalog_provenance_stamps():
+    """generator / generator_version / catalog_digest / catalog_authorship."""
+    return {
+        "generator": GENERATOR_BLOCK["name"],
+        "generator_version": _module_source_digest(),
+        "catalog_digest": _catalog_digest(),
+        "catalog_authorship": copy.deepcopy(CATALOG_AUTHORSHIP),
+    }
+
+
 class UnsupportedConstruct(Exception):
     """A runtime refusing a construct on purpose. This is a diagnostic, not a bug."""
 
@@ -1530,16 +1576,19 @@ def build_record(scenario, entries, round_number):
             "comparison": comparison,
             "summary": _summarize(scenario, comparison, verdict),
         },
-        "provenance": {
-            "kind": "simulated",
-            "tool": VALIDATOR,
-            "tool_version": SCHEMA_VERSION,
-            "contract_version": contract.CONTRACT_VERSION,
-            "scenario_sha256": digest(
-                {"graph": scenario["graph"], "stimulus": scenario["stimulus"]}
-            ),
-            "units": {"time": "timesteps", "dt": "s", "membrane": "V_model"},
-        },
+        "provenance": dict(
+            {
+                "kind": "simulated",
+                "tool": VALIDATOR,
+                "tool_version": SCHEMA_VERSION,
+                "contract_version": contract.CONTRACT_VERSION,
+                "scenario_sha256": digest(
+                    {"graph": scenario["graph"], "stimulus": scenario["stimulus"]}
+                ),
+                "units": {"time": "timesteps", "dt": "s", "membrane": "V_model"},
+            },
+            **_catalog_provenance_stamps(),
+        ),
         "validation": {
             "validator": VALIDATOR,
             "validator_version": SCHEMA_VERSION,
@@ -2001,6 +2050,7 @@ def _check_envelope_identity(record, scenario, where):
         "contract_version": contract.CONTRACT_VERSION,
         "units": {"time": "timesteps", "dt": "s", "membrane": "V_model"},
     }
+    expected_provenance_identity.update(_catalog_provenance_stamps())
     if not isinstance(provenance, dict) or any(
         not _strict_json_equal(provenance.get(key), value)
         for key, value in expected_provenance_identity.items()

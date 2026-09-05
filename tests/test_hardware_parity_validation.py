@@ -32,6 +32,30 @@ class Validation(unittest.TestCase):
     def test_fixture_validates(self):
         self.assertEqual(hp.validate_records(_fixture_records()), [])
 
+    def test_omitted_catalog_provenance_stamps_are_rejected(self):
+        record = copy.deepcopy(_fixture_records()[0])
+        for key in (
+            "generator",
+            "generator_version",
+            "catalog_digest",
+            "catalog_authorship",
+        ):
+            record["provenance"].pop(key, None)
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(
+            any("provenance identity" in error for error in errors),
+            errors,
+        )
+
+    def test_falsified_catalog_digest_is_rejected(self):
+        record = copy.deepcopy(_fixture_records()[0])
+        record["provenance"]["catalog_digest"] = "sha256:" + ("0" * 64)
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(
+            any("provenance identity" in error for error in errors),
+            errors,
+        )
+
     def test_fixture_carries_both_verdicts(self):
         verdicts = {record["result"]["verdict"] for record in _fixture_records()}
         self.assertIn(contract.VERDICT_MATCH, verdicts)
