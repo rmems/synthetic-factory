@@ -75,10 +75,25 @@ _MARKDOWN_SYNTAX_ESCAPES = (
     ("_", "&#95;"),
 )
 
+_BARE_URL_PREFIXES = ("http://", "https://")
+
+
+def _is_plain_url(text: str) -> bool:
+    """Return whether a scalar would activate GFM's bare-URL autolinker."""
+    lowered = text.lower()
+    return lowered.startswith(_BARE_URL_PREFIXES) and not any(
+        marker in text for marker in ("`", "|", "\r", "\n")
+    )
+
 
 def _markdown_cell(value: Any) -> str:
     """Render one value as inert Markdown table text."""
-    rendered = html.escape(_markdown_text(value), quote=False)
+    text = _markdown_text(value)
+    if _is_plain_url(text):
+        # Bracket escaping does not stop GFM from autolinking a bare URL.
+        # A code span keeps the visible audit value unchanged and inert.
+        return _markdown_code(text)
+    rendered = html.escape(text, quote=False)
     for character, escape in _MARKDOWN_SYNTAX_ESCAPES:
         rendered = rendered.replace(character, escape)
     return (
@@ -106,4 +121,10 @@ def _markdown_code(value: Any) -> str:
         return "<code></code>"
     if any(marker in text for marker in ("`", "|", "\r", "\n")):
         return f"<code>{_markdown_cell(text)}</code>"
-    return text.translate(_MARKDOWN_CONTROL_ESCAPES).join("``")
+    rendered = text.translate(_MARKDOWN_CONTROL_ESCAPES)
+    if text.startswith(" ") and text.endswith(" ") and text.strip():
+        # GFM removes one boundary space from a non-all-space code span. Add
+        # one sentinel space to each side so the rendered value preserves the
+        # audited leading/trailing spaces exactly.
+        rendered = f" {rendered} "
+    return rendered.join("``")
