@@ -1,0 +1,25 @@
+tests/test_distillation_raw_tree_containment.py
+  s_111d64b9a15da0::t_b4879339d28119 1-256
+pipelines/oracle_grounded/distill_jsonl.py
+  s_111d64b9a15da0::t_f64fad4b1ab6ac 6-8,20-24,77-92,94,97,101-103
+docs/distillation-datasets.md
+  s_111d64b9a15da0::t_a3faeee8ee0693 403-405
+scripts/build_distillation_fixture.py
+  s_111d64b9a15da0::t_a3faeee8ee0693 14-19,42,58,173-177,180,188-207,210,258-262
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "506f83c1f99f91b8c2aa9d5041790950b95afc9c",
+  "prompts": {},
+  "sessions": {
+    "s_111d64b9a15da0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "344701ce-d2c4-426c-96b1-716c94aac4d3",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
