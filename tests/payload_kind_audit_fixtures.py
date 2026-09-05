@@ -30,9 +30,10 @@ ISSUE_74_THALAMIC_IDS = tuple(
     for round_ in range(2, 10)
     for n in (1, 2)
 )
-assert len(ISSUE_74_THALAMIC_IDS) == 16
-assert ISSUE_74_THALAMIC_IDS[0] == "act-r02-001"
-assert ISSUE_74_THALAMIC_IDS[-1] == "act-r09-002"
+if len(ISSUE_74_THALAMIC_IDS) != 16:
+    raise RuntimeError("ISSUE_74_THALAMIC_IDS must list 16 act-r** ids")
+if ISSUE_74_THALAMIC_IDS[0] != "act-r02-001" or ISSUE_74_THALAMIC_IDS[-1] != "act-r09-002":
+    raise RuntimeError("ISSUE_74_THALAMIC_IDS endpoints drifted from issue #74")
 
 
 def _step(n, **extra):
