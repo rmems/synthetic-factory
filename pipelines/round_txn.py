@@ -783,27 +783,22 @@ def discover_legacy_named_baseline(factory_dir: Path):
     return 1 if records >= quota else 0
 
 
-# Process-local cache: marker_mode_state calls this twice per factory, and a
-# full snapshot hits every factory under the same run_dir. The sibling map is
-# identical for every factory_dir that shares a parent, so key on the resolved
-# run directory. Callers may mutate the returned dict, so always hand back a
-# shallow copy.
+# Process-local cache of the *full* run-wide ID map (every factory under the
+# resolved run_dir, plus root *.jsonl). marker_mode_state calls the public
+# helper twice per factory, and snapshots hit many factories; scanning once
+# is enough. Each caller still needs siblings-only (exclude its own factory),
+# so we filter by ownership prefix when returning a fresh dict.
 _SIBLING_ID_CACHE: dict[Path, dict] = {}
 
 
-def sibling_committed_and_inflight_ids(factory_dir: Path):
-    """Seed a legacy handoff with IDs already owned by sibling factories."""
-    factory_dir = Path(factory_dir)
-    run_dir = factory_dir.parent.resolve()
-    cached = _SIBLING_ID_CACHE.get(run_dir)
-    if cached is not None:
-        return dict(cached)
+def _run_owned_record_ids(run_dir: Path) -> dict:
+    """Scan every factory under run_dir into one id -> where map."""
     seen_ids = {}
     for path in sorted(run_dir.glob("*.jsonl")):
         if path.is_file() and not path.is_symlink():
             check_jsonl(path, path.relative_to(run_dir), seen_ids=seen_ids)
     for sibling in sorted(run_dir.iterdir()):
-        if sibling == factory_dir or not sibling.is_dir() or sibling.is_symlink():
+        if not sibling.is_dir() or sibling.is_symlink():
             continue
         mode_path = marker_mode_path(sibling)
         if mode_path is None:
@@ -841,8 +836,24 @@ def sibling_committed_and_inflight_ids(factory_dir: Path):
             except ValueError:
                 label = Path(sibling.name) / ".inflight" / path.name
             check_jsonl(path, label, seen_ids=seen_ids)
-    _SIBLING_ID_CACHE[run_dir] = dict(seen_ids)
-    return dict(seen_ids)
+    return seen_ids
+
+
+def sibling_committed_and_inflight_ids(factory_dir: Path):
+    """Seed a legacy handoff with IDs already owned by sibling factories."""
+    factory_dir = Path(factory_dir)
+    run_dir = factory_dir.parent.resolve()
+    full = _SIBLING_ID_CACHE.get(run_dir)
+    if full is None:
+        full = _run_owned_record_ids(run_dir)
+        _SIBLING_ID_CACHE[run_dir] = full
+    # where labels look like "<factory>/batch-r01.jsonl:1" (or root "*.jsonl:N").
+    prefix = f"{factory_dir.name}/"
+    return {
+        record_id: where
+        for record_id, where in full.items()
+        if not str(where).startswith(prefix)
+    }
 
 
 def validate_legacy_baseline_payloads(
