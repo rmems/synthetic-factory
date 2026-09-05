@@ -1630,6 +1630,56 @@ def _check_oracle_configuration_binding(
 
 
 
+def _canonical_oracle_name(name: str) -> str:
+    """Collapse orthography that still *looks* like ``ORACLE_NAME``.
+
+    Used only to detect near-miss escapes. Acceptance still requires the exact
+    ``ORACLE_NAME`` string — we never strip-and-accept a forged name.
+    """
+
+    # Zero-width / BOM format chars survive ``str.strip``; drop them explicitly.
+    for noise in ("\u200b", "\u200c", "\u200d", "\ufeff"):
+        name = name.replace(noise, "")
+    # Unicode whitespace (ASCII space, NBSP, thin space, …) via strip.
+    collapsed = name.strip().replace("_", "-").casefold()
+    return collapsed
+
+
+def _oracle_name_is_near_miss(name: Any) -> bool:
+    """True when ``name`` is not exact ``ORACLE_NAME`` but canonicalizes to it."""
+
+    if not isinstance(name, str) or name == ORACLE_NAME:
+        return False
+    return _canonical_oracle_name(name) == _canonical_oracle_name(ORACLE_NAME)
+
+
+def _check_oracle_name_identity(
+    record: dict[str, Any], where: str
+) -> list[str]:
+    """Near-miss ``oracle.name`` orthography must not skip identity gates.
+
+    Trailing/leading space, NBSP, underscore rename, and case variants used to
+    early-return out of type-binding + re-sim (exact ``== ORACLE_NAME``),
+    leaving a forged ``hardware_replay`` continue curation-eligible
+    (FAULT-NAME-IDENTITY-ESCAPE). Reject the near-miss; do not normalize-and-
+    accept.
+    """
+
+    oracle = record.get("oracle")
+    if not isinstance(oracle, dict):
+        return []
+    name = oracle.get("name")
+    if name == ORACLE_NAME:
+        return []
+    if not _oracle_name_is_near_miss(name):
+        return []
+    return [
+        f"{where}.oracle.name: ORACLE_NAME_MISMATCH — "
+        f"near-miss name {name!r} must be exact {ORACLE_NAME!r} "
+        "(whitespace / underscore / case variants are not accepted)"
+    ]
+
+
 def _check_oracle_implementation_identity(
     record: dict[str, Any], where: str
 ) -> list[str]:
@@ -1684,6 +1734,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
     errors += _check_outcome(result, where)
     errors += _check_prediction_agreement(record, where)
     errors += _check_oracle_configuration_binding(record, where)
+    errors += _check_oracle_name_identity(record, where)
     errors += _check_oracle_implementation_identity(record, where)
     errors += _check_simulator_type_binding(record, where)
     errors += _recheck_deterministic_outcome(record, where)

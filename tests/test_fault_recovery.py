@@ -497,6 +497,60 @@ class FamilyChecks(unittest.TestCase):
             any("ORACLE_IMPLEMENTATION_MISMATCH" in e for e in errors), errors
         )
 
+    def _forge_continue_hard_deadline(self, *, name: str, implementation: str):
+        record = self._hard_deadline_fail_closed()
+        record["oracle"]["name"] = name
+        record["oracle"]["type"] = "hardware_replay"
+        record["oracle"]["implementation"] = implementation
+        record["result"]["outcome"] = "continue"
+        record["result"]["outcome_label"] = "continue"
+        record["result"]["reason_codes"] = ["WITHIN_TOLERANCE"]
+        return record
+
+    def test_trailing_space_name_cannot_escape_simulator_gates(self):
+        record = self._forge_continue_hard_deadline(
+            name=fr.ORACLE_NAME + " ",
+            implementation="pipelines/fault_recovery.py:RelayReflexSim",
+        )
+        errors = fr.check_family(record, "x")
+        self.assertTrue(any("ORACLE_NAME_MISMATCH" in e for e in errors), errors)
+
+    def test_nbsp_name_cannot_escape_simulator_gates(self):
+        record = self._forge_continue_hard_deadline(
+            name=fr.ORACLE_NAME + "\u00a0",
+            implementation="pipelines/fault_recovery.py:RelayReflexSim",
+        )
+        errors = fr.check_family(record, "x")
+        self.assertTrue(any("ORACLE_NAME_MISMATCH" in e for e in errors), errors)
+
+    def test_leading_space_name_cannot_escape_simulator_gates(self):
+        record = self._forge_continue_hard_deadline(
+            name=" " + fr.ORACLE_NAME,
+            implementation="pipelines/fault_recovery.py:RelayReflexSim",
+        )
+        errors = fr.check_family(record, "x")
+        self.assertTrue(any("ORACLE_NAME_MISMATCH" in e for e in errors), errors)
+
+    def test_underscore_name_cannot_escape_simulator_gates(self):
+        record = self._forge_continue_hard_deadline(
+            name="relay_reflex_sim",
+            implementation="pipelines/fault_recovery.py:RelayReflexSim",
+        )
+        errors = fr.check_family(record, "x")
+        self.assertTrue(any("ORACLE_NAME_MISMATCH" in e for e in errors), errors)
+
+    def test_exact_oracle_name_still_binds_implementation(self):
+        # Name identity bind must not weaken FAULT-IMPL: exact name + wrong impl.
+        record = self._forge_continue_hard_deadline(
+            name=fr.ORACLE_NAME,
+            implementation="pipelines/fault_recovery.py:RelayReflexSim",
+        )
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any("ORACLE_IMPLEMENTATION_MISMATCH" in e for e in errors), errors
+        )
+        self.assertFalse(any("ORACLE_NAME_MISMATCH" in e for e in errors), errors)
+
 
 class Cli(unittest.TestCase):
     def test_describe_reports_the_contract(self):
