@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oracle-grounded-record.schema.json",
+  "title": "OracleGroundedRecord",
+  "description": "Shared envelope for oracle-grounded neuromorphic dataset records. Introduced by issue #78 for the fault-recovery, energy-preference and MoE-router distillation families; the field layout follows the shared contract sketched in parent epic #76 so the remaining families can adopt it. Enforced in code by pipelines/oracle_grounded/distill_contract.py:check_envelope — this file documents the shape, the module is the executable authority. Three invariants: a generator proposes and never certifies (generator.authority is pinned to propose_only, and oracle-measured key names may not appear anywhere inside generator/scenario/intervention/candidate_prediction); every measurement declares a quantity, a canonical unit and the meter that produced it, and energy-class quantities are only accepted from a meter that physically measures energy; producers write validation.status = 'unvalidated' and only a validator may stamp a verdict. That third invariant is not enforceable by inspecting a file — nothing stored on disk proves who wrote it — so distill_contract.curation_eligible ignores the validation block entirely and decides on the findings its caller just produced. A stamp records that a validation happened; it is not evidence that one did.",
+  "type": "object",
+  "required": [
+    "id",
+    "family",
+    "schema_version",
+    "generator",
+    "scenario",
+    "oracle",
+    "result",
+    "provenance",
+    "validation"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable record identifier, unique within a run."
+    },
+    "family": {
+      "type": "string",
+      "enum": [
+        "neuromorphic-fault-recovery",
+        "snn-energy-routing-preferences",
+        "moe-router-distillation-trajectories"
+      ],
+      "description": "Dataset family. Additional families extend this enum as they adopt the envelope."
+    },
+    "schema_version": {
+      "const": "oracle-grounded/1.0.0"
+    },
+    "generator": { "$ref": "#/$defs/generator" },
+    "scenario": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Generator-owned description of the situation. May not contain oracle-measured keys.",
+      "additionalProperties": true
+    },
+    "intervention": {
+      "type": "object",
+      "description": "Generator-owned perturbation applied to the scenario. Required by the fault-recovery family.",
+      "additionalProperties": true
+    },
+    "candidate_prediction": { "$ref": "#/$defs/candidatePrediction" },
+    "oracle": { "$ref": "#/$defs/oracle" },
+    "result": { "$ref": "#/$defs/result" },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "validation": { "$ref": "#/$defs/validation" }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "generator": {
+      "type": "object",
+      "description": "Who proposed the scenario. Never an authority on the label.",
+      "required": ["name", "kind", "version", "seed", "authority"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["programmatic", "llm", "human", "hybrid"] },
+        "version": { "type": "string", "minLength": 1 },
+        "seed": { "type": ["integer", "null"] },
+        "authority": {
+          "const": "propose_only",
+          "description": "Pinned. A generator may never certify its own physical or simulator result."
+        },
+        "model": {
+          "type": "string",
+          "description": "Required when kind is 'llm': the model that produced the proposal."
+        },
+        "notes": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "llm" } }, "required": ["kind"] },
+          "then": { "required": ["model"] }
+        }
+      ],
+      "additionalProperties": true
+    },
+    "candidatePrediction": {
+      "type": "object",
+      "description": "The generator's guess at the answer, kept structurally distinct from the label. Every key beyond rationale/confidence/method must be named predicted_*, so a guess can never be read as a measurement.",
+      "propertyNames": {
+        "anyOf": [
+          { "pattern": "^predicted_" },
+          { "enum": ["rationale", "confidence", "method"] }
+        ]
+      },
+      "properties": {
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "rationale": { "type": "string" },
+        "method": { "type": "string" }
+      }
+    },
+    "oracle": {
+      "type": "object",
+      "description": "What actually produced the label, and how to reproduce it.",
+      "required": ["name", "type", "implementation", "version", "authority", "configuration", "seed", "commit"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "type": {
+          "type": "string",
+          "enum": [
+            "deterministic_simulator",
+            "measured_execution",
+            "recorded_measurement",
+            "real_model_router",
+            "reference_model_router",
+            "hardware_replay"
+          ]
+        },
+        "implementation": {
+          "type": "string",
+          "minLength": 1,
+          "description": "module:symbol of the code that ran."
+        },
+        "version": { "type": "string", "minLength": 1 },
+        "authority": {
+          "type": "string",
+          "enum": ["authoritative", "reference_only"],
+          "description": "'reference_only' marks a stand-in whose output proves the pipeline shape but may never be curated as ground truth."
+        },
+        "configuration": { "type": "object", "additionalProperties": true },
+        "seed": { "type": ["integer", "null"] },
+        "commit": { "type": ["string", "null"] },
+        "fingerprint": {
+          "type": "object",
+          "description": "Model / checkpoint / meter identity. The MoE-router family requires model, revision_or_checkpoint, configuration_sha256 and is_llm_teacher.",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "measurement": {
+      "type": "object",
+      "description": "One oracle-side reading. Energy-class quantities (energy_j, energy_per_op_j, power_w) are rejected unless meter is a real energy meter and measured is true — an operation-count or synaptic-operation model can be recorded but never substituted for a measured joule.",
+      "required": ["quantity", "value", "unit", "meter", "measured", "source"],
+      "properties": {
+        "quantity": { "type": "string", "minLength": 1 },
+        "value": { "type": "number" },
+        "unit": { "type": "string", "minLength": 1 },
+        "meter": { "type": "string", "minLength": 1 },
+        "measured": { "type": "boolean" },
+        "source": { "const": "oracle" },
+        "detail": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": false
+    },
+    "result": {
+      "type": "object",
+      "description": "Oracle-owned outcome. Curation fails closed when this is missing, unmeasured, or produced by a non-authoritative oracle.",
+      "required": ["status", "measurements"],
+      "properties": {
+        "status": { "type": "string", "enum": ["measured", "abstained"] },
+        "measurements": { "type": "array", "items": { "$ref": "#/$defs/measurement" } },
+        "abstention_reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required when status is 'abstained'. An oracle that could not measure says so; it does not guess."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "measured" } }, "required": ["status"] },
+          "then": { "properties": { "measurements": { "minItems": 1 } } }
+        },
+        {
+          "if": { "properties": { "status": { "const": "abstained" } }, "required": ["status"] },
+          "then": { "required": ["abstention_reason"] }
+        }
+      ],
+      "additionalProperties": true
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["producer", "produced_at", "record_sha256"],
+      "properties": {
+        "producer": { "type": "string", "minLength": 1 },
+        "produced_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+        },
+        "record_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 of the canonical record with validation and this field removed, so stamping a verdict does not change the identity of the measured record. Required, not optional: if it may be absent, deleting it is all it takes to switch off tamper detection for the record."
+        },
+        "host": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": true
+    },
+    "validation": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "type": "string", "enum": ["unvalidated", "passed", "failed"] },
+        "validator": {
+          "type": ["object", "null"],
+          "description": "Null while unvalidated. A passed/failed verdict must name the validator that stamped it.",
+          "required": ["name", "version", "checked_at"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 },
+            "checked_at": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+            },
+            "validated_digest": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "description": "The record_sha256 this verdict was formed over. Catches a verdict lifted from one record onto another; it says nothing about who stamped it."
+            }
+          },
+          "additionalProperties": true
+        },
+        "findings": { "type": "array", "items": { "type": "string" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "unvalidated" } }, "required": ["status"] },
+          "then": { "properties": { "validator": { "type": "null" } } }
+        },
+        {
+          "if": {
+            "properties": { "status": { "enum": ["passed", "failed"] } },
+            "required": ["status"]
+          },
+          "then": {
+            "required": ["validator"],
+            "properties": { "validator": { "type": "object" } }
+          }
+        }
+      ],
+      "additionalProperties": true
+    }
+  }
+}
