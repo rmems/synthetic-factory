@@ -44,10 +44,16 @@ class AgenticCodingRawCorpusFidelity(unittest.TestCase):
             for path in sorted(RAW_AGENTIC_CODING.glob("*.jsonl"))
         }
         published = json.loads(AUDIT_JSON.read_text(encoding="utf-8"))
-        derived = payload_kind_audit.build_audit(
-            RAW_AGENTIC_CODING,
-            payload_names=[entry["path"] for entry in published["files"]],
+        discovered_names = sorted(
+            path.name for path in RAW_AGENTIC_CODING.glob("*.jsonl")
         )
+        published_names = [entry["path"] for entry in published["files"]]
+        self.assertEqual(
+            discovered_names,
+            published_names,
+            "published files must name every raw JSONL in this checkout",
+        )
+        derived = payload_kind_audit.build_audit(RAW_AGENTIC_CODING)
         after = {
             path.name: hashlib.sha256(path.read_bytes()).hexdigest()
             for path in sorted(RAW_AGENTIC_CODING.glob("*.jsonl"))

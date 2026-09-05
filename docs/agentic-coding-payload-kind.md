@@ -9,7 +9,10 @@ episodes a loader can read at the top level. The other **16** are thalamic
 gate records that wrap a coding episode one level down, under
 `executed_action`. This document is the read-only measurement behind that
 claim, the exact card text an operator should publish, and the command that
-re-derives every number here.
+re-derives the scanner audit fields (`schema_version`, `source`, `summary`,
+`files`, and `records`). Hub cross-references, `card_disclosure`, and
+`card_corrections` are supplementary evidence assembled outside the scanner
+and validated separately.
 
 Nothing in this document rewrites a raw record and nothing here has been
 uploaded to the Hub. The card write is an operator action; see
@@ -251,15 +254,18 @@ it opens the corpus for reading and writes only to stdout.
 
 Two test modules pin the same finding two ways.
 `tests/test_payload_kind_audit_published.py` holds the committed audit JSON to
-its own arithmetic and holds this write-up to that audit, so the numbers quoted
-here stay internally consistent in any checkout. It does not re-derive those
-numbers from a committed payload fixture.
-`tests/test_payload_kind_audit_fidelity.py` re-derives the audit's named file
-snapshot from `outputs/raw/2026-08-17/agentic-coding-trajectory-factory` and
-skips where that gitignored tree is absent. The source directory is append-only
-and may contain newer rounds that were not part of the published Hub revision.
-Classification behavior is covered in `tests/test_payload_kind_audit.py` and the
-`--json`/`--expect` CLI contract in `tests/test_payload_kind_audit_cli.py`.
+its own arithmetic and holds this write-up to that audit, so the scanner fields
+quoted here stay internally consistent in any checkout. It does not re-derive
+those fields from a committed payload fixture, and it treats `hub`,
+`card_disclosure`, and `card_corrections` as supplementary evidence checked
+against the write-up rather than against a corpus scan.
+`tests/test_payload_kind_audit_fidelity.py` re-derives the scanner audit from
+`outputs/raw/2026-08-17/agentic-coding-trajectory-factory` and skips where that
+gitignored tree is absent. When the tree is present, it enumerates raw JSONL
+names independently and requires that list to match the committed `files`
+snapshot before comparing scanner fields. Classification behavior is covered
+in `tests/test_payload_kind_audit.py` and the `--json`/`--expect` CLI contract
+in `tests/test_payload_kind_audit_cli.py`.
 
 ## Scope
 
