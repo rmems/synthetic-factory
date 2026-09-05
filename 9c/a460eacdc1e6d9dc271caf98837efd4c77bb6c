@@ -1,0 +1,17 @@
+tests/test_distill_contract.py
+  ai_agent 144-174
+pipelines/oracle_grounded/distill_builders.py
+  ai_agent 27-31,35,52-70,100-101,107
+pipelines/oracle_grounded/distill_measurements.py
+  ai_agent 5-10,70-87,98-100
+pipelines/oracle_grounded/distill_vocabulary.py
+  ai_agent 194-195
+schemas/oracle-grounded-record.schema.json
+  ai_agent 139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9ca460eacdc1e6d9dc271caf98837efd4c77bb6c",
+  "prompts": {}
+}
