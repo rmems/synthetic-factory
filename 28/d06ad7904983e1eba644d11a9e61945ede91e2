@@ -1,0 +1,39 @@
+pipelines/oracle_grounded/import_twins.py
+  s_111d64b9a15da0::t_1e01f741016a3e 1-39
+pipelines/oracle_grounded/distill_builders.py
+  s_111d64b9a15da0::t_1e01f741016a3e 1-274
+pipelines/oracle_grounded/distill_vocabulary.py
+  s_111d64b9a15da0::t_1e01f741016a3e 1-228
+schemas/oracle-grounded-record.schema.json
+  s_111d64b9a15da0::t_1e01f741016a3e 1-240
+pipelines/oracle_grounded/distill_blocks.py
+  s_111d64b9a15da0::t_1e01f741016a3e 1-298
+pipelines/oracle_grounded/distill_contract.py
+  s_111d64b9a15da0::t_1e01f741016a3e 1-198
+pipelines/oracle_grounded/distill_curation.py
+  s_111d64b9a15da0::t_1e01f741016a3e 1-138
+pipelines/oracle_grounded/distill_jsonl.py
+  s_111d64b9a15da0::t_1e01f741016a3e 1-109
+tests/test_distillation_raw_tree_containment.py
+  s_111d64b9a15da0::t_1e01f741016a3e 1-107
+pipelines/oracle_grounded/distill_measurements.py
+  s_111d64b9a15da0::t_1e01f741016a3e 1-232
+tests/test_distill_contract.py
+  s_111d64b9a15da0::t_1e01f741016a3e 1-537
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "28d06ad7904983e1eba644d11a9e61945ede91e2",
+  "prompts": {},
+  "sessions": {
+    "s_111d64b9a15da0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "344701ce-d2c4-426c-96b1-716c94aac4d3",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
