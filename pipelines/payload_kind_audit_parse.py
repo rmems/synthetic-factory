@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import stat
 import sys
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -163,20 +165,23 @@ def _resolve_named_payload_paths(corpus: Path, payload_names: Iterable[str]) -> 
     return [corpus / name for name in sorted(names)]
 
 
-def _validate_payload_encoding(path: Path) -> None:
-    """Reject a filename this audit cannot report.
+def _validate_reported_name(name: str, *, kind: str) -> None:
+    """Reject a path component this audit cannot emit in JSON/Markdown.
 
-    On POSIX a filename is bytes, and Python represents undecodable bytes with
-    surrogate escapes. Such a name reaches every row as ``source_file`` and
-    would raise an uncaught UnicodeEncodeError inside ``sys.stdout.write`` —
-    after a successful scan — instead of the documented input-error status 2.
+    On POSIX a name is bytes, and Python represents undecodable bytes with
+    surrogate escapes. Emitting that value succeeds (escaped lone surrogates
+    in JSON), but ``--expect`` then rejects the same document — so the CLI
+    would publish an audit it cannot consume.
     """
     try:
-        path.name.encode("utf-8")
+        name.encode("utf-8")
     except UnicodeEncodeError as exc:
-        raise PayloadKindAuditError(
-            f"payload filename is not valid UTF-8: {path.name!r}"
-        ) from exc
+        raise PayloadKindAuditError(f"{kind} is not valid UTF-8: {name!r}") from exc
+
+
+def _validate_payload_encoding(path: Path) -> None:
+    """Reject a payload filename this audit cannot report as ``source_file``."""
+    _validate_reported_name(path.name, kind="payload filename")
 
 
 def _resolve_payload_paths(corpus: Path, payload_names: Iterable[str] | None) -> list[Path]:
@@ -193,13 +198,32 @@ def _resolve_payload_paths(corpus: Path, payload_names: Iterable[str] | None) ->
 
 
 def _load_payload_bytes(path: Path) -> bytes:
-    """Read one payload file after rejecting symlinks and non-files."""
-    if path.is_symlink() or not path.is_file():
-        raise PayloadKindAuditError(f"unsafe payload entry: {path}")
+    """Read one payload file without a check-then-open symlink race.
+
+    Open with ``O_NOFOLLOW``, confirm the opened descriptor is a regular file,
+    then read from that descriptor — so a TOCTOU swap to a symlink after an
+    ``is_file()`` check cannot redirect the read (CodeRabbit CWE-367).
+    """
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
-        return path.read_bytes()
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise PayloadKindAuditError(f"unsafe payload entry: {path}") from exc
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise PayloadKindAuditError(f"unsafe payload entry: {path}")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(descriptor, 1 << 20)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks)
     except OSError as exc:
         raise PayloadKindAuditError(f"cannot read payload {path}: {exc}") from exc
+    finally:
+        os.close(descriptor)
 
 
 def _parse_json_record(source_file: str, line_number: int, line: str) -> dict:

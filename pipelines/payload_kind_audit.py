@@ -37,6 +37,7 @@ from payload_kind_audit_markdown import render_markdown  # noqa: E402
 from payload_kind_audit_parse import (  # noqa: E402
     PayloadKindAuditError,
     _resolve_payload_paths,
+    _validate_reported_name,
 )
 from payload_kind_audit_scan import (  # noqa: E402
     _AuditStats,
@@ -62,6 +63,8 @@ def build_audit(corpus: Path, payload_names: Iterable[str] | None = None) -> dic
     corpus = Path(corpus)
     if corpus.is_symlink() or not corpus.is_dir():
         raise PayloadKindAuditError(f"not a readable corpus directory: {corpus}")
+    # Validate before scanning so we never emit an audit ``--expect`` rejects.
+    _validate_reported_name(corpus.name, kind="corpus directory name")
 
     payload_paths = _resolve_payload_paths(corpus, payload_names)
 

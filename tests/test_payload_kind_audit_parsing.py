@@ -134,10 +134,12 @@ class PayloadKindParsing(PayloadKindAuditCase):
             self.assertIn("not valid UTF-8", str(caught.exception))
 
             payload.write_text(json.dumps(_episode([])) + "\n", encoding="utf-8")
-            with patch.object(Path, "read_bytes", side_effect=OSError("denied")):
+            import payload_kind_audit_parse as _parse
+
+            with patch.object(_parse.os, "open", side_effect=OSError("denied")):
                 with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
                     payload_kind_audit.build_audit(directory)
-            self.assertIn("cannot read payload", str(caught.exception))
+            self.assertIn("unsafe payload entry", str(caught.exception))
 
     def test_empty_or_payload_free_corpora_are_rejected(self):
         for empty_file in (False, True):
@@ -168,6 +170,39 @@ class PayloadKindParsing(PayloadKindAuditCase):
             with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
                 payload_kind_audit.build_audit(directory)
         self.assertIn("payload filename is not valid UTF-8", str(caught.exception))
+
+    def test_a_corpus_directory_name_that_is_not_utf8_is_a_controlled_input_error(self):
+        """Corpus ``source`` is ``corpus.name``; a surrogate-escaped dirname
+        would emit an audit ``--expect`` cannot reload (Codex #136)."""
+        with TemporaryDirectory() as raw:
+            parent = Path(raw)
+            name = "corp-\udcff"
+            try:
+                directory = parent / name
+                directory.mkdir()
+            except (OSError, UnicodeEncodeError) as exc:  # pragma: no cover
+                self.skipTest(f"filesystem rejects undecodable names: {exc}")
+            (directory / "episodes.jsonl").write_text(
+                json.dumps(_episode([])) + "\n", encoding="utf-8"
+            )
+            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                payload_kind_audit.build_audit(directory)
+        self.assertIn("corpus directory name is not valid UTF-8", str(caught.exception))
+
+    def test_a_symlinked_payload_is_rejected_without_following(self):
+        """O_NOFOLLOW open must fail closed on a symlink payload (CodeRabbit TOCTOU)."""
+        with TemporaryDirectory() as raw:
+            directory = Path(raw)
+            target = directory / "real.jsonl"
+            target.write_text(json.dumps(_episode([])) + "\n", encoding="utf-8")
+            link = directory / "episodes.jsonl"
+            try:
+                link.symlink_to(target.name)
+            except OSError as exc:  # pragma: no cover
+                self.skipTest(f"filesystem rejects symlinks: {exc}")
+            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                payload_kind_audit.build_audit(directory)
+        self.assertIn("unsafe payload entry", str(caught.exception))
 
     def test_a_missing_corpus_directory_is_rejected(self):
         with self.assertRaises(payload_kind_audit.PayloadKindAuditError):
