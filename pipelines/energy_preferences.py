@@ -1291,6 +1291,32 @@ class _CandidateContext:
 MAX_REPLAY_STEPS = 128
 
 
+
+def _check_oracle_implementation_replayable(
+    record: dict[str, Any], where: str
+) -> list[str]:
+    """Foreign ``oracle.implementation`` must not skip allocation replay.
+
+    Renaming the implementation off ``pipelines/energy_preferences.py:`` used
+    to set solver=None and leave allocation checks as no-ops while safety and
+    quality still passed against a forged stored allocation.
+    """
+
+    oracle = record.get("oracle")
+    if not isinstance(oracle, dict):
+        return []
+    implementation = oracle.get("implementation")
+    if isinstance(implementation, str) and implementation.startswith(
+        "pipelines/energy_preferences.py:"
+    ):
+        return []
+    return [
+        f"{where}.oracle.implementation: ORACLE_IMPLEMENTATION_NOT_REPLAYABLE — "
+        "this family's allocations are only authenticable when implementation "
+        f"is under pipelines/energy_preferences.py:, got {implementation!r}"
+    ]
+
+
 def _replay_solver_settings(record: dict[str, Any]) -> tuple[int, int] | None:
     """``(fine_steps, coarse_steps)`` when this module's suite is replayable.
 
@@ -2379,6 +2405,8 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
     errors += _check_cost_denomination(result, where)
     measurement_errors, measured_costs = _collect_measured_costs(result, where)
     errors += measurement_errors
+
+    errors += _check_oracle_implementation_replayable(record, where)
 
     can_derive_safety, caps, demand = _safety_derivation_inputs(scenario)
     weights, optimum = _quality_derivation_inputs(

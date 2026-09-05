@@ -1367,12 +1367,19 @@ def _check_replay_measurements(
 def _replayable_blocks(
     record: dict[str, Any]
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]] | None:
-    """The scenario/intervention/result of a record this oracle can replay."""
+    """The scenario/intervention/result of a record this oracle can replay.
+
+    Replay is keyed on the in-process simulator identity (name + implementation),
+    not ``oracle.type``. Flipping type to vocabulary-legal ``hardware_replay``
+    while keeping ``RelayReflexSimulator`` must not disable the gate.
+    """
 
     oracle = record.get("oracle")
     if not isinstance(oracle, dict):
         return None
-    if oracle.get("name") != ORACLE_NAME or oracle.get("type") != "deterministic_simulator":
+    if oracle.get("name") != ORACLE_NAME:
+        return None
+    if oracle.get("implementation") != ORACLE_IMPLEMENTATION:
         return None
     scenario = record.get("scenario")
     intervention = record.get("intervention")
@@ -1593,7 +1600,9 @@ def _check_oracle_configuration_binding(
     """
 
     oracle = record.get("oracle")
-    if not isinstance(oracle, dict) or oracle.get("name") != ORACLE_NAME or (
+    if not isinstance(oracle, dict) or oracle.get("name") != ORACLE_NAME:
+        return []
+    if oracle.get("implementation") != ORACLE_IMPLEMENTATION and (
         oracle.get("type") != "deterministic_simulator"
     ):
         return []
@@ -1620,6 +1629,24 @@ def _check_oracle_configuration_binding(
     return errors
 
 
+def _check_simulator_type_binding(record: dict[str, Any], where: str) -> list[str]:
+    """Our in-process simulator must declare deterministic_simulator type."""
+
+    oracle = record.get("oracle")
+    if not isinstance(oracle, dict):
+        return []
+    if oracle.get("name") != ORACLE_NAME:
+        return []
+    if oracle.get("implementation") != ORACLE_IMPLEMENTATION:
+        return []
+    if oracle.get("type") == "deterministic_simulator":
+        return []
+    return [
+        f"{where}.oracle.type: ORACLE_TYPE_MISMATCH — {ORACLE_IMPLEMENTATION} "
+        f"must declare type deterministic_simulator, got {oracle.get('type')!r}"
+    ]
+
+
 def check_family(record: dict[str, Any], where: str) -> list[str]:
     """Family checks layered on top of the shared envelope."""
 
@@ -1631,8 +1658,11 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
     errors += _check_outcome(result, where)
     errors += _check_prediction_agreement(record, where)
     errors += _check_oracle_configuration_binding(record, where)
+    errors += _check_simulator_type_binding(record, where)
     errors += _recheck_deterministic_outcome(record, where)
     return errors
+
+
 
 
 def describe() -> dict[str, Any]:

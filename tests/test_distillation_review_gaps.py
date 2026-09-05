@@ -2775,6 +2775,16 @@ class NinthRoundEnergyGaps(unittest.TestCase):
         errors = ep.check_family(record, "x")
         self.assertTrue(any("UNKNOWN_POLICY_ID" in e for e in errors), errors)
 
+    def test_foreign_implementation_cannot_skip_allocation_replay(self):
+        record = self._record()
+        record["oracle"]["implementation"] = "pipelines/foreign_energy.py:OtherOracle"
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any("ORACLE_IMPLEMENTATION_NOT_REPLAYABLE" in e for e in errors),
+            errors,
+        )
+
     def test_solver_settings_outside_the_replay_domain_are_findings(self):
         record = self._record()
         record["oracle"]["configuration"]["fine_steps"] = 10**9

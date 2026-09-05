@@ -438,6 +438,31 @@ class FamilyChecks(unittest.TestCase):
         self.assertTrue(any("predicted_outcome" in error for error in errors))
 
 
+
+    def test_hardware_replay_type_cannot_bypass_simulator_recheck(self):
+        # Type-launder: keep RelayReflexSimulator identity, flip type to
+        # hardware_replay, claim continue on a hard-deadline miss.
+        record = fr.build_records(seed=20260823, count=20)
+        record = next(
+            item
+            for item in record
+            if item["intervention"]["kind"] == "delayed_result"
+            and item["result"]["outcome"] == "fail_closed"
+        )
+        record = copy.deepcopy(record)
+        record["oracle"]["type"] = "hardware_replay"
+        record["result"]["outcome"] = "continue"
+        record["result"]["outcome_label"] = "continue"
+        record["result"]["reason_codes"] = ["WITHIN_TOLERANCE"]
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any("ORACLE_TYPE_MISMATCH" in e for e in errors), errors
+        )
+        self.assertTrue(
+            any("OUTCOME_NOT_REPRODUCIBLE" in e for e in errors), errors
+        )
+
+
 class Cli(unittest.TestCase):
     def test_describe_reports_the_contract(self):
         described = fr.describe()
