@@ -1,6 +1,9 @@
-// Generative-Improve #8/8 — Workflow Efficiency R2
-// Co-authored-by: Muse Spark <muse-spark@meta.com>
-// Improves generative data quality while preserving:
+// Bounded generator-neutral factory window (#184 retired the prompt lane).
+// Lanes below name payload quotas only. Generator identity, rights, and
+// provenance are enforced by config/FACTORY-REGISTRY.json and
+// pipelines/round_txn.py reserve/publish — never by this script. The retired
+// prompt-driven lane is preserved at tag legacy-prompt-factory-v0.2.
+// Preserves:
 //   - early-stop on <5% novel coverage for 2 consecutive rounds
 //   - token-efficiency 40% saving mode (docs/token-efficiency.md)
 //   - 5-lane per-factory circuit breaker (parallel lanes isolate failures)
@@ -149,15 +152,17 @@ const ABORT_RECEIPT = {
   },
 }
 
-// Generative quality: each factory's quota explicitly demands scenario diversity,
-// gap-targeting, and training value. The prompt (below) reinforces this by
+// Generative quality: each lane's quota explicitly demands scenario diversity,
+// gap-targeting, and training value. The lane brief (below) reinforces this by
 // requiring densification of under-represented gaps and honest novel-coverage
 // self-assessment. This maximizes unique scenario yield per token.
+// Lane slugs must resolve to exact path_id rows in
+// config/FACTORY-REGISTRY.json; only training-candidate rows may feed weight
+// updates, and frontier hosted-model rows stay research-only per #161.
 const FACTORIES = [
   {
     slug: 'thalamic-trajectory-factory',
     name: 'Thalamic Trajectory Factory',
-    file: '01-thalamic-trajectory-factory.md',
     count: 5,
     quota: 'Generate 5 new, long ThalamicTrajectory objects spanning successes, partial failures with recovery, all three gate decisions, long-horizon consequences, and neuromorphic temporal dynamics. Maximize scenario diversity — target documented gaps and under-represented failure modes; do not reuse a prior scenario or edge.',
     extra: '',
@@ -165,7 +170,6 @@ const FACTORIES = [
   {
     slug: 'multi-agent-ouroboros-swarm',
     name: 'Multi-Agent Ouroboros Swarm',
-    file: '02-multi-agent-ouroboros-swarm.md',
     count: 1,
     quota: 'Run the full six-role swarm on one new complex agentic and neuromorphic scenario for at least two densification cycles, then emit one final ThalamicTrajectory. Ensure the scenario explores a novel coordination failure or recovery pattern not seen in prior rounds.',
     extra: ' Also put the complete labeled transcript in swarm-transcript-r{RR}.md inside the staging directory.',
@@ -173,7 +177,6 @@ const FACTORIES = [
   {
     slug: 'neuromorphic-event-language-bridge',
     name: 'Neuromorphic Event + Language Bridge',
-    file: '03-neuromorphic-event-language-bridge.md',
     count: 3,
     quota: 'Generate 3 new bridge pairs. Every spike stream must be globally time-ordered, use finite timestamps/amplitudes, include realistic refractory behavior, adaptation and noise, and contain at least 48 events. Vary channels, temporal motifs, and language grounding across pairs to maximize coverage.',
     extra: '',
@@ -181,7 +184,6 @@ const FACTORIES = [
   {
     slug: 'failure-as-fuel-preference-cascade',
     name: 'Failure-as-Fuel Preference Cascade',
-    file: '05-failure-as-fuel-preference-cascade.md',
     count: 3,
     quota: 'Generate 3 new preference records. Chosen and rejected must share the exact same state and proposed action; vary only the gate/execution/recovery quality needed to teach the preference. Cover distinct failure modes and recovery strategies across the 3 records.',
     extra: ' Put diagnoses in diagnosis-01-r{RR}.md through diagnosis-03-r{RR}.md inside staging.',
@@ -189,7 +191,6 @@ const FACTORIES = [
   {
     slug: 'agentic-coding-trajectory-factory',
     name: 'Agentic Coding Trajectory',
-    file: '04-agentic-coding-trajectory-factory.md',
     count: 2,
     quota: 'Generate 2 new long coding-agent episodes with observable decision bases, realistic tool output, failed attempts, plan changes, recovery, and measured outcomes. Each episode must explore a different bug class or tool-interaction pattern. Never emit hidden chain-of-thought.',
     extra: '',
@@ -391,7 +392,7 @@ FILE-SAFETY AND COMMIT PROTOCOL — highest priority:
 5. A round exists only if publish succeeds and creates ${expectedMarker}. Do not claim completion before then.
 
 Setup:
-- Read and obey ${args.root}/prompts/_factory-contract.md and ${args.root}/prompts/${factory.file}.
+- Read ${args.root}/config/FACTORY-REGISTRY.json and confirm this factory's exact path_id + payload_factory row, generator, and rights profile before generating. Frontier hosted-model rows are research-only; they never feed weight updates.
 - Read ${args.root}/schemas/thalamic-trajectory-v2.schema.json and ${args.root}/schemas/provenance.md.
 - Read the two newest NOTES files and skim the newest committed batch in ${outDir}; target documented gaps and avoid scenario repetition.
 - Every top-level record needs a globally unique "id". Every expected state needs state.sim_or_real exactly one of designed | simulated | hil. Synthetic scenarios are designed, never real.
@@ -447,7 +448,7 @@ If reservation fails, stop. Otherwise return only factory="${factory.slug}", rou
 
 FILE-SAFETY — highest priority: NEVER write, edit, rename, truncate, or delete any existing file under ${outDir}. Write ONLY inside this exact reserved staging directory: ${reservation.staging_dir}.
 
-Read and obey ${args.root}/prompts/_factory-contract.md and the "Session A" section of ${args.root}/prompts/${factory.file}, plus ${args.root}/schemas/thalamic-trajectory-v2.schema.json and ${args.root}/schemas/provenance.md.
+Read ${args.root}/docs/preference-isolation.md (the "Session A" two-session protocol), plus ${args.root}/schemas/thalamic-trajectory-v2.schema.json and ${args.root}/schemas/provenance.md. The single-session path is DEPRECATED and must not be used for new rounds.
 
 Produce EXACTLY ${factory.count} rejected ThalamicTrajectories and their diagnoses in staging: rejected-01-r${rr}.json, rejected-02-r${rr}.json, rejected-03-r${rr}.json scratch files (one JSON object each; never .jsonl) and diagnosis-01-r${rr}.md, diagnosis-02-r${rr}.md, diagnosis-03-r${rr}.md files. Each diagnosis must use the prompt's exact bounded six-section Markdown structure with only the Shared-context state/proposed_action JSON block and Target reward delta JSON block; never paste or serialize the rejected gate/execution/outcome/reward payload. Do NOT write batch-r${rr}.jsonl, do NOT publish, and do NOT draft any chosen content.
 
@@ -482,9 +483,9 @@ If it exits nonzero, stop. Otherwise return its stdout JSON exactly.`, {
 
 FILE-SAFETY — highest priority: NEVER write, edit, rename, truncate, or delete any existing file under ${outDir}. The content-blind controller reserved this round; its staging_dir is ${diagnosisVerification.staging_dir} and the publish token is ${reservation.reserve_token}.
 
-Read and obey ${args.root}/prompts/_factory-contract.md and the "Session B" section of ${args.root}/prompts/${factory.file}, plus ${args.root}/schemas/thalamic-trajectory-v2.schema.json.
+Read ${args.root}/docs/preference-isolation.md (the "Session B" two-session protocol), plus ${args.root}/schemas/thalamic-trajectory-v2.schema.json. The single-session path is DEPRECATED and must not be used: synthesize the repair from the verified diagnoses only, never from rejected-arm content in your own context.
 
-ISOLATION RULE (absolute): read ONLY these independently verified diagnosis files from staging: ${JSON.stringify(verifiedDiagnosisFiles)}. Their bounded verification receipt is ${JSON.stringify(diagnosisVerification.diagnosis_files)}. NEVER read any rejected-*-r${rr}.json into your context. Synthesize one repaired chosen ThalamicTrajectory per diagnosis (byte-identical state/proposed_action from each Shared-context block, fresh safety rationale), then assemble batch-r${rr}.jsonl MECHANICALLY via a python3 script that json-loads each rejected scratch file and injects it (with your chosen, a critique, script-computed reward_delta = chosen - rejected per component, and meta.isolation="two-session") without printing the rejected content. Write the staged NOTES-r${rr}.md self-critique including the "Novel coverage: <N>%" line. Run the prompt's purity checks and independent-arm scan as a local preview:
+ISOLATION RULE (absolute): read ONLY these independently verified diagnosis files from staging: ${JSON.stringify(verifiedDiagnosisFiles)}. Their bounded verification receipt is ${JSON.stringify(diagnosisVerification.diagnosis_files)}. NEVER read any rejected-*-r${rr}.json into your context. Synthesize one repaired chosen ThalamicTrajectory per diagnosis (byte-identical state/proposed_action from each Shared-context block, fresh safety rationale), then assemble batch-r${rr}.jsonl MECHANICALLY via a python3 script that json-loads each rejected scratch file and injects it (with your chosen, a critique, script-computed reward_delta = chosen - rejected per component, and meta.isolation="two-session") without printing the rejected content. Write the staged NOTES-r${rr}.md self-critique including the "Novel coverage: <N>%" line. Run the protocol's purity checks and independent-arm scan as a local preview:
   python3 ${args.root}/pipelines/preference_arms.py scan ${diagnosisVerification.staging_dir}/batch-r${rr}.jsonl
 A PREFERENCE_ARMS_NEAR_VERBATIM or PREFERENCE_ARMS_LABEL_ONLY_COPY block means the repair restated the rejected arm — re-synthesize that chosen from its diagnosis rather than rewording it. Then publish; publish re-runs the same gate against captured bytes and records its result in the completion marker, so skipping the preview cannot bypass it:
   python3 ${args.root}/pipelines/round_txn.py publish ${outDir} --round ${round} --token ${reservation.reserve_token}
