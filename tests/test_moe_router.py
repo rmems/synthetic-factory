@@ -470,7 +470,134 @@ class FamilyChecks(unittest.TestCase):
         self.assertTrue(any("expert_agreement" in error for error in errors))
 
 
+class SealedHubMoEBinding(unittest.TestCase):
+    """Fail-closed sealed Hub card / teacher-logits / revision binding."""
+
+    MIXTRAL = "mistralai/Mixtral-8x7B-Instruct-v0.1"
+
+    def _mixtral_authoritative(self, *, num_layers=32, num_experts=8, top_k=2,
+                               revision="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                               config_sha="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                               with_logits=True):
+        # Build from a reference record then rewrite the oracle identity so the
+        # scenario / derived labels stay internally consistent where possible.
+        record = json.loads(json.dumps(mr.build_records(3, 1)[0]))
+        # Expand to Mixtral depth when needed by repeating the last honest layer
+        # shape with contiguous indices (tests that only care about cardinality
+        # / revision / logits presence do not need a real Mixtral run).
+        base_layers = record["result"]["routing"]["layers"]
+        template = json.loads(json.dumps(base_layers[0]))
+        layers = []
+        for index in range(num_layers):
+            layer = json.loads(json.dumps(template))
+            layer["layer"] = index
+            if with_logits:
+                logits = [-5.0] * num_experts
+                # Keep top-k consistent with logits for whatever experts the
+                # template carried, clamped into the declared width.
+                top = [min(e, num_experts - 1) for e in layer["top_k_experts"][:top_k]]
+                while len(top) < top_k:
+                    candidate = (top[-1] + 1) % num_experts if top else 0
+                    if candidate not in top:
+                        top.append(candidate)
+                    else:
+                        top.append((candidate + 1) % num_experts)
+                for rank, expert in enumerate(top):
+                    logits[expert] = 10.0 - 0.01 * rank
+                layer["top_k_experts"] = top
+                layer["router_logits"] = logits
+                ordered = sorted(logits, reverse=True)
+                layer["top1_top2_margin"] = round(ordered[0] - ordered[1], 6)
+                # Entropy recomputed loosely enough for check_family tolerance.
+                import math as _math
+                exps = [_math.exp(v - max(logits)) for v in logits]
+                total = sum(exps)
+                probs = [e / total for e in exps]
+                layer["routing_entropy"] = round(
+                    -sum(p * _math.log(p) for p in probs if p > 0.0), 6
+                )
+            else:
+                layer.pop("router_logits", None)
+                layer["top_k_experts"] = list(range(top_k))
+            layers.append(layer)
+        tops = [layer["top_k_experts"][0] for layer in layers]
+        from collections import Counter
+        modal, count = Counter(tops).most_common(1)[0]
+        record["oracle"]["authority"] = oc.AUTHORITY_AUTHORITATIVE
+        record["oracle"]["name"] = "mixtral-8x7b-instruct"
+        record["oracle"]["type"] = "real_model_router"
+        record["oracle"]["implementation"] = mr.TRANSFORMERS_MOE_IMPLEMENTATION
+        record["oracle"]["fingerprint"] = {
+            "model": self.MIXTRAL,
+            "revision_or_checkpoint": revision,
+            "configuration_sha256": config_sha,
+            "is_llm_teacher": True,
+            "num_local_experts": num_experts,
+            "num_experts_per_tok": top_k,
+            "num_layers": num_layers,
+        }
+        record["result"]["is_llm_teacher"] = True
+        record["result"]["teacher_grounded"] = True
+        record["result"]["routing"]["layers"] = layers
+        record["result"]["routing"]["top1_expert"] = modal
+        record["result"]["routing"]["expert_agreement"] = count / len(tops)
+        record["result"]["top1_expert"] = modal
+        # Drop measurements that would disagree with rewritten routing.
+        record["result"]["measurements"] = []
+        return record
+
+    def test_inflated_expert_cardinality_is_rejected(self):
+        record = self._mixtral_authoritative(num_experts=32)
+        errors = mr.check_family(record, "x")
+        self.assertTrue(
+            any("SEALED_HUB_MOE_CARDINALITY" in e and "num_local_experts" in e
+                for e in errors),
+            errors,
+        )
+
+    def test_deflated_layer_cardinality_is_rejected(self):
+        record = self._mixtral_authoritative(num_layers=2)
+        errors = mr.check_family(record, "x")
+        self.assertTrue(
+            any("SEALED_HUB_MOE_CARDINALITY" in e and "num_layers" in e
+                for e in errors),
+            errors,
+        )
+
+    def test_fabricated_teacher_topk_without_logits_is_rejected(self):
+        record = self._mixtral_authoritative(with_logits=False)
+        errors = mr.check_family(record, "x")
+        self.assertTrue(
+            any("TEACHER_ROUTER_LOGITS_REQUIRED" in e for e in errors),
+            errors,
+        )
+
+    def test_unbound_40hex_revision_is_rejected(self):
+        record = self._mixtral_authoritative()
+        errors = mr.check_family(record, "x")
+        self.assertTrue(
+            any("UNBOUND_HUB_REVISION" in e for e in errors),
+            errors,
+        )
+
+    def test_mutable_main_revision_still_rejected(self):
+        record = self._mixtral_authoritative(revision="main")
+        errors = mr.check_family(record, "x")
+        self.assertTrue(
+            any("revision_or_checkpoint" in e and "main" in e for e in errors),
+            errors,
+        )
+
+    def test_reference_records_still_may_omit_logits(self):
+        record = mr.build_records(3, 1)[0]
+        layer = record["result"]["routing"]["layers"][0]
+        layer["router_logits"] = None
+        layer["routing_entropy"] = 1.0
+        self.assertEqual(mr.check_family(record, "x"), [])
+
+
 class Cli(unittest.TestCase):
+
     def test_oracles_subcommand_emits_json(self):
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer):

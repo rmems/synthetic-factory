@@ -93,6 +93,28 @@ RECOMPUTE_TOLERANCE = 1e-4
 # is not a checkpoint — the same name serves different weights tomorrow.
 COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
+# Sealed known-Hub MoE cardinality cards. Published config facts for models
+# whose fingerprints appear as authoritative teachers. Validate binds declared
+# depth / experts / top-k to these cards — no Hub network calls in CI.
+SEALED_HUB_MOE_CARDS: dict[str, dict[str, int]] = {
+    "mistralai/Mixtral-8x7B-Instruct-v0.1": {
+        "num_hidden_layers": 32,
+        "num_local_experts": 8,
+        "num_experts_per_tok": 2,
+    },
+}
+
+# Sealed (model, revision) -> configuration_sha256. Format-valid 40-hex alone
+# is not a binding; an authoritative record naming a sealed-card model must
+# carry a revision whose digest is listed here. Tip fixtures use
+# ReferenceMoERouter (not Hub Mixtral), so this table stays empty until a real
+# teacher run is sealed — unbound 40-hex must fail closed.
+SEALED_HUB_MOE_REVISIONS: dict[tuple[str, str], str] = {}
+
+TRANSFORMERS_MOE_IMPLEMENTATION = (
+    "pipelines/moe_router.py:TransformersMoERouter"
+)
+
 
 def resolve_checkpoint(revision: Any, config_commit: Any) -> str:
     """Return the immutable commit these teacher weights came from.
@@ -1069,6 +1091,40 @@ def _check_laundered_oracle(
     return []
 
 
+def _sealed_hub_card(fingerprint: Any) -> dict[str, int] | None:
+    """The sealed Hub MoE card for ``fingerprint.model``, when one exists."""
+
+    if not isinstance(fingerprint, dict):
+        return None
+    model = fingerprint.get("model")
+    if isinstance(model, str):
+        return SEALED_HUB_MOE_CARDS.get(model.strip())
+    return None
+
+
+def _is_authoritative_teacher_grounded(oracle: Any, result: Any) -> bool:
+    """True when the record claims an authoritative LLM teacher trajectory."""
+
+    return (
+        isinstance(oracle, dict)
+        and oracle.get("authority") == oc.AUTHORITY_AUTHORITATIVE
+        and isinstance(result, dict)
+        and result.get("is_llm_teacher") is True
+        and result.get("teacher_grounded") is True
+    )
+
+
+def _claims_transformers_or_sealed_moe(oracle: Any, fingerprint: Any) -> bool:
+    """TransformersMoERouter implementation or a sealed Hub MoE card model."""
+
+    if (
+        isinstance(oracle, dict)
+        and oracle.get("implementation") == TRANSFORMERS_MOE_IMPLEMENTATION
+    ):
+        return True
+    return _sealed_hub_card(fingerprint) is not None
+
+
 def _check_authoritative_checkpoint(
     oracle: Any, fingerprint: Any, where: str
 ) -> list[str]:
@@ -1078,6 +1134,11 @@ def _check_authoritative_checkpoint(
     replayed recording could otherwise carry ``revision_or_checkpoint:
     "main"`` — a mutable name under which different weight revisions share
     one teacher identity while the configuration digest stays the same.
+
+    For models on :data:`SEALED_HUB_MOE_CARDS`, a format-valid 40-hex string is
+    still insufficient: the ``(model, revision)`` pair must appear in
+    :data:`SEALED_HUB_MOE_REVISIONS` with a matching ``configuration_sha256``.
+    No Hub network calls — unbound digests fail closed.
     """
 
     if not (
@@ -1087,14 +1148,97 @@ def _check_authoritative_checkpoint(
     ):
         return []
     revision = fingerprint.get("revision_or_checkpoint")
-    if isinstance(revision, str) and COMMIT_SHA_RE.match(revision.strip()):
+    if not (isinstance(revision, str) and COMMIT_SHA_RE.match(revision.strip())):
+        return [
+            f"{where}.oracle.fingerprint.revision_or_checkpoint must be a "
+            f"resolved 40-hex commit for an authoritative router record, got "
+            f"{revision!r} — a mutable name can serve different weights under "
+            "one recorded identity"
+        ]
+    revision = revision.strip()
+    model = fingerprint.get("model")
+    if not isinstance(model, str) or model.strip() not in SEALED_HUB_MOE_CARDS:
         return []
-    return [
-        f"{where}.oracle.fingerprint.revision_or_checkpoint must be a "
-        f"resolved 40-hex commit for an authoritative router record, got "
-        f"{revision!r} — a mutable name can serve different weights under "
-        "one recorded identity"
-    ]
+    model = model.strip()
+    sealed_digest = SEALED_HUB_MOE_REVISIONS.get((model, revision))
+    config_digest = fingerprint.get("configuration_sha256")
+    if sealed_digest is None:
+        return [
+            f"{where}.oracle.fingerprint: UNBOUND_HUB_REVISION — "
+            f"revision_or_checkpoint {revision!r} is not a sealed "
+            f"(model, revision) for {model!r}; format-valid 40-hex alone "
+            "does not bind an authoritative teacher checkpoint"
+        ]
+    if not isinstance(config_digest, str) or config_digest != sealed_digest:
+        return [
+            f"{where}.oracle.fingerprint: UNBOUND_HUB_REVISION — "
+            f"configuration_sha256 must match the sealed digest for "
+            f"({model!r}, {revision!r})"
+        ]
+    return []
+
+
+def _check_sealed_hub_cardinality(
+    fingerprint: Any, oracle: Any, result: Any, where: str
+) -> list[str]:
+    """Bind declared depth/experts to the sealed Hub card for the model.
+
+    Authoritative teacher-grounded records whose ``fingerprint.model`` matches
+    a sealed card may not self-attest a different ``num_layers`` /
+    ``num_local_experts`` / ``num_experts_per_tok``.
+    """
+
+    if not _is_authoritative_teacher_grounded(oracle, result):
+        return []
+    card = _sealed_hub_card(fingerprint)
+    if card is None or not isinstance(fingerprint, dict):
+        return []
+    errors: list[str] = []
+    checks = (
+        ("num_layers", card["num_hidden_layers"], "num_hidden_layers"),
+        ("num_local_experts", card["num_local_experts"], "num_local_experts"),
+        ("num_experts_per_tok", card["num_experts_per_tok"], "num_experts_per_tok"),
+    )
+    model = str(fingerprint.get("model")).strip()
+    for field, expected, card_field in checks:
+        declared = fingerprint.get(field)
+        if declared != expected:
+            errors.append(
+                f"{where}.oracle.fingerprint: SEALED_HUB_MOE_CARDINALITY — "
+                f"{field} is {declared!r} but sealed Hub card for {model!r} "
+                f"has {card_field}={expected}"
+            )
+    return errors
+
+
+def _check_teacher_router_logits(
+    layers: list[Any], oracle: Any, fingerprint: Any, result: Any, where: str
+) -> list[str]:
+    """Authoritative Transformers / sealed-card teachers must expose logits.
+
+    Fabricated top-k without a teacher run omits ``router_logits``; requiring
+    them (with the existing ordering check) closes that launder. Recorded
+    teachers that are not TransformersMoERouter and not on a sealed card may
+    still omit logits.
+    """
+
+    if not _is_authoritative_teacher_grounded(oracle, result):
+        return []
+    if not _claims_transformers_or_sealed_moe(oracle, fingerprint):
+        return []
+    errors: list[str] = []
+    for index, layer in enumerate(layers):
+        spot = f"{where}.result.routing.layers[{index}]"
+        if not isinstance(layer, dict):
+            continue
+        logits = layer.get("router_logits")
+        if logits is None:
+            errors.append(
+                f"{spot}: TEACHER_ROUTER_LOGITS_REQUIRED — authoritative "
+                "TransformersMoERouter / sealed Hub MoE teacher records must "
+                "expose router_logits so top_k can be rebound to a real gate"
+            )
+    return errors
 
 
 def _check_teacher_fingerprint(oracle: Any, fingerprint: Any, where: str) -> list[str]:
@@ -1695,8 +1839,12 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
     errors += _check_declared_count_authority(expert_count, oracle, where)
     errors += _check_declared_trajectory_authority(fingerprint, oracle, where)
     errors += _check_authoritative_checkpoint(oracle, fingerprint, where)
+    errors += _check_sealed_hub_cardinality(fingerprint, oracle, result, where)
     errors += _check_routing_layers(
         layers, expert_count, _declared_top_k(fingerprint), where
+    )
+    errors += _check_teacher_router_logits(
+        layers, oracle, fingerprint, result, where
     )
     errors += _check_layer_count(layers, fingerprint, where)
     errors += _check_derived_routing_labels(result, routing, layers, where)
