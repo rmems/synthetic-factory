@@ -41,6 +41,11 @@ def _parse_jsonl_line(raw: bytes) -> tuple[bool, Any]:
     validate, and be digested, as whichever came last; the repository's
     strict loaders reject the same bytes through
     ``tag_jsonutil.reject_duplicate_object_keys``, and so does this reader.
+
+    A pathologically nested line is a parse failure as well. ``json.loads``
+    raises ``RecursionError`` on it, which is not a ``ValueError``, so one
+    such line used to escape this boundary and abort the read of the whole
+    file; ``check_records`` on main treats it as the one bad line it is.
     """
 
     try:
@@ -56,7 +61,7 @@ def _parse_jsonl_line(raw: bytes) -> tuple[bool, Any]:
             parse_constant=envelope.reject_json_constant,
             parse_float=envelope.reject_nonfinite_float,
         )
-    except ValueError:  # JSONDecodeError included
+    except (ValueError, RecursionError):  # JSONDecodeError included
         return True, None
 
 

@@ -478,6 +478,19 @@ class JsonlDuplicateKeys(unittest.TestCase):
         self.assertEqual(rows[1], (2, None))
 
 
+class JsonlPerLineBoundary(unittest.TestCase):
+    """The reader fails per line, never per file, for a pathological line too."""
+
+    def test_a_pathologically_nested_line_is_a_parse_failure_not_an_abort(self):
+        # json.loads raises RecursionError on 200,000 '[', a RuntimeError,
+        # so it escaped the reader's ValueError boundary and took the whole
+        # file down instead of being reported as the one bad line it is.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "batch.jsonl"
+            path.write_bytes(b"[" * 200_000 + b"\n" + b'{"ok": 1}\n')
+            self.assertEqual(oc.read_jsonl(path), [(1, None), (2, {"ok": 1})])
+
+
 class SchemaFileAgreesWithTheModule(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
