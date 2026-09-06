@@ -372,7 +372,10 @@ class EnergyClaimScan(unittest.TestCase):
         )
         self.assertEqual(self.claims(record), [])
 
-    def test_the_scan_is_bounded_and_flat(self):
+    def test_the_hit_cap_bounds_collected_findings_and_the_walk_is_flat(self):
+        # The cap bounds how many findings are collected, not the work of
+        # visiting the record or the length of a path; the listing stays
+        # short here because each path is short.
         record = minimal_record()
         record["result"]["junk"] = [{"unit": "J", "value": index} for index in range(10_000)]
         claims = self.claims(record)
@@ -388,6 +391,72 @@ class EnergyClaimScan(unittest.TestCase):
         record = minimal_record()
         record["result"]["deep"] = deep
         self.assertEqual(len(self.claims(record)), 1)
+
+
+class EnergyIdentityAcrossContainers(unittest.TestCase):
+    """Energy identity survives containers, checked through the public contract API.
+
+    An object that identifies energy through its own fields, or a container
+    under an energy-identifying key, is a claim whenever any number sits
+    beneath it, however many lists or dicts deep. Cases A to D are the
+    owner's reproducers on 766f06fe, where only A was reported.
+    """
+
+    CASES = {
+        "A object with a numeric value": {"quantity": "energy_j", "unit": "J", "value": 5.0},
+        "B object whose value is a list": {"quantity": "energy_j", "unit": "J", "value": [5.0]},
+        "C object whose value is a dict": {
+            "quantity": "energy_j", "unit": "J", "value": {"sample": 5.0},
+        },
+        "D energy-keyed container": {"energy_j": {"value": 5.0}},
+        "E object whose value is a nested list": {
+            "quantity": "energy_j", "unit": "J", "value": [[5.0]],
+        },
+        "F energy-keyed list of objects": {"energy_j": [{"sample": 5.0}]},
+    }
+    IDENTIFIED_OBJECTS = (
+        "A object with a numeric value",
+        "B object whose value is a list",
+        "C object whose value is a dict",
+        "E object whose value is a nested list",
+    )
+    ENERGY_KEYED = ("D energy-keyed container", "F energy-keyed list of objects")
+
+    def findings(self, extra, backed: bool = False) -> list:
+        record = minimal_record()
+        if backed:
+            record["result"]["measurements"].append(measured_energy_reading())
+        record["result"]["extra"] = extra
+        return [
+            e for e in oc.check_no_theoretical_energy_claim(record, "x")
+            if "THEORETICAL_ENERGY_CLAIM" in e
+        ]
+
+    def test_unbacked_energy_identity_is_a_claim_through_any_container(self):
+        for name, extra in self.CASES.items():
+            with self.subTest(case=name):
+                findings = self.findings(extra)
+                self.assertEqual(len(findings), 1, findings)
+                self.assertIn("result.extra", findings[0])
+
+    def test_backing_makes_identified_objects_legal_but_not_bare_energy_keys(self):
+        for name in self.IDENTIFIED_OBJECTS:
+            with self.subTest(case=name):
+                self.assertEqual(self.findings(self.CASES[name], backed=True), [])
+        # A container under a bare energy key names no meter and no quantity
+        # of its own, so no reading can back it (R2 has no backing exemption).
+        for name in self.ENERGY_KEYED:
+            with self.subTest(case=name):
+                self.assertEqual(len(self.findings(self.CASES[name], backed=True)), 1)
+
+    def test_nonnumeric_metadata_under_an_energy_identity_is_not_a_claim(self):
+        for extra in (
+            {"quantity": "energy_j", "unit": "J", "note": "planned", "tags": ["draft"]},
+            {"energy_j": {"unit": "J", "meter": "intel_rapl_powercap", "available": False}},
+            {"quantity": "energy_j", "unit": "J", "value": {"note": "none", "flags": [True]}},
+        ):
+            with self.subTest(extra=extra):
+                self.assertEqual(self.findings(extra), [])
 
 
 class ResultFailsClosed(unittest.TestCase):

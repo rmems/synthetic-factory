@@ -16,9 +16,18 @@ exists, and any other object that identifies energy through its own
 ``quantity`` / ``cost_quantity`` / ``unit`` / ``cost_unit`` fields, under the
 same backing rule and never from a modelled meter. Everything else that
 identifies itself as energy -- a bare number under an energy key, the numbers
-in a list under one, an unbacked energy object -- is a theoretical claim.
-``result.measurements`` entries, their ``detail`` included, stay with the
-measurement rule (row 15 of the D3 matrix is held).
+in a list under one, an unbacked energy object -- is a theoretical claim, and
+that identity survives containers: an identified object is a claim whenever a
+number sits anywhere beneath it, and a dict or list under an energy key is a
+claim whenever a number sits anywhere beneath that. ``result.measurements``
+entries, their ``detail`` included, stay with the measurement rule (row 15 of
+the D3 matrix is held).
+
+The walk is flat: an explicit stack, so a deeply nested result is reported
+rather than raising ``RecursionError``. The hit cap
+``envelope.MAX_RESERVED_KEY_HITS`` bounds how many findings are collected
+before the walk stops; it bounds neither the work of visiting the record up
+to that point nor the length of a path in the listing.
 """
 
 from __future__ import annotations
@@ -211,64 +220,99 @@ def _energy_identity(value: dict[str, Any]) -> frozenset[str] | None:
     return None
 
 
-def _object_claim(value: dict[str, Any], path: str, measured: set[str]) -> str | None:
-    """Why an energy-identified object with numeric content is a claim, or None.
+def _object_reason(
+    value: dict[str, Any], quantities: frozenset[str], measured: set[str]
+) -> str | None:
+    """Why an energy-identified object is a claim, or None when it is legal (S3).
 
-    Metadata alone (a probe entry naming a meter and a quantity, a flag, a
-    label) is never a claim: only an object that also carries a number is.
+    Legal means backed by a measured reading of its quantity from a
+    measuring meter; a modelled meter or a declared ``measured: false`` is a
+    claim whatever backs it.
     """
 
-    quantities = _energy_identity(value)
-    if quantities is None or not any(envelope.is_number(item) for item in value.values()):
-        return None
     meter = value.get("meter") if "meter" in value else value.get("cost_meter")
     if envelope.is_enum_value(meter, vocab.MODELED_METERS):
-        return f"{path} (modelled meter {meter!r})"
+        return f"modelled meter {meter!r}"
     if "measured" in value and value["measured"] is not True:
-        return f"{path} (declared unmeasured)"
+        return "declared unmeasured"
     if quantities & measured:
         return None
-    backing = "/".join(sorted(quantities)) or "that unit"
-    return f"{path} (no measured {backing} reading backs it)"
+    return f"no measured {'/'.join(sorted(quantities)) or 'that unit'} reading backs it"
+
+
+# The energy context a container hands to everything beneath it: None (no
+# energy identity yet), _LEGAL (inside a backed, measuring object), or a
+# ``(root_path, finding_text)`` claim that the first number beneath confirms.
+_LEGAL = "legal"
+
+
+def _dict_context(
+    value: dict[str, Any], path: str, key: str, inherited: Any, measured: set[str]
+) -> Any:
+    """The context a dict hands its children.
+
+    Its own identity (R1) comes first: a backed, measuring object makes its
+    subtree legal, any other identified object makes it a claim. Without an
+    identity, a dict under an energy key (R2) is a claim container, and
+    otherwise the inherited context carries on. ``result.preference`` itself
+    is the preference rule's business (S2) and hands its children the
+    inherited context untouched.
+    """
+
+    if path != "result.preference":
+        quantities = _energy_identity(value)
+        if quantities is not None:
+            reason = _object_reason(value, quantities, measured)
+            return _LEGAL if reason is None else (path, f"{path} ({reason})")
+    if inherited is None and _is_energy_key(key):
+        return (path, f"{path} (energy-keyed container)")
+    return inherited
 
 
 def _energy_scan_hits(result: dict[str, Any], measured: set[str]) -> list[str]:
-    """Paths of energy claims outside ``result.measurements``, bounded.
+    """Paths of energy claims outside ``result.measurements``.
 
-    An explicit stack keeps the walk flat, so a pathologically nested result
-    is reported rather than blowing the recursion limit; at most
-    ``envelope.MAX_RESERVED_KEY_HITS`` paths are collected, one already
-    rejects the record. ``result.preference`` itself is the preference rule's
-    business (S2); everything inside it is walked like any other value.
+    Identity propagates through containers as a per-frame context, so a
+    number confirms the nearest enclosing claim (an identified object, or a
+    container under an energy key) rather than being judged by its own key
+    alone; a number under no context is judged by its key (R2). ``result``
+    itself is an object too: ``cost_quantity`` flipped to an energy quantity
+    beside numeric content is the relabelling the energy family's review
+    reproduced. The walk stops once the cap is reached; see the module
+    docstring for what the cap does and does not bound.
     """
 
-    # ``result`` itself is an object too: ``cost_quantity`` flipped to an
-    # energy quantity beside numeric content is the relabelling the energy
-    # family's review reproduced, and it needs the same backing as any other.
-    hits = [claim for claim in (_object_claim(result, "result", measured),) if claim is not None]
+    bare: list[str] = []
+    claims: dict[str, str] = {}
+    root_context = _dict_context(result, "result", "result", None, measured)
     stack = [
-        (f"result.{key}", key, value)
+        (f"result.{key}", key, value, root_context)
         for key, value in reversed(list(result.items()))
         if key != "measurements"
     ]
-    while stack and len(hits) < envelope.MAX_RESERVED_KEY_HITS:
-        path, key, value = stack.pop()
+    while stack and len(bare) + len(claims) < envelope.MAX_RESERVED_KEY_HITS:
+        path, key, value, context = stack.pop()
         if isinstance(value, dict):
-            claim = None if path == "result.preference" else _object_claim(value, path, measured)
-            if claim is not None:
-                hits.append(claim)
+            child_context = _dict_context(value, path, key, context, measured)
             stack.extend(
-                (f"{path}.{child}", child, item) for child, item in reversed(list(value.items()))
+                (f"{path}.{child}", child, item, child_context)
+                for child, item in reversed(list(value.items()))
             )
         elif isinstance(value, list):
-            # A list keeps its key: the numbers in a list under an energy key
-            # are energy numbers (R3); objects inside any list are walked (R1).
+            # A list keeps its key and its context: the numbers in a list under
+            # an energy key are energy numbers (R3), and every element of a
+            # list inside a claim confirms that claim.
             stack.extend(
-                (f"{path}[{index}]", key, item) for index, item in reversed(list(enumerate(value)))
+                (f"{path}[{index}]", key, item, context)
+                for index, item in reversed(list(enumerate(value)))
             )
-        elif envelope.is_number(value) and _is_energy_key(key):
-            hits.append(path)
-    return hits
+        elif envelope.is_number(value):
+            if context is None:
+                if _is_energy_key(key):
+                    bare.append(path)
+            elif context is not _LEGAL:
+                claims.setdefault(context[0], context[1])
+    return bare + list(claims.values())
 
 
 def _energy_scan_errors(result: dict[str, Any], measured: set[str], where: str) -> list[str]:
