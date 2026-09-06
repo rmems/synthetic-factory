@@ -45,21 +45,33 @@ def _check_prediction_naming(prediction: Any, where: str) -> list[str]:
 
     if not isinstance(prediction, dict):
         return []
-    keys = sorted(key for key in prediction if isinstance(key, str))
     errors = [
+        f"{where}.candidate_prediction.{key}: generator predictions must be "
+        f"named {vocab.PREDICTION_PREFIX}* (or one of "
+        f"{sorted(vocab.PREDICTION_FREE_KEYS)})"
+        for key in sorted(_string_keys(prediction))
+        if key not in vocab.PREDICTION_FREE_KEYS
+        and not key.startswith(vocab.PREDICTION_PREFIX)
+    ]
+    return (
+        _prediction_key_errors(prediction, where)
+        + errors
+        + _prediction_free_field_errors(prediction, where)
+    )
+
+
+def _string_keys(mapping: dict[Any, Any]) -> list[str]:
+    return [key for key in mapping if isinstance(key, str)]
+
+
+def _prediction_key_errors(prediction: dict[Any, Any], where: str) -> list[str]:
+    """A JSON object cannot carry a non-string key; a direct caller's mapping can."""
+
+    return [
         f"{where}.candidate_prediction: every key must be a string, got {key!r}"
         for key in prediction
         if not isinstance(key, str)
     ]
-    errors += [
-        f"{where}.candidate_prediction.{key}: generator predictions must be "
-        f"named {vocab.PREDICTION_PREFIX}* (or one of "
-        f"{sorted(vocab.PREDICTION_FREE_KEYS)})"
-        for key in keys
-        if key not in vocab.PREDICTION_FREE_KEYS
-        and not key.startswith(vocab.PREDICTION_PREFIX)
-    ]
-    return errors + _prediction_free_field_errors(prediction, where)
 
 
 def _prediction_free_field_errors(prediction: dict[str, Any], where: str) -> list[str]:

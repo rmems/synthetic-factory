@@ -2,8 +2,9 @@
 """Shared surface for the distillation-contract test modules.
 
 The direct tests of ``pipelines/oracle_grounded/distill_*`` are split by
-responsibility -- ``test_distill_envelope`` (the record blocks, builders and
-the generator/oracle separation), ``test_distill_measurements`` (measurement
+responsibility -- ``test_distill_envelope`` (the record blocks and
+the generator/oracle separation), ``test_distill_builders`` (the block builders
+and their copy boundary), ``test_distill_measurements`` (measurement
 checks and the energy-claim scan), ``test_distill_labels`` (family-owned
 oracle-label policies), ``test_distill_jsonl`` (JSONL I/O),
 ``test_distill_curation`` (stamps and the curation gate) and
