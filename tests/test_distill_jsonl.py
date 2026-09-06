@@ -134,13 +134,30 @@ class JsonlCanonicalBoundary(unittest.TestCase):
             self.assertEqual(oc.read_jsonl(path), [(1, None), (2, {"id": "y"})])
 
     def test_writing_uncanonicalisable_content_is_a_contract_error_and_leaves_no_file(self):
-        for name, record in uncanonicalisable_records().items():
+        records = uncanonicalisable_records()
+        deep = records.pop("deep nesting")
+        for name, record in records.items():
             with self.subTest(case=name), tempfile.TemporaryDirectory() as tmp:
                 path = Path(tmp) / "batch.jsonl"
                 with self.assertRaises(oc.ContractError) as caught:
                     oc.write_jsonl(path, [minimal_record(), record])
                 self.assertIsNotNone(caught.exception.__cause__)
                 self.assertFalse(path.exists())
+        # Deep nesting is legal JSON; whether the C encoder can serialise
+        # 50,000 levels depends on the platform's C stack (it does on the CI
+        # runner, not on every workstation). The guarantee is platform-free:
+        # either the write succeeds or it is a ContractError, never a raw
+        # RecursionError, and a refused write leaves no file.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "deep.jsonl"
+            try:
+                written = oc.write_jsonl(path, [deep])
+            except oc.ContractError as caught:
+                self.assertIsInstance(caught.__cause__, RecursionError)
+                self.assertFalse(path.exists())
+            else:
+                self.assertEqual(written, 1)
+                self.assertTrue(path.read_bytes().endswith(b"\n"))
 
 
 if __name__ == "__main__":
