@@ -402,5 +402,88 @@ class DigestBoundary(unittest.TestCase):
                 self.assertIsNotNone(caught.exception.__cause__)
 
 
+class BuilderCopyBoundary(unittest.TestCase):
+    """RoR-190-B1 follow-through: the builder copies every section before it
+    digests, so a copy failure is translated at that boundary too."""
+
+    GOLDEN_DIGEST = "445ee6a8087064685802b04a7215df74480225fdf2a45abb6e909381f9b39dab"
+
+    @staticmethod
+    def build(scenario, result=None):
+        base = minimal_record()
+        return oc.build_record(
+            identity=oc.RecordIdentity("rec-copy", base["family"]),
+            proposal=oc.Proposal(generator=base["generator"], scenario=scenario),
+            verdict=oc.Verdict(oracle=base["oracle"], result=result or base["result"]),
+            provenance=oc.new_provenance("unit-test"),
+        )
+
+    def test_a_genuinely_nested_section_is_a_contract_error(self):
+        deep: dict = {}
+        cursor = deep
+        for _ in range(50_000):
+            cursor["k"] = {}
+            cursor = cursor["k"]
+        with self.assertRaises(oc.ContractError) as caught:
+            self.build(deep)
+        self.assertIsInstance(caught.exception.__cause__, RecursionError)
+        self.assertIn("scenario", str(caught.exception))
+
+    def test_an_injected_copy_failure_is_translated_whatever_the_recursion_limit(self):
+        class Uncopyable:
+            def __init__(self, error):
+                self.error = error
+
+            def __deepcopy__(self, memo):
+                raise self.error
+
+        for name, error, section in (
+            ("recursion in scenario", RecursionError("injected"), "scenario"),
+            ("uncopyable value in result", TypeError("cannot copy"), "result"),
+        ):
+            with self.subTest(case=name):
+                payload = {"payload": Uncopyable(error)}
+                with self.assertRaises(oc.ContractError) as caught:
+                    if section == "scenario":
+                        self.build(payload)
+                    else:
+                        base = minimal_record()
+                        self.build({"mission": "x"}, result={**base["result"], **payload})
+                self.assertIs(caught.exception.__cause__, error)
+                self.assertIn(section, str(caught.exception))
+
+    def test_ordinary_builder_output_and_digest_are_unchanged(self):
+        generator = oc.new_generator(oc.GeneratorIdentity("golden-gen", version="1.0.0"), seed=7)
+        oracle = oc.new_oracle(
+            oc.OracleIdentity(
+                "golden-sim", oracle_type="deterministic_simulator", implementation="x:Y", version="1.0.0"
+            ),
+            oc.OracleRun(configuration={"n": 4}, seed=3, commit="abc"),
+        )
+        result = oc.new_result(
+            measurements=[oc.new_measurement("recovery_latency_ms", 4.0, "simulator_clock")],
+            outcome="fallback",
+            reason_codes=["FALLBACK_SOURCE_ENGAGED"],
+        )
+        scenario = {"mission": "golden", "nested": {"a": [1, {"b": 2}]}}
+        record = oc.build_record(
+            identity=oc.RecordIdentity("golden-1", "neuromorphic-fault-recovery"),
+            proposal=oc.Proposal(
+                generator=generator,
+                scenario=scenario,
+                intervention={"kind": "sensor_loss", "parameters": {"channels": ["c0"]}},
+                candidate_prediction={"predicted_outcome": "fallback", "confidence": 0.5},
+            ),
+            verdict=oc.Verdict(oracle=oracle, result=result),
+            provenance=oc.new_provenance("golden-producer", produced_at="2026-09-05T00:00:00Z"),
+        )
+        self.assertEqual(record["provenance"]["produced_at"], "2026-09-05T00:00:00Z")
+        self.assertEqual(record["provenance"]["record_sha256"], self.GOLDEN_DIGEST)
+        self.assertEqual(oc.check_envelope(record, "x") + oc.check_digest(record, "x"), [])
+        # The record holds copies: the caller's objects stay theirs.
+        scenario["nested"]["a"].append(3)
+        self.assertEqual(record["scenario"]["nested"]["a"], [1, {"b": 2}])
+
+
 if __name__ == "__main__":
     unittest.main()

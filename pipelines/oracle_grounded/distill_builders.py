@@ -263,6 +263,25 @@ class Verdict:
     result: dict[str, Any]
 
 
+def _copied(section: Any, name: str) -> Any:
+    """A private copy of one caller-supplied section, or a ContractError.
+
+    The record must hold copies so the caller's objects stay theirs, and the
+    copy runs before the digest boundary; a section nested past the
+    recursion limit, or holding a value that cannot be copied, is malformed
+    input and is refused the same way uncanonicalisable content is, never as
+    a raw copier exception. Only those two failures are translated.
+    """
+
+    try:
+        return copy.deepcopy(section)
+    except (RecursionError, TypeError) as exc:
+        raise envelope.ContractError(
+            f"record content cannot be copied into a record: the caller-supplied {name} "
+            "section is nested past the recursion limit or holds a value that cannot be copied"
+        ) from exc
+
+
 def build_record(
     *,
     identity: RecordIdentity,
@@ -278,17 +297,19 @@ def build_record(
         "id": identity.record_id,
         "family": identity.family,
         "schema_version": vocab.SCHEMA_VERSION,
-        "generator": copy.deepcopy(proposal.generator),
-        "scenario": copy.deepcopy(proposal.scenario),
-        "oracle": copy.deepcopy(verdict.oracle),
-        "result": copy.deepcopy(verdict.result),
-        "provenance": copy.deepcopy(provenance),
+        "generator": _copied(proposal.generator, "generator"),
+        "scenario": _copied(proposal.scenario, "scenario"),
+        "oracle": _copied(verdict.oracle, "oracle"),
+        "result": _copied(verdict.result, "result"),
+        "provenance": _copied(provenance, "provenance"),
         "validation": unvalidated(),
     }
     if proposal.intervention is not None:
-        record["intervention"] = copy.deepcopy(proposal.intervention)
+        record["intervention"] = _copied(proposal.intervention, "intervention")
     if proposal.candidate_prediction is not None:
-        record["candidate_prediction"] = copy.deepcopy(proposal.candidate_prediction)
+        record["candidate_prediction"] = _copied(
+            proposal.candidate_prediction, "candidate_prediction"
+        )
     digest, failure = vocab.digest_or_failure(record)
     if failure is not None:
         raise envelope.ContractError(
