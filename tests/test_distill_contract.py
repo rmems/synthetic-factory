@@ -195,10 +195,10 @@ class SupportedImportForms(unittest.TestCase):
     module short-circuited the import of its parent package.
     """
 
-    FLAT = f"import sys; sys.path.insert(0, {str(REPO / 'pipelines')!r}); "
-    FLAT += "from oracle_grounded import distill_contract as flat; "
-    PKG = f"import sys; sys.path.insert(0, {str(REPO)!r}); "
-    PKG += "from pipelines.oracle_grounded import distill_contract as pkg; "
+    CLI_PATH = f"import sys; sys.path.insert(0, {str(REPO / 'pipelines')!r}); "
+    ROOT_PATH = f"import sys; sys.path.insert(0, {str(REPO)!r}); "
+    FLAT = CLI_PATH + "from oracle_grounded import distill_contract as flat; "
+    PKG = ROOT_PATH + "from pipelines.oracle_grounded import distill_contract as pkg; "
     SAME = (
         "assert pkg is flat, 'two module objects'; "
         "assert pkg.ContractError is flat.ContractError, 'two error classes'; "
@@ -232,6 +232,7 @@ class SupportedImportForms(unittest.TestCase):
         # The once-failing order, through both spellings of the package form.
         code = (
             self.FLAT
+            + self.ROOT_PATH
             + "import pipelines.oracle_grounded.distill_contract as pkg; "
             + "from pipelines.oracle_grounded import distill_contract as pkg2; "
             + "assert pkg2 is pkg; "
