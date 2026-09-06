@@ -12,7 +12,7 @@ places only: a ``result.measurements`` entry from a measuring meter, the
 preference's ``cost_value`` when a measured reading of its ``cost_quantity``
 exists, and any other object that identifies energy through its own
 ``quantity`` / ``cost_quantity`` / ``unit`` / ``cost_unit`` fields, under the
-same backing rule and never from a modelled meter. Everything else that
+same backing rule and, when it names a meter, only from an energy meter. Everything else that
 identifies itself as energy -- a bare number under an energy key, the numbers
 in a list under one, an unbacked energy object -- is a theoretical claim, and
 that identity survives containers: an identified object is a claim whenever a
@@ -114,6 +114,11 @@ def _object_reason(
     meter = value.get("meter") if "meter" in value else value.get("cost_meter")
     if envelope.is_enum_value(meter, vocab.MODELED_METERS):
         return f"modelled meter {meter!r}"
+    if meter is not None and not envelope.is_enum_value(meter, vocab.MEASURED_ENERGY_METERS):
+        # Backing never launders the meter an object names: the measurement
+        # rule refuses energy from a measuring but non-energy meter, and so
+        # does the object rule.
+        return f"meter {meter!r} is not an energy meter"
     if "measured" in value and value["measured"] is not True:
         return "declared unmeasured"
     if quantities & measured:

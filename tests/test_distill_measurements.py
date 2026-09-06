@@ -443,5 +443,38 @@ class EnergyRuleEdges(unittest.TestCase):
         self.assertEqual(oc.check_no_theoretical_energy_claim(record, "x"), [])
 
 
+
+class BackedObjectsNeedAnEnergyMeter(unittest.TestCase):
+    """Post-ready finding: backing never launders a meter that is not an energy meter.
+
+    The measurement rule already refuses energy from a measuring but
+    non-energy meter; an S3 object naming one used to pass whenever a
+    measured reading backed its quantity.
+    """
+
+    def object_claims(self, meter):
+        record = minimal_record()
+        record["result"]["measurements"].append(measured_energy_reading())
+        extra = {"quantity": "energy_j", "unit": "J", "value": 8.0, "measured": True}
+        if meter is not None:
+            extra["meter"] = meter
+        record["result"]["extra"] = extra
+        return [
+            e for e in oc.check_no_theoretical_energy_claim(record, "x")
+            if "THEORETICAL_ENERGY_CLAIM" in e
+        ]
+
+    def test_a_backed_object_naming_a_non_energy_or_unknown_meter_is_a_claim(self):
+        for meter in ("simulator_clock", "made_up_meter"):
+            with self.subTest(meter=meter):
+                claims = self.object_claims(meter)
+                self.assertEqual(len(claims), 1, claims)
+                self.assertIn(f"meter {meter!r} is not an energy meter", claims[0])
+
+    def test_a_backed_object_with_an_energy_meter_or_no_meter_stays_legal(self):
+        self.assertEqual(self.object_claims("intel_rapl_powercap"), [])
+        self.assertEqual(self.object_claims(None), [])
+
+
 if __name__ == "__main__":
     unittest.main()

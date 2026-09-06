@@ -38,6 +38,12 @@ def stamp_validation(
     findings and never reads this block.
     """
 
+    if vocab.missing_string(validator) or vocab.missing_string(version):
+        # The stamp is the validator's identity; a blank one would only fail
+        # later in check_envelope, while every builder refuses up front.
+        raise envelope.ContractError(
+            "a stamp must carry the validator's non-empty name and version"
+        )
     digest, failure = vocab.digest_or_failure(record)
     if failure is not None:
         raise envelope.ContractError(

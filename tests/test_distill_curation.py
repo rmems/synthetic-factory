@@ -231,5 +231,34 @@ class DigestBoundaryInCuration(unittest.TestCase):
                 self.assertFalse(oc.stamp_is_bound_to_content(record))
 
 
+
+class StampRefusesBlankIdentity(unittest.TestCase):
+    """Post-ready finding: a stamp must carry the validator's non-empty name and version.
+
+    Every builder refuses an out-of-vocabulary value up front; the stamp used
+    to accept a blank or non-string identity and hand back a copy that only
+    failed later, in check_envelope.
+    """
+
+    def test_a_blank_or_non_string_validator_identity_is_refused(self):
+        for name, kwargs in {
+            "blank name": {"validator": "", "version": "1"},
+            "blank version": {"validator": "v", "version": " "},
+            "non-string name": {"validator": None, "version": "1"},
+            "non-string version": {"validator": "v", "version": 1},
+        }.items():
+            with self.subTest(case=name):
+                with self.assertRaises(oc.ContractError):
+                    oc.stamp_validation(minimal_record(), findings=[], **kwargs)
+
+    def test_an_ordinary_stamp_is_unchanged(self):
+        record = minimal_record()
+        stamped = oc.stamp_validation(record, validator="validate_distill", version="1.0.0", findings=[])
+        self.assertEqual(oc.check_envelope(stamped, "x"), [])
+        self.assertEqual(stamped["validation"]["status"], "passed")
+        self.assertEqual(stamped["validation"]["validator"]["validated_digest"], oc.record_digest(record))
+        self.assertTrue(oc.stamp_is_bound_to_content(stamped))
+
+
 if __name__ == "__main__":
     unittest.main()
