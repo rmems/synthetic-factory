@@ -112,6 +112,7 @@ class SplitByResponsibility(unittest.TestCase):
         "distill_vocabulary",
         "distill_builders",
         "distill_measurements",
+        "distill_energy_claims",
         "distill_blocks",
         "distill_curation",
         "distill_jsonl",

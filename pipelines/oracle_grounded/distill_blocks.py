@@ -5,13 +5,14 @@ One check per record block -- generator, oracle, result, provenance,
 validation -- plus the generator/oracle separation rule and the content
 digest. :func:`check_envelope` composes them, in the order their findings
 have always been emitted, with the measurement checks that live in
-``distill_measurements``.
+``distill_measurements`` and the energy rule in ``distill_energy_claims``.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from . import distill_energy_claims as energy_claims
 from . import distill_measurements as measurements
 from . import distill_vocabulary as vocab
 from . import envelope
@@ -275,7 +276,7 @@ def check_envelope(record: Any, where: str) -> list[str]:
         errors += check(record.get(section), where)
     errors += check_generator_oracle_separation(record, where)
     errors += measurements.check_measurements(record, where)
-    errors += measurements.check_no_theoretical_energy_claim(record, where)
+    errors += energy_claims.check_no_theoretical_energy_claim(record, where)
     return errors
 
 

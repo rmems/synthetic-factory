@@ -35,8 +35,8 @@ families need. It is split by responsibility across sibling modules --
 ``distill_vocabulary`` (the families, the schema-version pin, the kind / type /
 authority / status vocabularies, the oracle-only key set and the unit / meter /
 energy registry), ``distill_builders`` (the block and record builders),
-``distill_measurements`` (the measurement checks and the no-theoretical-energy
-rule), ``distill_blocks`` (the per-block envelope checks, the generator/oracle
+``distill_measurements`` (the measurement checks), ``distill_energy_claims`` (the
+no-theoretical-energy rule and its structural scan), ``distill_blocks`` (the per-block envelope checks, the generator/oracle
 separation rule, ``check_envelope`` and ``check_digest``), ``distill_curation``
 (the validator-owned stamp and the fail-closed curation gate),
 ``distill_jsonl`` (the JSONL I/O) and ``distill_labels`` (the family-owned
@@ -93,11 +93,8 @@ from .distill_labels import (
     declared_families,
     oracle_label_policy,
 )
-from .distill_measurements import (
-    check_measurements,
-    check_no_theoretical_energy_claim,
-    walk_keys,
-)
+from .distill_energy_claims import check_no_theoretical_energy_claim
+from .distill_measurements import check_measurements, walk_keys
 from .distill_vocabulary import (
     AUTHORITY_AUTHORITATIVE,
     AUTHORITY_REFERENCE_ONLY,
