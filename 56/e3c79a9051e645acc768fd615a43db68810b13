@@ -1,0 +1,13 @@
+tests/test_distill_contract.py
+  ai_agent 8,186-251
+pipelines/oracle_grounded/import_twins.py
+  ai_agent 33-37,41-44
+pipelines/oracle_grounded/distill_contract.py
+  ai_agent 50-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "56e3c79a9051e645acc768fd615a43db68810b13",
+  "prompts": {}
+}
