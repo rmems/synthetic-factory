@@ -1,0 +1,15 @@
+tests/test_distill_measurements.py
+  ai_agent 446-478
+pipelines/oracle_grounded/distill_curation.py
+  ai_agent 41-46
+tests/test_distill_curation.py
+  ai_agent 234-262
+pipelines/oracle_grounded/distill_energy_claims.py
+  ai_agent 15,117-121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "248b93c2c16083030dbd9b60992c7c19899d24d2",
+  "prompts": {}
+}
