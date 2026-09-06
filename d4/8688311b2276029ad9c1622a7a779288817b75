@@ -1,0 +1,29 @@
+tests/test_distill_curation.py
+  s_111d64b9a15da0::t_49f67709fdb94f 164-194
+tests/test_distill_jsonl.py
+  s_111d64b9a15da0::t_49f67709fdb94f 104-121
+tests/test_distill_labels.py
+  s_111d64b9a15da0::t_49f67709fdb94f 170-180
+tests/test_distill_measurements.py
+  s_111d64b9a15da0::t_49f67709fdb94f 352-445
+tests/test_distill_contract.py
+  s_111d64b9a15da0::t_49f67709fdb94f 147-183
+tests/test_distill_envelope.py
+  s_111d64b9a15da0::t_49f67709fdb94f 113-348
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d48688311b2276029ad9c1622a7a779288817b75",
+  "prompts": {},
+  "sessions": {
+    "s_111d64b9a15da0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "344701ce-d2c4-426c-96b1-716c94aac4d3",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
