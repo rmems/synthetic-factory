@@ -30,10 +30,18 @@ def bind_import_twin(qualified_name: str) -> None:
     """Register the fully initialised module ``qualified_name`` under its twin.
 
     ``setdefault`` keeps an already-loaded twin in place, so the first form to
-    finish importing is the one both names resolve to.
+    finish importing is the one both names resolve to. The module's package
+    is bound under its twin name the same way: without that, a package-form
+    import after a flat-form one found the module's twin in ``sys.modules``,
+    skipped importing its parent, and then failed to find
+    ``pipelines.oracle_grounded`` at all.
     """
 
     sys.modules.setdefault(import_twin_of(qualified_name), sys.modules[qualified_name])
+    package_name = qualified_name.rpartition(".")[0]
+    package = sys.modules.get(package_name)
+    if package is not None:
+        sys.modules.setdefault(import_twin_of(package_name), package)
 
 
 bind_import_twin(__name__)

@@ -47,11 +47,24 @@ validator and the tests use. The envelope's primitives are bound under their
 own names too, so a ``ContractError`` raised by a family generator is caught
 through either module.
 
-Standard library only, like the rest of ``pipelines/``. Importable both as
-``oracle_grounded.distill_contract`` (with ``pipelines/`` on ``sys.path``, the
-CLI convention) and as ``pipelines.oracle_grounded.distill_contract`` from the
-repository root; each sibling binds both forms to one module object the same
-way.
+Standard library only, like the rest of ``pipelines/``.
+
+Supported import forms
+----------------------
+
+Two forms are supported, and both may be used in one process in either
+order. Every sibling resolves to one module object under both names, so a
+``ContractError`` raised through one name is caught through the other:
+
+* the CLI form, with ``pipelines/`` on ``sys.path``:
+  ``from oracle_grounded import distill_contract``;
+* the package form, with the repository root on ``sys.path``:
+  ``from pipelines.oracle_grounded import distill_contract`` or
+  ``import pipelines.oracle_grounded.distill_contract``.
+
+``import_twins.bind_import_twin`` binds each sibling, and its package, under
+the other name as it finishes importing; ``tests/test_distill_contract.py``
+exercises every form and order in a fresh interpreter.
 """
 
 from __future__ import annotations
