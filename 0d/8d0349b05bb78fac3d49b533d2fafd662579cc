@@ -1,0 +1,11 @@
+pipelines/oracle_grounded/distill_builders.py
+  ai_agent 266-284,300-304,308,310-312
+tests/test_distill_envelope.py
+  ai_agent 405-487
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0d8d0349b05bb78fac3d49b533d2fafd662579cc",
+  "prompts": {}
+}
