@@ -1,0 +1,31 @@
+tests/test_distill_contract.py
+  s_111d64b9a15da0::t_1abffdf576f728 233
+pipelines/oracle_grounded/distill_blocks.py
+  s_111d64b9a15da0::t_1abffdf576f728 267
+tests/distill_import_probe.py
+  s_111d64b9a15da0::t_1abffdf576f728 22,66-72
+pipelines/oracle_grounded/distill_energy_claims.py
+  s_111d64b9a15da0::t_1abffdf576f728 134-150,172-174
+  s_111d64b9a15da0::t_f5e48cb49c11f3 71-79,85-91,224-226,232-236
+  s_111d64b9a15da0::t_6f12649959395e 175
+tests/test_distill_envelope.py
+  s_111d64b9a15da0::t_1abffdf576f728 184-191
+tests/test_distill_measurements.py
+  s_111d64b9a15da0::t_1abffdf576f728 492-510
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2797bb23f2a49f30dc3f3f9cf862ff1df1271ed0",
+  "prompts": {},
+  "sessions": {
+    "s_111d64b9a15da0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "344701ce-d2c4-426c-96b1-716c94aac4d3",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
