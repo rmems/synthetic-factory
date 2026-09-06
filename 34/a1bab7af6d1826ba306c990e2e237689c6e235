@@ -1,0 +1,9 @@
+tests/test_distill_jsonl.py
+  ai_agent 137-139,146-160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "34a1bab7af6d1826ba306c990e2e237689c6e235",
+  "prompts": {}
+}
