@@ -80,6 +80,7 @@ ORACLE_ONLY_KEYS = frozenset(
         "reason_codes",
         "joules",
         "energy_j",
+        "energy_per_op_j",
         "power_w",
         "cpu_time_s",
         "wall_time_s",

@@ -135,7 +135,16 @@ def write_jsonl(path, records) -> int:
     # The parent may have been created through a link that appeared after the
     # first check; look again at what mkdir actually produced.
     _refuse_raw_destination(destination.parent)
-    destination.write_bytes(payload)
+    # Exclusive creation: the file is made here or not at all. A destination
+    # that appeared since the check, or a link planted at the path, fails the
+    # open instead of being truncated or followed.
+    try:
+        with open(destination, "xb") as handle:
+            handle.write(payload)
+    except FileExistsError as exc:
+        raise envelope.ContractError(
+            f"refusing to overwrite existing file: {destination}"
+        ) from exc
     return len(lines)
 
 

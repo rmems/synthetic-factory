@@ -476,5 +476,59 @@ class BackedObjectsNeedAnEnergyMeter(unittest.TestCase):
         self.assertEqual(self.object_claims(None), [])
 
 
+class BackingShelterNothingBeneath(unittest.TestCase):
+    """Post-ready findings: identity reads every field, and backing shelters no key beneath."""
+
+    def claims(self, record) -> list:
+        return [
+            e for e in oc.check_no_theoretical_energy_claim(record, "x")
+            if "THEORETICAL_ENERGY_CLAIM" in e
+        ]
+
+    def test_a_non_energy_field_does_not_mask_its_energy_counterpart(self):
+        for budget in (
+            {"quantity": "latency_ms", "cost_quantity": "energy_j", "cost_value": 9999.0},
+            {"unit": "ms", "cost_unit": "J", "cost_value": 9999.0},
+            {"quantity": "task_quality", "cost_unit": "J", "cost_value": 9999.0},
+        ):
+            with self.subTest(budget=budget):
+                record = minimal_record()
+                record["result"]["budget"] = budget
+                claims = self.claims(record)
+                self.assertEqual(len(claims), 1, claims)
+                self.assertIn("result.budget (no measured", claims[0])
+
+    def test_a_preference_denominated_by_unit_alone_needs_backing(self):
+        record = minimal_record()
+        record["result"]["preference"] = {"preferred": "a", "cost_unit": "J", "cost_value": 2.8e-6}
+        claims = self.claims(record)
+        self.assertEqual(len(claims), 1, claims)
+        self.assertIn("result.preference: THEORETICAL_ENERGY_CLAIM", claims[0])
+        record["result"]["measurements"].append(measured_energy_reading())
+        self.assertEqual(self.claims(record), [])
+        # Watt-hours name no registry quantity, so nothing can back them.
+        record["result"]["preference"]["cost_unit"] = "Wh"
+        self.assertIn("denominated in 'an energy unit'", self.claims(record)[0])
+
+    def test_an_identity_on_result_itself_shelters_nothing_beneath_it(self):
+        record = minimal_record()
+        record["result"]["measurements"].append(measured_energy_reading())
+        record["result"]["cost_quantity"] = "energy_j"
+        record["result"]["extra"] = {"projected_energy_j": 999.0}
+        claims = self.claims(record)
+        self.assertEqual(len(claims), 1, claims)
+        self.assertIn("result.extra.projected_energy_j", claims[0])
+
+    def test_a_backed_object_shelters_no_energy_key_beneath_it(self):
+        record = minimal_record()
+        record["result"]["measurements"].append(measured_energy_reading())
+        record["result"]["x"] = {"quantity": "energy_j", "value": 1.0, "modeled_power_w": 500}
+        claims = self.claims(record)
+        self.assertEqual(len(claims), 1, claims)
+        self.assertIn("result.x.modeled_power_w", claims[0])
+        del record["result"]["x"]["modeled_power_w"]
+        self.assertEqual(self.claims(record), [])
+
+
 if __name__ == "__main__":
     unittest.main()

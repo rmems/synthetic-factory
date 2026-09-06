@@ -46,6 +46,11 @@ class FamilyOracleLabels(unittest.TestCase):
         self.assertFalse(eligible)
         self.assertIn("VALIDATION_FINDINGS:1", reasons)
 
+    def test_a_bare_string_is_not_a_collection_of_key_names(self):
+        with self.assertRaises(oc.ContractError):
+            oc.declare_oracle_labels(self.FAULT, "preferred")
+        self.assertIsNone(oc.oracle_label_policy(self.FAULT))
+
     def test_declarations_are_trusted_code_never_record_content(self):
         record = minimal_record()
         record["scenario"]["trace_summary"] = {"ticks": 3}

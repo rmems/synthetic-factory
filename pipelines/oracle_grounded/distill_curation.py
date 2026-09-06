@@ -82,6 +82,8 @@ def curation_eligible(
     reasons: list[str] = []
     if findings:
         reasons.append(f"VALIDATION_FINDINGS:{len(findings)}")
+    if not isinstance(record, dict):
+        return False, reasons + ["RECORD_NOT_AN_OBJECT"]
     reasons += _oracle_authority_reasons(record.get("oracle"))
     reasons += _measured_result_reasons(record.get("result"))
     reasons += _digest_reasons(record)

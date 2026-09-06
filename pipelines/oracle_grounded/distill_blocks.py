@@ -200,10 +200,24 @@ def _check_validation_block(block: Any, where: str) -> list[str]:
             f"{where}.validation.status must be one of {sorted(vocab.VALIDATION_STATUSES)}"
         ]
     validator = block.get("validator")
+    errors = _check_findings_list(block, status, where)
     if status != vocab.VALIDATION_UNVALIDATED:
-        return _check_validator_object(validator, where)
+        return errors + _check_validator_object(validator, where)
     if validator not in (None, {}):
-        return [f"{where}.validation: unvalidated records must not name a validator"]
+        errors.append(f"{where}.validation: unvalidated records must not name a validator")
+    return errors
+
+
+def _check_findings_list(block: dict[str, Any], status: Any, where: str) -> list[str]:
+    """``findings``, when present, lists non-empty strings; a passed verdict carries none."""
+
+    if "findings" not in block:
+        return []
+    findings = block["findings"]
+    if not isinstance(findings, list) or any(vocab.missing_string(f) for f in findings):
+        return [f"{where}.validation.findings must be a list of non-empty strings"]
+    if status == vocab.VALIDATION_PASSED and findings:
+        return [f"{where}.validation: a passed verdict cannot carry findings"]
     return []
 
 

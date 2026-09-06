@@ -86,6 +86,14 @@ class GeneratorNeverCertifies(unittest.TestCase):
         record["candidate_prediction"]["method"] = "lookup"
         self.assertEqual(oc.check_generator_oracle_separation(record, "x"), [])
 
+    def test_every_energy_quantity_name_is_oracle_owned(self):
+        for key in ("energy_j", "energy_per_op_j", "power_w"):
+            with self.subTest(key=key):
+                record = minimal_record()
+                record["scenario"][key] = 1.5
+                errors = oc.check_generator_oracle_separation(record, "x")
+                self.assertTrue(any(f"scenario.{key}" in e for e in errors), errors)
+
 
 class ResultFailsClosed(unittest.TestCase):
     def test_measured_result_needs_a_measurement(self):
@@ -141,6 +149,30 @@ class MalformedBlocksAreFindings(unittest.TestCase):
         def mutate(record):
             del record[section][key]
         return mutate
+
+    def test_validation_findings_have_a_shape(self):
+        def unvalidated(findings):
+            def mutate(record):
+                record["validation"] = {"status": oc.VALIDATION_UNVALIDATED, "validator": None,
+                                        "findings": findings}
+            return mutate
+
+        def passed_with_findings(record):
+            stamped = oc.stamp_validation(record, findings=[], validator="v", version="1")
+            record["validation"] = stamped["validation"]
+            record["validation"]["findings"] = ["a finding beside a passed verdict"]
+
+        shape = "x.validation.findings must be a list of non-empty strings"
+        self.check({
+            "findings object": (unvalidated({"a": 1}), shape),
+            "findings number": (unvalidated(5), shape),
+            "findings null": (unvalidated(None), shape),
+            "findings with a non-string": (unvalidated(["ok", 3]), shape),
+            "findings with an empty string": (unvalidated([""]), shape),
+            "passed verdict carrying findings": (
+                passed_with_findings, "x.validation: a passed verdict cannot carry findings"
+            ),
+        })
 
     def test_header_findings(self):
         self.check({
@@ -303,6 +335,17 @@ class BuildersRefuseOutsideTheVocabulary(unittest.TestCase):
         self.assertNotIn("model", plain)
         self.assertNotIn("notes", plain)
         self.assertIsNone(plain["seed"])
+
+    def test_generator_identity_and_seed_are_refused_by_the_builder(self):
+        for identity, seed in (
+            (oc.GeneratorIdentity("", version="1"), None),
+            (oc.GeneratorIdentity("g", version=""), None),
+            (oc.GeneratorIdentity("g", version="1"), True),
+            (oc.GeneratorIdentity("g", version="1"), 2.0),
+        ):
+            with self.subTest(name=identity.name, version=identity.version, seed=seed):
+                with self.assertRaises(oc.ContractError):
+                    oc.new_generator(identity, seed=seed)
 
     def test_oracle_type_authority_and_run(self):
         def identity(**changes):

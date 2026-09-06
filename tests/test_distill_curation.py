@@ -91,6 +91,13 @@ class CurationFailsClosed(unittest.TestCase):
         self.assertFalse(eligible)
         self.assertIn("VALIDATION_FINDINGS:1", reasons)
 
+    def test_a_non_object_record_is_ineligible_not_a_crash(self):
+        for record in ([1, 2], "x", None):
+            with self.subTest(record=record):
+                eligible, reasons = oc.curation_eligible(record, ["x: record must be a JSON object"])
+                self.assertFalse(eligible)
+                self.assertEqual(reasons, ["VALIDATION_FINDINGS:1", "RECORD_NOT_AN_OBJECT"])
+
     def test_reference_only_oracle_is_never_eligible(self):
         record = minimal_record()
         record["oracle"]["authority"] = oc.AUTHORITY_REFERENCE_ONLY

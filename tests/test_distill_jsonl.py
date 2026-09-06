@@ -24,6 +24,16 @@ class JsonlHelpers(unittest.TestCase):
             with self.assertRaises(oc.ContractError):
                 oc.write_jsonl(path, [minimal_record()])
 
+    def test_write_refuses_a_link_planted_at_the_destination(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "elsewhere" / "redirected.jsonl"
+            target.parent.mkdir()
+            link = Path(tmp) / "out.jsonl"
+            link.symlink_to(target)  # dangling, so exists() is False and the link is followed
+            with self.assertRaises(oc.ContractError):
+                oc.write_jsonl(link, [minimal_record()])
+            self.assertFalse(target.exists())
+
     def test_a_non_finite_constant_is_a_parse_failure_not_a_value(self):
         # json.loads accepts bare NaN. Letting one through means the first
         # canonical re-serialisation raises and takes down the whole run.

@@ -122,6 +122,24 @@ class GeneratorIdentity:
     model: str | None = None
 
 
+def _refuse_generator_kind(identity: GeneratorIdentity) -> None:
+    """A generator kind outside the vocabulary, or an llm without a model."""
+
+    if identity.kind not in vocab.GENERATOR_KINDS:
+        raise envelope.ContractError(f"unknown generator kind: {identity.kind!r}")
+    if identity.kind == "llm" and not identity.model:
+        raise envelope.ContractError("an llm generator must name its model")
+
+
+def _refuse_generator_fields(identity: GeneratorIdentity, seed: Any) -> None:
+    """The refusals the generator block check would raise later, raised now."""
+
+    if vocab.missing_string(identity.name) or vocab.missing_string(identity.version):
+        raise envelope.ContractError("a generator must carry a non-empty name and version")
+    if seed is not None and not vocab.is_genuine_int(seed):
+        raise envelope.ContractError(f"a generator seed must be an integer or None, got {seed!r}")
+
+
 def new_generator(
     identity: GeneratorIdentity,
     *,
@@ -130,10 +148,8 @@ def new_generator(
 ) -> dict[str, Any]:
     """Build the generator block. Authority is pinned to ``propose_only``."""
 
-    if identity.kind not in vocab.GENERATOR_KINDS:
-        raise envelope.ContractError(f"unknown generator kind: {identity.kind!r}")
-    if identity.kind == "llm" and not identity.model:
-        raise envelope.ContractError("an llm generator must name its model")
+    _refuse_generator_kind(identity)
+    _refuse_generator_fields(identity, seed)
     block: dict[str, Any] = {
         "name": identity.name,
         "kind": identity.kind,

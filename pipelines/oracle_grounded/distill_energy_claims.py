@@ -17,7 +17,10 @@ identifies itself as energy -- a bare number under an energy key, the numbers
 in a list under one, an unbacked energy object -- is a theoretical claim, and
 that identity survives containers: an identified object is a claim whenever a
 number sits anywhere beneath it, and a dict or list under an energy key is a
-claim whenever a number sits anywhere beneath that. ``result.measurements``
+claim whenever a number sits anywhere beneath that. Backing exempts only the
+object itself: the numbers beneath a backed object are still judged by their
+own keys, so a modelled reading cannot shelter inside a measured one, and
+``result`` gains no shelter from an identity of its own. ``result.measurements``
 entries, their ``detail`` included, stay with the measurement rule in
 ``distill_measurements`` (row 15 of the D3 matrix is held).
 
@@ -87,18 +90,28 @@ def _energy_measurement_claims(
 def _energy_identity(value: dict[str, Any]) -> frozenset[str] | None:
     """The energy quantities an object claims through its own fields, or None.
 
-    ``quantity`` / ``cost_quantity`` name the quantity outright; ``unit`` /
-    ``cost_unit`` identify it through the registry (``J`` is either energy
-    quantity, ``Wh`` names no registry quantity and so can never be backed).
+    Both quantity fields are read, then both unit fields, so a non-energy
+    ``quantity`` beside an energy ``cost_quantity`` masks nothing. A named
+    quantity is the identity; failing that, a unit identifies it through the
+    registry (``J`` is either joule quantity, ``Wh`` names no registry
+    quantity and so can never be backed).
     """
 
-    quantity = value.get("quantity") if "quantity" in value else value.get("cost_quantity")
-    if envelope.is_enum_value(quantity, vocab.ENERGY_QUANTITIES):
-        return frozenset({quantity})
-    unit = value.get("unit") if "unit" in value else value.get("cost_unit")
-    if envelope.is_enum_value(unit, vocab.ENERGY_UNITS):
-        return frozenset(q for q in vocab.ENERGY_QUANTITIES if vocab.QUANTITY_UNITS[q] == unit)
-    return None
+    named = frozenset(
+        value[key]
+        for key in ("quantity", "cost_quantity")
+        if envelope.is_enum_value(value.get(key), vocab.ENERGY_QUANTITIES)
+    )
+    if named:
+        return named
+    units = [
+        value[key]
+        for key in ("unit", "cost_unit")
+        if envelope.is_enum_value(value.get(key), vocab.ENERGY_UNITS)
+    ]
+    if not units:
+        return None
+    return frozenset(q for q in vocab.ENERGY_QUANTITIES if vocab.QUANTITY_UNITS[q] in units)
 
 
 def _object_reason(
@@ -127,31 +140,29 @@ def _object_reason(
 
 
 # The energy context a container hands to everything beneath it: None (no
-# energy identity yet), _LEGAL (inside a backed, measuring object), or a
-# ``(root_path, finding_text)`` claim that the first number beneath confirms.
-_LEGAL = "legal"
-
-
+# energy claim in force) or a ``(root_path, finding_text)`` claim that the
+# first number beneath confirms.
 def _dict_context(
     value: dict[str, Any], path: str, key: str, inherited: Any, measured: set[str]
-) -> Any:
+) -> tuple[str, str] | None:
     """The context a dict hands its children.
 
-    Its own identity (R1) comes first: a backed, measuring object makes its
-    subtree legal, any other identified object makes it a claim. Without an
-    identity, a dict under an energy key (R2) is a claim container, and
-    otherwise the inherited context carries on. ``result.preference`` itself
-    is the preference rule's business (S2) and hands its children the
-    inherited context untouched.
+    Its own identity (R1) comes first: an unbacked or modelled identified
+    object is a claim, and a backed one hands its children no context at all,
+    so the numbers beneath it are still judged by their own keys (R2 has no
+    backing exemption). Without an identity, a dict under an energy key (R2)
+    is a claim container, and otherwise the inherited context carries on.
+    ``result.preference`` itself is the preference rule's business (S2) and
+    hands its children the inherited context untouched.
     """
 
     if path != "result.preference":
         quantities = _energy_identity(value)
         if quantities is not None:
             reason = _object_reason(value, quantities, measured)
-            return _LEGAL if reason is None else (path, f"{path} ({reason})")
+            return None if reason is None else (path, f"{path} ({reason})")
     if inherited is None and _is_energy_key(key):
-        return (path, f"{path} (energy-keyed container)")
+        return path, f"{path} (energy-keyed container)"
     return inherited
 
 
@@ -185,7 +196,7 @@ def _note_number(
     if context is None:
         if _is_energy_key(key):
             bare.append(path)
-    elif context is not _LEGAL:
+    else:
         claims.setdefault(context[0], context[1])
 
 
@@ -245,17 +256,15 @@ def _energy_preference_errors(
     preference = result.get("preference")
     if not isinstance(preference, dict):
         return []
-    cost_quantity = preference.get("cost_quantity")
-    if (
-        envelope.is_enum_value(cost_quantity, vocab.ENERGY_QUANTITIES)
-        and cost_quantity not in measured_energy_quantities
-    ):
-        return [
-            f"{where}.result.preference: THEORETICAL_ENERGY_CLAIM — preference "
-            f"is denominated in {cost_quantity!r} with no measured energy "
-            f"measurement behind it"
-        ]
-    return []
+    quantities = _energy_identity(preference)
+    if quantities is None or quantities & measured_energy_quantities:
+        return []
+    denomination = "/".join(sorted(quantities)) or "an energy unit"
+    return [
+        f"{where}.result.preference: THEORETICAL_ENERGY_CLAIM — preference "
+        f"is denominated in {denomination!r} with no measured energy "
+        f"measurement behind it"
+    ]
 
 
 def check_no_theoretical_energy_claim(record: dict[str, Any], where: str) -> list[str]:

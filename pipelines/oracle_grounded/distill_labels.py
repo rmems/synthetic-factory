@@ -74,6 +74,10 @@ def declare_oracle_labels(family: str, label_keys: Iterable[str]) -> OracleLabel
     owns and reviews, not data a record carries.
     """
 
+    if isinstance(label_keys, (str, bytes)):
+        raise envelope.ContractError(
+            f"{family}: label_keys must be an iterable of key names, not one string"
+        )
     policy = OracleLabelPolicy(family, frozenset(label_keys))
     existing = _POLICIES.get(family)
     if existing is not None:
