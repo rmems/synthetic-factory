@@ -1,0 +1,26 @@
+pipelines/oracle_grounded/distill_vocabulary.py
+  s_111d64b9a15da0::t_5ecca04ff99767 180-195
+pipelines/oracle_grounded/distill_measurements.py
+  s_111d64b9a15da0::t_5ecca04ff99767 8-21,151,156,197-198,200-202,205-211,214-215,217-218,221-242,249-282,284-287,328
+  ai_agent 245-248
+tests/test_distill_contract.py
+  s_111d64b9a15da0::t_5ecca04ff99767 236-392
+pipelines/oracle_grounded/distill_contract.py
+  s_111d64b9a15da0::t_5ecca04ff99767 105-106,149-150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "766f06fe53383f2d906f9fb64f57e8b1a5b0d332",
+  "prompts": {},
+  "sessions": {
+    "s_111d64b9a15da0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "344701ce-d2c4-426c-96b1-716c94aac4d3",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
