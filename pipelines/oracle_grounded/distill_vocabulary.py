@@ -14,6 +14,8 @@ keeps working: they are the envelope's own objects.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from typing import Any
 
 from . import envelope
@@ -252,6 +254,34 @@ def digest_or_failure(record: Any) -> tuple[str | None, BaseException | None]:
         return record_digest(record), None
     except _UNCANONICALISABLE as exc:
         return None, exc
+
+
+RESERVED_KEY_SCAN_DEPTH_EXCEEDED = "RESERVED_KEY_SCAN_DEPTH_EXCEEDED"
+
+
+def scan_depth_finding(where: str) -> str:
+    """The finding a reserved-key scan reports instead of raising on a too-deep record."""
+
+    return (
+        f"{where}: {RESERVED_KEY_SCAN_DEPTH_EXCEEDED} — a generator section is nested "
+        "past the recursion limit, so the reserved-key scan could not finish"
+    )
+
+
+def is_timestamp(value: Any) -> bool:
+    """A string in the envelope's ISO-8601 shape that also names a real instant.
+
+    The regex pins the shape; ``datetime.fromisoformat`` refuses a calendar
+    that does not exist (``2026-02-30``), which the shape alone accepts.
+    """
+
+    if not isinstance(value, str) or not envelope.ISO_8601_RE.match(value):
+        return False
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
 
 
 def is_genuine_int(value: Any) -> bool:

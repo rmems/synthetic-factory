@@ -31,6 +31,10 @@ class SchemaFileAgreesWithTheModule(unittest.TestCase):
         enum = self.schema["properties"]["family"]["enum"]
         self.assertEqual(sorted(enum), sorted(oc.FAMILIES))
 
+    def test_schema_pins_model_as_a_non_empty_string_like_the_module(self):
+        model = self.schema["$defs"]["generator"]["properties"]["model"]
+        self.assertEqual(model.get("minLength"), 1)
+
     def test_schema_version_const_matches(self):
         self.assertEqual(
             self.schema["properties"]["schema_version"]["const"], oc.SCHEMA_VERSION

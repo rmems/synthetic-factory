@@ -46,6 +46,17 @@ class FamilyOracleLabels(unittest.TestCase):
         self.assertFalse(eligible)
         self.assertIn("VALIDATION_FINDINGS:1", reasons)
 
+    def test_a_record_nested_past_the_recursion_limit_is_a_depth_finding(self):
+        oc.declare_oracle_labels(self.FAULT, FAULT_LABELS)
+        deep = {"k": 1}
+        for _ in range(600):
+            deep = {"n": deep}
+        record = minimal_record()
+        record["scenario"]["deep"] = deep
+        errors = oc.check_oracle_label_leak(record, "x")
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn(oc.RESERVED_KEY_SCAN_DEPTH_EXCEEDED, errors[0])
+
     def test_a_bare_string_is_not_a_collection_of_key_names(self):
         with self.assertRaises(oc.ContractError):
             oc.declare_oracle_labels(self.FAULT, "preferred")

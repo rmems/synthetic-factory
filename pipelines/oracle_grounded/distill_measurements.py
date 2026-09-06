@@ -94,6 +94,8 @@ def _measurement_provenance_errors(item: dict[str, Any], spot: str) -> list[str]
         errors.append(f"{spot}: source must be 'oracle'")
     if not isinstance(item.get("measured"), bool):
         errors.append(f"{spot}: measured must be a boolean")
+    if "detail" in item and not isinstance(item["detail"], dict):
+        errors.append(f"{spot}: detail must be an object")
     claim_error = _modelled_meter_claim_error(item, spot)
     if claim_error is not None:
         errors.append(claim_error)

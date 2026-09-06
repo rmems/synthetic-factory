@@ -68,6 +68,7 @@
         },
         "model": {
           "type": "string",
+          "minLength": 1,
           "description": "Required when kind is 'llm': the model that produced the proposal."
         },
         "notes": { "type": "string" }

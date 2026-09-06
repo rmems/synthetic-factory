@@ -127,23 +127,41 @@ def check_oracle_label_leak(
         return [f"{where}: record must be an object"]
     family = record.get("family")
     active = policy if policy is not None else oracle_label_policy(family)
+    problem = _policy_problem(active, family, where)
+    if problem is None:
+        problem = _leak_finding(record, active, where)
+    return [] if problem is None else [problem]
+
+
+def _policy_problem(active: OracleLabelPolicy | None, family: Any, where: str) -> str | None:
+    """Why no leak check can run: no declaration for the family, or the wrong one."""
+
     if active is None:
-        return [
+        return (
             f"{where}: {POLICY_MISSING} — family {family!r} declares no oracle-label "
             "policy, so full validation cannot run"
-        ]
+        )
     if family != active.family:
-        return [
+        return (
             f"{where}: {POLICY_MISMATCH} — record family {family!r} is not the "
             f"{active.family!r} policy it was checked against"
-        ]
-    hits = envelope.reserved_key_hits(record, active.label_keys)
+        )
+    return None
+
+
+def _leak_finding(record: dict[str, Any], active: OracleLabelPolicy, where: str) -> str | None:
+    """The leak finding for this record under ``active``, or None when it is clean."""
+
+    try:
+        hits = envelope.reserved_key_hits(record, active.label_keys)
+    except RecursionError:
+        return vocab.scan_depth_finding(where)
     if not hits:
-        return []
-    return [
+        return None
+    return (
         f"{where}: {LABEL_IN_GENERATOR_NAMESPACE} at {_hit_listing(hits)} (generator "
         f"sections carry keys only the {active.family} oracle may write)"
-    ]
+    )
 
 
 bind_import_twin(__name__)

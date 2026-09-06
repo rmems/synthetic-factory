@@ -12,7 +12,8 @@ places only: a ``result.measurements`` entry from a measuring meter, the
 preference's ``cost_value`` when a measured reading of its ``cost_quantity``
 exists, and any other object that identifies energy through its own
 ``quantity`` / ``cost_quantity`` / ``unit`` / ``cost_unit`` fields, under the
-same backing rule and, when it names a meter, only from an energy meter. Everything else that
+same backing rule for every quantity it declares and, when it names a meter,
+only from an energy meter. Everything else that
 identifies itself as energy -- a bare number under an energy key, the numbers
 in a list under one, an unbacked energy object -- is a theoretical claim, and
 that identity survives containers: an identified object is a claim whenever a
@@ -87,41 +88,64 @@ def _energy_measurement_claims(
     return errors, measured_energy_quantities
 
 
-def _energy_identity(value: dict[str, Any]) -> frozenset[str] | None:
-    """The energy quantities an object claims through its own fields, or None.
+# An object's energy identity is a set of requirements, one per declaring
+# field pair; each requirement is the set of quantities whose measured reading
+# would satisfy it (one named quantity, or every quantity carrying a unit).
+Identity = frozenset[frozenset[str]]
 
-    Both quantity fields are read, then both unit fields, so a non-energy
-    ``quantity`` beside an energy ``cost_quantity`` masks nothing. A named
-    quantity is the identity; failing that, a unit identifies it through the
-    registry (``J`` is either joule quantity, ``Wh`` names no registry
-    quantity and so can never be backed).
+
+def _energy_identity(value: dict[str, Any]) -> Identity | None:
+    """The energy requirements an object declares through its own fields, or None.
+
+    The regular pair (``quantity``, else ``unit``) and the cost pair
+    (``cost_quantity``, else ``cost_unit``) are read independently, so a
+    non-energy field on one side masks nothing on the other, and every
+    declared quantity needs its own backing. A named quantity must itself be
+    measured; a unit is satisfied by any quantity carrying it (``J`` is either
+    joule quantity, ``Wh`` names none and so can never be backed).
     """
 
-    named = frozenset(
-        value[key]
-        for key in ("quantity", "cost_quantity")
-        if envelope.is_enum_value(value.get(key), vocab.ENERGY_QUANTITIES)
+    requirements = frozenset(
+        requirement
+        for pair in (("quantity", "unit"), ("cost_quantity", "cost_unit"))
+        if (requirement := _pair_requirement(value, *pair)) is not None
     )
-    if named:
-        return named
-    units = [
-        value[key]
-        for key in ("unit", "cost_unit")
-        if envelope.is_enum_value(value.get(key), vocab.ENERGY_UNITS)
-    ]
-    if not units:
-        return None
-    return frozenset(q for q in vocab.ENERGY_QUANTITIES if vocab.QUANTITY_UNITS[q] in units)
+    return requirements or None
+
+
+def _pair_requirement(
+    value: dict[str, Any], quantity_key: str, unit_key: str
+) -> frozenset[str] | None:
+    """What one quantity/unit field pair requires, or None when it names no energy."""
+
+    quantity = value.get(quantity_key)
+    if envelope.is_enum_value(quantity, vocab.ENERGY_QUANTITIES):
+        return frozenset({quantity})
+    unit = value.get(unit_key)
+    if envelope.is_enum_value(unit, vocab.ENERGY_UNITS):
+        return frozenset(q for q in vocab.ENERGY_QUANTITIES if vocab.QUANTITY_UNITS[q] == unit)
+    return None
+
+
+def _unbacked(identity: Identity, measured: set[str]) -> str:
+    """The requirements no measured reading satisfies, listed; empty when all are met."""
+
+    missing = sorted(
+        "/".join(sorted(requirement)) or "that unit"
+        for requirement in identity
+        if not requirement & measured
+    )
+    return " and ".join(missing)
 
 
 def _object_reason(
-    value: dict[str, Any], quantities: frozenset[str], measured: set[str]
+    value: dict[str, Any], identity: Identity, measured: set[str]
 ) -> str | None:
     """Why an energy-identified object is a claim, or None when it is legal (S3).
 
-    Legal means backed by a measured reading of its quantity from a
-    measuring meter; a modelled meter or a declared ``measured: false`` is a
-    claim whatever backs it.
+    Legal means every quantity it declares is backed by a measured reading
+    from a measuring meter; a modelled meter or a declared ``measured: false``
+    is a claim whatever backs it.
     """
 
     meter = value.get("meter") if "meter" in value else value.get("cost_meter")
@@ -134,9 +158,10 @@ def _object_reason(
         return f"meter {meter!r} is not an energy meter"
     if "measured" in value and value["measured"] is not True:
         return "declared unmeasured"
-    if quantities & measured:
+    unbacked = _unbacked(identity, measured)
+    if not unbacked:
         return None
-    return f"no measured {'/'.join(sorted(quantities)) or 'that unit'} reading backs it"
+    return f"no measured {unbacked} reading backs it"
 
 
 # The energy context a container hands to everything beneath it: None (no
@@ -157,9 +182,9 @@ def _dict_context(
     """
 
     if path != "result.preference":
-        quantities = _energy_identity(value)
-        if quantities is not None:
-            reason = _object_reason(value, quantities, measured)
+        identity = _energy_identity(value)
+        if identity is not None:
+            reason = _object_reason(value, identity, measured)
             return None if reason is None else (path, f"{path} ({reason})")
     if inherited is None and _is_energy_key(key):
         return path, f"{path} (energy-keyed container)"
@@ -256,10 +281,10 @@ def _energy_preference_errors(
     preference = result.get("preference")
     if not isinstance(preference, dict):
         return []
-    quantities = _energy_identity(preference)
-    if quantities is None or quantities & measured_energy_quantities:
+    identity = _energy_identity(preference)
+    if identity is None or not _unbacked(identity, measured_energy_quantities):
         return []
-    denomination = "/".join(sorted(quantities)) or "an energy unit"
+    denomination = "/".join(sorted(frozenset().union(*identity))) or "an energy unit"
     return [
         f"{where}.result.preference: THEORETICAL_ENERGY_CLAIM — preference "
         f"is denominated in {denomination!r} with no measured energy "

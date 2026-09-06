@@ -444,6 +444,20 @@ class EnergyRuleEdges(unittest.TestCase):
 
 
 
+class MeasurementDetailShape(unittest.TestCase):
+    def test_detail_must_be_an_object_in_the_check_and_the_builder(self):
+        record = minimal_record()
+        record["result"]["measurements"][0]["detail"] = "not an object"
+        errors = oc.check_measurements(record, "x")
+        self.assertTrue(any("detail must be an object" in e for e in errors), errors)
+        with self.assertRaises(oc.ContractError):
+            oc.new_measurement("recovery_latency_ms", 4.0, "simulator_clock", detail="nope")
+        with_detail = oc.new_measurement(
+            "recovery_latency_ms", 4.0, "simulator_clock", detail={"ticks": 3}
+        )
+        self.assertEqual(with_detail["detail"], {"ticks": 3})
+
+
 class BackedObjectsNeedAnEnergyMeter(unittest.TestCase):
     """Post-ready finding: backing never launders a meter that is not an energy meter.
 
@@ -518,6 +532,23 @@ class BackingShelterNothingBeneath(unittest.TestCase):
         claims = self.claims(record)
         self.assertEqual(len(claims), 1, claims)
         self.assertIn("result.extra.projected_energy_j", claims[0])
+
+    def test_every_declared_quantity_needs_its_own_backing(self):
+        record = minimal_record()
+        record["result"]["measurements"].append(measured_energy_reading())
+        for x in (
+            {"quantity": "energy_j", "value": 1.0, "cost_quantity": "power_w", "cost_value": 9999},
+            {"quantity": "energy_j", "value": 1.0, "cost_unit": "W", "cost_value": 9999},
+        ):
+            with self.subTest(x=x):
+                record["result"]["x"] = x
+                claims = self.claims(record)
+                self.assertEqual(len(claims), 1, claims)
+                self.assertIn("result.x (no measured power_w reading backs it)", claims[0])
+        record["result"]["x"] = {
+            "quantity": "energy_j", "value": 1.0, "cost_quantity": "energy_j", "cost_value": 2.0,
+        }
+        self.assertEqual(self.claims(record), [])
 
     def test_a_backed_object_shelters_no_energy_key_beneath_it(self):
         record = minimal_record()

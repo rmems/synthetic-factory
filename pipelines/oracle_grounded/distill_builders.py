@@ -19,6 +19,25 @@ from . import envelope
 from .import_twins import bind_import_twin
 
 
+def _copied(section: Any, name: str) -> Any:
+    """A private copy of one caller-supplied section, or a ContractError.
+
+    The record must hold copies so the caller's objects stay theirs, and the
+    copy runs before the digest boundary; a section nested past the
+    recursion limit, or holding a value that cannot be copied, is malformed
+    input and is refused the same way uncanonicalisable content is, never as
+    a raw copier exception. Only those two failures are translated.
+    """
+
+    try:
+        return copy.deepcopy(section)
+    except (RecursionError, TypeError) as exc:
+        raise envelope.ContractError(
+            f"record content cannot be copied into a record: the caller-supplied {name} "
+            "section is nested past the recursion limit or holds a value that cannot be copied"
+        ) from exc
+
+
 @dataclass(frozen=True)
 class MeasurementOptions:
     """The keyword refinements :func:`new_measurement` accepts.
@@ -58,6 +77,8 @@ def _resolve_measured(meter: str, claimed: bool | None) -> bool:
     "an instrument took this" rather than "the producer said so".
     """
 
+    if claimed is not None and not isinstance(claimed, bool):
+        raise envelope.ContractError(f"measured must be True, False or None, got {claimed!r}")
     modelled = meter in vocab.MODELED_METERS
     if claimed is None:
         return not modelled
@@ -99,16 +120,19 @@ def new_measurement(
         )
     measured = _resolve_measured(meter, chosen.measured)
     _check_energy_meter(quantity, meter, measured)
+    if chosen.detail is not None and not isinstance(chosen.detail, dict):
+        raise envelope.ContractError(f"{quantity} detail must be an object, got {chosen.detail!r}")
     payload: dict[str, Any] = {
         "quantity": quantity,
-        "value": float(value),
+        # An exact integer stays one: float() would round a count past 2**53.
+        "value": value if vocab.is_genuine_int(value) else float(value),
         "unit": canonical_unit,
         "meter": meter,
         "measured": measured,
         "source": "oracle",
     }
     if chosen.detail:
-        payload["detail"] = copy.deepcopy(chosen.detail)
+        payload["detail"] = _copied(chosen.detail, "measurement detail")
     return payload
 
 
@@ -199,19 +223,28 @@ def new_oracle(identity: OracleIdentity, run: OracleRun | None = None) -> dict[s
         raise envelope.ContractError(f"unknown oracle type: {identity.oracle_type!r}")
     if identity.authority not in vocab.ORACLE_AUTHORITIES:
         raise envelope.ContractError(f"unknown oracle authority: {identity.authority!r}")
+    _refuse_oracle_fields(identity)
     block: dict[str, Any] = {
         "name": identity.name,
         "type": identity.oracle_type,
         "implementation": identity.implementation,
         "version": identity.version,
         "authority": identity.authority,
-        "configuration": copy.deepcopy(run.configuration) if run.configuration else {},
+        "configuration": _copied(run.configuration, "oracle") if run.configuration else {},
         "seed": run.seed,
         "commit": run.commit,
     }
     if run.fingerprint is not None:
-        block["fingerprint"] = copy.deepcopy(run.fingerprint)
+        block["fingerprint"] = _copied(run.fingerprint, "oracle")
     return block
+
+
+def _refuse_oracle_fields(identity: OracleIdentity) -> None:
+    """The refusals the oracle block check would raise later, raised now."""
+
+    for field in ("name", "implementation", "version"):
+        if vocab.missing_string(getattr(identity, field)):
+            raise envelope.ContractError(f"an oracle must carry a non-empty {field}")
 
 
 def new_result(
@@ -235,7 +268,7 @@ def new_result(
         if not (abstention_reason or "").strip():
             raise envelope.ContractError("an abstained result needs an abstention_reason")
         payload["abstention_reason"] = abstention_reason
-    payload.update(copy.deepcopy(fields))
+    payload.update(_copied(fields, "result"))
     return payload
 
 
@@ -243,7 +276,7 @@ def new_provenance(producer: str, **fields: Any) -> dict[str, Any]:
     """Build the provenance block with a UTC production timestamp."""
 
     payload: dict[str, Any] = {"producer": producer, "produced_at": envelope.utc_now_iso()}
-    payload.update(copy.deepcopy(fields))
+    payload.update(_copied(fields, "provenance"))
     return payload
 
 
@@ -279,23 +312,6 @@ class Verdict:
     result: dict[str, Any]
 
 
-def _copied(section: Any, name: str) -> Any:
-    """A private copy of one caller-supplied section, or a ContractError.
-
-    The record must hold copies so the caller's objects stay theirs, and the
-    copy runs before the digest boundary; a section nested past the
-    recursion limit, or holding a value that cannot be copied, is malformed
-    input and is refused the same way uncanonicalisable content is, never as
-    a raw copier exception. Only those two failures are translated.
-    """
-
-    try:
-        return copy.deepcopy(section)
-    except (RecursionError, TypeError) as exc:
-        raise envelope.ContractError(
-            f"record content cannot be copied into a record: the caller-supplied {name} "
-            "section is nested past the recursion limit or holds a value that cannot be copied"
-        ) from exc
 
 
 def build_record(

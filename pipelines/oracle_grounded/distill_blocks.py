@@ -29,9 +29,14 @@ def check_generator_oracle_separation(record: dict[str, Any], where: str) -> lis
     here, after the shared scan.
     """
 
-    errors = envelope.check_generator_oracle_separation(
-        record, vocab.ORACLE_ONLY_KEYS, where
-    )
+    try:
+        errors = envelope.check_generator_oracle_separation(
+            record, vocab.ORACLE_ONLY_KEYS, where
+        )
+    except RecursionError:
+        # The shared walker recurses; a record nested past the limit is a
+        # finding at this boundary, never an exception out of a check.
+        return [vocab.scan_depth_finding(where)]
     return errors + _check_prediction_naming(record.get("candidate_prediction"), where)
 
 
@@ -40,14 +45,42 @@ def _check_prediction_naming(prediction: Any, where: str) -> list[str]:
 
     if not isinstance(prediction, dict):
         return []
-    return [
+    keys = sorted(key for key in prediction if isinstance(key, str))
+    errors = [
+        f"{where}.candidate_prediction: every key must be a string, got {key!r}"
+        for key in prediction
+        if not isinstance(key, str)
+    ]
+    errors += [
         f"{where}.candidate_prediction.{key}: generator predictions must be "
         f"named {vocab.PREDICTION_PREFIX}* (or one of "
         f"{sorted(vocab.PREDICTION_FREE_KEYS)})"
-        for key in sorted(prediction)
+        for key in keys
         if key not in vocab.PREDICTION_FREE_KEYS
         and not key.startswith(vocab.PREDICTION_PREFIX)
     ]
+    return errors + _prediction_free_field_errors(prediction, where)
+
+
+def _prediction_free_field_errors(prediction: dict[str, Any], where: str) -> list[str]:
+    """The free keys keep the schema's types: a confidence in [0, 1], strings elsewhere."""
+
+    errors: list[str] = []
+    if "confidence" in prediction and not _is_confidence(prediction["confidence"]):
+        errors.append(
+            f"{where}.candidate_prediction.confidence must be a number in [0, 1], "
+            f"got {prediction['confidence']!r}"
+        )
+    for key in ("rationale", "method"):
+        if key in prediction and not isinstance(prediction[key], str):
+            errors.append(f"{where}.candidate_prediction.{key} must be a string")
+    return errors
+
+
+def _is_confidence(value: Any) -> bool:
+    """A number in [0, 1], as the schema pins ``candidate_prediction.confidence``."""
+
+    return envelope.is_number(value) and 0 <= value <= 1
 
 
 def _seed_errors(block: dict[str, Any], section: str, absent_note: str, where: str) -> list[str]:
@@ -178,8 +211,7 @@ def _check_provenance_block(block: Any, where: str) -> list[str]:
     errors: list[str] = []
     if vocab.missing_string(block.get("producer")):
         errors.append(f"{where}.provenance.producer must be a non-empty string")
-    produced_at = block.get("produced_at")
-    if not isinstance(produced_at, str) or not envelope.ISO_8601_RE.match(produced_at):
+    if not vocab.is_timestamp(block.get("produced_at")):
         errors.append(
             f"{where}.provenance.produced_at must be an ISO-8601 UTC timestamp"
         )
@@ -233,8 +265,7 @@ def _check_validator_object(validator: Any, where: str) -> list[str]:
     for key in ("name", "version"):
         if vocab.missing_string(validator.get(key)):
             errors.append(f"{where}.validation.validator.{key} must be a non-empty string")
-    checked_at = validator.get("checked_at")
-    if not isinstance(checked_at, str) or not envelope.ISO_8601_RE.match(checked_at):
+    if not vocab.is_timestamp(validator.get("checked_at")):
         errors.append(
             f"{where}.validation.validator.checked_at must be an ISO-8601 UTC timestamp"
         )

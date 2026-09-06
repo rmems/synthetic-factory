@@ -86,6 +86,37 @@ class GeneratorNeverCertifies(unittest.TestCase):
         record["candidate_prediction"]["method"] = "lookup"
         self.assertEqual(oc.check_generator_oracle_separation(record, "x"), [])
 
+    def test_prediction_free_fields_keep_the_schema_types(self):
+        for changes, fragment in (
+            ({"confidence": "high"}, "confidence must be a number in [0, 1]"),
+            ({"confidence": 2}, "confidence must be a number in [0, 1]"),
+            ({"confidence": True}, "confidence must be a number in [0, 1]"),
+            ({"rationale": 3}, "rationale must be a string"),
+        ):
+            with self.subTest(changes=changes):
+                record = minimal_record()
+                record["candidate_prediction"].update(changes)
+                errors = oc.check_generator_oracle_separation(record, "x")
+                self.assertTrue(any(fragment in e for e in errors), errors)
+        record = minimal_record()
+        record["candidate_prediction"].update({"confidence": 1, "rationale": "lookup"})
+        self.assertEqual(oc.check_generator_oracle_separation(record, "x"), [])
+
+    def test_non_string_prediction_keys_are_findings_not_exceptions(self):
+        for prediction in ({1: "value"}, {"predicted_x": 1, 2: "y"}):
+            with self.subTest(prediction=prediction):
+                errors = oc.check_envelope(minimal_record(candidate_prediction=prediction), "x")
+                self.assertTrue(any("every key must be a string" in e for e in errors), errors)
+
+    def test_a_record_nested_past_the_recursion_limit_is_a_finding_not_an_exception(self):
+        deep = {"k": 1}
+        for _ in range(600):
+            deep = {"n": deep}
+        record = minimal_record()
+        record["scenario"]["deep"] = deep
+        errors = oc.check_envelope(record, "x")
+        self.assertTrue(any(oc.RESERVED_KEY_SCAN_DEPTH_EXCEEDED in e for e in errors), errors)
+
     def test_every_energy_quantity_name_is_oracle_owned(self):
         for key in ("energy_j", "energy_per_op_j", "power_w"):
             with self.subTest(key=key):
@@ -149,6 +180,28 @@ class MalformedBlocksAreFindings(unittest.TestCase):
         def mutate(record):
             del record[section][key]
         return mutate
+
+    def test_calendar_invalid_timestamps_are_findings(self):
+        def checked_at(instant):
+            def mutate(record):
+                stamped = oc.stamp_validation(record, findings=[], validator="v", version="1")
+                record["validation"] = stamped["validation"]
+                record["validation"]["validator"]["checked_at"] = instant
+            return mutate
+
+        self.check({
+            "impossible day": (
+                self.block("provenance", produced_at="2026-02-30T00:00:00Z"),
+                "x.provenance.produced_at must be an ISO-8601 UTC timestamp",
+            ),
+            "impossible month": (
+                self.block("provenance", produced_at="2026-13-01T00:00:00Z"),
+                "x.provenance.produced_at must be",
+            ),
+            "validator checked at an impossible instant": (
+                checked_at("2026-99-99T99:99:99Z"), "x.validation.validator.checked_at must be"
+            ),
+        })
 
     def test_validation_findings_have_a_shape(self):
         def unvalidated(findings):
@@ -336,6 +389,35 @@ class BuildersRefuseOutsideTheVocabulary(unittest.TestCase):
         self.assertNotIn("notes", plain)
         self.assertIsNone(plain["seed"])
 
+    def test_measured_option_is_a_boolean_or_none(self):
+        for claimed in ("false", 0, "yes"):
+            with self.subTest(claimed=claimed):
+                with self.assertRaises(oc.ContractError):
+                    oc.new_measurement(
+                        "recovery_latency_ms", 4.0, "simulator_clock", measured=claimed
+                    )
+        lowered = oc.new_measurement("recovery_latency_ms", 4.0, "simulator_clock", measured=False)
+        self.assertIs(lowered["measured"], False)
+
+    def test_integer_values_stay_integers(self):
+        big = 2**53 + 1
+        exact = oc.new_measurement("dropped_event_count", big, "hardware_counter")
+        self.assertEqual(exact["value"], big)
+        self.assertIsInstance(exact["value"], int)
+        real = oc.new_measurement("recovery_latency_ms", 4.0, "simulator_clock")
+        self.assertIsInstance(real["value"], float)
+
+    def test_oracle_identity_fields_are_refused_by_the_builder(self):
+        for changes in ({"name": ""}, {"implementation": ""}, {"version": ""}):
+            with self.subTest(changes=changes):
+                fields = {
+                    "name": "o", "oracle_type": "deterministic_simulator",
+                    "implementation": "x", "version": "1",
+                }
+                fields.update(changes)
+                with self.assertRaises(oc.ContractError):
+                    oc.new_oracle(oc.OracleIdentity(**fields))
+
     def test_generator_identity_and_seed_are_refused_by_the_builder(self):
         for identity, seed in (
             (oc.GeneratorIdentity("", version="1"), None),
@@ -443,6 +525,32 @@ class DigestBoundary(unittest.TestCase):
                         provenance=oc.new_provenance("unit-test"),
                     )
                 self.assertIsNotNone(caught.exception.__cause__)
+
+
+class EveryBuilderCopiesInsideTheBoundary(unittest.TestCase):
+    """Caller-supplied extra fields and run setup cross the same copy boundary as sections."""
+
+    class Uncopiable:
+        def __deepcopy__(self, memo):
+            raise TypeError("cannot copy")
+
+    def test_extra_fields_run_setup_and_detail_are_refused_not_raised_raw(self):
+        bad = self.Uncopiable()
+        identity = oc.OracleIdentity(
+            "o", oracle_type="deterministic_simulator", implementation="x", version="1"
+        )
+        reading = oc.new_measurement("recovery_latency_ms", 4.0, "simulator_clock")
+        for name, build in (
+            ("result", lambda: oc.new_result(measurements=[reading], extra=bad)),
+            ("provenance", lambda: oc.new_provenance("p", host=bad)),
+            ("oracle", lambda: oc.new_oracle(identity, oc.OracleRun(configuration={"n": bad}))),
+            ("detail", lambda: oc.new_measurement(
+                "recovery_latency_ms", 4.0, "simulator_clock", detail={"k": bad}
+            )),
+        ):
+            with self.subTest(section=name):
+                with self.assertRaises(oc.ContractError):
+                    build()
 
 
 class BuilderCopyBoundary(unittest.TestCase):
