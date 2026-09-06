@@ -49,19 +49,24 @@ class OracleLabelPolicy:
     label_keys: frozenset[str]
 
     def __post_init__(self) -> None:
-        if self.family not in vocab.FAMILIES:
-            raise envelope.ContractError(
-                f"unknown family for an oracle-label policy: {self.family!r}"
-            )
-        keys = self.label_keys
-        if not isinstance(keys, frozenset) or not keys:
-            raise envelope.ContractError(
-                f"{self.family}: label_keys must be a non-empty frozenset of key names"
-            )
-        if any(vocab.missing_string(key) for key in keys):
-            raise envelope.ContractError(
-                f"{self.family}: every oracle-label key must be a non-empty string"
-            )
+        _refuse_unknown_family(self.family)
+        _refuse_label_keys(self.family, self.label_keys)
+
+
+def _refuse_unknown_family(family: Any) -> None:
+    if family not in vocab.FAMILIES:
+        raise envelope.ContractError(f"unknown family for an oracle-label policy: {family!r}")
+
+
+def _refuse_label_keys(family: str, keys: Any) -> None:
+    """A non-empty frozenset of non-empty key names, and nothing else."""
+
+    if not isinstance(keys, frozenset) or not keys:
+        raise envelope.ContractError(
+            f"{family}: label_keys must be a non-empty frozenset of key names"
+        )
+    if any(vocab.missing_string(key) for key in keys):
+        raise envelope.ContractError(f"{family}: every oracle-label key must be a non-empty string")
 
 
 _POLICIES: dict[str, OracleLabelPolicy] = {}

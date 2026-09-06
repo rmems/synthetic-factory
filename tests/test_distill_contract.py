@@ -5,10 +5,11 @@ facade re-exports every sibling under both import forms."""
 
 import importlib
 import json
-import subprocess
+import multiprocessing
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # the shared test support, by bare name
@@ -20,6 +21,7 @@ from distill_contract_test_support import (  # noqa: E402
     minimal_record,
     oc,
 )
+import distill_import_probe  # noqa: E402
 
 
 class SchemaFileAgreesWithTheModule(unittest.TestCase):
@@ -129,8 +131,11 @@ class SplitByResponsibility(unittest.TestCase):
             sys.path.append(str(REPO))
         for name in self.SIBLINGS:
             with self.subTest(name=name):
-                direct = importlib.import_module(f"oracle_grounded.{name}")
-                packaged = importlib.import_module(f"pipelines.oracle_grounded.{name}")
+                # The support module imported the flat spelling; this literal
+                # import binds the package spelling of every sibling too.
+                importlib.import_module("pipelines.oracle_grounded.distill_contract")
+                direct = sys.modules[f"oracle_grounded.{name}"]
+                packaged = sys.modules[f"pipelines.oracle_grounded.{name}"]
                 self.assertIs(direct, packaged)
 
     def test_the_facade_exports_every_declared_name(self):
@@ -188,72 +193,46 @@ class ImportTwinNames(unittest.TestCase):
 
 
 class SupportedImportForms(unittest.TestCase):
-    """The advertised import forms, each in a fresh interpreter.
+    """Both documented import forms work alone and together, in a fresh interpreter.
 
-    The CLI form puts ``pipelines/`` on ``sys.path``; the package form puts
-    the repository root there. Both may be used in one process in either
-    order and resolve to one module object, so a ``ContractError`` raised
-    through one name is caught through the other. The flat-then-package
-    order once failed with ``ImportError: cannot import name
-    'oracle_grounded' from 'pipelines'`` because the bound twin of the
-    module short-circuited the import of its parent package.
+    The CLI form (``pipelines/`` on ``sys.path``, ``from oracle_grounded import
+    distill_contract``) and the package form (``from pipelines.oracle_grounded
+    import distill_contract``) must each work on their own, and in either
+    order must bind one module object, so an error raised through one name is
+    caught through the other. The flat-then-package order once failed with
+    ``ImportError: cannot import name 'oracle_grounded' from 'pipelines'``
+    because the bound twin of the module short-circuited the import of its
+    parent package. Each form runs in a child interpreter started with the
+    ``spawn`` method (``tests/distill_import_probe.py``), so nothing this
+    process already imported can mask a failure.
     """
 
-    CLI_PATH = f"import sys; sys.path.insert(0, {str(REPO / 'pipelines')!r}); "
-    ROOT_PATH = f"import sys; sys.path.insert(0, {str(REPO)!r}); "
-    FLAT = CLI_PATH + "from oracle_grounded import distill_contract as flat; "
-    PKG = ROOT_PATH + "from pipelines.oracle_grounded import distill_contract as pkg; "
-    SAME = (
-        "assert pkg is flat, 'two module objects'; "
-        "assert pkg.ContractError is flat.ContractError, 'two error classes'; "
-        "print('one object')"
-    )
-
-    def run_fresh(self, code: str) -> str:
-        with tempfile.TemporaryDirectory() as cwd:
-            completed = subprocess.run(
-                [sys.executable, "-c", code], capture_output=True, text=True, cwd=cwd, timeout=120
-            )
-        self.assertEqual(completed.returncode, 0, completed.stderr[-2000:])
-        return completed.stdout.strip()
+    def fresh(self, form: str) -> dict:
+        context = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=1, mp_context=context) as pool:
+            return pool.submit(distill_import_probe.run_form, form).result(timeout=120)
 
     def test_the_cli_form_alone(self):
-        self.assertEqual(
-            self.run_fresh(self.FLAT + "print(flat.SCHEMA_VERSION == flat.SCHEMA_VERSION)"), "True"
-        )
+        self.assertEqual(self.fresh("cli"), {"schema_version": oc.SCHEMA_VERSION})
 
     def test_the_package_form_alone(self):
-        self.assertEqual(
-            self.run_fresh(self.PKG + "import pipelines.oracle_grounded.distill_contract as x; "
-                           "print(x is pkg)"),
-            "True",
-        )
+        self.assertEqual(self.fresh("package"), {"one_object": True})
 
     def test_package_then_cli_is_one_object(self):
-        self.assertEqual(self.run_fresh(self.PKG + self.FLAT + self.SAME), "one object")
+        report = self.fresh("package_then_cli")
+        self.assertTrue(report["one_object"], report)
+        self.assertTrue(report["one_error_class"], report)
 
     def test_cli_then_package_is_one_object(self):
         # The once-failing order, through both spellings of the package form.
-        code = (
-            self.FLAT
-            + self.ROOT_PATH
-            + "import pipelines.oracle_grounded.distill_contract as pkg; "
-            + "from pipelines.oracle_grounded import distill_contract as pkg2; "
-            + "assert pkg2 is pkg; "
-            + self.SAME
-        )
-        self.assertEqual(self.run_fresh(code), "one object")
+        report = self.fresh("cli_then_package")
+        self.assertTrue(report["one_object"], report)
+        self.assertTrue(report["one_error_class"], report)
 
     def test_every_sibling_is_one_object_across_both_forms(self):
-        code = (
-            self.FLAT
-            + self.PKG
-            + "import importlib, sys; names = "
-            + repr(list(SplitByResponsibility.SIBLINGS))
-            + "; bad = [n for n in names if sys.modules.get(f'oracle_grounded.{n}') "
-            + "is not sys.modules.get(f'pipelines.oracle_grounded.{n}')]; print(bad)"
-        )
-        self.assertEqual(self.run_fresh(code), "[]")
+        for form in ("cli_then_package", "package_then_cli"):
+            with self.subTest(form=form):
+                self.assertEqual(self.fresh(form)["split_siblings"], [])
 
 
 if __name__ == "__main__":

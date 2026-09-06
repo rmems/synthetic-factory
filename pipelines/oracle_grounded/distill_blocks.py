@@ -10,6 +10,7 @@ have always been emitted, with the measurement checks that live in
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from . import distill_energy_claims as energy_claims
@@ -17,6 +18,186 @@ from . import distill_measurements as measurements
 from . import distill_vocabulary as vocab
 from . import envelope
 from .import_twins import bind_import_twin
+
+
+# A field rule: the key, the predicate its value must satisfy, and the message
+# template that ``{where}`` and ``{value}`` fill in. A predicate sees
+# ``_ABSENT`` for a missing key, so a rule can insist on presence, tolerate
+# absence, or tolerate null while a presence rule reports the absence.
+_ABSENT = object()
+Rule = tuple[str, Callable[[Any], bool], str]
+
+
+def _rule_errors(block: dict[str, Any], rules: Iterable[Rule], where: str) -> list[str]:
+    """The message of every rule ``block`` fails, in rule order."""
+
+    return [
+        message.format(where=where, value=block.get(key))
+        for key, holds, message in rules
+        if not holds(block.get(key, _ABSENT))
+    ]
+
+
+def _is_string(value: Any) -> bool:
+    return not vocab.missing_string(value)
+
+
+def _is_text(value: Any) -> bool:
+    return isinstance(value, str)
+
+
+def _is_object(value: Any) -> bool:
+    return isinstance(value, dict)
+
+
+def _is_nonempty_object(value: Any) -> bool:
+    return isinstance(value, dict) and bool(value)
+
+
+def _is_sha256(value: Any) -> bool:
+    return isinstance(value, str) and bool(envelope.SHA256_RE.match(value))
+
+
+def _is_confidence(value: Any) -> bool:
+    """A number in [0, 1], as the schema pins ``candidate_prediction.confidence``."""
+
+    return envelope.is_number(value) and 0 <= value <= 1
+
+
+def _is_schema_version(value: Any) -> bool:
+    return value == vocab.SCHEMA_VERSION
+
+
+def _is_generator_authority(value: Any) -> bool:
+    return value == vocab.GENERATOR_AUTHORITY
+
+
+def _present(value: Any) -> bool:
+    return value is not _ABSENT
+
+
+def _one_of(values: frozenset[str]) -> Callable[[Any], bool]:
+    return lambda value: envelope.is_enum_value(value, values)
+
+
+def _absent_or(holds: Callable[[Any], bool]) -> Callable[[Any], bool]:
+    """Tolerate a missing key; judge a present value by ``holds``."""
+
+    return lambda value: value is _ABSENT or holds(value)
+
+
+def _null_or(holds: Callable[[Any], bool]) -> Callable[[Any], bool]:
+    """Tolerate null, and absence (a presence rule reports that); judge the rest."""
+
+    return lambda value: value is _ABSENT or value is None or holds(value)
+
+
+# The shared envelope restricts a seed to integer/null and a commit to
+# string/null. Presence alone once accepted ``{"seed": {}}`` and ``"seed":
+# true``, so malformed reproducibility metadata stayed curation-eligible.
+def _seed_rules(section: str, absent_note: str) -> tuple[Rule, Rule]:
+    return (
+        ("seed", _present, "{where}." + section + ".seed must be present (" + absent_note + ")"),
+        (
+            "seed",
+            _null_or(vocab.is_genuine_int),
+            "{where}." + section + ".seed must be an integer or null, got {value!r}",
+        ),
+    )
+
+
+_HEADER_RULES: tuple[Rule, ...] = (
+    ("id", _is_string, "{where}.id must be a non-empty string"),
+    ("family", _one_of(vocab.FAMILIES), "{where}.family must be one of " + str(sorted(vocab.FAMILIES))),
+    (
+        "schema_version",
+        _is_schema_version,
+        "{where}.schema_version must be " + repr(vocab.SCHEMA_VERSION) + ", got {value!r}",
+    ),
+    ("scenario", _is_nonempty_object, "{where}.scenario must be a non-empty object"),
+    # Must be objects, not lists: the predicted_* naming rule is only
+    # expressible over named keys, so a list would slip past it.
+    ("intervention", _absent_or(_is_object), "{where}.intervention must be an object"),
+    (
+        "candidate_prediction",
+        _absent_or(_is_object),
+        "{where}.candidate_prediction must be an object",
+    ),
+)
+
+_GENERATOR_RULES: tuple[Rule, ...] = (
+    ("name", _is_string, "{where}.generator.name must be a non-empty string"),
+    (
+        "kind",
+        _one_of(vocab.GENERATOR_KINDS),
+        "{where}.generator.kind must be one of " + str(sorted(vocab.GENERATOR_KINDS)),
+    ),
+    ("version", _is_string, "{where}.generator.version must be a non-empty string"),
+    (
+        "authority",
+        _is_generator_authority,
+        "{where}.generator.authority must be " + repr(vocab.GENERATOR_AUTHORITY)
+        + " — a generator may never certify its own result",
+    ),
+) + _seed_rules("generator", "null when unseeded")
+
+_ORACLE_RULES: tuple[Rule, ...] = (
+    ("name", _is_string, "{where}.oracle.name must be a non-empty string"),
+    (
+        "type",
+        _one_of(vocab.ORACLE_TYPES),
+        "{where}.oracle.type must be one of " + str(sorted(vocab.ORACLE_TYPES)),
+    ),
+    ("implementation", _is_string, "{where}.oracle.implementation must be a non-empty string"),
+    ("version", _is_string, "{where}.oracle.version must be a non-empty string"),
+    (
+        "authority",
+        _one_of(vocab.ORACLE_AUTHORITIES),
+        "{where}.oracle.authority must be one of " + str(sorted(vocab.ORACLE_AUTHORITIES)),
+    ),
+    ("configuration", _is_object, "{where}.oracle.configuration must be an object"),
+) + _seed_rules("oracle", "null when n/a") + (
+    ("commit", _present, "{where}.oracle.commit must be present (null when n/a)"),
+    ("commit", _null_or(_is_text), "{where}.oracle.commit must be a string or null, got {value!r}"),
+)
+
+_PROVENANCE_RULES: tuple[Rule, ...] = (
+    ("producer", _is_string, "{where}.provenance.producer must be a non-empty string"),
+    (
+        "produced_at",
+        vocab.is_timestamp,
+        "{where}.provenance.produced_at must be an ISO-8601 UTC timestamp",
+    ),
+    # Required, not optional. If the digest may be absent, deleting it is all
+    # it takes to switch off tamper detection for the whole record.
+    ("record_sha256", _is_sha256, "{where}.provenance.record_sha256 must be a sha256 hex digest"),
+)
+
+_VALIDATOR_RULES: tuple[Rule, ...] = (
+    ("name", _is_string, "{where}.validation.validator.name must be a non-empty string"),
+    ("version", _is_string, "{where}.validation.validator.version must be a non-empty string"),
+    (
+        "checked_at",
+        vocab.is_timestamp,
+        "{where}.validation.validator.checked_at must be an ISO-8601 UTC timestamp",
+    ),
+    (
+        "validated_digest",
+        _null_or(_is_sha256),
+        "{where}.validation.validator.validated_digest must be a sha256 digest",
+    ),
+)
+
+# The free keys of candidate_prediction keep the schema's types.
+_PREDICTION_FIELD_RULES: tuple[Rule, ...] = (
+    (
+        "confidence",
+        _absent_or(_is_confidence),
+        "{where}.candidate_prediction.confidence must be a number in [0, 1], got {value!r}",
+    ),
+    ("rationale", _absent_or(_is_text), "{where}.candidate_prediction.rationale must be a string"),
+    ("method", _absent_or(_is_text), "{where}.candidate_prediction.method must be a string"),
+)
 
 
 def check_generator_oracle_separation(record: dict[str, Any], where: str) -> list[str]:
@@ -56,7 +237,7 @@ def _check_prediction_naming(prediction: Any, where: str) -> list[str]:
     return (
         _prediction_key_errors(prediction, where)
         + errors
-        + _prediction_free_field_errors(prediction, where)
+        + _rule_errors(prediction, _PREDICTION_FIELD_RULES, where)
     )
 
 
@@ -74,116 +255,24 @@ def _prediction_key_errors(prediction: dict[Any, Any], where: str) -> list[str]:
     ]
 
 
-def _prediction_free_field_errors(prediction: dict[str, Any], where: str) -> list[str]:
-    """The free keys keep the schema's types: a confidence in [0, 1], strings elsewhere."""
-
-    errors: list[str] = []
-    if "confidence" in prediction and not _is_confidence(prediction["confidence"]):
-        errors.append(
-            f"{where}.candidate_prediction.confidence must be a number in [0, 1], "
-            f"got {prediction['confidence']!r}"
-        )
-    for key in ("rationale", "method"):
-        if key in prediction and not isinstance(prediction[key], str):
-            errors.append(f"{where}.candidate_prediction.{key} must be a string")
-    return errors
-
-
-def _is_confidence(value: Any) -> bool:
-    """A number in [0, 1], as the schema pins ``candidate_prediction.confidence``."""
-
-    return envelope.is_number(value) and 0 <= value <= 1
-
-
-def _seed_errors(block: dict[str, Any], section: str, absent_note: str, where: str) -> list[str]:
-    """``seed`` must be present, and an integer or null when it is.
-
-    The shared envelope restricts the seed to integer/null. Presence alone
-    accepted ``{"seed": {}}`` or ``"seed": true``, so malformed
-    reproducibility metadata stayed curation-eligible.
-    """
-
-    if "seed" not in block:
-        return [f"{where}.{section}.seed must be present ({absent_note})"]
-    seed = block["seed"]
-    if seed is not None and not vocab.is_genuine_int(seed):
-        return [f"{where}.{section}.seed must be an integer or null, got {seed!r}"]
-    return []
-
-
-def _generator_identity_errors(block: dict[str, Any], where: str) -> list[str]:
-    """Name, kind, version, the pinned authority, and the model an llm needs."""
-
-    errors: list[str] = []
-    if vocab.missing_string(block.get("name")):
-        errors.append(f"{where}.generator.name must be a non-empty string")
-    if not envelope.is_enum_value(block.get("kind"), vocab.GENERATOR_KINDS):
-        errors.append(
-            f"{where}.generator.kind must be one of {sorted(vocab.GENERATOR_KINDS)}"
-        )
-    if vocab.missing_string(block.get("version")):
-        errors.append(f"{where}.generator.version must be a non-empty string")
-    if block.get("authority") != vocab.GENERATOR_AUTHORITY:
-        errors.append(
-            f"{where}.generator.authority must be {vocab.GENERATOR_AUTHORITY!r} — "
-            "a generator may never certify its own result"
-        )
-    if block.get("kind") == "llm" and not isinstance(block.get("model"), str):
-        errors.append(f"{where}.generator.model is required for an llm generator")
-    return errors
-
-
 def _check_generator_block(block: Any, where: str) -> list[str]:
     if not isinstance(block, dict):
         return [f"{where}.generator must be an object"]
-    return _generator_identity_errors(block, where) + _seed_errors(
-        block, "generator", "null when unseeded", where
-    )
+    return _rule_errors(block, _GENERATOR_RULES, where) + _llm_model_errors(block, where)
 
 
-def _oracle_identity_errors(block: dict[str, Any], where: str) -> list[str]:
-    """Name, type, implementation, version and authority."""
+def _llm_model_errors(block: dict[str, Any], where: str) -> list[str]:
+    """The model an llm generator must name."""
 
-    errors: list[str] = []
-    if vocab.missing_string(block.get("name")):
-        errors.append(f"{where}.oracle.name must be a non-empty string")
-    if not envelope.is_enum_value(block.get("type"), vocab.ORACLE_TYPES):
-        errors.append(f"{where}.oracle.type must be one of {sorted(vocab.ORACLE_TYPES)}")
-    for key in ("implementation", "version"):
-        if vocab.missing_string(block.get(key)):
-            errors.append(f"{where}.oracle.{key} must be a non-empty string")
-    if not envelope.is_enum_value(block.get("authority"), vocab.ORACLE_AUTHORITIES):
-        errors.append(
-            f"{where}.oracle.authority must be one of {sorted(vocab.ORACLE_AUTHORITIES)}"
-        )
-    return errors
-
-
-def _oracle_reproducibility_errors(block: dict[str, Any], where: str) -> list[str]:
-    """Seed and commit: present, and integer/null or string/null.
-
-    Presence is not enough: the shared schema restricts these to
-    integer/null and string/null, and nothing else inspected them — so
-    ``seed: {}`` and ``commit: []`` passed as reproducibility metadata.
-    """
-
-    errors = _seed_errors(block, "oracle", "null when n/a", where)
-    if "commit" not in block:
-        errors.append(f"{where}.oracle.commit must be present (null when n/a)")
-    elif block["commit"] is not None and not isinstance(block["commit"], str):
-        errors.append(
-            f"{where}.oracle.commit must be a string or null, got {block['commit']!r}"
-        )
-    return errors
+    if block.get("kind") == "llm" and not isinstance(block.get("model"), str):
+        return [f"{where}.generator.model is required for an llm generator"]
+    return []
 
 
 def _check_oracle_block(block: Any, where: str) -> list[str]:
     if not isinstance(block, dict):
         return [f"{where}.oracle must be an object"]
-    errors = _oracle_identity_errors(block, where)
-    if not isinstance(block.get("configuration"), dict):
-        errors.append(f"{where}.oracle.configuration must be an object")
-    return errors + _oracle_reproducibility_errors(block, where)
+    return _rule_errors(block, _ORACLE_RULES, where)
 
 
 def _measurements_shape_errors(block: dict[str, Any], status: str, where: str) -> list[str]:
@@ -200,39 +289,32 @@ def _measurements_shape_errors(block: dict[str, Any], status: str, where: str) -
     return []
 
 
+def _abstention_errors(block: dict[str, Any], status: str, where: str) -> list[str]:
+    """An abstained result explains itself."""
+
+    if status == vocab.RESULT_ABSTAINED and vocab.missing_string(block.get("abstention_reason")):
+        return [
+            f"{where}.result.abstention_reason must explain why the oracle "
+            "produced no measurement"
+        ]
+    return []
+
+
 def _check_result_block(block: Any, where: str) -> list[str]:
     if not isinstance(block, dict):
         return [f"{where}.result must be an object"]
     status = block.get("status")
     if not envelope.is_enum_value(status, vocab.RESULT_STATUSES):
         return [f"{where}.result.status must be one of {sorted(vocab.RESULT_STATUSES)}"]
-    errors = _measurements_shape_errors(block, status, where)
-    if status == vocab.RESULT_ABSTAINED and vocab.missing_string(
-        block.get("abstention_reason")
-    ):
-        errors.append(
-            f"{where}.result.abstention_reason must explain why the oracle "
-            "produced no measurement"
-        )
-    return errors
+    return _measurements_shape_errors(block, status, where) + _abstention_errors(
+        block, status, where
+    )
 
 
 def _check_provenance_block(block: Any, where: str) -> list[str]:
     if not isinstance(block, dict):
         return [f"{where}.provenance must be an object"]
-    errors: list[str] = []
-    if vocab.missing_string(block.get("producer")):
-        errors.append(f"{where}.provenance.producer must be a non-empty string")
-    if not vocab.is_timestamp(block.get("produced_at")):
-        errors.append(
-            f"{where}.provenance.produced_at must be an ISO-8601 UTC timestamp"
-        )
-    # Required, not optional. If the digest may be absent, deleting it is all it
-    # takes to switch off tamper detection for the whole record.
-    digest = block.get("record_sha256")
-    if not isinstance(digest, str) or not envelope.SHA256_RE.match(digest):
-        errors.append(f"{where}.provenance.record_sha256 must be a sha256 hex digest")
-    return errors
+    return _rule_errors(block, _PROVENANCE_RULES, where)
 
 
 def _check_validation_block(block: Any, where: str) -> list[str]:
@@ -252,13 +334,17 @@ def _check_validation_block(block: Any, where: str) -> list[str]:
     return errors
 
 
+def _findings_shape_ok(findings: Any) -> bool:
+    return isinstance(findings, list) and all(_is_string(finding) for finding in findings)
+
+
 def _check_findings_list(block: dict[str, Any], status: Any, where: str) -> list[str]:
     """``findings``, when present, lists non-empty strings; a passed verdict carries none."""
 
     if "findings" not in block:
         return []
     findings = block["findings"]
-    if not isinstance(findings, list) or any(vocab.missing_string(f) for f in findings):
+    if not _findings_shape_ok(findings):
         return [f"{where}.validation.findings must be a list of non-empty strings"]
     if status == vocab.VALIDATION_PASSED and findings:
         return [f"{where}.validation: a passed verdict cannot carry findings"]
@@ -273,45 +359,13 @@ def _check_validator_object(validator: Any, where: str) -> list[str]:
             f"{where}.validation.validator must be an object naming the validator "
             "that stamped this verdict"
         ]
-    errors: list[str] = []
-    for key in ("name", "version"):
-        if vocab.missing_string(validator.get(key)):
-            errors.append(f"{where}.validation.validator.{key} must be a non-empty string")
-    if not vocab.is_timestamp(validator.get("checked_at")):
-        errors.append(
-            f"{where}.validation.validator.checked_at must be an ISO-8601 UTC timestamp"
-        )
-    validated_digest = validator.get("validated_digest")
-    if validated_digest is not None and not (
-        isinstance(validated_digest, str) and envelope.SHA256_RE.match(validated_digest)
-    ):
-        errors.append(
-            f"{where}.validation.validator.validated_digest must be a sha256 digest"
-        )
-    return errors
+    return _rule_errors(validator, _VALIDATOR_RULES, where)
 
 
 def _record_header_errors(record: dict[str, Any], where: str) -> list[str]:
     """The id, family, schema version, scenario and the optional sections."""
 
-    errors: list[str] = []
-    if vocab.missing_string(record.get("id")):
-        errors.append(f"{where}.id must be a non-empty string")
-    if record.get("family") not in vocab.FAMILIES:
-        errors.append(f"{where}.family must be one of {sorted(vocab.FAMILIES)}")
-    if record.get("schema_version") != vocab.SCHEMA_VERSION:
-        errors.append(
-            f"{where}.schema_version must be {vocab.SCHEMA_VERSION!r}, "
-            f"got {record.get('schema_version')!r}"
-        )
-    if not isinstance(record.get("scenario"), dict) or not record["scenario"]:
-        errors.append(f"{where}.scenario must be a non-empty object")
-    for optional in ("intervention", "candidate_prediction"):
-        # Must be an object, not a list: the predicted_* naming rule is only
-        # expressible over named keys, so a list would slip past it.
-        if optional in record and not isinstance(record[optional], dict):
-            errors.append(f"{where}.{optional} must be an object")
-    return errors
+    return _rule_errors(record, _HEADER_RULES, where)
 
 
 _BLOCK_CHECKS = (

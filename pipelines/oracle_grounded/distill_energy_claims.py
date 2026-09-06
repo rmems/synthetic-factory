@@ -34,7 +34,8 @@ to that point nor the length of a path in the listing.
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, NamedTuple
 
 from . import distill_vocabulary as vocab
 from . import envelope
@@ -167,9 +168,33 @@ def _object_reason(
 # The energy context a container hands to everything beneath it: None (no
 # energy claim in force) or a ``(root_path, finding_text)`` claim that the
 # first number beneath confirms.
-def _dict_context(
-    value: dict[str, Any], path: str, key: str, inherited: Any, measured: set[str]
-) -> tuple[str, str] | None:
+Context = tuple[str, str] | None
+
+
+class _Frame(NamedTuple):
+    """One entry on the walk's explicit stack: where it sits and the context it inherits."""
+
+    path: str
+    key: str
+    value: Any
+    context: Context
+
+
+@dataclass
+class _Hits:
+    """What the walk collects: bare energy numbers (R2) and the claims numbers confirmed."""
+
+    bare: list[str] = field(default_factory=list)
+    claims: dict[str, str] = field(default_factory=dict)
+
+    def __len__(self) -> int:
+        return len(self.bare) + len(self.claims)
+
+    def listing(self) -> list[str]:
+        return self.bare + list(self.claims.values())
+
+
+def _dict_context(frame: _Frame, measured: set[str]) -> Context:
     """The context a dict hands its children.
 
     Its own identity (R1) comes first: an unbacked or modelled identified
@@ -181,26 +206,26 @@ def _dict_context(
     hands its children the inherited context untouched.
     """
 
-    if path != "result.preference":
-        identity = _energy_identity(value)
+    if frame.path != "result.preference":
+        identity = _energy_identity(frame.value)
         if identity is not None:
-            reason = _object_reason(value, identity, measured)
-            return None if reason is None else (path, f"{path} ({reason})")
-    if inherited is None and _is_energy_key(key):
-        return path, f"{path} (energy-keyed container)"
-    return inherited
+            reason = _object_reason(frame.value, identity, measured)
+            return None if reason is None else (frame.path, f"{frame.path} ({reason})")
+    if frame.context is None and _is_energy_key(frame.key):
+        return frame.path, f"{frame.path} (energy-keyed container)"
+    return frame.context
 
 
-def _dict_frames(path: str, value: dict[str, Any], context: Any) -> list[tuple]:
+def _dict_frames(frame: _Frame, context: Context) -> list[_Frame]:
     """Stack frames for a dict's entries, in source order once popped."""
 
     return [
-        (f"{path}.{child}", child, item, context)
-        for child, item in reversed(list(value.items()))
+        _Frame(f"{frame.path}.{child}", child, item, context)
+        for child, item in reversed(list(frame.value.items()))
     ]
 
 
-def _list_frames(path: str, key: str, value: list, context: Any) -> list[tuple]:
+def _list_frames(frame: _Frame) -> list[_Frame]:
     """Stack frames for a list's items: a list keeps its key and its context.
 
     The numbers in a list under an energy key are energy numbers (R3), and
@@ -208,21 +233,19 @@ def _list_frames(path: str, key: str, value: list, context: Any) -> list[tuple]:
     """
 
     return [
-        (f"{path}[{index}]", key, item, context)
-        for index, item in reversed(list(enumerate(value)))
+        _Frame(f"{frame.path}[{index}]", frame.key, item, frame.context)
+        for index, item in reversed(list(enumerate(frame.value)))
     ]
 
 
-def _note_number(
-    path: str, key: str, context: Any, bare: list[str], claims: dict[str, str]
-) -> None:
+def _note_number(frame: _Frame, hits: _Hits) -> None:
     """A number under no context is judged by its key (R2); under a claim it confirms it."""
 
-    if context is None:
-        if _is_energy_key(key):
-            bare.append(path)
+    if frame.context is None:
+        if _is_energy_key(frame.key):
+            hits.bare.append(frame.path)
     else:
-        claims.setdefault(context[0], context[1])
+        hits.claims.setdefault(frame.context[0], frame.context[1])
 
 
 def _energy_scan_hits(result: dict[str, Any], measured: set[str]) -> list[str]:
@@ -238,22 +261,21 @@ def _energy_scan_hits(result: dict[str, Any], measured: set[str]) -> list[str]:
     docstring for what the cap does and does not bound.
     """
 
-    bare: list[str] = []
-    claims: dict[str, str] = {}
-    root_context = _dict_context(result, "result", "result", None, measured)
+    hits = _Hits()
+    root = _Frame("result", "result", result, None)
     stack = [
-        frame for frame in _dict_frames("result", result, root_context)
-        if frame[1] != "measurements"
+        frame for frame in _dict_frames(root, _dict_context(root, measured))
+        if frame.key != "measurements"
     ]
-    while stack and len(bare) + len(claims) < envelope.MAX_RESERVED_KEY_HITS:
-        path, key, value, context = stack.pop()
-        if isinstance(value, dict):
-            stack.extend(_dict_frames(path, value, _dict_context(value, path, key, context, measured)))
-        elif isinstance(value, list):
-            stack.extend(_list_frames(path, key, value, context))
-        elif envelope.is_number(value):
-            _note_number(path, key, context, bare, claims)
-    return bare + list(claims.values())
+    while stack and len(hits) < envelope.MAX_RESERVED_KEY_HITS:
+        frame = stack.pop()
+        if isinstance(frame.value, dict):
+            stack.extend(_dict_frames(frame, _dict_context(frame, measured)))
+        elif isinstance(frame.value, list):
+            stack.extend(_list_frames(frame))
+        elif envelope.is_number(frame.value):
+            _note_number(frame, hits)
+    return hits.listing()
 
 
 def _energy_scan_errors(result: dict[str, Any], measured: set[str], where: str) -> list[str]:
