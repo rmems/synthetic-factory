@@ -150,6 +150,40 @@ def _dict_context(
     return inherited
 
 
+def _dict_frames(path: str, value: dict[str, Any], context: Any) -> list[tuple]:
+    """Stack frames for a dict's entries, in source order once popped."""
+
+    return [
+        (f"{path}.{child}", child, item, context)
+        for child, item in reversed(list(value.items()))
+    ]
+
+
+def _list_frames(path: str, key: str, value: list, context: Any) -> list[tuple]:
+    """Stack frames for a list's items: a list keeps its key and its context.
+
+    The numbers in a list under an energy key are energy numbers (R3), and
+    every element of a list inside a claim confirms that claim.
+    """
+
+    return [
+        (f"{path}[{index}]", key, item, context)
+        for index, item in reversed(list(enumerate(value)))
+    ]
+
+
+def _note_number(
+    path: str, key: str, context: Any, bare: list[str], claims: dict[str, str]
+) -> None:
+    """A number under no context is judged by its key (R2); under a claim it confirms it."""
+
+    if context is None:
+        if _is_energy_key(key):
+            bare.append(path)
+    elif context is not _LEGAL:
+        claims.setdefault(context[0], context[1])
+
+
 def _energy_scan_hits(result: dict[str, Any], measured: set[str]) -> list[str]:
     """Paths of energy claims outside ``result.measurements``.
 
@@ -167,32 +201,17 @@ def _energy_scan_hits(result: dict[str, Any], measured: set[str]) -> list[str]:
     claims: dict[str, str] = {}
     root_context = _dict_context(result, "result", "result", None, measured)
     stack = [
-        (f"result.{key}", key, value, root_context)
-        for key, value in reversed(list(result.items()))
-        if key != "measurements"
+        frame for frame in _dict_frames("result", result, root_context)
+        if frame[1] != "measurements"
     ]
     while stack and len(bare) + len(claims) < envelope.MAX_RESERVED_KEY_HITS:
         path, key, value, context = stack.pop()
         if isinstance(value, dict):
-            child_context = _dict_context(value, path, key, context, measured)
-            stack.extend(
-                (f"{path}.{child}", child, item, child_context)
-                for child, item in reversed(list(value.items()))
-            )
+            stack.extend(_dict_frames(path, value, _dict_context(value, path, key, context, measured)))
         elif isinstance(value, list):
-            # A list keeps its key and its context: the numbers in a list under
-            # an energy key are energy numbers (R3), and every element of a
-            # list inside a claim confirms that claim.
-            stack.extend(
-                (f"{path}[{index}]", key, item, context)
-                for index, item in reversed(list(enumerate(value)))
-            )
+            stack.extend(_list_frames(path, key, value, context))
         elif envelope.is_number(value):
-            if context is None:
-                if _is_energy_key(key):
-                    bare.append(path)
-            elif context is not _LEGAL:
-                claims.setdefault(context[0], context[1])
+            _note_number(path, key, context, bare, claims)
     return bare + list(claims.values())
 
 
