@@ -2,6 +2,7 @@
 """Direct tests of the distillation contract's record blocks, builders and the
 generator/oracle separation rule (``distill_blocks``, ``distill_builders``)."""
 
+import copy
 import sys
 import unittest
 from pathlib import Path
@@ -9,8 +10,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # the shared test support, by bare name
 
 from distill_contract_test_support import (  # noqa: E402
+    envelope,
     minimal_record,
     oc,
+    uncanonicalisable_records,
 )
 
 
@@ -344,6 +347,59 @@ class BuildersRefuseOutsideTheVocabulary(unittest.TestCase):
         self.assertNotIn("candidate_prediction", record)
         self.assertEqual(record["provenance"]["record_sha256"], oc.record_digest(record))
         self.assertEqual(oc.check_envelope(record, "x"), [])
+
+
+
+class DigestBoundary(unittest.TestCase):
+    """RoR-190-B1: content that cannot be canonicalised is a finding, never an exception."""
+
+    def test_uncanonicalisable_content_is_a_digest_finding(self):
+        for name, record in uncanonicalisable_records().items():
+            with self.subTest(case=name):
+                errors = oc.check_digest(record, "x")
+                self.assertEqual(len(errors), 1, errors)
+                self.assertIn("RECORD_DIGEST_UNCOMPUTABLE", errors[0])
+                self.assertIn("x.provenance.record_sha256", errors[0])
+
+    def test_a_stale_digest_is_still_a_mismatch_and_a_missing_one_still_missing(self):
+        stale = minimal_record()
+        stale["result"]["outcome"] = "fail_closed"
+        errors = oc.check_digest(stale, "x")
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("record_sha256 mismatch", errors[0])
+        self.assertNotIn("RECORD_DIGEST_UNCOMPUTABLE", errors[0])
+        missing = minimal_record()
+        del missing["provenance"]["record_sha256"]
+        self.assertEqual(oc.check_digest(missing, "x"), [])
+        self.assertIn("x.provenance.record_sha256 must be a sha256 hex digest", oc.check_envelope(missing, "x"))
+
+    def test_the_digest_dialect_is_unchanged_for_canonicalisable_content(self):
+        import hashlib
+
+        record = minimal_record()
+        payload = copy.deepcopy(record)
+        payload.pop("validation")
+        payload["provenance"].pop("record_sha256")
+        expected = hashlib.sha256(envelope.canonical_json(payload).encode("utf-8")).hexdigest()
+        self.assertEqual(record["provenance"]["record_sha256"], expected)
+        self.assertEqual(oc.check_digest(record, "x"), [])
+
+    def test_the_builder_refuses_uncanonicalisable_caller_content(self):
+        base = minimal_record()
+        for name, scenario in {
+            "lone surrogate": {"mission": "bounded \ud800 fixture"},
+            "set": {"tags": {"a"}},
+            "NaN": {"threshold": float("nan")},
+        }.items():
+            with self.subTest(case=name):
+                with self.assertRaises(oc.ContractError) as caught:
+                    oc.build_record(
+                        identity=oc.RecordIdentity("rec-3", base["family"]),
+                        proposal=oc.Proposal(generator=base["generator"], scenario=scenario),
+                        verdict=oc.Verdict(oracle=base["oracle"], result=base["result"]),
+                        provenance=oc.new_provenance("unit-test"),
+                    )
+                self.assertIsNotNone(caught.exception.__cause__)
 
 
 if __name__ == "__main__":

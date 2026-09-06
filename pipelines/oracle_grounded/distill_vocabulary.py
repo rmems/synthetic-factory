@@ -230,6 +230,29 @@ def is_true(value: Any) -> bool:
     return value is True
 
 
+# The digest boundary (RoR-190-B1). Content that cannot take the envelope's
+# canonical UTF-8 JSON form -- a lone surrogate, NaN, a value that is not
+# JSON, nesting past the recursion limit -- is a finding for the checks, a
+# ContractError for the builder, the writer and the stamp, and False for the
+# binding predicate; never a raw serialiser exception. UnicodeEncodeError is a
+# ValueError.
+RECORD_DIGEST_UNCOMPUTABLE = "RECORD_DIGEST_UNCOMPUTABLE"
+_UNCANONICALISABLE = (ValueError, TypeError, RecursionError)
+
+
+def digest_or_failure(record: Any) -> tuple[str | None, BaseException | None]:
+    """The envelope's record digest, or the exception that stopped it.
+
+    Same dialect, same function; this only translates the failure so a caller
+    can report or refuse without leaking the serialiser's exception.
+    """
+
+    try:
+        return record_digest(record), None
+    except _UNCANONICALISABLE as exc:
+        return None, exc
+
+
 def is_genuine_int(value: Any) -> bool:
     """True for a genuine integer — never a boolean wearing int's clothes."""
 

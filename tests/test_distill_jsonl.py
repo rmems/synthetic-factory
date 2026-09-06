@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # the shared test supp
 from distill_contract_test_support import (  # noqa: E402
     minimal_record,
     oc,
+    uncanonicalisable_records,
 )
 
 
@@ -117,6 +118,29 @@ class JsonlFraming(unittest.TestCase):
             self.assertEqual(oc.write_jsonl(path, []), 0)
             self.assertEqual(path.read_bytes(), b"")
             self.assertEqual(oc.read_jsonl(path), [])
+
+
+
+class JsonlCanonicalBoundary(unittest.TestCase):
+    """RoR-190-B1: a line that parses but cannot take the envelope's canonical form."""
+
+    def test_a_lone_surrogate_escape_is_that_lines_parse_failure(self):
+        # The bytes are plain ASCII, json.loads accepts the escape, and the
+        # resulting string cannot be re-encoded as UTF-8: downstream digests
+        # would raise, so the reader reports the line instead.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "batch.jsonl"
+            path.write_bytes(b'{"id": "x", "mission": "bounded \\ud800 fixture"}\n{"id": "y"}\n')
+            self.assertEqual(oc.read_jsonl(path), [(1, None), (2, {"id": "y"})])
+
+    def test_writing_uncanonicalisable_content_is_a_contract_error_and_leaves_no_file(self):
+        for name, record in uncanonicalisable_records().items():
+            with self.subTest(case=name), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "batch.jsonl"
+                with self.assertRaises(oc.ContractError) as caught:
+                    oc.write_jsonl(path, [minimal_record(), record])
+                self.assertIsNotNone(caught.exception.__cause__)
+                self.assertFalse(path.exists())
 
 
 if __name__ == "__main__":

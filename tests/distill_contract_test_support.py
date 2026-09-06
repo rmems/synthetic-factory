@@ -43,6 +43,7 @@ __all__ = [
     "measured_energy_reading",
     "minimal_record",
     "oc",
+    "uncanonicalisable_records",
 ]
 
 
@@ -80,3 +81,26 @@ def minimal_record(**overrides):
 
 def measured_energy_reading(value: float = 8.0) -> dict:
     return oc.new_measurement("energy_j", value, "intel_rapl_powercap")
+
+
+def uncanonicalisable_records() -> dict:
+    """Records whose content cannot take the envelope's canonical UTF-8 JSON form.
+
+    A lone surrogate re-encodes as nothing, NaN is not JSON, a set is not
+    serialisable, and a record nested past the recursion limit cannot be
+    deep-copied or dumped. Built directly, so the builders' own refusals are
+    bypassed the way a hand-written or file-borne record bypasses them.
+    """
+
+    surrogate = minimal_record()
+    surrogate["scenario"]["mission"] = "bounded \ud800 fixture"
+    nan = minimal_record()
+    nan["result"]["measurements"][0]["value"] = float("nan")
+    unserialisable = minimal_record()
+    unserialisable["scenario"]["tags"] = {"a"}
+    deep = minimal_record()
+    cursor = deep["scenario"]
+    for _ in range(50_000):
+        cursor["k"] = {}
+        cursor = cursor["k"]
+    return {"lone surrogate": surrogate, "NaN": nan, "set": unserialisable, "deep nesting": deep}

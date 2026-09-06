@@ -55,13 +55,19 @@ def _parse_jsonl_line(raw: bytes) -> tuple[bool, Any]:
     if not stripped:
         return False, None
     try:
-        return True, json.loads(
+        parsed = json.loads(
             stripped,
             object_pairs_hook=_reject_duplicate_object_keys,
             parse_constant=envelope.reject_json_constant,
             parse_float=envelope.reject_nonfinite_float,
         )
-    except (ValueError, RecursionError):  # JSONDecodeError included
+        # The envelope's canonical form is what every digest and every write
+        # is computed over. A line that parses but cannot take it (a lone
+        # surrogate escape such as \ud800 re-encodes as nothing) is this
+        # line's parse failure, not a downstream exception.
+        envelope.canonical_json(parsed).encode("utf-8")
+        return True, parsed
+    except (ValueError, RecursionError):  # JSONDecodeError and UnicodeEncodeError included
         return True, None
 
 
@@ -114,12 +120,22 @@ def write_jsonl(path, records) -> int:
     _refuse_raw_destination(destination)
     if destination.exists():
         raise envelope.ContractError(f"refusing to overwrite existing file: {destination}")
+    # Every record takes the envelope's canonical form, and the whole payload
+    # is UTF-8, before a directory or a file exists; content that cannot is a
+    # ContractError, never a partial file beside a no-overwrite rule.
+    try:
+        lines = [envelope.canonical_json(record) for record in records]
+        payload = ("\n".join(lines) + ("\n" if lines else "")).encode("utf-8")
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise envelope.ContractError(
+            f"refusing to write {destination}: a record's content cannot take the "
+            "envelope's canonical form"
+        ) from exc
     destination.parent.mkdir(parents=True, exist_ok=True)
     # The parent may have been created through a link that appeared after the
     # first check; look again at what mkdir actually produced.
     _refuse_raw_destination(destination.parent)
-    lines = [envelope.canonical_json(record) for record in records]
-    destination.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    destination.write_bytes(payload)
     return len(lines)
 
 

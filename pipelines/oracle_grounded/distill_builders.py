@@ -289,7 +289,13 @@ def build_record(
         record["intervention"] = copy.deepcopy(proposal.intervention)
     if proposal.candidate_prediction is not None:
         record["candidate_prediction"] = copy.deepcopy(proposal.candidate_prediction)
-    record["provenance"]["record_sha256"] = envelope.record_digest(record)
+    digest, failure = vocab.digest_or_failure(record)
+    if failure is not None:
+        raise envelope.ContractError(
+            "record content cannot take the envelope's canonical form: a caller-supplied "
+            "section holds a value that is not canonical UTF-8 JSON"
+        ) from failure
+    record["provenance"]["record_sha256"] = digest
     return record
 
 

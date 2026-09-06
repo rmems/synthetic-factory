@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # the shared test supp
 from distill_contract_test_support import (  # noqa: E402
     minimal_record,
     oc,
+    uncanonicalisable_records,
 )
 
 
@@ -190,6 +191,44 @@ class CurationReasons(unittest.TestCase):
         self.assertFalse(oc.stamp_is_bound_to_content(record))
         record["validation"] = "passed"
         self.assertFalse(oc.stamp_is_bound_to_content(record))
+
+
+
+class DigestBoundaryInCuration(unittest.TestCase):
+    """RoR-190-B1: curation fails closed with its own reason, stamps refuse, binding is False."""
+
+    def test_uncomputable_digests_are_their_own_curation_reason(self):
+        for name, record in uncanonicalisable_records().items():
+            with self.subTest(case=name):
+                eligible, reasons = oc.curation_eligible(record, [])
+                self.assertFalse(eligible)
+                self.assertIn("RECORD_DIGEST_UNCOMPUTABLE", reasons)
+                self.assertNotIn("RECORD_DIGEST_MISMATCH", reasons)
+                self.assertNotIn("RECORD_DIGEST_MISSING", reasons)
+
+    def test_the_three_digest_reasons_stay_distinct(self):
+        missing = minimal_record()
+        del missing["provenance"]["record_sha256"]
+        self.assertIn("RECORD_DIGEST_MISSING", oc.curation_eligible(missing, [])[1])
+        stale = minimal_record()
+        stale["result"]["outcome"] = "fail_closed"
+        self.assertIn("RECORD_DIGEST_MISMATCH", oc.curation_eligible(stale, [])[1])
+
+    def test_stamping_uncomputable_content_is_a_contract_error(self):
+        for name, record in uncanonicalisable_records().items():
+            with self.subTest(case=name):
+                with self.assertRaises(oc.ContractError) as caught:
+                    oc.stamp_validation(record, validator="v", version="1", findings=[])
+                self.assertIsNotNone(caught.exception.__cause__)
+
+    def test_the_binding_predicate_is_false_for_uncomputable_content(self):
+        for name, record in uncanonicalisable_records().items():
+            with self.subTest(case=name):
+                record["validation"] = {
+                    "status": "passed",
+                    "validator": {"name": "v", "version": "1", "validated_digest": "0" * 64},
+                }
+                self.assertFalse(oc.stamp_is_bound_to_content(record))
 
 
 if __name__ == "__main__":

@@ -286,7 +286,13 @@ def check_digest(record: dict[str, Any], where: str) -> list[str]:
     provenance = record.get("provenance")
     if not isinstance(provenance, dict) or "record_sha256" not in provenance:
         return []
-    expected = envelope.record_digest(record)
+    expected, failure = vocab.digest_or_failure(record)
+    if failure is not None:
+        return [
+            f"{where}.provenance.record_sha256: {vocab.RECORD_DIGEST_UNCOMPUTABLE} — the "
+            "record's content cannot take the envelope's canonical form "
+            f"({type(failure).__name__}: {failure})"
+        ]
     actual = provenance.get("record_sha256")
     if actual != expected:
         return [
