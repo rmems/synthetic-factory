@@ -144,5 +144,42 @@ class SplitByResponsibility(unittest.TestCase):
             oc.new_measurement("latency_ms", 1.0, "clock", bogus=True)
 
 
+
+class VocabularyPredicates(unittest.TestCase):
+    """The identity predicates the checks are built on refuse truthiness."""
+
+    def test_is_true_accepts_only_the_boolean_true(self):
+        self.assertTrue(oc.is_true(True))
+        for value in (1, "yes", [0], {"a": 1}, None, False):
+            with self.subTest(value=value):
+                self.assertFalse(oc.is_true(value))
+
+    def test_is_genuine_int_excludes_booleans_and_floats(self):
+        self.assertTrue(oc.is_genuine_int(3))
+        for value in (True, False, 3.0, "3", None):
+            with self.subTest(value=value):
+                self.assertFalse(oc.is_genuine_int(value))
+
+    def test_missing_string_treats_blank_and_non_strings_as_missing(self):
+        self.assertFalse(oc.missing_string("x"))
+        for value in ("", "   ", None, 7):
+            with self.subTest(value=value):
+                self.assertTrue(oc.missing_string(value))
+
+
+class ImportTwinNames(unittest.TestCase):
+    def test_the_twin_of_each_import_form_is_the_other(self):
+        from oracle_grounded import import_twins
+
+        self.assertEqual(
+            import_twins.import_twin_of("oracle_grounded.distill_contract"),
+            "pipelines.oracle_grounded.distill_contract",
+        )
+        self.assertEqual(
+            import_twins.import_twin_of("pipelines.oracle_grounded.distill_contract"),
+            "oracle_grounded.distill_contract",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -161,5 +161,36 @@ class StampBinding(unittest.TestCase):
         self.assertFalse(oc.stamp_is_bound_to_content(minimal_record()))
 
 
+
+class CurationReasons(unittest.TestCase):
+    """The remaining fail-closed reasons of ``curation_eligible`` and the stamp binding."""
+
+    def reasons(self, mutate):
+        record = minimal_record()
+        mutate(record)
+        record["provenance"]["record_sha256"] = oc.record_digest(record)
+        eligible, reasons = oc.curation_eligible(record, [])
+        self.assertFalse(eligible)
+        return reasons
+
+    def test_a_missing_oracle_block_is_a_reason(self):
+        self.assertIn("ORACLE_BLOCK_MISSING", self.reasons(lambda r: r.__delitem__("oracle")))
+
+    def test_a_result_that_is_not_an_object_is_a_reason(self):
+        self.assertIn("ORACLE_RESULT_MISSING", self.reasons(lambda r: r.update(result="done")))
+
+    def test_a_measured_result_with_no_readings_is_a_reason(self):
+        self.assertIn(
+            "ORACLE_RESULT_MISSING", self.reasons(lambda r: r["result"].update(measurements=[]))
+        )
+
+    def test_a_stamp_without_a_validator_object_is_not_bound(self):
+        record = minimal_record()
+        record["validation"] = {"status": "passed", "validator": "me"}
+        self.assertFalse(oc.stamp_is_bound_to_content(record))
+        record["validation"] = "passed"
+        self.assertFalse(oc.stamp_is_bound_to_content(record))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -349,5 +349,99 @@ class EnergyIdentityAcrossContainers(unittest.TestCase):
                 self.assertEqual(self.findings(extra), [])
 
 
+
+class MeasurementDomainErrors(unittest.TestCase):
+    """The per-measurement findings of ``check_measurements``, by message."""
+
+    def findings(self, item):
+        record = minimal_record()
+        record["result"]["measurements"] = [item]
+        return oc.check_measurements(record, "x")
+
+    def reading(self, **changes):
+        item = oc.new_measurement("recovery_latency_ms", 4.0, "simulator_clock")
+        item.update(changes)
+        return item
+
+    def test_domain_findings(self):
+        cases = {
+            "negative latency": (self.reading(value=-1.0), "recovery_latency_ms cannot be negative"),
+            "ratio above one": (
+                oc.new_measurement("corrupt_ratio", 1.5, "simulator_clock"), "corrupt_ratio must lie in [0, 1]"
+            ),
+            "value is a string": (self.reading(value="fast"), "value must be a finite number"),
+            "unknown quantity": (self.reading(quantity="vibes"), "unknown quantity 'vibes'"),
+            "unit disagrees with the registry": (self.reading(unit="s"), "must declare unit"),
+            "empty meter": (self.reading(meter=""), "meter must be a non-empty string"),
+            "measured is a string": (self.reading(measured="yes"), "measured must be a boolean"),
+            "not an object": ("4 ms", "measurement must be an object"),
+        }
+        for name, (item, fragment) in cases.items():
+            with self.subTest(case=name):
+                errors = self.findings(item)
+                self.assertTrue(any(fragment in e for e in errors), (fragment, errors))
+
+    def test_a_result_that_is_not_an_object_or_has_no_array_is_a_finding(self):
+        record = minimal_record()
+        record["result"] = "done"
+        self.assertEqual(oc.check_measurements(record, "x"), ["x.result must be an object"])
+        record["result"] = {"status": "measured", "measurements": {}}
+        self.assertEqual(oc.check_measurements(record, "x"), ["x.result.measurements must be an array"])
+
+    def test_a_valid_reading_has_no_findings(self):
+        self.assertEqual(self.findings(self.reading()), [])
+
+
+class WalkKeysPublicSurface(unittest.TestCase):
+    """``walk_keys`` is exported: every dict entry beneath a value, with its path."""
+
+    def test_walk_keys_yields_dict_entries_at_every_depth_through_lists(self):
+        value = {"a": 1, "b": {"c": [{"d": 2}, 3]}}
+        self.assertEqual(
+            list(oc.walk_keys(value, "result")),
+            [
+                ("result.a", "a", 1),
+                ("result.b", "b", {"c": [{"d": 2}, 3]}),
+                ("result.b.c", "c", [{"d": 2}, 3]),
+                ("result.b.c[0].d", "d", 2),
+            ],
+        )
+
+    def test_walk_keys_yields_nothing_for_a_scalar_and_only_entries_for_a_list(self):
+        self.assertEqual(list(oc.walk_keys(5, "x")), [])
+        self.assertEqual(list(oc.walk_keys([1, {"k": 2}], "x")), [("x[1].k", "k", 2)])
+
+
+class EnergyRuleEdges(unittest.TestCase):
+    """Branches of the energy rule the matrix rows do not reach on their own."""
+
+    def claims(self, record):
+        return [
+            e for e in oc.check_no_theoretical_energy_claim(record, "x")
+            if "THEORETICAL_ENERGY_CLAIM" in e
+        ]
+
+    def test_energy_from_a_measuring_but_non_energy_meter_is_a_claim(self):
+        record = minimal_record()
+        record["result"]["measurements"].append(
+            {"quantity": "energy_j", "value": 1.0, "unit": "J", "meter": "simulator_clock",
+             "measured": True, "source": "oracle"}
+        )
+        claims = self.claims(record)
+        self.assertEqual(len(claims), 1, claims)
+        self.assertIn("needs a meter in", claims[0])
+
+    def test_non_object_and_non_energy_entries_are_left_to_the_measurement_rule(self):
+        record = minimal_record()
+        record["result"]["measurements"] += ["4 ms", {"quantity": "latency_ms", "value": 1.0}]
+        self.assertEqual(self.claims(record), [])
+        self.assertTrue(oc.check_measurements(record, "x"))
+
+    def test_a_result_that_is_not_an_object_yields_no_energy_findings(self):
+        record = minimal_record()
+        record["result"] = "done"
+        self.assertEqual(oc.check_no_theoretical_energy_claim(record, "x"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

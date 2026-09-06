@@ -101,5 +101,23 @@ class JsonlPerLineBoundary(unittest.TestCase):
             self.assertEqual(oc.read_jsonl(path), [(1, None), (2, {"ok": 1})])
 
 
+
+class JsonlFraming(unittest.TestCase):
+    """The advertised per-line decode failure and the empty write."""
+
+    def test_an_undecodable_line_is_the_one_bad_record_it_is(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "batch.jsonl"
+            path.write_bytes(b'\xff\xfe{"a": 1}\n{"b": 2}\n')
+            self.assertEqual(oc.read_jsonl(path), [(1, None), (2, {"b": 2})])
+
+    def test_writing_no_records_creates_an_empty_file_and_returns_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "empty.jsonl"
+            self.assertEqual(oc.write_jsonl(path, []), 0)
+            self.assertEqual(path.read_bytes(), b"")
+            self.assertEqual(oc.read_jsonl(path), [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -167,5 +167,16 @@ class FamilyOracleLabels(unittest.TestCase):
         self.assertFalse(oc.curation_eligible(record, leak)[0])
 
 
+
+class LabelCheckShape(unittest.TestCase):
+    def test_a_non_object_record_is_one_finding(self):
+        policy = oc.OracleLabelPolicy("neuromorphic-fault-recovery", FAULT_LABELS)
+        for record in ("nope", None, []):
+            with self.subTest(record=record):
+                self.assertEqual(
+                    oc.check_oracle_label_leak(record, "x", policy=policy), ["x: record must be an object"]
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
