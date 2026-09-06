@@ -1,0 +1,9 @@
+pipelines/oracle_grounded/distill_energy_claims.py
+  ai_agent 153-186,204-205,210,212,214
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "15a778d97eca7896b26ececaca2d2f29d8a115fa",
+  "prompts": {}
+}
