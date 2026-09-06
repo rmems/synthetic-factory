@@ -177,6 +177,22 @@ UNIT_INTERVAL_QUANTITIES = frozenset(
 
 ENERGY_QUANTITIES = frozenset({"energy_j", "energy_per_op_j", "power_w"})
 
+# The units an energy number can be denominated in: the registry units of the
+# energy quantities plus watt-hours. An object that names one of these as its
+# ``unit`` identifies itself as energy whatever its numeric leaf is called.
+ENERGY_UNITS = frozenset(QUANTITY_UNITS[quantity] for quantity in ENERGY_QUANTITIES) | {"Wh"}
+
+# Key tokens that identify a bare number as energy (D3). Derived, not listed:
+# the energy units lowercased and crossed with the SI prefixes, plus the four
+# words that name the quantities. A key is split on ``_`` and matched token by
+# token, so ``pj_per_synop`` and ``power_mw`` are energy while
+# ``ticks_while_degraded`` is not. The set only grows when a quantity joins
+# ``QUANTITY_UNITS``.
+SI_PREFIXES = ("", "k", "m", "u", "n", "p")
+ENERGY_TOKENS = frozenset(
+    prefix + unit.lower() for unit in ENERGY_UNITS for prefix in SI_PREFIXES
+) | frozenset({"energy", "joule", "joules", "watt", "watts"})
+
 # Meters that physically measure energy. Anything outside this set may not
 # produce an energy-class quantity. `recorded_power_run` is deliberately
 # absent: it is the replay *wrapper*, not an instrument — a replayed joule

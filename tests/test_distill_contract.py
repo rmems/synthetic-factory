@@ -233,6 +233,163 @@ class NoTheoreticalEnergy(unittest.TestCase):
         self.assertEqual(oc.check_no_theoretical_energy_claim(record, "x"), [])
 
 
+def measured_energy_reading(value: float = 8.0) -> dict:
+    return oc.new_measurement("energy_j", value, "intel_rapl_powercap")
+
+
+class EnergyClaimScan(unittest.TestCase):
+    """D3: energy numbers are legal only in explicitly supported structures."""
+
+    def claims(self, record) -> list:
+        return [
+            e for e in oc.check_no_theoretical_energy_claim(record, "x")
+            if "THEORETICAL_ENERGY_CLAIM" in e
+        ]
+
+    def test_the_energy_tokens_derive_from_the_registry(self):
+        self.assertEqual(oc.ENERGY_UNITS, frozenset({"J", "W", "Wh"}))
+        for token in ("j", "pj", "uj", "mw", "kwh", "energy", "joules", "watt"):
+            self.assertIn(token, oc.ENERGY_TOKENS)
+        for token in ("while", "when", "kops", "wall", "power"):
+            self.assertNotIn(token, oc.ENERGY_TOKENS)
+
+    def test_lists_under_energy_keys_are_claims(self):
+        record = minimal_record()
+        record["result"]["energy_j_samples"] = [1e-7, 2e-7]
+        record["result"]["joules"] = [1e-7]
+        claims = self.claims(record)
+        self.assertEqual(len(claims), 1, claims)
+        for path in ("result.energy_j_samples[0]", "result.energy_j_samples[1]", "result.joules[0]"):
+            self.assertIn(path, claims[0])
+
+    def test_a_nested_object_identified_by_its_unit_is_a_claim(self):
+        record = minimal_record()
+        record["result"]["derived"] = {"energy": {"value": 1e-7, "unit": "J"}}
+        claims = self.claims(record)
+        self.assertEqual(len(claims), 1, claims)
+        self.assertIn("result.derived.energy (no measured energy_j/energy_per_op_j reading", claims[0])
+
+    def test_a_relocated_measurement_object_needs_backing_and_a_measuring_meter(self):
+        relocated = {"quantity": "energy_j", "value": 1e-7, "meter": "synops_model", "measured": False}
+        record = minimal_record()
+        record["result"]["modelled_energy"] = relocated
+        self.assertIn("result.modelled_energy (modelled meter 'synops_model')", self.claims(record)[0])
+        # Backed by a measured reading and naming the measuring meter: legal.
+        record["result"]["measurements"].append(measured_energy_reading())
+        record["result"]["modelled_energy"] = {
+            "quantity": "energy_j", "value": 8.0, "meter": "intel_rapl_powercap", "measured": True,
+        }
+        self.assertEqual(self.claims(record), [])
+        # Backing never launders a modelled meter or a declared-unmeasured value.
+        record["result"]["modelled_energy"]["meter"] = "synops_model"
+        self.assertIn("modelled meter", self.claims(record)[0])
+        record["result"]["modelled_energy"] = {"quantity": "energy_j", "value": 8.0, "measured": False}
+        self.assertIn("declared unmeasured", self.claims(record)[0])
+
+    def test_unit_suffixed_keys_are_claims(self):
+        record = minimal_record()
+        record["result"].update(
+            {"power_mw": 12.5, "pj_per_synop": 23.6, "uj_total": 1.2, "cost_j": 3e-9}
+        )
+        record["result"]["candidates"] = [{"id": "a", "est_pj": 23.6}]
+        claims = self.claims(record)
+        self.assertEqual(len(claims), 1, claims)
+        for path in (
+            "result.power_mw", "result.pj_per_synop", "result.uj_total", "result.cost_j",
+            "result.candidates[0].est_pj",
+        ):
+            self.assertIn(path, claims[0])
+
+    def test_false_positives_and_metadata_stay_legal(self):
+        record = minimal_record()
+        record["result"].update(
+            {"ticks_while_degraded": 4, "quality_when_degraded": 0.9, "throughput_kops": 12}
+        )
+        record["result"]["meter_probe"] = {
+            "cost_is_energy": True,
+            "cost_quantity": "energy_j",
+            "selected": "intel_rapl_powercap",
+            "probed": [
+                {"meter": "intel_rapl_powercap", "available": False,
+                 "measures_energy": True, "detail": "/sys/class/powercap absent"},
+            ],
+        }
+        self.assertEqual(self.claims(record), [])
+
+    def test_relabelling_the_result_as_energy_needs_a_measured_reading(self):
+        # ENERGY-METER-IDENTITY (b): result.cost_quantity flipped to energy_j
+        # beside numeric content, with no measured energy reading behind it.
+        record = minimal_record()
+        record["result"].update({"cost_quantity": "energy_j", "reference_objective": 0.218})
+        self.assertIn("result (no measured energy_j reading backs it)", self.claims(record)[0])
+        record["result"]["measurements"].append(measured_energy_reading())
+        self.assertEqual(self.claims(record), [])
+
+    def test_preference_is_governed_by_the_backing_rule_once(self):
+        record = minimal_record()
+        record["result"]["preference"] = {
+            "cost_quantity": "energy_j", "cost_value": 2.8e-6, "quality_floor": 0.98,
+            "preferred": "analytic_kkt",
+        }
+        claims = self.claims(record)
+        self.assertEqual(len(claims), 1, claims)
+        self.assertIn("result.preference: THEORETICAL_ENERGY_CLAIM", claims[0])
+        record["result"]["measurements"].append(measured_energy_reading())
+        self.assertEqual(self.claims(record), [])
+
+    def test_candidate_cost_objects_need_backing(self):
+        candidate = {
+            "id": "analytic_kkt", "cost_quantity": "energy_j", "cost_value": 1e-6,
+            "cost_meter": "intel_rapl_powercap", "task_quality": 1.0, "safety_ok": True,
+        }
+        record = minimal_record()
+        record["result"]["candidates"] = [candidate]
+        self.assertIn("result.candidates[0] (no measured energy_j reading", self.claims(record)[0])
+        record["result"]["candidates"] = {"analytic_kkt": dict(candidate)}
+        self.assertIn("result.candidates.analytic_kkt (no measured", self.claims(record)[0])
+        record["result"]["measurements"].append(measured_energy_reading())
+        self.assertEqual(self.claims(record), [])
+
+    def test_measurement_entries_stay_with_the_measurement_rule(self):
+        record = minimal_record()
+        record["result"]["measurements"].append(
+            {"quantity": "energy_j", "value": 2.3e-6, "unit": "J", "meter": "synops_model",
+             "measured": True, "source": "oracle"}
+        )
+        claims = self.claims(record)
+        self.assertEqual(len(claims), 1, claims)  # reported once, by the measurement rule
+        self.assertIn("result.measurements[1]", claims[0])
+        record["result"]["measurements"][1] = measured_energy_reading()
+        self.assertEqual(self.claims(record), [])
+
+    def test_detail_of_a_measured_energy_reading_is_not_a_claim(self):
+        record = minimal_record()
+        record["result"]["measurements"].append(
+            oc.new_measurement(
+                "energy_j", 8.0, "intel_rapl_powercap",
+                detail={"raw_counter_uj": 1000000, "samples_uj": [1.0, 2.0]},
+            )
+        )
+        self.assertEqual(self.claims(record), [])
+
+    def test_the_scan_is_bounded_and_flat(self):
+        record = minimal_record()
+        record["result"]["junk"] = [{"unit": "J", "value": index} for index in range(10_000)]
+        claims = self.claims(record)
+        self.assertEqual(len(claims), 1, claims)
+        self.assertIn("scan capped", claims[0])
+        self.assertLess(len(claims[0]), 4_000)
+        deep: dict = {}
+        cursor = deep
+        for _ in range(5_000):
+            cursor["k"] = {}
+            cursor = cursor["k"]
+        cursor["energy_j"] = 1e-7
+        record = minimal_record()
+        record["result"]["deep"] = deep
+        self.assertEqual(len(self.claims(record)), 1)
+
+
 class ResultFailsClosed(unittest.TestCase):
     def test_measured_result_needs_a_measurement(self):
         with self.assertRaises(oc.ContractError):

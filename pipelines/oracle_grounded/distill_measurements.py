@@ -5,9 +5,20 @@ Every measurement carries a registered quantity, its canonical unit, the
 meter that took it and an oracle source; a meter that models rather than
 measures may never carry ``measured: true``, for any quantity; and no energy
 number may be modelled rather than measured -- whether it sits in
-``result.measurements`` with a modelling meter, as a bare field anywhere under
-``result``, or as the denomination of a preference with no measured energy
-behind it.
+``result.measurements`` with a modelling meter, anywhere else under ``result``
+as a bare number or inside an object that identifies itself as energy, or as
+the denomination of a preference with no measured energy behind it.
+
+The energy-claim scan (D3) is structural. Energy numbers are legal in three
+places only: a ``result.measurements`` entry from a measuring meter, the
+preference's ``cost_value`` when a measured reading of its ``cost_quantity``
+exists, and any other object that identifies energy through its own
+``quantity`` / ``cost_quantity`` / ``unit`` / ``cost_unit`` fields, under the
+same backing rule and never from a modelled meter. Everything else that
+identifies itself as energy -- a bare number under an energy key, the numbers
+in a list under one, an unbacked energy object -- is a theoretical claim.
+``result.measurements`` entries, their ``detail`` included, stay with the
+measurement rule (row 15 of the D3 matrix is held).
 """
 
 from __future__ import annotations
@@ -136,16 +147,13 @@ def check_measurements(record: dict[str, Any], where: str) -> list[str]:
     return errors
 
 
-ENERGY_KEY_HINTS = ("joule", "energy", "watt", "_wh", "kwh", "power_w")
-
-
 def _is_energy_key(key: str) -> bool:
-    """True when a field name reads as an energy value rather than a label."""
+    """True when a field name identifies an energy value: a quantity name or a unit token."""
 
     lowered = key.lower()
     if lowered in vocab.ENERGY_QUANTITIES:
         return True
-    return any(hint in lowered for hint in ENERGY_KEY_HINTS)
+    return any(token in vocab.ENERGY_TOKENS for token in lowered.split("_"))
 
 
 def _energy_claim_error(item: dict[str, Any], quantity: str, spot: str) -> str | None:
@@ -186,28 +194,97 @@ def _energy_measurement_claims(
     return errors, measured_energy_quantities
 
 
-def _is_bare_energy_field(key: str, value: Any) -> bool:
-    """A number under an energy-sounding name, outside ``measurements``.
+def _energy_identity(value: dict[str, Any]) -> frozenset[str] | None:
+    """The energy quantities an object claims through its own fields, or None.
 
-    Only a number can be an energy value. A boolean is a flag
-    (`cost_is_energy`, `measures_energy`) and a string names a quantity.
+    ``quantity`` / ``cost_quantity`` name the quantity outright; ``unit`` /
+    ``cost_unit`` identify it through the registry (``J`` is either energy
+    quantity, ``Wh`` names no registry quantity and so can never be backed).
     """
 
-    return key != "measurements" and envelope.is_number(value) and _is_energy_key(key)
+    quantity = value.get("quantity") if "quantity" in value else value.get("cost_quantity")
+    if envelope.is_enum_value(quantity, vocab.ENERGY_QUANTITIES):
+        return frozenset({quantity})
+    unit = value.get("unit") if "unit" in value else value.get("cost_unit")
+    if envelope.is_enum_value(unit, vocab.ENERGY_UNITS):
+        return frozenset(q for q in vocab.ENERGY_QUANTITIES if vocab.QUANTITY_UNITS[q] == unit)
+    return None
 
 
-def _bare_energy_field_errors(result: dict[str, Any]) -> list[str]:
-    """A bare energy number anywhere under ``result`` is an energy claim too.
+def _object_claim(value: dict[str, Any], path: str, measured: set[str]) -> str | None:
+    """Why an energy-identified object with numeric content is a claim, or None.
 
-    Without this, ``result["energy_j"] = 1e-7`` sails past the measurement
-    checks because it never appears in ``result.measurements`` at all.
+    Metadata alone (a probe entry naming a meter and a quantity, a flag, a
+    label) is never a claim: only an object that also carries a number is.
     """
 
+    quantities = _energy_identity(value)
+    if quantities is None or not any(envelope.is_number(item) for item in value.values()):
+        return None
+    meter = value.get("meter") if "meter" in value else value.get("cost_meter")
+    if envelope.is_enum_value(meter, vocab.MODELED_METERS):
+        return f"{path} (modelled meter {meter!r})"
+    if "measured" in value and value["measured"] is not True:
+        return f"{path} (declared unmeasured)"
+    if quantities & measured:
+        return None
+    backing = "/".join(sorted(quantities)) or "that unit"
+    return f"{path} (no measured {backing} reading backs it)"
+
+
+def _energy_scan_hits(result: dict[str, Any], measured: set[str]) -> list[str]:
+    """Paths of energy claims outside ``result.measurements``, bounded.
+
+    An explicit stack keeps the walk flat, so a pathologically nested result
+    is reported rather than blowing the recursion limit; at most
+    ``envelope.MAX_RESERVED_KEY_HITS`` paths are collected, one already
+    rejects the record. ``result.preference`` itself is the preference rule's
+    business (S2); everything inside it is walked like any other value.
+    """
+
+    # ``result`` itself is an object too: ``cost_quantity`` flipped to an
+    # energy quantity beside numeric content is the relabelling the energy
+    # family's review reproduced, and it needs the same backing as any other.
+    hits = [claim for claim in (_object_claim(result, "result", measured),) if claim is not None]
+    stack = [
+        (f"result.{key}", key, value)
+        for key, value in reversed(list(result.items()))
+        if key != "measurements"
+    ]
+    while stack and len(hits) < envelope.MAX_RESERVED_KEY_HITS:
+        path, key, value = stack.pop()
+        if isinstance(value, dict):
+            claim = None if path == "result.preference" else _object_claim(value, path, measured)
+            if claim is not None:
+                hits.append(claim)
+            stack.extend(
+                (f"{path}.{child}", child, item) for child, item in reversed(list(value.items()))
+            )
+        elif isinstance(value, list):
+            # A list keeps its key: the numbers in a list under an energy key
+            # are energy numbers (R3); objects inside any list are walked (R1).
+            stack.extend(
+                (f"{path}[{index}]", key, item) for index, item in reversed(list(enumerate(value)))
+            )
+        elif envelope.is_number(value) and _is_energy_key(key):
+            hits.append(path)
+    return hits
+
+
+def _energy_scan_errors(result: dict[str, Any], measured: set[str], where: str) -> list[str]:
+    """One finding listing every energy claim the structural scan found."""
+
+    hits = _energy_scan_hits(result, measured)
+    if not hits:
+        return []
+    listed = ", ".join(sorted(hits))
+    if len(hits) >= envelope.MAX_RESERVED_KEY_HITS:
+        listed += ", ... (scan capped)"
     return [
-        f"{path}: THEORETICAL_ENERGY_CLAIM — an energy value must be carried "
-        "as a measurement with a meter, not as a bare field"
-        for path, key, value in walk_keys(result, "result")
-        if _is_bare_energy_field(key, value)
+        f"{where}.result: THEORETICAL_ENERGY_CLAIM — energy numbers outside "
+        f"measurements at {listed} (an energy value must be carried as a "
+        "measurement with a meter, or sit in an object backed by a measured "
+        "reading of its quantity)"
     ]
 
 
@@ -248,7 +325,7 @@ def check_no_theoretical_energy_claim(record: dict[str, Any], where: str) -> lis
     errors, measured_energy_quantities = _energy_measurement_claims(
         measurements, where
     )
-    errors += _bare_energy_field_errors(result)
+    errors += _energy_scan_errors(result, measured_energy_quantities, where)
     return errors + _energy_preference_errors(result, measured_energy_quantities, where)
 
 

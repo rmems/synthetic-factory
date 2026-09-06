@@ -94,7 +94,6 @@ from .distill_labels import (
     oracle_label_policy,
 )
 from .distill_measurements import (
-    ENERGY_KEY_HINTS,
     check_measurements,
     check_no_theoretical_energy_claim,
     walk_keys,
@@ -103,6 +102,8 @@ from .distill_vocabulary import (
     AUTHORITY_AUTHORITATIVE,
     AUTHORITY_REFERENCE_ONLY,
     ENERGY_QUANTITIES,
+    ENERGY_TOKENS,
+    ENERGY_UNITS,
     FAMILIES,
     GENERATOR_AUTHORITY,
     GENERATOR_KINDS,
@@ -144,8 +145,9 @@ __all__ = (
     "AUTHORITY_AUTHORITATIVE",
     "AUTHORITY_REFERENCE_ONLY",
     "ContractError",
-    "ENERGY_KEY_HINTS",
     "ENERGY_QUANTITIES",
+    "ENERGY_TOKENS",
+    "ENERGY_UNITS",
     "FAMILIES",
     "GENERATOR_AUTHORITY",
     "GENERATOR_KINDS",
