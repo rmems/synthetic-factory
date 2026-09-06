@@ -264,7 +264,7 @@ def _check_generator_block(block: Any, where: str) -> list[str]:
 def _llm_model_errors(block: dict[str, Any], where: str) -> list[str]:
     """The model an llm generator must name."""
 
-    if block.get("kind") == "llm" and not isinstance(block.get("model"), str):
+    if block.get("kind") == "llm" and vocab.missing_string(block.get("model")):
         return [f"{where}.generator.model is required for an llm generator"]
     return []
 

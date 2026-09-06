@@ -230,6 +230,7 @@ class SupportedImportForms(unittest.TestCase):
         self.assertTrue(report["one_error_class"], report)
 
     def test_every_sibling_is_one_object_across_both_forms(self):
+        self.assertEqual(distill_import_probe.SIBLINGS, SplitByResponsibility.SIBLINGS)
         for form in ("cli_then_package", "package_then_cli"):
             with self.subTest(form=form):
                 self.assertEqual(self.fresh(form)["split_siblings"], [])

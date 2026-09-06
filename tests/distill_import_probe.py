@@ -19,6 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
 
 SIBLINGS = (
+    "import_twins",
     "distill_vocabulary",
     "distill_builders",
     "distill_measurements",
@@ -62,12 +63,13 @@ def _package_form() -> tuple[Any, Any]:
 def _siblings_split() -> list[str]:
     """The siblings whose two spellings are not one module object."""
 
-    return [
-        name
-        for name in SIBLINGS
-        if sys.modules.get(f"oracle_grounded.{name}")
-        is not sys.modules.get(f"pipelines.oracle_grounded.{name}")
-    ]
+    split = []
+    for name in SIBLINGS:
+        flat = sys.modules.get(f"oracle_grounded.{name}")
+        packaged = sys.modules.get(f"pipelines.oracle_grounded.{name}")
+        if flat is None or flat is not packaged:
+            split.append(name)
+    return split
 
 
 def run_form(form: str) -> dict[str, Any]:

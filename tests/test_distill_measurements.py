@@ -489,6 +489,25 @@ class BackedObjectsNeedAnEnergyMeter(unittest.TestCase):
         self.assertEqual(self.object_claims("intel_rapl_powercap"), [])
         self.assertEqual(self.object_claims(None), [])
 
+    def test_a_cost_meter_is_judged_beside_a_valid_meter(self):
+        record = minimal_record()
+        record["result"]["measurements"].append(measured_energy_reading())
+        for cost_meter, fragment in (
+            ("synops_model", "modelled meter 'synops_model'"),
+            ("simulator_clock", "meter 'simulator_clock' is not an energy meter"),
+        ):
+            with self.subTest(cost_meter=cost_meter):
+                record["result"]["extra"] = {
+                    "quantity": "energy_j", "unit": "J", "value": 8.0,
+                    "meter": "intel_rapl_powercap", "cost_meter": cost_meter,
+                }
+                claims = [
+                    e for e in oc.check_no_theoretical_energy_claim(record, "x")
+                    if "THEORETICAL_ENERGY_CLAIM" in e
+                ]
+                self.assertEqual(len(claims), 1, claims)
+                self.assertIn(fragment, claims[0])
+
 
 class BackingShelterNothingBeneath(unittest.TestCase):
     """Post-ready findings: identity reads every field, and backing shelters no key beneath."""

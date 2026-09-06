@@ -68,24 +68,27 @@ def _energy_claim_error(item: dict[str, Any], quantity: str, spot: str) -> str |
     return None
 
 
+def _energy_quantity(item: Any) -> str | None:
+    """The energy quantity a measurement entry names, or None for anything else."""
+
+    if not isinstance(item, dict):
+        return None
+    quantity = item.get("quantity")
+    return quantity if envelope.is_enum_value(quantity, vocab.ENERGY_QUANTITIES) else None
+
+
 def _energy_measurement_claims(
     measurements: list[Any], where: str
 ) -> tuple[list[str], set[str]]:
     """Errors for modeled energy readings, plus the honestly measured ones."""
 
-    errors: list[str] = []
-    measured_energy_quantities: set[str] = set()
-    for index, item in enumerate(measurements):
-        if not isinstance(item, dict):
-            continue
-        quantity = item.get("quantity")
-        if not envelope.is_enum_value(quantity, vocab.ENERGY_QUANTITIES):
-            continue
-        error = _energy_claim_error(item, quantity, f"{where}.result.measurements[{index}]")
-        if error is not None:
-            errors.append(error)
-            continue
-        measured_energy_quantities.add(quantity)
+    judged = [
+        (quantity, _energy_claim_error(item, quantity, f"{where}.result.measurements[{index}]"))
+        for index, item in enumerate(measurements)
+        if (quantity := _energy_quantity(item)) is not None
+    ]
+    errors = [error for _, error in judged if error is not None]
+    measured_energy_quantities = {quantity for quantity, error in judged if error is None}
     return errors, measured_energy_quantities
 
 
@@ -128,6 +131,23 @@ def _pair_requirement(
     return None
 
 
+def _meter_reason(value: dict[str, Any]) -> str | None:
+    """Why a meter the object names disqualifies it, or None.
+
+    Both ``meter`` and ``cost_meter`` are judged when present. Backing never
+    launders a named meter: the measurement rule refuses energy from a
+    measuring but non-energy meter, and so does the object rule.
+    """
+
+    for field_name in ("meter", "cost_meter"):
+        meter = value.get(field_name)
+        if envelope.is_enum_value(meter, vocab.MODELED_METERS):
+            return f"modelled meter {meter!r}"
+        if meter is not None and not envelope.is_enum_value(meter, vocab.MEASURED_ENERGY_METERS):
+            return f"meter {meter!r} is not an energy meter"
+    return None
+
+
 def _unbacked(identity: Identity, measured: set[str]) -> str:
     """The requirements no measured reading satisfies, listed; empty when all are met."""
 
@@ -149,15 +169,10 @@ def _object_reason(
     is a claim whatever backs it.
     """
 
-    meter = value.get("meter") if "meter" in value else value.get("cost_meter")
-    if envelope.is_enum_value(meter, vocab.MODELED_METERS):
-        return f"modelled meter {meter!r}"
-    if meter is not None and not envelope.is_enum_value(meter, vocab.MEASURED_ENERGY_METERS):
-        # Backing never launders the meter an object names: the measurement
-        # rule refuses energy from a measuring but non-energy meter, and so
-        # does the object rule.
-        return f"meter {meter!r} is not an energy meter"
-    if "measured" in value and value["measured"] is not True:
+    meter_reason = _meter_reason(value)
+    if meter_reason is not None:
+        return meter_reason
+    if value.get("measured", True) is not True:
         return "declared unmeasured"
     unbacked = _unbacked(identity, measured)
     if not unbacked:
@@ -206,14 +221,19 @@ def _dict_context(frame: _Frame, measured: set[str]) -> Context:
     hands its children the inherited context untouched.
     """
 
-    if frame.path != "result.preference":
-        identity = _energy_identity(frame.value)
-        if identity is not None:
-            reason = _object_reason(frame.value, identity, measured)
-            return None if reason is None else (frame.path, f"{frame.path} ({reason})")
+    identity = None if frame.path == "result.preference" else _energy_identity(frame.value)
+    if identity is not None:
+        return _identity_context(frame, identity, measured)
     if frame.context is None and _is_energy_key(frame.key):
         return frame.path, f"{frame.path} (energy-keyed container)"
     return frame.context
+
+
+def _identity_context(frame: _Frame, identity: Identity, measured: set[str]) -> Context:
+    """What an identified object hands its children: nothing when legal, else its claim."""
+
+    reason = _object_reason(frame.value, identity, measured)
+    return None if reason is None else (frame.path, f"{frame.path} ({reason})")
 
 
 def _dict_frames(frame: _Frame, context: Context) -> list[_Frame]:

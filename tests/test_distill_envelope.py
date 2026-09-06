@@ -181,6 +181,14 @@ class MalformedBlocksAreFindings(unittest.TestCase):
             del record[section][key]
         return mutate
 
+    def test_an_llm_generator_needs_a_non_empty_model(self):
+        self.check({
+            "llm with an empty model": (
+                self.block("generator", kind="llm", model=""),
+                "x.generator.model is required for an llm generator",
+            ),
+        })
+
     def test_calendar_invalid_timestamps_are_findings(self):
         def checked_at(instant):
             def mutate(record):
