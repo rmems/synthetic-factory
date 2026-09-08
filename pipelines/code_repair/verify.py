@@ -26,9 +26,12 @@ __all__ = [
 
 @dataclass(frozen=True)
 class Phases:
+    """The executed phases; ``reference`` is the certifying reference over the hidden cases."""
+
     original: ex.PhaseReport
     mutant: ex.PhaseReport | None = None
     repaired: ex.PhaseReport | None = None
+    reference: ex.PhaseReport | None = None
 
 
 @dataclass(frozen=True)
@@ -119,12 +122,31 @@ def pre_repair_problem(phases: Phases, context: DecisionContext) -> str | None:
     return None
 
 
+def _reference_certifies(phases: Phases, context: DecisionContext) -> bool:
+    """A certifying reference that was executed in this run and answered every pinned case."""
+
+    reference = phases.reference
+    if context.reference_kind not in cv.CERTIFYING_REFERENCE_KINDS or not context.hidden_case_count:
+        return False
+    if reference is None or not reference.ok:
+        return False
+    return len(reference.hidden) == context.hidden_case_count and not failing_ids(reference.hidden)
+
+
 def _oracle_status(phases: Phases, context: DecisionContext) -> str:
     if _original_problem(phases.original) is not None:
         return cv.STATUS_INVALID
-    if context.reference_kind in cv.CERTIFYING_REFERENCE_KINDS and context.hidden_case_count:
+    if _reference_certifies(phases, context):
         return cv.STATUS_VALIDATED
     return cv.STATUS_PROVISIONAL
+
+
+def _uncertified_reason(context: DecisionContext) -> str:
+    """Why an accepted record is only provisional: no reference, or one that did not certify."""
+
+    if context.reference_kind in cv.CERTIFYING_REFERENCE_KINDS and context.hidden_case_count:
+        return cv.REASON_REFERENCE_NOT_CERTIFYING
+    return cv.REASON_HIDDEN_CHECK_UNAVAILABLE
 
 
 def decide(phases: Phases, context: DecisionContext) -> Verdict:
@@ -139,7 +161,7 @@ def decide(phases: Phases, context: DecisionContext) -> Verdict:
         reasons.append(cv.REASON_MUTANT_FAILS_HIDDEN)
     reasons.append(cv.REASON_REPAIR_PASSES_ALL)
     if status != cv.STATUS_VALIDATED:
-        reasons.append(cv.REASON_HIDDEN_CHECK_UNAVAILABLE)
+        reasons.append(_uncertified_reason(context))
     return Verdict(cv.OUTCOME_ACCEPTED, tuple(reasons), status)
 
 

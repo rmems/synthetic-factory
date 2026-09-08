@@ -123,6 +123,32 @@ class LeakCodes(unittest.TestCase):
         record["result"]["public_failure_omitted"] = 5
         self.assertIn(cv.LEAK_PUBLIC_EVIDENCE_NOT_FROM_ROWS, self.findings(record=record))
 
+    def test_evidence_of_a_program_with_more_than_ten_examples_is_checked_in_example_order(self):
+        """Stored rows sort by id text (public:1, public:10, public:2, ...); the pilot's
+        wildcard-matching record was refused until the check mirrored the verifier's order."""
+
+        record = copy.deepcopy(self.record)
+        examples = record["scenario"]["public_tests"]["examples"]
+        first = examples[0]
+        function = first["example_id"].rpartition(":")[0]
+        examples[:] = [
+            {"example_id": f"{function}:{i}", "source": f"{function}({i})\n", "want": f"{i}\n"}
+            for i in range(12)
+        ]
+        got = "wrong\n"
+        record["result"]["phases"]["mutant"]["public"] = sorted(
+            ({"id": f"public:{i}", "status": "fail", "got_sha256": catalog.sha256_text(got)}
+             for i in range(12)),
+            key=lambda row: row["id"],
+        )
+        record["result"]["public_failure_evidence"] = [
+            {"example_id": e["example_id"], "source": e["source"], "want": e["want"],
+             "got": got, "truncated": False}
+            for e in examples[:3]
+        ]
+        record["result"]["public_failure_omitted"] = 9
+        self.assertNotIn(cv.LEAK_PUBLIC_EVIDENCE_NOT_FROM_ROWS, self.findings(record=record))
+
     def test_a_completion_that_is_not_the_verified_repair(self):
         self.assertIn(cv.LEAK_COMPLETION_NOT_VERIFIED, self.findings(row={**self.row, "completion": self.row["completion"] + "# x\n"}))
         broken = self.record["scenario"]["broken_program"]["files"]["program.py"]

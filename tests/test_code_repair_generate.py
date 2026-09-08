@@ -105,6 +105,21 @@ class Accounting(unittest.TestCase):
         originals = [e for e in fake.log if e["label"].startswith("original:")]
         self.assertEqual(fake.log[0]["label"], originals[0]["label"])
 
+    def test_a_reference_that_does_not_certify_leaves_records_provisional(self):
+        """Codex on #197: validated is decided on this run's reference execution."""
+
+        fake = FakeExecutor({
+            "original": lambda job: report(rows("public", 9), rows("hidden", 24)),
+            "mutant": lambda job: report(rows("public", 9, (0,), got="9"), rows("hidden", 24, (0,))),
+            "repaired": lambda job: report(rows("public", 9), rows("hidden", 24)),
+            "reference": lambda job: report((), rows("hidden", len(job.cases), (0,))),
+        })
+        request = generate.RunRequest(FIXTURE_CATALOG, self.root / "run", SEED, 4, PINNED_AT)
+        summary = generate.run(request, fake)
+        self.assertEqual(summary["oracle_statuses"], {cv.STATUS_PROVISIONAL: summary["records"]})
+        references = [e["label"] for e in fake.log if e["label"].startswith("reference:")]
+        self.assertEqual(len(references), len(set(references)))  # once per program
+
     def test_rejected_candidates_skip_the_repaired_phase(self):
         fake = FakeExecutor({
             "original": lambda job: report(rows("public", 9), rows("hidden", 24)),
