@@ -1,0 +1,82 @@
+{
+  "build": {
+    "input_policy": "doctest-literals+seeded-neighbourhood-v1",
+    "notes": [
+      {
+        "code": "REFERENCE_DISAGREES",
+        "program_id": "tap-e6056ab4aa1d9ffd"
+      },
+      {
+        "code": "ORIGINAL_FAILS_HIDDEN",
+        "program_id": "tap-e6056ab4aa1d9ffd"
+      },
+      {
+        "code": "ORIGINAL_TIMEOUT",
+        "program_id": "tap-95ee1cd1dc9de2f4"
+      },
+      {
+        "code": "ORIGINAL_FAILS_PUBLIC",
+        "program_id": "tap-98343cc32b5e5b0a"
+      },
+      {
+        "code": "ORIGINAL_TIMEOUT",
+        "program_id": "tap-acc9bf94f0e4ecaa"
+      },
+      {
+        "code": "ORIGINAL_FAILS_PUBLIC",
+        "program_id": "tap-fda908e25a2399b7"
+      },
+      {
+        "code": "ORIGINAL_TIMEOUT",
+        "program_id": "tap-f4d97d1bb2e992ff"
+      },
+      {
+        "code": "ORIGINAL_FAILS_PUBLIC",
+        "program_id": "tap-7d97d4f38275962c"
+      },
+      {
+        "code": "ORIGINAL_TIMEOUT",
+        "program_id": "tap-7435e976dee2c095"
+      },
+      {
+        "code": "ORIGINAL_HARNESS_ERROR",
+        "program_id": "tap-df7c470edda11b6c"
+      },
+      {
+        "code": "ORIGINAL_TIMEOUT",
+        "program_id": "tap-ed4557041d129ea4"
+      },
+      {
+        "code": "ORIGINAL_TIMEOUT",
+        "program_id": "tap-f7b7da09d225335b"
+      },
+      {
+        "code": "ORIGINAL_TIMEOUT",
+        "program_id": "tap-d6156e5e34b8ee9a"
+      }
+    ],
+    "selector": "selector-v1",
+    "tool": "pipelines/code_repair/catalog_build.py"
+  },
+  "catalog_id": "python-repair-v1",
+  "format": "code-repair-catalog/1",
+  "program_count": 220,
+  "programs_sha256": "8930320df4959f3a4180c2eac35b5d6d4e32b281552b5bd680f0b8d12eb377d6",
+  "split_policy": {
+    "algorithm": "sha256-atomic-bucket-v1",
+    "salt": "python-repair-v1",
+    "seed": 20260908,
+    "weights": {
+      "held_out": 10,
+      "train": 80,
+      "validation": 10
+    }
+  },
+  "split_policy_sha256": "89401d6eae3f971376aae4def58b491a1f7649e55319b1c6f7e2fa62455627aa",
+  "upstream": {
+    "commit": "2067ce6dfb3b0426a88c7a40531e355a5c703cff",
+    "license": "MIT",
+    "license_sha256": "4395a1dc4bda1d6054c45b4d1230c709c7398e6d66f1d0aff4b22d95973bea56",
+    "repository": "TheAlgorithms/Python"
+  }
+}
