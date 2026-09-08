@@ -16,10 +16,8 @@ from fault_test_support import (
     envelope,
     fault_config,
     fault_oracle,
-    fault_parameters,
     fault_scenario,
     fault_simulator,
-    fault_tiers,
     fault_vocabulary as fv,
     oc,
     refusal,
@@ -60,7 +58,7 @@ class SeededStream(unittest.TestCase):
         self.assertEqual(fault_scenario.DrawStream(0).bits(), 17227200041832915037)
 
     def test_no_family_module_imports_the_random_module(self):
-        for module in (fault_scenario, fault_simulator, fault_tiers, fault_oracle, fault_config, fault_parameters):
+        for module in (fault_scenario, fault_simulator, fault_oracle, fault_config):
             with self.subTest(module=module.__name__):
                 self.assertNotIn("import random", inspect.getsource(module))
         stream, twin = fault_scenario.DrawStream(3), fault_scenario.DrawStream(3)
@@ -71,7 +69,7 @@ class SeededStream(unittest.TestCase):
 
 class RequestRefusals(unittest.TestCase):
     def test_count_must_be_a_genuine_integer_of_at_least_one(self):
-        for count in (0, -1, 2.0, True):
+        for count in (0, -1, 2.0, True, fv.MAX_COUNT + 1):
             with self.subTest(count=count), refusal(self, fv.FINDING_COUNT_OUT_OF_DOMAIN, "count must be >= 1"):
                 propose(SEED, count)
 
@@ -80,14 +78,16 @@ class RequestRefusals(unittest.TestCase):
             with self.subTest(seed=seed), refusal(self, fv.FINDING_SEED_NOT_AN_INTEGER, "seed"):
                 propose(seed, 1)
 
-    def test_a_negative_seed_is_refused_so_no_seed_aliases_its_absolute_value(self):
-        """A seed is one unambiguous non-negative integer in ids and in
-        ``generator.seed``; refusing ``-n`` keeps every accepted seed distinct."""
-        for seed in (-1, -5, -SEED):
-            with self.subTest(seed=seed), refusal(self, fv.FINDING_SEED_NOT_AN_INTEGER, "non-negative"):
+    def test_a_seed_outside_the_64_bit_domain_is_refused(self):
+        """A seed is one unambiguous integer in ids and in ``generator.seed``, and
+        the draw stream formats it as text: negative and wider-than-64-bit seeds
+        are refused with a coded domain error, never a raw ``ValueError``."""
+        for seed in (-1, -5, -SEED, fv.MAX_SEED + 1, 10**5000):
+            with self.subTest(bits=seed.bit_length()), refusal(self, fv.FINDING_SEED_OUT_OF_DOMAIN, "must lie in [0"):
                 propose(seed, 1)
-        with refusal(self, fv.FINDING_SEED_NOT_AN_INTEGER, "non-negative"):
+        with refusal(self, fv.FINDING_SEED_OUT_OF_DOMAIN, "must lie in [0"):
             fault_oracle.build_records(-5, 1)
+        self.assertEqual(len(propose(fv.MAX_SEED, 2)), 2)
         content = [
             [(p["scenario"], p["intervention"]) for p in propose(seed, 9)] for seed in (0, 5, 6)
         ]
@@ -111,7 +111,7 @@ class ProposalsAreProposals(unittest.TestCase):
         for seed in range(1, 11):
             for proposal in propose(seed, 9):
                 system = fault_config.checked_system(proposal["scenario"])
-                fault_parameters.checked_disturbance(proposal["intervention"], system)
+                fault_config.checked_disturbance(proposal["intervention"], system)
                 self.assertIn(engine.run(proposal["scenario"], proposal["intervention"]).outcome, fv.OUTCOMES)
                 varied = {k for k, v in system.items() if v != fv.DEFAULT_SYSTEM[k]}
                 self.assertTrue(varied <= {"min_healthy_channels", "fallback_source"}, varied)

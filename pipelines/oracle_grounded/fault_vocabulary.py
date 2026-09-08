@@ -28,7 +28,7 @@ ORACLE_TYPE = "deterministic_simulator"
 # Literals chosen once: F2's identity checks compare them exactly, so they
 # are never derived from ``__file__``.
 ORACLE_IMPLEMENTATION = "pipelines/oracle_grounded/fault_simulator.py:RelayReflexSimulator"
-BOUNDARY_IMPLEMENTATION = "pipelines/oracle_grounded/fault_boundary.py:FaultOracle"
+BOUNDARY_IMPLEMENTATION = "pipelines/oracle_grounded/fault_simulator.py:FaultOracle"
 PRODUCER = "pipelines/oracle_grounded/fault_oracle.py"
 ORACLE_RUN = "in_process_deterministic"
 RECORD_ID_PREFIX = "fr"
@@ -41,12 +41,8 @@ METER_STATE = "simulator_state"
 METER_THERMAL = "simulator_thermal_model"
 # quantity -> the meter role (an ``OracleMeters`` field) that takes it.
 QUANTITY_METER_ROLES = {
-    "detection_latency_ms": "clock",
-    "recovery_latency_ms": "clock",
-    "healthy_channel_count": "state",
-    "dropped_event_count": "state",
-    "residual_error": "state",
-    "corrupt_ratio": "state",
+    "detection_latency_ms": "clock", "recovery_latency_ms": "clock", "healthy_channel_count": "state",
+    "dropped_event_count": "state", "residual_error": "state", "corrupt_ratio": "state",
     "peak_temperature_c": "thermal",
 }
 
@@ -78,12 +74,8 @@ OUTCOMES = (
 )
 # The prose spelling of issue #78, mirrored into ``result.outcome_label``.
 OUTCOME_LABELS = {
-    OUTCOME_CONTINUE: "continue",
-    OUTCOME_DEGRADE: "degrade gracefully",
-    OUTCOME_FALLBACK: "fallback",
-    OUTCOME_REFLEX: "reflex action",
-    OUTCOME_QUARANTINE: "quarantine",
-    OUTCOME_FAIL_CLOSED: "fail closed",
+    OUTCOME_CONTINUE: "continue", OUTCOME_DEGRADE: "degrade gracefully", OUTCOME_FALLBACK: "fallback",
+    OUTCOME_REFLEX: "reflex action", OUTCOME_QUARANTINE: "quarantine", OUTCOME_FAIL_CLOSED: "fail closed",
 }
 # Most protective first; the first tier with a fired reason decides.
 OUTCOME_PRECEDENCE = (
@@ -130,9 +122,13 @@ DEFAULT_SYSTEM: dict[str, Any] = {
     "fallback_source": "redundant_relay_b",
 }
 SYSTEM_KEYS = frozenset(DEFAULT_SYSTEM)
-# Bounded because the validator replays untrusted scenarios.
+# Bounded because the validator replays untrusted scenarios and a batch is
+# built in memory: 32 channels, 1000 ticks, 100 000 records per build.
 MAX_CHANNELS = 32
 MAX_TICKS = 1000
+MAX_COUNT = 100_000
+# Seeds are 64-bit: the draw stream formats them as text, and ids carry them.
+MAX_SEED = 2**64 - 1
 
 
 def default_system() -> dict[str, Any]:
@@ -143,15 +139,10 @@ def default_system() -> dict[str, Any]:
 # Deliberately shallow: keyed on the kind alone, blind to severity, so the
 # corpus holds real generator/oracle disagreements.
 PREDICTION_BY_KIND = {
-    SENSOR_LOSS: OUTCOME_FALLBACK,
-    STALE_SENSOR: OUTCOME_DEGRADE,
-    EVENT_JITTER: OUTCOME_CONTINUE,
-    BURST_CORRUPTION: OUTCOME_QUARANTINE,
-    THERMAL_EXCURSION: OUTCOME_REFLEX,
-    MISSING_CHANNEL: OUTCOME_DEGRADE,
-    MALFORMED_SPIKE_BURST: OUTCOME_QUARANTINE,
-    DELAYED_RESULT: OUTCOME_FALLBACK,
-    TEMPORARY_SATURATION: OUTCOME_DEGRADE,
+    SENSOR_LOSS: OUTCOME_FALLBACK, STALE_SENSOR: OUTCOME_DEGRADE, EVENT_JITTER: OUTCOME_CONTINUE,
+    BURST_CORRUPTION: OUTCOME_QUARANTINE, THERMAL_EXCURSION: OUTCOME_REFLEX,
+    MISSING_CHANNEL: OUTCOME_DEGRADE, MALFORMED_SPIKE_BURST: OUTCOME_QUARANTINE,
+    DELAYED_RESULT: OUTCOME_FALLBACK, TEMPORARY_SATURATION: OUTCOME_DEGRADE,
 }
 
 # Outcome reason codes, in tier emission order.
@@ -203,11 +194,14 @@ FINDING_CHANNELS_EMPTY = "CHANNELS_EMPTY"
 FINDING_CHANNEL_UNKNOWN = "CHANNEL_UNKNOWN"
 FINDING_CHANNELS_NO_RELAY_CHANNEL = "CHANNELS_NO_RELAY_CHANNEL"
 FINDING_ONSET_BEYOND_HORIZON = "ONSET_BEYOND_HORIZON"
+FINDING_DISTURBANCE_WINDOW_EMPTY = "DISTURBANCE_WINDOW_EMPTY"
 FINDING_PEAK_NOT_ABOVE_AMBIENT = "PEAK_NOT_ABOVE_AMBIENT"
 FINDING_SEED_NOT_AN_INTEGER = "SEED_NOT_AN_INTEGER"
+FINDING_SEED_OUT_OF_DOMAIN = "SEED_OUT_OF_DOMAIN"
 FINDING_COUNT_OUT_OF_DOMAIN = "COUNT_OUT_OF_DOMAIN"
 FINDING_ORACLE_METERS_UNDECLARED = "ORACLE_METERS_UNDECLARED"
 FINDING_PRODUCED_AT_NOT_A_TIMESTAMP = "PRODUCED_AT_NOT_A_TIMESTAMP"
+FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY = "ORACLE_RESULT_OUT_OF_VOCABULARY"
 FINDING_CODES = (
     FINDING_INPUT_NOT_AN_OBJECT, FINDING_SYSTEM_UNKNOWN_KEY,
     FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, FINDING_THERMAL_LADDER_UNORDERED,
@@ -217,8 +211,10 @@ FINDING_CODES = (
     FINDING_DISTURBANCE_KIND_UNKNOWN, FINDING_PARAMETER_MISSING, FINDING_PARAMETER_UNKNOWN,
     FINDING_PARAMETER_OUT_OF_DOMAIN, FINDING_CHANNELS_NOT_A_LIST, FINDING_CHANNELS_EMPTY,
     FINDING_CHANNEL_UNKNOWN, FINDING_CHANNELS_NO_RELAY_CHANNEL, FINDING_ONSET_BEYOND_HORIZON,
-    FINDING_PEAK_NOT_ABOVE_AMBIENT, FINDING_SEED_NOT_AN_INTEGER, FINDING_COUNT_OUT_OF_DOMAIN,
+    FINDING_DISTURBANCE_WINDOW_EMPTY, FINDING_PEAK_NOT_ABOVE_AMBIENT, FINDING_SEED_NOT_AN_INTEGER,
+    FINDING_SEED_OUT_OF_DOMAIN, FINDING_COUNT_OUT_OF_DOMAIN,
     FINDING_ORACLE_METERS_UNDECLARED, FINDING_PRODUCED_AT_NOT_A_TIMESTAMP,
+    FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY,
 )
 FINDING_CODE_SET = frozenset(FINDING_CODES)
 

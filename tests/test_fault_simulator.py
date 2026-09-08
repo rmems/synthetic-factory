@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Direct tests of ``fault_simulator``: the corruption phase and mechanics,
-the valid-disturbance twin of every enforced D7 row, the held rows as
-accepted runs, row 9's behaviour change, determinism, the detection and
-recovery invariant, and the oracle block."""
+"""Direct tests of ``fault_simulator``: the boundary types and the vocabulary
+gate on a verdict, the corruption phase and mechanics, the valid-disturbance
+twin of every enforced D7 row, the held rows as accepted runs, row 9's
+behaviour change, carried #138 behaviour, the tier tables on hand-built
+observations, determinism, the detection and recovery invariant, and the
+oracle block."""
 
 import copy
+import dataclasses
 import sys
 import unittest
 from pathlib import Path
@@ -14,17 +17,46 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fault_test_support import (
     disturbance,
     fault_config,
+    fault_oracle,
     fault_scenario,
     fault_simulator as fs,
     fault_vocabulary as fv,
+    oc,
+    refusal,
     run,
     scenario,
 )
 
+SYSTEM = fault_config.checked_system(scenario())
 PHASES = (
     0.0, 0.919, 0.838, 0.757, 0.676, 0.595, 0.514, 0.433, 0.352, 0.271, 0.19, 0.109,
     0.028, 0.947, 0.866, 0.785, 0.704, 0.623, 0.542, 0.461, 0.38, 0.299, 0.218, 0.137,
 )
+
+
+def result(**overrides):
+    fields = {
+        "outcome": "continue", "reason_codes": ("WITHIN_TOLERANCE",), "detection_latency_ms": None,
+        "recovery_latency_ms": 0.0, "worst_healthy_channels": 4, "dropped_events": 0,
+        "corrupt_events": 0, "total_events": 0, "peak_temperature_c": 38.0, "max_staleness_ms": 0.0,
+        "max_jitter_ms": 0.0, "saturated_ticks": 0, "integrity_violation": False, "result_delay_ms": 0.0,
+    }
+    fields.update(overrides)
+    return fs.FaultResult(**fields)
+
+
+def observe(**overrides):
+    fields = {
+        "worst_healthy": 4, "channel_count": 4, "integrity_violation": False, "corrupt": 0, "total": 96,
+        "dropped": 0, "peak_temperature": 38.0, "saturated_ticks": 0, "max_staleness": 0.0,
+        "max_jitter": 0.0, "result_delay_ms": 0.0, "fallback_ok": True, "detection_ms": None,
+    }
+    fields.update(overrides)
+    return fs.Observation(**fields)
+
+
+def select(**overrides):
+    return fs.select_outcome(observe(**overrides), SYSTEM)
 
 
 def thermal(peak, ramp=8.0, onset=6.0, **system):
@@ -42,6 +74,50 @@ def malformed(kind, count, channels, **system):
 
 def verdict(result):
     return result.outcome, result.reason_codes
+
+
+class Boundary(unittest.TestCase):
+    def test_ratios_are_zero_without_events_and_derived_otherwise_and_the_result_is_frozen(self):
+        empty = result()
+        self.assertEqual((empty.realised_corrupt_ratio, empty.residual_error, empty.ticks), (0.0, 0.0, 0))
+        busy = result(corrupt_events=3, dropped_events=1, total_events=8, trace=({"t_ms": 0.0},))
+        self.assertEqual((busy.realised_corrupt_ratio, busy.residual_error, busy.ticks), (0.375, 0.5, 1))
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            empty.outcome = "fail_closed"
+
+    def test_the_boundary_declares_identity_but_no_meters_and_no_engine(self):
+        oracle = fs.FaultOracle()
+        self.assertEqual((oracle.meter_clock, oracle.meter_state, oracle.meter_thermal), (None, None, None))
+        self.assertEqual((oracle.implementation, oracle.authority), (fv.BOUNDARY_IMPLEMENTATION, oc.AUTHORITY_AUTHORITATIVE))
+        with self.assertRaises(NotImplementedError):
+            oracle.run({}, {})
+        with self.assertRaises(NotImplementedError):
+            oracle.oracle_block({})
+        self.assertIs(fault_oracle.FaultOracle, fs.FaultOracle)
+        self.assertIs(fault_oracle.FaultResult, fs.FaultResult)
+
+    def test_a_verdict_outside_the_family_vocabulary_is_refused(self):
+        """Whatever oracle returned it, a result becomes a label only when its
+        type, outcome, reason codes, counts and readings fit the vocabulary."""
+        cases = (
+            ({"outcome": "explode"}, "outcome"),
+            ({"reason_codes": ("BOGUS_CODE", "THERMAL_SHUTDOWN")}, "reason_codes"),
+            ({"reason_codes": ()}, "reason_codes"),
+            ({"reason_codes": ["WITHIN_TOLERANCE"]}, "reason_codes"),
+            ({"worst_healthy_channels": -1}, "worst_healthy_channels"),
+            ({"dropped_events": 2.5}, "dropped_events"),
+            ({"total_events": True}, "total_events"),
+            ({"recovery_latency_ms": float("nan")}, "recovery_latency_ms"),
+            ({"detection_latency_ms": float("inf")}, "detection_latency_ms"),
+            ({"integrity_violation": 0}, "integrity_violation"),
+        )
+        for overrides, field in cases:
+            with self.subTest(field=field), refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, field):
+                fs.checked_result(result(**overrides))
+        with refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "FaultResult"):
+            fs.checked_result({"outcome": "continue"})
+        self.assertEqual(fs.checked_result(result()), result())
+        self.assertEqual(fs.checked_result(thermal(96.0)).outcome, "fail_closed")
 
 
 class Mechanics(unittest.TestCase):
@@ -183,6 +259,75 @@ class CarriedBehaviour(unittest.TestCase):
         self.assertEqual(first.trace, second.trace)
 
 
+class Tiers(unittest.TestCase):
+    """The decision tables on hand-built observations, no tick loop."""
+
+    def test_tiers_follow_the_precedence_and_cover_every_reason_once(self):
+        self.assertEqual(tuple(outcome for outcome, _ in fs.TIERS), fv.OUTCOME_PRECEDENCE[:-1])
+        codes = [code for _, rules in fs.TIERS for code, _ in rules] + list(fs.CONTINUE_REASONS)
+        self.assertEqual(len(codes), len(set(codes)))
+        self.assertEqual(set(codes), fv.REASON_CODE_SET)
+        self.assertEqual(set(fs.RECOVERY_EXTRA), set(fv.OUTCOMES) - {"continue"})
+
+    def test_boundary_directions(self):
+        cases = (
+            ({"result_delay_ms": 40.0}, "fail_closed", "NO_TIMELY_INPUT"),
+            ({"result_delay_ms": 12.0}, "continue", "WITHIN_TOLERANCE"),
+            ({"result_delay_ms": 12.5}, "degrade_gracefully", "RESULT_PAST_DEADLINE"),
+            ({"peak_temperature": 62.0}, "degrade_gracefully", "THERMAL_WARN"),
+            ({"peak_temperature": 78.0}, "reflex_action", "THERMAL_LIMIT_REFLEX"),
+            ({"peak_temperature": 92.0}, "fail_closed", "THERMAL_SHUTDOWN"),
+            ({"max_staleness": 8.0}, "continue", "WITHIN_TOLERANCE"),
+            ({"max_staleness": 8.5}, "degrade_gracefully", "STALE_BEYOND_THRESHOLD"),
+            ({"max_jitter": 1.5}, "continue", "WITHIN_TOLERANCE"),
+            ({"max_jitter": 1.6}, "degrade_gracefully", "JITTER_BEYOND_TOLERANCE"),
+            ({"saturated_ticks": 4}, "reflex_action", "SATURATION_REFLEX"),
+            ({"saturated_ticks": 3}, "continue", "WITHIN_TOLERANCE"),
+            ({"worst_healthy": 3}, "degrade_gracefully", "REDUCED_CHANNEL_SET"),
+            ({"worst_healthy": 2}, "fallback", "FALLBACK_SOURCE_ENGAGED"),
+            ({"worst_healthy": 2, "fallback_ok": False}, "fail_closed", "INSUFFICIENT_HEALTHY_CHANNELS_NO_FALLBACK"),
+            ({"integrity_violation": True}, "quarantine", "MALFORMED_STREAM_QUARANTINED"),
+            ({"corrupt": 24}, "quarantine", "CORRUPTION_ABOVE_QUARANTINE_THRESHOLD"),
+            ({"corrupt": 23}, "degrade_gracefully", "CORRUPTION_BELOW_QUARANTINE_THRESHOLD"),
+            ({"dropped": 1}, "degrade_gracefully", "EVENTS_DROPPED"),
+        )
+        for overrides, outcome, reason in cases:
+            with self.subTest(overrides=overrides):
+                self.assertEqual(select(**overrides), (outcome, (reason,)))
+
+    def test_a_higher_tier_hides_lower_reasons_and_a_tier_reports_all_of_its_own(self):
+        self.assertEqual(select(result_delay_ms=44.0, peak_temperature=70.0, dropped=3), ("fail_closed", ("NO_TIMELY_INPUT",)))
+        self.assertEqual(
+            select(max_staleness=14.0, dropped=7, worst_healthy=3),
+            ("degrade_gracefully", ("STALE_BEYOND_THRESHOLD", "EVENTS_DROPPED", "REDUCED_CHANNEL_SET")),
+        )
+
+    def test_row_6_a_zero_threshold_needs_actual_corruption(self):
+        strict = fault_config.checked_system(scenario(corruption_quarantine_ratio=0.0))
+        self.assertEqual(fs.select_outcome(observe(), strict), ("continue", ("WITHIN_TOLERANCE",)))
+        self.assertEqual(fs.select_outcome(observe(corrupt=1), strict), ("quarantine", ("CORRUPTION_ABOVE_QUARANTINE_THRESHOLD",)))
+        self.assertEqual(observe(corrupt=1, total=0).corrupt_ratio, 0.0)
+
+    def test_fallback_availability(self):
+        self.assertFalse(fs.fallback_available({"fallback_source": None}, set(), ()))
+        self.assertFalse(fs.fallback_available(SYSTEM, {"redundant_relay_b"}, ()))
+        self.assertFalse(fs.fallback_available(SYSTEM, set(), ("c0", "redundant_relay_b")))
+        self.assertTrue(fs.fallback_available(SYSTEM, {"c3"}, ("c0",)))
+
+    def test_latencies_are_onset_relative_clamped_rounded_synthesised_and_composed(self):
+        self.assertEqual(fs.detection_latency_ms(observe(detection_ms=10.0004), 4.0, SYSTEM), 6.0)
+        self.assertEqual(fs.detection_latency_ms(observe(detection_ms=2.0), 6.0, SYSTEM), 0.0)
+        self.assertEqual(fs.detection_latency_ms(observe(result_delay_ms=18.0), 0.0, SYSTEM), 12.0)
+        self.assertIsNone(fs.detection_latency_ms(observe(result_delay_ms=12.0), 0.0, SYSTEM))
+        self.assertEqual(fs.recovery_latency_ms(SYSTEM, "continue", 3.0), 0.0)
+        self.assertEqual(fs.recovery_latency_ms(SYSTEM, "fallback", None), 0.0)
+        for outcome, extra in (("fallback", 4.0), ("degrade_gracefully", 2.0), ("fail_closed", 1.0)):
+            with self.subTest(outcome=outcome):
+                self.assertEqual(fs.recovery_latency_ms(SYSTEM, outcome, 6.0), 6.0 + extra)
+        decision = fs.decide(observe(dropped=2, detection_ms=8.0), SYSTEM, 4.0)
+        self.assertEqual(decision, fs.Decision("degrade_gracefully", ("EVENTS_DROPPED",), 4.0, 6.0))
+
+
 class Invariants(unittest.TestCase):
     def test_continue_iff_no_detection_and_recovery_follows_detection(self):
         engine = fs.RelayReflexSimulator()
@@ -216,4 +361,3 @@ class OracleBlock(unittest.TestCase):
         result = fs.RelayReflexSimulator().run(partial, disturbance("missing_channel", channels=["c1"]))
         recorded = fs.RelayReflexSimulator().oracle_block(partial)["configuration"]["system"]
         self.assertEqual((result.total_events, recorded["ticks"], len(recorded)), (15, 5, 17))
-

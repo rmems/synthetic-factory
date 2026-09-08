@@ -11,7 +11,6 @@ process boundary, and nothing here reaches for an import by computed name.
 
 from __future__ import annotations
 
-import importlib
 import sys
 from pathlib import Path
 from typing import Any
@@ -19,7 +18,7 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
 
-CONTRACT_SIBLINGS = (
+SIBLINGS = (
     "import_twins",
     "distill_vocabulary",
     "distill_builders",
@@ -30,18 +29,6 @@ CONTRACT_SIBLINGS = (
     "distill_jsonl",
     "distill_labels",
 )
-# The fault-recovery family (F1): its root binds these eight siblings.
-FAULT_SIBLINGS = (
-    "fault_vocabulary",
-    "fault_config",
-    "fault_parameters",
-    "fault_scenario",
-    "fault_boundary",
-    "fault_tiers",
-    "fault_simulator",
-    "fault_oracle",
-)
-SIBLINGS = CONTRACT_SIBLINGS + FAULT_SIBLINGS
 
 
 def _forget_repository_modules() -> None:
@@ -59,7 +46,6 @@ def _cli_form() -> Any:
 
     sys.path.insert(0, str(PIPELINES))
     from oracle_grounded import distill_contract as flat
-    importlib.import_module("oracle_grounded.fault_oracle")  # the family root binds its siblings
 
     return flat
 
@@ -69,7 +55,6 @@ def _package_form() -> tuple[Any, Any]:
 
     sys.path.insert(0, str(REPO))
     import pipelines.oracle_grounded.distill_contract as packaged
-    importlib.import_module("pipelines.oracle_grounded.fault_oracle")
     from pipelines.oracle_grounded import distill_contract as packaged_again
 
     return packaged, packaged_again

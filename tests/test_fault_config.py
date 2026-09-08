@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Direct tests of ``fault_config``: the enforced D7 system rows as coded
-refusals, the held rows as accepted configurations, the carried row-12 checks
-and the effective-system contract."""
+refusals, the held rows as accepted configurations, the carried row-12
+system checks, the effective-system contract, D7 row 2, every carried
+row-12 parameter check by code and fragment, the window, capacity and
+narrowing rules and the refusal order."""
 
 import sys
 import unittest
@@ -9,12 +11,37 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from fault_test_support import fault_config, fault_vocabulary as fv, refusal, scenario
+from fault_test_support import disturbance, fault_config, fault_simulator, fault_vocabulary as fv, refusal, scenario
 
 checked = fault_config.checked_system
+SYSTEM = checked(scenario())
+NO_FALLBACK = checked(scenario(fallback_source=None))
+CHANNEL_REQUIRED = tuple(kind for kind in fv.DISTURBANCES if "channels" in fv.PARAMETER_SPEC[kind][0])
 
 
-class EnforcedRows(unittest.TestCase):
+def check(kind, system=SYSTEM, **parameters):
+    return fault_config.checked_disturbance(disturbance(kind, **parameters), system)
+
+
+def loss(**overrides):
+    return {"channels": ["c0"], "onset_ms": 4.0, "duration_ms": 6.0, **overrides}
+
+
+def thermal(**overrides):
+    return {"onset_ms": 6.0, "ramp_ms": 8.0, "peak_c": 70.0, **overrides}
+
+
+def full(kind):
+    """A complete, valid parameter set for ``kind`` on the default relay."""
+    return {
+        "sensor_loss": loss(), "stale_sensor": loss(), "event_jitter": loss(jitter_ms=0.4),
+        "burst_corruption": loss(corrupt_ratio=0.5), "missing_channel": {"channels": ["c3"]},
+        "malformed_spike_burst": {"channels": ["c0"], "malformed_count": 1, "malformed_kind": "unknown_channel"},
+        "temporary_saturation": loss(),
+    }[kind]
+
+
+class EnforcedSystemRows(unittest.TestCase):
     def test_row_1_the_thermal_ladder_starts_at_ambient(self):
         for controls in ({"ambient_c": 100.0}, {"ambient_c": 62.0}, {"thermal_shutdown_c": 10.0}):
             with self.subTest(controls=controls), refusal(self, fv.FINDING_THERMAL_LADDER_UNORDERED, "thermal ladder"):
@@ -50,26 +77,21 @@ class EnforcedRows(unittest.TestCase):
 
     def test_missing_keys_are_filled_from_the_defaults(self):
         partial = checked({"system": {"ticks": 5}})
-        self.assertEqual(set(partial), fv.SYSTEM_KEYS)
-        self.assertEqual(partial["ticks"], 5)
+        self.assertEqual((set(partial), partial["ticks"]), (fv.SYSTEM_KEYS, 5))
         self.assertEqual(checked({"mission": "x"}), fv.DEFAULT_SYSTEM)
 
 
-class CarriedRefusals(unittest.TestCase):
+class CarriedSystemRefusals(unittest.TestCase):
     def test_row_12_control_domains_name_the_key(self):
         cases = (
-            ("corruption_quarantine_ratio", -1),
-            ("ticks", 0),
-            ("ticks", 1001),
-            ("ticks", True),
-            ("tick_ms", 0),
-            ("min_healthy_channels", True),
-            ("thermal_warn_c", "hot"),
-            ("jitter_tolerance_ms", -0.1),
+            ("corruption_quarantine_ratio", -1), ("ticks", 0), ("ticks", 1001), ("ticks", True), ("tick_ms", 0),
+            ("min_healthy_channels", True), ("thermal_warn_c", "hot"), ("jitter_tolerance_ms", -0.1),
         )
         for key, value in cases:
             with self.subTest(key=key, value=value), refusal(self, fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, key):
                 checked(scenario(**{key: value}))
+        with refusal(self, fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, "tick_ms"):
+            fault_config.check_system({})
 
     def test_row_12_the_channel_list_is_bounded_unique_and_named(self):
         cases = ([f"c{i}" for i in range(33)], ["c0", "c0"], [], ["c0", ""], ["c0", 1], "c0")
@@ -92,8 +114,6 @@ class CarriedRefusals(unittest.TestCase):
             with self.subTest(bad=bad), refusal(self, fv.FINDING_INPUT_NOT_AN_OBJECT, "must be an object"):
                 checked(bad)
 
-
-class EffectiveSystem(unittest.TestCase):
     def test_the_effective_system_aliases_neither_input_nor_defaults(self):
         proposal = scenario()
         effective = checked(proposal)
@@ -103,7 +123,129 @@ class EffectiveSystem(unittest.TestCase):
         self.assertEqual(fv.DEFAULT_SYSTEM["channels"], ["c0", "c1", "c2", "c3"])
         self.assertEqual(proposal["system"]["channels"], ["c0", "c1", "c2", "c3"])
 
-    def test_check_system_reports_a_missing_control_as_out_of_domain(self):
-        with refusal(self, fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, "tick_ms"):
-            fault_config.check_system({})
 
+class EnforcedDisturbanceRow2(unittest.TestCase):
+    def test_a_thermal_peak_must_rise_above_ambient(self):
+        for peak in (20.0, 38.0):
+            with self.subTest(peak=peak), refusal(self, fv.FINDING_PEAK_NOT_ABOVE_AMBIENT, "ambient"):
+                check("thermal_excursion", **thermal(peak_c=peak))
+        self.assertEqual(check("thermal_excursion", **thermal(peak_c=58.0)).parameters["peak_c"], 58.0)
+
+    def test_a_thermal_span_that_overflows_is_refused_before_the_ramp_runs(self):
+        """Two finite controls whose difference is inf would otherwise give an
+        infinite peak_temperature_c and trace from an accepted run()."""
+        cold = checked(scenario(ambient_c=-1.7e308, thermal_warn_c=-1e308, thermal_limit_c=0.0, thermal_shutdown_c=1.0))
+        with refusal(self, fv.FINDING_PARAMETER_OUT_OF_DOMAIN, "peak_c", "finite span"):
+            check("thermal_excursion", cold, **thermal(peak_c=1.7e308))
+        with refusal(self, fv.FINDING_PARAMETER_OUT_OF_DOMAIN, "finite span"):
+            fault_simulator.RelayReflexSimulator().run(
+                {"system": dict(cold)}, disturbance("thermal_excursion", **thermal(peak_c=1.7e308))
+            )
+        self.assertEqual(check("thermal_excursion", cold, **thermal(peak_c=0.5)).parameters["peak_c"], 0.5)
+
+
+class CarriedDisturbanceRefusals(unittest.TestCase):
+    def test_shape_kind_and_the_effective_system_are_checked_first(self):
+        for bad in ("x", {"kind": "sensor_loss", "parameters": "x"}):
+            with self.subTest(bad=bad), refusal(self, fv.FINDING_INPUT_NOT_AN_OBJECT, "must be an object"):
+                fault_config.checked_disturbance(bad, SYSTEM)
+        for bad in ({"kind": "gremlins", "parameters": {"bogus": 1}}, {"parameters": {}}):
+            with self.subTest(bad=bad), refusal(self, fv.FINDING_DISTURBANCE_KIND_UNKNOWN, "unknown disturbance kind"):
+                fault_config.checked_disturbance(bad, SYSTEM)
+        for system in (None, {}, {"ticks": 24}):
+            with self.subTest(system=system), refusal(self, fv.FINDING_INPUT_NOT_AN_OBJECT, "checked_system"):
+                check("sensor_loss", system, **loss())
+
+    def test_missing_and_unknown_parameters_are_no_ops_and_refused(self):
+        with refusal(self, fv.FINDING_PARAMETER_MISSING, "no-op", "duration_ms", "onset_ms"):
+            check("sensor_loss", channels=["c0"])
+        with refusal(self, fv.FINDING_PARAMETER_UNKNOWN, "stale_age_ms"):
+            check("stale_sensor", **loss(stale_age_ms=3.0))
+
+    def test_floors_refuse_values_that_cannot_open_the_window(self):
+        cases = (
+            ("sensor_loss", loss(duration_ms=-5.0)), ("sensor_loss", loss(duration_ms=0)),
+            ("sensor_loss", loss(onset_ms=-1.0)), ("sensor_loss", loss(onset_ms=True)),
+            ("event_jitter", loss(jitter_ms=0.0)), ("delayed_result", {"delay_ms": 0.0}),
+            ("thermal_excursion", thermal(ramp_ms=-8.0)),
+        )
+        for kind, parameters in cases:
+            with self.subTest(kind=kind, parameters=parameters), refusal(self, fv.FINDING_PARAMETER_OUT_OF_DOMAIN, kind):
+                check(kind, **parameters)
+        self.assertEqual(check("sensor_loss", **loss(onset_ms=0.0)).parameters["onset_ms"], 0.0)
+
+    def test_value_rules_name_the_offending_key(self):
+        burst = {"channels": ["c1"], "malformed_count": 2, "malformed_kind": "negative_amplitude"}
+        cases = [("thermal_excursion", "peak_c", value) for value in (float("nan"), float("inf"), "70")]
+        cases += [("malformed_spike_burst", "malformed_count", value) for value in (0, True)]
+        cases += [("malformed_spike_burst", "malformed_kind", "negative_amplitdue")]
+        cases += [
+            ("burst_corruption", "corrupt_ratio", value)
+            for value in (-0.5, 1.5, float("nan"), float("inf"), "0.4", None, True)
+        ]
+        for kind, key, value in cases:
+            base = {"thermal_excursion": thermal(), "malformed_spike_burst": burst}.get(kind, loss(corrupt_ratio=0.5))
+            with self.subTest(kind=kind, key=key, value=value), refusal(self, fv.FINDING_PARAMETER_OUT_OF_DOMAIN, key):
+                check(kind, **{**base, key: value})
+        for ratio in (0.0, 1.0):
+            with self.subTest(ratio=ratio):
+                self.assertEqual(check("burst_corruption", **loss(corrupt_ratio=ratio)).kind, "burst_corruption")
+
+    def test_channels_must_be_a_list_and_non_empty_where_required(self):
+        with refusal(self, fv.FINDING_CHANNELS_NOT_A_LIST, "must be a list"):
+            check("sensor_loss", **loss(channels="c0"))
+        for kind in CHANNEL_REQUIRED:
+            with self.subTest(kind=kind), refusal(self, fv.FINDING_CHANNELS_EMPTY, "no-op"):
+                check(kind, **{**full(kind), "channels": []})
+        self.assertEqual(check("thermal_excursion", **thermal(channels=[])).declared, ())
+        self.assertEqual(check("delayed_result", delay_ms=6.0, channels=[]).affected, ())
+
+    def test_declared_names_are_relay_channels_or_the_fallback_source(self):
+        cases = ((["typo"], SYSTEM), ([1], SYSTEM), (["redundant_relay_b"], NO_FALLBACK))
+        for channels, system in cases:
+            with self.subTest(channels=channels), refusal(self, fv.FINDING_CHANNEL_UNKNOWN, "unknown channels"):
+                check("sensor_loss", system, **loss(channels=channels))
+
+    def test_a_required_list_naming_only_the_fallback_is_a_no_op(self):
+        for kind in CHANNEL_REQUIRED:
+            with self.subTest(kind=kind), refusal(self, fv.FINDING_CHANNELS_NO_RELAY_CHANNEL, "fallback source"):
+                check(kind, **{**full(kind), "channels": ["redundant_relay_b"]})
+        both = check("sensor_loss", **loss(channels=["c0", "redundant_relay_b"]))
+        self.assertEqual((both.affected, both.declared), (("c0",), ("c0", "redundant_relay_b")))
+        self.assertEqual(check("sensor_loss", **loss(channels=["c0", "c0"])).affected, ("c0", "c0"))
+
+    def test_the_onset_must_fall_on_or_before_the_last_tick(self):
+        for onset in (1000.0, 100.0, 48.0):
+            with self.subTest(onset=onset), refusal(self, fv.FINDING_ONSET_BEYOND_HORIZON, "never occur"):
+                check("sensor_loss", **loss(onset_ms=onset))
+        self.assertEqual(check("sensor_loss", **loss(onset_ms=46.0)).parameters["onset_ms"], 46.0)
+
+    def test_a_window_that_contains_no_simulated_tick_is_refused(self):
+        """Reviewer finding: [45, 46) on the 2 ms grid misses both adjacent ticks, so the
+        loss would run as a no-op and be labelled ``continue``; [45, 47) holds tick 46."""
+        for onset, duration in ((45.0, 1.0), (1.0, 0.5), (43.0, 0.9)):
+            with self.subTest(onset=onset, duration=duration), refusal(
+                self, fv.FINDING_DISTURBANCE_WINDOW_EMPTY, "contains no simulated tick"
+            ):
+                check("sensor_loss", **loss(onset_ms=onset, duration_ms=duration))
+        self.assertEqual(check("sensor_loss", **loss(onset_ms=45.0, duration_ms=2.0)).parameters["onset_ms"], 45.0)
+        self.assertEqual(check("sensor_loss", **loss(onset_ms=46.0, duration_ms=0.5)).parameters["duration_ms"], 0.5)
+
+    def test_a_malformed_burst_cannot_exceed_one_event_per_channel_per_tick(self):
+        """Reviewer finding: a count above ticks x affected channels was silently truncated."""
+        burst = {"channels": ["c0"], "malformed_kind": "unknown_channel"}
+        with refusal(self, fv.FINDING_PARAMETER_OUT_OF_DOMAIN, "exceeds the run's capacity of 24 events"):
+            check("malformed_spike_burst", malformed_count=25, **burst)
+        with refusal(self, fv.FINDING_PARAMETER_OUT_OF_DOMAIN, "capacity of 48 events"):
+            check("malformed_spike_burst", channels=["c0", "c1"], malformed_count=49, malformed_kind="unknown_channel")
+        self.assertEqual(check("malformed_spike_burst", malformed_count=24, **burst).parameters["malformed_count"], 24)
+        result = fault_simulator.RelayReflexSimulator().run(
+            scenario(), disturbance("malformed_spike_burst", malformed_count=24, **burst)
+        )
+        self.assertEqual(result.dropped_events, 24)
+
+    def test_refusal_order_kind_before_parameters_and_floors_before_horizon(self):
+        with refusal(self, fv.FINDING_DISTURBANCE_KIND_UNKNOWN):
+            check("gremlins", onset_ms="soon")
+        with refusal(self, fv.FINDING_PARAMETER_OUT_OF_DOMAIN, "onset_ms"):
+            check("sensor_loss", **loss(onset_ms="soon"))

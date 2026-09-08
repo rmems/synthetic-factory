@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Shared surface for the ``test_fault_*`` modules (issue #191, F1).
 
-The contract facade and the eight fault modules under the flat spelling,
+The contract facade and the five fault modules under the flat spelling,
 scenario and disturbance factories, a ``run()`` shortcut, the pinned
 timestamp, the coded-refusal assertion, a policy guard and a memoised
 record corpus -- carried once so the direct test modules stay small and
@@ -18,38 +18,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from distill_contract_test_support import REPO, envelope, oc
-from oracle_grounded import (
-    fault_boundary,
-    fault_config,
-    fault_oracle,
-    fault_parameters,
-    fault_scenario,
-    fault_simulator,
-    fault_tiers,
-    fault_vocabulary,
-)
+from oracle_grounded import fault_config, fault_oracle, fault_scenario, fault_simulator, fault_vocabulary
 
 PINNED_AT = "2026-08-23T00:00:00.000Z"
 SEED = 20260823
-FAULT_MODULES = (
-    "fault_vocabulary",
-    "fault_config",
-    "fault_parameters",
-    "fault_scenario",
-    "fault_boundary",
-    "fault_tiers",
-    "fault_simulator",
-    "fault_oracle",
-)
+FAULT_MODULES = ("fault_vocabulary", "fault_config", "fault_scenario", "fault_simulator", "fault_oracle")
 _CODE_TOKEN = re.compile(r"[A-Z][A-Z0-9_]+")
 
-__all__ = [
-    "FAULT_MODULES", "PINNED_AT", "REPO", "SEED", "contract_findings",
-    "disturbance", "ensure_policy", "envelope", "fault_boundary", "fault_config",
-    "fault_oracle", "fault_parameters", "fault_scenario", "fault_simulator", "fault_tiers",
-    "fault_vocabulary", "oc", "records", "refusal", "run",
-    "scenario",
-]
+__all__ = (
+    "FAULT_MODULES", "PINNED_AT", "REPO", "SEED", "contract_findings", "disturbance",
+    "ensure_policy", "envelope", "fault_config", "fault_oracle", "fault_scenario",
+    "fault_simulator", "fault_vocabulary", "oc", "records", "refusal", "run", "scenario",
+)
 
 
 def scenario(**system_overrides):
@@ -57,11 +37,7 @@ def scenario(**system_overrides):
 
     system = fault_vocabulary.default_system()
     system.update(system_overrides)
-    return {
-        "system": system,
-        "mission": fault_vocabulary.MISSION,
-        "disturbance_kind": "sensor_loss",
-    }
+    return {"system": system, "mission": fault_vocabulary.MISSION, "disturbance_kind": "sensor_loss"}
 
 
 def disturbance(kind, **parameters):

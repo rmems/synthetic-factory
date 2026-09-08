@@ -144,24 +144,34 @@ def _proposal(index: int, system: dict[str, Any], disturbance: dict[str, Any]) -
     }
 
 
+def _seed_text(seed: Any) -> str:
+    """``repr`` of a seed, or its width in bits when it is too wide to print."""
+    if isinstance(seed, int) and seed.bit_length() > 256:
+        return f"an integer of {seed.bit_length()} bits"
+    return repr(seed)
+
+
 def _check_request(seed: Any, count: Any) -> None:
     """A genuine non-negative integer seed and a genuine integer count >= 1.
 
-    Bool is refused for both. A negative seed is refused so that the seed in
-    a record id and in ``generator.seed`` is one unambiguous non-negative
-    integer, and no two accepted seeds can share a stream.
+    Bool is refused for both. A seed outside ``[0, MAX_SEED]`` (64 bits) is
+    refused so that the seed in a record id and in ``generator.seed`` is one
+    unambiguous integer the draw stream can format, and no two accepted seeds
+    share a stream.
     """
+    is_seed = vocab.is_genuine_int(seed)
     fv.refuse_first(
         (
+            (not is_seed, fv.FINDING_SEED_NOT_AN_INTEGER, f"seed must be an integer, got {_seed_text(seed)}"),
             (
-                not vocab.is_genuine_int(seed) or seed < 0,
-                fv.FINDING_SEED_NOT_AN_INTEGER,
-                f"seed must be a non-negative integer, got {seed!r}",
+                is_seed and not 0 <= seed <= fv.MAX_SEED,
+                fv.FINDING_SEED_OUT_OF_DOMAIN,
+                f"seed must lie in [0, {fv.MAX_SEED}] (a 64-bit integer), got {_seed_text(seed)}",
             ),
             (
-                not vocab.is_genuine_int(count) or count < 1,
+                not vocab.is_genuine_int(count) or not 1 <= count <= fv.MAX_COUNT,
                 fv.FINDING_COUNT_OUT_OF_DOMAIN,
-                f"count must be >= 1 and an integer, got {count!r}",
+                f"count must be >= 1 and an integer at most {fv.MAX_COUNT}, got {count!r}",
             ),
         )
     )

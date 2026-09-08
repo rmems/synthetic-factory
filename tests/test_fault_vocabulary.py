@@ -2,7 +2,6 @@
 """Direct tests of ``fault_vocabulary``: the vocabularies, the code sets, the
 coded refusal type, the oracle-label declaration and the import binding."""
 
-import importlib
 import sys
 import unittest
 from pathlib import Path
@@ -25,15 +24,8 @@ class Vocabularies(unittest.TestCase):
         self.assertEqual(
             fv.DISTURBANCES,
             (
-                "sensor_loss",
-                "stale_sensor",
-                "event_jitter",
-                "burst_corruption",
-                "thermal_excursion",
-                "missing_channel",
-                "malformed_spike_burst",
-                "delayed_result",
-                "temporary_saturation",
+                "sensor_loss", "stale_sensor", "event_jitter", "burst_corruption", "thermal_excursion",
+                "missing_channel", "malformed_spike_burst", "delayed_result", "temporary_saturation",
             ),
         )
         self.assertEqual(set(fv.PARAMETER_SPEC), set(fv.DISTURBANCES))
@@ -55,8 +47,8 @@ class Vocabularies(unittest.TestCase):
     def test_reason_and_finding_codes_are_unique_and_disjoint(self):
         self.assertEqual(len(fv.REASON_CODES), 16)
         self.assertEqual(len(fv.REASON_CODE_SET), 16)
-        self.assertEqual(len(fv.FINDING_CODES), 24)
-        self.assertEqual(len(fv.FINDING_CODE_SET), 24)
+        self.assertEqual(len(fv.FINDING_CODES), 27)
+        self.assertEqual(len(fv.FINDING_CODE_SET), 27)
         self.assertFalse(fv.REASON_CODE_SET & fv.FINDING_CODE_SET)
         self.assertFalse(fv.FINDING_CODE_SET & oc.ORACLE_ONLY_KEYS)
 
@@ -145,7 +137,10 @@ class ImportBinding(unittest.TestCase):
     def test_every_fault_module_is_one_object_under_both_spellings(self):
         if str(REPO) not in sys.path:
             sys.path.append(str(REPO))
-        importlib.import_module("pipelines.oracle_grounded.fault_oracle")
+        from oracle_grounded import fault_oracle as flat
+        from pipelines.oracle_grounded import fault_oracle as packaged
+
+        self.assertIs(flat, packaged)
         for name in FAULT_MODULES:
             with self.subTest(name=name):
                 self.assertIs(

@@ -124,7 +124,7 @@ class SplitByResponsibility(unittest.TestCase):
         "distill_curation",
         "distill_jsonl",
         "distill_labels",
-    ) + distill_import_probe.FAULT_SIBLINGS
+    )
 
     def test_every_sibling_binds_both_import_forms_to_one_module_object(self):
         if str(REPO) not in sys.path:
@@ -134,8 +134,6 @@ class SplitByResponsibility(unittest.TestCase):
                 # The support module imported the flat spelling; this literal
                 # import binds the package spelling of every sibling too.
                 importlib.import_module("pipelines.oracle_grounded.distill_contract")
-                importlib.import_module("oracle_grounded.fault_oracle")
-                importlib.import_module("pipelines.oracle_grounded.fault_oracle")
                 direct = sys.modules[f"oracle_grounded.{name}"]
                 packaged = sys.modules[f"pipelines.oracle_grounded.{name}"]
                 self.assertIs(direct, packaged)

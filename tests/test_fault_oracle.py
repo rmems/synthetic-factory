@@ -5,10 +5,12 @@ and byte identity, meter provenance and oracle injection, the JSONL round
 trip and ``describe()``."""
 
 import copy
+import dataclasses
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -18,6 +20,7 @@ from fault_test_support import (
     contract_findings,
     ensure_policy,
     envelope,
+    fault_config,
     fault_oracle as fo,
     fault_scenario,
     fault_simulator,
@@ -144,6 +147,86 @@ class OracleInjection(unittest.TestCase):
             meters = {item["meter"] for item in record["result"]["measurements"]}
             self.assertEqual(meters, {"bench_replay_clock", "bench_replay_state", "bench_replay_thermal_probe"})
 
+    def test_a_falsy_injected_oracle_is_still_the_oracle_that_runs(self):
+        """Reviewer finding: ``oracle or simulator`` replaced an oracle whose truth value
+        is False; only ``None`` selects the default now."""
+
+        class Quiet(BenchReplay):
+            def __bool__(self):
+                return False
+
+        record = fo.build_records(3, 1, produced_at=PINNED_AT, oracle=Quiet())[0]
+        self.assertEqual(record["oracle"]["name"], BenchReplay.name)
+        self.assertIn("bench_replay_clock", {item["meter"] for item in record["result"]["measurements"]})
+
+    def test_the_record_carries_the_generator_proposal_even_when_the_oracle_rewrites_its_input(self):
+        """Reviewer finding: the engine ran on the live proposal dicts, so an oracle
+        could rewrite the proposal to fit its verdict and the digest would bless it."""
+
+        class Launderer(BenchReplay):
+            def run(self, scenario_block, intervention):
+                verdict = super().run(scenario_block, intervention)
+                intervention["parameters"]["onset_ms"] = 999999.0
+                scenario_block["mission"] = "rewritten by the oracle"
+                return verdict
+
+        honest = fault_scenario.propose_scenarios(2, 3)
+        for record, proposal in zip(fo.build_records(2, 3, produced_at=PINNED_AT, oracle=Launderer()), honest):
+            self.assertEqual((record["scenario"], record["intervention"]), (proposal["scenario"], proposal["intervention"]))
+            self.assertEqual(record["oracle"]["configuration"]["system"], proposal["scenario"]["system"])
+            self.assertEqual(contract_findings(record), [])
+
+    def test_an_oracle_verdict_outside_the_vocabulary_is_refused_not_recorded(self):
+        """Reviewer finding: an undeclared reason code passed every check, an undeclared
+        outcome was a raw KeyError and a non-FaultResult a raw AttributeError."""
+
+        def forging(**overrides):
+            class Forger(BenchReplay):
+                def run(self, scenario_block, intervention):
+                    return dataclasses.replace(super().run(scenario_block, intervention), **overrides)
+
+            return Forger()
+
+        cases = ({"reason_codes": ("BOGUS_CODE", "THERMAL_SHUTDOWN")}, {"outcome": "explode"}, {"dropped_events": 2.5})
+        for overrides in cases:
+            field = next(iter(overrides))
+            with self.subTest(field=field), refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, field):
+                fo.build_records(1, 1, produced_at=PINNED_AT, oracle=forging(**overrides))
+
+        class WrongReturn(BenchReplay):
+            def run(self, scenario_block, intervention):
+                return {"outcome": "continue"}
+
+        with refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "FaultResult"):
+            fo.build_records(1, 1, produced_at=PINNED_AT, oracle=WrongReturn())
+
+    def test_an_argument_that_is_not_a_fault_oracle_is_a_coded_refusal(self):
+        """Reviewer finding: a non-oracle argument was a raw AttributeError; a declared
+        boundary subclass without an engine stays the documented NotImplementedError."""
+        for bad in (object(), "sim", 0, False):
+            with self.subTest(bad=bad), refusal(self, fv.FINDING_INPUT_NOT_AN_OBJECT, "FaultOracle"):
+                fo.build_records(1, 1, oracle=bad)
+        with refusal(self, fv.FINDING_INPUT_NOT_AN_OBJECT, "FaultOracle"):
+            fo.oracle_meters(None)
+
+        class Declared(fo.FaultOracle):
+            meter_clock, meter_state, meter_thermal = "a", "b", "c"
+
+        with self.assertRaises(NotImplementedError):
+            fo.build_records(1, 1, oracle=Declared())
+
+    def test_cheap_refusals_run_before_any_proposal_is_drawn_and_count_is_bounded(self):
+        """Reviewer finding: 100,000 proposals were drawn before a bad produced_at or
+        oracle was refused, and count had no ceiling."""
+        with mock.patch.object(fault_scenario, "propose_scenarios", side_effect=AssertionError("drawn")) as drawn:
+            with refusal(self, fv.FINDING_PRODUCED_AT_NOT_A_TIMESTAMP):
+                fo.build_records(0, 100_000, produced_at="bad")
+            with refusal(self, fv.FINDING_INPUT_NOT_AN_OBJECT):
+                fo.build_records(0, 100_000, oracle=object())
+        drawn.assert_not_called()
+        with refusal(self, fv.FINDING_COUNT_OUT_OF_DOMAIN, str(fv.MAX_COUNT)):
+            fo.build_records(0, fv.MAX_COUNT + 1, produced_at=PINNED_AT)
+
     def test_an_oracle_without_meters_is_refused(self):
         with refusal(self, fv.FINDING_ORACLE_METERS_UNDECLARED, "measurement meters", "clock", "state", "thermal"):
             fo.build_records(3, 1, oracle=fo.FaultOracle())
@@ -181,6 +264,23 @@ class Identity(unittest.TestCase):
         self.assertEqual(record["oracle"]["implementation"], fv.ORACLE_IMPLEMENTATION)
         self.assertIs(fo.RelayReflexSimulator, fault_simulator.RelayReflexSimulator)
         self.assertIs(fo.propose_scenarios, fault_scenario.propose_scenarios)
+
+    def test_all_is_the_agent_surface_and_the_emitters_take_checked_inputs(self):
+        """Reviewer finding: the lower-level emitters raised raw KeyError/TypeError on
+        wrong-typed arguments while advertised in ``__all__``."""
+        surface = {
+            "EMITTED_LABEL_KEYS", "FaultOracle", "FaultResult", "ORACLE_LABEL_KEYS", "OracleMeters",
+            "RelayReflexSimulator", "build_records", "checked_disturbance", "checked_system", "describe",
+            "oracle_meters", "propose_scenarios",
+        }
+        self.assertEqual(set(fo.__all__), surface)
+        for name in ("result_measurements", "oracle_result", "prediction_agreement"):
+            with self.subTest(name=name):
+                self.assertNotIn(name, fo.__all__)
+                self.assertIn("checked", getattr(fo, name).__doc__)
+        self.assertIs(fo.checked_disturbance, fault_config.checked_disturbance)
+        with refusal(self, fv.FINDING_INPUT_NOT_AN_OBJECT, "checked_system"):
+            fo.checked_disturbance({"kind": "sensor_loss", "parameters": {}}, None)
 
     def test_describe_is_plain_canonical_data(self):
         described = fo.describe()

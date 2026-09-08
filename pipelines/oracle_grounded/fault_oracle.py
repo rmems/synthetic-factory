@@ -9,29 +9,36 @@ The agent's single import::
 
 Every record is UNVALIDATED: nothing here self-certifies. The oracle's meters
 name the instruments behind the seven readings, the result block emits every
-declared oracle-label key (``EMITTED_LABEL_KEYS == ORACLE_LABEL_KEYS``),
-counts stay genuine integers, and ``produced_at`` is injectable so two builds
-with the same seed and timestamp are byte-identical, digest included.
+declared oracle-label key (``EMITTED_LABEL_KEYS == ORACLE_LABEL_KEYS``; the
+``continue`` shape is ``detection_latency_ms: null`` with no detection
+reading), counts stay genuine integers, and ``produced_at`` is injectable so
+two builds with the same seed and timestamp are byte-identical. An injected
+oracle sees private copies of the proposal and its verdict passes
+:func:`checked_result`. ``__all__`` is the agent surface; the emitters below
+it take checked inputs and are importable by name.
 """
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, fields
 from typing import Any
 
 from . import distill_builders as builders
 from . import distill_vocabulary as vocab
 from . import envelope
-from . import fault_boundary as boundary
+from . import fault_config as config
 from . import fault_scenario as scenario
 from . import fault_simulator as simulator
 from . import fault_vocabulary as fv
 from .import_twins import bind_import_twin
 
-FaultOracle = boundary.FaultOracle
-FaultResult = boundary.FaultResult
+FaultOracle = simulator.FaultOracle
+FaultResult = simulator.FaultResult
 RelayReflexSimulator = simulator.RelayReflexSimulator
 propose_scenarios = scenario.propose_scenarios
+checked_system = config.checked_system
+checked_disturbance = config.checked_disturbance
 ORACLE_LABEL_KEYS = fv.ORACLE_LABEL_KEYS
 
 
@@ -47,9 +54,15 @@ class OracleMeters:
         return getattr(self, role)
 
 
-def oracle_meters(engine: boundary.FaultOracle) -> OracleMeters:
-    """The engine's declared meters; refused when any role is unset, so an
-    injected non-simulator oracle can never inherit ``simulator_*`` provenance."""
+def oracle_meters(engine: Any) -> OracleMeters:
+    """The engine's declared meters; refused when the engine is not a
+    ``FaultOracle`` or any role is unset, so an injected non-simulator oracle
+    can never inherit ``simulator_*`` provenance."""
+    fv.refuse_when(
+        not isinstance(engine, simulator.FaultOracle),
+        fv.FINDING_INPUT_NOT_AN_OBJECT,
+        f"oracle must implement FaultOracle, got {engine!r}",
+    )
     meters = OracleMeters(engine.meter_clock, engine.meter_state, engine.meter_thermal)
     unset = sorted(f.name for f in fields(meters) if vocab.missing_string(meters.of(f.name)))
     fv.refuse_when(
@@ -87,9 +100,10 @@ def _detail(quantity: str, params: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def result_measurements(
-    result: boundary.FaultResult, intervention: dict[str, Any], meters: OracleMeters
+    result: simulator.FaultResult, intervention: dict[str, Any], meters: OracleMeters
 ) -> list[dict[str, Any]]:
-    """The metered readings of one result; detection first, only when detected."""
+    """The metered readings of a checked result and intervention; detection
+    first, only when detected."""
     params = intervention["parameters"]
     readings = [
         builders.new_measurement(quantity, value_of(result), meters.of(role), detail=_detail(quantity, params))
@@ -103,7 +117,8 @@ def result_measurements(
     return readings
 
 
-# result key -> FaultResult attribute, for the twelve result-level labels.
+# result key -> FaultResult attribute, for the result-level labels beside
+# ``outcome_label``, ``prediction_agreement`` and ``trace_summary``.
 _LABEL_FIELDS = (
     ("outcome", "outcome"), ("reason_codes", "reason_codes"),
     ("detection_latency_ms", "detection_latency_ms"),
@@ -114,10 +129,17 @@ _LABEL_FIELDS = (
     ("integrity_violation", "integrity_violation"),
 )
 _TRACE_FIELDS = ("max_staleness_ms", "max_jitter_ms", "saturated_ticks")
+# Every label key a result block carries, computed from the emitter's own
+# tables; ``fault_vocabulary.ORACLE_LABEL_KEYS`` is asserted equal to it.
+EMITTED_LABEL_KEYS = (
+    frozenset(key for key, _ in _LABEL_FIELDS)
+    | frozenset({"outcome_label", "prediction_agreement", "trace_summary"})
+    | frozenset(_TRACE_FIELDS)
+)
 
 
-def _labels(result: boundary.FaultResult) -> dict[str, Any]:
-    """The twelve result-level label values plus the trace summary."""
+def _labels(result: simulator.FaultResult) -> dict[str, Any]:
+    """The result-level label values plus the trace summary."""
     labels: dict[str, Any] = {key: getattr(result, attr) for key, attr in _LABEL_FIELDS}
     labels["reason_codes"] = list(result.reason_codes)
     labels["outcome_label"] = fv.OUTCOME_LABELS[result.outcome]
@@ -125,35 +147,18 @@ def _labels(result: boundary.FaultResult) -> dict[str, Any]:
     return labels
 
 
-_SENTINEL_LABELS = _labels(
-    boundary.FaultResult(
-        outcome=fv.OUTCOME_CONTINUE, reason_codes=(fv.REASON_WITHIN_TOLERANCE,),
-        detection_latency_ms=None, recovery_latency_ms=0.0, worst_healthy_channels=0,
-        dropped_events=0, corrupt_events=0, total_events=0, peak_temperature_c=0.0,
-        max_staleness_ms=0.0, max_jitter_ms=0.0, saturated_ticks=0,
-        integrity_violation=False, result_delay_ms=0.0,
-    )
-)
-# Every label key a result block carries, computed once from the emitter
-# itself; ``fault_vocabulary.ORACLE_LABEL_KEYS`` is asserted equal to it.
-EMITTED_LABEL_KEYS = (
-    frozenset(_SENTINEL_LABELS)
-    | frozenset({"prediction_agreement"})
-    | frozenset(_SENTINEL_LABELS["trace_summary"])
-)
-
-
 def prediction_agreement(prediction: dict[str, Any], outcome: str) -> str:
+    """``agree`` when a checked proposal's ``candidate_prediction`` named the outcome."""
     return "agree" if prediction.get("predicted_outcome") == outcome else "disagree"
 
 
 def oracle_result(
-    result: boundary.FaultResult,
+    result: simulator.FaultResult,
     prediction: dict[str, Any],
     intervention: dict[str, Any],
     meters: OracleMeters,
 ) -> dict[str, Any]:
-    """The oracle-owned result block for one executed disturbance."""
+    """The oracle-owned result block for one checked result and proposal."""
     return builders.new_result(
         measurements=result_measurements(result, intervention, meters),
         prediction_agreement=prediction_agreement(prediction, result.outcome),
@@ -177,32 +182,38 @@ def _produced_at(value: Any) -> str:
 class _Batch:
     """What every record of one build shares."""
 
-    engine: boundary.FaultOracle
+    engine: simulator.FaultOracle
     meters: OracleMeters
     generator: dict[str, Any]
     provenance: dict[str, Any]
     seed: int
 
 
+def _verdict(batch: _Batch, proposal: dict[str, Any]) -> builders.Verdict:
+    """The oracle runs on private copies of the proposal, so an engine that
+    rewrites its input cannot launder the generator's sections; its result
+    must sit inside the family vocabulary."""
+    scenario_block = copy.deepcopy(proposal["scenario"])
+    intervention = copy.deepcopy(proposal["intervention"])
+    result = simulator.checked_result(batch.engine.run(scenario_block, intervention))
+    return builders.Verdict(
+        oracle=batch.engine.oracle_block(copy.deepcopy(proposal["scenario"])),
+        result=oracle_result(result, proposal["candidate_prediction"], proposal["intervention"], batch.meters),
+    )
+
+
 def _record(batch: _Batch, proposal: dict[str, Any]) -> dict[str, Any]:
-    scenario_block = proposal["scenario"]
-    intervention = proposal["intervention"]
-    prediction = proposal["candidate_prediction"]
-    result = batch.engine.run(scenario_block, intervention)
     return builders.build_record(
         identity=builders.RecordIdentity(
             f"{fv.RECORD_ID_PREFIX}-{batch.seed}-{proposal['index']:04d}", fv.FAMILY
         ),
         proposal=builders.Proposal(
             generator=batch.generator,
-            scenario=scenario_block,
-            intervention=intervention,
-            candidate_prediction=prediction,
+            scenario=proposal["scenario"],
+            intervention=proposal["intervention"],
+            candidate_prediction=proposal["candidate_prediction"],
         ),
-        verdict=builders.Verdict(
-            oracle=batch.engine.oracle_block(scenario_block),
-            result=oracle_result(result, prediction, intervention, batch.meters),
-        ),
+        verdict=_verdict(batch, proposal),
         provenance=batch.provenance,
     )
 
@@ -212,21 +223,22 @@ def build_records(
     count: int,
     *,
     produced_at: str | None = None,
-    oracle: boundary.FaultOracle | None = None,
+    oracle: simulator.FaultOracle | None = None,
 ) -> list[dict[str, Any]]:
     """Run every proposed disturbance through the oracle into UNVALIDATED records.
 
     Ids are ``fr-{seed}-{index:04d}``. ``produced_at`` pins the provenance
     timestamp (validated as an ISO-8601 UTC instant); omitted, one
     ``utc_now_iso()`` serves the whole batch. ``oracle`` defaults to the
-    simulator and must declare its meters.
+    simulator and must implement ``FaultOracle`` and declare its meters. The
+    cheap refusals run before a single proposal is drawn, and ``count`` is
+    bounded by ``MAX_COUNT``.
     """
-    proposals = scenario.propose_scenarios(seed, count)
-    engine = oracle or simulator.RelayReflexSimulator()
+    stamp = _produced_at(produced_at)
+    engine = simulator.RelayReflexSimulator() if oracle is None else oracle
     meters = oracle_meters(engine)
-    provenance = builders.new_provenance(
-        fv.PRODUCER, produced_at=_produced_at(produced_at), oracle_run=fv.ORACLE_RUN
-    )
+    proposals = scenario.propose_scenarios(seed, count)
+    provenance = builders.new_provenance(fv.PRODUCER, produced_at=stamp, oracle_run=fv.ORACLE_RUN)
     identity = builders.GeneratorIdentity(
         fv.GENERATOR_NAME, version=fv.GENERATOR_VERSION, kind=fv.GENERATOR_KIND
     )
@@ -268,10 +280,12 @@ def describe() -> dict[str, Any]:
     }
 
 
+# The agent surface: every name refuses malformed input with a coded
+# ``FaultRefusal``. The lower-level emitters take checked inputs.
 __all__ = (
     "EMITTED_LABEL_KEYS", "FaultOracle", "FaultResult", "ORACLE_LABEL_KEYS", "OracleMeters",
-    "RelayReflexSimulator", "build_records", "describe", "oracle_meters", "oracle_result",
-    "prediction_agreement", "propose_scenarios", "result_measurements",
+    "RelayReflexSimulator", "build_records", "checked_disturbance", "checked_system", "describe",
+    "oracle_meters", "propose_scenarios",
 )
 
 bind_import_twin(__name__)
