@@ -104,6 +104,7 @@ class Refusals(unittest.TestCase):
             cv.FINDING_PROGRAM_FIELD_MISSING: lambda row: row.pop("family"),
             cv.FINDING_PROGRAM_FIELD_INVALID: lambda row: row.update(split="dev"),
             cv.FINDING_EXAMPLES_SHA_MISMATCH: lambda row: row["public"].update(example_count=99),
+            cv.FINDING_CATALOG_FIELD_INVALID: lambda row: row["upstream"].update(commit="deadbeef"),
         }
         for code, edit in cases.items():
             with self.subTest(code=code):
@@ -113,6 +114,31 @@ class Refusals(unittest.TestCase):
                 def one(row, edit=edit):
                     if row["upstream"]["function"] == "abs_val":
                         edit(row)
+
+                rewrite_programs(self.directory, one)
+                with refusal(self, code):
+                    catalog.load_catalog(self.directory)
+
+    def test_a_reference_source_must_parse_and_define_its_function(self):
+        for code, edit in (
+            (cv.FINDING_PROGRAM_NOT_PARSEABLE, lambda ref: ref.update(source="def (\n")),
+            (cv.FINDING_TARGET_FUNCTION_NOT_FOUND, lambda ref: ref.update(source="x = 1\n")),
+            (cv.FINDING_PROGRAM_FIELD_INVALID, None),
+        ):
+            with self.subTest(code=code):
+                shutil.rmtree(self.directory)
+                self.directory = copied_fixture(self.root)
+
+                def one(row, edit=edit):
+                    if row["upstream"]["function"] != "factorial":
+                        return
+                    if edit is None:
+                        row["hidden"]["cases"][0]["args"] = "(" + "1" * 5000 + ",)"
+                        return
+                    edit(row["hidden"]["reference"])
+                    row["hidden"]["reference"]["sha256"] = hashlib.sha256(
+                        row["hidden"]["reference"]["source"].encode()
+                    ).hexdigest()
 
                 rewrite_programs(self.directory, one)
                 with refusal(self, code):
@@ -155,6 +181,14 @@ class OriginalPasses(unittest.TestCase):
                 findings = catalog.catalog_check(single, FakeExecutor(by_phase))
                 self.assertEqual([f["code"] for f in findings], [code])
                 self.assertEqual(findings[0]["program_id"], prog.program_id)
+
+    def test_a_failure_of_the_second_original_run_is_an_execution_finding(self):
+        prog = program("factorial")
+        answers = iter([report(rows("public", 7), rows("hidden", 15)), report(failure="timeout")])
+        fake = FakeExecutor({"original": lambda job: next(answers), "reference": report((), rows("hidden", 15))})
+        single = catalog.Catalog("x", FIXTURE_CATALOG, {}, "", "", (prog,))
+        codes = [f["code"] for f in catalog.catalog_check(single, fake)]
+        self.assertEqual(codes, [cv.REASON_ORIGINAL_TIMEOUT])
 
     def test_two_differing_original_runs_are_nondeterministic(self):
         prog = program("factorial")

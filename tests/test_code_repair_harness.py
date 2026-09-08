@@ -84,11 +84,24 @@ class Failures(unittest.TestCase):
         self.assertEqual(report.hidden[0]["status"], cv.ROW_ERROR)
         self.assertNotIn("got", report.hidden[0])
 
-    def test_unreadable_or_foreign_reports_are_harness_errors(self):
-        self.assertEqual(ex._parse_report(1, b"{}").status, cv.PHASE_HARNESS_ERROR)
-        self.assertEqual(ex._parse_report(0, b"not json").status, cv.PHASE_HARNESS_ERROR)
-        self.assertEqual(ex._parse_report(0, b'{"protocol": "other/1"}').status, cv.PHASE_HARNESS_ERROR)
-        self.assertEqual(ex._parse_report(0, b'{"a": 1, "a": 2}').status, cv.PHASE_HARNESS_ERROR)
+    def test_unreadable_foreign_or_incomplete_reports_are_harness_errors(self):
+        job = ex.Job("x", "def f():\n    pass\n", "f", ({"args": "()", "want": "None"},), True, 2)
+        head = '{"protocol": "code-repair-harness/1", "load": {"status": "ok", "error": null}, '
+        full = head + '"public": [{"id": "public:0", "status": "pass"}, {"id": "public:1", "status": "pass"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}'
+        self.assertTrue(ex._parse_report(job, 0, full.encode()).ok)
+        bad = (
+            (1, b"{}"), (0, b"not json"), (0, b'{"protocol": "other/1"}'), (0, b'{"a": 1, "a": 2}'),
+            (0, (head + '"public": [], "hidden": []}').encode()),
+            (0, (head + '"public": [{"id": "public:0", "status": "pass"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}').encode()),
+            (0, (head + '"public": [{"id": "public:0", "status": "pass"}, {"id": "public:9", "status": "pass"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}').encode()),
+            (0, (head + '"public": [{"id": "public:0", "status": "pass"}, {"id": "public:1"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}').encode()),
+            (0, (head + '"public": "nine", "hidden": []}').encode()),
+        )
+        for returncode, stdout in bad:
+            with self.subTest(stdout=stdout[:60]):
+                report = ex._parse_report(job, returncode, stdout)
+                self.assertEqual(report.status, cv.PHASE_HARNESS_ERROR)
+                self.assertFalse(report.ok)
 
 
 class Isolation(unittest.TestCase):
@@ -112,9 +125,14 @@ class Isolation(unittest.TestCase):
             with self.subTest(value=repr(value)), refusal(self, cv.FINDING_TIMEOUT_OUT_OF_DOMAIN, "timeout"):
                 ex.Executor(timeout_s=value)
 
-    def test_the_digestable_rows_drop_got_and_sort_by_id(self):
+    def test_the_digestable_rows_keep_only_id_status_and_a_got_digest(self):
         rows = ({"id": "public:2", "status": "fail", "got": "x"}, {"id": "public:1", "status": "pass"})
-        self.assertEqual(ex.rows_of(rows), [{"id": "public:1", "status": "pass"}, {"id": "public:2", "status": "fail"}])
+        digest = "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
+        self.assertEqual(
+            ex.rows_of(rows),
+            [{"id": "public:1", "status": "pass"},
+             {"id": "public:2", "status": "fail", "got_sha256": digest}],
+        )
 
 
 if __name__ == "__main__":

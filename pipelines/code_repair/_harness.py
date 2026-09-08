@@ -66,8 +66,12 @@ class _Runner(doctest.DocTestRunner):
         super().__init__(verbose=False, optionflags=0)
         self._rows = rows
 
-    def _index(self, test: doctest.DocTest, example: doctest.Example) -> int:
-        return next(i for i, item in enumerate(test.examples) if item is example)
+    @staticmethod
+    def _index(test: doctest.DocTest, example: doctest.Example) -> int:
+        for index, item in enumerate(test.examples):
+            if item is example:
+                return index
+        raise ValueError("the runner reported an example the test does not hold")
 
     def report_start(self, out, test, example) -> None:
         # Nothing to record before an example runs; the outcome hooks record the row.
@@ -93,6 +97,8 @@ def _function_node(text: str, function: str) -> ast.FunctionDef:
 
 def _load(workdir: Path):
     location = importlib.util.spec_from_file_location("program", workdir / PROGRAM_FILENAME)
+    if location is None or location.loader is None:
+        raise ImportError(f"no import spec for {PROGRAM_FILENAME}")
     module = importlib.util.module_from_spec(location)
     location.loader.exec_module(module)
     return module
@@ -120,20 +126,20 @@ def _agree(got: str, want: str, spec: dict) -> bool:
 
 
 def _run_case(target, index: int, case: dict, spec: dict) -> dict:
+    """One hidden case: a pass/fail row against the pinned want, or an observed repr."""
+
     try:
         result = target(*ast.literal_eval(case["args"]))
     except Exception as exc:  # the program under test may raise anything
         if case["want"] is None:
             return _row("hidden", index, "error", f"{type(exc).__name__}: {exc}")
-        row = _row("hidden", index, "error")
-        row["kind"] = "exception"
-        return row
+        return {**_row("hidden", index, "error"), "kind": "exception"}
     got = repr(result)
     if case["want"] is None:
         return _row("hidden", index, "observed", got)
-    row = _row("hidden", index, "pass" if _agree(got, case["want"], spec) else "fail")
-    row["kind"] = "ok" if row["status"] == "pass" else "value_mismatch"
-    return row
+    if _agree(got, case["want"], spec):
+        return {**_row("hidden", index, "pass"), "kind": "ok"}
+    return {**_row("hidden", index, "fail"), "kind": "value_mismatch"}
 
 
 def _run(workdir: Path, spec: dict) -> dict:
@@ -157,9 +163,14 @@ def _run(workdir: Path, spec: dict) -> dict:
 
 
 def main(argv: list[str]) -> int:
+    if len(argv) != 2:
+        sys.stderr.write("usage: _harness.py <workdir>\n")
+        return 2
     workdir = Path(argv[1])
-    real_stdout = sys.stdout
-    sys.stdout = io.StringIO()  # the program under test never writes on the protocol channel
+    real_stdout, real_stderr = sys.stdout, sys.stderr
+    # The program under test never writes on the protocol channel, and its
+    # stderr goes to a bounded in-memory sink the parent never has to read.
+    sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
     try:
         spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
         report = _run(workdir, spec)
@@ -167,7 +178,7 @@ def main(argv: list[str]) -> int:
         error = f"HarnessError: {exc}"
         report = {"protocol": PROTOCOL, "load": {"status": "error", "error": error}}
     finally:
-        sys.stdout = real_stdout
+        sys.stdout, sys.stderr = real_stdout, real_stderr
     real_stdout.write(json.dumps(report, sort_keys=True, allow_nan=False))
     real_stdout.flush()
     return 0
