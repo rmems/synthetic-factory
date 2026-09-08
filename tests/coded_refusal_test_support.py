@@ -10,10 +10,19 @@ so the assertion exists once.
 
 import contextlib
 import re
+from typing import NamedTuple
 
 _CODE_TOKEN = re.compile(r"[A-Z][A-Z0-9_]+")
 
-__all__ = ("coded_refusal", "codes_in")
+__all__ = ("CodedFamily", "coded_refusal", "codes_in")
+
+
+class CodedFamily(NamedTuple):
+    """A family's refusal type with its declared finding and reason codes."""
+
+    refusal_type: type
+    finding_codes: frozenset
+    reason_codes: frozenset
 
 
 def codes_in(text, declared):
@@ -23,15 +32,15 @@ def codes_in(text, declared):
 
 
 @contextlib.contextmanager
-def coded_refusal(case, refusal_type, finding_codes, reason_codes, code, *fragments):
-    """Assert a ``refusal_type`` carrying exactly ``code`` and every prose fragment."""
+def coded_refusal(case, family, code, *fragments):
+    """Assert the family's refusal carrying exactly ``code`` and every prose fragment."""
 
-    with case.assertRaises(refusal_type) as caught:
+    with case.assertRaises(family.refusal_type) as caught:
         yield caught
     text = str(caught.exception)
     case.assertEqual(caught.exception.code, code, text)
     case.assertTrue(text.startswith(f"{code}: "), text)
-    case.assertEqual(codes_in(text, finding_codes), [code], text)
-    case.assertEqual(codes_in(text, reason_codes), [], text)
+    case.assertEqual(codes_in(text, family.finding_codes), [code], text)
+    case.assertEqual(codes_in(text, family.reason_codes), [], text)
     for fragment in fragments:
         case.assertIn(fragment, text)

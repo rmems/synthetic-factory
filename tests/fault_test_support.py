@@ -15,12 +15,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from coded_refusal_test_support import coded_refusal
+from coded_refusal_test_support import CodedFamily, coded_refusal
 from distill_contract_test_support import REPO, envelope, oc
 from oracle_grounded import fault_config, fault_oracle, fault_scenario, fault_simulator, fault_vocabulary
 
 PINNED_AT = "2026-08-23T00:00:00.000Z"
 SEED = 20260823
+FAULT_FAMILY = CodedFamily(
+    fault_vocabulary.FaultRefusal, fault_vocabulary.FINDING_CODE_SET, fault_vocabulary.REASON_CODE_SET
+)
 FAULT_MODULES = ("fault_vocabulary", "fault_config", "fault_scenario", "fault_simulator", "fault_oracle")
 
 __all__ = (
@@ -54,10 +57,7 @@ def run(kind, system=None, **parameters):
 def refusal(case, code, *fragments):
     """Assert a ``FaultRefusal`` carrying exactly ``code`` and every prose fragment."""
 
-    return coded_refusal(
-        case, fault_vocabulary.FaultRefusal, fault_vocabulary.FINDING_CODE_SET,
-        fault_vocabulary.REASON_CODE_SET, code, *fragments,
-    )
+    return coded_refusal(case, FAULT_FAMILY, code, *fragments)
 
 
 def ensure_policy():
