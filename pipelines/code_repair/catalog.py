@@ -148,15 +148,21 @@ def examples_sha256(examples: tuple[Example, ...]) -> str:
 # --- loading -----------------------------------------------------------------
 
 
+def _missing_code(where: str) -> str:
+    """Catalog metadata and program rows are told apart by the code, not only the prose."""
+
+    if where.startswith(CATALOG_FILENAME):
+        return cv.FINDING_CATALOG_FIELD_MISSING
+    return cv.FINDING_PROGRAM_FIELD_MISSING
+
+
 def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -> Any:
     """A required field of the expected type; refuses with a coded finding."""
 
     cv.refuse_when(
         not isinstance(mapping, dict), cv.FINDING_INPUT_NOT_AN_OBJECT, f"{where} must be an object"
     )
-    cv.refuse_when(
-        key not in mapping, cv.FINDING_PROGRAM_FIELD_MISSING, f"{where}.{key} is missing"
-    )
+    cv.refuse_when(key not in mapping, _missing_code(where), f"{where}.{key} is missing")
     value = mapping[key]
     cv.refuse_when(
         (not isinstance(value, kinds)) or (isinstance(value, bool) and kinds is not bool),
@@ -255,7 +261,11 @@ def _split(row: dict[str, Any], where: str) -> tuple[str | None, str | None]:
         f"{where}: structure must be an object or null and split one of {SPLITS} or null",
     )
     group_id = structure.get("group_id") if isinstance(structure, dict) else None
-    return (group_id if isinstance(group_id, str) else None), split
+    cv.refuse_when(
+        group_id is not None and not isinstance(group_id, str), cv.FINDING_PROGRAM_FIELD_INVALID,
+        f"{where}: structure.group_id must be a string or null",
+    )
+    return group_id, split
 
 
 def _program(row: Any, lineno: int) -> Program:
@@ -389,7 +399,8 @@ def _suite_findings(program: Program, report: ex.PhaseReport) -> list[dict[str, 
         (report.hidden, cv.REASON_ORIGINAL_FAILS_HIDDEN),
     )
     return [
-        _finding(code, program, ", ".join(_failing(rows))) for rows, code in suites if _failing(rows)
+        _finding(code, program, ", ".join(_failing(rows)))
+        for rows, code in suites if _failing(rows)
     ]
 
 
