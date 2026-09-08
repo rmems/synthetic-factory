@@ -55,7 +55,10 @@ class Loading(unittest.TestCase):
                 self.assertGreaterEqual(len(prog.examples), 3)
                 self.assertTrue(prog.cases)
                 self.assertIn(prog.reference.kind, cv.REFERENCE_KINDS)
-                self.assertIsNone(prog.split)
+                self.assertIn(prog.split, ("train", "validation", "held_out"))
+                self.assertTrue(prog.group_id.startswith("g-"))
+        self.assertEqual(loaded.split_policy.salt, "python-repair-v1")
+        self.assertEqual({p.split for p in loaded.programs}, {"train", "validation", "held_out"})
 
     def test_examples_are_parsed_from_the_docstring_in_order(self):
         prog = program("factorial")
@@ -201,3 +204,43 @@ class OriginalPasses(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StructureChecks(unittest.TestCase):
+    """Groups, splits and the split policy are pins too."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="code-repair-structure-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.directory = copied_fixture(self.root)
+
+    def check(self):
+        loaded = catalog.load_catalog(self.directory)
+        return [f["code"] for f in catalog._structure_findings(loaded)]
+
+    def test_the_fixture_has_no_structural_drift(self):
+        self.assertEqual(self.check(), [])
+
+    def test_a_moved_split_or_group_is_a_drift_finding(self):
+        def swap(row):
+            if row["upstream"]["function"] == "factorial":
+                row["split"] = "held_out" if row["split"] != "held_out" else "train"
+                row["structure"]["group_id"] = "g-" + "0" * 32
+
+        rewrite_programs(self.directory, swap)
+        self.assertEqual(sorted(self.check()), [cv.CHECK_GROUP_DRIFT, cv.CHECK_SPLIT_DRIFT])
+
+    def test_an_empty_split_is_reported_with_the_remedy(self):
+        rewrite_programs(self.directory, lambda row: row.update(split="train"))
+        loaded = catalog.load_catalog(self.directory)
+        findings = catalog._structure_findings(loaded)
+        self.assertIn(cv.CHECK_SPLIT_EMPTY, [f["code"] for f in findings])
+        self.assertIn("change the salt", next(f["detail"] for f in findings if f["code"] == cv.CHECK_SPLIT_EMPTY))
+
+    def test_a_policy_that_does_not_match_its_digest_is_refused(self):
+        meta_path = self.directory / catalog.CATALOG_FILENAME
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["split_policy"]["salt"] = "another"
+        meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        with refusal(self, cv.FINDING_SPLIT_POLICY_INVALID, "does not match"):
+            catalog.load_catalog(self.directory)

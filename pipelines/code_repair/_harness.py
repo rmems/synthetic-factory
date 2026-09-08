@@ -59,6 +59,15 @@ def _row(kind: str, index: int, status: str, got: str | None = None) -> dict:
     return row
 
 
+def _exception_only(got: str) -> str:
+    """A wrong-exception failure keeps its last line only: the traceback names the workdir."""
+
+    if not got.startswith("Traceback (most recent call last):"):
+        return got
+    lines = [line for line in got.splitlines() if line.strip()]
+    return (lines[-1] + "\n") if lines else got
+
+
 class _Runner(doctest.DocTestRunner):
     """Records one row per example instead of printing a report."""
 
@@ -81,7 +90,7 @@ class _Runner(doctest.DocTestRunner):
         self._rows.append(_row("public", self._index(test, example), "pass"))
 
     def report_failure(self, out, test, example, got) -> None:
-        self._rows.append(_row("public", self._index(test, example), "fail", got))
+        self._rows.append(_row("public", self._index(test, example), "fail", _exception_only(got)))
 
     def report_unexpected_exception(self, out, test, example, exc_info) -> None:
         text = "".join(traceback.format_exception_only(exc_info[0], exc_info[1])).strip()

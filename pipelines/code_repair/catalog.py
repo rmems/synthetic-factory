@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from . import executor as ex
+from . import lineage
 from . import vocabulary as cv
 from ._contract import bind_import_twin, load_strict_json, oc
 
@@ -110,6 +111,7 @@ class Catalog:
     programs_sha256: str
     license_sha256: str
     programs: tuple[Program, ...]
+    split_policy: lineage.SplitPolicy | None = None
 
     def program(self, program_id: str) -> Program:
         for program in self.programs:
@@ -352,6 +354,19 @@ def _meta(directory: Path) -> dict[str, Any]:
     return meta
 
 
+def _split_policy(meta: dict[str, Any]) -> lineage.SplitPolicy | None:
+    """The pinned split policy, when the catalog carries one, bound to its digest."""
+
+    if "split_policy" not in meta:
+        return None
+    policy = lineage.SplitPolicy.from_json(meta["split_policy"])
+    cv.refuse_when(
+        meta.get("split_policy_sha256") != policy.sha256, cv.FINDING_SPLIT_POLICY_INVALID,
+        f"{CATALOG_FILENAME}.split_policy_sha256 does not match the policy",
+    )
+    return policy
+
+
 def _license_sha256(directory: Path, meta: dict[str, Any]) -> str:
     path = directory / LICENSE_FILENAME
     cv.refuse_when(not path.is_file(), cv.FINDING_CATALOG_FILE_MISSING, f"{path} is missing")
@@ -377,7 +392,10 @@ def load_catalog(directory: Path | str) -> Catalog:
         (len(programs) != meta["program_count"], cv.FINDING_CATALOG_FIELD_INVALID,
          f"{CATALOG_FILENAME}.program_count is not the number of programs"),
     ))
-    return Catalog(meta["catalog_id"], root, meta, digest, _license_sha256(root, meta), programs)
+    return Catalog(
+        meta["catalog_id"], root, meta, digest, _license_sha256(root, meta), programs,
+        _split_policy(meta),
+    )
 
 
 # --- the original-passes check -------------------------------------------
@@ -450,14 +468,54 @@ def _reference_findings(program: Program, executor: ex.Executor) -> list[dict[st
     return []
 
 
+def _structure_findings(catalog: Catalog) -> list[dict[str, str]]:
+    """Groups and splits recomputed from the module texts must match the pinned ones."""
+
+    members = tuple(
+        lineage.Member(p.program_id, p.upstream["path"], lineage.structure_digest(p.text))
+        for p in catalog.programs
+    )
+    groups = lineage.group_ids(members)
+    findings: list[dict[str, str]] = []
+    for program in catalog.programs:
+        group_id = groups[program.program_id]
+        findings += _program_structure_findings(program, group_id, catalog.split_policy)
+    return findings + _empty_split_findings(catalog)
+
+
+def _program_structure_findings(
+    program: Program, group_id: str, policy: lineage.SplitPolicy | None
+) -> list[dict[str, str]]:
+    findings = []
+    if program.group_id is not None and program.group_id != group_id:
+        findings.append(_finding(cv.CHECK_GROUP_DRIFT, program, group_id))
+    if policy is None or program.split is None:
+        return findings
+    expected = lineage.bucket_split(lineage.anchor_for(group_id, program.program_id), policy)
+    if expected != program.split:
+        findings.append(_finding(cv.CHECK_SPLIT_DRIFT, program, expected))
+    return findings
+
+
+def _empty_split_findings(catalog: Catalog) -> list[dict[str, str]]:
+    if catalog.split_policy is None or not catalog.programs:
+        return []
+    present = {p.split for p in catalog.programs}
+    missing = [name for name in lineage.SPLITS if name not in present]
+    if not missing:
+        return []
+    detail = f"no program falls into {', '.join(missing)}; change the salt in {CATALOG_FILENAME}"
+    return [{"code": cv.CHECK_SPLIT_EMPTY, "program_id": "*", "detail": detail}]
+
+
 def catalog_check(catalog: Catalog, executor: ex.Executor) -> list[dict[str, str]]:
-    """Every original passes twice identically and its reference agrees; findings otherwise."""
+    """Every original passes twice identically, references agree, groups and splits hold."""
 
     findings: list[dict[str, str]] = []
     for program in catalog.programs:
         findings += _original_findings(program, executor)
         findings += _reference_findings(program, executor)
-    return findings
+    return findings + _structure_findings(catalog)
 
 
 bind_import_twin(__name__)

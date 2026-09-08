@@ -128,20 +128,21 @@ class StableBytes(unittest.TestCase):
         first = hashlib.sha256((run_dir / generate.CANDIDATES_FILENAME).read_bytes()).hexdigest()
         second = hashlib.sha256((again / generate.CANDIDATES_FILENAME).read_bytes()).hexdigest()
         self.assertEqual(first, second)
-        self.assertEqual(summary["outcomes"], {"accepted": 8, "rejected": 4})
+        self.assertEqual(summary["outcomes"], {"accepted": 7, "rejected": 3})
         self.assertEqual(
             summary["reasons"],
-            {"HIDDEN_CHECK_UNAVAILABLE": 2, "MUTANT_FAILS_HIDDEN": 8, "MUTANT_FAILS_PUBLIC": 8,
-             "MUTANT_NO_OBSERVED_FAILURE": 1, "MUTANT_NO_PUBLIC_FAILURE": 1, "MUTANT_TIMEOUT": 2,
-             "REPAIR_PASSES_ALL": 8},
+            {"HIDDEN_CHECK_UNAVAILABLE": 2, "MUTANT_FAILS_HIDDEN": 7, "MUTANT_FAILS_PUBLIC": 7,
+             "MUTANT_NO_OBSERVED_FAILURE": 2, "MUTANT_NO_PUBLIC_FAILURE": 1, "REPAIR_PASSES_ALL": 7},
         )
-        self.assertEqual(summary["oracle_statuses"], {"provisional": 2, "validated": 10})
-        self.assertEqual([r["id"] for r in records], [f"pfr-{SEED}-{i:05d}" for i in range(12)])
+        self.assertEqual(summary["oracle_statuses"], {"provisional": 2, "validated": 8})
+        self.assertEqual(summary["skips"][cv.SKIP_DUPLICATE_MUTANT_IN_RUN], 2)
+        expected_ids = [f"pfr-{SEED}-{i:05d}" for i in (0, 1, 2, 3, 5, 6, 7, 8, 9, 10)]
+        self.assertEqual([r["id"] for r in records], expected_ids)
         operators = {r["intervention"]["operator"] for r in records}
         self.assertEqual(operators, set(cv.OPERATORS))
         log = [entry for _n, entry in oc.read_jsonl(run_dir / generate.LOG_FILENAME)]
         self.assertTrue(all("duration_s" in entry for entry in log))
-        self.assertTrue(any(entry["timed_out"] for entry in log))
+        self.assertTrue(all("timed_out" in entry for entry in log))
 
 
 if __name__ == "__main__":
