@@ -29,6 +29,7 @@ CATALOG_FILENAME = "CATALOG.json"
 PROGRAMS_FILENAME = "programs.jsonl"
 LICENSE_FILENAME = "LICENSE.upstream"
 SPLITS = ("train", "validation", "held_out")
+MAX_CASE_ARGS_CHARS = 4_096
 _UPSTREAM_FIELDS = ("repository", "commit", "path", "file_sha256", "function", "license")
 
 __all__ = [
@@ -85,7 +86,10 @@ class Program:
     def job(self, label: str, text: str | None = None) -> ex.Job:
         """A harness job over this program's function and cases (``text`` overrides the module)."""
 
-        return ex.Job(label, self.text if text is None else text, self.function, self.cases)
+        module_text = self.text if text is None else text
+        return ex.Job(
+            label, module_text, self.function, self.cases, expected_public=len(self.examples)
+        )
 
     def reference_job(self, label: str) -> ex.Job:
         reference = self.reference
@@ -105,7 +109,9 @@ class Catalog:
         for program in self.programs:
             if program.program_id == program_id:
                 return program
-        cv.refuse(cv.FINDING_PROGRAM_NOT_FOUND, f"no program {cv.shown(program_id)} in the catalog")
+        raise cv.RepairRefusal(
+            cv.FINDING_PROGRAM_NOT_FOUND, f"no program {cv.shown(program_id)} in the catalog"
+        )
 
 
 def sha256_text(text: str) -> str:
@@ -153,7 +159,7 @@ def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -
     )
     value = mapping[key]
     cv.refuse_when(
-        not isinstance(value, kinds) or isinstance(value, bool) and kinds is not bool,
+        (not isinstance(value, kinds)) or (isinstance(value, bool) and kinds is not bool),
         cv.FINDING_PROGRAM_FIELD_INVALID,
         f"{where}.{key} has the wrong type",
     )
@@ -170,11 +176,16 @@ def _module_text(row: dict[str, Any], where: str) -> tuple[str, str]:
         (sha256_text(text) != digest, cv.FINDING_PROGRAM_SHA256_MISMATCH,
          f"{where}.module.sha256 does not match the text"),
     ))
-    try:
-        ast.parse(text)
-    except (SyntaxError, ValueError) as exc:
-        cv.refuse(cv.FINDING_PROGRAM_NOT_PARSEABLE, f"{where}.module.text does not parse: {exc}")
+    _parse_or_refuse(text, f"{where}.module.text")
     return text, digest
+
+
+def _parse_or_refuse(text: str, where: str) -> ast.Module:
+    try:
+        return ast.parse(text)
+    except (SyntaxError, ValueError) as exc:
+        message = f"{where} does not parse: {exc}"
+        raise cv.RepairRefusal(cv.FINDING_PROGRAM_NOT_PARSEABLE, message) from exc
 
 
 def _reference(row: dict[str, Any], where: str) -> Reference:
@@ -189,16 +200,21 @@ def _reference(row: dict[str, Any], where: str) -> Reference:
         return Reference(kind)
     source = _field(block, "source", str, f"{where}.hidden.reference")
     digest = _field(block, "sha256", str, f"{where}.hidden.reference")
+    function = _field(block, "function", str, f"{where}.hidden.reference")
     cv.refuse_when(
         sha256_text(source) != digest, cv.FINDING_PROGRAM_SHA256_MISMATCH,
         f"{where}.hidden.reference.sha256 does not match its source",
     )
-    function = _field(block, "function", str, f"{where}.hidden.reference")
+    _parse_or_refuse(source, f"{where}.hidden.reference.source")
+    cv.refuse_when(
+        function_node(source, function) is None, cv.FINDING_TARGET_FUNCTION_NOT_FOUND,
+        f"{where}.hidden.reference.source defines no module-level function {function}",
+    )
     return Reference(kind, function, source, digest)
 
 
 def _cases(row: dict[str, Any], where: str) -> tuple[dict[str, Any], ...]:
-    cases = _field(row["hidden"], "cases", list, f"{where}.hidden")
+    cases = _field(_field(row, "hidden", dict, where), "cases", list, f"{where}.hidden")
     cv.refuse_when(
         len(cases) > cv.MAX_HIDDEN_CASES, cv.FINDING_PROGRAM_FIELD_INVALID,
         f"{where}.hidden.cases holds more than {cv.MAX_HIDDEN_CASES} cases",
@@ -207,6 +223,10 @@ def _cases(row: dict[str, Any], where: str) -> tuple[dict[str, Any], ...]:
     for index, case in enumerate(cases):
         spot = f"{where}.hidden.cases[{index}]"
         args, want = _field(case, "args", str, spot), _field(case, "want", str, spot)
+        cv.refuse_when(
+            len(args) > MAX_CASE_ARGS_CHARS, cv.FINDING_PROGRAM_FIELD_INVALID,
+            f"{spot}.args is longer than {MAX_CASE_ARGS_CHARS} characters",
+        )
         parsed.append({"args": args, "want": want})
     return tuple(parsed)
 
@@ -229,8 +249,8 @@ def _split(row: dict[str, Any], where: str) -> tuple[str | None, str | None]:
     structure = row.get("structure")
     split = row.get("split")
     cv.refuse_when(
-        structure is not None and not isinstance(structure, dict)
-        or split is not None and split not in SPLITS,
+        (structure is not None and not isinstance(structure, dict))
+        or (split is not None and split not in SPLITS),
         cv.FINDING_PROGRAM_FIELD_INVALID,
         f"{where}: structure must be an object or null and split one of {SPLITS} or null",
     )
@@ -252,6 +272,17 @@ def _program(row: Any, lineno: int) -> Program:
         _examples(row, text, function, where), examples_sha256(examples_of(text, function)),
         _reference(row, where), _cases(row, where), group_id, split,
     )
+
+
+def _provenance_agrees(program: Program, meta: dict[str, Any]) -> None:
+    """A program's upstream must be the catalog's upstream (Greptile on #196)."""
+
+    upstream = meta["upstream"]
+    for key in ("repository", "commit", "license"):
+        cv.refuse_when(
+            program.upstream[key] != upstream[key], cv.FINDING_CATALOG_FIELD_INVALID,
+            f"{program.program_id}: upstream.{key} contradicts {CATALOG_FILENAME}",
+        )
 
 
 def _programs(directory: Path) -> tuple[tuple[Program, ...], str]:
@@ -281,7 +312,8 @@ def _meta(directory: Path) -> dict[str, Any]:
     try:
         meta = load_strict_json(path.read_text(encoding="utf-8"))
     except ValueError as exc:
-        cv.refuse(cv.FINDING_CATALOG_FIELD_INVALID, f"{path} is not JSON: {exc}")
+        message = f"{path} is not JSON: {exc}"
+        raise cv.RepairRefusal(cv.FINDING_CATALOG_FIELD_INVALID, message) from exc
     for key, kinds in (("format", str), ("catalog_id", str), ("upstream", dict),
                        ("programs_sha256", str), ("program_count", int)):
         _field(meta, key, kinds, CATALOG_FILENAME)
@@ -311,6 +343,8 @@ def load_catalog(directory: Path | str) -> Catalog:
     root = Path(directory)
     meta = _meta(root)
     programs, digest = _programs(root)
+    for program in programs:
+        _provenance_agrees(program, meta)
     cv.refuse_first((
         (digest != meta["programs_sha256"], cv.FINDING_PROGRAMS_SHA_MISMATCH,
          f"{PROGRAMS_FILENAME} does not hash to {CATALOG_FILENAME}.programs_sha256"),
@@ -342,9 +376,10 @@ def _failing(rows: tuple[dict[str, Any], ...]) -> list[str]:
 def _original_findings(program: Program, executor: ex.Executor) -> list[dict[str, str]]:
     label = f"{cv.PHASE_ORIGINAL}:{program.program_id}"
     first, second = executor.run(program.job(label)), executor.run(program.job(label))
-    code = _phase_code(first, cv.REASON_ORIGINAL_TIMEOUT, cv.REASON_ORIGINAL_HARNESS_ERROR)
-    if code is not None:
-        return [_finding(code, program, first.detail)]
+    for report in (first, second):
+        code = _phase_code(report, cv.REASON_ORIGINAL_TIMEOUT, cv.REASON_ORIGINAL_HARNESS_ERROR)
+        if code is not None:
+            return [_finding(code, program, report.detail)]
     findings = []
     for suite, code in ((first.public, cv.REASON_ORIGINAL_FAILS_PUBLIC),
                         (first.hidden, cv.REASON_ORIGINAL_FAILS_HIDDEN)):
