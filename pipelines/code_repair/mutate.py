@@ -28,8 +28,8 @@ _OPERATOR_CLASSES = {"<": ast.Lt, "<=": ast.LtE, ">": ast.Gt, ">=": ast.GtE}
 VARIANT_SWAP = "swap"
 
 __all__ = [
-    "BOUNDARY_SWAPS", "Mutation", "Site", "apply", "choose", "line_offsets", "repair", "sites",
-    "verify",
+    "BOUNDARY_SWAPS", "Mutation", "Site", "apply", "body_nodes", "choose", "line_offsets", "repair",
+    "sites", "verify",
 ]
 
 
@@ -135,10 +135,20 @@ def sites(text: str, function: str) -> tuple[Site, ...]:
     offsets = line_offsets(text)
     tokens = _operator_tokens(text, offsets)
     found: list[Site] = []
-    for node in ast.walk(target):
+    for node in body_nodes(target):
         if isinstance(node, ast.Compare):
             found += _compare_sites(node, tokens, offsets)
     return tuple(sorted(found, key=lambda s: (s.start, s.end, s.operator, s.variant)))
+
+
+def body_nodes(target: ast.FunctionDef):
+    """Every node inside the function's body statements: never decorators, defaults or annotations.
+
+    Those run at definition time and are not the behaviour the doctests specify (Codex on #197).
+    """
+
+    for statement in target.body:
+        yield from ast.walk(statement)
 
 
 def apply(text: str, site: Site) -> str:

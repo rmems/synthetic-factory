@@ -11,6 +11,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from code_repair_test_support import fixture, mutate, oc, program, vocabulary as cv  # noqa: E402
 
 
+class DefinitionTimeNodes(unittest.TestCase):
+    def test_defaults_annotations_and_decorators_are_never_sites(self):
+        """Codex on #197: only the body is the behaviour the doctests specify."""
+
+        text = (
+            "def f(x: int = (1 < 2), y=[i for i in range(3) if i < 2]) -> bool:\n"
+            "    '''\n    >>> f(0)\n    True\n    >>> f(1)\n    True\n    '''\n"
+            "    return x <= 2\n"
+        )
+        found = mutate.sites(text, "f")
+        self.assertEqual([s.original_text for s in found], ["<="])
+
+
 class Sites(unittest.TestCase):
     def test_sites_are_the_boundary_comparisons_of_the_target_body(self):
         found = mutate.sites(program("rec_linear_search").text, "rec_linear_search")
