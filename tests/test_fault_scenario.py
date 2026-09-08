@@ -140,4 +140,3 @@ class ProposalsAreProposals(unittest.TestCase):
                     },
                 )
                 self.assertEqual(proposal["scenario"]["mission"], fv.MISSION)
-

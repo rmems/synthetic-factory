@@ -293,4 +293,3 @@ class Identity(unittest.TestCase):
         self.assertEqual(described["oracle"]["authority"], "authoritative")
         self.assertEqual(described["oracle_label_keys"], sorted(fv.ORACLE_LABEL_KEYS))
         self.assertIn(fv.FAMILY, oc.canonical_json(described))
-

@@ -51,6 +51,8 @@ class EnforcedSystemRows(unittest.TestCase):
     def test_row_4_the_healthy_budget_stays_within_the_channel_count(self):
         with refusal(self, fv.FINDING_HEALTHY_BUDGET_EXCEEDS_CHANNELS, "min_healthy_channels"):
             checked(scenario(min_healthy_channels=10))
+        with refusal(self, fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, "min_healthy_channels", ">= 0"):
+            checked(scenario(min_healthy_channels=-1))
         for budget in (0, 4):
             with self.subTest(budget=budget):
                 self.assertEqual(checked(scenario(min_healthy_channels=budget))["min_healthy_channels"], budget)
