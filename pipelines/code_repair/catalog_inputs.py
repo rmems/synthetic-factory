@@ -25,7 +25,9 @@ from ._contract import bind_import_twin, rng
 INPUT_POLICY = "doctest-literals+seeded-neighbourhood-v1"
 NEIGHBOUR_DRAWS = 4
 
-__all__ = ["INPUT_POLICY", "Subject", "candidate_args", "literal_args", "neighbours", "observed_cases"]
+__all__ = [
+    "INPUT_POLICY", "Subject", "candidate_args", "literal_args", "neighbours", "observed_cases",
+]
 
 
 class Subject(NamedTuple):
