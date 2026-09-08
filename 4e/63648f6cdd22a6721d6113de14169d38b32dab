@@ -1,0 +1,31 @@
+tests/test_code_repair_harness.py
+  s_30c91b293664f2::t_7d5d913bfb138c 59-80,82-94
+tests/test_code_repair_cli.py
+  ai_agent 41-47,112-113
+pipelines/code_repair/cli.py
+  s_30c91b293664f2::t_7d5d913bfb138c 140-153,159
+pipelines/code_repair/executor.py
+  s_30c91b293664f2::t_7d5d913bfb138c 35,104-110,144-150,154,156-162,165-166
+pipelines/code_repair/catalog.py
+  s_30c91b293664f2::t_7d5d913bfb138c 151-158,165,264-268,402-403
+tests/test_code_repair_catalog.py
+  s_30c91b293664f2::t_7d5d913bfb138c 92-99,130-139
+pipelines/code_repair/_harness.py
+  s_30c91b293664f2::t_7d5d913bfb138c 118-122,124-125,128-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4e63648f6cdd22a6721d6113de14169d38b32dab",
+  "prompts": {},
+  "sessions": {
+    "s_30c91b293664f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b363f3ab-81a6-4abe-88b5-c596f7a8dd7b",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
