@@ -175,6 +175,10 @@ NON_NEGATIVE_QUANTITIES = frozenset(
         "top1_top2_margin",
     }
 )
+# Counts of executed checks are integers: a fractional count is not a reading
+# any harness can take. The older count quantities of the neuromorphic
+# families keep their historical domain (issue #199).
+INTEGER_QUANTITIES = frozenset({"passed_check_count", "failed_check_count"})
 UNIT_INTERVAL_QUANTITIES = frozenset(
     {
         "residual_error",

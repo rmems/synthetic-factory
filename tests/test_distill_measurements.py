@@ -582,3 +582,29 @@ class BackingShelterNothingBeneath(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IntegerCounts(unittest.TestCase):
+    """Executed-check counts are integers (Greptile on #195); older counts keep their domain (#199)."""
+
+    def test_a_fractional_check_count_is_refused_by_the_builder_and_found_by_the_check(self):
+        for quantity in sorted(oc.INTEGER_QUANTITIES):
+            with self.subTest(quantity=quantity):
+                with self.assertRaises(oc.ContractError):
+                    oc.new_measurement(quantity, 1.5, "python_subprocess_harness")
+                with self.assertRaises(oc.ContractError):
+                    oc.new_measurement(quantity, True, "python_subprocess_harness")
+                reading = oc.new_measurement(quantity, 3, "python_subprocess_harness")
+                self.assertEqual(reading["value"], 3)
+                record = minimal_record()
+                record["result"]["measurements"] = [dict(reading, value=1.5)]
+                findings = oc.check_measurements(record, "x")
+                self.assertEqual(len(findings), 1, findings)
+                self.assertIn("must be an integer", findings[0])
+                record["result"]["measurements"] = [reading]
+                self.assertEqual(oc.check_measurements(record, "x"), [])
+
+    def test_the_older_count_quantities_keep_their_historical_domain(self):
+        self.assertFalse(oc.INTEGER_QUANTITIES & {"healthy_channel_count", "dropped_event_count", "repeats"})
+        self.assertTrue(oc.INTEGER_QUANTITIES.issubset(oc.NON_NEGATIVE_QUANTITIES))
+
