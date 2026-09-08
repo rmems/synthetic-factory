@@ -1,0 +1,9 @@
+docs/code-repair-pilot.md
+  ai_agent 55-59,64-68,71-74,83,90-92,95,102-104,112-118,163-164,197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c9ff7cbf2bc1a665448122947d846646e9366b32",
+  "prompts": {}
+}
