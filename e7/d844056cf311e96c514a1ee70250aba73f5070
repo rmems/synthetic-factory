@@ -1,0 +1,38 @@
+tests/test_fault_vocabulary.py
+  s_111d64b9a15da0::t_2bc3557e6d859a 50-51
+pipelines/oracle_grounded/fault_vocabulary.py
+  s_111d64b9a15da0::t_190251ff596bba 206,221-223
+pipelines/oracle_grounded/fault_simulator.py
+  s_111d64b9a15da0::t_95ce18f1dd72df 88-91,105,167,170-174,182-183,292-294,297-311,322,342-355,359-369,657
+  s_111d64b9a15da0::t_f9997962d63c78 336-337,340-341
+  s_111d64b9a15da0::t_efe936fe45019b 313-321,323
+tests/test_fault_simulator.py
+  s_111d64b9a15da0::t_2bc3557e6d859a 118-125,166-181
+pipelines/oracle_grounded/fault_config.py
+  s_111d64b9a15da0::t_95ce18f1dd72df 476-484,491-493,497,500-508
+  s_111d64b9a15da0::t_f9997962d63c78 136-137,179-180,188-189,191,193,340-341,346-347,372-373,386-387,512-513,518-519
+pipelines/oracle_grounded/fault_oracle.py
+  s_111d64b9a15da0::t_efe936fe45019b 68
+  s_111d64b9a15da0::t_95ce18f1dd72df 78-90,212-213,262-263,270,272,300,320
+tests/test_fault_oracle.py
+  s_111d64b9a15da0::t_2bc3557e6d859a 42,224,245-260,301
+tests/test_fault_config.py
+  s_111d64b9a15da0::t_9f5f529fa5bb6a 157-158
+  s_111d64b9a15da0::t_2bc3557e6d859a 150-156,159-163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e7d844056cf311e96c514a1ee70250aba73f5070",
+  "prompts": {},
+  "sessions": {
+    "s_111d64b9a15da0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "344701ce-d2c4-426c-96b1-716c94aac4d3",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
