@@ -52,22 +52,26 @@ cases, so those programs can only be provisional; in-place sorts returning `None
 reference. Harness limit deferred to #200 (a value whose `repr` raises is a harness error, not
 a dropped case).
 
-## Pilot run `pilot-r1` (real subprocesses)
+## Pilot run `pilot-r2` (real subprocesses)
+
+`pilot-r2` supersedes the earlier `pilot-r1` (same seed, stamp and catalog; the harness changed in
+the Codex review round: exact integer comparison, bounded child output, an executed reference
+phase). Counts are identical; every hash below is `pilot-r2`'s.
 
 ```
 python3 pipelines/code_repair_cli.py generate --catalog catalogs/python-repair-v1 --seed 20260908 \
     --count 240 --per-program-cap 3 --produced-at 2026-09-08T00:00:00.000Z \
-    --out outputs/code-repair/pilot-r1 --json
-python3 pipelines/code_repair_cli.py replay --run outputs/code-repair/pilot-r1 \
-    --catalog catalogs/python-repair-v1 --out outputs/code-repair/pilot-r1-replay --json
-python3 pipelines/code_repair_cli.py export --run outputs/code-repair/pilot-r1 \
-    --replay outputs/code-repair/pilot-r1-replay --out outputs/code-repair/pilot-r1-export --json
+    --out outputs/code-repair/pilot-r2 --json
+python3 pipelines/code_repair_cli.py replay --run outputs/code-repair/pilot-r2 \
+    --catalog catalogs/python-repair-v1 --out outputs/code-repair/pilot-r2-replay --json
+python3 pipelines/code_repair_cli.py export --run outputs/code-repair/pilot-r2 \
+    --replay outputs/code-repair/pilot-r2-replay --out outputs/code-repair/pilot-r2-export --json
 ```
 
-Generation took about 50 s; harness sha256
-`9344da9ed8a66f5bf6add3b86a0cb661b398da3a666c16f8977017ef55062abb`; `candidates.jsonl` sha256
-`8f2e8426b3fa719299270843a9f27d1328db47ac6bdaf572bbbd2dffba946cee`. A second run with the same
-seed and `produced_at` into `outputs/code-repair/pilot-r1b` produced a byte-identical
+Generation took about 65 s (each certifying reference executed once per program); harness sha256
+`c4d8a8ac0b2c531ae0ac1cb10d86e4a0859e7f88b4b6cf430a73a68dba50d248`; `candidates.jsonl` sha256
+`419279b55b8fceb35a29ead20c3d480605b242a2a5e7f03ed545e562922d9ef5`. A second run with the same
+seed and `produced_at` into `outputs/code-repair/pilot-r2b` produced a byte-identical
 `candidates.jsonl` (same sha256).
 
 | Quantity | Count |
@@ -76,27 +80,28 @@ seed and `produced_at` into `outputs/code-repair/pilot-r1b` produced a byte-iden
 | records (every executed candidate) | 217 |
 | skipped before execution | 23 duplicate mutants, 3 draws with no site |
 | accepted / rejected | 178 / 39 |
-| validated / provisional | 191 / 26 |
+| validated / provisional | 191 / 26 (every validated record carries an executed reference phase that answered all its cases; `REFERENCE_NOT_CERTIFYING` 0) |
 | positives (accepted and validated) | 156 over 113 programs |
 | rejected by code | MUTANT_NO_OBSERVED_FAILURE 20, MUTANT_TIMEOUT 9, MUTANT_NO_PUBLIC_FAILURE 5, MUTANT_NO_HIDDEN_FAILURE 3, MUTANT_HARNESS_ERROR 2 |
 | accepted per operator (of drawn) | arithmetic_operator 60/64, return_value 40/40, off_by_one 37/46, boolean_condition 30/35, comparison_boundary 11/32 |
 | positives per split | train 131, validation 6, held_out 19 |
 | positives per family | maths 48, dynamic_programming 29, strings 23, bit_manipulation 21, sorts 18, conversions 13, searches 4 |
 
-Replay: 156 of 156 positives `REPLAY_PASSED`, 61 `not_replayed` (natural ineligibility), 0
-failed; `REPLAY.json` sha256 `3095e4a2386b60bcf8172bb6322b136e78b6db1cd606d5d6edad7402060259d3`.
+Replay: 156 of 156 positives `REPLAY_PASSED` (all four phases re-executed, the reference from the
+pinned catalog), 61 `not_replayed` (natural ineligibility), 0 failed; `REPLAY.json` sha256
+`db2f4b5c84f3db603f7f343e9e0c3f25e74bd5873a0f9a26b22bc313046e2988`.
 
 Export: 156 rows exported (no exact or structural duplicate, lineage cap 6 never reached);
-`MANIFEST.json` sha256 `c76e0462831b29be31df92b69fd5bc50173b3f45c683d7cc7c2d152e075853d2`;
+`MANIFEST.json` sha256 `667e58f8e6733966f3fdfe53307f9e3400b1646bab1bd3da8d595f17473e682e`;
 `pipeline_status: complete`; `replay: passed`; `admission.training_export: blocked` with blockers
 `REGISTRY_ROW_MISSING`, `RIGHTS_PROFILE_MISSING`, `RECORD_KIND_UNSUPPORTED`, `ROUND_NOT_PUBLISHED`
 and decisions D-A … D-E; `evaluation_limitations`: `PRETRAINING_EXPOSURE_UNKNOWN`,
 `POSSIBLE_UPSTREAM_CODE_RECALL`; `training_run_prerequisites`:
 `AGOGE_COMPLETION_ONLY_LOSS_UNTESTED`, `AGOGE_TRAINER_BATCH_TEST_MISSING`.
 
-The first export attempt was refused: the evidence check compared the mutant's failing rows in
-stored (id-text) order, so the thirteen-example `is_match` record looked forged. Fixed on the
-S3 branch with a regression test; the run itself was not touched.
+The first export attempt of `pilot-r1` was refused: the evidence check compared the mutant's
+failing rows in stored (id-text) order, so the thirteen-example `is_match` record looked forged.
+Fixed with a regression test (also raised by Codex on #197).
 
 ## One example (record `pfr-20260908-00078`, train split)
 
@@ -104,12 +109,13 @@ Source `strings/reverse_words.py::reverse_words` at the pinned commit (file sha2
 `95df74cf…169b`; module sha256 `7a321030eda87113744a1afb78c035adcf36a6d62fe7c605457f3b5f949dd7a4`).
 Mutation `off_by_one` / `plus_one` at line 11 col 40, bytes 322–323: `1` → `2`
 (`[::-1]` → `[::-2]`). Original 2/2 public and 10/10 hidden pass; mutant 0/2 public and 2/10
-hidden; repaired 2/2 and 10/10. Reason codes `MUTANT_FAILS_PUBLIC`, `MUTANT_FAILS_HIDDEN`,
-`REPAIR_PASSES_ALL`; oracle status `validated` (reviewed-expression reference). Hashes:
-broken `f1bb2704…da28`, repaired `7a321030…d7a4` (equal to the original module), evidence
-`b9f140b1…2651`, record `5383338edbbb1e2ae77700499c8566535096a276068c4567448dc824d0f528c3`.
-Rendered with `python3 pipelines/code_repair_cli.py render outputs/code-repair/pilot-r1
-pfr-20260908-00078 --json`, no leak finding:
+hidden; repaired 2/2 and 10/10; reference phase 10/10. Reason codes `MUTANT_FAILS_PUBLIC`,
+`MUTANT_FAILS_HIDDEN`, `REPAIR_PASSES_ALL`; oracle status `validated` (reviewed-expression
+reference executed in this run). Hashes: broken `f1bb2704…da28`, repaired `7a321030…d7a4` (equal
+to the original module), evidence `69eab9d7…9f86`, record
+`2b80ba8a8b8051bcbe12e3d76a45204955e3d9f53ed05b68aca3f39026f39f49`. Rendered with
+`python3 pipelines/code_repair_cli.py render outputs/code-repair/pilot-r2 pfr-20260908-00078
+--json`, no leak finding:
 
 ````
 You are given a Python module containing one function whose docstring examples are its specification. The function has a bug: at least one docstring example fails under doctest. Return the corrected module.
@@ -154,8 +160,8 @@ Completion: the module above with `[::-1]` restored (raw text, trailing newline,
 
 ```
 /home/raulmc/rmems/agoge-forger/.venv/bin/python scripts/agoge_consumer_probe.py \
-    outputs/code-repair/pilot-r1-export/agoge/code_repair_v1.jsonl \
-    --manifest outputs/code-repair/pilot-r1-export/MANIFEST.json \
+    outputs/code-repair/pilot-r2-export/agoge/code_repair_v1.jsonl \
+    --manifest outputs/code-repair/pilot-r2-export/MANIFEST.json \
     --config /home/raulmc/rmems/agoge-forger/configs/minicpm5_canary.yaml \
     --tokenizer-revision 156170697656c48f69915b33a2fb44110242187c \
     --freeze-into <scratch>/pilot-agoge --json
@@ -188,7 +194,7 @@ here as a prerequisite for the training launch only.
 - Fake-executor test evidence (canned phase reports, golden digests, decision-table rules, leak
   tampers, forged-record and drift codes): `tests/test_code_repair_*.py`.
 - Real subprocess evidence: harness, executor, builder and replay tests; `catalog-check`,
-  `pilot-r1`, its replay, its export and the probe above; the vendor script's offline test builds
+  `pilot-r2`, its replay, its export and the probe above; the vendor script's offline test builds
   a catalog from the fixture's upstream files and checks it.
 
 ## Not done, by design
