@@ -136,6 +136,10 @@ class Reproducibility(unittest.TestCase):
                 record["provenance"].pop("record_sha256")
             self.assertEqual(before, after)
 
+    def test_a_produced_at_too_wide_to_print_is_still_a_coded_refusal(self):
+        with refusal(self, fv.FINDING_PRODUCED_AT_NOT_A_TIMESTAMP, "an unprintable int"):
+            fo.build_records(3, 1, produced_at=10**5000)
+
     def test_a_produced_at_that_is_not_an_instant_is_refused_up_front(self):
         for stamp in ("2026-02-30T00:00:00Z", "yesterday", 5):
             with self.subTest(stamp=stamp), refusal(self, fv.FINDING_PRODUCED_AT_NOT_A_TIMESTAMP, "produced_at"):
@@ -219,6 +223,9 @@ class OracleInjection(unittest.TestCase):
                 fo.build_records(1, 1, oracle=bad)
         with refusal(self, fv.FINDING_INPUT_NOT_AN_OBJECT, "FaultOracle"):
             fo.oracle_meters(None)
+        for bad in (None, 10**5000):   # CodeRabbit round 9: the exported helper raised AttributeError
+            with self.subTest(bad=type(bad).__name__), refusal(self, fv.FINDING_INPUT_NOT_AN_OBJECT, "FaultOracle"):
+                fo.oracle_run_of(bad)
 
         class Declared(fo.FaultOracle):
             meter_clock, meter_state, meter_thermal, oracle_run = "a", "b", "c", "d"
@@ -257,6 +264,26 @@ class OracleInjection(unittest.TestCase):
             with refusal(self, fv.FINDING_ORACLE_RUN_UNDECLARED, "oracle_run"):
                 fo.build_records(3, 1, oracle=Undeclared())
         self.assertEqual(fo.describe()["oracle"]["run"], fv.ORACLE_RUN)
+
+    def test_the_simulated_temperature_is_modelled_and_the_execution_readings_measured(self):
+        """Codex round 9: the peak temperature is an analytic ramp behind a meter named
+        ``simulator_thermal_model``, yet every reading claimed ``measured: true``. The
+        engine declares which meter roles model; the simulator declares thermal, and
+        the clock and state readings (what the tick grid executed) stay measured, so
+        the record keeps a measured reading for the curation gate."""
+        readings = measurements_of(records()[0])
+        self.assertFalse(readings["peak_temperature_c"]["measured"])
+        for quantity in ("recovery_latency_ms", "healthy_channel_count", "dropped_event_count", "residual_error", "corrupt_ratio"):
+            self.assertTrue(readings[quantity]["measured"], quantity)
+        self.assertEqual(fo.describe()["oracle"]["modeled_roles"], ["thermal"])
+
+        class Probed(BenchReplay):
+            modeled_roles = frozenset()
+
+        probed = measurements_of(fo.build_records(3, 1, produced_at=PINNED_AT, oracle=Probed())[0])
+        self.assertTrue(probed["peak_temperature_c"]["measured"])
+        self.assertTrue(fo.oracle_meters(Probed()).measured("thermal"))
+        self.assertEqual(fo.oracle_meters(fo.RelayReflexSimulator()).modeled, frozenset({"thermal"}))
 
     def test_a_reference_only_oracle_is_refused_by_the_curation_gate_not_by_f1(self):
         ensure_policy()

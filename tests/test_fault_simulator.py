@@ -169,7 +169,7 @@ class Boundary(unittest.TestCase):
         ticks than the run has, passed the generic count bound and became a label.
         Greptile: sub-threshold saturation under continue is within tolerance."""
         self.assertEqual(fs.checked_result(result(saturated_ticks=2)).saturated_ticks, 2)
-        self.assertEqual(fs.checked_result(result(saturated_ticks=24, total_events=96), SYSTEM).total_events, 96)
+        self.assertEqual(fs.checked_result(result(saturated_ticks=3, total_events=96), SYSTEM).total_events, 96)
         for overrides, field in (
             ({"worst_healthy_channels": 5}, "worst_healthy_channels"),
             ({"saturated_ticks": 25}, "saturated_ticks"),
@@ -179,6 +179,34 @@ class Boundary(unittest.TestCase):
                 self.assertEqual(fs.checked_result(result(**overrides)).outcome, "continue")
                 with refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, field, "exceeds"):
                     fs.checked_result(result(**overrides), SYSTEM)
+
+    def test_with_the_system_the_verdict_must_be_what_the_tiers_select_for_its_readings(self):
+        """Codex round 9 / CodeRabbit: with the effective system known, an injected
+        verdict must be the tier table's own selection over the readings it reports,
+        so continue at 100 C, continue past the hard deadline, or a quarantine whose
+        corruption ratio sits below the threshold cannot become labels."""
+        quarantined = dict(
+            outcome="quarantine", reason_codes=("CORRUPTION_ABOVE_QUARANTINE_THRESHOLD",),
+            detection_latency_ms=0.0, recovery_latency_ms=1.0, corrupt_events=30, total_events=96,
+        )
+        self.assertEqual(fs.checked_result(result(**quarantined), SYSTEM).outcome, "quarantine")
+        fallback = dict(
+            outcome="fallback", reason_codes=("FALLBACK_SOURCE_ENGAGED",), detection_latency_ms=0.0,
+            recovery_latency_ms=4.0, worst_healthy_channels=2, total_events=96,
+        )
+        self.assertEqual(fs.checked_result(result(**fallback), SYSTEM).outcome, "fallback")
+        for label, changes in (
+            ("continue at 100 C", dict(peak_temperature_c=100.0)),
+            ("continue past the hard deadline", dict(result_delay_ms=100.0)),
+            ("continue with saturation at the reflex threshold", dict(saturated_ticks=4)),
+            ("quarantine below the corruption threshold", {**quarantined, "corrupt_events": 1}),
+            ("degrade reported where the tiers fail closed", dict(outcome="degrade_gracefully", reason_codes=("THERMAL_WARN",), detection_latency_ms=0.0, recovery_latency_ms=2.0, peak_temperature_c=100.0)),
+            ("a fired threshold reason left unreported", dict(outcome="degrade_gracefully", reason_codes=("EVENTS_DROPPED",), detection_latency_ms=0.0, recovery_latency_ms=2.0, dropped_events=5, max_jitter_ms=3.0)),
+        ):
+            with self.subTest(case=label):
+                fs.checked_result(result(**{**dict(total_events=96), **changes}))
+                with refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "tier table yields"):
+                    fs.checked_result(result(**{**dict(total_events=96), **changes}), SYSTEM)
         self.assertEqual(fs.checked_result(result()), result())
         self.assertEqual(fs.checked_result(thermal(96.0)).outcome, "fail_closed")
 
@@ -419,7 +447,7 @@ class Invariants(unittest.TestCase):
                 seen.update(result.reason_codes)
                 with self.subTest(seed=seed, index=proposal["index"]):
                     # Every rule checked_result requires of an injected oracle holds for the simulator's own verdicts.
-                    self.assertIs(fs.checked_result(result), result)
+                    self.assertIs(fs.checked_result(result, fault_config.checked_system(proposal["scenario"])), result)
                     self.assertEqual(result.outcome == "continue", result.detection_latency_ms is None)
                     if result.outcome == "continue":
                         self.assertEqual((result.integrity_violation, result.dropped_events, result.corrupt_events, result.saturated_ticks), (False, 0, 0, 0))

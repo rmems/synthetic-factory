@@ -103,6 +103,9 @@ class FaultOracle:
     meter_state: str | None = None
     meter_thermal: str | None = None
     oracle_run: str | None = None
+    # Meter roles whose readings are modelled rather than measured; their
+    # measurements are emitted with ``measured: false``.
+    modeled_roles: frozenset[str] = frozenset()
 
     def run(self, scenario: dict[str, Any], disturbance: dict[str, Any]) -> FaultResult:
         raise NotImplementedError
@@ -170,8 +173,9 @@ def checked_result(result: Any, system: dict[str, Any] | None = None) -> FaultRe
     consistency the simulator itself keeps (reasons from the outcome's tier and
     matching their evidence, detection exactly for non-continue outcomes,
     counts within the total), and, given the effective ``system`` the verdict
-    answers, state counts within its channel and tick counts; anything else is
-    refused before it can become a label."""
+    answers, state counts within its channel and tick counts and the outcome
+    and reasons the tier table selects for the reported readings under that
+    system's thresholds; anything else is refused before it can become a label."""
     fv.refuse_when(
         not isinstance(result, FaultResult),
         fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY,
@@ -181,6 +185,7 @@ def checked_result(result: Any, system: dict[str, Any] | None = None) -> FaultRe
     fv.refuse_first(_verdict_problems(result))
     if system is not None:
         fv.refuse_first(_bound_problems(result, system))
+        fv.refuse_first(_tier_problem(result, system))
     return result
 
 
@@ -365,6 +370,49 @@ def _bound_problems(result: FaultResult, system: dict[str, Any]):
             f"oracle result {name} {getattr(result, name)} exceeds {named} ({bound}) of the "
             "effective system it answers",
         )
+
+
+def _observed(result: FaultResult, system: dict[str, Any], fallback_ok: bool) -> Observation:
+    """The readings a verdict reports, as the observation the tiers decide on."""
+    return Observation(
+        worst_healthy=result.worst_healthy_channels,
+        channel_count=len(system["channels"]),
+        integrity_violation=result.integrity_violation,
+        corrupt=result.corrupt_events,
+        total=result.total_events,
+        dropped=result.dropped_events,
+        peak_temperature=result.peak_temperature_c,
+        saturated_ticks=result.saturated_ticks,
+        max_staleness=result.max_staleness_ms,
+        max_jitter=result.max_jitter_ms,
+        result_delay_ms=result.result_delay_ms,
+        fallback_ok=fallback_ok,
+        detection_ms=result.detection_latency_ms,
+    )
+
+
+def _tiers_select_verdict(result: FaultResult, system: dict[str, Any]) -> bool:
+    """Under the effective system, the tier table over the reported readings selects
+    the reported outcome and reasons. Fallback availability is not part of a result,
+    so either value may explain the verdict."""
+    reported = (result.outcome, frozenset(result.reason_codes))
+    for fallback_ok in (True, False):
+        outcome, reasons = select_outcome(_observed(result, system, fallback_ok), system)
+        if (outcome, frozenset(reasons)) == reported:
+            return True
+    return False
+
+
+def _tier_problem(result: FaultResult, system: dict[str, Any]) -> tuple[tuple[bool, str, str]]:
+    return (
+        (
+            not _tiers_select_verdict(result, system),
+            fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY,
+            f"oracle result {result.outcome!r} is not the verdict the tier table yields for its "
+            "readings under the effective system (every threshold-relative reason must fire on the "
+            "reported readings, and every fired reason must be reported)",
+        ),
+    )
 
 
 def _verdict_problems(result: FaultResult):
@@ -655,6 +703,9 @@ class RelayReflexSimulator(FaultOracle):
     meter_state = fv.METER_STATE
     meter_thermal = fv.METER_THERMAL
     oracle_run = fv.ORACLE_RUN
+    # The temperature is an analytic ramp (``_update_thermal``), not a probe;
+    # the clock and state readings are what the tick grid actually executed.
+    modeled_roles = frozenset({"thermal"})
 
     def oracle_block(self, scenario: dict[str, Any]) -> dict[str, Any]:
         """The oracle block, recording the effective system this engine runs."""

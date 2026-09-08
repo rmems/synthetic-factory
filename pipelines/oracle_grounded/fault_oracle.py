@@ -21,7 +21,7 @@ it take checked inputs and are importable by name.
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from typing import Any
 
 from . import distill_blocks as blocks
@@ -45,27 +45,43 @@ ORACLE_LABEL_KEYS = fv.ORACLE_LABEL_KEYS
 
 @dataclass(frozen=True)
 class OracleMeters:
-    """The instruments an oracle declares behind its clock, state and thermal readings."""
+    """The instruments an oracle declares behind its clock, state and thermal
+    readings, and which of those roles model rather than measure."""
 
     clock: str
     state: str
     thermal: str
+    modeled: frozenset[str] = frozenset()
 
     def of(self, role: str) -> str:
         return getattr(self, role)
+
+    def measured(self, role: str) -> bool:
+        return role not in self.modeled
+
+
+def _fault_oracle(engine: Any) -> simulator.FaultOracle:
+    """The engine itself, or a coded refusal when it is not a ``FaultOracle``."""
+    fv.refuse_when(
+        not isinstance(engine, simulator.FaultOracle),
+        fv.FINDING_INPUT_NOT_AN_OBJECT,
+        f"oracle must implement FaultOracle, got {fv.shown(engine)}",
+    )
+    return engine
+
+
+METER_ROLES = ("clock", "state", "thermal")
 
 
 def oracle_meters(engine: Any) -> OracleMeters:
     """The engine's declared meters; refused when the engine is not a
     ``FaultOracle`` or any role is unset, so an injected non-simulator oracle
     can never inherit ``simulator_*`` provenance."""
-    fv.refuse_when(
-        not isinstance(engine, simulator.FaultOracle),
-        fv.FINDING_INPUT_NOT_AN_OBJECT,
-        f"oracle must implement FaultOracle, got {engine!r}",
+    engine = _fault_oracle(engine)
+    meters = OracleMeters(
+        engine.meter_clock, engine.meter_state, engine.meter_thermal, frozenset(engine.modeled_roles)
     )
-    meters = OracleMeters(engine.meter_clock, engine.meter_state, engine.meter_thermal)
-    unset = sorted(f.name for f in fields(OracleMeters) if vocab.missing_string(meters.of(f.name)))
+    unset = sorted(role for role in METER_ROLES if vocab.missing_string(meters.of(role)))
     fv.refuse_when(
         bool(unset),
         fv.FINDING_ORACLE_METERS_UNDECLARED,
@@ -75,10 +91,12 @@ def oracle_meters(engine: Any) -> OracleMeters:
     return meters
 
 
-def oracle_run_of(engine: simulator.FaultOracle) -> str:
+def oracle_run_of(engine: Any) -> str:
     """The engine's declared run descriptor for ``provenance.oracle_run``; refused
-    when unset, so a hardware replay or recorded measurement is never stamped as
-    the simulator's in-process deterministic run."""
+    when the engine is not a ``FaultOracle`` or the descriptor is unset, so a
+    hardware replay or recorded measurement is never stamped as the simulator's
+    in-process deterministic run."""
+    engine = _fault_oracle(engine)
     fv.refuse_when(
         vocab.missing_string(engine.oracle_run),
         fv.FINDING_ORACLE_RUN_UNDECLARED,
@@ -120,12 +138,15 @@ def result_measurements(
     first, only when detected."""
     params = intervention["parameters"]
     readings = [
-        builders.new_measurement(quantity, value_of(result), meters.of(role), detail=_detail(quantity, params))
+        builders.new_measurement(
+            quantity, value_of(result), meters.of(role),
+            detail=_detail(quantity, params), measured=meters.measured(role),
+        )
         for quantity, role, value_of in _READINGS
     ]
     if result.detection_latency_ms is not None:
         detection = builders.new_measurement(
-            "detection_latency_ms", result.detection_latency_ms, meters.clock
+            "detection_latency_ms", result.detection_latency_ms, meters.clock, measured=meters.measured("clock")
         )
         readings.insert(0, detection)
     return readings
@@ -187,7 +208,7 @@ def _produced_at(value: Any) -> str:
     fv.refuse_when(
         not vocab.is_timestamp(value),
         fv.FINDING_PRODUCED_AT_NOT_A_TIMESTAMP,
-        f"produced_at must be an ISO-8601 UTC instant, got {value!r}",
+        f"produced_at must be an ISO-8601 UTC instant, got {fv.shown(value)}",
     )
     return value
 
@@ -297,6 +318,7 @@ def describe() -> dict[str, Any]:
             "implementation": engine.implementation,
             "authority": engine.authority,
             "meters": {"clock": engine.meter_clock, "state": engine.meter_state, "thermal": engine.meter_thermal},
+            "modeled_roles": sorted(engine.modeled_roles),
             "run": engine.oracle_run,
         },
         "generator": {"name": fv.GENERATOR_NAME, "version": fv.GENERATOR_VERSION, "kind": fv.GENERATOR_KIND},

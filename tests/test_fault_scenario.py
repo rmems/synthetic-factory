@@ -69,9 +69,11 @@ class SeededStream(unittest.TestCase):
 
 class RequestRefusals(unittest.TestCase):
     def test_count_must_be_a_genuine_integer_of_at_least_one(self):
-        for count in (0, -1, 2.0, True, fv.MAX_COUNT + 1):
-            with self.subTest(count=count), refusal(self, fv.FINDING_COUNT_OUT_OF_DOMAIN, "count must be >= 1"):
+        for count in (0, -1, 2.0, True, fv.MAX_COUNT + 1, 10**5000):
+            with self.subTest(count=fv.shown(count)[:24]), refusal(self, fv.FINDING_COUNT_OUT_OF_DOMAIN, "count must be >= 1"):
                 propose(SEED, count)
+        with refusal(self, fv.FINDING_COUNT_OUT_OF_DOMAIN, "an unprintable int of 16610 bits"):
+            fault_oracle.build_records(SEED, 10**5000)
 
     def test_seed_must_be_a_genuine_integer_never_a_bool(self):
         for seed in ("abc", 2.0, True):

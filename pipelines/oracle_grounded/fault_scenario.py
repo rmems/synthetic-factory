@@ -171,7 +171,7 @@ def _check_request(seed: Any, count: Any) -> None:
     fv.refuse_when(
         not vocab.is_genuine_int(count) or not 1 <= count <= fv.MAX_COUNT,
         fv.FINDING_COUNT_OUT_OF_DOMAIN,
-        f"count must be >= 1 and an integer at most {fv.MAX_COUNT}, got {count!r}",
+        f"count must be >= 1 and an integer at most {fv.MAX_COUNT}, got {fv.shown(count)}",
     )
 
 
