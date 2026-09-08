@@ -73,14 +73,26 @@ def _fault_oracle(engine: Any) -> simulator.FaultOracle:
 METER_ROLES = ("clock", "state", "thermal")
 
 
+def _modeled_roles(engine: simulator.FaultOracle) -> frozenset[str]:
+    """The engine's modelled meter roles: a collection of names among ``METER_ROLES``,
+    so a misspelt role cannot leave a modelled reading marked measured."""
+    roles = engine.modeled_roles
+    well_formed = isinstance(roles, (frozenset, set, tuple, list))
+    fv.refuse_when(
+        not well_formed or not all(isinstance(role, str) and role in METER_ROLES for role in roles),
+        fv.FINDING_ORACLE_METERS_UNDECLARED,
+        f"oracle {engine.name!r} modeled_roles must be a collection of roles among "
+        f"{list(METER_ROLES)}, got {fv.shown(roles)}",
+    )
+    return frozenset(roles)
+
+
 def oracle_meters(engine: Any) -> OracleMeters:
     """The engine's declared meters; refused when the engine is not a
     ``FaultOracle`` or any role is unset, so an injected non-simulator oracle
     can never inherit ``simulator_*`` provenance."""
     engine = _fault_oracle(engine)
-    meters = OracleMeters(
-        engine.meter_clock, engine.meter_state, engine.meter_thermal, frozenset(engine.modeled_roles)
-    )
+    meters = OracleMeters(engine.meter_clock, engine.meter_state, engine.meter_thermal, _modeled_roles(engine))
     unset = sorted(role for role in METER_ROLES if vocab.missing_string(meters.of(role)))
     fv.refuse_when(
         bool(unset),
@@ -230,8 +242,8 @@ def _verdict(batch: _Batch, proposal: dict[str, Any]) -> builders.Verdict:
     must sit inside the family vocabulary."""
     scenario_block = copy.deepcopy(proposal["scenario"])
     intervention = copy.deepcopy(proposal["intervention"])
-    system = config.checked_system(proposal["scenario"])
-    result = simulator.checked_result(batch.engine.run(scenario_block, intervention), system)
+    context = simulator.verdict_context(proposal["scenario"], proposal["intervention"])
+    result = simulator.checked_result(batch.engine.run(scenario_block, intervention), context)
     return builders.Verdict(
         oracle=batch.engine.oracle_block(copy.deepcopy(proposal["scenario"])),
         result=oracle_result(result, proposal["candidate_prediction"], proposal["intervention"], batch.meters),

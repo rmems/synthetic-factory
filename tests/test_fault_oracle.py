@@ -280,6 +280,12 @@ class OracleInjection(unittest.TestCase):
         class Probed(BenchReplay):
             modeled_roles = frozenset()
 
+        for roles in ({"theraml"}, None, "thermal", frozenset({"thermal", 3})):
+            class Misdeclared(BenchReplay):
+                modeled_roles = roles
+
+            with self.subTest(roles=repr(roles)), refusal(self, fv.FINDING_ORACLE_METERS_UNDECLARED, "modeled_roles"):
+                fo.build_records(3, 1, produced_at=PINNED_AT, oracle=Misdeclared())
         probed = measurements_of(fo.build_records(3, 1, produced_at=PINNED_AT, oracle=Probed())[0])
         self.assertTrue(probed["peak_temperature_c"]["measured"])
         self.assertTrue(fo.oracle_meters(Probed()).measured("thermal"))

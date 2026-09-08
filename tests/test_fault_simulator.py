@@ -28,6 +28,7 @@ from fault_test_support import (
 )
 
 SYSTEM = fault_config.checked_system(scenario())
+CONTEXT = fs.VerdictContext(SYSTEM)
 PHASES = (
     0.0, 0.919, 0.838, 0.757, 0.676, 0.595, 0.514, 0.433, 0.352, 0.271, 0.19, 0.109,
     0.028, 0.947, 0.866, 0.785, 0.704, 0.623, 0.542, 0.461, 0.38, 0.299, 0.218, 0.137,
@@ -169,7 +170,7 @@ class Boundary(unittest.TestCase):
         ticks than the run has, passed the generic count bound and became a label.
         Greptile: sub-threshold saturation under continue is within tolerance."""
         self.assertEqual(fs.checked_result(result(saturated_ticks=2)).saturated_ticks, 2)
-        self.assertEqual(fs.checked_result(result(saturated_ticks=3, total_events=96), SYSTEM).total_events, 96)
+        self.assertEqual(fs.checked_result(result(saturated_ticks=3, total_events=96), CONTEXT).total_events, 96)
         for overrides, field in (
             ({"worst_healthy_channels": 5}, "worst_healthy_channels"),
             ({"saturated_ticks": 25}, "saturated_ticks"),
@@ -178,7 +179,32 @@ class Boundary(unittest.TestCase):
             with self.subTest(field=field):
                 self.assertEqual(fs.checked_result(result(**overrides)).outcome, "continue")
                 with refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, field, "exceeds"):
-                    fs.checked_result(result(**overrides), SYSTEM)
+                    fs.checked_result(result(**overrides), CONTEXT)
+
+    def test_with_the_proposal_the_fallback_state_and_the_reason_order_are_bound(self):
+        """Greptile / Codex round 10: trying both fallback states let an injected oracle
+        report fail-closed where the scenario's fallback was available (or fallback
+        where none was), and comparing reasons as sets admitted duplicates and a
+        different order from the tier table's."""
+        short = dict(detection_latency_ms=0.0, worst_healthy_channels=2, total_events=96)
+        engaged = dict(**short, outcome="fallback", reason_codes=("FALLBACK_SOURCE_ENGAGED",), recovery_latency_ms=4.0)
+        closed = dict(**short, outcome="fail_closed", reason_codes=("INSUFFICIENT_HEALTHY_CHANNELS_NO_FALLBACK",), recovery_latency_ms=1.0)
+        available = fs.verdict_context(scenario(), disturbance("sensor_loss", channels=["c0", "c1"], onset_ms=4.0, duration_ms=6.0))
+        removed = fs.verdict_context(scenario(), disturbance("missing_channel", channels=["c0", "redundant_relay_b"]))
+        self.assertEqual((available.fallback_ok, removed.fallback_ok), (True, False))
+        self.assertEqual(fs.checked_result(result(**engaged), available).outcome, "fallback")
+        self.assertEqual(fs.checked_result(result(**closed), removed).outcome, "fail_closed")
+        for label, verdict, context in (("fail closed with a fallback available", closed, available), ("fallback engaged with none", engaged, removed)):
+            with self.subTest(case=label):
+                self.assertEqual(fs.checked_result(result(**verdict), CONTEXT).outcome, verdict["outcome"])
+                with refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "fallback state"):
+                    fs.checked_result(result(**verdict), context)
+        ordered = dict(outcome="degrade_gracefully", detection_latency_ms=0.0, recovery_latency_ms=2.0, dropped_events=5, worst_healthy_channels=3, total_events=96)
+        self.assertEqual(fs.checked_result(result(**ordered, reason_codes=("EVENTS_DROPPED", "REDUCED_CHANNEL_SET")), CONTEXT).outcome, "degrade_gracefully")
+        with refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "table order"):
+            fs.checked_result(result(**ordered, reason_codes=("REDUCED_CHANNEL_SET", "EVENTS_DROPPED")), CONTEXT)
+        with refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "distinct"):
+            fs.checked_result(result(**ordered, reason_codes=("EVENTS_DROPPED", "EVENTS_DROPPED")))
 
     def test_with_the_system_the_verdict_must_be_what_the_tiers_select_for_its_readings(self):
         """Codex round 9 / CodeRabbit: with the effective system known, an injected
@@ -189,12 +215,12 @@ class Boundary(unittest.TestCase):
             outcome="quarantine", reason_codes=("CORRUPTION_ABOVE_QUARANTINE_THRESHOLD",),
             detection_latency_ms=0.0, recovery_latency_ms=1.0, corrupt_events=30, total_events=96,
         )
-        self.assertEqual(fs.checked_result(result(**quarantined), SYSTEM).outcome, "quarantine")
+        self.assertEqual(fs.checked_result(result(**quarantined), CONTEXT).outcome, "quarantine")
         fallback = dict(
             outcome="fallback", reason_codes=("FALLBACK_SOURCE_ENGAGED",), detection_latency_ms=0.0,
             recovery_latency_ms=4.0, worst_healthy_channels=2, total_events=96,
         )
-        self.assertEqual(fs.checked_result(result(**fallback), SYSTEM).outcome, "fallback")
+        self.assertEqual(fs.checked_result(result(**fallback), CONTEXT).outcome, "fallback")
         for label, changes in (
             ("continue at 100 C", dict(peak_temperature_c=100.0)),
             ("continue past the hard deadline", dict(result_delay_ms=100.0)),
@@ -206,7 +232,7 @@ class Boundary(unittest.TestCase):
             with self.subTest(case=label):
                 fs.checked_result(result(**{**dict(total_events=96), **changes}))
                 with refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "tier table yields"):
-                    fs.checked_result(result(**{**dict(total_events=96), **changes}), SYSTEM)
+                    fs.checked_result(result(**{**dict(total_events=96), **changes}), CONTEXT)
         self.assertEqual(fs.checked_result(result()), result())
         self.assertEqual(fs.checked_result(thermal(96.0)).outcome, "fail_closed")
 
@@ -447,7 +473,7 @@ class Invariants(unittest.TestCase):
                 seen.update(result.reason_codes)
                 with self.subTest(seed=seed, index=proposal["index"]):
                     # Every rule checked_result requires of an injected oracle holds for the simulator's own verdicts.
-                    self.assertIs(fs.checked_result(result, fault_config.checked_system(proposal["scenario"])), result)
+                    self.assertIs(fs.checked_result(result, fs.verdict_context(proposal["scenario"], proposal["intervention"])), result)
                     self.assertEqual(result.outcome == "continue", result.detection_latency_ms is None)
                     if result.outcome == "continue":
                         self.assertEqual((result.integrity_violation, result.dropped_events, result.corrupt_events, result.saturated_ticks), (False, 0, 0, 0))

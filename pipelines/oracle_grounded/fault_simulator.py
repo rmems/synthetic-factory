@@ -115,10 +115,11 @@ class FaultOracle:
 
 
 def _declared_reasons(codes: Any) -> bool:
-    """A non-empty tuple whose every member is a declared reason code (strings only)."""
+    """A non-empty tuple of distinct declared reason codes (strings only)."""
     if not isinstance(codes, tuple) or not codes:
         return False
-    return all(isinstance(code, str) and code in fv.REASON_CODE_SET for code in codes)
+    declared = all(isinstance(code, str) and code in fv.REASON_CODE_SET for code in codes)
+    return declared and len(set(codes)) == len(codes)
 
 
 def _non_negative_number(value: Any) -> bool:
@@ -146,7 +147,7 @@ _NUMBER_FIELDS = ("peak_temperature_c",)
 # fit before it becomes a label, whichever oracle returned it.
 _RESULT_RULES: tuple[tuple[str, config.Predicate, str], ...] = (
     ("outcome", lambda value: value in fv.OUTCOMES, "one of the family's outcomes"),
-    ("reason_codes", _declared_reasons, "a non-empty tuple of declared reason codes"),
+    ("reason_codes", _declared_reasons, "a non-empty tuple of distinct declared reason codes"),
     ("detection_latency_ms", _optional_number, "a finite non-negative number of ms or None"),
     ("integrity_violation", lambda value: isinstance(value, bool), "a boolean"),
     *((name, _count, f"an integer in [0, {fv.MAX_EVENT_COUNT}]") for name in _COUNT_FIELDS),
@@ -167,15 +168,17 @@ def _result_problems(result: FaultResult):
         )
 
 
-def checked_result(result: Any, system: dict[str, Any] | None = None) -> FaultResult:
+def checked_result(result: Any, context: VerdictContext | None = None) -> FaultResult:
     """A verdict inside the family vocabulary: the type, the outcome, declared
     reason codes, genuine counts and finite readings, then the cross-field
     consistency the simulator itself keeps (reasons from the outcome's tier and
     matching their evidence, detection exactly for non-continue outcomes,
-    counts within the total), and, given the effective ``system`` the verdict
-    answers, state counts within its channel and tick counts and the outcome
-    and reasons the tier table selects for the reported readings under that
-    system's thresholds; anything else is refused before it can become a label."""
+    counts within the total), and, given the ``context`` the verdict answers
+    (``verdict_context`` builds it from the proposal), state counts within the
+    system's channel and tick counts and exactly the outcome and reasons the
+    tier table yields for the reported readings under that system's thresholds
+    and the scenario's fallback state; anything else is refused before it can
+    become a label."""
     fv.refuse_when(
         not isinstance(result, FaultResult),
         fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY,
@@ -183,9 +186,9 @@ def checked_result(result: Any, system: dict[str, Any] | None = None) -> FaultRe
     )
     fv.refuse_first(_result_problems(result))
     fv.refuse_first(_verdict_problems(result))
-    if system is not None:
-        fv.refuse_first(_bound_problems(result, system))
-        fv.refuse_first(_tier_problem(result, system))
+    if context is not None:
+        fv.refuse_first(_bound_problems(result, context.system))
+        fv.refuse_first(_tier_problem(result, context))
     return result
 
 
@@ -391,26 +394,40 @@ def _observed(result: FaultResult, system: dict[str, Any], fallback_ok: bool) ->
     )
 
 
-def _tiers_select_verdict(result: FaultResult, system: dict[str, Any]) -> bool:
-    """Under the effective system, the tier table over the reported readings selects
-    the reported outcome and reasons. Fallback availability is not part of a result,
-    so either value may explain the verdict."""
-    reported = (result.outcome, frozenset(result.reason_codes))
-    for fallback_ok in (True, False):
-        outcome, reasons = select_outcome(_observed(result, system, fallback_ok), system)
-        if (outcome, frozenset(reasons)) == reported:
-            return True
-    return False
+@dataclass(frozen=True)
+class VerdictContext:
+    """What a verdict is checked against: the effective system it answers and, when
+    known, whether the scenario's fallback source was available to the disturbance
+    (``None`` admits either, for a result checked without its disturbance)."""
+
+    system: dict[str, Any]
+    fallback_ok: bool | None = None
+
+    @property
+    def fallback_candidates(self) -> tuple[bool, ...]:
+        return (True, False) if self.fallback_ok is None else (self.fallback_ok,)
 
 
-def _tier_problem(result: FaultResult, system: dict[str, Any]) -> tuple[tuple[bool, str, str]]:
+def _tiers_select_verdict(result: FaultResult, context: VerdictContext) -> bool:
+    """Under the context, the tier table over the reported readings yields the reported
+    outcome and exactly the reported reasons, in table order."""
+    reported = (result.outcome, tuple(result.reason_codes))
+    system = context.system
+    return any(
+        select_outcome(_observed(result, system, fallback_ok), system) == reported
+        for fallback_ok in context.fallback_candidates
+    )
+
+
+def _tier_problem(result: FaultResult, context: VerdictContext) -> tuple[tuple[bool, str, str]]:
     return (
         (
-            not _tiers_select_verdict(result, system),
+            not _tiers_select_verdict(result, context),
             fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY,
             f"oracle result {result.outcome!r} is not the verdict the tier table yields for its "
-            "readings under the effective system (every threshold-relative reason must fire on the "
-            "reported readings, and every fired reason must be reported)",
+            "readings under the effective system and fallback state (every threshold-relative "
+            "reason must fire on the reported readings, every fired reason must be reported, in "
+            "table order)",
         ),
     )
 
@@ -724,10 +741,8 @@ class RelayReflexSimulator(FaultOracle):
 
     def run(self, scenario: dict[str, Any], disturbance: dict[str, Any]) -> FaultResult:
         """Check, step every tick, decide; refuses invalid input before any state exists."""
-        system = config.checked_system(scenario)
-        checked = config.checked_disturbance(disturbance, system)
+        system, checked, missing = _prepared(scenario, disturbance)
         spec = _DisturbanceSpec.from_disturbance(checked, system)
-        missing = set(checked.affected) if checked.kind == fv.MISSING_CHANNEL else set()
         live = [channel for channel in system["channels"] if channel not in missing]
         state = _StreamState(system, spec, live)
         for tick in range(system["ticks"]):
@@ -735,6 +750,21 @@ class RelayReflexSimulator(FaultOracle):
         observation = state.observe(fallback_available(system, missing, checked.declared))
         decision = decide(observation, system, spec.onset_ms)
         return _result(observation, decision, tuple(state.trace))
+
+
+def _prepared(scenario: Any, disturbance: Any) -> tuple[dict[str, Any], config.Disturbance, set[str]]:
+    """The checked system and disturbance of one proposal, and the channels it removes."""
+    system = config.checked_system(scenario)
+    checked = config.checked_disturbance(disturbance, system)
+    missing = set(checked.affected) if checked.kind == fv.MISSING_CHANNEL else set()
+    return system, checked, missing
+
+
+def verdict_context(scenario: Any, disturbance: Any) -> VerdictContext:
+    """The context the simulator itself would run this proposal under, from the checked
+    inputs: the effective system and the fallback availability the disturbance leaves."""
+    system, checked, missing = _prepared(scenario, disturbance)
+    return VerdictContext(system, fallback_available(system, missing, checked.declared))
 
 
 bind_import_twin(__name__)
