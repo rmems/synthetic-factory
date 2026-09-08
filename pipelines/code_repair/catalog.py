@@ -388,7 +388,9 @@ def _suite_findings(program: Program, report: ex.PhaseReport) -> list[dict[str, 
         (report.public, cv.REASON_ORIGINAL_FAILS_PUBLIC),
         (report.hidden, cv.REASON_ORIGINAL_FAILS_HIDDEN),
     )
-    return [_finding(code, program, ", ".join(_failing(rows))) for rows, code in suites if _failing(rows)]
+    return [
+        _finding(code, program, ", ".join(_failing(rows))) for rows, code in suites if _failing(rows)
+    ]
 
 
 def _original_findings(program: Program, executor: ex.Executor) -> list[dict[str, str]]:
