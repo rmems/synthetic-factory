@@ -89,6 +89,14 @@ class Refusals(unittest.TestCase):
         with refusal(self, cv.FINDING_CATALOG_FILE_MISSING, catalog.CATALOG_FILENAME):
             catalog.load_catalog(self.directory)
 
+    def test_a_missing_catalog_field_carries_the_catalog_code(self):
+        path = self.directory / catalog.CATALOG_FILENAME
+        meta = json.loads(path.read_text(encoding="utf-8"))
+        del meta["catalog_id"]
+        path.write_text(json.dumps(meta), encoding="utf-8")
+        with refusal(self, cv.FINDING_CATALOG_FIELD_MISSING, "catalog_id"):
+            catalog.load_catalog(self.directory)
+
     def test_a_programs_file_that_drifted_from_its_digest_is_refused(self):
         path = self.directory / catalog.PROGRAMS_FILENAME
         path.write_text(path.read_text(encoding="utf-8").replace('"family":"maths"', '"family":"math"'), encoding="utf-8")
@@ -118,6 +126,17 @@ class Refusals(unittest.TestCase):
                 rewrite_programs(self.directory, one)
                 with refusal(self, code):
                     catalog.load_catalog(self.directory)
+
+    def test_a_non_string_group_id_is_refused_not_dropped(self):
+        """Codex on #196: malformed grouping metadata must not read as "ungrouped"."""
+
+        def one(row):
+            if row["upstream"]["function"] == "abs_val":
+                row["structure"] = {"group_id": 5}
+
+        rewrite_programs(self.directory, one)
+        with refusal(self, cv.FINDING_PROGRAM_FIELD_INVALID, "group_id"):
+            catalog.load_catalog(self.directory)
 
     def test_a_reference_source_must_parse_and_define_its_function(self):
         for code, edit in (

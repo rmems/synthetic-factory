@@ -32,6 +32,7 @@ CHILD_ENV = {"PYTHONHASHSEED": "0", "PYTHONDONTWRITEBYTECODE": "1"}
 FLOAT_REL_TOL = 1e-9
 FLOAT_ABS_TOL = 1e-12
 STDERR_TAIL_CHARS = 400
+MAX_OUTPUT_BYTES = 2 * 1024 * 1024  # above the child's file-size limit, so a full read is complete
 
 __all__ = [
     "CHILD_ENV", "Executor", "HARNESS_PATH", "INTERPRETER_FLAGS", "Job", "PhaseReport",
@@ -100,6 +101,13 @@ def _tail(text: bytes) -> str:
     return text.decode("utf-8", "replace")[-STDERR_TAIL_CHARS:]
 
 
+def _bounded(path: Path) -> bytes:
+    """At most ``MAX_OUTPUT_BYTES`` of a child's stream; one byte more marks it oversized."""
+
+    with path.open("rb") as handle:
+        return handle.read(MAX_OUTPUT_BYTES + 1)
+
+
 class Executor:
     """Runs jobs through the harness and keeps the volatile execution log."""
 
@@ -133,20 +141,29 @@ class Executor:
             shutil.rmtree(workdir, ignore_errors=True)
 
     def _execute(self, job: Job, workdir: Path) -> PhaseReport:
+        """One child run; its output goes to files in the workdir, never to an unbounded pipe.
+
+        The child's file-size limit caps what it can write there, and the parent reads back at
+        most ``MAX_OUTPUT_BYTES`` of each stream, so a child that streams forever cannot grow
+        the factory process.
+        """
+
         argv = [sys.executable, *INTERPRETER_FLAGS, str(HARNESS_PATH), str(workdir)]
         started = time.monotonic()
         entry: dict[str, Any] = {"label": job.label, "timed_out": False, "returncode": None}
+        stdout_path, stderr_path = workdir / "stdout", workdir / "stderr"
         try:
-            completed = subprocess.run(
-                argv, cwd=workdir, env=CHILD_ENV, capture_output=True,
-                timeout=self.timeout_s, check=False,
-            )
-        except subprocess.TimeoutExpired as expired:
-            entry.update(timed_out=True, stderr_tail=_tail(expired.stderr or b""))
+            with stdout_path.open("wb") as out, stderr_path.open("wb") as err:
+                completed = subprocess.run(
+                    argv, cwd=workdir, env=CHILD_ENV, stdout=out, stderr=err,
+                    timeout=self.timeout_s, check=False,
+                )
+        except subprocess.TimeoutExpired:
+            entry.update(timed_out=True, stderr_tail=_tail(_bounded(stderr_path)))
             report = PhaseReport(cv.PHASE_TIMEOUT, False, (), (), {}, "timed out")
         else:
-            entry.update(returncode=completed.returncode, stderr_tail=_tail(completed.stderr))
-            report = _parse_report(job, completed.returncode, completed.stdout)
+            entry.update(returncode=completed.returncode, stderr_tail=_tail(_bounded(stderr_path)))
+            report = _parse_report(job, completed.returncode, _bounded(stdout_path))
         entry.update(duration_s=round(time.monotonic() - started, 6), status=report.status)
         self.log.append(entry)
         return report

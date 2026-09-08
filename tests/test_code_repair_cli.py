@@ -33,6 +33,14 @@ class CatalogCheck(unittest.TestCase):
         self.assertTrue(err.startswith(cv.FINDING_CATALOG_FILE_MISSING + ": "), err)
 
 
+    def test_a_refusal_under_json_is_one_coded_object_on_stdout(self):
+        code, out, err = invoke(["catalog-check", "--catalog", "/nonexistent/catalog", "--json"])
+        self.assertEqual((code, err), (2, ""))
+        payload = json.loads(out)
+        self.assertEqual((payload["status"], payload["code"]), ("refused", cv.FINDING_CATALOG_FILE_MISSING))
+        self.assertEqual(payload["command"], "catalog-check")
+
+
 class EntryScript(unittest.TestCase):
     def test_the_entry_script_compiles_and_names_the_package(self):
         source = (REPO / "pipelines" / "code_repair_cli.py").read_text(encoding="utf-8")
