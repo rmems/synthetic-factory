@@ -1,6 +1,7 @@
 # Raw dumps can get huge
 outputs/raw/
 outputs/staging/
+outputs/code-repair/
 *.log
 *.tmp
 

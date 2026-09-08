@@ -36,7 +36,8 @@ _UPSTREAM_FIELDS = ("repository", "commit", "path", "file_sha256", "function", "
 __all__ = [
     "CATALOG_FILENAME", "Catalog", "Example", "LICENSE_FILENAME", "PROGRAMS_FILENAME", "Program",
     "Reference", "catalog_check", "examples_of", "examples_sha256", "function_node",
-    "load_catalog", "sha256_text", "want_kind_of",
+    "load_catalog", "original_findings", "phase_code", "program_from_row", "sha256_text",
+    "want_kind_of",
 ]
 
 
@@ -302,6 +303,12 @@ def _program(row: Any, lineno: int) -> Program:
     )
 
 
+def program_from_row(row: dict[str, Any]) -> Program:
+    """A builder-produced row as the loader would read it (same checks, no file position)."""
+
+    return _program(row, 0)
+
+
 def _provenance_agrees(program: Program, meta: dict[str, Any]) -> None:
     """A program's upstream must be the catalog's upstream (Greptile on #196)."""
 
@@ -405,7 +412,7 @@ def _finding(code: str, program: Program, detail: str) -> dict[str, str]:
     return {"code": code, "program_id": program.program_id, "detail": detail}
 
 
-def _phase_code(report: ex.PhaseReport, timeout: str, error: str) -> str | None:
+def phase_code(report: ex.PhaseReport, timeout: str, error: str) -> str | None:
     if report.status == cv.PHASE_TIMEOUT:
         return timeout
     if not report.ok:
@@ -421,7 +428,7 @@ def _execution_failure(program: Program, reports: tuple[ex.PhaseReport, ...]) ->
     """The first run that timed out or did not load, as a finding."""
 
     for report in reports:
-        code = _phase_code(report, cv.REASON_ORIGINAL_TIMEOUT, cv.REASON_ORIGINAL_HARNESS_ERROR)
+        code = phase_code(report, cv.REASON_ORIGINAL_TIMEOUT, cv.REASON_ORIGINAL_HARNESS_ERROR)
         if code is not None:
             return _finding(code, program, report.detail)
     return None
@@ -439,7 +446,7 @@ def _suite_findings(program: Program, report: ex.PhaseReport) -> list[dict[str, 
     ]
 
 
-def _original_findings(program: Program, executor: ex.Executor) -> list[dict[str, str]]:
+def original_findings(program: Program, executor: ex.Executor) -> list[dict[str, str]]:
     """Both runs must load and finish; the first must pass; the second must agree."""
 
     label = f"{cv.PHASE_ORIGINAL}:{program.program_id}"
@@ -458,7 +465,7 @@ def _reference_findings(program: Program, executor: ex.Executor) -> list[dict[st
     if not program.reference.certifying:
         return []
     report = executor.run(program.reference_job(f"reference:{program.program_id}"))
-    code = _phase_code(report, cv.CHECK_REFERENCE_TIMEOUT, cv.CHECK_REFERENCE_HARNESS_ERROR)
+    code = phase_code(report, cv.CHECK_REFERENCE_TIMEOUT, cv.CHECK_REFERENCE_HARNESS_ERROR)
     if code is not None:
         return [_finding(code, program, report.detail)]
     disagreeing = _failing(report.hidden)
@@ -513,7 +520,7 @@ def catalog_check(catalog: Catalog, executor: ex.Executor) -> list[dict[str, str
 
     findings: list[dict[str, str]] = []
     for program in catalog.programs:
-        findings += _original_findings(program, executor)
+        findings += original_findings(program, executor)
         findings += _reference_findings(program, executor)
     return findings + _structure_findings(catalog)
 

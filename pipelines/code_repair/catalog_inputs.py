@@ -26,7 +26,8 @@ INPUT_POLICY = "doctest-literals+seeded-neighbourhood-v1"
 NEIGHBOUR_DRAWS = 4
 
 __all__ = [
-    "INPUT_POLICY", "Subject", "candidate_args", "literal_args", "neighbours", "observed_cases",
+    "INPUT_POLICY", "Subject", "candidate_args", "literal_args", "neighbours", "observe",
+    "observed_cases",
 ]
 
 
@@ -131,24 +132,36 @@ def _stream_for(program_id: str) -> rng.DrawStream:
     return rng.DrawStream(int(hashlib.sha256(program_id.encode("utf-8")).hexdigest()[:8], 16))
 
 
-def observed_cases(executor: ex.Executor, subject: Subject) -> list[dict]:
-    """The cases the original answers with a value, with its repr as the pinned want."""
+def observe(executor: ex.Executor, subject: Subject) -> tuple[ex.PhaseReport | None, list[dict]]:
+    """The candidate inputs through the original: its report (None without inputs), kept cases.
+
+    A case is kept when the original answers it with a value; its repr is the pinned want.
+    """
 
     text, function = subject.text, subject.function
     args_list = candidate_args(subject.examples, function, _stream_for(subject.program_id))
     if not args_list:
-        return []
+        return None, []
     probes = tuple({"args": repr(a), "want": None} for a in args_list)
     report = executor.run(ex.Job(f"observe:{function}", text, function, probes, False))
-    cv.refuse_when(
-        not report.ok, cv.FINDING_HARNESS_REPORT_MALFORMED,
-        f"observing {function} failed: {report.detail}",
-    )
+    if not report.ok:
+        return report, []
     kept = [
         {"args": repr(a), "want": row["got"]}
         for a, row in zip(args_list, report.hidden) if row["status"] == cv.ROW_OBSERVED
     ]
-    return kept[: cv.MAX_HIDDEN_CASES]
+    return report, kept[: cv.MAX_HIDDEN_CASES]
+
+
+def observed_cases(executor: ex.Executor, subject: Subject) -> list[dict]:
+    """The cases the original answers with a value; refuses when it cannot be observed."""
+
+    report, cases = observe(executor, subject)
+    cv.refuse_when(
+        report is not None and not report.ok, cv.FINDING_HARNESS_REPORT_MALFORMED,
+        f"observing {subject.function} failed: {report.detail if report else ''}",
+    )
+    return cases
 
 
 bind_import_twin(__name__)

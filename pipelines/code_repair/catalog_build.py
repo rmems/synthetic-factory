@@ -212,17 +212,31 @@ def _reference_agrees(executor: ex.Executor, block: dict[str, Any], cases: list[
 # --- rows ------------------------------------------------------------------------------
 
 
-def _program_row(build: Build, path: str, function: str, executor: ex.Executor) -> dict[str, Any]:
+def _note(build: Build, code: str, program_id: str) -> None:
+    build.notes.append({"code": code, "program_id": program_id})
+
+
+def _program_row(
+    build: Build, path: str, function: str, executor: ex.Executor
+) -> dict[str, Any] | None:
+    """The row for one target, or None (noted) when the original cannot be observed."""
+
     source_text = build.sources[path]
     extracted = extract_module(source_text, function)
     cv.refuse_when(extracted is None, cv.FINDING_TARGET_FUNCTION_NOT_FOUND, f"{path}::{function}")
     text, span = extracted
     program_id = program_id_for(build.upstream, path, function)
     examples = cat.examples_of(text, function)
-    cases = inputs.observed_cases(executor, inputs.Subject(text, function, program_id, examples))
+    report, cases = inputs.observe(executor, inputs.Subject(text, function, program_id, examples))
+    code = None if report is None else cat.phase_code(
+        report, cv.REASON_ORIGINAL_TIMEOUT, cv.REASON_ORIGINAL_HARNESS_ERROR
+    )
+    if code is not None:
+        _note(build, code, program_id)
+        return None
     reference = _reference_block(build, path, function, source_text)
     if not _reference_agrees(executor, reference, cases):
-        build.notes.append({"code": cv.CHECK_REFERENCE_DISAGREES, "program_id": program_id})
+        _note(build, cv.CHECK_REFERENCE_DISAGREES, program_id)
         reference = {"kind": cv.REFERENCE_SELF, "function": None, "source": None, "sha256": None}
     upstream = build.upstream
     return {
@@ -239,6 +253,21 @@ def _program_row(build: Build, path: str, function: str, executor: ex.Executor) 
         "hidden": {"reference": reference, "cases": cases, "input_policy": INPUT_POLICY},
         "structure": None, "split": None,
     }
+
+
+def _verified_row(
+    build: Build, path: str, function: str, executor: ex.Executor
+) -> dict[str, Any] | None:
+    """A row whose original passes its own examples and cases twice; else None, noted."""
+
+    row = _program_row(build, path, function, executor)
+    if row is None:
+        return None
+    findings = cat.original_findings(cat.program_from_row(row), executor)
+    if findings:
+        _note(build, findings[0]["code"], row["program_id"])
+        return None
+    return row
 
 
 def _assign_structure(build: Build, rows: list[dict[str, Any]]) -> None:
@@ -260,12 +289,17 @@ def _assign_structure(build: Build, rows: list[dict[str, Any]]) -> None:
 def build_rows(
     build: Build, targets: list[tuple[str, str]], executor: ex.Executor
 ) -> list[dict[str, Any]]:
-    """One row per ``(path, function)`` target, sorted, with groups and splits over the set."""
+    """One row per verified ``(path, function)`` target, sorted; groups and splits over the set.
+
+    A target whose original cannot be observed, fails its own examples or cases, or answers
+    two runs differently is dropped and noted (``build.notes``), never built into a row.
+    """
 
     ordered = sorted(set(targets))  # canonical row order: by upstream path, then function
-    rows = [_program_row(build, path, function, executor) for path, function in ordered]
-    _assign_structure(build, rows)
-    return rows
+    rows = [_verified_row(build, path, function, executor) for path, function in ordered]
+    kept = [row for row in rows if row is not None]
+    _assign_structure(build, kept)
+    return kept
 
 
 def write_catalog(

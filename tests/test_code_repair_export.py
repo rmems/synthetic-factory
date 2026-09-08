@@ -47,23 +47,35 @@ class Artifacts(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp(prefix="code-repair-export-"))
         self.addCleanup(shutil.rmtree, self.root, True)
 
-    def test_the_tree_holds_evidence_split_rows_consumer_rows_freeze_and_manifest(self):
+    def _exported(self):
         _summary, records, run_dir = smoke_run()
         manifest, out = export_of(run_dir, self.root)
         positives = [r for r in records if views.is_positive(r)]
+        return manifest, out, records, positives
+
+    def test_the_tables_count_records_and_positives_and_the_evidence_is_complete(self):
+        manifest, out, records, positives = self._exported()
         self.assertEqual(manifest["tables"]["positives"], len(positives))
         self.assertEqual(manifest["tables"]["records"], len(records))
         self.assertEqual(manifest["tables"]["dispositions"]["exported"], len(positives))
         evidence = [r for _n, r in oc.read_jsonl(out / export.EVIDENCE_PATH)]
         self.assertEqual(evidence, records)
+
+    def test_split_rows_consumer_rows_and_the_freeze_cover_exactly_the_positives(self):
+        _manifest, out, _records, positives = self._exported()
         rows = {s: [r for _n, r in oc.read_jsonl(out / f"sft/{s}.jsonl")] for s in lineage.SPLITS}
         self.assertEqual(sum(len(v) for v in rows.values()), len(positives))
-        self.assertTrue(all(set(r) == {"prompt", "completion"} for v in rows.values() for r in v))
+        keys = {frozenset(r) for v in rows.values() for r in v}
+        self.assertEqual(keys, {frozenset({"prompt", "completion"})})
         agoge = [r for _n, r in oc.read_jsonl(out / export.AGOGE_PATH)]
         self.assertEqual(len(agoge), len(positives))
         self.assertEqual(set(agoge[0]), {"canonical_id", "lineage_id", "group_id", "split", "text"})
         freeze = json.loads((out / export.FREEZE_PATH).read_text())
-        self.assertEqual(freeze["canonical_ids"], [r["canonical_id"] for r in agoge if r["split"] == "held_out"])
+        held_out = [r["canonical_id"] for r in agoge if r["split"] == "held_out"]
+        self.assertEqual(freeze["canonical_ids"], held_out)
+
+    def test_the_manifest_pins_every_file_and_reports_a_blocked_complete_pipeline(self):
+        manifest, out, _records, _positives = self._exported()
         for relative, digest in manifest["files"].items():
             self.assertEqual(hashlib.sha256((out / relative).read_bytes()).hexdigest(), digest)
         self.assertEqual(manifest["pipeline_status"], "complete")

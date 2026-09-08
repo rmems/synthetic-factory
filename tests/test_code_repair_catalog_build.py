@@ -59,6 +59,41 @@ class FixtureRebuild(unittest.TestCase):
         self.assertEqual(row["program_id"], program("abs_val").program_id)
 
 
+class DroppedTargets(unittest.TestCase):
+    """Real subprocess evidence: an original the builder cannot verify never becomes a row."""
+
+    SPIN = (
+        "def spin(n: int) -> int:\n    '''\n    >>> spin(3)\n    3\n    >>> spin(4)\n    4\n"
+        "    '''\n    while n not in (3, 4):\n        n = n\n    return n\n"
+    )
+    WRONG = (
+        "def wrong(n: int) -> int:\n    '''\n    >>> wrong(1)\n    2\n    >>> wrong(2)\n    3\n"
+        "    '''\n    return n\n"
+    )
+
+    def _rows(self, path, text, function, runner):
+        build, _targets = fixture_build()
+        rebuilt = cb.Build(
+            build.upstream, {**build.sources, path: text}, build.references, build.policy
+        )
+        rows = cb.build_rows(rebuilt, [(path, function), ("maths/abs.py", "abs_val")], runner)
+        dropped = cb.program_id_for(build.upstream, path, function)
+        return rows, rebuilt.notes, dropped
+
+    def test_an_original_that_loops_on_a_neighbour_input_is_dropped_with_a_timeout_note(self):
+        rows, notes, dropped = self._rows(
+            "maths/spin.py", self.SPIN, "spin", executor.Executor(timeout_s=1.0)
+        )
+        self.assertEqual([r["upstream"]["function"] for r in rows], ["abs_val"])
+        self.assertEqual(notes, [{"code": cv.REASON_ORIGINAL_TIMEOUT, "program_id": dropped}])
+        self.assertIsNotNone(rows[0]["split"])  # structure is assigned over the kept rows
+
+    def test_an_original_that_fails_its_own_doctests_is_dropped_with_a_public_failure_note(self):
+        rows, notes, dropped = self._rows("maths/wrong.py", self.WRONG, "wrong", RUNNER)
+        self.assertEqual([r["upstream"]["function"] for r in rows], ["abs_val"])
+        self.assertEqual(notes, [{"code": cv.REASON_ORIGINAL_FAILS_PUBLIC, "program_id": dropped}])
+
+
 class SelectionAndExtraction(unittest.TestCase):
     def setUp(self):
         self.build, _targets = fixture_build()
