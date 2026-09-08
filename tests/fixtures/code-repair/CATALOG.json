@@ -1,0 +1,16 @@
+{
+  "build": {
+    "input_policy": "doctest-literals+seeded-neighbourhood-v1",
+    "tool": "S1 scratch fixture builder; code_repair.catalog_build rebuilds it byte-identically in S2"
+  },
+  "catalog_id": "code-repair-fixture-v1",
+  "format": "code-repair-catalog/1",
+  "program_count": 6,
+  "programs_sha256": "ff7d2f8f0189caa450893f850727ea0a49cccee675c578407b11566600440a49",
+  "upstream": {
+    "commit": "2067ce6dfb3b0426a88c7a40531e355a5c703cff",
+    "license": "MIT",
+    "license_sha256": "4395a1dc4bda1d6054c45b4d1230c709c7398e6d66f1d0aff4b22d95973bea56",
+    "repository": "TheAlgorithms/Python"
+  }
+}
