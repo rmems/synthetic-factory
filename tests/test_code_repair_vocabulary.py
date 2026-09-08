@@ -9,7 +9,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from code_repair_test_support import (  # noqa: E402
-    FAMILY_MODULES, catalog, cli, envelope, executor, oc, refusal, vocabulary as cv,
+    FAMILY_MODULES, catalog, cli, envelope, executor, generate, mutate, oc, records, refusal, verify,
+    views, vocabulary as cv,
 )
 
 
@@ -53,10 +54,10 @@ class DeclaredCodes(unittest.TestCase):
         self.assertIn("outcome", cv.ORACLE_LABEL_KEYS)
 
     def test_no_family_module_imports_the_random_module(self):
-        for module in (catalog, cli, executor, cv):
+        for module in (catalog, cli, executor, generate, mutate, records, verify, views, cv):
             with self.subTest(module=module.__name__):
                 self.assertNotIn("import random", inspect.getsource(module))
-        self.assertEqual(len(FAMILY_MODULES), 5)
+        self.assertEqual(len(FAMILY_MODULES), 10)
 
 
 class CodedRefusals(unittest.TestCase):

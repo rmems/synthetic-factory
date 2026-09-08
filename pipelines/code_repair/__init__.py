@@ -17,6 +17,11 @@ __all__ = [
     "_contract",
     "vocabulary",
     "catalog",
+    "mutate",
     "executor",
+    "verify",
+    "records",
+    "views",
+    "generate",
     "cli",
 ]

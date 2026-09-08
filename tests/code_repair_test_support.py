@@ -12,23 +12,27 @@ Fake-executor evidence and real-subprocess evidence are kept apart: only
 
 import functools
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from coded_refusal_test_support import coded_refusal
 from distill_contract_test_support import REPO, envelope, oc
-from code_repair import catalog, cli, executor, vocabulary
+from code_repair import catalog, cli, executor, generate, mutate, records, verify, views, vocabulary
 
 FIXTURE_CATALOG = REPO / "tests" / "fixtures" / "code-repair"
 PINNED_AT = "2026-09-08T00:00:00.000Z"
 SEED = 20260908
-FAMILY_MODULES = ("_contract", "vocabulary", "catalog", "executor", "cli")
+FAMILY_MODULES = (
+    "_contract", "vocabulary", "catalog", "mutate", "executor", "verify", "records", "views",
+    "generate", "cli",
+)
 
 __all__ = (
     "FAMILY_MODULES", "FIXTURE_CATALOG", "FakeExecutor", "PINNED_AT", "REPO", "SEED", "catalog",
-    "cli", "envelope", "executor", "fixture", "oc", "program", "refusal", "report", "rows",
-    "vocabulary",
+    "cli", "envelope", "executor", "fixture", "generate", "mutate", "oc", "program", "records",
+    "refusal", "report", "rows", "smoke_run", "verify", "views", "vocabulary",
 )
 
 
@@ -90,3 +94,15 @@ class FakeExecutor:
         self.log.append({"label": job.label, "status": "fake"})
         canned = self.by_phase[phase]
         return canned(job) if callable(canned) else canned
+
+
+@functools.lru_cache(maxsize=None)
+def smoke_run(seed=SEED, count=12):
+    """One real generation run into a temporary directory: ``(summary, records, run_dir)``."""
+
+    root = Path(tempfile.mkdtemp(prefix="code-repair-smoke-"))
+    out = root / "run"
+    request = generate.RunRequest(FIXTURE_CATALOG, out, seed, count, PINNED_AT)
+    summary = generate.run(request)
+    loaded = [record for _lineno, record in oc.read_jsonl(out / generate.CANDIDATES_FILENAME)]
+    return summary, loaded, out
