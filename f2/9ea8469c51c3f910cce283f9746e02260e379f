@@ -1,0 +1,20 @@
+docs/code-repair-pilot.md
+  ai_agent 69-71,183
+  s_30c91b293664f2::t_bffb5a3cededc9 1-68,72-182,184-198
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f29ea8469c51c3f910cce283f9746e02260e379f",
+  "prompts": {},
+  "sessions": {
+    "s_30c91b293664f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b363f3ab-81a6-4abe-88b5-c596f7a8dd7b",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
