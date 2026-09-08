@@ -68,6 +68,9 @@ def _original_problem(original: ex.PhaseReport) -> str | None:
     code = _phase_code(original, cv.REASON_ORIGINAL_TIMEOUT, cv.REASON_ORIGINAL_HARNESS_ERROR)
     if code is not None:
         return code
+    if not original.public:
+        # A program with no public example cannot show a failure; the catalog refuses it too.
+        return cv.REASON_ORIGINAL_HARNESS_ERROR
     if failing_ids(original.public):
         return cv.REASON_ORIGINAL_FAILS_PUBLIC
     if failing_ids(original.hidden):
@@ -76,6 +79,8 @@ def _original_problem(original: ex.PhaseReport) -> str | None:
 
 
 def _mutant_problem(mutant: ex.PhaseReport | None, context: DecisionContext) -> str | None:
+    if mutant is None:
+        return cv.REASON_MUTANT_HARNESS_ERROR
     code = _phase_code(mutant, cv.REASON_MUTANT_TIMEOUT, cv.REASON_MUTANT_HARNESS_ERROR)
     if code is not None:
         return code
@@ -130,7 +135,7 @@ def decide(phases: Phases, context: DecisionContext) -> Verdict:
     if problem is not None:
         return Verdict(cv.OUTCOME_REJECTED, (problem,), status)
     reasons = [cv.REASON_MUTANT_FAILS_PUBLIC]
-    if failing_ids(phases.mutant.hidden):
+    if phases.mutant is not None and failing_ids(phases.mutant.hidden):
         reasons.append(cv.REASON_MUTANT_FAILS_HIDDEN)
     reasons.append(cv.REASON_REPAIR_PASSES_ALL)
     if status != cv.STATUS_VALIDATED:
@@ -183,11 +188,15 @@ def _fits(entries: list[dict[str, Any]], entry: dict[str, Any]) -> bool:
 
 
 def public_evidence(
-    mutant: ex.PhaseReport, examples: tuple[cat.Example, ...]
+    mutant: ex.PhaseReport | None, examples: tuple[cat.Example, ...]
 ) -> tuple[list[dict[str, Any]], int]:
     """The failing public examples of the mutant, bounded: ``(entries, omitted_count)``."""
 
-    failing = [row for row in mutant.public if row["status"] != cv.ROW_SUCCESS]
+    rows = () if mutant is None else mutant.public
+    failing = [
+        row for row in rows
+        if row["status"] != cv.ROW_SUCCESS and _example_index(row["id"]) < len(examples)
+    ]
     entries: list[dict[str, Any]] = []
     for row in sorted(failing, key=lambda r: _example_index(r["id"])):
         entry = _entry(row, examples[_example_index(row["id"])])

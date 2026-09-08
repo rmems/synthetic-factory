@@ -124,9 +124,11 @@ def _evidence_findings(record: dict[str, Any]) -> list[str]:
     """The stored evidence must be the bounded rendering of the mutant's failing rows."""
 
     examples = {e["example_id"]: e for e in record["scenario"]["public_tests"]["examples"]}
+    mutant = record["result"]["phases"].get(cv.PHASE_MUTANT) or {}
+    rows = {row["id"]: row for row in mutant.get("public", [])}
     entries = list(record["result"]["public_failure_evidence"])
     consistent = _entries_are_the_leading_failures(record, _failing_public_ids(record)) and all(
-        _matches_example(e, examples) for e in entries
+        _matches_example(e, examples) and _matches_row(e, rows) for e in entries
     )
     return [] if consistent else [cv.LEAK_PUBLIC_EVIDENCE_NOT_FROM_ROWS]
 
@@ -136,6 +138,17 @@ def _matches_example(entry: dict[str, Any], examples: dict[str, dict[str, Any]])
     if example is None:
         return False
     return (entry["source"], entry["want"]) == (example["source"], example["want"])
+
+
+def _matches_row(entry: dict[str, Any], rows: dict[str, dict[str, Any]]) -> bool:
+    """An untruncated ``got`` must hash to the digest the harness row carries."""
+
+    row = rows.get("public:" + entry["example_id"].rpartition(":")[2])
+    if row is None or row.get("status") == cv.ROW_SUCCESS:
+        return False
+    if entry.get("truncated"):
+        return True
+    return row.get("got_sha256") == cat.sha256_text(str(entry["got"]))
 
 
 def _completion_findings(record: dict[str, Any], row: dict[str, Any]) -> list[str]:

@@ -155,8 +155,10 @@ def _oracle(candidate: Candidate, batch: Batch) -> dict[str, Any]:
             "kind": program.reference.kind, "reference_function": program.reference.function,
             "reference_sha256": program.reference.sha256, "cases": list(program.cases),
         },
-        "network_isolation": (
-            "none (stdlib-only sandbox; imports restricted by the catalog selector)"
+        "isolation": (
+            "rlimits and a fresh working directory only: no filesystem or network isolation "
+            "(issue #198); programs come from a pinned catalog whose selector admits stdlib-only "
+            "modules"
         ),
     }
     environment = fingerprint(batch, candidate.phases.original)
@@ -164,11 +166,11 @@ def _oracle(candidate: Candidate, batch: Batch) -> dict[str, Any]:
     return oc.new_oracle(identity, run)
 
 
-def _suite_readings(phase: str, suite: str, rows: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+def _suite_readings(phase: str, suite: str, rows: tuple[dict, ...]) -> list[dict[str, Any]]:
     failed = len(verify.failing_ids(rows))
     detail = {"phase": phase, "suite": suite}
     counts = (("passed_check_count", len(rows) - failed), ("failed_check_count", failed))
-    return [oc.new_measurement(quantity, value, cv.METER, detail=detail) for quantity, value in counts]
+    return [oc.new_measurement(name, value, cv.METER, detail=detail) for name, value in counts]
 
 
 def _measurements(phases: verify.Phases) -> list[dict[str, Any]]:
