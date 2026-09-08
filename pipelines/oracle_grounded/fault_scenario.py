@@ -2,10 +2,10 @@
 """The seeded programmatic generator of the fault-recovery family (F1).
 
 A proposal carries a scenario, an intervention and a shallow candidate
-prediction -- nothing an oracle owns. This is the family's only module that
-imports ``random``: one ``random.Random(seed)`` per batch with #138's draw
-order and menus kept exactly, so a seed reproduces its proposal stream (seed
-20260823, index 15 is still the fixture-0015 stream). Every generated
+prediction -- nothing an oracle owns. The family draws from its own
+:class:`DrawStream` (SHA-256 over seed and draw counter, no ``random``
+module), with #138's draw order and menus kept exactly, so a seed reproduces
+its proposal stream on every platform and Python version. Every generated
 configuration satisfies D7 rows 1, 2, 4, 5 and 8 by construction: only
 ``min_healthy_channels`` (2 or 3) and ``fallback_source`` (the redundant relay
 or null) vary from ``DEFAULT_SYSTEM``, and every drawn ``peak_c`` sits above
@@ -14,12 +14,52 @@ ambient.
 
 from __future__ import annotations
 
-import random
-from typing import Any
+import hashlib
+from collections.abc import Sequence
+from typing import Any, TypeVar
 
 from . import distill_vocabulary as vocab
 from . import fault_vocabulary as fv
 from .import_twins import bind_import_twin
+
+T = TypeVar("T")
+
+
+class DrawStream:
+    """The family's deterministic draw stream: SHA-256 over ``"{seed}:{counter}"``.
+
+    Every draw consumes one counter step and takes 64 bits of the digest, so
+    the same seed yields the same proposals everywhere, independent of any
+    pseudo-random library's generator or its selection internals. Seeds are
+    non-negative integers (refused otherwise), so no two seeds share a stream.
+    """
+
+    def __init__(self, seed: int) -> None:
+        self._seed = seed
+        self._counter = 0
+
+    def bits(self) -> int:
+        """The next 64-bit draw."""
+        self._counter += 1
+        digest = hashlib.sha256(f"{self._seed}:{self._counter}".encode("ascii")).digest()
+        return int.from_bytes(digest[:8], "big")
+
+    def choice(self, options: Sequence[T]) -> T:
+        return options[self.bits() % len(options)]
+
+    def randint(self, low: int, high: int) -> int:
+        """An integer in ``[low, high]``."""
+        return low + self.bits() % (high - low + 1)
+
+    def sample(self, population: Sequence[T], count: int) -> list[T]:
+        """``count`` distinct members, in draw order."""
+        pool = list(population)
+        return [pool.pop(self.bits() % len(pool)) for _ in range(count)]
+
+    def chance(self, probability: float) -> bool:
+        """True with the given probability."""
+        return self.bits() < probability * 2**64
+
 
 # kind -> (rng, channels, picked) -> parameters, drawing in #138's order.
 _DISTURBANCE_BUILDERS: dict[str, Any] = {
@@ -69,17 +109,17 @@ _DISTURBANCE_BUILDERS: dict[str, Any] = {
 }
 
 
-def _disturbance(rng: random.Random, kind: str, channels: list[str]) -> dict[str, Any]:
+def _disturbance(rng: DrawStream, kind: str, channels: list[str]) -> dict[str, Any]:
     """One proposed disturbance: parameters only, no labels."""
     picked = rng.sample(channels, rng.randint(1, max(1, len(channels) - 1)))
     return {"kind": kind, "parameters": _DISTURBANCE_BUILDERS[kind](rng, channels, picked)}
 
 
-def _system_draw(rng: random.Random) -> dict[str, Any]:
+def _system_draw(rng: DrawStream) -> dict[str, Any]:
     """A private copy of the default relay with the two generator-varied controls."""
     system = fv.default_system()
     system["min_healthy_channels"] = rng.choice([2, 3])
-    if rng.random() < 0.2:
+    if rng.chance(0.2):
         system["fallback_source"] = None
     return system
 
@@ -107,10 +147,9 @@ def _proposal(index: int, system: dict[str, Any], disturbance: dict[str, Any]) -
 def _check_request(seed: Any, count: Any) -> None:
     """A genuine non-negative integer seed and a genuine integer count >= 1.
 
-    Bool is refused for both. A negative seed is refused because
-    ``random.Random(n)`` seeds from ``abs(n)``: seeds ``-n`` and ``n`` would
-    yield one proposal stream under two ids, so two corpora an agent picked
-    as ``+n``/``-n`` would carry identical content.
+    Bool is refused for both. A negative seed is refused so that the seed in
+    a record id and in ``generator.seed`` is one unambiguous non-negative
+    integer, and no two accepted seeds can share a stream.
     """
     fv.refuse_first(
         (
@@ -129,9 +168,9 @@ def _check_request(seed: Any, count: Any) -> None:
 
 
 def propose_scenarios(seed: int, count: int) -> list[dict[str, Any]]:
-    """``count`` proposals from one ``random.Random(seed)``, kinds cycling in order."""
+    """``count`` proposals from one :class:`DrawStream`, kinds cycling in order."""
     _check_request(seed, count)
-    rng = random.Random(seed)
+    rng = DrawStream(seed)
     proposals = []
     for index in range(count):
         kind = fv.DISTURBANCES[index % len(fv.DISTURBANCES)]

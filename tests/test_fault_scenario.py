@@ -40,23 +40,33 @@ class SeededStream(unittest.TestCase):
             counts[proposal["scenario"]["disturbance_kind"]] += 1
         self.assertEqual(set(counts.values()), {4})
 
-    def test_the_fixture_0015_stream_is_reproduced(self):
-        proposal = propose(SEED, 16)[15]
+    def test_the_seed_stream_is_pinned_across_platforms(self):
+        """The family's own draw stream (SHA-256 over seed and counter), pinned at
+        two indexes of the fixture seed so a silent change to the draw order, the
+        menus or the stream itself cannot keep this green."""
+        proposals = propose(SEED, 16)
         self.assertEqual(
-            proposal["intervention"],
+            proposals[0]["intervention"],
+            {"kind": "sensor_loss", "parameters": {"channels": ["c0", "c1", "c2"], "onset_ms": 8.0, "duration_ms": 14.0}},
+        )
+        self.assertEqual(
+            proposals[15]["intervention"],
             {
                 "kind": "malformed_spike_burst",
-                "parameters": {"channels": ["c0", "c1", "c2"], "malformed_count": 1, "malformed_kind": "unknown_channel"},
+                "parameters": {"channels": ["c2"], "malformed_count": 1, "malformed_kind": "negative_amplitude"},
             },
         )
-        self.assertEqual(proposal["scenario"]["system"]["min_healthy_channels"], 2)
+        self.assertEqual(proposals[15]["scenario"]["system"]["min_healthy_channels"], 2)
+        self.assertEqual(fault_scenario.DrawStream(0).bits(), 17227200041832915037)
 
-    def test_only_the_generator_imports_random(self):
-        for module in (fault_simulator, fault_tiers):
+    def test_no_family_module_imports_the_random_module(self):
+        for module in (fault_scenario, fault_simulator, fault_tiers, fault_oracle, fault_config, fault_parameters):
             with self.subTest(module=module.__name__):
-                self.assertFalse(hasattr(module, "random"))
                 self.assertNotIn("import random", inspect.getsource(module))
-        self.assertIn("import random", inspect.getsource(fault_scenario))
+        stream, twin = fault_scenario.DrawStream(3), fault_scenario.DrawStream(3)
+        self.assertEqual([stream.choice("ab") for _ in range(8)], [twin.choice("ab") for _ in range(8)])
+        self.assertEqual(sorted(stream.sample(["c0", "c1", "c2", "c3"], 4)), ["c0", "c1", "c2", "c3"])
+        self.assertTrue(all(1 <= stream.randint(1, 4) <= 4 for _ in range(50)))
 
 
 class RequestRefusals(unittest.TestCase):
@@ -71,8 +81,8 @@ class RequestRefusals(unittest.TestCase):
                 propose(seed, 1)
 
     def test_a_negative_seed_is_refused_so_no_seed_aliases_its_absolute_value(self):
-        """``random.Random(-n)`` draws the stream of ``n``; refusing ``-n`` keeps
-        'a different seed yields different content' true for every accepted seed."""
+        """A seed is one unambiguous non-negative integer in ids and in
+        ``generator.seed``; refusing ``-n`` keeps every accepted seed distinct."""
         for seed in (-1, -5, -SEED):
             with self.subTest(seed=seed), refusal(self, fv.FINDING_SEED_NOT_AN_INTEGER, "non-negative"):
                 propose(seed, 1)
