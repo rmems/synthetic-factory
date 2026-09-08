@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+"""Direct tests of ``fault_simulator``: the corruption phase and mechanics,
+the valid-disturbance twin of every enforced D7 row, the held rows as
+accepted runs, row 9's behaviour change, determinism, the detection and
+recovery invariant, and the oracle block."""
+
+import copy
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from fault_test_support import (
+    disturbance,
+    fault_config,
+    fault_scenario,
+    fault_simulator as fs,
+    fault_vocabulary as fv,
+    run,
+    scenario,
+)
+
+PHASES = (
+    0.0, 0.919, 0.838, 0.757, 0.676, 0.595, 0.514, 0.433, 0.352, 0.271, 0.19, 0.109,
+    0.028, 0.947, 0.866, 0.785, 0.704, 0.623, 0.542, 0.461, 0.38, 0.299, 0.218, 0.137,
+)
+
+
+def thermal(peak, ramp=8.0, onset=6.0, **system):
+    return run("thermal_excursion", system, onset_ms=onset, ramp_ms=ramp, peak_c=peak)
+
+
+def burst(ratio, channels, window=(4.0, 10.0), **system):
+    onset, duration = window
+    return run("burst_corruption", system, channels=channels, onset_ms=onset, duration_ms=duration, corrupt_ratio=ratio)
+
+
+def malformed(kind, count, channels, **system):
+    return run("malformed_spike_burst", system, channels=channels, malformed_count=count, malformed_kind=kind)
+
+
+def verdict(result):
+    return result.outcome, result.reason_codes
+
+
+class Mechanics(unittest.TestCase):
+    def test_the_corruption_phase_is_the_pinned_integer_sequence(self):
+        self.assertEqual(tuple(fs.corruption_phase(tick) for tick in range(24)), PHASES)
+
+    def test_the_thermal_trace_is_a_heating_only_running_max(self):
+        result = thermal(70.0)
+        self.assertEqual([e["temperature_c"] for e in result.trace][:9], [38.0, 38.0, 38.0, 38.0, 46.0, 54.0, 62.0, 70.0, 70.0])
+        self.assertEqual(result.ticks, 24)
+
+    def test_total_events_are_ticks_times_live_channels(self):
+        self.assertEqual(thermal(58.0).total_events, 96)
+        missing = run("missing_channel", channels=["c3"])
+        self.assertEqual((missing.total_events, missing.worst_healthy_channels), (72, 3))
+        self.assertEqual(verdict(missing), ("degrade_gracefully", ("REDUCED_CHANNEL_SET",)))
+
+
+class EnforcedRowTwins(unittest.TestCase):
+    def test_rows_1_and_2_a_valid_excursion_still_walks_the_ladder(self):
+        cases = ((58.0, "continue"), (70.0, "degrade_gracefully"), (84.0, "reflex_action"), (96.0, "fail_closed"), (200.0, "fail_closed"))
+        for peak, outcome in cases:
+            with self.subTest(peak=peak):
+                self.assertEqual(thermal(peak).outcome, outcome)
+        self.assertEqual(verdict(thermal(96.0)), ("fail_closed", ("THERMAL_SHUTDOWN",)))
+        self.assertEqual(verdict(thermal(84.0)), ("reflex_action", ("THERMAL_LIMIT_REFLEX",)))
+
+    def test_row_4_twin_losing_two_of_four_below_the_budget(self):
+        engaged = run("missing_channel", {"min_healthy_channels": 3}, channels=["c0", "c1"])
+        self.assertEqual(verdict(engaged), ("fallback", ("FALLBACK_SOURCE_ENGAGED",)))
+        closed = run("missing_channel", {"min_healthy_channels": 3, "fallback_source": None}, channels=["c0", "c1"])
+        self.assertEqual(verdict(closed), ("fail_closed", ("INSUFFICIENT_HEALTHY_CHANNELS_NO_FALLBACK",)))
+
+    def test_row_5_twins_the_deadline_tiers_in_order(self):
+        cases = (
+            (44.0, "fail_closed", "NO_TIMELY_INPUT", 12.0, 13.0),
+            (50.0, "fail_closed", "NO_TIMELY_INPUT", 12.0, 13.0),
+            (18.0, "degrade_gracefully", "RESULT_PAST_DEADLINE", 12.0, 14.0),
+            (20.0, "degrade_gracefully", "RESULT_PAST_DEADLINE", 12.0, 14.0),
+            (12.0, "continue", "WITHIN_TOLERANCE", None, 0.0),
+        )
+        for delay, outcome, reason, detection, recovery in cases:
+            with self.subTest(delay=delay):
+                result = run("delayed_result", delay_ms=delay)
+                self.assertEqual(verdict(result), (outcome, (reason,)))
+                self.assertEqual((result.detection_latency_ms, result.recovery_latency_ms), (detection, recovery))
+
+    def test_row_6_a_zero_threshold_is_a_policy_not_a_verdict(self):
+        clean = run("event_jitter", {"corruption_quarantine_ratio": 0.0}, channels=["c0"], onset_ms=2.0, duration_ms=20.0, jitter_ms=0.4)
+        self.assertEqual(verdict(clean), ("continue", ("WITHIN_TOLERANCE",)))
+        self.assertEqual(clean.corrupt_events, 0)
+        strict = burst(0.8, ["c0", "c1"], corruption_quarantine_ratio=0.0)
+        self.assertEqual(verdict(strict), ("quarantine", ("CORRUPTION_ABOVE_QUARANTINE_THRESHOLD",)))
+        self.assertEqual(strict.corrupt_events, 8)
+        below = burst(0.3, ["c0"], window=(0.0, 48.0))
+        self.assertEqual(verdict(below), ("degrade_gracefully", ("CORRUPTION_BELOW_QUARANTINE_THRESHOLD",)))
+        # The generator's onset-4 / duration-10 window is ticks 2-6, whose
+        # phases all sit above 0.2: a faithful within-tolerance negative.
+        self.assertEqual(verdict(burst(0.2, ["c0"])), ("continue", ("WITHIN_TOLERANCE",)))
+
+    def test_the_realised_corruption_tracks_the_request(self):
+        for ratio in (0.2, 0.4, 0.6, 0.8):
+            with self.subTest(ratio=ratio):
+                result = burst(ratio, ["c0", "c1", "c2", "c3"], window=(0.0, 1000.0), ticks=500)
+                self.assertLess(abs(result.realised_corrupt_ratio - ratio), 0.12)
+
+
+class HeldRows(unittest.TestCase):
+    def test_row_3_an_excursion_that_never_crosses_warn_is_a_valid_continue(self):
+        self.assertEqual((thermal(58.0).outcome, thermal(58.0).peak_temperature_c), ("continue", 58.0))
+        self.assertEqual((thermal(70.0, ramp=1e9).outcome, thermal(70.0, ramp=1e9).peak_temperature_c), ("continue", 38.0))
+
+    def test_row_7_a_tick_longer_than_the_staleness_threshold_runs(self):
+        result = run("event_jitter", {"tick_ms": 10.0, "stale_threshold_ms": 8.0}, channels=["c0"], onset_ms=20.0, duration_ms=20.0, jitter_ms=0.4)
+        self.assertEqual(verdict(result), ("continue", ("WITHIN_TOLERANCE",)))
+
+    def test_row_10_a_reflex_threshold_beyond_the_horizon_reports_without_a_reflex(self):
+        result = run("temporary_saturation", {"reflex_saturation_ticks": 30}, channels=["c0"], onset_ms=0.0, duration_ms=48.0)
+        self.assertEqual((verdict(result), result.saturated_ticks), (("degrade_gracefully", ("REDUCED_CHANNEL_SET",)), 24))
+        reflex = run("temporary_saturation", {"min_healthy_channels": 2}, channels=["c0"], onset_ms=2.0, duration_ms=16.0)
+        self.assertEqual((verdict(reflex), reflex.saturated_ticks), (("reflex_action", ("SATURATION_REFLEX",)), 8))
+        self.assertEqual(run("temporary_saturation", channels=["c0"], onset_ms=2.0, duration_ms=4.0).saturated_ticks, 2)
+
+    def test_row_11_jitter_within_tolerance_is_exactly_within_tolerance(self):
+        for jitter in (0.4, 1.5):
+            with self.subTest(jitter=jitter):
+                result = run("event_jitter", channels=["c0"], onset_ms=2.0, duration_ms=20.0, jitter_ms=jitter)
+                self.assertEqual(verdict(result), ("continue", ("WITHIN_TOLERANCE",)))
+                self.assertIsNone(result.detection_latency_ms)
+        loud = run("event_jitter", channels=["c0"], onset_ms=2.0, duration_ms=20.0, jitter_ms=3.0)
+        self.assertEqual(verdict(loud), ("degrade_gracefully", ("JITTER_BEYOND_TOLERANCE",)))
+
+
+class Row9DropsStartDetection(unittest.TestCase):
+    """Fixture fr-20260823-0015 (#138) carried no detection and recovery 0.0 here."""
+
+    def test_a_drop_caused_degrade_has_a_detection_time(self):
+        cases = ((3, ["c0"], 3), (1, ["c0", "c1", "c2"], 2))
+        for count, channels, budget in cases:
+            with self.subTest(count=count):
+                result = malformed("unknown_channel", count, channels, min_healthy_channels=budget)
+                self.assertEqual(verdict(result), ("degrade_gracefully", ("EVENTS_DROPPED",)))
+                self.assertEqual((result.integrity_violation, result.dropped_events), (False, count))
+                self.assertEqual((result.detection_latency_ms, result.recovery_latency_ms), (0.0, 2.0))
+
+    def test_integrity_kinds_quarantine_at_the_first_tick(self):
+        for kind in fv.MALFORMED_INTEGRITY_KINDS:
+            with self.subTest(kind=kind):
+                result = malformed(kind, 2, ["c1"])
+                self.assertEqual(verdict(result), ("quarantine", ("MALFORMED_STREAM_QUARANTINED",)))
+                self.assertEqual((result.integrity_violation, result.detection_latency_ms), (True, 0.0))
+
+
+class CarriedBehaviour(unittest.TestCase):
+    def test_a_long_sensor_loss_co_fires_staleness_in_table_order(self):
+        long = run("sensor_loss", {"min_healthy_channels": 2}, channels=["c0"], onset_ms=4.0, duration_ms=14.0)
+        self.assertEqual(long.reason_codes, ("STALE_BEYOND_THRESHOLD", "EVENTS_DROPPED", "REDUCED_CHANNEL_SET"))
+        short = run("sensor_loss", {"min_healthy_channels": 2}, channels=["c0"], onset_ms=4.0, duration_ms=6.0)
+        self.assertEqual(short.reason_codes, ("EVENTS_DROPPED", "REDUCED_CHANNEL_SET"))
+
+    def test_naming_the_fallback_among_the_lost_channels_fails_closed(self):
+        result = run("sensor_loss", channels=["c0", "c1", "redundant_relay_b"], onset_ms=4.0, duration_ms=14.0)
+        self.assertEqual(verdict(result), ("fail_closed", ("INSUFFICIENT_HEALTHY_CHANNELS_NO_FALLBACK",)))
+
+    def test_a_stale_sensor_accrues_staleness_past_the_threshold(self):
+        result = run("stale_sensor", {"min_healthy_channels": 2}, channels=["c0"], onset_ms=2.0, duration_ms=22.0)
+        self.assertGreater(result.max_staleness_ms, 8.0)
+        self.assertEqual(result.outcome, "degrade_gracefully")
+
+    def test_latencies_are_onset_relative(self):
+        labels = {(thermal(84.0, onset=onset).detection_latency_ms, thermal(84.0, onset=onset).recovery_latency_ms) for onset in (2.0, 12.0, 20.0)}
+        self.assertEqual(labels, {(6.0, 7.0)})
+
+    def test_two_fresh_simulators_agree_including_the_trace(self):
+        proposal = fault_scenario.propose_scenarios(7, 3)[2]
+        first = fs.RelayReflexSimulator().run(copy.deepcopy(proposal["scenario"]), copy.deepcopy(proposal["intervention"]))
+        second = fs.RelayReflexSimulator().run(copy.deepcopy(proposal["scenario"]), copy.deepcopy(proposal["intervention"]))
+        self.assertEqual(first, second)
+        self.assertEqual(first.trace, second.trace)
+
+
+class Invariants(unittest.TestCase):
+    def test_continue_iff_no_detection_and_recovery_follows_detection(self):
+        engine = fs.RelayReflexSimulator()
+        seen = set()
+        for seed in range(1, 11):
+            for proposal in fault_scenario.propose_scenarios(seed, 36):
+                result = engine.run(proposal["scenario"], proposal["intervention"])
+                seen.update(result.reason_codes)
+                with self.subTest(seed=seed, index=proposal["index"]):
+                    self.assertEqual(result.outcome == "continue", result.detection_latency_ms is None)
+                    self.assertTrue(set(result.reason_codes) <= fv.REASON_CODE_SET)
+                    if result.outcome != "continue":
+                        self.assertGreater(result.recovery_latency_ms, result.detection_latency_ms)
+                        self.assertGreaterEqual(result.detection_latency_ms, 0.0)
+        self.assertEqual(seen, fv.REASON_CODE_SET)
+
+
+class OracleBlock(unittest.TestCase):
+    def test_the_block_records_identity_and_the_effective_system(self):
+        block = fs.RelayReflexSimulator().oracle_block({"system": {"ticks": 5}})
+        self.assertEqual((block["name"], block["type"], block["version"]), (fv.ORACLE_NAME, fv.ORACLE_TYPE, fv.ORACLE_VERSION))
+        self.assertEqual((block["implementation"], block["authority"]), (fv.ORACLE_IMPLEMENTATION, "authoritative"))
+        self.assertEqual(block["configuration"]["system"], fault_config.checked_system({"system": {"ticks": 5}}))
+        self.assertEqual(block["configuration"]["precedence"], list(fv.OUTCOME_PRECEDENCE))
+        self.assertEqual((block["seed"], block["commit"]), (None, None))
+        full = scenario()
+        self.assertEqual(fs.RelayReflexSimulator().oracle_block(full)["configuration"]["system"], full["system"])
+
+    def test_the_configuration_recorded_is_the_configuration_run(self):
+        partial = {"system": {"ticks": 5}}
+        result = fs.RelayReflexSimulator().run(partial, disturbance("missing_channel", channels=["c1"]))
+        recorded = fs.RelayReflexSimulator().oracle_block(partial)["configuration"]["system"]
+        self.assertEqual((result.total_events, recorded["ticks"], len(recorded)), (15, 5, 17))
+
