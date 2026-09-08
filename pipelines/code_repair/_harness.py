@@ -124,9 +124,18 @@ def _run_public(module, text: str, function: str) -> list:
     return rows
 
 
+def _is_integer_text(text: str) -> bool:
+    digits = text[1:] if text.startswith("-") else text
+    return digits.isdigit()
+
+
 def _agree(got: str, want: str, spec: dict) -> bool:
+    """Equal reprs agree; integers only exactly; floats within the pinned tolerances."""
+
     if got == want:
         return True
+    if _is_integer_text(got) or _is_integer_text(want):
+        return False
     try:
         left, right = float(got), float(want)
     except ValueError:

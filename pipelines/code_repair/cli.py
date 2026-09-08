@@ -187,13 +187,26 @@ _COMMANDS = {
 }
 
 
+def _refused(args: argparse.Namespace, refusal: envelope.ContractError) -> int:
+    """A coded refusal: one JSON object on stdout under ``--json``, else ``CODE: prose``."""
+
+    if getattr(args, "json", False):
+        payload = {
+            "command": args.command, "status": "refused",
+            "code": getattr(refusal, "code", None), "message": str(refusal),
+        }
+        print(json.dumps(payload, sort_keys=True))
+    else:
+        print(str(refusal), file=sys.stderr)
+    return 2
+
+
 def run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return _COMMANDS[args.command](args)
     except envelope.ContractError as refusal:
-        print(str(refusal), file=sys.stderr)
-        return 2
+        return _refused(args, refusal)
 
 
 bind_import_twin(__name__)

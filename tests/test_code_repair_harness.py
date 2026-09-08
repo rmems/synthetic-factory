@@ -58,7 +58,42 @@ class OriginalAndMutant(unittest.TestCase):
         self.assertEqual(report.hidden[0]["got"], "3")
 
 
+class Agreement(unittest.TestCase):
+    """Codex on #196: integers must compare exactly; the float tolerance is for floats."""
+
+    def _hidden(self, module: str, cases):
+        report = RUNNER.run(ex.Job("agree:test", module, "f", tuple(cases), False))
+        self.assertTrue(report.ok, report.detail)
+        return [row["status"] for row in report.hidden]
+
+    def test_an_integer_off_by_one_beyond_float_precision_fails(self):
+        module = "def f(n):\n    return n + 1\n"
+        cases = [{"args": "(9007199254740992,)", "want": "9007199254740992"}]
+        self.assertEqual(self._hidden(module, cases), ["fail"])
+
+    def test_an_integer_want_never_agrees_with_a_float_got(self):
+        module = "def f(n):\n    return float(n)\n"
+        self.assertEqual(self._hidden(module, [{"args": "(2,)", "want": "2"}]), ["fail"])
+
+    def test_floats_agree_within_the_pinned_tolerance(self):
+        module = "def f(x):\n    return x + 1e-15\n"
+        self.assertEqual(self._hidden(module, [{"args": "(0.5,)", "want": "0.5"}]), ["pass"])
+
+
 class Failures(unittest.TestCase):
+    def test_a_child_that_streams_output_forever_is_bounded_by_its_file_size_limit(self):
+        """Codex on #196: child output goes to files under RLIMIT_FSIZE, not an unbounded pipe."""
+
+        module = (
+            "import sys\nwhile True:\n    sys.stderr.write('x' * 65536)\n\n\n"
+            "def f(n):\n    return n\n"
+        )
+        quick = ex.Executor(timeout_s=2.0)
+        report = quick.run(ex.Job("stream:test", module, "f", (), False))
+        self.assertFalse(report.ok)  # the write past the limit fails the module's import
+        self.assertFalse(quick.log[-1]["timed_out"])
+        self.assertLessEqual(len(quick.log[-1]["stderr_tail"]), ex.STDERR_TAIL_CHARS)
+
     def test_an_infinite_loop_is_a_timeout_not_an_exception(self):
         prog = program("sum_of_digits")
         site = boundary_site(prog)

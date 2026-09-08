@@ -42,6 +42,16 @@ def _target(text: str, function: str) -> ast.FunctionDef | None:
     return mutate_sites.target(text, function)
 
 
+def body_nodes(target: ast.FunctionDef):
+    """Every node inside the function's body statements: never decorators, defaults or annotations.
+
+    Those run at definition time and are not the behaviour the doctests specify (Codex on #197).
+    """
+
+    for statement in target.body:
+        yield from ast.walk(statement)
+
+
 def apply(text: str, site: Site) -> str:
     """The module text with exactly the site's span replaced."""
 

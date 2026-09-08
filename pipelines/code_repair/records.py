@@ -58,7 +58,7 @@ class Batch:
 def candidate_seed(run_seed: int, program_id: str, draw_index: int) -> int:
     """A 64-bit seed per candidate, so one record is reproducible without the batch."""
 
-    digest = hashlib.sha256(f"{run_seed}:{program_id}:{draw_index}".encode("ascii")).digest()
+    digest = hashlib.sha256(f"{run_seed}:{program_id}:{draw_index}".encode("utf-8")).digest()
     return int.from_bytes(digest[:8], "big")
 
 
@@ -181,9 +181,10 @@ def _measurements(phases: verify.Phases) -> list[dict[str, Any]]:
     """Pass and fail counts per executed phase and suite."""
 
     readings: list[dict[str, Any]] = []
-    reports = zip(cv.PHASES, (phases.original, phases.mutant, phases.repaired))
+    reports = zip(cv.PHASES, (phases.original, phases.mutant, phases.repaired, phases.reference))
     for phase, report in ((p, r) for p, r in reports if r is not None and r.ok):
-        readings += _suite_readings(phase, cv.SUITE_PUBLIC, report.public)
+        if phase != cv.PHASE_REFERENCE:  # the reference runs the hidden cases only
+            readings += _suite_readings(phase, cv.SUITE_PUBLIC, report.public)
         readings += _suite_readings(phase, cv.SUITE_HIDDEN, report.hidden)
     return readings
 
@@ -194,6 +195,7 @@ def _result(candidate: Candidate) -> dict[str, Any]:
         cv.PHASE_ORIGINAL: verify.phase_block(phases.original),
         cv.PHASE_MUTANT: verify.phase_block(phases.mutant),
         cv.PHASE_REPAIRED: verify.phase_block(phases.repaired),
+        cv.PHASE_REFERENCE: verify.phase_block(phases.reference),
     }
     fields: dict[str, Any] = {
         "outcome": candidate.verdict.outcome,
@@ -207,7 +209,10 @@ def _result(candidate: Candidate) -> dict[str, Any]:
         "evidence_sha256": verify.result_hash(blocks),
     }
     if not phases.original.ok:
-        reason = f"the harness could not measure the original program ({phases.original.detail})"
+        # A coded reason only: the harness detail can name the volatile workdir and belongs to
+        # the execution log, never to a stable record (Codex on #197).
+        code = candidate.verdict.reason_codes[0] if candidate.verdict.reason_codes else ""
+        reason = f"{code}: the harness could not measure the original program"
         return oc.new_result(status=oc.RESULT_ABSTAINED, abstention_reason=reason, **fields)
     return oc.new_result(measurements=_measurements(phases), **fields)
 

@@ -154,6 +154,7 @@ def _rederived_verdict(record: dict[str, Any]) -> verify.Verdict:
         _stored_phase(result["phases"][cv.PHASE_ORIGINAL]),
         _stored_phase(result["phases"][cv.PHASE_MUTANT]),
         _stored_phase(result["phases"][cv.PHASE_REPAIRED]),
+        _stored_phase(result["phases"].get(cv.PHASE_REFERENCE)),
     )
     hidden = record["oracle"]["configuration"]["hidden_check"]
     repaired = views.completion_of(record)
