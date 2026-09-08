@@ -8,22 +8,20 @@ record corpus -- carried once so the direct test modules stay small and
 qlty's duplication smells stay silent.
 """
 
-import contextlib
 import copy
 import functools
-import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from coded_refusal_test_support import coded_refusal
 from distill_contract_test_support import REPO, envelope, oc
 from oracle_grounded import fault_config, fault_oracle, fault_scenario, fault_simulator, fault_vocabulary
 
 PINNED_AT = "2026-08-23T00:00:00.000Z"
 SEED = 20260823
 FAULT_MODULES = ("fault_vocabulary", "fault_config", "fault_scenario", "fault_simulator", "fault_oracle")
-_CODE_TOKEN = re.compile(r"[A-Z][A-Z0-9_]+")
 
 __all__ = (
     "FAULT_MODULES", "PINNED_AT", "REPO", "SEED", "contract_findings", "disturbance",
@@ -53,23 +51,13 @@ def run(kind, system=None, **parameters):
     return engine.run(copy.deepcopy(proposal), copy.deepcopy(disturbance(kind, **parameters)))
 
 
-def _codes(text, declared):
-    return [token for token in _CODE_TOKEN.findall(text) if token in declared]
-
-
-@contextlib.contextmanager
 def refusal(case, code, *fragments):
     """Assert a ``FaultRefusal`` carrying exactly ``code`` and every prose fragment."""
 
-    with case.assertRaises(fault_vocabulary.FaultRefusal) as caught:
-        yield caught
-    text = str(caught.exception)
-    case.assertEqual(caught.exception.code, code, text)
-    case.assertTrue(text.startswith(f"{code}: "), text)
-    case.assertEqual(_codes(text, fault_vocabulary.FINDING_CODE_SET), [code], text)
-    case.assertEqual(_codes(text, fault_vocabulary.REASON_CODE_SET), [], text)
-    for fragment in fragments:
-        case.assertIn(fragment, text)
+    return coded_refusal(
+        case, fault_vocabulary.FaultRefusal, fault_vocabulary.FINDING_CODE_SET,
+        fault_vocabulary.REASON_CODE_SET, code, *fragments,
+    )
 
 
 def ensure_policy():

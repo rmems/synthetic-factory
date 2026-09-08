@@ -38,6 +38,7 @@ FAMILIES = (
     "neuromorphic-fault-recovery",
     "snn-energy-routing-preferences",
     "moe-router-distillation-trajectories",
+    "python-function-repair",
 )
 
 GENERATOR_AUTHORITY = "propose_only"
@@ -144,6 +145,9 @@ QUANTITY_UNITS = {
     "top1_top2_margin": "logit",
     "expert_agreement": "ratio",
     "repeats": "count",
+    # Test-execution counts of the code-repair family (software lane).
+    "passed_check_count": "count",
+    "failed_check_count": "count",
 }
 
 # Quantity domains. `is_number` alone accepted any finite value, so a
@@ -165,6 +169,8 @@ NON_NEGATIVE_QUANTITIES = frozenset(
         "healthy_channel_count",
         "dropped_event_count",
         "repeats",
+        "passed_check_count",
+        "failed_check_count",
         "routing_entropy",
         "top1_top2_margin",
     }

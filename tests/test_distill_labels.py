@@ -133,7 +133,7 @@ class FamilyOracleLabels(unittest.TestCase):
         self.assertEqual(oc.declare_oracle_labels(self.FAULT, sorted(FAULT_LABELS)), first)
         with self.assertRaises(oc.ContractError):
             oc.declare_oracle_labels(self.FAULT, FAULT_LABELS | {"outcome"})
-        self.assertEqual(oc.declared_families(), (self.FAULT,))
+        self.assertIn(self.FAULT, oc.declared_families())
         self.assertIs(oc.oracle_label_policy(self.FAULT), first)
         self.assertIsNone(oc.oracle_label_policy(self.ENERGY))
         self.assertIsNone(oc.oracle_label_policy(None))

@@ -39,9 +39,10 @@ energy registry), ``distill_builders`` (the block and record builders),
 no-theoretical-energy rule and its structural scan), ``distill_blocks`` (the per-block envelope checks, the generator/oracle
 separation rule, ``check_envelope`` and ``check_digest``), ``distill_curation``
 (the validator-owned stamp and the fail-closed curation gate),
-``distill_jsonl`` (the JSONL I/O) and ``distill_labels`` (the family-owned
+``distill_jsonl`` (the JSONL I/O), ``distill_labels`` (the family-owned
 oracle-label policies and the family leak check, distinct from the structural
-checks) -- and every name is re-exported here so
+checks), ``rng`` (the shared seeded draw stream) and ``refusals`` (the coded
+refusal base every family subclasses) -- and every name is re-exported here so
 ``distill_contract.X`` remains the one entry point the family generators, the
 validator and the tests use. The envelope's primitives are bound under their
 own names too, so a ``ContractError`` raised by a family generator is caught
@@ -151,11 +152,16 @@ from .distill_vocabulary import (
     utc_now_iso,
 )
 from .import_twins import bind_import_twin
+from .refusals import CodedRefusal, code_of, shown
+from .refusals import helpers as refusal_helpers
+from .rng import MAX_SEED, DrawStream, check_seed
 
 __all__ = (
     "AUTHORITY_AUTHORITATIVE",
     "AUTHORITY_REFERENCE_ONLY",
+    "CodedRefusal",
     "ContractError",
+    "DrawStream",
     "ENERGY_QUANTITIES",
     "ENERGY_TOKENS",
     "ENERGY_UNITS",
@@ -166,6 +172,7 @@ __all__ = (
     "GeneratorIdentity",
     "ISO_8601_RE",
     "LABEL_IN_GENERATOR_NAMESPACE",
+    "MAX_SEED",
     "MEASURED_ENERGY_METERS",
     "MODELED_METERS",
     "MeasurementOptions",
@@ -199,6 +206,8 @@ __all__ = (
     "build_record",
     "canonical_json",
     "check_digest",
+    "check_seed",
+    "code_of",
     "check_envelope",
     "check_generator_oracle_separation",
     "check_measurements",
@@ -221,6 +230,8 @@ __all__ = (
     "oracle_label_policy",
     "read_jsonl",
     "record_digest",
+    "refusal_helpers",
+    "shown",
     "stamp_is_bound_to_content",
     "stamp_validation",
     "unvalidated",

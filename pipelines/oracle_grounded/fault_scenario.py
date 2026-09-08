@@ -2,10 +2,11 @@
 """The seeded programmatic generator of the fault-recovery family (F1).
 
 A proposal carries a scenario, an intervention and a shallow candidate
-prediction -- nothing an oracle owns. The family draws from its own
-:class:`DrawStream` (SHA-256 over seed and draw counter, no ``random``
-module), with #138's draw order and menus kept exactly, so a seed reproduces
-its proposal stream on every platform and Python version. Every generated
+prediction -- nothing an oracle owns. The family draws from the shared
+``oracle_grounded.rng.DrawStream`` (SHA-256 over seed and draw counter, no
+``random`` module) behind its own seed codes, with #138's draw order and menus
+kept exactly, so a seed reproduces its proposal stream on every platform and
+Python version. Every generated
 configuration satisfies D7 rows 1, 2, 4, 5 and 8 by construction: only
 ``min_healthy_channels`` (2 or 3) and ``fallback_source`` (the redundant relay
 or null) vary from ``DEFAULT_SYSTEM``, and every drawn ``peak_c`` sits above
@@ -14,52 +15,25 @@ ambient.
 
 from __future__ import annotations
 
-import hashlib
-from collections.abc import Sequence
-from typing import Any, TypeVar
+from typing import Any
 
 from . import distill_vocabulary as vocab
 from . import fault_vocabulary as fv
+from . import rng as shared_rng
 from .import_twins import bind_import_twin
 
-T = TypeVar("T")
 
+class DrawStream(shared_rng.DrawStream):
+    """The family's draw stream: the shared ``rng.DrawStream`` behind the family's seed codes.
 
-class DrawStream:
-    """The family's deterministic draw stream: SHA-256 over ``"{seed}:{counter}"``.
-
-    Every draw consumes one counter step and takes 64 bits of the digest, so
-    the same seed yields the same proposals everywhere, independent of any
-    pseudo-random library's generator or its selection internals. Seeds are
-    non-negative integers (refused otherwise), so no two seeds share a stream.
+    The stream itself (SHA-256 over ``"{seed}:{counter}"``, 64 bits per draw) is
+    the shared primitive, so the pinned proposal streams are unchanged; only
+    the seed refusal is family-coded (``FINDING_SEED_*``) and runs first.
     """
 
     def __init__(self, seed: int) -> None:
         _check_seed(seed)
-        self._seed = seed
-        self._counter = 0
-
-    def bits(self) -> int:
-        """The next 64-bit draw."""
-        self._counter += 1
-        digest = hashlib.sha256(f"{self._seed}:{self._counter}".encode("ascii")).digest()
-        return int.from_bytes(digest[:8], "big")
-
-    def choice(self, options: Sequence[T]) -> T:
-        return options[self.bits() % len(options)]
-
-    def randint(self, low: int, high: int) -> int:
-        """An integer in ``[low, high]``."""
-        return low + self.bits() % (high - low + 1)
-
-    def sample(self, population: Sequence[T], count: int) -> list[T]:
-        """``count`` distinct members, in draw order."""
-        pool = list(population)
-        return [pool.pop(self.bits() % len(pool)) for _ in range(count)]
-
-    def chance(self, probability: float) -> bool:
-        """True with the given probability."""
-        return self.bits() < probability * 2**64
+        super().__init__(seed)
 
 
 # kind -> (rng, channels, picked) -> parameters, drawing in #138's order.
