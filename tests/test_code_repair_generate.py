@@ -92,6 +92,19 @@ class Accounting(unittest.TestCase):
         self.assertTrue(all(p["records"] <= 1 for p in summary["programs"].values()))
         self.assertIn(cv.SKIP_PROGRAM_CAP_EXHAUSTED, summary["skips"])
 
+    def test_a_failing_original_skips_the_mutant_and_repaired_phases(self):
+        fake = FakeExecutor({
+            "original": lambda job: report(failure="timeout"),
+            "mutant": lambda job: self.fail("the mutant phase must not run"),
+            "repaired": lambda job: self.fail("the repaired phase must not run"),
+        })
+        request = generate.RunRequest(FIXTURE_CATALOG, self.root / "run", SEED, 2, PINNED_AT)
+        summary = generate.run(request, fake)
+        self.assertEqual(summary["reasons"], {cv.REASON_ORIGINAL_TIMEOUT: summary["records"]})
+        self.assertEqual(summary["oracle_statuses"], {cv.STATUS_INVALID: summary["records"]})
+        originals = [e for e in fake.log if e["label"].startswith("original:")]
+        self.assertEqual(fake.log[0]["label"], originals[0]["label"])
+
     def test_rejected_candidates_skip_the_repaired_phase(self):
         fake = FakeExecutor({
             "original": lambda job: report(rows("public", 9), rows("hidden", 24)),

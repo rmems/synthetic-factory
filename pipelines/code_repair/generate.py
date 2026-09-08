@@ -32,7 +32,6 @@ CANDIDATES_FILENAME = "candidates.jsonl"
 RUN_FILENAME = "RUN.json"
 LOG_FILENAME = "execution-log.jsonl"
 RUN_FORMAT = "code-repair-run/1"
-MAX_REDRAWS = 8
 
 __all__ = ["CANDIDATES_FILENAME", "LOG_FILENAME", "RUN_FILENAME", "RunRequest", "run"]
 
@@ -119,14 +118,11 @@ def _original(state: _State, program: cat.Program) -> ex.PhaseReport:
 def _draw_program(state: _State) -> cat.Program | None:
     """A program with sites and room under the cap, or None when every one is exhausted."""
 
-    eligible = [p for p in state.catalog.programs if state.sites[p.program_id]]
-    for _ in range(MAX_REDRAWS):
-        if not eligible:
-            return None
-        program = state.stream.choice(eligible)
-        if state.per_program[program.program_id] < state.cap:
-            return program
-    return None
+    eligible = [
+        p for p in state.catalog.programs
+        if state.sites[p.program_id] and state.per_program[p.program_id] < state.cap
+    ]
+    return state.stream.choice(eligible) if eligible else None
 
 
 def _candidate(state: _State, program: cat.Program, index: int) -> records.Candidate | str:
@@ -163,13 +159,15 @@ def _execute(state: _State, draft: _Draft) -> tuple[verify.Phases, verify.Decisi
     context = verify.DecisionContext(
         program.reference.kind, repaired == program.text, tampered, len(program.cases)
     )
-    mutant_job = program.job(f"{cv.PHASE_MUTANT}:{record_id}", mutation.mutated_text)
-    mutant = state.executor.run(mutant_job)
-    phases = verify.Phases(_original(state, program), mutant)
+    phases = verify.Phases(_original(state, program))
+    if verify.pre_repair_problem(phases, context) in (None, cv.REASON_MUTANT_HARNESS_ERROR):
+        # The original passed (the only way past its rules with no mutant yet): run the mutant.
+        mutant_job = program.job(f"{cv.PHASE_MUTANT}:{record_id}", mutation.mutated_text)
+        phases = verify.Phases(phases.original, state.executor.run(mutant_job))
     if verify.pre_repair_problem(phases, context) is None:
         repaired_job = program.job(f"{cv.PHASE_REPAIRED}:{record_id}", repaired)
         repaired_report = state.executor.run(repaired_job)
-        phases = verify.Phases(phases.original, mutant, repaired_report)
+        phases = verify.Phases(phases.original, phases.mutant, repaired_report)
     return phases, context
 
 

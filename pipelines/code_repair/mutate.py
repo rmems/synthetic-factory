@@ -116,7 +116,7 @@ def _compare_sites(node: ast.Compare, tokens: list, offsets: list[int]) -> list[
     for index, operator in enumerate(node.ops):
         gap_start, gap_end = _gap(node, index, offsets)
         inside = [t for t in tokens if gap_start <= t[1] and t[2] <= gap_end]
-        if len(inside) != 1 or type(operator) is not _OPERATOR_CLASSES[inside[0][0]]:
+        if len(inside) != 1 or not isinstance(operator, _OPERATOR_CLASSES[inside[0][0]]):
             continue
         string, start, end, row, col_bytes = inside[0]
         found.append(Site(
@@ -172,23 +172,38 @@ def _expected_dump(text: str, function: str, site: Site) -> str | None:
     return None
 
 
+def _compiles(text: str) -> bool:
+    try:
+        compile(text, cv.PROGRAM_FILENAME, "exec")
+    except (SyntaxError, ValueError):
+        return False
+    return True
+
+
 def verify(text: str, mutated_text: str, site: Site, function: str) -> str | None:
-    """The skip code for a mutant that must not be executed, or None when it is sound."""
+    """The skip code for a mutant that must not be executed, or None when it is sound.
+
+    The rules run in order and the first that holds decides: unchanged text,
+    a module that does not compile, an unchanged or missing target function,
+    a touched docstring, and finally disagreement with the in-memory transform.
+    """
 
     if mutated_text == text:
         return cv.SKIP_MUTATION_NOOP
-    try:
-        compile(mutated_text, cv.PROGRAM_FILENAME, "exec")
-    except (SyntaxError, ValueError):
+    if not _compiles(mutated_text):
         return cv.SKIP_MUTATION_SYNTAX_ERROR
     original, mutated = _target(text, function), _target(mutated_text, function)
-    if mutated is None or ast.dump(mutated) == ast.dump(original):
-        return cv.SKIP_MUTATION_NOOP
-    if ast.get_docstring(mutated, clean=False) != ast.get_docstring(original, clean=False):
-        return cv.SKIP_MUTATION_TOUCHES_DOCSTRING
-    if ast.dump(mutated) != _expected_dump(text, function, site):
-        return cv.SKIP_MUTATION_UNVERIFIABLE
-    return None
+    dumped = None if mutated is None else ast.dump(mutated)
+    rules = (
+        (dumped is None or dumped == ast.dump(original), cv.SKIP_MUTATION_NOOP),
+        (
+            dumped is not None
+            and ast.get_docstring(mutated, clean=False) != ast.get_docstring(original, clean=False),
+            cv.SKIP_MUTATION_TOUCHES_DOCSTRING,
+        ),
+        (dumped != _expected_dump(text, function, site), cv.SKIP_MUTATION_UNVERIFIABLE),
+    )
+    return next((code for holds, code in rules if holds), None)
 
 
 def choose(stream: rng.DrawStream, candidates: tuple[Site, ...]) -> Site:

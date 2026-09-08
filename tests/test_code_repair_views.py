@@ -114,6 +114,11 @@ class LeakCodes(unittest.TestCase):
     def test_evidence_that_is_not_the_mutant_s_failing_rows(self):
         self.record["result"]["public_failure_evidence"][0]["want"] = "something else\n"
         self.assertIn(cv.LEAK_PUBLIC_EVIDENCE_NOT_FROM_ROWS, self.findings())
+        forged = copy.deepcopy(positives()[0])
+        forged["result"]["public_failure_evidence"][0]["got"] = "a fabricated failure"
+        self.assertIn(cv.LEAK_PUBLIC_EVIDENCE_NOT_FROM_ROWS, self.findings(record=forged))
+        row = next(r for r in forged["result"]["phases"]["mutant"]["public"] if r["status"] != "pass")
+        self.assertEqual(len(row["got_sha256"]), 64)
         record = copy.deepcopy(positives()[0])
         record["result"]["public_failure_omitted"] = 5
         self.assertIn(cv.LEAK_PUBLIC_EVIDENCE_NOT_FROM_ROWS, self.findings(record=record))

@@ -84,12 +84,21 @@ def _generate(args: argparse.Namespace) -> int:
 
 
 def _load_record(run_dir: Path, record_id: str) -> dict[str, Any]:
+    """The record with this id, refused unless the shared envelope and digest accept it."""
+
     path = run_dir / generate.CANDIDATES_FILENAME
     cv.refuse_when(not path.is_file(), cv.FINDING_RUN_FILE_MISSING, f"{path} is missing")
     for _lineno, record in oc.iter_jsonl(path):
         if isinstance(record, dict) and record.get("id") == record_id:
+            findings = oc.check_envelope(record, record_id) + oc.check_digest(record, record_id)
+            cv.refuse_when(
+                bool(findings), cv.FINDING_RECORD_MALFORMED,
+                f"record {record_id} fails the shared contract ({len(findings)} finding(s); "
+                f"first: {findings[0] if findings else ''})",
+            )
             return record
-    cv.refuse(cv.FINDING_RECORD_NOT_FOUND, f"no record {cv.shown(record_id)} in {path}")
+    message = f"no record {cv.shown(record_id)} in {path}"
+    raise cv.RepairRefusal(cv.FINDING_RECORD_NOT_FOUND, message)
 
 
 def _render(args: argparse.Namespace) -> int:
@@ -109,15 +118,20 @@ def _render(args: argparse.Namespace) -> int:
         _emit(payload, args.json, text)
         return 1
     row = views.sft_row(record)
+    leaks = views.view_findings(record, row)
     payload = {
-        "command": "render", "status": "ok", "record_id": args.record_id,
-        "leak_findings": views.view_findings(record, row), "sft": row,
+        "command": "render", "status": "findings" if leaks else "ok", "record_id": args.record_id,
+        "findings": [{"code": code} for code in leaks],
         "sha256": {"broken": result["broken_sha256"], "repaired": result["repaired_sha256"],
                    "record": record["provenance"]["record_sha256"]},
     }
-    text = f"### prompt\n{row['prompt']}\n### completion\n{row['completion']}"
-    _emit(payload, args.json, text)
-    return 1 if payload["leak_findings"] else 0
+    if leaks:
+        # A pair with a leak finding is never emitted, not even beside its findings.
+        _emit(payload, args.json, "leak findings: " + ", ".join(leaks))
+        return 1
+    payload["sft"] = row
+    _emit(payload, args.json, f"### prompt\n{row['prompt']}\n### completion\n{row['completion']}")
+    return 0
 
 
 _COMMANDS = {"catalog-check": _catalog_check, "generate": _generate, "render": _render}

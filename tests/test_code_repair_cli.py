@@ -2,6 +2,7 @@
 """The agent surface: exit codes, ``--json`` shapes, refusals as messages (in-process)."""
 
 import contextlib
+import copy
 import io
 import json
 import shutil
@@ -13,7 +14,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from code_repair_test_support import (  # noqa: E402
-    FIXTURE_CATALOG, PINNED_AT, REPO, SEED, cli, generate, smoke_run, vocabulary as cv,
+    FIXTURE_CATALOG, PINNED_AT, REPO, SEED, cli, envelope, generate, oc, smoke_run, views,
+    vocabulary as cv,
 )
 
 
@@ -53,7 +55,7 @@ class GenerateAndRender(unittest.TestCase):
         self.assertEqual(code, 0)
         payload = json.loads(text)
         self.assertEqual(set(payload["sft"]), {"prompt", "completion"})
-        self.assertEqual(payload["leak_findings"], [])
+        self.assertEqual((payload["status"], payload["findings"]), ("ok", []))
         self.assertEqual(len(payload["sha256"]["record"]), 64)
         code, text, _err = invoke(["render", str(out), f"pfr-{SEED}-00000"])
         self.assertEqual(code, 0)
@@ -76,6 +78,29 @@ class GenerateAndRender(unittest.TestCase):
         code, _text, err = invoke(["render", str(run_dir / "missing"), "x"])
         self.assertEqual(code, 2)
         self.assertTrue(err.startswith(cv.FINDING_RUN_FILE_MISSING))
+
+    def test_render_never_emits_a_pair_with_a_leak_finding_or_a_malformed_record(self):
+        root = Path(tempfile.mkdtemp(prefix="code-repair-cli-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        _summary, records, _run_dir = smoke_run()
+        positive = next(r for r in records if views.is_positive(r))
+        leaky = copy.deepcopy(positive)
+        leaky["result"]["public_failure_evidence"][0]["got"] = "a fabricated failure"
+        leaky["provenance"]["record_sha256"] = envelope.record_digest(leaky)
+        malformed = copy.deepcopy(positive)
+        malformed["id"] = "pfr-0-00001"
+        del malformed["result"]["measurements"]
+        oc.write_jsonl(root / generate.CANDIDATES_FILENAME, [leaky, malformed])
+        code, text, _err = invoke(["render", str(root), positive["id"], "--json"])
+        self.assertEqual(code, 1)
+        payload = json.loads(text)
+        self.assertEqual(payload["status"], "findings")
+        self.assertNotIn("sft", payload)
+        self.assertIn(cv.LEAK_PUBLIC_EVIDENCE_NOT_FROM_ROWS, [f["code"] for f in payload["findings"]])
+        self.assertNotIn("fabricated", text)
+        code, _text, err = invoke(["render", str(root), "pfr-0-00001"])
+        self.assertEqual(code, 2)
+        self.assertTrue(err.startswith(cv.FINDING_RECORD_MALFORMED), err)
 
     def test_the_entry_script_compiles_and_names_the_package(self):
         source = (REPO / "pipelines" / "code_repair_cli.py").read_text(encoding="utf-8")
