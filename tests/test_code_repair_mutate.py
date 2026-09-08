@@ -17,6 +17,20 @@ def boundary_sites(text, function):
     return tuple(s for s in mutate.sites(text, function) if s.operator == cv.OPERATOR_COMPARISON_BOUNDARY)
 
 
+class DefinitionTimeNodes(unittest.TestCase):
+    def test_defaults_annotations_and_decorators_are_never_sites(self):
+        """Codex on #197: only the body is the behaviour the doctests specify."""
+
+        text = (
+            "def f(x: int = (1 < 2), y=[i for i in range(3) if i < 2]) -> bool:\n"
+            "    '''\n    >>> f(0)\n    True\n    >>> f(1)\n    True\n    '''\n"
+            "    return x <= 2\n"
+        )
+        found = mutate.sites(text, "f")
+        self.assertIn("<=", [s.original_text for s in found])
+        self.assertTrue(all(s.lineno > 1 for s in found), [s.original_text for s in found])
+
+
 class Sites(unittest.TestCase):
     def test_sites_are_the_boundary_comparisons_of_the_target_body(self):
         found = boundary_sites(program("rec_linear_search").text, "rec_linear_search")

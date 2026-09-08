@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The decision table, the tamper guard and the public evidence (fake reports; one real corpus)."""
 
+import dataclasses
 import sys
 import unittest
 from pathlib import Path
@@ -22,6 +23,7 @@ def phases(mutant_public=(1,), mutant_hidden=(0,), repaired_public=(), repaired_
         report(rows("public", 3), rows("hidden", 4)),
         report(rows("public", 3, mutant_public), rows("hidden", 4, mutant_hidden)),
         report(rows("public", 3, repaired_public), rows("hidden", 4, repaired_hidden)),
+        reference=report((), rows("hidden", 4)),
     )
 
 
@@ -40,6 +42,23 @@ class DecisionTable(unittest.TestCase):
         self.assertTrue(verdict.accepted)
         self.assertEqual(verdict.oracle_status, cv.STATUS_PROVISIONAL)
         self.assertIn(cv.REASON_HIDDEN_CHECK_UNAVAILABLE, verdict.reason_codes)
+
+    def test_validated_needs_the_reference_executed_and_passing_in_this_run(self):
+        """Codex on #197: the catalog's word alone never makes a record validated."""
+
+        for label, reference in (
+            ("not run", None),
+            ("timed out", report(failure="timeout")),
+            ("one case disagrees", report((), rows("hidden", 4, (1,)))),
+            ("a case is missing", report((), rows("hidden", 3))),
+        ):
+            with self.subTest(reference=label):
+                partial = dataclasses.replace(phases(), reference=reference)
+                verdict = verify.decide(partial, CERTIFIED)
+                self.assertTrue(verdict.accepted)
+                self.assertEqual(verdict.oracle_status, cv.STATUS_PROVISIONAL)
+                self.assertIn(cv.REASON_REFERENCE_NOT_CERTIFYING, verdict.reason_codes)
+                self.assertNotIn(cv.REASON_HIDDEN_CHECK_UNAVAILABLE, verdict.reason_codes)
 
     def test_a_broken_original_is_invalid_whatever_the_mutant_did(self):
         broken = verify.Phases(report(rows("public", 3, (0,)), rows("hidden", 4)), phases().mutant)

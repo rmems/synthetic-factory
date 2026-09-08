@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -72,6 +73,7 @@ class _State:
     reasons: Counter = field(default_factory=Counter)
     per_program: Counter = field(default_factory=Counter)
     originals: dict[str, ex.PhaseReport] = field(default_factory=dict)
+    references: dict[str, ex.PhaseReport | None] = field(default_factory=dict)
     seen: set[tuple[str, str]] = field(default_factory=set)
 
 
@@ -124,6 +126,21 @@ def _sites_by_operator(program: cat.Program) -> dict[str, tuple[mutate.Site, ...
     return {operator: tuple(found) for operator, found in grouped.items()}
 
 
+def _reference(state: _State, program: cat.Program) -> ex.PhaseReport | None:
+    """The certifying reference executed once per program over its pinned cases; else None.
+
+    A record is ``validated`` only on this run's evidence, never on the catalog's say-so.
+    """
+
+    if program.program_id not in state.references:
+        report = None
+        if program.reference.certifying:
+            label = f"{cv.PHASE_REFERENCE}:{program.program_id}"
+            report = state.executor.run(program.reference_job(label))
+        state.references[program.program_id] = report
+    return state.references[program.program_id]
+
+
 def _draw_program(state: _State) -> cat.Program | None:
     """A program with sites and room under the cap, or None when every one is exhausted."""
 
@@ -170,15 +187,14 @@ def _execute(state: _State, draft: _Draft) -> tuple[verify.Phases, verify.Decisi
     context = verify.DecisionContext(
         program.reference.kind, repaired == program.text, tampered, len(program.cases)
     )
-    phases = verify.Phases(_original(state, program))
+    phases = verify.Phases(_original(state, program), reference=_reference(state, program))
     if verify.pre_repair_problem(phases, context) in (None, cv.REASON_MUTANT_HARNESS_ERROR):
         # The original passed (the only way past its rules with no mutant yet): run the mutant.
         mutant_job = program.job(f"{cv.PHASE_MUTANT}:{record_id}", mutation.mutated_text)
-        phases = verify.Phases(phases.original, state.executor.run(mutant_job))
+        phases = dataclasses.replace(phases, mutant=state.executor.run(mutant_job))
     if verify.pre_repair_problem(phases, context) is None:
         repaired_job = program.job(f"{cv.PHASE_REPAIRED}:{record_id}", repaired)
-        repaired_report = state.executor.run(repaired_job)
-        phases = verify.Phases(phases.original, phases.mutant, repaired_report)
+        phases = dataclasses.replace(phases, repaired=state.executor.run(repaired_job))
     return phases, context
 
 

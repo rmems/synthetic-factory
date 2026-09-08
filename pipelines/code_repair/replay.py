@@ -98,11 +98,17 @@ class _Subject:
 
 
 def _fresh_phases(subject: _Subject, executor: ex.Executor) -> verify.Phases:
+    """All four phases re-executed; the reference from the pinned catalog, like generation."""
+
     program, label = subject.program, subject.label
+    reference = None
+    if program.reference.certifying:
+        reference = executor.run(program.reference_job(f"{cv.PHASE_REFERENCE}:{label}"))
     return verify.Phases(
         executor.run(program.job(f"{cv.PHASE_ORIGINAL}:{label}")),
         executor.run(program.job(f"{cv.PHASE_MUTANT}:{label}", subject.broken)),
         executor.run(program.job(f"{cv.PHASE_REPAIRED}:{label}", subject.repaired)),
+        reference,
     )
 
 
@@ -116,6 +122,7 @@ def _compare(
         cv.PHASE_ORIGINAL: verify.phase_block(phases.original),
         cv.PHASE_MUTANT: verify.phase_block(phases.mutant),
         cv.PHASE_REPAIRED: verify.phase_block(phases.repaired),
+        cv.PHASE_REFERENCE: verify.phase_block(phases.reference),
     }
     if blocks != result["phases"]:
         differing = [name for name in blocks if blocks[name] != result["phases"].get(name)]

@@ -64,7 +64,7 @@ __all__ = [
     "ARITHMETIC_SWAPS", "AUGMENTED_SWAPS", "BINOP_CLASSES", "BOOLEAN_SWAPS", "BOOLOP_CLASSES",
     "BOUNDARY_SWAPS", "COMPARE_CLASSES", "EQUALITY_SWAPS",
     "Site", "WANT_BOOL", "WANT_NUMERIC", "VARIANT_DROP_NOT", "VARIANT_FLIP_BOOL", "VARIANT_NEGATE",
-    "VARIANT_PLUS_ONE", "line_offsets", "sites", "target",
+    "VARIANT_PLUS_ONE", "body_nodes", "line_offsets", "sites", "target",
 ]
 
 
@@ -150,6 +150,16 @@ def _tokens(text: str, offsets: list[int]) -> list[tuple[str, int, int, int, int
         start = offsets[row - 1] + col_bytes
         found.append((token.string, start, start + len(token.string), row, col_bytes))
     return found
+
+
+def body_nodes(function: ast.FunctionDef):
+    """Every node inside the function's body statements: never decorators, defaults or annotations.
+
+    Those run at definition time and are not the behaviour the doctests specify (Codex on #197).
+    """
+
+    for statement in function.body:
+        yield from ast.walk(statement)
 
 
 def target(text: str, function: str) -> ast.FunctionDef | None:
@@ -395,7 +405,7 @@ def _off_by_one_context(constant: ast.AST, parents: dict[ast.AST, ast.AST]) -> t
 def _off_by_one_sites(function: ast.FunctionDef, text: _Text) -> list[Site]:
     parents = _parents(function)
     found = []
-    for node in ast.walk(function):
+    for node in body_nodes(function):
         if _decimal_int(node, text) is None:
             continue
         eligible, negated = _off_by_one_context(node, parents)
@@ -430,7 +440,7 @@ def sites(text: str, function: str, want_kind: str | None = None) -> tuple[Site,
     offsets = line_offsets(text)
     prepared = _Text(text, offsets, _tokens(text, offsets), want_kind)
     found: list[Site] = []
-    for node in ast.walk(function_node):
+    for node in body_nodes(function_node):
         if isinstance(node, ast.Compare):
             found += _compare_sites(node, prepared)
         elif isinstance(node, (ast.BinOp, ast.AugAssign)):

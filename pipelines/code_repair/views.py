@@ -102,15 +102,22 @@ def agoge_row(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _example_index(row_id: str) -> int:
+    return int(row_id.rpartition(":")[2])
+
+
 def _failing_public_ids(record: dict[str, Any]) -> list[str]:
+    """The mutant's failing public rows in example order (stored rows sort by id text)."""
+
     mutant = record["result"]["phases"].get(cv.PHASE_MUTANT) or {}
-    return [row["id"] for row in mutant.get("public", []) if row["status"] != cv.ROW_SUCCESS]
+    failing = [row["id"] for row in mutant.get("public", []) if row["status"] != cv.ROW_SUCCESS]
+    return sorted(failing, key=_example_index)
 
 
 def _entries_are_the_leading_failures(record: dict[str, Any], failing: list[str]) -> bool:
     result = record["result"]
     entries = list(result["public_failure_evidence"])
-    indexes = sorted(int(e["example_id"].rpartition(":")[2]) for e in entries)
+    indexes = sorted(_example_index(e["example_id"]) for e in entries)
     expected_ids = [f"public:{i}" for i in indexes]
     omitted = int(result["public_failure_omitted"])
     return (

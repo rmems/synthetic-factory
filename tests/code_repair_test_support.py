@@ -104,6 +104,9 @@ class FakeExecutor:
         self.jobs.append(job)
         phase = job.label.split(":", 1)[0]
         self.log.append({"label": job.label, "status": "fake"})
+        if phase == vocabulary.PHASE_REFERENCE and phase not in self.by_phase:
+            # Unless a test says otherwise, the certifying reference answers every pinned case.
+            return report((), rows("hidden", len(job.cases)))
         canned = self.by_phase[phase]
         return canned(job) if callable(canned) else canned
 

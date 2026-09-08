@@ -22,8 +22,9 @@ from code_repair_test_support import (  # noqa: E402
 )
 
 # The pin moves whenever the harness bytes, the fixture catalog or the record layout change:
-# the harness digest sits inside every record's oracle fingerprint by design.
-GOLDEN_SHA256 = "647ddfac5e133f5a19a058bf961efe538eaa0968040a2e9db33a260161411277"
+# the harness digest sits inside every record's oracle fingerprint by design. Re-pinned for the
+# exact-integer harness (Codex on #196) and the executed reference phase (Codex on #197).
+GOLDEN_SHA256 = "2715bcbe7cce2affbad4d129b14cc169ee5fb3f124cfd43d6edcb427d94324e9"
 
 
 def accepting_executor():
@@ -31,6 +32,7 @@ def accepting_executor():
         "original": lambda job: report(rows("public", 9), rows("hidden", 24)),
         "mutant": lambda job: report(rows("public", 9, (0,), got="9"), rows("hidden", 24, (0,))),
         "repaired": lambda job: report(rows("public", 9), rows("hidden", 24)),
+        "reference": lambda job: report((), rows("hidden", len(job.cases))),
     })
 
 
@@ -90,10 +92,11 @@ class ContractChecks(unittest.TestCase):
     def test_counts_are_genuine_ints_per_phase_and_suite(self):
         record = fake_records(count=1)[0]
         readings = record["result"]["measurements"]
-        self.assertEqual(len(readings), 12)
+        self.assertEqual(len(readings), 14)  # three phases x two suites, the reference's hidden suite
         self.assertTrue(all(isinstance(r["value"], int) and not isinstance(r["value"], bool) for r in readings))
         detail = {(r["detail"]["phase"], r["detail"]["suite"]) for r in readings}
-        self.assertEqual(detail, {(p, s) for p in cv.PHASES for s in (cv.SUITE_PUBLIC, cv.SUITE_HIDDEN)})
+        expected = {(p, s) for p in cv.PHASES for s in (cv.SUITE_PUBLIC, cv.SUITE_HIDDEN)}
+        self.assertEqual(detail, expected - {(cv.PHASE_REFERENCE, cv.SUITE_PUBLIC)})
         self.assertTrue(all(r["meter"] == cv.METER and r["measured"] is True for r in readings))
 
     def test_actors_source_kind_and_lineage_ride_in_provenance(self):
@@ -125,6 +128,11 @@ class ContractChecks(unittest.TestCase):
         record = fake_records(count=1, executor=fake)[0]
         self.assertEqual(record["result"]["status"], oc.RESULT_ABSTAINED)
         self.assertEqual(record["result"]["oracle_status"], cv.STATUS_INVALID)
+        # The volatile harness detail stays in the execution log (Codex on #197).
+        self.assertEqual(
+            record["result"]["abstention_reason"],
+            f"{cv.REASON_ORIGINAL_HARNESS_ERROR}: the harness could not measure the original program",
+        )
         self.assertEqual(contract_findings(record), [])
         eligible, reasons = oc.curation_eligible(record, [])
         self.assertFalse(eligible)
@@ -148,6 +156,7 @@ class Tampers(unittest.TestCase):
             report(rows("public", 7), rows("hidden", 15)),
             report(rows("public", 7, (3,), got="2"), rows("hidden", 15, (0,))),
             report(rows("public", 7), rows("hidden", 15)),
+            reference=report((), rows("hidden", 15)),
         )
         context = verify.DecisionContext(prog.reference.kind, True, False, len(prog.cases))
         verdict = verify.decide(phases, context)
