@@ -1,0 +1,27 @@
+pipelines/oracle_grounded/fault_config.py
+  s_111d64b9a15da0::t_cf7b6b5c80a7e9 257-262,264,268
+pipelines/oracle_grounded/fault_simulator.py
+  ai_agent 281,289,293
+  s_111d64b9a15da0::t_cf7b6b5c80a7e9 112-115,159-162,169,259-280,282-288,290-292,294
+tests/test_fault_simulator.py
+  s_111d64b9a15da0::t_1da5a3f9ee0735 95-96
+  s_111d64b9a15da0::t_cf7b6b5c80a7e9 88-94,97-108
+tests/test_fault_config.py
+  s_111d64b9a15da0::t_cf7b6b5c80a7e9 157-158,160-162
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0da15b542ead39dca07d8dd350ffae5857ce3c1f",
+  "prompts": {},
+  "sessions": {
+    "s_111d64b9a15da0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "344701ce-d2c4-426c-96b1-716c94aac4d3",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
