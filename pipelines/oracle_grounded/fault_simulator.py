@@ -125,7 +125,9 @@ def _optional_number(value: Any) -> bool:
 
 
 def _count(value: Any) -> bool:
-    return vocab.is_genuine_int(value) and value >= 0
+    """A genuine integer in ``[0, MAX_EVENT_COUNT]``: wide enough for any replay,
+    bounded so a finding can print it (an unbounded width is a raw ``ValueError``)."""
+    return vocab.is_genuine_int(value) and 0 <= value <= fv.MAX_EVENT_COUNT
 
 
 _COUNT_FIELDS = (
@@ -141,7 +143,7 @@ _RESULT_RULES: tuple[tuple[str, config.Predicate, str], ...] = (
     ("reason_codes", _declared_reasons, "a non-empty tuple of declared reason codes"),
     ("detection_latency_ms", _optional_number, "a finite non-negative number of ms or None"),
     ("integrity_violation", lambda value: isinstance(value, bool), "a boolean"),
-    *((name, _count, "a non-negative integer") for name in _COUNT_FIELDS),
+    *((name, _count, f"an integer in [0, {fv.MAX_EVENT_COUNT}]") for name in _COUNT_FIELDS),
     *((name, _non_negative_number, "a finite non-negative number of ms") for name in _DURATION_FIELDS),
     *((name, envelope.is_number, "a finite number") for name in _NUMBER_FIELDS),
 )
@@ -151,7 +153,7 @@ def _result_problems(result: FaultResult):
     for name, holds, expected in _RESULT_RULES:
         value = getattr(result, name)
         # A foreign reason tuple is not echoed: the finding carries one code only.
-        shown = "" if name == "reason_codes" else f", got {value!r}"
+        shown = "" if name == "reason_codes" else f", got {fv.shown(value)}"
         yield (
             not holds(value),
             fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY,
@@ -168,7 +170,7 @@ def checked_result(result: Any) -> FaultResult:
     fv.refuse_when(
         not isinstance(result, FaultResult),
         fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY,
-        f"an oracle must return a FaultResult, got {result!r}",
+        f"an oracle must return a FaultResult, got {fv.shown(result)}",
     )
     fv.refuse_first(_result_problems(result))
     fv.refuse_first(_verdict_problems(result))
@@ -279,10 +281,19 @@ def _counts_fit_total(result: FaultResult) -> bool:
     return result.corrupt_events + result.dropped_events <= result.total_events
 
 
+def _continue_carries_no_fault(result: FaultResult) -> bool:
+    """Within tolerance means no dropped, corrupt or saturated events and no integrity violation."""
+    if result.outcome != fv.OUTCOME_CONTINUE:
+        return True
+    return not any(
+        (result.integrity_violation, result.dropped_events, result.corrupt_events, result.saturated_ticks)
+    )
+
+
 def _recovery_follows_detection(result: FaultResult) -> bool:
     """Recovery is onset-relative like detection: zero for continue, else never before it."""
     if result.outcome == fv.OUTCOME_CONTINUE:
-        return result.recovery_latency_ms == 0.0
+        return result.recovery_latency_ms <= 0.0  # non-negative by the field rules, so zero
     return result.recovery_latency_ms >= result.detection_latency_ms
 
 
@@ -295,6 +306,8 @@ _VERDICT_RULES = (
     (_counts_fit_total, "corrupt_events plus dropped_events must not exceed total_events"),
     (_recovery_follows_detection, "recovery_latency_ms must be 0.0 for continue and never precede "
                                   "detection_latency_ms otherwise"),
+    (_continue_carries_no_fault, "continue must report no dropped, corrupt or saturated events and "
+                                 "no integrity violation (the tiers would never pass those)"),
 )
 
 
@@ -421,7 +434,13 @@ DEGRADATION_SIGNS: tuple[tuple[str, Callable[[Any, int], bool]], ...] = (
 
 
 class _StreamState:
-    """Counters the tick loop accumulates while stepping the event stream."""
+    """Counters the tick loop accumulates while stepping the event stream.
+
+    The three readings the record carries (peak temperature, staleness,
+    jitter) are kept at emitted precision (3 dp) from the moment they are
+    accumulated, so the detection signs, the tiers and the label all see one
+    value and a peak of 61.9996 cannot be labelled 62.0 under ``continue``.
+    """
 
     def __init__(self, system: dict[str, Any], spec: _DisturbanceSpec, live_channels: list[str]) -> None:
         self.system = system
@@ -454,9 +473,7 @@ class _StreamState:
         self.worst_healthy = min(self.worst_healthy, healthy_now)
         if self.detection_ms is None and self._degraded_now(healthy_now):
             self.detection_ms = now_ms
-        self.trace.append(
-            {"t_ms": now_ms, "healthy": healthy_now, "temperature_c": round(self.peak_temperature, 3)}
-        )
+        self.trace.append({"t_ms": now_ms, "healthy": healthy_now, "temperature_c": self.peak_temperature})
 
     def _update_thermal(self, tick: _Tick) -> None:
         """Heating-only: ramp from ambient toward the peak, kept as a running max."""
@@ -465,7 +482,7 @@ class _StreamState:
             return
         ramped = min(1.0, (tick.now_ms - spec.onset_ms) / spec.ramp_ms)
         ambient = float(self.system["ambient_c"])
-        self.peak_temperature = max(self.peak_temperature, ambient + ramped * (spec.peak_c - ambient))
+        self.peak_temperature = max(self.peak_temperature, round(ambient + ramped * (spec.peak_c - ambient), 3))
 
     def _fault_hits(self, kind: str, channel: str, tick: _Tick) -> bool:
         return self.spec.kind == kind and self.spec.hits(channel, tick.active)
@@ -478,25 +495,24 @@ class _StreamState:
         self.dropped += int(lost)
         if not lost and not stale:
             self.last_fresh_ms[channel] = tick.now_ms
-        _SIGNAL_FAULTS.get(self.spec.kind, _StreamState._no_signal_fault)(self, channel, tick)
+        signal_fault = _SIGNAL_FAULTS.get(self.spec.kind)
+        if signal_fault is not None:
+            signal_fault(self, channel, tick)
         saturating = self._apply_saturation(channel, tick)
-        staleness = tick.now_ms - self.last_fresh_ms[channel]
+        staleness = round(tick.now_ms - self.last_fresh_ms[channel], 3)
         self.max_staleness = max(self.max_staleness, staleness)
         return not any((lost, saturating, staleness > self.system["stale_threshold_ms"]))
 
-    def _no_signal_fault(self, channel: str, tick: _Tick) -> None:
-        return None
-
-    def _note_jitter(self, channel: str, tick: _Tick) -> None:
+    def note_jitter(self, channel: str, tick: _Tick) -> None:
         if self.spec.hits(channel, tick.active):
-            self.max_jitter = max(self.max_jitter, abs(self.spec.jitter_ms))
+            self.max_jitter = max(self.max_jitter, round(abs(self.spec.jitter_ms), 3))
 
-    def _maybe_corrupt(self, channel: str, tick: _Tick) -> None:
+    def maybe_corrupt(self, channel: str, tick: _Tick) -> None:
         corrupt = corruption_phase(tick.index) < self.spec.corrupt_ratio
         if self.spec.hits(channel, tick.active) and corrupt:
             self.corrupt += 1
 
-    def _apply_malformed_event(self, channel: str, tick: _Tick) -> None:
+    def apply_malformed_event(self, channel: str) -> None:
         """One malformed event per affected channel per tick from tick 0, capped.
 
         Integrity kinds corrupt the accepted stream; ``unknown_channel`` is
@@ -523,6 +539,7 @@ class _StreamState:
         return any(holds(self, healthy_now) for _, holds in DEGRADATION_SIGNS)
 
     def observe(self, fallback_ok: bool) -> Observation:
+        """The readings the tiers decide on and the record carries, one and the same."""
         return Observation(
             worst_healthy=self.worst_healthy,
             channel_count=self.channel_count,
@@ -541,31 +558,32 @@ class _StreamState:
 
 
 # kind -> the per-channel signal fault it applies; other kinds apply none.
+# A malformed burst ignores the tick: it has no window and runs from tick 0.
 _SIGNAL_FAULTS: dict[str, Callable[[_StreamState, str, _Tick], None]] = {
-    fv.EVENT_JITTER: _StreamState._note_jitter,
-    fv.BURST_CORRUPTION: _StreamState._maybe_corrupt,
-    fv.MALFORMED_SPIKE_BURST: _StreamState._apply_malformed_event,
+    fv.EVENT_JITTER: _StreamState.note_jitter,
+    fv.BURST_CORRUPTION: _StreamState.maybe_corrupt,
+    fv.MALFORMED_SPIKE_BURST: lambda state, channel, tick: state.apply_malformed_event(channel),
 }
 
 
-def _result(state: _StreamState, spec: _DisturbanceSpec, decision: Decision) -> FaultResult:
-    """Freeze the accumulated stream state into one FaultResult."""
+def _result(observation: Observation, decision: Decision, trace: tuple[dict[str, Any], ...]) -> FaultResult:
+    """Freeze the observation the tiers decided on, and its decision, into one FaultResult."""
     return FaultResult(
         outcome=decision.outcome,
         reason_codes=decision.reasons,
         detection_latency_ms=decision.detection_latency_ms,
         recovery_latency_ms=decision.recovery_latency_ms,
-        worst_healthy_channels=state.worst_healthy,
-        dropped_events=state.dropped,
-        corrupt_events=state.corrupt,
-        total_events=state.total,
-        peak_temperature_c=round(state.peak_temperature, 3),
-        max_staleness_ms=round(state.max_staleness, 3),
-        max_jitter_ms=round(state.max_jitter, 3),
-        saturated_ticks=state.saturated_ticks,
-        integrity_violation=state.integrity_violation,
-        result_delay_ms=spec.result_delay_ms,
-        trace=tuple(state.trace),
+        worst_healthy_channels=observation.worst_healthy,
+        dropped_events=observation.dropped,
+        corrupt_events=observation.corrupt,
+        total_events=observation.total,
+        peak_temperature_c=observation.peak_temperature,
+        max_staleness_ms=observation.max_staleness,
+        max_jitter_ms=observation.max_jitter,
+        saturated_ticks=observation.saturated_ticks,
+        integrity_violation=observation.integrity_violation,
+        result_delay_ms=observation.result_delay_ms,
+        trace=trace,
     )
 
 
@@ -606,9 +624,9 @@ class RelayReflexSimulator(FaultOracle):
         state = _StreamState(system, spec, live)
         for tick in range(system["ticks"]):
             state.step(tick)
-        fallback_ok = fallback_available(system, missing, checked.declared)
-        decision = decide(state.observe(fallback_ok), system, spec.onset_ms)
-        return _result(state, spec, decision)
+        observation = state.observe(fallback_available(system, missing, checked.declared))
+        decision = decide(observation, system, spec.onset_ms)
+        return _result(observation, decision, tuple(state.trace))
 
 
 bind_import_twin(__name__)

@@ -85,6 +85,8 @@ class RequestRefusals(unittest.TestCase):
         for seed in (-1, -5, -SEED, fv.MAX_SEED + 1, 10**5000):
             with self.subTest(bits=seed.bit_length()), refusal(self, fv.FINDING_SEED_OUT_OF_DOMAIN, "must lie in [0"):
                 propose(seed, 1)
+        with refusal(self, fv.FINDING_SEED_OUT_OF_DOMAIN, "got an unprintable int of 16610 bits"):
+            propose(10**5000, 1)
         with refusal(self, fv.FINDING_SEED_OUT_OF_DOMAIN, "must lie in [0"):
             fault_oracle.build_records(-5, 1)
         self.assertEqual(len(propose(fv.MAX_SEED, 2)), 2)
@@ -118,7 +120,7 @@ class ProposalsAreProposals(unittest.TestCase):
                 fault_config.checked_disturbance(proposal["intervention"], system)
                 self.assertIn(engine.run(proposal["scenario"], proposal["intervention"]).outcome, fv.OUTCOMES)
                 varied = {k for k, v in system.items() if v != fv.DEFAULT_SYSTEM[k]}
-                self.assertTrue(varied <= {"min_healthy_channels", "fallback_source"}, varied)
+                self.assertLessEqual(varied, {"min_healthy_channels", "fallback_source"}, varied)
                 seen.add((system["min_healthy_channels"], system["fallback_source"]))
         self.assertEqual({budget for budget, _ in seen}, {2, 3})
         self.assertEqual({fallback for _, fallback in seen}, {"redundant_relay_b", None})

@@ -129,6 +129,9 @@ MAX_TICKS = 1000
 MAX_COUNT = 100_000
 # Seeds are 64-bit: the draw stream formats them as text, and ids carry them.
 MAX_SEED = 2**64 - 1
+# A count an oracle reports is at most 63 bits: wide enough for any replay,
+# narrow enough that a finding can print it.
+MAX_EVENT_COUNT = 2**63 - 1
 
 
 def default_system() -> dict[str, Any]:
@@ -250,6 +253,17 @@ def refuse_first(problems: Iterable[tuple[bool, str, str]]) -> None:
     """Raise for the first ``(holds, code, message)`` that holds; lazy over the iterable."""
     for holds, code, message in problems:
         refuse_when(holds, code, message)
+
+
+def shown(value: Any) -> str:
+    """``repr`` of a value, or its width when Python refuses to print it (an
+    integer past the string-conversion limit, alone or inside a container), so
+    a finding about an absurd value is still a coded refusal."""
+    try:
+        return repr(value)
+    except ValueError:
+        width = f" of {value.bit_length()} bits" if isinstance(value, int) else ""
+        return f"an unprintable {type(value).__name__}{width}"
 
 
 def finding_code(text: Any) -> str | None:

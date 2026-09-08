@@ -41,7 +41,7 @@ class Vocabularies(unittest.TestCase):
     def test_the_relay_defaults_and_the_family_are_registered(self):
         self.assertEqual(len(fv.SYSTEM_KEYS), 17)
         self.assertIn(fv.FAMILY, oc.FAMILIES)
-        self.assertTrue(set(fv.QUANTITY_METER_ROLES) <= set(oc.QUANTITY_UNITS))
+        self.assertLessEqual(set(fv.QUANTITY_METER_ROLES), set(oc.QUANTITY_UNITS))
         self.assertEqual(fv.MALFORMED_INTEGRITY_KINDS, {"non_monotonic_time", "negative_amplitude"})
 
     def test_reason_and_finding_codes_are_unique_and_disjoint(self):
@@ -94,6 +94,17 @@ class CodedRefusals(unittest.TestCase):
                 )
             )
         self.assertEqual(caught.exception.code, fv.FINDING_COUNT_OUT_OF_DOMAIN)
+
+    def test_shown_prints_a_value_or_its_width_when_python_refuses(self):
+        """Codex round 7: ``repr`` of an integer past the string-conversion limit raises
+        ``ValueError``, alone or inside a container, so a finding about one must not
+        build its message with ``!r``."""
+        for value in (2.0, "c0", None, True, ["c0"], 2**300):
+            with self.subTest(value=repr(value)[:20]):
+                self.assertEqual(fv.shown(value), repr(value))
+        self.assertEqual(fv.shown(10**5000), "an unprintable int of 16610 bits")
+        self.assertEqual(fv.shown([10**5000]), "an unprintable list")
+        self.assertEqual(fv.shown({"ticks": 10**5000}), "an unprintable dict")
 
     def test_finding_code_round_trips_and_ignores_uncoded_text(self):
         text = str(fv.FaultRefusal(fv.FINDING_HORIZON_NOT_FINITE, "tick_ms 1e308: overflow"))

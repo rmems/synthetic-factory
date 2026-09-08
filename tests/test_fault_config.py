@@ -51,7 +51,7 @@ class EnforcedSystemRows(unittest.TestCase):
     def test_row_4_the_healthy_budget_stays_within_the_channel_count(self):
         with refusal(self, fv.FINDING_HEALTHY_BUDGET_EXCEEDS_CHANNELS, "min_healthy_channels"):
             checked(scenario(min_healthy_channels=10))
-        with refusal(self, fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, "min_healthy_channels", ">= 0"):
+        with refusal(self, fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, "min_healthy_channels", "[0, 32]"):
             checked(scenario(min_healthy_channels=-1))
         for budget in (0, 4):
             with self.subTest(budget=budget):
@@ -249,6 +249,58 @@ class CarriedDisturbanceRefusals(unittest.TestCase):
                 check("sensor_loss", **loss(onset_ms=onset, duration_ms=duration))
         self.assertEqual(check("sensor_loss", **loss(onset_ms=45.0, duration_ms=2.0)).parameters["onset_ms"], 45.0)
         self.assertEqual(check("sensor_loss", **loss(onset_ms=46.0, duration_ms=0.5)).parameters["duration_ms"], 0.5)
+
+    def test_the_first_tick_in_a_window_is_found_by_the_simulator_s_own_comparison(self):
+        """Codex round 7: on a wide grid ``ceil(onset / tick_ms)`` lands one tick early
+        (the check then tests a tick before the onset and accepts a window the run never
+        enters) or one tick late (a window the run does enter is refused)."""
+        early = ((5.3100000000000005e22, 1e20), 532)   # ceil says 531, but 531 x 1e20 < onset
+        late = ((6.311284206094847e64, 8.154113961362851e61), 774)   # ceil says 775, but tick 774 >= onset
+        for (onset, tick_ms), first in (early, late, ((4.0, 2.0), 2), ((4.1, 2.0), 3), ((3.9, 2.0), 2), ((0.0, 2.0), 0)):
+            with self.subTest(onset=onset, tick_ms=tick_ms):
+                self.assertEqual(fault_config.first_tick_at_or_after(onset, tick_ms), first)
+        wide = checked(scenario(tick_ms=8.154113961362851e61, ticks=1000))
+        with refusal(self, fv.FINDING_DISTURBANCE_WINDOW_EMPTY, "contains no simulated tick"):
+            check("sensor_loss", wide, channels=["c0"], onset_ms=2.3973095046406783e64, duration_ms=4.987170103990674e49)
+        with refusal(self, fv.FINDING_DISTURBANCE_WINDOW_EMPTY, "contains no simulated tick"):
+            check("sensor_loss", checked(scenario(tick_ms=1e20, ticks=600)), channels=["c0"], onset_ms=5.3100000000000005e22, duration_ms=1.0)
+        entered = {"channels": ["c0"], "onset_ms": 6.311284206094847e64, "duration_ms": 1e50}
+        self.assertEqual(check("sensor_loss", wide, **entered).affected, ("c0",))
+        run = fault_simulator.RelayReflexSimulator().run(scenario(tick_ms=8.154113961362851e61, ticks=1000), disturbance("sensor_loss", **entered))
+        self.assertEqual((run.dropped_events, run.detection_latency_ms), (1, 0.0))
+
+    def test_values_too_wide_to_print_are_coded_refusals_not_raw_errors(self):
+        """Codex round 7 (checked_result) applied to every configuration finding: an
+        integer past Python's string-conversion limit used to raise ``ValueError`` from
+        the message itself; every count now carries a width bound and the message
+        prints a width instead."""
+        wide = 10**5000
+        system_cases = (
+            ({"ticks": wide}, fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, "ticks"),
+            ({"min_healthy_channels": wide}, fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, "min_healthy_channels"),
+            ({"reflex_saturation_ticks": wide}, fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, "reflex_saturation_ticks"),
+            ({"tick_ms": wide}, fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, "tick_ms"),
+            ({"channels": [wide]}, fv.FINDING_CHANNEL_LIST_INVALID, "unprintable list"),
+            ({"fallback_source": wide}, fv.FINDING_FALLBACK_SOURCE_INVALID, "unprintable int"),
+        )
+        for controls, code, fragment in system_cases:
+            with self.subTest(controls=list(controls)), refusal(self, code, fragment):
+                checked(scenario(**controls))
+        with refusal(self, fv.FINDING_INPUT_NOT_AN_OBJECT, "of 16610 bits"):
+            checked(wide)
+        burst = {"channels": ["c0"], "malformed_kind": "negative_amplitude"}
+        disturbance_cases = (
+            (disturbance("malformed_spike_burst", malformed_count=wide, **burst), fv.FINDING_PARAMETER_OUT_OF_DOMAIN, "malformed_count"),
+            (disturbance("malformed_spike_burst", malformed_count=fv.MAX_TICKS * fv.MAX_CHANNELS + 1, **burst), fv.FINDING_PARAMETER_OUT_OF_DOMAIN, "malformed_count"),
+            (disturbance("sensor_loss", **loss(onset_ms=wide)), fv.FINDING_PARAMETER_OUT_OF_DOMAIN, "onset_ms"),
+            (disturbance("sensor_loss", **loss(channels=wide)), fv.FINDING_CHANNELS_NOT_A_LIST, "unprintable int"),
+            (disturbance(wide, **loss()), fv.FINDING_DISTURBANCE_KIND_UNKNOWN, "unprintable int"),
+            (wide, fv.FINDING_INPUT_NOT_AN_OBJECT, "unprintable int"),
+        )
+        for value, code, fragment in disturbance_cases:
+            with self.subTest(code=code, fragment=fragment), refusal(self, code, fragment):
+                fault_config.checked_disturbance(value, SYSTEM)
+        self.assertEqual(checked(scenario(reflex_saturation_ticks=fv.MAX_EVENT_COUNT))["reflex_saturation_ticks"], fv.MAX_EVENT_COUNT)
 
     def test_a_malformed_burst_cannot_exceed_one_event_per_channel_per_tick(self):
         """Reviewer finding: a count above ticks x affected channels was silently truncated."""

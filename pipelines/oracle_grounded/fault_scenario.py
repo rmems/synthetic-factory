@@ -145,13 +145,6 @@ def _proposal(index: int, system: dict[str, Any], disturbance: dict[str, Any]) -
     }
 
 
-def _seed_text(seed: Any) -> str:
-    """``repr`` of a seed, or its width in bits when it is too wide to print."""
-    if isinstance(seed, int) and seed.bit_length() > 256:
-        return f"an integer of {seed.bit_length()} bits"
-    return repr(seed)
-
-
 def _check_seed(seed: Any) -> None:
     """A genuine integer in ``[0, MAX_SEED]`` (64 bits); bool is refused.
 
@@ -162,11 +155,11 @@ def _check_seed(seed: Any) -> None:
     is_seed = vocab.is_genuine_int(seed)
     fv.refuse_first(
         (
-            (not is_seed, fv.FINDING_SEED_NOT_AN_INTEGER, f"seed must be an integer, got {_seed_text(seed)}"),
+            (not is_seed, fv.FINDING_SEED_NOT_AN_INTEGER, f"seed must be an integer, got {fv.shown(seed)}"),
             (
                 is_seed and not 0 <= seed <= fv.MAX_SEED,
                 fv.FINDING_SEED_OUT_OF_DOMAIN,
-                f"seed must lie in [0, {fv.MAX_SEED}] (a 64-bit integer), got {_seed_text(seed)}",
+                f"seed must lie in [0, {fv.MAX_SEED}] (a 64-bit integer), got {fv.shown(seed)}",
             ),
         )
     )

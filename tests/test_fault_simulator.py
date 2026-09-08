@@ -92,6 +92,7 @@ class Boundary(unittest.TestCase):
             outcome="degrade_gracefully", reason_codes=("EVENTS_DROPPED", "REDUCED_CHANNEL_SET"),
             detection_latency_ms=0.0, corrupt_events=0, dropped_events=5, total_events=96,
         )
+        within = dict(outcome="continue", reason_codes=("WITHIN_TOLERANCE",), detection_latency_ms=None)
         checked = result(**consistent)
         self.assertIs(fs.checked_result(checked), checked)
         # A temperature may sit below zero; only durations are non-negative.
@@ -110,6 +111,11 @@ class Boundary(unittest.TestCase):
             ("negative result delay", dict(result_delay_ms=-2.0)),
             ("recovery before detection", dict(detection_latency_ms=10.0, recovery_latency_ms=1.0)),
             ("continue with a recovery", dict(outcome="continue", reason_codes=("WITHIN_TOLERANCE",), detection_latency_ms=None, recovery_latency_ms=2.0)),
+            # Codex round 7: a continue verdict cannot carry evidence the tiers would never pass.
+            ("continue with an integrity violation", dict(**within, dropped_events=0, integrity_violation=True)),
+            ("continue with dropped events", dict(**within)),
+            ("continue with corrupt events", dict(**within, dropped_events=0, corrupt_events=1)),
+            ("continue with saturated ticks", dict(**within, dropped_events=0, saturated_ticks=1)),
         ):
             with self.subTest(case=label), refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "oracle result"):
                 fs.checked_result(result(**{**consistent, **changes}))
@@ -139,12 +145,17 @@ class Boundary(unittest.TestCase):
             ({"recovery_latency_ms": float("nan")}, "recovery_latency_ms"),
             ({"detection_latency_ms": float("inf")}, "detection_latency_ms"),
             ({"integrity_violation": 0}, "integrity_violation"),
+            # Codex round 7: a count too wide to print was a raw ValueError from the message.
+            ({"total_events": 10**5000}, "total_events"),
+            ({"saturated_ticks": fv.MAX_EVENT_COUNT + 1}, "saturated_ticks"),
         )
         for overrides, field in cases:
             with self.subTest(field=field), refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, field):
                 fs.checked_result(result(**overrides))
-        with refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "FaultResult"):
-            fs.checked_result({"outcome": "continue"})
+        for value in ({"outcome": "continue"}, 10**5000):
+            with self.subTest(value=type(value).__name__), refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "FaultResult"):
+                fs.checked_result(value)
+        self.assertEqual(fs.checked_result(result(total_events=fv.MAX_EVENT_COUNT)).total_events, fv.MAX_EVENT_COUNT)
         self.assertEqual(fs.checked_result(result()), result())
         self.assertEqual(fs.checked_result(thermal(96.0)).outcome, "fail_closed")
 
@@ -229,6 +240,24 @@ class HeldRows(unittest.TestCase):
         reflex = run("temporary_saturation", {"min_healthy_channels": 2}, channels=["c0"], onset_ms=2.0, duration_ms=16.0)
         self.assertEqual((verdict(reflex), reflex.saturated_ticks), (("reflex_action", ("SATURATION_REFLEX",)), 8))
         self.assertEqual(run("temporary_saturation", channels=["c0"], onset_ms=2.0, duration_ms=4.0).saturated_ticks, 2)
+
+    def test_readings_are_decided_at_the_precision_the_record_emits(self):
+        """Codex round 7: a peak of 61.9996 was decided as below warn (62.0) and then
+        emitted as 62.0, so the record contradicted its own outcome. The state keeps
+        the three readings at 3 dp, so the signs, the tiers and the label agree."""
+        warm, cool = thermal(61.9996), thermal(61.9994)
+        self.assertEqual((verdict(warm), warm.peak_temperature_c), (("degrade_gracefully", ("THERMAL_WARN",)), 62.0))
+        self.assertEqual((warm.detection_latency_ms, warm.recovery_latency_ms), (8.0, 10.0))
+        self.assertEqual((verdict(cool), cool.peak_temperature_c), (("continue", ("WITHIN_TOLERANCE",)), 61.999))
+        self.assertEqual([entry["temperature_c"] for entry in warm.trace][7:9], [62.0, 62.0])
+        quiet = run("event_jitter", channels=["c0"], onset_ms=2.0, duration_ms=20.0, jitter_ms=1.5004)
+        loud = run("event_jitter", channels=["c0"], onset_ms=2.0, duration_ms=20.0, jitter_ms=1.5006)
+        self.assertEqual((verdict(quiet), quiet.max_jitter_ms), (("continue", ("WITHIN_TOLERANCE",)), 1.5))
+        self.assertEqual((verdict(loud), loud.max_jitter_ms), (("degrade_gracefully", ("JITTER_BEYOND_TOLERANCE",)), 1.501))
+        stale = run("stale_sensor", {"stale_threshold_ms": 8.0004, "tick_ms": 2.0001}, channels=["c0"], onset_ms=2.0001, duration_ms=8.0004)
+        self.assertEqual((verdict(stale), stale.max_staleness_ms), (("continue", ("WITHIN_TOLERANCE",)), 8.0))
+        for outcome in (warm, cool, quiet, loud, stale):
+            self.assertIs(fs.checked_result(outcome), outcome)
 
     def test_row_11_jitter_within_tolerance_is_exactly_within_tolerance(self):
         for jitter in (0.4, 1.5):
@@ -366,8 +395,12 @@ class Invariants(unittest.TestCase):
                 result = engine.run(proposal["scenario"], proposal["intervention"])
                 seen.update(result.reason_codes)
                 with self.subTest(seed=seed, index=proposal["index"]):
+                    # Every rule checked_result requires of an injected oracle holds for the simulator's own verdicts.
+                    self.assertIs(fs.checked_result(result), result)
                     self.assertEqual(result.outcome == "continue", result.detection_latency_ms is None)
-                    self.assertTrue(set(result.reason_codes) <= fv.REASON_CODE_SET)
+                    if result.outcome == "continue":
+                        self.assertEqual((result.integrity_violation, result.dropped_events, result.corrupt_events, result.saturated_ticks), (False, 0, 0, 0))
+                    self.assertLessEqual(set(result.reason_codes), fv.REASON_CODE_SET)
                     if result.outcome != "continue":
                         self.assertGreater(result.recovery_latency_ms, result.detection_latency_ms)
                         self.assertGreaterEqual(result.detection_latency_ms, 0.0)

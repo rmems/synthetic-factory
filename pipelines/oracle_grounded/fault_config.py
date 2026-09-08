@@ -66,13 +66,15 @@ _POSITIVE_CONTROLS = (
 _THERMAL_CONTROLS = ("ambient_c", "thermal_warn_c", "thermal_limit_c", "thermal_shutdown_c")
 
 # (key, expected text, predicate). ``reflex_saturation_ticks`` has no ceiling
-# against ``ticks`` (row 10) and the quarantine ratio admits 0 (row 6).
+# against ``ticks`` (row 10), only the width bound every count carries so a
+# finding and a record can print it; the quarantine ratio admits 0 (row 6).
 _CONTROL_DOMAINS: tuple[tuple[str, str, Predicate], ...] = (
     *((key, "a positive number", positive_number) for key in _POSITIVE_CONTROLS),
     ("jitter_tolerance_ms", "a non-negative number", non_negative_number),
     ("ticks", f"an integer in [1, {fv.MAX_TICKS}]", genuine_count_from(1, fv.MAX_TICKS)),
-    ("reflex_saturation_ticks", "an integer >= 1", genuine_count_from(1)),
-    ("min_healthy_channels", "an integer >= 0", genuine_count_from(0)),
+    ("reflex_saturation_ticks", f"an integer in [1, {fv.MAX_EVENT_COUNT}]",
+     genuine_count_from(1, fv.MAX_EVENT_COUNT)),
+    ("min_healthy_channels", f"an integer in [0, {fv.MAX_CHANNELS}]", genuine_count_from(0, fv.MAX_CHANNELS)),
     ("corruption_quarantine_ratio", "a ratio in [0, 1]", unit_interval),
     *((key, "a finite number", finite_number) for key in _THERMAL_CONTROLS),
 )
@@ -84,7 +86,7 @@ def _domain_problems(system: dict[str, Any]) -> Iterable[Problem]:
         yield (
             not holds(value),
             fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN,
-            f"system {key} must be {expected}, got {value!r}",
+            f"system {key} must be {expected}, got {fv.shown(value)}",
         )
 
 
@@ -111,7 +113,7 @@ def _channel_list_problem(system: dict[str, Any]) -> None:
         not all(rule(channels) for rule in _CHANNEL_RULES),
         fv.FINDING_CHANNEL_LIST_INVALID,
         f"system channels must be a non-empty list of at most {fv.MAX_CHANNELS} unique "
-        f"channel names, got {channels!r}",
+        f"channel names, got {fv.shown(channels)}",
     )
 
 
@@ -126,12 +128,12 @@ def _fallback_problems(system: dict[str, Any]) -> tuple[Problem, ...]:
         (
             fallback is not None and vocab.missing_string(fallback),
             fv.FINDING_FALLBACK_SOURCE_INVALID,
-            f"system fallback_source must be a non-empty string or null, got {fallback!r}",
+            f"system fallback_source must be a non-empty string or null, got {fv.shown(fallback)}",
         ),
         (
             _is_primary(fallback, system["channels"]),
             fv.FINDING_FALLBACK_SOURCE_IS_PRIMARY,
-            f"system fallback_source {fallback!r} is one of the primary channels; "
+            f"system fallback_source {fv.shown(fallback)} is one of the primary channels; "
             "a fallback must be a redundant source",
         ),
     )
@@ -193,8 +195,9 @@ _RELATIONS: tuple[tuple[str, Callable[[dict[str, Any]], bool], str], ...] = (
 
 
 def _relation_problems(system: dict[str, Any]) -> Iterable[Problem]:
+    shown = {key: fv.shown(value) for key, value in system.items()}
     for code, holds, template in _RELATIONS:
-        yield holds(system), code, template.format(**system)
+        yield holds(system), code, template.format(**shown)
 
 
 def check_system(system: dict[str, Any]) -> None:
@@ -212,12 +215,12 @@ def check_system(system: dict[str, Any]) -> None:
 def _system_of(scenario: Any) -> dict[str, Any]:
     """``scenario.system`` (absent means empty), or a coded refusal."""
     if not isinstance(scenario, dict):
-        fv.refuse(fv.FINDING_INPUT_NOT_AN_OBJECT, f"scenario must be an object, got {scenario!r}")
+        fv.refuse(fv.FINDING_INPUT_NOT_AN_OBJECT, f"scenario must be an object, got {fv.shown(scenario)}")
     system = scenario.get("system", {})
     fv.refuse_when(
         not isinstance(system, dict),
         fv.FINDING_INPUT_NOT_AN_OBJECT,
-        f"scenario.system must be an object, got {system!r}",
+        f"scenario.system must be an object, got {fv.shown(system)}",
     )
     return system
 
@@ -278,7 +281,7 @@ def _effective_system(system: Any) -> None:
     fv.refuse_when(
         not isinstance(system, dict) or set(system) != fv.SYSTEM_KEYS,
         fv.FINDING_INPUT_NOT_AN_OBJECT,
-        f"system must be the effective configuration from checked_system, got {system!r}",
+        f"system must be the effective configuration from checked_system, got {fv.shown(system)}",
     )
     check_system(system)
 
@@ -286,7 +289,7 @@ def _effective_system(system: Any) -> None:
 def _disturbance_of(disturbance: Any) -> tuple[str, dict[str, Any]]:
     """``(kind, parameters)`` of a disturbance object, or a coded refusal."""
     if not isinstance(disturbance, dict):
-        fv.refuse(fv.FINDING_INPUT_NOT_AN_OBJECT, f"disturbance must be an object, got {disturbance!r}")
+        fv.refuse(fv.FINDING_INPUT_NOT_AN_OBJECT, f"disturbance must be an object, got {fv.shown(disturbance)}")
     parameters = disturbance.get("parameters", {})
     kind = disturbance.get("kind")
     fv.refuse_first(
@@ -294,12 +297,12 @@ def _disturbance_of(disturbance: Any) -> tuple[str, dict[str, Any]]:
             (
                 not isinstance(parameters, dict),
                 fv.FINDING_INPUT_NOT_AN_OBJECT,
-                f"disturbance.parameters must be an object, got {parameters!r}",
+                f"disturbance.parameters must be an object, got {fv.shown(parameters)}",
             ),
             (
                 not envelope.is_enum_value(kind, fv.DISTURBANCES),
                 fv.FINDING_DISTURBANCE_KIND_UNKNOWN,
-                f"unknown disturbance kind: {kind!r}",
+                f"unknown disturbance kind: {fv.shown(kind)}",
             ),
         )
     )
@@ -334,7 +337,7 @@ def _channel_shape_problems(kind: str, parameters: dict[str, Any]) -> tuple[Prob
         (
             not isinstance(channels, list),
             fv.FINDING_CHANNELS_NOT_A_LIST,
-            f"{kind} channels must be a list of channel names, got {channels!r}; "
+            f"{kind} channels must be a list of channel names, got {fv.shown(channels)}; "
             "anything else would run as a no-op",
         ),
         (
@@ -367,7 +370,7 @@ def _floor_problems(kind: str, parameters: dict[str, Any]) -> Iterable[Problem]:
                 not _floor_holds(value, floor, exclusive),
                 fv.FINDING_PARAMETER_OUT_OF_DOMAIN,
                 f"{kind} {key} must be a finite number {_FLOOR_SIGN[exclusive]} {floor}, got "
-                f"{value!r}; outside that range the declared disturbance cannot occur",
+                f"{fv.shown(value)}; outside that range the declared disturbance cannot occur",
             )
 
 
@@ -379,7 +382,9 @@ def _is_malformed_kind(value: Any) -> bool:
 # present. ``malformed_kind`` is an enum because the tick loop branches on it.
 _VALUE_RULES: tuple[tuple[str, Predicate, str], ...] = (
     ("peak_c", finite_number, "a finite number"),
-    ("malformed_count", genuine_count_from(1), "an integer >= 1; a burst of zero events is a no-op"),
+    ("malformed_count", genuine_count_from(1, fv.MAX_TICKS * fv.MAX_CHANNELS),
+     f"an integer in [1, {fv.MAX_TICKS * fv.MAX_CHANNELS}]; a burst of zero events is a no-op and "
+     "no run has room for more"),
     ("malformed_kind", _is_malformed_kind, f"one of {sorted(fv.MALFORMED_KINDS)}"),
     (
         "corrupt_ratio",
@@ -396,7 +401,7 @@ def _value_problems(kind: str, parameters: dict[str, Any]) -> Iterable[Problem]:
             yield (
                 not holds(value),
                 fv.FINDING_PARAMETER_OUT_OF_DOMAIN,
-                f"{kind} {key} must be {expected}, got {value!r}",
+                f"{kind} {key} must be {expected}, got {fv.shown(value)}",
             )
 
 
@@ -415,6 +420,16 @@ def _onset_problem(kind: str, parameters: dict[str, Any], system: dict[str, Any]
     )
 
 
+def first_tick_at_or_after(onset_ms: float, tick_ms: float) -> int:
+    """The first grid index whose time is at or after the onset, by the simulator's own
+    comparison (``index * tick_ms``, floats): the rounded quotient only seeds the search,
+    since for wide times ``ceil(onset / tick_ms)`` lands one tick early or late."""
+    index = max(math.ceil(onset_ms / tick_ms) - 1, 0)
+    while index * tick_ms < onset_ms:
+        index += 1
+    return index
+
+
 def _window_problem(kind: str, parameters: dict[str, Any], system: dict[str, Any]) -> None:
     """The half-open window ``[onset, onset + duration)`` must contain a simulated tick.
 
@@ -424,8 +439,9 @@ def _window_problem(kind: str, parameters: dict[str, Any], system: dict[str, Any
     """
     if "duration_ms" not in parameters or "onset_ms" not in parameters:
         return
-    onset, duration, tick_ms = parameters["onset_ms"], parameters["duration_ms"], system["tick_ms"]
-    first = math.ceil(onset / tick_ms)
+    onset, duration = float(parameters["onset_ms"]), float(parameters["duration_ms"])
+    tick_ms = float(system["tick_ms"])
+    first = first_tick_at_or_after(onset, tick_ms)
     applied = first < system["ticks"] and first * tick_ms < onset + duration
     fv.refuse_when(
         not applied,
