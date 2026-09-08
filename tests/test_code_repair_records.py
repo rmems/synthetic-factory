@@ -17,13 +17,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from code_repair_test_support import (  # noqa: E402
-    FIXTURE_CATALOG, FakeExecutor, PINNED_AT, SEED, envelope, generate, mutate, oc, program, records,
-    refusal, report, rows, smoke_run, verify, vocabulary as cv,
+    FIXTURE_CATALOG, FakeExecutor, PINNED_AT, SEED, boundary_site, envelope, generate, mutate, oc,
+    program, records, refusal, report, rows, smoke_run, verify, vocabulary as cv,
 )
 
 # The pin moves whenever the harness bytes, the fixture catalog or the record layout change:
 # the harness digest sits inside every record's oracle fingerprint by design.
-GOLDEN_SHA256 = "ee7c49bb393256eb622b3d59fec15f957470d232d6b6ba0e4595cb69d216fa7a"
+GOLDEN_SHA256 = "68dfe8dd2990869affb76704f455d4a1dbbccda184e2adff23af424d23e1da9c"
 
 
 def accepting_executor():
@@ -142,7 +142,7 @@ class Tampers(unittest.TestCase):
     def test_a_label_planted_in_the_scenario_is_refused_at_build_time(self):
         prog = program("factorial")
         poisoned = dataclasses.replace(prog, upstream={**prog.upstream, "outcome": "accepted"})
-        (site,) = mutate.sites(prog.text, prog.function)
+        site = boundary_site(prog)
         mutated = mutate.apply(prog.text, site)
         phases = verify.Phases(
             report(rows("public", 7), rows("hidden", 15)),

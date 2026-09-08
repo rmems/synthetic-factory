@@ -150,7 +150,7 @@ class RealCorpus(unittest.TestCase):
                 blocks = result["phases"]
                 self.assertEqual(verify.result_hash(blocks), result["evidence_sha256"])
                 self.assertIn(result["outcome"], cv.OUTCOMES)
-                self.assertTrue(set(result["reason_codes"]) <= cv.REASON_CODE_SET)
+                self.assertTrue(set(result["reason_codes"]).issubset(cv.REASON_CODE_SET))
                 if result["outcome"] == cv.OUTCOME_ACCEPTED:
                     self.assertEqual({r["status"] for r in blocks["repaired"]["public"]}, {"pass"})
                     self.assertTrue(any(r["status"] != "pass" for r in blocks["mutant"]["public"]))

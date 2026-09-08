@@ -1,63 +1,34 @@
 #!/usr/bin/env python3
 """Single-span text mutations of a target function, with the exact inverse repair.
 
-A site is one operator token located by byte offset inside the target
-function's body (never its docstring); a mutation rewrites exactly that span,
-so every other byte of the module is unchanged and the repair is the original
-span restored. Before a mutant is ever executed it is verified three ways: it
-differs from the original as text and as an AST, it compiles, and the
-re-parsed target function equals the in-memory transform of the original tree
-(two independent paths must agree). S1 carries one operator class,
-``comparison_boundary``; the others join in S2 through the same site table.
+A site is one span located by byte offset inside the target function's body
+(never its docstring); a mutation rewrites exactly that span, so every other
+byte of the module is unchanged and the repair is the original span restored.
+Before a mutant is ever executed it is verified three ways: it differs from
+the original as text and as an AST, it compiles, and the re-parsed target
+function equals the in-memory transform of the original tree (two independent
+paths must agree). The five operator classes and their transforms live in
+:mod:`mutate_sites`; this module applies, repairs, verifies and draws.
 """
 
 from __future__ import annotations
 
 import ast
 import copy
-import io
-import tokenize
 from dataclasses import dataclass
-from typing import Any
 
+from . import mutate_sites
 from . import vocabulary as cv
 from ._contract import bind_import_twin, rng
 
-BOUNDARY_SWAPS = {"<": "<=", "<=": "<", ">": ">=", ">=": ">"}
-_OPERATOR_CLASSES = {"<": ast.Lt, "<=": ast.LtE, ">": ast.Gt, ">=": ast.GtE}
-VARIANT_SWAP = "swap"
+Site = mutate_sites.Site
+line_offsets = mutate_sites.line_offsets
+sites = mutate_sites.sites
 
 __all__ = [
-    "BOUNDARY_SWAPS", "Mutation", "Site", "apply", "choose", "line_offsets", "repair", "sites",
+    "Mutation", "Site", "apply", "choose", "expected_dump", "line_offsets", "repair", "sites",
     "verify",
 ]
-
-
-@dataclass(frozen=True)
-class Site:
-    """One mutable operator token: its byte span, its position and its replacement."""
-
-    operator: str
-    node: str
-    start: int
-    end: int
-    lineno: int
-    col_offset: int
-    original_text: str
-    replacement_text: str
-    variant: str
-    node_lineno: int
-    node_col_offset: int
-    op_index: int
-
-    def as_json(self) -> dict[str, Any]:
-        return {
-            "node": self.node, "start_byte": self.start, "end_byte": self.end,
-            "lineno": self.lineno, "col_offset": self.col_offset,
-            "original_text": self.original_text, "replacement_text": self.replacement_text,
-            "node_lineno": self.node_lineno, "node_col_offset": self.node_col_offset,
-            "op_index": self.op_index,
-        }
 
 
 @dataclass(frozen=True)
@@ -67,78 +38,8 @@ class Mutation:
     mutated_text: str
 
 
-def line_offsets(text: str) -> list[int]:
-    """Byte offset of the start of every line (index 0 is line 1); LF-only text."""
-
-    offsets = [0]
-    for line in text.split("\n")[:-1]:
-        offsets.append(offsets[-1] + len(line.encode("utf-8")) + 1)
-    return offsets
-
-
-def _byte_at(offsets: list[int], lineno: int, col_bytes: int) -> int:
-    return offsets[lineno - 1] + col_bytes
-
-
 def _target(text: str, function: str) -> ast.FunctionDef | None:
-    for node in ast.parse(text).body:
-        if isinstance(node, ast.FunctionDef) and node.name == function:
-            return node
-    return None
-
-
-def _operator_tokens(text: str, offsets: list[int]) -> list[tuple[str, int, int, int, int]]:
-    """``(string, start_byte, end_byte, lineno, col_bytes)`` for every OP token in ``text``."""
-
-    lines = text.split("\n")
-    found = []
-    for token in tokenize.generate_tokens(io.StringIO(text).readline):
-        if token.type != tokenize.OP or token.string not in BOUNDARY_SWAPS:
-            continue
-        row, col = token.start
-        col_bytes = len(lines[row - 1][:col].encode("utf-8"))
-        start = _byte_at(offsets, row, col_bytes)
-        found.append((token.string, start, start + len(token.string), row, col_bytes))
-    return found
-
-
-def _gap(node: ast.Compare, index: int, offsets: list[int]) -> tuple[int, int]:
-    left = node.left if index == 0 else node.comparators[index - 1]
-    right = node.comparators[index]
-    return (
-        _byte_at(offsets, left.end_lineno, left.end_col_offset),
-        _byte_at(offsets, right.lineno, right.col_offset),
-    )
-
-
-def _compare_sites(node: ast.Compare, tokens: list, offsets: list[int]) -> list[Site]:
-    found = []
-    for index, operator in enumerate(node.ops):
-        gap_start, gap_end = _gap(node, index, offsets)
-        inside = [t for t in tokens if gap_start <= t[1] and t[2] <= gap_end]
-        if len(inside) != 1 or not isinstance(operator, _OPERATOR_CLASSES[inside[0][0]]):
-            continue
-        string, start, end, row, col_bytes = inside[0]
-        found.append(Site(
-            cv.OPERATOR_COMPARISON_BOUNDARY, "Compare", start, end, row, col_bytes, string,
-            BOUNDARY_SWAPS[string], VARIANT_SWAP, node.lineno, node.col_offset, index,
-        ))
-    return found
-
-
-def sites(text: str, function: str) -> tuple[Site, ...]:
-    """Every mutable site of the target function, sorted by position."""
-
-    target = _target(text, function)
-    if target is None:
-        return ()
-    offsets = line_offsets(text)
-    tokens = _operator_tokens(text, offsets)
-    found: list[Site] = []
-    for node in ast.walk(target):
-        if isinstance(node, ast.Compare):
-            found += _compare_sites(node, tokens, offsets)
-    return tuple(sorted(found, key=lambda s: (s.start, s.end, s.operator, s.variant)))
+    return mutate_sites.target(text, function)
 
 
 def apply(text: str, site: Site) -> str:
@@ -157,19 +58,85 @@ def repair(mutated_text: str, site: Site) -> str:
     return (data[: site.start] + site.original_text.encode("utf-8") + data[end:]).decode("utf-8")
 
 
-def _expected_dump(text: str, function: str, site: Site) -> str | None:
-    """The target function after the operator swap applied to the original tree, dumped."""
+# --- expected transforms ---------------------------------------------------------
 
-    module = copy.deepcopy(ast.parse(text))
+
+def _locate(module: ast.Module, site: Site) -> ast.AST | None:
+    wanted = (
+        site.node_lineno, site.node_col_offset, site.node_end_lineno, site.node_end_col_offset
+    )
     for node in ast.walk(module):
-        if (
-            isinstance(node, ast.Compare)
-            and (node.lineno, node.col_offset) == (site.node_lineno, site.node_col_offset)
-        ):
-            node.ops[site.op_index] = _OPERATOR_CLASSES[site.replacement_text]()
-            target = _target(ast.unparse(module), function)
-            return None if target is None else ast.dump(target)
+        position = (getattr(node, "lineno", None), getattr(node, "col_offset", None),
+                    getattr(node, "end_lineno", None), getattr(node, "end_col_offset", None))
+        if type(node).__name__ == site.node and position == wanted:
+            return node
     return None
+
+
+class _ReplaceNode(ast.NodeTransformer):
+    def __init__(self, old: ast.AST, new: ast.AST) -> None:
+        self._old, self._new = old, new
+
+    def visit(self, node: ast.AST) -> ast.AST:
+        if node is self._old:
+            return self._new
+        return self.generic_visit(node)
+
+
+def _transform_compare(node: ast.Compare, site: Site) -> None:
+    node.ops[site.op_index] = mutate_sites.COMPARE_CLASSES[site.replacement_text]()
+
+
+def _transform_binop(node: ast.AST, site: Site) -> None:
+    node.op = mutate_sites.BINOP_CLASSES[site.replacement_text.rstrip("=")]()
+
+
+def _transform_boolop(node: ast.BoolOp, site: Site) -> None:
+    node.op = mutate_sites.BOOLOP_CLASSES[site.replacement_text]()
+
+
+def _transform_return(node: ast.Return, site: Site) -> None:
+    value = node.value
+    if site.variant == mutate_sites.VARIANT_FLIP_BOOL:
+        node.value = ast.Constant(value=not value.value)
+    elif site.replacement_text.lstrip("-").isdigit():
+        node.value = ast.parse(site.replacement_text, mode="eval").body
+    elif site.variant == mutate_sites.VARIANT_NEGATE:
+        node.value = ast.UnaryOp(op=ast.Not(), operand=value)
+    else:
+        operator = ast.Add() if site.variant == mutate_sites.VARIANT_PLUS_ONE else ast.Sub()
+        node.value = ast.BinOp(left=value, op=operator, right=ast.Constant(value=1))
+
+
+def _transform_constant(node: ast.Constant, site: Site) -> None:
+    node.value = int(site.replacement_text)
+
+
+def _transformed(module: ast.Module, site: Site) -> ast.Module | None:
+    node = _locate(module, site)
+    if node is None:
+        return None
+    if site.variant == mutate_sites.VARIANT_DROP_NOT:
+        return _ReplaceNode(node, node.operand).visit(module)
+    handlers = {
+        "Compare": _transform_compare, "BinOp": _transform_binop, "AugAssign": _transform_binop,
+        "BoolOp": _transform_boolop, "Return": _transform_return, "Constant": _transform_constant,
+    }
+    handlers[site.node](node, site)
+    return module
+
+
+def expected_dump(text: str, function: str, site: Site) -> str | None:
+    """The target function after the site's edit on the original tree, dumped; None if lost."""
+
+    module = _transformed(copy.deepcopy(ast.parse(text)), site)
+    if module is None:
+        return None
+    for node in module.body:
+        if isinstance(node, ast.FunctionDef) and node.name == function:
+            return ast.dump(node)
+    return None
+
 
 
 def _compiles(text: str) -> bool:
@@ -201,7 +168,7 @@ def verify(text: str, mutated_text: str, site: Site, function: str) -> str | Non
             and ast.get_docstring(mutated, clean=False) != ast.get_docstring(original, clean=False),
             cv.SKIP_MUTATION_TOUCHES_DOCSTRING,
         ),
-        (dumped != _expected_dump(text, function, site), cv.SKIP_MUTATION_UNVERIFIABLE),
+        (dumped != expected_dump(text, function, site), cv.SKIP_MUTATION_UNVERIFIABLE),
     )
     return next((code for holds, code in rules if holds), None)
 

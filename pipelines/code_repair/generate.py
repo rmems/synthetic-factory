@@ -65,7 +65,7 @@ class _State:
     executor: ex.Executor
     batch: records.Batch
     stream: rng.DrawStream
-    sites: dict[str, tuple[mutate.Site, ...]]
+    sites: dict[str, dict[str, tuple[mutate.Site, ...]]]
     cap: int
     records: list[dict[str, Any]] = field(default_factory=list)
     skips: Counter = field(default_factory=Counter)
@@ -115,6 +115,15 @@ def _original(state: _State, program: cat.Program) -> ex.PhaseReport:
     return state.originals[program.program_id]
 
 
+def _sites_by_operator(program: cat.Program) -> dict[str, tuple[mutate.Site, ...]]:
+    """The program's sites grouped by operator class, so classes are drawn uniformly."""
+
+    grouped: dict[str, list[mutate.Site]] = {}
+    for site in mutate.sites(program.text, program.function, program.want_kind):
+        grouped.setdefault(site.operator, []).append(site)
+    return {operator: tuple(found) for operator, found in grouped.items()}
+
+
 def _draw_program(state: _State) -> cat.Program | None:
     """A program with sites and room under the cap, or None when every one is exhausted."""
 
@@ -128,7 +137,9 @@ def _draw_program(state: _State) -> cat.Program | None:
 def _candidate(state: _State, program: cat.Program, index: int) -> records.Candidate | str:
     """One executed candidate, or the skip code of a non-proposal."""
 
-    site = mutate.choose(state.stream, state.sites[program.program_id])
+    by_operator = state.sites[program.program_id]
+    operator = state.stream.choice(sorted(by_operator))
+    site = mutate.choose(state.stream, by_operator[operator])
     mutated = mutate.apply(program.text, site)
     skip = mutate.verify(program.text, mutated, site, program.function)
     if skip is not None:
@@ -193,7 +204,7 @@ def _summary(request: RunRequest, state: _State, stamp: str) -> dict[str, Any]:
         "skips": dict(sorted(state.skips.items())),
         "programs": {
             p.program_id: {
-                "sites": len(state.sites[p.program_id]),
+                "sites": sum(len(s) for s in state.sites[p.program_id].values()),
                 "records": state.per_program[p.program_id],
             }
             for p in state.catalog.programs
@@ -215,7 +226,7 @@ def run(request: RunRequest, executor: ex.Executor | None = None) -> dict[str, A
     stamp = _check_request(request)
     catalog = cat.load_catalog(request.catalog_dir)
     engine = ex.Executor(timeout_s=request.timeout_s) if executor is None else executor
-    sites = {p.program_id: mutate.sites(p.text, p.function) for p in catalog.programs}
+    sites = {p.program_id: _sites_by_operator(p) for p in catalog.programs}
     batch = records.new_batch(request.seed, stamp, engine)
     stream = rng.DrawStream(request.seed)
     state = _State(catalog, engine, batch, stream, sites, request.per_program_cap)

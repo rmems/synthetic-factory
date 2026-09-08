@@ -77,7 +77,7 @@ class Accounting(unittest.TestCase):
         summary, fake, out = self.run_fake()
         drawn = summary["records"] + sum(v for k, v in summary["skips"].items() if k != cv.SKIP_MUTATION_NO_SITES)
         self.assertEqual(drawn, 6)
-        self.assertEqual(summary["skips"][cv.SKIP_MUTATION_NO_SITES], 1)
+        self.assertEqual(summary["skips"][cv.SKIP_MUTATION_NO_SITES], 0)
         self.assertEqual(summary["outcomes"], {"accepted": summary["records"]})
         self.assertEqual(summary["seed"], SEED)
         self.assertEqual(summary["produced_at"], PINNED_AT)
@@ -128,13 +128,17 @@ class StableBytes(unittest.TestCase):
         first = hashlib.sha256((run_dir / generate.CANDIDATES_FILENAME).read_bytes()).hexdigest()
         second = hashlib.sha256((again / generate.CANDIDATES_FILENAME).read_bytes()).hexdigest()
         self.assertEqual(first, second)
-        self.assertEqual(summary["outcomes"], {"accepted": 2, "rejected": 3})
+        self.assertEqual(summary["outcomes"], {"accepted": 8, "rejected": 4})
         self.assertEqual(
             summary["reasons"],
-            {"MUTANT_FAILS_HIDDEN": 2, "MUTANT_FAILS_PUBLIC": 2, "MUTANT_NO_OBSERVED_FAILURE": 1,
-             "MUTANT_NO_PUBLIC_FAILURE": 1, "MUTANT_TIMEOUT": 1, "REPAIR_PASSES_ALL": 2},
+            {"HIDDEN_CHECK_UNAVAILABLE": 2, "MUTANT_FAILS_HIDDEN": 8, "MUTANT_FAILS_PUBLIC": 8,
+             "MUTANT_NO_OBSERVED_FAILURE": 1, "MUTANT_NO_PUBLIC_FAILURE": 1, "MUTANT_TIMEOUT": 2,
+             "REPAIR_PASSES_ALL": 8},
         )
-        self.assertEqual([r["id"] for r in records], [f"pfr-{SEED}-{i:05d}" for i in (0, 1, 2, 3, 6)])
+        self.assertEqual(summary["oracle_statuses"], {"provisional": 2, "validated": 10})
+        self.assertEqual([r["id"] for r in records], [f"pfr-{SEED}-{i:05d}" for i in range(12)])
+        operators = {r["intervention"]["operator"] for r in records}
+        self.assertEqual(operators, set(cv.OPERATORS))
         log = [entry for _n, entry in oc.read_jsonl(run_dir / generate.LOG_FILENAME)]
         self.assertTrue(all("duration_s" in entry for entry in log))
         self.assertTrue(any(entry["timed_out"] for entry in log))

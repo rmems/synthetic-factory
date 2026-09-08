@@ -35,7 +35,7 @@ _UPSTREAM_FIELDS = ("repository", "commit", "path", "file_sha256", "function", "
 __all__ = [
     "CATALOG_FILENAME", "Catalog", "Example", "LICENSE_FILENAME", "PROGRAMS_FILENAME", "Program",
     "Reference", "catalog_check", "examples_of", "examples_sha256", "function_node",
-    "load_catalog", "sha256_text",
+    "load_catalog", "sha256_text", "want_kind_of",
 ]
 
 
@@ -82,6 +82,12 @@ class Program:
     cases: tuple[dict[str, Any], ...]
     group_id: str | None
     split: str | None
+
+    @property
+    def want_kind(self) -> str | None:
+        """``numeric`` or ``bool`` when every value example wants that kind, else None."""
+
+        return want_kind_of(self.examples)
 
     def job(self, label: str, text: str | None = None) -> ex.Job:
         """A harness job over this program's function and cases (``text`` overrides the module)."""
@@ -139,6 +145,26 @@ def examples_of(text: str, function: str) -> tuple[Example, ...]:
         Example(f"{function}:{index}", item.source, item.want, item.exc_msg)
         for index, item in enumerate(parsed)
     )
+
+
+def _want_value(example: Example) -> Any:
+    try:
+        return ast.literal_eval(example.want.strip())
+    except (ValueError, SyntaxError):
+        return None
+
+
+def _is_numeric(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def want_kind_of(examples: tuple[Example, ...]) -> str | None:
+    """The kind every value-returning example expects: ``numeric``, ``bool`` or None."""
+
+    wants = [_want_value(e) for e in examples if e.exc_msg is None and e.want.strip()]
+    kinds = (("bool", lambda w: isinstance(w, bool)), ("numeric", _is_numeric))
+    matches = [kind for kind, holds in kinds if wants and all(holds(w) for w in wants)]
+    return matches[0] if matches else None
 
 
 def examples_sha256(examples: tuple[Example, ...]) -> str:
@@ -389,7 +415,9 @@ def _suite_findings(program: Program, report: ex.PhaseReport) -> list[dict[str, 
         (report.hidden, cv.REASON_ORIGINAL_FAILS_HIDDEN),
     )
     return [
-        _finding(code, program, ", ".join(_failing(rows))) for rows, code in suites if _failing(rows)
+        _finding(code, program, ", ".join(_failing(rows)))
+        for rows, code in suites
+        if _failing(rows)
     ]
 
 
