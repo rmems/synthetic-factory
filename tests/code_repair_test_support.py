@@ -17,13 +17,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from coded_refusal_test_support import coded_refusal
+from coded_refusal_test_support import CodedFamily, coded_refusal
 from distill_contract_test_support import REPO, envelope, oc
 from code_repair import catalog, cli, executor, generate, mutate, records, verify, views, vocabulary
 
 FIXTURE_CATALOG = REPO / "tests" / "fixtures" / "code-repair"
 PINNED_AT = "2026-09-08T00:00:00.000Z"
 SEED = 20260908
+REPAIR_FAMILY = CodedFamily(
+    vocabulary.RepairRefusal, vocabulary.FINDING_CODE_SET, vocabulary.REASON_CODE_SET
+)
 FAMILY_MODULES = (
     "_contract", "vocabulary", "catalog", "mutate", "executor", "verify", "records", "views",
     "generate", "cli",
@@ -39,10 +42,7 @@ __all__ = (
 def refusal(case, code, *fragments):
     """Assert a ``RepairRefusal`` carrying exactly ``code`` and every prose fragment."""
 
-    return coded_refusal(
-        case, vocabulary.RepairRefusal, vocabulary.FINDING_CODE_SET, vocabulary.REASON_CODE_SET,
-        code, *fragments,
-    )
+    return coded_refusal(case, REPAIR_FAMILY, code, *fragments)
 
 
 @functools.lru_cache(maxsize=None)
@@ -72,10 +72,13 @@ def report(public=(), hidden=(), failure=None, detail=""):
     """A canned phase report; ``failure`` is None, "timeout", "harness_error" or "load"."""
 
     environment = {
-        "python": "3.14.7", "implementation": "cpython", "platform": "linux", "limits_applied": True,
+        "python": "3.14.7", "implementation": "cpython", "platform": "linux",
+        "limits_applied": True,
     }
     status = "ok" if failure in (None, "load") else failure
-    return executor.PhaseReport(status, failure is None, tuple(public), tuple(hidden), environment, detail)
+    return executor.PhaseReport(
+        status, failure is None, tuple(public), tuple(hidden), environment, detail
+    )
 
 
 class FakeExecutor:

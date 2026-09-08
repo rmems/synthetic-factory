@@ -48,6 +48,7 @@ class Job:
     function: str
     cases: tuple[dict[str, Any], ...] = ()
     run_public: bool = True
+    expected_public: int | None = None
 
 
 @dataclass(frozen=True)
@@ -70,10 +71,19 @@ def harness_sha256() -> str:
     return hashlib.sha256(HARNESS_PATH.read_bytes()).hexdigest()
 
 
-def rows_of(rows: tuple[dict[str, Any], ...]) -> list[dict[str, str]]:
-    """The digestable form of a row list: ``{id, status}`` only, sorted by id."""
+def rows_of(rows: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    """The digestable form of a row list: ``{id, status}`` plus the digest of any ``got``.
 
-    digestable = ({"id": row["id"], "status": row["status"]} for row in rows)
+    A failing row's ``got`` text is not stored twice, but its digest is, so a
+    consumer can check a rendered failure against the row the harness wrote.
+    """
+
+    digestable = []
+    for row in rows:
+        entry: dict[str, Any] = {"id": row["id"], "status": row["status"]}
+        if "got" in row:
+            entry["got_sha256"] = hashlib.sha256(str(row["got"]).encode("utf-8")).hexdigest()
+        digestable.append(entry)
     return sorted(digestable, key=lambda row: row["id"])
 
 
@@ -136,7 +146,7 @@ class Executor:
             report = PhaseReport(cv.PHASE_TIMEOUT, False, (), (), {}, "timed out")
         else:
             entry.update(returncode=completed.returncode, stderr_tail=_tail(completed.stderr))
-            report = _parse_report(completed.returncode, completed.stdout)
+            report = _parse_report(job, completed.returncode, completed.stdout)
         entry.update(duration_s=round(time.monotonic() - started, 6), status=report.status)
         self.log.append(entry)
         return report
@@ -146,31 +156,73 @@ def _dumps(payload: dict[str, Any]) -> str:
     return json.dumps(payload, sort_keys=True, allow_nan=False)
 
 
-def _parse_report(returncode: int, stdout: bytes) -> PhaseReport:
-    """The child's report, or a harness error when it is not the protocol's one object."""
+def _harness_error(detail: str) -> PhaseReport:
+    return PhaseReport(cv.PHASE_HARNESS_ERROR, False, (), (), {}, detail)
+
+
+def _parsed_report(returncode: int, stdout: bytes) -> dict[str, Any] | str:
+    """The protocol object the child wrote, or the reason there is none."""
 
     if returncode != 0:
-        return PhaseReport(cv.PHASE_HARNESS_ERROR, False, (), (), {}, f"exit status {returncode}")
+        return f"exit status {returncode}"
     try:
         parsed = load_strict_json(stdout.decode("utf-8"))
     except ValueError as exc:
-        return PhaseReport(cv.PHASE_HARNESS_ERROR, False, (), (), {}, f"report unreadable: {exc}")
+        return f"report unreadable: {exc}"
     if not isinstance(parsed, dict) or parsed.get("protocol") != cv.HARNESS_PROTOCOL:
-        return PhaseReport(cv.PHASE_HARNESS_ERROR, False, (), (), {}, "report is not the protocol")
+        return "report is not the protocol"
+    return parsed
+
+
+def _parse_report(job: Job, returncode: int, stdout: bytes) -> PhaseReport:
+    """The child's report, or a harness error when it is not the protocol's complete object.
+
+    Every row the job asked for must be present and well formed: a truncated
+    or malformed suite is a harness error, never a suite with no failures.
+    """
+
+    parsed = _parsed_report(returncode, stdout)
+    if isinstance(parsed, str):
+        return _harness_error(parsed)
     load = parsed.get("load") if isinstance(parsed.get("load"), dict) else {}
     environment = parsed.get("environment") if isinstance(parsed.get("environment"), dict) else {}
     if load.get("status") != "ok":
         detail = str(load.get("error") or "load failed")
         return PhaseReport(cv.PHASE_OK, False, (), (), environment, detail)
-    return PhaseReport(
-        cv.PHASE_OK, True, _rows(parsed.get("public")), _rows(parsed.get("hidden")), environment
+    public = _rows("public", parsed.get("public"), job.expected_public if job.run_public else 0)
+    hidden = _rows("hidden", parsed.get("hidden"), len(job.cases))
+    if public is None or hidden is None:
+        return _harness_error("report rows are missing or malformed")
+    return PhaseReport(cv.PHASE_OK, True, public, hidden, environment)
+
+
+def _well_formed(row: Any, expected_id: str) -> bool:
+    return (
+        isinstance(row, dict) and row.get("id") == expected_id
+        and isinstance(row.get("status"), str) and isinstance(row.get("got", ""), str)
     )
 
 
-def _rows(value: Any) -> tuple[dict[str, Any], ...]:
-    if not isinstance(value, list):
-        return ()
-    return tuple(row for row in value if isinstance(row, dict) and isinstance(row.get("id"), str))
+def _row_list(value: Any) -> list[Any] | None:
+    """The suite as a list: absent means empty, anything but a list is malformed."""
+
+    if value is None:
+        return []
+    return list(value) if isinstance(value, list) else None
+
+
+def _rows(prefix: str, value: Any, expected: int | None) -> tuple[dict[str, Any], ...] | None:
+    """Rows ``prefix:0..expected-1`` in order, or None when the suite is malformed."""
+
+    rows = _row_list(value)
+    if rows is None:
+        return None
+    if expected is not None and len(rows) != expected:
+        return None
+    expected_ids = [f"{prefix}:{index}" for index in range(len(rows))]
+    if not all(_well_formed(row, row_id) for row, row_id in zip(rows, expected_ids)):
+        return None
+    return tuple(rows)
 
 
 bind_import_twin(__name__)

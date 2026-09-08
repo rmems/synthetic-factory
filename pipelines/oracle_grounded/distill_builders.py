@@ -126,6 +126,10 @@ def _refuse_measurement_shape(quantity: str, value: Any, detail: Any) -> None:
     _refuse((
         (not envelope.is_number(value), f"{quantity} value must be a finite number, got {value!r}"),
         (
+            quantity in vocab.INTEGER_QUANTITIES and not vocab.is_genuine_int(value),
+            f"{quantity} must be an integer count, got {value!r}",
+        ),
+        (
             detail is not None and not isinstance(detail, dict),
             f"{quantity} detail must be an object, got {detail!r}",
         ),
