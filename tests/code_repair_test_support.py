@@ -68,7 +68,8 @@ def report(public=(), hidden=(), failure=None, detail=""):
     """A canned phase report; ``failure`` is None, "timeout", "harness_error" or "load"."""
 
     environment = {
-        "python": "3.14.7", "implementation": "cpython", "platform": "linux", "limits_applied": True,
+        "python": "3.14.7", "implementation": "cpython", "platform": "linux",
+        "limits_applied": True,
     }
     status = "ok" if failure in (None, "load") else failure
     return executor.PhaseReport(
