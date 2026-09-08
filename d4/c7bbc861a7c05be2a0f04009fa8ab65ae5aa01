@@ -1,0 +1,21 @@
+pipelines/oracle_grounded/fault_scenario.py
+  s_111d64b9a15da0::t_4ba10c005d6254 5-8,17-19,25-63,112,118,122,150-152,171,173
+tests/test_fault_scenario.py
+  s_111d64b9a15da0::t_6704dd7d217df5 43-47,49-53,56,59-60,62-63,68-69,84-85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d4c7bbc861a7c05be2a0f04009fa8ab65ae5aa01",
+  "prompts": {},
+  "sessions": {
+    "s_111d64b9a15da0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "344701ce-d2c4-426c-96b1-716c94aac4d3",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
