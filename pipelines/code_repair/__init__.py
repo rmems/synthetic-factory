@@ -28,5 +28,6 @@ __all__ = [
     "views",
     "generate",
     "replay",
+    "export",
     "cli",
 ]

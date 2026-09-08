@@ -23,7 +23,7 @@ from code_repair_test_support import (  # noqa: E402
 
 # The pin moves whenever the harness bytes, the fixture catalog or the record layout change:
 # the harness digest sits inside every record's oracle fingerprint by design.
-GOLDEN_SHA256 = "647ddfac5e133f5a19a058bf961efe538eaa0968040a2e9db33a260161411277"
+GOLDEN_SHA256 = "6afbf9619fcc851742d14d32a4399fcfdc3ebf72888f7cd659403bc7d2dee82a"
 
 
 def accepting_executor():
