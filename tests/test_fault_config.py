@@ -67,6 +67,16 @@ class EnforcedSystemRows(unittest.TestCase):
             checked(scenario(tick_ms=1e308))
         self.assertEqual(checked(scenario(tick_ms=10.0, stale_threshold_ms=8.0))["tick_ms"], 10.0)
 
+    def test_the_recovery_horizon_is_finite_like_the_tick_horizon(self):
+        """Codex finding: accepted controls whose last tick plus a tier latency overflow
+        made a valid configuration yield an infinite recovery reading."""
+        huge = dict(tick_ms=8e307, ticks=2, stale_threshold_ms=1e307, deadline_ms=1e306, hard_deadline_ms=2e306)
+        with refusal(self, fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, "recovery horizon"):
+            checked(scenario(**huge, fallback_latency_ms=1e308, min_healthy_channels=4))
+        with refusal(self, fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, "recovery horizon"):
+            checked(scenario(**huge, reflex_latency_ms=1e308))
+        self.assertEqual(checked(scenario(**huge))["tick_ms"], 8e307)
+
     def test_the_thermal_span_from_ambient_to_shutdown_is_finite_like_the_horizon(self):
         ladder = {"ambient_c": -1.7e308, "thermal_warn_c": -1e308, "thermal_limit_c": 0.0}
         with refusal(self, fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, "thermal span", "ambient_c"):

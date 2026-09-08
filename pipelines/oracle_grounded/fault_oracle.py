@@ -24,6 +24,7 @@ import copy
 from dataclasses import dataclass, fields
 from typing import Any
 
+from . import distill_blocks as blocks
 from . import distill_builders as builders
 from . import distill_vocabulary as vocab
 from . import envelope
@@ -203,10 +204,16 @@ def _verdict(batch: _Batch, proposal: dict[str, Any]) -> builders.Verdict:
 
 
 def _record(batch: _Batch, proposal: dict[str, Any]) -> dict[str, Any]:
-    return builders.build_record(
-        identity=builders.RecordIdentity(
-            f"{fv.RECORD_ID_PREFIX}-{batch.seed}-{proposal['index']:04d}", fv.FAMILY
-        ),
+    """One built record, refused if the shared envelope would refuse it.
+
+    The simulator's records pass by construction; the check is what keeps an
+    injected oracle's block or verdict from reaching a file already known to
+    fail validation. No validation stamp is written: the record stays
+    unvalidated.
+    """
+    record_id = f"{fv.RECORD_ID_PREFIX}-{batch.seed}-{proposal['index']:04d}"
+    record = builders.build_record(
+        identity=builders.RecordIdentity(record_id, fv.FAMILY),
         proposal=builders.Proposal(
             generator=batch.generator,
             scenario=proposal["scenario"],
@@ -216,6 +223,14 @@ def _record(batch: _Batch, proposal: dict[str, Any]) -> dict[str, Any]:
         verdict=_verdict(batch, proposal),
         provenance=batch.provenance,
     )
+    findings = blocks.check_envelope(record, record_id)
+    fv.refuse_when(
+        bool(findings),
+        fv.FINDING_RECORD_FAILS_ENVELOPE,
+        f"the oracle {batch.engine.name!r} produced a record the shared envelope refuses "
+        f"({len(findings)} finding(s); first: {findings[0] if findings else ''})",
+    )
+    return record
 
 
 def build_records(

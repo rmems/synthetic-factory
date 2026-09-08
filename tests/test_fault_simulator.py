@@ -94,6 +94,8 @@ class Boundary(unittest.TestCase):
         )
         checked = result(**consistent)
         self.assertIs(fs.checked_result(checked), checked)
+        # A temperature may sit below zero; only durations are non-negative.
+        self.assertEqual(fs.checked_result(result(**consistent, peak_temperature_c=-12.5)).peak_temperature_c, -12.5)
         for label, changes in (
             ("continue with a shutdown reason", dict(outcome="continue", reason_codes=("THERMAL_SHUTDOWN",), detection_latency_ms=None)),
             ("fail_closed with WITHIN_TOLERANCE", dict(outcome="fail_closed", reason_codes=("WITHIN_TOLERANCE",))),
@@ -102,6 +104,12 @@ class Boundary(unittest.TestCase):
             ("corrupt above total", dict(corrupt_events=200, total_events=1)),
             ("corrupt with no events", dict(corrupt_events=1, dropped_events=0, total_events=0)),
             ("unhashable reason entry", dict(reason_codes=(["EVENTS_DROPPED"],))),
+            ("negative recovery", dict(recovery_latency_ms=-1.0)),
+            ("negative staleness", dict(max_staleness_ms=-1.0)),
+            ("negative jitter", dict(max_jitter_ms=-0.5)),
+            ("negative result delay", dict(result_delay_ms=-2.0)),
+            ("recovery before detection", dict(detection_latency_ms=10.0, recovery_latency_ms=1.0)),
+            ("continue with a recovery", dict(outcome="continue", reason_codes=("WITHIN_TOLERANCE",), detection_latency_ms=None, recovery_latency_ms=2.0)),
         ):
             with self.subTest(case=label), refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "oracle result"):
                 fs.checked_result(result(**{**consistent, **changes}))

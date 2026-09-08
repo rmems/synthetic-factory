@@ -147,6 +147,16 @@ class OracleInjection(unittest.TestCase):
             meters = {item["meter"] for item in record["result"]["measurements"]}
             self.assertEqual(meters, {"bench_replay_clock", "bench_replay_state", "bench_replay_thermal_probe"})
 
+    def test_an_oracle_whose_block_fails_the_envelope_is_refused_not_recorded(self):
+        """Codex finding: an injected oracle's block was copied into the record unchecked."""
+
+        class BadBlock(BenchReplay):
+            def oracle_block(self, scenario):
+                return {}
+
+        with refusal(self, fv.FINDING_RECORD_FAILS_ENVELOPE, "shared envelope refuses", "oracle.name"):
+            fo.build_records(3, 1, produced_at=PINNED_AT, oracle=BadBlock())
+
     def test_a_falsy_injected_oracle_is_still_the_oracle_that_runs(self):
         """Reviewer finding: ``oracle or simulator`` replaced an oracle whose truth value
         is False; only ``None`` selects the default now."""

@@ -115,8 +115,13 @@ def _declared_reasons(codes: Any) -> bool:
     return all(isinstance(code, str) and code in fv.REASON_CODE_SET for code in codes)
 
 
+def _non_negative_number(value: Any) -> bool:
+    return envelope.is_number(value) and value >= 0
+
+
 def _optional_number(value: Any) -> bool:
-    return value is None or envelope.is_number(value)
+    """A detection latency: absent, or a finite non-negative number of ms."""
+    return value is None or _non_negative_number(value)
 
 
 def _count(value: Any) -> bool:
@@ -126,18 +131,18 @@ def _count(value: Any) -> bool:
 _COUNT_FIELDS = (
     "worst_healthy_channels", "dropped_events", "corrupt_events", "total_events", "saturated_ticks",
 )
-_NUMBER_FIELDS = (
-    "recovery_latency_ms", "peak_temperature_c", "max_staleness_ms", "max_jitter_ms",
-    "result_delay_ms",
-)
+# Durations are non-negative milliseconds; a temperature may sit below zero.
+_DURATION_FIELDS = ("recovery_latency_ms", "max_staleness_ms", "max_jitter_ms", "result_delay_ms")
+_NUMBER_FIELDS = ("peak_temperature_c",)
 # (field, predicate, expected text): the family vocabulary every verdict must
 # fit before it becomes a label, whichever oracle returned it.
 _RESULT_RULES: tuple[tuple[str, config.Predicate, str], ...] = (
     ("outcome", lambda value: value in fv.OUTCOMES, "one of the family's outcomes"),
     ("reason_codes", _declared_reasons, "a non-empty tuple of declared reason codes"),
-    ("detection_latency_ms", _optional_number, "a finite number or None"),
+    ("detection_latency_ms", _optional_number, "a finite non-negative number of ms or None"),
     ("integrity_violation", lambda value: isinstance(value, bool), "a boolean"),
     *((name, _count, "a non-negative integer") for name in _COUNT_FIELDS),
+    *((name, _non_negative_number, "a finite non-negative number of ms") for name in _DURATION_FIELDS),
     *((name, envelope.is_number, "a finite number") for name in _NUMBER_FIELDS),
 )
 
@@ -274,6 +279,13 @@ def _counts_fit_total(result: FaultResult) -> bool:
     return result.corrupt_events + result.dropped_events <= result.total_events
 
 
+def _recovery_follows_detection(result: FaultResult) -> bool:
+    """Recovery is onset-relative like detection: zero for continue, else never before it."""
+    if result.outcome == fv.OUTCOME_CONTINUE:
+        return result.recovery_latency_ms == 0.0
+    return result.recovery_latency_ms >= result.detection_latency_ms
+
+
 # (predicate over a field-valid result, what it guarantees): the consistency
 # the simulator keeps by construction, required of every oracle's verdict.
 _VERDICT_RULES = (
@@ -281,6 +293,8 @@ _VERDICT_RULES = (
                            "(continue carries exactly the within-tolerance reason)"),
     (_detection_fits_outcome, "detection_latency_ms must be None exactly when the outcome is continue"),
     (_counts_fit_total, "corrupt_events plus dropped_events must not exceed total_events"),
+    (_recovery_follows_detection, "recovery_latency_ms must be 0.0 for continue and never precede "
+                                  "detection_latency_ms otherwise"),
 )
 
 
