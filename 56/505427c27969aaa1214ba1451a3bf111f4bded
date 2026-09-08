@@ -1,0 +1,15 @@
+pipelines/oracle_grounded/fault_scenario.py
+  ai_agent 38,155-156,158-160,175-181
+pipelines/oracle_grounded/fault_config.py
+  ai_agent 420-424,427-428,434
+tests/test_fault_config.py
+  ai_agent 244-251
+tests/test_fault_scenario.py
+  ai_agent 91-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "56505427c27969aaa1214ba1451a3bf111f4bded",
+  "prompts": {}
+}
