@@ -1,0 +1,33 @@
+pipelines/oracle_grounded/fault_oracle.py
+  s_111d64b9a15da0::t_b055fdca1e7c19 27,207-216,226-233
+pipelines/oracle_grounded/fault_simulator.py
+  s_111d64b9a15da0::t_b055fdca1e7c19 118-121,123-124,134-136,142,145,282-288,296-297
+pipelines/oracle_grounded/fault_config.py
+  s_111d64b9a15da0::t_b055fdca1e7c19 164-172,186-189
+pipelines/oracle_grounded/fault_vocabulary.py
+  s_111d64b9a15da0::t_b055fdca1e7c19 205,218
+tests/test_fault_config.py
+  s_111d64b9a15da0::t_b055fdca1e7c19 70-79
+tests/test_fault_vocabulary.py
+  s_111d64b9a15da0::t_b055fdca1e7c19 50-51
+tests/test_fault_simulator.py
+  s_111d64b9a15da0::t_b055fdca1e7c19 97-98,107-112
+tests/test_fault_oracle.py
+  s_111d64b9a15da0::t_b055fdca1e7c19 150-159
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a89d78af05a3ca05f7112fcaa0104e37a74c698e",
+  "prompts": {},
+  "sessions": {
+    "s_111d64b9a15da0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "344701ce-d2c4-426c-96b1-716c94aac4d3",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
