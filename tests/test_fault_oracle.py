@@ -39,6 +39,7 @@ class BenchReplay(fault_simulator.RelayReflexSimulator):
     meter_clock = "bench_replay_clock"
     meter_state = "bench_replay_state"
     meter_thermal = "bench_replay_thermal_probe"
+    oracle_run = "bench_replay_recorded"
 
 
 class ReferenceOnly(fault_simulator.RelayReflexSimulator):
@@ -220,7 +221,7 @@ class OracleInjection(unittest.TestCase):
             fo.oracle_meters(None)
 
         class Declared(fo.FaultOracle):
-            meter_clock, meter_state, meter_thermal = "a", "b", "c"
+            meter_clock, meter_state, meter_thermal, oracle_run = "a", "b", "c", "d"
 
         with self.assertRaises(NotImplementedError):
             fo.build_records(1, 1, oracle=Declared())
@@ -240,6 +241,22 @@ class OracleInjection(unittest.TestCase):
     def test_an_oracle_without_meters_is_refused(self):
         with refusal(self, fv.FINDING_ORACLE_METERS_UNDECLARED, "measurement meters", "clock", "state", "thermal"):
             fo.build_records(3, 1, oracle=fo.FaultOracle())
+
+    def test_provenance_names_the_injected_oracle_s_own_run_never_the_simulator_s(self):
+        """Codex round 8: every record was stamped ``in_process_deterministic`` whatever
+        engine ran, so a replay looked simulator-produced downstream. The run descriptor
+        is declared by the engine like its meters, and an undeclared one is refused."""
+        record = fo.build_records(3, 1, produced_at=PINNED_AT, oracle=BenchReplay())[0]
+        self.assertEqual(record["provenance"]["oracle_run"], "bench_replay_recorded")
+        self.assertEqual(fo.oracle_run_of(fo.RelayReflexSimulator()), fv.ORACLE_RUN)
+
+        class Undeclared(BenchReplay):
+            oracle_run = None
+
+        with mock.patch.object(fault_scenario, "propose_scenarios", side_effect=AssertionError("drawn")):
+            with refusal(self, fv.FINDING_ORACLE_RUN_UNDECLARED, "oracle_run"):
+                fo.build_records(3, 1, oracle=Undeclared())
+        self.assertEqual(fo.describe()["oracle"]["run"], fv.ORACLE_RUN)
 
     def test_a_reference_only_oracle_is_refused_by_the_curation_gate_not_by_f1(self):
         ensure_policy()
@@ -281,7 +298,7 @@ class Identity(unittest.TestCase):
         surface = {
             "EMITTED_LABEL_KEYS", "FaultOracle", "FaultResult", "ORACLE_LABEL_KEYS", "OracleMeters",
             "RelayReflexSimulator", "build_records", "checked_disturbance", "checked_system", "describe",
-            "oracle_meters", "propose_scenarios",
+            "oracle_meters", "oracle_run_of", "propose_scenarios",
         }
         self.assertEqual(set(fo.__all__), surface)
         for name in ("result_measurements", "oracle_result", "prediction_agreement"):

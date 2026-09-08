@@ -147,6 +147,20 @@ class EnforcedDisturbanceRow2(unittest.TestCase):
                 check("thermal_excursion", **thermal(peak_c=peak))
         self.assertEqual(check("thermal_excursion", **thermal(peak_c=58.0)).parameters["peak_c"], 58.0)
 
+    def test_a_thermal_excursion_needs_a_tick_after_its_onset_to_heat(self):
+        """Codex round 8: an onset on the last tick (46.0 on the 24 x 2 ms grid) passed the
+        onset check, but the ramp is at fraction zero on its onset tick and the run ended,
+        so a 70 C excursion ran as a ``continue`` at ambient. Row 3 (held) still admits an
+        excursion whose ramp never crosses warn: only the structural no-op is refused."""
+        with refusal(self, fv.FINDING_ONSET_BEYOND_HORIZON, "no simulated tick after it", "no-op"):
+            check("thermal_excursion", **thermal(onset_ms=46.0))
+        for onset in (44.0, 45.5):   # tick 46 follows both, so the ramp has somewhere to go
+            self.assertEqual(check("thermal_excursion", **thermal(onset_ms=onset)).parameters["onset_ms"], onset)
+        warmed = fault_simulator.RelayReflexSimulator().run(scenario(), disturbance("thermal_excursion", **thermal(onset_ms=44.0)))
+        self.assertGreater(warmed.peak_temperature_c, 38.0)
+        with refusal(self, fv.FINDING_ONSET_BEYOND_HORIZON, "beyond the last simulated tick"):
+            check("thermal_excursion", **thermal(onset_ms=48.0))
+
     def test_a_thermal_span_that_overflows_is_refused_before_the_ramp_runs(self):
         """Two finite controls whose difference is inf would otherwise give an
         infinite peak_temperature_c and trace from an accepted run()."""

@@ -85,8 +85,10 @@ class FaultOracle:
     """Boundary a fault-recovery oracle must implement.
 
     The meters name the instruments behind the readings ``fault_oracle``
-    derives; they default to unset so a hardware replay cannot inherit the
-    simulator's provenance (``fault_oracle`` refuses undeclared meters). The
+    derives, and ``oracle_run`` describes how a run is produced for the
+    record's provenance; they default to unset so a hardware replay cannot
+    inherit the simulator's provenance (``fault_oracle`` refuses either
+    undeclared). The
     abstract ``run`` and ``oracle_block`` raise ``NotImplementedError``: a
     subclass that declares meters but no engine is a programming error, not
     a data refusal.
@@ -100,6 +102,7 @@ class FaultOracle:
     meter_clock: str | None = None
     meter_state: str | None = None
     meter_thermal: str | None = None
+    oracle_run: str | None = None
 
     def run(self, scenario: dict[str, Any], disturbance: dict[str, Any]) -> FaultResult:
         raise NotImplementedError
@@ -161,12 +164,14 @@ def _result_problems(result: FaultResult):
         )
 
 
-def checked_result(result: Any) -> FaultResult:
+def checked_result(result: Any, system: dict[str, Any] | None = None) -> FaultResult:
     """A verdict inside the family vocabulary: the type, the outcome, declared
     reason codes, genuine counts and finite readings, then the cross-field
-    consistency the simulator itself keeps (reasons from the outcome's tier,
-    detection exactly for non-continue outcomes, counts within the total);
-    anything else is refused before it can become a label."""
+    consistency the simulator itself keeps (reasons from the outcome's tier and
+    matching their evidence, detection exactly for non-continue outcomes,
+    counts within the total), and, given the effective ``system`` the verdict
+    answers, state counts within its channel and tick counts; anything else is
+    refused before it can become a label."""
     fv.refuse_when(
         not isinstance(result, FaultResult),
         fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY,
@@ -174,6 +179,8 @@ def checked_result(result: Any) -> FaultResult:
     )
     fv.refuse_first(_result_problems(result))
     fv.refuse_first(_verdict_problems(result))
+    if system is not None:
+        fv.refuse_first(_bound_problems(result, system))
     return result
 
 
@@ -282,12 +289,38 @@ def _counts_fit_total(result: FaultResult) -> bool:
 
 
 def _continue_carries_no_fault(result: FaultResult) -> bool:
-    """Within tolerance means no dropped, corrupt or saturated events and no integrity violation."""
+    """Within tolerance means no dropped or corrupt events and no integrity violation:
+    the three unconditional tier predicates. Saturation is threshold-relative (a run
+    below ``reflex_saturation_ticks`` is within tolerance), so it is not required here."""
     if result.outcome != fv.OUTCOME_CONTINUE:
         return True
-    return not any(
-        (result.integrity_violation, result.dropped_events, result.corrupt_events, result.saturated_ticks)
-    )
+    return not any((result.integrity_violation, result.dropped_events, result.corrupt_events))
+
+
+# (reason, its tier, the evidence the result must carry, whether the evidence
+# alone fires the reason): the reasons whose predicate reads a result field
+# without a system threshold. A reported reason needs its evidence; within the
+# reason's own tier, unconditional evidence needs its reason (a tier reports
+# every reason it fired).
+_EVIDENCE: tuple[tuple[str, str, Callable[[FaultResult], bool], bool], ...] = (
+    (fv.REASON_EVENTS_DROPPED, fv.OUTCOME_DEGRADE, lambda r: r.dropped_events > 0, True),
+    (fv.REASON_CORRUPTION_BELOW_QUARANTINE_THRESHOLD, fv.OUTCOME_DEGRADE, lambda r: r.corrupt_events > 0, True),
+    (fv.REASON_MALFORMED_STREAM_QUARANTINED, fv.OUTCOME_QUARANTINE, lambda r: r.integrity_violation, True),
+    (fv.REASON_CORRUPTION_ABOVE_QUARANTINE_THRESHOLD, fv.OUTCOME_QUARANTINE, lambda r: r.corrupt_events > 0, False),
+)
+
+
+def _evidence_mismatch(result: FaultResult, row: tuple[str, str, Callable[[FaultResult], bool], bool]) -> bool:
+    """A claimed reason without its evidence, or unconditional evidence in its own tier without its reason."""
+    reason, tier, evidence, unconditional = row
+    holds = evidence(result)
+    if reason in result.reason_codes:
+        return not holds
+    return all((unconditional, holds, result.outcome == tier))
+
+
+def _reasons_match_evidence(result: FaultResult) -> bool:
+    return not any(_evidence_mismatch(result, row) for row in _EVIDENCE)
 
 
 def _recovery_follows_detection(result: FaultResult) -> bool:
@@ -300,15 +333,38 @@ def _recovery_follows_detection(result: FaultResult) -> bool:
 # (predicate over a field-valid result, what it guarantees): the consistency
 # the simulator keeps by construction, required of every oracle's verdict.
 _VERDICT_RULES = (
-    (_reasons_fit_outcome, "reason codes must all belong to the tier of the reported outcome "
-                           "(continue carries exactly the within-tolerance reason)"),
+    (_reasons_fit_outcome, ("reason codes must all belong to the tier of the reported outcome "
+                           "(continue carries exactly the within-tolerance reason)")),
     (_detection_fits_outcome, "detection_latency_ms must be None exactly when the outcome is continue"),
     (_counts_fit_total, "corrupt_events plus dropped_events must not exceed total_events"),
-    (_recovery_follows_detection, "recovery_latency_ms must be 0.0 for continue and never precede "
-                                  "detection_latency_ms otherwise"),
-    (_continue_carries_no_fault, "continue must report no dropped, corrupt or saturated events and "
-                                 "no integrity violation (the tiers would never pass those)"),
+    (_recovery_follows_detection, ("recovery_latency_ms must be 0.0 for continue and never precede "
+                                  "detection_latency_ms otherwise")),
+    (_continue_carries_no_fault, ("continue must report no dropped or corrupt events and no integrity "
+                                 "violation (the tiers would never pass those)")),
+    (_reasons_match_evidence, ("a reported drop, corruption or malformed-stream reason needs its evidence "
+                              "in the counts, and such evidence within the reported outcome's tier needs "
+                              "its reason")),
 )
+
+
+# (field, bound over the effective system, what it names): the state counts a
+# verdict may not exceed for the scenario it answers.
+_STATE_BOUNDS: tuple[tuple[str, Callable[[dict[str, Any]], int], str], ...] = (
+    ("worst_healthy_channels", lambda s: len(s["channels"]), "the channel count"),
+    ("saturated_ticks", lambda s: s["ticks"], "the tick count"),
+    ("total_events", lambda s: s["ticks"] * len(s["channels"]), "ticks x channels"),
+)
+
+
+def _bound_problems(result: FaultResult, system: dict[str, Any]):
+    for name, bound_of, named in _STATE_BOUNDS:
+        bound = bound_of(system)
+        yield (
+            getattr(result, name) > bound,
+            fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY,
+            f"oracle result {name} {getattr(result, name)} exceeds {named} ({bound}) of the "
+            "effective system it answers",
+        )
 
 
 def _verdict_problems(result: FaultResult):
@@ -598,6 +654,7 @@ class RelayReflexSimulator(FaultOracle):
     meter_clock = fv.METER_CLOCK
     meter_state = fv.METER_STATE
     meter_thermal = fv.METER_THERMAL
+    oracle_run = fv.ORACLE_RUN
 
     def oracle_block(self, scenario: dict[str, Any]) -> dict[str, Any]:
         """The oracle block, recording the effective system this engine runs."""

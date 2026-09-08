@@ -133,8 +133,8 @@ def _fallback_problems(system: dict[str, Any]) -> tuple[Problem, ...]:
         (
             _is_primary(fallback, system["channels"]),
             fv.FINDING_FALLBACK_SOURCE_IS_PRIMARY,
-            f"system fallback_source {fv.shown(fallback)} is one of the primary channels; "
-            "a fallback must be a redundant source",
+            (f"system fallback_source {fv.shown(fallback)} is one of the primary channels; "
+            "a fallback must be a redundant source"),
         ),
     )
 
@@ -176,8 +176,8 @@ def _recovery_horizon_not_finite(system: dict[str, Any]) -> bool:
 
 _RELATIONS: tuple[tuple[str, Callable[[dict[str, Any]], bool], str], ...] = (
     (fv.FINDING_THERMAL_LADDER_UNORDERED, _ladder_unordered,
-     "system thermal ladder must be ordered ambient < warn < limit < shutdown, got "
-     "{ambient_c}, {thermal_warn_c}, {thermal_limit_c}, {thermal_shutdown_c}"),
+     ("system thermal ladder must be ordered ambient < warn < limit < shutdown, got "
+     "{ambient_c}, {thermal_warn_c}, {thermal_limit_c}, {thermal_shutdown_c}")),
     (fv.FINDING_HEALTHY_BUDGET_EXCEEDS_CHANNELS, _budget_exceeds_channels,
      "system min_healthy_channels {min_healthy_channels} exceeds the channel count"),
     (fv.FINDING_DEADLINE_ORDER_INVERTED, _deadlines_inverted,
@@ -185,12 +185,12 @@ _RELATIONS: tuple[tuple[str, Callable[[dict[str, Any]], bool], str], ...] = (
     (fv.FINDING_HORIZON_NOT_FINITE, _horizon_not_finite,
      "system horizon tick_ms {tick_ms} x ticks {ticks} is not a finite number of ms"),
     (fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, _thermal_span_not_finite,
-     "system thermal span from ambient_c {ambient_c} to thermal_shutdown_c "
-     "{thermal_shutdown_c} is not a finite number of degrees"),
+     ("system thermal span from ambient_c {ambient_c} to thermal_shutdown_c "
+     "{thermal_shutdown_c} is not a finite number of degrees")),
     (fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, _recovery_horizon_not_finite,
-     "system recovery horizon (the last tick or deadline_ms {deadline_ms}, plus the largest "
+     ("system recovery horizon (the last tick or deadline_ms {deadline_ms}, plus the largest "
      "of reflex_latency_ms {reflex_latency_ms}, fallback_latency_ms {fallback_latency_ms} "
-     "and tick_ms {tick_ms}) is not a finite number of ms"),
+     "and tick_ms {tick_ms}) is not a finite number of ms")),
 )
 
 
@@ -337,14 +337,14 @@ def _channel_shape_problems(kind: str, parameters: dict[str, Any]) -> tuple[Prob
         (
             not isinstance(channels, list),
             fv.FINDING_CHANNELS_NOT_A_LIST,
-            f"{kind} channels must be a list of channel names, got {fv.shown(channels)}; "
-            "anything else would run as a no-op",
+            (f"{kind} channels must be a list of channel names, got {fv.shown(channels)}; "
+            "anything else would run as a no-op"),
         ),
         (
             _requires_channels(kind) and channels == [],
             fv.FINDING_CHANNELS_EMPTY,
-            f"{kind} channels must name at least one channel; an empty list would run "
-            "the declared disturbance as a no-op",
+            (f"{kind} channels must name at least one channel; an empty list would run "
+            "the declared disturbance as a no-op"),
         ),
     )
 
@@ -369,8 +369,8 @@ def _floor_problems(kind: str, parameters: dict[str, Any]) -> Iterable[Problem]:
             yield (
                 not _floor_holds(value, floor, exclusive),
                 fv.FINDING_PARAMETER_OUT_OF_DOMAIN,
-                f"{kind} {key} must be a finite number {_FLOOR_SIGN[exclusive]} {floor}, got "
-                f"{fv.shown(value)}; outside that range the declared disturbance cannot occur",
+                (f"{kind} {key} must be a finite number {_FLOOR_SIGN[exclusive]} {floor}, got "
+                f"{fv.shown(value)}; outside that range the declared disturbance cannot occur"),
             )
 
 
@@ -383,8 +383,8 @@ def _is_malformed_kind(value: Any) -> bool:
 _VALUE_RULES: tuple[tuple[str, Predicate, str], ...] = (
     ("peak_c", finite_number, "a finite number"),
     ("malformed_count", genuine_count_from(1, fv.MAX_TICKS * fv.MAX_CHANNELS),
-     f"an integer in [1, {fv.MAX_TICKS * fv.MAX_CHANNELS}]; a burst of zero events is a no-op and "
-     "no run has room for more"),
+     (f"an integer in [1, {fv.MAX_TICKS * fv.MAX_CHANNELS}]; a burst of zero events is a no-op and "
+     "no run has room for more")),
     ("malformed_kind", _is_malformed_kind, f"one of {sorted(fv.MALFORMED_KINDS)}"),
     (
         "corrupt_ratio",
@@ -473,30 +473,50 @@ def _capacity_problem(
     )
 
 
+def _no_tick_after(onset_ms: float, system: dict[str, Any]) -> bool:
+    """No simulated tick falls strictly after the onset (the ramp is at fraction zero
+    on the onset tick, so a heating-only excursion needs a later tick to heat at all)."""
+    tick_ms = float(system["tick_ms"])
+    at_or_after = first_tick_at_or_after(onset_ms, tick_ms)
+    after = at_or_after if at_or_after * tick_ms > onset_ms else at_or_after + 1
+    return after >= system["ticks"]
+
+
 def _peak_problem(kind: str, parameters: dict[str, Any], system: dict[str, Any]) -> None:
     """Row 2: a thermal excursion must peak above ambient (value rules ran first).
 
     The span ``peak_c - ambient_c`` must also be a finite number: the ramp
     computes ``ambient + fraction * span``, and two individually finite
     controls whose difference overflows would yield an infinite temperature
-    trace and reading (the row-7 horizon guard, applied to degrees).
+    trace and reading (the row-7 horizon guard, applied to degrees). And the
+    onset must leave a tick to ramp on: an excursion starting on the last tick
+    would run as a no-op (row 12's class, like the empty window).
     """
     if kind != fv.THERMAL_EXCURSION:
         return
-    peak, ambient = parameters["peak_c"], system["ambient_c"]
+    peak, ambient, onset = parameters["peak_c"], system["ambient_c"], float(parameters["onset_ms"])
     fv.refuse_first(
         (
             (
+                _no_tick_after(onset, system),
+                fv.FINDING_ONSET_BEYOND_HORIZON,
+                (
+                    f"{kind} onset_ms {onset} leaves no simulated tick after it on the "
+                    f"{system['tick_ms']} ms grid ({system['ticks']} ticks); the ramp would never "
+                    "leave ambient and the declared excursion would run as a no-op"
+                ),
+            ),
+            (
                 peak <= ambient,
                 fv.FINDING_PEAK_NOT_ABOVE_AMBIENT,
-                f"{kind} peak_c {peak!r} is not above ambient_c {ambient!r}; a heating-only "
-                "excursion that never leaves ambient would run as a no-op",
+                (f"{kind} peak_c {peak!r} is not above ambient_c {ambient!r}; a heating-only "
+                "excursion that never leaves ambient would run as a no-op"),
             ),
             (
                 not envelope.is_number(peak - ambient),
                 fv.FINDING_PARAMETER_OUT_OF_DOMAIN,
-                f"{kind} peak_c {peak!r} minus ambient_c {ambient!r} is not a finite span "
-                "of degrees; the ramp would produce an infinite temperature",
+                (f"{kind} peak_c {peak!r} minus ambient_c {ambient!r} is not a finite span "
+                "of degrees; the ramp would produce an infinite temperature"),
             ),
         )
     )

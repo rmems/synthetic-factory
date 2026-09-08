@@ -47,8 +47,8 @@ class Vocabularies(unittest.TestCase):
     def test_reason_and_finding_codes_are_unique_and_disjoint(self):
         self.assertEqual(len(fv.REASON_CODES), 16)
         self.assertEqual(len(fv.REASON_CODE_SET), 16)
-        self.assertEqual(len(fv.FINDING_CODES), 28)
-        self.assertEqual(len(fv.FINDING_CODE_SET), 28)
+        self.assertEqual(len(fv.FINDING_CODES), 29)
+        self.assertEqual(len(fv.FINDING_CODE_SET), 29)
         self.assertFalse(fv.REASON_CODE_SET & fv.FINDING_CODE_SET)
         self.assertFalse(fv.FINDING_CODE_SET & oc.ORACLE_ONLY_KEYS)
 

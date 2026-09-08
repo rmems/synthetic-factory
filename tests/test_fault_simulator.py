@@ -115,7 +115,14 @@ class Boundary(unittest.TestCase):
             ("continue with an integrity violation", dict(**within, dropped_events=0, integrity_violation=True)),
             ("continue with dropped events", dict(**within)),
             ("continue with corrupt events", dict(**within, dropped_events=0, corrupt_events=1)),
-            ("continue with saturated ticks", dict(**within, dropped_events=0, saturated_ticks=1)),
+            # Codex round 8: a same-tier reason needs its evidence, and unconditional evidence its reason.
+            ("a drop reason with no drops", dict(reason_codes=("EVENTS_DROPPED",), dropped_events=0)),
+            ("drops in the degrade tier without the drop reason", dict(reason_codes=("REDUCED_CHANNEL_SET",))),
+            ("a corruption reason with no corruption", dict(reason_codes=("CORRUPTION_BELOW_QUARANTINE_THRESHOLD",))),
+            ("corruption in the degrade tier without its reason", dict(reason_codes=("EVENTS_DROPPED",), corrupt_events=2)),
+            ("quarantine for a malformed stream that never was", dict(outcome="quarantine", reason_codes=("MALFORMED_STREAM_QUARANTINED",))),
+            ("an integrity violation quarantined for another reason only", dict(outcome="quarantine", reason_codes=("CORRUPTION_ABOVE_QUARANTINE_THRESHOLD",), corrupt_events=50, integrity_violation=True)),
+            ("quarantine above the threshold with no corruption", dict(outcome="quarantine", reason_codes=("CORRUPTION_ABOVE_QUARANTINE_THRESHOLD",))),
         ):
             with self.subTest(case=label), refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "oracle result"):
                 fs.checked_result(result(**{**consistent, **changes}))
@@ -156,6 +163,22 @@ class Boundary(unittest.TestCase):
             with self.subTest(value=type(value).__name__), refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "FaultResult"):
                 fs.checked_result(value)
         self.assertEqual(fs.checked_result(result(total_events=fv.MAX_EVENT_COUNT)).total_events, fv.MAX_EVENT_COUNT)
+
+    def test_a_verdict_is_bounded_by_the_system_it_answers_when_that_system_is_given(self):
+        """Codex round 8: 100 healthy channels on a four-channel relay, or more saturated
+        ticks than the run has, passed the generic count bound and became a label.
+        Greptile: sub-threshold saturation under continue is within tolerance."""
+        self.assertEqual(fs.checked_result(result(saturated_ticks=2)).saturated_ticks, 2)
+        self.assertEqual(fs.checked_result(result(saturated_ticks=24, total_events=96), SYSTEM).total_events, 96)
+        for overrides, field in (
+            ({"worst_healthy_channels": 5}, "worst_healthy_channels"),
+            ({"saturated_ticks": 25}, "saturated_ticks"),
+            ({"total_events": 97}, "total_events"),
+        ):
+            with self.subTest(field=field):
+                self.assertEqual(fs.checked_result(result(**overrides)).outcome, "continue")
+                with refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, field, "exceeds"):
+                    fs.checked_result(result(**overrides), SYSTEM)
         self.assertEqual(fs.checked_result(result()), result())
         self.assertEqual(fs.checked_result(thermal(96.0)).outcome, "fail_closed")
 

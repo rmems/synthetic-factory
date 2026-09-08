@@ -65,7 +65,7 @@ def oracle_meters(engine: Any) -> OracleMeters:
         f"oracle must implement FaultOracle, got {engine!r}",
     )
     meters = OracleMeters(engine.meter_clock, engine.meter_state, engine.meter_thermal)
-    unset = sorted(f.name for f in fields(meters) if vocab.missing_string(meters.of(f.name)))
+    unset = sorted(f.name for f in fields(OracleMeters) if vocab.missing_string(meters.of(f.name)))
     fv.refuse_when(
         bool(unset),
         fv.FINDING_ORACLE_METERS_UNDECLARED,
@@ -73,6 +73,19 @@ def oracle_meters(engine: Any) -> OracleMeters:
         "readings cannot be attributed to an unnamed instrument",
     )
     return meters
+
+
+def oracle_run_of(engine: simulator.FaultOracle) -> str:
+    """The engine's declared run descriptor for ``provenance.oracle_run``; refused
+    when unset, so a hardware replay or recorded measurement is never stamped as
+    the simulator's in-process deterministic run."""
+    fv.refuse_when(
+        vocab.missing_string(engine.oracle_run),
+        fv.FINDING_ORACLE_RUN_UNDECLARED,
+        f"oracle {engine.name!r} does not declare oracle_run; provenance cannot describe "
+        "how its results are produced",
+    )
+    return engine.oracle_run
 
 
 # (quantity, meter role, value of a result), in emission order after the
@@ -196,7 +209,8 @@ def _verdict(batch: _Batch, proposal: dict[str, Any]) -> builders.Verdict:
     must sit inside the family vocabulary."""
     scenario_block = copy.deepcopy(proposal["scenario"])
     intervention = copy.deepcopy(proposal["intervention"])
-    result = simulator.checked_result(batch.engine.run(scenario_block, intervention))
+    system = config.checked_system(proposal["scenario"])
+    result = simulator.checked_result(batch.engine.run(scenario_block, intervention), system)
     return builders.Verdict(
         oracle=batch.engine.oracle_block(copy.deepcopy(proposal["scenario"])),
         result=oracle_result(result, proposal["candidate_prediction"], proposal["intervention"], batch.meters),
@@ -245,15 +259,17 @@ def build_records(
     Ids are ``fr-{seed}-{index:04d}``. ``produced_at`` pins the provenance
     timestamp (validated as an ISO-8601 UTC instant); omitted, one
     ``utc_now_iso()`` serves the whole batch. ``oracle`` defaults to the
-    simulator and must implement ``FaultOracle`` and declare its meters. The
+    simulator and must implement ``FaultOracle`` and declare its meters and
+    its ``oracle_run`` (stamped into every record's provenance). The
     cheap refusals run before a single proposal is drawn, and ``count`` is
     bounded by ``MAX_COUNT``.
     """
     stamp = _produced_at(produced_at)
     engine = simulator.RelayReflexSimulator() if oracle is None else oracle
     meters = oracle_meters(engine)
+    oracle_run = oracle_run_of(engine)
     proposals = scenario.propose_scenarios(seed, count)
-    provenance = builders.new_provenance(fv.PRODUCER, produced_at=stamp, oracle_run=fv.ORACLE_RUN)
+    provenance = builders.new_provenance(fv.PRODUCER, produced_at=stamp, oracle_run=oracle_run)
     identity = builders.GeneratorIdentity(
         fv.GENERATOR_NAME, version=fv.GENERATOR_VERSION, kind=fv.GENERATOR_KIND
     )
@@ -281,6 +297,7 @@ def describe() -> dict[str, Any]:
             "implementation": engine.implementation,
             "authority": engine.authority,
             "meters": {"clock": engine.meter_clock, "state": engine.meter_state, "thermal": engine.meter_thermal},
+            "run": engine.oracle_run,
         },
         "generator": {"name": fv.GENERATOR_NAME, "version": fv.GENERATOR_VERSION, "kind": fv.GENERATOR_KIND},
         "default_system": fv.default_system(),
@@ -300,7 +317,7 @@ def describe() -> dict[str, Any]:
 __all__ = (
     "EMITTED_LABEL_KEYS", "FaultOracle", "FaultResult", "ORACLE_LABEL_KEYS", "OracleMeters",
     "RelayReflexSimulator", "build_records", "checked_disturbance", "checked_system", "describe",
-    "oracle_meters", "propose_scenarios",
+    "oracle_meters", "oracle_run_of", "propose_scenarios",
 )
 
 bind_import_twin(__name__)
