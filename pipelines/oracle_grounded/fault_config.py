@@ -162,12 +162,14 @@ def _thermal_span_not_finite(system: dict[str, Any]) -> bool:
 # (code, holds, message template over the system's keys): the cross-field
 # relations, evaluated only once every control is inside its domain.
 def _recovery_horizon_not_finite(system: dict[str, Any]) -> bool:
-    """Row 7 applied to recovery: the last tick plus the largest latency the
-    tiers add (reflex, fallback, or one tick for a degrade) must stay finite,
-    or a valid configuration would yield an infinite recovery reading."""
+    """Row 7 applied to recovery: the latest detection (the last tick, or the
+    soft deadline for a late result) plus the largest latency the tiers add
+    (reflex, fallback, or one tick for a degrade) must stay finite, or a valid
+    configuration would yield an infinite recovery reading."""
     last_tick_ms = (system["ticks"] - 1) * system["tick_ms"]
+    latest_detection_ms = max(last_tick_ms, system["deadline_ms"])
     extra = max(system["reflex_latency_ms"], system["fallback_latency_ms"], system["tick_ms"])
-    return not envelope.is_number(last_tick_ms + extra)
+    return not envelope.is_number(latest_detection_ms + extra)
 
 
 _RELATIONS: tuple[tuple[str, Callable[[dict[str, Any]], bool], str], ...] = (
@@ -184,9 +186,9 @@ _RELATIONS: tuple[tuple[str, Callable[[dict[str, Any]], bool], str], ...] = (
      "system thermal span from ambient_c {ambient_c} to thermal_shutdown_c "
      "{thermal_shutdown_c} is not a finite number of degrees"),
     (fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, _recovery_horizon_not_finite,
-     "system recovery horizon (the last tick plus the largest of reflex_latency_ms "
-     "{reflex_latency_ms}, fallback_latency_ms {fallback_latency_ms} and tick_ms {tick_ms}) "
-     "is not a finite number of ms"),
+     "system recovery horizon (the last tick or deadline_ms {deadline_ms}, plus the largest "
+     "of reflex_latency_ms {reflex_latency_ms}, fallback_latency_ms {fallback_latency_ms} "
+     "and tick_ms {tick_ms}) is not a finite number of ms"),
 )
 
 

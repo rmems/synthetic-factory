@@ -76,6 +76,10 @@ class EnforcedSystemRows(unittest.TestCase):
         with refusal(self, fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, "recovery horizon"):
             checked(scenario(**huge, reflex_latency_ms=1e308))
         self.assertEqual(checked(scenario(**huge))["tick_ms"], 8e307)
+        # A late result is detected at the soft deadline, so the deadline anchors the bound too.
+        with refusal(self, fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, "recovery horizon"):
+            checked(scenario(deadline_ms=1e308, hard_deadline_ms=1.5e308, reflex_latency_ms=1e308))
+        self.assertEqual(checked(scenario(deadline_ms=1e308, hard_deadline_ms=1.5e308))["deadline_ms"], 1e308)
 
     def test_the_thermal_span_from_ambient_to_shutdown_is_finite_like_the_horizon(self):
         ladder = {"ambient_c": -1.7e308, "thermal_warn_c": -1e308, "thermal_limit_c": 0.0}
