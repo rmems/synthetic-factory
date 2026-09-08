@@ -88,6 +88,10 @@ class RequestRefusals(unittest.TestCase):
         with refusal(self, fv.FINDING_SEED_OUT_OF_DOMAIN, "must lie in [0"):
             fault_oracle.build_records(-5, 1)
         self.assertEqual(len(propose(fv.MAX_SEED, 2)), 2)
+        # Direct construction is guarded by the same rule as the generator.
+        for seed, code in ((-1, fv.FINDING_SEED_OUT_OF_DOMAIN), (fv.MAX_SEED + 1, fv.FINDING_SEED_OUT_OF_DOMAIN), (True, fv.FINDING_SEED_NOT_AN_INTEGER), ("7", fv.FINDING_SEED_NOT_AN_INTEGER)):
+            with self.subTest(direct=repr(seed)), refusal(self, code, "seed"):
+                fault_scenario.DrawStream(seed)
         content = [
             [(p["scenario"], p["intervention"]) for p in propose(seed, 9)] for seed in (0, 5, 6)
         ]

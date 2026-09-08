@@ -241,6 +241,14 @@ class CarriedDisturbanceRefusals(unittest.TestCase):
         with refusal(self, fv.FINDING_PARAMETER_OUT_OF_DOMAIN, "capacity of 48 events"):
             check("malformed_spike_burst", channels=["c0", "c1"], malformed_count=49, malformed_kind="unknown_channel")
         self.assertEqual(check("malformed_spike_burst", malformed_count=24, **burst).parameters["malformed_count"], 24)
+        # A name declared twice adds no capacity: the simulator visits c0 once per tick.
+        with refusal(self, fv.FINDING_PARAMETER_OUT_OF_DOMAIN, "capacity of 24 events", "1 distinct"):
+            check("malformed_spike_burst", channels=["c0", "c0"], malformed_count=25, malformed_kind="unknown_channel")
+        twice = fault_simulator.RelayReflexSimulator().run(
+            scenario(),
+            disturbance("malformed_spike_burst", channels=["c0", "c0"], malformed_count=24, malformed_kind="unknown_channel"),
+        )
+        self.assertEqual(twice.dropped_events, 24)
         result = fault_simulator.RelayReflexSimulator().run(
             scenario(), disturbance("malformed_spike_burst", malformed_count=24, **burst)
         )

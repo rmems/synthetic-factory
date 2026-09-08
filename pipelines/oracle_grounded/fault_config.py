@@ -417,16 +417,21 @@ def _window_problem(kind: str, parameters: dict[str, Any], system: dict[str, Any
 def _capacity_problem(
     kind: str, parameters: dict[str, Any], affected: tuple[str, ...], system: dict[str, Any]
 ) -> None:
-    """A malformed burst emits at most one event per affected channel per tick."""
+    """A malformed burst emits at most one event per distinct affected channel per tick.
+
+    The simulator visits each live channel once per tick, so a name declared
+    twice adds no capacity.
+    """
     if kind != fv.MALFORMED_SPIKE_BURST:
         return
-    capacity = system["ticks"] * len(affected)
+    live = len(set(affected))
+    capacity = system["ticks"] * live
     count = parameters["malformed_count"]
     fv.refuse_when(
         count > capacity,
         fv.FINDING_PARAMETER_OUT_OF_DOMAIN,
         f"{kind} malformed_count {count} exceeds the run's capacity of {capacity} events "
-        f"({system['ticks']} ticks x {len(affected)} affected channels); the burst would be "
+        f"({system['ticks']} ticks x {live} distinct affected channels); the burst would be "
         "silently truncated",
     )
 

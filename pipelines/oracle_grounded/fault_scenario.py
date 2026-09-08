@@ -35,6 +35,7 @@ class DrawStream:
     """
 
     def __init__(self, seed: int) -> None:
+        _check_seed(seed)
         self._seed = seed
         self._counter = 0
 
@@ -151,13 +152,12 @@ def _seed_text(seed: Any) -> str:
     return repr(seed)
 
 
-def _check_request(seed: Any, count: Any) -> None:
-    """A genuine non-negative integer seed and a genuine integer count >= 1.
+def _check_seed(seed: Any) -> None:
+    """A genuine integer in ``[0, MAX_SEED]`` (64 bits); bool is refused.
 
-    Bool is refused for both. A seed outside ``[0, MAX_SEED]`` (64 bits) is
-    refused so that the seed in a record id and in ``generator.seed`` is one
-    unambiguous integer the draw stream can format, and no two accepted seeds
-    share a stream.
+    The same rule guards ``propose_scenarios`` and ``DrawStream`` itself, so
+    the seed in a record id and in ``generator.seed`` is one unambiguous
+    integer the stream can format, and no two accepted seeds share a stream.
     """
     is_seed = vocab.is_genuine_int(seed)
     fv.refuse_first(
@@ -168,12 +168,17 @@ def _check_request(seed: Any, count: Any) -> None:
                 fv.FINDING_SEED_OUT_OF_DOMAIN,
                 f"seed must lie in [0, {fv.MAX_SEED}] (a 64-bit integer), got {_seed_text(seed)}",
             ),
-            (
-                not vocab.is_genuine_int(count) or not 1 <= count <= fv.MAX_COUNT,
-                fv.FINDING_COUNT_OUT_OF_DOMAIN,
-                f"count must be >= 1 and an integer at most {fv.MAX_COUNT}, got {count!r}",
-            ),
         )
+    )
+
+
+def _check_request(seed: Any, count: Any) -> None:
+    """The seed rule above, then a genuine integer count in ``[1, MAX_COUNT]``."""
+    _check_seed(seed)
+    fv.refuse_when(
+        not vocab.is_genuine_int(count) or not 1 <= count <= fv.MAX_COUNT,
+        fv.FINDING_COUNT_OUT_OF_DOMAIN,
+        f"count must be >= 1 and an integer at most {fv.MAX_COUNT}, got {count!r}",
     )
 
 
