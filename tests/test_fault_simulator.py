@@ -85,6 +85,27 @@ class Boundary(unittest.TestCase):
         with self.assertRaises(dataclasses.FrozenInstanceError):
             empty.outcome = "fail_closed"
 
+    def test_a_verdict_inconsistent_with_its_outcome_is_refused(self):
+        """Codex findings: an injected oracle's verdict must keep the consistency the
+        simulator keeps by construction, and a malformed reason entry is a refusal."""
+        consistent = dict(
+            outcome="degrade_gracefully", reason_codes=("EVENTS_DROPPED", "REDUCED_CHANNEL_SET"),
+            detection_latency_ms=0.0, corrupt_events=0, dropped_events=5, total_events=96,
+        )
+        checked = result(**consistent)
+        self.assertIs(fs.checked_result(checked), checked)
+        for label, changes in (
+            ("continue with a shutdown reason", dict(outcome="continue", reason_codes=("THERMAL_SHUTDOWN",), detection_latency_ms=None)),
+            ("fail_closed with WITHIN_TOLERANCE", dict(outcome="fail_closed", reason_codes=("WITHIN_TOLERANCE",))),
+            ("degrade without a detection", dict(detection_latency_ms=None)),
+            ("continue with a detection", dict(outcome="continue", reason_codes=("WITHIN_TOLERANCE",), detection_latency_ms=3.0)),
+            ("corrupt above total", dict(corrupt_events=200, total_events=1)),
+            ("corrupt with no events", dict(corrupt_events=1, dropped_events=0, total_events=0)),
+            ("unhashable reason entry", dict(reason_codes=(["EVENTS_DROPPED"],))),
+        ):
+            with self.subTest(case=label), refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "oracle result"):
+                fs.checked_result(result(**{**consistent, **changes}))
+
     def test_the_boundary_declares_identity_but_no_meters_and_no_engine(self):
         oracle = fs.FaultOracle()
         self.assertEqual((oracle.meter_clock, oracle.meter_state, oracle.meter_thermal), (None, None, None))

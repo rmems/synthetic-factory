@@ -254,12 +254,18 @@ def _requires_channels(kind: str) -> bool:
 
 
 def _effective_system(system: Any) -> None:
-    """The system must be the full configuration ``checked_system`` returned."""
+    """The system must be the full configuration ``checked_system`` returned.
+
+    Exactly its keys, and every control and relation re-checked, so a
+    hand-built dict with a bad value is a coded refusal here rather than a
+    raw error in a later stage.
+    """
     fv.refuse_when(
-        not isinstance(system, dict) or not fv.SYSTEM_KEYS <= set(system),
+        not isinstance(system, dict) or set(system) != fv.SYSTEM_KEYS,
         fv.FINDING_INPUT_NOT_AN_OBJECT,
         f"system must be the effective configuration from checked_system, got {system!r}",
     )
+    check_system(system)
 
 
 def _disturbance_of(disturbance: Any) -> tuple[str, dict[str, Any]]:

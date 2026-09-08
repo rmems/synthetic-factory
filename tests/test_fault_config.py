@@ -154,9 +154,12 @@ class CarriedDisturbanceRefusals(unittest.TestCase):
         for bad in ({"kind": "gremlins", "parameters": {"bogus": 1}}, {"parameters": {}}):
             with self.subTest(bad=bad), refusal(self, fv.FINDING_DISTURBANCE_KIND_UNKNOWN, "unknown disturbance kind"):
                 fault_config.checked_disturbance(bad, SYSTEM)
-        for system in (None, {}, {"ticks": 24}):
-            with self.subTest(system=system), refusal(self, fv.FINDING_INPUT_NOT_AN_OBJECT, "checked_system"):
+        for system in (None, {}, {"ticks": 24}, {**SYSTEM, "extra": 1}):
+            with self.subTest(system=str(system)[:24]), refusal(self, fv.FINDING_INPUT_NOT_AN_OBJECT, "checked_system"):
                 check("sensor_loss", system, **loss())
+        # A full-key dict is re-checked control by control, not trusted for its keys.
+        with refusal(self, fv.FINDING_SYSTEM_CONTROL_OUT_OF_DOMAIN, "ticks"):
+            check("missing_channel", {**SYSTEM, "ticks": "bad"}, channels=["c3"])
 
     def test_missing_and_unknown_parameters_are_no_ops_and_refused(self):
         with refusal(self, fv.FINDING_PARAMETER_MISSING, "no-op", "duration_ms", "onset_ms"):

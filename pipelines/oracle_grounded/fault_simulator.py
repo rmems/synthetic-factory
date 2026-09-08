@@ -109,8 +109,10 @@ class FaultOracle:
 
 
 def _declared_reasons(codes: Any) -> bool:
-    declared = set(codes) if isinstance(codes, tuple) else set()
-    return bool(declared) and declared <= fv.REASON_CODE_SET
+    """A non-empty tuple whose every member is a declared reason code (strings only)."""
+    if not isinstance(codes, tuple) or not codes:
+        return False
+    return all(isinstance(code, str) and code in fv.REASON_CODE_SET for code in codes)
 
 
 def _optional_number(value: Any) -> bool:
@@ -154,14 +156,17 @@ def _result_problems(result: FaultResult):
 
 def checked_result(result: Any) -> FaultResult:
     """A verdict inside the family vocabulary: the type, the outcome, declared
-    reason codes, genuine counts and finite readings; anything else is refused
-    before it can become a label."""
+    reason codes, genuine counts and finite readings, then the cross-field
+    consistency the simulator itself keeps (reasons from the outcome's tier,
+    detection exactly for non-continue outcomes, counts within the total);
+    anything else is refused before it can become a label."""
     fv.refuse_when(
         not isinstance(result, FaultResult),
         fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY,
         f"an oracle must return a FaultResult, got {result!r}",
     )
     fv.refuse_first(_result_problems(result))
+    fv.refuse_first(_verdict_problems(result))
     return result
 
 
@@ -251,6 +256,42 @@ TIERS: tuple[tuple[str, tuple[Rule, ...]], ...] = (
     (fv.OUTCOME_DEGRADE, _DEGRADE),
 )
 CONTINUE_REASONS = (fv.REASON_WITHIN_TOLERANCE,)
+# outcome -> the reason codes its tier can emit; a verdict from any oracle
+# must draw its reasons from the tier of the outcome it reports.
+_TIER_REASONS = {outcome: frozenset(code for code, _ in rules) for outcome, rules in TIERS}
+_TIER_REASONS[fv.OUTCOME_CONTINUE] = frozenset(CONTINUE_REASONS)
+
+
+def _reasons_fit_outcome(result: FaultResult) -> bool:
+    return set(result.reason_codes) <= _TIER_REASONS[result.outcome]
+
+
+def _detection_fits_outcome(result: FaultResult) -> bool:
+    return (result.detection_latency_ms is None) == (result.outcome == fv.OUTCOME_CONTINUE)
+
+
+def _counts_fit_total(result: FaultResult) -> bool:
+    return result.corrupt_events + result.dropped_events <= result.total_events
+
+
+# (predicate over a field-valid result, what it guarantees): the consistency
+# the simulator keeps by construction, required of every oracle's verdict.
+_VERDICT_RULES = (
+    (_reasons_fit_outcome, "reason codes must all belong to the tier of the reported outcome "
+                           "(continue carries exactly the within-tolerance reason)"),
+    (_detection_fits_outcome, "detection_latency_ms must be None exactly when the outcome is continue"),
+    (_counts_fit_total, "corrupt_events plus dropped_events must not exceed total_events"),
+)
+
+
+def _verdict_problems(result: FaultResult):
+    for holds, guarantee in _VERDICT_RULES:
+        # The reasons are not echoed: a finding carries one finding code and no reason code.
+        yield (
+            not holds(result),
+            fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY,
+            f"oracle result {result.outcome!r}: {guarantee}",
+        )
 # outcome -> the system control added to the detection time for recovery.
 RECOVERY_EXTRA = {
     fv.OUTCOME_REFLEX: "reflex_latency_ms",
