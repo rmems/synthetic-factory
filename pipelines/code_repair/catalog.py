@@ -373,18 +373,34 @@ def _failing(rows: tuple[dict[str, Any], ...]) -> list[str]:
     return [row["id"] for row in rows if row["status"] != cv.ROW_SUCCESS]
 
 
-def _original_findings(program: Program, executor: ex.Executor) -> list[dict[str, str]]:
-    label = f"{cv.PHASE_ORIGINAL}:{program.program_id}"
-    first, second = executor.run(program.job(label)), executor.run(program.job(label))
-    for report in (first, second):
+def _execution_failure(program: Program, reports: tuple[ex.PhaseReport, ...]) -> dict | None:
+    """The first run that timed out or did not load, as a finding."""
+
+    for report in reports:
         code = _phase_code(report, cv.REASON_ORIGINAL_TIMEOUT, cv.REASON_ORIGINAL_HARNESS_ERROR)
         if code is not None:
-            return [_finding(code, program, report.detail)]
-    findings = []
-    for suite, code in ((first.public, cv.REASON_ORIGINAL_FAILS_PUBLIC),
-                        (first.hidden, cv.REASON_ORIGINAL_FAILS_HIDDEN)):
-        if _failing(suite):
-            findings.append(_finding(code, program, ", ".join(_failing(suite))))
+            return _finding(code, program, report.detail)
+    return None
+
+
+def _suite_findings(program: Program, report: ex.PhaseReport) -> list[dict[str, str]]:
+    suites = (
+        (report.public, cv.REASON_ORIGINAL_FAILS_PUBLIC),
+        (report.hidden, cv.REASON_ORIGINAL_FAILS_HIDDEN),
+    )
+    return [_finding(code, program, ", ".join(_failing(rows))) for rows, code in suites if _failing(rows)]
+
+
+def _original_findings(program: Program, executor: ex.Executor) -> list[dict[str, str]]:
+    """Both runs must load and finish; the first must pass; the second must agree."""
+
+    label = f"{cv.PHASE_ORIGINAL}:{program.program_id}"
+    reports = (executor.run(program.job(label)), executor.run(program.job(label)))
+    failure = _execution_failure(program, reports)
+    if failure is not None:
+        return [failure]
+    first, second = reports
+    findings = _suite_findings(program, first)
     if (first.public, first.hidden) != (second.public, second.hidden):
         findings.append(_finding(cv.CHECK_SOURCE_NONDETERMINISTIC, program, "two runs differ"))
     return findings

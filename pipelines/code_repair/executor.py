@@ -187,7 +187,8 @@ def _parse_report(job: Job, returncode: int, stdout: bytes) -> PhaseReport:
     load = parsed.get("load") if isinstance(parsed.get("load"), dict) else {}
     environment = parsed.get("environment") if isinstance(parsed.get("environment"), dict) else {}
     if load.get("status") != "ok":
-        return PhaseReport(cv.PHASE_OK, False, (), (), environment, str(load.get("error") or "load"))
+        detail = str(load.get("error") or "load failed")
+        return PhaseReport(cv.PHASE_OK, False, (), (), environment, detail)
     public = _rows("public", parsed.get("public"), job.expected_public if job.run_public else 0)
     hidden = _rows("hidden", parsed.get("hidden"), len(job.cases))
     if public is None or hidden is None:
@@ -202,13 +203,24 @@ def _well_formed(row: Any, expected_id: str) -> bool:
     )
 
 
+def _row_list(value: Any) -> list[Any] | None:
+    """The suite as a list: absent means empty, anything but a list is malformed."""
+
+    if value is None:
+        return []
+    return list(value) if isinstance(value, list) else None
+
+
 def _rows(prefix: str, value: Any, expected: int | None) -> tuple[dict[str, Any], ...] | None:
     """Rows ``prefix:0..expected-1`` in order, or None when the suite is malformed."""
 
-    rows = value if isinstance(value, list) else ([] if value is None else None)
-    if rows is None or (expected is not None and len(rows) != expected):
+    rows = _row_list(value)
+    if rows is None:
         return None
-    if not all(_well_formed(row, f"{prefix}:{index}") for index, row in enumerate(rows)):
+    if expected is not None and len(rows) != expected:
+        return None
+    expected_ids = [f"{prefix}:{index}" for index in range(len(rows))]
+    if not all(_well_formed(row, row_id) for row, row_id in zip(rows, expected_ids)):
         return None
     return tuple(rows)
 
