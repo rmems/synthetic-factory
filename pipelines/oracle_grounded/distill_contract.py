@@ -96,7 +96,7 @@ from .distill_curation import (
     stamp_is_bound_to_content,
     stamp_validation,
 )
-from .distill_jsonl import iter_jsonl, read_jsonl, write_jsonl
+from .distill_jsonl import iter_jsonl, iter_jsonl_bytes, read_jsonl, write_jsonl
 from .distill_labels import (
     LABEL_IN_GENERATOR_NAMESPACE,
     POLICY_MISMATCH,
@@ -223,6 +223,7 @@ __all__ = (
     "is_number",
     "is_true",
     "iter_jsonl",
+    "iter_jsonl_bytes",
     "missing_string",
     "new_generator",
     "new_measurement",
