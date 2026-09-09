@@ -16,6 +16,7 @@ __all__ = [
     "generators",
     "oracles",
     "record",
+    "refusals",
     "rng",
     "sim",
 ]

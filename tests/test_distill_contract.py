@@ -124,6 +124,8 @@ class SplitByResponsibility(unittest.TestCase):
         "distill_curation",
         "distill_jsonl",
         "distill_labels",
+        "rng",
+        "refusals",
     )
 
     def test_every_sibling_binds_both_import_forms_to_one_module_object(self):

@@ -28,6 +28,8 @@ SIBLINGS = (
     "distill_curation",
     "distill_jsonl",
     "distill_labels",
+    "rng",
+    "refusals",
 )
 
 

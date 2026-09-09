@@ -11,11 +11,10 @@ beyond the refusal helpers.
 from __future__ import annotations
 
 import copy
-from collections.abc import Iterable
-from typing import Any, NoReturn
+from typing import Any
 
 from . import distill_labels as labels
-from . import envelope
+from . import refusals
 from .import_twins import bind_import_twin
 
 FAMILY = "neuromorphic-fault-recovery"
@@ -225,53 +224,23 @@ FINDING_CODES = (
 FINDING_CODE_SET = frozenset(FINDING_CODES)
 
 
-class FaultRefusal(envelope.ContractError):
-    """A coded contract refusal; ``str(exc)`` is ``"CODE: prose"``.
+class FaultRefusal(refusals.CodedRefusal):
+    """The family's coded refusal: a ``ContractError`` whose ``str`` is ``"CODE: prose"``.
 
-    A ``ContractError`` subclass, so every ``except ContractError`` still
-    catches it under both import spellings. An undeclared code is a
-    programming error and raises ``LookupError`` instead.
+    The shared :class:`refusals.CodedRefusal` supplies the behaviour; the family
+    supplies its declared finding codes. An undeclared code raises ``LookupError``.
     """
 
-    def __init__(self, code: str, message: str) -> None:
-        if code not in FINDING_CODE_SET:
-            raise LookupError(f"undeclared finding code: {code!r}")
-        super().__init__(f"{code}: {message}")
-        self.code = code
-        self.message = message
+    CODES = FINDING_CODE_SET
 
 
-def refuse(code: str, message: str) -> NoReturn:
-    raise FaultRefusal(code, message)
-
-
-def refuse_when(holds: bool, code: str, message: str) -> None:
-    """Raise the coded refusal when ``holds``; the single-check primitive."""
-    if holds:
-        raise FaultRefusal(code, message)
-
-
-def refuse_first(problems: Iterable[tuple[bool, str, str]]) -> None:
-    """Raise for the first ``(holds, code, message)`` that holds; lazy over the iterable."""
-    for holds, code, message in problems:
-        refuse_when(holds, code, message)
-
-
-def shown(value: Any) -> str:
-    """``repr`` of a value, or its width when Python refuses to print it (an
-    integer past the string-conversion limit, alone or inside a container), so
-    a finding about an absurd value is still a coded refusal."""
-    try:
-        return repr(value)
-    except ValueError:
-        width = f" of {value.bit_length()} bits" if isinstance(value, int) else ""
-        return f"an unprintable {type(value).__name__}{width}"
+refuse, refuse_when, refuse_first = refusals.helpers(FaultRefusal)
+shown = refusals.shown
 
 
 def finding_code(text: Any) -> str | None:
     """The declared code before the first ``": "`` of a finding string, or None."""
-    head = str(text).split(": ", 1)[0]
-    return head if head in FINDING_CODE_SET else None
+    return refusals.code_of(text, FINDING_CODE_SET)
 
 
 # The oracle-label policy (D2): the sixteen keys the fault oracle writes as

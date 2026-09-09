@@ -63,6 +63,8 @@ def _measurement_value_errors(item: dict[str, Any], quantity: str, spot: str) ->
 
     if not envelope.is_number(item.get("value")):
         return [f"{spot}: value must be a finite number"]
+    if quantity in vocab.INTEGER_QUANTITIES and not vocab.is_genuine_int(item["value"]):
+        return [f"{spot}: {quantity} must be an integer, got {item['value']!r}"]
     return _quantity_domain_errors(quantity, float(item["value"]), spot)
 
 

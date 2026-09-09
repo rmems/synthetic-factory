@@ -26,7 +26,8 @@
       "enum": [
         "neuromorphic-fault-recovery",
         "snn-energy-routing-preferences",
-        "moe-router-distillation-trajectories"
+        "moe-router-distillation-trajectories",
+        "python-function-repair"
       ],
       "description": "Dataset family. Additional families extend this enum as they adopt the envelope."
     },
