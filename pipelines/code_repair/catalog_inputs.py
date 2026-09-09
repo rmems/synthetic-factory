@@ -150,12 +150,17 @@ def observe(executor: ex.Executor, subject: Subject) -> tuple[ex.PhaseReport | N
     first, second = executor.run(job), executor.run(job)
     if not first.ok or not second.ok:
         return (first if not first.ok else second), []
-    kept = [
-        {"args": repr(a), "want": row["got"]}
-        for a, row, again in zip(args_list, first.hidden, second.hidden)
-        if row["status"] == cv.ROW_OBSERVED and again.get("got") == row.get("got")
-    ]
-    return first, kept[: cv.MAX_HIDDEN_CASES]
+    return first, _stable_cases(args_list, first.hidden, second.hidden)[: cv.MAX_HIDDEN_CASES]
+
+
+def _stable_cases(args_list: list, first: tuple, second: tuple) -> list[dict]:
+    """The observed cases whose two runs agree, as pinned wants."""
+
+    kept = []
+    for args, row, again in zip(args_list, first, second):
+        if row["status"] == cv.ROW_OBSERVED and again.get("got") == row.get("got"):
+            kept.append({"args": repr(args), "want": row["got"]})
+    return kept
 
 
 def observed_cases(executor: ex.Executor, subject: Subject) -> list[dict]:
