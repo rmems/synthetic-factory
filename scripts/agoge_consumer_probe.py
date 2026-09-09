@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
 import re
 import sys
@@ -186,32 +187,74 @@ def _guarded(step, *args) -> tuple[dict, list]:
 
     try:
         report = step(*args)
-    except Exception as exc:  # noqa: BLE001 - the refusal text is the evidence
+    except Exception as exc:
         return {"error": f"{type(exc).__name__}: {exc}", "agree": False}, []
-    return report, report.pop("records", [])
+    visible = {key: value for key, value in report.items() if key != "records"}
+    return visible, report.get("records", [])
+
+
+def _manifest_proof(path: Path, manifest: dict, count: int) -> dict:
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    if digest != manifest["files"]["agoge/code_repair_v1.jsonl"]:
+        raise ValueError("input sha256 differs from manifest")
+    if count != manifest["tables"]["dispositions"].get("exported", 0):
+        raise ValueError("input row count differs from manifest")
+    return {"sha256": digest, "rows": count}
+
+
+def _labels(rows: list[dict], args: argparse.Namespace) -> dict:
+    config = _config(args.config, args.tokenizer_revision)
+    return {**_label_report(rows, config), "config": config}
+
+
+def _split_steps(report: dict, records: list, rows: list, args: argparse.Namespace) -> None:
+    policy = report.pop("policy")
+    if policy is None:
+        report["split_agreement"] = {"status": "not evaluated: no split policy"}
+        if args.freeze_into is not None:
+            report["freeze"] = {"error": "no split policy"}
+        return
+    spec_report, _unused = _guarded(_make_spec, policy, args.source_path)
+    if "error" in spec_report:
+        report["split_agreement"] = spec_report
+        return
+    spec = spec_report["spec"]
+    report["split_agreement"] = _guarded(_split_agreement, records, rows, spec)[0]
+    if args.freeze_into is not None:
+        report["freeze"] = _guarded(_freeze, args.agoge_jsonl, args.freeze_into, spec)[0]
+
+
+def _make_spec(policy: dict, source_path: str) -> dict:
+    return {"spec": _spec(policy, source_path)}
+
+
+def _failed_steps(report: dict, args: argparse.Namespace) -> list[str]:
+    required = ["manifest", "load", "split_agreement"]
+    if args.config is not None:
+        required.append("labels")
+    if args.freeze_into is not None:
+        required.append("freeze")
+    failed = [name for name in required if "error" in report.get(name, {"error": "not run"})]
+    if report.get("split_agreement", {}).get("agree") is False:
+        failed.append("split_agreement")
+    return sorted(set(failed))
 
 
 def _report(args: argparse.Namespace) -> dict:
     rows = _rows(args.agoge_jsonl)
-    policy = json.loads(args.manifest.read_text(encoding="utf-8"))["run"]["split_policy"]
+    manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     report: dict = {"rows": len(rows), "gaps": dict(GAPS)}
-    spec = _spec(policy, args.source_path)
+    report["manifest"] = _guarded(_manifest_proof, args.agoge_jsonl, manifest, len(rows))[0]
+    if "error" in report["manifest"]:
+        return {**report, "pass": False, "failed_steps": ["manifest"]}
     report["load"], records = _guarded(_load_proof, args.agoge_jsonl, args.source_path)
-    report["split_agreement"] = (
-        _guarded(_split_agreement, records, rows, spec)[0] if records else {"agree": False}
-    )
-    config = _config(args.config, args.tokenizer_revision)
-    if config:
-        try:
-            report["labels"] = _label_report(rows, config)
-        except Exception as exc:  # noqa: BLE001 - reported as the gap it is
-            report["labels"] = {"error": f"TOKENIZER_UNAVAILABLE: {type(exc).__name__}: {exc}"}
-        report["config"] = config
-    if args.freeze_into is not None:
-        report["freeze"] = _guarded(_freeze, args.agoge_jsonl, args.freeze_into, spec)[0]
-    report["pass"] = bool(report["load"].get("frozen_split_records")) and bool(
-        report["split_agreement"].get("agree")
-    )
+    report["policy"] = manifest["run"].get("split_policy")
+    _split_steps(report, records, rows, args)
+    if args.config is not None:
+        report["labels"] = _guarded(_labels, rows, args)[0]
+        report["config"] = report["labels"].pop("config", {})
+    report["failed_steps"] = _failed_steps(report, args)
+    report["pass"] = not report["failed_steps"]
     return report
 
 
@@ -235,7 +278,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
-        print(f"pass={report['pass']} rows={report['rows']}")
+        print(f"pass={report['pass']} rows={report['rows']} "
+              f"failed_steps={','.join(report['failed_steps']) or 'none'}")
     return 0 if report["pass"] else 1
 
 

@@ -17,8 +17,16 @@ export. Modules: `pipelines/code_repair/`, CLI `pipelines/code_repair_cli.py`.
 Built once by `scripts/vendor_python_repair_catalog.py` from TheAlgorithms/Python at
 `2067ce6dfb3b0426a88c7a40531e355a5c703cff` (MIT; `LICENSE.upstream` vendored, sha256
 `4395a1dc…bea56`). Families: maths, sorts, searches, strings, bit_manipulation, conversions,
-dynamic_programming; files under 3,072 bytes; stdlib-only imports; targets are plain module-level
-functions with at least two observable doctest examples and no free names.
+dynamic_programming; files under 3,072 bytes; explicitly allow-listed imports; targets are plain
+module-level functions with at least two observable doctest examples and no free names.
+
+The vendor allow-list is `__future__`, `cmath`, `collections`, `copy`, `decimal`,
+`fractions`, `functools`, `itertools`, `math`, `operator`, `re`, `struct`, and `typing`:
+the imports in the pinned catalog module texts, plus `__future__`. Every import is checked,
+including imports inside functions, classes, and guards; relative imports are refused.
+The existing catalog is unchanged. Rebuilding from raw upstream files may reject additional
+files whose nested imports were previously unchecked. Cached raw bytes (including the license)
+must match their Git blob SHA-1, and the tree SHA must match the pinned commit's tree SHA.
 
 ```
 python3 scripts/vendor_python_repair_catalog.py --commit 2067ce6dfb3b0426a88c7a40531e355a5c703cff \
@@ -65,8 +73,15 @@ python3 pipelines/code_repair_cli.py generate --catalog catalogs/python-repair-v
 python3 pipelines/code_repair_cli.py replay --run outputs/code-repair/pilot-r2 \
     --catalog catalogs/python-repair-v1 --out outputs/code-repair/pilot-r2-replay --json
 python3 pipelines/code_repair_cli.py export --run outputs/code-repair/pilot-r2 \
+    --catalog catalogs/python-repair-v1 \
     --replay outputs/code-repair/pilot-r2-replay --out outputs/code-repair/pilot-r2-export --json
 ```
+
+Export now requires the replay report's `run_identity` to match the candidate file bytes and
+RUN metadata. Until S2 supplies that field, reports produced by this branch's replay command
+are refused by export; the export test fixtures stamp the expected identity after `replay.run`.
+The catalog digest, split policy, per-record lineage, and RUN summary counts are also checked
+before any export files are written.
 
 Generation took about 65 s (each certifying reference executed once per program); harness sha256
 `c4d8a8ac0b2c531ae0ac1cb10d86e4a0859e7f88b4b6cf430a73a68dba50d248`; `candidates.jsonl` sha256

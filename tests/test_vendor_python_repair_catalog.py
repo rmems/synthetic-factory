@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 """The one-time vendoring script, offline: file admission, tree filtering, and a build from
-the fixture's upstream files served through the fetch seam (real subprocess evidence)."""
+fixture modules served as fake upstream files (real subprocess evidence)."""
 
+import contextlib
+import hashlib
+import io
 import json
 import shutil
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+from scripts import vendor_python_repair_catalog as vendor
+from tests.code_repair_test_support import FIXTURE_CATALOG, catalog, executor, oc
 
-import vendor_python_repair_catalog as vendor  # noqa: E402
-from code_repair_test_support import FIXTURE_CATALOG, catalog, executor, oc  # noqa: E402
+
+def blob_sha(data):
+    framed = b"blob " + str(len(data)).encode() + b"\0" + data
+    return hashlib.sha1(framed, usedforsecurity=False).hexdigest()
+
 
 COMMIT = "2067ce6dfb3b0426a88c7a40531e355a5c703cff"
 DOCTESTED = "def f(x):\n    '''\n    >>> f(1)\n    1\n    >>> f(2)\n    2\n    '''\n    return x\n"
@@ -44,17 +48,49 @@ class FileAdmission(unittest.TestCase):
         ]
         self.assertEqual(vendor._candidate_paths(tree), ["maths/abs.py", "sorts/ok.py"])
 
+    def test_all_import_scopes_use_the_explicit_allowlist(self):
+        for text in ("import ctypes\n", "def f():\n    import os\n",
+                     "if True:\n    from random import randint\n",
+                     "class X:\n    import numpy\n", "from .math import sqrt\n"):
+            with self.subTest(text=text):
+                self.assertFalse(vendor._file_admissible(text))
+        self.assertTrue(vendor._file_admissible("def f():\n    import math\n"))
+
+    def test_pinned_catalog_imports_remain_admissible(self):
+        path = Path(__file__).resolve().parents[1] / "catalogs/python-repair-v1/programs.jsonl"
+        for _n, row in oc.read_jsonl(path):
+            with self.subTest(program=row["program_id"]):
+                self.assertTrue(vendor._file_admissible(row["module"]["text"]))
+
+    def test_commit_must_be_exactly_forty_hex_characters(self):
+        argv = ["--out", "out", "--cache-dir", "cache", "--references", "refs"]
+        for value in ("main", "a" * 39, "a" * 41, "z" * 40, "a" * 40 + "\n"):
+            with (self.subTest(value=value), contextlib.redirect_stderr(io.StringIO()),
+                  self.assertRaises(SystemExit)):
+                vendor._parse_args(argv + ["--commit", value])
+        self.assertEqual(vendor._parse_args(argv + ["--commit", COMMIT]).commit, COMMIT)
+
+
+def _fixture_source(program):
+    text = program.text
+    if program.reference.kind == "sibling_same_file":
+        text += program.reference.source
+    return text
+
 
 def _fixture_fetch(url: str, _cache: Path) -> bytes:
-    """Serve the fixture's upstream files as the pinned repository."""
+    """Serve the fixture modules as fake upstream files, without executable CLI guards."""
 
-    sources = {r["path"]: r["text"] for _n, r in oc.read_jsonl(FIXTURE_CATALOG / "upstream.jsonl")}
+    sources = {p.upstream["path"]: _fixture_source(p)
+               for p in catalog.load_catalog(FIXTURE_CATALOG).programs}
+    sources["LICENSE.md"] = (FIXTURE_CATALOG / catalog.LICENSE_FILENAME).read_text()
+    if "/commits/" in url:
+        return json.dumps({"commit": {"tree": {"sha": "a" * 40}}}).encode()
     if url.startswith("https://api.github.com/"):
-        tree = [{"path": p, "type": "blob", "size": len(t)} for p, t in sources.items()]
-        return json.dumps({"tree": tree, "truncated": False}).encode("utf-8")
+        tree = [{"path": p, "type": "blob", "size": len(t.encode()),
+                 "sha": blob_sha(t.encode())} for p, t in sources.items()]
+        return json.dumps({"tree": tree, "sha": "a" * 40, "truncated": False}).encode()
     path = url.split(f"{COMMIT}/", 1)[1]
-    if path == "LICENSE.md":
-        return (FIXTURE_CATALOG / catalog.LICENSE_FILENAME).read_bytes()
     return sources[path].encode("utf-8")
 
 
@@ -76,6 +112,39 @@ class OfflineBuild(unittest.TestCase):
         )
         self.assertEqual(catalog.catalog_check(built, executor.Executor(timeout_s=5.0)), [])
         self.assertEqual(built.meta["build"]["notes"], [])
+
+    def test_corrupt_cached_tree_or_raw_file_refuses_before_build(self):
+        with tempfile.TemporaryDirectory(prefix="code-repair-cache-") as tmp:
+            root = Path(tmp)
+            for kind in ("tree", "source", "license"):
+                self._corrupt_cache_case(root / kind, kind)
+
+    def _corrupt_cache_case(self, root, kind):
+        root.mkdir()
+        tree_url = vendor.API.format(repository=vendor.REPOSITORY, commit=COMMIT)
+        tree = json.loads(_fixture_fetch(tree_url, root))
+        urls = [tree_url, f"https://api.github.com/repos/{vendor.REPOSITORY}/commits/{COMMIT}"]
+        urls += [vendor.RAW.format(repository=vendor.REPOSITORY, commit=COMMIT, path=e["path"])
+                 for e in tree["tree"]]
+        tampered = {
+            "tree": (tree_url, lambda data: json.dumps({**tree, "sha": "b" * 40}).encode()),
+            "source": (urls[2], lambda data: data + b"# tampered\n"),
+            "license": (
+                next(u for u in urls if u.endswith("/LICENSE.md")), lambda data: data + b"tampered\n"
+            ),
+        }
+        target, corrupt = tampered[kind]
+        for url in urls:
+            data = _fixture_fetch(url, root)
+            (root / hashlib.sha256(url.encode()).hexdigest()).write_bytes(
+                corrupt(data) if url == target else data
+            )
+        argv = ["--commit", COMMIT, "--out", str(root / "catalog"),
+                "--cache-dir", str(root), "--references", str(FIXTURE_CATALOG / "references.json")]
+        with mock.patch.object(vendor, "_https_get", side_effect=AssertionError("cache miss")):
+            with self.subTest(kind=kind), self.assertRaisesRegex(SystemExit, "sha|digest"):
+                vendor.main(argv)
+        self.assertFalse((root / "catalog").exists())
 
 
 if __name__ == "__main__":

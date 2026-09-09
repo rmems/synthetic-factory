@@ -2,19 +2,22 @@
 """The code-repair family vocabulary: declared codes, identities, label policy, refusals."""
 
 import inspect
-import sys
 import unittest
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from code_repair_test_support import (  # noqa: E402
-    FAMILY_MODULES, catalog, cli, envelope, executor, generate, mutate, oc, records, refusal, verify,
+from tests.code_repair_test_support import (
+    FAMILY_MODULES, catalog, cli, envelope, executor, generate, mutate, oc, records, refusal,
+    verify,
     views, vocabulary as cv,
 )
 
 
 class DeclaredCodes(unittest.TestCase):
+    def test_export_integrity_codes_are_declared_and_unique(self):
+        expected = {"REPLAY_FILE_MALFORMED", "REPLAY_RUN_IDENTITY_MISMATCH",
+                    "EXPORT_CATALOG_MISMATCH", "RUN_SUMMARY_MISMATCH"}
+        self.assertLessEqual(expected, set(cv.EXPORT_INTEGRITY_CODES))
+        self.assertEqual(len(cv.EXPORT_CODES), len(set(cv.EXPORT_CODES)))
+
     def test_every_code_family_is_unique_and_disjoint(self):
         families = (cv.REASON_CODES, cv.FINDING_CODES, cv.SKIP_CODES, cv.LEAK_CODES)
         for codes in families:

@@ -19,6 +19,7 @@ import ast
 import hashlib
 import http.client
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -34,15 +35,18 @@ from code_repair import lineage  # noqa: E402
 
 REPOSITORY = "TheAlgorithms/Python"
 API = "https://api.github.com/repos/{repository}/git/trees/{commit}?recursive=1"
+COMMIT_API = "https://api.github.com/repos/{repository}/commits/{commit}"
 RAW = "https://raw.githubusercontent.com/{repository}/{commit}/{path}"
 FAMILIES = (
     "maths", "sorts", "searches", "strings", "bit_manipulation", "conversions",
     "dynamic_programming",
 )
 MAX_FILE_BYTES = 3072
-IO_MODULES = frozenset({
-    "os", "sys", "subprocess", "random", "secrets", "time", "datetime", "timeit", "socket",
-    "urllib", "pathlib", "shutil", "threading", "multiprocessing", "io", "tempfile", "requests",
+# Imports in the pinned python-repair-v1 module texts, plus postponed annotations.
+# This is deliberately independent of the interpreter's expanding stdlib inventory.
+ALLOWED_MODULES = frozenset({
+    "__future__", "cmath", "collections", "copy", "decimal", "fractions", "functools",
+    "itertools", "math", "operator", "re", "struct", "typing",
 })
 DEFAULT_POLICY = {
     "algorithm": lineage.SPLIT_ALGORITHM, "seed": 20260908, "salt": "python-repair-v1",
@@ -80,6 +84,12 @@ def _https_get(url: str) -> bytes:
 
 def _tree(commit: str, cache: Path) -> list[dict]:
     payload = json.loads(_fetch(API.format(repository=REPOSITORY, commit=commit), cache))
+    commit_meta = json.loads(_fetch(
+        COMMIT_API.format(repository=REPOSITORY, commit=commit), cache
+    ))
+    expected = commit_meta["commit"]["tree"]["sha"]
+    if payload.get("sha") != expected:
+        raise SystemExit("tree sha differs from the pinned commit tree sha")
     if payload.get("truncated"):
         raise SystemExit("the tree listing was truncated; refusing an incomplete catalog")
     return [entry for entry in payload["tree"] if entry["type"] == "blob"]
@@ -104,15 +114,14 @@ def _import_roots(node: ast.stmt) -> set[str] | None:
     if isinstance(node, ast.Import):
         return {alias.name.split(".")[0] for alias in node.names}
     if isinstance(node, ast.ImportFrom):
-        return {(node.module or "").split(".")[0]}
+        return {""} if node.level else {(node.module or "").split(".")[0]}
     return None
 
 
 def _imports_admissible(module: ast.Module) -> bool:
-    allowed = set(sys.stdlib_module_names) | {"__future__"}
     return all(
-        roots.isdisjoint(IO_MODULES) and roots.issubset(allowed)
-        for roots in map(_import_roots, module.body) if roots is not None
+        roots.issubset(ALLOWED_MODULES)
+        for roots in map(_import_roots, ast.walk(module)) if roots is not None
     )
 
 
@@ -130,9 +139,17 @@ def _lf_framed(text: str) -> bool:
     return "\r" not in text and text.endswith("\n")
 
 
+def _commit(value: str) -> str:
+    if re.fullmatch(r"[0-9a-fA-F]{40}", value) is None:
+        raise argparse.ArgumentTypeError("commit must be exactly 40 hex characters")
+    return value
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--commit", required=True, help="the pinned upstream commit (40 hex)")
+    parser.add_argument(
+        "--commit", type=_commit, required=True, help="the pinned upstream commit (40 hex)"
+    )
     parser.add_argument("--out", type=Path, required=True, help="a brand-new catalog directory")
     parser.add_argument("--cache-dir", type=Path, required=True)
     parser.add_argument(
@@ -146,13 +163,26 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _admissible_sources(paths: list[str], commit: str, cache: Path) -> tuple[dict[str, str], dict]:
+def _blob(entry: dict, commit: str, cache: Path) -> bytes:
+    url = RAW.format(repository=REPOSITORY, commit=commit, path=entry["path"])
+    data = _fetch(url, cache)
+    framed = b"blob " + str(len(data)).encode("ascii") + b"\0" + data
+    digest = hashlib.sha1(framed, usedforsecurity=False).hexdigest()
+    if digest != entry.get("sha"):
+        raise SystemExit("raw file blob sha mismatch: " + str(entry["path"])[:160])
+    return data
+
+
+def _admissible_sources(
+    entries: list[dict], commit: str, cache: Path
+) -> tuple[dict[str, str], dict]:
     """The LF-framed, UTF-8, admissible files by path, and the file counts."""
 
     sources: dict[str, str] = {}
     rejected = {"unreadable": 0, "not_admissible": 0}
-    for path in paths:
-        data = _fetch(RAW.format(repository=REPOSITORY, commit=commit, path=path), cache)
+    for entry in entries:
+        path = entry["path"]
+        data = _blob(entry, commit, cache)
         try:
             text = data.decode("utf-8")
         except UnicodeDecodeError:
@@ -163,7 +193,8 @@ def _admissible_sources(paths: list[str], commit: str, cache: Path) -> tuple[dic
             continue
         sources[path] = text
     files = {
-        "candidate_files": len(paths), "admissible_files": len(sources), "rejected_files": rejected,
+        "candidate_files": len(entries), "admissible_files": len(sources),
+        "rejected_files": rejected,
     }
     return sources, files
 
@@ -182,16 +213,19 @@ def _summary(files: dict, build: cb.Build, rows: list) -> dict:
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     cache = Path(args.cache_dir)
-    paths = _candidate_paths(_tree(args.commit, cache))
+    tree = _tree(args.commit, cache)
+    entries = sorted((e for e in tree if _is_candidate(e)), key=lambda e: e["path"])
     if args.limit is not None:
-        paths = paths[: args.limit]
-    sources, files = _admissible_sources(paths, args.commit, cache)
+        entries = entries[: args.limit]
+    sources, files = _admissible_sources(entries, args.commit, cache)
     targets = [
         (path, function)
         for path, text in sources.items() for function in cb.select_targets(text)
     ]
-    license_url = RAW.format(repository=REPOSITORY, commit=args.commit, path="LICENSE.md")
-    license_text = _fetch(license_url, cache)
+    license_entry = next((e for e in tree if e["path"] == "LICENSE.md"), None)
+    if license_entry is None:
+        raise SystemExit("pinned tree has no LICENSE.md blob")
+    license_text = _blob(license_entry, args.commit, cache)
     upstream = cb.Upstream(REPOSITORY, args.commit, "MIT", license_text.decode("utf-8"))
     references = json.loads(Path(args.references).read_text(encoding="utf-8"))
     build = cb.Build(upstream, sources, references, lineage.SplitPolicy.from_json(DEFAULT_POLICY))

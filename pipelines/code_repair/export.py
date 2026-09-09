@@ -26,9 +26,9 @@ from typing import Any
 
 from . import catalog
 from . import executor as ex
+from . import export_integrity as integrity
 from . import generate
 from . import lineage
-from . import replay
 from . import verify
 from . import views
 from . import vocabulary as cv
@@ -55,6 +55,7 @@ class ExportRequest:
     out_dir: Path
     replay_dir: Path | None = None
     lineage_cap: int = DEFAULT_LINEAGE_CAP
+    catalog_dir: Path = field(kw_only=True)
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,7 @@ class _Corpus:
     agoge_rows: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     dispositions: Counter = field(default_factory=Counter)
     per_lineage: Counter = field(default_factory=Counter)
+    replay_status: str = "not run"
     cap: int = DEFAULT_LINEAGE_CAP
 
 
@@ -88,12 +90,12 @@ def _check_request(request: ExportRequest) -> None:
     run_dir, out_dir = Path(request.run_dir), Path(request.out_dir)
     cv.refuse_first((
         (not (run_dir / generate.CANDIDATES_FILENAME).is_file(), cv.FINDING_RUN_FILE_MISSING,
-         f"{run_dir / generate.CANDIDATES_FILENAME} is missing"),
+         f"{cv.shown(run_dir / generate.CANDIDATES_FILENAME)} is missing"),
         (not (run_dir / generate.RUN_FILENAME).is_file(), cv.FINDING_RUN_FILE_MISSING,
-         f"{run_dir / generate.RUN_FILENAME} is missing"),
+         f"{cv.shown(run_dir / generate.RUN_FILENAME)} is missing"),
         (is_under_raw(out_dir), cv.FINDING_DESTINATION_UNDER_RAW,
-         f"{out_dir} names or aliases the raw tree"),
-        (out_dir.exists(), cv.FINDING_DESTINATION_EXISTS, f"{out_dir} already exists"),
+         f"{cv.shown(out_dir)} names or aliases the raw tree"),
+        (out_dir.exists(), cv.FINDING_DESTINATION_EXISTS, f"{cv.shown(out_dir)} already exists"),
         (not vocab.is_genuine_int(request.lineage_cap) or request.lineage_cap < 1,
          cv.FINDING_CAP_OUT_OF_DOMAIN, "lineage_cap must be a positive integer"),
     ))
@@ -103,7 +105,9 @@ def _load_run(run_dir: Path) -> dict[str, Any]:
     try:
         run = json.loads((run_dir / generate.RUN_FILENAME).read_text(encoding="utf-8"))
     except ValueError as exc:
-        raise cv.RepairRefusal(cv.FINDING_RUN_FILE_MISSING, f"RUN.json is not JSON: {exc}") from exc
+        raise cv.RepairRefusal(
+            cv.FINDING_RUN_FILE_MISSING, f"RUN.json is not JSON: {cv.shown(exc)}"
+        ) from exc
     cv.refuse_when(
         not isinstance(run, dict) or run.get("format") != generate.RUN_FORMAT,
         cv.FINDING_RUN_FILE_MISSING, "RUN.json is not a code-repair run summary",
@@ -120,19 +124,6 @@ def _load_records(run_dir: Path) -> list[dict[str, Any]]:
         )
         records.append(record)
     return records
-
-
-def _load_replay(replay_dir: Path | None) -> dict[str, dict[str, Any]] | None:
-    if replay_dir is None:
-        return None
-    path = Path(replay_dir) / replay.REPLAY_FILENAME
-    cv.refuse_when(not path.is_file(), cv.FINDING_REPLAY_FILE_MISSING, f"{path} is missing")
-    report = json.loads(path.read_text(encoding="utf-8"))
-    cv.refuse_when(
-        report.get("format") != replay.REPLAY_FORMAT, cv.FINDING_REPLAY_FILE_MISSING,
-        f"{path} is not a replay report",
-    )
-    return {entry["record_id"]: entry for entry in report.get("records", [])}
 
 
 # --- integrity -----------------------------------------------------------------------
@@ -174,7 +165,9 @@ def _rederived_verdict(record: dict[str, Any]) -> verify.Verdict:
 def _integrity_failure(record: dict[str, Any], replay_entries: dict | None) -> str | None:
     """The integrity code that refuses the export, or None when the record is sound."""
 
-    where = str(record.get("id", "record"))
+    if not integrity.family_shape(record):
+        return cv.EXPORT_RECORD_FAILS_CONTRACT
+    where = cv.shown(record.get("id", "record"))
     if oc.check_envelope(record, where) or oc.check_oracle_label_leak(record, where):
         return cv.EXPORT_RECORD_FAILS_CONTRACT
     if oc.check_digest(record, where):
@@ -193,7 +186,8 @@ def _replay_failure(record: dict[str, Any], replay_entries: dict | None) -> str 
     entry = replay_entries.get(record["id"])
     if entry is None or entry.get("status") != "replayed":
         return cv.BLOCKER_REPLAY_NOT_RUN
-    return None if entry.get("code") == cv.REPLAY_PASSED else entry["code"]
+    code = entry.get("code", cv.BLOCKER_REPLAY_NOT_RUN)
+    return None if code == cv.REPLAY_PASSED else code
 
 
 def _check_integrity(corpus: _Corpus) -> None:
@@ -201,7 +195,7 @@ def _check_integrity(corpus: _Corpus) -> None:
         code = _integrity_failure(record, corpus.replay_entries)
         cv.refuse_when(
             code is not None, cv.FINDING_EXPORT_INTEGRITY,
-            f"record {record.get('id')} fails integrity ({code}); the run is not exportable",
+            f"record {cv.shown(record.get('id'))} fails integrity ({cv.shown(code)})",
         )
 
 
@@ -222,7 +216,7 @@ def _split_proof(corpus: _Corpus) -> None:
         split = lineage_block.get("split")
         cv.refuse_when(
             split not in lineage.SPLITS, cv.FINDING_EXPORT_INTEGRITY,
-            f"record {record['id']}: {cv.EXPORT_SPLIT_UNASSIGNED}",
+            f"record {cv.shown(record['id'])}: {cv.EXPORT_SPLIT_UNASSIGNED}",
         )
         by_lineage.setdefault(lineage_block["lineage_id"], set()).add(split)
         if lineage_block.get("group_id"):
@@ -234,7 +228,7 @@ def _split_proof(corpus: _Corpus) -> None:
 
 def _refuse_crossing(by_key: dict[str, set[str]], code: str) -> None:
     crossing = sorted(key for key, splits in by_key.items() if len(splits) > 1)
-    cv.refuse_when(bool(crossing), cv.FINDING_EXPORT_INTEGRITY, f"{code}: {', '.join(crossing)}")
+    cv.refuse_when(bool(crossing), cv.FINDING_EXPORT_INTEGRITY, f"{code}: {cv.shown(crossing)}")
 
 
 def _rederive_split(corpus: _Corpus, record: dict[str, Any], block: dict[str, Any]) -> None:
@@ -245,7 +239,7 @@ def _rederive_split(corpus: _Corpus, record: dict[str, Any], block: dict[str, An
     expected = lineage.bucket_split(anchor, corpus.policy)
     cv.refuse_when(
         not policy_matches or expected != block["split"], cv.FINDING_EXPORT_INTEGRITY,
-        f"record {record['id']}: {cv.EXPORT_SPLIT_REDERIVATION_MISMATCH}",
+        f"record {cv.shown(record['id'])}: {cv.EXPORT_SPLIT_REDERIVATION_MISMATCH}",
     )
 
 
@@ -280,7 +274,8 @@ def _project(corpus: _Corpus) -> None:
         row = views.sft_row(record)
         leaks = views.view_findings(record, row)
         cv.refuse_when(
-            bool(leaks), cv.FINDING_EXPORT_INTEGRITY, f"record {record['id']} leaks: {leaks}"
+            bool(leaks), cv.FINDING_EXPORT_INTEGRITY,
+            f"record {cv.shown(record['id'])} leaks: {cv.shown(leaks)}"
         )
         split = _lineage_of(record)["split"]
         corpus.rows.setdefault(split, []).append(row)
@@ -373,7 +368,7 @@ def _write(request: ExportRequest, corpus: _Corpus) -> dict[str, Any]:
 
 def _manifest(request: ExportRequest, corpus: _Corpus, digests: dict[str, str]) -> dict[str, Any]:
     run = corpus.run
-    replay_status = "not run" if corpus.replay_entries is None else "passed"
+    replay_status = corpus.replay_status
     tables = _tables(corpus)
     exported = tables["dispositions"].get("exported", 0)
     blockers = admission_blockers(
@@ -406,13 +401,16 @@ def run(request: ExportRequest) -> dict[str, Any]:
     _check_request(request)
     run_dir = Path(request.run_dir)
     run_meta = _load_run(run_dir)
-    policy_json = run_meta.get("split_policy")
+    pinned = catalog.load_catalog(request.catalog_dir)
+    policy = integrity.bind_catalog(run_meta, pinned)
+    report = integrity.load_replay(request.replay_dir, run_dir, run_meta)
     corpus = _Corpus(
-        run_meta, _load_records(run_dir),
-        None if policy_json is None else lineage.SplitPolicy.from_json(policy_json),
-        _load_replay(request.replay_dir), cap=request.lineage_cap,
+        run_meta, _load_records(run_dir), policy, report.entries,
+        replay_status=report.status, cap=request.lineage_cap,
     )
     _check_integrity(corpus)
+    integrity.check_summary(run_meta, corpus.records)
+    integrity.check_lineages(corpus.records, pinned)
     corpus.positives = [r for r in corpus.records if views.is_positive(r)]
     _split_proof(corpus)
     _project(corpus)

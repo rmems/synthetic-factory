@@ -55,6 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     exp = commands.add_parser("export", help="evidence, SFT rows and consumer rows into a new tree")
     exp.add_argument("--run", type=Path, required=True)
+    exp.add_argument("--catalog", type=Path, required=True)
     exp.add_argument("--out", type=Path, required=True)
     exp.add_argument("--replay", type=Path, default=None, help="a replay directory of this run")
     exp.add_argument("--lineage-cap", type=int, default=export.DEFAULT_LINEAGE_CAP)
@@ -118,7 +119,9 @@ def _replay(args: argparse.Namespace) -> int:
 
 
 def _export(args: argparse.Namespace) -> int:
-    manifest = export.run(export.ExportRequest(args.run, args.out, args.replay, args.lineage_cap))
+    manifest = export.run(export.ExportRequest(
+        args.run, args.out, args.replay, args.lineage_cap, catalog_dir=args.catalog
+    ))
     tables, admission = manifest["tables"], manifest["admission"]
     exported = tables["dispositions"].get("exported", 0)
     text = (
