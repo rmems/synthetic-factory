@@ -35,8 +35,8 @@ _UPSTREAM_FIELDS = ("repository", "commit", "path", "file_sha256", "function", "
 
 __all__ = [
     "CATALOG_FILENAME", "Catalog", "Example", "LICENSE_FILENAME", "PROGRAMS_FILENAME", "Program",
-    "Reference", "catalog_check", "examples_of", "examples_sha256", "function_node",
-    "load_catalog", "sha256_text", "want_kind_of",
+    "Reference", "examples_of", "examples_sha256", "function_node", "load_catalog",
+    "sha256_text", "want_kind_of",
 ]
 
 
@@ -83,6 +83,7 @@ class Program:
     cases: tuple[dict[str, Any], ...]
     group_id: str | None
     split: str | None
+    ast_digest: str | None = None
 
     @property
     def want_kind(self) -> str | None:
@@ -290,7 +291,9 @@ def _examples(row: dict[str, Any], text: str, function: str, where: str) -> tupl
     return examples
 
 
-def _split(row: dict[str, Any], where: str) -> tuple[str | None, str | None]:
+def _split(row: dict[str, Any], where: str) -> tuple[str | None, str | None, str | None]:
+    """``(group_id, ast_digest, split)``: each a string or null, never anything else."""
+
     structure = row.get("structure")
     split = row.get("split")
     cv.refuse_when(
@@ -299,12 +302,14 @@ def _split(row: dict[str, Any], where: str) -> tuple[str | None, str | None]:
         cv.FINDING_PROGRAM_FIELD_INVALID,
         f"{where}: structure must be an object or null and split one of {SPLITS} or null",
     )
-    group_id = structure.get("group_id") if isinstance(structure, dict) else None
-    cv.refuse_when(
-        group_id is not None and not isinstance(group_id, str), cv.FINDING_PROGRAM_FIELD_INVALID,
-        f"{where}: structure.group_id must be a string or null",
-    )
-    return group_id, split
+    pins = {}
+    for key in ("group_id", "ast_digest"):
+        pins[key] = structure.get(key) if isinstance(structure, dict) else None
+        cv.refuse_when(
+            pins[key] is not None and not isinstance(pins[key], str),
+            cv.FINDING_PROGRAM_FIELD_INVALID, f"{where}: structure.{key} must be a string or null",
+        )
+    return pins["group_id"], pins["ast_digest"], split
 
 
 def _program(row: Any, lineno: int) -> Program:
@@ -315,7 +320,7 @@ def _program(row: Any, lineno: int) -> Program:
         _field(upstream, key, str, f"{where}.upstream")
     text, digest = _module_text(row, where)
     function = upstream["function"]
-    group_id, split = _split(row, where)
+    group_id, ast_digest, split = _split(row, where)
     reference, cases = _reference(row, where), _cases(row, where)
     cv.refuse_when(
         reference.certifying and not cases, cv.FINDING_PROGRAM_FIELD_INVALID,
@@ -324,7 +329,7 @@ def _program(row: Any, lineno: int) -> Program:
     examples = _examples(row, text, function, where)
     return Program(
         program_id, _field(row, "family", str, where), dict(upstream), text, digest, function,
-        examples, examples_sha256(examples), reference, cases, group_id, split,
+        examples, examples_sha256(examples), reference, cases, group_id, split, ast_digest,
     )
 
 
@@ -423,126 +428,6 @@ def load_catalog(directory: Path | str) -> Catalog:
         meta["catalog_id"], root, meta, digest, _license_sha256(root, meta), programs,
         _split_policy(meta),
     )
-
-
-# --- the original-passes check -------------------------------------------
-
-
-def _finding(code: str, program: Program, detail: str) -> dict[str, str]:
-    return {"code": code, "program_id": program.program_id, "detail": detail}
-
-
-def _phase_code(report: ex.PhaseReport, timeout: str, error: str) -> str | None:
-    if report.status == cv.PHASE_TIMEOUT:
-        return timeout
-    if not report.ok:
-        return error
-    return None
-
-
-def _failing(rows: tuple[dict[str, Any], ...]) -> list[str]:
-    return [row["id"] for row in rows if row["status"] != cv.ROW_SUCCESS]
-
-
-def _execution_failure(program: Program, reports: tuple[ex.PhaseReport, ...]) -> dict | None:
-    """The first run that timed out or did not load, as a finding."""
-
-    for report in reports:
-        code = _phase_code(report, cv.REASON_ORIGINAL_TIMEOUT, cv.REASON_ORIGINAL_HARNESS_ERROR)
-        if code is not None:
-            return _finding(code, program, report.detail)
-    return None
-
-
-def _suite_findings(program: Program, report: ex.PhaseReport) -> list[dict[str, str]]:
-    suites = (
-        (report.public, cv.REASON_ORIGINAL_FAILS_PUBLIC),
-        (report.hidden, cv.REASON_ORIGINAL_FAILS_HIDDEN),
-    )
-    return [
-        _finding(code, program, ", ".join(_failing(rows)))
-        for rows, code in suites
-        if _failing(rows)
-    ]
-
-
-def _original_findings(program: Program, executor: ex.Executor) -> list[dict[str, str]]:
-    """Both runs must load and finish; the first must pass; the second must agree."""
-
-    label = f"{cv.PHASE_ORIGINAL}:{program.program_id}"
-    reports = (executor.run(program.job(label)), executor.run(program.job(label)))
-    failure = _execution_failure(program, reports)
-    if failure is not None:
-        return [failure]
-    first, second = reports
-    findings = _suite_findings(program, first)
-    if (first.public, first.hidden) != (second.public, second.hidden):
-        findings.append(_finding(cv.CHECK_SOURCE_NONDETERMINISTIC, program, "two runs differ"))
-    return findings
-
-
-def _reference_findings(program: Program, executor: ex.Executor) -> list[dict[str, str]]:
-    if not program.reference.certifying:
-        return []
-    report = executor.run(program.reference_job(f"reference:{program.program_id}"))
-    code = _phase_code(report, cv.CHECK_REFERENCE_TIMEOUT, cv.CHECK_REFERENCE_HARNESS_ERROR)
-    if code is not None:
-        return [_finding(code, program, report.detail)]
-    disagreeing = _failing(report.hidden)
-    if disagreeing or len(report.hidden) != len(program.cases):
-        detail = ", ".join(disagreeing) or "row count"
-        return [_finding(cv.CHECK_REFERENCE_DISAGREES, program, detail)]
-    return []
-
-
-def _structure_findings(catalog: Catalog) -> list[dict[str, str]]:
-    """Groups and splits recomputed from the module texts must match the pinned ones."""
-
-    members = tuple(
-        lineage.Member(p.program_id, p.upstream["path"], lineage.structure_digest(p.text))
-        for p in catalog.programs
-    )
-    groups = lineage.group_ids(members)
-    findings: list[dict[str, str]] = []
-    for program in catalog.programs:
-        group_id = groups[program.program_id]
-        findings += _program_structure_findings(program, group_id, catalog.split_policy)
-    return findings + _empty_split_findings(catalog)
-
-
-def _program_structure_findings(
-    program: Program, group_id: str, policy: lineage.SplitPolicy | None
-) -> list[dict[str, str]]:
-    findings = []
-    if program.group_id is not None and program.group_id != group_id:
-        findings.append(_finding(cv.CHECK_GROUP_DRIFT, program, group_id))
-    if policy is None or program.split is None:
-        return findings
-    expected = lineage.bucket_split(lineage.anchor_for(group_id, program.program_id), policy)
-    if expected != program.split:
-        findings.append(_finding(cv.CHECK_SPLIT_DRIFT, program, expected))
-    return findings
-
-
-def _empty_split_findings(catalog: Catalog) -> list[dict[str, str]]:
-    if catalog.split_policy is None or not catalog.programs:
-        return []
-    present = {p.split for p in catalog.programs}
-    missing = [name for name in lineage.SPLITS if name not in present]
-    if not missing:
-        return []
-    detail = f"no program falls into {', '.join(missing)}; change the salt in {CATALOG_FILENAME}"
-    return [{"code": cv.CHECK_SPLIT_EMPTY, "program_id": "*", "detail": detail}]
-
-
-def catalog_check(catalog: Catalog, executor: ex.Executor) -> list[dict[str, str]]:
-    """Every original passes twice identically, references agree, groups and splits hold."""
-
-    findings: list[dict[str, str]] = []
-    for program in catalog.programs:
-        findings += _original_findings(program, executor)
-        findings += _reference_findings(program, executor)
-    return findings + _structure_findings(catalog)
 
 
 bind_import_twin(__name__)

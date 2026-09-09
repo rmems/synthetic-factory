@@ -47,6 +47,10 @@ class SplitPolicy:
     def total(self) -> int:
         return self.train + self.validation + self.held_out
 
+    @property
+    def weights(self) -> dict[str, int]:
+        return {"train": self.train, "validation": self.validation, "held_out": self.held_out}
+
     def as_json(self) -> dict[str, Any]:
         return {
             "algorithm": self.algorithm, "seed": self.seed, "salt": self.salt,
@@ -143,9 +147,18 @@ def _field_value(node: ast.AST, name: str, namer: _Namer) -> Any:
     value = getattr(node, name, None)
     if name == "body" and isinstance(value, list):
         return _strip_docstring(value)
-    if name in _RENAMED_FIELDS and isinstance(value, str):
+    if _is_identifier(node, name, value):
         return namer(value)
     return value
+
+
+def _is_identifier(node: ast.AST, name: str, value: Any) -> bool:
+    """A renamable identifier; a keyword argument's name is the callee's API, not one
+    (CodeAnt on #202): ``f(x=1)`` and ``f(y=1)`` are different structures."""
+
+    if name not in _RENAMED_FIELDS or not isinstance(value, str):
+        return False
+    return not isinstance(node, ast.keyword)
 
 
 def _serialise_node(node: ast.AST, namer: _Namer) -> list:

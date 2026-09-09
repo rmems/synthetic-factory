@@ -50,6 +50,17 @@ class BucketPolicy(unittest.TestCase):
                 lineage.SplitPolicy.from_json(broken)
 
 
+class KeywordNames(unittest.TestCase):
+    def test_keyword_argument_names_are_api_not_identifiers(self):
+        """CodeAnt on #202: f(x=a) and f(y=a) call different APIs and must not share a digest."""
+
+        one = "def f(a):\n    return g(x=a)\n"
+        other = "def f(a):\n    return g(y=a)\n"
+        renamed = "def h(b):\n    return g(x=b)\n"
+        self.assertNotEqual(lineage.structure_digest(one), lineage.structure_digest(other))
+        self.assertEqual(lineage.structure_digest(one), lineage.structure_digest(renamed))
+
+
 class Structure(unittest.TestCase):
     def test_renamed_copies_share_a_structure_digest_and_different_programs_do_not(self):
         text = program("sum_of_digits").text
