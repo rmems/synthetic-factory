@@ -1,0 +1,53 @@
+tests/test_code_repair_catalog.py
+  s_30c91b293664f2::t_bb22ae6d72f237 18,218,234,243,251,265,282
+tests/code_repair_test_support.py
+  s_30c91b293664f2::t_ea990532c3c2ac 31
+pipelines/code_repair/catalog_check.py
+  s_30c91b293664f2::t_a408468d01280c 148-149
+  s_30c91b293664f2::t_bb22ae6d72f237 1-147,150-163
+pipelines/code_repair/lineage.py
+  s_30c91b293664f2::t_ea990532c3c2ac 150,155-161
+  s_30c91b293664f2::t_def6ce996d9173 50-53
+pipelines/code_repair/replay.py
+  s_30c91b293664f2::t_def6ce996d9173 57-68,79,175,177-187,193-201
+  s_30c91b293664f2::t_93ce255d897926 19,225-231,240-244,247-261,309-313,316
+  s_30c91b293664f2::t_6836e72823ec4e 232-233,236,239
+  s_30c91b293664f2::t_a408468d01280c 237-238
+  s_30c91b293664f2::t_ea990532c3c2ac 69-70,76,78,80-89,234-235,245-246
+tests/test_code_repair_mutate.py
+  s_30c91b293664f2::t_79e4d5f69c79fb 131-139
+pipelines/code_repair/mutate_sites.py
+  s_30c91b293664f2::t_c4dcb7f557f55e 375-380,384-390,407,409-415
+tests/code_repair_import_probe.py
+  s_30c91b293664f2::t_ea990532c3c2ac 18
+pipelines/code_repair/catalog.py
+  s_30c91b293664f2::t_bb22ae6d72f237 38-39
+  s_30c91b293664f2::t_c4dcb7f557f55e 86,294-296,305-312,323,332
+tests/test_code_repair_vocabulary.py
+  s_30c91b293664f2::t_a408468d01280c 60
+pipelines/code_repair/cli.py
+  s_30c91b293664f2::t_06e36bcd04196c 107-108
+  s_30c91b293664f2::t_bb22ae6d72f237 19,69
+pipelines/code_repair/catalog_build.py
+  s_30c91b293664f2::t_06e36bcd04196c 25,44-51,92-98,101-102,104-107,109-123,127,150-151,161,172-183,194
+pipelines/code_repair/vocabulary.py
+  s_30c91b293664f2::t_c4dcb7f557f55e 156,161,174
+  s_30c91b293664f2::t_ea990532c3c2ac 178,260
+  s_30c91b293664f2::t_06e36bcd04196c 242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ca2c50802241e964de7903d3afd961099378d6b5",
+  "prompts": {},
+  "sessions": {
+    "s_30c91b293664f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b363f3ab-81a6-4abe-88b5-c596f7a8dd7b",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
