@@ -124,6 +124,43 @@ class SelectionAndExtraction(unittest.TestCase):
         self.assertNotIn(program_id, program("abs_val").text)
 
 
+class SelectorHardening(unittest.TestCase):
+    """Greptile and Codex on #202: attribute calls, nested imports, nested scopes, alias imports."""
+
+    DOCTESTED = "    '''\n    >>> f(1)\n    1\n    >>> f(2)\n    2\n    '''\n"
+
+    def test_attribute_calls_and_nested_imports_that_reach_the_host_are_rejected(self):
+        for body in (
+            "    import subprocess\n    return x\n",
+            "    return pathlib.Path('x').write_text('y') or x\n",
+            "    return os.system('true') or x\n",
+        ):
+            text = "import os\nimport pathlib\n\n\ndef f(x):\n" + self.DOCTESTED + body
+            with self.subTest(body=body.strip()):
+                self.assertEqual(cb.select_targets(text), [])
+        text = "import math\n\n\ndef f(x):\n" + self.DOCTESTED + "    return math.floor(x)\n"
+        self.assertEqual(cb.select_targets(text), ["f"])
+
+    def test_a_name_bound_only_in_a_nested_scope_is_still_a_free_name(self):
+        text = (
+            "def f(x):\n" + self.DOCTESTED
+            + "    return [y for y in range(x)][-1] + y\n"
+        )
+        self.assertEqual(cb.select_targets(text), [])
+        text = "def f(x):\n" + self.DOCTESTED + "    def inner():\n        z = 1\n    return z + x\n"
+        self.assertEqual(cb.select_targets(text), [])
+
+    def test_extraction_keeps_only_the_aliases_the_function_reads(self):
+        text = (
+            "import math, os\nfrom itertools import chain, count as counting\n\n\ndef f(x):\n"
+            + self.DOCTESTED + "    return math.floor(x) + len(list(chain([x])))\n"
+        )
+        module, _span = cb.extract_module(text, "f")
+        self.assertTrue(module.startswith("import math\nfrom itertools import chain\n\n\ndef f(x):"))
+        self.assertNotIn("os", module.split("def f")[0])
+        self.assertNotIn("counting", module)
+
+
 class HiddenInputs(unittest.TestCase):
     def test_literal_arguments_come_from_single_call_examples_only(self):
         prog = program("factorial")

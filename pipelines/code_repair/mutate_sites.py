@@ -372,11 +372,22 @@ def _is_range_call(node: ast.AST) -> bool:
 
 
 def _is_boundary(node: ast.AST, child: ast.AST) -> bool:
-    """An ancestor under which an integer literal is a boundary worth moving by one."""
+    """A parent under which an integer literal is a boundary worth moving by one.
+
+    The literal must be the operand itself: an argument of ``range``, a bound of a slice,
+    the index of a subscript or a side of a comparison. A literal buried deeper, such as
+    ``helper(1) < limit``, is not a boundary (Greptile and CodeAnt on #202).
+    """
 
     if isinstance(node, ast.Subscript):
         return child is node.slice
-    return _is_range_call(node) or isinstance(node, (ast.Slice, ast.Compare))
+    if _is_range_call(node):
+        return any(child is argument for argument in node.args)
+    if isinstance(node, ast.Slice):
+        return child in (node.lower, node.upper, node.step)
+    if isinstance(node, ast.Compare):
+        return child is node.left or any(child is c for c in node.comparators)
+    return False
 
 
 def _ancestors(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> list[tuple[ast.AST, ast.AST]]:
@@ -393,13 +404,15 @@ def _off_by_one_context(constant: ast.AST, parents: dict[ast.AST, ast.AST]) -> t
     """``(eligible, negated)``: an ancestor that makes the literal a boundary, and a unary minus."""
 
     chain = _ancestors(constant, parents)
-    if any(isinstance(node, (ast.JoinedStr, ast.FormattedValue)) for node, _child in chain):
+    if not chain:
         return False, False
-    negated = any(
-        isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub) and child is constant
-        for node, child in chain
-    )
-    return any(_is_boundary(node, child) for node, child in chain), negated
+    parent, child = chain[0]
+    negated = isinstance(parent, ast.UnaryOp) and isinstance(parent.op, ast.USub)
+    if negated:
+        # A signed boundary would need its whole literal rewritten and its direction re-read;
+        # it is not a site (Codex on #202).
+        return False, True
+    return _is_boundary(parent, child), False
 
 
 def _off_by_one_sites(function: ast.FunctionDef, text: _Text) -> list[Site]:

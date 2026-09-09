@@ -143,14 +143,19 @@ def observe(executor: ex.Executor, subject: Subject) -> tuple[ex.PhaseReport | N
     if not args_list:
         return None, []
     probes = tuple({"args": repr(a), "want": None} for a in args_list)
-    report = executor.run(ex.Job(f"observe:{function}", text, function, probes, False))
-    if not report.ok:
-        return report, []
+    # The public doctests run first, as in every later job, so a stateful target is observed
+    # in the state its doctests leave; two observations must agree, so an unstable repr (an
+    # object address, say) is never pinned (Codex on #202).
+    job = ex.Job(f"observe:{function}", text, function, probes, True, len(subject.examples))
+    first, second = executor.run(job), executor.run(job)
+    if not first.ok or not second.ok:
+        return (first if not first.ok else second), []
     kept = [
         {"args": repr(a), "want": row["got"]}
-        for a, row in zip(args_list, report.hidden) if row["status"] == cv.ROW_OBSERVED
+        for a, row, again in zip(args_list, first.hidden, second.hidden)
+        if row["status"] == cv.ROW_OBSERVED and again.get("got") == row.get("got")
     ]
-    return report, kept[: cv.MAX_HIDDEN_CASES]
+    return first, kept[: cv.MAX_HIDDEN_CASES]
 
 
 def observed_cases(executor: ex.Executor, subject: Subject) -> list[dict]:

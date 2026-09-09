@@ -2,6 +2,7 @@
 """Replay: real re-execution catches what stored digests and re-derived verdicts cannot."""
 
 import copy
+import hashlib
 import json
 import shutil
 import sys
@@ -113,6 +114,69 @@ class Forgeries(unittest.TestCase):
         self.assertEqual(replay.replay_record(record, fixture(), RUNNER)["code"], cv.REPLAY_VERDICT_MISMATCH)
 
 
+class RunBinding(unittest.TestCase):
+    """Greptile, CodeAnt and Codex on #202: a replay is bound to one run and its pinned catalog."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="code-repair-replay-bind-"))
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def run_with(self, records, run_edit=None):
+        """A run directory holding these records and the smoke run's RUN.json (optionally edited)."""
+
+        _summary, _records, run_dir = smoke_run()
+        out = self.root / f"run-{len(list(self.root.iterdir()))}"
+        out.mkdir()
+        oc.write_jsonl(out / generate.CANDIDATES_FILENAME, records)
+        summary = json.loads((run_dir / generate.RUN_FILENAME).read_text(encoding="utf-8"))
+        if run_edit is not None:
+            run_edit(summary)
+        (out / generate.RUN_FILENAME).write_text(json.dumps(summary, sort_keys=True), encoding="utf-8")
+        return out
+
+    def test_a_run_pinned_to_another_catalog_is_refused(self):
+        run_dir = self.run_with(positives()[:1], lambda s: s["catalog"].update(programs_sha256="0" * 64))
+        with refusal(self, cv.FINDING_REPLAY_CATALOG_UNBOUND, "another catalog"):
+            replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
+
+    def test_the_report_carries_the_run_identity(self):
+        run_dir = self.run_with(positives()[:1])
+        report = replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
+        identity = report["run_identity"]
+        digest = hashlib.sha256((run_dir / generate.CANDIDATES_FILENAME).read_bytes()).hexdigest()
+        self.assertEqual(identity["candidates_sha256"], digest)
+        self.assertEqual(identity["catalog"]["programs_sha256"], fixture().programs_sha256)
+        self.assertEqual(set(identity), {"candidates_sha256", "seed", "produced_at", "catalog", "harness_sha256"})
+
+    def test_a_moved_hidden_check_is_catalog_drift(self):
+        record = copy.deepcopy(positives()[0])
+        record["oracle"]["configuration"]["hidden_check"]["cases"] = []
+        restamp(record)
+        self.assertEqual(replay.replay_record(record, fixture(), RUNNER)["code"], cv.REPLAY_CATALOG_DRIFT)
+
+    def test_a_record_that_claims_a_positive_but_fails_its_digest_is_a_failed_entry(self):
+        record = copy.deepcopy(positives()[0])
+        record["scenario"]["task_specification"] += " (edited without re-stamping)"
+        entry = replay.replay_record(record, fixture(), RUNNER)
+        self.assertEqual((entry["status"], entry["code"]), ("replayed", cv.REPLAY_HASH_MISMATCH))
+
+    def test_a_malformed_positive_record_is_a_failed_entry_not_a_crash(self):
+        record = copy.deepcopy(positives()[0])
+        del record["scenario"]["source"]["module_sha256"]
+        restamp(record)
+        entry = replay.replay_record(record, fixture(), RUNNER)
+        self.assertEqual((entry["status"], entry["code"]), ("replayed", cv.REPLAY_RECORD_MALFORMED))
+
+    def test_a_run_with_nothing_to_replay_exits_zero(self):
+        rejected = [r for r in smoke_run()[1] if not views.is_positive(r)]
+        run_dir = self.run_with(rejected)
+        code = cli.run(["replay", "--run", str(run_dir), "--catalog", str(FIXTURE_CATALOG),
+                        "--out", str(self.root / "noop"), "--timeout-s", "5", "--json"])
+        self.assertEqual(code, 0)
+        report = json.loads((self.root / "noop" / replay.REPLAY_FILENAME).read_text())
+        self.assertEqual(report["status"], "nothing_to_replay")
+
+
 class RequestsAndCli(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="code-repair-replay-cli-"))
@@ -132,6 +196,7 @@ class RequestsAndCli(unittest.TestCase):
         forged_dir = self.root / "forged"
         forged_dir.mkdir()
         oc.write_jsonl(forged_dir / generate.CANDIDATES_FILENAME, [consistently_forged()])
+        shutil.copy(smoke_run()[2] / generate.RUN_FILENAME, forged_dir / generate.RUN_FILENAME)
         code = cli.run(["replay", "--run", str(forged_dir), "--catalog", str(FIXTURE_CATALOG),
                         "--out", str(self.root / "forged-replay"), "--timeout-s", "5", "--json"])
         self.assertEqual(code, 1)

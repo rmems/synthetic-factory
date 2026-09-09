@@ -15,6 +15,7 @@ from code_repair_test_support import (  # noqa: E402
     FIXTURE_CATALOG, FakeExecutor, catalog, executor, fixture, program, refusal, report, rows,
     vocabulary as cv,
 )
+from code_repair import catalog_check, lineage  # noqa: E402
 
 
 def copied_fixture(root):
@@ -130,6 +131,36 @@ class Refusals(unittest.TestCase):
                 with refusal(self, code):
                     catalog.load_catalog(self.directory)
 
+    def test_a_wrong_type_catalog_field_carries_the_catalog_code(self):
+        path = self.directory / catalog.CATALOG_FILENAME
+        meta = json.loads(path.read_text(encoding="utf-8"))
+        meta["catalog_id"] = 7
+        path.write_text(json.dumps(meta), encoding="utf-8")
+        with refusal(self, cv.FINDING_CATALOG_FIELD_INVALID, "catalog_id"):
+            catalog.load_catalog(self.directory)
+
+    def test_a_certifying_reference_without_hidden_cases_is_refused(self):
+        def one(row):
+            if row["upstream"]["function"] == "abs_val":
+                row["hidden"]["cases"] = []
+
+        rewrite_programs(self.directory, one)
+        with refusal(self, cv.FINDING_PROGRAM_FIELD_INVALID, "hidden case"):
+            catalog.load_catalog(self.directory)
+
+    def test_a_malformed_doctest_directive_is_a_coded_refusal(self):
+        def one(row):
+            if row["upstream"]["function"] != "abs_val":
+                return
+            text = row["module"]["text"].replace(
+                ">>> abs_val(-5.1)", ">>> abs_val(-5.1)  # doctest: +NO_SUCH_OPTION", 1
+            )
+            row["module"].update(text=text, sha256=hashlib.sha256(text.encode()).hexdigest())
+
+        rewrite_programs(self.directory, one)
+        with refusal(self, cv.FINDING_PROGRAM_FIELD_INVALID, "parser refuses"):
+            catalog.load_catalog(self.directory)
+
     def test_a_non_string_group_id_is_refused_not_dropped(self):
         """Codex on #196: malformed grouping metadata must not read as "ungrouped"."""
 
@@ -184,7 +215,7 @@ class OriginalPasses(unittest.TestCase):
     def test_the_fixture_originals_pass_and_references_agree_for_real(self):
         """Real subprocess evidence: the 'original passes' demonstration."""
 
-        self.assertEqual(catalog.catalog_check(fixture(), executor.Executor(timeout_s=5.0)), [])
+        self.assertEqual(catalog_check.catalog_check(fixture(), executor.Executor(timeout_s=5.0)), [])
 
     def test_check_findings_are_coded_from_the_reports(self):
         prog = program("factorial")
@@ -200,7 +231,7 @@ class OriginalPasses(unittest.TestCase):
         single = catalog.Catalog("x", FIXTURE_CATALOG, {}, "", "", (prog,))
         for code, by_phase in engines.items():
             with self.subTest(code=code):
-                findings = catalog.catalog_check(single, FakeExecutor(by_phase))
+                findings = catalog_check.catalog_check(single, FakeExecutor(by_phase))
                 self.assertEqual([f["code"] for f in findings], [code])
                 self.assertEqual(findings[0]["program_id"], prog.program_id)
 
@@ -209,7 +240,7 @@ class OriginalPasses(unittest.TestCase):
         answers = iter([report(rows("public", 7), rows("hidden", 15)), report(failure="timeout")])
         fake = FakeExecutor({"original": lambda job: next(answers), "reference": report((), rows("hidden", 15))})
         single = catalog.Catalog("x", FIXTURE_CATALOG, {}, "", "", (prog,))
-        codes = [f["code"] for f in catalog.catalog_check(single, fake)]
+        codes = [f["code"] for f in catalog_check.catalog_check(single, fake)]
         self.assertEqual(codes, [cv.REASON_ORIGINAL_TIMEOUT])
 
     def test_two_differing_original_runs_are_nondeterministic(self):
@@ -217,12 +248,8 @@ class OriginalPasses(unittest.TestCase):
         answers = iter([report(rows("public", 7), rows("hidden", 15)), report(rows("public", 7, (1,)), rows("hidden", 15))])
         fake = FakeExecutor({"original": lambda job: next(answers), "reference": report((), rows("hidden", 15))})
         single = catalog.Catalog("x", FIXTURE_CATALOG, {}, "", "", (prog,))
-        codes = [f["code"] for f in catalog.catalog_check(single, fake)]
+        codes = [f["code"] for f in catalog_check.catalog_check(single, fake)]
         self.assertEqual(codes, [cv.CHECK_SOURCE_NONDETERMINISTIC])
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class StructureChecks(unittest.TestCase):
@@ -235,7 +262,7 @@ class StructureChecks(unittest.TestCase):
 
     def check(self):
         loaded = catalog.load_catalog(self.directory)
-        return [f["code"] for f in catalog._structure_findings(loaded)]
+        return [f["code"] for f in catalog_check._structure_findings(loaded)]
 
     def test_the_fixture_has_no_structural_drift(self):
         self.assertEqual(self.check(), [])
@@ -252,9 +279,38 @@ class StructureChecks(unittest.TestCase):
     def test_an_empty_split_is_reported_with_the_remedy(self):
         rewrite_programs(self.directory, lambda row: row.update(split="train"))
         loaded = catalog.load_catalog(self.directory)
-        findings = catalog._structure_findings(loaded)
+        findings = catalog_check._structure_findings(loaded)
         self.assertIn(cv.CHECK_SPLIT_EMPTY, [f["code"] for f in findings])
         self.assertIn("change the salt", next(f["detail"] for f in findings if f["code"] == cv.CHECK_SPLIT_EMPTY))
+
+    def test_a_tampered_structure_digest_is_a_drift_finding(self):
+        def edit(row):
+            if row["upstream"]["function"] == "factorial":
+                row["structure"]["ast_digest"] = "0" * 64
+
+        rewrite_programs(self.directory, edit)
+        self.assertEqual(self.check(), [cv.CHECK_STRUCTURE_DIGEST_DRIFT])
+
+    def test_missing_pins_under_a_split_policy_are_drift_findings(self):
+        """Greptile, CodeAnt and Codex on #202: a null pin is not an opt-out."""
+
+        def edit(row):
+            if row["upstream"]["function"] == "factorial":
+                row["structure"] = None
+                row["split"] = None
+
+        rewrite_programs(self.directory, edit)
+        expected = [cv.CHECK_GROUP_DRIFT, cv.CHECK_SPLIT_DRIFT, cv.CHECK_STRUCTURE_DIGEST_DRIFT]
+        self.assertEqual(sorted(self.check()), expected)
+
+    def test_zero_weight_splits_are_not_required_to_be_populated(self):
+        meta_path = self.directory / catalog.CATALOG_FILENAME
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["split_policy"]["weights"] = {"train": 100, "validation": 0, "held_out": 0}
+        meta["split_policy_sha256"] = lineage.SplitPolicy.from_json(meta["split_policy"]).sha256
+        meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        rewrite_programs(self.directory, lambda row: row.update(split="train"))
+        self.assertEqual(self.check(), [])
 
     def test_a_policy_that_does_not_match_its_digest_is_refused(self):
         meta_path = self.directory / catalog.CATALOG_FILENAME
@@ -263,3 +319,7 @@ class StructureChecks(unittest.TestCase):
         meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         with refusal(self, cv.FINDING_SPLIT_POLICY_INVALID, "does not match"):
             catalog.load_catalog(self.directory)
+
+
+if __name__ == "__main__":
+    unittest.main()

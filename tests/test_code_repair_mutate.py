@@ -121,8 +121,22 @@ class SeededChoice(unittest.TestCase):
         self.assertFalse(set(payload) & cv.ORACLE_LABEL_KEYS)
 
 
-if __name__ == "__main__":
-    unittest.main()
+class BoundaryLiterals(unittest.TestCase):
+    """Greptile, CodeAnt and Codex on #202: a boundary literal is a direct operand, never negated."""
+
+    def test_nested_and_negated_literals_are_not_off_by_one_sites(self):
+        text = (
+            "def helper(n):\n    return n\n\n\ndef f(items, limit):\n"
+            "    '''\n    >>> f([1, 2], 3)\n    2\n    >>> f([], 3)\n    0\n    '''\n"
+            "    if helper(7) < limit and len(items) < 3:\n"
+            "        return len(items[helper(7):]) + len(range(-3, 1)) - 4 + len(items[0:])\n"
+            "    return 0\n"
+        )
+        found = [s for s in mutate.sites(text, "f") if s.operator == cv.OPERATOR_OFF_BY_ONE]
+        # `3` both ways, `0` upward only, `1` both ways; never `7` (nested), `-3` (negated) or `4`.
+        originals = sorted({(s.lineno, s.original_text) for s in found})
+        self.assertEqual(originals, [(12, "3"), (13, "0"), (13, "1")])
+        self.assertEqual(len(found), 5)
 
 
 class FiveOperators(unittest.TestCase):
@@ -173,7 +187,9 @@ class FiveOperators(unittest.TestCase):
     def test_off_by_one_moves_boundary_literals_and_never_below_zero(self):
         _prog, found = self.sites_of("factorial", cv.OPERATOR_OFF_BY_ONE)
         moves = sorted((s.lineno, s.original_text, s.replacement_text) for s in found)
-        self.assertEqual([m[1:] for m in moves], [("0", "1"), ("1", "0"), ("1", "0"), ("1", "2"), ("1", "2")])
+        # `number < 0` and both directions of `range(1, ...)`; the `1` inside `number + 1` is not
+        # a direct operand of the range call and so no longer a site (Greptile on #202).
+        self.assertEqual([m[1:] for m in moves], [("0", "1"), ("1", "0"), ("1", "2")])
         _prog, found = self.sites_of("rec_linear_search", cv.OPERATOR_OFF_BY_ONE)
         self.assertEqual({s.replacement_text for s in found}, {"1"})
 
@@ -190,3 +206,7 @@ class FiveOperators(unittest.TestCase):
             self.assertEqual({"node", "start_byte", "end_byte", "lineno", "col_offset", "original_text",
                               "replacement_text", "node_lineno", "node_col_offset", "node_end_lineno",
                               "node_end_col_offset", "op_index"}, set(payload))
+
+
+if __name__ == "__main__":
+    unittest.main()

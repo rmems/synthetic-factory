@@ -14,6 +14,7 @@ from unittest import mock
 
 from scripts import vendor_python_repair_catalog as vendor
 from tests.code_repair_test_support import FIXTURE_CATALOG, catalog, executor, oc
+from code_repair import catalog_check  # noqa: E402
 
 
 def blob_sha(data):
@@ -110,7 +111,7 @@ class OfflineBuild(unittest.TestCase):
         self.assertLessEqual(
             {p.program_id for p in fixture.programs}, {p.program_id for p in built.programs}
         )
-        self.assertEqual(catalog.catalog_check(built, executor.Executor(timeout_s=5.0)), [])
+        self.assertEqual(catalog_check.catalog_check(built, executor.Executor(timeout_s=5.0)), [])
         self.assertEqual(built.meta["build"]["notes"], [])
 
     def test_corrupt_cached_tree_or_raw_file_refuses_before_build(self):
@@ -130,7 +131,8 @@ class OfflineBuild(unittest.TestCase):
             "tree": (tree_url, lambda data: json.dumps({**tree, "sha": "b" * 40}).encode()),
             "source": (urls[2], lambda data: data + b"# tampered\n"),
             "license": (
-                next(u for u in urls if u.endswith("/LICENSE.md")), lambda data: data + b"tampered\n"
+                next(u for u in urls if u.endswith("/LICENSE.md")),
+                lambda data: data + b"tampered\n",
             ),
         }
         target, corrupt = tampered[kind]

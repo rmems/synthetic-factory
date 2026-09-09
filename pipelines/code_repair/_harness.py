@@ -15,9 +15,9 @@ from __future__ import annotations
 import ast
 import doctest
 import importlib.util
-import io
 import json
 import math
+import os
 import platform
 import sys
 import traceback
@@ -41,6 +41,11 @@ def _apply_limits(spec: dict) -> bool:
     for name, value in limits:
         resource.setrlimit(name, (value, value))
     return True
+
+
+def _last_line(text: str) -> str:
+    lines = [line for line in text.splitlines() if line.strip()]
+    return lines[-1] if lines else ""
 
 
 def _clip(text: str) -> tuple[str, bool]:
@@ -87,7 +92,12 @@ class _Runner(doctest.DocTestRunner):
         return None
 
     def report_success(self, out, test, example, got) -> None:
-        self._rows.append(_row("public", self._index(test, example), "pass"))
+        # A passing row keeps its output too, so two runs that both pass with
+        # different values are still told apart by their digests. A matched
+        # exception keeps its final line only: the traceback names the workdir.
+        if example.exc_msg is not None:
+            got = _last_line(got)
+        self._rows.append(_row("public", self._index(test, example), "pass", got))
 
     def report_failure(self, out, test, example, got) -> None:
         self._rows.append(_row("public", self._index(test, example), "fail", _exception_only(got)))
@@ -95,6 +105,12 @@ class _Runner(doctest.DocTestRunner):
     def report_unexpected_exception(self, out, test, example, exc_info) -> None:
         text = "".join(traceback.format_exception_only(exc_info[0], exc_info[1])).strip()
         self._rows.append(_row("public", self._index(test, example), "error", text))
+
+
+def executable_examples(examples: list) -> list:
+    """The examples the runner will actually execute: a ``+SKIP`` example reports no row."""
+
+    return [example for example in examples if not example.options.get(doctest.SKIP)]
 
 
 def _function_node(text: str, function: str) -> ast.FunctionDef:
@@ -109,6 +125,10 @@ def _load(workdir: Path):
     if location is None or location.loader is None:
         raise ImportError(f"no import spec for {PROGRAM_FILENAME}")
     module = importlib.util.module_from_spec(location)
+    # Registered like an ordinary import so code that looks itself up by module
+    # name (pickling an instance of one of its own classes, say) behaves as it
+    # would outside the harness; the child is one-shot, so nothing unregisters it.
+    sys.modules[location.name] = module
     location.loader.exec_module(module)
     return module
 
@@ -116,7 +136,7 @@ def _load(workdir: Path):
 def _run_public(module, text: str, function: str) -> list:
     node = _function_node(text, function)
     docstring = ast.get_docstring(node, clean=True) or ""
-    examples = doctest.DocTestParser().get_examples(docstring)
+    examples = executable_examples(doctest.DocTestParser().get_examples(docstring))
     globs = dict(module.__dict__)
     test = doctest.DocTest(examples, globs, function, PROGRAM_FILENAME, node.lineno, docstring)
     rows: list = []
@@ -156,7 +176,7 @@ def _run_case(target, index: int, case: dict, spec: dict) -> dict:
     if case["want"] is None:
         return _row("hidden", index, "observed", got)
     if _agree(got, case["want"], spec):
-        return {**_row("hidden", index, "pass"), "kind": "ok"}
+        return {**_row("hidden", index, "pass", got), "kind": "ok"}
     return {**_row("hidden", index, "fail"), "kind": "value_mismatch"}
 
 
@@ -186,17 +206,18 @@ def main(argv: list[str]) -> int:
         return 2
     workdir = Path(argv[1])
     real_stdout, real_stderr = sys.stdout, sys.stderr
-    # The program under test never writes on the protocol channel, and its
-    # stderr goes to a bounded in-memory sink the parent never has to read.
-    sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
-    try:
-        spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
-        report = _run(workdir, spec)
-    except Exception as exc:
-        error = f"HarnessError: {exc}"
-        report = {"protocol": PROTOCOL, "load": {"status": "error", "error": error}}
-    finally:
-        sys.stdout, sys.stderr = real_stdout, real_stderr
+    # The program under test never writes on the protocol channel; whatever it
+    # prints is discarded outright, so streaming forever buys it nothing.
+    with open(os.devnull, "w", encoding="utf-8") as sink:
+        sys.stdout, sys.stderr = sink, sink
+        try:
+            spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
+            report = _run(workdir, spec)
+        except Exception as exc:
+            error = f"HarnessError: {exc}"
+            report = {"protocol": PROTOCOL, "load": {"status": "error", "error": error}}
+        finally:
+            sys.stdout, sys.stderr = real_stdout, real_stderr
     real_stdout.write(json.dumps(report, sort_keys=True, allow_nan=False))
     real_stdout.flush()
     return 0

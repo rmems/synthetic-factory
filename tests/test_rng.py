@@ -25,9 +25,12 @@ class PinnedStream(unittest.TestCase):
         self.assertEqual(rng.DrawStream(0).bits(), fault_scenario.DrawStream(0).bits())
 
     def test_draws_are_deterministic_and_seed_distinct(self):
-        first, twin = rng.DrawStream(3), rng.DrawStream(3)
-        self.assertEqual([first.bits() for _ in range(8)], [twin.bits() for _ in range(8)])
-        self.assertNotEqual([rng.DrawStream(4).bits() for _ in range(4)], [twin.bits() for _ in range(4)])
+        first, twin, other = rng.DrawStream(3), rng.DrawStream(3), rng.DrawStream(4)
+        draws = [first.bits() for _ in range(8)]
+        self.assertEqual(draws, [twin.bits() for _ in range(8)])
+        # Positions 1-8 of seed 4 against the same positions of seed 3: a stream
+        # that hashed only the counter would tie here.
+        self.assertNotEqual(draws, [other.bits() for _ in range(8)])
         self.assertEqual((first.seed, first.draws), (3, 8))
 
     def test_choice_randint_sample_and_chance_use_one_draw_each(self):

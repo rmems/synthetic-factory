@@ -22,11 +22,13 @@ import ast
 import builtins
 import hashlib
 import json
+import symtable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from . import catalog as cat
+from . import catalog_check as cc
 from . import catalog_inputs as inputs
 from . import executor as ex
 from . import lineage
@@ -39,6 +41,14 @@ MIN_EXAMPLES = 2
 FORBIDDEN_CALLS = frozenset({
     "input", "print", "open", "exec", "eval", "compile", "__import__", "globals", "locals",
     "vars",
+})
+# Attribute calls that reach the host: files, processes, sockets, the interpreter itself.
+FORBIDDEN_ATTRIBUTES = frozenset({
+    "system", "popen", "spawn", "spawnl", "spawnv", "execv", "execl", "fork", "kill", "run",
+    "call", "check_call", "check_output", "Popen", "open", "write_text", "write_bytes",
+    "read_text", "read_bytes", "remove", "unlink", "rmtree", "mkdir", "makedirs", "rename",
+    "replace", "chmod", "urlopen", "urlretrieve", "connect", "bind", "listen", "exit",
+    "settrace", "setprofile", "load", "loads", "dump", "dumps",
 })
 
 __all__ = [
@@ -80,40 +90,42 @@ def _bound_names(node: ast.Import | ast.ImportFrom) -> set[str]:
     return {(alias.asname or alias.name).split(".")[0] for alias in node.names}
 
 
-def _names_bound_by(node: ast.AST) -> set[str]:
-    """The names one node binds inside the function."""
+def _global_names(table: symtable.SymbolTable) -> set[str]:
+    """Names this scope and every nested scope resolve at module level."""
 
-    if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
-        return {node.id}
-    if isinstance(node, ast.arg):
-        return {node.arg}
-    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-        return {node.name}
-    if isinstance(node, ast.ExceptHandler):
-        return {node.name} if node.name else set()
+    names = {symbol.get_name() for symbol in table.get_symbols() if symbol.is_global()}
+    for child in table.get_children():
+        names |= _global_names(child)
+    return names
+
+
+def _free_names(text: str, function: ast.FunctionDef) -> set[str]:
+    """Names the function reads from the module that neither it nor Python provides.
+
+    Resolved by the compiler's own scope analysis, so a name bound in a nested scope
+    (a comprehension's target, an inner function's local) never masks an outer read
+    (Greptile and Codex on #202).
+    """
+
+    module_table = symtable.symtable(text, cv.PROGRAM_FILENAME, "exec")
+    tables = [t for t in module_table.get_children() if t.get_name() == function.name]
+    globals_read = set().union(*(_global_names(t) for t in tables)) if tables else set()
+    return globals_read - {function.name} - set(dir(builtins))
+
+
+def _reaches_the_host(node: ast.AST) -> bool:
     if isinstance(node, (ast.Import, ast.ImportFrom)):
-        return _bound_names(node)
-    return set()
-
-
-def _free_names(function: ast.FunctionDef) -> set[str]:
-    """Names the function reads that neither it nor Python provides."""
-
-    bound = {function.name} | set(dir(builtins))
-    for node in ast.walk(function):
-        bound |= _names_bound_by(node)
-    loads = {
-        n.id for n in ast.walk(function) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
-    }
-    return loads - bound
+        return True  # a nested import escapes the module-level admission check
+    if not isinstance(node, ast.Call):
+        return False
+    callee = node.func
+    if isinstance(callee, ast.Name):
+        return callee.id in FORBIDDEN_CALLS
+    return isinstance(callee, ast.Attribute) and callee.attr in FORBIDDEN_ATTRIBUTES
 
 
 def _calls_forbidden(function: ast.FunctionDef) -> bool:
-    return any(
-        isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-        and node.func.id in FORBIDDEN_CALLS
-        for node in ast.walk(function)
-    )
+    return any(_reaches_the_host(node) for node in ast.walk(function))
 
 
 def _module_imports(module: ast.Module) -> tuple[list[ast.stmt], set[str]]:
@@ -136,8 +148,8 @@ def _is_plain_function(node: ast.stmt) -> bool:
     return not node.decorator_list and not node.type_params
 
 
-def _is_self_contained(node: ast.FunctionDef, imported: set[str]) -> bool:
-    if _free_names(node) - imported:
+def _is_self_contained(text: str, node: ast.FunctionDef, imported: set[str]) -> bool:
+    if _free_names(text, node) - imported:
         return False
     return not _calls_forbidden(node)
 
@@ -147,7 +159,7 @@ def _qualifies(text: str, node: ast.stmt, imported: set[str]) -> bool:
 
     if not _is_plain_function(node):
         return False
-    return _has_observable_doctests(text, node) and _is_self_contained(node, imported)
+    return _has_observable_doctests(text, node) and _is_self_contained(text, node, imported)
 
 
 def select_targets(text: str) -> list[str]:
@@ -156,6 +168,18 @@ def select_targets(text: str) -> list[str]:
     module = ast.parse(text)
     _imports, imported = _module_imports(module)
     return [node.name for node in module.body if _qualifies(text, node, imported)]
+
+
+def _used_import(node: ast.Import | ast.ImportFrom, used: set[str]) -> str | None:
+    """The import statement rebuilt with only the aliases the function reads (Codex on #202)."""
+
+    aliases = [a for a in node.names if (a.asname or a.name).split(".")[0] in used]
+    if not aliases:
+        return None
+    rendered = ", ".join(a.name + (f" as {a.asname}" if a.asname else "") for a in aliases)
+    if isinstance(node, ast.ImportFrom):
+        return f"from {'.' * node.level}{node.module or ''} import {rendered}"
+    return f"import {rendered}"
 
 
 def extract_module(text: str, function: str) -> tuple[str, tuple[int, int]] | None:
@@ -168,7 +192,7 @@ def extract_module(text: str, function: str) -> tuple[str, tuple[int, int]] | No
         return None
     imports, _names = _module_imports(module)
     used = {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
-    kept = [ast.get_source_segment(text, i) for i in imports if _bound_names(i) & used]
+    kept = [line for line in (_used_import(i, used) for i in imports) if line]
     head = "\n".join(kept) + "\n\n\n" if kept else ""
     module_text = head + ast.get_source_segment(text, node) + "\n"
     return module_text, (node.lineno, node.end_lineno)
@@ -228,14 +252,18 @@ def _program_row(
     program_id = program_id_for(build.upstream, path, function)
     examples = cat.examples_of(text, function)
     report, cases = inputs.observe(executor, inputs.Subject(text, function, program_id, examples))
-    code = None if report is None else cat.phase_code(
+    code = None if report is None else cc.phase_code(
         report, cv.REASON_ORIGINAL_TIMEOUT, cv.REASON_ORIGINAL_HARNESS_ERROR
     )
     if code is not None:
         _note(build, code, program_id)
         return None
     reference = _reference_block(build, path, function, source_text)
-    if not _reference_agrees(executor, reference, cases):
+    if reference["kind"] != cv.REFERENCE_SELF and not cases:
+        # Nothing for a reference to certify: the loader refuses such a pin (Codex on #196).
+        _note(build, cv.CHECK_REFERENCE_WITHOUT_CASES, program_id)
+        reference = {"kind": cv.REFERENCE_SELF, "function": None, "source": None, "sha256": None}
+    elif not _reference_agrees(executor, reference, cases):
         _note(build, cv.CHECK_REFERENCE_DISAGREES, program_id)
         reference = {"kind": cv.REFERENCE_SELF, "function": None, "source": None, "sha256": None}
     upstream = build.upstream
@@ -263,7 +291,7 @@ def _verified_row(
     row = _program_row(build, path, function, executor)
     if row is None:
         return None
-    findings = cat.original_findings(cat.program_from_row(row), executor)
+    findings = cc.original_findings(cat.program_from_row(row), executor)
     if findings:
         _note(build, findings[0]["code"], row["program_id"])
         return None

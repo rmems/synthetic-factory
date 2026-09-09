@@ -16,6 +16,7 @@ by natural ineligibility and never fail a replay. Admission needs a passing
 
 from __future__ import annotations
 
+import hashlib
 import json
 import platform
 from collections import Counter
@@ -53,16 +54,39 @@ def _entry(record: dict[str, Any], code: str, detail: str = "") -> dict[str, Any
     return {"record_id": record["id"], "status": "replayed", "code": code, "detail": detail}
 
 
-def _drift(record: dict[str, Any], catalog: cat.Catalog, executor: ex.Executor) -> dict | None:
-    """The catalog, harness or interpreter no longer being the record's, as an entry."""
+def _hidden_check_moved(record: dict[str, Any], program: cat.Program) -> bool:
+    """The record's stored oracle configuration must be the catalog's cases and reference."""
+
+    stored = record["oracle"]["configuration"]["hidden_check"]
+    reference = program.reference
+    pinned = {
+        "kind": reference.kind, "reference_function": reference.function,
+        "reference_sha256": reference.sha256, "cases": list(program.cases),
+    }
+    return {key: stored.get(key) for key in pinned} != pinned
+
+
+def _catalog_drift(record: dict[str, Any], catalog: cat.Catalog) -> str | None:
+    """Why the catalog is no longer the record's program, or None."""
 
     source = record["scenario"]["source"]
     program_id = source["program_id"]
     program = next((p for p in catalog.programs if p.program_id == program_id), None)
     if program is None or program.sha256 != source["module_sha256"]:
-        return _entry(record, cv.REPLAY_CATALOG_DRIFT, "the catalog does not pin this program")
+        return "the catalog does not pin this program"
     if program.upstream != source["upstream"]:
-        return _entry(record, cv.REPLAY_CATALOG_DRIFT, "the program's upstream identity moved")
+        return "the program's upstream identity moved"
+    if _hidden_check_moved(record, program):
+        return "the hidden cases or reference moved"
+    return None
+
+
+def _drift(record: dict[str, Any], catalog: cat.Catalog, executor: ex.Executor) -> dict | None:
+    """The catalog, harness or interpreter no longer being the record's, as an entry."""
+
+    moved = _catalog_drift(record, catalog)
+    if moved is not None:
+        return _entry(record, cv.REPLAY_CATALOG_DRIFT, moved)
     fingerprint = record["oracle"].get("fingerprint") or {}
     if fingerprint.get("harness_sha256") != executor.harness_sha256:
         return _entry(record, cv.REPLAY_HARNESS_DRIFT, "the harness on disk differs")
@@ -148,15 +172,33 @@ def _compare(
 def replay_record(
     record: dict[str, Any], catalog: cat.Catalog, executor: ex.Executor
 ) -> dict[str, Any]:
-    """One record's replay entry; non-positive records are listed, never executed."""
+    """One record's replay entry; naturally ineligible records are listed, never executed.
 
-    if not views.is_positive(record):
-        result = record.get("result") if isinstance(record.get("result"), dict) else {}
+    A record that *claims* to be a positive but fails the contract or its digest is a
+    failed entry, never natural ineligibility (Greptile and Codex on #202).
+    """
+
+    result = record.get("result") if isinstance(record.get("result"), dict) else {}
+    claims_positive = (
+        result.get("outcome") == cv.OUTCOME_ACCEPTED
+        and result.get("oracle_status") == cv.STATUS_VALIDATED
+        and result.get("status") == oc.RESULT_MEASURED
+    )
+    if not claims_positive:
         return {
             "record_id": record.get("id"), "status": "not_replayed",
             "reason": "natural ineligibility",
             "outcome": result.get("outcome"), "oracle_status": result.get("oracle_status"),
         }
+    if not views.is_positive(record):
+        return _entry(record, cv.REPLAY_HASH_MISMATCH, "claims a positive but fails the contract")
+    try:
+        return _replay_positive(record, catalog, executor)
+    except (KeyError, TypeError, AttributeError) as exc:
+        return _entry(record, cv.REPLAY_RECORD_MALFORMED, f"{type(exc).__name__} while reading")
+
+
+def _replay_positive(record: dict[str, Any], catalog: cat.Catalog, executor: ex.Executor) -> dict:
     drift = _drift(record, catalog, executor)
     if drift is not None:
         return drift
@@ -178,6 +220,43 @@ def _check_request(request: ReplayRequest) -> None:
         (Path(request.out_dir).exists(), cv.FINDING_DESTINATION_EXISTS,
          f"{request.out_dir} already exists"),
     ))
+
+
+def _run_identity(run_dir: Path) -> dict[str, Any]:
+    """What binds this replay to one run: the candidates' bytes and RUN.json's pins."""
+
+    candidates = run_dir / generate.CANDIDATES_FILENAME
+    run_file = run_dir / generate.RUN_FILENAME
+    cv.refuse_when(not run_file.is_file(), cv.FINDING_RUN_FILE_MISSING, f"{run_file} is missing")
+    try:
+        summary = json.loads(run_file.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        message = f"{run_file} is not JSON"
+        raise cv.RepairRefusal(cv.FINDING_RECORD_MALFORMED, message) from exc
+    cv.refuse_when(
+        not isinstance(summary, dict), cv.FINDING_RECORD_MALFORMED,
+        f"{run_file} is not a run summary",
+    )
+    catalog = summary.get("catalog") if isinstance(summary.get("catalog"), dict) else {}
+    return {
+        "candidates_sha256": hashlib.sha256(candidates.read_bytes()).hexdigest(),
+        "seed": summary.get("seed"), "produced_at": summary.get("produced_at"),
+        "catalog": {
+            "catalog_id": catalog.get("catalog_id"),
+            "programs_sha256": catalog.get("programs_sha256"),
+        },
+        "harness_sha256": summary.get("harness_sha256"),
+    }
+
+
+def _catalog_bound(identity: dict[str, Any], catalog: cat.Catalog) -> bool:
+    """The supplied catalog is the one the run pinned (Greptile, CodeAnt and Codex on #202)."""
+
+    pinned = identity["catalog"]
+    return (
+        pinned["catalog_id"] == catalog.catalog_id
+        and pinned["programs_sha256"] == catalog.programs_sha256
+    )
 
 
 def _records(run_dir: Path) -> list[dict[str, Any]]:
@@ -227,9 +306,14 @@ def run(request: ReplayRequest, executor: ex.Executor | None = None) -> dict[str
 
     _check_request(request)
     catalog = cat.load_catalog(request.catalog_dir)
+    identity = _run_identity(Path(request.run_dir))
+    cv.refuse_when(
+        not _catalog_bound(identity, catalog), cv.FINDING_REPLAY_CATALOG_UNBOUND,
+        "the run pinned another catalog (id or programs digest differ)",
+    )
     engine = ex.Executor(timeout_s=request.timeout_s) if executor is None else executor
     entries = [replay_record(record, catalog, engine) for record in _records(Path(request.run_dir))]
-    summary = _summary(request, catalog, engine, entries)
+    summary = {"run_identity": identity, **_summary(request, catalog, engine, entries)}
     out = Path(request.out_dir)
     out.mkdir(parents=True, exist_ok=False)
     oc.write_jsonl(out / REPLAY_LOG_FILENAME, engine.log)

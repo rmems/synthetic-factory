@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from . import catalog as cat
+from . import catalog_check as cc
 from . import executor as ex
 from . import export
 from . import generate
@@ -74,7 +75,7 @@ def _emit(payload: dict[str, Any], as_json: bool, text: str) -> None:
 
 def _catalog_check(args: argparse.Namespace) -> int:
     catalog = cat.load_catalog(args.catalog)
-    findings = cat.catalog_check(catalog, ex.Executor(timeout_s=args.timeout_s))
+    findings = cc.catalog_check(catalog, ex.Executor(timeout_s=args.timeout_s))
     status = "findings" if findings else "ok"
     lines = [f"{f['code']} {f['program_id']}: {f['detail']}" for f in findings]
     text = "\n".join(lines) or f"catalog-check ok: {len(catalog.programs)} programs pass"
@@ -112,7 +113,8 @@ def _replay(args: argparse.Namespace) -> int:
         {"code": e["code"], "record_id": e["record_id"], "detail": e["detail"]}
         for e in summary["records"] if e["status"] == "replayed" and e["code"] != cv.REPLAY_PASSED
     ]
-    status = "ok" if summary["status"] == "passed" else "findings"
+    # A run with nothing to replay is a clean no-op: non-positives never fail a replay.
+    status = "ok" if summary["status"] in ("passed", "nothing_to_replay") else "findings"
     payload = {"command": "replay", "status": status, "findings": failures, "summary": summary}
     _emit(payload, args.json, text)
     return 0 if status == "ok" else 1
