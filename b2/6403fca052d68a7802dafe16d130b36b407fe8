@@ -1,0 +1,9 @@
+tests/test_distill_labels.py
+  ai_agent 136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b26403fca052d68a7802dafe16d130b36b407fe8",
+  "prompts": {}
+}
