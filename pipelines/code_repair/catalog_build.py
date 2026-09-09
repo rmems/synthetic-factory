@@ -42,6 +42,11 @@ FORBIDDEN_CALLS = frozenset({
     "input", "print", "open", "exec", "eval", "compile", "__import__", "globals", "locals",
     "vars",
 })
+# Modules a doctest example may import: pure computation, nothing that varies between runs.
+DOCTEST_IMPORTS = frozenset({
+    "cmath", "collections", "decimal", "fractions", "functools", "itertools", "math",
+    "operator", "string",
+})
 # Attribute calls that reach the host: files, processes, sockets, the interpreter itself.
 FORBIDDEN_ATTRIBUTES = frozenset({
     "system", "popen", "spawn", "spawnl", "spawnv", "execv", "execl", "fork", "kill", "run",
@@ -137,9 +142,35 @@ def _module_imports(module: ast.Module) -> tuple[list[ast.stmt], set[str]]:
     return imports, names
 
 
+def _import_roots(node: ast.AST) -> set[str] | None:
+    if isinstance(node, ast.Import):
+        return {alias.name.split(".")[0] for alias in node.names}
+    if isinstance(node, ast.ImportFrom):
+        return {(node.module or "").split(".")[0]}
+    return None
+
+
+def _example_stays_pure(source: str) -> bool:
+    """An example may import a pure module only: a docstring that draws on ``random`` makes
+    the doctest's verdict on a mutant a coin toss, which two generation runs then disagree on."""
+
+    try:
+        module = ast.parse(source)
+    except SyntaxError:
+        return False
+    roots = (_import_roots(node) for node in ast.walk(module))
+    return all(found <= DOCTEST_IMPORTS for found in roots if found is not None)
+
+
+def _examples_stay_pure(examples: tuple[cat.Example, ...]) -> bool:
+    return all(_example_stays_pure(example.source) for example in examples)
+
+
 def _has_observable_doctests(text: str, node: ast.FunctionDef) -> bool:
     examples = cat.examples_of(text, node.name)
-    return len(examples) >= MIN_EXAMPLES and any(e.want.strip() for e in examples)
+    if len(examples) < MIN_EXAMPLES or not any(e.want.strip() for e in examples):
+        return False
+    return _examples_stay_pure(examples)
 
 
 def _is_plain_function(node: ast.stmt) -> bool:

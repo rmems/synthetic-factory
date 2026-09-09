@@ -141,6 +141,17 @@ class SelectorHardening(unittest.TestCase):
         text = "import math\n\n\ndef f(x):\n" + self.DOCTESTED + "    return math.floor(x)\n"
         self.assertEqual(cb.select_targets(text), ["f"])
 
+    def test_a_doctest_that_imports_is_not_a_specification(self):
+        """A docstring drawing on random made a mutant's verdict differ between two runs."""
+
+        text = (
+            "def f(x):\n    '''\n    >>> import random\n    >>> f(random.random()) is not None\n"
+            "    True\n    >>> f(1)\n    1\n    '''\n    return x\n"
+        )
+        self.assertEqual(cb.select_targets(text), [])
+        pure = text.replace("import random", "import math").replace("random.random()", "math.pi")
+        self.assertEqual(cb.select_targets(pure), ["f"])
+
     def test_a_name_bound_only_in_a_nested_scope_is_still_a_free_name(self):
         text = (
             "def f(x):\n" + self.DOCTESTED

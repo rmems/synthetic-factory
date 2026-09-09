@@ -19,6 +19,10 @@
         "program_id": "tap-98343cc32b5e5b0a"
       },
       {
+        "code": "REFERENCE_WITHOUT_CASES",
+        "program_id": "tap-8f81e88c5d3c1189"
+      },
+      {
         "code": "ORIGINAL_TIMEOUT",
         "program_id": "tap-acc9bf94f0e4ecaa"
       },
@@ -31,12 +35,16 @@
         "program_id": "tap-f4d97d1bb2e992ff"
       },
       {
-        "code": "ORIGINAL_FAILS_PUBLIC",
-        "program_id": "tap-7d97d4f38275962c"
+        "code": "ORIGINAL_TIMEOUT",
+        "program_id": "tap-7b309d1040ea3570"
       },
       {
         "code": "ORIGINAL_TIMEOUT",
         "program_id": "tap-7435e976dee2c095"
+      },
+      {
+        "code": "ORIGINAL_FAILS_PUBLIC",
+        "program_id": "tap-3c440470fdc1fa43"
       },
       {
         "code": "ORIGINAL_HARNESS_ERROR",
@@ -53,6 +61,10 @@
       {
         "code": "ORIGINAL_TIMEOUT",
         "program_id": "tap-d6156e5e34b8ee9a"
+      },
+      {
+        "code": "REFERENCE_WITHOUT_CASES",
+        "program_id": "tap-4b7e6d8079e3ae30"
       }
     ],
     "selector": "selector-v1",
@@ -60,8 +72,8 @@
   },
   "catalog_id": "python-repair-v1",
   "format": "code-repair-catalog/1",
-  "program_count": 220,
-  "programs_sha256": "8930320df4959f3a4180c2eac35b5d6d4e32b281552b5bd680f0b8d12eb377d6",
+  "program_count": 206,
+  "programs_sha256": "e22209fa0a56614e403c6c8facda665eac9c379c40f913c6c8c57dfb14f19a6c",
   "split_policy": {
     "algorithm": "sha256-atomic-bucket-v1",
     "salt": "python-repair-v1",

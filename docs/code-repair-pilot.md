@@ -20,10 +20,14 @@ Built once by `scripts/vendor_python_repair_catalog.py` from TheAlgorithms/Pytho
 dynamic_programming; files under 3,072 bytes; explicitly allow-listed imports; targets are plain
 module-level functions with at least two observable doctest examples and no free names.
 
-The vendor allow-list is `__future__`, `cmath`, `collections`, `copy`, `decimal`,
-`fractions`, `functools`, `itertools`, `math`, `operator`, `re`, `struct`, and `typing`:
-the imports in the pinned catalog module texts, plus `__future__`. Every import is checked,
-including imports inside functions, classes, and guards; relative imports are refused.
+The vendor allow-list is `__future__`, `bisect`, `cmath`, `collections`, `copy`, `dataclasses`,
+`decimal`, `doctest`, `enum`, `fractions`, `functools`, `heapq`, `itertools`, `math`,
+`operator`, `re`, `string`, `struct` and `typing`: pure computation plus the `doctest` the
+upstream files run under `__main__`. Every import in a file is checked, including imports
+inside functions, classes and guards; relative imports are refused. A target whose own doctest
+examples import anything but a pure module (`math`, `fractions`, `itertools` and the like) is
+not selected either: one upstream docstring drew on `random`, and a mutant's verdict then
+differed between two generation runs.
 The existing catalog is unchanged. Rebuilding from raw upstream files may reject additional
 files whose nested imports were previously unchecked. Cached raw bytes (including the license)
 must match their Git blob SHA-1, and the tree SHA must match the pinned commit's tree SHA.
@@ -38,16 +42,16 @@ python3 pipelines/code_repair_cli.py catalog-check --catalog catalogs/python-rep
 | Stage | Count |
 |---|---:|
 | candidate files | 287 |
-| admissible files | 233 |
-| selected targets | 232 |
-| programs built (every original verified twice) | 220 |
-| dropped with a build note | 12 (ORIGINAL_TIMEOUT 7, ORIGINAL_FAILS_PUBLIC 3, ORIGINAL_FAILS_HIDDEN 1, ORIGINAL_HARNESS_ERROR 1) |
-| certifying reference | 186 (reviewed_expression 175, sibling_same_file 11) |
-| original_self (provisional only) | 34 |
-| splits train / validation / held_out (by group) | 183 / 15 / 22 |
+| admissible files | 227 |
+| selected targets | 222 |
+| programs built (every original verified twice) | 206 |
+| dropped or downgraded with a build note | 16 (ORIGINAL_TIMEOUT 8, ORIGINAL_FAILS_PUBLIC 3, REFERENCE_WITHOUT_CASES 2, REFERENCE_DISAGREES 1, ORIGINAL_FAILS_HIDDEN 1, ORIGINAL_HARNESS_ERROR 1) |
+| certifying reference | 174 (reviewed_expression 166, sibling_same_file 8) |
+| original_self (provisional only) | 32 |
+| splits train / validation / held_out (by group) | 172 / 15 / 19 |
 
-`catalog-check`: 220 programs, no finding. `programs_sha256`
-`8930320df4959f3a4180c2eac35b5d6d4e32b281552b5bd680f0b8d12eb377d6`; split policy
+`catalog-check`: 206 programs, no finding. `programs_sha256`
+`e22209fa0a56614e403c6c8facda665eac9c379c40f913c6c8c57dfb14f19a6c`; split policy
 `sha256-atomic-bucket-v1`, seed 20260908, salt `python-repair-v1`, 80/10/10, sha256
 `89401d6e…27aa`.
 
@@ -60,21 +64,22 @@ cases, so those programs can only be provisional; in-place sorts returning `None
 reference. Harness limit deferred to #200 (a value whose `repr` raises is a harness error, not
 a dropped case).
 
-## Pilot run `pilot-r2` (real subprocesses)
+## Pilot run `pilot-r3` (real subprocesses)
 
-`pilot-r2` supersedes the earlier `pilot-r1` (same seed, stamp and catalog; the harness changed in
-the Codex review round: exact integer comparison, bounded child output, an executed reference
-phase). Counts are identical; every hash below is `pilot-r2`'s.
+`pilot-r3` supersedes `pilot-r1` and `pilot-r2` (same seed and stamp; the harness and the
+catalog changed in the review rounds: exact integer comparison, discarded child output, an
+executed reference phase, digests on passing rows, the hardened selector). Every number and hash
+below is `pilot-r3`'s.
 
 ```
 python3 pipelines/code_repair_cli.py generate --catalog catalogs/python-repair-v1 --seed 20260908 \
     --count 240 --per-program-cap 3 --produced-at 2026-09-08T00:00:00.000Z \
-    --out outputs/code-repair/pilot-r2 --json
-python3 pipelines/code_repair_cli.py replay --run outputs/code-repair/pilot-r2 \
-    --catalog catalogs/python-repair-v1 --out outputs/code-repair/pilot-r2-replay --json
-python3 pipelines/code_repair_cli.py export --run outputs/code-repair/pilot-r2 \
+    --out outputs/code-repair/pilot-r3 --json
+python3 pipelines/code_repair_cli.py replay --run outputs/code-repair/pilot-r3 \
+    --catalog catalogs/python-repair-v1 --out outputs/code-repair/pilot-r3-replay --json
+python3 pipelines/code_repair_cli.py export --run outputs/code-repair/pilot-r3 \
     --catalog catalogs/python-repair-v1 \
-    --replay outputs/code-repair/pilot-r2-replay --out outputs/code-repair/pilot-r2-export --json
+    --replay outputs/code-repair/pilot-r3-replay --out outputs/code-repair/pilot-r3-export --json
 ```
 
 Export now requires the replay report's `run_identity` to match the candidate file bytes and
@@ -84,30 +89,31 @@ The catalog digest, split policy, per-record lineage, and RUN summary counts are
 before any export files are written.
 
 Generation took about 65 s (each certifying reference executed once per program); harness sha256
-`c4d8a8ac0b2c531ae0ac1cb10d86e4a0859e7f88b4b6cf430a73a68dba50d248`; `candidates.jsonl` sha256
-`419279b55b8fceb35a29ead20c3d480605b242a2a5e7f03ed545e562922d9ef5`. A second run with the same
-seed and `produced_at` into `outputs/code-repair/pilot-r2b` produced a byte-identical
+`b52848d8e88cda206f517f175f4aa25799235132eb0013b04b7fcb50f312a4fd`; `candidates.jsonl` sha256
+`760d17baaaf276f7a6d6340ed443a5211a49dfb6e84dcbb5e8c3298380102322`. A second run with the same
+seed and `produced_at` into `outputs/code-repair/pilot-r3b` produced a byte-identical
 `candidates.jsonl` (same sha256).
 
 | Quantity | Count |
 |---|---:|
 | draws | 240 |
-| records (every executed candidate) | 217 |
-| skipped before execution | 23 duplicate mutants, 3 draws with no site |
-| accepted / rejected | 178 / 39 |
-| validated / provisional | 191 / 26 (every validated record carries an executed reference phase that answered all its cases; `REFERENCE_NOT_CERTIFYING` 0) |
-| positives (accepted and validated) | 156 over 113 programs |
-| rejected by code | MUTANT_NO_OBSERVED_FAILURE 20, MUTANT_TIMEOUT 9, MUTANT_NO_PUBLIC_FAILURE 5, MUTANT_NO_HIDDEN_FAILURE 3, MUTANT_HARNESS_ERROR 2 |
-| accepted per operator (of drawn) | arithmetic_operator 60/64, return_value 40/40, off_by_one 37/46, boolean_condition 30/35, comparison_boundary 11/32 |
-| positives per split | train 131, validation 6, held_out 19 |
-| positives per family | maths 48, dynamic_programming 29, strings 23, bit_manipulation 21, sorts 18, conversions 13, searches 4 |
+| records (every executed candidate) | 213 |
+| skipped before execution | 27 duplicate mutants, 4 draws with no site |
+| accepted / rejected | 166 / 47 |
+| validated / provisional | 173 / 40 (every validated record carries an executed reference phase that answered all its cases; `REFERENCE_NOT_CERTIFYING` 0) |
+| positives (accepted and validated) | 132 over 99 programs |
+| rejected by code | MUTANT_NO_OBSERVED_FAILURE 22, MUTANT_TIMEOUT 14, MUTANT_NO_PUBLIC_FAILURE 7, MUTANT_NO_HIDDEN_FAILURE 4 |
+| accepted per operator (of drawn) | return_value 43/43, boolean_condition 42/44, arithmetic_operator 34/41, off_by_one 26/40, comparison_boundary 21/45 |
+| positives per split | train 113, validation 7, held_out 12 |
+| positives per family | maths 46, bit_manipulation 27, dynamic_programming 17, strings 16, conversions 13, sorts 10, searches 3 |
 
-Replay: 156 of 156 positives `REPLAY_PASSED` (all four phases re-executed, the reference from the
-pinned catalog), 61 `not_replayed` (natural ineligibility), 0 failed; `REPLAY.json` sha256
-`db2f4b5c84f3db603f7f343e9e0c3f25e74bd5873a0f9a26b22bc313046e2988`.
+Replay: 132 of 132 positives `REPLAY_PASSED` (all four phases re-executed, the reference from the
+pinned catalog), 81 `not_replayed` (natural ineligibility), 0 failed; `REPLAY.json` sha256
+`db4ad9381200884d47c6b5a948aba5be20dd5e56b40c0e3964fc14d037c5eec8`, carrying the run identity
+the exporter binds to.
 
-Export: 156 rows exported (no exact or structural duplicate, lineage cap 6 never reached);
-`MANIFEST.json` sha256 `667e58f8e6733966f3fdfe53307f9e3400b1646bab1bd3da8d595f17473e682e`;
+Export: 132 rows exported (no exact or structural duplicate, lineage cap 6 never reached);
+`MANIFEST.json` sha256 `292f9b8d02108b28d4a7f9259e7effb6b6399818dc957ef57274be3499f45c7b`;
 `pipeline_status: complete`; `replay: passed`; `admission.training_export: blocked` with blockers
 `REGISTRY_ROW_MISSING`, `RIGHTS_PROFILE_MISSING`, `RECORD_KIND_UNSUPPORTED`, `ROUND_NOT_PUBLISHED`
 and decisions D-A … D-E; `evaluation_limitations`: `PRETRAINING_EXPOSURE_UNKNOWN`,
@@ -118,83 +124,82 @@ The first export attempt of `pilot-r1` was refused: the evidence check compared 
 failing rows in stored (id-text) order, so the thirteen-example `is_match` record looked forged.
 Fixed with a regression test (also raised by Codex on #197).
 
-## One example (record `pfr-20260908-00078`, train split)
+## One example (record `pfr-20260908-00013`, train split)
 
-Source `strings/reverse_words.py::reverse_words` at the pinned commit (file sha256
-`95df74cf…169b`; module sha256 `7a321030eda87113744a1afb78c035adcf36a6d62fe7c605457f3b5f949dd7a4`).
-Mutation `off_by_one` / `plus_one` at line 11 col 40, bytes 322–323: `1` → `2`
-(`[::-1]` → `[::-2]`). Original 2/2 public and 10/10 hidden pass; mutant 0/2 public and 2/10
-hidden; repaired 2/2 and 10/10; reference phase 10/10. Reason codes `MUTANT_FAILS_PUBLIC`,
-`MUTANT_FAILS_HIDDEN`, `REPAIR_PASSES_ALL`; oracle status `validated` (reviewed-expression
-reference executed in this run). Hashes: broken `f1bb2704…da28`, repaired `7a321030…d7a4` (equal
-to the original module), evidence `69eab9d7…9f86`, record
-`2b80ba8a8b8051bcbe12e3d76a45204955e3d9f53ed05b68aca3f39026f39f49`. Rendered with
-`python3 pipelines/code_repair_cli.py render outputs/code-repair/pilot-r2 pfr-20260908-00078
---json`, no leak finding:
+Source `conversions/ipv4_conversion.py::alt_ipv4_to_decimal` at the pinned commit (file sha256 `343df7f4…6e7a`;
+module sha256 `d66f8c83e7b6984120b2625b3f92388f98dd5c68dca943625694dd8138880698`, program
+`tap-8b1387aa93347e64`). Mutation `arithmetic_operator` / `swap` at line 8,
+bytes 201–202: `+` → `-`. Original 2/2 public and 7/7 hidden pass;
+mutant 0/2 public and 0/7 hidden; repaired 2/2 public and 7/7 hidden; reference phase 7/7. Reason codes
+`MUTANT_FAILS_PUBLIC`, `MUTANT_FAILS_HIDDEN`, `REPAIR_PASSES_ALL`; oracle status `validated` (reference executed in this
+run). Hashes: broken `ca48ad86…cd34`, repaired `d66f8c83…0698` (equal to the original
+module), evidence `c7a3c534…d15d`, record
+`c5227daf1fc83e064111afe86195e80f1ce728ddaf1a0ea92d00d5c79412cf54`. Rendered with
+`python3 pipelines/code_repair_cli.py render outputs/code-repair/pilot-r3 pfr-20260908-00013 --json`,
+no leak finding:
 
 ````
 You are given a Python module containing one function whose docstring examples are its specification. The function has a bug: at least one docstring example fails under doctest. Return the corrected module.
 
 ### Module: program.py
 ```python
-def reverse_words(sentence: str) -> str:
-    """Reverse the order of words in a given string.
-
-    Extra whitespace between words is ignored.
-
-    >>> reverse_words("I love Python")
-    'Python love I'
-    >>> reverse_words("I     Love          Python")
-    'Python Love I'
+def alt_ipv4_to_decimal(ipv4_address: str) -> int:
     """
-    return " ".join(sentence.split()[::-2])
+    >>> alt_ipv4_to_decimal("192.168.0.1")
+    3232235521
+    >>> alt_ipv4_to_decimal("10.0.0.255")
+    167772415
+    """
+    return int("0x" - "".join(f"{int(i):02x}" for i in ipv4_address.split(".")), 16)
 ```
 
 ### Failing doctest examples
 Failed example:
-    reverse_words("I love Python")
+    alt_ipv4_to_decimal("192.168.0.1")
 Expected:
-    'Python love I'
+    3232235521
 Got:
-    'Python I'
+    TypeError: unsupported operand type(s) for -: 'str' and 'str'
 
 Failed example:
-    reverse_words("I     Love          Python")
+    alt_ipv4_to_decimal("10.0.0.255")
 Expected:
-    'Python Love I'
+    167772415
 Got:
-    'Python I'
+    TypeError: unsupported operand type(s) for -: 'str' and 'str'
 
 ### Instructions
 Reply with the complete corrected contents of program.py and nothing else.
+
 ````
 
-Completion: the module above with `[::-1]` restored (raw text, trailing newline, no fence).
+Completion: the module above with `+` restored (raw text, trailing newline, no fence).
 
 ## Agoge consumer probe (Agoge-Forger head 9cb81bdf, its own virtualenv)
 
 ```
 /home/raulmc/rmems/agoge-forger/.venv/bin/python scripts/agoge_consumer_probe.py \
-    outputs/code-repair/pilot-r2-export/agoge/code_repair_v1.jsonl \
-    --manifest outputs/code-repair/pilot-r2-export/MANIFEST.json \
+    outputs/code-repair/pilot-r3-export/agoge/code_repair_v1.jsonl \
+    --manifest outputs/code-repair/pilot-r3-export/MANIFEST.json \
     --config /home/raulmc/rmems/agoge-forger/configs/minicpm5_canary.yaml \
     --tokenizer-revision 156170697656c48f69915b33a2fb44110242187c \
     --freeze-into <scratch>/pilot-agoge --json
 ```
 
-Result `pass: true`: 156 rows through `normalize_row` and the frozen-split reader with a declared
-lineage; Agoge's own `assign_records` reproduces the recorded splits exactly (131 / 6 / 19);
+Result `pass: true` (input bound to the manifest's digest and row count): 132 rows through
+`normalize_row` and the frozen-split reader with a declared lineage; Agoge's own
+`assign_records` reproduces the recorded splits exactly (113 / 7 / 12);
 `materialize_split` wrote a frozen snapshot whose report lists every leakage gate as holding
 (content hashes, canonical ids, source coordinates, lineage ids, declared group ids do not
 cross splits) with no exclusion.
 
 Tokenization and labels (`openbmb/MiniCPM5-1B-Base` at the pinned revision, TRL 1.4.0 collator,
-canary `max_seq_length` 512): prompt tokens 222 / 438 / 842 (min / median / max), completion
-tokens 81 / 257 / 586; 127 of 156 rows exceed 512 tokens and lose part or all of their
+canary `max_seq_length` 512): prompt tokens 265 / 436 / 888 (min / median / max), completion
+tokens 103 / 253 / 691; 109 of 132 rows exceed 512 tokens and lose part or all of their
 completion to `keep_start` truncation; no row exceeds 2,048. Under Agoge's current path (one
-`text` column, `completion_only_loss` resolves False) 77,399 tokens receive loss, 66,008 of them
+`text` column, `completion_only_loss` resolves False) 66,014 tokens receive loss, 55,648 of them
 prompt tokens; with a prompt/completion pair and `completion_only_loss=True` the same batch puts
-loss on 11,391 tokens, all corrected code. Gap codes reported: `PROMPT_COMPLETION_UNSUPPORTED_RENDERED_TO_TEXT`,
+loss on 10,366 tokens, all corrected code. Gap codes reported: `PROMPT_COMPLETION_UNSUPPORTED_RENDERED_TO_TEXT`,
 `NO_LOSS_MASKING_PROMPT_TOKENS_TRAINED`, `CONFIG_REVISION_PIN_REQUIRED_40_HEX`,
 `CONFIG_HAS_NO_SPLIT_FIELD_DATASET_PATH_MUST_BE_SPLITS_TRAIN`,
 `EVAL_IDENTIFIES_HELD_OUT_BY_CANONICAL_ID_ONLY`.
@@ -209,7 +214,7 @@ here as a prerequisite for the training launch only.
 - Fake-executor test evidence (canned phase reports, golden digests, decision-table rules, leak
   tampers, forged-record and drift codes): `tests/test_code_repair_*.py`.
 - Real subprocess evidence: harness, executor, builder and replay tests; `catalog-check`,
-  `pilot-r2`, its replay, its export and the probe above; the vendor script's offline test builds
+  `pilot-r3`, its replay, its export and the probe above; the vendor script's offline test builds
   a catalog from the fixture's upstream files and checks it.
 
 ## Not done, by design

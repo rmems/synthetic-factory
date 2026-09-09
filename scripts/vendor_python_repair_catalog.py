@@ -42,11 +42,14 @@ FAMILIES = (
     "dynamic_programming",
 )
 MAX_FILE_BYTES = 3072
-# Imports in the pinned python-repair-v1 module texts, plus postponed annotations.
-# This is deliberately independent of the interpreter's expanding stdlib inventory.
+# An explicit allow-list, inspected across the whole file (CodeAnt, Greptile and Codex on
+# #203): pure computation modules plus ``doctest`` (the upstream files run their own doctests
+# under ``__main__``). Deliberately independent of the interpreter's stdlib inventory, which
+# admits ``ctypes``, ``importlib``, ``pickle`` and other routes to the host.
 ALLOWED_MODULES = frozenset({
-    "__future__", "cmath", "collections", "copy", "decimal", "fractions", "functools",
-    "itertools", "math", "operator", "re", "struct", "typing",
+    "__future__", "bisect", "cmath", "collections", "copy", "dataclasses", "decimal",
+    "doctest", "enum", "fractions", "functools", "heapq", "itertools", "math", "operator",
+    "re", "string", "struct", "typing",
 })
 DEFAULT_POLICY = {
     "algorithm": lineage.SPLIT_ALGORITHM, "seed": 20260908, "salt": "python-repair-v1",
