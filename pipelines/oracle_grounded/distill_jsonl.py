@@ -97,6 +97,15 @@ def read_jsonl(path) -> list[tuple[int, Any]]:
     return list(iter_jsonl(path))
 
 
+def iter_jsonl_bytes(data: bytes):
+    """:func:`iter_jsonl` over bytes already in hand, so a digest and a parse share one read."""
+
+    for lineno, raw in enumerate(data.splitlines(keepends=True), start=1):
+        has_content, parsed = _parse_jsonl_line(raw)
+        if has_content:
+            yield lineno, parsed
+
+
 def _refuse_raw_destination(destination: Path) -> None:
     """Refuse a destination under ``outputs/raw`` before touching the filesystem.
 
