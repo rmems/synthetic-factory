@@ -1,0 +1,9 @@
+pipelines/code_repair/catalog_inputs.py
+  ai_agent 153-163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7841fa0b20d188060939a50cd104bcaf6c366fe4",
+  "prompts": {}
+}
