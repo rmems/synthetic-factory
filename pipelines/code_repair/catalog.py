@@ -142,10 +142,11 @@ def examples_of(text: str, function: str) -> tuple[Example, ...]:
     if node is None:
         return ()
     docstring = ast.get_docstring(node, clean=True) or ""
-    parsed = doctest.DocTestParser().get_examples(docstring)
+    parsed = doctest.DocTestParser().get_examples(docstring)  # ValueError on a bad directive
+    executable = [item for item in parsed if not item.options.get(doctest.SKIP)]
     return tuple(
         Example(f"{function}:{index}", item.source, item.want, item.exc_msg)
-        for index, item in enumerate(parsed)
+        for index, item in enumerate(executable)
     )
 
 
@@ -184,6 +185,12 @@ def _missing_code(where: str) -> str:
     return cv.FINDING_PROGRAM_FIELD_MISSING
 
 
+def _invalid_code(where: str) -> str:
+    if where.startswith(CATALOG_FILENAME):
+        return cv.FINDING_CATALOG_FIELD_INVALID
+    return cv.FINDING_PROGRAM_FIELD_INVALID
+
+
 def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -> Any:
     """A required field of the expected type; refuses with a coded finding."""
 
@@ -194,7 +201,7 @@ def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -
     value = mapping[key]
     cv.refuse_when(
         (not isinstance(value, kinds)) or (isinstance(value, bool) and kinds is not bool),
-        cv.FINDING_PROGRAM_FIELD_INVALID,
+        _invalid_code(where),
         f"{where}.{key} has the wrong type",
     )
     return value
@@ -267,7 +274,11 @@ def _cases(row: dict[str, Any], where: str) -> tuple[dict[str, Any], ...]:
 
 def _examples(row: dict[str, Any], text: str, function: str, where: str) -> tuple[Example, ...]:
     public = _field(row, "public", dict, where)
-    examples = examples_of(text, function)
+    try:
+        examples = examples_of(text, function)
+    except ValueError as exc:  # a malformed doctest directive
+        message = f"{where}: {function} carries a doctest the parser refuses"
+        raise cv.RepairRefusal(cv.FINDING_PROGRAM_FIELD_INVALID, message) from exc
     cv.refuse_first((
         (function_node(text, function) is None, cv.FINDING_TARGET_FUNCTION_NOT_FOUND,
          f"{where}: no module-level function named {function}"),
@@ -305,10 +316,15 @@ def _program(row: Any, lineno: int) -> Program:
     text, digest = _module_text(row, where)
     function = upstream["function"]
     group_id, split = _split(row, where)
+    reference, cases = _reference(row, where), _cases(row, where)
+    cv.refuse_when(
+        reference.certifying and not cases, cv.FINDING_PROGRAM_FIELD_INVALID,
+        f"{where}: a certifying reference needs at least one hidden case",
+    )
+    examples = _examples(row, text, function, where)
     return Program(
         program_id, _field(row, "family", str, where), dict(upstream), text, digest, function,
-        _examples(row, text, function, where), examples_sha256(examples_of(text, function)),
-        _reference(row, where), _cases(row, where), group_id, split,
+        examples, examples_sha256(examples), reference, cases, group_id, split,
     )
 
 
@@ -326,10 +342,11 @@ def _provenance_agrees(program: Program, meta: dict[str, Any]) -> None:
 def _programs(directory: Path) -> tuple[tuple[Program, ...], str]:
     path = directory / PROGRAMS_FILENAME
     cv.refuse_when(not path.is_file(), cv.FINDING_CATALOG_FILE_MISSING, f"{path} is missing")
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    data = path.read_bytes()  # one read: the digest and the parse cover the same bytes
+    digest = hashlib.sha256(data).hexdigest()
     programs = []
     seen: set[str] = set()
-    for lineno, parsed in oc.read_jsonl(path):
+    for lineno, parsed in oc.iter_jsonl_bytes(data):
         cv.refuse_when(
             parsed is None, cv.FINDING_CATALOG_FIELD_INVALID,
             f"programs.jsonl:{lineno} is not strict JSON",

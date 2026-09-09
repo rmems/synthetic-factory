@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from code_repair_test_support import (  # noqa: E402
-    boundary_site, executor as ex, mutate, program, refusal, vocabulary as cv,
+    boundary_site, catalog, executor as ex, mutate, program, refusal, vocabulary as cv,
 )
 
 RUNNER = ex.Executor(timeout_s=5.0)
@@ -88,11 +88,12 @@ class Failures(unittest.TestCase):
             "import sys\nwhile True:\n    sys.stderr.write('x' * 65536)\n\n\n"
             "def f(n):\n    return n\n"
         )
-        quick = ex.Executor(timeout_s=2.0)
+        quick = ex.Executor(timeout_s=1.0)
         report = quick.run(ex.Job("stream:test", module, "f", (), False))
-        self.assertFalse(report.ok)  # the write past the limit fails the module's import
-        self.assertFalse(quick.log[-1]["timed_out"])
-        self.assertLessEqual(len(quick.log[-1]["stderr_tail"]), ex.STDERR_TAIL_CHARS)
+        # The child's prints are discarded, so the loop runs to the timeout with flat memory
+        # (Codex on #196, round 3); nothing of it reaches the parent.
+        self.assertEqual(report.status, cv.PHASE_TIMEOUT)
+        self.assertEqual(quick.log[-1]["stderr_tail"], "")
 
     def test_an_infinite_loop_is_a_timeout_not_an_exception(self):
         prog = program("sum_of_digits")
@@ -139,6 +140,41 @@ class Failures(unittest.TestCase):
                 report = ex._parse_report(job, returncode, stdout)
                 self.assertEqual(report.status, cv.PHASE_HARNESS_ERROR)
                 self.assertFalse(report.ok)
+
+
+class RoundThree(unittest.TestCase):
+    """Codex on #196, round 3: skipped examples, module registration, digests on passing rows."""
+
+    def test_a_skipped_doctest_example_reports_no_row_and_the_parent_expects_none(self):
+        module = (
+            "def f(n):\n    '''\n    >>> f(1)\n    1\n    >>> f(2)  # doctest: +SKIP\n    99\n"
+            "    >>> f(3)\n    3\n    '''\n    return n\n"
+        )
+        examples = catalog.examples_of(module, "f")
+        self.assertEqual([e.source for e in examples], ["f(1)\n", "f(3)\n"])
+        report = RUNNER.run(ex.Job("skip:test", module, "f", (), expected_public=len(examples)))
+        self.assertTrue(report.ok, report.detail)
+        self.assertEqual([row["status"] for row in report.public], ["pass", "pass"])
+
+    def test_the_loaded_module_is_registered_so_its_own_classes_pickle(self):
+        module = (
+            "import pickle\n\n\nclass Box:\n    def __init__(self, n):\n        self.n = n\n\n\n"
+            "def f(n):\n    '''\n    >>> f(1)\n    1\n    >>> f(2)\n    2\n    '''\n"
+            "    return pickle.loads(pickle.dumps(Box(n))).n\n"
+        )
+        job = ex.Job("pickle:test", module, "f", ({"args": "(5,)", "want": "5"},), True, 2)
+        report = RUNNER.run(job)
+        self.assertTrue(report.ok, report.detail)
+        self.assertEqual([row["status"] for row in report.public + report.hidden], ["pass"] * 3)
+
+    def test_passing_rows_carry_their_output_digest_and_matched_exceptions_keep_one_line(self):
+        prog = program("get_1s_count")
+        report = RUNNER.run(prog.job("original:test"))
+        digestable = ex.rows_of(report.public) + ex.rows_of(report.hidden)
+        self.assertTrue(all("got_sha256" in row for row in digestable))
+        raising = [row for row in report.public if row.get("got", "").startswith("ValueError")]
+        self.assertGreaterEqual(len(raising), 1)
+        self.assertTrue(all("\n" not in row["got"] for row in raising))
 
 
 class Isolation(unittest.TestCase):

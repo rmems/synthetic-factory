@@ -130,6 +130,36 @@ class Refusals(unittest.TestCase):
                 with refusal(self, code):
                     catalog.load_catalog(self.directory)
 
+    def test_a_wrong_type_catalog_field_carries_the_catalog_code(self):
+        path = self.directory / catalog.CATALOG_FILENAME
+        meta = json.loads(path.read_text(encoding="utf-8"))
+        meta["catalog_id"] = 7
+        path.write_text(json.dumps(meta), encoding="utf-8")
+        with refusal(self, cv.FINDING_CATALOG_FIELD_INVALID, "catalog_id"):
+            catalog.load_catalog(self.directory)
+
+    def test_a_certifying_reference_without_hidden_cases_is_refused(self):
+        def one(row):
+            if row["upstream"]["function"] == "abs_val":
+                row["hidden"]["cases"] = []
+
+        rewrite_programs(self.directory, one)
+        with refusal(self, cv.FINDING_PROGRAM_FIELD_INVALID, "hidden case"):
+            catalog.load_catalog(self.directory)
+
+    def test_a_malformed_doctest_directive_is_a_coded_refusal(self):
+        def one(row):
+            if row["upstream"]["function"] != "abs_val":
+                return
+            text = row["module"]["text"].replace(
+                ">>> abs_val(-5.1)", ">>> abs_val(-5.1)  # doctest: +NO_SUCH_OPTION", 1
+            )
+            row["module"].update(text=text, sha256=hashlib.sha256(text.encode()).hexdigest())
+
+        rewrite_programs(self.directory, one)
+        with refusal(self, cv.FINDING_PROGRAM_FIELD_INVALID, "parser refuses"):
+            catalog.load_catalog(self.directory)
+
     def test_a_non_string_group_id_is_refused_not_dropped(self):
         """Codex on #196: malformed grouping metadata must not read as "ungrouped"."""
 
