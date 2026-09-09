@@ -1,0 +1,34 @@
+pipelines/oracle_grounded/distill_contract.py
+  s_30c91b293664f2::t_bdcc5354ad5cc5 226
+  s_30c91b293664f2::t_2bb2de2119879c 99
+tests/test_code_repair_harness.py
+  s_30c91b293664f2::t_fc8d0918a1c73b 12,89,91-94,143-173
+  s_30c91b293664f2::t_92e846e8796fb8 174-175
+tests/test_distill_jsonl.py
+  s_30c91b293664f2::t_fc8d0918a1c73b 66-74
+pipelines/code_repair/_harness.py
+  s_30c91b293664f2::t_db1b93ba99c82a 20,86,91,101-106,119-122,130,170,200-211
+  s_30c91b293664f2::t_fc8d0918a1c73b 46-50,87-90
+pipelines/code_repair/catalog.py
+  s_30c91b293664f2::t_db1b93ba99c82a 137-138,141,160-165,176,249-253,291-296,299,317-318,321
+tests/test_code_repair_catalog.py
+  s_30c91b293664f2::t_fc8d0918a1c73b 130-159
+pipelines/oracle_grounded/distill_jsonl.py
+  s_30c91b293664f2::t_db1b93ba99c82a 100-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "99523cdc77a198b86dbe5d1ae41f5bd9c0a3a8a1",
+  "prompts": {},
+  "sessions": {
+    "s_30c91b293664f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b363f3ab-81a6-4abe-88b5-c596f7a8dd7b",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
