@@ -1,0 +1,9 @@
+tests/test_code_repair_records.py
+  ai_agent 26-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3792a4a2718939462678b1f87175762f0e7fe8d2",
+  "prompts": {}
+}
