@@ -23,6 +23,7 @@ def blob_sha(data):
 
 
 COMMIT = "2067ce6dfb3b0426a88c7a40531e355a5c703cff"
+TREE_SHA = "a" * 40  # the fixture commit's tree, as the commit endpoint reports it
 DOCTESTED = "def f(x):\n    '''\n    >>> f(1)\n    1\n    >>> f(2)\n    2\n    '''\n    return x\n"
 
 
@@ -86,11 +87,12 @@ def _fixture_fetch(url: str, _cache: Path) -> bytes:
                for p in catalog.load_catalog(FIXTURE_CATALOG).programs}
     sources["LICENSE.md"] = (FIXTURE_CATALOG / catalog.LICENSE_FILENAME).read_text()
     if "/commits/" in url:
-        return json.dumps({"commit": {"tree": {"sha": "a" * 40}}}).encode()
+        return json.dumps({"commit": {"tree": {"sha": TREE_SHA}}}).encode()
     if url.startswith("https://api.github.com/"):
+        assert url == vendor.API.format(repository=vendor.REPOSITORY, commit=TREE_SHA), url
         tree = [{"path": p, "type": "blob", "size": len(t.encode()),
                  "sha": blob_sha(t.encode())} for p, t in sources.items()]
-        return json.dumps({"tree": tree, "sha": "a" * 40, "truncated": False}).encode()
+        return json.dumps({"tree": tree, "sha": TREE_SHA, "truncated": False}).encode()
     path = url.split(f"{COMMIT}/", 1)[1]
     return sources[path].encode("utf-8")
 
@@ -122,7 +124,7 @@ class OfflineBuild(unittest.TestCase):
 
     def _corrupt_cache_case(self, root, kind):
         root.mkdir()
-        tree_url = vendor.API.format(repository=vendor.REPOSITORY, commit=COMMIT)
+        tree_url = vendor.API.format(repository=vendor.REPOSITORY, commit=TREE_SHA)
         tree = json.loads(_fixture_fetch(tree_url, root))
         urls = [tree_url, f"https://api.github.com/repos/{vendor.REPOSITORY}/commits/{COMMIT}"]
         urls += [vendor.RAW.format(repository=vendor.REPOSITORY, commit=COMMIT, path=e["path"])

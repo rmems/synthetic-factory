@@ -83,11 +83,17 @@ def _https_get(url: str) -> bytes:
 
 
 def _tree(commit: str, cache: Path) -> list[dict]:
-    payload = json.loads(_fetch(API.format(repository=REPOSITORY, commit=commit), cache))
+    """The pinned commit's tree, fetched by the tree's own sha so the listing is bound to it.
+
+    A tree fetched by commit sha echoes the commit's sha, so the commit is read first and the
+    tree by ``commit.tree.sha`` (CodeAnt on #203).
+    """
+
     commit_meta = json.loads(_fetch(
         COMMIT_API.format(repository=REPOSITORY, commit=commit), cache
     ))
     expected = commit_meta["commit"]["tree"]["sha"]
+    payload = json.loads(_fetch(API.format(repository=REPOSITORY, commit=expected), cache))
     if payload.get("sha") != expected:
         raise SystemExit("tree sha differs from the pinned commit tree sha")
     if payload.get("truncated"):
