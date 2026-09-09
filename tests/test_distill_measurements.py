@@ -580,10 +580,6 @@ class BackingShelterNothingBeneath(unittest.TestCase):
         self.assertEqual(self.claims(record), [])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class IntegerCounts(unittest.TestCase):
     """Executed-check counts are integers (Greptile on #195); older counts keep their domain (#199)."""
 
@@ -608,3 +604,6 @@ class IntegerCounts(unittest.TestCase):
         self.assertFalse(oc.INTEGER_QUANTITIES & {"healthy_channel_count", "dropped_event_count", "repeats"})
         self.assertTrue(oc.INTEGER_QUANTITIES.issubset(oc.NON_NEGATIVE_QUANTITIES))
 
+
+if __name__ == "__main__":
+    unittest.main()
