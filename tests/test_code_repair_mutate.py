@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from code_repair_test_support import (  # noqa: E402
     boundary_site, fixture, mutate, oc, program, vocabulary as cv,
 )
+from code_repair import mutate_literals, mutate_span  # noqa: E402
 
 
 def boundary_sites(text, function):
@@ -29,6 +30,14 @@ class DefinitionTimeNodes(unittest.TestCase):
         found = mutate.sites(text, "f")
         self.assertIn("<=", [s.original_text for s in found])
         self.assertTrue(all(s.lineno > 1 for s in found), [s.original_text for s in found])
+
+
+class PublicSurface(unittest.TestCase):
+    def test_literal_helpers_are_declared_exports_with_module_identity(self):
+        for name in ("NEGATE_ATOMS", "OFFSET_ATOMS", "OFFSET_BINOPS"):
+            with self.subTest(name=name):
+                self.assertIn(name, mutate_span.__all__)
+                self.assertIs(getattr(mutate_literals, name), getattr(mutate_span, name))
 
 
 class Sites(unittest.TestCase):
