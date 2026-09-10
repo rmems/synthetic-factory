@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import multiprocessing
 import sys
 from pathlib import Path
@@ -52,10 +53,44 @@ def _check_legacy_payload(round_txn, factory: Path, batch: Path) -> None:
              f"package import returned invalid legacy payload results: {(count, errors)}")
 
 
+def _procedural_completion(factory: Path, batch: Path):
+    marker = factory / "ROUND-r01.complete.json"
+    manifest = json.loads(marker.read_bytes())
+    return manifest, manifest["execution_verification"], batch
+
+
+def _check_procedural_summary(round_txn, factory: Path, batch: Path) -> None:
+    _manifest, recorded, _batch = _procedural_completion(factory, batch)
+    validated = round_txn.validated_execution_verification_summary(recorded)
+    _require(validated == recorded,
+             "package import changed the valid procedural receipt")
+
+
+def _check_procedural_completed(round_txn, factory: Path, batch: Path) -> None:
+    manifest, recorded, batch = _procedural_completion(factory, batch)
+    validated = round_txn.validate_completed_execution_verification(batch, manifest)
+    _require(validated == recorded,
+             "package import returned the wrong completed procedural verdict")
+
+
+def _check_procedural_execution_gate(round_txn, factory: Path, batch: Path) -> None:
+    del factory
+    try:
+        round_txn.execution_gate(batch, batch)
+    except round_txn.TransactionError as exc:
+        _require(str(exc) == "procedural publication requires the contextual fresh gate",
+                 f"package import returned the wrong procedural gate refusal: {exc}")
+    else:
+        raise AssertionError("generic execution gate accepted a procedural batch")
+
+
 _OPERATION_CHECKS = {
     "committed_jsonl_paths": _check_committed_paths,
     "valid_legacy_file": _check_legacy_file,
     "validate_legacy_payload": _check_legacy_payload,
+    "validated_execution_verification_summary": _check_procedural_summary,
+    "validate_completed_execution_verification": _check_procedural_completed,
+    "execution_gate": _check_procedural_execution_gate,
 }
 
 

@@ -18,7 +18,6 @@ limitations (never blockers) and the prerequisites of the Agoge training run.
 from __future__ import annotations
 
 import hashlib
-import json
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,7 +32,14 @@ from . import selection
 from . import validation
 from . import views
 from . import vocabulary as cv
-from ._contract import bind_import_twin, is_under_raw, load_strict_json, oc, vocab
+from ._contract import (
+    bind_import_twin,
+    dumps_exact_json,
+    is_under_raw,
+    load_strict_json,
+    oc,
+    vocab,
+)
 
 EXPORT_FORMAT = "code-repair-export/1"
 MANIFEST_FILENAME = "MANIFEST.json"
@@ -286,7 +292,9 @@ def _write_json(root: Path, relative: str, payload: dict[str, Any]) -> None:
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "x", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        handle.write(
+            dumps_exact_json(payload, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+        )
 
 
 def _digests(root: Path, relatives: list[str]) -> dict[str, str]:

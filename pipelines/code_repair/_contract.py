@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 
 if __name__.startswith("pipelines."):
-    from ..exact_json import ExactJSONFloat, exact_fraction
+    from ..exact_json import ExactJSONFloat, dumps_exact_json, exact_fraction
     from ..curate_coding import contains_hidden_reasoning_key
     from ..oracle_grounded import distill_contract as oc
     from ..oracle_grounded import distill_vocabulary as vocab
@@ -25,7 +25,7 @@ if __name__.startswith("pipelines."):
     from ..tag_jsonutil import reject_duplicate_object_keys, reject_json_constant
     from ..validate_run_provenance import check_provenance_publish
 else:
-    from exact_json import ExactJSONFloat, exact_fraction
+    from exact_json import ExactJSONFloat, dumps_exact_json, exact_fraction
     from curate_coding import contains_hidden_reasoning_key
     from oracle_grounded import distill_contract as oc
     from oracle_grounded import distill_vocabulary as vocab
@@ -40,6 +40,7 @@ __all__ = [
     "bind_import_twin",
     "contains_hidden_reasoning_key",
     "check_provenance_publish",
+    "dumps_exact_json",
     "envelope",
     "exact_fraction",
     "is_under_raw",
