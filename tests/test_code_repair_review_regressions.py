@@ -153,8 +153,19 @@ class CatalogBoundary(unittest.TestCase):
                 catalog.load_catalog(self.directory)
 
     def test_nested_catalog_metadata_is_a_coded_refusal(self):
-        (self.directory / catalog.CATALOG_FILENAME).write_text("[" * 100000 + "0" + "]" * 100000)
-        with refusal(self, cv.FINDING_CATALOG_FIELD_INVALID):
+        nested = "[" * 100000 + "0" + "]" * 100000
+        for label, raw in (
+            ("decoded wrong type", '{"format":[]}'),
+            ("decoder nesting limit", '{"format":' + nested + "}"),
+        ):
+            with self.subTest(path=label):
+                (self.directory / catalog.CATALOG_FILENAME).write_text(raw)
+                with refusal(self, cv.FINDING_CATALOG_FIELD_INVALID):
+                    catalog.load_catalog(self.directory)
+
+    def test_catalog_root_list_is_not_reclassified_as_a_bad_field(self):
+        (self.directory / catalog.CATALOG_FILENAME).write_text("[]")
+        with refusal(self, cv.FINDING_INPUT_NOT_AN_OBJECT):
             catalog.load_catalog(self.directory)
 
     def test_missing_target_precedes_missing_example_pin(self):
