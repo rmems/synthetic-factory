@@ -100,7 +100,9 @@ def _record_totals_match(run, records):
 
 def _skips_match(run):
     skips = run['skips']
-    return all((_counts(skips), set(skips) <= cv.SKIP_CODE_SET))
+    if not _counts(skips):
+        return False
+    return set(skips) <= cv.SKIP_CODE_SET
 
 
 def _program_counts_match(run, expected):
@@ -160,13 +162,13 @@ class _RunInputs:
 def _run_header_matches(run):
     expected_generator = {'name': cv.GENERATOR_NAME, 'version': cv.GENERATOR_VERSION}
     checks = (
-        run['format'] == generate.RUN_FORMAT,
-        run['family'] == cv.FAMILY,
-        run['generator'] == expected_generator,
-        _integer_in_domain(run['seed'], 0, cv.MAX_SEED),
-        _integer_in_domain(run['count'], 1, cv.MAX_COUNT),
+        lambda: run['format'] == generate.RUN_FORMAT,
+        lambda: run['family'] == cv.FAMILY,
+        lambda: run['generator'] == expected_generator,
+        lambda: _integer_in_domain(run['seed'], 0, cv.MAX_SEED),
+        lambda: _integer_in_domain(run['count'], 1, cv.MAX_COUNT),
     )
-    return all(checks)
+    return all(check() for check in checks)
 
 
 def _valid_timeout(value):
@@ -180,13 +182,13 @@ def _valid_timeout(value):
 def _run_execution_matches(inputs):
     run = inputs.run
     checks = (
-        vocab.is_timestamp(run['produced_at']),
-        _integer_in_domain(run['per_program_cap'], 1, cv.MAX_PER_PROGRAM_CAP),
-        _valid_timeout(run['timeout_s']),
-        run['harness_sha256'] == _HARNESS_SHA256,
-        run['candidates_sha256'] == inputs.candidates_sha256,
+        lambda: vocab.is_timestamp(run['produced_at']),
+        lambda: _integer_in_domain(run['per_program_cap'], 1, cv.MAX_PER_PROGRAM_CAP),
+        lambda: _valid_timeout(run['timeout_s']),
+        lambda: run['harness_sha256'] == _HARNESS_SHA256,
+        lambda: run['candidates_sha256'] == inputs.candidates_sha256,
     )
-    return all(checks)
+    return all(check() for check in checks)
 
 
 def _metadata_findings(inputs):

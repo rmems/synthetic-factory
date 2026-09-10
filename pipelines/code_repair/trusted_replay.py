@@ -48,10 +48,7 @@ def _replay_counts(entries, active, codes, failed):
 def _replay_summary(entries):
     active, codes = _active_codes(entries)
     failed = _failed_count(codes)
-    return {
-        'status': _replay_status(active, failed),
-        'counts': _replay_counts(entries, active, codes, failed),
-    }
+    return _replay_status(active, failed), _replay_counts(entries, active, codes, failed)
 
 
 def replay_records(run, records, *, catalog, candidates_sha256) -> dict:
@@ -60,11 +57,12 @@ def replay_records(run, records, *, catalog, candidates_sha256) -> dict:
     cv.refuse_when(bool(findings), cv.FINDING_EXPORT_INTEGRITY, ', '.join(findings))
     engine = executor.Executor(timeout_s=run['timeout_s'])
     entries = _fresh_entries(records, catalog, engine)
+    status, counts = _replay_summary(entries)
     return {'run_identity': run_identity(run, candidates_sha256),
             'catalog': {'catalog_id': catalog.catalog_id, 'programs_sha256': catalog.programs_sha256},
             'harness_sha256': engine.harness_sha256,
             'interpreter': '.'.join(platform.python_version().split('.')[:2]),
-            'records': entries, **_replay_summary(entries)}
+            'status': status, 'records': entries, 'counts': counts}
 
 
 bind_import_twin(__name__)
