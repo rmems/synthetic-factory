@@ -35,6 +35,10 @@ def _freeze(value: Any) -> Any:
     return value
 
 
+# Shared JSON authority freezing; retain the original private entry point.
+freeze_json = _freeze
+
+
 def load_policy(path: Path = POLICY_PATH) -> Mapping[str, Any]:
     """Read exact trusted bytes; alternate paths have no independent authority."""
     try:

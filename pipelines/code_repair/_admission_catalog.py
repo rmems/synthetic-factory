@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import copy
 import hashlib
+from collections.abc import Mapping
 from dataclasses import replace
 from functools import cache
 from typing import Any
@@ -14,16 +14,15 @@ from . import source_policy as sp
 from ._contract import bind_import_twin
 
 
-@cache
-def catalog_snapshot() -> cat.Catalog:
-    """Parse and structurally validate the independently pinned catalog once."""
+def _thaw(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw(item) for item in value]
+    return value
 
-    from .catalog_check import catalog_structure_findings
 
-    try:
-        loaded = cat.load_catalog(sp.ROOT / sp.POLICY["catalog_relative_path"])
-    except ValueError as exc:
-        raise sp.SourcePolicyError(f"PROCEDURAL_CATALOG_INVALID: {exc}") from exc
+def _pins_match(loaded: cat.Catalog) -> bool:
     actual = (
         loaded.programs_sha256,
         loaded.catalog_id,
@@ -36,12 +35,32 @@ def catalog_snapshot() -> cat.Catalog:
         sp.POLICY["source_license_evidence"]["license_sha256"],
         dict(sp.POLICY["source_license_evidence"]),
     )
-    if actual != expected:
+    return actual == expected
+
+
+def _immutable_catalog(loaded: cat.Catalog) -> cat.Catalog:
+    return replace(
+        loaded, meta=sp.freeze_json(loaded.meta),
+        programs=tuple(replace(program, upstream=sp.freeze_json(program.upstream))
+                       for program in loaded.programs),
+    )
+
+
+@cache
+def catalog_snapshot() -> cat.Catalog:
+    """Parse and structurally validate the independently pinned catalog once."""
+    from .catalog_check import catalog_structure_findings
+
+    try:
+        loaded = cat.load_catalog(sp.ROOT / sp.POLICY["catalog_relative_path"])
+    except ValueError as exc:
+        raise sp.SourcePolicyError(f"PROCEDURAL_CATALOG_INVALID: {exc}") from exc
+    if not _pins_match(loaded):
         raise sp.SourcePolicyError("PROCEDURAL_CATALOG_PIN_MISMATCH: loaded source drifted")
     findings = catalog_structure_findings(loaded)
     if findings:
         raise sp.SourcePolicyError(f"PROCEDURAL_CATALOG_INVALID: {findings}")
-    return loaded
+    return _immutable_catalog(loaded)
 
 
 def verify_catalog_bytes() -> None:
@@ -66,9 +85,9 @@ def copy_catalog(snapshot: cat.Catalog) -> cat.Catalog:
 
     return replace(
         snapshot,
-        meta=copy.deepcopy(snapshot.meta),
+        meta=_thaw(snapshot.meta),
         programs=tuple(
-            replace(program, upstream=copy.deepcopy(program.upstream))
+            replace(program, upstream=_thaw(program.upstream))
             for program in snapshot.programs
         ),
     )
@@ -94,6 +113,17 @@ def bound_catalog(row: Any, supplied: cat.Catalog | None) -> cat.Catalog:
             "PROCEDURAL_CATALOG_SUBSTITUTED: supplied catalog is not trusted"
         )
     return trusted
+
+
+def sealed_record_findings(record: Any, where: str) -> list[str]:
+    """Bind operational record checks to reviewed source bytes without execution."""
+    from .validation import validate_record
+
+    try:
+        trusted = load_trusted_catalog()
+    except sp.SourcePolicyError as exc:
+        return [str(exc)]
+    return validate_record(record, where, catalog=trusted)
 
 
 bind_import_twin(__name__)

@@ -65,6 +65,14 @@ These calls, the census, shape/deep checks, identity curation, and training audi
 never execute candidate code. A malformed family claimant remains `code_repair`
 and fails the family validator instead of escaping into an episode route.
 
+The cached source metadata is recursively immutable; admission returns isolated
+dict/list copies. Generator admission requires exactly the emitted `name`,
+`version`, `kind`, `authority`, and `seed` fields, rejecting additional model or
+provider claims. Operational `validate_run` and `check_records` checks bind
+source evidence to the sealed catalog. The lower-level
+`validation.validate_record(catalog=None)` remains a generic evidence check;
+without an explicit catalog it does not establish source authority.
+
 ## Identity and publication boundaries
 
 Identity curation preserves the original ID, complete payload and oracle digest;

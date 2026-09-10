@@ -30,8 +30,10 @@ def factory_matches(meta: Any, row: Any) -> bool:
 def generator_matches(generator: Any, row: Any) -> bool:
     if not isinstance(generator, Mapping):
         return False
-    expected = {"name": row.generator, "version": row.generator_version, "kind": "programmatic"}
-    return all(generator.get(key) == value for key, value in expected.items())
+    expected = {"name": row.generator, "version": row.generator_version,
+                "kind": "programmatic", "authority": "propose_only"}
+    return (set(generator) == set(expected) | {"seed"}
+            and all(generator.get(key) == value for key, value in expected.items()))
 
 
 def payload_findings(record: Any, row: Any) -> list[str]:

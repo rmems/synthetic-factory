@@ -1448,12 +1448,12 @@ def _finish_agentic(errors, obj, where, kind):
 
 
 def _route_code_repair(obj, where):
-    """Adapt the pure family validator without importing it for hosted records."""
+    """Bind operational family checks to the sealed source without execution."""
     if __package__:
-        from .code_repair.validation import validate_record
+        from .code_repair._admission_catalog import sealed_record_findings
     else:
-        from code_repair.validation import validate_record
-    return validate_record(obj, where), "code_repair"
+        from code_repair._admission_catalog import sealed_record_findings
+    return sealed_record_findings(obj, where), "code_repair"
 
 
 def check_line(obj, where, factory_staging=False):
