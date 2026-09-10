@@ -15,12 +15,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import admission, source_policy as sp
+from . import admission, publication_receipt, source_policy as sp
 from ._contract import bind_import_twin, load_strict_json, oc
 from .selection import DEFAULT_LINEAGE_CAP
 
-GATE = "code-repair-fresh-publication/1"
+GATE = publication_receipt.GATE
 INPUT_FORMAT = "code-repair-publication-input/1"
+_PACKAGE_PREFIX = "pipelines."
+is_procedural_verification = publication_receipt.is_procedural_verification
 
 
 @dataclass(frozen=True)
@@ -37,7 +39,7 @@ def _transaction():
         path = getattr(module, "__file__", "")
         if path and Path(path).resolve() == sp.ROOT / "pipelines/round_txn.py":
             return module
-    if __name__.startswith("pipelines."):
+    if __name__.startswith(_PACKAGE_PREFIX):
         from .. import round_txn
     else:
         import round_txn
@@ -59,9 +61,29 @@ def input_name(round_number: int) -> str:
 def requires_gate(factory: Path, batch: Path) -> bool:
     records, _errors = _transaction()._jsonl_records(batch)
     return factory.name == sp.POLICY["path_id"] or any(
-        isinstance(record, dict) and record.get("family") == sp.POLICY["family"]
+        _family_record(record)
         for _, record in records
     )
+
+
+def _family_record(record) -> bool:
+    return isinstance(record, dict) and record.get("family") == sp.POLICY["family"]
+
+
+def _unmixed_records(records, errors) -> bool:
+    return not errors and bool(records) and all(_family_record(record) for _, record in records)
+
+
+def require_legacy_only(factory, paths):
+    if any(requires_gate(factory, path) for path in paths):
+        _fail("procedural records require an actual completed marker round")
+
+
+def inspect_completed_if_required(batch, manifest) -> bool:
+    if requires_gate(batch.parent, batch):
+        validate_completed(batch, manifest)
+        return True
+    return False
 
 
 def require_route(factory: Path, batch: Path, *, override=None) -> bool:
@@ -73,16 +95,13 @@ def require_route(factory: Path, batch: Path, *, override=None) -> bool:
     if factory.name != sp.POLICY["path_id"]:
         _fail("code_repair records require the independently reviewed factory path")
     records, errors = _transaction()._jsonl_records(batch)
-    if errors or not records or any(
-        not isinstance(record, dict) or record.get("family") != sp.POLICY["family"]
-        for _, record in records
-    ):
+    if not _unmixed_records(records, errors):
         _fail("the procedural route requires a nonempty unmixed code_repair batch")
     return True
 
 
 def _records(payload: bytes) -> tuple[list[dict], dict[str, bytes]]:
-    if __name__.startswith("pipelines."):
+    if __name__.startswith(_PACKAGE_PREFIX):
         from ..strict_jsonl import strict_lf_jsonl_records
     else:
         from strict_jsonl import strict_lf_jsonl_records
@@ -100,9 +119,11 @@ def _records(payload: bytes) -> tuple[list[dict], dict[str, bytes]]:
 
 def _load_input(path: Path) -> tuple[dict, bytes, bytes]:
     value = load_strict_json(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict) or set(value) != {
-        "format", "run_json", "candidates_jsonl", "lineage_cap",
-    } or value.get("format") != INPUT_FORMAT:
+    if not isinstance(value, dict):
+        _fail("round-scoped input must be an object")
+    if set(value) != {"format", "run_json", "candidates_jsonl", "lineage_cap"}:
+        _fail("invalid round-scoped input fields")
+    if value["format"] != INPUT_FORMAT:
         _fail("invalid round-scoped input artifact")
     if not isinstance(value["run_json"], str) or not isinstance(value["candidates_jsonl"], str):
         _fail("original run inputs must be exact UTF-8 strings")
@@ -115,7 +136,7 @@ def inspect_inputs(factory: Path, batch: Path, round_number: int) -> tuple[dict,
         _fail("input inspection requires a procedural source route")
     from .selection import selected_records
     from .validation import validate_run
-    if __name__.startswith("pipelines."):
+    if __name__.startswith(_PACKAGE_PREFIX):
         from ..curate_identity import default_registry
     else:
         from curate_identity import default_registry
@@ -129,14 +150,10 @@ def inspect_inputs(factory: Path, batch: Path, round_number: int) -> tuple[dict,
     findings = validate_run(run, records, catalog=catalog, candidates_sha256=_sha(candidates))
     if findings:
         _fail("full original run failed validation: " + "; ".join(findings))
-    positives = []
-    for record in records:
-        eligible, _reasons = admission.natural_eligibility(record, row, catalog=catalog)
-        if eligible:
-            positives.append(record)
+    positives = eligible_records(records, row, catalog)
     selected = selected_records(positives, lineage_cap=value["lineage_cap"])
-    expected_batch = b"".join(by_id[r["id"]] + b"\n" for r in selected)
-    if not selected or batch.read_bytes() != expected_batch:
+    expected_batch = _selected_payload(selected, by_id)
+    if batch.read_bytes() != expected_batch:
         _fail("published batch must equal exact deterministic selected source bytes")
     binding = {
         "factory": factory.name, "round": round_number,
@@ -152,6 +169,18 @@ def inspect_inputs(factory: Path, batch: Path, round_number: int) -> tuple[dict,
         "harness_sha256": run["harness_sha256"],
     }
     return binding, positives, catalog
+
+
+def eligible_records(records, row, catalog) -> list[dict]:
+    """Validate every candidate, preserving only naturally eligible records for selection."""
+    return [record for record in records
+            if admission.natural_eligibility(record, row, catalog=catalog)[0]]
+
+
+def _selected_payload(selected, by_id):
+    if not selected:
+        _fail("publication requires a nonempty selected batch")
+    return b"".join(by_id[record["id"]] + b"\n" for record in selected)
 
 
 def _replay_evidence(records: list[dict]) -> list[dict]:
@@ -170,46 +199,10 @@ def _summary(binding: dict, records: list[dict]) -> dict:
 
 def validate_summary(summary: Any) -> dict:
     """Validate tagged marker syntax only; this function grants no authority."""
-    if not isinstance(summary, dict) or set(summary) != {
-        "gate", "strict", "semantics_version", "override", "counts", "procedural", "fresh_replay",
-    }:
-        _fail("invalid procedural verification fields")
-    if (summary["gate"] != GATE or summary["strict"] is not True
-            or type(summary["semantics_version"]) is not int or summary["semantics_version"] != 1
-            or summary["override"] is not None):
-        _fail("invalid procedural gate identity or waiver")
-    counts = summary["counts"]
-    if (not isinstance(counts, dict) or set(counts) != {"total", "verified", "failed", "inconclusive"}
-            or any(type(v) is not int for v in counts.values()) or counts["total"] < 1
-            or counts != {"total": counts["total"], "verified": counts["total"],
-                          "failed": 0, "inconclusive": 0}):
-        _fail("invalid procedural fresh execution counts")
-    binding = summary["procedural"]
-    expected_fields = {
-        "factory", "round", "registry_sha256", "policy_sha256", "catalog_sha256",
-        "programs_sha256", "source_license_evidence", "run_sha256", "candidates_sha256",
-        "input_artifact", "input_sha256", "batch_sha256", "lineage_cap", "candidate_count",
-        "positive_count", "selected", "harness_sha256",
-    }
-    if (not isinstance(binding, dict) or set(binding) != expected_fields
-            or not isinstance(summary["fresh_replay"], list)):
-        _fail("missing procedural evidence bindings")
-    for key in ("round", "lineage_cap", "candidate_count", "positive_count"):
-        if type(binding[key]) is not int or binding[key] < 1:
-            _fail(f"invalid procedural {key}")
-    selected, replayed = binding["selected"], summary["fresh_replay"]
-    if (not isinstance(selected, list) or len(selected) != counts["total"]
-            or len(replayed) != binding["positive_count"]
-            or not counts["total"] <= binding["positive_count"] <= binding["candidate_count"]):
-        _fail("procedural evidence membership/counts disagree")
-    for entries, digest_field in ((selected, "source_sha256"), (replayed, "evidence_sha256")):
-        for entry in entries:
-            if (not isinstance(entry, dict) or set(entry) != {"id", digest_field}
-                    or not isinstance(entry["id"], str)
-                    or not isinstance(entry[digest_field], str)
-                    or _transaction().SHA256_RE.fullmatch(entry[digest_field]) is None):
-                _fail("invalid procedural record evidence entry")
-    return summary
+    try:
+        return publication_receipt.validate_summary(summary)
+    except ValueError as exc:
+        _fail(str(exc))
 
 
 def fresh_gate(factory: Path, batch: Path, round_number: int) -> dict:
@@ -230,6 +223,10 @@ def fresh_gate(factory: Path, batch: Path, round_number: int) -> dict:
 
 def validate_completed(batch: Path, manifest: dict) -> dict:
     """Pure revalidation of persisted bindings, never execution or new permission."""
+    transaction = _transaction()
+    if (transaction.completion_marker_version(manifest, batch)
+            != transaction.EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION):
+        _fail("procedural completion requires the fresh-gate marker version")
     summary = validate_summary(manifest.get("execution_verification"))
     if manifest.get("factory") != batch.parent.name or type(manifest.get("round")) is not int:
         _fail("completion factory/round does not bind this batch")
@@ -237,20 +234,24 @@ def validate_completed(batch: Path, manifest: dict) -> dict:
         binding, positives, _catalog = inspect_inputs(batch.parent, batch, manifest["round"])
         if oc.canonical_json(summary) != oc.canonical_json(_summary(binding, positives)):
             _fail("completion evidence differs from captured original inputs and selected batch")
-        required = {batch.name, input_name(manifest["round"])}
-        if not required <= {entry.get("name") for entry in manifest.get("files", [])}:
-            _fail("completion marker does not own required procedural artifacts")
-        for filename in required:
-            _transaction().completion_manifest_file_matches(batch.parent / filename, manifest)
+        _validate_completed_files(batch, manifest)
         return summary
     except (OSError, ValueError) as exc:
         _fail(str(exc))
 
 
+def _validate_completed_files(batch, manifest):
+    required = {batch.name, input_name(manifest["round"])}
+    if not required <= {entry.get("name") for entry in manifest.get("files", [])}:
+        _fail("completion marker does not own required procedural artifacts")
+    for filename in required:
+        _transaction().completion_manifest_file_matches(batch.parent / filename, manifest)
+
+
 def _prepare_captured_run(request: PublishRequest, scratch: Path) -> tuple[bytes, dict]:
     """Capture once, select exact source rows, then run the complete pure preflight."""
     from .selection import selected_records
-    if __name__.startswith("pipelines."):
+    if __name__.startswith(_PACKAGE_PREFIX):
         from ..curate_identity import default_registry
     else:
         from curate_identity import default_registry
@@ -261,10 +262,9 @@ def _prepare_captured_run(request: PublishRequest, scratch: Path) -> tuple[bytes
     records, by_id = _records(candidates)
     row = default_registry().by_path_id.get(request.factory_dir.name)
     catalog = admission.load_trusted_catalog(row)
-    positives = [record for record in records
-                 if admission.natural_eligibility(record, row, catalog=catalog)[0]]
+    positives = eligible_records(records, row, catalog)
     selected = selected_records(positives, lineage_cap=request.lineage_cap)
-    payload = b"".join(by_id[record["id"]] + b"\n" for record in selected)
+    payload = _selected_payload(selected, by_id)
     artifact = {
         "format": INPUT_FORMAT,
         "run_json": (scratch / "RUN.json").read_bytes().decode("utf-8"),
@@ -280,9 +280,10 @@ def _prepare_captured_run(request: PublishRequest, scratch: Path) -> tuple[bytes
 
 def publish_run(request: PublishRequest) -> dict:
     """Publish a local completed round after real fresh replay; no Hub or training launch."""
-    if (request.factory_dir.name != sp.POLICY["path_id"]
-            or type(request.round_number) is not int or request.round_number < 1):
-        _fail("request must name the approved factory and a positive round number")
+    if request.factory_dir.name != sp.POLICY["path_id"]:
+        _fail("request must name the approved factory")
+    if type(request.round_number) is not int or request.round_number < 1:
+        _fail("request must name a positive round number")
     transaction = _transaction()
     try:
         with tempfile.TemporaryDirectory(prefix="code-repair-publish-") as directory:

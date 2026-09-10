@@ -277,9 +277,7 @@ def validated_execution_verification_summary(
 ):
     """Validate the canonical strict-gate summary stored in a durable marker."""
     from code_repair import publication
-    if isinstance(verification, dict) and (
-        verification.get("gate") == publication.GATE or "procedural" in verification
-    ):
+    if publication.is_procedural_verification(verification):
         return publication.validate_summary(verification)
     if not isinstance(verification, dict):
         raise rt.TransactionError(f"{marker_kind} has invalid execution verification")
@@ -319,9 +317,7 @@ def validate_completed_execution_verification(batch: Path, manifest: dict):
     """Re-derive the v2 execution verdict before exposing a completed batch."""
     from code_repair import publication
     recorded = manifest.get("execution_verification")
-    if publication.requires_gate(batch.parent, batch) or (
-        isinstance(recorded, dict) and recorded.get("gate") == publication.GATE
-    ):
+    if publication.requires_gate(batch.parent, batch) or publication.is_procedural_verification(recorded):
         return publication.validate_completed(batch, manifest)
     if not isinstance(recorded, dict):
         raise rt.TransactionError(

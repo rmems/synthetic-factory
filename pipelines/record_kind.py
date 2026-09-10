@@ -40,13 +40,14 @@ def classify_kind(obj: Any) -> str:
 
     Order (census/agentic, issue #32 comment 5377279101):
 
-    1. thalamic — all six ``THALAMIC_REQUIRED`` keys at top level
-    2. preference — ``chosen`` and ``rejected``
-    3. bridge_pair — ``language_view`` and ``spike_events``
-    4. safety_case — ``case_type``
-    5. multi_agent — ``transcript`` and ``agents``
-    6. episode — ``goal`` and ``steps``
-    7. unknown
+    1. code_repair — ``family`` is ``python-function-repair``
+    2. thalamic — all six ``THALAMIC_REQUIRED`` keys at top level
+    3. preference — ``chosen`` and ``rejected``
+    4. bridge_pair — ``language_view`` and ``spike_events``
+    5. safety_case — ``case_type``
+    6. multi_agent — ``transcript`` and ``agents``
+    7. episode — ``goal`` and ``steps``
+    8. unknown
     """
 
     if not isinstance(obj, Mapping):
