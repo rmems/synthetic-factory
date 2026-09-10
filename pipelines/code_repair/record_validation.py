@@ -241,6 +241,16 @@ def _complete_suites(phase: Any, name: str, public_count: int, hidden_count: int
     return True
 
 
+def _phase_runtime_contract(phase: Any) -> bool:
+    rows_empty = not phase.public and not phase.hidden
+    limits = phase.environment.get("limits_applied")
+    if phase.status != cv.PHASE_OK:
+        return not phase.load_ok and limits is None and rows_empty
+    if not phase.load_ok:
+        return limits is True and rows_empty
+    return limits is True
+
+
 def _phase_bindings_match(phases: verify.Phases, expected: dict[str, str],
                           public_count: int, hidden_count: int) -> bool:
     for name in cv.PHASES:
@@ -248,6 +258,8 @@ def _phase_bindings_match(phases: verify.Phases, expected: dict[str, str],
         if phase is None:
             continue
         if phase.module_sha256 != expected[name]:
+            return False
+        if not _phase_runtime_contract(phase):
             return False
         if phase.ok and not _complete_suites(phase, name, public_count, hidden_count):
             return False

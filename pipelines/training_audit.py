@@ -591,6 +591,8 @@ class _CorpusAudit:
             self.code_repair["invalid_records"] += 1
             self.record_errors.append(f"{where}: {exc}")
             return
+        self._observe_identity(obj, obj["id"], where)
+        self._observe_duplicate(obj, where)
         if not eligible:
             self.code_repair["evidence_only_records"] += 1
             self.code_repair_reasons.update(reasons)
@@ -598,8 +600,6 @@ class _CorpusAudit:
         self.code_repair["eligible_records"] += 1
         self.totals["eligible_records"] += 1
         bucket["eligible_records"] += 1
-        self._observe_identity(obj, obj["id"], where)
-        self._observe_duplicate(obj, where)
 
     def _record_parse_error(self, where, exc, token_estimate, bucket):
         self._account_tokens(token_estimate, bucket)

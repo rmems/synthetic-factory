@@ -1448,6 +1448,13 @@ def _curate_code_repair(original, row, mapping):
         eligible, reasons = natural_eligibility(original, row)
     except SourcePolicyError as exc:
         return _exclude(mapping, "identity.code_repair_invalid", details=[str(exc)])
+    ready_claims = _training_ready_true_paths(original)
+    if ready_claims:
+        return _exclude(
+            mapping,
+            "identity.training_ready_policy_violation",
+            details=[{"paths": ready_claims, "policy": row.training_ready_policy}],
+        )
     curated = copy.deepcopy(original)
     output_id = curated["id"]
     mapping.update(
