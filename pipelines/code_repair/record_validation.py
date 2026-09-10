@@ -6,6 +6,7 @@ import math
 from typing import Any
 
 from . import catalog as cat
+from . import records as assembly
 from . import verify
 from . import vocabulary as cv
 from ._contract import ExactJSONFloat, bind_import_twin, envelope, exact_fraction, oc
@@ -39,6 +40,9 @@ def _proposal_shape(record: dict) -> None:
     _require(isinstance(span, list) and len(span) == 2)
     _require(all(type(n) is int and n > 0 for n in span))
     _fields(record['candidate_prediction'], 'method')
+    actual = (scenario['task_specification'], scenario['language'], scenario['record_kind'],
+              record['candidate_prediction']['method'])
+    _require(actual == (cv.TASK_SPECIFICATION, cv.LANGUAGE, cv.RECORD_KIND, cv.REPAIR_METHOD))
     public = scenario['public_tests']
     _fields(public, 'kind')
     _require(isinstance(public['examples'], list))
@@ -240,6 +244,8 @@ def verdict_matches(record: dict[str, Any]) -> bool:
                 "repaired": repaired_sha, "reference": hidden["reference_sha256"]}
     examples = _examples(record)
     if not _phase_bindings_match(phases, expected, len(examples), len(hidden["cases"])):
+        return False
+    if oc.canonical_json(result["measurements"]) != oc.canonical_json(assembly.measurements(phases)):
         return False
     context = verify.DecisionContext(
         hidden["kind"], repaired_sha == source_sha,

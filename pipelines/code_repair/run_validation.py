@@ -6,6 +6,7 @@ from collections import Counter
 from dataclasses import dataclass
 
 from . import catalog as cat, catalog_check, executor, generate, mutate, records as assembly, vocabulary as cv
+from . import planning
 from ._contract import bind_import_twin, oc, vocab
 
 # Bind the loaded implementation once; validate_run itself performs no I/O.
@@ -240,8 +241,24 @@ def _summary_findings(inputs):
     return []
 
 
+def _planned_findings(inputs):
+    run = inputs.run
+    plan = planning.ProposalPlan(inputs.catalog, run['seed'], run['per_program_cap'])
+    expected = [proposal.binding() for proposal in plan.proposals(run['count'])]
+    actual = [
+        (record['scenario']['source']['program_id'], record['intervention']['draw_index'],
+         record['intervention']['operator'], record['intervention']['site'],
+         record['intervention']['variant'])
+        for record in inputs.records
+    ]
+    if actual != expected or Counter(run['skips']) != plan.skips:
+        return [cv.EXPORT_RUN_SUMMARY_MISMATCH]
+    return []
+
+
 def _validate_run(inputs):
-    for stage in (_metadata_findings, _catalog_findings, _record_findings, _summary_findings):
+    for stage in (_metadata_findings, _catalog_findings, _record_findings, _summary_findings,
+                  _planned_findings):
         findings = stage(inputs)
         if findings:
             return findings

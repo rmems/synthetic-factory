@@ -23,7 +23,9 @@ from . import verify
 from . import vocabulary as cv
 from ._contract import bind_import_twin, oc
 
-__all__ = ["Batch", "Candidate", "build_record", "candidate_seed", "fingerprint", "new_batch"]
+__all__ = [
+    "Batch", "Candidate", "build_record", "candidate_seed", "fingerprint", "measurements", "new_batch",
+]
 
 
 @dataclass(frozen=True)
@@ -178,9 +180,11 @@ def _suite_readings(phase: str, suite: str, rows: tuple[dict, ...]) -> list[dict
     return [oc.new_measurement(name, value, cv.METER, detail=detail) for name, value in counts]
 
 
-def _measurements(phases: verify.Phases) -> list[dict[str, Any]]:
-    """Pass and fail counts per executed phase and suite."""
+def measurements(phases: verify.Phases) -> list[dict[str, Any]]:
+    """Exact ordered readings shared by record assembly and pure evidence validation."""
 
+    if not phases.original.ok:
+        return []
     readings: list[dict[str, Any]] = []
     reports = ((name, getattr(phases, name)) for name in cv.PHASES)
     for phase, report in ((p, r) for p, r in reports if r is not None and r.ok):
@@ -216,7 +220,7 @@ def _result(candidate: Candidate) -> dict[str, Any]:
         code = candidate.verdict.reason_codes[0] if candidate.verdict.reason_codes else ""
         reason = f"{code}: the harness could not measure the original program"
         return oc.new_result(status=oc.RESULT_ABSTAINED, abstention_reason=reason, **fields)
-    return oc.new_result(measurements=_measurements(phases), **fields)
+    return oc.new_result(measurements=measurements(phases), **fields)
 
 
 def build_record(candidate: Candidate, batch: Batch) -> dict[str, Any]:
