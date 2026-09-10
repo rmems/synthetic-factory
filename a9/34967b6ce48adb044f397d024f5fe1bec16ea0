@@ -1,0 +1,19 @@
+CLAUDE.md
+  s_637722da58c92c::t_792f408dfdc4dd 95-98,119,122,125-131,133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a934967b6ce48adb044f397d024f5fe1bec16ea0",
+  "prompts": {},
+  "sessions": {
+    "s_637722da58c92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b4-b4e1-7663-adcf-65ef44374529",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
