@@ -138,6 +138,30 @@ def _package_curate_identity() -> ModuleType:
     return module
 
 
+def _direct_curate_identity_output() -> ModuleType:
+    import curate_identity_output as module
+
+    return module
+
+
+def _package_curate_identity_output() -> ModuleType:
+    import pipelines.curate_identity_output as module
+
+    return module
+
+
+def _direct_curate_identity_stages() -> ModuleType:
+    import curate_identity_stages as module
+
+    return module
+
+
+def _package_curate_identity_stages() -> ModuleType:
+    import pipelines.curate_identity_stages as module
+
+    return module
+
+
 def _direct_curate_preferences() -> ModuleType:
     import curate_preferences as module
 
@@ -607,6 +631,14 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "curate_agentic_shapes": (_direct_curate_agentic_shapes, _package_curate_agentic_shapes),
     "curate_coding": (_direct_curate_coding, _package_curate_coding),
     "curate_identity": (_direct_curate_identity, _package_curate_identity),
+    "curate_identity_output": (
+        _direct_curate_identity_output,
+        _package_curate_identity_output,
+    ),
+    "curate_identity_stages": (
+        _direct_curate_identity_stages,
+        _package_curate_identity_stages,
+    ),
     "curate_preferences": (_direct_curate_preferences, _package_curate_preferences),
     "curate_rewards": (_direct_curate_rewards, _package_curate_rewards),
     "curate_trajectory_preferences": (

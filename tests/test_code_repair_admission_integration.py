@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from itertools import product
 from pathlib import Path
+from unittest.mock import patch
 
 from tests.code_repair_admission_test_support import build_generated_admission_evidence, restamp
 from tests.test_curate_identity import identity as ci
@@ -25,6 +26,48 @@ class ProceduralIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.root, cls.run_dir, cls.records, cls.row = build_generated_admission_evidence(cls)
+
+    def test_shared_checks_refuse_restamped_upstream_substitutions(self):
+        changes = (("repository", "unreviewed/project"), ("commit", "0" * 40),
+                   ("path", "forged.py"), ("license", "Proprietary"))
+        for outcome, (field, value) in product(("accepted", "rejected"), changes):
+            with self.subTest(outcome=outcome, field=field):
+                record = copy.deepcopy(next(r for r in self.records
+                                            if r["result"]["outcome"] == outcome))
+                record["scenario"]["source"]["upstream"][field] = value
+                restamp(record)
+                self.assertEqual(validation.validate_record(record), [])
+                self.assertEqual(check_line(record, "restamped")[0],
+                                 ["EXPORT_CATALOG_MISMATCH"])
+                self.assertEqual(check_record(record, "restamped")[0],
+                                 ["EXPORT_CATALOG_MISMATCH"])
+
+    def test_shared_checks_report_unreadable_sealed_catalog(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            source_policy, "ROOT", Path(directory)
+        ):
+            for checker in (check_line, check_record):
+                findings = checker(self.records[0], "unreadable")[0]
+                self.assertTrue(findings)
+                self.assertIn("PROCEDURAL_CATALOG_UNREADABLE", findings[0])
+
+    def test_generator_extensions_cannot_survive_identity_admission(self):
+        changes = (("model", "example-model"), ("provider", "example-provider"),
+                   ("source_kind", "model_generated"))
+        for outcome, (field, value) in product(("accepted", "rejected"), changes):
+            with self.subTest(outcome=outcome, field=field):
+                record = copy.deepcopy(next(r for r in self.records
+                                            if r["result"]["outcome"] == outcome))
+                record["generator"][field] = value
+                restamp(record)
+                self.assertEqual(oc.check_digest(record, "restamped"), [])
+                self.assertTrue(admission.validate_source_route(record, self.row))
+                with self.assertRaisesRegex(source_policy.SourcePolicyError,
+                                            "PROCEDURAL_GENERATOR_MISMATCH"):
+                    admission.natural_eligibility(record, self.row)
+                result = ci.curate_record(ci.SourceRecord(
+                    record, f"{self.row.path_id}/batch-r01.jsonl", 1))
+                self.assertEqual(result.action, "exclude")
 
     def assert_shared_refusal(self, record):
         self.assertEqual(oc.check_digest(record, "restamped"), [])

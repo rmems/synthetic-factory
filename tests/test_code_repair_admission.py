@@ -12,6 +12,27 @@ from record_kind import classify_kind
 
 
 class ProceduralRegistryTests(unittest.TestCase):
+    def test_cached_source_authority_refuses_nested_mutation(self):
+        from code_repair import admission
+        snapshot = admission._catalog_snapshot()
+        baseline = admission.load_trusted_catalog()
+        targets = (
+            (snapshot.meta["upstream"], "repository"),
+            (snapshot.meta["split_policy"]["weights"], "train"),
+            (snapshot.programs[0].upstream, "repository"),
+            (snapshot.programs[0].upstream["line_span"], 0),
+        )
+        for container, key in targets:
+            original = container[key]
+            with self.subTest(key=key):
+                try:
+                    with self.assertRaises(TypeError):
+                        container[key] = "forged"
+                finally:
+                    if container[key] != original:
+                        container[key] = original
+        self.assertEqual(admission.load_trusted_catalog(), baseline)
+
     def test_trusted_catalog_snapshots_isolate_mutable_source_and_metadata(self):
         from code_repair import admission
         try:
