@@ -16,7 +16,7 @@ from ._contract import bind_import_twin, load_strict_json
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "schemas/procedural-source-policy-v1.json"
 # Independent trust anchor: update only with the reviewed catalog/policy change.
-POLICY_SHA256 = "e364aebf97be641b06f8cf88afc1a0361d89cb2fff0b80741f81e49c6a719a74"
+POLICY_SHA256 = "b8d1621798eb13eed8e5d73de365dc1028b08cef9645d08aff9d909630b23b1b"
 PROCEDURAL_FIELDS = frozenset({
     "source_type", "generator_ownership", "generation_method", "source_license_evidence",
     "procedural_policy_sha256", "catalog_id", "catalog_sha256", "programs_sha256",
@@ -70,9 +70,22 @@ def reviewed_row() -> dict[str, Any]:
 
 def validate_registry_row(raw: Any) -> None:
     """Only the exact reviewed discriminated row grants procedural authority."""
-    if (not isinstance(raw, Mapping) or raw.get("identity_authoritative") is not True
-            or dict(raw) != reviewed_row()):
+    if not isinstance(raw, Mapping):
+        raise SourcePolicyError("procedural registry row must be an object")
+    if raw.get("identity_authoritative") is not True:
+        raise SourcePolicyError("procedural registry row must be identity-authoritative")
+    if dict(raw) != reviewed_row():
         raise SourcePolicyError("procedural registry row drifts from independently sealed policy")
+
+
+def claims_procedural_route(raw: Any) -> bool:
+    """Identify fields forbidden on hosted rows, including older registry schemas."""
+    if not isinstance(raw, Mapping):
+        return False
+    if PROCEDURAL_FIELDS.intersection(raw):
+        return True
+    kinds = raw.get("record_kinds")
+    return isinstance(kinds, list) and "code_repair" in kinds
 
 
 bind_import_twin(__name__)

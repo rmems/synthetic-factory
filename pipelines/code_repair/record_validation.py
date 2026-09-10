@@ -8,7 +8,7 @@ from typing import Any
 from . import catalog as cat
 from . import verify
 from . import vocabulary as cv
-from ._contract import bind_import_twin, envelope, oc
+from ._contract import ExactJSONFloat, bind_import_twin, envelope, exact_fraction, oc
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -58,9 +58,10 @@ def _intervention_shape(intervention: dict) -> None:
 
 def _configuration_shape(oracle: dict) -> None:
     configuration = oracle['configuration']
-    _fields(configuration, 'timeout_s', (int, float))
+    _fields(configuration, 'timeout_s', (int, float, ExactJSONFloat))
     timeout = configuration['timeout_s']
     _require(0 < timeout <= cv.MAX_TIMEOUT_S and math.isfinite(timeout))
+    _require(0 < exact_fraction(timeout) <= exact_fraction(cv.MAX_TIMEOUT_S))
     _fields(configuration, 'isolation')
     _fields(configuration['limits'], 'cpu_s address_space_mib file_size_kib', (int,))
     hidden = configuration['hidden_check']

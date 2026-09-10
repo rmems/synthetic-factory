@@ -12,6 +12,25 @@ from record_kind import classify_kind
 
 
 class ProceduralRegistryTests(unittest.TestCase):
+    def test_trusted_catalog_snapshots_isolate_mutable_source_and_metadata(self):
+        from code_repair import admission
+        try:
+            first = admission.load_trusted_catalog()
+        except TypeError as exc:
+            self.fail(f"trusted catalog must support immutable hidden cases: {exc}")
+        second = admission.load_trusted_catalog()
+        first.meta["upstream"]["repository"] = "unreviewed/project"
+        first.meta["split_policy"]["weights"]["train"] = 0
+        first.programs[0].upstream["repository"] = "unreviewed/project"
+        first.programs[0].upstream["line_span"][0] = -1
+        with self.assertRaises(TypeError):
+            first.programs[0].cases[0]["want"] = "forged"
+        fresh = admission.load_trusted_catalog()
+        self.assertEqual(fresh, second)
+        self.assertEqual(fresh.meta["upstream"]["repository"], "TheAlgorithms/Python")
+        self.assertEqual(fresh.programs[0].upstream["repository"], "TheAlgorithms/Python")
+        self.assertGreater(fresh.meta["split_policy"]["weights"]["train"], 0)
+
     def load_changed(self, change):
         value = json.loads(ci.FACTORY_REGISTRY_PATH.read_text())
         change(value)
@@ -33,11 +52,12 @@ class ProceduralRegistryTests(unittest.TestCase):
                          ("procedural_policy_sha256", "0" * 64),
                          ("identity_authoritative", 1)):
             with self.subTest(key=key), self.assertRaises(ci.IdentityCurationError):
-                self.load_changed(lambda value: value["factories"][-1].update({key: bad}))
+                self.load_changed(lambda value, key=key, bad=bad:
+                                  value["factories"][-1].update({key: bad}))
 
     def test_old_schema_refuses_procedural_fields_on_hosted_row(self):
         for version in ("factory-registry-v0.1", "factory-registry-v0.2"):
-            def change(value):
+            def change(value, version=version):
                 value["schema_version"] = version
                 value["factories"] = [value["factories"][0]]
                 value["factories"][0]["generation_method"] = "deterministic_execution"

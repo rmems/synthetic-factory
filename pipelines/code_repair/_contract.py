@@ -13,6 +13,7 @@ spellings are one object (the ``oracle_grounded`` convention).
 from __future__ import annotations
 
 if __name__.startswith("pipelines."):
+    from ..exact_json import ExactJSONFloat, exact_fraction
     from ..curate_coding import contains_hidden_reasoning_key
     from ..oracle_grounded import distill_contract as oc
     from ..oracle_grounded import distill_vocabulary as vocab
@@ -21,6 +22,7 @@ if __name__.startswith("pipelines."):
     from ..raw_tree_guard import is_under_raw
     from ..tag_jsonutil import load_strict_json
 else:
+    from exact_json import ExactJSONFloat, exact_fraction
     from curate_coding import contains_hidden_reasoning_key
     from oracle_grounded import distill_contract as oc
     from oracle_grounded import distill_vocabulary as vocab
@@ -30,9 +32,11 @@ else:
     from tag_jsonutil import load_strict_json
 
 __all__ = [
+    "ExactJSONFloat",
     "bind_import_twin",
     "contains_hidden_reasoning_key",
     "envelope",
+    "exact_fraction",
     "is_under_raw",
     "load_strict_json",
     "oc",

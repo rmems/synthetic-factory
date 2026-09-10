@@ -9,11 +9,12 @@ import unittest
 from pathlib import Path
 
 from tests.test_curate_identity import identity as ci
-from tests.code_repair_test_support import REPO, generate, oc
+from tests.code_repair_test_support import REPO, envelope, generate, oc
 from code_repair import source_policy
 from check_records import check_record
 from validate_run import check_line
 from training_audit import audit_run
+from exact_json import ExactJSONFloat, dumps_exact_json
 
 
 class ProceduralIntegrationTests(unittest.TestCase):
@@ -36,6 +37,36 @@ class ProceduralIntegrationTests(unittest.TestCase):
         self.assertEqual(kind, "code_repair")
         self.assertEqual(errors, [])
         self.assertEqual(check_record(record, "candidate")[:3], ([], [], "code_repair"))
+
+    def test_exact_json_parsed_evidence_passes_real_shared_validation(self):
+        from code_repair.validation import validate_record
+        record = next(r for r in self.records if r["result"]["outcome"] == "accepted")
+        parsed = json.loads(json.dumps(record), parse_float=ExactJSONFloat)
+        self.assertEqual(validate_record(parsed), [])
+        self.assertEqual(check_line(parsed, "exact")[0], [])
+        self.assertEqual(check_record(parsed, "exact")[0], [])
+
+    def test_restamped_malformed_timeouts_are_refused(self):
+        from code_repair.validation import validate_record
+        accepted = next(r for r in self.records if r["result"]["outcome"] == "accepted")
+        for timeout in (True, "2.0", None, [], 0, -1, 61, 10**400,
+                        ExactJSONFloat("60.0000000000000000000001")):
+            with self.subTest(timeout=timeout):
+                record = copy.deepcopy(accepted)
+                record["oracle"]["configuration"]["timeout_s"] = timeout
+                record["provenance"]["record_sha256"] = envelope.record_digest(record)
+                self.assertTrue(validate_record(record))
+                raw = dumps_exact_json(record) + "\n"
+                report = audit_run(self.root, snapshot={
+                    f"{self.row.path_id}/batch-r01.jsonl": raw.encode(),
+                })
+                self.assertEqual(report["totals"]["eligible_records"], 0)
+                self.assertGreater(report["record_invariants"]["errors"], 0)
+        for timeout in (float("inf"), float("nan")):
+            with self.subTest(timeout=timeout):
+                record = copy.deepcopy(accepted)
+                record["oracle"]["configuration"]["timeout_s"] = timeout
+                self.assertTrue(validate_record(record))
 
     def test_bad_family_claim_returns_coded_errors_without_throwing(self):
         record = {"family": "python-function-repair", "result": [], "goal": "x", "steps": []}
@@ -102,12 +133,16 @@ class ProceduralIntegrationTests(unittest.TestCase):
 
     def test_substituted_catalog_and_self_consistent_source_are_refused(self):
         from code_repair import admission
-        catalog = admission.load_trusted_catalog(self.row)
         record = copy.deepcopy(self.records[0])
-        forged = copy.deepcopy(catalog)
+        forged = admission.load_trusted_catalog(self.row)
         forged.programs[0].upstream["repository"] = "unreviewed/project"
         with self.assertRaises(source_policy.SourcePolicyError):
             admission.natural_eligibility(record, self.row, catalog=forged)
+        record["scenario"]["source"]["upstream"]["repository"] = "unreviewed/project"
+        record["provenance"]["record_sha256"] = envelope.record_digest(record)
+        self.assertEqual(oc.check_digest(record, "restamped"), [])
+        with self.assertRaisesRegex(source_policy.SourcePolicyError, "PROCEDURAL_SOURCE_MISMATCH"):
+            admission.natural_eligibility(record, self.row)
 
     def test_audit_counts_only_valid_positive_records_as_eligible(self):
         accepted = next(r for r in self.records if r["result"]["outcome"] == "accepted")
