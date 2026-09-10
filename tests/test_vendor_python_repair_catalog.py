@@ -99,6 +99,20 @@ def _fixture_fetch(url: str, _cache: Path) -> bytes:
 
 
 class OfflineBuild(unittest.TestCase):
+    def test_coordinated_cached_metadata_cannot_replace_trusted_tree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            url = vendor.API.format(repository=vendor.REPOSITORY, commit=TREE_SHA)
+            tree = json.loads(_fixture_fetch(url, root))
+            forged = {**tree, 'tree': []}
+            for address, data in ((url, json.dumps(forged).encode()),
+                    (vendor.COMMIT_API.format(repository=vendor.REPOSITORY, commit=COMMIT),
+                     _fixture_fetch(vendor.COMMIT_API.format(repository=vendor.REPOSITORY, commit=COMMIT), root))):
+                (root / hashlib.sha256(address.encode()).hexdigest()).write_bytes(data)
+            with mock.patch.object(vendor, '_https_get', side_effect=lambda u: _fixture_fetch(u, root)):
+                with self.assertRaisesRegex(SystemExit, 'cache|sha|digest'):
+                    vendor._tree(COMMIT, root)
+
     def test_the_script_builds_a_catalog_that_passes_catalog_check(self):
         root = Path(tempfile.mkdtemp(prefix="code-repair-vendor-"))
         self.addCleanup(shutil.rmtree, root, True)
@@ -106,7 +120,8 @@ class OfflineBuild(unittest.TestCase):
             "--commit", COMMIT, "--out", str(root / "catalog"), "--cache-dir", str(root / "cache"),
             "--references", str(FIXTURE_CATALOG / "references.json"), "--catalog-id", "vendor-test",
         ]
-        with mock.patch.object(vendor, "_fetch", _fixture_fetch), mock.patch("builtins.print"):
+        with mock.patch.object(vendor, "_fetch", _fixture_fetch), mock.patch.object(
+                vendor, '_https_get', side_effect=lambda u: _fixture_fetch(u, root)), mock.patch("builtins.print"):
             self.assertEqual(vendor.main(argv), 0)
         built = catalog.load_catalog(root / "catalog")
         fixture = catalog.load_catalog(FIXTURE_CATALOG)
@@ -146,8 +161,8 @@ class OfflineBuild(unittest.TestCase):
             )
         argv = ["--commit", COMMIT, "--out", str(root / "catalog"),
                 "--cache-dir", str(root), "--references", str(FIXTURE_CATALOG / "references.json")]
-        with mock.patch.object(vendor, "_https_get", side_effect=AssertionError("cache miss")):
-            with self.subTest(kind=kind), self.assertRaisesRegex(SystemExit, "sha|digest"):
+        with mock.patch.object(vendor, "_https_get", side_effect=lambda u: _fixture_fetch(u, root)):
+            with self.subTest(kind=kind), self.assertRaisesRegex(SystemExit, "sha|digest|cached"):
                 vendor.main(argv)
         self.assertFalse((root / "catalog").exists())
 

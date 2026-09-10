@@ -17,6 +17,7 @@ from code_repair_test_support import (  # noqa: E402
     verify, views, vocabulary as cv,
 )
 from code_repair import replay  # noqa: E402
+from code_repair import record_validation  # noqa: E402
 
 RUNNER = executor.Executor(timeout_s=5.0)
 
@@ -44,6 +45,7 @@ def consistently_forged():
     record["scenario"]["broken_program"]["files"]["program.py"] = behaves_like_original
     record["scenario"]["broken_program"]["sha256"] = catalog.sha256_text(behaves_like_original)
     record["result"]["broken_sha256"] = catalog.sha256_text(behaves_like_original)
+    record["result"]["phases"]["mutant"]["module_sha256"] = catalog.sha256_text(behaves_like_original)
     return restamp(record)
 
 
@@ -76,7 +78,7 @@ class Forgeries(unittest.TestCase):
         self.assertTrue(views.is_positive(forged))
         self.assertEqual(views.view_findings(forged, views.sft_row(forged)), [])
         entry = replay.replay_record(forged, fixture(), RUNNER)
-        self.assertEqual(entry["code"], cv.REPLAY_ROWS_MISMATCH)
+        self.assertEqual(entry["code"], cv.REPLAY_TEXT_MISMATCH)
         self.assertIn("mutant", entry["detail"])
 
     def test_a_repair_that_is_not_the_pinned_original_is_a_text_mismatch(self):
@@ -86,7 +88,7 @@ class Forgeries(unittest.TestCase):
         forged["candidate_prediction"]["predicted_repair"]["sha256"] = catalog.sha256_text(broken)
         forged["result"]["repaired_sha256"] = catalog.sha256_text(broken)
         restamp(forged)
-        self.assertTrue(views.is_positive(forged))
+        self.assertFalse(views.is_positive(forged))
         entry = replay.replay_record(forged, fixture(), RUNNER)
         self.assertEqual(entry["code"], cv.REPLAY_TEXT_MISMATCH)
         self.assertIn("pinned original", entry["detail"])
@@ -129,6 +131,8 @@ class RunBinding(unittest.TestCase):
         out.mkdir()
         oc.write_jsonl(out / generate.CANDIDATES_FILENAME, records)
         summary = json.loads((run_dir / generate.RUN_FILENAME).read_text(encoding="utf-8"))
+        summary["records"] = len(records)
+        summary["candidates_sha256"] = hashlib.sha256((out / generate.CANDIDATES_FILENAME).read_bytes()).hexdigest()
         if run_edit is not None:
             run_edit(summary)
         (out / generate.RUN_FILENAME).write_text(json.dumps(summary, sort_keys=True), encoding="utf-8")
@@ -139,6 +143,28 @@ class RunBinding(unittest.TestCase):
         with refusal(self, cv.FINDING_REPLAY_CATALOG_UNBOUND, "another catalog"):
             replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
 
+    def test_deleting_a_candidate_line_is_refused(self):
+        run_dir = self.run_with(positives())
+        candidates = run_dir / generate.CANDIDATES_FILENAME
+        candidates.write_text("\n".join(candidates.read_text().splitlines()[1:]) + "\n")
+        with refusal(self, cv.FINDING_RECORD_MALFORMED, "candidates"):
+            replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
+
+    def test_missing_generation_digest_requires_regeneration(self):
+        run_dir = self.run_with(positives(), lambda s: s.pop("candidates_sha256"))
+        with refusal(self, cv.FINDING_RECORD_MALFORMED, "candidates"):
+            replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
+
+    def test_legacy_run_format_is_refused_even_with_current_candidate_pins(self):
+        run_dir = self.run_with(positives(), lambda s: s.update(format="code-repair-run/1"))
+        with refusal(self, cv.FINDING_RECORD_MALFORMED, "version"):
+            replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
+
+    def test_old_generator_version_is_refused(self):
+        run_dir = self.run_with(positives(), lambda s: s["generator"].update(version="1.0.0"))
+        with refusal(self, cv.FINDING_RECORD_MALFORMED, "version"):
+            replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
+
     def test_the_report_carries_the_run_identity(self):
         run_dir = self.run_with(positives()[:1])
         report = replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
@@ -146,7 +172,7 @@ class RunBinding(unittest.TestCase):
         digest = hashlib.sha256((run_dir / generate.CANDIDATES_FILENAME).read_bytes()).hexdigest()
         self.assertEqual(identity["candidates_sha256"], digest)
         self.assertEqual(identity["catalog"]["programs_sha256"], fixture().programs_sha256)
-        self.assertEqual(set(identity), {"candidates_sha256", "seed", "produced_at", "catalog", "harness_sha256"})
+        self.assertEqual(set(identity), {"candidates_sha256", "seed", "produced_at", "catalog", "harness_sha256", "run_sha256"})
 
     def test_a_moved_hidden_check_is_catalog_drift(self):
         record = copy.deepcopy(positives()[0])
@@ -197,15 +223,49 @@ class RequestsAndCli(unittest.TestCase):
         forged_dir.mkdir()
         oc.write_jsonl(forged_dir / generate.CANDIDATES_FILENAME, [consistently_forged()])
         shutil.copy(smoke_run()[2] / generate.RUN_FILENAME, forged_dir / generate.RUN_FILENAME)
+        run_file = forged_dir / generate.RUN_FILENAME
+        summary = json.loads(run_file.read_text())
+        summary["records"] = 1
+        summary["candidates_sha256"] = hashlib.sha256((forged_dir / generate.CANDIDATES_FILENAME).read_bytes()).hexdigest()
+        run_file.write_text(json.dumps(summary))
         code = cli.run(["replay", "--run", str(forged_dir), "--catalog", str(FIXTURE_CATALOG),
                         "--out", str(self.root / "forged-replay"), "--timeout-s", "5", "--json"])
         self.assertEqual(code, 1)
         report = json.loads((self.root / "forged-replay" / replay.REPLAY_FILENAME).read_text())
-        self.assertEqual(report["counts"]["failed_by_code"], {cv.REPLAY_ROWS_MISMATCH: 1})
+        self.assertEqual(report["counts"]["failed_by_code"], {cv.REPLAY_TEXT_MISMATCH: 1})
         _summary, _records, run_dir = smoke_run()
         code = cli.run(["replay", "--run", str(run_dir), "--catalog", str(FIXTURE_CATALOG),
                         "--out", str(self.root / "clean-replay"), "--timeout-s", "5"])
         self.assertEqual(code, 0)
+
+
+class ProtocolTwoReplay(unittest.TestCase):
+    def test_repeat_original_is_freshly_executed_and_full_blocks_match(self):
+        record = copy.deepcopy(positives()[0])
+        engine = executor.Executor(timeout_s=5)
+        entry = replay.replay_record(record, fixture(), engine)
+        self.assertEqual(entry["code"], cv.REPLAY_PASSED)
+        self.assertIn("original_repeat:" + record["id"], [row["label"] for row in engine.log])
+        self.assertEqual(entry["fresh_evidence_sha256"], record["result"]["evidence_sha256"])
+
+    def test_catalog_bound_id_cannot_be_relabelled(self):
+        record = copy.deepcopy(positives()[0])
+        record["id"] = "pfr-" + "a" * 64 + "-20260908-00002"
+        entry = replay.replay_record(restamp(record), fixture(), RUNNER)
+        self.assertEqual(entry["code"], cv.REPLAY_RECORD_MALFORMED)
+
+    def test_repeat_source_evidence_must_be_complete(self):
+        record = copy.deepcopy(positives()[0])
+        del record["result"]["phases"]["original_repeat"]["limits_applied"]
+        entry = replay.replay_record(restamp(record), fixture(), RUNNER)
+        self.assertEqual(entry["code"], cv.REPLAY_RECORD_MALFORMED)
+
+    def test_shared_reconstruction_preserves_all_stored_observations(self):
+        record = positives()[0]
+        record_validation.validate_shape(record)
+        phases = verify.phases_from_blocks(record["result"]["phases"])
+        self.assertEqual({name: verify.phase_block(getattr(phases, name)) for name in cv.PHASES},
+                         record["result"]["phases"])
 
 
 if __name__ == "__main__":

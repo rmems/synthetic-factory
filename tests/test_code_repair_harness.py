@@ -81,8 +81,8 @@ class Agreement(unittest.TestCase):
 
 
 class Failures(unittest.TestCase):
-    def test_a_child_that_streams_output_forever_is_bounded_by_its_file_size_limit(self):
-        """Codex on #196: child output goes to files under RLIMIT_FSIZE, not an unbounded pipe."""
+    def test_a_child_that_streams_discarded_output_is_stopped_by_the_timeout(self):
+        """Discarded output stays out of memory while the wall-clock bound stops the loop."""
 
         module = (
             "import sys\nwhile True:\n    sys.stderr.write('x' * 65536)\n\n\n"
@@ -124,7 +124,7 @@ class Failures(unittest.TestCase):
 
     def test_unreadable_foreign_or_incomplete_reports_are_harness_errors(self):
         job = ex.Job("x", "def f():\n    pass\n", "f", ({"args": "()", "want": "None"},), True, 2)
-        head = '{"protocol": "code-repair-harness/1", "load": {"status": "ok", "error": null}, '
+        head = '{"protocol": "code-repair-harness/1", "environment": {"limits_applied": true}, "load": {"status": "ok", "error": null}, '
         full = head + '"public": [{"id": "public:0", "status": "pass"}, {"id": "public:1", "status": "pass"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}'
         self.assertTrue(ex._parse_report(job, 0, full.encode()).ok)
         bad = (
@@ -204,7 +204,8 @@ class Isolation(unittest.TestCase):
         self.assertEqual(
             ex.rows_of(rows),
             [{"id": "public:1", "status": "pass"},
-             {"id": "public:2", "status": "fail", "got_sha256": digest}],
+         {"id": "public:2", "status": "fail", "got": "x", "truncated": False,
+          "got_sha256": digest}],
         )
 
 

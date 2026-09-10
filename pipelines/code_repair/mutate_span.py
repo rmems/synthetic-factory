@@ -11,6 +11,7 @@ operator sites and ``mutate_literals`` the literal ones on top of these primitiv
 from __future__ import annotations
 
 import ast
+import bisect
 import io
 import tokenize
 from dataclasses import dataclass
@@ -48,7 +49,8 @@ NEGATE_ATOMS = OFFSET_ATOMS + (ast.Compare, ast.UnaryOp)
 __all__ = [
     "ARITHMETIC_SWAPS", "AUGMENTED_SWAPS", "BINOP_CLASSES", "BOOLEAN_SWAPS", "BOOLOP_CLASSES",
     "BOUNDARY_SWAPS", "COMPARE_CLASSES", "EQUALITY_SWAPS", "Edit", "Owner", "Site", "Prepared",
-    "VARIANT_DROP_NOT", "VARIANT_EQUALITY", "VARIANT_FLIP_BOOL", "VARIANT_MINUS_ONE",
+    "NEGATE_ATOMS", "OFFSET_ATOMS", "OFFSET_BINOPS", "VARIANT_DROP_NOT", "VARIANT_EQUALITY",
+    "VARIANT_FLIP_BOOL", "VARIANT_MINUS_ONE",
     "VARIANT_NEGATE", "VARIANT_PLUS_ONE", "VARIANT_SWAP", "WANT_BOOL", "WANT_NUMERIC",
     "body_nodes", "line_offsets", "span_site", "target", "token_site", "tokens_of",
 ]
@@ -144,8 +146,17 @@ def body_nodes(function: ast.FunctionDef):
     Those run at definition time and are not the behaviour the doctests specify (Codex on #197).
     """
 
-    for statement in function.body:
-        yield from ast.walk(statement)
+    pending = list(reversed(function.body))
+    while pending:
+        node = pending.pop()
+        yield node
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            children = node.body
+        elif isinstance(node, ast.Lambda):
+            children = [node.body]
+        else:
+            children = list(ast.iter_child_nodes(node))
+        pending.extend(reversed(children))
 
 
 def target(text: str, function: str) -> ast.FunctionDef | None:
@@ -188,8 +199,10 @@ def span_site(owner: Owner, edit: Edit, span: tuple[int, int]) -> Site:
     """A site on an arbitrary byte span of the owning node."""
 
     node = owner.node
+    lineno = bisect.bisect_right(owner.text.offsets, span[0])
+    col_offset = span[0] - owner.text.offsets[lineno - 1]
     return Site(
-        owner.operator, type(node).__name__, span[0], span[1], node.lineno, node.col_offset,
+        owner.operator, type(node).__name__, span[0], span[1], lineno, col_offset,
         edit.original, edit.replacement, edit.variant, node.lineno, node.col_offset,
         node.end_lineno, node.end_col_offset, edit.op_index,
     )

@@ -59,7 +59,7 @@ class Projection(unittest.TestCase):
     def test_the_agoge_row_carries_identity_and_one_rendered_text(self):
         record = positives()[0]
         row = views.agoge_row(record)
-        self.assertEqual(set(row), {"canonical_id", "lineage_id", "group_id", "split", "text"})
+        self.assertEqual(set(row), {"canonical_id", "lineage_id", "group_id", "split", "text", "completion_start_char"})
         self.assertEqual(row["canonical_id"], record["id"])
         self.assertEqual(row["lineage_id"], record["scenario"]["source"]["program_id"])
         sft = views.sft_row(record)
@@ -135,9 +135,14 @@ class LeakCodes(unittest.TestCase):
             {"example_id": f"{function}:{i}", "source": f"{function}({i})\n", "want": f"{i}\n"}
             for i in range(12)
         ]
+        record["scenario"]["broken_program"]["files"]["program.py"] = (
+            f"def {function}(x):\n    '''\n" + ''.join(
+                f"    >>> {function}({i})\n    {i}\n" for i in range(12))
+            + "    '''\n    return -1\n")
         got = "wrong\n"
         record["result"]["phases"]["mutant"]["public"] = sorted(
-            ({"id": f"public:{i}", "status": "fail", "got_sha256": catalog.sha256_text(got)}
+            ({"id": f"public:{i}", "status": "fail", "got": got, "truncated": False,
+              "got_sha256": catalog.sha256_text(got)}
              for i in range(12)),
             key=lambda row: row["id"],
         )

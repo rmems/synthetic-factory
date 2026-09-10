@@ -437,6 +437,10 @@ def shape_check(obj, where, factory_staging=False):
         return [f"{where}: unrecognized record shape ({exc})"], "unknown"
     if kind == "code_repair":
         return errs, kind
+    return _shape_only_errors(errs, where), kind
+
+
+def _shape_only_errors(errs, where):
     kept = []
     for err in errs:
         body = _after_where(err, where)
@@ -447,7 +451,7 @@ def shape_check(obj, where, factory_staging=False):
         if _is_shape_spike_stream(body):
             continue
         kept.append(err)
-    return kept, kind
+    return kept
 
 
 def canonical_record_id(obj):

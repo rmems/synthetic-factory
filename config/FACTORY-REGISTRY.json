@@ -1242,8 +1242,8 @@
       "generator_ownership": "project_owned",
       "generation_method": "deterministic_execution",
       "catalog_id": "python-repair-v1",
-      "catalog_sha256": "b952cf3b06bdad2f0b8fe6531dce6792fbe5b06a2b43b589b3635ae1b4634578",
-      "programs_sha256": "e22209fa0a56614e403c6c8facda665eac9c379c40f913c6c8c57dfb14f19a6c",
+      "catalog_sha256": "2402fe1d85a9a4a978ef4cc5e4491859cdf302b9c4b33415a66a4c00a5311f98",
+      "programs_sha256": "fbd012638c92cbad072553405c545e5f8dc26bc677100a11e693d61b7bf9d904",
       "intended_use": "training_candidate",
       "project_training_policy": "allowed",
       "publication_target": null,
@@ -1255,7 +1255,7 @@
         "license": "MIT",
         "license_sha256": "4395a1dc4bda1d6054c45b4d1230c709c7398e6d66f1d0aff4b22d95973bea56"
       },
-      "procedural_policy_sha256": "e364aebf97be641b06f8cf88afc1a0361d89cb2fff0b80741f81e49c6a719a74",
+      "procedural_policy_sha256": "b8d1621798eb13eed8e5d73de365dc1028b08cef9645d08aff9d909630b23b1b",
       "record_kinds": [
         "code_repair"
       ],

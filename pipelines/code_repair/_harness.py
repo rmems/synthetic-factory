@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import ast
 import doctest
+import hashlib
 import importlib.util
+import io
 import json
 import math
 import os
@@ -26,6 +28,7 @@ from pathlib import Path
 PROTOCOL = "code-repair-harness/1"
 PROGRAM_FILENAME = "program.py"
 MAX_GOT_CHARS = 2_000
+MAX_CAPTURE_CHARS = 65_536
 
 
 def _apply_limits(spec: dict) -> bool:
@@ -59,18 +62,27 @@ def _row(kind: str, index: int, status: str, got: str | None = None) -> dict:
     if got is not None:
         clipped, truncated = _clip(got)
         row["got"] = clipped
+        row["got_sha256"] = hashlib.sha256(got.encode("utf-8")).hexdigest()
         if truncated:
             row["truncated"] = True
     return row
 
 
-def _exception_only(got: str) -> str:
-    """A wrong-exception failure keeps its last line only: the traceback names the workdir."""
+class _Capture(io.StringIO):
+    """Bound doctest's per-example capture, including writes that never return."""
 
-    if not got.startswith("Traceback (most recent call last):"):
-        return got
-    lines = [line for line in got.splitlines() if line.strip()]
-    return (lines[-1] + "\n") if lines else got
+    def write(self, text: str) -> int:
+        if self.tell() + len(text) > MAX_CAPTURE_CHARS:
+            raise ValueError("doctest output limit exceeded")
+        return super().write(text)
+
+    def getvalue(self) -> str:
+        value = super().getvalue()
+        return value + "\n" if value and not value.endswith("\n") else value
+
+    def truncate(self, size: int = 0) -> int:
+        self.seek(size)
+        return super().truncate(size)
 
 
 class _Runner(doctest.DocTestRunner):
@@ -78,6 +90,7 @@ class _Runner(doctest.DocTestRunner):
 
     def __init__(self, rows: list) -> None:
         super().__init__(verbose=False, optionflags=0)
+        self._fakeout = _Capture()
         self._rows = rows
 
     @staticmethod
@@ -100,7 +113,9 @@ class _Runner(doctest.DocTestRunner):
         self._rows.append(_row("public", self._index(test, example), "pass", got))
 
     def report_failure(self, out, test, example, got) -> None:
-        self._rows.append(_row("public", self._index(test, example), "fail", _exception_only(got)))
+        if example.exc_msg is not None and "Traceback (most recent call last):" in got:
+            got = _last_line(got)
+        self._rows.append(_row("public", self._index(test, example), "fail", got))
 
     def report_unexpected_exception(self, out, test, example, exc_info) -> None:
         text = "".join(traceback.format_exception_only(exc_info[0], exc_info[1])).strip()
@@ -160,6 +175,8 @@ def _agree(got: str, want: str, spec: dict) -> bool:
         left, right = float(got), float(want)
     except ValueError:
         return False
+    if not math.isfinite(left) or not math.isfinite(right):
+        return False
     return math.isclose(left, right, rel_tol=spec["float_rel_tol"], abs_tol=spec["float_abs_tol"])
 
 
@@ -168,11 +185,11 @@ def _run_case(target, index: int, case: dict, spec: dict) -> dict:
 
     try:
         result = target(*ast.literal_eval(case["args"]))
+        got = repr(result)
     except Exception as exc:  # the program under test may raise anything
         if case["want"] is None:
             return _row("hidden", index, "error", f"{type(exc).__name__}: {exc}")
         return {**_row("hidden", index, "error"), "kind": "exception"}
-    got = repr(result)
     if case["want"] is None:
         return _row("hidden", index, "observed", got)
     if _agree(got, case["want"], spec):
@@ -188,14 +205,20 @@ def _run(workdir: Path, spec: dict) -> dict:
         "platform": sys.platform,
         "limits_applied": _apply_limits(spec),
     }
+    if not report["environment"]["limits_applied"]:
+        report["load"] = {"status": "error", "error": "SANDBOX_UNAVAILABLE: resource limits"}
+        return report
     text = (workdir / PROGRAM_FILENAME).read_text(encoding="utf-8")
     try:
         module = _load(workdir)
+        getattr(module, spec["function"])
+        report["public"] = _run_public(module, text, spec["function"]) if spec["run_public"] else None
+        if spec["run_public"] and spec["cases"]:
+            module = _load(workdir)
         target = getattr(module, spec["function"])
     except Exception as exc:
         report["load"] = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
         return report
-    report["public"] = _run_public(module, text, spec["function"]) if spec["run_public"] else None
     report["hidden"] = [_run_case(target, i, case, spec) for i, case in enumerate(spec["cases"])]
     return report
 
@@ -209,6 +232,11 @@ def main(argv: list[str]) -> int:
     # The program under test never writes on the protocol channel; whatever it
     # prints is discarded outright, so streaming forever buys it nothing.
     with open(os.devnull, "w", encoding="utf-8") as sink:
+        real_stdout.flush()
+        real_stderr.flush()
+        saved = (os.dup(1), os.dup(2))
+        os.dup2(sink.fileno(), 1)
+        os.dup2(sink.fileno(), 2)
         sys.stdout, sys.stderr = sink, sink
         try:
             spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
@@ -217,8 +245,13 @@ def main(argv: list[str]) -> int:
             error = f"HarnessError: {exc}"
             report = {"protocol": PROTOCOL, "load": {"status": "error", "error": error}}
         finally:
+            real_stdout.flush()
+            real_stderr.flush()
+            for descriptor, backup in zip((1, 2), saved):
+                os.dup2(backup, descriptor)
+                os.close(backup)
             sys.stdout, sys.stderr = real_stdout, real_stderr
-    real_stdout.write(json.dumps(report, sort_keys=True, allow_nan=False))
+    real_stdout.write(json.dumps(report, sort_keys=True, allow_nan=False, ensure_ascii=False))
     real_stdout.flush()
     return 0
 

@@ -2,6 +2,7 @@
 """The run engine: request refusals, accounting, artifacts, stable bytes."""
 
 import hashlib
+import json
 import shutil
 import sys
 import tempfile
@@ -11,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from code_repair_test_support import (  # noqa: E402
-    FIXTURE_CATALOG, FakeExecutor, PINNED_AT, SEED, generate, oc, refusal, report, rows, smoke_run,
+    FIXTURE_CATALOG, FakeExecutor, PINNED_AT, SEED, catalog, fixture, generate, oc, refusal, report, rows, smoke_run,
     vocabulary as cv,
 )
 
@@ -133,6 +134,11 @@ class Accounting(unittest.TestCase):
 
 
 class StableBytes(unittest.TestCase):
+    def test_run_summary_carries_the_pinned_catalog_split_policy(self):
+        summary, _, _ = smoke_run()
+        metadata = json.loads((FIXTURE_CATALOG / 'CATALOG.json').read_text())
+        self.assertEqual(summary.get('split_policy'), metadata['split_policy'])
+
     """Real subprocess evidence: the smoke run and a second identical run."""
 
     def test_two_real_runs_with_the_same_seed_and_stamp_are_byte_identical(self):
@@ -151,7 +157,9 @@ class StableBytes(unittest.TestCase):
         )
         self.assertEqual(summary["oracle_statuses"], {"provisional": 2, "validated": 8})
         self.assertEqual(summary["skips"][cv.SKIP_DUPLICATE_MUTANT_IN_RUN], 2)
-        expected_ids = [f"pfr-{SEED}-{i:05d}" for i in (0, 1, 2, 3, 5, 6, 7, 8, 9, 10)]
+        identity = catalog.sha256_text(oc.canonical_json(
+            [fixture().catalog_id, fixture().programs_sha256]))
+        expected_ids = [f"pfr-{identity}-{SEED}-{i:05d}" for i in (0, 1, 2, 3, 5, 6, 7, 8, 9, 10)]
         self.assertEqual([r["id"] for r in records], expected_ids)
         operators = {r["intervention"]["operator"] for r in records}
         self.assertEqual(operators, set(cv.OPERATORS))

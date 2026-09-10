@@ -1,21 +1,10 @@
 #!/usr/bin/env python3
-"""Consumer proof for the code-repair export, run with Agoge-Forger's own interpreter.
+"""Consumer proof using Agoge normalization, frozen splits, and current completion masking.
 
-Read-only against Agoge (``/home/raulmc/rmems/agoge-forger/.venv/bin/python
-scripts/agoge_consumer_probe.py <agoge.jsonl> ...``): every row is normalised
-by ``datasets.normalize_row``, loaded under the frozen-split identity policy
-with a declared lineage, and its recorded split compared with Agoge's own
-``assign_records``. With ``--config`` (an Agoge experiment YAML) the rows are
-tokenized with the configured model's tokenizer and pushed through TRL's SFT
-collator twice: as Agoge's trainer does today (one ``text`` column, so every
-token receives loss) and as a prompt/completion pair with completion-only
-loss, so the report states how many corrected-code tokens receive loss in
-each mode and which completions are cut by truncation. It launches no
-training; ``--freeze-into`` materializes Agoge's frozen split into a scratch
-directory as the one write. What it establishes: the export loads under
-Agoge's current contract and the label behaviour of that contract today. What
-it does not establish: that Agoge's training path is fixed (that is the
-linked Agoge issue and its trainer-batch test).
+With --config, a locally cached pinned tokenizer and the real TRL collator measure
+both loss modes from explicit Unicode completion boundaries without truncation.
+No training is launched. --freeze-into writes a new snapshot and requires real
+producer commit and dataset-version provenance.
 """
 
 from __future__ import annotations
@@ -73,14 +62,14 @@ def _load_proof(path: Path, source_path: str) -> dict:
     }
 
 
-def _spec(policy: dict, source_path: str):
+def _spec(policy: dict, source_path: str, source_revision='0' * 40, dataset_version='probe'):
     """The materialization spec Agoge would pin for this export (revision is a placeholder)."""
 
     from agoge_forger.split_schema import SplitMaterializationSpec, SplitPolicy
 
     return SplitMaterializationSpec(
-        source_repository="rmems/synthetic-factory", source_revision="0" * 40,
-        dataset_version="probe", source_path=source_path,
+        source_repository="rmems/synthetic-factory", source_revision=source_revision,
+        dataset_version=dataset_version, source_path=source_path,
         split_policy=SplitPolicy(
             seed=policy["seed"], salt=policy["salt"], weights=policy["weights"]
         ),
@@ -113,7 +102,8 @@ def _config(path: Path | None, tokenizer_revision: str | None) -> dict:
     config = load_config(str(path))
     revision = tokenizer_revision or config.revision
     return {"model_id": config.model_id, "revision": revision,
-            "max_seq_length": config.training.max_seq_length}
+            "max_seq_length": config.training.max_seq_length,
+            "completion_only_loss": config.training.completion_only_loss}
 
 
 def _label_report(rows: list[dict], config: dict) -> dict:
@@ -127,49 +117,59 @@ def _label_report(rows: list[dict], config: dict) -> dict:
     from transformers import AutoTokenizer
     from trl.trainer.sft_trainer import DataCollatorForLanguageModeling
 
-    tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
+    tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision, local_files_only=True)
     pad = tokenizer.pad_token_id
     pad = tokenizer.eos_token_id if pad is None else pad
     collators = {
         "full_sequence": DataCollatorForLanguageModeling(
-            pad_token_id=pad, max_length=max_length, completion_only_loss=False
+            pad_token_id=pad, completion_only_loss=False
         ),
         "completion_only": DataCollatorForLanguageModeling(
-            pad_token_id=pad, max_length=max_length, completion_only_loss=True
+            pad_token_id=pad, completion_only_loss=True
         ),
     }
     per_row = [_row_labels(tokenizer, collators, max_length, row) for row in rows]
     return {
         "tokenizer": model_id, "max_seq_length": max_length, "rows": per_row,
         "completion_truncated_rows": sum(1 for r in per_row if r["completion_truncated"]),
-        "loss_mode_in_agoge": "full_sequence",
+        "loss_mode_in_agoge": "completion_only" if config["completion_only_loss"] else "full_sequence",
     }
+
+
+def completion_boundary(row: dict) -> int:
+    """Validate the producer's explicit Unicode offset, without searching prompt contents."""
+    text, start = row.get("text"), row.get("completion_start_char")
+    if not isinstance(text, str) or type(start) is not int or not 0 < start < len(text):
+        raise ValueError("invalid completion_start_char")
+    if not text[start:].strip() or not text[:start].endswith(SEPARATOR):
+        raise ValueError("boundary does not delimit a nonempty corrected module")
+    return start
 
 
 def _row_labels(tokenizer, collators: dict, max_length: int, row: dict) -> dict:
-    """One row through both collators: how many prompt and completion tokens receive loss."""
-
-    prompt, sep, completion = row["text"].partition(SEPARATOR)
-    prompt_ids = tokenizer(prompt + sep, add_special_tokens=False)["input_ids"]
-    completion_ids = tokenizer(completion, add_special_tokens=False)["input_ids"]
-    ids = prompt_ids + completion_ids
-    mask = [0] * len(prompt_ids) + [1] * len(completion_ids)
-    labels = {
-        mode: collator([{"input_ids": ids, "completion_mask": mask}])["labels"][0]
-        for mode, collator in collators.items()
-    }
-    prompt_kept = min(len(prompt_ids), max_length)
-    surviving = max(0, min(len(ids), max_length) - len(prompt_ids))
+    """Use the current trainer's preprocessing and real collator on exact frozen text."""
+    from agoge_forger.train.completion import completion_tokens
+    completion_boundary(row)
+    prepared = completion_tokens(row, tokenizer, max_length)
+    mask = prepared["completion_mask"]
+    labels = {}
+    for mode, collator in collators.items():
+        sample = dict(prepared)
+        if mode == "full_sequence":
+            sample["labels"] = list(prepared["input_ids"])
+        labels[mode] = collator([sample])["labels"][0]
+    prompt = sum(active == 0 for active in mask)
+    completion = sum(mask)
     return {
-        "canonical_id": row["canonical_id"], "prompt_tokens": len(prompt_ids),
-        "completion_tokens": len(completion_ids), "total_tokens": len(ids),
-        "completion_tokens_surviving_truncation": surviving,
-        "completion_truncated": surviving < len(completion_ids),
+        "canonical_id": row["canonical_id"], "prompt_tokens": prompt,
+        "completion_tokens": completion, "total_tokens": len(mask),
+        "completion_tokens_surviving_truncation": completion, "completion_truncated": False,
         "loss_tokens_full_sequence": int((labels["full_sequence"] != -100).sum()),
         "loss_tokens_completion_only": int((labels["completion_only"] != -100).sum()),
-        "prompt_tokens_receiving_loss_full_sequence": int(
-            (labels["full_sequence"][:prompt_kept] != -100).sum()
-        ),
+        "prompt_tokens_receiving_loss_full_sequence": sum(
+            int(labels["full_sequence"][i] != -100) for i, active in enumerate(mask) if not active),
+        "prompt_tokens_receiving_loss_completion_only": sum(
+            int(labels["completion_only"][i] != -100) for i, active in enumerate(mask) if not active),
     }
 
 
@@ -199,6 +199,8 @@ def _manifest_proof(path: Path, manifest: dict, count: int) -> dict:
         raise ValueError("input sha256 differs from manifest")
     if count != manifest["tables"]["dispositions"].get("exported", 0):
         raise ValueError("input row count differs from manifest")
+    for row in _rows(path):
+        completion_boundary(row)
     return {"sha256": digest, "rows": count}
 
 
@@ -214,18 +216,24 @@ def _split_steps(report: dict, records: list, rows: list, args: argparse.Namespa
         if args.freeze_into is not None:
             report["freeze"] = {"error": "no split policy"}
         return
-    spec_report, _unused = _guarded(_make_spec, policy, args.source_path)
+    spec_report, _unused = _guarded(_make_spec, policy, args.source_path,
+                                  args.source_revision or '0' * 40, args.dataset_version or 'probe')
     if "error" in spec_report:
         report["split_agreement"] = spec_report
         return
     spec = spec_report["spec"]
     report["split_agreement"] = _guarded(_split_agreement, records, rows, spec)[0]
     if args.freeze_into is not None:
-        report["freeze"] = _guarded(_freeze, args.agoge_jsonl, args.freeze_into, spec)[0]
+        if (not args.source_revision or not PINNED_REVISION.fullmatch(args.source_revision)
+                or args.source_revision == '0' * 40
+                or not args.dataset_version or args.dataset_version == 'probe'):
+            report['freeze'] = {'error': 'freeze requires real --source-revision and --dataset-version'}
+        else:
+            report["freeze"] = _guarded(_freeze, args.agoge_jsonl, args.freeze_into, spec)[0]
 
 
-def _make_spec(policy: dict, source_path: str) -> dict:
-    return {"spec": _spec(policy, source_path)}
+def _make_spec(policy: dict, source_path: str, source_revision, dataset_version) -> dict:
+    return {"spec": _spec(policy, source_path, source_revision, dataset_version)}
 
 
 def _failed_steps(report: dict, args: argparse.Namespace) -> list[str]:
@@ -243,7 +251,7 @@ def _failed_steps(report: dict, args: argparse.Namespace) -> list[str]:
 def _report(args: argparse.Namespace) -> dict:
     rows = _rows(args.agoge_jsonl)
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
-    report: dict = {"rows": len(rows), "gaps": dict(GAPS)}
+    report: dict = {"rows": len(rows), "gaps": {k: v for k, v in GAPS.items() if k != "NO_LOSS_MASKING_PROMPT_TOKENS_TRAINED"}}
     report["manifest"] = _guarded(_manifest_proof, args.agoge_jsonl, manifest, len(rows))[0]
     if "error" in report["manifest"]:
         return {**report, "passed": False, "failed_steps": ["manifest"]}
@@ -271,6 +279,8 @@ def main(argv: list[str] | None = None) -> int:
         help="the model revision to tokenize with (40 hex) when the config pins none",
     )
     parser.add_argument("--freeze-into", type=Path, default=None)
+    parser.add_argument('--source-revision', default=None)
+    parser.add_argument('--dataset-version', default=None)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     with contextlib.redirect_stdout(sys.stderr):  # Agoge and the Hub client log to stdout

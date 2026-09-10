@@ -26,8 +26,7 @@ INPUT_POLICY = "doctest-literals+seeded-neighbourhood-v1"
 NEIGHBOUR_DRAWS = 4
 
 __all__ = [
-    "INPUT_POLICY", "Subject", "candidate_args", "literal_args", "neighbours", "observe",
-    "observed_cases",
+    "INPUT_POLICY", "Subject", "candidate_args", "literal_args", "neighbours", "observed_cases",
 ]
 
 
@@ -55,15 +54,23 @@ def _single_call(source: str, function: str) -> ast.Call | None:
     return call if call.func.id == function and not call.keywords else None
 
 
+def _unordered_literal(node: ast.AST) -> bool:
+    if isinstance(node, ast.Call):
+        return isinstance(node.func, ast.Name) and node.func.id == "set"
+    return isinstance(node, ast.Set)
+
+
 def literal_args(example: cat.Example, function: str) -> tuple | None:
     """The literal argument tuple of a single call example, or None."""
 
     call = _single_call(example.source, function)
     if call is None:
         return None
+    if any(_unordered_literal(node) for arg in call.args for node in ast.walk(arg)):
+        return None
     try:
         return tuple(ast.literal_eval(a) for a in call.args)
-    except ValueError:
+    except (ValueError, TypeError, SyntaxError):
         return None
 
 
@@ -132,46 +139,76 @@ def _stream_for(program_id: str) -> rng.DrawStream:
     return rng.DrawStream(int(hashlib.sha256(program_id.encode("utf-8")).hexdigest()[:8], 16))
 
 
+def _probes(cases: list[dict]) -> tuple[dict, ...]:
+    return tuple({"args": case["args"], "want": None} for case in cases)
+
+
+def _observed_value(row: dict) -> bool:
+    return row["status"] == cv.ROW_OBSERVED and not row.get("truncated")
+
+
+def _stable_batch(executor: ex.Executor, subject: Subject, kept: list[dict], batch: list) -> list:
+    probes = _probes(kept) + tuple({"args": repr(args), "want": None} for args in batch)
+    first = _observe(executor, subject.text, subject.function, probes)
+    second = _observe(executor, subject.text, subject.function, probes)
+    paired = ((args, first.hidden[index], second.hidden[index])
+              for index, args in enumerate(batch, len(kept)))
+    return [{"args": repr(args), "want": row["got"]} for args, row, other in paired
+            if _observed_value(row) and row == other]
+
+
+def _retained_sequence_stable(executor: ex.Executor, subject: Subject, kept: list[dict]) -> bool:
+    if not kept:
+        return True
+    final = _observe(executor, subject.text, subject.function, _probes(kept))
+    return all(_observed_value(row) and row.get("got") == case["want"]
+               for row, case in zip(final.hidden, kept))
+
+
+def _observed_cases(executor: ex.Executor, subject: Subject) -> list[dict]:
+    """The cases the original answers with a value, with its repr as the pinned want."""
+
+    args_list = candidate_args(subject.examples, subject.function, _stream_for(subject.program_id))
+    kept: list[dict] = []
+    cursor = 0
+    while cursor < len(args_list) and len(kept) < cv.MAX_HIDDEN_CASES:
+        capacity = cv.MAX_HIDDEN_CASES - len(kept)
+        batch = args_list[cursor:cursor + capacity]
+        cursor += len(batch)
+        kept.extend(_stable_batch(executor, subject, kept, batch))
+    # Removing a failed probe must not change the state seen by a later input.
+    return kept if _retained_sequence_stable(executor, subject, kept) else []
+
+
+def _observe(executor: ex.Executor, text: str, function: str, probes: tuple) -> ex.PhaseReport:
+    report = executor.run(ex.Job(f"observe:{function}", text, function, probes, True))
+    cv.refuse_when(
+        not report.ok, cv.FINDING_HARNESS_REPORT_MALFORMED,
+        f"observing {function} failed: {report.detail}",
+    )
+    return report
+
+
 def observe(executor: ex.Executor, subject: Subject) -> tuple[ex.PhaseReport | None, list[dict]]:
-    """The candidate inputs through the original: its report (None without inputs), kept cases.
+    reports = []
 
-    A case is kept when the original answers it with a value; its repr is the pinned want.
-    """
+    class Capture:
+        def run(self, job):
+            report = executor.run(job)
+            reports.append(report)
+            return report
 
-    text, function = subject.text, subject.function
-    args_list = candidate_args(subject.examples, function, _stream_for(subject.program_id))
-    if not args_list:
-        return None, []
-    probes = tuple({"args": repr(a), "want": None} for a in args_list)
-    # The public doctests run first, as in every later job, so a stateful target is observed
-    # in the state its doctests leave; two observations must agree, so an unstable repr (an
-    # object address, say) is never pinned (Codex on #202).
-    job = ex.Job(f"observe:{function}", text, function, probes, True, len(subject.examples))
-    first, second = executor.run(job), executor.run(job)
-    if not first.ok or not second.ok:
-        return (first if not first.ok else second), []
-    return first, _stable_cases(args_list, first.hidden, second.hidden)[: cv.MAX_HIDDEN_CASES]
-
-
-def _stable_cases(args_list: list, first: tuple, second: tuple) -> list[dict]:
-    """The observed cases whose two runs agree, as pinned wants."""
-
-    kept = []
-    for args, row, again in zip(args_list, first, second):
-        if row["status"] == cv.ROW_OBSERVED and again.get("got") == row.get("got"):
-            kept.append({"args": repr(args), "want": row["got"]})
-    return kept
+    try:
+        cases = _observed_cases(Capture(), subject)
+    except cv.RepairRefusal:
+        if reports and not reports[-1].ok:
+            return reports[-1], []
+        raise
+    return (reports[-1] if reports else None), cases
 
 
 def observed_cases(executor: ex.Executor, subject: Subject) -> list[dict]:
-    """The cases the original answers with a value; refuses when it cannot be observed."""
-
-    report, cases = observe(executor, subject)
-    cv.refuse_when(
-        report is not None and not report.ok, cv.FINDING_HARNESS_REPORT_MALFORMED,
-        f"observing {subject.function} failed: {report.detail if report else ''}",
-    )
-    return cases
+    return _observed_cases(executor, subject)
 
 
 bind_import_twin(__name__)

@@ -17,8 +17,10 @@ from __future__ import annotations
 import ast
 import doctest
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from . import executor as ex
@@ -31,6 +33,7 @@ PROGRAMS_FILENAME = "programs.jsonl"
 LICENSE_FILENAME = "LICENSE.upstream"
 SPLITS = ("train", "validation", "held_out")
 MAX_CASE_ARGS_CHARS = 4_096
+MAX_PUBLIC_EXAMPLES = 48  # 72 total rows fit the 1 MiB report budget with UTF-8 output
 _UPSTREAM_FIELDS = ("repository", "commit", "path", "file_sha256", "function", "license")
 
 __all__ = [
@@ -80,7 +83,7 @@ class Program:
     examples: tuple[Example, ...]
     examples_sha256: str
     reference: Reference
-    cases: tuple[dict[str, Any], ...]
+    cases: tuple[Mapping[str, str], ...]
     group_id: str | None
     split: str | None
     ast_digest: str | None = None
@@ -257,7 +260,7 @@ def _reference(row: dict[str, Any], where: str) -> Reference:
     return Reference(kind, function, source, digest)
 
 
-def _cases(row: dict[str, Any], where: str) -> tuple[dict[str, Any], ...]:
+def _cases(row: dict[str, Any], where: str) -> tuple[Mapping[str, str], ...]:
     cases = _field(_field(row, "hidden", dict, where), "cases", list, f"{where}.hidden")
     cv.refuse_when(
         len(cases) > cv.MAX_HIDDEN_CASES, cv.FINDING_PROGRAM_FIELD_INVALID,
@@ -271,7 +274,17 @@ def _cases(row: dict[str, Any], where: str) -> tuple[dict[str, Any], ...]:
             len(args) > MAX_CASE_ARGS_CHARS, cv.FINDING_PROGRAM_FIELD_INVALID,
             f"{spot}.args is longer than {MAX_CASE_ARGS_CHARS} characters",
         )
-        parsed.append({"args": args, "want": want})
+        try:
+            arguments = ast.literal_eval(args)
+        except (ValueError, SyntaxError, RecursionError) as exc:
+            raise cv.RepairRefusal(
+                cv.FINDING_PROGRAM_FIELD_INVALID, f"{spot}.args is not a literal sequence"
+            ) from exc
+        cv.refuse_when(
+            not isinstance(arguments, (tuple, list)), cv.FINDING_PROGRAM_FIELD_INVALID,
+            f"{spot}.args must be a tuple or list of arguments",
+        )
+        parsed.append(MappingProxyType({"args": args, "want": want}))
     return tuple(parsed)
 
 
@@ -286,10 +299,17 @@ def _examples(row: dict[str, Any], text: str, function: str, where: str) -> tupl
         (function_node(text, function) is None, cv.FINDING_TARGET_FUNCTION_NOT_FOUND,
          f"{where}: no module-level function named {function}"),
         (not examples, cv.FINDING_TARGET_HAS_NO_DOCTEST, f"{where}: {function} carries no doctest"),
-        (_field(public, "example_count", int, f"{where}.public") != len(examples)
-         or _field(public, "examples_sha256", str, f"{where}.public") != examples_sha256(examples),
-         cv.FINDING_EXAMPLES_SHA_MISMATCH, f"{where}.public does not pin the docstring's examples"),
     ))
+    count = _field(public, "example_count", int, f"{where}.public")
+    cv.refuse_when(
+        len(examples) > MAX_PUBLIC_EXAMPLES, cv.FINDING_PROGRAM_FIELD_INVALID,
+        f"{where}.public exceeds the {MAX_PUBLIC_EXAMPLES}-example report budget",
+    )
+    pinned = _field(public, "examples_sha256", str, f"{where}.public")
+    cv.refuse_when(
+        count != len(examples) or pinned != examples_sha256(examples),
+        cv.FINDING_EXAMPLES_SHA_MISMATCH, f"{where}.public does not pin the docstring's examples",
+    )
     return examples
 
 
@@ -379,7 +399,7 @@ def _meta(directory: Path) -> dict[str, Any]:
     cv.refuse_when(not path.is_file(), cv.FINDING_CATALOG_FILE_MISSING, f"{path} is missing")
     try:
         meta = load_strict_json(path.read_text(encoding="utf-8"))
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         message = f"{path} is not JSON: {exc}"
         raise cv.RepairRefusal(cv.FINDING_CATALOG_FIELD_INVALID, message) from exc
     for key, kinds in (("format", str), ("catalog_id", str), ("upstream", dict),
@@ -424,8 +444,16 @@ def load_catalog(directory: Path | str) -> Catalog:
     root = Path(directory)
     meta = _meta(root)
     programs, digest = _programs(root)
+    groups: dict[str, str | None] = {}
     for program in programs:
         _provenance_agrees(program, meta)
+        if program.group_id is not None:
+            cv.refuse_when(
+                program.group_id in groups and groups[program.group_id] != program.split,
+                cv.FINDING_PROGRAM_FIELD_INVALID,
+                f"{program.program_id}: group {program.group_id} spans different splits",
+            )
+            groups[program.group_id] = program.split
     cv.refuse_first((
         (digest != meta["programs_sha256"], cv.FINDING_PROGRAMS_SHA_MISMATCH,
          f"{PROGRAMS_FILENAME} does not hash to {CATALOG_FILENAME}.programs_sha256"),

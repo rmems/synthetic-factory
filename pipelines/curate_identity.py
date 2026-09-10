@@ -590,18 +590,20 @@ def _legacy_registry_row(raw: Any, index: int) -> Mapping[str, Any]:
     return augmented
 
 
+def _is_procedural_row(raw: Any, schema_version: str) -> bool:
+    if schema_version != REGISTRY_SCHEMA_VERSION:
+        return False
+    return isinstance(raw, Mapping) and raw.get("source_type") == "procedural"
+
+
 def _registry_row_for_validation(
     raw: Any, index: int, schema_version: str
 ) -> Any:
     if __package__:
-        from .code_repair.source_policy import PROCEDURAL_FIELDS
+        from .code_repair.source_policy import claims_procedural_route
     else:
-        from code_repair.source_policy import PROCEDURAL_FIELDS
-    if isinstance(raw, Mapping) and (
-        PROCEDURAL_FIELDS.intersection(raw) or (
-            isinstance(raw.get("record_kinds"), list) and "code_repair" in raw["record_kinds"]
-        )
-    ):
+        from code_repair.source_policy import claims_procedural_route
+    if claims_procedural_route(raw):
         raise IdentityCurationError(f"factories[{index}] procedural fields require v0.3 route")
     if schema_version == LEGACY_REGISTRY_SCHEMA_VERSION:
         return _legacy_registry_row(raw, index)
@@ -669,8 +671,7 @@ def load_registry(path: Path | None = None) -> FactoryRegistry:
         raise IdentityCurationError("factory registry factories must be a non-empty list")
     by_path_id: dict[str, FactoryRow] = {}
     for index, raw_row in enumerate(factories):
-        if (schema_version == REGISTRY_SCHEMA_VERSION and isinstance(raw_row, Mapping)
-                and raw_row.get("source_type") == "procedural"):
+        if _is_procedural_row(raw_row, schema_version):
             row = _parse_procedural_row(raw_row, index)
         else:
             row_payload = _registry_row_for_validation(raw_row, index, schema_version)
@@ -2244,7 +2245,9 @@ def _expected_identity_outputs(
     return expected
 
 
-def _read_identity_output(path: Path, rel: str) -> dict[int, Mapping[str, Any]]:
+def _read_identity_output(
+    path: Path, rel: str, preserved_sources: Mapping[int, bytes],
+) -> dict[int, Mapping[str, Any]]:
     records: dict[int, Mapping[str, Any]] = {}
     try:
         output_bytes = path.read_bytes()
@@ -2284,9 +2287,11 @@ def _read_identity_output(path: Path, rel: str) -> dict[int, Mapping[str, Any]]:
             raise IdentityTreeError(
                 f"identity output is not canonical JSON data: {rel}:{line_no}: {exc}"
             ) from exc
-        if line_bytes != canonical_payload:
+        expected_payload = preserved_sources.get(line_no, canonical_payload)
+        if line_bytes != expected_payload:
+            basis = "preserved source" if line_no in preserved_sources else "canonical JSON"
             raise IdentityTreeError(
-                f"identity output payload is not exact canonical JSON: {rel}:{line_no}"
+                f"identity output payload is not exact {basis}: {rel}:{line_no}"
             )
         records[line_no] = output_record
     return records
@@ -2362,18 +2367,18 @@ def validate_identity_tree(
             f"identity output paths do not match manifest: missing={missing}, extra={extra}"
         )
     for rel, expected_by_line in sorted(expected_outputs.items()):
-        actual_by_line = _read_identity_output(actual_paths[rel], rel)
-        physical_lines = actual_paths[rel].read_bytes().split(b"\n")
+        preserved_sources = {
+            line_no: replay.source.original.encode("utf-8")
+            for line_no, (_, _, replay) in expected_by_line.items()
+            if replay.result.mapping.get("record_kind") == "code_repair"
+        }
+        actual_by_line = _read_identity_output(actual_paths[rel], rel, preserved_sources)
         if set(actual_by_line) != set(expected_by_line):
             raise IdentityTreeError(
                 f"identity output line coordinates do not match manifest: {rel}"
             )
         for line_no, (index, mapping, replay) in expected_by_line.items():
             output_record = actual_by_line[line_no]
-            if replay.result.mapping.get("record_kind") == "code_repair":
-                original_bytes = replay.source.original.encode("utf-8")
-                if physical_lines[line_no - 1] != original_bytes:
-                    raise IdentityTreeError(f"procedural source bytes changed: {rel}:{line_no}")
             try:
                 actual_hash = sha256_json(output_record)
             except IdentityCurationError as exc:

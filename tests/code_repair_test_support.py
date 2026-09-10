@@ -11,6 +11,7 @@ Fake-executor evidence and real-subprocess evidence are kept apart: only
 """
 
 import functools
+import dataclasses
 import sys
 import tempfile
 from pathlib import Path
@@ -18,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from coded_refusal_test_support import CodedFamily, coded_refusal
+from code_repair_import_probe import MODULES as FAMILY_MODULES
 from distill_contract_test_support import REPO, envelope, oc
 from code_repair import catalog, cli, executor, generate, mutate, records, verify, views, vocabulary
 
@@ -26,11 +28,6 @@ PINNED_AT = "2026-09-08T00:00:00.000Z"
 SEED = 20260908
 REPAIR_FAMILY = CodedFamily(
     vocabulary.RepairRefusal, vocabulary.FINDING_CODE_SET, vocabulary.REASON_CODE_SET
-)
-FAMILY_MODULES = (
-    "_contract", "vocabulary", "catalog", "catalog_check", "mutate", "mutate_span",
-    "mutate_literals", "executor", "verify", "records", "views", "generate", "export",
-    "export_integrity", "cli",
 )
 
 __all__ = (
@@ -103,12 +100,16 @@ class FakeExecutor:
     def run(self, job):
         self.jobs.append(job)
         phase = job.label.split(":", 1)[0]
+        if phase == 'original_repeat' and phase not in self.by_phase:
+            phase = 'original'
         self.log.append({"label": job.label, "status": "fake"})
         if phase == vocabulary.PHASE_REFERENCE and phase not in self.by_phase:
             # Unless a test says otherwise, the certifying reference answers every pinned case.
-            return report((), rows("hidden", len(job.cases)))
+            return dataclasses.replace(report((), rows("hidden", len(job.cases))),
+                                       module_sha256=catalog.sha256_text(job.module_text))
         canned = self.by_phase[phase]
-        return canned(job) if callable(canned) else canned
+        result = canned(job) if callable(canned) else canned
+        return dataclasses.replace(result, module_sha256=catalog.sha256_text(job.module_text))
 
 
 @functools.lru_cache(maxsize=None)

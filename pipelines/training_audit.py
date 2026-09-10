@@ -548,7 +548,11 @@ class _CorpusAudit:
             return
 
         self._account_tokens(token_estimate, bucket)
-        if procedural_claim:
+        self._observe_valid_record(obj, where, factory)
+
+    def _observe_valid_record(self, obj, where, factory):
+        bucket = self.factories[factory]
+        if isinstance(obj, dict) and obj.get("family") == "python-function-repair":
             self._observe_code_repair(obj, where, factory, bucket)
             return
         self.totals["eligible_records"] += 1

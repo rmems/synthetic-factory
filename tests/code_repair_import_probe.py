@@ -14,10 +14,9 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
-MODULES = (
-    "_contract", "vocabulary", "catalog", "catalog_check", "mutate", "mutate_span",
-    "mutate_literals", "executor", "verify", "records", "views", "generate", "export",
-    "export_integrity", "cli",
+MODULES = tuple(
+    "_contract vocabulary catalog catalog_check mutate mutate_span mutate_literals executor "
+    "verify records views generate export export_integrity cli record_validation evidence".split()
 )
 
 

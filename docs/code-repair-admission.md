@@ -30,6 +30,15 @@ Catalog metadata and programs bytes are independently pinned. Source identities
 must match the trusted catalog, and the shared pure catalog validator recomputes
 its structure, group, and split bindings.
 
+The RUN2 catalog contains 197 programs. Its exact `CATALOG.json` SHA-256 is
+`2402fe1d85a9a4a978ef4cc5e4491859cdf302b9c4b33415a66a4c00a5311f98`, and
+`programs.jsonl` SHA-256 is
+`fbd012638c92cbad072553405c545e5f8dc26bc677100a11e693d61b7bf9d904`.
+The source policy digest is
+`b8d1621798eb13eed8e5d73de365dc1028b08cef9645d08aff9d909630b23b1b`.
+These pins supersede the catalog used for the historical `pilot-r3` report;
+that report and its original output bytes are historical evidence.
+
 Catalog rebuilds require a reviewed update to the JSON policy's catalog pins,
 the single independent `POLICY_SHA256` trust anchor, and the corresponding
 registry row's copied pins and policy digest. These are authority changes,
