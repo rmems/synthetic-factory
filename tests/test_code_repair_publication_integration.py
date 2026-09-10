@@ -19,6 +19,65 @@ from code_repair import cli, export, publication
 import training_audit
 
 
+def _change_seed(run):
+    run["seed"] += 1
+
+
+def _change_harness_digest(run):
+    run["harness_sha256"] = "0" * 64
+
+
+def _change_count(run):
+    run["count"] += 1
+
+
+def _change_generator(run):
+    run["generator"]["version"] = "unknown"
+
+
+def _change_candidate_evidence(record):
+    record["result"]["evidence_sha256"] = "0" * 64
+
+
+def _change_candidate_source(record):
+    record["scenario"]["source"]["upstream"]["repository"] = "foreign/source"
+
+
+def _change_candidate_generator(record):
+    record["generator"]["name"] = "foreign-generator"
+
+
+_RUN_CORRUPTIONS = {
+    "seed": _change_seed,
+    "harness_sha256": _change_harness_digest,
+    "count": _change_count,
+    "generator": _change_generator,
+}
+_CANDIDATE_CORRUPTIONS = {
+    "candidate_evidence": _change_candidate_evidence,
+    "candidate_source": _change_candidate_source,
+    "candidate_generator": _change_candidate_generator,
+}
+
+
+def _corrupt_run_input(run_dir, field):
+    run = json.loads((run_dir / "RUN.json").read_text())
+    if field in _CANDIDATE_CORRUPTIONS:
+        from code_repair._contract import oc
+
+        records = [json.loads(line) for line in
+                   (run_dir / "candidates.jsonl").read_bytes().splitlines()]
+        record = records[-1]  # Corrupt the final candidate, not just a chosen positive.
+        _CANDIDATE_CORRUPTIONS[field](record)
+        record["provenance"]["record_sha256"] = oc.record_digest(record)
+        candidates = b"".join(oc.canonical_json(row).encode() + b"\n" for row in records)
+        (run_dir / "candidates.jsonl").write_bytes(candidates)
+        run["candidates_sha256"] = hashlib.sha256(candidates).hexdigest()
+    else:
+        _RUN_CORRUPTIONS[field](run)
+    (run_dir / "RUN.json").write_text(json.dumps(run))
+
+
 class PublicationIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -263,30 +322,7 @@ class PublicationIntegrationTests(unittest.TestCase):
                 root = Path(directory)
                 run_dir = root / "run"
                 shutil.copytree(self.run_dir, run_dir)
-                run = json.loads((run_dir / "RUN.json").read_text())
-                if field.startswith("candidate_"):
-                    records = [json.loads(line) for line in
-                               (run_dir / "candidates.jsonl").read_bytes().splitlines()]
-                    # Corrupt the final candidate, not just a chosen positive.
-                    record = records[-1]
-                    if field == "candidate_source":
-                        record["scenario"]["source"]["upstream"]["repository"] = "foreign/source"
-                    elif field == "candidate_generator":
-                        record["generator"]["name"] = "foreign-generator"
-                    else:
-                        record["result"]["evidence_sha256"] = "0" * 64
-                    from code_repair._contract import oc
-                    record["provenance"]["record_sha256"] = oc.record_digest(record)
-                    candidates = b"".join(oc.canonical_json(r).encode() + b"\n" for r in records)
-                    (run_dir / "candidates.jsonl").write_bytes(candidates)
-                    run["candidates_sha256"] = hashlib.sha256(candidates).hexdigest()
-                elif field == "generator":
-                    run[field]["version"] = "unknown"
-                elif field == "harness_sha256":
-                    run[field] = "0" * 64
-                else:
-                    run[field] += 1
-                (run_dir / "RUN.json").write_text(json.dumps(run))
+                _corrupt_run_input(run_dir, field)
                 factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
                 factory.mkdir(parents=True)
                 with self.assertRaises(rt.TransactionError):
