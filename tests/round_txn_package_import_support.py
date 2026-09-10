@@ -7,6 +7,8 @@ import multiprocessing
 import sys
 from pathlib import Path
 
+from tests.process_test_support import ProcessTimeout, spawned_process_exit_code
+
 
 _PROCESS_TIMEOUT_SECONDS = 30.0
 _TERMINATION_TIMEOUT_SECONDS = 5.0
@@ -112,20 +114,16 @@ def _package_only_probe(repo_text: str, factory_text: str, operation: str) -> No
 def package_only_probe_exit_code(repo: Path, factory: Path, operation: str) -> int | None:
     """Run one transaction consumer in a spawned interpreter with package-only imports."""
 
-    process = multiprocessing.get_context("spawn").Process(
-        target=_package_only_probe,
-        args=(str(repo), str(factory), operation),
+    return spawned_process_exit_code(
+        _package_only_probe,
+        (str(repo), str(factory), operation),
+        timeout=ProcessTimeout(
+            _PROCESS_TIMEOUT_SECONDS,
+            _TERMINATION_TIMEOUT_SECONDS,
+            (
+                "package-only import probe timed out after "
+                f"{_PROCESS_TIMEOUT_SECONDS:g} seconds"
+            ),
+        ),
+        multiprocessing_module=multiprocessing,
     )
-    process.start()
-    process.join(_PROCESS_TIMEOUT_SECONDS)
-    if process.is_alive():
-        process.terminate()
-        process.join(_TERMINATION_TIMEOUT_SECONDS)
-        if process.is_alive():
-            process.kill()
-            process.join(_TERMINATION_TIMEOUT_SECONDS)
-        raise TimeoutError(
-            "package-only import probe timed out after "
-            f"{_PROCESS_TIMEOUT_SECONDS:g} seconds"
-        )
-    return process.exitcode
