@@ -137,6 +137,38 @@ class PublicationIntegrationTests(unittest.TestCase):
             with self.assertRaises(rt.TransactionError):
                 rt.committed_jsonl_paths(factory)
 
+    def test_completed_validation_refuses_rebound_identity_evidence_and_membership(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
+            factory.mkdir(parents=True)
+            publication.publish_run(publication.PublishRequest(self.run_dir, factory, 1))
+            batch = factory / "batch-r01.jsonl"
+            marker = factory / "ROUND-r01.complete.json"
+            original = json.loads(marker.read_text())
+
+            wrong_factory = {**original, "factory": "foreign-factory"}
+            with self.assertRaisesRegex(rt.TransactionError, "does not bind this batch"):
+                publication.validate_completed(batch, wrong_factory)
+
+            changed_summary = json.loads(json.dumps(original))
+            changed_summary["execution_verification"]["procedural"]["candidate_count"] += 1
+            with self.assertRaisesRegex(rt.TransactionError, "differs from captured"):
+                publication.validate_completed(batch, changed_summary)
+
+            missing_member = {**original, "files": []}
+            with self.assertRaisesRegex(rt.TransactionError, "does not own required"):
+                publication.validate_completed(batch, missing_member)
+
+            batch.write_bytes(b" " + batch.read_bytes())
+            with self.assertRaisesRegex(rt.TransactionError, "exact deterministic selected"):
+                publication.validate_completed(batch, original)
+
+            batch.write_bytes(batch.read_bytes()[1:])
+            (factory / publication.input_name(1)).unlink()
+            with self.assertRaisesRegex(rt.TransactionError, "procedural publication refused"):
+                publication.validate_completed(batch, original)
+
     def test_cli_publish_and_admitted_export_bind_actual_marker_and_exact_membership(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

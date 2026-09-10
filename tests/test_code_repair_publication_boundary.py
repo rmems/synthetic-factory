@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -100,6 +101,118 @@ class ProceduralBoundaryTests(unittest.TestCase):
             with self.assertRaisesRegex(rt.TransactionError, "procedural"):
                 rt.publish(factory, 1, reservation["token"],
                            execution_override="Reviewed local evidence is sufficient")
+
+
+class PublicationInputBoundaryTests(unittest.TestCase):
+    def test_candidate_parser_refuses_missing_and_duplicate_canonical_ids(self):
+        from code_repair import publication
+
+        cases = (
+            (b"{}\n", "candidate lacks a canonical ID"),
+            (b"[]\n", "candidate lacks a canonical ID"),
+            (b'{"id":"same"}\n{"id":"same"}\n', "duplicate candidate ID"),
+        )
+        for payload, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(
+                rt.TransactionError, message
+            ):
+                publication._records(payload)
+
+    def test_round_input_refuses_each_malformed_capture_boundary(self):
+        from code_repair import publication
+
+        valid = {
+            "format": publication.INPUT_FORMAT,
+            "run_json": "{}",
+            "candidates_jsonl": "",
+            "lineage_cap": 1,
+        }
+        cases = (
+            ([], "round-scoped input must be an object"),
+            ({}, "invalid round-scoped input fields"),
+            ({**valid, "format": "wrong"}, "invalid round-scoped input artifact"),
+            ({**valid, "run_json": []}, "original run inputs must be exact UTF-8 strings"),
+            ({**valid, "candidates_jsonl": []},
+             "original run inputs must be exact UTF-8 strings"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / publication.input_name(1)
+            for value, message in cases:
+                with self.subTest(message=message):
+                    artifact.write_text(json.dumps(value))
+                    with self.assertRaisesRegex(rt.TransactionError, message):
+                        publication._load_input(artifact)
+
+    def test_empty_selection_and_invalid_publish_requests_refuse_before_writes(self):
+        from code_repair import publication
+
+        with self.assertRaisesRegex(rt.TransactionError, "nonempty selected batch"):
+            publication._selected_payload([], {})
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cases = (
+                (root / "wrong-factory", 1, "approved factory"),
+                (root / "python-function-repair-factory", 0, "positive round number"),
+            )
+            for factory, round_number, message in cases:
+                with self.subTest(message=message), self.assertRaisesRegex(
+                    rt.TransactionError, message
+                ):
+                    publication.publish_run(
+                        publication.PublishRequest(root / "run", factory, round_number)
+                    )
+                self.assertFalse(factory.exists())
+
+    def test_input_inspection_refuses_a_legacy_source_route(self):
+        from code_repair import publication
+
+        with tempfile.TemporaryDirectory() as directory:
+            factory = Path(directory) / "legacy-factory"
+            factory.mkdir()
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text('{"id":"legacy"}\n')
+            with self.assertRaisesRegex(rt.TransactionError, "procedural source route"):
+                publication.inspect_inputs(factory, batch, 1)
+
+    def test_fresh_gate_wraps_a_missing_captured_input_as_a_transaction_refusal(self):
+        from code_repair import publication
+
+        with tempfile.TemporaryDirectory() as directory:
+            factory = Path(directory) / "python-function-repair-factory"
+            factory.mkdir()
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text('{"family":"python-function-repair","id":"candidate"}\n')
+            with self.assertRaisesRegex(rt.TransactionError,
+                                        r"code-repair-input-r01\.json"):
+                publication.fresh_gate(factory, batch, 1)
+
+    def test_missing_transaction_round_cannot_supply_a_completion_marker(self):
+        from code_repair import publication_export
+
+        with tempfile.TemporaryDirectory() as directory:
+            factory = Path(directory) / "python-function-repair-factory"
+            factory.mkdir()
+            rt.ensure_marker_mode(factory)
+            with self.assertRaisesRegex(rt.TransactionError, "completed round does not exist"):
+                publication_export._completed_marker(factory / "ROUND-r01.complete.json")
+
+    def test_sealed_export_inputs_refuse_unreadable_catalog_and_changed_license(self):
+        from code_repair import admission, publication_export, vocabulary as cv
+
+        trusted = admission.load_trusted_catalog()
+        with tempfile.TemporaryDirectory() as directory:
+            unreadable = replace(trusted, directory=Path(directory))
+            with self.assertRaisesRegex(cv.RepairRefusal, "catalog became unreadable"):
+                publication_export.trusted_export_catalog(unreadable)
+
+        policy = dict(publication_export.sp.POLICY)
+        policy["source_license_evidence"] = {
+            **policy["source_license_evidence"],
+            "license_sha256": "0" * 64,
+        }
+        with mock.patch.object(publication_export.sp, "POLICY", policy):
+            with self.assertRaisesRegex(cv.RepairRefusal, "license bytes changed"):
+                publication_export.attribution_files()
 
 
 if __name__ == "__main__":
