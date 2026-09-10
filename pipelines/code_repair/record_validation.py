@@ -149,12 +149,28 @@ def _identity_shape(record: dict[str, Any]) -> None:
     _require(lineage["split"] is None or isinstance(lineage["split"], str))
 
 
+def _provenance_shape(provenance: dict) -> None:
+    """Bind the emitter-owned identity, leaving generic provenance metadata alone."""
+    expected = {
+        'producer': cv.PRODUCER, 'source_kind': cv.SOURCE_KIND, 'oracle_run': cv.ORACLE_RUN,
+        'actors': {
+            cv.ROLE_TASK_AUTHOR: assembly._actor(
+                cv.ROLE_TASK_AUTHOR, cv.GENERATOR_NAME, cv.GENERATOR_VERSION),
+            cv.ROLE_SOLVER: assembly._actor(cv.ROLE_SOLVER, cv.SOLVER_NAME, cv.GENERATOR_VERSION),
+            cv.ROLE_ORACLE_CERTIFIER: assembly._actor(
+                cv.ROLE_ORACLE_CERTIFIER, cv.ORACLE_NAME, cv.ORACLE_VERSION),
+        },
+    }
+    _require(all(provenance.get(key) == value for key, value in expected.items()))
+
+
 def _envelope_shape(record: Any) -> None:
     _require(isinstance(record, dict))
     _require(record.get("family") == cv.FAMILY)
     where = str(record.get("id", "record"))
     _require(not (oc.check_envelope(record, where) + oc.check_digest(record, where)))
     _require(not check_provenance_publish(record, where))
+    _provenance_shape(record['provenance'])
 
 
 def _result_shape(result: dict[str, Any]) -> None:

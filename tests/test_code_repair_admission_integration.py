@@ -6,6 +6,7 @@ import hashlib
 import json
 import tempfile
 import unittest
+from itertools import product
 from pathlib import Path
 
 from tests.test_curate_identity import identity as ci
@@ -213,6 +214,24 @@ class ProceduralIntegrationTests(unittest.TestCase):
         self.assertFalse(oc.curation_eligible(record, [])[0])
         with self.assertRaises(source_policy.SourcePolicyError):
             admission.natural_eligibility(record, self.row)
+
+    def test_emitter_owned_provenance_cannot_be_substituted(self):
+        for outcome, field in product(("accepted", "rejected"), ("producer", "source_kind", "oracle_run")):
+            with self.subTest(outcome=outcome, field=field):
+                record = copy.deepcopy(next(r for r in self.records if r["result"]["outcome"] == outcome))
+                record["provenance"][field] = "forged-provenance"
+                restamp(record)
+                self.assert_shared_refusal(json.loads(dumps_exact_json(record)))
+
+    def test_emitter_owned_actor_identities_cannot_be_substituted(self):
+        combinations = product(("accepted", "rejected"),
+            ("task_author", "solver", "oracle_certifier"), ("name", "kind", "role", "version"))
+        for outcome, role, field in combinations:
+            with self.subTest(outcome=outcome, actor=role, field=field):
+                record = copy.deepcopy(next(r for r in self.records if r["result"]["outcome"] == outcome))
+                record["provenance"]["actors"][role][field] = "forged-actor"
+                restamp(record)
+                self.assert_shared_refusal(json.loads(dumps_exact_json(record)))
 
     def test_fabricated_abstention_cannot_relabel_measured_phase_evidence(self):
         for outcome in ("accepted", "rejected"):
