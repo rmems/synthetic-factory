@@ -31,7 +31,6 @@ def request(run_dir, out_dir, replay_dir=None, cap=export.DEFAULT_LINEAGE_CAP):
 def stamp_replay(run_dir, replay_dir):
     path = replay_dir / replay.REPLAY_FILENAME
     report = json.loads(path.read_text())
-    meta = json.loads((run_dir / generate.RUN_FILENAME).read_text())
     path.write_text(json.dumps(report))
     return report
 

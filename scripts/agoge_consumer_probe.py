@@ -136,12 +136,26 @@ def _label_report(rows: list[dict], config: dict) -> dict:
     }
 
 
+def _valid_boundary_offset(text, start) -> bool:
+    if not isinstance(text, str):
+        return False
+    if type(start) is not int:
+        return False
+    return start in range(1, len(text))
+
+
+def _delimits_completion(text: str, start: int) -> bool:
+    if not text[start:].strip():
+        return False
+    return text[:start].endswith(SEPARATOR)
+
+
 def completion_boundary(row: dict) -> int:
     """Validate the producer's explicit Unicode offset, without searching prompt contents."""
     text, start = row.get("text"), row.get("completion_start_char")
-    if not isinstance(text, str) or type(start) is not int or not 0 < start < len(text):
+    if not _valid_boundary_offset(text, start):
         raise ValueError("invalid completion_start_char")
-    if not text[start:].strip() or not text[:start].endswith(SEPARATOR):
+    if not _delimits_completion(text, start):
         raise ValueError("boundary does not delimit a nonempty corrected module")
     return start
 
@@ -209,6 +223,30 @@ def _labels(rows: list[dict], args: argparse.Namespace) -> dict:
     return {**_label_report(rows, config), "config": config}
 
 
+def _freeze_ready(args: argparse.Namespace) -> bool:
+    revision = args.source_revision
+    if not revision:
+        return False
+    if not PINNED_REVISION.fullmatch(revision):
+        return False
+    if revision == '0' * 40:
+        return False
+    if not args.dataset_version:
+        return False
+    return args.dataset_version != 'probe'
+
+
+def _freeze_step(report: dict, args: argparse.Namespace, spec) -> None:
+    if args.freeze_into is None:
+        return
+    if not _freeze_ready(args):
+        report['freeze'] = {
+            'error': 'freeze requires real --source-revision and --dataset-version',
+        }
+        return
+    report["freeze"] = _guarded(_freeze, args.agoge_jsonl, args.freeze_into, spec)[0]
+
+
 def _split_steps(report: dict, records: list, rows: list, args: argparse.Namespace) -> None:
     policy = report.pop("policy")
     if policy is None:
@@ -223,13 +261,7 @@ def _split_steps(report: dict, records: list, rows: list, args: argparse.Namespa
         return
     spec = spec_report["spec"]
     report["split_agreement"] = _guarded(_split_agreement, records, rows, spec)[0]
-    if args.freeze_into is not None:
-        if (not args.source_revision or not PINNED_REVISION.fullmatch(args.source_revision)
-                or args.source_revision == '0' * 40
-                or not args.dataset_version or args.dataset_version == 'probe'):
-            report['freeze'] = {'error': 'freeze requires real --source-revision and --dataset-version'}
-        else:
-            report["freeze"] = _guarded(_freeze, args.agoge_jsonl, args.freeze_into, spec)[0]
+    _freeze_step(report, args, spec)
 
 
 def _make_spec(policy: dict, source_path: str, source_revision, dataset_version) -> dict:
