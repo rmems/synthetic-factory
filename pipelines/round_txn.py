@@ -643,11 +643,20 @@ def copy_verified_exclusive(source: Path, destination: Path, expected_sha256: st
         temporary.unlink(missing_ok=True)
 
 
+def _code_repair_publication():
+    """Resolve the lazy publication gate in the active pipeline import namespace."""
+    if __package__:
+        from .code_repair import publication
+    else:
+        from code_repair import publication
+    return publication
+
+
 def valid_legacy_file(path: Path):
     """Return its record count when a legacy JSONL file fully deep-checks."""
     if not path.is_file() or path.is_symlink():
         return 0
-    from code_repair import publication
+    publication = _code_repair_publication()
     if publication.requires_gate(path.parent, path):
         return 0
     errors, _warnings, _kinds, records = check_jsonl(path, path.name)
@@ -662,7 +671,7 @@ def validate_legacy_payload(
     quarantined_kinds: dict[int, str] | None = None,
 ):
     """Return a legacy payload's records and any applicable contract errors."""
-    from code_repair import publication
+    publication = _code_repair_publication()
     if publication.requires_gate(factory_dir, path):
         return 0, ["procedural records require completed fresh-gate rounds, not legacy baselines"]
     factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
@@ -1018,7 +1027,7 @@ def _bind_completion_execution_verdict(
     bound_verified_rounds,
 ):
     marker_version = completion_marker_version(payload, path)
-    from code_repair import publication
+    publication = _code_repair_publication()
     if publication.inspect_completed_if_required(factory_dir / batch_name, payload):
         return True
     gated_round = (
@@ -1475,7 +1484,7 @@ def committed_jsonl_paths(factory_dir: Path):
             for path in factory_dir.rglob("*.jsonl")
             if path.is_file() and not path.is_symlink()
         )
-        from code_repair import publication
+        publication = _code_repair_publication()
         publication.require_legacy_only(factory_dir, files)
         return files
 
@@ -2260,7 +2269,7 @@ def validate_completed_batch(
 ):
     """Re-run publication record, quota, and envelope checks for one marker."""
     batch = factory_dir / f"batch-r{round_number:02d}.jsonl"
-    from code_repair import publication
+    publication = _code_repair_publication()
     publication.inspect_completed_if_required(batch, manifest)
     factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
     kinds, records = _completed_batch_is_training_ready(batch, seen_ids, factory_staging)
@@ -2390,7 +2399,7 @@ def validate_stage(
             raise TransactionError("staging file set changed during validation")
 
         batch = captured_dir / batch_name
-        from code_repair import publication
+        publication = _code_repair_publication()
         procedural = publication.require_route(factory_dir, batch, override=execution_override)
         notes = captured_dir / notes_name
         try:

@@ -194,6 +194,37 @@ class PublicationIntegrationTests(unittest.TestCase):
                     publication.publish_run(publication.PublishRequest(run_dir, factory, 1))
             self.assertEqual(list(factory.iterdir()), [])
 
+    def test_admitted_export_refuses_marker_mode_changes_during_fresh_replay(self):
+        for change in ("missing", "replaced", "corrupt"):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
+                factory.mkdir(parents=True)
+                publication.publish_run(publication.PublishRequest(self.run_dir, factory, 1))
+                mode = factory / rt.MODE_FILE
+                original_mode = mode.read_bytes()
+                real_gate = publication.fresh_gate
+
+                def change_mode_after_replay(
+                    *args, replay_state=(real_gate, mode, change, original_mode)
+                ):
+                    real_gate, mode, change, original_mode = replay_state
+                    result = real_gate(*args)
+                    mode.unlink()
+                    if change == "replaced":
+                        mode.write_bytes(original_mode + b"\n")
+                    elif change == "corrupt":
+                        mode.write_bytes(b"{corrupt\n")
+                    return result
+
+                out = root / "must-refuse"
+                with mock.patch.object(publication, "fresh_gate", side_effect=change_mode_after_replay):
+                    with self.assertRaises(ValueError):
+                        export.run(export.ExportRequest(self.run_dir, out,
+                            catalog_dir=REPO / "catalogs/python-repair-v1", admit=True,
+                            round_marker=factory / "ROUND-r01.complete.json"))
+                self.assertFalse(out.exists())
+
     def test_admitted_export_refuses_missing_fake_foreign_and_partial_membership(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

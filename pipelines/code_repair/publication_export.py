@@ -80,7 +80,7 @@ def completed_batch_matches(batch: Path, payload: bytes) -> bool:
         return False
 
 
-def _capture_completion(marker: Path, destination: Path) -> tuple[dict, bytes]:
+def _capture_completion(marker: Path, destination: Path) -> tuple[dict, bytes, bytes]:
     """Capture and revalidate all manifest members before fresh execution."""
     transaction = publication._transaction()
     original = _completed_marker(marker)
@@ -96,12 +96,13 @@ def _capture_completion(marker: Path, destination: Path) -> tuple[dict, bytes]:
         if digest != entry["sha256"] or size != entry["bytes"]:
             publication._fail("completion artifact changed during capture")
     # A captured marker needs the same reviewed transaction cutover as its store.
-    mode = transaction.marker_mode_path(marker.parent)
+    mode = marker.parent / transaction.MODE_FILE
     transaction.capture_regular_file(mode, destination / mode.name)
+    mode_bytes = (destination / mode.name).read_bytes()
     transaction.completed_manifests(destination)
     if transaction.file_sha256(marker) != _sha(marker_bytes):
         publication._fail("completion marker changed during validation")
-    return manifest, marker_bytes
+    return manifest, marker_bytes, mode_bytes
 
 
 def _fresh_completion(factory, manifest):
@@ -112,12 +113,14 @@ def _fresh_completion(factory, manifest):
     return fresh
 
 
-def _unchanged_completion(marker, manifest, marker_bytes):
+def _unchanged_completion(marker, manifest, marker_bytes, mode_bytes):
     transaction = publication._transaction()
     for entry in manifest["files"]:
         transaction.completion_manifest_file_matches(marker.parent / entry["name"], manifest)
     if transaction.file_sha256(marker) != _sha(marker_bytes):
         publication._fail("completion changed during fresh replay")
+    if transaction.file_sha256(marker.parent / transaction.MODE_FILE) != _sha(mode_bytes):
+        publication._fail("marker mode changed during fresh replay")
 
 
 def authorize_export(request, *, run_bytes: bytes, candidates: bytes, selected_ids: list[str]) -> dict:
@@ -129,7 +132,7 @@ def authorize_export(request, *, run_bytes: bytes, candidates: bytes, selected_i
         marker = Path(request.round_marker).absolute()
         with tempfile.TemporaryDirectory(prefix="code-repair-admitted-") as directory:
             factory = Path(directory) / sp.POLICY["path_id"]
-            manifest, marker_bytes = _capture_completion(marker, factory)
+            manifest, marker_bytes, mode_bytes = _capture_completion(marker, factory)
             summary = manifest["execution_verification"]
             binding = summary["procedural"]
             expected = (_sha(run_bytes), _sha(candidates), request.lineage_cap, sorted(selected_ids))
@@ -139,7 +142,7 @@ def authorize_export(request, *, run_bytes: bytes, candidates: bytes, selected_i
                 publication._fail("export run and selected membership must exactly match completion")
             fresh = _fresh_completion(factory, manifest)
             # Even after capture, report an identity only while its original store is unchanged.
-            _unchanged_completion(marker, manifest, marker_bytes)
+            _unchanged_completion(marker, manifest, marker_bytes, mode_bytes)
             return {
                 "path": str(marker), "sha256": _sha(marker_bytes),
                 "factory": manifest["factory"], "round": manifest["round"],
