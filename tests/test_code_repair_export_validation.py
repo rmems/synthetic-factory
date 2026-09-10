@@ -271,7 +271,7 @@ class ConsumerProbeFailures(unittest.TestCase):
         })
 
         report = {'policy': {'seed': 1, 'salt': 'x', 'weights': {}}}
-        with mock.patch.object(probe, '_make_spec', side_effect=ValueError('bad policy')):
+        with mock.patch.object(probe, '_spec', side_effect=ValueError('bad policy')):
             probe._split_steps(report, [], [], args)
         self.assertEqual(report['split_agreement'], {
             'error': 'ValueError: bad policy', 'agree': False,
