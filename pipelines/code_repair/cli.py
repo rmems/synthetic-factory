@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""The agent surface of the code-repair family: ``catalog-check``, ``generate``, ``render``.
+"""The agent surface of the code-repair family: ``catalog-check``.
 
 Exit codes: 0 when the command succeeded with nothing to report, 1 when it
-ran and reports findings (catalog findings, a record that is not a positive
-example), 2 on a coded refusal or a usage error. ``--json`` prints one object
+ran and reports catalog findings, 2 on a coded refusal or a usage error. ``--json`` prints one object
 with a ``code`` field per finding so an agent never parses prose.
 """
 

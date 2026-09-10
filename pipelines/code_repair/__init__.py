@@ -15,8 +15,8 @@ adds no vocabulary to the envelope and re-implements none of its primitives.
 
 __all__ = [
     "_contract",
-    "vocabulary",
     "catalog",
-    "executor",
     "cli",
+    "executor",
+    "vocabulary",
 ]

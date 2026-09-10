@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -26,7 +27,8 @@ from typing import Any
 from . import vocabulary as cv
 from ._contract import bind_import_twin, load_strict_json
 
-HARNESS_PATH = Path(__file__).with_name("_harness.py")
+HARNESS_FILENAME = "_harness.py"
+HARNESS_PATH = Path(__file__).with_name(HARNESS_FILENAME)
 INTERPRETER_FLAGS = ("-P", "-s", "-S", "-B", "-X", "utf8")
 CHILD_ENV = {"PYTHONHASHSEED": "0", "PYTHONDONTWRITEBYTECODE": "1"}
 FLOAT_REL_TOL = 1e-9
@@ -35,7 +37,7 @@ STDERR_TAIL_CHARS = 400
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024  # above the child's file-size limit, so a full read is complete
 
 __all__ = [
-    "CHILD_ENV", "Executor", "HARNESS_PATH", "INTERPRETER_FLAGS", "Job", "PhaseReport",
+    "CHILD_ENV", "HARNESS_PATH", "INTERPRETER_FLAGS", "Executor", "Job", "PhaseReport",
     "harness_sha256", "rows_of",
 ]
 
@@ -47,7 +49,7 @@ class Job:
     label: str
     module_text: str
     function: str
-    cases: tuple[dict[str, Any], ...] = ()
+    cases: tuple[Mapping[str, Any], ...] = ()
     run_public: bool = True
     expected_public: int | None = None
 
@@ -83,7 +85,9 @@ def rows_of(rows: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
     for row in rows:
         entry: dict[str, Any] = {"id": row["id"], "status": row["status"]}
         if "got" in row:
-            entry["got_sha256"] = hashlib.sha256(str(row["got"]).encode("utf-8")).hexdigest()
+            entry["got_sha256"] = row.get("got_sha256") or hashlib.sha256(
+                str(row["got"]).encode("utf-8")
+            ).hexdigest()
         digestable.append(entry)
     return sorted(digestable, key=lambda row: row["id"])
 
@@ -114,7 +118,8 @@ class Executor:
     def __init__(self, *, timeout_s: float = cv.DEFAULT_TIMEOUT_S) -> None:
         _check_timeout(timeout_s)
         self.timeout_s = float(timeout_s)
-        self.harness_sha256 = harness_sha256()
+        self._harness_bytes = HARNESS_PATH.read_bytes()
+        self.harness_sha256 = hashlib.sha256(self._harness_bytes).hexdigest()
         self.log: list[dict[str, Any]] = []
 
     def spec(self, job: Job) -> dict[str, Any]:
@@ -122,7 +127,7 @@ class Executor:
             "protocol": cv.HARNESS_PROTOCOL,
             "function": job.function,
             "run_public": job.run_public,
-            "cases": list(job.cases),
+            "cases": [dict(case) for case in job.cases],
             "float_rel_tol": FLOAT_REL_TOL,
             "float_abs_tol": FLOAT_ABS_TOL,
             "cpu_seconds": int(self.timeout_s) + 2,
@@ -136,6 +141,7 @@ class Executor:
             program = workdir / cv.PROGRAM_FILENAME
             program.write_text(job.module_text, encoding="utf-8", newline="\n")
             (workdir / "spec.json").write_text(_dumps(self.spec(job)), encoding="utf-8")
+            (workdir / HARNESS_FILENAME).write_bytes(self._harness_bytes)
             return self._execute(job, workdir)
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
@@ -148,7 +154,9 @@ class Executor:
         the factory process.
         """
 
-        argv = [sys.executable, *INTERPRETER_FLAGS, str(HARNESS_PATH), str(workdir)]
+        # This pilot runs reviewed pinned code only. Resource limits do not isolate host
+        # files, network access, or spawned children; OS isolation remains separate (#201).
+        argv = [sys.executable, *INTERPRETER_FLAGS, str(workdir / HARNESS_FILENAME), str(workdir)]
         started = time.monotonic()
         entry: dict[str, Any] = {"label": job.label, "timed_out": False, "returncode": None}
         stdout_path, stderr_path = workdir / "stdout", workdir / "stderr"
@@ -202,6 +210,8 @@ def _parse_report(job: Job, returncode: int, stdout: bytes) -> PhaseReport:
     if isinstance(parsed, str):
         return _harness_error(parsed)
     environment = _object(parsed, "environment")
+    if environment.get("limits_applied") is not True:
+        return _harness_error(f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not applied")
     load = _object(parsed, "load")
     if load.get("status") != "ok":
         detail = str(load.get("error") or "load failed")
