@@ -1,0 +1,22 @@
+tests/test_code_repair_mutate.py
+  s_637722da58c92c::t_7f8392202c5e48 14,40
+  s_637722da58c92c::t_7897d9d31e7e69 35-39
+pipelines/code_repair/mutate_span.py
+  s_637722da58c92c::t_40d6fe8d929e92 52-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ca5c5b2698150153b517c713d9bc82cf4c1255b1",
+  "prompts": {},
+  "sessions": {
+    "s_637722da58c92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b4-b4e1-7663-adcf-65ef44374529",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
