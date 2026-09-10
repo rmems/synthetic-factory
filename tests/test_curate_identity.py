@@ -2348,6 +2348,27 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             with self.assertRaisesRegex(identity.IdentityTreeError, "action does not match"):
                 identity.validate_identity_tree(dest)
 
+    def test_validate_identity_tree_resolves_manifest_replay_through_live_facade(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            (src / FABLE_ACT).mkdir(parents=True)
+            (src / FABLE_ACT / "episodes.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            identity.write_run(src, dest)
+
+            def reject_replay(_mapping, _index, _registry):
+                raise identity.IdentityTreeError("live manifest replay seam")
+
+            with mock.patch.object(identity, "_replay_manifest_mapping", reject_replay):
+                with self.assertRaisesRegex(
+                    identity.IdentityTreeError,
+                    "live manifest replay seam",
+                ):
+                    identity.validate_identity_tree(dest)
+
     def test_validate_identity_tree_reconciles_output_paths_and_hashes(self):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "src"
