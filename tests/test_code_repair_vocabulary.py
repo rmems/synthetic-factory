@@ -16,9 +16,12 @@ from code_repair_test_support import (  # noqa: E402
 
 def random_import_call(node):
     """Whether a call uses an import_module attribute with a literal random argument."""
-    return (isinstance(node.func, ast.Attribute) and node.func.attr == "import_module"
-            and bool(node.args) and isinstance(node.args[0], ast.Constant)
-            and node.args[0].value == "random")
+    if not isinstance(node.func, ast.Attribute):
+        return False
+    if node.func.attr != "import_module" or not node.args:
+        return False
+    argument = node.args[0]
+    return isinstance(argument, ast.Constant) and argument.value == "random"
 
 
 def random_import(node):
