@@ -251,7 +251,7 @@ def _planned_findings(inputs):
          record['intervention']['variant'])
         for record in inputs.records
     ]
-    if actual != expected or Counter(run['skips']) != plan.skips:
+    if actual != expected or run['skips'] != dict(plan.skips):
         return [cv.EXPORT_RUN_SUMMARY_MISMATCH]
     return []
 

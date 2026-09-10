@@ -103,6 +103,19 @@ class TrustedBindings(unittest.TestCase):
         run["skips"]["MUTATION_UNVERIFIABLE"] = skipped
         self.assertTrue(capture(run, candidates))
 
+    def test_generated_zero_skip_key_cannot_be_removed(self):
+        run, candidates = self.evidence()
+        self.assertEqual(capture(run, candidates), [])
+        self.assertEqual(run["skips"].pop("MUTATION_NO_SITES"), 0)
+        self.assertTrue(capture(run, candidates))
+
+    def test_ungenerated_zero_skip_key_cannot_be_added(self):
+        run, candidates = self.evidence()
+        self.assertEqual(capture(run, candidates), [])
+        self.assertNotIn("MUTATION_UNVERIFIABLE", run["skips"])
+        run["skips"]["MUTATION_UNVERIFIABLE"] = 0
+        self.assertTrue(capture(run, candidates))
+
 
 class PlanningEquivalence(unittest.TestCase):
     def test_duplicate_draws_preserve_original_indexes(self):
