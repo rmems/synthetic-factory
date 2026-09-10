@@ -110,7 +110,7 @@ def _package_only_probe(repo_text: str, factory_text: str, operation: str) -> No
 
 
 def package_only_probe_exit_code(repo: Path, factory: Path, operation: str) -> int | None:
-    """Run one legacy consumer in a spawned interpreter with package-only imports."""
+    """Run one transaction consumer in a spawned interpreter with package-only imports."""
 
     process = multiprocessing.get_context("spawn").Process(
         target=_package_only_probe,
