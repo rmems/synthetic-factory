@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from training_audit_test_helpers import thalamic
 
@@ -164,6 +165,34 @@ class TrainingAuditCompatibilityExports(unittest.TestCase):
         self.assertEqual(training_audit.percentile([], 0.95), 0)
         self.assertEqual(training_audit.percentile([4, 1, 3, 2], 0.5), 2)
         self.assertEqual(training_audit.percentile([4, 1, 3, 2], 0.95), 4)
+
+    def test_hidden_path_walk_uses_the_public_key_classifier_seam(self):
+        record = {"custom_private_field": "secret", "answer": "observable"}
+
+        with mock.patch.object(
+            training_audit,
+            "is_hidden_thought_key",
+            side_effect=lambda key: key == "custom_private_field",
+        ):
+            paths = list(training_audit.hidden_thought_paths(record))
+
+        self.assertEqual(paths, ["custom_private_field"])
+
+    def test_wrapped_episode_walk_uses_the_public_view_seam(self):
+        episode = {
+            "goal": "inspect",
+            "outcome": "complete",
+            "reward": 1,
+        }
+
+        with mock.patch.object(
+            training_audit,
+            "thalamic_views",
+            return_value=(("custom", {"executed_action": episode}),),
+        ):
+            wrapped = list(training_audit.wrapped_agentic_episodes({}, "custom"))
+
+        self.assertEqual(wrapped, [("custom.executed_action", episode)])
 
 
 class TrainingAuditReportIdempotence(unittest.TestCase):

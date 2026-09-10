@@ -65,6 +65,8 @@ REFACTORED_FACADES = (
     "round_txn_preference",
     "round_txn_raster",
     "training_audit_mill",
+    "training_audit_record",
+    "training_audit_reasoning",
     "training_audit_report",
     "trajectory_pair_curation",
     "trajectory_pair_gate",

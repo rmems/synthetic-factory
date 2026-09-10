@@ -99,6 +99,8 @@ def _row_shape(row: Any, prefix: str) -> None:
     _require(isinstance(row["id"], str)
              and re.fullmatch(prefix + r":(?:0|[1-9][0-9]*)", row["id"]) is not None)
     _require(row["status"] in (cv.ROW_SUCCESS, cv.ROW_FAIL, cv.ROW_ERROR, cv.ROW_OBSERVED))
+    if prefix == cv.SUITE_PUBLIC:
+        _require(all(field in row for field in ("got", "truncated", "got_sha256")))
     _require(isinstance(row.get("got", ""), str))
     if "got" in row:
         _require(type(row["truncated"]) is bool and _digest(row["got_sha256"]))
@@ -268,6 +270,38 @@ def _phase_bindings_match(phases: verify.Phases, expected: dict[str, str],
     return True
 
 
+def _phase_schedule_matches(phases: verify.Phases, context: verify.DecisionContext) -> bool:
+    """Require exactly the phases that :mod:`generate` would have executed."""
+
+    before_mutant = verify.Phases(
+        phases.original,
+        reference=phases.reference,
+        original_repeat=phases.original_repeat,
+    )
+    mutant_runs = verify.pre_repair_problem(before_mutant, context) in (
+        None, cv.REASON_MUTANT_HARNESS_ERROR,
+    )
+    through_mutant = verify.Phases(
+        phases.original,
+        mutant=phases.mutant,
+        reference=phases.reference,
+        original_repeat=phases.original_repeat,
+    )
+    repaired_runs = (
+        mutant_runs and phases.mutant is not None
+        and verify.pre_repair_problem(through_mutant, context) is None
+    )
+    expected = {
+        cv.PHASE_ORIGINAL: True,
+        cv.PHASE_ORIGINAL_REPEAT: phases.original.ok,
+        cv.PHASE_MUTANT: mutant_runs,
+        cv.PHASE_REPAIRED: repaired_runs,
+        cv.PHASE_REFERENCE: context.reference_kind in cv.CERTIFYING_REFERENCE_KINDS,
+    }
+    return all((getattr(phases, name) is not None) is present
+               for name, present in expected.items())
+
+
 def verdict_matches(record: dict[str, Any]) -> bool:
     """Re-derive the stored decision and bind every executed source and suite."""
     result, scenario = record["result"], record["scenario"]
@@ -288,6 +322,8 @@ def verdict_matches(record: dict[str, Any]) -> bool:
         hidden["kind"], repaired_sha == source_sha,
         verify.tests_tampered(examples, repair["files"][cv.PROGRAM_FILENAME],
                               scenario["source"]["upstream"]["function"]), len(hidden["cases"]))
+    if not _phase_schedule_matches(phases, context):
+        return False
     verdict = verify.decide(phases, context)
     actual = (result["status"], result["outcome"], result["oracle_status"], result["reason_codes"],
               repair["sha256"], result["repaired_sha256"], result["broken_sha256"],

@@ -537,6 +537,78 @@ def _is_reward_narrative_spike_events(owner, value, reward_component_entries):
     )
 
 
+def _record_spike_errors(obj, where, kind, reward_component_entries):
+    """Validate each real spike stream against its enclosing clock."""
+
+    errors = []
+    for path, events, owner in _walk_key_owners(obj, "spike_events"):
+        if _is_reward_narrative_spike_events(owner, events, reward_component_entries):
+            continue
+        bridge_root = kind == "bridge_pair" and path == "spike_events"
+        contract = SpikeStreamContract(
+            require_keys=(BRIDGE_SPIKE_EVENT_KEYS if bridge_root else ()),
+            require_nonempty=bridge_root,
+            enclosing=owner,
+        )
+        errors.extend(check_spike_stream_shape(events, f"{where}: {path}", contract))
+    return errors
+
+
+def _record_reward_findings(reward_component_entries, where):
+    """Collect reward errors and warnings in source traversal order."""
+
+    errors, warnings = [], []
+    for path, reward_components in reward_component_entries:
+        reward_errors, reward_warnings = check_reward(
+            reward_components, f"{where}: {path}"
+        )
+        errors.extend(reward_errors)
+        warnings.extend(reward_warnings)
+    return errors, warnings
+
+
+def _record_provenance_warnings(obj, kind, where):
+    """Report missing/non-training expected-state provenance once."""
+
+    warnings = []
+    for path, state in expected_states(obj, kind):
+        if isinstance(state, dict) and "sim_or_real" not in state:
+            warnings.append(f"{where}: missing sim_or_real on {path}")
+        elif isinstance(state, dict):
+            value = state.get("sim_or_real")
+            # Deep real claims are owned by check_provenance_publish.
+            if not claims_real(value) and value not in ALLOWED_SIM_OR_REAL:
+                warnings.append(f"{where}: non-training provenance {value!r} on {path}")
+    return warnings
+
+
+def _legacy_episode_warnings(obj, kind, where):
+    """Report legacy thought-only episode steps after strict checks."""
+
+    warnings = []
+    if kind == "episode":
+        steps = obj.get("steps")
+        for index, step in enumerate(steps if isinstance(steps, list) else ()):
+            if isinstance(step, dict) and "thought" in step and "decision_basis" not in step:
+                warnings.append(
+                    f"{where}: step {index} uses legacy 'thought' without observable decision_basis"
+                )
+    return warnings
+
+
+def _record_mapping_findings(obj, where, kind):
+    """Validate nested streams, rewards, provenance, and legacy evidence."""
+
+    reward_component_entries = list(walk_key(obj, "reward_components"))
+    errors = _record_spike_errors(obj, where, kind, reward_component_entries)
+    reward_errors, warnings = _record_reward_findings(reward_component_entries, where)
+    errors.extend(reward_errors)
+    warnings.extend(_record_provenance_warnings(obj, kind, where))
+    errors.extend(check_provenance_publish(obj, where))
+    warnings.extend(_legacy_episode_warnings(obj, kind, where))
+    return errors, warnings
+
+
 def check_record(obj, where, factory_staging=False):
     errors, warnings = [], []
     shape_errs, kind = shape_check(obj, where, factory_staging=factory_staging)
@@ -546,54 +618,9 @@ def check_record(obj, where, factory_staging=False):
         return errors, warnings, kind, canonical_record_id(obj)
 
     if isinstance(obj, dict):
-        reward_component_entries = list(walk_key(obj, "reward_components"))
-        for path, events, owner in _walk_key_owners(obj, "spike_events"):
-            if _is_reward_narrative_spike_events(owner, events, reward_component_entries):
-                continue
-            # Single owner of stream validity: shape_check drops the shape
-            # layer's copies, so every stream — top-level, bridge, or nested —
-            # is reported exactly once from here. Only the bridge root requires
-            # channel/amplitude and a non-empty array.
-            bridge_root = kind == "bridge_pair" and path == "spike_events"
-            contract = SpikeStreamContract(
-                require_keys=(BRIDGE_SPIKE_EVENT_KEYS if bridge_root else ()),
-                require_nonempty=bridge_root,
-                # Every stream is judged against the clock its own owner
-                # declares, nested ones included: the owner and its meta are
-                # the namespace curate_bridge uses.
-                enclosing=owner,
-            )
-            errors.extend(
-                check_spike_stream_shape(
-                    events,
-                    f"{where}: {path}",
-                    contract,
-                )
-            )
-        for path, rc in reward_component_entries:
-            rc_errs, rc_warns = check_reward(rc, f"{where}: {path}")
-            errors.extend(rc_errs)
-            warnings.extend(rc_warns)
-        # Strict provenance: expected states missing or invalid
-        for path, state in expected_states(obj, kind):
-            if isinstance(state, dict) and "sim_or_real" not in state:
-                warnings.append(f"{where}: missing sim_or_real on {path}")
-            elif isinstance(state, dict):
-                value = state.get("sim_or_real")
-                # 'real' claims are owned by check_provenance_publish so a
-                # single violation is not reported twice with different wording.
-                if not claims_real(value) and value not in ALLOWED_SIM_OR_REAL:
-                    warnings.append(f"{where}: non-training provenance {value!r} on {path}")
-        # Publish-time deep provenance scan — owns every nested 'real' claim
-        errors.extend(check_provenance_publish(obj, where))
-        if kind == "episode":
-            steps = obj.get("steps")
-            for index, step in enumerate(steps if isinstance(steps, list) else ()):
-                if isinstance(step, dict) and "thought" in step and "decision_basis" not in step:
-                    warnings.append(
-                        f"{where}: step {index} uses legacy 'thought' without "
-                        "observable decision_basis"
-                    )
+        mapping_errors, mapping_warnings = _record_mapping_findings(obj, where, kind)
+        errors.extend(mapping_errors)
+        warnings.extend(mapping_warnings)
 
     record_id = canonical_record_id(obj)
     if record_id is None:
