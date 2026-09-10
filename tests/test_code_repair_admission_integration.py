@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.code_repair_admission_test_support import build_generated_admission_evidence, restamp
+from tests.training_audit_test_helpers import thalamic
 from tests.test_curate_identity import identity as ci
 from tests.code_repair_test_support import (
     PINNED_AT, REPO, SEED, envelope, generate, oc, records, verify, vocabulary,
@@ -434,6 +435,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
         snapshot = {path: (json.dumps(accepted) + "\n" + json.dumps(natural) + "\n").encode()}
         report = audit_run(self.root, snapshot=snapshot)
         self.assertEqual(report["totals"]["eligible_records"], 1)
+        self.assertEqual(report["totals"]["by_kind"], {"code_repair": 2})
         self.assertEqual(report["code_repair"]["evidence_only_records"], 1)
         self.assertEqual(report["record_invariants"]["errors"], 0)
         self.assertEqual(report["identity"]["duplicates"], [])
@@ -447,6 +449,46 @@ class ProceduralIntegrationTests(unittest.TestCase):
         wrong = "agentic-coding-trajectory-factory/batch-r01.jsonl"
         report = audit_run(self.root, snapshot={wrong: (json.dumps(accepted) + "\n").encode()})
         self.assertEqual(report["totals"]["eligible_records"], 0)
+        self.assertGreater(report["record_invariants"]["errors"], 0)
+
+    def test_audit_quarantines_forged_family_outside_reviewed_procedural_route(self):
+        accepted = next(r for r in self.records if r["result"]["outcome"] == "accepted")
+        foreign = copy.deepcopy(accepted)
+        foreign["meta"] = {"factory": "eval-harness-trajectory-factory"}
+        foreign_line = json.dumps(foreign) + "\n"
+
+        native = thalamic("native-1")
+        native["meta"]["factory"] = "unreviewed-hosted-factory"
+        cases = (
+            (
+                "agentic-coding-trajectory-factory/batch-r01.jsonl",
+                foreign_line,
+                {},
+            ),
+            (
+                "unreviewed-hosted-factory/batch-r01.jsonl",
+                json.dumps(native) + "\n" + foreign_line,
+                {"thalamic": 1},
+            ),
+        )
+        for path, payload, expected_kinds in cases:
+            with self.subTest(path=path):
+                report = audit_run(self.root, snapshot={path: payload.encode()})
+                self.assertEqual(report["mill_mix"]["records"], 1)
+                self.assertEqual(report["totals"]["by_kind"], expected_kinds)
+                self.assertNotIn("code_repair", report)
+                self.assertEqual(report["record_invariants"]["errors"], 0)
+                bucket = report["factories"][Path(path).parts[0]]
+                self.assertEqual(bucket["by_kind"], expected_kinds)
+                if not expected_kinds:
+                    self.assertEqual(report["totals"]["approx_tokens"], 0)
+                    self.assertEqual(bucket["approx_tokens"], 0)
+
+        procedural_path = f"{self.row.path_id}/batch-r01.jsonl"
+        report = audit_run(self.root, snapshot={procedural_path: foreign_line.encode()})
+        self.assertEqual(report["mill_mix"]["records"], 1)
+        self.assertEqual(report["totals"]["by_kind"], {"code_repair": 1})
+        self.assertEqual(report["code_repair"]["invalid_records"], 1)
         self.assertGreater(report["record_invariants"]["errors"], 0)
 
     def test_audit_accounts_duplicate_rejected_records_as_evidence_only(self):
