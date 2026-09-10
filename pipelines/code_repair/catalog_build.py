@@ -185,16 +185,28 @@ def extract_module(text: str, function: str) -> tuple[str, tuple[int, int]] | No
     """The function with the imports it needs as one module, and its upstream line span."""
 
     module = ast.parse(text)
-    definitions = (n for n in module.body if isinstance(n, ast.FunctionDef) and n.name == function)
-    node = next(definitions, None)
+    node = _definition(module, function)
     if node is None:
         return None
+    head = _import_head(module, node)
+    module_text = head + ast.get_source_segment(text, node) + "\n"
+    return module_text, (node.lineno, node.end_lineno)
+
+
+def _definition(module: ast.Module, function: str) -> ast.FunctionDef | None:
+    for node in module.body:
+        if isinstance(node, ast.FunctionDef) and node.name == function:
+            return node
+    return None
+
+
+def _import_head(module: ast.Module, node: ast.FunctionDef) -> str:
+    """The import lines the function reads, followed by two blank lines; empty if none."""
+
     imports, _names = _module_imports(module)
     used = {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
     kept = [line for line in (_used_import(i, used) for i in imports) if line]
-    head = "\n".join(kept) + "\n\n\n" if kept else ""
-    module_text = head + ast.get_source_segment(text, node) + "\n"
-    return module_text, (node.lineno, node.end_lineno)
+    return "\n".join(kept) + "\n\n\n" if kept else ""
 
 
 # --- references --------------------------------------------------------------------

@@ -166,9 +166,11 @@ def want_kind_of(examples: tuple[Example, ...]) -> str | None:
     """The kind every value-returning example expects: ``numeric``, ``bool`` or None."""
 
     wants = [_want_value(e) for e in examples if e.exc_msg is None and e.want.strip()]
-    kinds = (("bool", lambda w: isinstance(w, bool)), ("numeric", _is_numeric))
-    matches = [kind for kind, holds in kinds if wants and all(holds(w) for w in wants)]
-    return matches[0] if matches else None
+    if not wants:
+        return None
+    if all(isinstance(w, bool) for w in wants):
+        return "bool"
+    return "numeric" if all(_is_numeric(w) for w in wants) else None
 
 
 def examples_sha256(examples: tuple[Example, ...]) -> str:

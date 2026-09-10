@@ -28,7 +28,7 @@ REPAIR_FAMILY = CodedFamily(
     vocabulary.RepairRefusal, vocabulary.FINDING_CODE_SET, vocabulary.REASON_CODE_SET
 )
 FAMILY_MODULES = (
-    "_contract", "vocabulary", "catalog", "catalog_check", "mutate", "executor", "verify", "records", "views",
+    "_contract", "vocabulary", "catalog", "catalog_check", "mutate", "mutate_span", "mutate_literals", "executor", "verify", "records", "views",
     "generate", "cli",
 )
 
