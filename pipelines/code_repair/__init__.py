@@ -15,13 +15,13 @@ adds no vocabulary to the envelope and re-implements none of its primitives.
 
 __all__ = [
     "_contract",
-    "vocabulary",
     "catalog",
-    "mutate",
-    "executor",
-    "verify",
-    "records",
-    "views",
-    "generate",
     "cli",
+    "executor",
+    "generate",
+    "mutate",
+    "records",
+    "verify",
+    "views",
+    "vocabulary",
 ]

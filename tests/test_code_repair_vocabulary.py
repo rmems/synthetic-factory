@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The code-repair family vocabulary: declared codes, identities, label policy, refusals."""
 
+import ast
 import inspect
 import sys
 import unittest
@@ -9,9 +10,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from code_repair_test_support import (  # noqa: E402
-    FAMILY_MODULES, catalog, cli, envelope, executor, generate, mutate, oc, records, refusal, verify,
-    views, vocabulary as cv,
+    FAMILY_MODULES, envelope, oc, refusal, vocabulary as cv,
 )
+
+
+def random_import(node):
+    """Whether an AST node directly imports random, including importlib calls."""
+    if isinstance(node, ast.Import):
+        return any(item.name == "random" for item in node.names)
+    if isinstance(node, ast.ImportFrom):
+        return node.module == "random"
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        return (node.func.attr == "import_module" and bool(node.args)
+                and isinstance(node.args[0], ast.Constant) and node.args[0].value == "random")
+    return False
 
 
 class DeclaredCodes(unittest.TestCase):
@@ -54,10 +66,11 @@ class DeclaredCodes(unittest.TestCase):
         self.assertIn("outcome", cv.ORACLE_LABEL_KEYS)
 
     def test_no_family_module_imports_the_random_module(self):
-        for module in (catalog, cli, executor, generate, mutate, records, verify, views, cv):
+        for name in FAMILY_MODULES:
+            module = sys.modules[f"code_repair.{name}"]
             with self.subTest(module=module.__name__):
-                self.assertNotIn("import random", inspect.getsource(module))
-        self.assertEqual(len(FAMILY_MODULES), 10)
+                tree = ast.parse(inspect.getsource(module))
+                self.assertFalse(any(random_import(node) for node in ast.walk(tree)))
 
 
 class CodedRefusals(unittest.TestCase):
