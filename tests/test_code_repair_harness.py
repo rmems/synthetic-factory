@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -275,13 +276,13 @@ class InProcessHarnessBehavior(unittest.TestCase):
             "    '''\n"
             "    return n * 2\n"
         )
-        with tempfile.TemporaryDirectory() as root:
+        with tempfile.TemporaryDirectory() as root, mock.patch.dict(sys.modules):
             directory = Path(root)
             (directory / harness.PROGRAM_FILENAME).write_text(text, encoding="utf-8")
             module = harness._load(directory)
             rows = harness._run_public(module, text, "f")
+            self.assertIs(sys.modules["program"], module)
 
-        self.assertIs(sys.modules["program"], module)
         self.assertEqual([row["status"] for row in rows], ["pass", "fail"])
         self.assertEqual(rows[1]["got"], "6\n")
         with self.assertRaisesRegex(LookupError, "module-level function named missing"):
