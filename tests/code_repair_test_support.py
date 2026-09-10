@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from coded_refusal_test_support import CodedFamily, coded_refusal
+from code_repair_import_probe import MODULES as FAMILY_MODULES
 from distill_contract_test_support import REPO, envelope, oc
 from code_repair import catalog, cli, executor, generate, mutate, records, verify, views, vocabulary
 
@@ -27,10 +28,6 @@ PINNED_AT = "2026-09-08T00:00:00.000Z"
 SEED = 20260908
 REPAIR_FAMILY = CodedFamily(
     vocabulary.RepairRefusal, vocabulary.FINDING_CODE_SET, vocabulary.REASON_CODE_SET
-)
-FAMILY_MODULES = (
-    "_contract", "vocabulary", "catalog", "catalog_check", "mutate", "mutate_span", "mutate_literals", "executor", "verify", "records", "views",
-    "generate", "export", "export_integrity", "cli", "record_validation", "evidence",
 )
 
 __all__ = (

@@ -141,16 +141,21 @@ def _strip_docstring(body: list[ast.stmt]) -> list[ast.stmt]:
 _RENAMED_FIELDS = ("id", "arg", "name", "asname")
 
 
+def _implicit_binding(node: ast.AST, field: str) -> bool:
+    if not isinstance(node, ast.alias) or field != "asname":
+        return False
+    return node.asname is None and "." not in node.name and node.name != "*"
+
+
 def _field_value(node: ast.AST, name: str, namer: _Namer) -> Any:
     """One field of a node: docstrings stripped from bodies, identifiers renamed."""
 
     value = getattr(node, name, None)
-    if isinstance(node, ast.alias) and name == "asname" and value is None:
+    if _implicit_binding(node, name):
         # A plain import binds its API name just like an explicit alias. A dotted
         # import without an alias instead binds the root package, so keep that
         # distinct from an alias that binds the imported submodule itself.
-        if "." not in node.name and node.name != "*":
-            return namer(node.name)
+        return namer(node.name)
     if name == "body" and isinstance(value, list):
         return _strip_docstring(value)
     if _is_identifier(node, name, value):
