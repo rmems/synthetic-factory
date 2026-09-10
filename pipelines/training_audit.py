@@ -412,8 +412,8 @@ class _CorpusAudit:
             return
 
         finding = self.mill_findings_by_ref.get((rel.as_posix(), line_number))
-        procedural_claim = isinstance(obj, dict) and obj.get("family") == "python-function-repair"
-        if finding is not None and not procedural_claim:
+        procedural_route = self._registered_code_repair_route(obj, factory)
+        if finding is not None and not procedural_route:
             # Foreign evidence is excluded before every training invariant,
             # including the exact-JSON serialization contract.
             self.totals["quarantined"] += 1
@@ -426,6 +426,22 @@ class _CorpusAudit:
 
         self._account_tokens(token_estimate, bucket)
         self._observe_valid_record(obj, where, factory)
+
+    @staticmethod
+    def _registered_code_repair_route(obj, factory):
+        """Return whether path-derived registry authority permits procedural validation."""
+        if not isinstance(obj, dict) or obj.get("family") != "python-function-repair":
+            return False
+        if __package__:
+            from .curate_identity import default_registry
+        else:
+            from curate_identity import default_registry
+        row = default_registry().by_path_id.get(factory)
+        return (
+            row is not None
+            and row.identity_authoritative
+            and "code_repair" in row.record_kinds
+        )
 
     def _observe_valid_record(self, obj, where, factory):
         bucket = self.factories[factory]
