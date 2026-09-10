@@ -33,18 +33,25 @@ def _bounded_first(entry: dict[str, Any], omitted: int) -> bool:
     return len(render_evidence([entry], omitted)) <= cv.MAX_EVIDENCE_CHARS
 
 
+def _ordered_failing_rows(
+    mutant: ex.PhaseReport | None, example_count: int
+) -> list[dict[str, Any]]:
+    rows = () if mutant is None else mutant.public
+    failing = [
+        row for row in rows
+        if row["status"] != cv.ROW_SUCCESS and 0 <= _example_index(row["id"]) < example_count
+    ]
+    return sorted(failing, key=lambda row: _example_index(row["id"]))
+
+
 def public_evidence(
     mutant: ex.PhaseReport | None, examples: tuple[cat.Example, ...]
 ) -> tuple[list[dict[str, Any]], int]:
     """The failing public examples of the mutant, bounded: ``(entries, omitted_count)``."""
 
-    rows = () if mutant is None else mutant.public
-    failing = [
-        row for row in rows
-        if row["status"] != cv.ROW_SUCCESS and 0 <= _example_index(row["id"]) < len(examples)
-    ]
+    failing = _ordered_failing_rows(mutant, len(examples))
     entries: list[dict[str, Any]] = []
-    for row in sorted(failing, key=lambda r: _example_index(r["id"])):
+    for row in failing:
         entry = _entry(row, examples[_example_index(row["id"])])
         omitted_after = len(failing) - len(entries) - 1
         if not _fits(entries, entry) or len(render_evidence(entries + [entry], omitted_after)) > cv.MAX_EVIDENCE_CHARS:
