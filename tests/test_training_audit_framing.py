@@ -10,6 +10,7 @@ from unittest import mock
 from training_audit_test_helpers import thalamic
 
 import training_audit
+import training_audit_record
 from exact_json import MAX_JSON_NESTING_DEPTH
 
 THALAMIC_FACTORY = "thalamic-trajectory-factory"
@@ -151,6 +152,18 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
 
 
 class TrainingAuditCompatibilityExports(unittest.TestCase):
+    def test_record_helpers_have_public_cross_module_entrypoints(self):
+        self.assertEqual(training_audit_record.reward_shape_type(1.0), "float")
+        self.assertEqual(training_audit_record.normalized_goals([" inspect ", None]), ["inspect"])
+        self.assertEqual(training_audit_record.list_field({"steps": [1]}, "steps"), [1])
+        side = {"state": {}, "proposed_action": {}}
+        self.assertTrue(training_audit_record.thalamic_context_purity(side, side)["pure"])
+        self.assertTrue(training_audit_record.episode_context_purity({"goal": "inspect"}, {}, {})["pure"])
+        turn = {"tool_call": {}}
+        episode = {"goal": "inspect", "steps": [turn]}
+        self.assertEqual(list(training_audit_record.preference_turns({"chosen": episode})), [turn])
+        self.assertEqual(list(training_audit_record.coordination_turns({"transcript": [turn]})), [turn])
+
     def test_factory_slugs_remain_public(self):
         self.assertEqual(
             training_audit.BRIDGE_FACTORY_SLUG,

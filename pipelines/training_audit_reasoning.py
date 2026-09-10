@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 import sys
-from typing import NamedTuple
+from collections.abc import Callable, Iterable
+from typing import Any, NamedTuple
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -34,10 +35,10 @@ CURATED_FORBIDDEN_REASONING_KEYS = HIDDEN_THOUGHT_KEYS | HIDDEN_REASONING_KEYS
 class AgenticTurnReaders(NamedTuple):
     """Live facade seams used while enumerating observable agentic turns."""
 
-    list_field: object
-    preference_turns: object
-    coordination_turns: object
-    embedded_episodes: object
+    list_field: Callable[[Any, str], Iterable[Any]]
+    preference_turns: Callable[[Any], Iterable[Any]]
+    coordination_turns: Callable[[Any], Iterable[Any]]
+    embedded_episodes: Callable[[Any, str], Iterable[tuple[str, dict[str, Any]]]]
 
 
 def dict_field(value, key):

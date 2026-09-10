@@ -10,7 +10,8 @@ shapes. Observable-decision and hidden-reasoning traversal live in
 from __future__ import annotations
 
 import sys
-from typing import NamedTuple
+from collections.abc import Callable
+from typing import Any, NamedTuple
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -43,9 +44,9 @@ _AGENTIC_EPISODE_KEYS = frozenset(("goal", "outcome", "reward"))
 class PreferencePurityReaders(NamedTuple):
     """Live facade seams used to classify and compare preference pairs."""
 
-    episode_check: object
-    episode_purity: object
-    thalamic_purity: object
+    episode_check: Callable[[Any], bool]
+    episode_purity: Callable[[Any, Any, Any], dict[str, Any]]
+    thalamic_purity: Callable[[Any, Any], dict[str, Any]]
 
 
 def canonical_blob(value):
@@ -89,7 +90,7 @@ def wrapped_agentic_episodes(obj, kind, *, view_reader=thalamic_views):
         yield path, episode
 
 
-def _reward_shape_type(value):
+def reward_shape_type(value):
     if isinstance(value, dict):
         return "value-object" if isinstance(value.get("value"), (int, float)) else "object"
     if isinstance(value, list):
@@ -99,13 +100,13 @@ def _reward_shape_type(value):
     return type(value).__name__
 
 
-def reward_shape(value, *, shape_type=_reward_shape_type):
+def reward_shape(value, *, shape_type=reward_shape_type):
     if not isinstance(value, dict):
         return shape_type(value)
     return "|".join(f"{key}:{shape_type(item)}" for key, item in sorted(value.items()))
 
 
-def _thalamic_context_purity(chosen, rejected, *, canonicalize=canonical_numeric_value):
+def thalamic_context_purity(chosen, rejected, *, canonicalize=canonical_numeric_value):
     valid_context = bool(chosen and rejected) and all(
         isinstance(side.get(key), dict)
         for side in (chosen, rejected)
@@ -127,7 +128,7 @@ def _thalamic_context_purity(chosen, rejected, *, canonicalize=canonical_numeric
     }
 
 
-def _normalized_goals(raw_goals):
+def normalized_goals(raw_goals):
     normalized = []
     for value in raw_goals:
         if value is None:
@@ -138,7 +139,7 @@ def _normalized_goals(raw_goals):
     return normalized
 
 
-def _episode_context_purity(obj, chosen, rejected, *, normalize_goals=_normalized_goals):
+def episode_context_purity(obj, chosen, rejected, *, normalize_goals=normalized_goals):
     raw_goals = (
         obj.get("goal"),
         chosen.get("goal") if isinstance(chosen, dict) else None,
@@ -167,8 +168,8 @@ def preference_context_purity(
     """Return the applicable DPO context invariant for a preference pair."""
     readers = readers or PreferencePurityReaders(
         episode_like,
-        _episode_context_purity,
-        _thalamic_context_purity,
+        episode_context_purity,
+        thalamic_context_purity,
     )
     if readers.episode_check(chosen) or readers.episode_check(rejected):
         return readers.episode_purity(obj, chosen, rejected)
@@ -176,9 +177,9 @@ def preference_context_purity(
 
 
 AgenticTurnReaders = _reasoning.AgenticTurnReaders
-_list_field = _reasoning.list_field
-_preference_turns = _reasoning.preference_turns
-_coordination_turns = _reasoning.coordination_turns
+list_field = _reasoning.list_field
+preference_turns = _reasoning.preference_turns
+coordination_turns = _reasoning.coordination_turns
 has_observable_decision_basis = _reasoning.has_observable_decision_basis
 is_hidden_thought_key = _reasoning.is_hidden_thought_key
 hidden_thought_paths = _reasoning.hidden_thought_paths
@@ -186,12 +187,22 @@ hidden_thought_paths = _reasoning.hidden_thought_paths
 
 def agentic_turns(obj, kind, readers=None):
     readers = readers or AgenticTurnReaders(
-        _list_field,
-        _preference_turns,
-        _coordination_turns,
+        list_field,
+        preference_turns,
+        coordination_turns,
         wrapped_agentic_episodes,
     )
     yield from _reasoning.agentic_turns(obj, kind, readers)
+
+
+# Preserve the original helper spellings for existing direct callers.
+_reward_shape_type = reward_shape_type
+_normalized_goals = normalized_goals
+_thalamic_context_purity = thalamic_context_purity
+_episode_context_purity = episode_context_purity
+_list_field = list_field
+_preference_turns = preference_turns
+_coordination_turns = coordination_turns
 
 
 if __package__:
