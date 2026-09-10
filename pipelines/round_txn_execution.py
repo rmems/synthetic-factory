@@ -276,6 +276,11 @@ def validated_execution_verification_summary(
     verification, marker_kind="completion marker"
 ):
     """Validate the canonical strict-gate summary stored in a durable marker."""
+    from code_repair import publication
+    if isinstance(verification, dict) and (
+        verification.get("gate") == publication.GATE or "procedural" in verification
+    ):
+        return publication.validate_summary(verification)
     if not isinstance(verification, dict):
         raise rt.TransactionError(f"{marker_kind} has invalid execution verification")
     if set(verification) != rt.CANONICAL_EXECUTION_VERIFICATION_KEYS:
@@ -312,7 +317,12 @@ def _validate_historical_execution_counts(recorded, manifest, batch):
 
 def validate_completed_execution_verification(batch: Path, manifest: dict):
     """Re-derive the v2 execution verdict before exposing a completed batch."""
+    from code_repair import publication
     recorded = manifest.get("execution_verification")
+    if publication.requires_gate(batch.parent, batch) or (
+        isinstance(recorded, dict) and recorded.get("gate") == publication.GATE
+    ):
+        return publication.validate_completed(batch, manifest)
     if not isinstance(recorded, dict):
         raise rt.TransactionError(
             "version 2 completion marker requires an exact execution "
@@ -390,6 +400,9 @@ def _raise_execution_gate_failure(counts, staged_batch, detail, override):
 
 def execution_gate(batch: Path, staged_batch: Path, override=None):
     """Gate one staged batch on observable execution evidence."""
+    from code_repair import publication
+    if publication.requires_gate(staged_batch.parent, batch):
+        raise rt.TransactionError("procedural publication requires the contextual fresh gate")
     if override is not None:
         override = normalized_execution_override(override)
     verify_batch_for_frontier = load_execution_verifier()

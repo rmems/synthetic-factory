@@ -647,6 +647,9 @@ def valid_legacy_file(path: Path):
     """Return its record count when a legacy JSONL file fully deep-checks."""
     if not path.is_file() or path.is_symlink():
         return 0
+    from code_repair import publication
+    if publication.requires_gate(path.parent, path):
+        return 0
     errors, _warnings, _kinds, records = check_jsonl(path, path.name)
     return 0 if errors else records
 
@@ -659,6 +662,9 @@ def validate_legacy_payload(
     quarantined_kinds: dict[int, str] | None = None,
 ):
     """Return a legacy payload's records and any applicable contract errors."""
+    from code_repair import publication
+    if publication.requires_gate(factory_dir, path):
+        return 0, ["procedural records require completed fresh-gate rounds, not legacy baselines"]
     factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
     quarantined_kinds = dict(quarantined_kinds or {})
     errors, warnings, kinds, records = check_jsonl(
@@ -1012,6 +1018,12 @@ def _bind_completion_execution_verdict(
     bound_verified_rounds,
 ):
     marker_version = completion_marker_version(payload, path)
+    from code_repair import publication
+    if publication.requires_gate(factory_dir, factory_dir / batch_name):
+        if marker_version != EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION:
+            raise TransactionError("procedural completion requires the fresh-gate marker version")
+        publication.validate_completed(factory_dir / batch_name, payload)
+        return True
     gated_round = (
         _is_positive_int(cutover) and round_number >= cutover
     ) or round_number in bound_verified_rounds
@@ -1461,11 +1473,15 @@ def committed_jsonl_paths(factory_dir: Path):
     """
     mode_path = marker_mode_path(factory_dir)
     if mode_path is None:
-        return sorted(
+        files = sorted(
             path
             for path in factory_dir.rglob("*.jsonl")
             if path.is_file() and not path.is_symlink()
         )
+        from code_repair import publication
+        if any(publication.requires_gate(factory_dir, path) for path in files):
+            raise TransactionError("procedural records require an actual completed marker round")
+        return files
 
     files = sorted(
         path for path in factory_dir.glob("*.jsonl") if path.is_file() and not path.is_symlink()
@@ -1594,6 +1610,13 @@ def validate_agentic_envelope(
     """Return fixed-contract envelope errors for one staged agentic batch."""
     if factory_dir.name not in AGENTIC_FACTORY_KINDS:
         return []
+    if __package__:
+        from .curate_identity import default_registry
+    else:
+        from curate_identity import default_registry
+    row = default_registry().by_path_id.get(factory_dir.name)
+    if row is None or row.source_type != "hosted":
+        return ["agentic factory has no reviewed hosted generator authority"]
     records, errors = _jsonl_records(batch)
     safety_case_types = []
     cascade_fault_kinds = []
@@ -2068,8 +2091,8 @@ def validate_agentic_envelope(
             or meta_round != round_number
         ):
             errors.append(f"{where}: meta.round must match reservation r{round_number:02d}")
-        if meta.get("generator") != "grok-4.6":
-            errors.append(f"{where}: meta.generator must be 'grok-4.6'")
+        if meta.get("generator") != row.generator:
+            errors.append(f"{where}: meta.generator must be {row.generator!r}")
     if factory_dir.name == "safety-calibration-factory":
         required_case_types = {
             "correct_refusal",
@@ -2236,6 +2259,11 @@ def validate_completed_batch(
 ):
     """Re-run publication record, quota, and envelope checks for one marker."""
     batch = factory_dir / f"batch-r{round_number:02d}.jsonl"
+    from code_repair import publication
+    if publication.requires_gate(factory_dir, batch):
+        if completion_marker_version(manifest, batch) != EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION:
+            raise TransactionError("procedural completion requires the fresh-gate marker version")
+        publication.validate_completed(batch, manifest)
     factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
     kinds, records = _completed_batch_is_training_ready(batch, seen_ids, factory_staging)
     _completed_counts_match_manifest(manifest, records, kinds, batch)
@@ -2364,6 +2392,8 @@ def validate_stage(
             raise TransactionError("staging file set changed during validation")
 
         batch = captured_dir / batch_name
+        from code_repair import publication
+        procedural = publication.require_route(factory_dir, batch, override=execution_override)
         notes = captured_dir / notes_name
         try:
             notes_text = notes.read_text()
@@ -2430,7 +2460,10 @@ def validate_stage(
             )
         # Frontier gate: run over the captured copy so the verdict describes the
         # same bytes the manifest hashes, not a batch swapped in mid-validation.
-        verification = execution_gate(batch, stage / batch_name, override=execution_override)
+        verification = (
+            publication.fresh_gate(factory_dir, batch, round_number) if procedural
+            else execution_gate(batch, stage / batch_name, override=execution_override)
+        )
 
     files = [
         {
