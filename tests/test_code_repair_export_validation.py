@@ -316,6 +316,53 @@ class ConsumerProbeFailures(unittest.TestCase):
             self.assertEqual(payload['failed_steps'], ['manifest'])
             self.assertEqual(payload['manifest']['agree'], False)
 
+    def test_report_runs_consumer_steps_and_surfaces_split_disagreement(self):
+        row = {
+            'canonical_id': 'code-repair:test',
+            'split': 'train',
+            'text': 'prompt' + probe.SEPARATOR + 'def corrected():\n    return 1\n',
+            'completion_start_char': len('prompt' + probe.SEPARATOR),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            records = root / 'records.jsonl'
+            records.write_text(json.dumps(row) + '\n', encoding='utf-8')
+            manifest = root / 'MANIFEST.json'
+            manifest.write_text(json.dumps({
+                'files': {
+                    'agoge/code_repair_v1.jsonl': hashlib.sha256(records.read_bytes()).hexdigest(),
+                },
+                'tables': {'dispositions': {'exported': 1}},
+                'run': {'split_policy': {'seed': 1, 'salt': 'x', 'weights': {'train': 100}}},
+            }), encoding='utf-8')
+            args = SimpleNamespace(
+                agoge_jsonl=records, manifest=manifest, source_path='source.jsonl',
+                source_revision=None, dataset_version=None, freeze_into=None,
+                config=Path('config.yaml'), tokenizer_revision=None,
+            )
+            loaded = {'normalized_rows': 1, 'frozen_split_records': 1, 'records': [object()]}
+            labels = {'tokenizer': 'local/model', 'rows': [], 'config': {'revision': 'a' * 40}}
+            with (
+                mock.patch.object(probe, '_load_proof', return_value=loaded),
+                mock.patch.object(probe, '_spec', return_value=object()),
+                mock.patch.object(
+                    probe, '_split_agreement',
+                    return_value={'agree': False, 'disagree': ['code-repair:test']},
+                ),
+                mock.patch.object(probe, '_labels', return_value=labels),
+            ):
+                report = probe._report(args)
+
+        self.assertIs(report['passed'], False)
+        self.assertEqual(report['failed_steps'], ['split_agreement'])
+        self.assertEqual(report['load'], {
+            'normalized_rows': 1, 'frozen_split_records': 1,
+        })
+        self.assertNotIn('policy', report)
+        self.assertEqual(report['split_agreement']['disagree'], ['code-repair:test'])
+        self.assertEqual(report['config'], {'revision': 'a' * 40})
+        self.assertNotIn('config', report['labels'])
+
 
 class FreshReplay(unittest.TestCase):
     def test_public_replay_mapping_retains_protocol_key_order(self):
