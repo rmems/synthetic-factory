@@ -147,8 +147,15 @@ def body_nodes(target: ast.FunctionDef):
     Those run at definition time and are not the behaviour the doctests specify (Codex on #197).
     """
 
-    for statement in target.body:
-        yield from ast.walk(statement)
+    pending = list(reversed(target.body))
+    while pending:
+        node = pending.pop()
+        yield node
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            children = node.body
+        else:
+            children = list(ast.iter_child_nodes(node))
+        pending.extend(reversed(children))
 
 
 def apply(text: str, site: Site) -> str:

@@ -149,7 +149,7 @@ class StableBytes(unittest.TestCase):
             {"MUTANT_FAILS_HIDDEN": 2, "MUTANT_FAILS_PUBLIC": 2, "MUTANT_NO_OBSERVED_FAILURE": 1,
              "MUTANT_NO_PUBLIC_FAILURE": 1, "MUTANT_TIMEOUT": 1, "REPAIR_PASSES_ALL": 2},
         )
-        self.assertEqual([r["id"] for r in records], [f"pfr-{SEED}-{i:05d}" for i in (0, 1, 2, 3, 6)])
+        self.assertEqual([r["id"] for r in records], [f"pfr-3d10e98cd8505f249cb4d6803f175ad784f07d614a20b5dfc9f33d40b573f93c-{SEED}-{i:05d}" for i in (0, 1, 2, 3, 6)])
         log = [entry for _n, entry in oc.read_jsonl(run_dir / generate.LOG_FILENAME)]
         self.assertTrue(all("duration_s" in entry for entry in log))
         self.assertTrue(any(entry["timed_out"] for entry in log))

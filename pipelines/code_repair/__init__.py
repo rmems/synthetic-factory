@@ -24,6 +24,8 @@ __all__ = [
     "generate",
     "cli",
     "executor",
+    "record_validation",
+    "evidence",
     "vocabulary",
 ]
 

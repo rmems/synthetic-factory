@@ -24,6 +24,7 @@ def phases(mutant_public=(1,), mutant_hidden=(0,), repaired_public=(), repaired_
         report(rows("public", 3, mutant_public), rows("hidden", 4, mutant_hidden)),
         report(rows("public", 3, repaired_public), rows("hidden", 4, repaired_hidden)),
         reference=report((), rows("hidden", 4)),
+        original_repeat=report(rows("public", 3), rows("hidden", 4)),
     )
 
 
@@ -87,11 +88,11 @@ class DecisionTable(unittest.TestCase):
         self.assertTrue(verify.decide(phases(mutant_hidden=()), no_cases).accepted)
 
     def test_a_mutant_timeout_or_crash_is_coded(self):
-        timed = verify.Phases(phases().original, report(failure="timeout"))
+        timed = dataclasses.replace(phases(), mutant=report(failure="timeout"))
         self.assertEqual(verify.decide(timed, CERTIFIED).reason_codes, (cv.REASON_MUTANT_TIMEOUT,))
-        crashed = verify.Phases(phases().original, report(failure="load", detail="SyntaxError"))
+        crashed = dataclasses.replace(phases(), mutant=report(failure="load", detail="SyntaxError"))
         self.assertEqual(verify.decide(crashed, CERTIFIED).reason_codes, (cv.REASON_MUTANT_HARNESS_ERROR,))
-        missing = verify.Phases(phases().original)
+        missing = dataclasses.replace(phases(), mutant=None)
         self.assertEqual(verify.decide(missing, CERTIFIED).reason_codes, (cv.REASON_MUTANT_HARNESS_ERROR,))
 
     def test_a_repair_that_does_not_restore_or_edits_the_tests_is_refused_before_running(self):
@@ -107,9 +108,9 @@ class DecisionTable(unittest.TestCase):
         self.assertEqual(wrong_public.reason_codes, (cv.REASON_REPAIR_FAILS_PUBLIC,))
         wrong_hidden = verify.decide(phases(repaired_hidden=(3,)), CERTIFIED)
         self.assertEqual(wrong_hidden.reason_codes, (cv.REASON_REPAIR_FAILS_HIDDEN,))
-        timed = verify.Phases(phases().original, phases().mutant, report(failure="timeout"))
+        timed = dataclasses.replace(phases(), repaired=report(failure="timeout"))
         self.assertEqual(verify.decide(timed, CERTIFIED).reason_codes, (cv.REASON_REPAIR_TIMEOUT,))
-        unrun = verify.Phases(phases().original, phases().mutant)
+        unrun = dataclasses.replace(phases(), repaired=None)
         self.assertEqual(verify.decide(unrun, CERTIFIED).reason_codes, (cv.REASON_REPAIR_HARNESS_ERROR,))
 
     def test_every_verdict_code_is_declared(self):
