@@ -1,0 +1,56 @@
+config/FACTORY-REGISTRY.json
+  s_637722da58c92c::t_61e2d50d012831 1258
+  s_637722da58c92c::t_6719d46f61e411 1245-1246
+tests/test_code_repair_admission.py
+  s_637722da58c92c::t_51bca7d1b9da0f 55-56,60
+  s_637722da58c92c::t_a0bfb1a2404e28 25
+  s_637722da58c92c::t_6719d46f61e411 15-24,26-33
+pipelines/code_repair/_contract.py
+  s_637722da58c92c::t_8193763e2c9eec 16,25,35,39
+schemas/procedural-source-policy-v1.json
+  s_637722da58c92c::t_6719d46f61e411 12-13
+tests/test_code_repair_admission_integration.py
+  s_637722da58c92c::t_36195299d829d8 12,17,41-51,53-69
+  s_637722da58c92c::t_c7f2be6767a319 141-145
+  s_637722da58c92c::t_a935aec4cacd61 137
+  s_637722da58c92c::t_04339f3b552152 52
+pipelines/code_repair/record_validation.py
+  s_637722da58c92c::t_8193763e2c9eec 11,61,64
+pipelines/code_repair/source_policy.py
+  s_637722da58c92c::t_61e2d50d012831 19
+  s_637722da58c92c::t_4c37b783415802 73-77,81-88
+pipelines/training_audit.py
+  s_637722da58c92c::t_4c37b783415802 551-555
+pipelines/check_records.py
+  s_637722da58c92c::t_51bca7d1b9da0f 440-443,454
+pipelines/curate_identity.py
+  s_637722da58c92c::t_4c37b783415802 603,605-606
+  s_637722da58c92c::t_51bca7d1b9da0f 593-598,674
+  s_637722da58c92c::t_3a2eefffef211a 2248-2250,2290-2291,2370-2375
+  s_637722da58c92c::t_a0ef1bec6128e7 2292,2294
+docs/code-repair-admission.md
+  s_637722da58c92c::t_3a2eefffef211a 33-41
+docs/code-repair-pilot.md
+  s_637722da58c92c::t_3a2eefffef211a 31-35
+pipelines/code_repair/admission.py
+  s_637722da58c92c::t_4c37b783415802 42-47,55,68-78,101-104,106-114,117,119,121-124,140,142-154
+  s_637722da58c92c::t_a935aec4cacd61 11,83-89
+  s_637722da58c92c::t_618b23529635dc 79-82,173
+  s_637722da58c92c::t_73d87a6472e494 27-29,93-95,138-139,141,155-157,168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "46751a85065748b9e0b1354c285162ecaea35527",
+  "prompts": {},
+  "sessions": {
+    "s_637722da58c92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b4-b4e1-7663-adcf-65ef44374529",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
