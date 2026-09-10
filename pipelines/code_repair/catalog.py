@@ -165,10 +165,14 @@ def _is_numeric(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _value_wants(examples: tuple[Example, ...]) -> list[Any]:
+    return [_want_value(e) for e in examples if e.exc_msg is None and e.want.strip()]
+
+
 def want_kind_of(examples: tuple[Example, ...]) -> str | None:
     """The kind every value-returning example expects: ``numeric``, ``bool`` or None."""
 
-    wants = [_want_value(e) for e in examples if e.exc_msg is None and e.want.strip()]
+    wants = _value_wants(examples)
     if not wants:
         return None
     if all(isinstance(w, bool) for w in wants):
