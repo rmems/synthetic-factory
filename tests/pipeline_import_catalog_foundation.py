@@ -510,6 +510,18 @@ def _package_training_audit_record() -> ModuleType:
     return module
 
 
+def _direct_training_audit_reasoning() -> ModuleType:
+    import training_audit_reasoning as module
+
+    return module
+
+
+def _package_training_audit_reasoning() -> ModuleType:
+    import pipelines.training_audit_reasoning as module
+
+    return module
+
+
 def _direct_training_audit_snapshot() -> ModuleType:
     import training_audit_snapshot as module
 
@@ -628,6 +640,10 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "training_audit": (_direct_training_audit, _package_training_audit),
     "training_audit_mill": (_direct_training_audit_mill, _package_training_audit_mill),
     "training_audit_record": (_direct_training_audit_record, _package_training_audit_record),
+    "training_audit_reasoning": (
+        _direct_training_audit_reasoning,
+        _package_training_audit_reasoning,
+    ),
     "training_audit_report": (_direct_training_audit_report, _package_training_audit_report),
     "training_audit_snapshot": (_direct_training_audit_snapshot, _package_training_audit_snapshot),
     "trajectory_pair_curation": (

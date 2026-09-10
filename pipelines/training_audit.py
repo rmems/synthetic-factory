@@ -106,22 +106,94 @@ def percentile(values, fraction):
 canonical_blob = _record_audit.canonical_blob
 CURATED_FORBIDDEN_REASONING_KEYS = _record_audit.CURATED_FORBIDDEN_REASONING_KEYS
 dict_field = _record_audit.dict_field
-thalamic_views = _record_audit.thalamic_views
-wrapped_agentic_episodes = _record_audit.wrapped_agentic_episodes
-reward_shape = _record_audit.reward_shape
-preference_context_purity = _record_audit.preference_context_purity
-agentic_turns = _record_audit.agentic_turns
 has_observable_decision_basis = _record_audit.has_observable_decision_basis
 is_hidden_thought_key = _record_audit.is_hidden_thought_key
-hidden_thought_paths = _record_audit.hidden_thought_paths
 _semantic_context_value = _record_audit.canonical_numeric_value
 _reward_shape_type = _record_audit._reward_shape_type
-_thalamic_context_purity = _record_audit._thalamic_context_purity
 _normalized_goals = _record_audit._normalized_goals
-_episode_context_purity = _record_audit._episode_context_purity
 _list_field = _record_audit._list_field
-_preference_turns = _record_audit._preference_turns
-_coordination_turns = _record_audit._coordination_turns
+
+
+def thalamic_views(obj, kind):
+    """Compatibility facade for record views."""
+    yield from _record_audit.thalamic_views(obj, kind)
+
+
+def wrapped_agentic_episodes(obj, kind):
+    """Walk embedded episodes through the facade's live view seam."""
+    yield from _record_audit.wrapped_agentic_episodes(obj, kind, view_reader=thalamic_views)
+
+
+def reward_shape(value):
+    """Classify rewards through the facade's live value-type seam."""
+    return _record_audit.reward_shape(value, shape_type=_reward_shape_type)
+
+
+def _thalamic_context_purity(chosen, rejected):
+    return _record_audit._thalamic_context_purity(
+        chosen,
+        rejected,
+        canonicalize=_semantic_context_value,
+    )
+
+
+def _episode_context_purity(obj, chosen, rejected):
+    return _record_audit._episode_context_purity(
+        obj,
+        chosen,
+        rejected,
+        normalize_goals=_normalized_goals,
+    )
+
+
+def preference_context_purity(obj, chosen, rejected):
+    """Measure pair context through the facade's live purity seams."""
+    return _record_audit.preference_context_purity(
+        obj,
+        chosen,
+        rejected,
+        _record_audit.PreferencePurityReaders(
+            episode_like,
+            _episode_context_purity,
+            _thalamic_context_purity,
+        ),
+    )
+
+
+def _preference_turns(obj):
+    yield from _record_audit._preference_turns(
+        obj,
+        mapping_reader=dict_field,
+        episode_check=episode_like,
+        list_reader=_list_field,
+    )
+
+
+def _coordination_turns(obj):
+    yield from _record_audit._coordination_turns(obj, list_reader=_list_field)
+
+
+def agentic_turns(obj, kind):
+    """Walk agentic turns through the facade's live routing seams."""
+    yield from _record_audit.agentic_turns(
+        obj,
+        kind,
+        _record_audit.AgenticTurnReaders(
+            _list_field,
+            _preference_turns,
+            _coordination_turns,
+            wrapped_agentic_episodes,
+        ),
+    )
+
+
+def hidden_thought_paths(value, path=""):
+    """Walk nested values through the facade's live key-classifier seam."""
+    yield from _record_audit.hidden_thought_paths(
+        value,
+        path,
+        key_classifier=is_hidden_thought_key,
+    )
 
 
 def _parse_finite_json_float(text: str) -> float:

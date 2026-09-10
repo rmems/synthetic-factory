@@ -1,42 +1,51 @@
 #!/usr/bin/env python3
 """Record-level measurements used by the corpus training audit.
 
-This module classifies read-only record views, preference context, reward
-shapes, and observable/hidden reasoning fields. Corpus aggregation and report
-policy remain in ``training_audit`` and ``training_audit_report``.
+This module classifies read-only record views, preference context, and reward
+shapes. Observable-decision and hidden-reasoning traversal live in
+``training_audit_reasoning``; corpus aggregation and report policy remain in
+``training_audit`` and ``training_audit_report``.
 """
 
 from __future__ import annotations
 
 import sys
+from typing import NamedTuple
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("training_audit_record")
-    from .curate_coding import (
-        HIDDEN_REASONING_KEYS,
-        HIDDEN_REASONING_PREFIX,
-        normalized_key_name,
-    )
+    from . import training_audit_reasoning as _reasoning
     from .exact_json import dumps_exact_json
     from .quality_gate_identity import canonical_numeric_value
-    from .validate_run import HIDDEN_THOUGHT_KEYS, episode_like
+    from .validate_run import episode_like
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "training_audit_record"
     )
-    from curate_coding import (
-        HIDDEN_REASONING_KEYS,
-        HIDDEN_REASONING_PREFIX,
-        normalized_key_name,
-    )
+    import training_audit_reasoning as _reasoning
     from exact_json import dumps_exact_json
     from quality_gate_identity import canonical_numeric_value
-    from validate_run import HIDDEN_THOUGHT_KEYS, episode_like
+    from validate_run import episode_like
 
 
-CURATED_FORBIDDEN_REASONING_KEYS = HIDDEN_THOUGHT_KEYS | HIDDEN_REASONING_KEYS
+CURATED_FORBIDDEN_REASONING_KEYS = _reasoning.CURATED_FORBIDDEN_REASONING_KEYS
+
+_VIEW_PATHS = {
+    "thalamic": (("record", ()),),
+    "preference": (("chosen", ("chosen",)), ("rejected", ("rejected",))),
+    "bridge_pair": (("language_view.trajectory", ("language_view", "trajectory")),),
+}
+_AGENTIC_EPISODE_KEYS = frozenset(("goal", "outcome", "reward"))
+
+
+class PreferencePurityReaders(NamedTuple):
+    """Live facade seams used to classify and compare preference pairs."""
+
+    episode_check: object
+    episode_purity: object
+    thalamic_purity: object
 
 
 def canonical_blob(value):
@@ -45,38 +54,39 @@ def canonical_blob(value):
 
 def dict_field(value, key):
     """Return a nested mapping, treating malformed values as absent."""
-    if not isinstance(value, dict):
-        return {}
-    nested = value.get(key)
-    return nested if isinstance(nested, dict) else {}
+    return _reasoning.dict_field(value, key)
+
+
+def _nested_view(obj, keys):
+    if not keys:
+        return obj
+    value = obj.get(keys[0])
+    for key in keys[1:]:
+        value = value.get(key) if isinstance(value, dict) else None
+    return value if isinstance(value, dict) else None
 
 
 def thalamic_views(obj, kind):
-    if kind == "thalamic":
-        yield "record", obj
-    elif kind == "preference":
-        for side in ("chosen", "rejected"):
-            value = obj.get(side)
-            if isinstance(value, dict):
-                yield side, value
-    elif kind == "bridge_pair":
-        view = obj.get("language_view")
-        if isinstance(view, dict) and isinstance(view.get("trajectory"), dict):
-            yield "language_view.trajectory", view["trajectory"]
+    for view_path, keys in _VIEW_PATHS.get(kind, ()):
+        value = _nested_view(obj, keys)
+        if not keys or value is not None:
+            yield view_path, value
 
 
-def wrapped_agentic_episodes(obj, kind):
+def _embedded_agentic_episode(trajectory):
+    executed_action = dict_field(trajectory, "executed_action")
+    has_episode_shape = "steps" in executed_action or _AGENTIC_EPISODE_KEYS <= executed_action.keys()
+    return executed_action if has_episode_shape else None
+
+
+def wrapped_agentic_episodes(obj, kind, *, view_reader=thalamic_views):
     """Yield coding episodes embedded in any supported Thalamic view."""
-    for view_path, trajectory in thalamic_views(obj, kind):
-        executed_action = trajectory.get("executed_action")
-        if not isinstance(executed_action, dict):
-            continue
-        if "steps" not in executed_action and not all(
-            key in executed_action for key in ("goal", "outcome", "reward")
-        ):
+    for view_path, trajectory in view_reader(obj, kind):
+        episode = _embedded_agentic_episode(trajectory)
+        if episode is None:
             continue
         path = "executed_action" if view_path == "record" else f"{view_path}.executed_action"
-        yield path, executed_action
+        yield path, episode
 
 
 def _reward_shape_type(value):
@@ -89,24 +99,24 @@ def _reward_shape_type(value):
     return type(value).__name__
 
 
-def reward_shape(value):
+def reward_shape(value, *, shape_type=_reward_shape_type):
     if not isinstance(value, dict):
-        return _reward_shape_type(value)
-    return "|".join(f"{key}:{_reward_shape_type(item)}" for key, item in sorted(value.items()))
+        return shape_type(value)
+    return "|".join(f"{key}:{shape_type(item)}" for key, item in sorted(value.items()))
 
 
-def _thalamic_context_purity(chosen, rejected):
+def _thalamic_context_purity(chosen, rejected, *, canonicalize=canonical_numeric_value):
     valid_context = bool(chosen and rejected) and all(
         isinstance(side.get(key), dict)
         for side in (chosen, rejected)
         for key in ("state", "proposed_action")
     )
     same_state = valid_context and (
-        canonical_numeric_value(chosen["state"]) == canonical_numeric_value(rejected["state"])
+        canonicalize(chosen["state"]) == canonicalize(rejected["state"])
     )
     same_proposal = valid_context and (
-        canonical_numeric_value(chosen["proposed_action"])
-        == canonical_numeric_value(rejected["proposed_action"])
+        canonicalize(chosen["proposed_action"])
+        == canonicalize(rejected["proposed_action"])
     )
     return {
         "episode_pair": False,
@@ -128,18 +138,17 @@ def _normalized_goals(raw_goals):
     return normalized
 
 
-def _episode_context_purity(obj, chosen, rejected):
+def _episode_context_purity(obj, chosen, rejected, *, normalize_goals=_normalized_goals):
     raw_goals = (
         obj.get("goal"),
         chosen.get("goal") if isinstance(chosen, dict) else None,
         rejected.get("goal") if isinstance(rejected, dict) else None,
     )
-    normalized_goals = _normalized_goals(raw_goals)
+    normalized_goals = normalize_goals(raw_goals)
     outer_goal = raw_goals[0]
-    if isinstance(outer_goal, str) and outer_goal.strip():
-        same_goal = bool(normalized_goals) and len(set(normalized_goals)) == 1
-    else:
-        same_goal = len(normalized_goals) == 2 and len(set(normalized_goals)) == 1
+    has_outer_goal = isinstance(outer_goal, str) and bool(outer_goal.strip())
+    complete_pair = bool(normalized_goals) if has_outer_goal else len(normalized_goals) == 2
+    same_goal = complete_pair and len(set(normalized_goals)) == 1
     return {
         "episode_pair": True,
         "pure": same_goal,
@@ -149,70 +158,40 @@ def _episode_context_purity(obj, chosen, rejected):
     }
 
 
-def preference_context_purity(obj, chosen, rejected):
+def preference_context_purity(
+    obj,
+    chosen,
+    rejected,
+    readers=None,
+):
     """Return the applicable DPO context invariant for a preference pair."""
-    if episode_like(chosen) or episode_like(rejected):
-        return _episode_context_purity(obj, chosen, rejected)
-    return _thalamic_context_purity(chosen, rejected)
-
-
-def _list_field(value, key):
-    items = value.get(key) if isinstance(value, dict) else None
-    return items if isinstance(items, list) else ()
-
-
-def _preference_turns(obj):
-    for side_name in ("chosen", "rejected"):
-        side = dict_field(obj, side_name)
-        if episode_like(side):
-            yield from _list_field(side, "steps")
-
-
-def _coordination_turns(obj):
-    for turn in _list_field(obj, "transcript"):
-        if isinstance(turn, dict) and "tool_call" in turn:
-            yield turn
-
-
-def agentic_turns(obj, kind):
-    """Yield each observable decision turn used by agentic curation."""
-    if kind in {"episode", "safety_case"}:
-        yield from _list_field(obj, "steps")
-    elif kind == "preference":
-        yield from _preference_turns(obj)
-    elif kind == "multi_agent":
-        yield from _coordination_turns(obj)
-    for _path, episode in wrapped_agentic_episodes(obj, kind):
-        yield from _list_field(episode, "steps")
-
-
-def has_observable_decision_basis(turn):
-    return (
-        isinstance(turn, dict)
-        and isinstance(turn.get("decision_basis"), str)
-        and bool(turn["decision_basis"].strip())
+    readers = readers or PreferencePurityReaders(
+        episode_like,
+        _episode_context_purity,
+        _thalamic_context_purity,
     )
+    if readers.episode_check(chosen) or readers.episode_check(rejected):
+        return readers.episode_purity(obj, chosen, rejected)
+    return readers.thalamic_purity(chosen, rejected)
 
 
-def is_hidden_thought_key(key):
-    """Return whether a JSON key names model-private reasoning text."""
-    normalized = normalized_key_name(key)
-    return normalized in CURATED_FORBIDDEN_REASONING_KEYS or normalized.startswith(
-        HIDDEN_REASONING_PREFIX
+AgenticTurnReaders = _reasoning.AgenticTurnReaders
+_list_field = _reasoning.list_field
+_preference_turns = _reasoning.preference_turns
+_coordination_turns = _reasoning.coordination_turns
+has_observable_decision_basis = _reasoning.has_observable_decision_basis
+is_hidden_thought_key = _reasoning.is_hidden_thought_key
+hidden_thought_paths = _reasoning.hidden_thought_paths
+
+
+def agentic_turns(obj, kind, readers=None):
+    readers = readers or AgenticTurnReaders(
+        _list_field,
+        _preference_turns,
+        _coordination_turns,
+        wrapped_agentic_episodes,
     )
-
-
-def hidden_thought_paths(value, path=""):
-    """Yield every recursively hidden-reasoning field in one record."""
-    if isinstance(value, dict):
-        for key, item in value.items():
-            child_path = f"{path}.{key}" if path else key
-            if is_hidden_thought_key(key):
-                yield child_path
-            yield from hidden_thought_paths(item, child_path)
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            yield from hidden_thought_paths(item, f"{path}[{index}]")
+    yield from _reasoning.agentic_turns(obj, kind, readers)
 
 
 if __package__:

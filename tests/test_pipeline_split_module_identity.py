@@ -81,6 +81,7 @@ NEW_SPLIT_MODULES = (
     "reward_mapping",
     "reward_policy",
     "training_audit_record",
+    "training_audit_reasoning",
     "training_audit_snapshot",
     "curate_agentic",
     "curate_trajectory_preferences",

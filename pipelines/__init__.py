@@ -457,6 +457,12 @@ def _load_training_audit_record():
     return training_audit_record
 
 
+def _load_training_audit_reasoning():
+    from . import training_audit_reasoning
+
+    return training_audit_reasoning
+
+
 def _load_validate_run():
     from . import validate_run
 
@@ -532,6 +538,7 @@ _PACKAGE_SIBLING_LOADERS = {
     "export_viewer_writer": _load_export_viewer_writer,
     "strict_jsonl": _load_strict_jsonl,
     "training_audit_record": _load_training_audit_record,
+    "training_audit_reasoning": _load_training_audit_reasoning,
     "training_audit_snapshot": _load_training_audit_snapshot,
     "validate_run": _load_validate_run,
     "curate_bridge": _load_curate_bridge,
