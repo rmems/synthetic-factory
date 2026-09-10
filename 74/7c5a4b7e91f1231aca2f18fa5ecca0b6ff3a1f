@@ -1,0 +1,21 @@
+pipelines/validate_run.py
+  s_637722da58c92c::t_785828adc4c696 1450-1458,1464
+tests/test_curate_identity.py
+  s_637722da58c92c::t_785828adc4c696 1131-1139,1142,1149,1151,1154,1169-1171,1182-1186,1188,1191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "747c5a4b7e91f1231aca2f18fa5ecca0b6ff3a1f",
+  "prompts": {},
+  "sessions": {
+    "s_637722da58c92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b4-b4e1-7663-adcf-65ef44374529",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
