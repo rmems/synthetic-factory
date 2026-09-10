@@ -1,0 +1,24 @@
+tests/round_txn_package_import_support.py
+  s_637722da58c92c::t_db235d655c84af 1-21,28,30,35,67-69,72-73,75-96
+  s_637722da58c92c::t_35ef86c3838184 22-27,29,31-34,36-66,70-71,74
+tests/test_round_txn_package_imports.py
+  s_637722da58c92c::t_5b5ec7608b0b7a 7,10,23-59
+tests/test_code_repair_publication_integration.py
+  s_637722da58c92c::t_db235d655c84af 22-80,325
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8ec8c11787ee3a69b24047b7dcc2f4a5f7dd1bab",
+  "prompts": {},
+  "sessions": {
+    "s_637722da58c92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b4-b4e1-7663-adcf-65ef44374529",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
