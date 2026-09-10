@@ -1,14 +1,35 @@
 #!/usr/bin/env python3
 """The code-repair family vocabulary: declared codes, identities, label policy, refusals."""
 
+import ast
 import inspect
+import sys
+from pathlib import Path
 import unittest
 
-from tests.code_repair_test_support import (
-    FAMILY_MODULES, catalog, cli, envelope, executor, generate, mutate, oc, records, refusal,
-    verify,
-    views, vocabulary as cv,
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from code_repair_test_support import (  # noqa: E402
+    FAMILY_MODULES, envelope, oc, refusal, vocabulary as cv,
 )
+
+
+def random_import_call(node):
+    """Whether a call uses an import_module attribute with a literal random argument."""
+    return (isinstance(node.func, ast.Attribute) and node.func.attr == "import_module"
+            and bool(node.args) and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == "random")
+
+
+def random_import(node):
+    """Whether an AST node directly imports random, including importlib calls."""
+    if isinstance(node, ast.Import):
+        return any(item.name == "random" for item in node.names)
+    if isinstance(node, ast.ImportFrom):
+        return node.module == "random"
+    if isinstance(node, ast.Call):
+        return random_import_call(node)
+    return False
 
 
 class DeclaredCodes(unittest.TestCase):
@@ -17,6 +38,26 @@ class DeclaredCodes(unittest.TestCase):
                     "EXPORT_CATALOG_MISMATCH", "RUN_SUMMARY_MISMATCH"}
         self.assertLessEqual(expected, set(cv.EXPORT_INTEGRITY_CODES))
         self.assertEqual(len(cv.EXPORT_CODES), len(set(cv.EXPORT_CODES)))
+    def test_random_import_detector_preserves_import_and_call_boundaries(self):
+        cases = (
+            ("import random", True),
+            ("import math, random as rng", True),
+            ("from random import choice", True),
+            ("importlib.import_module('random')", True),
+            ("loader.import_module('random')", True),
+            ("import math", False),
+            ("from math import floor", False),
+            ("importlib.import_module('math')", False),
+            ("importlib.import_module()", False),
+            ("importlib.import_module(name)", False),
+            ("importlib.other('random')", False),
+            ("import_module('random')", False),
+            ("value = 'random'", False),
+        )
+        for source, expected in cases:
+            with self.subTest(source=source):
+                self.assertEqual(any(random_import(node) for node in ast.walk(ast.parse(source))),
+                                 expected)
 
     def test_every_code_family_is_unique_and_disjoint(self):
         families = (cv.REASON_CODES, cv.FINDING_CODES, cv.SKIP_CODES, cv.LEAK_CODES)
@@ -57,10 +98,11 @@ class DeclaredCodes(unittest.TestCase):
         self.assertIn("outcome", cv.ORACLE_LABEL_KEYS)
 
     def test_no_family_module_imports_the_random_module(self):
-        for module in (catalog, cli, executor, generate, mutate, records, verify, views, cv):
+        for name in FAMILY_MODULES:
+            module = sys.modules[f"code_repair.{name}"]
             with self.subTest(module=module.__name__):
-                self.assertNotIn("import random", inspect.getsource(module))
-        self.assertEqual(len(FAMILY_MODULES), 15)
+                tree = ast.parse(inspect.getsource(module))
+                self.assertFalse(any(random_import(node) for node in ast.walk(tree)))
 
 
 class CodedRefusals(unittest.TestCase):

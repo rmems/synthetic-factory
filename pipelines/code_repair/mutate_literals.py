@@ -64,8 +64,8 @@ def return_sites(node: ast.Return, text: Prepared) -> list[Site]:
     signed = _signed_int(value, text)
     if signed is not None:
         return [
-            span_site(owner, Edit(str(signed), str(signed + 1), VARIANT_PLUS_ONE), span),
-            span_site(owner, Edit(str(signed), str(signed - 1), VARIANT_MINUS_ONE), span),
+            span_site(owner, Edit(text.segment(value), str(signed + 1), VARIANT_PLUS_ONE), span),
+            span_site(owner, Edit(text.segment(value), str(signed - 1), VARIANT_MINUS_ONE), span),
         ]
     return _wrapped_return_sites(owner, value, span)
 

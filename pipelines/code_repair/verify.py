@@ -16,11 +16,13 @@ from typing import Any
 from . import catalog as cat
 from . import executor as ex
 from . import vocabulary as cv
+from .evidence import public_evidence, render_evidence
 from ._contract import bind_import_twin, oc
 
 __all__ = [
     "DecisionContext", "Phases", "Verdict", "decide", "failing_ids", "phase_block",
     "pre_repair_problem", "public_evidence", "render_evidence", "result_hash", "tests_tampered",
+    "phases_from_blocks",
 ]
 
 
@@ -32,6 +34,7 @@ class Phases:
     mutant: ex.PhaseReport | None = None
     repaired: ex.PhaseReport | None = None
     reference: ex.PhaseReport | None = None
+    original_repeat: ex.PhaseReport | None = None
 
 
 @dataclass(frozen=True)
@@ -59,10 +62,20 @@ def failing_ids(rows: tuple[dict[str, Any], ...]) -> tuple[str, ...]:
     return tuple(row["id"] for row in rows if row["status"] != cv.ROW_SUCCESS)
 
 
+def _successful_limited_phase(report: ex.PhaseReport | None) -> bool:
+    """Whether a phase completed successfully under the required resource limits."""
+
+    if report is None:
+        return False
+    if not report.ok:
+        return False
+    return report.environment.get("limits_applied") is True
+
+
 def _phase_code(report: ex.PhaseReport | None, timeout: str, error: str) -> str | None:
     if report is not None and report.status == cv.PHASE_TIMEOUT:
         return timeout
-    if report is None or not report.ok:
+    if not _successful_limited_phase(report):
         return error
     return None
 
@@ -82,20 +95,15 @@ def _original_problem(original: ex.PhaseReport) -> str | None:
 
 
 def _mutant_problem(mutant: ex.PhaseReport | None, context: DecisionContext) -> str | None:
-    if mutant is None:
-        return cv.REASON_MUTANT_HARNESS_ERROR
     code = _phase_code(mutant, cv.REASON_MUTANT_TIMEOUT, cv.REASON_MUTANT_HARNESS_ERROR)
     if code is not None:
         return code
     public_failed = bool(failing_ids(mutant.public))
     hidden_failed = bool(failing_ids(mutant.hidden))
-    if not public_failed and not hidden_failed:
-        return cv.REASON_MUTANT_NO_OBSERVED_FAILURE
-    if not public_failed:
-        return cv.REASON_MUTANT_NO_PUBLIC_FAILURE
-    if not hidden_failed and context.hidden_case_count:
-        return cv.REASON_MUTANT_NO_HIDDEN_FAILURE
-    return None
+    rules = ((not public_failed and not hidden_failed, cv.REASON_MUTANT_NO_OBSERVED_FAILURE),
+             (not public_failed, cv.REASON_MUTANT_NO_PUBLIC_FAILURE),
+             (not hidden_failed and context.hidden_case_count, cv.REASON_MUTANT_NO_HIDDEN_FAILURE))
+    return next((reason for holds, reason in rules if holds), None)
 
 
 def _repair_problem(repaired: ex.PhaseReport | None) -> str | None:
@@ -112,7 +120,7 @@ def _repair_problem(repaired: ex.PhaseReport | None) -> str | None:
 def pre_repair_problem(phases: Phases, context: DecisionContext) -> str | None:
     """The first rule that rejects before the repaired phase needs to run, or None."""
 
-    problem = _original_problem(phases.original) or _mutant_problem(phases.mutant, context)
+    problem = _source_problem(phases) or _mutant_problem(phases.mutant, context)
     if problem is not None:
         return problem
     if not context.repair_restores:
@@ -122,19 +130,34 @@ def pre_repair_problem(phases: Phases, context: DecisionContext) -> str | None:
     return None
 
 
+def _source_problem(phases: Phases) -> str | None:
+    problem = _original_problem(phases.original)
+    if problem is not None:
+        return problem
+    if phases.original_repeat is None:
+        return cv.REASON_SOURCE_NONDETERMINISTIC
+    if phase_block(phases.original) != phase_block(phases.original_repeat):
+        return cv.REASON_SOURCE_NONDETERMINISTIC
+    return None
+
+
 def _reference_certifies(phases: Phases, context: DecisionContext) -> bool:
     """A certifying reference that was executed in this run and answered every pinned case."""
 
     reference = phases.reference
-    if context.reference_kind not in cv.CERTIFYING_REFERENCE_KINDS or not context.hidden_case_count:
+    if context.reference_kind not in cv.CERTIFYING_REFERENCE_KINDS:
         return False
-    if reference is None or not reference.ok:
+    if not context.hidden_case_count:
         return False
-    return len(reference.hidden) == context.hidden_case_count and not failing_ids(reference.hidden)
+    if not _successful_limited_phase(reference):
+        return False
+    if len(reference.hidden) != context.hidden_case_count:
+        return False
+    return not failing_ids(reference.hidden)
 
 
 def _oracle_status(phases: Phases, context: DecisionContext) -> str:
-    if _original_problem(phases.original) is not None:
+    if _source_problem(phases) is not None:
         return cv.STATUS_INVALID
     if _reference_certifies(phases, context):
         return cv.STATUS_VALIDATED
@@ -154,6 +177,9 @@ def decide(phases: Phases, context: DecisionContext) -> Verdict:
 
     status = _oracle_status(phases, context)
     problem = pre_repair_problem(phases, context) or _repair_problem(phases.repaired)
+    if problem is None and phase_block(phases.original) != phase_block(phases.repaired):
+        problem = cv.REASON_SOURCE_NONDETERMINISTIC
+        status = cv.STATUS_INVALID
     if problem is not None:
         return Verdict(cv.OUTCOME_REJECTED, (problem,), status)
     reasons = [cv.REASON_MUTANT_FAILS_PUBLIC]
@@ -176,84 +202,31 @@ def tests_tampered(examples: tuple[cat.Example, ...], repaired_text: str, functi
 
 
 def phase_block(report: ex.PhaseReport | None) -> dict[str, Any] | None:
-    """The digestable form of one phase: statuses and ``{id, status}`` rows only."""
+    """Stable source, limits, status and observation evidence for one executed phase."""
 
     if report is None:
         return None
     public, hidden = ex.rows_of(report.public), ex.rows_of(report.hidden)
     block = {"status": report.status, "load_ok": report.load_ok, "public": public, "hidden": hidden}
+    block["module_sha256"] = report.module_sha256
+    block["limits_applied"] = report.environment.get("limits_applied")
     block["sha256"] = cat.sha256_text(oc.canonical_json([public, hidden]))
     return block
 
 
+def phases_from_blocks(blocks: dict[str, Any]) -> Phases:
+    """Reconstruct complete stable reports; callers validate their family shape first."""
+    reports = {}
+    for phase in cv.PHASES:
+        block = blocks[phase]
+        reports[phase] = None if block is None else ex.PhaseReport(
+            block["status"], block["load_ok"], tuple(block["public"]), tuple(block["hidden"]),
+            {"limits_applied": block["limits_applied"]}, module_sha256=block["module_sha256"])
+    return Phases(**reports)
+
+
 def result_hash(phases_block: dict[str, Any]) -> str:
     return cat.sha256_text(oc.canonical_json(phases_block))
-
-
-def _example_index(row_id: str) -> int:
-    return int(row_id.rpartition(":")[2])
-
-
-def _entry(row: dict[str, Any], example: cat.Example) -> dict[str, Any]:
-    return {
-        "example_id": example.example_id, "source": example.source, "want": example.want,
-        "got": row.get("got", ""), "truncated": bool(row.get("truncated", False)),
-    }
-
-
-def _fits(entries: list[dict[str, Any]], entry: dict[str, Any]) -> bool:
-    if not entries:
-        return True
-    if len(entries) >= cv.MAX_EVIDENCE_EXAMPLES:
-        return False
-    return len(render_evidence(entries + [entry], 0)) <= cv.MAX_EVIDENCE_CHARS
-
-
-def public_evidence(
-    mutant: ex.PhaseReport | None, examples: tuple[cat.Example, ...]
-) -> tuple[list[dict[str, Any]], int]:
-    """The failing public examples of the mutant, bounded: ``(entries, omitted_count)``."""
-
-    rows = () if mutant is None else mutant.public
-    failing = [
-        row for row in rows
-        if row["status"] != cv.ROW_SUCCESS and _example_index(row["id"]) < len(examples)
-    ]
-    entries: list[dict[str, Any]] = []
-    for row in sorted(failing, key=lambda r: _example_index(r["id"])):
-        entry = _entry(row, examples[_example_index(row["id"])])
-        if not _fits(entries, entry):
-            break
-        entries.append(entry)
-    if entries and len(render_evidence(entries, 0)) > cv.MAX_EVIDENCE_CHARS:
-        excess = len(render_evidence(entries, 0)) - cv.MAX_EVIDENCE_CHARS
-        entries[0]["got"] = entries[0]["got"][: max(0, len(entries[0]["got"]) - excess)]
-        entries[0]["truncated"] = True
-    return entries, len(failing) - len(entries)
-
-
-def _indent(text: str) -> str:
-    lines = text.rstrip("\n").split("\n") if text.strip() else []
-    return "\n".join(f"    {line}" for line in lines)
-
-
-def _render_entry(entry: dict[str, Any]) -> str:
-    want = _indent(entry["want"]) if entry["want"].strip() else "Expected nothing"
-    got = _indent(entry["got"]) if entry["got"].strip() else "Got nothing"
-    if entry["truncated"]:
-        got += "\n    ...[truncated]"
-    expected_line = "Expected:\n" if want != "Expected nothing" else ""
-    got_line = "Got:\n" if got != "Got nothing" else ""
-    return f"Failed example:\n{_indent(entry['source'])}\n{expected_line}{want}\n{got_line}{got}"
-
-
-def render_evidence(entries: list[dict[str, Any]], omitted: int) -> str:
-    """The prompt's failure block: doctest-style, from the bounded entries only."""
-
-    parts = [_render_entry(entry) for entry in entries]
-    if omitted:
-        parts.append(cv.EVIDENCE_MORE.format(count=omitted))
-    return "\n\n".join(parts)
 
 
 bind_import_twin(__name__)

@@ -17,6 +17,7 @@ from typing import Any
 
 from . import catalog as cat
 from . import verify
+from . import record_validation as validation
 from . import vocabulary as cv
 from ._contract import bind_import_twin, contains_hidden_reasoning_key, oc
 
@@ -28,7 +29,7 @@ PROMPT_TEMPLATE = (
 
 __all__ = [
     "PROMPT_TEMPLATE", "PublicView", "VIEW_KEYS", "agoge_row", "completion_of", "is_positive",
-    "public_view", "render_prompt", "sft_row", "view_findings",
+    "public_view", "render_prompt", "sft_row", "view_findings", "evidence_findings",
 ]
 
 
@@ -69,6 +70,12 @@ def completion_of(record: dict[str, Any]) -> str:
 def is_positive(record: dict[str, Any]) -> bool:
     """Accepted, validated, and eligible under the shared curation gate with no findings."""
 
+    try:
+        validation.validate_shape(record)
+        if not validation.verdict_matches(record):
+            return False
+    except (cv.RepairRefusal, KeyError, TypeError, ValueError, AttributeError):
+        return False
     result = record.get("result") if isinstance(record.get("result"), dict) else {}
     if result.get("outcome") != cv.OUTCOME_ACCEPTED:
         return False
@@ -87,7 +94,11 @@ def sft_row(record: dict[str, Any]) -> dict[str, str]:
         not is_positive(record), cv.FINDING_RECORD_NOT_A_POSITIVE_EXAMPLE,
         f"record {cv.shown(record.get('id'))} is not an accepted, validated, eligible example",
     )
-    return {"prompt": render_prompt(public_view(record)), "completion": completion_of(record)}
+    row = {"prompt": render_prompt(public_view(record)), "completion": completion_of(record)}
+    findings = view_findings(record, row)
+    cv.refuse_when(bool(findings), cv.FINDING_RECORD_MALFORMED,
+                   "record fails public view validation: " + ", ".join(findings))
+    return row
 
 
 def agoge_row(record: dict[str, Any]) -> dict[str, Any]:
@@ -99,63 +110,27 @@ def agoge_row(record: dict[str, Any]) -> dict[str, Any]:
         "canonical_id": record["id"], "lineage_id": lineage["lineage_id"],
         "group_id": lineage["group_id"], "split": lineage["split"],
         "text": row["prompt"] + cv.AGOGE_SEPARATOR + row["completion"],
+        "completion_start_char": len(row["prompt"] + cv.AGOGE_SEPARATOR),
     }
 
 
-def _example_index(row_id: str) -> int:
-    return int(row_id.rpartition(":")[2])
-
-
-def _failing_public_ids(record: dict[str, Any]) -> list[str]:
-    """The mutant's failing public rows in example order (stored rows sort by id text)."""
-
-    mutant = record["result"]["phases"].get(cv.PHASE_MUTANT) or {}
-    failing = [row["id"] for row in mutant.get("public", []) if row["status"] != cv.ROW_SUCCESS]
-    return sorted(failing, key=_example_index)
-
-
-def _entries_are_the_leading_failures(record: dict[str, Any], failing: list[str]) -> bool:
-    result = record["result"]
-    entries = list(result["public_failure_evidence"])
-    indexes = sorted(_example_index(e["example_id"]) for e in entries)
-    expected_ids = [f"public:{i}" for i in indexes]
-    omitted = int(result["public_failure_omitted"])
-    return (
-        expected_ids == failing[: len(entries)]
-        and len(entries) + omitted == len(failing)
-        and len(entries) <= cv.MAX_EVIDENCE_EXAMPLES
-    )
-
-
-def _evidence_findings(record: dict[str, Any]) -> list[str]:
+def evidence_findings(record: dict[str, Any]) -> list[str]:
     """The stored evidence must be the bounded rendering of the mutant's failing rows."""
 
-    examples = {e["example_id"]: e for e in record["scenario"]["public_tests"]["examples"]}
-    mutant = record["result"]["phases"].get(cv.PHASE_MUTANT) or {}
-    rows = {row["id"]: row for row in mutant.get("public", [])}
-    entries = list(record["result"]["public_failure_evidence"])
-    consistent = _entries_are_the_leading_failures(record, _failing_public_ids(record)) and all(
-        _matches_example(e, examples) and _matches_row(e, rows) for e in entries
-    )
+    try:
+        scenario, result = record["scenario"], record["result"]
+        examples = cat.examples_of(scenario["broken_program"]["files"][cv.PROGRAM_FILENAME],
+                                   scenario["source"]["upstream"]["function"])
+        expected_examples = [{"example_id": e.example_id, "source": e.source, "want": e.want}
+                             for e in examples]
+        phases = verify.phases_from_blocks(result["phases"])
+        entries, omitted = verify.public_evidence(phases.mutant, examples)
+        consistent = (expected_examples == scenario["public_tests"]["examples"]
+                      and entries == result["public_failure_evidence"]
+                      and omitted == result["public_failure_omitted"])
+    except (KeyError, TypeError, ValueError, AttributeError):
+        consistent = False
     return [] if consistent else [cv.LEAK_PUBLIC_EVIDENCE_NOT_FROM_ROWS]
-
-
-def _matches_example(entry: dict[str, Any], examples: dict[str, dict[str, Any]]) -> bool:
-    example = examples.get(entry["example_id"])
-    if example is None:
-        return False
-    return (entry["source"], entry["want"]) == (example["source"], example["want"])
-
-
-def _matches_row(entry: dict[str, Any], rows: dict[str, dict[str, Any]]) -> bool:
-    """An untruncated ``got`` must hash to the digest the harness row carries."""
-
-    row = rows.get("public:" + entry["example_id"].rpartition(":")[2])
-    if row is None or row.get("status") == cv.ROW_SUCCESS:
-        return False
-    if entry.get("truncated"):
-        return True
-    return row.get("got_sha256") == cat.sha256_text(str(entry["got"]))
 
 
 def _completion_findings(record: dict[str, Any], row: dict[str, Any]) -> list[str]:
@@ -186,7 +161,7 @@ def view_findings(record: dict[str, Any], row: dict[str, Any]) -> list[str]:
     broken = record["scenario"]["broken_program"]["files"][cv.PROGRAM_FILENAME]
     if f"```python\n{broken}```" not in str(row.get("prompt", "")):
         findings.append(cv.LEAK_PROMPT_PROGRAM_NOT_BROKEN_TEXT)
-    findings += _evidence_findings(record)
+    findings += evidence_findings(record)
     findings += _completion_findings(record, row)
     sections = [record.get(key) for key in ("scenario", "intervention", "candidate_prediction")]
     if contains_hidden_reasoning_key(row) or contains_hidden_reasoning_key(sections):

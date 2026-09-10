@@ -62,6 +62,30 @@ class KeywordNames(unittest.TestCase):
 
 
 class Structure(unittest.TestCase):
+    def test_optional_import_aliases_do_not_separate_equivalent_programs(self):
+        pairs = (
+            ("import math\ndef f(x):\n    return math.floor(x)\n",
+             "import math as m\ndef f(x):\n    return m.floor(x)\n"),
+            ("from math import floor\ndef f(x):\n    return floor(x)\n",
+             "from math import floor as fl\ndef f(x):\n    return fl(x)\n"),
+        )
+        for plain, aliased in pairs:
+            with self.subTest(import_statement=plain.splitlines()[0]):
+                self.assertEqual(lineage.structure_digest(plain), lineage.structure_digest(aliased))
+
+    def test_import_api_identity_survives_optional_alias_normalization(self):
+        pairs = (
+            ("import math as m\ndef f(x):\n    return m.sqrt(x)\n",
+             "import cmath as m\ndef f(x):\n    return m.sqrt(x)\n"),
+            ("from math import floor as fl\ndef f(x):\n    return fl(x)\n",
+             "from math import ceil as fl\ndef f(x):\n    return fl(x)\n"),
+            ("import os.path\ndef f(x):\n    return os.abspath(x)\n",
+             "import os.path as os\ndef f(x):\n    return os.abspath(x)\n"),
+        )
+        for one, other in pairs:
+            with self.subTest(import_statement=one.splitlines()[0]):
+                self.assertNotEqual(lineage.structure_digest(one), lineage.structure_digest(other))
+
     def test_renamed_copies_share_a_structure_digest_and_different_programs_do_not(self):
         text = program("sum_of_digits").text
         renamed = re.sub(r"\bsum_of_digits\b", "digit_total", text)
