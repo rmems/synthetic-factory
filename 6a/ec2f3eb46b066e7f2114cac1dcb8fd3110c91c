@@ -1,0 +1,40 @@
+schemas/procedural-source-policy-v1.json
+  s_637722da58c92c::t_4b1e87b80672e1 5
+  s_637722da58c92c::t_5bd87b8694ab17 1-4,6-23
+pipelines/code_repair/source_policy.py
+  s_637722da58c92c::t_0100711277c4d7 19
+  s_637722da58c92c::t_aa390aaf069027 1-18,20-77
+pipelines/record_kind.py
+  s_637722da58c92c::t_f7f14a0006736c 23,54-56
+tests/test_curate_identity_rights.py
+  s_637722da58c92c::t_8d6be30baee847 53-54
+config/FACTORY-REGISTRY.json
+  s_637722da58c92c::t_6d0954c3adf9ac 2,1238-1240,1242-1257,1259-1268
+  s_637722da58c92c::t_0100711277c4d7 1258
+  s_637722da58c92c::t_4b1e87b80672e1 1241
+tests/test_code_repair_admission.py
+  s_637722da58c92c::t_6cd7dc66c976e5 1-8,12-51,67-70
+  s_637722da58c92c::t_4b1e87b80672e1 9
+  s_637722da58c92c::t_afab8078418e90 10-11,52-66
+pipelines/curate_identity.py
+  s_637722da58c92c::t_7b1124c0bf7dd5 118-119,122,216-217,228-235,596-600,604-605,611-636,672-677,2510,2512
+  s_637722da58c92c::t_8d6be30baee847 601-603
+tests/test_curate_identity.py
+  s_637722da58c92c::t_8d6be30baee847 833,1139-1141
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6aec2f3eb46b066e7f2114cac1dcb8fd3110c91c",
+  "prompts": {},
+  "sessions": {
+    "s_637722da58c92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b4-b4e1-7663-adcf-65ef44374529",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
