@@ -24,7 +24,7 @@ from . import replay
 from . import views
 from . import record_validation as validation
 from . import vocabulary as cv
-from ._contract import bind_import_twin, envelope, oc
+from ._contract import bind_import_twin, dumps_exact_json, envelope, oc
 
 __all__ = ["build_parser", "run"]
 
@@ -80,7 +80,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _emit(payload: dict[str, Any], as_json: bool, text: str) -> None:
-    print(json.dumps(payload, indent=2, sort_keys=True) if as_json else text)
+    rendered = dumps_exact_json(
+        payload, ensure_ascii=True, indent=2, sort_keys=True
+    ) if as_json else text
+    print(rendered)
 
 
 def _catalog_check(args: argparse.Namespace) -> int:
