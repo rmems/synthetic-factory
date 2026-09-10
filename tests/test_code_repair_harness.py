@@ -202,7 +202,8 @@ class Isolation(unittest.TestCase):
         self.assertEqual(
             ex.rows_of(rows),
             [{"id": "public:1", "status": "pass"},
-             {"id": "public:2", "status": "fail", "got_sha256": digest}],
+         {"id": "public:2", "status": "fail", "got": "x", "truncated": False,
+          "got_sha256": digest}],
         )
 
 

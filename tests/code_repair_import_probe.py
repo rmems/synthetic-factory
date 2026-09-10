@@ -16,7 +16,7 @@ REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
 MODULES = (
     "_contract", "vocabulary", "catalog", "mutate", "executor", "verify", "records", "views",
-    "generate", "cli",
+    "generate", "cli", "record_validation", "evidence",
 )
 
 

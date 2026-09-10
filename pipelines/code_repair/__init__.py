@@ -21,6 +21,8 @@ __all__ = [
     "generate",
     "mutate",
     "records",
+    "record_validation",
+    "evidence",
     "verify",
     "views",
     "vocabulary",

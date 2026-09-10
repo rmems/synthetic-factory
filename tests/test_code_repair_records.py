@@ -25,7 +25,7 @@ from code_repair_test_support import (  # noqa: E402
 # the harness digest sits inside every record's oracle fingerprint by design. Re-pinned for the
 # exact-integer harness (Codex on #196) and the executed reference phase (Codex on #197), then
 # for digests on passing rows (Codex on #196, round 3).
-GOLDEN_SHA256 = "8f51f20bfdb8125de1ac368653af5b2dee2730fe3607a4432df43d0af9d21ff2"
+GOLDEN_SHA256 = "d91bb6485a4a14a38db01b0f1e3d068acfcae4f8bef3aa9389925eb0bd271040"
 
 
 def accepting_executor():
@@ -60,7 +60,7 @@ class GoldenBytes(unittest.TestCase):
     def test_a_fixed_seed_and_pinned_stamp_rebuild_the_same_record_bytes(self):
         first, second = fake_records(), fake_records()
         self.assertEqual(first, second)
-        self.assertEqual(first[0]["id"], f"pfr-{SEED}-00000")
+        self.assertEqual(first[0]["id"], f"pfr-3d10e98cd8505f249cb4d6803f175ad784f07d614a20b5dfc9f33d40b573f93c-{SEED}-00000")
         self.assertEqual(first[0]["provenance"]["produced_at"], PINNED_AT)
         self.assertEqual(first[0]["provenance"]["record_sha256"], GOLDEN_SHA256)
 
@@ -93,7 +93,7 @@ class ContractChecks(unittest.TestCase):
     def test_counts_are_genuine_ints_per_phase_and_suite(self):
         record = fake_records(count=1)[0]
         readings = record["result"]["measurements"]
-        self.assertEqual(len(readings), 14)  # three phases x two suites, the reference's hidden suite
+        self.assertEqual(len(readings), 18)  # four program phases and the reference's hidden suite
         self.assertTrue(all(isinstance(r["value"], int) and not isinstance(r["value"], bool) for r in readings))
         detail = {(r["detail"]["phase"], r["detail"]["suite"]) for r in readings}
         expected = {(p, s) for p in cv.PHASES for s in (cv.SUITE_PUBLIC, cv.SUITE_HIDDEN)}
@@ -158,6 +158,7 @@ class Tampers(unittest.TestCase):
             report(rows("public", 7, (3,), got="2"), rows("hidden", 15, (0,))),
             report(rows("public", 7), rows("hidden", 15)),
             reference=report((), rows("hidden", 15)),
+            original_repeat=report(rows("public", 7), rows("hidden", 15)),
         )
         context = verify.DecisionContext(prog.reference.kind, True, False, len(prog.cases))
         verdict = verify.decide(phases, context)

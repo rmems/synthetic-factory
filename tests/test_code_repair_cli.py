@@ -58,13 +58,14 @@ class GenerateAndRender(unittest.TestCase):
         self.assertEqual(code, 0)
         summary = json.loads(text)["summary"]
         self.assertEqual(summary["outcomes"], {"accepted": 2, "rejected": 3})
-        code, text, _err = invoke(["render", str(out), f"pfr-{SEED}-00000", "--json"])
+        record_id = next(oc.iter_jsonl(out / generate.CANDIDATES_FILENAME))[1]['id']
+        code, text, _err = invoke(["render", str(out), record_id, "--json"])
         self.assertEqual(code, 0)
         payload = json.loads(text)
         self.assertEqual(set(payload["sft"]), {"prompt", "completion"})
         self.assertEqual((payload["status"], payload["findings"]), ("ok", []))
         self.assertEqual(len(payload["sha256"]["record"]), 64)
-        code, text, _err = invoke(["render", str(out), f"pfr-{SEED}-00000"])
+        code, text, _err = invoke(["render", str(out), record_id])
         self.assertEqual(code, 0)
         self.assertIn("### prompt\n", text)
         self.assertIn("### completion\n", text)
@@ -73,8 +74,9 @@ class GenerateAndRender(unittest.TestCase):
         self.assertTrue(err.startswith(cv.FINDING_DESTINATION_EXISTS))
 
     def test_render_refuses_a_rejected_record_with_its_reasons(self):
-        _summary, _records, run_dir = smoke_run()
-        code, text, _err = invoke(["render", str(run_dir), f"pfr-{SEED}-00003", "--json"])
+        _summary, records, run_dir = smoke_run()
+        timed = next(r for r in records if r['result']['reason_codes'] == [cv.REASON_MUTANT_TIMEOUT])
+        code, text, _err = invoke(["render", str(run_dir), timed['id'], "--json"])
         self.assertEqual(code, 1)
         finding = json.loads(text)["findings"][0]
         self.assertEqual(finding["code"], cv.FINDING_RECORD_NOT_A_POSITIVE_EXAMPLE)
@@ -115,7 +117,7 @@ class EntryScript(unittest.TestCase):
         source = (REPO / "pipelines" / "code_repair_cli.py").read_text(encoding="utf-8")
         compile(source, "code_repair_cli.py", "exec")
         self.assertIn("from code_repair import cli", source)
-        self.assertEqual(generate.RUN_FORMAT, "code-repair-run/1")
+        self.assertEqual(generate.RUN_FORMAT, "code-repair-run/2")
 
 
 if __name__ == "__main__":
