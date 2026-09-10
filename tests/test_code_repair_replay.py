@@ -76,7 +76,7 @@ class Forgeries(unittest.TestCase):
         self.assertTrue(views.is_positive(forged))
         self.assertEqual(views.view_findings(forged, views.sft_row(forged)), [])
         entry = replay.replay_record(forged, fixture(), RUNNER)
-        self.assertEqual(entry["code"], cv.REPLAY_ROWS_MISMATCH)
+        self.assertEqual(entry["code"], cv.REPLAY_TEXT_MISMATCH)
         self.assertIn("mutant", entry["detail"])
 
     def test_a_repair_that_is_not_the_pinned_original_is_a_text_mismatch(self):
@@ -129,6 +129,8 @@ class RunBinding(unittest.TestCase):
         out.mkdir()
         oc.write_jsonl(out / generate.CANDIDATES_FILENAME, records)
         summary = json.loads((run_dir / generate.RUN_FILENAME).read_text(encoding="utf-8"))
+        summary["records"] = len(records)
+        summary["candidates_sha256"] = hashlib.sha256((out / generate.CANDIDATES_FILENAME).read_bytes()).hexdigest()
         if run_edit is not None:
             run_edit(summary)
         (out / generate.RUN_FILENAME).write_text(json.dumps(summary, sort_keys=True), encoding="utf-8")
@@ -137,6 +139,18 @@ class RunBinding(unittest.TestCase):
     def test_a_run_pinned_to_another_catalog_is_refused(self):
         run_dir = self.run_with(positives()[:1], lambda s: s["catalog"].update(programs_sha256="0" * 64))
         with refusal(self, cv.FINDING_REPLAY_CATALOG_UNBOUND, "another catalog"):
+            replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
+
+    def test_deleting_a_candidate_line_is_refused(self):
+        run_dir = self.run_with(positives())
+        candidates = run_dir / generate.CANDIDATES_FILENAME
+        candidates.write_text("\n".join(candidates.read_text().splitlines()[1:]) + "\n")
+        with refusal(self, cv.FINDING_RECORD_MALFORMED, "candidates"):
+            replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
+
+    def test_missing_generation_digest_requires_regeneration(self):
+        run_dir = self.run_with(positives(), lambda s: s.pop("candidates_sha256"))
+        with refusal(self, cv.FINDING_RECORD_MALFORMED, "candidates"):
             replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
 
     def test_the_report_carries_the_run_identity(self):
@@ -197,11 +211,16 @@ class RequestsAndCli(unittest.TestCase):
         forged_dir.mkdir()
         oc.write_jsonl(forged_dir / generate.CANDIDATES_FILENAME, [consistently_forged()])
         shutil.copy(smoke_run()[2] / generate.RUN_FILENAME, forged_dir / generate.RUN_FILENAME)
+        run_file = forged_dir / generate.RUN_FILENAME
+        summary = json.loads(run_file.read_text())
+        summary["records"] = 1
+        summary["candidates_sha256"] = hashlib.sha256((forged_dir / generate.CANDIDATES_FILENAME).read_bytes()).hexdigest()
+        run_file.write_text(json.dumps(summary))
         code = cli.run(["replay", "--run", str(forged_dir), "--catalog", str(FIXTURE_CATALOG),
                         "--out", str(self.root / "forged-replay"), "--timeout-s", "5", "--json"])
         self.assertEqual(code, 1)
         report = json.loads((self.root / "forged-replay" / replay.REPLAY_FILENAME).read_text())
-        self.assertEqual(report["counts"]["failed_by_code"], {cv.REPLAY_ROWS_MISMATCH: 1})
+        self.assertEqual(report["counts"]["failed_by_code"], {cv.REPLAY_TEXT_MISMATCH: 1})
         _summary, _records, run_dir = smoke_run()
         code = cli.run(["replay", "--run", str(run_dir), "--catalog", str(FIXTURE_CATALOG),
                         "--out", str(self.root / "clean-replay"), "--timeout-s", "5"])

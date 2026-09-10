@@ -138,7 +138,7 @@ def _strip_docstring(body: list[ast.stmt]) -> list[ast.stmt]:
     return body
 
 
-_RENAMED_FIELDS = ("id", "arg", "name")
+_RENAMED_FIELDS = ("id", "arg", "name", "asname")
 
 
 def _field_value(node: ast.AST, name: str, namer: _Namer) -> Any:
@@ -158,7 +158,7 @@ def _is_identifier(node: ast.AST, name: str, value: Any) -> bool:
 
     if name not in _RENAMED_FIELDS or not isinstance(value, str):
         return False
-    return not isinstance(node, ast.keyword)
+    return not isinstance(node, ast.keyword) and not (isinstance(node, ast.alias) and name == "name")
 
 
 def _serialise_node(node: ast.AST, namer: _Namer) -> list:

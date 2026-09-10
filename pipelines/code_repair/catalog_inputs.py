@@ -60,9 +60,13 @@ def literal_args(example: cat.Example, function: str) -> tuple | None:
     call = _single_call(example.source, function)
     if call is None:
         return None
+    if any(isinstance(node, ast.Set) or (
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "set"
+    ) for arg in call.args for node in ast.walk(arg)):
+        return None
     try:
         return tuple(ast.literal_eval(a) for a in call.args)
-    except ValueError:
+    except (ValueError, TypeError, SyntaxError):
         return None
 
 
@@ -136,19 +140,39 @@ def observed_cases(executor: ex.Executor, subject: Subject) -> list[dict]:
 
     text, function = subject.text, subject.function
     args_list = candidate_args(subject.examples, function, _stream_for(subject.program_id))
-    if not args_list:
-        return []
-    probes = tuple({"args": repr(a), "want": None} for a in args_list)
-    report = executor.run(ex.Job(f"observe:{function}", text, function, probes, False))
+    kept: list[dict] = []
+    cursor = 0
+    while cursor < len(args_list) and len(kept) < cv.MAX_HIDDEN_CASES:
+        capacity = cv.MAX_HIDDEN_CASES - len(kept)
+        batch = args_list[cursor:cursor + capacity]
+        cursor += len(batch)
+        probes = tuple({"args": case["args"], "want": None} for case in kept) + tuple(
+            {"args": repr(args), "want": None} for args in batch
+        )
+        first = _observe(executor, text, function, probes)
+        second = _observe(executor, text, function, probes)
+        retained = len(kept)
+        for index, args in enumerate(batch, retained):
+            row, other = first.hidden[index], second.hidden[index]
+            if (row["status"] == cv.ROW_OBSERVED and row == other
+                    and not row.get("truncated")):
+                kept.append({"args": repr(args), "want": row["got"]})
+    if kept:
+        final_probes = tuple({"args": case["args"], "want": None} for case in kept)
+        final = _observe(executor, text, function, final_probes)
+        if any(row.get("got") != case["want"] or row["status"] != cv.ROW_OBSERVED
+               or row.get("truncated") for row, case in zip(final.hidden, kept)):
+            return []  # Removing a failed probe changed the state seen by a later input.
+    return kept
+
+
+def _observe(executor: ex.Executor, text: str, function: str, probes: tuple) -> ex.PhaseReport:
+    report = executor.run(ex.Job(f"observe:{function}", text, function, probes, True))
     cv.refuse_when(
         not report.ok, cv.FINDING_HARNESS_REPORT_MALFORMED,
         f"observing {function} failed: {report.detail}",
     )
-    kept = [
-        {"args": repr(a), "want": row["got"]}
-        for a, row in zip(args_list, report.hidden) if row["status"] == cv.ROW_OBSERVED
-    ]
-    return kept[: cv.MAX_HIDDEN_CASES]
+    return report
 
 
 bind_import_twin(__name__)

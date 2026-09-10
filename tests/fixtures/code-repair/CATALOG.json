@@ -8,7 +8,7 @@
   "catalog_id": "code-repair-fixture-v1",
   "format": "code-repair-catalog/1",
   "program_count": 6,
-  "programs_sha256": "dfc8cea21f10f87f42ee8db80195bc43ada25e49ab515ae6b8b86827865e5e44",
+  "programs_sha256": "73b4b9d953d3caef823d3ae72032f4cc0619610fe84d28f339fddc9558af7118",
   "split_policy": {
     "algorithm": "sha256-atomic-bucket-v1",
     "salt": "python-repair-v1",

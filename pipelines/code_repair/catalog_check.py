@@ -18,7 +18,7 @@ from . import lineage
 from . import vocabulary as cv
 from ._contract import bind_import_twin
 
-__all__ = ["catalog_check", "original_findings", "phase_code"]
+__all__ = ["catalog_check", "catalog_structure_findings", "original_findings", "phase_code"]
 
 
 def _finding(code: str, program: cat.Program, detail: str) -> dict[str, str]:
@@ -88,7 +88,7 @@ def _reference_findings(program: cat.Program, executor: ex.Executor) -> list[dic
     return []
 
 
-def _structure_findings(catalog: cat.Catalog) -> list[dict[str, str]]:
+def catalog_structure_findings(catalog: cat.Catalog) -> list[dict[str, str]]:
     """Groups and splits recomputed from the module texts must match the pinned ones."""
 
     digests = {p.program_id: lineage.structure_digest(p.text) for p in catalog.programs}
@@ -102,6 +102,9 @@ def _structure_findings(catalog: cat.Catalog) -> list[dict[str, str]]:
         expected = _Structure(digests[program.program_id], groups[program.program_id], None)
         findings += _program_structure_findings(program, expected, catalog.split_policy)
     return findings + _empty_split_findings(catalog)
+
+
+_structure_findings = catalog_structure_findings
 
 
 class _Structure(NamedTuple):
@@ -138,7 +141,7 @@ def _program_structure_findings(
 
 
 def _empty_split_findings(catalog: cat.Catalog) -> list[dict[str, str]]:
-    if catalog.split_policy is None or not catalog.programs:
+    if catalog.split_policy is None:
         return []
     present = {p.split for p in catalog.programs}
     weights = catalog.split_policy.weights
@@ -157,7 +160,7 @@ def catalog_check(catalog: cat.Catalog, executor: ex.Executor) -> list[dict[str,
     for program in catalog.programs:
         findings += original_findings(program, executor)
         findings += _reference_findings(program, executor)
-    return findings + _structure_findings(catalog)
+    return findings + catalog_structure_findings(catalog)
 
 
 bind_import_twin(__name__)
