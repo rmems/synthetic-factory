@@ -144,6 +144,59 @@ class VerticalRegressions(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(cv.RepairRefusal):
                 record_validation.validate_shape(record)
 
+    def test_cli_invalid_broken_source_is_a_coded_refusal(self):
+        record = self.positive()
+        broken = record['scenario']['broken_program']
+        broken['files']['program.py'] = 'def broken(:\n'
+        broken['sha256'] = record['result']['broken_sha256'] = catalog.sha256_text(
+            broken['files']['program.py'])
+        record['result']['phases']['mutant']['module_sha256'] = broken['sha256']
+        record['result']['evidence_sha256'] = verify.result_hash(record['result']['phases'])
+        record['provenance']['record_sha256'] = envelope.record_digest(record)
+        with tempfile.TemporaryDirectory() as root:
+            oc.write_jsonl(Path(root)/'candidates.jsonl', [record])
+            code, output, _ = invoke(['render', root, record['id'], '--json'])
+        self.assertEqual(code, 2)
+        self.assertEqual(json.loads(output)['code'], 'RECORD_MALFORMED')
+        self.assertNotIn('sft', json.loads(output))
+
+    def failed_phase_record(self, status, flag):
+        record = copy.deepcopy(next(r for r in smoke_run()[1]
+                                    if r['result']['reason_codes'] == ['MUTANT_TIMEOUT']))
+        block = record['result']['phases']['mutant']
+        block.update(status=status, load_ok=False)
+        if flag == 'missing':
+            del block['limits_applied']
+        else:
+            block['limits_applied'] = flag
+        block['sha256'] = catalog.sha256_text(oc.canonical_json([block['public'], block['hidden']]))
+        record['result']['evidence_sha256'] = verify.result_hash(record['result']['phases'])
+        record['provenance']['record_sha256'] = envelope.record_digest(record)
+        return record
+
+    def test_failed_phases_require_a_valid_limits_field_before_reconstruction(self):
+        for status in ('timeout', 'harness_error', 'ok'):
+            for flag in ('missing', 0, 1, 'false', {}):
+                record = self.failed_phase_record(status, flag)
+                with self.subTest(status=status, flag=flag):
+                    with self.assertRaises(cv.RepairRefusal):
+                        record_validation.validate_shape(record)
+                    with tempfile.TemporaryDirectory() as root:
+                        oc.write_jsonl(Path(root)/'candidates.jsonl', [record])
+                        code, output, _ = invoke(['render', root, record['id'], '--json'])
+                    self.assertEqual(code, 2)
+                    self.assertEqual(json.loads(output)['code'], 'RECORD_MALFORMED')
+
+    def test_failed_phase_limits_flags_survive_validated_reconstruction(self):
+        for status in ('timeout', 'harness_error', 'ok'):
+            for flag in (False, None, True):
+                record = self.failed_phase_record(status, flag)
+                with self.subTest(status=status, flag=flag):
+                    record_validation.validate_shape(record)
+                    phase = verify.phases_from_blocks(record['result']['phases']).mutant
+                    self.assertIs(phase.environment['limits_applied'], flag)
+                    self.assertEqual(verify.phase_block(phase), record['result']['phases']['mutant'])
+
     def test_evidence_reordering_and_shortening_is_detected(self):
         record = copy.deepcopy(next(r for r in smoke_run()[1]
                                     if len(r['result']['public_failure_evidence']) >= 2))

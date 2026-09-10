@@ -47,6 +47,7 @@ def _phase_shape(block: Any) -> None:
     _require(isinstance(block, dict))
     _require(block["status"] in (cv.PHASE_OK, cv.PHASE_TIMEOUT, cv.PHASE_HARNESS_ERROR))
     _require(type(block["load_ok"]) is bool and _digest(block["module_sha256"]))
+    _require(block["limits_applied"] is None or type(block["limits_applied"]) is bool)
     if block["status"] == cv.PHASE_OK and block["load_ok"]:
         _require(block["limits_applied"] is True)
     for suite in ("public", "hidden"):
@@ -105,7 +106,7 @@ def validate_shape(record: dict[str, Any]) -> None:
                             [cv.PROGRAM_FILENAME], str))
         _require(isinstance(record["scenario"]["task_specification"], str))
         _require(isinstance(record["oracle"]["configuration"]["hidden_check"]["cases"], list))
-    except (KeyError, TypeError, ValueError, AttributeError, RecursionError,
+    except (KeyError, TypeError, ValueError, SyntaxError, AttributeError, RecursionError,
             envelope.ContractError) as exc:
         raise cv.RepairRefusal(cv.FINDING_RECORD_MALFORMED,
                                "record has malformed code-repair fields") from exc
