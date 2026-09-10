@@ -1,0 +1,25 @@
+pipelines/code_repair/replay.py
+  s_637722da58c92c::t_30684f0b0262bf 372-377
+tests/test_code_repair_export_validation.py
+  s_637722da58c92c::t_75646b24030310 8-9,18,29-46,137-168
+  s_637722da58c92c::t_d71a1e21a28f00 23-28
+pipelines/code_repair/record_validation.py
+  s_637722da58c92c::t_30684f0b0262bf 5,25-70,73-75,190-192
+  s_637722da58c92c::t_b252e8085f7b74 71-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0c680d4f88aa657dded480c5bba00812dbb7ebc1",
+  "prompts": {},
+  "sessions": {
+    "s_637722da58c92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b4-b4e1-7663-adcf-65ef44374529",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
