@@ -67,12 +67,14 @@ def _configuration_shape(oracle: dict) -> None:
                 oracle['authority'])
     _require(identity == (cv.ORACLE_NAME, cv.ORACLE_TYPE, cv.ORACLE_IMPLEMENTATION,
                           cv.ORACLE_VERSION, oc.AUTHORITY_AUTHORITATIVE))
+    _require(oracle["commit"] is assembly.ORACLE_COMMIT)
     configuration = oracle['configuration']
     _fields(configuration, 'timeout_s', (int, float, ExactJSONFloat))
     timeout = configuration['timeout_s']
     _require(0 < timeout <= cv.MAX_TIMEOUT_S and math.isfinite(timeout))
     _require(0 < exact_fraction(timeout) <= exact_fraction(cv.MAX_TIMEOUT_S))
     _fields(configuration, 'isolation')
+    _require(configuration["isolation"] == assembly.ORACLE_ISOLATION)
     _fields(configuration['limits'], 'cpu_s address_space_mib file_size_kib', (int,))
     hidden = configuration['hidden_check']
     _fields(hidden, 'reference_function', (str, type(None)))

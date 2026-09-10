@@ -177,6 +177,8 @@ class ProceduralIntegrationTests(unittest.TestCase):
         self.assertEqual(oc.check_digest(record, "restamped"), [])
         self.assertTrue(validation.validate_record(record))
         self.assertTrue(check_record(record, "restamped")[0])
+        with self.assertRaises(source_policy.SourcePolicyError):
+            admission.natural_eligibility(record, self.row)
         result = ci.curate_record(ci.SourceRecord(record, f"{self.row.path_id}/batch-r01.jsonl", 1))
         self.assertEqual(result.action, "exclude")
         run = json.loads((self.run_dir / "RUN.json").read_bytes())
@@ -200,12 +202,17 @@ class ProceduralIntegrationTests(unittest.TestCase):
         for outcome in ("accepted", "rejected"):
             original = next(r for r in self.records if r["result"]["outcome"] == outcome)
             for field, value in (("name", "forged-oracle"), ("type", "recorded_measurement"),
-                                 ("implementation", "forged.py:main"), ("version", "99.0")):
+                                 ("implementation", "forged.py:main"), ("version", "99.0"),
+                                 ("commit", "forged-commit")):
                 with self.subTest(outcome=outcome, field=field):
                     record = copy.deepcopy(original)
                     record["oracle"][field] = value
                     restamp(record)
                     self.assert_shared_refusal(record)
+            record = copy.deepcopy(original)
+            record["oracle"]["configuration"]["isolation"] = "arbitrary-isolation"
+            restamp(record)
+            self.assert_shared_refusal(record)
 
     def test_reference_only_oracle_remains_refused_before_admission(self):
         record = copy.deepcopy(next(r for r in self.records if admission.natural_eligibility(r, self.row)[0]))
@@ -409,6 +416,10 @@ class ProceduralIntegrationTests(unittest.TestCase):
 
     def test_accepted_record_passes_shape_and_deep_checks(self):
         record = next(r for r in self.records if r["result"]["outcome"] == "accepted")
+        self.assertIsNone(record["oracle"]["commit"])
+        self.assertEqual(record["oracle"]["configuration"]["isolation"],
+            "rlimits and a fresh working directory only: no filesystem or network isolation "
+            "(issue #198); programs come from a pinned catalog whose selector admits stdlib-only modules")
         errors, kind = check_line(record, "candidate")
         self.assertEqual(kind, "code_repair")
         self.assertEqual(errors, [])

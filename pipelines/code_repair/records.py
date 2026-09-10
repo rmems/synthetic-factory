@@ -23,8 +23,15 @@ from . import verify
 from . import vocabulary as cv
 from ._contract import bind_import_twin, oc
 
+ORACLE_COMMIT = None
+ORACLE_ISOLATION = (
+    "rlimits and a fresh working directory only: no filesystem or network isolation "
+    "(issue #198); programs come from a pinned catalog whose selector admits stdlib-only modules"
+)
+
 __all__ = [
-    "Batch", "Candidate", "build_record", "candidate_seed", "fingerprint", "measurements", "new_batch",
+    "Batch", "Candidate", "ORACLE_COMMIT", "ORACLE_ISOLATION", "build_record", "candidate_seed",
+    "fingerprint", "measurements", "new_batch",
 ]
 
 
@@ -162,14 +169,10 @@ def _oracle(candidate: Candidate, batch: Batch) -> dict[str, Any]:
             "reference_sha256": program.reference.sha256,
             "cases": [dict(case) for case in program.cases],
         },
-        "isolation": (
-            "rlimits and a fresh working directory only: no filesystem or network isolation "
-            "(issue #198); programs come from a pinned catalog whose selector admits stdlib-only "
-            "modules"
-        ),
+        "isolation": ORACLE_ISOLATION,
     }
     environment = fingerprint(batch, candidate.phases.original)
-    run = oc.OracleRun(configuration, candidate.seed, None, environment)
+    run = oc.OracleRun(configuration, candidate.seed, ORACLE_COMMIT, environment)
     return oc.new_oracle(identity, run)
 
 
