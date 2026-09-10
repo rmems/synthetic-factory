@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from . import catalog as cat, catalog_check, executor, generate, mutate, records as assembly, vocabulary as cv
 from . import planning
-from ._contract import bind_import_twin, oc, vocab
+from ._contract import ExactJSONFloat, bind_import_twin, exact_fraction, oc, vocab
 
 # Bind the loaded implementation once; validate_run itself performs no I/O.
 _HARNESS_SHA256 = executor.harness_sha256()
@@ -70,10 +70,10 @@ def _oracle_identity_matches(record, run):
     actual = (
         record['oracle']['seed'],
         record['oracle']['fingerprint']['harness_sha256'],
-        configuration['timeout_s'],
+        exact_fraction(configuration['timeout_s']),
         configuration['limits'],
     )
-    expected = (expected_seed, run['harness_sha256'], run['timeout_s'], expected_limits)
+    expected = (expected_seed, run['harness_sha256'], exact_fraction(run['timeout_s']), expected_limits)
     return actual == expected
 
 
@@ -187,11 +187,11 @@ def _run_header_matches(run):
 
 
 def _valid_timeout(value):
-    if type(value) not in (int, float):
+    if type(value) not in (int, float, ExactJSONFloat):
         return False
     if not math.isfinite(value):
         return False
-    return 0 < value <= cv.MAX_TIMEOUT_S
+    return 0 < exact_fraction(value) <= exact_fraction(cv.MAX_TIMEOUT_S)
 
 
 def _run_execution_matches(inputs):

@@ -125,7 +125,15 @@ def _load_run(data: bytes) -> dict[str, Any]:
 
 def _load_records(data: bytes) -> list[dict[str, Any]]:
     records = []
-    for lineno, record in oc.iter_jsonl_bytes(data):
+    for lineno, raw in enumerate(data.split(b"\n"), 1):
+        if not raw.strip():
+            continue
+        try:
+            record = load_strict_json(raw.decode("utf-8").strip())
+            oc.canonical_json(record).encode("utf-8")
+        except (ValueError, RecursionError) as exc:
+            raise cv.RepairRefusal(cv.FINDING_RECORD_MALFORMED,
+                                   f"{generate.CANDIDATES_FILENAME}:{lineno} is not a record") from exc
         cv.refuse_when(
             not isinstance(record, dict), cv.FINDING_RECORD_MALFORMED,
             f"{generate.CANDIDATES_FILENAME}:{lineno} is not a record",
