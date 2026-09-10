@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """The sandboxed child and its parent: real subprocess evidence (no fakes here)."""
 
+import doctest
+import hashlib
 import inspect
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from code_repair_test_support import catalog, executor as ex, mutate, program, refusal, vocabulary as cv  # noqa: E402
+from code_repair import _harness as harness  # noqa: E402
 
 RUNNER = ex.Executor(timeout_s=5.0)
 
@@ -205,6 +210,110 @@ class Isolation(unittest.TestCase):
          {"id": "public:2", "status": "fail", "got": "x", "truncated": False,
           "got_sha256": digest}],
         )
+
+
+class InProcessHarnessBehavior(unittest.TestCase):
+    """Pure child behavior, without changing or instrumenting subprocess isolation."""
+
+    def test_rows_clip_display_text_but_digest_the_complete_observation(self):
+        got = "x" * (harness.MAX_GOT_CHARS + 1)
+
+        row = harness._row("hidden", 3, "fail", got)
+
+        self.assertEqual(row["id"], "hidden:3")
+        self.assertEqual(row["got"], "x" * harness.MAX_GOT_CHARS)
+        self.assertEqual(row["got_sha256"], hashlib.sha256(got.encode("utf-8")).hexdigest())
+        self.assertIs(row["truncated"], True)
+        self.assertEqual(harness._row("public", 0, "pass"), {"id": "public:0", "status": "pass"})
+
+    def test_doctest_capture_bounds_output_and_preserves_line_framing(self):
+        capture = harness._Capture()
+        self.assertEqual(capture.write("abc"), 3)
+        self.assertEqual(capture.getvalue(), "abc\n")
+        self.assertEqual(capture.truncate(1), 1)
+        self.assertEqual(capture.getvalue(), "a\n")
+
+        full = harness._Capture()
+        full.write("x" * harness.MAX_CAPTURE_CHARS)
+        with self.assertRaisesRegex(ValueError, "output limit exceeded"):
+            full.write("y")
+
+    def test_runner_hooks_record_the_example_identity_and_sanitized_outcome(self):
+        examples = [
+            doctest.Example("1 + 1\n", "2\n"),
+            doctest.Example("raise ValueError('x')\n", "", exc_msg="ValueError: x\n"),
+            doctest.Example("int('x')\n", ""),
+        ]
+        test = doctest.DocTest(examples, {}, "f", "program.py", 1, "")
+        rows = []
+        runner = harness._Runner(rows)
+
+        self.assertIsNone(runner.report_start(None, test, examples[0]))
+        runner.report_success(None, test, examples[0], "2\n")
+        runner.report_failure(
+            None, test, examples[1],
+            "Traceback (most recent call last):\n  hidden path\nValueError: wrong\n",
+        )
+        try:
+            int("x")
+        except ValueError:
+            runner.report_unexpected_exception(None, test, examples[2], sys.exc_info())
+
+        self.assertEqual([row["id"] for row in rows], ["public:0", "public:1", "public:2"])
+        self.assertEqual([row["status"] for row in rows], ["pass", "fail", "error"])
+        self.assertEqual(rows[1]["got"], "ValueError: wrong")
+        self.assertEqual(rows[2]["got"], "ValueError: invalid literal for int() with base 10: 'x'")
+        with self.assertRaisesRegex(ValueError, "does not hold"):
+            runner.report_success(None, test, doctest.Example("3\n", "3\n"), "3\n")
+
+    def test_temp_module_loading_and_public_examples_report_real_pass_and_failure_rows(self):
+        text = (
+            "def f(n):\n"
+            "    '''\n"
+            "    >>> f(2)\n"
+            "    4\n"
+            "    >>> f(3)\n"
+            "    7\n"
+            "    '''\n"
+            "    return n * 2\n"
+        )
+        with tempfile.TemporaryDirectory() as root, mock.patch.dict(sys.modules):
+            directory = Path(root)
+            (directory / harness.PROGRAM_FILENAME).write_text(text, encoding="utf-8")
+            module = harness._load(directory)
+            rows = harness._run_public(module, text, "f")
+            self.assertIs(sys.modules["program"], module)
+
+        self.assertEqual([row["status"] for row in rows], ["pass", "fail"])
+        self.assertEqual(rows[1]["got"], "6\n")
+        with self.assertRaisesRegex(LookupError, "module-level function named missing"):
+            harness._function_node(text, "missing")
+
+    def test_numeric_agreement_and_hidden_case_rows_keep_their_distinct_contracts(self):
+        spec = {"float_rel_tol": 1e-12, "float_abs_tol": 1e-12}
+        self.assertIs(harness._agree("same", "same", spec), True)
+        self.assertIs(harness._agree("2", "2.0", spec), False)
+        self.assertIs(harness._agree("word", "other", spec), False)
+        self.assertIs(harness._agree("inf", "inf.0", spec), False)
+        self.assertIs(harness._agree("0.5", "0.5000000000001", spec), True)
+
+        observed = harness._run_case(lambda n: n + 1, 0, {"args": "(2,)", "want": None}, spec)
+        matched = harness._run_case(lambda n: n + 1, 1, {"args": "(2,)", "want": "3"}, spec)
+        mismatch = harness._run_case(lambda n: n + 1, 2, {"args": "(2,)", "want": "4"}, spec)
+        visible_error = harness._run_case(
+            lambda: (_ for _ in ()).throw(RuntimeError("visible")),
+            3, {"args": "()", "want": None}, spec,
+        )
+        hidden_error = harness._run_case(
+            lambda: (_ for _ in ()).throw(RuntimeError("secret")),
+            4, {"args": "()", "want": "0"}, spec,
+        )
+
+        self.assertEqual((observed["status"], observed["got"]), ("observed", "3"))
+        self.assertEqual((matched["status"], matched["kind"], matched["got"]), ("pass", "ok", "3"))
+        self.assertEqual(mismatch, {"id": "hidden:2", "status": "fail", "kind": "value_mismatch"})
+        self.assertEqual(visible_error["got"], "RuntimeError: visible")
+        self.assertEqual(hidden_error, {"id": "hidden:4", "status": "error", "kind": "exception"})
 
 
 if __name__ == "__main__":
