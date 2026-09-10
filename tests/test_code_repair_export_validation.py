@@ -5,6 +5,8 @@ import unittest
 import tempfile
 import json
 import hashlib
+import contextlib
+import io
 import shutil
 from dataclasses import replace
 from pathlib import Path
@@ -13,10 +15,35 @@ from tests.code_repair_test_support import fixture, smoke_run, envelope, oc, vie
 from scripts import agoge_consumer_probe as probe
 from tests.test_code_repair_export import run_copy, request, restamp
 from tests.code_repair_test_support import FIXTURE_CATALOG
+from tests.code_repair_test_support import cli
 from code_repair import catalog, export, generate, replay, vocabulary as cv
 
 
 class SharedValidation(unittest.TestCase):
+    def test_catalog_free_shape_allows_unavailable_environment_metadata(self):
+        record = copy.deepcopy(smoke_run()[1][0])
+        record['oracle']['fingerprint'].update(implementation=None, platform=None)
+        record['provenance']['record_sha256'] = envelope.record_digest(record)
+        self.assertEqual(self.validator('validate_record')(record), [])
+
+    def test_catalog_free_validation_rejects_malformed_mandatory_fields(self):
+        validate = self.validator('validate_record')
+        changes = [('intervention', {}), ('intervention.operator', []),
+                   ('intervention.draw_index', True), ('scenario.source.family', []),
+                   ('oracle.configuration.timeout_s', 'invalid')]
+        for original in smoke_run()[1]:
+            self.assertEqual(validate(original), [])
+            for path, value in changes:
+                record = copy.deepcopy(original)
+                parent = record
+                keys = path.split('.')
+                for key in keys[:-1]:
+                    parent = parent[key]
+                parent[keys[-1]] = value
+                record['provenance']['record_sha256'] = envelope.record_digest(record)
+                with self.subTest(record=record['id'], field=path):
+                    self.assertTrue(validate(record))
+
     def validator(self, name):
         try:
             module = importlib.import_module('code_repair.validation')
@@ -107,6 +134,38 @@ class ConsumerBoundary(unittest.TestCase):
 
 
 class FreshReplay(unittest.TestCase):
+    def test_malformed_run_catalog_refuses_api_and_cli_without_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir, _ = run_copy(root)
+            path = run_dir / generate.RUN_FILENAME
+            run = json.loads(path.read_text())
+            bad = [None, [], {}, {'catalog_id': [], 'programs_sha256': 123}]
+            for index, value in enumerate(['missing'] + bad):
+                changed = {**run, 'catalog': value}
+                if value == 'missing':
+                    changed.pop('catalog')
+                path.write_text(json.dumps(changed))
+                out = root / f'replay-{index}'
+                with self.subTest(catalog=value):
+                    try:
+                        replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, out))
+                    except Exception as exc:
+                        self.assertIsInstance(exc, cv.RepairRefusal)
+                    else:
+                        self.fail('malformed catalog was accepted')
+                    self.assertFalse(out.exists())
+                    captured = io.StringIO()
+                    try:
+                        with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
+                            code = cli.run(['replay', '--run', str(run_dir), '--catalog',
+                                            str(FIXTURE_CATALOG), '--out', str(out), '--json'])
+                    except Exception as exc:
+                        self.fail(f'CLI leaked {type(exc).__name__}')
+                    self.assertNotEqual(code, 0)
+                    self.assertIn('RECORD_MALFORMED', captured.getvalue())
+                    self.assertFalse(out.exists())
+
     def test_report_environment_metadata_cannot_be_changed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

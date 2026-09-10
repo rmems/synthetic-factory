@@ -369,7 +369,12 @@ def _run_identity(run_dir: Path) -> dict[str, Any]:
 def _catalog_bound(identity: dict[str, Any], catalog: cat.Catalog) -> bool:
     """The supplied catalog is the one the run pinned (Greptile, CodeAnt and Codex on #202)."""
 
-    pinned = identity["catalog"]
+    pinned = identity.get("catalog")
+    valid = isinstance(pinned, dict) and all(
+        isinstance(pinned.get(key), str) and bool(pinned[key])
+        for key in ("catalog_id", "programs_sha256")
+    )
+    cv.refuse_when(not valid, cv.FINDING_RECORD_MALFORMED, "malformed run catalog identity")
     return (
         pinned["catalog_id"] == catalog.catalog_id
         and pinned["programs_sha256"] == catalog.programs_sha256

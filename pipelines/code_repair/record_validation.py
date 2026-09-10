@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import math
 from typing import Any
 
 from . import catalog as cat
@@ -19,6 +20,57 @@ def _require(condition: bool) -> None:
 
 def _digest(value: Any) -> bool:
     return isinstance(value, str) and _SHA256.fullmatch(value) is not None
+
+
+def _fields(value: Any, names: str, kinds: tuple[type, ...] = (str,)) -> None:
+    """Require named fields with exact types; bool is never a numeric field."""
+    _require(isinstance(value, dict))
+    for name in names.split():
+        _require(type(value[name]) in kinds)
+
+
+def _proposal_shape(record: dict) -> None:
+    scenario = record['scenario']
+    _fields(scenario, 'record_kind task_specification language')
+    source = scenario['source']
+    _fields(source, 'program_id family module_sha256')
+    _fields(source['upstream'], 'repository commit path file_sha256 function license')
+    span = source['upstream']['line_span']
+    _require(isinstance(span, list) and len(span) == 2)
+    _require(all(type(n) is int and n > 0 for n in span))
+    _fields(record['candidate_prediction'], 'method')
+    public = scenario['public_tests']
+    _fields(public, 'kind')
+    _require(isinstance(public['examples'], list))
+    for example in public['examples']:
+        _fields(example, 'example_id source want')
+
+
+def _intervention_shape(intervention: dict) -> None:
+    _fields(intervention, 'kind operator variant')
+    _fields(intervention, 'draw_index', (int,))
+    _require(0 <= intervention['draw_index'] < cv.MAX_COUNT)
+    site = intervention['site']
+    _fields(site, 'node original_text replacement_text')
+    _fields(site, 'start_byte end_byte lineno col_offset node_lineno node_col_offset '
+                  'node_end_lineno node_end_col_offset op_index', (int,))
+
+
+def _configuration_shape(oracle: dict) -> None:
+    configuration = oracle['configuration']
+    _fields(configuration, 'timeout_s', (int, float))
+    timeout = configuration['timeout_s']
+    _require(0 < timeout <= cv.MAX_TIMEOUT_S and math.isfinite(timeout))
+    _fields(configuration, 'isolation')
+    _fields(configuration['limits'], 'cpu_s address_space_mib file_size_kib', (int,))
+    hidden = configuration['hidden_check']
+    _fields(hidden, 'reference_function', (str, type(None)))
+    _require(isinstance(hidden['cases'], list))
+    for case in hidden['cases']:
+        _fields(case, 'args want')
+    _fields(oracle['fingerprint'], 'python harness_sha256')
+    _fields(oracle['fingerprint'], 'implementation platform', (str, type(None)))
+    _fields(oracle['fingerprint'], 'limits_applied', (bool, type(None)))
 
 
 def _examples(record: dict[str, Any]) -> tuple[cat.Example, ...]:
@@ -135,6 +187,9 @@ def validate_shape(record: dict[str, Any]) -> None:
     """Turn malformed envelope/family/digest data into one declared refusal."""
     try:
         _envelope_shape(record)
+        _proposal_shape(record)
+        _intervention_shape(record['intervention'])
+        _configuration_shape(record['oracle'])
         _identity_shape(record)
         result = record["result"]
         _result_shape(result)
