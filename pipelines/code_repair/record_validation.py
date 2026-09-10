@@ -41,6 +41,22 @@ def _row_shape(row: Any, prefix: str) -> None:
             _require(cat.sha256_text(row["got"]) == row["got_sha256"])
 
 
+def _phase_limits_are_valid(block: dict[str, Any]) -> bool:
+    if block["status"] != cv.PHASE_OK:
+        return True
+    if not block["load_ok"]:
+        return True
+    return block["limits_applied"] is True
+
+
+def _suite_shape(rows: Any, prefix: str) -> None:
+    _require(isinstance(rows, list))
+    for row in rows:
+        _row_shape(row, prefix)
+    ids = [row["id"] for row in rows]
+    _require(len(set(ids)) == len(ids))
+
+
 def _phase_shape(block: Any) -> None:
     if block is None:
         return
@@ -48,14 +64,9 @@ def _phase_shape(block: Any) -> None:
     _require(block["status"] in (cv.PHASE_OK, cv.PHASE_TIMEOUT, cv.PHASE_HARNESS_ERROR))
     _require(type(block["load_ok"]) is bool and _digest(block["module_sha256"]))
     _require(block["limits_applied"] is None or type(block["limits_applied"]) is bool)
-    if block["status"] == cv.PHASE_OK and block["load_ok"]:
-        _require(block["limits_applied"] is True)
+    _require(_phase_limits_are_valid(block))
     for suite in ("public", "hidden"):
-        _require(isinstance(block[suite], list))
-        for row in block[suite]:
-            _row_shape(row, suite)
-        ids = [row["id"] for row in block[suite]]
-        _require(len(set(ids)) == len(ids))
+        _suite_shape(block[suite], suite)
     _require(block["sha256"] == cat.sha256_text(oc.canonical_json(
         [block["public"], block["hidden"]])))
 
@@ -75,37 +86,63 @@ def _identity_shape(record: dict[str, Any]) -> None:
     _require(lineage["split"] is None or isinstance(lineage["split"], str))
 
 
+def _envelope_shape(record: Any) -> None:
+    _require(isinstance(record, dict))
+    _require(record.get("family") == cv.FAMILY)
+    where = str(record.get("id", "record"))
+    _require(not (oc.check_envelope(record, where) + oc.check_digest(record, where)))
+
+
+def _result_shape(result: dict[str, Any]) -> None:
+    _require(result["outcome"] in cv.OUTCOMES)
+    _require(result["oracle_status"] in cv.ORACLE_STATUSES)
+    reason_codes = result["reason_codes"]
+    _require(isinstance(reason_codes, list))
+    _require(all(code in cv.REASON_CODE_SET for code in reason_codes))
+
+
+def _public_failure_shape(result: dict[str, Any], examples: tuple[cat.Example, ...]) -> None:
+    valid_ids = {example.example_id for example in examples}
+    evidence = result["public_failure_evidence"]
+    _require(isinstance(evidence, list))
+    _require(type(result["public_failure_omitted"]) is int)
+    _require(result["public_failure_omitted"] >= 0)
+    for entry in evidence:
+        _require(isinstance(entry, dict))
+        _require(entry["example_id"] in valid_ids)
+        _require(all(isinstance(entry[key], str) for key in ("source", "want", "got")))
+        _require(type(entry["truncated"]) is bool)
+
+
+def _phase_blocks_shape(result: dict[str, Any]) -> None:
+    blocks = result["phases"]
+    _require(set(blocks) == set(cv.PHASES))
+    for block in blocks.values():
+        _phase_shape(block)
+    _require(blocks[cv.PHASE_ORIGINAL] is not None)
+    _require(result["evidence_sha256"] == verify.result_hash(blocks))
+
+
+def _render_inputs_shape(record: dict[str, Any]) -> None:
+    repair_files = record["candidate_prediction"]["predicted_repair"]["files"]
+    _require(isinstance(repair_files[cv.PROGRAM_FILENAME], str))
+    _require(isinstance(record["scenario"]["task_specification"], str))
+    hidden = record["oracle"]["configuration"]["hidden_check"]
+    _require(isinstance(hidden["cases"], list))
+
+
 def validate_shape(record: dict[str, Any]) -> None:
     """Turn malformed envelope/family/digest data into one declared refusal."""
     try:
-        _require(isinstance(record, dict) and record.get("family") == cv.FAMILY)
-        where = str(record.get("id", "record"))
-        _require(not (oc.check_envelope(record, where) + oc.check_digest(record, where)))
+        _envelope_shape(record)
         _identity_shape(record)
         result = record["result"]
-        _require(result["outcome"] in cv.OUTCOMES and result["oracle_status"] in cv.ORACLE_STATUSES)
-        _require(isinstance(result["reason_codes"], list)
-                 and all(code in cv.REASON_CODE_SET for code in result["reason_codes"]))
+        _result_shape(result)
         examples = _examples(record)
         _require(bool(examples))
-        valid_ids = {example.example_id for example in examples}
-        _require(isinstance(result["public_failure_evidence"], list))
-        _require(type(result["public_failure_omitted"]) is int
-                 and result["public_failure_omitted"] >= 0)
-        for entry in result["public_failure_evidence"]:
-            _require(isinstance(entry, dict) and entry["example_id"] in valid_ids)
-            _require(all(isinstance(entry[key], str) for key in ("source", "want", "got")))
-            _require(type(entry["truncated"]) is bool)
-        blocks = result["phases"]
-        _require(set(blocks) == set(cv.PHASES))
-        for block in blocks.values():
-            _phase_shape(block)
-        _require(blocks[cv.PHASE_ORIGINAL] is not None)
-        _require(result["evidence_sha256"] == verify.result_hash(blocks))
-        _require(isinstance(record["candidate_prediction"]["predicted_repair"]["files"]
-                            [cv.PROGRAM_FILENAME], str))
-        _require(isinstance(record["scenario"]["task_specification"], str))
-        _require(isinstance(record["oracle"]["configuration"]["hidden_check"]["cases"], list))
+        _public_failure_shape(result, examples)
+        _phase_blocks_shape(result)
+        _render_inputs_shape(record)
     except (KeyError, TypeError, ValueError, SyntaxError, AttributeError, RecursionError,
             envelope.ContractError) as exc:
         raise cv.RepairRefusal(cv.FINDING_RECORD_MALFORMED,

@@ -62,10 +62,20 @@ def failing_ids(rows: tuple[dict[str, Any], ...]) -> tuple[str, ...]:
     return tuple(row["id"] for row in rows if row["status"] != cv.ROW_SUCCESS)
 
 
+def _successful_limited_phase(report: ex.PhaseReport | None) -> bool:
+    """Whether a phase completed successfully under the required resource limits."""
+
+    if report is None:
+        return False
+    if not report.ok:
+        return False
+    return report.environment.get("limits_applied") is True
+
+
 def _phase_code(report: ex.PhaseReport | None, timeout: str, error: str) -> str | None:
     if report is not None and report.status == cv.PHASE_TIMEOUT:
         return timeout
-    if report is None or not report.ok or report.environment.get("limits_applied") is not True:
+    if not _successful_limited_phase(report):
         return error
     return None
 
@@ -135,11 +145,15 @@ def _reference_certifies(phases: Phases, context: DecisionContext) -> bool:
     """A certifying reference that was executed in this run and answered every pinned case."""
 
     reference = phases.reference
-    if context.reference_kind not in cv.CERTIFYING_REFERENCE_KINDS or not context.hidden_case_count:
+    if context.reference_kind not in cv.CERTIFYING_REFERENCE_KINDS:
         return False
-    if reference is None or not reference.ok or reference.environment.get("limits_applied") is not True:
+    if not context.hidden_case_count:
         return False
-    return len(reference.hidden) == context.hidden_case_count and not failing_ids(reference.hidden)
+    if not _successful_limited_phase(reference):
+        return False
+    if len(reference.hidden) != context.hidden_case_count:
+        return False
+    return not failing_ids(reference.hidden)
 
 
 def _oracle_status(phases: Phases, context: DecisionContext) -> str:
