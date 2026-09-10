@@ -830,7 +830,7 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
         result = identity.curate_record(
             source(episode(FABLE_ACT), f"{FABLE_ACT}/episodes.jsonl", 1)
         )
-        self.assertEqual(result.mapping["registry"]["schema_version"], "factory-registry-v0.2")
+        self.assertEqual(result.mapping["registry"]["schema_version"], "factory-registry-v0.3")
         self.assertEqual(result.mapping["registry"]["sha256"], digest)
         self.assertNotIn("registry", result.record)
         self.assertNotIn("schema_version", result.record)
@@ -1136,8 +1136,10 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
             "grok-4.6": ("xai", "consumer"),
             "muse-spark-1.2": ("meta", "api"),
         }
+        self.assertEqual(payload["schema_version"], "factory-registry-v0.3")
+        payload["factories"] = [row for row in payload["factories"]
+                                if row.get("source_type") != "procedural"]
         self.assertEqual(len(payload["factories"]), 51)
-        self.assertEqual(payload["schema_version"], "factory-registry-v0.2")
         self.assertEqual(payload["lookup_key"], "path_id")
         self.assertIn("reviewed registry row", payload["notes"])
         self.assertIn("_REVIEWED_GENERATOR_RIGHTS", payload["notes"])

@@ -1,0 +1,23 @@
+{
+  "schema_version": "procedural-source-policy-v1",
+  "policy_id": "python-repair-reviewed-source-v1",
+  "generator": "python-repair-mutator",
+  "generator_version": "2.0.0",
+  "generator_ownership": "project_owned",
+  "generation_method": "deterministic_execution",
+  "family": "python-function-repair",
+  "path_id": "python-function-repair-factory",
+  "catalog_id": "python-repair-v1",
+  "catalog_relative_path": "catalogs/python-repair-v1",
+  "catalog_sha256": "b952cf3b06bdad2f0b8fe6531dce6792fbe5b06a2b43b589b3635ae1b4634578",
+  "programs_sha256": "e22209fa0a56614e403c6c8facda665eac9c379c40f913c6c8c57dfb14f19a6c",
+  "source_license_evidence": {
+    "repository": "TheAlgorithms/Python",
+    "commit": "2067ce6dfb3b0426a88c7a40531e355a5c703cff",
+    "license": "MIT",
+    "license_sha256": "4395a1dc4bda1d6054c45b4d1230c709c7398e6d66f1d0aff4b22d95973bea56"
+  },
+  "intended_use": "training_candidate",
+  "project_training_policy": "allowed",
+  "publication_target": null
+}

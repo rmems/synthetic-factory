@@ -20,6 +20,7 @@ THALAMIC_REQUIRED = (
 )
 
 KIND_ORDER = (
+    "code_repair",
     "thalamic",
     "preference",
     "bridge_pair",
@@ -50,6 +51,9 @@ def classify_kind(obj: Any) -> str:
 
     if not isinstance(obj, Mapping):
         return "unknown"
+    # A malformed claimant stays in its family and fails that family's validator.
+    if obj.get("family") == "python-function-repair":
+        return "code_repair"
     if all(key in obj for key in THALAMIC_REQUIRED):
         return "thalamic"
     if "chosen" in obj and "rejected" in obj:

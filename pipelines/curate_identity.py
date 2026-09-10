@@ -115,10 +115,11 @@ REAL_WORLD_RE = re.compile(r"^(?:real|live)(?![\w-])", re.IGNORECASE)
 FACTORY_REGISTRY_PATH = Path(__file__).resolve().parents[1] / "config" / "FACTORY-REGISTRY.json"
 FACTORY_REGISTRY_SIDECAR = "FACTORY-REGISTRY.json"
 IDENTITY_MANIFEST_SIDECAR = "IDENTITY-MANIFEST.json"
-REGISTRY_SCHEMA_VERSION = "factory-registry-v0.2"
+REGISTRY_SCHEMA_VERSION = "factory-registry-v0.3"
+HOSTED_REGISTRY_SCHEMA_VERSION = "factory-registry-v0.2"
 LEGACY_REGISTRY_SCHEMA_VERSION = "factory-registry-v0.1"
 SUPPORTED_REGISTRY_SCHEMA_VERSIONS = frozenset(
-    {LEGACY_REGISTRY_SCHEMA_VERSION, REGISTRY_SCHEMA_VERSION}
+    {LEGACY_REGISTRY_SCHEMA_VERSION, HOSTED_REGISTRY_SCHEMA_VERSION, REGISTRY_SCHEMA_VERSION}
 )
 _RIGHTS_ROW_FIELDS = (
     "provider",
@@ -212,8 +213,8 @@ class FactoryRow(NamedTuple):
     payload_factory: str
     generator: str
     generator_version: str
-    provider: str
-    channel: str
+    provider: str | None
+    channel: str | None
     rights_profile_id: str
     intended_use: str
     project_training_policy: str
@@ -224,6 +225,14 @@ class FactoryRow(NamedTuple):
     allowed_curation_lanes: tuple[str, ...]
     provenance_contract_by_kind: Mapping[str, str]
     preference_side_kinds: frozenset[str] = frozenset()
+    source_type: str = "hosted"
+    generator_ownership: str | None = None
+    generation_method: str | None = None
+    source_license_evidence: Mapping[str, str] | None = None
+    procedural_policy_sha256: str | None = None
+    catalog_id: str | None = None
+    catalog_sha256: str | None = None
+    programs_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -584,9 +593,45 @@ def _legacy_registry_row(raw: Any, index: int) -> Mapping[str, Any]:
 def _registry_row_for_validation(
     raw: Any, index: int, schema_version: str
 ) -> Any:
+    if __package__:
+        from .code_repair.source_policy import PROCEDURAL_FIELDS
+    else:
+        from code_repair.source_policy import PROCEDURAL_FIELDS
+    if isinstance(raw, Mapping) and (
+        PROCEDURAL_FIELDS.intersection(raw) or (
+            isinstance(raw.get("record_kinds"), list) and "code_repair" in raw["record_kinds"]
+        )
+    ):
+        raise IdentityCurationError(f"factories[{index}] procedural fields require v0.3 route")
     if schema_version == LEGACY_REGISTRY_SCHEMA_VERSION:
         return _legacy_registry_row(raw, index)
     return raw
+
+
+def _parse_procedural_row(raw: Any, index: int) -> FactoryRow:
+    if __package__:
+        from .code_repair.source_policy import POLICY, SourcePolicyError, validate_registry_row
+    else:
+        from code_repair.source_policy import POLICY, SourcePolicyError, validate_registry_row
+    try:
+        validate_registry_row(raw)
+    except SourcePolicyError as exc:
+        raise IdentityCurationError(f"factories[{index}]: {exc}") from exc
+    return FactoryRow(
+        path_id=raw["path_id"], payload_factory=raw["payload_factory"],
+        generator=raw["generator"], generator_version=raw["generator_version"],
+        provider=None, channel=None, rights_profile_id=POLICY["policy_id"],
+        intended_use=raw["intended_use"], project_training_policy=raw["project_training_policy"],
+        record_kinds=frozenset(raw["record_kinds"]), identity_authoritative=True,
+        publication_target=None, training_ready_policy=raw["training_ready_policy"],
+        allowed_curation_lanes=tuple(raw["allowed_curation_lanes"]),
+        provenance_contract_by_kind=MappingProxyType(dict(raw["provenance_contract_by_kind"])),
+        source_type="procedural", generator_ownership=raw["generator_ownership"],
+        generation_method=raw["generation_method"],
+        source_license_evidence=MappingProxyType(dict(raw["source_license_evidence"])),
+        procedural_policy_sha256=raw["procedural_policy_sha256"], catalog_id=raw["catalog_id"],
+        catalog_sha256=raw["catalog_sha256"], programs_sha256=raw["programs_sha256"],
+    )
 
 
 def load_registry(path: Path | None = None) -> FactoryRegistry:
@@ -624,8 +669,12 @@ def load_registry(path: Path | None = None) -> FactoryRegistry:
         raise IdentityCurationError("factory registry factories must be a non-empty list")
     by_path_id: dict[str, FactoryRow] = {}
     for index, raw_row in enumerate(factories):
-        row_payload = _registry_row_for_validation(raw_row, index, schema_version)
-        row = _parse_factory_row(row_payload, index)
+        if (schema_version == REGISTRY_SCHEMA_VERSION and isinstance(raw_row, Mapping)
+                and raw_row.get("source_type") == "procedural"):
+            row = _parse_procedural_row(raw_row, index)
+        else:
+            row_payload = _registry_row_for_validation(raw_row, index, schema_version)
+            row = _parse_factory_row(row_payload, index)
         if row.path_id in by_path_id:
             raise IdentityCurationError(f"duplicate registry path_id: {row.path_id}")
         by_path_id[row.path_id] = row
@@ -2458,9 +2507,9 @@ def write_run(
     if _is_under_raw(dest):
         raise IdentityCurationError(f"refusing to write inside immutable raw evidence: {dest}")
     registry = default_registry() if registry is None else registry
-    if registry.schema_version != REGISTRY_SCHEMA_VERSION:
+    if registry.schema_version not in {HOSTED_REGISTRY_SCHEMA_VERSION, REGISTRY_SCHEMA_VERSION}:
         raise IdentityCurationError(
-            f"write_run requires {REGISTRY_SCHEMA_VERSION} registry bytes"
+            f"write_run requires {HOSTED_REGISTRY_SCHEMA_VERSION} or {REGISTRY_SCHEMA_VERSION} registry bytes"
         )
     results = curate_records(
         iter_source_records(source, registry=registry),
