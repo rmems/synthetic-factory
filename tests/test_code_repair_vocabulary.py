@@ -14,19 +14,46 @@ from code_repair_test_support import (  # noqa: E402
 )
 
 
+def random_import_call(node):
+    """Whether a call uses an import_module attribute with a literal random argument."""
+    return (isinstance(node.func, ast.Attribute) and node.func.attr == "import_module"
+            and bool(node.args) and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == "random")
+
+
 def random_import(node):
     """Whether an AST node directly imports random, including importlib calls."""
     if isinstance(node, ast.Import):
         return any(item.name == "random" for item in node.names)
     if isinstance(node, ast.ImportFrom):
         return node.module == "random"
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-        return (node.func.attr == "import_module" and bool(node.args)
-                and isinstance(node.args[0], ast.Constant) and node.args[0].value == "random")
+    if isinstance(node, ast.Call):
+        return random_import_call(node)
     return False
 
 
 class DeclaredCodes(unittest.TestCase):
+    def test_random_import_detector_preserves_import_and_call_boundaries(self):
+        cases = (
+            ("import random", True),
+            ("import math, random as rng", True),
+            ("from random import choice", True),
+            ("importlib.import_module('random')", True),
+            ("loader.import_module('random')", True),
+            ("import math", False),
+            ("from math import floor", False),
+            ("importlib.import_module('math')", False),
+            ("importlib.import_module()", False),
+            ("importlib.import_module(name)", False),
+            ("importlib.other('random')", False),
+            ("import_module('random')", False),
+            ("value = 'random'", False),
+        )
+        for source, expected in cases:
+            with self.subTest(source=source):
+                self.assertEqual(any(random_import(node) for node in ast.walk(ast.parse(source))),
+                                 expected)
+
     def test_every_code_family_is_unique_and_disjoint(self):
         families = (cv.REASON_CODES, cv.FINDING_CODES, cv.SKIP_CODES, cv.LEAK_CODES)
         for codes in families:
