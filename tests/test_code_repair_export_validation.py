@@ -314,7 +314,7 @@ class ConsumerProbeFailures(unittest.TestCase):
             payload = json.loads(machine.getvalue())
             self.assertIs(payload['passed'], False)
             self.assertEqual(payload['failed_steps'], ['manifest'])
-            self.assertEqual(payload['manifest']['agree'], False)
+            self.assertIs(payload['manifest']['agree'], False)
 
     def test_report_runs_consumer_steps_and_surfaces_split_disagreement(self):
         row = {
