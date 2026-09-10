@@ -186,7 +186,7 @@ Completion: the module above with `+` restored (raw text, trailing newline, no f
     --freeze-into <scratch>/pilot-agoge --json
 ```
 
-Result `pass: true` (input bound to the manifest's digest and row count): 132 rows through
+Result `passed: true` (input bound to the manifest's digest and row count): 132 rows through
 `normalize_row` and the frozen-split reader with a declared lineage; Agoge's own
 `assign_records` reproduces the recorded splits exactly (113 / 7 / 12);
 `materialize_split` wrote a frozen snapshot whose report lists every leakage gate as holding

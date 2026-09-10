@@ -54,7 +54,15 @@ def _shape(value: Any, expected: Any) -> bool:
         return isinstance(value, list) and all(_shape(v, expected[0]) for v in value)
     if isinstance(expected, tuple):
         return any(_shape(value, choice) for choice in expected)
-    return type(value) is expected
+    return _exact(value, expected)
+
+
+def _exact(value: Any, expected: type) -> bool:
+    """``isinstance`` with one exception: a bool is never an int here."""
+
+    if expected is int:
+        return isinstance(value, int) and not isinstance(value, bool)
+    return isinstance(value, expected)
 
 
 def _object_shape(value: Any, fields: dict) -> bool:
@@ -164,13 +172,13 @@ def check_lineages(records: list[dict], pinned: catalog.Catalog) -> None:
 
 
 def check_summary(run: dict, records: list[dict]) -> None:
-    _refuse(type(run.get("records")) is not int or run["records"] != len(records),
+    _refuse(not _exact(run.get("records"), int) or run["records"] != len(records),
             cv.EXPORT_RUN_SUMMARY_MISMATCH)
     for key, field in (("outcomes", "outcome"), ("oracle_statuses", "oracle_status")):
         observed = Counter(record["result"][field] for record in records)
         counts = run.get(key)
         _refuse(not isinstance(counts, dict), cv.EXPORT_RUN_SUMMARY_MISMATCH)
-        _refuse(any(type(v) is not int or v < 0 for v in counts.values()),
+        _refuse(any(not _exact(v, int) or v < 0 for v in counts.values()),
                 cv.EXPORT_RUN_SUMMARY_MISMATCH)
         _refuse(Counter(counts) != observed, cv.EXPORT_RUN_SUMMARY_MISMATCH)
 

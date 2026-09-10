@@ -208,15 +208,32 @@ def _admissible_sources(
     return sources, files
 
 
+def _count_by(rows: list, keys: tuple, value) -> dict:
+    """``{key: how many rows value(row) == key}`` over the listed keys."""
+
+    return {key: sum(1 for row in rows if value(row) == key) for key in keys}
+
+
 def _summary(files: dict, build: cb.Build, rows: list) -> dict:
+    kinds = ("sibling_same_file", "reviewed_expression", "original_self")
     return {
         **files,
         "programs": len(rows), "dropped_by_code": dict(Counter(n["code"] for n in build.notes)),
-        "per_family": {f: sum(1 for r in rows if r["family"] == f) for f in FAMILIES},
-        "references": {k: sum(1 for r in rows if r["hidden"]["reference"]["kind"] == k)
-                       for k in ("sibling_same_file", "reviewed_expression", "original_self")},
-        "splits": {s: sum(1 for r in rows if r["split"] == s) for s in lineage.SPLITS},
+        "per_family": _count_by(rows, FAMILIES, lambda r: r["family"]),
+        "references": _count_by(rows, kinds, lambda r: r["hidden"]["reference"]["kind"]),
+        "splits": _count_by(rows, tuple(lineage.SPLITS), lambda r: r["split"]),
     }
+
+
+def _license_text(tree: list[dict], commit: str, cache: Path) -> str:
+    entry = next((e for e in tree if e["path"] == "LICENSE.md"), None)
+    if entry is None:
+        raise SystemExit("pinned tree has no LICENSE.md blob")
+    return _blob(entry, commit, cache).decode("utf-8")
+
+
+def _targets(sources: dict[str, str]) -> list[tuple[str, str]]:
+    return [(path, fn) for path, text in sources.items() for fn in cb.select_targets(text)]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -227,18 +244,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.limit is not None:
         entries = entries[: args.limit]
     sources, files = _admissible_sources(entries, args.commit, cache)
-    targets = [
-        (path, function)
-        for path, text in sources.items() for function in cb.select_targets(text)
-    ]
-    license_entry = next((e for e in tree if e["path"] == "LICENSE.md"), None)
-    if license_entry is None:
-        raise SystemExit("pinned tree has no LICENSE.md blob")
-    license_text = _blob(license_entry, args.commit, cache)
-    upstream = cb.Upstream(REPOSITORY, args.commit, "MIT", license_text.decode("utf-8"))
+    upstream = cb.Upstream(REPOSITORY, args.commit, "MIT", _license_text(tree, args.commit, cache))
     references = json.loads(Path(args.references).read_text(encoding="utf-8"))
     build = cb.Build(upstream, sources, references, lineage.SplitPolicy.from_json(DEFAULT_POLICY))
-    rows = cb.build_rows(build, targets, ex.Executor(timeout_s=args.timeout_s))
+    rows = cb.build_rows(build, _targets(sources), ex.Executor(timeout_s=args.timeout_s))
     cb.write_catalog(Path(args.out), args.catalog_id, build, rows)
     print(json.dumps(_summary(files, build, rows), indent=2, sort_keys=True))
     return 0

@@ -89,7 +89,8 @@ def _fixture_fetch(url: str, _cache: Path) -> bytes:
     if "/commits/" in url:
         return json.dumps({"commit": {"tree": {"sha": TREE_SHA}}}).encode()
     if url.startswith("https://api.github.com/"):
-        assert url == vendor.API.format(repository=vendor.REPOSITORY, commit=TREE_SHA), url
+        if url != vendor.API.format(repository=vendor.REPOSITORY, commit=TREE_SHA):
+            raise ValueError(f"the tree must be fetched by its own sha, not {url}")
         tree = [{"path": p, "type": "blob", "size": len(t.encode()),
                  "sha": blob_sha(t.encode())} for p, t in sources.items()]
         return json.dumps({"tree": tree, "sha": TREE_SHA, "truncated": False}).encode()

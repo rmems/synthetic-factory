@@ -60,7 +60,7 @@ class DeclaredCodes(unittest.TestCase):
         for module in (catalog, cli, executor, generate, mutate, records, verify, views, cv):
             with self.subTest(module=module.__name__):
                 self.assertNotIn("import random", inspect.getsource(module))
-        self.assertEqual(len(FAMILY_MODULES), 11)
+        self.assertEqual(len(FAMILY_MODULES), 15)
 
 
 class CodedRefusals(unittest.TestCase):

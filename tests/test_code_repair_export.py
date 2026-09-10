@@ -109,12 +109,15 @@ class Artifacts(unittest.TestCase):
         evidence = [r for _n, r in oc.read_jsonl(out / export.EVIDENCE_PATH)]
         self.assertEqual(evidence, records)
 
-    def test_split_rows_consumer_rows_and_the_freeze_cover_exactly_the_positives(self):
+    def test_split_rows_cover_exactly_the_positives_with_prompt_and_completion(self):
         _manifest, out, _records, positives = self._exported()
         rows = {s: [r for _n, r in oc.read_jsonl(out / f"sft/{s}.jsonl")] for s in lineage.SPLITS}
         self.assertEqual(sum(len(v) for v in rows.values()), len(positives))
         keys = {frozenset(r) for v in rows.values() for r in v}
         self.assertEqual(keys, {frozenset({"prompt", "completion"})})
+
+    def test_consumer_rows_and_the_freeze_name_the_held_out_positives(self):
+        _manifest, out, _records, positives = self._exported()
         agoge = [r for _n, r in oc.read_jsonl(out / export.AGOGE_PATH)]
         self.assertEqual(len(agoge), len(positives))
         self.assertEqual(set(agoge[0]), {"canonical_id", "lineage_id", "group_id", "split", "text"})
@@ -436,7 +439,7 @@ class ConsumerProbe(unittest.TestCase):
                 with mock.patch.object(probe, step, side_effect=ValueError("requested failure")):
                     code, report = self.run_probe(extra)
             self.assertEqual(code, 1)
-            self.assertFalse(report["pass"])
+            self.assertFalse(report["passed"])
             self.assertIn("freeze" if step == "_freeze" else "labels", report["failed_steps"])
 
     def test_manifest_binds_input_bytes_and_row_count(self):

@@ -246,7 +246,7 @@ def _report(args: argparse.Namespace) -> dict:
     report: dict = {"rows": len(rows), "gaps": dict(GAPS)}
     report["manifest"] = _guarded(_manifest_proof, args.agoge_jsonl, manifest, len(rows))[0]
     if "error" in report["manifest"]:
-        return {**report, "pass": False, "failed_steps": ["manifest"]}
+        return {**report, "passed": False, "failed_steps": ["manifest"]}
     report["load"], records = _guarded(_load_proof, args.agoge_jsonl, args.source_path)
     report["policy"] = manifest["run"].get("split_policy")
     _split_steps(report, records, rows, args)
@@ -254,7 +254,7 @@ def _report(args: argparse.Namespace) -> dict:
         report["labels"] = _guarded(_labels, rows, args)[0]
         report["config"] = report["labels"].pop("config", {})
     report["failed_steps"] = _failed_steps(report, args)
-    report["pass"] = not report["failed_steps"]
+    report["passed"] = not report["failed_steps"]
     return report
 
 
@@ -278,9 +278,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
-        print(f"pass={report['pass']} rows={report['rows']} "
+        print(f"passed={report['passed']} rows={report['rows']} "
               f"failed_steps={','.join(report['failed_steps']) or 'none'}")
-    return 0 if report["pass"] else 1
+    return 0 if report["passed"] else 1
 
 
 if __name__ == "__main__":
