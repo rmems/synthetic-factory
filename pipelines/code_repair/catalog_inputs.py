@@ -54,15 +54,19 @@ def _single_call(source: str, function: str) -> ast.Call | None:
     return call if call.func.id == function and not call.keywords else None
 
 
+def _unordered_literal(node: ast.AST) -> bool:
+    if isinstance(node, ast.Call):
+        return isinstance(node.func, ast.Name) and node.func.id == "set"
+    return isinstance(node, ast.Set)
+
+
 def literal_args(example: cat.Example, function: str) -> tuple | None:
     """The literal argument tuple of a single call example, or None."""
 
     call = _single_call(example.source, function)
     if call is None:
         return None
-    if any(isinstance(node, ast.Set) or (
-        isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "set"
-    ) for arg in call.args for node in ast.walk(arg)):
+    if any(_unordered_literal(node) for arg in call.args for node in ast.walk(arg)):
         return None
     try:
         return tuple(ast.literal_eval(a) for a in call.args)
@@ -135,35 +139,45 @@ def _stream_for(program_id: str) -> rng.DrawStream:
     return rng.DrawStream(int(hashlib.sha256(program_id.encode("utf-8")).hexdigest()[:8], 16))
 
 
+def _probes(cases: list[dict]) -> tuple[dict, ...]:
+    return tuple({"args": case["args"], "want": None} for case in cases)
+
+
+def _observed_value(row: dict) -> bool:
+    return row["status"] == cv.ROW_OBSERVED and not row.get("truncated")
+
+
+def _stable_batch(executor: ex.Executor, subject: Subject, kept: list[dict], batch: list) -> list:
+    probes = _probes(kept) + tuple({"args": repr(args), "want": None} for args in batch)
+    first = _observe(executor, subject.text, subject.function, probes)
+    second = _observe(executor, subject.text, subject.function, probes)
+    paired = ((args, first.hidden[index], second.hidden[index])
+              for index, args in enumerate(batch, len(kept)))
+    return [{"args": repr(args), "want": row["got"]} for args, row, other in paired
+            if _observed_value(row) and row == other]
+
+
+def _retained_sequence_stable(executor: ex.Executor, subject: Subject, kept: list[dict]) -> bool:
+    if not kept:
+        return True
+    final = _observe(executor, subject.text, subject.function, _probes(kept))
+    return all(_observed_value(row) and row.get("got") == case["want"]
+               for row, case in zip(final.hidden, kept))
+
+
 def observed_cases(executor: ex.Executor, subject: Subject) -> list[dict]:
     """The cases the original answers with a value, with its repr as the pinned want."""
 
-    text, function = subject.text, subject.function
-    args_list = candidate_args(subject.examples, function, _stream_for(subject.program_id))
+    args_list = candidate_args(subject.examples, subject.function, _stream_for(subject.program_id))
     kept: list[dict] = []
     cursor = 0
     while cursor < len(args_list) and len(kept) < cv.MAX_HIDDEN_CASES:
         capacity = cv.MAX_HIDDEN_CASES - len(kept)
         batch = args_list[cursor:cursor + capacity]
         cursor += len(batch)
-        probes = tuple({"args": case["args"], "want": None} for case in kept) + tuple(
-            {"args": repr(args), "want": None} for args in batch
-        )
-        first = _observe(executor, text, function, probes)
-        second = _observe(executor, text, function, probes)
-        retained = len(kept)
-        for index, args in enumerate(batch, retained):
-            row, other = first.hidden[index], second.hidden[index]
-            if (row["status"] == cv.ROW_OBSERVED and row == other
-                    and not row.get("truncated")):
-                kept.append({"args": repr(args), "want": row["got"]})
-    if kept:
-        final_probes = tuple({"args": case["args"], "want": None} for case in kept)
-        final = _observe(executor, text, function, final_probes)
-        if any(row.get("got") != case["want"] or row["status"] != cv.ROW_OBSERVED
-               or row.get("truncated") for row, case in zip(final.hidden, kept)):
-            return []  # Removing a failed probe changed the state seen by a later input.
-    return kept
+        kept.extend(_stable_batch(executor, subject, kept, batch))
+    # Removing a failed probe must not change the state seen by a later input.
+    return kept if _retained_sequence_stable(executor, subject, kept) else []
 
 
 def _observe(executor: ex.Executor, text: str, function: str, probes: tuple) -> ex.PhaseReport:

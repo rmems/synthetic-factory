@@ -117,18 +117,30 @@ def _texts(record: dict[str, Any], program: cat.Program) -> tuple[str, str] | di
         return _entry(record, cv.REPLAY_TEXT_MISMATCH, "repaired text does not match its digest")
     if repaired != program.text:
         return _entry(record, cv.REPLAY_TEXT_MISMATCH, "the repair is not the pinned original")
-    intervention = record["intervention"]
-    matches = [site for site in mutate.sites(program.text, program.function, program.want_kind)
-               if site.operator == intervention.get("operator")
-               and site.variant == intervention.get("variant")
-               and site.as_json() == intervention.get("site")]
-    if intervention.get("kind") != "ast_mutation" or len(matches) != 1:
-        return _entry(record, cv.REPLAY_TEXT_MISMATCH, "intervention is not a catalog mutation site")
-    site = matches[0]
-    if (mutate.apply(program.text, site) != broken or mutate.repair(broken, site) != repaired
-            or mutate.verify(program.text, broken, site, program.function) is not None):
-        return _entry(record, cv.REPLAY_TEXT_MISMATCH, "intervention does not reproduce mutant")
+    mismatch = _intervention_mismatch(record["intervention"], program, broken, repaired)
+    if mismatch:
+        return _entry(record, cv.REPLAY_TEXT_MISMATCH, mismatch)
     return broken, repaired
+
+
+def _recorded_site(site: mutate.Site, intervention: dict) -> bool:
+    return (site.operator, site.variant, site.as_json()) == (
+        intervention.get("operator"), intervention.get("variant"), intervention.get("site")
+    )
+
+
+def _intervention_mismatch(intervention: dict, program: cat.Program, broken: str, repaired: str) -> str:
+    """Reapply the exact recorded site, then verify its inverse and admissibility."""
+
+    matches = [site for site in mutate.sites(program.text, program.function, program.want_kind)
+               if _recorded_site(site, intervention)]
+    if intervention.get("kind") != "ast_mutation" or len(matches) != 1:
+        return "intervention is not a catalog mutation site"
+    site = matches[0]
+    matches_text = mutate.apply(program.text, site) == broken and mutate.repair(broken, site) == repaired
+    if not matches_text or mutate.verify(program.text, broken, site, program.function) is not None:
+        return "intervention does not reproduce mutant"
+    return ""
 
 
 @dataclass(frozen=True)
@@ -159,27 +171,25 @@ def _fresh_phases(subject: _Subject, executor: ex.Executor) -> verify.Phases:
     )
 
 
-def _compare(
-    record: dict[str, Any], program: cat.Program, phases: verify.Phases, repaired: str
-) -> dict[str, Any]:
-    """Fresh rows, hashes and verdict against the stored ones; the first divergence decides."""
-
-    result = record["result"]
-    environment = phases.original.environment
+def _environment_matches(record: dict, environment: dict) -> bool:
     fingerprint = record["oracle"]["fingerprint"]
     fresh = {key: environment.get(key) for key in ("implementation", "platform", "limits_applied")}
     fresh["python"] = ".".join(str(environment.get("python", "")).split(".")[:2])
-    if any(fingerprint.get(key) != value for key, value in fresh.items()):
-        return _entry(record, cv.REPLAY_ENVIRONMENT_DRIFT, "fresh execution environment differs")
+    return all(fingerprint.get(key) == value for key, value in fresh.items())
+
+
+def _public_matches(record: dict, program: cat.Program, phases: verify.Phases) -> bool:
     public = {"kind": "doctest", "examples": [
         {"example_id": e.example_id, "source": e.source, "want": e.want} for e in program.examples
     ]}
     evidence, omitted = verify.public_evidence(phases.mutant, program.examples)
-    if (record["scenario"].get("public_tests") != public
-            or result.get("public_failure_evidence") != evidence
-            or result.get("public_failure_omitted") != omitted):
-        return _entry(record, cv.REPLAY_ROWS_MISMATCH, "fresh public examples or evidence differ")
-    blocks = {name: verify.phase_block(getattr(phases, name)) for name in cv.PHASES}
+    result = record["result"]
+    return (record["scenario"].get("public_tests"), result.get("public_failure_evidence"),
+            result.get("public_failure_omitted")) == (public, evidence, omitted)
+
+
+def _evidence_difference(record: dict, blocks: dict) -> dict | None:
+    result = record["result"]
     if blocks != result["phases"]:
         differing = [name for name in blocks if blocks[name] != result["phases"].get(name)]
         detail = "fresh rows differ in " + ", ".join(differing)
@@ -188,21 +198,47 @@ def _compare(
         return _entry(record, cv.REPLAY_HASH_MISMATCH, "evidence digest does not match rows")
     if oc.check_digest(record, record["id"]):
         return _entry(record, cv.REPLAY_HASH_MISMATCH, "record digest does not match content")
+    return None
+
+
+def _verdict_difference(record: dict, program: cat.Program, phases: verify.Phases, repaired: str) -> dict | None:
     context = verify.DecisionContext(
         program.reference.kind, repaired == program.text,
         verify.tests_tampered(program.examples, repaired, program.function), len(program.cases),
     )
     verdict = verify.decide(phases, context)
+    result = record["result"]
     stored = (result["outcome"], list(result["reason_codes"]), result["oracle_status"])
     if (verdict.outcome, list(verdict.reason_codes), verdict.oracle_status) != stored:
         return _entry(record, cv.REPLAY_VERDICT_MISMATCH, f"fresh verdict {verdict.outcome}")
+    return None
+
+
+def _compare(
+    record: dict[str, Any], program: cat.Program, phases: verify.Phases, repaired: str
+) -> dict[str, Any]:
+    """Fresh rows, hashes and verdict against the stored ones; first divergence decides."""
+
+    if not _environment_matches(record, phases.original.environment):
+        return _entry(record, cv.REPLAY_ENVIRONMENT_DRIFT, "fresh execution environment differs")
+    if not _public_matches(record, program, phases):
+        return _entry(record, cv.REPLAY_ROWS_MISMATCH, "fresh public examples or evidence differ")
+    blocks = {name: verify.phase_block(getattr(phases, name)) for name in cv.PHASES}
+    difference = _evidence_difference(record, blocks) or _verdict_difference(
+        record, program, phases, repaired
+    )
+    return difference or _passed_entry(record, program, blocks)
+
+
+def _passed_entry(record: dict, program: cat.Program, blocks: dict) -> dict:
+    result = record["result"]
     entry = _entry(record, cv.REPLAY_PASSED)
     entry["fresh_evidence_sha256"] = verify.result_hash(blocks)
     entry["record_sha256"] = record["provenance"]["record_sha256"]
     entry["source_sha256"] = program.sha256
     entry["broken_sha256"] = result["broken_sha256"]
     entry["repaired_sha256"] = result["repaired_sha256"]
-    entry["harness_sha256"] = fingerprint["harness_sha256"]
+    entry["harness_sha256"] = record["oracle"]["fingerprint"]["harness_sha256"]
     return entry
 
 
@@ -230,6 +266,12 @@ def replay_record(
     where = str(record.get("id", "record"))
     if oc.check_envelope(record, where) or oc.check_digest(record, where):
         return _entry(record, cv.REPLAY_HASH_MISMATCH, "claims a positive but fails the contract")
+    return _validated_replay(record, catalog, executor, where)
+
+
+def _validated_replay(record: dict, catalog: cat.Catalog, executor: ex.Executor, where: str) -> dict:
+    """Reject malformed claimed positives before touching source or running code."""
+
     try:
         validation.validate_shape(record)
         eligible, _ = oc.curation_eligible(record, oc.check_oracle_label_leak(record, where))
@@ -246,12 +288,17 @@ def _record_identity_matches(record: dict[str, Any], catalog: cat.Catalog) -> bo
     generator = record["generator"]
     seed, index = generator["seed"], record["intervention"]["draw_index"]
     catalog_digest = cat.sha256_text(oc.canonical_json([catalog.catalog_id, catalog.programs_sha256]))
-    return (
-        generator.get("name") == cv.GENERATOR_NAME and generator.get("version") == cv.GENERATOR_VERSION
-        and type(seed) is int and 0 <= seed <= cv.MAX_SEED
-        and type(index) is int and 0 <= index < cv.MAX_COUNT
-        and record["id"] == f"{cv.RECORD_ID_PREFIX}-{catalog_digest}-{seed}-{index:05d}"
-    )
+    if (generator.get("name"), generator.get("version")) != (cv.GENERATOR_NAME, cv.GENERATOR_VERSION):
+        return False
+    if not _draw_identity_valid(seed, index):
+        return False
+    return record["id"] == f"{cv.RECORD_ID_PREFIX}-{catalog_digest}-{seed}-{index:05d}"
+
+
+def _draw_identity_valid(seed: Any, index: Any) -> bool:
+    if type(seed) is not int or type(index) is not int:
+        return False
+    return 0 <= seed <= cv.MAX_SEED and 0 <= index < cv.MAX_COUNT
 
 
 def _replay_positive(record: dict[str, Any], catalog: cat.Catalog, executor: ex.Executor) -> dict:

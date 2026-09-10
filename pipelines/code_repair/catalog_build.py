@@ -49,11 +49,10 @@ FORBIDDEN_ATTRIBUTES = frozenset({
     "replace", "chmod", "urlopen", "urlretrieve", "connect", "bind", "listen", "exit",
     "settrace", "setprofile", "load", "loads", "dump", "dumps",
 })
-SAFE_IMPORTS = frozenset({
-    "math", "cmath", "itertools", "functools", "collections", "operator", "bisect",
-    "heapq", "decimal", "fractions", "statistics", "typing", "string", "re", "array",
-    "numbers", "__future__",
-})
+SAFE_IMPORTS = frozenset(
+    "math cmath itertools functools collections operator bisect heapq decimal fractions "
+    "statistics typing string re array numbers __future__".split()
+)
 
 __all__ = [
     "INPUT_POLICY", "SELECTOR_VERSION", "Build", "Upstream", "build_rows", "extract_module",
@@ -118,18 +117,13 @@ def _free_names(text: str, function: ast.FunctionDef) -> set[str]:
 
 
 def _reaches_the_host(node: ast.AST) -> bool:
+    if isinstance(node, ast.Call):
+        node = node.func
     if isinstance(node, (ast.Import, ast.ImportFrom)):
         return True  # a nested import escapes the module-level admission check
     if isinstance(node, ast.Attribute):
         return node.attr in FORBIDDEN_ATTRIBUTES or node.attr.startswith("__")
-    if isinstance(node, ast.Name) and node.id in FORBIDDEN_CALLS:
-        return True
-    if not isinstance(node, ast.Call):
-        return False
-    callee = node.func
-    if isinstance(callee, ast.Name):
-        return callee.id in FORBIDDEN_CALLS
-    return isinstance(callee, ast.Attribute) and callee.attr in FORBIDDEN_ATTRIBUTES
+    return isinstance(node, ast.Name) and node.id in FORBIDDEN_CALLS
 
 
 def _calls_forbidden(function: ast.FunctionDef) -> bool:
@@ -153,19 +147,21 @@ def _safe_import(node: ast.Import | ast.ImportFrom) -> bool:
     return all(a.name in SAFE_IMPORTS for a in node.names)
 
 
+def _safe_example_node(node: ast.AST) -> bool:
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return _safe_import(node)
+    return not _reaches_the_host(node)
+
+
+def _safe_example(example: cat.Example) -> bool:
+    try:
+        return all(_safe_example_node(node) for node in ast.walk(ast.parse(example.source)))
+    except SyntaxError:
+        return False
+
+
 def _safe_examples(examples: tuple[cat.Example, ...]) -> bool:
-    for example in examples:
-        try:
-            nodes = ast.walk(ast.parse(example.source))
-            for node in nodes:
-                if isinstance(node, (ast.Import, ast.ImportFrom)):
-                    if not _safe_import(node):
-                        return False
-                elif _reaches_the_host(node):
-                    return False
-        except SyntaxError:
-            return False
-    return True
+    return all(_safe_example(example) for example in examples)
 
 
 def _has_observable_doctests(text: str, node: ast.FunctionDef) -> bool:
@@ -237,15 +233,18 @@ def _definition(module: ast.Module, function: str) -> ast.FunctionDef | None:
     return matches[0] if len(matches) == 1 and isinstance(matches[0], ast.FunctionDef) else None
 
 
+def _future_imports(module: ast.Module) -> list[str]:
+    imports = (n for n in module.body if isinstance(n, ast.ImportFrom))
+    return [ast.unparse(n) for n in imports if n.module == "__future__"]
+
+
 def _import_head(module: ast.Module, node: ast.FunctionDef) -> str:
     """The import lines the function reads, followed by two blank lines; empty if none."""
 
     imports, _names = _module_imports(module)
     used = {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
     kept = [line for line in (_used_import(i, used) for i in imports) if line]
-    futures = [ast.unparse(n) for n in module.body
-               if isinstance(n, ast.ImportFrom) and n.module == "__future__"]
-    kept = futures + kept
+    kept = _future_imports(module) + kept
     return "\n".join(kept) + "\n\n\n" if kept else ""
 
 
