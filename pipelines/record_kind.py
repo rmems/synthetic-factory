@@ -34,6 +34,15 @@ SUPPORTED_RECORD_KINDS = frozenset(KIND_ORDER) - {"unknown"}
 
 PREFERENCE_SIDE_KINDS = frozenset({"episode", "thalamic"})
 
+_PAYLOAD_KEY_RULES = (
+    ("thalamic", frozenset(THALAMIC_REQUIRED)),
+    ("preference", frozenset({"chosen", "rejected"})),
+    ("bridge_pair", frozenset({"language_view", "spike_events"})),
+    ("safety_case", frozenset({"case_type"})),
+    ("multi_agent", frozenset({"transcript", "agents"})),
+    ("episode", frozenset({"goal", "steps"})),
+)
+
 
 def classify_kind(obj: Any) -> str:
     """Name a record from payload keys, never from a directory slug.
@@ -49,24 +58,18 @@ def classify_kind(obj: Any) -> str:
     7. unknown
     """
 
-    if not isinstance(obj, Mapping):
-        return "unknown"
-    # A malformed claimant stays in its family and fails that family's validator.
-    if obj.get("family") == "python-function-repair":
-        return "code_repair"
-    if all(key in obj for key in THALAMIC_REQUIRED):
-        return "thalamic"
-    if "chosen" in obj and "rejected" in obj:
-        return "preference"
-    if "language_view" in obj and "spike_events" in obj:
-        return "bridge_pair"
-    if "case_type" in obj:
-        return "safety_case"
-    if "transcript" in obj and "agents" in obj:
-        return "multi_agent"
-    if "goal" in obj and "steps" in obj:
-        return "episode"
-    return "unknown"
+    kind = "unknown"
+    if isinstance(obj, Mapping):
+        # A malformed claimant stays in its family and fails that family's validator.
+        if obj.get("family") == "python-function-repair":
+            kind = "code_repair"
+        else:
+            keys = obj.keys()
+            kind = next(
+                (name for name, required in _PAYLOAD_KEY_RULES if required <= keys),
+                "unknown",
+            )
+    return kind
 
 
 def preference_side_kinds(record: Any) -> tuple[str, str]:
