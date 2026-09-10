@@ -164,11 +164,14 @@ def natural_eligibility(
     replay just ran, a round was completed, or anything was published/trained.
     """
     from .validation import validate_record
+    from .run_validation import record_identity_matches
     trusted = _bound_catalog(row, catalog)
     findings = _record_findings(record, row, trusted)
     findings += validate_record(record, "record", catalog=trusted)
     if findings:
         raise sp.SourcePolicyError("; ".join(findings))
+    if not record_identity_matches(record, trusted):
+        raise sp.SourcePolicyError("PROCEDURAL_RECORD_IDENTITY_MISMATCH")
     result = record["result"]
     if (result["outcome"], result["oracle_status"]) == ("accepted", "validated"):
         return True, ()

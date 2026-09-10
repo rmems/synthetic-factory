@@ -12,7 +12,7 @@ from tests.test_curate_identity import identity as ci
 from tests.code_repair_test_support import (
     FIXTURE_CATALOG, PINNED_AT, REPO, SEED, envelope, fixture, generate, oc, records, smoke_run,
 )
-from code_repair import catalog, planning, source_policy, validation
+from code_repair import admission, catalog, planning, source_policy, validation
 from check_records import check_record
 from validate_run import check_line
 from training_audit import audit_run
@@ -170,6 +170,122 @@ class ProceduralIntegrationTests(unittest.TestCase):
         ))
         cls.records = [r for _, r in oc.read_jsonl(cls.run_dir / generate.CANDIDATES_FILENAME)]
         cls.row = ci.load_registry().by_path_id["python-function-repair-factory"]
+
+    def assert_shared_refusal(self, record):
+        self.assertEqual(oc.check_digest(record, "restamped"), [])
+        self.assertTrue(validation.validate_record(record))
+        self.assertTrue(check_record(record, "restamped")[0])
+        result = ci.curate_record(ci.SourceRecord(record, f"{self.row.path_id}/batch-r01.jsonl", 1))
+        self.assertEqual(result.action, "exclude")
+        run = json.loads((self.run_dir / "RUN.json").read_bytes())
+        candidates = [record if r["id"] == record["id"] else r for r in self.records]
+        digest = hashlib.sha256("".join(oc.canonical_json(r) + "\n" for r in candidates).encode()).hexdigest()
+        run["candidates_sha256"] = digest
+        self.assertTrue(validation.validate_run(run, candidates,
+            catalog=catalog.load_catalog(REPO / "catalogs/python-repair-v1"), candidates_sha256=digest))
+
+    def test_nested_real_claims_refuse_all_shared_boundaries(self):
+        for outcome in ("accepted", "rejected"):
+            original = next(r for r in self.records if r["result"]["outcome"] == outcome)
+            for claim in ({"sim_or_real": "real"}, {"provenance": {"kind": "real"}}):
+                with self.subTest(outcome=outcome, claim=claim):
+                    record = copy.deepcopy(original)
+                    record["provenance"]["extra"] = [claim]
+                    restamp(record)
+                    self.assert_shared_refusal(record)
+
+    def test_fixed_oracle_identity_refuses_all_shared_boundaries(self):
+        for outcome in ("accepted", "rejected"):
+            original = next(r for r in self.records if r["result"]["outcome"] == outcome)
+            for field, value in (("name", "forged-oracle"), ("type", "recorded_measurement"),
+                                 ("implementation", "forged.py:main"), ("version", "99.0")):
+                with self.subTest(outcome=outcome, field=field):
+                    record = copy.deepcopy(original)
+                    record["oracle"][field] = value
+                    restamp(record)
+                    self.assert_shared_refusal(record)
+
+    def test_derivable_record_identity_is_required_before_admission(self):
+        for outcome in ("accepted", "rejected"):
+            original = next(r for r in self.records if r["result"]["outcome"] == outcome)
+            for field in ("id", "generator_seed", "oracle_seed", "harness", "limits"):
+                with self.subTest(outcome=outcome, field=field):
+                    record = copy.deepcopy(original)
+                    targets = {"id": (record, "id", "forged"),
+                        "generator_seed": (record["generator"], "seed", 42),
+                        "oracle_seed": (record["oracle"], "seed", 42),
+                        "harness": (record["oracle"]["fingerprint"], "harness_sha256", "0" * 64),
+                        "limits": (record["oracle"]["configuration"]["limits"], "cpu_s", 99)}
+                    owner, key, value = targets[field]
+                    owner[key] = value
+                    restamp(record)
+                    self.assertEqual(oc.check_digest(record, "restamped"), [])
+                    with self.assertRaises(source_policy.SourcePolicyError):
+                        admission.natural_eligibility(record, self.row)
+
+    def timeout_source(self, token):
+        record = copy.deepcopy(next(r for r in self.records if r["result"]["outcome"] == "accepted"))
+        record["oracle"]["configuration"]["timeout_s"] = ExactJSONFloat(token)
+        record["oracle"]["configuration"]["limits"]["cpu_s"] = int(float(token)) + 2
+        restamp(record)
+        return dumps_exact_json(record) + "  "
+
+    def write_source(self, root, raw):
+        batch = root / "source" / self.row.path_id / "batch-r01.jsonl"
+        batch.parent.mkdir(parents=True)
+        batch.write_bytes(raw.encode() + b"\r\n")
+        ci.write_run(root / "source", root / "output")
+        return root / "output" / self.row.path_id / batch.name
+
+    def test_exact_decimal_source_is_refused_before_identity_admission(self):
+        raw = self.timeout_source("60.0").replace('"timeout_s":60.0', '"timeout_s":60.0000000000000000000001')
+        with tempfile.TemporaryDirectory() as scratch:
+            output = self.write_source(Path(scratch), raw)
+            self.assertFalse(output.exists())
+            ci.validate_identity_tree(Path(scratch) / "output")
+        with self.assertRaises(ci.IdentityCurationError):
+            ci.curate_record(ci.SourceRecord(json.loads(raw), f"{self.row.path_id}/batch-r01.jsonl", 1,
+                                            source_json=raw))
+
+    def test_valid_exact_decimal_source_and_whitespace_survive_identity(self):
+        for token in ("2.0", "2.0000000000000000000001", "2e0"):
+            with self.subTest(token=token), tempfile.TemporaryDirectory() as scratch:
+                raw = self.timeout_source(token)
+                output = self.write_source(Path(scratch), raw)
+                self.assertEqual(output.read_bytes(), raw.encode() + b"\n")
+                ci.validate_identity_tree(Path(scratch) / "output")
+
+    def test_identity_tree_replay_rejects_coherently_rehashed_decimal_snapshot(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            raw = self.timeout_source("60.0")
+            output = self.write_source(root, raw)
+            ci.validate_identity_tree(root / "output")
+            forged = raw.replace('"timeout_s":60.0', '"timeout_s":60.0000000000000000000001')
+            output.write_bytes(forged.encode() + b"\n")
+            manifest_path = root / "output" / ci.IDENTITY_MANIFEST_SIDECAR
+            manifest = json.loads(manifest_path.read_bytes())
+            manifest[0]["source"].update(original=forged, sha256=hashlib.sha256(forged.encode()).hexdigest())
+            manifest_path.write_text(ci.canonical_json(manifest) + "\n")
+            with self.assertRaises(ci.IdentityTreeError):
+                ci.validate_identity_tree(root / "output")
+
+    def test_identity_tree_replay_refuses_nested_real_claim_snapshot(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            output = self.write_source(root, self.timeout_source("2.0"))
+            record = json.loads(output.read_bytes())
+            record["provenance"]["extra"] = [{"sim_or_real": "real", "provenance": {"kind": "real"}}]
+            restamp(record)
+            raw = dumps_exact_json(record)
+            output.write_bytes(raw.encode() + b"\n")
+            manifest_path = root / "output" / ci.IDENTITY_MANIFEST_SIDECAR
+            manifest = json.loads(manifest_path.read_bytes())
+            manifest[0]["source"].update(original=raw, sha256=hashlib.sha256(raw.encode()).hexdigest())
+            manifest[0]["output_sha256"] = ci.sha256_json(record)
+            manifest_path.write_text(ci.canonical_json(manifest) + "\n")
+            with self.assertRaises(ci.IdentityTreeError):
+                ci.validate_identity_tree(root / "output")
 
     def test_accepted_record_passes_shape_and_deep_checks(self):
         record = next(r for r in self.records if r["result"]["outcome"] == "accepted")

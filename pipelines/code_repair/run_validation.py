@@ -77,11 +77,25 @@ def _oracle_identity_matches(record, run):
     return actual == expected
 
 
+def record_identity_matches(record, catalog):
+    """Derivable per-record identity only; authentic timestamps and draws need RUN."""
+    run = {'seed': record['generator']['seed'], 'count': cv.MAX_COUNT,
+           'harness_sha256': _HARNESS_SHA256,
+           'timeout_s': record['oracle']['configuration']['timeout_s']}
+    checks = (
+        lambda: _integer_in_domain(run['seed'], 0, cv.MAX_SEED),
+        lambda: _draw_identity_matches(record, run, catalog),
+        lambda: _oracle_identity_matches(record, run),
+    )
+    return all(check() for check in checks)
+
+
 def _record_identity(record, run, catalog):
     checks = (
         lambda: _draw_identity_matches(record, run, catalog),
         lambda: _generator_identity_matches(record, run),
         lambda: _oracle_identity_matches(record, run),
+        lambda: record_identity_matches(record, catalog),
     )
     return all(check() for check in checks)
 
