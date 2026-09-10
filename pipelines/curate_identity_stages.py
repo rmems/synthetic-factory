@@ -109,15 +109,23 @@ def _identity_route_exclusion(context, dependencies):
                 }
             ],
         )
-    elif context.row.training_ready_policy == "never":
+    else:
+        rejection = _identity_readiness_exclusion(context, dependencies)
+    return rejection
+
+
+def _identity_readiness_exclusion(context, dependencies):
+    """Reject a readiness claim forbidden by an otherwise authorized route."""
+
+    if context.row.training_ready_policy == "never":
         ready_claims = dependencies.training_ready_true_paths(context.original)
         if ready_claims:
-            rejection = dependencies.exclude(
+            return dependencies.exclude(
                 context.mapping,
                 "identity.training_ready_policy_violation",
                 details=[{"paths": ready_claims, "policy": "never"}],
             )
-    return rejection
+    return None
 
 
 def _identity_owner_specs(context, dependencies):
