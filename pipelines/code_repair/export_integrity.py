@@ -46,6 +46,14 @@ class ReplayReport:
     entries: dict[str, dict] | None = None
 
 
+@dataclass(frozen=True)
+class ReplayInputs:
+    run: dict
+    records: list[dict]
+    catalog: catalog.Catalog
+    candidates_sha256: str
+
+
 def _read_report(path: Path) -> dict:
     cv.refuse_when(not path.is_file(), cv.FINDING_REPLAY_FILE_MISSING,
                    f"{cv.shown(path)} is missing")
@@ -74,17 +82,19 @@ def _replay_entries(report: dict) -> dict[str, dict]:
     return entries
 
 
-def load_replay(replay_dir, run_dir, run, *, records, catalog, candidates_sha256) -> ReplayReport:
+def load_replay(replay_dir, inputs: ReplayInputs) -> ReplayReport:
     if replay_dir is None:
         return ReplayReport()
     from . import trusted_replay
     from .run_validation import run_identity
     report = _read_report(Path(replay_dir) / replay.REPLAY_FILENAME)
     _replay_entries(report)
-    expected = run_identity(run, candidates_sha256)
+    expected = run_identity(inputs.run, inputs.candidates_sha256)
     _refuse(report.get("run_identity") != expected, cv.EXPORT_REPLAY_RUN_IDENTITY_MISMATCH)
-    fresh = trusted_replay.replay_records(run, records, catalog=catalog,
-                                          candidates_sha256=candidates_sha256)
+    fresh = trusted_replay.replay_records(
+        inputs.run, inputs.records, catalog=inputs.catalog,
+        candidates_sha256=inputs.candidates_sha256,
+    )
     _refuse(any(report.get(key) != fresh[key] for key in
                 ("status", "records", "counts", "catalog", "harness_sha256", "interpreter")),
             cv.EXPORT_REPLAY_RUN_IDENTITY_MISMATCH)

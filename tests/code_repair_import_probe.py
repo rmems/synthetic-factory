@@ -17,7 +17,8 @@ PIPELINES = REPO / "pipelines"
 MODULES = tuple(
     "_contract vocabulary catalog catalog_check mutate mutate_span mutate_literals executor "
     "verify records views generate export export_integrity cli record_validation evidence "
-    "publication publication_export publication_receipt selection admission source_policy validation"
+    "publication publication_export publication_receipt selection admission source_policy validation "
+    "planning"
     .split()
 )
 

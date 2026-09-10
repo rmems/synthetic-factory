@@ -1,6 +1,7 @@
 """Trusted export boundaries reject internally consistent metadata forgeries."""
 import copy
 import importlib
+from types import SimpleNamespace
 import unittest
 import tempfile
 import json
@@ -16,10 +17,45 @@ from scripts import agoge_consumer_probe as probe
 from tests.test_code_repair_export import run_copy, request, restamp
 from tests.code_repair_test_support import FIXTURE_CATALOG
 from tests.code_repair_test_support import cli
-from code_repair import catalog, export, generate, replay, vocabulary as cv
+from code_repair import (
+    catalog, export, generate, replay, run_validation, trusted_replay, vocabulary as cv,
+)
+
+
+class _ExplodingDict(dict):
+    def __init__(self, *args, explode_on_get=None, explode_on_iter=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.explode_on_get = explode_on_get
+        self.explode_on_iter = explode_on_iter
+
+    def __getitem__(self, key):
+        if key == self.explode_on_get:
+            raise AssertionError(f"read past first mismatch: {key}")
+        return super().__getitem__(key)
+
+    def __iter__(self):
+        if self.explode_on_iter:
+            raise AssertionError("iterated past first mismatch")
+        return super().__iter__()
 
 
 class SharedValidation(unittest.TestCase):
+    def test_validation_helpers_stop_at_the_first_mismatch(self):
+        header = _ExplodingDict({'format': 'wrong'}, explode_on_get='family')
+        with self.subTest(helper='run header'):
+            self.assertFalse(run_validation._run_header_matches(header))
+
+        execution = SimpleNamespace(
+            run=_ExplodingDict({'produced_at': 'wrong'}, explode_on_get='per_program_cap'),
+            candidates_sha256='unused',
+        )
+        with self.subTest(helper='run execution'):
+            self.assertFalse(run_validation._run_execution_matches(execution))
+
+        skips = _ExplodingDict({'invalid': True}, explode_on_iter=True)
+        with self.subTest(helper='skips'):
+            self.assertFalse(run_validation._skips_match({'skips': skips}))
+
     def test_catalog_free_shape_allows_unavailable_environment_metadata(self):
         record = copy.deepcopy(smoke_run()[1][0])
         record['oracle']['fingerprint'].update(implementation=None, platform=None)
@@ -134,6 +170,17 @@ class ConsumerBoundary(unittest.TestCase):
 
 
 class FreshReplay(unittest.TestCase):
+    def test_public_replay_mapping_retains_protocol_key_order(self):
+        run, records, _run_dir = smoke_run()
+        report = trusted_replay.replay_records(
+            run, records, catalog=fixture(), candidates_sha256=run['candidates_sha256'],
+        )
+        self.assertEqual(
+            list(report),
+            ['run_identity', 'catalog', 'harness_sha256', 'interpreter',
+             'status', 'records', 'counts'],
+        )
+
     def test_malformed_run_catalog_refuses_api_and_cli_without_output(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

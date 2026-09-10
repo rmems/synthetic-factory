@@ -370,8 +370,10 @@ def run(request: ExportRequest) -> dict[str, Any]:
     digest = hashlib.sha256(candidate_bytes).hexdigest()
     findings = validation.validate_run(run_meta, loaded, catalog=pinned, candidates_sha256=digest)
     cv.refuse_when(bool(findings), cv.FINDING_EXPORT_INTEGRITY, ", ".join(findings))
-    report = integrity.load_replay(request.replay_dir, run_dir, run_meta, records=loaded,
-                                   catalog=pinned, candidates_sha256=digest)
+    report = integrity.load_replay(
+        request.replay_dir,
+        integrity.ReplayInputs(run_meta, loaded, pinned, digest),
+    )
     corpus = _Corpus(
         run_meta, loaded, policy, report.entries,
         replay_status=report.status, cap=request.lineage_cap,

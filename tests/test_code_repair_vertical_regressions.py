@@ -75,15 +75,13 @@ class VerticalRegressions(unittest.TestCase):
         self.assertLessEqual(len(verify.render_evidence(entries, omitted)), cv.MAX_EVIDENCE_CHARS)
         self.assertEqual(omitted, 1)
 
-    def test_agoge_boundary_is_constructed_unicode_offset(self):
+    def test_agoge_refuses_restamped_task_specification(self):
         record = self.positive()
         record['scenario']['task_specification'] += '\n雪🙂' + cv.AGOGE_SEPARATOR
         record['provenance']['record_sha256'] = envelope.record_digest(record)
-        row = views.agoge_row(record)
-        offset = row.get('completion_start_char')
-        self.assertIs(type(offset), int)
-        self.assertEqual(row['text'][offset:], views.completion_of(record))
-        self.assertEqual(row['text'][:offset], views.sft_row(record)['prompt'] + cv.AGOGE_SEPARATOR)
+        self.assertEqual(oc.check_digest(record, 'restamped'), [])
+        with self.assertRaises(cv.RepairRefusal):
+            views.agoge_row(record)
 
     def test_oracle_labels_in_source_metadata_are_refused(self):
         for key in ('reference', 'public_failure_omitted'):
@@ -239,7 +237,9 @@ class VerticalRegressions(unittest.TestCase):
             record = next(r for _, r in oc.iter_jsonl(out/'candidates.jsonl') if views.is_positive(r))
             row = views.agoge_row(record)
         offset = row['completion_start_char']
+        self.assertIs(type(offset), int)
         self.assertEqual(row['text'][offset:], views.completion_of(record))
+        self.assertEqual(row['text'][:offset], views.sft_row(record)['prompt'] + cv.AGOGE_SEPARATOR)
         self.assertIn('雪🙂', row['text'][:offset])
         self.assertGreaterEqual(row['text'][:offset].count(cv.AGOGE_SEPARATOR), 2)
         self.assertGreater(len(row['text'][:offset].encode('utf-8')), offset)
