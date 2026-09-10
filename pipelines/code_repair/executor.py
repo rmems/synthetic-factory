@@ -201,8 +201,8 @@ def _parse_report(job: Job, returncode: int, stdout: bytes) -> PhaseReport:
     parsed = _parsed_report(returncode, stdout)
     if isinstance(parsed, str):
         return _harness_error(parsed)
-    load = parsed.get("load") if isinstance(parsed.get("load"), dict) else {}
-    environment = parsed.get("environment") if isinstance(parsed.get("environment"), dict) else {}
+    environment = _object(parsed, "environment")
+    load = _object(parsed, "load")
     if load.get("status") != "ok":
         detail = str(load.get("error") or "load failed")
         return PhaseReport(cv.PHASE_OK, False, (), (), environment, detail)
@@ -211,6 +211,13 @@ def _parse_report(job: Job, returncode: int, stdout: bytes) -> PhaseReport:
     if public is None or hidden is None:
         return _harness_error("report rows are missing or malformed")
     return PhaseReport(cv.PHASE_OK, True, public, hidden, environment)
+
+
+def _object(parsed: dict[str, Any], key: str) -> dict[str, Any]:
+    """A report section that must be an object; anything else reads as empty."""
+
+    value = parsed.get(key)
+    return value if isinstance(value, dict) else {}
 
 
 def _well_formed(row: Any, expected_id: str) -> bool:
