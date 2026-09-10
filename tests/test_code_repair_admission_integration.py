@@ -12,6 +12,7 @@ from pathlib import Path
 from tests.test_curate_identity import identity as ci
 from tests.code_repair_test_support import (
     FIXTURE_CATALOG, PINNED_AT, REPO, SEED, envelope, fixture, generate, oc, records, smoke_run,
+    verify, vocabulary,
 )
 from code_repair import admission, catalog, planning, source_policy, validation
 from check_records import check_record
@@ -260,6 +261,70 @@ class ProceduralIntegrationTests(unittest.TestCase):
             self.assertEqual(curated.action, "retained")
             self.assertFalse(curated.mapping["procedural_authority"]["eligible_training_candidate"])
 
+    def test_failed_phases_cannot_retain_fabricated_suite_rows(self):
+        original = next(
+            r for r in self.records
+            if r["result"]["reason_codes"] == ["MUTANT_NO_OBSERVED_FAILURE"]
+        )
+        for status, reason in (
+            ("timeout", "MUTANT_TIMEOUT"),
+            ("harness_error", "MUTANT_HARNESS_ERROR"),
+        ):
+            with self.subTest(status=status):
+                record = copy.deepcopy(original)
+                phase = record["result"]["phases"]["mutant"]
+                self.assertTrue(phase["public"] and phase["hidden"])
+                phase.update(status=status, load_ok=False, limits_applied=None)
+                phases = verify.phases_from_blocks(record["result"]["phases"])
+                record["result"].update(
+                    reason_codes=[reason],
+                    measurements=records.measurements(phases),
+                    evidence_sha256=verify.result_hash(record["result"]["phases"]),
+                )
+                restamp(record)
+                self.assertEqual(oc.check_digest(record, "restamped"), [])
+                self.assertEqual(
+                    validation.validate_record(record, catalog=catalog.load_catalog(
+                        REPO / "catalogs/python-repair-v1"
+                    )),
+                    [vocabulary.EXPORT_EVIDENCE_VERDICT_MISMATCH],
+                )
+
+    def test_identity_refuses_recursive_training_ready_true_claims(self):
+        original = next(r for r in self.records if r["result"]["outcome"] == "accepted")
+        for nested in (False, True):
+            with self.subTest(nested=nested):
+                record = copy.deepcopy(original)
+                if nested:
+                    record["provenance"]["extra"] = [{"training_ready": True}]
+                else:
+                    record["training_ready"] = True
+                restamp(record)
+                before = copy.deepcopy(record)
+                result = ci.curate_record(ci.SourceRecord(
+                    record, f"{self.row.path_id}/batch-r01.jsonl", 1,
+                ))
+                self.assertEqual(result.action, "exclude")
+                self.assertEqual(
+                    result.mapping["reason_codes"],
+                    ["identity.training_ready_policy_violation"],
+                )
+                self.assertEqual(record, before)
+
+    def test_identity_preserves_false_training_ready_claims_without_mutation(self):
+        original = next(r for r in self.records if r["result"]["outcome"] == "accepted")
+        record = copy.deepcopy(original)
+        record["training_ready"] = False
+        record["provenance"]["extra"] = [{"training_ready": False}]
+        restamp(record)
+        before = copy.deepcopy(record)
+        result = ci.curate_record(ci.SourceRecord(
+            record, f"{self.row.path_id}/batch-r01.jsonl", 1,
+        ))
+        self.assertEqual(result.action, "retained", result.mapping)
+        self.assertEqual(result.record, before)
+        self.assertEqual(record, before)
+
     def test_derivable_record_identity_is_required_before_admission(self):
         for outcome in ("accepted", "rejected"):
             original = next(r for r in self.records if r["result"]["outcome"] == outcome)
@@ -464,6 +529,8 @@ class ProceduralIntegrationTests(unittest.TestCase):
         self.assertEqual(report["totals"]["eligible_records"], 1)
         self.assertEqual(report["code_repair"]["evidence_only_records"], 1)
         self.assertEqual(report["record_invariants"]["errors"], 0)
+        self.assertEqual(report["identity"]["duplicates"], [])
+        self.assertEqual(report["exact_duplicates"], [])
         self.assertFalse(report["training_ready"], "pure inspection cannot complete fresh gate")
         broken = copy.deepcopy(natural)
         broken["provenance"]["record_sha256"] = "0" * 64
@@ -474,3 +541,18 @@ class ProceduralIntegrationTests(unittest.TestCase):
         report = audit_run(self.root, snapshot={wrong: (json.dumps(accepted) + "\n").encode()})
         self.assertEqual(report["totals"]["eligible_records"], 0)
         self.assertGreater(report["record_invariants"]["errors"], 0)
+
+    def test_audit_accounts_duplicate_rejected_records_as_evidence_only(self):
+        natural = next(r for r in self.records if r["result"]["outcome"] != "accepted")
+        path = f"{self.row.path_id}/batch-r01.jsonl"
+        line = dumps_exact_json(natural) + "\n"
+        report = audit_run(self.root, snapshot={path: (line + line).encode()})
+        first, again = f"{path}:1", f"{path}:2"
+        self.assertEqual(report["totals"]["eligible_records"], 0)
+        self.assertEqual(report["code_repair"]["eligible_records"], 0)
+        self.assertEqual(report["code_repair"]["evidence_only_records"], 2)
+        self.assertEqual(
+            report["identity"]["duplicates"],
+            [{"id": natural["id"], "first": first, "again": again}],
+        )
+        self.assertEqual(report["exact_duplicates"], [{"first": first, "again": again}])
