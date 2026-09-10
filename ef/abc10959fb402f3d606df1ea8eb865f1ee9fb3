@@ -1,0 +1,25 @@
+tests/test_code_repair_lineage.py
+  s_637722da58c92c::t_45b50249c1a219 65-88
+tests/fixtures/code-repair/programs.jsonl
+  s_637722da58c92c::t_7b689c4f7eae51 4
+pipelines/code_repair/lineage.py
+  s_637722da58c92c::t_40115179531dc5 148-153
+tests/fixtures/code-repair/CATALOG.json
+  s_637722da58c92c::t_7b689c4f7eae51 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "efabc10959fb402f3d606df1ea8eb865f1ee9fb3",
+  "prompts": {},
+  "sessions": {
+    "s_637722da58c92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b4-b4e1-7663-adcf-65ef44374529",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
