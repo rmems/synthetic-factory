@@ -109,9 +109,9 @@ dict_field = _record_audit.dict_field
 has_observable_decision_basis = _record_audit.has_observable_decision_basis
 is_hidden_thought_key = _record_audit.is_hidden_thought_key
 _semantic_context_value = _record_audit.canonical_numeric_value
-_reward_shape_type = _record_audit._reward_shape_type
-_normalized_goals = _record_audit._normalized_goals
-_list_field = _record_audit._list_field
+_reward_shape_type = _record_audit.reward_shape_type
+_normalized_goals = _record_audit.normalized_goals
+_list_field = _record_audit.list_field
 
 
 def thalamic_views(obj, kind):
@@ -130,7 +130,7 @@ def reward_shape(value):
 
 
 def _thalamic_context_purity(chosen, rejected):
-    return _record_audit._thalamic_context_purity(
+    return _record_audit.thalamic_context_purity(
         chosen,
         rejected,
         canonicalize=_semantic_context_value,
@@ -138,7 +138,7 @@ def _thalamic_context_purity(chosen, rejected):
 
 
 def _episode_context_purity(obj, chosen, rejected):
-    return _record_audit._episode_context_purity(
+    return _record_audit.episode_context_purity(
         obj,
         chosen,
         rejected,
@@ -161,7 +161,7 @@ def preference_context_purity(obj, chosen, rejected):
 
 
 def _preference_turns(obj):
-    yield from _record_audit._preference_turns(
+    yield from _record_audit.preference_turns(
         obj,
         mapping_reader=dict_field,
         episode_check=episode_like,
@@ -170,7 +170,7 @@ def _preference_turns(obj):
 
 
 def _coordination_turns(obj):
-    yield from _record_audit._coordination_turns(obj, list_reader=_list_field)
+    yield from _record_audit.coordination_turns(obj, list_reader=_list_field)
 
 
 def agentic_turns(obj, kind):
