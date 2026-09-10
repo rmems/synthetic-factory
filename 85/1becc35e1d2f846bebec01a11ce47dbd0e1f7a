@@ -1,0 +1,61 @@
+tests/test_pipelines_package_imports.py
+  s_637722da58c92c::t_28517a9aa49656 68
+pipelines/training_audit.py
+  s_637722da58c92c::t_3c27f550f03b0d 107,117-124
+  s_637722da58c92c::t_301c65234979ab 29,56,59,86,106,108-116
+pipelines/code_repair/__init__.py
+  s_637722da58c92c::t_d71f8d36390671 19
+  s_637722da58c92c::t_fefc846816b8b4 20
+tests/test_code_repair_review_regressions.py
+  s_637722da58c92c::t_c6a8b213958140 156,165-168
+  s_637722da58c92c::t_4c369a2e84be92 157-164
+pipelines/curate_identity.py
+  s_637722da58c92c::t_29cbb0f33f2ba1 2379
+  s_637722da58c92c::t_05f25ed9054d9a 1489,1491,1494,1506,1519,1529,1534-1536,1538-1539,1551,1553,1558,1560,1562,1571,1576,1578,1580,1584,1586-1587,1591-1593,1637-1638,1640-1641,1643-1644,1646-1647,1649-1650,1652-1696,1707
+  s_637722da58c92c::t_3e0ea8464a6229 195-206,1488,1492-1493,1495,1499-1500,1505,1507,1511-1512,1516-1518,1520,1522-1524,1526-1527,1530,1537,1542-1544,1547-1550,1554,1561,1564-1565,1567,1572,1577,1579,1581-1583,1590,1594-1596,1600-1602,1607,1612-1614,1617,1622,1626,1636,1639,1642,1645,1648,1651,1697-1706
+  s_637722da58c92c::t_c10ea9322ecad8 2277-2332,2340-2344,2348-2350,2360-2362,2365-2366,2368-2369,2371,2377-2378,2380,2382-2383,2385,2396-2399,2402-2408,2410,2412,2414,2416-2423,2426-2427,2429
+  s_637722da58c92c::t_8a27bd230d900d 2363-2364,2367,2370,2373-2376,2381,2384,2386-2394,2400-2401,2409,2411,2413,2415,2428
+pipelines/training_audit_record.py
+  s_637722da58c92c::t_784301695878b4 1-219
+pipelines/code_repair/admission.py
+  s_637722da58c92c::t_d71f8d36390671 9,12,20-25
+  s_637722da58c92c::t_fefc846816b8b4 11,26-29,38
+tests/test_code_repair_evidence_integrity.py
+  s_637722da58c92c::t_4ee8d22c07e5d0 1-150
+pipelines/code_repair/_admission_catalog.py
+  s_637722da58c92c::t_fefc846816b8b4 1-99
+pipelines/__init__.py
+  s_637722da58c92c::t_194010da5a2644 454-459,534
+pipelines/code_repair/_admission_evidence.py
+  s_637722da58c92c::t_d71f8d36390671 1-67
+tests/test_code_repair_admission_integration.py
+  s_637722da58c92c::t_745e31adb2af83 15,17
+  s_637722da58c92c::t_e6e4a93676e87e 12,27
+tests/pipeline_import_catalog_foundation.py
+  s_637722da58c92c::t_28517a9aa49656 501-512,630
+tests/test_pipeline_split_module_identity.py
+  s_637722da58c92c::t_28517a9aa49656 83
+pipelines/record_kind.py
+  s_637722da58c92c::t_c4cc0ff1ea5d7c 37-45,61-72
+pipelines/check_records.py
+  s_637722da58c92c::t_73d3be87b8ec11 540-611,621-623
+tests/code_repair_admission_test_support.py
+  s_637722da58c92c::t_4ee8d22c07e5d0 1-30,33,45
+  s_637722da58c92c::t_e6e4a93676e87e 31-32,34-44,46-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "851becc35e1d2f846bebec01a11ce47dbd0e1f7a",
+  "prompts": {},
+  "sessions": {
+    "s_637722da58c92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b4-b4e1-7663-adcf-65ef44374529",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
