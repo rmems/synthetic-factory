@@ -45,6 +45,7 @@ else:
     from validate_run import reject_json_constant
 
 KINDS = (
+    "code_repair",
     "thalamic",
     "preference",
     "bridge_pair",
