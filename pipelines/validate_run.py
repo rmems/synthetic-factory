@@ -1450,9 +1450,9 @@ def _finish_agentic(errors, obj, where, kind):
 def _route_code_repair(obj, where):
     """Bind operational family checks to the sealed source without execution."""
     if __package__:
-        from .code_repair._admission_catalog import sealed_record_findings
+        from .code_repair.admission import sealed_record_findings
     else:
-        from code_repair._admission_catalog import sealed_record_findings
+        from code_repair.admission import sealed_record_findings
     return sealed_record_findings(obj, where), "code_repair"
 
 

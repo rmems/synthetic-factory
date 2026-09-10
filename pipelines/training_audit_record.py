@@ -145,11 +145,11 @@ def episode_context_purity(obj, chosen, rejected, *, normalize_goals=normalized_
         chosen.get("goal") if isinstance(chosen, dict) else None,
         rejected.get("goal") if isinstance(rejected, dict) else None,
     )
-    normalized_goals = normalize_goals(raw_goals)
+    normalized_goal_texts = normalize_goals(raw_goals)
     outer_goal = raw_goals[0]
     has_outer_goal = isinstance(outer_goal, str) and bool(outer_goal.strip())
-    complete_pair = bool(normalized_goals) if has_outer_goal else len(normalized_goals) == 2
-    same_goal = complete_pair and len(set(normalized_goals)) == 1
+    complete_pair = bool(normalized_goal_texts) if has_outer_goal else len(normalized_goal_texts) == 2
+    same_goal = complete_pair and len(set(normalized_goal_texts)) == 1
     return {
         "episode_pair": True,
         "pure": same_goal,

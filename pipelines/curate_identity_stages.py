@@ -68,7 +68,6 @@ class CurationDependencies:
 def _identity_route_exclusion(context, dependencies):
     """Return the first route/policy rejection, preserving gate order."""
 
-    rejection = None
     payload_factory = dependencies.payload_factory(context.original)
     if payload_factory != context.row.payload_factory:
         rejection = dependencies.exclude(

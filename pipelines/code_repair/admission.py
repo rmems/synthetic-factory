@@ -14,7 +14,13 @@ from . import catalog as cat
 from . import source_policy as sp
 from ._contract import bind_import_twin, oc
 
-__all__ = ["load_trusted_catalog", "validate_source_route", "natural_eligibility"]
+__all__ = [
+    "load_trusted_catalog", "validate_source_route", "natural_eligibility",
+    "sealed_record_findings",
+]
+
+# Public operational checker; the generic optional-catalog validator is separate.
+sealed_record_findings = _catalog.sealed_record_findings
 
 
 _row_findings = _evidence.row_findings
