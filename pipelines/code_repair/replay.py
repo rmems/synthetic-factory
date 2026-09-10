@@ -84,6 +84,7 @@ def _catalog_drift(record: dict[str, Any], catalog: cat.Catalog) -> str | None:
         return "the hidden cases or reference moved"
     expected_lineage = {
         "lineage_id": program.program_id, "group_id": program.group_id, "split": program.split,
+        "policy_sha256": None if catalog.split_policy is None else catalog.split_policy.sha256,
     }
     if record["provenance"].get("split_lineage") != expected_lineage:
         return "the program's lineage, group or split moved"
@@ -295,7 +296,6 @@ def _run_identity(run_dir: Path) -> dict[str, Any]:
         not isinstance(summary, dict), cv.FINDING_RECORD_MALFORMED,
         f"{run_file} is not a run summary",
     )
-    catalog = summary.get("catalog") if isinstance(summary.get("catalog"), dict) else {}
     cv.refuse_when(
         summary.get("format") != generate.RUN_FORMAT
         or summary.get("generator") != {"name": cv.GENERATOR_NAME, "version": cv.GENERATOR_VERSION},
@@ -312,15 +312,11 @@ def _run_identity(run_dir: Path) -> dict[str, Any]:
         type(count) is not int or count != len(_records(run_dir)),
         cv.FINDING_RECORD_MALFORMED, "candidates count differs from generation",
     )
-    return {
-        "candidates_sha256": candidates_digest,
-        "seed": summary.get("seed"), "produced_at": summary.get("produced_at"),
-        "catalog": {
-            "catalog_id": catalog.get("catalog_id"),
-            "programs_sha256": catalog.get("programs_sha256"),
-        },
-        "harness_sha256": summary.get("harness_sha256"),
-    }
+    from .run_validation import run_identity
+    try:
+        return run_identity(summary, candidates_digest)
+    except (KeyError, TypeError) as exc:
+        raise cv.RepairRefusal(cv.FINDING_RECORD_MALFORMED, "malformed run identity") from exc
 
 
 def _catalog_bound(identity: dict[str, Any], catalog: cat.Catalog) -> bool:

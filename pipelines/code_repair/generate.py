@@ -231,7 +231,6 @@ def _summary(request: RunRequest, state: _State, stamp: str) -> dict[str, Any]:
             "program_count": len(state.catalog.programs),
         },
         "generator": {"name": cv.GENERATOR_NAME, "version": cv.GENERATOR_VERSION},
-        "split_policy": None if state.catalog.split_policy is None else state.catalog.split_policy.as_json(),
         "harness_sha256": state.executor.harness_sha256,
         "split_policy": None if policy is None else policy.as_json(),
         "seed": request.seed, "count": request.count, "produced_at": stamp,

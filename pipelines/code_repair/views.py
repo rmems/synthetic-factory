@@ -29,7 +29,7 @@ PROMPT_TEMPLATE = (
 
 __all__ = [
     "PROMPT_TEMPLATE", "PublicView", "VIEW_KEYS", "agoge_row", "completion_of", "is_positive",
-    "public_view", "render_prompt", "sft_row", "view_findings",
+    "public_view", "render_prompt", "sft_row", "view_findings", "evidence_findings",
 ]
 
 
@@ -114,7 +114,7 @@ def agoge_row(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _evidence_findings(record: dict[str, Any]) -> list[str]:
+def evidence_findings(record: dict[str, Any]) -> list[str]:
     """The stored evidence must be the bounded rendering of the mutant's failing rows."""
 
     try:
@@ -161,7 +161,7 @@ def view_findings(record: dict[str, Any], row: dict[str, Any]) -> list[str]:
     broken = record["scenario"]["broken_program"]["files"][cv.PROGRAM_FILENAME]
     if f"```python\n{broken}```" not in str(row.get("prompt", "")):
         findings.append(cv.LEAK_PROMPT_PROGRAM_NOT_BROKEN_TEXT)
-    findings += _evidence_findings(record)
+    findings += evidence_findings(record)
     findings += _completion_findings(record, row)
     sections = [record.get(key) for key in ("scenario", "intervention", "candidate_prediction")]
     if contains_hidden_reasoning_key(row) or contains_hidden_reasoning_key(sections):

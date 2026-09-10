@@ -82,11 +82,14 @@ python3 pipelines/code_repair_cli.py export --run outputs/code-repair/pilot-r3 \
     --replay outputs/code-repair/pilot-r3-replay --out outputs/code-repair/pilot-r3-export --json
 ```
 
-Export now requires the replay report's `run_identity` to match the candidate file bytes and
-RUN metadata. Until S2 supplies that field, reports produced by this branch's replay command
-are refused by export; the export test fixtures stamp the expected identity after `replay.run`.
-The catalog digest, split policy, per-record lineage, and RUN summary counts are also checked
-before any export files are written.
+Current exports require RUN2 generation and five-phase evidence, including the repeated
+original. Replay emits `run_identity` binding exact candidate bytes and all RUN metadata.
+Export validates every evidence record and RUN counter, recomputes structural groups against
+the catalog, and freshly executes replay when a report is supplied. Editing report verdicts
+cannot authorize export. All integrity checks precede output creation; natural nonpositive
+records remain in the unchanged evidence bytes. A candidate export without replay stays blocked.
+The historical pilot-r3 numbers below predate this protocol and require a new run before they
+can serve as current admission or training evidence.
 
 Generation took about 65 s (each certifying reference executed once per program); harness sha256
 `b52848d8e88cda206f517f175f4aa25799235132eb0013b04b7fcb50f312a4fd`; `candidates.jsonl` sha256
@@ -183,7 +186,8 @@ Completion: the module above with `+` restored (raw text, trailing newline, no f
     --manifest outputs/code-repair/pilot-r3-export/MANIFEST.json \
     --config /home/raulmc/rmems/agoge-forger/configs/minicpm5_canary.yaml \
     --tokenizer-revision 156170697656c48f69915b33a2fb44110242187c \
-    --freeze-into <scratch>/pilot-agoge --json
+    --freeze-into <scratch>/pilot-agoge --source-revision <producer-commit-40hex> \
+    --dataset-version <immutable-dataset-version> --json
 ```
 
 Result `passed: true` (input bound to the manifest's digest and row count): 132 rows through
@@ -196,7 +200,7 @@ cross splits) with no exclusion.
 Tokenization and labels (`openbmb/MiniCPM5-1B-Base` at the pinned revision, TRL 1.4.0 collator,
 canary `max_seq_length` 512): prompt tokens 265 / 436 / 888 (min / median / max), completion
 tokens 103 / 253 / 691; 109 of 132 rows exceed 512 tokens and lose part or all of their
-completion to `keep_start` truncation; no row exceeds 2,048. Under Agoge's current path (one
+completion to `keep_start` truncation; no row exceeds 2,048. Under the historical Agoge path (one
 `text` column, `completion_only_loss` resolves False) 66,014 tokens receive loss, 55,648 of them
 prompt tokens; with a prompt/completion pair and `completion_only_loss=True` the same batch puts
 loss on 10,366 tokens, all corrected code. Gap codes reported: `PROMPT_COMPLETION_UNSUPPORTED_RENDERED_TO_TEXT`,
@@ -204,10 +208,15 @@ loss on 10,366 tokens, all corrected code. Gap codes reported: `PROMPT_COMPLETIO
 `CONFIG_HAS_NO_SPLIT_FIELD_DATASET_PATH_MUST_BE_SPLITS_TRAIN`,
 `EVAL_IDENTIFIES_HELD_OUT_BY_CANONICAL_ID_ONLY`.
 
-What this establishes: the export loads under Agoge's contract today and the split
-re-derivation agrees. What it does not: that Agoge's training path masks prompts. That fix and
-its real trainer-batch test are Agoge-side work, tracked as rmems/agoge-forger#133 and recorded
-here as a prerequisite for the training launch only.
+Those measurements describe the historical probe, not the current completion masking path.
+The current probe uses `agoge_forger.train.completion.completion_tokens` and the real TRL
+collator, reads the producer's Unicode `completion_start_char`, and rejects over-budget or
+ambiguous examples without truncation. Tokenizers must already be cached locally. Its report
+states the configured loss mode and both prompt-loss counts. Actual freeze requires a real
+producer commit and dataset version; placeholder provenance is diagnostic only.
+The Agoge implementation and trainer-batch proof are tracked by rmems/agoge-forger#133 and
+PR #138. A successful standalone batch probe is not a training launch. The final integrated
+pilot and frozen handoff must be generated separately.
 
 ## Evidence by kind
 

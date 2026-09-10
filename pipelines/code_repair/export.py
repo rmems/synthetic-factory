@@ -25,14 +25,13 @@ from pathlib import Path
 from typing import Any
 
 from . import catalog
-from . import executor as ex
 from . import export_integrity as integrity
 from . import generate
 from . import lineage
-from . import verify
+from . import validation
 from . import views
 from . import vocabulary as cv
-from ._contract import bind_import_twin, is_under_raw, oc, vocab
+from ._contract import bind_import_twin, is_under_raw, load_strict_json, oc, vocab
 
 EXPORT_FORMAT = "code-repair-export/1"
 MANIFEST_FILENAME = "MANIFEST.json"
@@ -81,6 +80,8 @@ class _Corpus:
     per_lineage: Counter = field(default_factory=Counter)
     replay_status: str = "not run"
     cap: int = DEFAULT_LINEAGE_CAP
+    license: str = ""
+    candidate_bytes: bytes = b""
 
 
 # --- request and inputs ------------------------------------------------------------
@@ -103,7 +104,7 @@ def _check_request(request: ExportRequest) -> None:
 
 def _load_run(run_dir: Path) -> dict[str, Any]:
     try:
-        run = json.loads((run_dir / generate.RUN_FILENAME).read_text(encoding="utf-8"))
+        run = load_strict_json((run_dir / generate.RUN_FILENAME).read_bytes())
     except ValueError as exc:
         raise cv.RepairRefusal(
             cv.FINDING_RUN_FILE_MISSING, f"RUN.json is not JSON: {cv.shown(exc)}"
@@ -115,9 +116,9 @@ def _load_run(run_dir: Path) -> dict[str, Any]:
     return run
 
 
-def _load_records(run_dir: Path) -> list[dict[str, Any]]:
+def _load_records(data: bytes) -> list[dict[str, Any]]:
     records = []
-    for lineno, record in oc.iter_jsonl(run_dir / generate.CANDIDATES_FILENAME):
+    for lineno, record in oc.iter_jsonl_bytes(data):
         cv.refuse_when(
             not isinstance(record, dict), cv.FINDING_RECORD_MALFORMED,
             f"{generate.CANDIDATES_FILENAME}:{lineno} is not a record",
@@ -129,55 +130,9 @@ def _load_records(run_dir: Path) -> list[dict[str, Any]]:
 # --- integrity -----------------------------------------------------------------------
 
 
-def _stored_phase(block: dict[str, Any] | None) -> ex.PhaseReport | None:
-    if block is None:
-        return None
-    return ex.PhaseReport(
-        block["status"], bool(block["load_ok"]), tuple(block["public"]), tuple(block["hidden"])
-    )
-
-
-def _rederived_verdict(record: dict[str, Any]) -> verify.Verdict:
-    """The verdict the decision table gives the stored rows, with the stored context."""
-
-    result, scenario = record["result"], record["scenario"]
-    phases = verify.Phases(
-        _stored_phase(result["phases"][cv.PHASE_ORIGINAL]),
-        _stored_phase(result["phases"][cv.PHASE_MUTANT]),
-        _stored_phase(result["phases"][cv.PHASE_REPAIRED]),
-        _stored_phase(result["phases"].get(cv.PHASE_REFERENCE)),
-    )
-    hidden = record["oracle"]["configuration"]["hidden_check"]
-    repaired = views.completion_of(record)
-    function = scenario["source"]["upstream"]["function"]
-    stored_examples = [(e["source"], e["want"]) for e in scenario["public_tests"]["examples"]]
-    try:
-        repaired_examples = [(e.source, e.want) for e in catalog.examples_of(repaired, function)]
-    except (SyntaxError, ValueError):
-        repaired_examples = None
-    context = verify.DecisionContext(
-        hidden["kind"], result["repaired_sha256"] == scenario["source"]["module_sha256"],
-        repaired_examples != stored_examples, len(hidden["cases"]),
-    )
-    return verify.decide(phases, context)
-
-
 def _integrity_failure(record: dict[str, Any], replay_entries: dict | None) -> str | None:
-    """The integrity code that refuses the export, or None when the record is sound."""
-
-    if not integrity.family_shape(record):
-        return cv.EXPORT_RECORD_FAILS_CONTRACT
-    where = cv.shown(record.get("id", "record"))
-    if oc.check_envelope(record, where) or oc.check_oracle_label_leak(record, where):
-        return cv.EXPORT_RECORD_FAILS_CONTRACT
-    if oc.check_digest(record, where):
-        return cv.EXPORT_EVIDENCE_DIGEST_MISMATCH
-    verdict = _rederived_verdict(record)
-    result = record["result"]
-    stored = (result["outcome"], list(result["reason_codes"]), result["oracle_status"])
-    if (verdict.outcome, list(verdict.reason_codes), verdict.oracle_status) != stored:
-        return cv.EXPORT_EVIDENCE_VERDICT_MISMATCH
-    return _replay_failure(record, replay_entries)
+    findings = validation.validate_record(record)
+    return findings[0] if findings else _replay_failure(record, replay_entries)
 
 
 def _replay_failure(record: dict[str, Any], replay_entries: dict | None) -> str | None:
@@ -347,7 +302,10 @@ def _write(request: ExportRequest, corpus: _Corpus) -> dict[str, Any]:
     root = Path(request.out_dir)
     root.mkdir(parents=True, exist_ok=False)
     written = [EVIDENCE_PATH, AGOGE_PATH]
-    _write_jsonl(root, EVIDENCE_PATH, corpus.records)
+    evidence = root / EVIDENCE_PATH
+    evidence.parent.mkdir(parents=True, exist_ok=True)
+    with evidence.open('xb') as handle:
+        handle.write(corpus.candidate_bytes)
     for split in lineage.SPLITS:
         _write_jsonl(root, f"{SFT_DIR}/{split}.jsonl", corpus.rows.get(split, []))
         written.append(f"{SFT_DIR}/{split}.jsonl")
@@ -387,7 +345,7 @@ def _manifest(request: ExportRequest, corpus: _Corpus, digests: dict[str, str]) 
         "evaluation_limitations": list(cv.LIMITATION_CODES),
         "training_run_prerequisites": list(cv.PREREQUISITE_CODES),
         "rights": {
-            "upstream_license": run.get("catalog", {}).get("license", "MIT"),
+            "upstream_license": corpus.license,
             "attribution": "LICENSE.upstream in the catalog; NOTICE line pending (S4)",
             "project_training_policy": "blocked (no reviewed profile; issue D-B/D-C)",
         },
@@ -403,14 +361,24 @@ def run(request: ExportRequest) -> dict[str, Any]:
     run_meta = _load_run(run_dir)
     pinned = catalog.load_catalog(request.catalog_dir)
     policy = integrity.bind_catalog(run_meta, pinned)
-    report = integrity.load_replay(request.replay_dir, run_dir, run_meta)
+    candidate_bytes = (run_dir / generate.CANDIDATES_FILENAME).read_bytes()
+    loaded = _load_records(candidate_bytes)
+    for record in loaded:
+        findings = validation.validate_record(record, catalog=pinned)
+        cv.refuse_when(bool(findings), cv.FINDING_EXPORT_INTEGRITY,
+                       'record fails integrity: ' + ', '.join(findings))
+    digest = hashlib.sha256(candidate_bytes).hexdigest()
+    findings = validation.validate_run(run_meta, loaded, catalog=pinned, candidates_sha256=digest)
+    cv.refuse_when(bool(findings), cv.FINDING_EXPORT_INTEGRITY, ", ".join(findings))
+    report = integrity.load_replay(request.replay_dir, run_dir, run_meta, records=loaded,
+                                   catalog=pinned, candidates_sha256=digest)
     corpus = _Corpus(
-        run_meta, _load_records(run_dir), policy, report.entries,
+        run_meta, loaded, policy, report.entries,
         replay_status=report.status, cap=request.lineage_cap,
+        license=pinned.meta["upstream"]["license"],
+        candidate_bytes=candidate_bytes,
     )
     _check_integrity(corpus)
-    integrity.check_summary(run_meta, corpus.records)
-    integrity.check_lineages(corpus.records, pinned)
     corpus.positives = [r for r in corpus.records if views.is_positive(r)]
     _split_proof(corpus)
     _project(corpus)

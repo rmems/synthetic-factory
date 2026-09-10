@@ -32,13 +32,6 @@ def stamp_replay(run_dir, replay_dir):
     path = replay_dir / replay.REPLAY_FILENAME
     report = json.loads(path.read_text())
     meta = json.loads((run_dir / generate.RUN_FILENAME).read_text())
-    report["run_identity"] = {
-        "candidates_sha256": hashlib.sha256(
-            (run_dir / generate.CANDIDATES_FILENAME).read_bytes()
-        ).hexdigest(),
-        **{k: meta[k] for k in ("seed", "produced_at", "harness_sha256")},
-        "catalog": {k: meta["catalog"][k] for k in ("catalog_id", "programs_sha256")},
-    }
     path.write_text(json.dumps(report))
     return report
 
@@ -120,7 +113,7 @@ class Artifacts(unittest.TestCase):
         _manifest, out, _records, positives = self._exported()
         agoge = [r for _n, r in oc.read_jsonl(out / export.AGOGE_PATH)]
         self.assertEqual(len(agoge), len(positives))
-        self.assertEqual(set(agoge[0]), {"canonical_id", "lineage_id", "group_id", "split", "text"})
+        self.assertEqual(set(agoge[0]), {"canonical_id", "lineage_id", "group_id", "split", "text", "completion_start_char"})
         freeze = json.loads((out / export.FREEZE_PATH).read_text())
         held_out = [r["canonical_id"] for r in agoge if r["split"] == "held_out"]
         self.assertEqual(freeze["canonical_ids"], held_out)
@@ -203,11 +196,11 @@ class Integrity(unittest.TestCase):
         entry = next(e for e in report["records"] if e["status"] == "replayed")
         entry["code"] = cv.REPLAY_ROWS_MISMATCH
         report_path.write_text(json.dumps(report))
-        with refusal(self, cv.FINDING_EXPORT_INTEGRITY, cv.REPLAY_ROWS_MISMATCH):
+        with refusal(self, cv.FINDING_EXPORT_INTEGRITY, cv.EXPORT_REPLAY_RUN_IDENTITY_MISMATCH):
             export.run(request(run_dir, self.root / "out", replay_dir))
         report["records"].remove(entry)
         report_path.write_text(json.dumps(report))
-        with refusal(self, cv.FINDING_EXPORT_INTEGRITY, cv.BLOCKER_REPLAY_NOT_RUN):
+        with refusal(self, cv.FINDING_EXPORT_INTEGRITY, cv.EXPORT_REPLAY_RUN_IDENTITY_MISMATCH):
             export.run(request(run_dir, self.root / "out", replay_dir))
         manifest, _out = export_of(run_dir, self.root / "plain")
         self.assertGreater(manifest["tables"]["outcomes"]["rejected"], 0)
@@ -276,9 +269,8 @@ class Integrity(unittest.TestCase):
         for status in ("failed", "nothing_to_replay"):
             report = {**baseline, "status": status}
             (replay_dir / replay.REPLAY_FILENAME).write_text(json.dumps(report))
-            manifest, _out = export_of(run_dir, self.root / status, replay_dir)
-            self.assertEqual(manifest["replay"], status)
-            self.assertIn(cv.BLOCKER_REPLAY_NOT_RUN, manifest["admission"]["blockers"])
+            with refusal(self, cv.FINDING_EXPORT_INTEGRITY):
+                export_of(run_dir, self.root / status, replay_dir)
 
     def test_catalog_digest_and_policy_bind_the_run(self):
         for field in ("digest", "missing_policy", "different_policy"):
@@ -357,16 +349,13 @@ class DedupAndAdmission(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root, True)
 
     def test_exact_duplicates_and_the_lineage_cap_are_dispositions_not_refusals(self):
-        run_dir, records = run_copy(self.root)
+        summary, records, run_dir = smoke_run()
         positives = [r for r in records if views.is_positive(r)]
         twin = copy.deepcopy(positives[0])
-        twin["id"] = twin["id"] + "-twin"
-        restamp(twin)
-        (run_dir / generate.CANDIDATES_FILENAME).unlink()
-        oc.write_jsonl(run_dir / generate.CANDIDATES_FILENAME, records + [twin])
-        stamp_summary(run_dir, records + [twin])
-        manifest, _out = export_of(run_dir, self.root / "dup")
-        self.assertEqual(manifest["tables"]["dispositions"][cv.EXPORT_DUPLICATE_EXACT], 1)
+        twin["id"] += "-twin"
+        corpus = export._Corpus(summary, records, None, None, positives=positives + [twin])
+        export._project(corpus)
+        self.assertEqual(corpus.dispositions[cv.EXPORT_DUPLICATE_EXACT], 1)
         manifest, _out = export_of(run_dir, self.root / "cap", cap=1)
         self.assertLessEqual(max(manifest["tables"]["per_lineage_exported"].values()), 1)
         self.assertIn(cv.EXPORT_LINEAGE_CAP_APPLIED, manifest["tables"]["dispositions"])
@@ -408,7 +397,9 @@ class ConsumerProbe(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.rows = self.root / "agoge.jsonl"
-        self.rows.write_text('{"canonical_id": "one", "text": "code"}\n')
+        prompt = 'prompt' + probe.SEPARATOR
+        self.rows.write_text(json.dumps({'canonical_id': 'one', 'text': prompt + 'code',
+                                        'completion_start_char': len(prompt)}) + '\n')
         self.manifest = self.root / "MANIFEST.json"
         self.meta = {
             "run": {"split_policy": {"seed": 1}},

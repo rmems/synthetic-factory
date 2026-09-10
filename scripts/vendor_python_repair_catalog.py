@@ -85,6 +85,15 @@ def _https_get(url: str) -> bytes:
         connection.close()
 
 
+def _trusted_metadata(url: str, cache: Path) -> dict:
+    """Authenticate metadata over HTTPS; cached assertions cannot authenticate themselves."""
+    fresh = json.loads(_https_get(url))
+    key = cache / hashlib.sha256(url.encode('utf-8')).hexdigest()
+    if key.is_file() and json.loads(key.read_bytes()) != fresh:
+        raise SystemExit('cached metadata differs from trusted HTTPS response')
+    return fresh
+
+
 def _tree(commit: str, cache: Path) -> list[dict]:
     """The pinned commit's tree, fetched by the tree's own sha so the listing is bound to it.
 
@@ -92,11 +101,11 @@ def _tree(commit: str, cache: Path) -> list[dict]:
     tree by ``commit.tree.sha`` (CodeAnt on #203).
     """
 
-    commit_meta = json.loads(_fetch(
+    commit_meta = _trusted_metadata(
         COMMIT_API.format(repository=REPOSITORY, commit=commit), cache
-    ))
+    )
     expected = commit_meta["commit"]["tree"]["sha"]
-    payload = json.loads(_fetch(API.format(repository=REPOSITORY, commit=expected), cache))
+    payload = _trusted_metadata(API.format(repository=REPOSITORY, commit=expected), cache)
     if payload.get("sha") != expected:
         raise SystemExit("tree sha differs from the pinned commit tree sha")
     if payload.get("truncated"):
