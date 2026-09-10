@@ -35,6 +35,7 @@ from types import MappingProxyType
 from typing import Any, Iterable, Mapping, NamedTuple
 
 if __package__:
+    from .exact_json import ExactJSONFloat, dumps_exact_json
     from .record_kind import (
         PREFERENCE_SIDE_KINDS,
         SUPPORTED_RECORD_KINDS,
@@ -63,6 +64,7 @@ if __package__:
         RIGHTS_PROFILE_IDS,
     )
 else:
+    from exact_json import ExactJSONFloat, dumps_exact_json
     from record_kind import (
         PREFERENCE_SIDE_KINDS,
         SUPPORTED_RECORD_KINDS,
@@ -268,7 +270,7 @@ def canonical_json(value: Any) -> str:
 
     try:
         _reject_unpaired_surrogates(value)
-        payload = json.dumps(
+        payload = dumps_exact_json(value) if classify_kind(value) == "code_repair" else json.dumps(
             value,
             ensure_ascii=False,
             allow_nan=False,
@@ -326,15 +328,17 @@ def reject_duplicate_object_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]
     return value
 
 
-def _strict_json_loads(payload: str) -> Any:
-    """Decode strict JSON with deterministic object semantics at every depth."""
+def _strict_json_loads(payload: str, *, exact: bool = False) -> Any:
+    """Decode strict JSON; procedural records retain exact source decimal tokens."""
 
     value = json.loads(
         payload,
         object_pairs_hook=reject_duplicate_object_keys,
         parse_constant=_reject_json_constant,
-        parse_float=parse_finite_json_float,
+        parse_float=ExactJSONFloat if exact else parse_finite_json_float,
     )
+    if not exact and classify_kind(value) == "code_repair":
+        return _strict_json_loads(payload, exact=True)
     _reject_unpaired_surrogates(value)
     return value
 

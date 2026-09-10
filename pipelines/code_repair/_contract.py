@@ -21,6 +21,7 @@ if __name__.startswith("pipelines."):
     from ..oracle_grounded.import_twins import bind_import_twin
     from ..raw_tree_guard import is_under_raw
     from ..tag_jsonutil import load_strict_json
+    from ..validate_run_provenance import check_provenance_publish
 else:
     from exact_json import ExactJSONFloat, exact_fraction
     from curate_coding import contains_hidden_reasoning_key
@@ -30,11 +31,13 @@ else:
     from oracle_grounded.import_twins import bind_import_twin
     from raw_tree_guard import is_under_raw
     from tag_jsonutil import load_strict_json
+    from validate_run_provenance import check_provenance_publish
 
 __all__ = [
     "ExactJSONFloat",
     "bind_import_twin",
     "contains_hidden_reasoning_key",
+    "check_provenance_publish",
     "envelope",
     "exact_fraction",
     "is_under_raw",

@@ -9,7 +9,9 @@ from . import catalog as cat
 from . import records as assembly
 from . import verify
 from . import vocabulary as cv
-from ._contract import ExactJSONFloat, bind_import_twin, envelope, exact_fraction, oc
+from ._contract import (
+    ExactJSONFloat, bind_import_twin, check_provenance_publish, envelope, exact_fraction, oc,
+)
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -61,6 +63,10 @@ def _intervention_shape(intervention: dict) -> None:
 
 
 def _configuration_shape(oracle: dict) -> None:
+    identity = (oracle['name'], oracle['type'], oracle['implementation'], oracle['version'],
+                oracle['authority'])
+    _require(identity == (cv.ORACLE_NAME, cv.ORACLE_TYPE, cv.ORACLE_IMPLEMENTATION,
+                          cv.ORACLE_VERSION, oc.AUTHORITY_AUTHORITATIVE))
     configuration = oracle['configuration']
     _fields(configuration, 'timeout_s', (int, float, ExactJSONFloat))
     timeout = configuration['timeout_s']
@@ -148,6 +154,7 @@ def _envelope_shape(record: Any) -> None:
     _require(record.get("family") == cv.FAMILY)
     where = str(record.get("id", "record"))
     _require(not (oc.check_envelope(record, where) + oc.check_digest(record, where)))
+    _require(not check_provenance_publish(record, where))
 
 
 def _result_shape(result: dict[str, Any]) -> None:
