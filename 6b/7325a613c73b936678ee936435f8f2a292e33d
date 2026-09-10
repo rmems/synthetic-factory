@@ -1,0 +1,29 @@
+tests/test_code_repair_harness.py
+  s_637722da58c92c::t_68e7d82fcb3773 4-5,9,17,215-279,281-284,286-316
+  s_637722da58c92c::t_b28873698e6b3f 12,280,285
+  s_30c91b293664f2::t_4573690802dd81 317-318
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6b7325a613c73b936678ee936435f8f2a292e33d",
+  "prompts": {},
+  "sessions": {
+    "s_30c91b293664f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b363f3ab-81a6-4abe-88b5-c596f7a8dd7b",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    },
+    "s_637722da58c92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b4-b4e1-7663-adcf-65ef44374529",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
