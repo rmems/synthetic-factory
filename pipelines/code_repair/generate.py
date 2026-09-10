@@ -4,7 +4,7 @@
 One :class:`rng.DrawStream` per run draws, for every candidate index, a
 program (among those with sites and under the per-program cap), a site and its
 variant; the mutant is verified before it runs; the original phase is executed
-once per program and shared; the repaired phase runs only when no earlier rule
+twice per healthy program and shared; the repaired phase runs only when no earlier rule
 has already rejected the candidate. Every executed candidate becomes a record
 (accepted or rejected); generator-side non-proposals are counted in
 ``RUN.json`` and never written as records. The run directory holds
@@ -15,6 +15,7 @@ and ``execution-log.jsonl`` (both volatile: wall clocks, exit codes).
 from __future__ import annotations
 
 import json
+import hashlib
 from collections import Counter
 import dataclasses
 from dataclasses import dataclass, field
@@ -32,7 +33,7 @@ from ._contract import bind_import_twin, envelope, is_under_raw, oc, rng, vocab
 CANDIDATES_FILENAME = "candidates.jsonl"
 RUN_FILENAME = "RUN.json"
 LOG_FILENAME = "execution-log.jsonl"
-RUN_FORMAT = "code-repair-run/1"
+RUN_FORMAT = "code-repair-run/2"
 
 __all__ = ["CANDIDATES_FILENAME", "LOG_FILENAME", "RUN_FILENAME", "RunRequest", "run"]
 
@@ -73,6 +74,7 @@ class _State:
     reasons: Counter = field(default_factory=Counter)
     per_program: Counter = field(default_factory=Counter)
     originals: dict[str, ex.PhaseReport] = field(default_factory=dict)
+    original_repeats: dict[str, ex.PhaseReport] = field(default_factory=dict)
     references: dict[str, ex.PhaseReport | None] = field(default_factory=dict)
     seen: set[tuple[str, str]] = field(default_factory=set)
 
@@ -113,7 +115,11 @@ def _check_destination(out_dir: Path) -> None:
 def _original(state: _State, program: cat.Program) -> ex.PhaseReport:
     if program.program_id not in state.originals:
         label = f"{cv.PHASE_ORIGINAL}:{program.program_id}"
-        state.originals[program.program_id] = state.executor.run(program.job(label))
+        original = _run_phase(state, program.job(label))
+        state.originals[program.program_id] = original
+        if original.ok:
+            state.original_repeats[program.program_id] = _run_phase(
+                state, program.job(f"{cv.PHASE_ORIGINAL_REPEAT}:{program.program_id}"))
     return state.originals[program.program_id]
 
 
@@ -126,6 +132,16 @@ def _sites_by_operator(program: cat.Program) -> dict[str, tuple[mutate.Site, ...
     return {operator: tuple(found) for operator, found in grouped.items()}
 
 
+def _run_phase(state: _State, job: ex.Job) -> ex.PhaseReport:
+    report = state.executor.run(job)
+    cv.refuse_when(
+        cv.FINDING_SANDBOX_UNAVAILABLE in report.detail
+        or (report.ok and report.environment.get("limits_applied") is not True),
+        cv.FINDING_SANDBOX_UNAVAILABLE, "the harness cannot apply required resource limits",
+    )
+    return report
+
+
 def _reference(state: _State, program: cat.Program) -> ex.PhaseReport | None:
     """The certifying reference executed once per program over its pinned cases; else None.
 
@@ -136,7 +152,7 @@ def _reference(state: _State, program: cat.Program) -> ex.PhaseReport | None:
         report = None
         if program.reference.certifying:
             label = f"{cv.PHASE_REFERENCE}:{program.program_id}"
-            report = state.executor.run(program.reference_job(label))
+            report = _run_phase(state, program.reference_job(label))
         state.references[program.program_id] = report
     return state.references[program.program_id]
 
@@ -165,7 +181,9 @@ def _candidate(state: _State, program: cat.Program, index: int) -> records.Candi
     if key in state.seen:
         return cv.SKIP_DUPLICATE_MUTANT_IN_RUN
     state.seen.add(key)
-    record_id = f"{cv.RECORD_ID_PREFIX}-{state.batch.run_seed}-{index:05d}"
+    catalog_identity = cat.sha256_text(oc.canonical_json(
+        [state.catalog.catalog_id, state.catalog.programs_sha256]))
+    record_id = f"{cv.RECORD_ID_PREFIX}-{catalog_identity}-{state.batch.run_seed}-{index:05d}"
     mutation = mutate.Mutation(site, program.text, mutated)
     repaired = mutate.repair(mutated, site)
     phases, context = _execute(state, _Draft(program, record_id, mutation, repaired))
@@ -187,14 +205,16 @@ def _execute(state: _State, draft: _Draft) -> tuple[verify.Phases, verify.Decisi
     context = verify.DecisionContext(
         program.reference.kind, repaired == program.text, tampered, len(program.cases)
     )
-    phases = verify.Phases(_original(state, program), reference=_reference(state, program))
+    original = _original(state, program)
+    phases = verify.Phases(original, reference=_reference(state, program),
+                           original_repeat=state.original_repeats.get(program.program_id))
     if verify.pre_repair_problem(phases, context) in (None, cv.REASON_MUTANT_HARNESS_ERROR):
         # The original passed (the only way past its rules with no mutant yet): run the mutant.
         mutant_job = program.job(f"{cv.PHASE_MUTANT}:{record_id}", mutation.mutated_text)
-        phases = dataclasses.replace(phases, mutant=state.executor.run(mutant_job))
+        phases = dataclasses.replace(phases, mutant=_run_phase(state, mutant_job))
     if verify.pre_repair_problem(phases, context) is None:
         repaired_job = program.job(f"{cv.PHASE_REPAIRED}:{record_id}", repaired)
-        phases = dataclasses.replace(phases, repaired=state.executor.run(repaired_job))
+        phases = dataclasses.replace(phases, repaired=_run_phase(state, repaired_job))
     return phases, context
 
 
@@ -231,6 +251,8 @@ def _summary(request: RunRequest, state: _State, stamp: str) -> dict[str, Any]:
 def _write(out_dir: Path, state: _State, summary: dict[str, Any]) -> None:
     out_dir.mkdir(parents=True, exist_ok=False)
     oc.write_jsonl(out_dir / CANDIDATES_FILENAME, state.records)
+    summary["candidates_sha256"] = hashlib.sha256(
+        (out_dir / CANDIDATES_FILENAME).read_bytes()).hexdigest()
     oc.write_jsonl(out_dir / LOG_FILENAME, state.executor.log)
     with open(out_dir / RUN_FILENAME, "x", encoding="utf-8") as handle:
         handle.write(json.dumps(summary, indent=2, sort_keys=True) + "\n")

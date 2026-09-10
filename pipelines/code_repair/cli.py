@@ -2,8 +2,7 @@
 """The agent surface of the code-repair family: catalog-check, generate, replay, render.
 
 Exit codes: 0 when the command succeeded with nothing to report, 1 when it
-ran and reports findings (catalog findings, a record that is not a positive
-example), 2 on a coded refusal or a usage error. ``--json`` prints one object
+ran and reports catalog findings, 2 on a coded refusal or a usage error. ``--json`` prints one object
 with a ``code`` field per finding so an agent never parses prose.
 """
 
@@ -21,6 +20,7 @@ from . import executor as ex
 from . import generate
 from . import replay
 from . import views
+from . import record_validation as validation
 from . import vocabulary as cv
 from ._contract import bind_import_twin, envelope, oc
 
@@ -118,12 +118,7 @@ def _load_record(run_dir: Path, record_id: str) -> dict[str, Any]:
     cv.refuse_when(not path.is_file(), cv.FINDING_RUN_FILE_MISSING, f"{path} is missing")
     for _lineno, record in oc.iter_jsonl(path):
         if isinstance(record, dict) and record.get("id") == record_id:
-            findings = oc.check_envelope(record, record_id) + oc.check_digest(record, record_id)
-            cv.refuse_when(
-                bool(findings), cv.FINDING_RECORD_MALFORMED,
-                f"record {record_id} fails the shared contract ({len(findings)} finding(s); "
-                f"first: {findings[0] if findings else ''})",
-            )
+            validation.validate_shape(record)
             return record
     message = f"no record {cv.shown(record_id)} in {path}"
     raise cv.RepairRefusal(cv.FINDING_RECORD_NOT_FOUND, message)
@@ -145,7 +140,8 @@ def _render(args: argparse.Namespace) -> int:
         )
         _emit(payload, args.json, text)
         return 1
-    row = views.sft_row(record)
+    row = {"prompt": views.render_prompt(views.public_view(record)),
+           "completion": views.completion_of(record)}
     leaks = views.view_findings(record, row)
     payload = {
         "command": "render", "status": "findings" if leaks else "ok", "record_id": args.record_id,

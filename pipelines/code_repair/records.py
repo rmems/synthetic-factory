@@ -153,7 +153,8 @@ def _oracle(candidate: Candidate, batch: Batch) -> dict[str, Any]:
         },
         "hidden_check": {
             "kind": program.reference.kind, "reference_function": program.reference.function,
-            "reference_sha256": program.reference.sha256, "cases": list(program.cases),
+            "reference_sha256": program.reference.sha256,
+            "cases": [dict(case) for case in program.cases],
         },
         "isolation": (
             "rlimits and a fresh working directory only: no filesystem or network isolation "
@@ -177,7 +178,7 @@ def _measurements(phases: verify.Phases) -> list[dict[str, Any]]:
     """Pass and fail counts per executed phase and suite."""
 
     readings: list[dict[str, Any]] = []
-    reports = zip(cv.PHASES, (phases.original, phases.mutant, phases.repaired, phases.reference))
+    reports = ((name, getattr(phases, name)) for name in cv.PHASES)
     for phase, report in ((p, r) for p, r in reports if r is not None and r.ok):
         if phase != cv.PHASE_REFERENCE:  # the reference runs the hidden cases only
             readings += _suite_readings(phase, cv.SUITE_PUBLIC, report.public)
@@ -192,6 +193,7 @@ def _result(candidate: Candidate) -> dict[str, Any]:
         cv.PHASE_MUTANT: verify.phase_block(phases.mutant),
         cv.PHASE_REPAIRED: verify.phase_block(phases.repaired),
         cv.PHASE_REFERENCE: verify.phase_block(phases.reference),
+        cv.PHASE_ORIGINAL_REPEAT: verify.phase_block(phases.original_repeat),
     }
     fields: dict[str, Any] = {
         "outcome": candidate.verdict.outcome,
