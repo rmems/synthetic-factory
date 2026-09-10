@@ -1,0 +1,42 @@
+pipelines/code_repair/mutate_sites.py
+  s_30c91b293664f2::t_0b67e328b19e04 35
+  s_30c91b293664f2::t_0b2cbb17fc7dbf 36,51,72,87,98,120
+  s_30c91b293664f2::t_52cf68329c0b04 29,32-34,37,60-61,63-65,80-81,94-95,109-110,131-133
+tests/code_repair_import_probe.py
+  s_30c91b293664f2::t_52cf68329c0b04 18
+tests/code_repair_test_support.py
+  s_30c91b293664f2::t_52cf68329c0b04 31
+pipelines/code_repair/mutate_literals.py
+  s_30c91b293664f2::t_52cf68329c0b04 1-16,19-33,35-41,43-54,56-75,78-92,94-165,167-195
+  s_30c91b293664f2::t_0b2cbb17fc7dbf 18,34,42,55,166
+  s_30c91b293664f2::t_0b67e328b19e04 17,76-77,93
+pipelines/code_repair/catalog_build.py
+  s_30c91b293664f2::t_52cf68329c0b04 188,191-205,209
+pipelines/code_repair/mutate_span.py
+  s_30c91b293664f2::t_52cf68329c0b04 1-43,47-49,51-88,90-130,132-171,173-198
+  s_30c91b293664f2::t_b49bc8a6728f98 131
+  s_30c91b293664f2::t_0b2cbb17fc7dbf 50,89,172
+  s_30c91b293664f2::t_0b67e328b19e04 44-46
+pipelines/code_repair/catalog.py
+  s_30c91b293664f2::t_52cf68329c0b04 169-173
+pipelines/code_repair/__init__.py
+  s_30c91b293664f2::t_52cf68329c0b04 17-19
+tests/test_code_repair_vocabulary.py
+  s_30c91b293664f2::t_52cf68329c0b04 60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "239c7acedcacafcbd7ec736d56438b273cf50d30",
+  "prompts": {},
+  "sessions": {
+    "s_30c91b293664f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b363f3ab-81a6-4abe-88b5-c596f7a8dd7b",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
