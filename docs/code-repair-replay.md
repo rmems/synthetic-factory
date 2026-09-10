@@ -20,11 +20,17 @@ SHA-256 hex digest of the exact `candidates.jsonl` bytes, and `records` as an
 integer matching the complete candidate set. Removing or modifying candidate
 lines is refused. Old pilot runs missing this pin must be regenerated; replay
 does not silently invent a generation-time pin from the files it receives.
+Only `code-repair-run/2` with the current generator version is accepted. Positive
+record IDs must bind the complete catalog digest, run seed, and draw index.
+Replay uses shared record-shape and verdict validation, executes `original_repeat`
+before the mutant, and compares all five complete phase blocks, including the
+bounded observation text, full observation hashes, source digests and limits flags.
 
 The builder rejects unordered literal arguments (including sets nested in
 containers), relative or unreviewed imports, ambiguous duplicate definitions,
 and direct or dynamic host access in executable doctests. It retains future
 imports to preserve compilation semantics. Observation runs the public prelude,
+then loads a fresh module for the hidden suite, matching generation's isolation,
 uses batches no larger than the hidden-case cap, compares repeated observations,
 and excludes truncated or unstable representations. A final observation verifies
 that discarding failed probes did not change the state used by retained inputs.

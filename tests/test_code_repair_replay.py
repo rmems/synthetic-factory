@@ -17,6 +17,7 @@ from code_repair_test_support import (  # noqa: E402
     verify, views, vocabulary as cv,
 )
 from code_repair import replay  # noqa: E402
+from code_repair import record_validation  # noqa: E402
 
 RUNNER = executor.Executor(timeout_s=5.0)
 
@@ -44,6 +45,7 @@ def consistently_forged():
     record["scenario"]["broken_program"]["files"]["program.py"] = behaves_like_original
     record["scenario"]["broken_program"]["sha256"] = catalog.sha256_text(behaves_like_original)
     record["result"]["broken_sha256"] = catalog.sha256_text(behaves_like_original)
+    record["result"]["phases"]["mutant"]["module_sha256"] = catalog.sha256_text(behaves_like_original)
     return restamp(record)
 
 
@@ -86,7 +88,7 @@ class Forgeries(unittest.TestCase):
         forged["candidate_prediction"]["predicted_repair"]["sha256"] = catalog.sha256_text(broken)
         forged["result"]["repaired_sha256"] = catalog.sha256_text(broken)
         restamp(forged)
-        self.assertTrue(views.is_positive(forged))
+        self.assertFalse(views.is_positive(forged))
         entry = replay.replay_record(forged, fixture(), RUNNER)
         self.assertEqual(entry["code"], cv.REPLAY_TEXT_MISMATCH)
         self.assertIn("pinned original", entry["detail"])
@@ -151,6 +153,16 @@ class RunBinding(unittest.TestCase):
     def test_missing_generation_digest_requires_regeneration(self):
         run_dir = self.run_with(positives(), lambda s: s.pop("candidates_sha256"))
         with refusal(self, cv.FINDING_RECORD_MALFORMED, "candidates"):
+            replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
+
+    def test_legacy_run_format_is_refused_even_with_current_candidate_pins(self):
+        run_dir = self.run_with(positives(), lambda s: s.update(format="code-repair-run/1"))
+        with refusal(self, cv.FINDING_RECORD_MALFORMED, "version"):
+            replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
+
+    def test_old_generator_version_is_refused(self):
+        run_dir = self.run_with(positives(), lambda s: s["generator"].update(version="1.0.0"))
+        with refusal(self, cv.FINDING_RECORD_MALFORMED, "version"):
             replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
 
     def test_the_report_carries_the_run_identity(self):
@@ -225,6 +237,35 @@ class RequestsAndCli(unittest.TestCase):
         code = cli.run(["replay", "--run", str(run_dir), "--catalog", str(FIXTURE_CATALOG),
                         "--out", str(self.root / "clean-replay"), "--timeout-s", "5"])
         self.assertEqual(code, 0)
+
+
+class ProtocolTwoReplay(unittest.TestCase):
+    def test_repeat_original_is_freshly_executed_and_full_blocks_match(self):
+        record = copy.deepcopy(positives()[0])
+        engine = executor.Executor(timeout_s=5)
+        entry = replay.replay_record(record, fixture(), engine)
+        self.assertEqual(entry["code"], cv.REPLAY_PASSED)
+        self.assertIn("original_repeat:" + record["id"], [row["label"] for row in engine.log])
+        self.assertEqual(entry["fresh_evidence_sha256"], record["result"]["evidence_sha256"])
+
+    def test_catalog_bound_id_cannot_be_relabelled(self):
+        record = copy.deepcopy(positives()[0])
+        record["id"] = "pfr-" + "a" * 64 + "-20260908-00002"
+        entry = replay.replay_record(restamp(record), fixture(), RUNNER)
+        self.assertEqual(entry["code"], cv.REPLAY_RECORD_MALFORMED)
+
+    def test_repeat_source_evidence_must_be_complete(self):
+        record = copy.deepcopy(positives()[0])
+        del record["result"]["phases"]["original_repeat"]["limits_applied"]
+        entry = replay.replay_record(restamp(record), fixture(), RUNNER)
+        self.assertEqual(entry["code"], cv.REPLAY_RECORD_MALFORMED)
+
+    def test_shared_reconstruction_preserves_all_stored_observations(self):
+        record = positives()[0]
+        record_validation.validate_shape(record)
+        phases = verify.phases_from_blocks(record["result"]["phases"])
+        self.assertEqual({name: verify.phase_block(getattr(phases, name)) for name in cv.PHASES},
+                         record["result"]["phases"])
 
 
 if __name__ == "__main__":

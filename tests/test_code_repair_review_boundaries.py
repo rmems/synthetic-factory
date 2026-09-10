@@ -109,12 +109,15 @@ class LiteralAndObservationBoundaries(unittest.TestCase):
             example = catalog.Example("e1", f"f({literal})\n", "1\n", None)
             self.assertIsNone(ci.literal_args(example, "f"))
 
-    def test_observation_runs_public_prelude_before_hidden(self):
+    def test_observation_matches_public_then_isolated_hidden_execution(self):
         text = ("def f(x):\n" + DOC
                 + "    f.n = getattr(f, 'n', 0) + 1\n    return f.n\n")
         examples = catalog.examples_of(text, "f")
         cases = ci.observed_cases(RUNNER, ci.Subject(text, "f", "state", examples))
-        self.assertEqual(cases[0]["want"], "3")
+        self.assertEqual(cases[0]["want"], "1")
+        checked = RUNNER.run(executor.Job("check-isolated", text, "f", tuple(cases), True))
+        self.assertEqual(len(checked.public), 2)
+        self.assertTrue(all(row["status"] == cv.ROW_SUCCESS for row in checked.hidden))
 
     def test_observation_discards_truncated_and_unstable_reprs(self):
         for body in ("return 'a' * 9000", "class C: pass\n    return C()"):

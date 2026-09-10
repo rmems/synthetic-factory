@@ -2,6 +2,7 @@
 """The run engine: request refusals, accounting, artifacts, stable bytes."""
 
 import hashlib
+import json
 import shutil
 import sys
 import tempfile
@@ -133,6 +134,11 @@ class Accounting(unittest.TestCase):
 
 
 class StableBytes(unittest.TestCase):
+    def test_run_summary_carries_the_pinned_catalog_split_policy(self):
+        summary, _, _ = smoke_run()
+        metadata = json.loads((FIXTURE_CATALOG / 'CATALOG.json').read_text())
+        self.assertEqual(summary.get('split_policy'), metadata['split_policy'])
+
     """Real subprocess evidence: the smoke run and a second identical run."""
 
     def test_two_real_runs_with_the_same_seed_and_stamp_are_byte_identical(self):
