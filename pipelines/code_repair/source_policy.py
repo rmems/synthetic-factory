@@ -70,7 +70,8 @@ def reviewed_row() -> dict[str, Any]:
 
 def validate_registry_row(raw: Any) -> None:
     """Only the exact reviewed discriminated row grants procedural authority."""
-    if not isinstance(raw, Mapping) or dict(raw) != reviewed_row():
+    if (not isinstance(raw, Mapping) or raw.get("identity_authoritative") is not True
+            or dict(raw) != reviewed_row()):
         raise SourcePolicyError("procedural registry row drifts from independently sealed policy")
 
 

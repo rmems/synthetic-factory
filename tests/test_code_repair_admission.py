@@ -30,7 +30,8 @@ class ProceduralRegistryTests(unittest.TestCase):
 
     def test_unreviewed_generator_or_license_cannot_grant_training_permission(self):
         for key, bad in (("generator", "invented"), ("source_license_evidence", {}),
-                         ("procedural_policy_sha256", "0" * 64)):
+                         ("procedural_policy_sha256", "0" * 64),
+                         ("identity_authoritative", 1)):
             with self.subTest(key=key), self.assertRaises(ci.IdentityCurationError):
                 self.load_changed(lambda value: value["factories"][-1].update({key: bad}))
 
@@ -64,6 +65,16 @@ class ProceduralRegistryTests(unittest.TestCase):
     def test_malformed_family_claim_cannot_escape_to_episode_shape(self):
         self.assertEqual(classify_kind({"family": "python-function-repair", "goal": "x",
                                         "steps": [], "result": []}), "code_repair")
+
+    def test_supplied_source_json_remains_the_identity_snapshot_without_a_digest(self):
+        record = {"family": "python-function-repair"}
+        raw = '{"family": "python-function-repair"}  '
+        # Exclusion still carries its exact source snapshot for later replay.
+        result = ci.curate_record(ci.SourceRecord(
+            record, "unknown-factory/candidates.jsonl", 1, source_json=raw,
+        ))
+        self.assertEqual(result.mapping["source"]["original"], raw)
+        self.assertEqual(result.mapping["source"]["hash_basis"], "source-json-line-sha256")
 
 
 if __name__ == "__main__":

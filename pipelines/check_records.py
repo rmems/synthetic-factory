@@ -435,6 +435,8 @@ def shape_check(obj, where, factory_staging=False):
         errs, kind = check_line(obj, where, factory_staging=factory_staging)
     except (TypeError, AttributeError) as exc:
         return [f"{where}: unrecognized record shape ({exc})"], "unknown"
+    if kind == "code_repair":
+        return errs, kind
     kept = []
     for err in errs:
         body = _after_where(err, where)
@@ -535,6 +537,9 @@ def check_record(obj, where, factory_staging=False):
     errors, warnings = [], []
     shape_errs, kind = shape_check(obj, where, factory_staging=factory_staging)
     errors.extend(shape_errs)
+    if kind == "code_repair":
+        # The shared pure validator owns this envelope, including its deep hashes.
+        return errors, warnings, kind, canonical_record_id(obj)
 
     if isinstance(obj, dict):
         reward_component_entries = list(walk_key(obj, "reward_components"))

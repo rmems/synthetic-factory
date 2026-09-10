@@ -443,6 +443,8 @@ class _CorpusAudit:
             }
         )
         self.totals = Counter()
+        self.code_repair = Counter()
+        self.code_repair_reasons = Counter()
         self.kinds = Counter()
         self.record_errors = []
         self.unresolved_record_warnings = []
@@ -533,7 +535,8 @@ class _CorpusAudit:
             return
 
         finding = self.mill_findings_by_ref.get((rel.as_posix(), line_number))
-        if finding is not None:
+        procedural_claim = isinstance(obj, dict) and obj.get("family") == "python-function-repair"
+        if finding is not None and not procedural_claim:
             # Foreign evidence is excluded before every training invariant,
             # including the exact-JSON serialization contract.
             self.totals["quarantined"] += 1
@@ -545,11 +548,43 @@ class _CorpusAudit:
             return
 
         self._account_tokens(token_estimate, bucket)
+        if procedural_claim:
+            self._observe_code_repair(obj, where, factory, bucket)
+            return
         self.totals["eligible_records"] += 1
         bucket["eligible_records"] += 1
         kind = self._observe_record(obj, where, factory)
         self.kinds[kind] += 1
         bucket["by_kind"][kind] += 1
+
+    def _observe_code_repair(self, obj, where, factory, bucket):
+        if __package__:
+            from .curate_identity import default_registry
+            from .code_repair.admission import natural_eligibility
+            from .code_repair.source_policy import SourcePolicyError
+        else:
+            from curate_identity import default_registry
+            from code_repair.admission import natural_eligibility
+            from code_repair.source_policy import SourcePolicyError
+        self.kinds["code_repair"] += 1
+        bucket["by_kind"]["code_repair"] += 1
+        self.code_repair["records"] += 1
+        row = default_registry().by_path_id.get(factory)
+        try:
+            eligible, reasons = natural_eligibility(obj, row)
+        except SourcePolicyError as exc:
+            self.code_repair["invalid_records"] += 1
+            self.record_errors.append(f"{where}: {exc}")
+            return
+        if not eligible:
+            self.code_repair["evidence_only_records"] += 1
+            self.code_repair_reasons.update(reasons)
+            return
+        self.code_repair["eligible_records"] += 1
+        self.totals["eligible_records"] += 1
+        bucket["eligible_records"] += 1
+        self._observe_identity(obj, obj["id"], where)
+        self._observe_duplicate(obj, where)
 
     def _record_parse_error(self, where, exc, token_estimate, bucket):
         self._account_tokens(token_estimate, bucket)
@@ -756,7 +791,7 @@ class _CorpusAudit:
         )
 
     def report(self):
-        return build_report(
+        report = build_report(
             run_dir=self.run_dir,
             factories=self.factories,
             totals=self.totals,
@@ -785,6 +820,18 @@ class _CorpusAudit:
             record_errors=self.record_errors,
             unresolved_record_warnings=self.unresolved_record_warnings,
         )
+        if self.code_repair:
+            report["code_repair"] = {
+                **{key: self.code_repair[key] for key in (
+                    "records", "eligible_records", "evidence_only_records", "invalid_records",
+                )},
+                "ineligibility_reasons": dict(sorted(self.code_repair_reasons.items())),
+                "validation_scope": "pure_inspection",
+                "fresh_publication_gate_required": True,
+            }
+            report["blockers"].append("code_repair requires fresh replay and round completion gate")
+            report["training_ready"] = False
+        return report
 
 
 def audit_run(

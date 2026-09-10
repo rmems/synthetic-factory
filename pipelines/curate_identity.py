@@ -742,9 +742,10 @@ def _source_identity(source: SourceRecord) -> _SourceIdentity:
         if canonical_json(parsed_original) != canonical_source:
             raise IdentityCurationError("source_json does not decode to source record")
     if source.source_sha256 is None:
-        original = canonical_source
+        preserve_source = original is not None and classify_kind(source.record) == "code_repair"
+        original = original if preserve_source else canonical_source
         digest = sha256_bytes(original.encode("utf-8"))
-        basis = "canonical-json-sha256"
+        basis = "source-json-line-sha256" if preserve_source else "canonical-json-sha256"
     else:
         digest = str(source.source_sha256).lower()
         if not SHA256_RE.fullmatch(digest):
@@ -1431,6 +1432,34 @@ def _apply_shape_designed(
     return id_mappings, provenance_mappings
 
 
+def _curate_code_repair(original, row, mapping):
+    if __package__:
+        from .code_repair.admission import natural_eligibility
+        from .code_repair.source_policy import SourcePolicyError
+    else:
+        from code_repair.admission import natural_eligibility
+        from code_repair.source_policy import SourcePolicyError
+    try:
+        eligible, reasons = natural_eligibility(original, row)
+    except SourcePolicyError as exc:
+        return _exclude(mapping, "identity.code_repair_invalid", details=[str(exc)])
+    curated = copy.deepcopy(original)
+    output_id = curated["id"]
+    mapping.update(
+        action="retained", reason_codes=["identity.preserved", "provenance.preserved"],
+        output_id=output_id, output_sha256=sha256_json(curated),
+        id_mappings=[{"owner_path": "/", "output_id": output_id}], provenance_mappings=[],
+        procedural_authority={
+            "policy_sha256": row.procedural_policy_sha256,
+            "generator_ownership": row.generator_ownership,
+            "generation_method": row.generation_method,
+            "source_license_evidence": dict(row.source_license_evidence),
+            "eligible_training_candidate": eligible, "ineligibility_reasons": list(reasons),
+        },
+    )
+    return CurationResult("retained", curated, mapping)
+
+
 def curate_record(
     source_record: SourceRecord,
     registry: FactoryRegistry | None = None,
@@ -1471,6 +1500,8 @@ def curate_record(
         )
     if row is None:
         return _exclude(mapping, "identity.unknown_factory")
+    if kind == "code_repair":
+        return _curate_code_repair(original, row, mapping)
     payload_factory = _payload_factory(original)
     if payload_factory != row.payload_factory:
         return _exclude(
@@ -2027,6 +2058,10 @@ def _validate_manifest_ids(
 ) -> None:
     expected_result = replay.result
     expected_mapping = expected_result.mapping
+    if expected_mapping.get("record_kind") == "code_repair":
+        _require_canonical_json_equal(mapping, expected_mapping, "procedural identity mapping")
+        _require_canonical_json_equal(record, expected_result.record, "preserved oracle envelope")
+        return
     if expected_result.action != "retained" or expected_result.record is None:
         raise IdentityTreeError(
             f"IDENTITY-MANIFEST.json[{index}] has output for a replayed exclusion"
@@ -2167,6 +2202,7 @@ def _expected_identity_outputs(
 ) -> dict[str, dict[int, tuple[int, Mapping[str, Any], _ManifestReplay]]]:
     expected: dict[str, dict[int, tuple[int, Mapping[str, Any], _ManifestReplay]]] = {}
     seen_coordinates: dict[tuple[str, int], int] = {}
+    preserved_ids: set[str] = set()
     for index, mapping in enumerate(manifest):
         if not isinstance(mapping, Mapping):
             raise IdentityTreeError(f"IDENTITY-MANIFEST.json[{index}] must be an object")
@@ -2189,6 +2225,11 @@ def _expected_identity_outputs(
         if replay.result.action != "retained":
             continue
         expected_mapping = replay.result.mapping
+        if expected_mapping.get("record_kind") == "code_repair":
+            preserved_id = expected_mapping["output_id"]
+            if preserved_id in preserved_ids:
+                raise IdentityTreeError(f"duplicate preserved code_repair ID: {preserved_id}")
+            preserved_ids.add(preserved_id)
         output_sha256 = expected_mapping.get("output_sha256")
         if not isinstance(output_sha256, str) or not SHA256_RE.fullmatch(output_sha256):
             raise IdentityTreeError(
@@ -2322,12 +2363,17 @@ def validate_identity_tree(
         )
     for rel, expected_by_line in sorted(expected_outputs.items()):
         actual_by_line = _read_identity_output(actual_paths[rel], rel)
+        physical_lines = actual_paths[rel].read_bytes().split(b"\n")
         if set(actual_by_line) != set(expected_by_line):
             raise IdentityTreeError(
                 f"identity output line coordinates do not match manifest: {rel}"
             )
         for line_no, (index, mapping, replay) in expected_by_line.items():
             output_record = actual_by_line[line_no]
+            if replay.result.mapping.get("record_kind") == "code_repair":
+                original_bytes = replay.source.original.encode("utf-8")
+                if physical_lines[line_no - 1] != original_bytes:
+                    raise IdentityTreeError(f"procedural source bytes changed: {rel}:{line_no}")
             try:
                 actual_hash = sha256_json(output_record)
             except IdentityCurationError as exc:
@@ -2536,7 +2582,7 @@ def write_run(
         manifest_digest = sha256_bytes(manifest_bytes)
         _write_exclusive(dest / IDENTITY_MANIFEST_SIDECAR, manifest_bytes)
         created_files.append(dest / IDENTITY_MANIFEST_SIDECAR)
-        retained_by_rel: dict[str, dict[int, dict[str, Any]]] = {}
+        retained_by_rel: dict[str, dict[int, str]] = {}
         for result in results:
             if result.action != "retained" or result.record is None:
                 continue
@@ -2547,13 +2593,16 @@ def write_run(
                     "retained records repeat source coordinate "
                     f"{source_meta['path']}:{source_meta['line']}"
                 )
-            by_line[source_meta["line"]] = result.record
+            by_line[source_meta["line"]] = (
+                source_meta["original"] if result.mapping["record_kind"] == "code_repair"
+                else canonical_json(result.record)
+            )
         for rel, records_by_line in sorted(retained_by_rel.items()):
             out_path = dest / rel
             _ensure_output_directory(dest, out_path.parent, created_directories)
             output_lines = [""] * max(records_by_line)
-            for line_no, record in records_by_line.items():
-                output_lines[line_no - 1] = canonical_json(record)
+            for line_no, record_json in records_by_line.items():
+                output_lines[line_no - 1] = record_json
             payload = "\n".join(output_lines) + "\n"
             _write_exclusive(out_path, payload.encode("utf-8"))
             created_files.append(out_path)

@@ -1451,6 +1451,12 @@ def check_line(obj, where, factory_staging=False):
     """Route an object to the right checker based on its shape."""
     if not isinstance(obj, dict):
         return [f"{where}: record must be a JSON object"], "unknown"
+    if obj.get("family") == "python-function-repair":
+        if __package__:
+            from .code_repair.validation import validate_record
+        else:
+            from code_repair.validation import validate_record
+        return validate_record(obj, where), "code_repair"
     for required_keys, kind, route in _LINE_ROUTES:
         if not all(k in obj for k in required_keys):
             continue
