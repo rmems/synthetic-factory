@@ -145,6 +145,12 @@ def _field_value(node: ast.AST, name: str, namer: _Namer) -> Any:
     """One field of a node: docstrings stripped from bodies, identifiers renamed."""
 
     value = getattr(node, name, None)
+    if isinstance(node, ast.alias) and name == "asname" and value is None:
+        # A plain import binds its API name just like an explicit alias. A dotted
+        # import without an alias instead binds the root package, so keep that
+        # distinct from an alias that binds the imported submodule itself.
+        if "." not in node.name and node.name != "*":
+            return namer(node.name)
     if name == "body" and isinstance(value, list):
         return _strip_docstring(value)
     if _is_identifier(node, name, value):
