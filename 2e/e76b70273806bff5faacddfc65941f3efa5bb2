@@ -1,0 +1,104 @@
+tests/test_code_repair_records.py
+  s_30c91b293664f2::t_2b3de9bb7943d0 28
+  s_637722da58c92c::t_3194aa46d92f12 63,161
+  s_30c91b293664f2::t_ee7470b3f9cb03 96
+pipelines/oracle_grounded/distill_jsonl.py
+  s_637722da58c92c::t_6a1830eafd70ad 14,104
+pipelines/code_repair/catalog.py
+  s_637722da58c92c::t_6a1830eafd70ad 23,277-287,303,308-312,441,444-450
+  s_637722da58c92c::t_4b3d9a47a72de0 20,86,263
+  s_637722da58c92c::t_a90749a60a17b7 396
+  s_637722da58c92c::t_742563dc615ae8 36,304-307
+tests/code_repair_test_support.py
+  s_30c91b293664f2::t_224e5d4ebceb73 112-113
+  s_637722da58c92c::t_408fc6eda9b5eb 14,107-108,115-116
+  s_637722da58c92c::t_d2bcee6638f2f3 33
+pipelines/code_repair/_harness.py
+  s_30c91b293664f2::t_c37f59c9856daa 72
+  s_637722da58c92c::t_c5d6f4b2a3d681 83-85
+  s_637722da58c92c::t_742563dc615ae8 254
+  s_637722da58c92c::t_6a1830eafd70ad 17,19,31,65,76,79-81,93,116-117,178-179,188,208-210,214-217,235-239,248-252
+  s_30c91b293664f2::t_43ed9085db380e 71,74-75,77-78,82,118
+pipelines/code_repair/records.py
+  s_30c91b293664f2::t_e06ec30650aaa7 181
+  s_637722da58c92c::t_56d93a8bdc26e9 156-157
+  s_637722da58c92c::t_408fc6eda9b5eb 196
+pipelines/code_repair/verify.py
+  s_637722da58c92c::t_408fc6eda9b5eb 37,93-96,113,123-130,146,166-168,197-198,203-211
+  s_637722da58c92c::t_c14dc69a77ce2c 68
+  s_637722da58c92c::t_d2bcee6638f2f3 19,25
+  s_30c91b293664f2::t_e06ec30650aaa7 140
+  s_637722da58c92c::t_c4c06c69df7734 191
+tests/test_code_repair_cli.py
+  s_30c91b293664f2::t_c37f59c9856daa 63,69,80,85-86
+  s_637722da58c92c::t_3194aa46d92f12 126
+  s_637722da58c92c::t_5732c6fe8fc89d 61-62,78-79
+pipelines/code_repair/generate.py
+  s_637722da58c92c::t_c4c06c69df7734 7
+  s_30c91b293664f2::t_e06ec30650aaa7 155,208-210,214,217
+  s_637722da58c92c::t_06dc47daaeef01 18,36,77,118-122,135-144,184-186,254-255
+tests/test_code_repair_harness.py
+  s_637722da58c92c::t_4b3d9a47a72de0 84-85
+  s_637722da58c92c::t_86bd8782c0f609 127
+  s_637722da58c92c::t_3194aa46d92f12 207-208
+pipelines/code_repair/cli.py
+  s_637722da58c92c::t_742563dc615ae8 5
+  s_637722da58c92c::t_3f6d63489344f1 23
+  s_637722da58c92c::t_22d2be2c9613d8 143-144
+  s_30c91b293664f2::t_adc31001777253 121
+tests/test_code_repair_generate.py
+  s_30c91b293664f2::t_c37f59c9856daa 156
+  s_637722da58c92c::t_3194aa46d92f12 155
+pipelines/code_repair/vocabulary.py
+  s_30c91b293664f2::t_e06ec30650aaa7 71
+  s_637722da58c92c::t_06dc47daaeef01 24,70,137,139,290-291
+tests/test_code_repair_views.py
+  s_637722da58c92c::t_3194aa46d92f12 62,138-141,144-145
+tests/test_code_repair_vocabulary.py
+  s_637722da58c92c::t_365f1592b8634e 17-23,30-31
+  s_637722da58c92c::t_4edb4e28520be0 24-29,32-34
+  s_30c91b293664f2::t_52cf68329c0b04 100
+  s_637722da58c92c::t_4a336c88f91d86 4,13,96-97,99
+  s_637722da58c92c::t_6f28f01de43df3 36-56
+tests/test_code_repair_verify.py
+  s_637722da58c92c::t_3194aa46d92f12 27,91,93,95,111,113
+pipelines/code_repair/mutate.py
+  s_637722da58c92c::t_06dc47daaeef01 53,56-58
+  s_30c91b293664f2::t_e06ec30650aaa7 51-52,54-55,59
+tests/code_repair_import_probe.py
+  s_637722da58c92c::t_d2bcee6638f2f3 19
+pipelines/code_repair/executor.py
+  s_637722da58c92c::t_4edb4e28520be0 30-31,147,163
+  s_637722da58c92c::t_06dc47daaeef01 23,67,89-90,148-149
+  s_637722da58c92c::t_c4c06c69df7734 79,81-82
+  s_637722da58c92c::t_4a336c88f91d86 40
+  s_637722da58c92c::t_4b3d9a47a72de0 22,52
+  s_637722da58c92c::t_6a1830eafd70ad 91-93,124-125,133,161-162,217-218
+pipelines/code_repair/views.py
+  s_637722da58c92c::t_22d2be2c9613d8 97-101
+  s_637722da58c92c::t_3f6d63489344f1 20,73-78,113,120-132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2ee76b70273806bff5faacddfc65941f3efa5bb2",
+  "prompts": {},
+  "sessions": {
+    "s_30c91b293664f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b363f3ab-81a6-4abe-88b5-c596f7a8dd7b",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    },
+    "s_637722da58c92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b4-b4e1-7663-adcf-65ef44374529",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
