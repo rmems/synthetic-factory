@@ -1,0 +1,24 @@
+pipelines/code_repair/record_validation.py
+  s_637722da58c92c::t_777b418828c3d1 70,77
+tests/test_code_repair_admission_integration.py
+  s_637722da58c92c::t_1907be06b0bd41 205-206,212-215,419-422
+  s_637722da58c92c::t_0f6268560e3f23 180-181
+pipelines/code_repair/records.py
+  s_637722da58c92c::t_777b418828c3d1 26-31,33-34,172,175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f70ae2f11d03049a461351fbc45860c0e59d4bd9",
+  "prompts": {},
+  "sessions": {
+    "s_637722da58c92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b4-b4e1-7663-adcf-65ef44374529",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
