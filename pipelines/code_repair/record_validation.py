@@ -259,10 +259,11 @@ def verdict_matches(record: dict[str, Any]) -> bool:
         verify.tests_tampered(examples, repair["files"][cv.PROGRAM_FILENAME],
                               scenario["source"]["upstream"]["function"]), len(hidden["cases"]))
     verdict = verify.decide(phases, context)
-    actual = (result["outcome"], result["oracle_status"], result["reason_codes"],
+    actual = (result["status"], result["outcome"], result["oracle_status"], result["reason_codes"],
               repair["sha256"], result["repaired_sha256"], result["broken_sha256"],
               scenario["broken_program"]["sha256"])
-    wanted = (verdict.outcome, verdict.oracle_status, list(verdict.reason_codes),
+    status = oc.RESULT_MEASURED if phases.original.ok else oc.RESULT_ABSTAINED
+    wanted = (status, verdict.outcome, verdict.oracle_status, list(verdict.reason_codes),
               repaired_sha, repaired_sha, expected["mutant"], expected["mutant"])
     return actual == wanted
 

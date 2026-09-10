@@ -205,6 +205,42 @@ class ProceduralIntegrationTests(unittest.TestCase):
                     restamp(record)
                     self.assert_shared_refusal(record)
 
+    def test_reference_only_oracle_remains_refused_before_admission(self):
+        record = copy.deepcopy(next(r for r in self.records if admission.natural_eligibility(r, self.row)[0]))
+        self.assertEqual(oc.curation_eligible(record, []), (True, []))
+        record["oracle"]["authority"] = "reference_only"
+        restamp(record)
+        self.assertFalse(oc.curation_eligible(record, [])[0])
+        with self.assertRaises(source_policy.SourcePolicyError):
+            admission.natural_eligibility(record, self.row)
+
+    def test_fabricated_abstention_cannot_relabel_measured_phase_evidence(self):
+        for outcome in ("accepted", "rejected"):
+            with self.subTest(outcome=outcome):
+                record = copy.deepcopy(next(r for r in self.records if r["result"]["outcome"] == outcome))
+                record["result"].update(status="abstained", abstention_reason="fabricated abstention")
+                restamp(record)
+                self.assertFalse(oc.curation_eligible(record, [])[0])
+                with self.assertRaises(source_policy.SourcePolicyError):
+                    admission.natural_eligibility(record, self.row)
+                self.assert_shared_refusal(record)
+
+    def test_real_abstention_remains_valid_evidence_only_at_admission(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            output = Path(scratch) / "run"
+            generate.run(generate.RunRequest(REPO / "catalogs/python-repair-v1", output,
+                SEED, 1, PINNED_AT, timeout_s=0.001))
+            record = oc.read_jsonl(output / "candidates.jsonl")[0][1]
+            self.assertEqual(record["result"]["status"], "abstained")
+            self.assertFalse(oc.curation_eligible(record, [])[0])
+            self.assertEqual(validation.validate_record(record), [])
+            eligible, reasons = admission.natural_eligibility(record, self.row)
+            self.assertFalse(eligible)
+            self.assertEqual(reasons, tuple(record["result"]["reason_codes"]))
+            curated = ci.curate_record(ci.SourceRecord(record, f"{self.row.path_id}/batch-r01.jsonl", 1))
+            self.assertEqual(curated.action, "retained")
+            self.assertFalse(curated.mapping["procedural_authority"]["eligible_training_candidate"])
+
     def test_derivable_record_identity_is_required_before_admission(self):
         for outcome in ("accepted", "rejected"):
             original = next(r for r in self.records if r["result"]["outcome"] == outcome)

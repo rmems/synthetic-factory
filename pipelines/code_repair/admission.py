@@ -14,7 +14,7 @@ from typing import Any, Mapping
 
 from . import catalog as cat
 from . import source_policy as sp
-from ._contract import bind_import_twin
+from ._contract import bind_import_twin, oc
 
 __all__ = ["load_trusted_catalog", "validate_source_route", "natural_eligibility"]
 
@@ -174,7 +174,8 @@ def natural_eligibility(
         raise sp.SourcePolicyError("PROCEDURAL_RECORD_IDENTITY_MISMATCH")
     result = record["result"]
     if (result["outcome"], result["oracle_status"]) == ("accepted", "validated"):
-        return True, ()
+        eligible, reasons = oc.curation_eligible(record, findings)
+        return eligible, tuple(reasons)
     return False, tuple(result["reason_codes"]) or ("PROCEDURAL_NATURALLY_INELIGIBLE",)
 
 
