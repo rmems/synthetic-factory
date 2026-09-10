@@ -26,8 +26,7 @@ INPUT_POLICY = "doctest-literals+seeded-neighbourhood-v1"
 NEIGHBOUR_DRAWS = 4
 
 __all__ = [
-    "INPUT_POLICY", "Subject", "candidate_args", "literal_args", "neighbours", "observe",
-    "observed_cases",
+    "INPUT_POLICY", "Subject", "candidate_args", "literal_args", "neighbours", "observed_cases",
 ]
 
 
@@ -61,9 +60,13 @@ def literal_args(example: cat.Example, function: str) -> tuple | None:
     call = _single_call(example.source, function)
     if call is None:
         return None
+    if any(isinstance(node, ast.Set) or (
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "set"
+    ) for arg in call.args for node in ast.walk(arg)):
+        return None
     try:
         return tuple(ast.literal_eval(a) for a in call.args)
-    except ValueError:
+    except (ValueError, TypeError, SyntaxError):
         return None
 
 
@@ -132,46 +135,66 @@ def _stream_for(program_id: str) -> rng.DrawStream:
     return rng.DrawStream(int(hashlib.sha256(program_id.encode("utf-8")).hexdigest()[:8], 16))
 
 
-def observe(executor: ex.Executor, subject: Subject) -> tuple[ex.PhaseReport | None, list[dict]]:
-    """The candidate inputs through the original: its report (None without inputs), kept cases.
-
-    A case is kept when the original answers it with a value; its repr is the pinned want.
-    """
+def _observed_cases(executor: ex.Executor, subject: Subject) -> list[dict]:
+    """The cases the original answers with a value, with its repr as the pinned want."""
 
     text, function = subject.text, subject.function
     args_list = candidate_args(subject.examples, function, _stream_for(subject.program_id))
-    if not args_list:
-        return None, []
-    probes = tuple({"args": repr(a), "want": None} for a in args_list)
-    # The public doctests run first, as in every later job, so a stateful target is observed
-    # in the state its doctests leave; two observations must agree, so an unstable repr (an
-    # object address, say) is never pinned (Codex on #202).
-    job = ex.Job(f"observe:{function}", text, function, probes, True, len(subject.examples))
-    first, second = executor.run(job), executor.run(job)
-    if not first.ok or not second.ok:
-        return (first if not first.ok else second), []
-    return first, _stable_cases(args_list, first.hidden, second.hidden)[: cv.MAX_HIDDEN_CASES]
-
-
-def _stable_cases(args_list: list, first: tuple, second: tuple) -> list[dict]:
-    """The observed cases whose two runs agree, as pinned wants."""
-
-    kept = []
-    for args, row, again in zip(args_list, first, second):
-        if row["status"] == cv.ROW_OBSERVED and again.get("got") == row.get("got"):
-            kept.append({"args": repr(args), "want": row["got"]})
+    kept: list[dict] = []
+    cursor = 0
+    while cursor < len(args_list) and len(kept) < cv.MAX_HIDDEN_CASES:
+        capacity = cv.MAX_HIDDEN_CASES - len(kept)
+        batch = args_list[cursor:cursor + capacity]
+        cursor += len(batch)
+        probes = tuple({"args": case["args"], "want": None} for case in kept) + tuple(
+            {"args": repr(args), "want": None} for args in batch
+        )
+        first = _observe(executor, text, function, probes)
+        second = _observe(executor, text, function, probes)
+        retained = len(kept)
+        for index, args in enumerate(batch, retained):
+            row, other = first.hidden[index], second.hidden[index]
+            if (row["status"] == cv.ROW_OBSERVED and row == other
+                    and not row.get("truncated")):
+                kept.append({"args": repr(args), "want": row["got"]})
+    if kept:
+        final_probes = tuple({"args": case["args"], "want": None} for case in kept)
+        final = _observe(executor, text, function, final_probes)
+        if any(row.get("got") != case["want"] or row["status"] != cv.ROW_OBSERVED
+               or row.get("truncated") for row, case in zip(final.hidden, kept)):
+            return []  # Removing a failed probe changed the state seen by a later input.
     return kept
 
 
-def observed_cases(executor: ex.Executor, subject: Subject) -> list[dict]:
-    """The cases the original answers with a value; refuses when it cannot be observed."""
-
-    report, cases = observe(executor, subject)
+def _observe(executor: ex.Executor, text: str, function: str, probes: tuple) -> ex.PhaseReport:
+    report = executor.run(ex.Job(f"observe:{function}", text, function, probes, True))
     cv.refuse_when(
-        report is not None and not report.ok, cv.FINDING_HARNESS_REPORT_MALFORMED,
-        f"observing {subject.function} failed: {report.detail if report else ''}",
+        not report.ok, cv.FINDING_HARNESS_REPORT_MALFORMED,
+        f"observing {function} failed: {report.detail}",
     )
-    return cases
+    return report
+
+
+def observe(executor: ex.Executor, subject: Subject) -> tuple[ex.PhaseReport | None, list[dict]]:
+    reports = []
+
+    class Capture:
+        def run(self, job):
+            report = executor.run(job)
+            reports.append(report)
+            return report
+
+    try:
+        cases = _observed_cases(Capture(), subject)
+    except cv.RepairRefusal:
+        if reports and not reports[-1].ok:
+            return reports[-1], []
+        raise
+    return (reports[-1] if reports else None), cases
+
+
+def observed_cases(executor: ex.Executor, subject: Subject) -> list[dict]:
+    return _observed_cases(executor, subject)
 
 
 bind_import_twin(__name__)

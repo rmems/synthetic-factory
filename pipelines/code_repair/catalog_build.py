@@ -40,7 +40,7 @@ INPUT_POLICY = inputs.INPUT_POLICY
 MIN_EXAMPLES = 2
 FORBIDDEN_CALLS = frozenset({
     "input", "print", "open", "exec", "eval", "compile", "__import__", "globals", "locals",
-    "vars",
+    "vars", "getattr", "setattr", "delattr", "breakpoint", "help",
 })
 # Modules a doctest example may import: pure computation, nothing that varies between runs.
 DOCTEST_IMPORTS = frozenset({
@@ -54,6 +54,11 @@ FORBIDDEN_ATTRIBUTES = frozenset({
     "read_text", "read_bytes", "remove", "unlink", "rmtree", "mkdir", "makedirs", "rename",
     "replace", "chmod", "urlopen", "urlretrieve", "connect", "bind", "listen", "exit",
     "settrace", "setprofile", "load", "loads", "dump", "dumps",
+})
+SAFE_IMPORTS = frozenset({
+    "math", "cmath", "itertools", "functools", "collections", "operator", "bisect",
+    "heapq", "decimal", "fractions", "statistics", "typing", "string", "re", "array",
+    "numbers", "__future__",
 })
 
 __all__ = [
@@ -121,6 +126,10 @@ def _free_names(text: str, function: ast.FunctionDef) -> set[str]:
 def _reaches_the_host(node: ast.AST) -> bool:
     if isinstance(node, (ast.Import, ast.ImportFrom)):
         return True  # a nested import escapes the module-level admission check
+    if isinstance(node, ast.Attribute):
+        return node.attr in FORBIDDEN_ATTRIBUTES or node.attr.startswith("__")
+    if isinstance(node, ast.Name) and node.id in FORBIDDEN_CALLS:
+        return True
     if not isinstance(node, ast.Call):
         return False
     callee = node.func
@@ -142,35 +151,33 @@ def _module_imports(module: ast.Module) -> tuple[list[ast.stmt], set[str]]:
     return imports, names
 
 
-def _import_roots(node: ast.AST) -> set[str] | None:
-    if isinstance(node, ast.Import):
-        return {alias.name.split(".")[0] for alias in node.names}
+def _safe_import(node: ast.Import | ast.ImportFrom) -> bool:
     if isinstance(node, ast.ImportFrom):
-        return {(node.module or "").split(".")[0]}
-    return None
+        return not node.level and node.module in SAFE_IMPORTS and all(
+            not a.name.startswith("_") and a.name != "*" for a in node.names
+        )
+    return all(a.name in SAFE_IMPORTS for a in node.names)
 
 
-def _example_stays_pure(source: str) -> bool:
-    """An example may import a pure module only: a docstring that draws on ``random`` makes
-    the doctest's verdict on a mutant a coin toss, which two generation runs then disagree on."""
-
-    try:
-        module = ast.parse(source)
-    except SyntaxError:
-        return False
-    roots = (_import_roots(node) for node in ast.walk(module))
-    return all(found <= DOCTEST_IMPORTS for found in roots if found is not None)
-
-
-def _examples_stay_pure(examples: tuple[cat.Example, ...]) -> bool:
-    return all(_example_stays_pure(example.source) for example in examples)
+def _safe_examples(examples: tuple[cat.Example, ...]) -> bool:
+    for example in examples:
+        try:
+            nodes = ast.walk(ast.parse(example.source))
+            for node in nodes:
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    if not _safe_import(node):
+                        return False
+                elif _reaches_the_host(node):
+                    return False
+        except SyntaxError:
+            return False
+    return True
 
 
 def _has_observable_doctests(text: str, node: ast.FunctionDef) -> bool:
     examples = cat.examples_of(text, node.name)
-    if len(examples) < MIN_EXAMPLES or not any(e.want.strip() for e in examples):
-        return False
-    return _examples_stay_pure(examples)
+    return (len(examples) >= MIN_EXAMPLES and any(e.want.strip() for e in examples)
+            and _safe_examples(examples))
 
 
 def _is_plain_function(node: ast.stmt) -> bool:
@@ -197,8 +204,12 @@ def select_targets(text: str) -> list[str]:
     """Module-level functions that qualify as programs, in source order."""
 
     module = ast.parse(text)
-    _imports, imported = _module_imports(module)
-    return [node.name for node in module.body if _qualifies(text, node, imported)]
+    imports, imported = _module_imports(module)
+    if not all(_safe_import(node) for node in imports):
+        return []
+    return [node.name for node in module.body
+            if isinstance(node, ast.FunctionDef) and _definition(module, node.name) is node
+            and _qualifies(text, node, imported)]
 
 
 def _used_import(node: ast.Import | ast.ImportFrom, used: set[str]) -> str | None:
@@ -226,10 +237,10 @@ def extract_module(text: str, function: str) -> tuple[str, tuple[int, int]] | No
 
 
 def _definition(module: ast.Module, function: str) -> ast.FunctionDef | None:
-    for node in module.body:
-        if isinstance(node, ast.FunctionDef) and node.name == function:
-            return node
-    return None
+    matches = [node for node in module.body
+               if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+               and node.name == function]
+    return matches[0] if len(matches) == 1 and isinstance(matches[0], ast.FunctionDef) else None
 
 
 def _import_head(module: ast.Module, node: ast.FunctionDef) -> str:
@@ -238,6 +249,9 @@ def _import_head(module: ast.Module, node: ast.FunctionDef) -> str:
     imports, _names = _module_imports(module)
     used = {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
     kept = [line for line in (_used_import(i, used) for i in imports) if line]
+    futures = [ast.unparse(n) for n in module.body
+               if isinstance(n, ast.ImportFrom) and n.module == "__future__"]
+    kept = futures + kept
     return "\n".join(kept) + "\n\n\n" if kept else ""
 
 
@@ -271,6 +285,8 @@ def _reference_block(build: Build, path: str, function: str, source_text: str) -
 def _reference_agrees(executor: ex.Executor, block: dict[str, Any], cases: list[dict]) -> bool:
     if block["source"] is None:
         return True
+    if not cases:
+        return False
     job = ex.Job("reference:build", block["source"], block["function"], tuple(cases), False)
     report = executor.run(job)
     return report.ok and all(row["status"] == cv.ROW_SUCCESS for row in report.hidden)

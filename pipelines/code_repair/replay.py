@@ -6,12 +6,14 @@ record is self-consistent, not that the execution happened: a forgery whose
 rows, hashes and verdict were all rewritten together passes every stored
 check. Replay is the only evidence that survives such a forgery. For each
 accepted, validated record it binds the program to the catalog's pinned text,
-the harness on disk to the fingerprint, the interpreter to the recorded
-major.minor, then runs the original, the broken and the repaired module afresh
+the harness on disk to the fingerprint and the recorded mutation to the actual
+edit, then runs the original, the broken and the repaired module afresh
 and demands the same rows, the same hashes and the same verdict. Records that
 are not positive (rejected, abstained, provisional) are listed as not replayed
-by natural ineligibility and never fail a replay. Admission needs a passing
-``REPLAY.json``; the volatile timings go to a separate log.
+by natural ineligibility. Fresh evidence also binds the implementation, platform,
+applied limits and public prompt evidence. ``REPLAY.json`` is an audit artifact;
+admission must invoke fresh replay with a trusted catalog, not trust a stored report.
+The volatile timings go to a separate log.
 """
 
 from __future__ import annotations
@@ -27,10 +29,12 @@ from typing import Any
 from . import catalog as cat
 from . import executor as ex
 from . import generate
+from . import mutate
+from . import record_validation as validation
 from . import verify
 from . import views
 from . import vocabulary as cv
-from ._contract import bind_import_twin, is_under_raw, oc
+from ._contract import bind_import_twin, is_under_raw, load_strict_json, oc
 
 REPLAY_FILENAME = "REPLAY.json"
 REPLAY_LOG_FILENAME = "replay-log.jsonl"
@@ -51,7 +55,7 @@ class ReplayRequest:
 
 
 def _entry(record: dict[str, Any], code: str, detail: str = "") -> dict[str, Any]:
-    return {"record_id": record["id"], "status": "replayed", "code": code, "detail": detail}
+    return {"record_id": record.get("id"), "status": "replayed", "code": code, "detail": detail}
 
 
 def _hidden_check_moved(record: dict[str, Any], program: cat.Program) -> bool:
@@ -78,6 +82,11 @@ def _catalog_drift(record: dict[str, Any], catalog: cat.Catalog) -> str | None:
         return "the program's upstream identity moved"
     if _hidden_check_moved(record, program):
         return "the hidden cases or reference moved"
+    expected_lineage = {
+        "lineage_id": program.program_id, "group_id": program.group_id, "split": program.split,
+    }
+    if record["provenance"].get("split_lineage") != expected_lineage:
+        return "the program's lineage, group or split moved"
     return None
 
 
@@ -108,6 +117,17 @@ def _texts(record: dict[str, Any], program: cat.Program) -> tuple[str, str] | di
         return _entry(record, cv.REPLAY_TEXT_MISMATCH, "repaired text does not match its digest")
     if repaired != program.text:
         return _entry(record, cv.REPLAY_TEXT_MISMATCH, "the repair is not the pinned original")
+    intervention = record["intervention"]
+    matches = [site for site in mutate.sites(program.text, program.function, program.want_kind)
+               if site.operator == intervention.get("operator")
+               and site.variant == intervention.get("variant")
+               and site.as_json() == intervention.get("site")]
+    if intervention.get("kind") != "ast_mutation" or len(matches) != 1:
+        return _entry(record, cv.REPLAY_TEXT_MISMATCH, "intervention is not a catalog mutation site")
+    site = matches[0]
+    if (mutate.apply(program.text, site) != broken or mutate.repair(broken, site) != repaired
+            or mutate.verify(program.text, broken, site, program.function) is not None):
+        return _entry(record, cv.REPLAY_TEXT_MISMATCH, "intervention does not reproduce mutant")
     return broken, repaired
 
 
@@ -122,17 +142,20 @@ class _Subject:
 
 
 def _fresh_phases(subject: _Subject, executor: ex.Executor) -> verify.Phases:
-    """All four phases re-executed; the reference from the pinned catalog, like generation."""
+    """Both originals, mutant, repair and pinned reference executed afresh."""
 
     program, label = subject.program, subject.label
+    original = executor.run(program.job(f"{cv.PHASE_ORIGINAL}:{label}"))
+    repeated = executor.run(program.job(f"{cv.PHASE_ORIGINAL_REPEAT}:{label}"))
     reference = None
     if program.reference.certifying:
         reference = executor.run(program.reference_job(f"{cv.PHASE_REFERENCE}:{label}"))
     return verify.Phases(
-        executor.run(program.job(f"{cv.PHASE_ORIGINAL}:{label}")),
+        original,
         executor.run(program.job(f"{cv.PHASE_MUTANT}:{label}", subject.broken)),
         executor.run(program.job(f"{cv.PHASE_REPAIRED}:{label}", subject.repaired)),
         reference,
+        repeated,
     )
 
 
@@ -142,12 +165,21 @@ def _compare(
     """Fresh rows, hashes and verdict against the stored ones; the first divergence decides."""
 
     result = record["result"]
-    blocks = {
-        cv.PHASE_ORIGINAL: verify.phase_block(phases.original),
-        cv.PHASE_MUTANT: verify.phase_block(phases.mutant),
-        cv.PHASE_REPAIRED: verify.phase_block(phases.repaired),
-        cv.PHASE_REFERENCE: verify.phase_block(phases.reference),
-    }
+    environment = phases.original.environment
+    fingerprint = record["oracle"]["fingerprint"]
+    fresh = {key: environment.get(key) for key in ("implementation", "platform", "limits_applied")}
+    fresh["python"] = ".".join(str(environment.get("python", "")).split(".")[:2])
+    if any(fingerprint.get(key) != value for key, value in fresh.items()):
+        return _entry(record, cv.REPLAY_ENVIRONMENT_DRIFT, "fresh execution environment differs")
+    public = {"kind": "doctest", "examples": [
+        {"example_id": e.example_id, "source": e.source, "want": e.want} for e in program.examples
+    ]}
+    evidence, omitted = verify.public_evidence(phases.mutant, program.examples)
+    if (record["scenario"].get("public_tests") != public
+            or result.get("public_failure_evidence") != evidence
+            or result.get("public_failure_omitted") != omitted):
+        return _entry(record, cv.REPLAY_ROWS_MISMATCH, "fresh public examples or evidence differ")
+    blocks = {name: verify.phase_block(getattr(phases, name)) for name in cv.PHASES}
     if blocks != result["phases"]:
         differing = [name for name in blocks if blocks[name] != result["phases"].get(name)]
         detail = "fresh rows differ in " + ", ".join(differing)
@@ -166,6 +198,11 @@ def _compare(
         return _entry(record, cv.REPLAY_VERDICT_MISMATCH, f"fresh verdict {verdict.outcome}")
     entry = _entry(record, cv.REPLAY_PASSED)
     entry["fresh_evidence_sha256"] = verify.result_hash(blocks)
+    entry["record_sha256"] = record["provenance"]["record_sha256"]
+    entry["source_sha256"] = program.sha256
+    entry["broken_sha256"] = result["broken_sha256"]
+    entry["repaired_sha256"] = result["repaired_sha256"]
+    entry["harness_sha256"] = fingerprint["harness_sha256"]
     return entry
 
 
@@ -190,12 +227,31 @@ def replay_record(
             "reason": "natural ineligibility",
             "outcome": result.get("outcome"), "oracle_status": result.get("oracle_status"),
         }
-    if not views.is_positive(record):
+    where = str(record.get("id", "record"))
+    if oc.check_envelope(record, where) or oc.check_digest(record, where):
         return _entry(record, cv.REPLAY_HASH_MISMATCH, "claims a positive but fails the contract")
     try:
+        validation.validate_shape(record)
+        eligible, _ = oc.curation_eligible(record, oc.check_oracle_label_leak(record, where))
+        if not eligible:
+            return _entry(record, cv.REPLAY_HASH_MISMATCH, "claims a positive but fails curation")
+        if not _record_identity_matches(record, catalog):
+            return _entry(record, cv.REPLAY_RECORD_MALFORMED, "record identity or generator version differs")
         return _replay_positive(record, catalog, executor)
-    except (KeyError, TypeError, AttributeError) as exc:
+    except (cv.RepairRefusal, KeyError, TypeError, ValueError, AttributeError) as exc:
         return _entry(record, cv.REPLAY_RECORD_MALFORMED, f"{type(exc).__name__} while reading")
+
+
+def _record_identity_matches(record: dict[str, Any], catalog: cat.Catalog) -> bool:
+    generator = record["generator"]
+    seed, index = generator["seed"], record["intervention"]["draw_index"]
+    catalog_digest = cat.sha256_text(oc.canonical_json([catalog.catalog_id, catalog.programs_sha256]))
+    return (
+        generator.get("name") == cv.GENERATOR_NAME and generator.get("version") == cv.GENERATOR_VERSION
+        and type(seed) is int and 0 <= seed <= cv.MAX_SEED
+        and type(index) is int and 0 <= index < cv.MAX_COUNT
+        and record["id"] == f"{cv.RECORD_ID_PREFIX}-{catalog_digest}-{seed}-{index:05d}"
+    )
 
 
 def _replay_positive(record: dict[str, Any], catalog: cat.Catalog, executor: ex.Executor) -> dict:
@@ -207,6 +263,8 @@ def _replay_positive(record: dict[str, Any], catalog: cat.Catalog, executor: ex.
     if isinstance(texts, dict):
         return texts
     broken, repaired = texts
+    if not validation.verdict_matches(record):
+        return _entry(record, cv.REPLAY_VERDICT_MISMATCH, "stored evidence fails protocol verdict bindings")
     phases = _fresh_phases(_Subject(record["id"], program, broken, repaired), executor)
     return _compare(record, program, phases, repaired)
 
@@ -229,7 +287,7 @@ def _run_identity(run_dir: Path) -> dict[str, Any]:
     run_file = run_dir / generate.RUN_FILENAME
     cv.refuse_when(not run_file.is_file(), cv.FINDING_RUN_FILE_MISSING, f"{run_file} is missing")
     try:
-        summary = json.loads(run_file.read_text(encoding="utf-8"))
+        summary = load_strict_json(run_file.read_text(encoding="utf-8"))
     except ValueError as exc:
         message = f"{run_file} is not JSON"
         raise cv.RepairRefusal(cv.FINDING_RECORD_MALFORMED, message) from exc
@@ -238,8 +296,24 @@ def _run_identity(run_dir: Path) -> dict[str, Any]:
         f"{run_file} is not a run summary",
     )
     catalog = summary.get("catalog") if isinstance(summary.get("catalog"), dict) else {}
+    cv.refuse_when(
+        summary.get("format") != generate.RUN_FORMAT
+        or summary.get("generator") != {"name": cv.GENERATOR_NAME, "version": cv.GENERATOR_VERSION},
+        cv.FINDING_RECORD_MALFORMED, "run or generator version is unsupported; regenerate legacy runs",
+    )
+    candidates_digest = hashlib.sha256(candidates.read_bytes()).hexdigest()
+    cv.refuse_when(
+        summary.get("candidates_sha256") != candidates_digest,
+        cv.FINDING_RECORD_MALFORMED,
+        "candidates digest is missing or differs from generation; regenerate old unpinned runs",
+    )
+    count = summary.get("records")
+    cv.refuse_when(
+        type(count) is not int or count != len(_records(run_dir)),
+        cv.FINDING_RECORD_MALFORMED, "candidates count differs from generation",
+    )
     return {
-        "candidates_sha256": hashlib.sha256(candidates.read_bytes()).hexdigest(),
+        "candidates_sha256": candidates_digest,
         "seed": summary.get("seed"), "produced_at": summary.get("produced_at"),
         "catalog": {
             "catalog_id": catalog.get("catalog_id"),
