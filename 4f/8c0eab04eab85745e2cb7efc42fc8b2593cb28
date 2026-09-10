@@ -1,0 +1,35 @@
+pipelines/code_repair/_admission_evidence.py
+  s_637722da58c92c::t_36ac7dbc3a7960 33-36
+tests/test_code_repair_admission_integration.py
+  s_637722da58c92c::t_692b7ef10f4f9f 11,30-70
+pipelines/code_repair/source_policy.py
+  s_637722da58c92c::t_e87e03f8c74b5e 38-41
+tests/test_code_repair_admission.py
+  s_637722da58c92c::t_692b7ef10f4f9f 15-35
+docs/code-repair-admission.md
+  s_637722da58c92c::t_36ac7dbc3a7960 68-75
+pipelines/validate_run.py
+  s_637722da58c92c::t_36ac7dbc3a7960 1451
+  s_637722da58c92c::t_e87e03f8c74b5e 1453,1455-1456
+pipelines/code_repair/_admission_catalog.py
+  s_637722da58c92c::t_e0f6954a9a48c2 25,38-41,47-58,63
+  s_637722da58c92c::t_2863df75e395e0 20
+  s_637722da58c92c::t_36ac7dbc3a7960 6,17-19,21-22,42,45-46,88,90
+  s_637722da58c92c::t_e87e03f8c74b5e 43-44,118-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4f8c0eab04eab85745e2cb7efc42fc8b2593cb28",
+  "prompts": {},
+  "sessions": {
+    "s_637722da58c92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b4-b4e1-7663-adcf-65ef44374529",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
