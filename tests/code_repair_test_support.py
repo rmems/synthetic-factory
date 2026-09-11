@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from coded_refusal_test_support import CodedFamily, coded_refusal
+from code_repair_import_probe import MODULES as FAMILY_MODULES
 from distill_contract_test_support import REPO, envelope, oc
 from code_repair import catalog, cli, executor, generate, mutate, records, verify, views, vocabulary
 
@@ -28,14 +29,11 @@ SEED = 20260908
 REPAIR_FAMILY = CodedFamily(
     vocabulary.RepairRefusal, vocabulary.FINDING_CODE_SET, vocabulary.REASON_CODE_SET
 )
-FAMILY_MODULES = (
-    "_contract", "vocabulary", "catalog", "mutate", "executor", "verify", "records", "views",
-    "generate", "cli", "record_validation", "evidence",
-)
 
 __all__ = (
     "FAMILY_MODULES", "FIXTURE_CATALOG", "FakeExecutor", "PINNED_AT", "REPO", "SEED", "catalog",
-    "cli", "envelope", "executor", "fixture", "generate", "mutate", "oc", "program", "records",
+    "boundary_site", "cli", "envelope", "executor", "fixture", "generate", "mutate", "oc", "program",
+    "records",
     "refusal", "report", "rows", "smoke_run", "verify", "views", "vocabulary",
 )
 
@@ -57,6 +55,14 @@ def program(function):
     """The fixture program whose target function has this name."""
 
     return next(p for p in fixture().programs if p.function == function)
+
+
+def boundary_site(prog, text=None):
+    """The program's single comparison-boundary site (the S1 operator), on ``text`` if given."""
+
+    found = mutate.sites(prog.text if text is None else text, prog.function, prog.want_kind)
+    (site,) = [s for s in found if s.operator == vocabulary.OPERATOR_COMPARISON_BOUNDARY]
+    return site
 
 
 def rows(prefix, count, failing=(), got="wrong"):

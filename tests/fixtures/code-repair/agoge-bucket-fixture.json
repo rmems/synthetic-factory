@@ -1,0 +1,97 @@
+{
+  "agoge_head": "9cb81bdfa32ede0bf37ff6b0b7e191159aa19277",
+  "assignment": {
+    "pfr-1-00000": "validation",
+    "pfr-1-00001": "validation",
+    "pfr-1-00002": "train",
+    "pfr-1-00003": "train",
+    "pfr-1-00004": "held_out",
+    "pfr-1-00005": "held_out",
+    "pfr-1-00006": "train",
+    "pfr-1-00007": "held_out",
+    "pfr-1-00008": "validation",
+    "pfr-1-00009": "train",
+    "pfr-1-00010": "train",
+    "pfr-1-00011": "train"
+  },
+  "captured_from": "agoge_forger.split_materialize.assign_records",
+  "format": "code-repair-agoge-bucket-fixture/1",
+  "policy": {
+    "algorithm": "sha256-atomic-bucket-v1",
+    "salt": "python-repair-v1",
+    "seed": 20260908,
+    "weights": {
+      "held_out": 10,
+      "train": 80,
+      "validation": 10
+    }
+  },
+  "rows": [
+    {
+      "canonical_id": "pfr-1-00000",
+      "group_id": "g-00000000000000000000000000000000",
+      "lineage_id": "tap-0000000000000000",
+      "text": "prompt 0\n\n### Corrected module: program.py\ncompletion 0\n"
+    },
+    {
+      "canonical_id": "pfr-1-00001",
+      "group_id": "g-00000000000000000000000000000000",
+      "lineage_id": "tap-0000000000000001",
+      "text": "prompt 1\n\n### Corrected module: program.py\ncompletion 1\n"
+    },
+    {
+      "canonical_id": "pfr-1-00002",
+      "group_id": "g-00000000000000000000000000000001",
+      "lineage_id": "tap-0000000000000002",
+      "text": "prompt 2\n\n### Corrected module: program.py\ncompletion 2\n"
+    },
+    {
+      "canonical_id": "pfr-1-00003",
+      "group_id": "g-00000000000000000000000000000001",
+      "lineage_id": "tap-0000000000000003",
+      "text": "prompt 3\n\n### Corrected module: program.py\ncompletion 3\n"
+    },
+    {
+      "canonical_id": "pfr-1-00004",
+      "group_id": "g-00000000000000000000000000000002",
+      "lineage_id": "tap-0000000000000004",
+      "text": "prompt 4\n\n### Corrected module: program.py\ncompletion 4\n"
+    },
+    {
+      "canonical_id": "pfr-1-00005",
+      "group_id": "g-00000000000000000000000000000002",
+      "lineage_id": "tap-0000000000000005",
+      "text": "prompt 5\n\n### Corrected module: program.py\ncompletion 5\n"
+    },
+    {
+      "canonical_id": "pfr-1-00006",
+      "lineage_id": "tap-0000000000000006",
+      "text": "prompt 6\n\n### Corrected module: program.py\ncompletion 6\n"
+    },
+    {
+      "canonical_id": "pfr-1-00007",
+      "lineage_id": "tap-0000000000000007",
+      "text": "prompt 7\n\n### Corrected module: program.py\ncompletion 7\n"
+    },
+    {
+      "canonical_id": "pfr-1-00008",
+      "lineage_id": "tap-0000000000000008",
+      "text": "prompt 8\n\n### Corrected module: program.py\ncompletion 8\n"
+    },
+    {
+      "canonical_id": "pfr-1-00009",
+      "lineage_id": "tap-0000000000000009",
+      "text": "prompt 9\n\n### Corrected module: program.py\ncompletion 9\n"
+    },
+    {
+      "canonical_id": "pfr-1-00010",
+      "lineage_id": "tap-000000000000000a",
+      "text": "prompt 10\n\n### Corrected module: program.py\ncompletion 10\n"
+    },
+    {
+      "canonical_id": "pfr-1-00011",
+      "lineage_id": "tap-000000000000000b",
+      "text": "prompt 11\n\n### Corrected module: program.py\ncompletion 11\n"
+    }
+  ]
+}

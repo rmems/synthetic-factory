@@ -57,8 +57,9 @@ class GenerateAndRender(unittest.TestCase):
         ])
         self.assertEqual(code, 0)
         summary = json.loads(text)["summary"]
-        self.assertEqual(summary["outcomes"], {"accepted": 2, "rejected": 3})
-        record_id = next(oc.iter_jsonl(out / generate.CANDIDATES_FILENAME))[1]['id']
+        self.assertEqual(summary["outcomes"], {"accepted": 7, "rejected": 3})
+        record_id = next(r['id'] for _, r in oc.iter_jsonl(out / generate.CANDIDATES_FILENAME)
+                         if views.is_positive(r))
         code, text, _err = invoke(["render", str(out), record_id, "--json"])
         self.assertEqual(code, 0)
         payload = json.loads(text)
@@ -75,12 +76,17 @@ class GenerateAndRender(unittest.TestCase):
 
     def test_render_refuses_a_rejected_record_with_its_reasons(self):
         _summary, records, run_dir = smoke_run()
-        timed = next(r for r in records if r['result']['reason_codes'] == [cv.REASON_MUTANT_TIMEOUT])
-        code, text, _err = invoke(["render", str(run_dir), timed['id'], "--json"])
+        rejected = next(r for r in records if r['result']['reason_codes'] == [cv.REASON_MUTANT_NO_OBSERVED_FAILURE])
+        code, text, _err = invoke(["render", str(run_dir), rejected['id'], "--json"])
         self.assertEqual(code, 1)
         finding = json.loads(text)["findings"][0]
         self.assertEqual(finding["code"], cv.FINDING_RECORD_NOT_A_POSITIVE_EXAMPLE)
-        self.assertEqual(finding["reason_codes"], [cv.REASON_MUTANT_TIMEOUT])
+        self.assertEqual(finding["reason_codes"], [cv.REASON_MUTANT_NO_OBSERVED_FAILURE])
+        provisional = next(r for r in records if r['result']['oracle_status'] == cv.STATUS_PROVISIONAL)
+        code, text, _err = invoke(["render", str(run_dir), provisional['id'], "--json"])
+        self.assertEqual(code, 1)
+        finding = json.loads(text)["findings"][0]
+        self.assertEqual(finding["oracle_status"], cv.STATUS_PROVISIONAL)
         code, _text, err = invoke(["render", str(run_dir), "pfr-0-99999"])
         self.assertEqual(code, 2)
         self.assertTrue(err.startswith(cv.FINDING_RECORD_NOT_FOUND))

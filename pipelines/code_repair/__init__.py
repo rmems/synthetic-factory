@@ -13,17 +13,8 @@ The lane shares only the contract modules with the neuromorphic families; it
 adds no vocabulary to the envelope and re-implements none of its primitives.
 """
 
-__all__ = [
-    "_contract",
-    "catalog",
-    "cli",
-    "executor",
-    "generate",
-    "mutate",
-    "records",
-    "record_validation",
-    "evidence",
-    "verify",
-    "views",
-    "vocabulary",
-]
+__all__ = (
+    "_contract vocabulary catalog catalog_check catalog_build catalog_inputs "
+    "lineage mutate mutate_span mutate_literals mutate_sites executor "
+    "verify records views generate replay cli record_validation evidence"
+).split()

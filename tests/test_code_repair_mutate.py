@@ -8,7 +8,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from code_repair_test_support import fixture, mutate, oc, program, vocabulary as cv  # noqa: E402
+from code_repair_test_support import (  # noqa: E402
+    boundary_site, fixture, mutate, oc, program, vocabulary as cv,
+)
+from code_repair import mutate_literals, mutate_span  # noqa: E402
+
+
+def boundary_sites(text, function):
+    return tuple(s for s in mutate.sites(text, function) if s.operator == cv.OPERATOR_COMPARISON_BOUNDARY)
 
 
 class DefinitionTimeNodes(unittest.TestCase):
@@ -21,12 +28,21 @@ class DefinitionTimeNodes(unittest.TestCase):
             "    return x <= 2\n"
         )
         found = mutate.sites(text, "f")
-        self.assertEqual([s.original_text for s in found], ["<="])
+        self.assertIn("<=", [s.original_text for s in found])
+        self.assertTrue(all(s.lineno > 1 for s in found), [s.original_text for s in found])
+
+
+class PublicSurface(unittest.TestCase):
+    def test_literal_helpers_are_declared_exports_with_module_identity(self):
+        for name in ("NEGATE_ATOMS", "OFFSET_ATOMS", "OFFSET_BINOPS"):
+            with self.subTest(name=name):
+                self.assertIn(name, mutate_span.__all__)
+                self.assertIs(getattr(mutate_literals, name), getattr(mutate_span, name))
 
 
 class Sites(unittest.TestCase):
     def test_sites_are_the_boundary_comparisons_of_the_target_body(self):
-        found = mutate.sites(program("rec_linear_search").text, "rec_linear_search")
+        found = boundary_sites(program("rec_linear_search").text, "rec_linear_search")
         self.assertEqual(len(found), 5)
         self.assertEqual([s.original_text for s in found], ["<=", "<", "<=", "<", "<"])
         self.assertEqual([s.replacement_text for s in found], ["<", "<=", "<", "<=", "<="])
@@ -34,12 +50,12 @@ class Sites(unittest.TestCase):
         self.assertTrue(all(s.operator == cv.OPERATOR_COMPARISON_BOUNDARY for s in found))
 
     def test_a_function_without_boundary_comparisons_has_no_site(self):
-        self.assertEqual(mutate.sites(program("is_square_free").text, "is_square_free"), ())
+        self.assertEqual(boundary_sites(program("is_square_free").text, "is_square_free"), ())
         self.assertEqual(mutate.sites("x = 1\n", "missing"), ())
 
     def test_every_fixture_site_rewrites_one_span_and_restores_exactly(self):
         for prog in fixture().programs:
-            for site in mutate.sites(prog.text, prog.function):
+            for site in boundary_sites(prog.text, prog.function):
                 with self.subTest(program=prog.function, line=site.lineno):
                     mutated = mutate.apply(prog.text, site)
                     self.assertEqual(mutated[: site.start], prog.text[: site.start])
@@ -49,7 +65,7 @@ class Sites(unittest.TestCase):
 
     def test_byte_offsets_survive_non_ascii_text_before_the_site(self):
         text = program("factorial").text.replace('"""\n    Calculate', '"""\n    Ünïcödé\n    Calculate', 1)
-        (site,) = mutate.sites(text, "factorial")
+        (site,) = boundary_sites(text, "factorial")
         mutated = mutate.apply(text, site)
         self.assertIn("number <= 0", mutated)
         self.assertEqual(mutate.repair(mutated, site), text)
@@ -59,7 +75,7 @@ class Sites(unittest.TestCase):
 class Verification(unittest.TestCase):
     def setUp(self):
         self.prog = program("get_1s_count")
-        (self.site,) = mutate.sites(self.prog.text, self.prog.function)
+        self.site = boundary_site(self.prog)
 
     def test_a_noop_rewrite_is_refused_before_execution(self):
         self.assertEqual(
@@ -97,7 +113,7 @@ class Verification(unittest.TestCase):
 
 class SeededChoice(unittest.TestCase):
     def test_the_same_seed_draws_the_same_sites(self):
-        sites = mutate.sites(program("rec_linear_search").text, "rec_linear_search")
+        sites = boundary_sites(program("rec_linear_search").text, "rec_linear_search")
         first = [mutate.choose(oc.DrawStream(7), sites).start for _ in range(6)]
         second = [mutate.choose(oc.DrawStream(7), sites).start for _ in range(6)]
         self.assertEqual(first, second)
@@ -106,12 +122,99 @@ class SeededChoice(unittest.TestCase):
         self.assertGreater(len(drawn), 1)
 
     def test_site_json_carries_the_span_and_never_a_verdict(self):
-        (site,) = mutate.sites(program("factorial").text, "factorial")
+        (site,) = boundary_sites(program("factorial").text, "factorial")
         payload = site.as_json()
         self.assertEqual(payload["original_text"], "<")
         self.assertEqual(payload["end_byte"] - payload["start_byte"], 1)
         self.assertFalse(set(payload) & oc.ORACLE_ONLY_KEYS)
         self.assertFalse(set(payload) & cv.ORACLE_LABEL_KEYS)
+
+
+class BoundaryLiterals(unittest.TestCase):
+    """Greptile, CodeAnt and Codex on #202: a boundary literal is a direct operand, never negated."""
+
+    def test_nested_and_negated_literals_are_not_off_by_one_sites(self):
+        text = (
+            "def helper(n):\n    return n\n\n\ndef f(items, limit):\n"
+            "    '''\n    >>> f([1, 2], 3)\n    2\n    >>> f([], 3)\n    0\n    '''\n"
+            "    if helper(7) < limit and len(items) < 3:\n"
+            "        return len(items[helper(7):]) + len(range(-3, 1)) - 4 + len(items[0:])\n"
+            "    return 0\n"
+        )
+        found = [s for s in mutate.sites(text, "f") if s.operator == cv.OPERATOR_OFF_BY_ONE]
+        # `3` both ways, `0` upward only, `1` both ways; never `7` (nested), `-3` (negated) or `4`.
+        originals = sorted({(s.lineno, s.original_text) for s in found})
+        self.assertEqual(originals, [(12, "3"), (13, "0"), (13, "1")])
+        self.assertEqual(len(found), 5)
+
+
+class FiveOperators(unittest.TestCase):
+    """Every operator class on the fixture programs: real sites, exact inverse, verified transform."""
+
+    def sites_of(self, function, operator):
+        prog = program(function)
+        found = mutate.sites(prog.text, prog.function, prog.want_kind)
+        return prog, [s for s in found if s.operator == operator]
+
+    def test_every_operator_class_yields_sound_sites_somewhere_in_the_fixture(self):
+        seen = set()
+        for prog in fixture().programs:
+            for site in mutate.sites(prog.text, prog.function, prog.want_kind):
+                seen.add(site.operator)
+                mutated = mutate.apply(prog.text, site)
+                with self.subTest(program=prog.function, operator=site.operator, variant=site.variant):
+                    self.assertIsNone(mutate.verify(prog.text, mutated, site, prog.function))
+                    self.assertEqual(mutate.repair(mutated, site), prog.text)
+                    self.assertNotEqual(mutated, prog.text)
+        self.assertEqual(seen, set(cv.OPERATORS))
+
+    def test_arithmetic_swaps_binary_and_augmented_operators(self):
+        _prog, found = self.sites_of("sum_of_digits", cv.OPERATOR_ARITHMETIC)
+        texts = {(s.original_text, s.replacement_text) for s in found}
+        self.assertEqual(texts, {("+=", "-="), ("%", "//"), ("//=", "%=")})
+
+    def test_boolean_condition_covers_equality_keyword_swap_and_dropped_not(self):
+        prog, found = self.sites_of("rec_linear_search", cv.OPERATOR_BOOLEAN_CONDITION)
+        variants = {(s.variant, s.original_text, s.replacement_text) for s in found}
+        self.assertIn(("drop_not", "not ", ""), variants)
+        self.assertIn(("swap", "and", "or"), variants)
+        self.assertIn(("equality", "==", "!="), variants)
+        dropped = next(s for s in found if s.variant == "drop_not")
+        self.assertIn("if (0 <= high", mutate.apply(prog.text, dropped))
+
+    def test_return_value_offsets_numeric_results_and_negates_boolean_ones(self):
+        prog, found = self.sites_of("rec_linear_search", cv.OPERATOR_RETURN_VALUE)
+        self.assertEqual(prog.want_kind, "numeric")
+        replacements = {s.replacement_text for s in found}
+        self.assertTrue({"0", "-2", "low + 1", "low - 1", "high + 1"}.issubset(replacements), replacements)
+        prog, found = self.sites_of("is_square_free", cv.OPERATOR_RETURN_VALUE)
+        self.assertEqual(prog.want_kind, "bool")
+        (negated,) = found
+        # A comparison binds tighter than ``not``, so no parentheses are needed.
+        self.assertEqual(negated.replacement_text, "not len(set(factors)) == len(factors)")
+
+    def test_off_by_one_moves_boundary_literals_and_never_below_zero(self):
+        _prog, found = self.sites_of("factorial", cv.OPERATOR_OFF_BY_ONE)
+        moves = sorted((s.lineno, s.original_text, s.replacement_text) for s in found)
+        # `number < 0` and both directions of `range(1, ...)`; the `1` inside `number + 1` is not
+        # a direct operand of the range call and so no longer a site (Greptile on #202).
+        self.assertEqual([m[1:] for m in moves], [("0", "1"), ("1", "0"), ("1", "2")])
+        _prog, found = self.sites_of("rec_linear_search", cv.OPERATOR_OFF_BY_ONE)
+        self.assertEqual({s.replacement_text for s in found}, {"1"})
+
+    def test_want_kind_is_derived_from_the_docstring_wants(self):
+        self.assertEqual(program("get_1s_count").want_kind, "numeric")
+        self.assertEqual(program("is_square_free").want_kind, "bool")
+        self.assertIsNone(program("factorial").want_kind)
+        self.assertIsNone(program("abs_val").want_kind)
+
+    def test_a_site_locates_its_node_exactly_for_the_transform(self):
+        _prog, found = self.sites_of("get_1s_count", cv.OPERATOR_ARITHMETIC)
+        for site in found:
+            payload = site.as_json()
+            self.assertEqual({"node", "start_byte", "end_byte", "lineno", "col_offset", "original_text",
+                              "replacement_text", "node_lineno", "node_col_offset", "node_end_lineno",
+                              "node_end_col_offset", "op_index"}, set(payload))
 
 
 if __name__ == "__main__":

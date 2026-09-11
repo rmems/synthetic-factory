@@ -24,6 +24,7 @@ from types import MappingProxyType
 from typing import Any
 
 from . import executor as ex
+from . import lineage
 from . import vocabulary as cv
 from ._contract import bind_import_twin, load_strict_json, oc
 
@@ -36,9 +37,9 @@ MAX_PUBLIC_EXAMPLES = 48  # 72 total rows fit the 1 MiB report budget with UTF-8
 _UPSTREAM_FIELDS = ("repository", "commit", "path", "file_sha256", "function", "license")
 
 __all__ = [
-    "CATALOG_FILENAME", "LICENSE_FILENAME", "PROGRAMS_FILENAME", "Catalog", "Example", "Program",
-    "Reference", "catalog_check", "examples_of", "examples_sha256", "function_node",
-    "load_catalog", "sha256_text",
+    "CATALOG_FILENAME", "Catalog", "Example", "LICENSE_FILENAME", "PROGRAMS_FILENAME", "Program",
+    "Reference", "examples_of", "examples_sha256", "function_node", "load_catalog",
+    "sha256_text", "want_kind_of",
 ]
 
 
@@ -85,6 +86,13 @@ class Program:
     cases: tuple[Mapping[str, str], ...]
     group_id: str | None
     split: str | None
+    ast_digest: str | None = None
+
+    @property
+    def want_kind(self) -> str | None:
+        """``numeric`` or ``bool`` when every value example wants that kind, else None."""
+
+        return want_kind_of(self.examples)
 
     def job(self, label: str, text: str | None = None) -> ex.Job:
         """A harness job over this program's function and cases (``text`` overrides the module)."""
@@ -107,6 +115,7 @@ class Catalog:
     programs_sha256: str
     license_sha256: str
     programs: tuple[Program, ...]
+    split_policy: lineage.SplitPolicy | None = None
 
     def program(self, program_id: str) -> Program:
         for program in self.programs:
@@ -143,6 +152,32 @@ def examples_of(text: str, function: str) -> tuple[Example, ...]:
         Example(f"{function}:{index}", item.source, item.want, item.exc_msg)
         for index, item in enumerate(executable)
     )
+
+
+def _want_value(example: Example) -> Any:
+    try:
+        return ast.literal_eval(example.want.strip())
+    except (ValueError, SyntaxError):
+        return None
+
+
+def _is_numeric(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _value_wants(examples: tuple[Example, ...]) -> list[Any]:
+    return [_want_value(e) for e in examples if e.exc_msg is None and e.want.strip()]
+
+
+def want_kind_of(examples: tuple[Example, ...]) -> str | None:
+    """The kind every value-returning example expects: ``numeric``, ``bool`` or None."""
+
+    wants = _value_wants(examples)
+    if not wants:
+        return None
+    if all(isinstance(w, bool) for w in wants):
+        return "bool"
+    return "numeric" if all(_is_numeric(w) for w in wants) else None
 
 
 def examples_sha256(examples: tuple[Example, ...]) -> str:
@@ -282,7 +317,9 @@ def _examples(row: dict[str, Any], text: str, function: str, where: str) -> tupl
     return examples
 
 
-def _split(row: dict[str, Any], where: str) -> tuple[str | None, str | None]:
+def _split(row: dict[str, Any], where: str) -> tuple[str | None, str | None, str | None]:
+    """``(group_id, ast_digest, split)``: each a string or null, never anything else."""
+
     structure = row.get("structure")
     split = row.get("split")
     cv.refuse_when(
@@ -291,12 +328,14 @@ def _split(row: dict[str, Any], where: str) -> tuple[str | None, str | None]:
         cv.FINDING_PROGRAM_FIELD_INVALID,
         f"{where}: structure must be an object or null and split one of {SPLITS} or null",
     )
-    group_id = structure.get("group_id") if isinstance(structure, dict) else None
-    cv.refuse_when(
-        group_id is not None and not isinstance(group_id, str), cv.FINDING_PROGRAM_FIELD_INVALID,
-        f"{where}: structure.group_id must be a string or null",
-    )
-    return group_id, split
+    pins = {}
+    for key in ("group_id", "ast_digest"):
+        pins[key] = structure.get(key) if isinstance(structure, dict) else None
+        cv.refuse_when(
+            pins[key] is not None and not isinstance(pins[key], str),
+            cv.FINDING_PROGRAM_FIELD_INVALID, f"{where}: structure.{key} must be a string or null",
+        )
+    return pins["group_id"], pins["ast_digest"], split
 
 
 def _program(row: Any, lineno: int) -> Program:
@@ -307,7 +346,7 @@ def _program(row: Any, lineno: int) -> Program:
         _field(upstream, key, str, f"{where}.upstream")
     text, digest = _module_text(row, where)
     function = upstream["function"]
-    group_id, split = _split(row, where)
+    group_id, ast_digest, split = _split(row, where)
     reference, cases = _reference(row, where), _cases(row, where)
     cv.refuse_when(
         reference.certifying and not cases, cv.FINDING_PROGRAM_FIELD_INVALID,
@@ -316,7 +355,7 @@ def _program(row: Any, lineno: int) -> Program:
     examples = _examples(row, text, function, where)
     return Program(
         program_id, _field(row, "family", str, where), dict(upstream), text, digest, function,
-        examples, examples_sha256(examples), reference, cases, group_id, split,
+        examples, examples_sha256(examples), reference, cases, group_id, split, ast_digest,
     )
 
 
@@ -373,6 +412,19 @@ def _meta(directory: Path) -> dict[str, Any]:
     return meta
 
 
+def _split_policy(meta: dict[str, Any]) -> lineage.SplitPolicy | None:
+    """The pinned split policy, when the catalog carries one, bound to its digest."""
+
+    if "split_policy" not in meta:
+        return None
+    policy = lineage.SplitPolicy.from_json(meta["split_policy"])
+    cv.refuse_when(
+        meta.get("split_policy_sha256") != policy.sha256, cv.FINDING_SPLIT_POLICY_INVALID,
+        f"{CATALOG_FILENAME}.split_policy_sha256 does not match the policy",
+    )
+    return policy
+
+
 def _license_sha256(directory: Path, meta: dict[str, Any]) -> str:
     path = directory / LICENSE_FILENAME
     cv.refuse_when(not path.is_file(), cv.FINDING_CATALOG_FILE_MISSING, f"{path} is missing")
@@ -406,86 +458,10 @@ def load_catalog(directory: Path | str) -> Catalog:
         (len(programs) != meta["program_count"], cv.FINDING_CATALOG_FIELD_INVALID,
          f"{CATALOG_FILENAME}.program_count is not the number of programs"),
     ))
-    return Catalog(meta["catalog_id"], root, meta, digest, _license_sha256(root, meta), programs)
-
-
-# --- the original-passes check -------------------------------------------
-
-
-def _finding(code: str, program: Program, detail: str) -> dict[str, str]:
-    return {"code": code, "program_id": program.program_id, "detail": detail}
-
-
-def _phase_code(report: ex.PhaseReport, timeout: str, error: str) -> str | None:
-    if report.status == cv.PHASE_TIMEOUT:
-        return timeout
-    if not report.ok:
-        return error
-    return None
-
-
-def _failing(rows: tuple[dict[str, Any], ...]) -> list[str]:
-    return [row["id"] for row in rows if row["status"] != cv.ROW_SUCCESS]
-
-
-def _execution_failure(program: Program, reports: tuple[ex.PhaseReport, ...]) -> dict | None:
-    """The first run that timed out or did not load, as a finding."""
-
-    for report in reports:
-        code = _phase_code(report, cv.REASON_ORIGINAL_TIMEOUT, cv.REASON_ORIGINAL_HARNESS_ERROR)
-        if code is not None:
-            return _finding(code, program, report.detail)
-    return None
-
-
-def _suite_findings(program: Program, report: ex.PhaseReport) -> list[dict[str, str]]:
-    suites = (
-        (report.public, cv.REASON_ORIGINAL_FAILS_PUBLIC),
-        (report.hidden, cv.REASON_ORIGINAL_FAILS_HIDDEN),
+    return Catalog(
+        meta["catalog_id"], root, meta, digest, _license_sha256(root, meta), programs,
+        _split_policy(meta),
     )
-    return [
-        _finding(code, program, ", ".join(_failing(rows)))
-        for rows, code in suites if _failing(rows)
-    ]
-
-
-def _original_findings(program: Program, executor: ex.Executor) -> list[dict[str, str]]:
-    """Both runs must load and finish; the first must pass; the second must agree."""
-
-    label = f"{cv.PHASE_ORIGINAL}:{program.program_id}"
-    reports = (executor.run(program.job(label)), executor.run(program.job(label)))
-    failure = _execution_failure(program, reports)
-    if failure is not None:
-        return [failure]
-    first, second = reports
-    findings = _suite_findings(program, first)
-    if (first.public, first.hidden) != (second.public, second.hidden):
-        findings.append(_finding(cv.CHECK_SOURCE_NONDETERMINISTIC, program, "two runs differ"))
-    return findings
-
-
-def _reference_findings(program: Program, executor: ex.Executor) -> list[dict[str, str]]:
-    if not program.reference.certifying:
-        return []
-    report = executor.run(program.reference_job(f"reference:{program.program_id}"))
-    code = _phase_code(report, cv.CHECK_REFERENCE_TIMEOUT, cv.CHECK_REFERENCE_HARNESS_ERROR)
-    if code is not None:
-        return [_finding(code, program, report.detail)]
-    disagreeing = _failing(report.hidden)
-    if disagreeing or len(report.hidden) != len(program.cases):
-        detail = ", ".join(disagreeing) or "row count"
-        return [_finding(cv.CHECK_REFERENCE_DISAGREES, program, detail)]
-    return []
-
-
-def catalog_check(catalog: Catalog, executor: ex.Executor) -> list[dict[str, str]]:
-    """Every original passes twice identically and its reference agrees; findings otherwise."""
-
-    findings: list[dict[str, str]] = []
-    for program in catalog.programs:
-        findings += _original_findings(program, executor)
-        findings += _reference_findings(program, executor)
-    return findings
 
 
 bind_import_twin(__name__)

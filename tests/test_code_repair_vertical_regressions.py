@@ -19,7 +19,7 @@ from code_repair import record_validation
 
 class VerticalRegressions(unittest.TestCase):
     def positive(self):
-        return copy.deepcopy(next(r for r in smoke_run()[1] if r['result']['outcome'] == 'accepted'))
+        return copy.deepcopy(next(r for r in smoke_run()[1] if views.is_positive(r)))
 
     def test_run_summary_pins_exact_candidate_bytes(self):
         summary, _, directory = smoke_run()
@@ -32,7 +32,7 @@ class VerticalRegressions(unittest.TestCase):
                 '        return x < 5\n    class C(Base(4 < 5)):\n'
                 '        def m(self, x=(5 < 6)):\n            return x < 7\n'
                 '    return 6 < 7\n')
-        self.assertEqual([s.lineno for s in mutate.sites(text, 'f')], [4, 7, 8])
+        self.assertEqual(sorted({s.lineno for s in mutate.sites(text, 'f')}), [4, 7, 8])
 
     def test_truncated_fabricated_output_is_rejected(self):
         record = self.positive()
@@ -161,8 +161,9 @@ class VerticalRegressions(unittest.TestCase):
         self.assertNotIn('sft', json.loads(output))
 
     def failed_phase_record(self, status, flag):
-        record = copy.deepcopy(next(r for r in smoke_run()[1]
-                                    if r['result']['reason_codes'] == ['MUTANT_TIMEOUT']))
+        record = self.positive()
+        record['result'].update(outcome='rejected', reason_codes=['MUTANT_TIMEOUT'])
+        record['result']['phases']['repaired'] = None
         block = record['result']['phases']['mutant']
         block.update(status=status, load_ok=False)
         if flag == 'missing':
@@ -234,8 +235,8 @@ class VerticalRegressions(unittest.TestCase):
                 row['module'] = {'text': text, 'sha256': catalog.sha256_text(text)}
             rewrite_programs(directory, edit)
             out = Path(root)/'run'
-            generate.run(generate.RunRequest(directory, out, SEED, 1, PINNED_AT))
-            record = next(oc.iter_jsonl(out/'candidates.jsonl'))[1]
+            generate.run(generate.RunRequest(directory, out, SEED, 12, PINNED_AT))
+            record = next(r for _, r in oc.iter_jsonl(out/'candidates.jsonl') if views.is_positive(r))
             row = views.agoge_row(record)
         offset = row['completion_start_char']
         self.assertEqual(row['text'][offset:], views.completion_of(record))

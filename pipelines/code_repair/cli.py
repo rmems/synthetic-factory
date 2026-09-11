@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The agent surface of the code-repair family: ``catalog-check``.
+"""The agent surface of the code-repair family: catalog-check, generate, replay, render.
 
 Exit codes: 0 when the command succeeded with nothing to report, 1 when it
 ran and reports catalog findings, 2 on a coded refusal or a usage error. ``--json`` prints one object
@@ -15,8 +15,10 @@ from pathlib import Path
 from typing import Any
 
 from . import catalog as cat
+from . import catalog_check as cc
 from . import executor as ex
 from . import generate
+from . import replay
 from . import views
 from . import record_validation as validation
 from . import vocabulary as cv
@@ -44,6 +46,13 @@ def build_parser() -> argparse.ArgumentParser:
     gen.add_argument("--per-program-cap", type=int, default=cv.DEFAULT_PER_PROGRAM_CAP)
     gen.add_argument("--json", action="store_true")
 
+    rep = commands.add_parser("replay", help="re-execute every positive record of a run")
+    rep.add_argument("--run", type=Path, required=True)
+    rep.add_argument("--catalog", type=Path, required=True)
+    rep.add_argument("--out", type=Path, required=True)
+    rep.add_argument("--timeout-s", type=float, default=cv.DEFAULT_TIMEOUT_S)
+    rep.add_argument("--json", action="store_true")
+
     render = commands.add_parser("render", help="the SFT prompt/completion of one record")
     render.add_argument("run_dir", type=Path)
     render.add_argument("record_id")
@@ -57,7 +66,7 @@ def _emit(payload: dict[str, Any], as_json: bool, text: str) -> None:
 
 def _catalog_check(args: argparse.Namespace) -> int:
     catalog = cat.load_catalog(args.catalog)
-    findings = cat.catalog_check(catalog, ex.Executor(timeout_s=args.timeout_s))
+    findings = cc.catalog_check(catalog, ex.Executor(timeout_s=args.timeout_s))
     status = "findings" if findings else "ok"
     lines = [f"{f['code']} {f['program_id']}: {f['detail']}" for f in findings]
     text = "\n".join(lines) or f"catalog-check ok: {len(catalog.programs)} programs pass"
@@ -81,6 +90,25 @@ def _generate(args: argparse.Namespace) -> int:
     )
     _emit({"command": "generate", "status": "ok", "summary": summary}, args.json, text)
     return 0
+
+
+def _replay(args: argparse.Namespace) -> int:
+    request = replay.ReplayRequest(args.run, args.catalog, args.out, args.timeout_s)
+    summary = replay.run(request)
+    counts = summary["counts"]
+    text = (
+        f"replay {summary['status']}: {counts['passed']} of {counts['positives']} positives "
+        f"passed, {counts['not_replayed']} not replayed (natural ineligibility); {args.out}"
+    )
+    failures = [
+        {"code": e["code"], "record_id": e["record_id"], "detail": e["detail"]}
+        for e in summary["records"] if e["status"] == "replayed" and e["code"] != cv.REPLAY_PASSED
+    ]
+    # A run with nothing to replay is a clean no-op: non-positives never fail a replay.
+    status = "ok" if summary["status"] in ("passed", "nothing_to_replay") else "findings"
+    payload = {"command": "replay", "status": status, "findings": failures, "summary": summary}
+    _emit(payload, args.json, text)
+    return 0 if status == "ok" else 1
 
 
 def _load_record(run_dir: Path, record_id: str) -> dict[str, Any]:
@@ -130,7 +158,9 @@ def _render(args: argparse.Namespace) -> int:
     return 0
 
 
-_COMMANDS = {"catalog-check": _catalog_check, "generate": _generate, "render": _render}
+_COMMANDS = {
+    "catalog-check": _catalog_check, "generate": _generate, "render": _render, "replay": _replay,
+}
 
 
 def _refused(args: argparse.Namespace, refusal: envelope.ContractError) -> int:
