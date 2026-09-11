@@ -75,6 +75,16 @@ def run(argv: list[str] | None = None) -> int:
         return _COMMANDS[args.command](args)
     except envelope.ContractError as refusal:
         return _refused(args, refusal)
+    except Exception as exc:  # keep exit 1 reserved for catalog findings
+        message = f"{type(exc).__name__}: {exc}"
+        if getattr(args, "json", False):
+            payload = {
+                "command": args.command, "status": "error", "message": message,
+            }
+            print(json.dumps(payload, sort_keys=True))
+        else:
+            print(message, file=sys.stderr)
+        return 2
 
 
 bind_import_twin(__name__)

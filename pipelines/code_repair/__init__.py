@@ -20,3 +20,7 @@ __all__ = [
     "executor",
     "vocabulary",
 ]
+
+from ._contract import bind_import_twin
+
+bind_import_twin(__name__)
