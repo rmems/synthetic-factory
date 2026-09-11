@@ -15,7 +15,8 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-import subprocess
+# Required only for the fixed no-shell harness subprocess below.
+import subprocess  # nosec B404
 import sys
 import tempfile
 import time
@@ -166,7 +167,8 @@ class Executor:
         stdout_path, stderr_path = workdir / "stdout", workdir / "stderr"
         try:
             with stdout_path.open("wb") as out, stderr_path.open("wb") as err:
-                completed = subprocess.run(
+                # The reviewed argv is fixed and never enables a shell.
+                completed = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
                     argv, cwd=workdir, env=CHILD_ENV, stdout=out, stderr=err,
                     timeout=self.timeout_s, check=False,
                 )
