@@ -17,6 +17,8 @@ from __future__ import annotations
 import ast
 import doctest
 import hashlib
+import io
+import tokenize
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,7 +77,7 @@ class Program:
 
     program_id: str
     family: str
-    upstream: dict[str, Any]
+    upstream: Mapping[str, Any]
     text: str
     sha256: str
     function: str
@@ -121,13 +123,24 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def function_node(text: str, function: str) -> ast.FunctionDef | None:
-    """The module-level ``def`` named ``function`` in ``text``, or None."""
+def function_defs(text: str, function: str) -> list[ast.FunctionDef]:
+    """Every module-level ``def`` named ``function`` in ``text``, in order."""
 
-    for node in ast.parse(text).body:
-        if isinstance(node, ast.FunctionDef) and node.name == function:
-            return node
-    return None
+    return [
+        node for node in ast.parse(text).body
+        if isinstance(node, ast.FunctionDef) and node.name == function
+    ]
+
+
+def function_node(text: str, function: str) -> ast.FunctionDef | None:
+    """The module-level ``def`` named ``function`` in ``text``, or None.
+
+    When the name is bound more than once, the last definition matches import
+    semantics; catalog loading refuses the duplicate before this is relied on.
+    """
+
+    found = function_defs(text, function)
+    return found[-1] if found else None
 
 
 def examples_of(text: str, function: str) -> tuple[Example, ...]:
@@ -138,6 +151,9 @@ def examples_of(text: str, function: str) -> tuple[Example, ...]:
         return ()
     docstring = ast.get_docstring(node, clean=True) or ""
     parsed = doctest.DocTestParser().get_examples(docstring)  # ValueError on a bad directive
+    for item in parsed:
+        if item.options.get(doctest.FAIL_FAST):
+            raise ValueError("doctest FAIL_FAST directive stops row reporting")
     executable = [item for item in parsed if not item.options.get(doctest.SKIP)]
     return tuple(
         Example(f"{function}:{index}", item.source, item.want, item.exc_msg)
@@ -196,10 +212,26 @@ def _module_text(row: dict[str, Any], where: str) -> tuple[str, str]:
     return text, digest
 
 
-def _parse_or_refuse(text: str, where: str) -> ast.Module:
+def _require_utf8_cookie(text: str, where: str) -> None:
+    """Refuse a coding cookie that would make UTF-8 bytes mean something else."""
+
     try:
-        return ast.parse(text)
-    except (SyntaxError, ValueError) as exc:
+        encoding, _lines = tokenize.detect_encoding(io.BytesIO(text.encode("utf-8")).readline)
+    except SyntaxError as exc:
+        message = f"{where} declares an unreadable encoding cookie: {exc}"
+        raise cv.RepairRefusal(cv.FINDING_PROGRAM_FIELD_INVALID, message) from exc
+    if encoding.lower() not in {"utf-8", "utf-8-sig"}:
+        message = f"{where} declares encoding {encoding!r}; only UTF-8 is accepted"
+        raise cv.RepairRefusal(cv.FINDING_PROGRAM_FIELD_INVALID, message)
+
+
+def _parse_or_refuse(text: str, where: str) -> ast.Module:
+    _require_utf8_cookie(text, where)
+    try:
+        tree = ast.parse(text)
+        compile(tree, where, "exec")
+        return tree
+    except (SyntaxError, ValueError, MemoryError, RecursionError) as exc:
         message = f"{where} does not parse: {exc}"
         raise cv.RepairRefusal(cv.FINDING_PROGRAM_NOT_PARSEABLE, message) from exc
 
@@ -222,8 +254,13 @@ def _reference(row: dict[str, Any], where: str) -> Reference:
         f"{where}.hidden.reference.sha256 does not match its source",
     )
     _parse_or_refuse(source, f"{where}.hidden.reference.source")
+    defs = function_defs(source, function)
     cv.refuse_when(
-        function_node(source, function) is None, cv.FINDING_TARGET_FUNCTION_NOT_FOUND,
+        len(defs) > 1, cv.FINDING_PROGRAM_FIELD_INVALID,
+        f"{where}.hidden.reference.source defines {function} more than once",
+    )
+    cv.refuse_when(
+        not defs, cv.FINDING_TARGET_FUNCTION_NOT_FOUND,
         f"{where}.hidden.reference.source defines no module-level function {function}",
     )
     return Reference(kind, function, source, digest)
@@ -259,13 +296,18 @@ def _cases(row: dict[str, Any], where: str) -> tuple[Mapping[str, str], ...]:
 
 def _examples(row: dict[str, Any], text: str, function: str, where: str) -> tuple[Example, ...]:
     public = _field(row, "public", dict, where)
+    defs = function_defs(text, function)
+    cv.refuse_when(
+        len(defs) > 1, cv.FINDING_PROGRAM_FIELD_INVALID,
+        f"{where}: target function {function} is defined more than once",
+    )
     try:
         examples = examples_of(text, function)
-    except ValueError as exc:  # a malformed doctest directive
+    except ValueError as exc:  # a malformed or report-controlling doctest directive
         message = f"{where}: {function} carries a doctest the parser refuses"
         raise cv.RepairRefusal(cv.FINDING_PROGRAM_FIELD_INVALID, message) from exc
     cv.refuse_first((
-        (function_node(text, function) is None, cv.FINDING_TARGET_FUNCTION_NOT_FOUND,
+        (not defs, cv.FINDING_TARGET_FUNCTION_NOT_FOUND,
          f"{where}: no module-level function named {function}"),
         (not examples, cv.FINDING_TARGET_HAS_NO_DOCTEST, f"{where}: {function} carries no doctest"),
     ))
@@ -299,6 +341,16 @@ def _split(row: dict[str, Any], where: str) -> tuple[str | None, str | None]:
     return group_id, split
 
 
+def _freeze_mapping(value: Any) -> Any:
+    """Deep-freeze nested provenance so a caller cannot detach it from the pin."""
+
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_mapping(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze_mapping(item) for item in value)
+    return value
+
+
 def _program(row: Any, lineno: int) -> Program:
     where = f"programs.jsonl:{lineno}"
     program_id = _field(row, "program_id", str, where)
@@ -315,8 +367,8 @@ def _program(row: Any, lineno: int) -> Program:
     )
     examples = _examples(row, text, function, where)
     return Program(
-        program_id, _field(row, "family", str, where), dict(upstream), text, digest, function,
-        examples, examples_sha256(examples), reference, cases, group_id, split,
+        program_id, _field(row, "family", str, where), _freeze_mapping(upstream), text, digest,
+        function, examples, examples_sha256(examples), reference, cases, group_id, split,
     )
 
 
@@ -334,7 +386,11 @@ def _provenance_agrees(program: Program, meta: dict[str, Any]) -> None:
 def _programs(directory: Path) -> tuple[tuple[Program, ...], str]:
     path = directory / PROGRAMS_FILENAME
     cv.refuse_when(not path.is_file(), cv.FINDING_CATALOG_FILE_MISSING, f"{path} is missing")
-    data = path.read_bytes()  # one read: the digest and the parse cover the same bytes
+    try:
+        data = path.read_bytes()  # one read: the digest and the parse cover the same bytes
+    except OSError as exc:
+        message = f"{path} could not be read: {exc}"
+        raise cv.RepairRefusal(cv.FINDING_CATALOG_FILE_MISSING, message) from exc
     digest = hashlib.sha256(data).hexdigest()
     programs = []
     seen: set[str] = set()
@@ -357,7 +413,15 @@ def _meta(directory: Path) -> dict[str, Any]:
     path = directory / CATALOG_FILENAME
     cv.refuse_when(not path.is_file(), cv.FINDING_CATALOG_FILE_MISSING, f"{path} is missing")
     try:
-        meta = load_strict_json(path.read_text(encoding="utf-8"))
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        message = f"{path} could not be read: {exc}"
+        raise cv.RepairRefusal(cv.FINDING_CATALOG_FILE_MISSING, message) from exc
+    except UnicodeDecodeError as exc:
+        message = f"{path} is not UTF-8 text: {exc}"
+        raise cv.RepairRefusal(cv.FINDING_CATALOG_FIELD_INVALID, message) from exc
+    try:
+        meta = load_strict_json(raw)
     except (ValueError, RecursionError) as exc:
         message = f"{path} is not JSON: {exc}"
         raise cv.RepairRefusal(cv.FINDING_CATALOG_FIELD_INVALID, message) from exc
@@ -376,7 +440,11 @@ def _meta(directory: Path) -> dict[str, Any]:
 def _license_sha256(directory: Path, meta: dict[str, Any]) -> str:
     path = directory / LICENSE_FILENAME
     cv.refuse_when(not path.is_file(), cv.FINDING_CATALOG_FILE_MISSING, f"{path} is missing")
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    try:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        message = f"{path} could not be read: {exc}"
+        raise cv.RepairRefusal(cv.FINDING_CATALOG_FILE_MISSING, message) from exc
     cv.refuse_when(
         digest != meta["upstream"]["license_sha256"], cv.FINDING_CATALOG_FIELD_INVALID,
         f"{CATALOG_FILENAME}.upstream.license_sha256 does not match {LICENSE_FILENAME}",
@@ -401,6 +469,8 @@ def load_catalog(directory: Path | str) -> Catalog:
             )
             groups[program.group_id] = program.split
     cv.refuse_first((
+        (not programs, cv.FINDING_CATALOG_FIELD_INVALID,
+         f"{PROGRAMS_FILENAME} holds no programs"),
         (digest != meta["programs_sha256"], cv.FINDING_PROGRAMS_SHA_MISMATCH,
          f"{PROGRAMS_FILENAME} does not hash to {CATALOG_FILENAME}.programs_sha256"),
         (len(programs) != meta["program_count"], cv.FINDING_CATALOG_FIELD_INVALID,

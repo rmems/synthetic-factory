@@ -13,13 +13,16 @@ caller writes beside the run; nothing timing-dependent enters a
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import re
 import shutil
 # Required only for the fixed no-shell harness subprocess below.
 import subprocess  # nosec B404
 import sys
 import tempfile
 import time
+import tokenize
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -87,7 +90,7 @@ def rows_of(rows: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
         entry: dict[str, Any] = {"id": row["id"], "status": row["status"]}
         if "got" in row:
             entry["got_sha256"] = row.get("got_sha256") or hashlib.sha256(
-                str(row["got"]).encode("utf-8")
+                str(row["got"]).encode("utf-8", "backslashreplace")
             ).hexdigest()
         digestable.append(entry)
     return sorted(digestable, key=lambda row: row["id"])
@@ -111,6 +114,32 @@ def _bounded(path: Path) -> bytes:
 
     with path.open("rb") as handle:
         return handle.read(MAX_OUTPUT_BYTES + 1)
+
+
+def _utf8_compatible_source(text: str) -> None:
+    """Refuse a coding cookie that conflicts with the UTF-8 write/import path."""
+
+    try:
+        encoding, _lines = tokenize.detect_encoding(io.BytesIO(text.encode("utf-8")).readline)
+    except SyntaxError as exc:
+        raise cv.RepairRefusal(
+            cv.FINDING_PROGRAM_FIELD_INVALID, f"unreadable encoding cookie: {exc}"
+        ) from exc
+    if encoding.lower() not in {"utf-8", "utf-8-sig"}:
+        raise cv.RepairRefusal(
+            cv.FINDING_PROGRAM_FIELD_INVALID,
+            f"source encoding {encoding!r} conflicts with UTF-8 execution",
+        )
+
+
+def _scrub_detail(detail: str, workdir: Path | None = None) -> str:
+    """Drop ephemeral workdir paths from harness/load error prose."""
+
+    scrubbed = detail
+    if workdir is not None:
+        scrubbed = scrubbed.replace(str(workdir), "").replace(str(workdir.resolve()), "")
+    scrubbed = re.sub(r"/\S*code-repair-\S*", "", scrubbed)
+    return scrubbed
 
 
 class Executor:
@@ -137,6 +166,7 @@ class Executor:
         }
 
     def run(self, job: Job) -> PhaseReport:
+        _utf8_compatible_source(job.module_text)
         workdir = Path(tempfile.mkdtemp(prefix="code-repair-"))
         try:
             program = workdir / cv.PROGRAM_FILENAME
@@ -216,7 +246,7 @@ def _parse_report(job: Job, returncode: int, stdout: bytes) -> PhaseReport:
         return _harness_error(f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not applied")
     load = _object(parsed, "load")
     if load.get("status") != "ok":
-        detail = str(load.get("error") or "load failed")
+        detail = _scrub_detail(str(load.get("error") or "load failed"))
         return PhaseReport(cv.PHASE_OK, False, (), (), environment, detail)
     public = _rows("public", parsed.get("public"), job.expected_public if job.run_public else 0)
     hidden = _rows("hidden", parsed.get("hidden"), len(job.cases))

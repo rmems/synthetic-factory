@@ -23,6 +23,7 @@ import os
 import platform
 import sys
 import traceback
+import types
 from pathlib import Path
 
 PROTOCOL = "code-repair-harness/1"
@@ -46,9 +47,26 @@ def _apply_limits(spec: dict) -> bool:
     return True
 
 
+def _utf8_digest(text: str) -> str:
+    """Digest program-produced text even when it carries lone surrogates."""
+
+    return hashlib.sha256(text.encode("utf-8", "backslashreplace")).hexdigest()
+
+
 def _last_line(text: str) -> str:
     lines = [line for line in text.splitlines() if line.strip()]
     return lines[-1] if lines else ""
+
+
+def _scrub_workdir(text: str, workdir: str) -> str:
+    """Strip the ephemeral workdir from observations so two runs compare equal."""
+
+    if not workdir or not text:
+        return text
+    scrubbed = text.replace(workdir, "")
+    # Path variants the traceback formatter may emit.
+    scrubbed = scrubbed.replace(os.path.realpath(workdir), "")
+    return scrubbed
 
 
 def _clip(text: str) -> tuple[str, bool]:
@@ -62,7 +80,7 @@ def _row(kind: str, index: int, status: str, got: str | None = None) -> dict:
     if got is not None:
         clipped, truncated = _clip(got)
         row["got"] = clipped
-        row["got_sha256"] = hashlib.sha256(got.encode("utf-8")).hexdigest()
+        row["got_sha256"] = _utf8_digest(got)
         if truncated:
             row["truncated"] = True
     return row
@@ -88,10 +106,11 @@ class _Capture(io.StringIO):
 class _Runner(doctest.DocTestRunner):
     """Records one row per example instead of printing a report."""
 
-    def __init__(self, rows: list) -> None:
+    def __init__(self, rows: list, workdir: str = "") -> None:
         super().__init__(verbose=False, optionflags=0)
         self._fakeout = _Capture()
         self._rows = rows
+        self._workdir = workdir
 
     @staticmethod
     def _index(test: doctest.DocTest, example: doctest.Example) -> int:
@@ -100,26 +119,41 @@ class _Runner(doctest.DocTestRunner):
                 return index
         raise ValueError("the runner reported an example the test does not hold")
 
+    def _observe(self, got: str) -> str:
+        # Keep the full observation (including multiline exception text) so two
+        # runs that differ only before the final line still disagree on digest;
+        # scrub the workdir so the ephemeral path never enters public evidence.
+        return _scrub_workdir(got, self._workdir)
+
     def report_start(self, out, test, example) -> None:
         # Nothing to record before an example runs; the outcome hooks record the row.
         return None
 
     def report_success(self, out, test, example, got) -> None:
-        # A passing row keeps its output too, so two runs that both pass with
-        # different values are still told apart by their digests. A matched
-        # exception keeps its final line only: the traceback names the workdir.
+        observed = self._observe(got)
+        display = _last_line(observed) if example.exc_msg is not None else observed
+        row = _row("public", self._index(test, example), "pass", display)
         if example.exc_msg is not None:
-            got = _last_line(got)
-        self._rows.append(_row("public", self._index(test, example), "pass", got))
+            row["got_sha256"] = _utf8_digest(observed)
+        self._rows.append(row)
 
     def report_failure(self, out, test, example, got) -> None:
-        if example.exc_msg is not None and "Traceback (most recent call last):" in got:
-            got = _last_line(got)
-        self._rows.append(_row("public", self._index(test, example), "fail", got))
+        observed = self._observe(got)
+        display = (
+            _last_line(observed)
+            if example.exc_msg is not None and "Traceback (most recent call last):" in observed
+            else observed
+        )
+        row = _row("public", self._index(test, example), "fail", display)
+        if example.exc_msg is not None:
+            row["got_sha256"] = _utf8_digest(observed)
+        self._rows.append(row)
 
     def report_unexpected_exception(self, out, test, example, exc_info) -> None:
         text = "".join(traceback.format_exception_only(exc_info[0], exc_info[1])).strip()
-        self._rows.append(_row("public", self._index(test, example), "error", text))
+        self._rows.append(
+            _row("public", self._index(test, example), "error", self._observe(text))
+        )
 
 
 def executable_examples(examples: list) -> list:
@@ -129,10 +163,13 @@ def executable_examples(examples: list) -> list:
 
 
 def _function_node(text: str, function: str) -> ast.FunctionDef:
+    found = None
     for node in ast.parse(text).body:
         if isinstance(node, ast.FunctionDef) and node.name == function:
-            return node
-    raise LookupError(f"no module-level function named {function}")
+            found = node  # last binding matches import semantics
+    if found is None:
+        raise LookupError(f"no module-level function named {function}")
+    return found
 
 
 def _load(workdir: Path):
@@ -148,14 +185,18 @@ def _load(workdir: Path):
     return module
 
 
-def _run_public(module, text: str, function: str) -> list:
+def _run_public(module, text: str, function: str, workdir: str = "") -> list:
     node = _function_node(text, function)
     docstring = ast.get_docstring(node, clean=True) or ""
     examples = executable_examples(doctest.DocTestParser().get_examples(docstring))
+    # Report-controlling directives must not truncate the suite: one row per
+    # executable example is part of the harness protocol with the parent.
+    for example in examples:
+        example.options.pop(doctest.FAIL_FAST, None)
     globs = dict(module.__dict__)
     test = doctest.DocTest(examples, globs, function, PROGRAM_FILENAME, node.lineno, docstring)
     rows: list = []
-    _Runner(rows).run(test, out=lambda _text: None, clear_globs=True)
+    _Runner(rows, workdir).run(test, out=lambda _text: None, clear_globs=True)
     return rows
 
 
@@ -165,7 +206,7 @@ def _is_integer_text(text: str) -> bool:
 
 
 def _agree(got: str, want: str, spec: dict) -> bool:
-    """Equal reprs agree; integers only exactly; floats within the pinned tolerances."""
+    """equal reprs agree; integers only exactly; floats within the pinned tolerances."""
 
     if got == want:
         return True
@@ -180,21 +221,40 @@ def _agree(got: str, want: str, spec: dict) -> bool:
     return math.isclose(left, right, rel_tol=spec["float_rel_tol"], abs_tol=spec["float_abs_tol"])
 
 
-def _run_case(target, index: int, case: dict, spec: dict) -> dict:
+def _run_case(target, index: int, case: dict, spec: dict, workdir: str = "") -> dict:
     """One hidden case: a pass/fail row against the pinned want, or an observed repr."""
 
     try:
         result = target(*ast.literal_eval(case["args"]))
-        got = repr(result)
+        got = _scrub_workdir(repr(result), workdir)
     except Exception as exc:  # the program under test may raise anything
+        detail = _scrub_workdir(f"{type(exc).__name__}: {exc}", workdir)
         if case["want"] is None:
-            return _row("hidden", index, "error", f"{type(exc).__name__}: {exc}")
+            return _row("hidden", index, "error", detail)
         return {**_row("hidden", index, "error"), "kind": "exception"}
     if case["want"] is None:
         return _row("hidden", index, "observed", got)
     if _agree(got, case["want"], spec):
         return {**_row("hidden", index, "pass", got), "kind": "ok"}
     return {**_row("hidden", index, "fail"), "kind": "value_mismatch"}
+
+
+def _with_isolated_main(action):
+    """Run ``action`` while ``__main__`` is not the trusted harness controller.
+
+    Candidate code that does ``import __main__`` must not be able to replace
+    ``_run_public``, ``_run_case``, or the report serializer on this process.
+    """
+
+    previous = sys.modules.get("__main__")
+    sys.modules["__main__"] = types.ModuleType("program_main")
+    try:
+        return action()
+    finally:
+        if previous is not None:
+            sys.modules["__main__"] = previous
+        else:
+            sys.modules.pop("__main__", None)
 
 
 def _run(workdir: Path, spec: dict) -> dict:
@@ -209,21 +269,31 @@ def _run(workdir: Path, spec: dict) -> dict:
         report["load"] = {"status": "error", "error": "SANDBOX_UNAVAILABLE: resource limits"}
         return report
     text = (workdir / PROGRAM_FILENAME).read_text(encoding="utf-8")
-    try:
+    root = str(workdir)
+
+    def execute():
         module = _load(workdir)
         getattr(module, spec["function"])
-        report["public"] = _run_public(module, text, spec["function"]) if spec["run_public"] else None
+        public = _run_public(module, text, spec["function"], root) if spec["run_public"] else None
+        active = module
         if spec["run_public"] and spec["cases"]:
-            module = _load(workdir)
-        target = getattr(module, spec["function"])
+            active = _load(workdir)
+        target = getattr(active, spec["function"])
+        hidden = [_run_case(target, i, case, spec, root) for i, case in enumerate(spec["cases"])]
+        return public, hidden
+
+    try:
+        public, hidden = _with_isolated_main(execute)
     except Exception as exc:
-        report["load"] = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
+        detail = _scrub_workdir(f"{type(exc).__name__}: {exc}", root)
+        report["load"] = {"status": "error", "error": detail}
         return report
-    report["hidden"] = [_run_case(target, i, case, spec) for i, case in enumerate(spec["cases"])]
+    report["public"] = public
+    report["hidden"] = hidden
     return report
 
 
-def main(argv: list[str]) -> int:
+def main(argv: list[str], *, _dumps=json.dumps) -> int:
     if len(argv) != 2:
         sys.stderr.write("usage: _harness.py <workdir>\n")
         return 2
@@ -251,7 +321,8 @@ def main(argv: list[str]) -> int:
                 os.dup2(backup, descriptor)
                 os.close(backup)
             sys.stdout, sys.stderr = real_stdout, real_stderr
-    real_stdout.write(json.dumps(report, sort_keys=True, allow_nan=False, ensure_ascii=False))
+    # ensure_ascii=True keeps lone surrogates from breaking the exit-0 write.
+    real_stdout.write(_dumps(report, sort_keys=True, allow_nan=False, ensure_ascii=True))
     real_stdout.flush()
     return 0
 
