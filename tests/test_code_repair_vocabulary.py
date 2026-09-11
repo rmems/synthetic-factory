@@ -4,8 +4,8 @@
 import ast
 import inspect
 import sys
-import unittest
 from pathlib import Path
+import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -36,6 +36,11 @@ def random_import(node):
 
 
 class DeclaredCodes(unittest.TestCase):
+    def test_export_integrity_codes_are_declared_and_unique(self):
+        expected = {"REPLAY_FILE_MALFORMED", "REPLAY_RUN_IDENTITY_MISMATCH",
+                    "EXPORT_CATALOG_MISMATCH", "RUN_SUMMARY_MISMATCH"}
+        self.assertLessEqual(expected, set(cv.EXPORT_INTEGRITY_CODES))
+        self.assertEqual(len(cv.EXPORT_CODES), len(set(cv.EXPORT_CODES)))
     def test_random_import_detector_preserves_import_and_call_boundaries(self):
         cases = (
             ("import random", True),

@@ -219,6 +219,7 @@ def _execute(state: _State, draft: _Draft) -> tuple[verify.Phases, verify.Decisi
 
 
 def _summary(request: RunRequest, state: _State, stamp: str) -> dict[str, Any]:
+    policy = state.catalog.split_policy
     outcomes = Counter(record["result"]["outcome"] for record in state.records)
     statuses = Counter(record["result"]["oracle_status"] for record in state.records)
     return {
@@ -230,8 +231,8 @@ def _summary(request: RunRequest, state: _State, stamp: str) -> dict[str, Any]:
             "program_count": len(state.catalog.programs),
         },
         "generator": {"name": cv.GENERATOR_NAME, "version": cv.GENERATOR_VERSION},
-        "split_policy": None if state.catalog.split_policy is None else state.catalog.split_policy.as_json(),
         "harness_sha256": state.executor.harness_sha256,
+        "split_policy": None if policy is None else policy.as_json(),
         "seed": request.seed, "count": request.count, "produced_at": stamp,
         "timeout_s": state.executor.timeout_s, "per_program_cap": state.cap,
         "records": len(state.records),
@@ -266,7 +267,9 @@ def run(request: RunRequest, executor: ex.Executor | None = None) -> dict[str, A
     catalog = cat.load_catalog(request.catalog_dir)
     engine = ex.Executor(timeout_s=request.timeout_s) if executor is None else executor
     sites = {p.program_id: _sites_by_operator(p) for p in catalog.programs}
-    batch = records.new_batch(request.seed, stamp, engine)
+    policy = catalog.split_policy
+    policy_sha256 = None if policy is None else policy.sha256
+    batch = records.new_batch(request.seed, stamp, engine, policy_sha256)
     stream = rng.DrawStream(request.seed)
     state = _State(catalog, engine, batch, stream, sites, request.per_program_cap)
     state.skips[cv.SKIP_MUTATION_NO_SITES] = sum(1 for s in sites.values() if not s)

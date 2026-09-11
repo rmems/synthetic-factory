@@ -52,6 +52,7 @@ class Batch:
     harness_sha256: str
     generator: dict[str, Any]
     provenance: dict[str, Any]
+    policy_sha256: str | None = None
 
 
 def candidate_seed(run_seed: int, program_id: str, draw_index: int) -> int:
@@ -65,7 +66,9 @@ def _actor(role: str, name: str, version: str) -> dict[str, str]:
     return {"role": role, "kind": cv.GENERATOR_KIND, "name": name, "version": version}
 
 
-def new_batch(run_seed: int, produced_at: str, executor: ex.Executor) -> Batch:
+def new_batch(
+    run_seed: int, produced_at: str, executor: ex.Executor, policy_sha256: str | None = None
+) -> Batch:
     identity = oc.GeneratorIdentity(cv.GENERATOR_NAME, cv.GENERATOR_VERSION, cv.GENERATOR_KIND)
     actors = {
         cv.ROLE_TASK_AUTHOR: _actor(cv.ROLE_TASK_AUTHOR, cv.GENERATOR_NAME, cv.GENERATOR_VERSION),
@@ -80,7 +83,8 @@ def new_batch(run_seed: int, produced_at: str, executor: ex.Executor) -> Batch:
     )
     generator = oc.new_generator(identity, seed=run_seed)
     return Batch(
-        run_seed, produced_at, executor.timeout_s, executor.harness_sha256, generator, provenance
+        run_seed, produced_at, executor.timeout_s, executor.harness_sha256, generator, provenance,
+        policy_sha256,
     )
 
 
@@ -221,7 +225,7 @@ def build_record(candidate: Candidate, batch: Batch) -> dict[str, Any]:
     provenance = dict(batch.provenance)
     provenance["split_lineage"] = {
         "lineage_id": candidate.program.program_id, "group_id": candidate.program.group_id,
-        "split": candidate.program.split,
+        "split": candidate.program.split, "policy_sha256": batch.policy_sha256,
     }
     record = oc.build_record(
         identity=oc.RecordIdentity(candidate.record_id, cv.FAMILY),

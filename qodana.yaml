@@ -10,10 +10,14 @@ exclude:
       - .agents
   # CLI entrypoints insert pipelines/ into sys.path before importing round_txn;
   # Qodana cannot model that runtime path mutation, which is covered by tests.
+  # The code-repair vendor script does the same; the Agoge consumer probe runs
+  # under Agoge-Forger's own virtualenv (agoge_forger, transformers, trl).
   - name: PyUnresolvedReferencesInspection
     paths:
       - .claude/skills/run-synthetic-factory/driver.py
       - scripts/publish_grok46_hub.py
+      - scripts/vendor_python_repair_catalog.py
+      - scripts/agoge_consumer_probe.py
   # Taxonomy regex safety walks CPython's private opcode tree on purpose.
   # The compose_curated adapters are the compatibility facade's monkeypatch
   # seams: every historical ``_name`` is read through the live facade

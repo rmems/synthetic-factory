@@ -32,9 +32,8 @@ REPAIR_FAMILY = CodedFamily(
 
 __all__ = (
     "FAMILY_MODULES", "FIXTURE_CATALOG", "FakeExecutor", "PINNED_AT", "REPO", "SEED", "catalog",
-    "boundary_site", "cli", "envelope", "executor", "fixture", "generate", "mutate", "oc", "program",
-    "records",
-    "refusal", "report", "rows", "smoke_run", "verify", "views", "vocabulary",
+    "boundary_site", "cli", "envelope", "executor", "fixture", "generate", "mutate", "oc",
+    "program", "records", "refusal", "report", "rows", "smoke_run", "verify", "views", "vocabulary",
 )
 
 

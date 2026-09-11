@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The agent surface of the code-repair family: catalog-check, generate, replay, render.
+"""The agent surface of the code-repair family: catalog-check, generate, replay, export, render.
 
 Exit codes: 0 when the command succeeded with nothing to report, 1 when it
 ran and reports catalog findings, 2 on a coded refusal or a usage error. ``--json`` prints one object
@@ -17,6 +17,7 @@ from typing import Any
 from . import catalog as cat
 from . import catalog_check as cc
 from . import executor as ex
+from . import export
 from . import generate
 from . import replay
 from . import views
@@ -52,6 +53,14 @@ def build_parser() -> argparse.ArgumentParser:
     rep.add_argument("--out", type=Path, required=True)
     rep.add_argument("--timeout-s", type=float, default=cv.DEFAULT_TIMEOUT_S)
     rep.add_argument("--json", action="store_true")
+
+    exp = commands.add_parser("export", help="evidence, SFT rows and consumer rows into a new tree")
+    exp.add_argument("--run", type=Path, required=True)
+    exp.add_argument("--catalog", type=Path, required=True)
+    exp.add_argument("--out", type=Path, required=True)
+    exp.add_argument("--replay", type=Path, default=None, help="a replay directory of this run")
+    exp.add_argument("--lineage-cap", type=int, default=export.DEFAULT_LINEAGE_CAP)
+    exp.add_argument("--json", action="store_true")
 
     render = commands.add_parser("render", help="the SFT prompt/completion of one record")
     render.add_argument("run_dir", type=Path)
@@ -111,6 +120,21 @@ def _replay(args: argparse.Namespace) -> int:
     return 0 if status == "ok" else 1
 
 
+def _export(args: argparse.Namespace) -> int:
+    manifest = export.run(export.ExportRequest(
+        args.run, args.out, args.replay, args.lineage_cap, catalog_dir=args.catalog
+    ))
+    tables, admission = manifest["tables"], manifest["admission"]
+    exported = tables["dispositions"].get("exported", 0)
+    text = (
+        f"exported {exported} rows from {tables['positives']} positives ({tables['per_split']}) "
+        f"into {args.out}; training export {admission['training_export']}: "
+        f"{', '.join(admission['blockers'])}"
+    )
+    _emit({"command": "export", "status": "ok", "manifest": manifest}, args.json, text)
+    return 0
+
+
 def _load_record(run_dir: Path, record_id: str) -> dict[str, Any]:
     """The record with this id, refused unless the shared envelope and digest accept it."""
 
@@ -160,6 +184,7 @@ def _render(args: argparse.Namespace) -> int:
 
 _COMMANDS = {
     "catalog-check": _catalog_check, "generate": _generate, "render": _render, "replay": _replay,
+    "export": _export,
 }
 
 

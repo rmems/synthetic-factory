@@ -165,7 +165,7 @@ def _retained_sequence_stable(executor: ex.Executor, subject: Subject, kept: lis
                for row, case in zip(final.hidden, kept))
 
 
-def observed_cases(executor: ex.Executor, subject: Subject) -> list[dict]:
+def _observed_cases(executor: ex.Executor, subject: Subject) -> list[dict]:
     """The cases the original answers with a value, with its repr as the pinned want."""
 
     args_list = candidate_args(subject.examples, subject.function, _stream_for(subject.program_id))
@@ -187,6 +187,28 @@ def _observe(executor: ex.Executor, text: str, function: str, probes: tuple) -> 
         f"observing {function} failed: {report.detail}",
     )
     return report
+
+
+def observe(executor: ex.Executor, subject: Subject) -> tuple[ex.PhaseReport | None, list[dict]]:
+    reports = []
+
+    class Capture:
+        def run(self, job):
+            report = executor.run(job)
+            reports.append(report)
+            return report
+
+    try:
+        cases = _observed_cases(Capture(), subject)
+    except cv.RepairRefusal:
+        if reports and not reports[-1].ok:
+            return reports[-1], []
+        raise
+    return (reports[-1] if reports else None), cases
+
+
+def observed_cases(executor: ex.Executor, subject: Subject) -> list[dict]:
+    return _observed_cases(executor, subject)
 
 
 bind_import_twin(__name__)

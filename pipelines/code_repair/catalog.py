@@ -39,7 +39,7 @@ _UPSTREAM_FIELDS = ("repository", "commit", "path", "file_sha256", "function", "
 __all__ = [
     "CATALOG_FILENAME", "Catalog", "Example", "LICENSE_FILENAME", "PROGRAMS_FILENAME", "Program",
     "Reference", "examples_of", "examples_sha256", "function_node", "load_catalog",
-    "sha256_text", "want_kind_of",
+    "program_from_row", "sha256_text", "want_kind_of",
 ]
 
 
@@ -357,6 +357,12 @@ def _program(row: Any, lineno: int) -> Program:
         program_id, _field(row, "family", str, where), dict(upstream), text, digest, function,
         examples, examples_sha256(examples), reference, cases, group_id, split, ast_digest,
     )
+
+
+def program_from_row(row: dict[str, Any]) -> Program:
+    """A builder-produced row as the loader would read it (same checks, no file position)."""
+
+    return _program(row, 0)
 
 
 def _provenance_agrees(program: Program, meta: dict[str, Any]) -> None:
