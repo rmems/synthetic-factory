@@ -1,5 +1,6 @@
 version: "1.0"
-linter: qodana-python
+# Free Community linter. No Qodana Cloud token or endpoint is required.
+linter: qodana-python-community
 # The sanity preflight ignores path exclusions and suspends after encountering
 # the intentional runtime imports below. Normal configured inspections remain
 # enabled and still analyze every non-excluded Python path.

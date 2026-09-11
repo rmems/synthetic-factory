@@ -54,7 +54,10 @@ def fixture():
 def program(function):
     """The fixture program whose target function has this name."""
 
-    return next(p for p in fixture().programs if p.function == function)
+    for p in fixture().programs:
+        if p.function == function:
+            return p
+    raise AssertionError(f"no fixture program named {function}")
 
 
 def boundary_site(prog, text=None):
