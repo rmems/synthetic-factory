@@ -185,6 +185,7 @@ def _blob(entry: dict, commit: str, cache: Path) -> bytes:
     url = RAW.format(repository=REPOSITORY, commit=commit, path=entry["path"])
     data = _fetch(url, cache)
     framed = b"blob " + str(len(data)).encode("ascii") + b"\0" + data
+    # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1 -- Git blob object identity, never a security digest.
     digest = hashlib.sha1(framed, usedforsecurity=False).hexdigest()
     if digest != entry.get("sha"):
         raise SystemExit("raw file blob sha mismatch: " + str(entry["path"])[:160])
