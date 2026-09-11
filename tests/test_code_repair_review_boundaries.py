@@ -3,7 +3,8 @@
 import copy
 import dataclasses
 import os
-import subprocess
+# Required only for the fixed-interpreter regression subprocess below.
+import subprocess  # nosec B404
 import sys
 import unittest
 from pathlib import Path
@@ -90,7 +91,8 @@ class LiteralAndObservationBoundaries(unittest.TestCase):
             f"build = cb.Build(base.upstream, {{'maths/sets.py': {source!r}}}, {{}}); "
             "print(oc.canonical_json(cb.build_rows(build, [('maths/sets.py', 'f')], RUNNER)))"
         )
-        outputs = [subprocess.check_output(
+        # The test owns every argv element and never enables a shell.
+        outputs = [subprocess.check_output(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
             [sys.executable, "-c", script], cwd=Path(__file__).resolve().parents[1],
             env={**os.environ, "PYTHONHASHSEED": seed}, text=True,
         ) for seed in ("1", "2", "3")]

@@ -38,6 +38,7 @@ class CatalogCheck(unittest.TestCase):
         self.assertEqual((code, out), (2, ""))
         self.assertTrue(err.startswith(cv.FINDING_CATALOG_FILE_MISSING + ": "), err)
 
+
     def test_a_refusal_under_json_is_one_coded_object_on_stdout(self):
         code, out, err = invoke(["catalog-check", "--catalog", "/nonexistent/catalog", "--json"])
         self.assertEqual((code, err), (2, ""))

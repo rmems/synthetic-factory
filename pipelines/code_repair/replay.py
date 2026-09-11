@@ -297,7 +297,8 @@ def _record_identity_matches(record: dict[str, Any], catalog: cat.Catalog) -> bo
 
 
 def _draw_identity_valid(seed: Any, index: Any) -> bool:
-    if type(seed) is not int or type(index) is not int:
+    # Exact ints reject bool and subclasses in deterministic draw identities.
+    if type(seed) is not int or type(index) is not int:  # pylint: disable=unidiomatic-typecheck
         return False
     return 0 <= seed <= cv.MAX_SEED and 0 <= index < cv.MAX_COUNT
 
@@ -356,7 +357,8 @@ def _run_identity(run_dir: Path) -> dict[str, Any]:
     )
     count = summary.get("records")
     cv.refuse_when(
-        type(count) is not int or count != len(_records(run_dir)),
+        # Exact int rejects bool and subclasses in the persisted record count.
+        type(count) is not int or count != len(_records(run_dir)),  # pylint: disable=unidiomatic-typecheck
         cv.FINDING_RECORD_MALFORMED, "candidates count differs from generation",
     )
     from .run_validation import run_identity
