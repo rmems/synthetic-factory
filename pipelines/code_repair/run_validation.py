@@ -24,7 +24,8 @@ def _counts(value, expected=None):
     if not isinstance(value, dict):
         return False
     for count in value.values():
-        if type(count) is not int:
+        # Exact ints reject bool and subclasses in persisted counts.
+        if type(count) is not int:  # pylint: disable=unidiomatic-typecheck
             return False
         if count < 0:
             return False
@@ -32,7 +33,8 @@ def _counts(value, expected=None):
 
 
 def _integer_in_domain(value, minimum, maximum):
-    if type(value) is not int:
+    # Exact int is part of the deterministic identity domain.
+    if type(value) is not int:  # pylint: disable=unidiomatic-typecheck
         return False
     return minimum <= value <= maximum
 
@@ -101,7 +103,8 @@ def _record_identity(record, run, catalog):
 
 
 def _record_totals_match(run, records):
-    if type(run['records']) is not int:
+    # Exact int rejects bool and subclasses in the run summary.
+    if type(run['records']) is not int:  # pylint: disable=unidiomatic-typecheck
         return False
     if run['records'] != len(records):
         return False

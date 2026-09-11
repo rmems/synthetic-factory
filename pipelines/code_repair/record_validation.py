@@ -40,7 +40,8 @@ def _proposal_shape(record: dict) -> None:
     _fields(source['upstream'], 'repository commit path file_sha256 function license')
     span = source['upstream']['line_span']
     _require(isinstance(span, list) and len(span) == 2)
-    _require(all(type(n) is int and n > 0 for n in span))
+    # Exact ints reject bool and subclasses in source coordinates.
+    _require(all(type(n) is int and n > 0 for n in span))  # pylint: disable=unidiomatic-typecheck
     _fields(record['candidate_prediction'], 'method')
     actual = (scenario['task_specification'], scenario['language'], scenario['record_kind'],
               record['candidate_prediction']['method'])
@@ -103,7 +104,8 @@ def _row_shape(row: Any, prefix: str) -> None:
         _require(all(field in row for field in ("got", "truncated", "got_sha256")))
     _require(isinstance(row.get("got", ""), str))
     if "got" in row:
-        _require(type(row["truncated"]) is bool and _digest(row["got_sha256"]))
+        # Exact bool rejects integer truthiness in persisted evidence.
+        _require(type(row["truncated"]) is bool and _digest(row["got_sha256"]))  # pylint: disable=unidiomatic-typecheck
         if not row["truncated"]:
             _require(cat.sha256_text(row["got"]) == row["got_sha256"])
 
@@ -129,8 +131,9 @@ def _phase_shape(block: Any) -> None:
         return
     _require(isinstance(block, dict))
     _require(block["status"] in (cv.PHASE_OK, cv.PHASE_TIMEOUT, cv.PHASE_HARNESS_ERROR))
-    _require(type(block["load_ok"]) is bool and _digest(block["module_sha256"]))
-    _require(block["limits_applied"] is None or type(block["limits_applied"]) is bool)
+    # Protocol booleans reject ints and subclasses at the persisted boundary.
+    _require(type(block["load_ok"]) is bool and _digest(block["module_sha256"]))  # pylint: disable=unidiomatic-typecheck
+    _require(block["limits_applied"] is None or type(block["limits_applied"]) is bool)  # pylint: disable=unidiomatic-typecheck
     _require(_phase_limits_are_valid(block))
     for suite in ("public", "hidden"):
         _suite_shape(block[suite], suite)
@@ -189,13 +192,15 @@ def _public_failure_shape(result: dict[str, Any], examples: tuple[cat.Example, .
     valid_ids = {example.example_id for example in examples}
     evidence = result["public_failure_evidence"]
     _require(isinstance(evidence, list))
-    _require(type(result["public_failure_omitted"]) is int)
+    # Exact int rejects bool and integer subclasses in omission accounting.
+    _require(type(result["public_failure_omitted"]) is int)  # pylint: disable=unidiomatic-typecheck
     _require(result["public_failure_omitted"] >= 0)
     for entry in evidence:
         _require(isinstance(entry, dict))
         _require(entry["example_id"] in valid_ids)
         _require(all(isinstance(entry[key], str) for key in ("source", "want", "got")))
-        _require(type(entry["truncated"]) is bool)
+        # Exact bool keeps each serialized truncation flag canonical.
+        _require(type(entry["truncated"]) is bool)  # pylint: disable=unidiomatic-typecheck
 
 
 def _phase_blocks_shape(result: dict[str, Any]) -> None:

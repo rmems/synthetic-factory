@@ -139,7 +139,8 @@ def _label_report(rows: list[dict], config: dict) -> dict:
 def _valid_boundary_offset(text, start) -> bool:
     if not isinstance(text, str):
         return False
-    if type(start) is not int:
+    # Exact int rejects bool and subclasses as completion offsets.
+    if type(start) is not int:  # pylint: disable=unidiomatic-typecheck
         return False
     return start in range(1, len(text))
 
