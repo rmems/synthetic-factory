@@ -48,7 +48,8 @@ def selection_decisions(records: Iterable[dict[str, Any]], *, lineage_cap=DEFAUL
 
 
 def _validate_cap(lineage_cap):
-    if type(lineage_cap) is not int or lineage_cap < 1:
+    # Exact int rejects bool and subclasses at the selection boundary.
+    if type(lineage_cap) is not int or lineage_cap < 1:  # pylint: disable=unidiomatic-typecheck
         raise ValueError("lineage_cap must be a positive integer")
 
 

@@ -31,12 +31,14 @@ def _fields(value, expected):
 
 
 def _positive_integer(value):
-    return type(value) is int and value > 0
+    # Exact int rejects bool and subclasses in receipt counters.
+    return type(value) is int and value > 0  # pylint: disable=unidiomatic-typecheck
 
 
 def _verified_counts(counts):
     _fields(counts, {"total", "verified", "failed", "inconclusive"})
-    _require(all(type(v) is int for v in counts.values()), "counts must be integers")
+    # Exact ints keep all persisted replay counters canonical.
+    _require(all(type(v) is int for v in counts.values()), "counts must be integers")  # pylint: disable=unidiomatic-typecheck
     _require(_positive_integer(counts["total"]), "completed batch must be nonempty")
     _require(counts == {"total": counts["total"], "verified": counts["total"],
                         "failed": 0, "inconclusive": 0}, "invalid fresh replay counts")
@@ -70,7 +72,8 @@ def validate_summary(summary):
                       "procedural", "fresh_replay"})
     _require(summary["gate"] == GATE, "invalid procedural gate")
     _require(summary["strict"] is True, "procedural gate must be strict")
-    _require(type(summary["semantics_version"]) is int, "invalid semantics version type")
+    # Exact int rejects bool and subclasses in the receipt version.
+    _require(type(summary["semantics_version"]) is int, "invalid semantics version type")  # pylint: disable=unidiomatic-typecheck
     _require(summary["semantics_version"] == 1, "invalid semantics version")
     _require(summary["override"] is None, "procedural gate cannot be waived")
     _verified_counts(summary["counts"])

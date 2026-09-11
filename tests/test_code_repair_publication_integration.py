@@ -199,7 +199,8 @@ class PublicationIntegrationTests(unittest.TestCase):
             selected = published["execution_verification"]["procedural"]["selected"]
             agoge = [json.loads(line) for line in (exported / export.AGOGE_PATH).read_bytes().splitlines()]
             self.assertEqual({r["canonical_id"] for r in agoge}, {r["id"] for r in selected})
-            self.assertTrue(all(type(r["completion_start_char"]) is int for r in agoge))
+            # Exact int is the producer/consumer completion-boundary contract.
+            self.assertTrue(all(type(r["completion_start_char"]) is int for r in agoge))  # pylint: disable=unidiomatic-typecheck
             self.assertEqual((exported / export.EVIDENCE_PATH).read_bytes(),
                              (self.run_dir / "candidates.jsonl").read_bytes())
             freeze = json.loads((exported / export.FREEZE_PATH).read_text())

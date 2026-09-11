@@ -228,7 +228,8 @@ def validate_completed(batch: Path, manifest: dict) -> dict:
             != transaction.EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION):
         _fail("procedural completion requires the fresh-gate marker version")
     summary = validate_summary(manifest.get("execution_verification"))
-    if manifest.get("factory") != batch.parent.name or type(manifest.get("round")) is not int:
+    # Exact int rejects bool and subclasses in the persisted round identity.
+    if manifest.get("factory") != batch.parent.name or type(manifest.get("round")) is not int:  # pylint: disable=unidiomatic-typecheck
         _fail("completion factory/round does not bind this batch")
     try:
         binding, positives, _catalog = inspect_inputs(batch.parent, batch, manifest["round"])
@@ -282,7 +283,8 @@ def publish_run(request: PublishRequest) -> dict:
     """Publish a local completed round after real fresh replay; no Hub or training launch."""
     if request.factory_dir.name != sp.POLICY["path_id"]:
         _fail("request must name the approved factory")
-    if type(request.round_number) is not int or request.round_number < 1:
+    # Exact int rejects bool and subclasses at the publication boundary.
+    if type(request.round_number) is not int or request.round_number < 1:  # pylint: disable=unidiomatic-typecheck
         _fail("request must name a positive round number")
     transaction = _transaction()
     try:
