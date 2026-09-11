@@ -37,7 +37,8 @@ def _proposal_shape(record: dict) -> None:
     _fields(source['upstream'], 'repository commit path file_sha256 function license')
     span = source['upstream']['line_span']
     _require(isinstance(span, list) and len(span) == 2)
-    _require(all(type(n) is int and n > 0 for n in span))
+    # Exact ints reject bool and subclasses in source coordinates.
+    _require(all(type(n) is int and n > 0 for n in span))  # pylint: disable=unidiomatic-typecheck
     _fields(record['candidate_prediction'], 'method')
     public = scenario['public_tests']
     _fields(public, 'kind')

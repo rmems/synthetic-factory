@@ -78,7 +78,8 @@ def _with_identity_edit(report, path, mode):
     if mode == "missing":
         parent.pop(path[-1])
     else:
-        parent[path[-1]] = value + 1 if type(value) is int else "different"
+        # Exact int preserves the test's bool/subclass boundary.
+        parent[path[-1]] = value + 1 if type(value) is int else "different"  # pylint: disable=unidiomatic-typecheck
     return report
 
 

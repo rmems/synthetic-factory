@@ -19,6 +19,7 @@ from code_repair import catalog_check  # noqa: E402
 
 def blob_sha(data):
     framed = b"blob " + str(len(data)).encode() + b"\0" + data
+    # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1 -- mirrors Git blob object identity in the fixture.
     return hashlib.sha1(framed, usedforsecurity=False).hexdigest()
 
 
