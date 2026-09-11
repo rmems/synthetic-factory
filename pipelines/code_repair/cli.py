@@ -16,8 +16,11 @@ from typing import Any
 
 from . import catalog as cat
 from . import executor as ex
+from . import generate
+from . import views
+from . import record_validation as validation
 from . import vocabulary as cv
-from ._contract import bind_import_twin, envelope
+from ._contract import bind_import_twin, envelope, oc
 
 __all__ = ["build_parser", "run"]
 
@@ -31,6 +34,20 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--timeout-s", type=float, default=cv.DEFAULT_TIMEOUT_S)
     check.add_argument("--json", action="store_true")
 
+    gen = commands.add_parser("generate", help="seeded candidates into a new run directory")
+    gen.add_argument("--catalog", type=Path, required=True)
+    gen.add_argument("--seed", type=int, required=True)
+    gen.add_argument("--count", type=int, required=True)
+    gen.add_argument("--out", type=Path, required=True)
+    gen.add_argument("--produced-at", default=None, help="pinned ISO-8601 UTC instant")
+    gen.add_argument("--timeout-s", type=float, default=cv.DEFAULT_TIMEOUT_S)
+    gen.add_argument("--per-program-cap", type=int, default=cv.DEFAULT_PER_PROGRAM_CAP)
+    gen.add_argument("--json", action="store_true")
+
+    render = commands.add_parser("render", help="the SFT prompt/completion of one record")
+    render.add_argument("run_dir", type=Path)
+    render.add_argument("record_id")
+    render.add_argument("--json", action="store_true")
     return parser
 
 
@@ -52,7 +69,68 @@ def _catalog_check(args: argparse.Namespace) -> int:
     return 1 if findings else 0
 
 
-_COMMANDS = {"catalog-check": _catalog_check}
+def _generate(args: argparse.Namespace) -> int:
+    request = generate.RunRequest(
+        args.catalog, args.out, args.seed, args.count, args.produced_at, args.timeout_s,
+        args.per_program_cap,
+    )
+    summary = generate.run(request)
+    text = (
+        f"generated {summary['records']} records into {args.out} "
+        f"(outcomes {summary['outcomes']}, skips {summary['skips']})"
+    )
+    _emit({"command": "generate", "status": "ok", "summary": summary}, args.json, text)
+    return 0
+
+
+def _load_record(run_dir: Path, record_id: str) -> dict[str, Any]:
+    """The record with this id, refused unless the shared envelope and digest accept it."""
+
+    path = run_dir / generate.CANDIDATES_FILENAME
+    cv.refuse_when(not path.is_file(), cv.FINDING_RUN_FILE_MISSING, f"{path} is missing")
+    for _lineno, record in oc.iter_jsonl(path):
+        if isinstance(record, dict) and record.get("id") == record_id:
+            validation.validate_shape(record)
+            return record
+    message = f"no record {cv.shown(record_id)} in {path}"
+    raise cv.RepairRefusal(cv.FINDING_RECORD_NOT_FOUND, message)
+
+
+def _render(args: argparse.Namespace) -> int:
+    record = _load_record(args.run_dir, args.record_id)
+    result = record["result"]
+    if not views.is_positive(record):
+        payload = {
+            "command": "render", "status": "findings", "record_id": args.record_id,
+            "findings": [{"code": cv.FINDING_RECORD_NOT_A_POSITIVE_EXAMPLE,
+                          "outcome": result["outcome"], "oracle_status": result["oracle_status"],
+                          "reason_codes": result["reason_codes"]}],
+        }
+        text = (
+            f"{cv.FINDING_RECORD_NOT_A_POSITIVE_EXAMPLE}: {args.record_id} is {result['outcome']} "
+            f"({result['oracle_status']}; {', '.join(result['reason_codes'])})"
+        )
+        _emit(payload, args.json, text)
+        return 1
+    row = {"prompt": views.render_prompt(views.public_view(record)),
+           "completion": views.completion_of(record)}
+    leaks = views.view_findings(record, row)
+    payload = {
+        "command": "render", "status": "findings" if leaks else "ok", "record_id": args.record_id,
+        "findings": [{"code": code} for code in leaks],
+        "sha256": {"broken": result["broken_sha256"], "repaired": result["repaired_sha256"],
+                   "record": record["provenance"]["record_sha256"]},
+    }
+    if leaks:
+        # A pair with a leak finding is never emitted, not even beside its findings.
+        _emit(payload, args.json, "leak findings: " + ", ".join(leaks))
+        return 1
+    payload["sft"] = row
+    _emit(payload, args.json, f"### prompt\n{row['prompt']}\n### completion\n{row['completion']}")
+    return 0
+
+
+_COMMANDS = {"catalog-check": _catalog_check, "generate": _generate, "render": _render}
 
 
 def _refused(args: argparse.Namespace, refusal: envelope.ContractError) -> int:

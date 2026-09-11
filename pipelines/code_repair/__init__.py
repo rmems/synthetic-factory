@@ -18,5 +18,12 @@ __all__ = [
     "catalog",
     "cli",
     "executor",
+    "generate",
+    "mutate",
+    "records",
+    "record_validation",
+    "evidence",
+    "verify",
+    "views",
     "vocabulary",
 ]

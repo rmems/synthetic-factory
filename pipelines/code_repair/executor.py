@@ -21,7 +21,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +65,7 @@ class PhaseReport:
     hidden: tuple[dict[str, Any], ...]
     environment: dict[str, Any] = field(default_factory=dict)
     detail: str = ""
+    module_sha256: str = ""
 
     @property
     def ok(self) -> bool:
@@ -76,16 +77,18 @@ def harness_sha256() -> str:
 
 
 def rows_of(rows: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
-    """The digestable form of a row list: ``{id, status}`` plus the digest of any ``got``.
+    """Stable rows with bounded displayed output and full observation hashes.
 
-    A failing row's ``got`` text is not stored twice, but its digest is, so a
-    consumer can check a rendered failure against the row the harness wrote.
+    Keeping the bounded text allows consumers to reconstruct exactly the public
+    evidence prefix, including when its display budget causes further truncation.
     """
 
     digestable = []
     for row in rows:
         entry: dict[str, Any] = {"id": row["id"], "status": row["status"]}
         if "got" in row:
+            entry["got"] = row["got"]
+            entry["truncated"] = bool(row.get("truncated", False))
             entry["got_sha256"] = row.get("got_sha256") or hashlib.sha256(
                 str(row["got"]).encode("utf-8")
             ).hexdigest()
@@ -143,7 +146,8 @@ class Executor:
             program.write_text(job.module_text, encoding="utf-8", newline="\n")
             (workdir / "spec.json").write_text(_dumps(self.spec(job)), encoding="utf-8")
             (workdir / HARNESS_FILENAME).write_bytes(self._harness_bytes)
-            return self._execute(job, workdir)
+            return replace(self._execute(job, workdir),
+                           module_sha256=hashlib.sha256(job.module_text.encode("utf-8")).hexdigest())
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
 

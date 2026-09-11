@@ -13,7 +13,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from code_repair_test_support import catalog, executor as ex, program, refusal, vocabulary as cv  # noqa: E402
+from code_repair_test_support import catalog, executor as ex, mutate, program, refusal, vocabulary as cv  # noqa: E402
 from code_repair import _harness as harness  # noqa: E402
 
 RUNNER = ex.Executor(timeout_s=5.0)
@@ -33,8 +33,8 @@ class OriginalAndMutant(unittest.TestCase):
 
     def test_the_mutant_fails_with_the_real_got_text(self):
         prog = program("get_1s_count")
-        mutant = prog.text.replace("number < 0", "number <= 0", 1)
-        report = RUNNER.run(prog.job("mutant:test", mutant))
+        (site,) = mutate.sites(prog.text, prog.function)
+        report = RUNNER.run(prog.job("mutant:test", mutate.apply(prog.text, site)))
         failing = [row for row in report.public if row["status"] != "pass"]
         self.assertEqual([row["id"] for row in failing], ["public:4"])
         self.assertEqual(failing[0]["status"], "error")
@@ -100,9 +100,9 @@ class Failures(unittest.TestCase):
 
     def test_an_infinite_loop_is_a_timeout_not_an_exception(self):
         prog = program("sum_of_digits")
-        mutant = prog.text.replace("while n > 0", "while n >= 0", 1)
+        (site,) = mutate.sites(prog.text, prog.function)
         quick = ex.Executor(timeout_s=1.0)
-        report = quick.run(prog.job("mutant:test", mutant))
+        report = quick.run(prog.job("mutant:test", mutate.apply(prog.text, site)))
         self.assertEqual(report.status, cv.PHASE_TIMEOUT)
         self.assertFalse(report.ok)
         self.assertTrue(quick.log[-1]["timed_out"])
@@ -207,7 +207,8 @@ class Isolation(unittest.TestCase):
         self.assertEqual(
             ex.rows_of(rows),
             [{"id": "public:1", "status": "pass"},
-             {"id": "public:2", "status": "fail", "got_sha256": digest}],
+         {"id": "public:2", "status": "fail", "got": "x", "truncated": False,
+          "got_sha256": digest}],
         )
 
 

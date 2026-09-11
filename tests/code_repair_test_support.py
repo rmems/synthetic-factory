@@ -11,14 +11,16 @@ Fake-executor evidence and real-subprocess evidence are kept apart: only
 """
 
 import functools
+import dataclasses
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from coded_refusal_test_support import CodedFamily, coded_refusal
 from distill_contract_test_support import REPO, envelope, oc
-from code_repair import catalog, cli, executor, vocabulary
+from code_repair import catalog, cli, executor, generate, mutate, records, verify, views, vocabulary
 
 FIXTURE_CATALOG = REPO / "tests" / "fixtures" / "code-repair"
 PINNED_AT = "2026-09-08T00:00:00.000Z"
@@ -26,12 +28,15 @@ SEED = 20260908
 REPAIR_FAMILY = CodedFamily(
     vocabulary.RepairRefusal, vocabulary.FINDING_CODE_SET, vocabulary.REASON_CODE_SET
 )
-FAMILY_MODULES = ("_contract", "vocabulary", "catalog", "executor", "cli")
+FAMILY_MODULES = (
+    "_contract", "vocabulary", "catalog", "mutate", "executor", "verify", "records", "views",
+    "generate", "cli", "record_validation", "evidence",
+)
 
 __all__ = (
     "FAMILY_MODULES", "FIXTURE_CATALOG", "FakeExecutor", "PINNED_AT", "REPO", "SEED", "catalog",
-    "cli", "envelope", "executor", "fixture", "oc", "program", "refusal", "report", "rows",
-    "vocabulary",
+    "cli", "envelope", "executor", "fixture", "generate", "mutate", "oc", "program", "records",
+    "refusal", "report", "rows", "smoke_run", "verify", "views", "vocabulary",
 )
 
 
@@ -90,6 +95,25 @@ class FakeExecutor:
     def run(self, job):
         self.jobs.append(job)
         phase = job.label.split(":", 1)[0]
+        if phase == 'original_repeat' and phase not in self.by_phase:
+            phase = 'original'
         self.log.append({"label": job.label, "status": "fake"})
+        if phase == vocabulary.PHASE_REFERENCE and phase not in self.by_phase:
+            # Unless a test says otherwise, the certifying reference answers every pinned case.
+            return dataclasses.replace(report((), rows("hidden", len(job.cases))),
+                                       module_sha256=catalog.sha256_text(job.module_text))
         canned = self.by_phase[phase]
-        return canned(job) if callable(canned) else canned
+        result = canned(job) if callable(canned) else canned
+        return dataclasses.replace(result, module_sha256=catalog.sha256_text(job.module_text))
+
+
+@functools.lru_cache(maxsize=None)
+def smoke_run(seed=SEED, count=12):
+    """One real generation run into a temporary directory: ``(summary, records, run_dir)``."""
+
+    root = Path(tempfile.mkdtemp(prefix="code-repair-smoke-"))
+    out = root / "run"
+    request = generate.RunRequest(FIXTURE_CATALOG, out, seed, count, PINNED_AT)
+    summary = generate.run(request)
+    loaded = [record for _lineno, record in oc.read_jsonl(out / generate.CANDIDATES_FILENAME)]
+    return summary, loaded, out
