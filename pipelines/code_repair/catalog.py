@@ -31,7 +31,7 @@ LICENSE_FILENAME = "LICENSE.upstream"
 SPLITS = ("train", "validation", "held_out")
 MAX_CASE_ARGS_CHARS = 4_096
 MAX_PUBLIC_EXAMPLES = 48  # 72 total rows fit the 1 MiB report budget with UTF-8 output
-_UPSTREAM_FIELDS = ("repository", "commit", "path", "file_sha256", "function", "license")
+UPSTREAM_FIELDS = ("repository", "commit", "path", "file_sha256", "function", "license")
 
 __all__ = [
     "CATALOG_FILENAME", "LICENSE_FILENAME", "PROGRAMS_FILENAME", "Catalog", "Example", "Program",
