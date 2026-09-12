@@ -26,7 +26,7 @@ SEED = 20260908
 REPAIR_FAMILY = CodedFamily(
     vocabulary.RepairRefusal, vocabulary.FINDING_CODE_SET, vocabulary.REASON_CODE_SET
 )
-FAMILY_MODULES = ("_contract", "vocabulary", "catalog", "executor", "cli")
+FAMILY_MODULES = ("_contract", "vocabulary", "catalog", "catalog_load", "executor", "cli")
 
 __all__ = (
     "FAMILY_MODULES", "FIXTURE_CATALOG", "FakeExecutor", "PINNED_AT", "REPO", "SEED", "catalog",

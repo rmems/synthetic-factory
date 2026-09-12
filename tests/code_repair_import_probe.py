@@ -14,7 +14,7 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
-MODULES = ("_contract", "vocabulary", "catalog", "executor", "cli")
+MODULES = ("_contract", "vocabulary", "catalog", "catalog_load", "executor", "cli")
 
 
 def _forget_repository_modules() -> None:
