@@ -247,6 +247,19 @@ class OriginalPasses(unittest.TestCase):
         codes = [f["code"] for f in catalog.catalog_check(single, fake)]
         self.assertEqual(codes, [cv.CHECK_SOURCE_NONDETERMINISTIC])
 
+    def test_two_differing_reference_runs_are_nondeterministic(self):
+        prog = program("factorial")
+        ok = report(rows("public", 7), rows("hidden", 15))
+        answers = iter([
+            report((), rows("hidden", 15)),
+            report((), rows("hidden", 15, (3,))),
+        ])
+        fake = FakeExecutor({"original": ok, "reference": lambda job: next(answers)})
+        single = catalog.Catalog("x", FIXTURE_CATALOG, {}, "", "", (prog,))
+        codes = [f["code"] for f in catalog.catalog_check(single, fake)]
+        self.assertEqual(codes, [cv.CHECK_SOURCE_NONDETERMINISTIC])
+
+
 
 if __name__ == "__main__":
     unittest.main()

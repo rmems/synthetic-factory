@@ -8,7 +8,7 @@ no linter or test discovery ever touches third-party code) and
 so this module stays the types, doctest helpers and ``catalog_check``.
 :func:`catalog_check` is the "original passes" demonstration: every
 program's original must pass its public examples and its hidden cases twice
-identically, and a certifying reference must agree with the pinned wants.
+identically, and a certifying reference must agree with the pinned wants twice.
 """
 
 from __future__ import annotations
@@ -220,21 +220,28 @@ def _original_findings(program: Program, executor: ex.Executor) -> list[dict[str
 
 
 def _reference_findings(program: Program, executor: ex.Executor) -> list[dict[str, str]]:
+    """Both certifying runs must load and finish; hidden rows must agree and match the pins."""
+
     if not program.reference.certifying:
         return []
-    report = executor.run(program.reference_job(f"reference:{program.program_id}"))
-    code = _phase_code(report, cv.CHECK_REFERENCE_TIMEOUT, cv.CHECK_REFERENCE_HARNESS_ERROR)
-    if code is not None:
-        return [_finding(code, program, report.detail)]
-    disagreeing = _failing(report.hidden)
-    if disagreeing or len(report.hidden) != len(program.cases):
+    label = f"reference:{program.program_id}"
+    reports = (executor.run(program.reference_job(label)), executor.run(program.reference_job(label)))
+    for report in reports:
+        code = _phase_code(report, cv.CHECK_REFERENCE_TIMEOUT, cv.CHECK_REFERENCE_HARNESS_ERROR)
+        if code is not None:
+            return [_finding(code, program, report.detail)]
+    first, second = reports
+    if first.hidden != second.hidden:
+        return [_finding(cv.CHECK_SOURCE_NONDETERMINISTIC, program, "two reference runs differ")]
+    disagreeing = _failing(first.hidden)
+    if disagreeing or len(first.hidden) != len(program.cases):
         detail = ", ".join(disagreeing) or "row count"
         return [_finding(cv.CHECK_REFERENCE_DISAGREES, program, detail)]
     return []
 
 
 def catalog_check(catalog: Catalog, executor: ex.Executor) -> list[dict[str, str]]:
-    """Every original passes twice identically and its reference agrees; findings otherwise."""
+    """Every original passes twice identically and its certifying reference agrees twice."""
 
     findings: list[dict[str, str]] = []
     for program in catalog.programs:
