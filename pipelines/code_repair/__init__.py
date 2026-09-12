@@ -16,6 +16,7 @@ adds no vocabulary to the envelope and re-implements none of its primitives.
 __all__ = [
     "_contract",
     "catalog",
+    "catalog_load",
     "cli",
     "executor",
     "vocabulary",
