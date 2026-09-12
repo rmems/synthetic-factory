@@ -75,8 +75,8 @@ def _clip(text: str) -> tuple[str, bool]:
     return text[:MAX_GOT_CHARS], True
 
 
-def _row(kind: str, index: int, status: str, got: str | None = None) -> dict:
-    row = {"id": f"{kind}:{index}", "status": status}
+def _row(kind: str, index: int, status: str, got: str | None = None) -> dict[str, object]:
+    row: dict[str, object] = {"id": f"{kind}:{index}", "status": status}
     if got is not None:
         clipped, truncated = _clip(got)
         row["got"] = clipped

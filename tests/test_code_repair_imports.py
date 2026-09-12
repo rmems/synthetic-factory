@@ -27,7 +27,8 @@ class InProcess(unittest.TestCase):
 
 
 class FreshInterpreter(unittest.TestCase):
-    def fresh(self, form):
+    @staticmethod
+    def fresh(form):
         context = multiprocessing.get_context("spawn")
         with ProcessPoolExecutor(max_workers=1, mp_context=context) as pool:
             return pool.submit(code_repair_import_probe.run_form, form).result(timeout=120)

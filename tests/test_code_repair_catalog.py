@@ -233,16 +233,16 @@ class OriginalPasses(unittest.TestCase):
 
     def test_a_failure_of_the_second_original_run_is_an_execution_finding(self):
         prog = program("factorial")
-        answers = iter([report(rows("public", 7), rows("hidden", 15)), report(failure="timeout")])
-        fake = FakeExecutor({"original": lambda job: next(answers), "reference": report((), rows("hidden", 15))})
+        answers = [report(rows("public", 7), rows("hidden", 15)), report(failure="timeout")]
+        fake = FakeExecutor({"original": lambda job: answers.pop(0), "reference": report((), rows("hidden", 15))})
         single = catalog.Catalog("x", FIXTURE_CATALOG, {}, "", "", (prog,))
         codes = [f["code"] for f in catalog.catalog_check(single, fake)]
         self.assertEqual(codes, [cv.REASON_ORIGINAL_TIMEOUT])
 
     def test_two_differing_original_runs_are_nondeterministic(self):
         prog = program("factorial")
-        answers = iter([report(rows("public", 7), rows("hidden", 15)), report(rows("public", 7, (1,)), rows("hidden", 15))])
-        fake = FakeExecutor({"original": lambda job: next(answers), "reference": report((), rows("hidden", 15))})
+        answers = [report(rows("public", 7), rows("hidden", 15)), report(rows("public", 7, (1,)), rows("hidden", 15))]
+        fake = FakeExecutor({"original": lambda job: answers.pop(0), "reference": report((), rows("hidden", 15))})
         single = catalog.Catalog("x", FIXTURE_CATALOG, {}, "", "", (prog,))
         codes = [f["code"] for f in catalog.catalog_check(single, fake)]
         self.assertEqual(codes, [cv.CHECK_SOURCE_NONDETERMINISTIC])
@@ -250,11 +250,11 @@ class OriginalPasses(unittest.TestCase):
     def test_two_differing_reference_runs_are_nondeterministic(self):
         prog = program("factorial")
         ok = report(rows("public", 7), rows("hidden", 15))
-        answers = iter([
+        answers = [
             report((), rows("hidden", 15)),
             report((), rows("hidden", 15, (3,))),
-        ])
-        fake = FakeExecutor({"original": ok, "reference": lambda job: next(answers)})
+        ]
+        fake = FakeExecutor({"original": ok, "reference": lambda job: answers.pop(0)})
         single = catalog.Catalog("x", FIXTURE_CATALOG, {}, "", "", (prog,))
         codes = [f["code"] for f in catalog.catalog_check(single, fake)]
         self.assertEqual(codes, [cv.CHECK_SOURCE_NONDETERMINISTIC])

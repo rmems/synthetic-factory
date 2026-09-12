@@ -212,7 +212,7 @@ def _program(row: Any, lineno: int) -> cat.Program:
     where = f"programs.jsonl:{lineno}"
     program_id = _field(row, "program_id", str, where)
     upstream = _field(row, "upstream", dict, where)
-    for key in cat._UPSTREAM_FIELDS:
+    for key in cat.UPSTREAM_FIELDS:
         _field(upstream, key, str, f"{where}.upstream")
     text, digest = _module_text(row, where)
     function = upstream["function"]
