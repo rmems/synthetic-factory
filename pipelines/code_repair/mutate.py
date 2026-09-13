@@ -105,10 +105,9 @@ def _operator_tokens(text: str, offsets: list[int]) -> list[tuple[str, int, int,
 def _gap(node: ast.Compare, index: int, offsets: list[int]) -> tuple[int, int]:
     left = node.left if index == 0 else node.comparators[index - 1]
     right = node.comparators[index]
-    return (
-        _byte_at(offsets, left.end_lineno, left.end_col_offset),
-        _byte_at(offsets, right.lineno, right.col_offset),
-    )
+    end_lineno = left.end_lineno if left.end_lineno is not None else left.lineno
+    end_col = left.end_col_offset if left.end_col_offset is not None else left.col_offset
+    return _byte_at(offsets, end_lineno, end_col), _byte_at(offsets, right.lineno, right.col_offset)
 
 
 def _compare_sites(node: ast.Compare, tokens: list, offsets: list[int]) -> list[Site]:
@@ -151,10 +150,11 @@ def body_nodes(target: ast.FunctionDef):
     while pending:
         node = pending.pop()
         yield node
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            children = node.body
-        else:
-            children = list(ast.iter_child_nodes(node))
+        children: list[ast.AST] = (
+            list(node.body)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            else list(ast.iter_child_nodes(node))
+        )
         pending.extend(reversed(children))
 
 
@@ -210,12 +210,13 @@ def verify(text: str, mutated_text: str, site: Site, function: str) -> str | Non
     if not _compiles(mutated_text):
         return cv.SKIP_MUTATION_SYNTAX_ERROR
     original, mutated = _target(text, function), _target(mutated_text, function)
-    dumped = None if mutated is None else ast.dump(mutated)
+    if original is None or mutated is None:
+        return cv.SKIP_MUTATION_NOOP  # the target is not a rewritable function on both sides
+    dumped = ast.dump(mutated)
     rules = (
-        (dumped is None or dumped == ast.dump(original), cv.SKIP_MUTATION_NOOP),
+        (dumped == ast.dump(original), cv.SKIP_MUTATION_NOOP),
         (
-            dumped is not None
-            and ast.get_docstring(mutated, clean=False) != ast.get_docstring(original, clean=False),
+            ast.get_docstring(mutated, clean=False) != ast.get_docstring(original, clean=False),
             cv.SKIP_MUTATION_TOUCHES_DOCSTRING,
         ),
         (dumped != _expected_dump(text, function, site), cv.SKIP_MUTATION_UNVERIFIABLE),
