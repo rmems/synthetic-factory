@@ -234,23 +234,28 @@ class Failures(unittest.TestCase):
                 with refusal(self, cv.FINDING_SANDBOX_UNAVAILABLE):
                     generate._run_phase(_serving(report), job)
 
-    def test_a_successful_phase_must_claim_the_limits_even_from_an_injected_executor(self):
-        """`run` takes an injected executor; an ok phase with no claim is unstorable.
+    def test_a_phase_that_ran_must_claim_the_limits_even_from_an_injected_executor(self):
+        """`run` takes an injected executor; a PHASE_OK phase with no claim is unstorable.
 
-        `record_validation._phase_runtime_contract` stores a successful phase only
-        when `limits_applied` is True, so letting one through would build a record
-        that fails its own validation (Codex on #212).
+        `record_validation._phase_runtime_contract` stores a `PHASE_OK` phase only
+        when `limits_applied` is True, load error or not, so letting one through
+        would build a record that fails its own validation. A load error is
+        `PHASE_OK` with `ok` False, which is why the status and not `ok` is the
+        test here (Codex on #212, twice).
         """
 
         job = ex.Job("mutant:test", "def f():\n    pass\n", "f")
         rows = ({"id": "hidden:0", "status": "pass"},)
-        for environment in ({}, {"python": "3.14"}, {"limits_applied": None}):
-            with self.subTest(environment=environment):
-                ok = ex.PhaseReport(cv.PHASE_OK, True, (), rows, dict(environment), "")
-                with refusal(self, cv.FINDING_SANDBOX_UNAVAILABLE):
-                    generate._run_phase(_serving(ok), job)
-        claimed = ex.PhaseReport(cv.PHASE_OK, True, (), rows, {"limits_applied": True}, "")
-        self.assertIs(generate._run_phase(_serving(claimed), job), claimed)
+        unclaimed = ({}, {"python": "3.14"}, {"limits_applied": None})
+        for environment in unclaimed:
+            for ran_ok, body in ((True, rows), (False, ())):
+                with self.subTest(environment=environment, load_ok=ran_ok):
+                    phase = ex.PhaseReport(cv.PHASE_OK, ran_ok, (), body, dict(environment), "")
+                    with refusal(self, cv.FINDING_SANDBOX_UNAVAILABLE):
+                        generate._run_phase(_serving(phase), job)
+        for ran_ok, body in ((True, rows), (False, ())):
+            claimed = ex.PhaseReport(cv.PHASE_OK, ran_ok, (), body, {"limits_applied": True}, "")
+            self.assertIs(generate._run_phase(_serving(claimed), job), claimed)
 
     def test_an_environment_without_the_key_is_read_the_same_way_by_both_layers(self):
         """A block that states nothing is not a sandbox claim — and must not split the layers."""

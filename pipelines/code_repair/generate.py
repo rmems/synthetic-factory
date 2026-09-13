@@ -115,19 +115,25 @@ def _unlimited(report: ex.PhaseReport) -> bool:
     can carry a program's own exception message, and a program whose text happens
     to contain the finding name would otherwise kill the run.
 
-    A *successful* phase must claim the limits positively -- ``record_validation``
-    stores it only when ``limits_applied`` is True, so anything else is an
-    unusable phase, not a survivable one. `Executor` never returns such a report,
-    but ``run`` takes an injected executor and one may.
+    A phase the child *ran* must claim the limits positively.
+    ``record_validation._phase_runtime_contract`` stores a ``PHASE_OK`` phase
+    only when ``limits_applied`` is True -- whether or not the module loaded --
+    so anything else is an unusable phase, not a survivable one. The status, not
+    ``ok``, is the test: a load error is ``PHASE_OK`` with ``ok`` False, and
+    keying on ``ok`` would let exactly that shape through. `Executor` never
+    returns one without the claim, but ``run`` takes an injected executor and
+    one may.
 
-    A *failed* phase that states nothing told us nothing: the limits go on before
-    ``_harness._run`` reads or imports the program, so that child either never
-    reached program code or reached it under them. That is the one candidate's
-    harness error, and `executor._unsandboxed_detail` reads it the same way.
+    A phase that never got that far and states nothing told us nothing: the
+    limits go on before ``_harness._run`` reads or imports the program, so that
+    child either never reached program code or reached it under them. That is
+    the one candidate's harness error, and `executor._unsandboxed_detail` reads
+    it the same way.
     """
 
     claimed = report.environment.get("limits_applied")
-    return claimed is not True and (report.ok or "limits_applied" in report.environment)
+    ran = report.status == cv.PHASE_OK
+    return claimed is not True and (ran or "limits_applied" in report.environment)
 
 
 def _run_phase(state: _State, job: ex.Job) -> ex.PhaseReport:
