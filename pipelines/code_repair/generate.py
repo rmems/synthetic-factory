@@ -206,7 +206,7 @@ def _write(out_dir: Path, state: _State, summary: dict[str, Any]) -> None:
     summary["candidates_sha256"] = hashlib.sha256(
         (out_dir / CANDIDATES_FILENAME).read_bytes()).hexdigest()
     oc.write_jsonl(out_dir / LOG_FILENAME, state.executor.log)
-    with open(out_dir / RUN_FILENAME, "x", encoding="utf-8") as handle:
+    with (out_dir / RUN_FILENAME).open("x", encoding="utf-8") as handle:
         handle.write(json.dumps(summary, indent=2, sort_keys=True) + "\n")
 
 

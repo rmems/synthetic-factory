@@ -2362,12 +2362,14 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             def reject_replay(_mapping, _index, _registry):
                 raise identity.IdentityTreeError("live manifest replay seam")
 
-            with mock.patch.object(identity, "_replay_manifest_mapping", reject_replay):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(identity, "_replay_manifest_mapping", reject_replay),
+                self.assertRaisesRegex(
                     identity.IdentityTreeError,
                     "live manifest replay seam",
-                ):
-                    identity.validate_identity_tree(dest)
+                ),
+            ):
+                identity.validate_identity_tree(dest)
 
     def test_validate_identity_tree_reconciles_output_paths_and_hashes(self):
         with tempfile.TemporaryDirectory() as tmp:

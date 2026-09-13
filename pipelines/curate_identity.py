@@ -36,6 +36,7 @@ from typing import Any, Iterable, Mapping, NamedTuple
 
 if __package__:
     from . import curate_identity_output as _identity_output
+    from . import curate_identity_checks as _identity_checks
     from . import curate_identity_stages as _identity_stages
     from .exact_json import ExactJSONFloat, dumps_exact_json
     from .record_kind import (
@@ -67,6 +68,7 @@ if __package__:
     )
 else:
     import curate_identity_output as _identity_output
+    import curate_identity_checks as _identity_checks
     import curate_identity_stages as _identity_stages
     from exact_json import ExactJSONFloat, dumps_exact_json
     from record_kind import (
@@ -306,10 +308,6 @@ def _require_canonical_json_equal(actual: Any, expected: Any, where: str) -> Non
         raise IdentityTreeError(f"{where} is not canonical JSON data: {exc}") from exc
     if not equal:
         raise IdentityTreeError(f"{where} does not match the hash-verified source replay")
-
-
-def sha256_bytes(payload: bytes) -> str:
-    return hashlib.sha256(payload).hexdigest()
 
 
 def _reject_json_constant(value: str) -> None:
@@ -656,7 +654,7 @@ def load_registry(path: Path | None = None) -> FactoryRegistry:
         ) from exc
     try:
         payload = _strict_json_loads(raw_bytes.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+    except ValueError as exc:
         raise IdentityCurationError(
             f"factory registry is not UTF-8 JSON: {registry_path}: {exc}"
         ) from exc
@@ -727,6 +725,31 @@ def _normalize_source_path(value: str) -> tuple[str, str]:
     return normalized, path.parts[0]
 
 
+sha256_bytes = _identity_checks.sha256_bytes
+
+
+def _identity_check_dependencies():
+    return _identity_checks.Dependencies(
+        curation_error=IdentityCurationError,
+        tree_error=IdentityTreeError,
+        is_json_whitespace=_is_json_whitespace,
+        strict_json_loads=_strict_json_loads,
+        canonical_json=canonical_json,
+        sha256_pattern=SHA256_RE,
+        sha256_bytes=sha256_bytes,
+        canonical_id=_canonical_id,
+        payload_factory=_payload_factory,
+        training_ready_true_paths=_training_ready_true_paths,
+        residual_real_claim_paths=_residual_real_claim_paths,
+        shape_validation_errors=_shape_validation_errors,
+        owner_specs=_owner_specs,
+        pointer_value=_pointer_value,
+        shape_designed=CONTRACT_SHAPE_DESIGNED,
+        supported_kinds=SUPPORTED_RECORD_KINDS,
+        classify_kind=classify_kind,
+    )
+
+
 def _source_identity(source: SourceRecord) -> _SourceIdentity:
     if (
         not isinstance(source.source_line, int)
@@ -738,18 +761,7 @@ def _source_identity(source: SourceRecord) -> _SourceIdentity:
     canonical_source = canonical_json(source.record)
     original = source.source_json
     if original is not None:
-        if not isinstance(original, str) or not original or _is_json_whitespace(original):
-            raise IdentityCurationError("source_json must be a non-empty JSON string")
-        # LF is the physical JSONL record separator. A CR is retained payload
-        # when it is not the single CR in a CRLF terminator.
-        if "\n" in original:
-            raise IdentityCurationError("source_json must contain exactly one JSONL record")
-        try:
-            parsed_original = _strict_json_loads(original)
-        except (json.JSONDecodeError, ValueError) as exc:
-            raise IdentityCurationError(f"source_json is not strict JSON: {exc}") from exc
-        if canonical_json(parsed_original) != canonical_source:
-            raise IdentityCurationError("source_json does not decode to source record")
+        _identity_checks.validate_source_json(original, canonical_source, _identity_check_dependencies())
     if source.source_sha256 is None:
         preserve_source = original is not None and classify_kind(source.record) == "code_repair"
         original = original if preserve_source else canonical_source
@@ -1653,7 +1665,7 @@ def _hash_verified_manifest_source(source_meta: Mapping[str, Any], index: int) -
         raise IdentityTreeError(f"{where}.original does not match source.sha256")
     try:
         original_record = _strict_json_loads(original)
-    except (json.JSONDecodeError, ValueError) as exc:
+    except ValueError as exc:
         raise IdentityTreeError(f"{where}.original is not strict JSON: {exc}") from exc
     if hash_basis == "canonical-json-sha256" and original != canonical_json(original_record):
         raise IdentityTreeError(f"{where}.original does not match canonical-json-sha256 basis")
@@ -1998,95 +2010,15 @@ def _validate_manifest_ids(
         f"IDENTITY-MANIFEST.json[{index}].id_mappings",
     )
 
-    output_id = mapping.get("output_id")
-    if not isinstance(output_id, str) or record.get("id") != output_id:
-        raise IdentityTreeError(
-            f"IDENTITY-MANIFEST.json[{index}].output_id does not match emitted record"
-        )
-    kind = mapping.get("record_kind")
-    if kind not in SUPPORTED_RECORD_KINDS or classify_kind(record) != kind:
-        raise IdentityTreeError(
-            f"IDENTITY-MANIFEST.json[{index}].record_kind does not match emitted record"
-        )
     source_identity = replay.source
-    source_factory = source_identity.factory
-    if output_id != _canonical_id(source_identity, kind, "/"):
-        raise IdentityTreeError(f"IDENTITY-MANIFEST.json[{index}].output_id is not canonical")
-    row = registry.by_path_id.get(source_factory)
-    if row is None or kind not in row.record_kinds or not row.identity_authoritative:
-        raise IdentityTreeError(f"IDENTITY-MANIFEST.json[{index}] factory authority is invalid")
-    contract = row.provenance_contract_by_kind.get(kind)
-    if (
-        mapping.get("factory") != source_factory
-        or mapping.get("path_id") != source_factory
-        or mapping.get("factory_id") != row.payload_factory
-        or mapping.get("provenance_contract") != contract
-        or _payload_factory(record) != row.payload_factory
-    ):
-        raise IdentityTreeError(
-            f"IDENTITY-MANIFEST.json[{index}] factory contract does not match output"
-        )
-    if row.training_ready_policy == "never" and _training_ready_true_paths(record):
-        raise IdentityTreeError(
-            f"IDENTITY-MANIFEST.json[{index}] violates training_ready_policy=never"
-        )
-    if _residual_real_claim_paths(record):
-        raise IdentityTreeError(f"IDENTITY-MANIFEST.json[{index}] contains a residual real claim")
-    if contract == CONTRACT_SHAPE_DESIGNED and _shape_validation_errors(record, kind):
-        raise IdentityTreeError(f"IDENTITY-MANIFEST.json[{index}] output payload shape is invalid")
-    try:
-        owner_paths = ["/"]
-        for owner_path, _owner in _owner_specs(
-            record,
-            kind,
-            row.preference_side_kinds if kind == "preference" else None,
-        ):
-            if owner_path not in owner_paths:
-                owner_paths.append(owner_path)
-    except IdentityCurationError as exc:
-        raise IdentityTreeError(
-            f"IDENTITY-MANIFEST.json[{index}] emitted nested shape is invalid: {exc}"
-        ) from exc
-    id_mappings = mapping.get("id_mappings")
-    if not isinstance(id_mappings, list):
-        raise IdentityTreeError(f"IDENTITY-MANIFEST.json[{index}].id_mappings must be a list")
-    by_owner: dict[str, str] = {}
-    for nested_index, id_mapping in enumerate(id_mappings):
-        if not isinstance(id_mapping, Mapping):
-            raise IdentityTreeError(
-                f"IDENTITY-MANIFEST.json[{index}].id_mappings[{nested_index}] must be an object"
-            )
-        owner_path = id_mapping.get("owner_path")
-        nested_output_id = id_mapping.get("output_id")
-        if not isinstance(owner_path, str) or not isinstance(nested_output_id, str):
-            raise IdentityTreeError(
-                f"IDENTITY-MANIFEST.json[{index}].id_mappings[{nested_index}] "
-                "must contain string owner_path and output_id"
-            )
-        if owner_path in by_owner:
-            raise IdentityTreeError(
-                f"IDENTITY-MANIFEST.json[{index}].id_mappings repeats {owner_path}"
-            )
-        by_owner[owner_path] = nested_output_id
-    if set(by_owner) != set(owner_paths):
-        raise IdentityTreeError(
-            f"IDENTITY-MANIFEST.json[{index}].id_mappings owner paths do not match emitted record"
-        )
-    if by_owner["/"] != output_id:
-        raise IdentityTreeError(
-            f"IDENTITY-MANIFEST.json[{index}] root id mapping does not match output_id"
-        )
-    for owner_path, nested_output_id in by_owner.items():
-        owner = _pointer_value(record, owner_path)
-        if not isinstance(owner, Mapping) or owner.get("id") != nested_output_id:
-            raise IdentityTreeError(
-                f"IDENTITY-MANIFEST.json[{index}] id mapping for {owner_path} "
-                "does not match emitted record"
-            )
-        if nested_output_id != _canonical_id(source_identity, kind, owner_path):
-            raise IdentityTreeError(
-                f"IDENTITY-MANIFEST.json[{index}] id mapping for {owner_path} is not canonical"
-            )
+    dependencies = _identity_check_dependencies()
+    item = _identity_checks.ManifestRecord(mapping, record, index)
+    output_id, kind, row = _identity_checks.manifest_output_authority(
+        item, registry, source_identity, dependencies,
+    )
+    owner_paths = _identity_checks.manifest_owner_paths(
+        item, _identity_checks.OwnerContext(row, source_identity, kind, output_id), dependencies,
+    )
     _validate_manifest_provenance(
         mapping,
         record,
@@ -2205,27 +2137,9 @@ def validate_identity_tree(
         raise IdentityTreeError(
             f"registry digest mismatch: expected {expected_registry_digest}, got {registry.sha256}"
         )
-    try:
-        manifest_bytes = manifest_path.read_bytes()
-    except OSError as exc:
-        raise IdentityTreeError(f"IDENTITY-MANIFEST.json is unreadable: {exc}") from exc
-    manifest_digest = sha256_bytes(manifest_bytes)
-    if expected_manifest_digest is not None:
-        if not isinstance(expected_manifest_digest, str) or not SHA256_RE.fullmatch(
-            expected_manifest_digest
-        ):
-            raise IdentityTreeError("expected manifest digest must be a lowercase SHA-256")
-        if manifest_digest != expected_manifest_digest:
-            raise IdentityTreeError(
-                "manifest digest mismatch: "
-                f"expected {expected_manifest_digest}, got {manifest_digest}"
-            )
-    try:
-        manifest = _strict_json_loads(manifest_bytes.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise IdentityTreeError(f"IDENTITY-MANIFEST.json is not readable JSON: {exc}") from exc
-    if not isinstance(manifest, list):
-        raise IdentityTreeError("IDENTITY-MANIFEST.json must be a list of mappings")
+    manifest = _identity_checks.read_identity_manifest(
+        manifest_path, expected_manifest_digest, _identity_check_dependencies(),
+    )
     expected_outputs = _expected_identity_outputs(manifest, registry)
     actual_paths = {
         path.relative_to(dest).as_posix(): path
@@ -2367,7 +2281,7 @@ def iter_source_records(
                     continue
                 try:
                     obj = _strict_json_loads(line)
-                except (json.JSONDecodeError, ValueError) as exc:
+                except ValueError as exc:
                     raise IdentityCurationError(
                         f"JSON parse error at {rel}:{line_no}: {exc}"
                     ) from exc
@@ -2436,21 +2350,7 @@ def write_run(
         manifest_digest = sha256_bytes(manifest_bytes)
         _write_exclusive(dest / IDENTITY_MANIFEST_SIDECAR, manifest_bytes)
         created_files.append(dest / IDENTITY_MANIFEST_SIDECAR)
-        retained_by_rel: dict[str, dict[int, str]] = {}
-        for result in results:
-            if result.action != "retained" or result.record is None:
-                continue
-            source_meta = result.mapping["source"]
-            by_line = retained_by_rel.setdefault(source_meta["path"], {})
-            if source_meta["line"] in by_line:
-                raise IdentityCurationError(
-                    "retained records repeat source coordinate "
-                    f"{source_meta['path']}:{source_meta['line']}"
-                )
-            by_line[source_meta["line"]] = (
-                source_meta["original"] if result.mapping["record_kind"] == "code_repair"
-                else canonical_json(result.record)
-            )
+        retained_by_rel = _identity_checks.retained_source_lines(results, _identity_check_dependencies())
         for rel, records_by_line in sorted(retained_by_rel.items()):
             out_path = dest / rel
             _ensure_output_directory(dest, out_path.parent, created_directories)
@@ -2467,20 +2367,9 @@ def write_run(
         )
     except BaseException:
         if destination_created:
-            for path in reversed(created_files):
-                try:
-                    path.unlink()
-                except FileNotFoundError:
-                    pass
-            for directory in reversed(created_directories):
-                try:
-                    directory.rmdir()
-                except OSError:
-                    pass
-            try:
-                dest.rmdir()
-            except OSError:
-                pass
+            _identity_checks.rollback_identity_tree(
+                dest, created_files, created_directories,
+            )
         raise
     return results
 

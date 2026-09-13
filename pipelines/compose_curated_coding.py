@@ -120,8 +120,8 @@ def _curate_bridge_trajectory(
     """Run the correct coding implementation for one embedded trajectory."""
 
     if curate_coding.steps_path(trajectory) is None:
-        curated, detail = _strip_hidden_only_side(trajectory)
-        return curate_agentic, curated, detail
+        stripped, detail = _strip_hidden_only_side(trajectory)
+        return curate_agentic, stripped, detail
     curated, manifest = curate_coding.curate_episode(
         trajectory,
         source_path=f"{context.source.path}#language_view.trajectory",

@@ -24,6 +24,7 @@ from code_repair import (
     validation, vocabulary as cv,
 )
 from code_repair._contract import ExactJSONFloat, exact_fraction
+from tests.code_repair_test_support import required_item
 
 
 class ExactDecoding(unittest.TestCase):
@@ -181,21 +182,21 @@ class SharedValidation(unittest.TestCase):
 
     def test_nonpositive_inner_evidence_digest_cannot_be_restamped(self):
         validate = self.validator('validate_record')
-        record = copy.deepcopy(next(r for r in smoke_run()[1] if not views.is_positive(r)))
+        record = copy.deepcopy(required_item(r for r in smoke_run()[1] if not views.is_positive(r)))
         record['result']['evidence_sha256'] = '0' * 64
         record['provenance']['record_sha256'] = envelope.record_digest(record)
         self.assertTrue(validate(record, catalog=fixture()))
 
     def test_nonpositive_public_evidence_is_bound_to_observed_rows(self):
         validate = self.validator('validate_record')
-        record = copy.deepcopy(next(r for r in smoke_run()[1] if not views.is_positive(r)))
+        record = copy.deepcopy(required_item(r for r in smoke_run()[1] if not views.is_positive(r)))
         record['result']['public_failure_omitted'] += 1
         record['provenance']['record_sha256'] = envelope.record_digest(record)
         self.assertTrue(validate(record, catalog=fixture()))
 
     def test_catalog_binds_public_tests_and_intervention_for_nonpositive_rows(self):
         validate = self.validator('validate_record')
-        base = next(r for r in smoke_run()[1] if not views.is_positive(r))
+        base = required_item(r for r in smoke_run()[1] if not views.is_positive(r))
         for section, field, value in [('intervention', 'variant', 999),
                                        ('scenario', 'public_tests', {'kind': 'doctest', 'examples': []})]:
             record = copy.deepcopy(base)
@@ -235,7 +236,7 @@ class SharedValidation(unittest.TestCase):
                 self.assertTrue(validate({**run, key: value}, [], catalog=fixture(),
                                          candidates_sha256=run['candidates_sha256']))
         corrupted = copy.deepcopy(run)
-        program_id = next(k for k, v in corrupted['programs'].items() if v['records'] == 1)
+        program_id = required_item(k for k, v in corrupted['programs'].items() if v['records'] == 1)
         corrupted['programs'][program_id]['records'] = True
         self.assertTrue(validate(corrupted, records, catalog=fixture(),
                                  candidates_sha256=run['candidates_sha256']))
@@ -545,7 +546,7 @@ class FreshReplay(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             run_dir, records = run_copy(root)
-            positive = next(r for r in records if views.is_positive(r))
+            positive = required_item(r for r in records if views.is_positive(r))
             positive['oracle']['fingerprint']['python'] = '0.0'
             restamp(positive)
             candidates = run_dir / generate.CANDIDATES_FILENAME

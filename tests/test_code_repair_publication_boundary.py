@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from tests.test_round_txn import round_txn as rt
+from tests.code_repair_test_support import required_item
 
 
 class ProceduralBoundaryTests(unittest.TestCase):
@@ -68,7 +69,7 @@ class ProceduralBoundaryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             payload = json.loads(FACTORY_REGISTRY_PATH.read_text())
-            row = next(r for r in payload["factories"] if r["path_id"] == "cache-stampede-factory")
+            row = required_item(r for r in payload["factories"] if r["path_id"] == "cache-stampede-factory")
             row.update(generator="fable-5", generator_version="fable-5",
                        provider="anthropic", channel="consumer")
             path = root / "registry.json"
@@ -211,9 +212,11 @@ class PublicationInputBoundaryTests(unittest.TestCase):
             **policy["source_license_evidence"],
             "license_sha256": "0" * 64,
         }
-        with mock.patch.object(publication_export.sp, "POLICY", policy):
-            with self.assertRaisesRegex(cv.RepairRefusal, "license bytes changed"):
-                publication_export.attribution_files()
+        with (
+            mock.patch.object(publication_export.sp, "POLICY", policy),
+            self.assertRaisesRegex(cv.RepairRefusal, "license bytes changed"),
+        ):
+            publication_export.attribution_files()
 
 
 if __name__ == "__main__":

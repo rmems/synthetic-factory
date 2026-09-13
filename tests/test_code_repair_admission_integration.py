@@ -21,6 +21,7 @@ from check_records import check_record
 from validate_run import check_line
 from training_audit import audit_run
 from exact_json import ExactJSONFloat, dumps_exact_json
+from tests.code_repair_test_support import required_item
 
 
 class ProceduralIntegrationTests(unittest.TestCase):
@@ -33,7 +34,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
                    ("path", "forged.py"), ("license", "Proprietary"))
         for outcome, (field, value) in product(("accepted", "rejected"), changes):
             with self.subTest(outcome=outcome, field=field):
-                record = copy.deepcopy(next(r for r in self.records
+                record = copy.deepcopy(required_item(r for r in self.records
                                             if r["result"]["outcome"] == outcome))
                 record["scenario"]["source"]["upstream"][field] = value
                 restamp(record)
@@ -57,7 +58,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
                    ("source_kind", "model_generated"))
         for outcome, (field, value) in product(("accepted", "rejected"), changes):
             with self.subTest(outcome=outcome, field=field):
-                record = copy.deepcopy(next(r for r in self.records
+                record = copy.deepcopy(required_item(r for r in self.records
                                             if r["result"]["outcome"] == outcome))
                 record["generator"][field] = value
                 restamp(record)
@@ -87,7 +88,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
 
     def test_nested_real_claims_refuse_all_shared_boundaries(self):
         for outcome in ("accepted", "rejected"):
-            original = next(r for r in self.records if r["result"]["outcome"] == outcome)
+            original = required_item(r for r in self.records if r["result"]["outcome"] == outcome)
             for claim in ({"sim_or_real": "real"}, {"provenance": {"kind": "real"}}):
                 with self.subTest(outcome=outcome, claim=claim):
                     record = copy.deepcopy(original)
@@ -97,7 +98,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
 
     def test_fixed_oracle_identity_refuses_all_shared_boundaries(self):
         for outcome in ("accepted", "rejected"):
-            original = next(r for r in self.records if r["result"]["outcome"] == outcome)
+            original = required_item(r for r in self.records if r["result"]["outcome"] == outcome)
             for field, value in (("name", "forged-oracle"), ("type", "recorded_measurement"),
                                  ("implementation", "forged.py:main"), ("version", "99.0"),
                                  ("commit", "forged-commit")):
@@ -112,7 +113,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
             self.assert_shared_refusal(record)
 
     def test_reference_only_oracle_remains_refused_before_admission(self):
-        record = copy.deepcopy(next(r for r in self.records if admission.natural_eligibility(r, self.row)[0]))
+        record = copy.deepcopy(required_item(r for r in self.records if admission.natural_eligibility(r, self.row)[0]))
         self.assertEqual(oc.curation_eligible(record, []), (True, []))
         record["oracle"]["authority"] = "reference_only"
         restamp(record)
@@ -123,7 +124,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
     def test_emitter_owned_provenance_cannot_be_substituted(self):
         for outcome, field in product(("accepted", "rejected"), ("producer", "source_kind", "oracle_run")):
             with self.subTest(outcome=outcome, field=field):
-                record = copy.deepcopy(next(r for r in self.records if r["result"]["outcome"] == outcome))
+                record = copy.deepcopy(required_item(r for r in self.records if r["result"]["outcome"] == outcome))
                 record["provenance"][field] = "forged-provenance"
                 restamp(record)
                 self.assert_shared_refusal(json.loads(dumps_exact_json(record)))
@@ -133,7 +134,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
             ("task_author", "solver", "oracle_certifier"), ("name", "kind", "role", "version"))
         for outcome, role, field in combinations:
             with self.subTest(outcome=outcome, actor=role, field=field):
-                record = copy.deepcopy(next(r for r in self.records if r["result"]["outcome"] == outcome))
+                record = copy.deepcopy(required_item(r for r in self.records if r["result"]["outcome"] == outcome))
                 record["provenance"]["actors"][role][field] = "forged-actor"
                 restamp(record)
                 self.assert_shared_refusal(json.loads(dumps_exact_json(record)))
@@ -141,7 +142,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
     def test_fabricated_abstention_cannot_relabel_measured_phase_evidence(self):
         for outcome in ("accepted", "rejected"):
             with self.subTest(outcome=outcome):
-                record = copy.deepcopy(next(r for r in self.records if r["result"]["outcome"] == outcome))
+                record = copy.deepcopy(required_item(r for r in self.records if r["result"]["outcome"] == outcome))
                 record["result"].update(status="abstained", abstention_reason="fabricated abstention")
                 restamp(record)
                 self.assertFalse(oc.curation_eligible(record, [])[0])
@@ -166,7 +167,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
             self.assertFalse(curated.mapping["procedural_authority"]["eligible_training_candidate"])
 
     def test_failed_phases_cannot_retain_fabricated_suite_rows(self):
-        original = next(
+        original = required_item(
             r for r in self.records
             if r["result"]["reason_codes"] == ["MUTANT_NO_OBSERVED_FAILURE"]
         )
@@ -195,7 +196,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
                 )
 
     def test_identity_refuses_recursive_training_ready_true_claims(self):
-        original = next(r for r in self.records if r["result"]["outcome"] == "accepted")
+        original = required_item(r for r in self.records if r["result"]["outcome"] == "accepted")
         for nested in (False, True):
             with self.subTest(nested=nested):
                 record = copy.deepcopy(original)
@@ -216,7 +217,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
                 self.assertEqual(record, before)
 
     def test_identity_preserves_false_training_ready_claims_without_mutation(self):
-        original = next(r for r in self.records if r["result"]["outcome"] == "accepted")
+        original = required_item(r for r in self.records if r["result"]["outcome"] == "accepted")
         record = copy.deepcopy(original)
         record["training_ready"] = False
         record["provenance"]["extra"] = [{"training_ready": False}]
@@ -231,7 +232,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
 
     def test_derivable_record_identity_is_required_before_admission(self):
         for outcome in ("accepted", "rejected"):
-            original = next(r for r in self.records if r["result"]["outcome"] == outcome)
+            original = required_item(r for r in self.records if r["result"]["outcome"] == outcome)
             for field in ("id", "generator_seed", "oracle_seed", "harness", "limits"):
                 with self.subTest(outcome=outcome, field=field):
                     record = copy.deepcopy(original)
@@ -248,7 +249,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
                         admission.natural_eligibility(record, self.row)
 
     def timeout_source(self, token):
-        record = copy.deepcopy(next(r for r in self.records if r["result"]["outcome"] == "accepted"))
+        record = copy.deepcopy(required_item(r for r in self.records if r["result"]["outcome"] == "accepted"))
         record["oracle"]["configuration"]["timeout_s"] = ExactJSONFloat(token)
         record["oracle"]["configuration"]["limits"]["cpu_s"] = int(float(token)) + 2
         restamp(record)
@@ -312,7 +313,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
                 ci.validate_identity_tree(root / "output")
 
     def test_accepted_record_passes_shape_and_deep_checks(self):
-        record = next(r for r in self.records if r["result"]["outcome"] == "accepted")
+        record = required_item(r for r in self.records if r["result"]["outcome"] == "accepted")
         self.assertIsNone(record["oracle"]["commit"])
         self.assertEqual(record["oracle"]["configuration"]["isolation"],
             "rlimits and a fresh working directory only: no filesystem or network isolation "
@@ -324,7 +325,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
 
     def test_exact_json_parsed_evidence_passes_real_shared_validation(self):
         from code_repair.validation import validate_record
-        record = next(r for r in self.records if r["result"]["outcome"] == "accepted")
+        record = required_item(r for r in self.records if r["result"]["outcome"] == "accepted")
         parsed = json.loads(json.dumps(record), parse_float=ExactJSONFloat)
         self.assertEqual(validate_record(parsed), [])
         self.assertEqual(check_line(parsed, "exact")[0], [])
@@ -332,7 +333,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
 
     def test_restamped_malformed_timeouts_are_refused(self):
         from code_repair.validation import validate_record
-        accepted = next(r for r in self.records if r["result"]["outcome"] == "accepted")
+        accepted = required_item(r for r in self.records if r["result"]["outcome"] == "accepted")
         for timeout in (True, "2.0", None, [], 0, -1, 61, 10**400,
                         ExactJSONFloat("60.0000000000000000000001")):
             with self.subTest(timeout=timeout):
@@ -360,7 +361,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
         self.assertTrue(all("REPAIR" in e or "RECORD" in e or "ENVELOPE" in e for e in errors))
 
     def test_identity_preserves_source_bytes_and_digest_and_refuses_wrong_path(self):
-        record = next(r for r in self.records if r["result"]["outcome"] == "accepted")
+        record = required_item(r for r in self.records if r["result"]["outcome"] == "accepted")
         original = copy.deepcopy(record)
         raw = json.dumps(record, ensure_ascii=False, separators=(", ", ": ")) + "  "
         digest = hashlib.sha256(raw.encode()).hexdigest()
@@ -385,7 +386,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
                 ci.validate_identity_tree(root / "output")
 
     def test_replayed_manifest_refuses_duplicate_preserved_ids(self):
-        record = next(r for r in self.records if r["result"]["outcome"] == "accepted")
+        record = required_item(r for r in self.records if r["result"]["outcome"] == "accepted")
         raw = ci.canonical_json(record)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -405,8 +406,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
                 ci.validate_identity_tree(root)
 
     def test_real_natural_ineligibility_is_evidence_but_corruption_is_an_error(self):
-        from code_repair import admission
-        natural = next(r for r in self.records if r["result"]["outcome"] != "accepted")
+        natural = required_item(r for r in self.records if r["result"]["outcome"] != "accepted")
         eligible, reasons = admission.natural_eligibility(natural, self.row)
         self.assertFalse(eligible)
         self.assertTrue(reasons)
@@ -416,7 +416,6 @@ class ProceduralIntegrationTests(unittest.TestCase):
             admission.natural_eligibility(broken, self.row)
 
     def test_substituted_catalog_and_self_consistent_source_are_refused(self):
-        from code_repair import admission
         record = copy.deepcopy(self.records[0])
         forged = admission.load_trusted_catalog(self.row)
         forged.programs[0].upstream["repository"] = "unreviewed/project"
@@ -429,8 +428,8 @@ class ProceduralIntegrationTests(unittest.TestCase):
             admission.natural_eligibility(record, self.row)
 
     def test_audit_counts_only_valid_positive_records_as_eligible(self):
-        accepted = next(r for r in self.records if r["result"]["outcome"] == "accepted")
-        natural = next(r for r in self.records if r["result"]["outcome"] != "accepted")
+        accepted = required_item(r for r in self.records if r["result"]["outcome"] == "accepted")
+        natural = required_item(r for r in self.records if r["result"]["outcome"] != "accepted")
         path = f"{self.row.path_id}/batch-r01.jsonl"
         snapshot = {path: (json.dumps(accepted) + "\n" + json.dumps(natural) + "\n").encode()}
         report = audit_run(self.root, snapshot=snapshot)
@@ -452,7 +451,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
         self.assertGreater(report["record_invariants"]["errors"], 0)
 
     def test_audit_quarantines_forged_family_outside_reviewed_procedural_route(self):
-        accepted = next(r for r in self.records if r["result"]["outcome"] == "accepted")
+        accepted = required_item(r for r in self.records if r["result"]["outcome"] == "accepted")
         foreign = copy.deepcopy(accepted)
         foreign["meta"] = {"factory": "eval-harness-trajectory-factory"}
         foreign_line = json.dumps(foreign) + "\n"
@@ -492,7 +491,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
         self.assertGreater(report["record_invariants"]["errors"], 0)
 
     def test_audit_accounts_duplicate_rejected_records_as_evidence_only(self):
-        natural = next(r for r in self.records if r["result"]["outcome"] != "accepted")
+        natural = required_item(r for r in self.records if r["result"]["outcome"] != "accepted")
         path = f"{self.row.path_id}/batch-r01.jsonl"
         line = dumps_exact_json(natural) + "\n"
         report = audit_run(self.root, snapshot={path: (line + line).encode()})

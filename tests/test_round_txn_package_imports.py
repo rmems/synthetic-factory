@@ -44,9 +44,11 @@ class TransactionPackageImports(unittest.TestCase):
                         REPO, factory, operation), 0)
 
     def test_probe_refuses_a_child_contaminated_by_a_direct_transaction_import(self):
-        with mock.patch.dict(sys.modules, {"round_txn": mock.sentinel.round_txn}):
-            with self.assertRaisesRegex(AssertionError, "already loaded.*round_txn"):
-                import_support._package_only_probe(str(REPO), "unused", "unused")
+        with (
+            mock.patch.dict(sys.modules, {"round_txn": mock.sentinel.round_txn}),
+            self.assertRaisesRegex(AssertionError, "already loaded.*round_txn"),
+        ):
+            import_support._package_only_probe(str(REPO), "unused", "unused")
 
     def test_procedural_execution_hooks_work_in_fresh_package_only_processes(self):
         for operation in (
@@ -62,27 +64,34 @@ class TransactionPackageImports(unittest.TestCase):
         events = []
 
         class HungProcess:
-            def start(self):
+            @staticmethod
+            def start():
                 events.append("start")
 
-            def join(self, timeout):
+            @staticmethod
+            def join(timeout):
                 events.append(("join", timeout))
 
-            def is_alive(self):
+            @staticmethod
+            def is_alive():
                 events.append("is_alive")
                 return True
 
-            def terminate(self):
+            @staticmethod
+            def terminate():
                 events.append("terminate")
 
-            def kill(self):
+            @staticmethod
+            def kill():
                 events.append("kill")
 
         context = mock.Mock()
         context.Process.return_value = HungProcess()
-        with mock.patch.object(import_support.multiprocessing, "get_context", return_value=context):
-            with self.assertRaisesRegex(TimeoutError, "timed out after 30 seconds"):
-                import_support.package_only_probe_exit_code(REPO, Path("unused"), "unused")
+        with (
+            mock.patch.object(import_support.multiprocessing, "get_context", return_value=context),
+            self.assertRaisesRegex(TimeoutError, "timed out after 30 seconds"),
+        ):
+            import_support.package_only_probe_exit_code(REPO, Path("unused"), "unused")
         self.assertEqual(events, [
             "start", ("join", 30.0), "is_alive", "terminate", ("join", 5.0),
             "is_alive", "kill", ("join", 5.0),

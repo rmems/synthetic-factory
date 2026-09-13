@@ -122,3 +122,11 @@ def smoke_run(seed=SEED, count=12):
     summary = generate.run(request)
     loaded = [record for _lineno, record in oc.read_jsonl(out / generate.CANDIDATES_FILENAME)]
     return summary, loaded, out
+
+
+def required_item(items):
+    """Return a required fixture item, failing clearly when its selection is empty."""
+    try:
+        return next(iter(items))
+    except StopIteration as exc:
+        raise AssertionError("required fixture selection is empty") from exc

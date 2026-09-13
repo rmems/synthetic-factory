@@ -21,6 +21,7 @@ from tests.code_repair_test_support import (
 from code_repair import export, lineage, replay
 from code_repair._contract import ExactJSONFloat, exact_fraction, load_strict_json
 from scripts import agoge_consumer_probe as probe
+from tests.code_repair_test_support import required_item
 
 
 def request(run_dir, out_dir, replay_dir=None, cap=export.DEFAULT_LINEAGE_CAP):
@@ -189,7 +190,7 @@ class Integrity(unittest.TestCase):
 
     def tampered_run(self, tamper, restamped=True, name="tampered"):
         run_dir, records = run_copy(self.root / name)
-        positive = next(i for i, r in enumerate(records) if views.is_positive(r))
+        positive = required_item(i for i, r in enumerate(records) if views.is_positive(r))
         tamper(records[positive])
         if restamped:
             restamp(records[positive])
@@ -216,7 +217,7 @@ class Integrity(unittest.TestCase):
         stamp_replay(run_dir, replay_dir)
         report_path = replay_dir / replay.REPLAY_FILENAME
         report = json.loads(report_path.read_text())
-        entry = next(e for e in report["records"] if e["status"] == "replayed")
+        entry = required_item(e for e in report["records"] if e["status"] == "replayed")
         entry["code"] = cv.REPLAY_ROWS_MISMATCH
         report_path.write_text(json.dumps(report))
         with refusal(self, cv.FINDING_EXPORT_INTEGRITY, cv.EXPORT_REPLAY_RUN_IDENTITY_MISMATCH):
@@ -314,8 +315,8 @@ class Integrity(unittest.TestCase):
 
     def test_catalog_lineage_and_group_cannot_be_relabelled(self):
         for key in ("lineage_id", "group_id", "policy_sha256"):
-            def tamper(record):
-                record["provenance"]["split_lineage"][key] = "forged"
+            def tamper(record, field=key):
+                record["provenance"]["split_lineage"][field] = "forged"
             run_dir = self.tampered_run(tamper, name=key)
             with self.subTest(key=key), refusal(
                 self, cv.FINDING_EXPORT_INTEGRITY, cv.EXPORT_SPLIT_REDERIVATION_MISMATCH
@@ -347,13 +348,13 @@ class Integrity(unittest.TestCase):
                  "candidate_prediction.predicted_repair",
                  "result.public_failure_evidence", "provenance.split_lineage")
         for index, (path, mode) in enumerate(itertools.product(paths, ("missing", "wrong_type"))):
-            def remove(record):
-                keys = path.replace("program.py", "PROGRAM").split(".")
+            def remove(record, field_path=path, removal_mode=mode):
+                keys = field_path.replace("program.py", "PROGRAM").split(".")
                 parent = record
                 for key in keys[:-1]:
                     parent = parent[key]
                 key = keys[-1].replace("PROGRAM", "program.py")
-                if mode == "missing":
+                if removal_mode == "missing":
                     parent.pop(key)
                 else:
                     parent[key] = 42
@@ -449,9 +450,11 @@ class ConsumerProbe(unittest.TestCase):
                  ("_label_report", ["--config", "config"]),
                  ("_freeze", ["--freeze-into", str(self.root / "frozen")]))
         for step, extra in cases:
-            with mock.patch.object(probe, "_config", return_value={"model_id": "fake"}):
-                with mock.patch.object(probe, step, side_effect=ValueError("requested failure")):
-                    code, report = self.run_probe(extra)
+            with (
+                mock.patch.object(probe, "_config", return_value={"model_id": "fake"}),
+                mock.patch.object(probe, step, side_effect=ValueError("requested failure")),
+            ):
+                code, report = self.run_probe(extra)
             self.assertEqual(code, 1)
             self.assertFalse(report["passed"])
             self.assertIn("freeze" if step == "_freeze" else "labels", report["failed_steps"])

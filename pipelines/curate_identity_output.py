@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Pattern
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("curate_identity_output")
 else:

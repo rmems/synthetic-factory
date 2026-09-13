@@ -158,7 +158,7 @@ def _field_value(node: ast.AST, name: str, namer: _Namer) -> Any:
         return namer(node.name)
     if name == "body" and isinstance(value, list):
         return _strip_docstring(value)
-    if _is_identifier(node, name, value):
+    if isinstance(value, str) and _is_identifier(node, name, value):
         return namer(value)
     return value
 

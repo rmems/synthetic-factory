@@ -16,6 +16,7 @@ from tests.code_repair_admission_test_support import (
 from tests.test_curate_identity import identity as ci
 from tests.code_repair_test_support import oc, vocabulary as cv
 from code_repair import admission, catalog, source_policy, validation
+from tests.code_repair_test_support import required_item
 
 
 class EmittedEvidenceContract(unittest.TestCase):
@@ -62,7 +63,7 @@ class EmittedEvidenceContract(unittest.TestCase):
         self.assertEqual(self.curate(record).action, "retained")
 
     def accepted(self):
-        return next(record for record in self.records if record["result"]["outcome"] == "accepted")
+        return required_item(record for record in self.records if record["result"]["outcome"] == "accepted")
 
     def test_unexecuted_files_are_refused(self):
         for location in ("broken", "repair"):
@@ -131,7 +132,7 @@ class EmittedEvidenceContract(unittest.TestCase):
 
 
     def natural_rejection(self):
-        return next(
+        return required_item(
             record for record in self.records
             if record["result"]["reason_codes"] == [cv.REASON_MUTANT_NO_OBSERVED_FAILURE]
         )
@@ -148,7 +149,7 @@ class EmittedEvidenceContract(unittest.TestCase):
 
     def test_coherently_restamped_public_row_without_observations_is_refused(self):
         record = copy.deepcopy(self.accepted())
-        row = next(
+        row = required_item(
             row for row in record["result"]["phases"]["mutant"]["public"]
             if row["status"] != cv.ROW_SUCCESS and row["got"].strip()
         )
@@ -160,7 +161,7 @@ class EmittedEvidenceContract(unittest.TestCase):
 
     def test_empty_public_output_is_still_complete_observation_evidence(self):
         record = copy.deepcopy(self.accepted())
-        row = next(
+        row = required_item(
             row for row in record["result"]["phases"]["mutant"]["public"]
             if row["status"] != cv.ROW_SUCCESS
         )

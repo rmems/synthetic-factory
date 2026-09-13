@@ -216,7 +216,7 @@ def _compose_bridge_stage_with_source(
             detail=decision.manifest,
         )
     )
-    if not retained:
+    if decision.output_record is None:
         return ComposeDecision(ACTION_EXCLUDED, None, tuple(reasons), tuple(stages), None, None)
     return decision.output_record
 

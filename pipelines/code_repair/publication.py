@@ -35,9 +35,11 @@ class PublishRequest:
 
 def _default_registry():
     if __name__.startswith(_PACKAGE_PREFIX):
-        from ..curate_identity import default_registry
+        # Intentional lazy authority/import-twin boundary; exercised by import-order tests.
+        from ..curate_identity import default_registry  # pylint: disable=cyclic-import
         return default_registry()
-    from curate_identity import default_registry as flat_registry
+    # Intentional lazy authority/import-twin boundary; exercised by import-order tests.
+    from curate_identity import default_registry as flat_registry  # pylint: disable=cyclic-import
     return flat_registry()
 
 
@@ -48,9 +50,11 @@ def transaction_module():
         if path and Path(path).resolve() == sp.ROOT / "pipelines/round_txn.py":
             return module
     if __name__.startswith(_PACKAGE_PREFIX):
-        from .. import round_txn
+        # Intentional lazy authority/import-twin boundary; exercised by import-order tests.
+        from .. import round_txn  # pylint: disable=cyclic-import
     else:
-        import round_txn
+        # Intentional lazy authority/import-twin boundary; exercised by import-order tests.
+        import round_txn  # pylint: disable=cyclic-import
     return round_txn
 
 

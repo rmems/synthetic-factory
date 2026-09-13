@@ -20,6 +20,7 @@ from code_repair_test_support import (  # noqa: E402
     vocabulary as cv,
 )
 from code_repair._contract import exact_fraction, load_strict_json  # noqa: E402
+from tests.code_repair_test_support import required_item
 
 
 def invoke(argv):
@@ -133,7 +134,7 @@ class GenerateAndRender(unittest.TestCase):
         self.assertEqual(code, 0)
         summary = json.loads(text)["summary"]
         self.assertEqual(summary["outcomes"], {"accepted": 7, "rejected": 3})
-        record_id = next(r['id'] for _, r in oc.iter_jsonl(out / generate.CANDIDATES_FILENAME)
+        record_id = required_item(r['id'] for _, r in oc.iter_jsonl(out / generate.CANDIDATES_FILENAME)
                          if views.is_positive(r))
         code, text, _err = invoke(["render", str(out), record_id, "--json"])
         self.assertEqual(code, 0)
@@ -151,13 +152,13 @@ class GenerateAndRender(unittest.TestCase):
 
     def test_render_refuses_a_rejected_record_with_its_reasons(self):
         _summary, records, run_dir = smoke_run()
-        rejected = next(r for r in records if r['result']['reason_codes'] == [cv.REASON_MUTANT_NO_OBSERVED_FAILURE])
+        rejected = required_item(r for r in records if r['result']['reason_codes'] == [cv.REASON_MUTANT_NO_OBSERVED_FAILURE])
         code, text, _err = invoke(["render", str(run_dir), rejected['id'], "--json"])
         self.assertEqual(code, 1)
         finding = json.loads(text)["findings"][0]
         self.assertEqual(finding["code"], cv.FINDING_RECORD_NOT_A_POSITIVE_EXAMPLE)
         self.assertEqual(finding["reason_codes"], [cv.REASON_MUTANT_NO_OBSERVED_FAILURE])
-        provisional = next(r for r in records if r['result']['oracle_status'] == cv.STATUS_PROVISIONAL)
+        provisional = required_item(r for r in records if r['result']['oracle_status'] == cv.STATUS_PROVISIONAL)
         code, text, _err = invoke(["render", str(run_dir), provisional['id'], "--json"])
         self.assertEqual(code, 1)
         finding = json.loads(text)["findings"][0]
@@ -173,7 +174,7 @@ class GenerateAndRender(unittest.TestCase):
         root = Path(tempfile.mkdtemp(prefix="code-repair-cli-"))
         self.addCleanup(shutil.rmtree, root, True)
         _summary, records, _run_dir = smoke_run()
-        positive = next(r for r in records if views.is_positive(r))
+        positive = required_item(r for r in records if views.is_positive(r))
         leaky = copy.deepcopy(positive)
         leaky["result"]["public_failure_evidence"][0]["got"] = "a fabricated failure"
         leaky["provenance"]["record_sha256"] = envelope.record_digest(leaky)

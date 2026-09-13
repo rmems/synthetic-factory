@@ -83,6 +83,12 @@ class Verification(unittest.TestCase):
             cv.SKIP_MUTATION_NOOP,
         )
 
+    def test_missing_original_target_is_refused(self):
+        self.assertEqual(
+            mutate.verify("pass\n", self.prog.text, self.site, self.prog.function),
+            cv.SKIP_MUTATION_NOOP,
+        )
+
     def test_a_rewrite_that_does_not_compile_is_refused(self):
         broken = self.prog.text.replace("number < 0", "number < ", 1)
         self.assertEqual(

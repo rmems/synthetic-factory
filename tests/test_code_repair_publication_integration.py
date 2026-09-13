@@ -17,6 +17,7 @@ from tests.test_round_txn import round_txn as rt
 from tests.code_repair_test_support import REPO, generate
 from code_repair import cli, export, publication
 import training_audit
+from tests.code_repair_test_support import required_item
 
 
 def _change_seed(run):
@@ -131,7 +132,7 @@ class PublicationIntegrationTests(unittest.TestCase):
             artifact_path.write_text(json.dumps(value))
             marker = factory / "ROUND-r01.complete.json"
             manifest = json.loads(marker.read_text())
-            entry = next(item for item in manifest["files"] if item["name"] == artifact_path.name)
+            entry = required_item(item for item in manifest["files"] if item["name"] == artifact_path.name)
             entry.update(sha256=rt.file_sha256(artifact_path), bytes=artifact_path.stat().st_size)
             marker.write_text(json.dumps(manifest))
             with self.assertRaises(rt.TransactionError):

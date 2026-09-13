@@ -52,7 +52,8 @@ class ProceduralRegistryTests(unittest.TestCase):
         self.assertEqual(fresh.programs[0].upstream["repository"], "TheAlgorithms/Python")
         self.assertGreater(fresh.meta["split_policy"]["weights"]["train"], 0)
 
-    def load_changed(self, change):
+    @staticmethod
+    def load_changed(change):
         value = json.loads(ci.FACTORY_REGISTRY_PATH.read_text())
         change(value)
         with tempfile.TemporaryDirectory() as directory:

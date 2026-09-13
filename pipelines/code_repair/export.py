@@ -175,10 +175,11 @@ def _split_proof(corpus: _Corpus) -> None:
     for record in corpus.positives:
         lineage_block = _lineage_of(record)
         split = lineage_block.get("split")
-        cv.refuse_when(
-            split not in lineage.SPLITS, cv.FINDING_EXPORT_INTEGRITY,
-            f"record {cv.shown(record['id'])}: {cv.EXPORT_SPLIT_UNASSIGNED}",
-        )
+        if not isinstance(split, str) or split not in lineage.SPLITS:
+            raise cv.RepairRefusal(
+                cv.FINDING_EXPORT_INTEGRITY,
+                f"record {cv.shown(record['id'])}: {cv.EXPORT_SPLIT_UNASSIGNED}",
+            )
         by_lineage.setdefault(lineage_block["lineage_id"], set()).add(split)
         if lineage_block.get("group_id"):
             by_group.setdefault(lineage_block["group_id"], set()).add(split)
@@ -318,7 +319,7 @@ def _write(request: ExportRequest, corpus: _Corpus) -> dict[str, Any]:
 
 
 def _manifest(request: ExportRequest, corpus: _Corpus, digests: dict[str, str]) -> dict[str, Any]:
-    run = corpus.run
+    run_summary = corpus.run
     replay_status = corpus.replay_status
     tables = _tables(corpus)
     exported = tables["dispositions"].get("exported", 0)
@@ -329,7 +330,7 @@ def _manifest(request: ExportRequest, corpus: _Corpus, digests: dict[str, str]) 
     )
     return {
         "format": EXPORT_FORMAT, "family": cv.FAMILY, "pipeline_status": "complete",
-        "run": {k: run.get(k) for k in ("seed", "count", "produced_at", "catalog", "generator",
+        "run": {k: run_summary.get(k) for k in ("seed", "count", "produced_at", "catalog", "generator",
                                         "harness_sha256", "split_policy", "timeout_s")},
         "lineage_cap": request.lineage_cap, "tables": tables, "files": digests,
         "replay": replay_status,

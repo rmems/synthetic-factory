@@ -175,6 +175,20 @@ def _validate_third_factor(
     evidence["raster_third_factor_eligibility"] = eligibility.strip()
 
 
+def _window_in_range(window):
+    primary_fraction = exact_fraction(window.primary)
+    alias_fraction = exact_fraction(window.alias)
+    return (
+        window.valid
+        and alias_fraction is not None
+        and primary_fraction is not None
+        and RASTER_WINDOW_MIN_MS <= alias_fraction <= RASTER_WINDOW_MAX_MS
+        and Fraction(RASTER_WINDOW_MIN_MS, 1000)
+        <= primary_fraction
+        <= Fraction(RASTER_WINDOW_MAX_MS, 1000)
+    )
+
+
 def _raster_window(
     raster: dict[str, Any], reason_codes: list[str], evidence: dict[str, Any]
 ) -> tuple[Any | None, Any | None, bool]:
@@ -195,18 +209,7 @@ def _raster_window(
         alias_evidence_key="raster_window_ms_derived",
         evidence=evidence,
     )
-    primary_fraction = exact_fraction(window.primary)
-    alias_fraction = exact_fraction(window.alias)
-    in_range = window.valid and all(
-        (
-            alias_fraction is not None,
-            primary_fraction is not None,
-            RASTER_WINDOW_MIN_MS <= alias_fraction <= RASTER_WINDOW_MAX_MS,
-            Fraction(RASTER_WINDOW_MIN_MS, 1000)
-            <= primary_fraction
-            <= Fraction(RASTER_WINDOW_MAX_MS, 1000),
-        )
-    )
+    in_range = _window_in_range(window)
     valid = in_range and window.consistent
     evidence["raster_window_ms"] = window.alias
     evidence["raster_window_valid"] = valid

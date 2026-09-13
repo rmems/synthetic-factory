@@ -43,8 +43,7 @@ def _check_committed_paths(round_txn, factory: Path, batch: Path) -> None:
              "package import returned the wrong committed path")
 
 
-def _check_legacy_file(round_txn, factory: Path, batch: Path) -> None:
-    del factory
+def _check_legacy_file(round_txn, _factory: Path, batch: Path) -> None:
     _require(round_txn.valid_legacy_file(batch) == 1,
              "package import rejected the valid legacy batch")
 
@@ -75,8 +74,7 @@ def _check_procedural_completed(round_txn, factory: Path, batch: Path) -> None:
              "package import returned the wrong completed procedural verdict")
 
 
-def _check_procedural_execution_gate(round_txn, factory: Path, batch: Path) -> None:
-    del factory
+def _check_procedural_execution_gate(round_txn, _factory: Path, batch: Path) -> None:
     try:
         round_txn.execution_gate(batch, batch)
     except round_txn.TransactionError as exc:

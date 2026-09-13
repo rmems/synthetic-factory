@@ -286,7 +286,7 @@ def _validate_run(inputs):
 def validate_run(run, records, *, catalog, candidates_sha256) -> list[str]:
     try:
         return _validate_run(_RunInputs(run, records, catalog, candidates_sha256))
-    except (cv.RepairRefusal, KeyError, TypeError, ValueError, AttributeError, RecursionError, OverflowError):
+    except (KeyError, TypeError, ValueError, AttributeError, RecursionError, OverflowError):
         return [cv.EXPORT_RUN_SUMMARY_MISMATCH]
 
 

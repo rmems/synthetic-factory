@@ -30,7 +30,7 @@ import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Hashable, Any
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -325,6 +325,7 @@ def _source_jsonl_entries(source: Path) -> tuple[tuple[Path, str, bool], ...]:
 
     if not source.exists():
         return ()
+    paths: tuple[Path, ...]
     if source.is_file():
         paths = (source,) if source.suffix == ".jsonl" and not source.is_symlink() else ()
     else:
@@ -633,7 +634,7 @@ def _mill_summary(
 
 def _records_by_rel(
     kept: list[tuple[str, int, dict[str, Any], str, bool]],
-    dropped: set[int],
+    dropped: set[Hashable],
 ) -> dict[str, list[dict[str, Any]]]:
     """Group surviving curated records by source file, dropping emptied files."""
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)

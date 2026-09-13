@@ -8,7 +8,8 @@ from collections.abc import Callable, Iterable
 from typing import Any, NamedTuple
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("training_audit_reasoning")
     from .curate_coding import (

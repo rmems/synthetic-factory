@@ -110,7 +110,9 @@ def _adjacent_descents(times: Sequence[Any]) -> list[dict[str, Any]]:
             "right_time": times[index],
         }
         for index in range(1, len(times))
-        if exact_fraction(times[index]) < exact_fraction(times[index - 1])
+        if (right := exact_fraction(times[index])) is not None
+        and (left := exact_fraction(times[index - 1])) is not None
+        and right < left
     ]
 
 

@@ -222,7 +222,11 @@ def phases_from_blocks(blocks: dict[str, Any]) -> Phases:
         reports[phase] = None if block is None else ex.PhaseReport(
             block["status"], block["load_ok"], tuple(block["public"]), tuple(block["hidden"]),
             {"limits_applied": block["limits_applied"]}, module_sha256=block["module_sha256"])
-    return Phases(**reports)
+    original = reports["original"]
+    if original is None:
+        raise ValueError("original phase report is required")
+    return Phases(original, reports["mutant"], reports["repaired"],
+                  reports["reference"], reports["original_repeat"])
 
 
 def result_hash(phases_block: dict[str, Any]) -> str:

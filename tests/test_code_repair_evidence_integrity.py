@@ -21,16 +21,18 @@ from tests.code_repair_test_support import (
     smoke_run,
 )
 from code_repair import planning, validation
+from tests.code_repair_test_support import required_item
 
 
 class TrustedBindings(unittest.TestCase):
-    def evidence(self):
+    @staticmethod
+    def evidence():
         return copy.deepcopy(smoke_run()[:2])
 
     def test_fixed_task_metadata_cannot_be_restamped_on_any_outcome(self):
         _, candidates = self.evidence()
         for outcome in ("accepted", "rejected"):
-            original = next(r for r in candidates if r["result"]["outcome"] == outcome)
+            original = required_item(r for r in candidates if r["result"]["outcome"] == outcome)
             self.assertEqual(validation.validate_record(original, catalog=fixture()), [])
             for section, key in (("scenario", "task_specification"), ("scenario", "language"),
                                  ("scenario", "record_kind"), ("candidate_prediction", "method")):
@@ -44,7 +46,7 @@ class TrustedBindings(unittest.TestCase):
     def test_measurements_must_equal_actual_phase_readings(self):
         _, candidates = self.evidence()
         for outcome in ("accepted", "rejected"):
-            original = next(r for r in candidates if r["result"]["outcome"] == outcome)
+            original = required_item(r for r in candidates if r["result"]["outcome"] == outcome)
             integral_float = float(original["result"]["measurements"][0]["value"])
             for field, value in (("value", 999), ("value", True), ("value", integral_float),
                                  ("unit", "invented"), ("meter", "invented"),
@@ -60,7 +62,7 @@ class TrustedBindings(unittest.TestCase):
     def test_measurement_list_presence_and_order_are_bound(self):
         _, candidates = self.evidence()
         for outcome in ("accepted", "rejected"):
-            original = next(r for r in candidates if r["result"]["outcome"] == outcome)
+            original = required_item(r for r in candidates if r["result"]["outcome"] == outcome)
             for mode in ("empty", "missing", "extra", "reordered"):
                 with self.subTest(outcome=outcome, mode=mode):
                     changed = copy.deepcopy(original)

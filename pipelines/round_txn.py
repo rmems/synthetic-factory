@@ -45,6 +45,7 @@ from pathlib import Path
 if __package__:
     from .check_records import FactoryStaging, check_jsonl
     from . import round_txn_raster as _round_txn_raster
+    from . import round_txn_stage as _stage_checks
     from .validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees
 else:
     _PIPELINES = Path(__file__).resolve().parent
@@ -52,6 +53,7 @@ else:
         sys.path.insert(0, str(_PIPELINES))
     from check_records import FactoryStaging, check_jsonl
     import round_txn_raster as _round_txn_raster
+    import round_txn_stage as _stage_checks
     from validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees
 
 # Compatibility exports retained after the raster contract moved to its own
@@ -1608,9 +1610,10 @@ def run_publish_lock(factory_dir: Path):
 
 def _reviewed_hosted_generator(factory_dir):
     if __package__:
-        from .curate_identity import default_registry
+        # Intentional lazy authority/import-twin boundary; exercised by import-order tests.
+        from .curate_identity import default_registry  # pylint: disable=cyclic-import
     else:
-        from curate_identity import default_registry
+        from curate_identity import default_registry  # pylint: disable=cyclic-import
     row = default_registry().by_path_id.get(factory_dir.name)
     if row is None or row.source_type != "hosted":
         raise TransactionError("agentic factory has no reviewed hosted generator authority")
@@ -2344,6 +2347,39 @@ def validate_novel_coverage(
     return None
 
 
+def _validate_staged_batch(batch, factory_dir, expected, round_number):
+    errors, warnings, kinds, records = check_jsonl(
+        batch,
+        batch.name,
+        seen_ids=committed_ids(factory_dir),
+        staging=FactoryStaging(enabled=True),
+    )
+    if errors or warnings:
+        details = [
+            *(f"ERROR: {item}" for item in errors),
+            *(f"WARNING: {item}" for item in warnings),
+        ]
+        raise TransactionError("staged batch is not training-ready:\n" + "\n".join(details))
+    if records != expected:
+        raise TransactionError(
+            f"staged batch has {records} records; reservation requires exactly {expected}"
+        )
+    expected_kind = AGENTIC_FACTORY_KINDS.get(factory_dir.name)
+    if expected_kind and set(kinds) != {expected_kind}:
+        raise TransactionError(
+            f"{factory_dir.name} requires only {expected_kind!r} records; "
+            f"staged kinds are {sorted(kinds)!r}"
+        )
+    envelope_errors = validate_agentic_envelope(batch, factory_dir, round_number)
+    if envelope_errors:
+        raise TransactionError(
+            "staged batch violates the agentic factory envelope:\n"
+            + "\n".join(f"ERROR: {error}" for error in envelope_errors)
+        )
+    enforce_bridge_envelope(batch, factory_dir, TransactionError)
+    return kinds, records
+
+
 def validate_stage(
     factory_dir: Path,
     stage: Path,
@@ -2353,34 +2389,9 @@ def validate_stage(
     preference_isolation: str | None = None,
     execution_override=None,
 ):
-    if not stage.is_dir() or stage.is_symlink():
-        raise TransactionError(f"staging directory missing or unsafe: {stage}")
-    try:
-        initial_paths = sorted(stage.iterdir())
-    except OSError as exc:
-        raise TransactionError(f"cannot inspect staging directory {stage}: {exc}") from exc
-    rr = f"{round_number:02d}"
-    batch_name = f"batch-r{rr}.jsonl"
-    notes_name = f"NOTES-r{rr}.md"
-    allowed_core = {batch_name, notes_name}
-    artifact_re = re.compile(rf"^[A-Za-z0-9][A-Za-z0-9._-]*-r{re.escape(rr)}\.(?:md|json|txt)$")
-    initial_names = {path.name for path in initial_paths}
-    for path in initial_paths:
-        if not path.is_file() or path.is_symlink():
-            raise TransactionError(f"staging contains a non-regular file: {path}")
-        if path.suffix == ".jsonl" and path.name != batch_name:
-            raise TransactionError(
-                f"staging may contain only the reserved JSONL batch: {path.name}"
-            )
-        if path.name not in allowed_core and not artifact_re.fullmatch(path.name):
-            raise TransactionError(
-                "auxiliary artifacts must be safe round-scoped .md/.json/.txt "
-                f"files ending in -r{rr}: {path.name}"
-            )
-    if batch_name not in initial_names:
-        raise TransactionError(f"required staged batch missing or unsafe: {stage / batch_name}")
-    if notes_name not in initial_names:
-        raise TransactionError(f"required staged notes missing or unsafe: {stage / notes_name}")
+    initial_paths, initial_names, batch_name, notes_name = _stage_checks.inventory(
+        stage, round_number, TransactionError,
+    )
 
     preference_arm_gate = None
     preference_diagnosis_handoff = None
@@ -2402,57 +2413,15 @@ def validate_stage(
         batch = captured_dir / batch_name
         publication = _code_repair_publication()
         procedural = publication.require_route(factory_dir, batch, override=execution_override)
-        notes = captured_dir / notes_name
-        try:
-            notes_text = notes.read_text()
-        except (OSError, UnicodeError) as exc:
-            raise TransactionError(
-                f"cannot read staged notes as UTF-8: {stage / notes_name}: {exc}"
-            ) from exc
-        if not notes_text.strip():
-            raise TransactionError(f"staged notes are empty: {stage / notes_name}")
-        # Every newly published registered factory round must carry the line,
-        # legacy lanes included: the token-efficiency early-stop cannot latch
-        # on rounds that never report their novelty. Unknown custom transaction
-        # directories retain round_txn's generic NOTES contract.
-        coverage_error = validate_novel_coverage(
-            stage / notes_name,
-            factory_dir,
-            notes_text,
-            required=factory_dir.name in FACTORY_QUOTAS,
+        _stage_checks.validate_notes(
+            _stage_checks.NotesPaths(captured_dir, notes_name, stage, factory_dir),
+            _stage_checks.NotesPolicy(
+                TransactionError, validate_novel_coverage, factory_dir.name in FACTORY_QUOTAS,
+            ),
         )
-        if coverage_error:
-            raise TransactionError(coverage_error)
-
-        errors, warnings, kinds, records = check_jsonl(
-            batch,
-            batch.name,
-            seen_ids=committed_ids(factory_dir),
-            staging=FactoryStaging(enabled=True),
+        kinds, records = _validate_staged_batch(
+            batch, factory_dir, expected, round_number,
         )
-        if errors or warnings:
-            details = [
-                *(f"ERROR: {item}" for item in errors),
-                *(f"WARNING: {item}" for item in warnings),
-            ]
-            raise TransactionError("staged batch is not training-ready:\n" + "\n".join(details))
-        if records != expected:
-            raise TransactionError(
-                f"staged batch has {records} records; reservation requires exactly {expected}"
-            )
-        expected_kind = AGENTIC_FACTORY_KINDS.get(factory_dir.name)
-        if expected_kind and set(kinds) != {expected_kind}:
-            raise TransactionError(
-                f"{factory_dir.name} requires only {expected_kind!r} records; "
-                f"staged kinds are {sorted(kinds)!r}"
-            )
-        envelope_errors = validate_agentic_envelope(batch, factory_dir, round_number)
-        if envelope_errors:
-            raise TransactionError(
-                "staged batch violates the agentic factory envelope:\n"
-                + "\n".join(f"ERROR: {error}" for error in envelope_errors)
-            )
-        enforce_bridge_envelope(batch, factory_dir, TransactionError)
         if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
             preference_arm_gate = validate_preference_arm_gate(batch, records, preference_isolation)
             preference_diagnosis_handoff = validate_preference_diagnosis_handoff(
