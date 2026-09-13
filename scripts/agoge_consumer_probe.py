@@ -17,6 +17,12 @@ import re
 import sys
 from pathlib import Path
 
+_SCRIPTS = str(Path(__file__).resolve().parent)
+if _SCRIPTS not in sys.path:
+    sys.path.insert(0, _SCRIPTS)
+
+from operator_paths import operator_path  # noqa: E402
+
 GAPS = {
     "PROMPT_COMPLETION_UNSUPPORTED_RENDERED_TO_TEXT": (
         "Agoge's normalize_row rejects {prompt, completion}; the factory renders one text"
@@ -301,17 +307,19 @@ def _report(args: argparse.Namespace) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("agoge_jsonl", type=Path)
+    parser.add_argument("agoge_jsonl", type=operator_path)
     parser.add_argument(
-        "--manifest", type=Path, required=True, help="the export's MANIFEST.json"
+        "--manifest", type=operator_path, required=True, help="the export's MANIFEST.json"
     )
     parser.add_argument("--source-path", default=SOURCE_PATH)
-    parser.add_argument("--config", type=Path, default=None, help="an Agoge experiment YAML")
+    parser.add_argument(
+        "--config", type=operator_path, default=None, help="an Agoge experiment YAML"
+    )
     parser.add_argument(
         "--tokenizer-revision", default=None,
         help="the model revision to tokenize with (40 hex) when the config pins none",
     )
-    parser.add_argument("--freeze-into", type=Path, default=None)
+    parser.add_argument("--freeze-into", type=operator_path, default=None)
     parser.add_argument('--source-revision', default=None)
     parser.add_argument('--dataset-version', default=None)
     parser.add_argument("--json", action="store_true")

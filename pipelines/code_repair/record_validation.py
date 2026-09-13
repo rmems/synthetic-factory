@@ -96,7 +96,7 @@ def _examples(record: dict[str, Any]) -> tuple[cat.Example, ...]:
     return cat.examples_of(text, function)
 
 
-def _row_shape(row: Any, prefix: str, exception_ids: set[str]) -> None:
+def _row_identity(row: Any, prefix: str) -> None:
     _require(isinstance(row, dict))
     _require(isinstance(row["id"], str)
              and re.fullmatch(prefix + r":(?:0|[1-9][0-9]*)", row["id"]) is not None)
@@ -104,14 +104,23 @@ def _row_shape(row: Any, prefix: str, exception_ids: set[str]) -> None:
     if prefix == cv.SUITE_PUBLIC:
         _require(all(field in row for field in ("got", "truncated", "got_sha256")))
     _require(isinstance(row.get("got", ""), str))
+
+
+def _row_got(row: dict[str, Any], exception_ids: set[str]) -> None:
+    """A stored ``got`` carries an exact bool flag and a digest; an untruncated one hashes
+    to that digest, except a matched exception, whose full observation is authenticated by
+    fresh execution replay while the row keeps the display line."""
+
+    _require(isinstance(row["truncated"], bool) and _digest(row["got_sha256"]))
+    full_exception = row["id"] in exception_ids and row["status"] in (cv.ROW_SUCCESS, cv.ROW_FAIL)
+    if not row["truncated"] and not full_exception:
+        _require(cat.sha256_text(row["got"]) == row["got_sha256"])
+
+
+def _row_shape(row: Any, prefix: str, exception_ids: set[str]) -> None:
+    _row_identity(row, prefix)
     if "got" in row:
-        # Exact bool rejects integer truthiness in persisted evidence.
-        _require(type(row["truncated"]) is bool and _digest(row["got_sha256"]))  # pylint: disable=unidiomatic-typecheck
-        # Expected exceptions retain a display line but hash the full observation.
-        # Their complete observation is authenticated by fresh execution replay.
-        full_exception = row["id"] in exception_ids and row["status"] in (cv.ROW_SUCCESS, cv.ROW_FAIL)
-        if not row["truncated"] and not full_exception:
-            _require(cat.sha256_text(row["got"]) == row["got_sha256"])
+        _row_got(row, exception_ids)
 
 
 def _phase_limits_are_valid(block: dict[str, Any]) -> bool:

@@ -26,12 +26,14 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 _PIPELINES = Path(__file__).resolve().parents[1] / "pipelines"
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
+for _entry in (str(_PIPELINES), str(Path(__file__).resolve().parent)):
+    if _entry not in sys.path:
+        sys.path.insert(0, _entry)
 
 from code_repair import catalog_build as cb  # noqa: E402
 from code_repair import executor as ex  # noqa: E402
 from code_repair import lineage  # noqa: E402
+from operator_paths import operator_path  # noqa: E402
 
 REPOSITORY = "TheAlgorithms/Python"
 API = "https://api.github.com/repos/{repository}/git/trees/{commit}?recursive=1"
@@ -168,10 +170,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--commit", type=_commit, required=True, help="the pinned upstream commit (40 hex)"
     )
-    parser.add_argument("--out", type=Path, required=True, help="a brand-new catalog directory")
-    parser.add_argument("--cache-dir", type=Path, required=True)
     parser.add_argument(
-        "--references", type=Path, required=True, help="the reviewed reference table"
+        "--out", type=operator_path, required=True, help="a brand-new catalog directory"
+    )
+    parser.add_argument("--cache-dir", type=operator_path, required=True)
+    parser.add_argument(
+        "--references", type=operator_path, required=True, help="the reviewed reference table"
     )
     parser.add_argument("--catalog-id", default="python-repair-v1")
     parser.add_argument(
