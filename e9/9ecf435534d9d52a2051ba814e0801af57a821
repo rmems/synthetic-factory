@@ -1,0 +1,23 @@
+tests/test_code_repair_vocabulary.py
+  s_637722da58c92c::t_4a336c88f91d86 4,13,99-100,102
+  s_637722da58c92c::t_4edb4e28520be0 27-32,35-37,103
+  s_637722da58c92c::t_365f1592b8634e 17-18,33-34
+  s_637722da58c92c::t_6f28f01de43df3 25-26,39-59
+  s_637722da58c92c::t_4de691cbe8b97a 19-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e99ecf435534d9d52a2051ba814e0801af57a821",
+  "prompts": {},
+  "sessions": {
+    "s_637722da58c92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b4-b4e1-7663-adcf-65ef44374529",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}

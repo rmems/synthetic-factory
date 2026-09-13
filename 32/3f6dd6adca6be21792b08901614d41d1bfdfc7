@@ -1,0 +1,22 @@
+tests/test_code_repair_review_regressions.py
+  s_637722da58c92c::t_d19edef25c1aa4 1-112,115,128-136,138-147,149-155,169-176,189-201,165
+  s_637722da58c92c::t_86bd8782c0f609 113-114,116-127,177-188
+  s_637722da58c92c::t_4edb4e28520be0 137,148
+  s_637722da58c92c::t_04c54ef211f4f3 156-164,166-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "323f6dd6adca6be21792b08901614d41d1bfdfc7",
+  "prompts": {},
+  "sessions": {
+    "s_637722da58c92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b4-b4e1-7663-adcf-65ef44374529",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,31 @@
+pipelines/code_repair/__init__.py
+  s_637722da58c92c::t_742563dc615ae8 21-22
+pipelines/code_repair/catalog.py
+  s_30c91b293664f2::t_db1b93ba99c82a 149,153,156
+  s_637722da58c92c::t_4b3d9a47a72de0 19,83
+  s_637722da58c92c::t_742563dc615ae8 33,37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ac6a560ac80a74754f7591c03751db5b5cccb30f",
+  "prompts": {},
+  "sessions": {
+    "s_30c91b293664f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b363f3ab-81a6-4abe-88b5-c596f7a8dd7b",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    },
+    "s_637722da58c92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b4-b4e1-7663-adcf-65ef44374529",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
