@@ -1,0 +1,29 @@
+{
+  "build": {
+    "input_policy": "doctest-literals+seeded-neighbourhood-v1",
+    "notes": [],
+    "selector": "selector-v1",
+    "tool": "pipelines/code_repair/catalog_build.py"
+  },
+  "catalog_id": "code-repair-fixture-v1",
+  "format": "code-repair-catalog/1",
+  "program_count": 6,
+  "programs_sha256": "664bfeaa08d62c295bb4103adbffcd7a8dd92d016470f41e5107c220d5235c71",
+  "split_policy": {
+    "algorithm": "sha256-atomic-bucket-v1",
+    "salt": "python-repair-v1",
+    "seed": 20260908,
+    "weights": {
+      "held_out": 10,
+      "train": 80,
+      "validation": 10
+    }
+  },
+  "split_policy_sha256": "89401d6eae3f971376aae4def58b491a1f7649e55319b1c6f7e2fa62455627aa",
+  "upstream": {
+    "commit": "2067ce6dfb3b0426a88c7a40531e355a5c703cff",
+    "license": "MIT",
+    "license_sha256": "4395a1dc4bda1d6054c45b4d1230c709c7398e6d66f1d0aff4b22d95973bea56",
+    "repository": "TheAlgorithms/Python"
+  }
+}

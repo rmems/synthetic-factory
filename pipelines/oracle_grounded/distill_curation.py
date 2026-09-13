@@ -38,6 +38,17 @@ def stamp_validation(
     findings and never reads this block.
     """
 
+    if vocab.missing_string(validator) or vocab.missing_string(version):
+        # The stamp is the validator's identity; a blank one would only fail
+        # later in check_envelope, while every builder refuses up front.
+        raise envelope.ContractError(
+            "a stamp must carry the validator's non-empty name and version"
+        )
+    digest, failure = vocab.digest_or_failure(record)
+    if failure is not None:
+        raise envelope.ContractError(
+            "cannot stamp a record whose content cannot take the envelope's canonical form"
+        ) from failure
     stamped = copy.deepcopy(record)
     stamped["validation"] = {
         "status": vocab.VALIDATION_FAILED if findings else vocab.VALIDATION_PASSED,
@@ -45,7 +56,7 @@ def stamp_validation(
             "name": validator,
             "version": version,
             "checked_at": envelope.utc_now_iso(),
-            "validated_digest": envelope.record_digest(record),
+            "validated_digest": digest,
         },
         "findings": list(findings),
     }
@@ -71,6 +82,8 @@ def curation_eligible(
     reasons: list[str] = []
     if findings:
         reasons.append(f"VALIDATION_FINDINGS:{len(findings)}")
+    if not isinstance(record, dict):
+        return False, reasons + ["RECORD_NOT_AN_OBJECT"]
     reasons += _oracle_authority_reasons(record.get("oracle"))
     reasons += _measured_result_reasons(record.get("result"))
     reasons += _digest_reasons(record)
@@ -113,7 +126,10 @@ def _digest_reasons(record: dict[str, Any]) -> list[str]:
         # Without a digest there is nothing for check_digest to compare, so a
         # deleted digest would otherwise be a clean bypass of tamper detection.
         return ["RECORD_DIGEST_MISSING"]
-    if blocks.check_digest(record, "record"):
+    findings = blocks.check_digest(record, "record")
+    if any(vocab.RECORD_DIGEST_UNCOMPUTABLE in finding for finding in findings):
+        return [vocab.RECORD_DIGEST_UNCOMPUTABLE]
+    if findings:
         return ["RECORD_DIGEST_MISMATCH"]
     return []
 
@@ -132,7 +148,8 @@ def stamp_is_bound_to_content(record: dict[str, Any]) -> bool:
     validator = validation.get("validator")
     if not isinstance(validator, dict):
         return False
-    return validator.get("validated_digest") == envelope.record_digest(record)
+    digest, failure = vocab.digest_or_failure(record)
+    return failure is None and validator.get("validated_digest") == digest
 
 
 bind_import_twin(__name__)

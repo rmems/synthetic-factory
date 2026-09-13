@@ -495,7 +495,7 @@ def _curation_summary(source: Path, state: _ScanState) -> dict[str, Any]:
     purity_pct = 0.0
     if retained_pairs:
         purity_pct = round(100.0 * pure_outputs / retained_pairs, 1)
-    summary = {
+    summary: dict[str, Any] = {
         "transform": {"name": TRANSFORM_NAME, "version": TRANSFORM_VERSION},
         "source": str(source),
         "json_records_seen": state.json_records_seen,

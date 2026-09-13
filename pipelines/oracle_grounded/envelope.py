@@ -50,7 +50,7 @@ import sys
 from collections.abc import Callable, Container
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, TypeGuard
 
 if __name__.startswith("pipelines."):
     from .. import validate_run_provenance as _validate_run_provenance
@@ -158,7 +158,7 @@ def is_number(value: Any) -> bool:
         return False
 
 
-def is_enum_value(value: Any, allowed: Container[str]) -> bool:
+def is_enum_value(value: Any, allowed: Container[str]) -> TypeGuard[str]:
     """Membership test for enum-like JSON fields that cannot raise.
 
     A JSON-valid record can put an array or object where a string enum

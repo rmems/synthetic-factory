@@ -14,6 +14,8 @@ keeps working: they are the envelope's own objects.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from typing import Any
 
 from . import envelope
@@ -36,6 +38,7 @@ FAMILIES = (
     "neuromorphic-fault-recovery",
     "snn-energy-routing-preferences",
     "moe-router-distillation-trajectories",
+    "python-function-repair",
 )
 
 GENERATOR_AUTHORITY = "propose_only"
@@ -80,6 +83,7 @@ ORACLE_ONLY_KEYS = frozenset(
         "reason_codes",
         "joules",
         "energy_j",
+        "energy_per_op_j",
         "power_w",
         "cpu_time_s",
         "wall_time_s",
@@ -141,6 +145,9 @@ QUANTITY_UNITS = {
     "top1_top2_margin": "logit",
     "expert_agreement": "ratio",
     "repeats": "count",
+    # Test-execution counts of the code-repair family (software lane).
+    "passed_check_count": "count",
+    "failed_check_count": "count",
 }
 
 # Quantity domains. `is_number` alone accepted any finite value, so a
@@ -162,10 +169,16 @@ NON_NEGATIVE_QUANTITIES = frozenset(
         "healthy_channel_count",
         "dropped_event_count",
         "repeats",
+        "passed_check_count",
+        "failed_check_count",
         "routing_entropy",
         "top1_top2_margin",
     }
 )
+# Counts of executed checks are integers: a fractional count is not a reading
+# any harness can take. The older count quantities of the neuromorphic
+# families keep their historical domain (issue #199).
+INTEGER_QUANTITIES = frozenset({"passed_check_count", "failed_check_count"})
 UNIT_INTERVAL_QUANTITIES = frozenset(
     {
         "residual_error",
@@ -176,6 +189,22 @@ UNIT_INTERVAL_QUANTITIES = frozenset(
 )
 
 ENERGY_QUANTITIES = frozenset({"energy_j", "energy_per_op_j", "power_w"})
+
+# The units an energy number can be denominated in: the registry units of the
+# energy quantities plus watt-hours. An object that names one of these as its
+# ``unit`` identifies itself as energy whatever its numeric leaf is called.
+ENERGY_UNITS = frozenset(QUANTITY_UNITS[quantity] for quantity in ENERGY_QUANTITIES) | {"Wh"}
+
+# Key tokens that identify a bare number as energy (D3). Derived, not listed:
+# the energy units lowercased and crossed with the SI prefixes, plus the four
+# words that name the quantities. A key is split on ``_`` and matched token by
+# token, so ``pj_per_synop`` and ``power_mw`` are energy while
+# ``ticks_while_degraded`` is not. The set only grows when a quantity joins
+# ``QUANTITY_UNITS``.
+SI_PREFIXES = ("", "k", "m", "u", "n", "p")
+ENERGY_TOKENS = frozenset(
+    prefix + unit.lower() for unit in ENERGY_UNITS for prefix in SI_PREFIXES
+) | frozenset({"energy", "joule", "joules", "watt", "watts"})
 
 # Meters that physically measure energy. Anything outside this set may not
 # produce an energy-class quantity. `recorded_power_run` is deliberately
@@ -191,7 +220,8 @@ MEASURED_ENERGY_METERS = frozenset(
 )
 
 # Meters that model rather than measure. Legal for non-energy bookkeeping and
-# for explicitly modeled quantities, never for an energy claim.
+# for explicitly modeled quantities, never for an energy claim, and never with
+# ``measured: true`` for any quantity.
 MODELED_METERS = frozenset(
     {
         "analytic_op_count",
@@ -211,6 +241,57 @@ def is_true(value: Any) -> bool:
     """
 
     return value is True
+
+
+# The digest boundary (RoR-190-B1). Content that cannot take the envelope's
+# canonical UTF-8 JSON form -- a lone surrogate, NaN, a value that is not
+# JSON, nesting past the recursion limit -- is a finding for the checks, a
+# ContractError for the builder, the writer and the stamp, and False for the
+# binding predicate; never a raw serialiser exception. UnicodeEncodeError is a
+# ValueError.
+RECORD_DIGEST_UNCOMPUTABLE = "RECORD_DIGEST_UNCOMPUTABLE"
+_UNCANONICALISABLE = (ValueError, TypeError, RecursionError)
+
+
+def digest_or_failure(record: Any) -> tuple[str | None, BaseException | None]:
+    """The envelope's record digest, or the exception that stopped it.
+
+    Same dialect, same function; this only translates the failure so a caller
+    can report or refuse without leaking the serialiser's exception.
+    """
+
+    try:
+        return record_digest(record), None
+    except _UNCANONICALISABLE as exc:
+        return None, exc
+
+
+RESERVED_KEY_SCAN_DEPTH_EXCEEDED = "RESERVED_KEY_SCAN_DEPTH_EXCEEDED"
+
+
+def scan_depth_finding(where: str) -> str:
+    """The finding a reserved-key scan reports instead of raising on a too-deep record."""
+
+    return (
+        f"{where}: {RESERVED_KEY_SCAN_DEPTH_EXCEEDED} — a generator section is nested "
+        "past the recursion limit, so the reserved-key scan could not finish"
+    )
+
+
+def is_timestamp(value: Any) -> bool:
+    """A string in the envelope's ISO-8601 shape that also names a real instant.
+
+    The regex pins the shape; ``datetime.fromisoformat`` refuses a calendar
+    that does not exist (``2026-02-30``), which the shape alone accepts.
+    """
+
+    if not isinstance(value, str) or not envelope.ISO_8601_RE.match(value):
+        return False
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
 
 
 def is_genuine_int(value: Any) -> bool:

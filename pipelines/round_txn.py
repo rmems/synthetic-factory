@@ -45,6 +45,7 @@ from pathlib import Path
 if __package__:
     from .check_records import FactoryStaging, check_jsonl
     from . import round_txn_raster as _round_txn_raster
+    from . import round_txn_stage as _stage_checks
     from .validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees
 else:
     _PIPELINES = Path(__file__).resolve().parent
@@ -52,6 +53,7 @@ else:
         sys.path.insert(0, str(_PIPELINES))
     from check_records import FactoryStaging, check_jsonl
     import round_txn_raster as _round_txn_raster
+    import round_txn_stage as _stage_checks
     from validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees
 
 # Compatibility exports retained after the raster contract moved to its own
@@ -61,7 +63,8 @@ OUROBOROS_FACTORY_SLUG = _round_txn_raster.OUROBOROS_FACTORY_SLUG
 RASTER_FACTORY_SLUGS = _round_txn_raster.RASTER_FACTORY_SLUGS
 THALAMIC_FACTORY_SLUG = _round_txn_raster.THALAMIC_FACTORY_SLUG
 _distillation_kind_error = _round_txn_raster.distillation_kind_error
-_jsonl_records = _round_txn_raster.jsonl_records
+jsonl_records = _round_txn_raster.jsonl_records
+_jsonl_records = jsonl_records
 _raster_contract_errors = _round_txn_raster.raster_contract_errors
 _validate_distillation_record = _round_txn_raster.validate_distillation_record
 enforce_bridge_envelope = _round_txn_raster.enforce_bridge_envelope
@@ -643,9 +646,21 @@ def copy_verified_exclusive(source: Path, destination: Path, expected_sha256: st
         temporary.unlink(missing_ok=True)
 
 
+def _code_repair_publication():
+    """Resolve the lazy publication gate in the active pipeline import namespace."""
+    if __package__:
+        from .code_repair import publication
+    else:
+        from code_repair import publication
+    return publication
+
+
 def valid_legacy_file(path: Path):
     """Return its record count when a legacy JSONL file fully deep-checks."""
     if not path.is_file() or path.is_symlink():
+        return 0
+    publication = _code_repair_publication()
+    if publication.requires_gate(path.parent, path):
         return 0
     errors, _warnings, _kinds, records = check_jsonl(path, path.name)
     return 0 if errors else records
@@ -659,6 +674,9 @@ def validate_legacy_payload(
     quarantined_kinds: dict[int, str] | None = None,
 ):
     """Return a legacy payload's records and any applicable contract errors."""
+    publication = _code_repair_publication()
+    if publication.requires_gate(factory_dir, path):
+        return 0, ["procedural records require completed fresh-gate rounds, not legacy baselines"]
     factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
     quarantined_kinds = dict(quarantined_kinds or {})
     errors, warnings, kinds, records = check_jsonl(
@@ -783,10 +801,22 @@ def discover_legacy_named_baseline(factory_dir: Path):
     return 1 if records >= quota else 0
 
 
+# Process-local cache keyed by (resolved run_dir, factory name).
+# marker_mode_state calls this twice for the same factory; the second
+# call must not re-walk siblings. Each factory keeps its own skip-self
+# scan so a bad publishing marker on the caller cannot raise, and a
+# shared-id collision stays visible to the other factory.
+_SIBLING_ID_CACHE: dict[tuple[Path, str], dict] = {}
+
+
 def sibling_committed_and_inflight_ids(factory_dir: Path):
     """Seed a legacy handoff with IDs already owned by sibling factories."""
     factory_dir = Path(factory_dir)
     run_dir = factory_dir.parent
+    cache_key = (run_dir.resolve(), factory_dir.name)
+    cached = _SIBLING_ID_CACHE.get(cache_key)
+    if cached is not None:
+        return dict(cached)
     seen_ids = {}
     for path in sorted(run_dir.glob("*.jsonl")):
         if path.is_file() and not path.is_symlink():
@@ -830,7 +860,8 @@ def sibling_committed_and_inflight_ids(factory_dir: Path):
             except ValueError:
                 label = Path(sibling.name) / ".inflight" / path.name
             check_jsonl(path, label, seen_ids=seen_ids)
-    return seen_ids
+    _SIBLING_ID_CACHE[cache_key] = seen_ids
+    return dict(seen_ids)
 
 
 def validate_legacy_baseline_payloads(
@@ -999,6 +1030,9 @@ def _bind_completion_execution_verdict(
     bound_verified_rounds,
 ):
     marker_version = completion_marker_version(payload, path)
+    publication = _code_repair_publication()
+    if publication.inspect_completed_if_required(factory_dir / batch_name, payload):
+        return True
     gated_round = (
         _is_positive_int(cutover) and round_number >= cutover
     ) or round_number in bound_verified_rounds
@@ -1448,11 +1482,14 @@ def committed_jsonl_paths(factory_dir: Path):
     """
     mode_path = marker_mode_path(factory_dir)
     if mode_path is None:
-        return sorted(
+        files = sorted(
             path
             for path in factory_dir.rglob("*.jsonl")
             if path.is_file() and not path.is_symlink()
         )
+        publication = _code_repair_publication()
+        publication.require_legacy_only(factory_dir, files)
+        return files
 
     files = sorted(
         path for path in factory_dir.glob("*.jsonl") if path.is_file() and not path.is_symlink()
@@ -1571,6 +1608,18 @@ def run_publish_lock(factory_dir: Path):
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+def _reviewed_hosted_generator(factory_dir):
+    if __package__:
+        # Intentional lazy authority/import-twin boundary; exercised by import-order tests.
+        from .curate_identity import default_registry  # pylint: disable=cyclic-import
+    else:
+        from curate_identity import default_registry  # pylint: disable=cyclic-import
+    row = default_registry().by_path_id.get(factory_dir.name)
+    if row is None or row.source_type != "hosted":
+        raise TransactionError("agentic factory has no reviewed hosted generator authority")
+    return row.generator
+
+
 def validate_agentic_envelope(
     batch: Path,
     factory_dir: Path,
@@ -1581,6 +1630,7 @@ def validate_agentic_envelope(
     """Return fixed-contract envelope errors for one staged agentic batch."""
     if factory_dir.name not in AGENTIC_FACTORY_KINDS:
         return []
+    expected_generator = _reviewed_hosted_generator(factory_dir)
     records, errors = _jsonl_records(batch)
     safety_case_types = []
     cascade_fault_kinds = []
@@ -2055,8 +2105,8 @@ def validate_agentic_envelope(
             or meta_round != round_number
         ):
             errors.append(f"{where}: meta.round must match reservation r{round_number:02d}")
-        if meta.get("generator") != "grok-4.6":
-            errors.append(f"{where}: meta.generator must be 'grok-4.6'")
+        if meta.get("generator") != expected_generator:
+            errors.append(f"{where}: meta.generator must be {expected_generator!r}")
     if factory_dir.name == "safety-calibration-factory":
         required_case_types = {
             "correct_refusal",
@@ -2223,6 +2273,8 @@ def validate_completed_batch(
 ):
     """Re-run publication record, quota, and envelope checks for one marker."""
     batch = factory_dir / f"batch-r{round_number:02d}.jsonl"
+    publication = _code_repair_publication()
+    publication.inspect_completed_if_required(batch, manifest)
     factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
     kinds, records = _completed_batch_is_training_ready(batch, seen_ids, factory_staging)
     _completed_counts_match_manifest(manifest, records, kinds, batch)
@@ -2295,6 +2347,35 @@ def validate_novel_coverage(
     return None
 
 
+def _validate_staged_batch(batch, factory_dir, expected, round_number):
+    errors, warnings, kinds, records = check_jsonl(
+        batch,
+        batch.name,
+        seen_ids=committed_ids(factory_dir),
+        staging=FactoryStaging(enabled=True),
+    )
+    if errors or warnings:
+        details = [
+            *(f"ERROR: {item}" for item in errors),
+            *(f"WARNING: {item}" for item in warnings),
+        ]
+        raise TransactionError("staged batch is not training-ready:\n" + "\n".join(details))
+    _stage_checks.validate_counts(
+        records, kinds,
+        _stage_checks.BatchPolicy(
+            factory_dir.name, expected, AGENTIC_FACTORY_KINDS.get(factory_dir.name), TransactionError,
+        ),
+    )
+    envelope_errors = validate_agentic_envelope(batch, factory_dir, round_number)
+    if envelope_errors:
+        raise TransactionError(
+            "staged batch violates the agentic factory envelope:\n"
+            + "\n".join(f"ERROR: {error}" for error in envelope_errors)
+        )
+    enforce_bridge_envelope(batch, factory_dir, TransactionError)
+    return kinds, records
+
+
 def validate_stage(
     factory_dir: Path,
     stage: Path,
@@ -2304,34 +2385,9 @@ def validate_stage(
     preference_isolation: str | None = None,
     execution_override=None,
 ):
-    if not stage.is_dir() or stage.is_symlink():
-        raise TransactionError(f"staging directory missing or unsafe: {stage}")
-    try:
-        initial_paths = sorted(stage.iterdir())
-    except OSError as exc:
-        raise TransactionError(f"cannot inspect staging directory {stage}: {exc}") from exc
-    rr = f"{round_number:02d}"
-    batch_name = f"batch-r{rr}.jsonl"
-    notes_name = f"NOTES-r{rr}.md"
-    allowed_core = {batch_name, notes_name}
-    artifact_re = re.compile(rf"^[A-Za-z0-9][A-Za-z0-9._-]*-r{re.escape(rr)}\.(?:md|json|txt)$")
-    initial_names = {path.name for path in initial_paths}
-    for path in initial_paths:
-        if not path.is_file() or path.is_symlink():
-            raise TransactionError(f"staging contains a non-regular file: {path}")
-        if path.suffix == ".jsonl" and path.name != batch_name:
-            raise TransactionError(
-                f"staging may contain only the reserved JSONL batch: {path.name}"
-            )
-        if path.name not in allowed_core and not artifact_re.fullmatch(path.name):
-            raise TransactionError(
-                "auxiliary artifacts must be safe round-scoped .md/.json/.txt "
-                f"files ending in -r{rr}: {path.name}"
-            )
-    if batch_name not in initial_names:
-        raise TransactionError(f"required staged batch missing or unsafe: {stage / batch_name}")
-    if notes_name not in initial_names:
-        raise TransactionError(f"required staged notes missing or unsafe: {stage / notes_name}")
+    initial_paths, initial_names, batch_name, notes_name = _stage_checks.inventory(
+        stage, round_number, TransactionError,
+    )
 
     preference_arm_gate = None
     preference_diagnosis_handoff = None
@@ -2351,57 +2407,17 @@ def validate_stage(
             raise TransactionError("staging file set changed during validation")
 
         batch = captured_dir / batch_name
-        notes = captured_dir / notes_name
-        try:
-            notes_text = notes.read_text()
-        except (OSError, UnicodeError) as exc:
-            raise TransactionError(
-                f"cannot read staged notes as UTF-8: {stage / notes_name}: {exc}"
-            ) from exc
-        if not notes_text.strip():
-            raise TransactionError(f"staged notes are empty: {stage / notes_name}")
-        # Every newly published registered factory round must carry the line,
-        # legacy lanes included: the token-efficiency early-stop cannot latch
-        # on rounds that never report their novelty. Unknown custom transaction
-        # directories retain round_txn's generic NOTES contract.
-        coverage_error = validate_novel_coverage(
-            stage / notes_name,
-            factory_dir,
-            notes_text,
-            required=factory_dir.name in FACTORY_QUOTAS,
+        publication = _code_repair_publication()
+        procedural = publication.require_route(factory_dir, batch, override=execution_override)
+        _stage_checks.validate_notes(
+            _stage_checks.NotesPaths(captured_dir, notes_name, stage, factory_dir),
+            _stage_checks.NotesPolicy(
+                TransactionError, validate_novel_coverage, factory_dir.name in FACTORY_QUOTAS,
+            ),
         )
-        if coverage_error:
-            raise TransactionError(coverage_error)
-
-        errors, warnings, kinds, records = check_jsonl(
-            batch,
-            batch.name,
-            seen_ids=committed_ids(factory_dir),
-            staging=FactoryStaging(enabled=True),
+        kinds, records = _validate_staged_batch(
+            batch, factory_dir, expected, round_number,
         )
-        if errors or warnings:
-            details = [
-                *(f"ERROR: {item}" for item in errors),
-                *(f"WARNING: {item}" for item in warnings),
-            ]
-            raise TransactionError("staged batch is not training-ready:\n" + "\n".join(details))
-        if records != expected:
-            raise TransactionError(
-                f"staged batch has {records} records; reservation requires exactly {expected}"
-            )
-        expected_kind = AGENTIC_FACTORY_KINDS.get(factory_dir.name)
-        if expected_kind and set(kinds) != {expected_kind}:
-            raise TransactionError(
-                f"{factory_dir.name} requires only {expected_kind!r} records; "
-                f"staged kinds are {sorted(kinds)!r}"
-            )
-        envelope_errors = validate_agentic_envelope(batch, factory_dir, round_number)
-        if envelope_errors:
-            raise TransactionError(
-                "staged batch violates the agentic factory envelope:\n"
-                + "\n".join(f"ERROR: {error}" for error in envelope_errors)
-            )
-        enforce_bridge_envelope(batch, factory_dir, TransactionError)
         if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
             preference_arm_gate = validate_preference_arm_gate(batch, records, preference_isolation)
             preference_diagnosis_handoff = validate_preference_diagnosis_handoff(
@@ -2417,7 +2433,10 @@ def validate_stage(
             )
         # Frontier gate: run over the captured copy so the verdict describes the
         # same bytes the manifest hashes, not a batch swapped in mid-validation.
-        verification = execution_gate(batch, stage / batch_name, override=execution_override)
+        verification = (
+            publication.fresh_gate(factory_dir, batch, round_number) if procedural
+            else execution_gate(batch, stage / batch_name, override=execution_override)
+        )
 
     files = [
         {

@@ -2,10 +2,11 @@
 """Measurement checks for the distillation contract (issue #78).
 
 Every measurement carries a registered quantity, its canonical unit, the
-meter that took it and an oracle source; and no energy number may be modelled
-rather than measured -- whether it sits in ``result.measurements`` with a
-modelling meter, as a bare field anywhere under ``result``, or as the
-denomination of a preference with no measured energy behind it.
+meter that took it and an oracle source, its value lies in the quantity's
+domain, and a meter that models rather than measures may never carry
+``measured: true``, for any quantity. The no-theoretical-energy rule -- the
+structural scan for energy numbers outside ``result.measurements`` -- is the
+sibling ``distill_energy_claims``; ``check_envelope`` composes both.
 """
 
 from __future__ import annotations
@@ -62,7 +63,27 @@ def _measurement_value_errors(item: dict[str, Any], quantity: str, spot: str) ->
 
     if not envelope.is_number(item.get("value")):
         return [f"{spot}: value must be a finite number"]
+    if quantity in vocab.INTEGER_QUANTITIES and not vocab.is_genuine_int(item["value"]):
+        return [f"{spot}: {quantity} must be an integer, got {item['value']!r}"]
     return _quantity_domain_errors(quantity, float(item["value"]), spot)
+
+
+def _modelled_meter_claim_error(item: dict[str, Any], spot: str) -> str | None:
+    """A modelled meter wearing ``measured: true``, whatever it counts.
+
+    ``measured`` is what the curation gate's NO_MEASURED_READING check trusts,
+    so it must mean "an instrument took this", not "the producer said so".
+    The energy rule already refuses this for joules; the registry answer is
+    the same for every other quantity.
+    """
+
+    meter = item.get("meter")
+    if envelope.is_enum_value(meter, vocab.MODELED_METERS) and item.get("measured") is True:
+        return (
+            f"{spot}: MODELLED_METER_CLAIMS_MEASURED — meter {meter!r} models "
+            "rather than measures, so measured must be false"
+        )
+    return None
 
 
 def _measurement_provenance_errors(item: dict[str, Any], spot: str) -> list[str]:
@@ -75,6 +96,11 @@ def _measurement_provenance_errors(item: dict[str, Any], spot: str) -> list[str]
         errors.append(f"{spot}: source must be 'oracle'")
     if not isinstance(item.get("measured"), bool):
         errors.append(f"{spot}: measured must be a boolean")
+    if "detail" in item and not isinstance(item["detail"], dict):
+        errors.append(f"{spot}: detail must be an object")
+    claim_error = _modelled_meter_claim_error(item, spot)
+    if claim_error is not None:
+        errors.append(claim_error)
     return errors
 
 
@@ -111,122 +137,6 @@ def check_measurements(record: dict[str, Any], where: str) -> list[str]:
             item, f"{where}.result.measurements[{index}]"
         )
     return errors
-
-
-ENERGY_KEY_HINTS = ("joule", "energy", "watt", "_wh", "kwh", "power_w")
-
-
-def _is_energy_key(key: str) -> bool:
-    """True when a field name reads as an energy value rather than a label."""
-
-    lowered = key.lower()
-    if lowered in vocab.ENERGY_QUANTITIES:
-        return True
-    return any(hint in lowered for hint in ENERGY_KEY_HINTS)
-
-
-def _energy_claim_error(item: dict[str, Any], quantity: str, spot: str) -> str | None:
-    """Why this energy reading is a theoretical claim, or None when measured."""
-
-    meter = item.get("meter")
-    if envelope.is_enum_value(meter, vocab.MODELED_METERS) or item.get("measured") is not True:
-        return (
-            f"{spot}: THEORETICAL_ENERGY_CLAIM — {quantity} came from "
-            f"meter {meter!r}; energy must be physically measured"
-        )
-    if not envelope.is_enum_value(meter, vocab.MEASURED_ENERGY_METERS):
-        return (
-            f"{spot}: THEORETICAL_ENERGY_CLAIM — {quantity} needs a meter in "
-            f"{sorted(vocab.MEASURED_ENERGY_METERS)}, got {meter!r}"
-        )
-    return None
-
-
-def _energy_measurement_claims(
-    measurements: list[Any], where: str
-) -> tuple[list[str], set[str]]:
-    """Errors for modeled energy readings, plus the honestly measured ones."""
-
-    errors: list[str] = []
-    measured_energy_quantities: set[str] = set()
-    for index, item in enumerate(measurements):
-        if not isinstance(item, dict):
-            continue
-        quantity = item.get("quantity")
-        if not envelope.is_enum_value(quantity, vocab.ENERGY_QUANTITIES):
-            continue
-        error = _energy_claim_error(item, quantity, f"{where}.result.measurements[{index}]")
-        if error is not None:
-            errors.append(error)
-            continue
-        measured_energy_quantities.add(quantity)
-    return errors, measured_energy_quantities
-
-
-def _is_bare_energy_field(key: str, value: Any) -> bool:
-    """A number under an energy-sounding name, outside ``measurements``.
-
-    Only a number can be an energy value. A boolean is a flag
-    (`cost_is_energy`, `measures_energy`) and a string names a quantity.
-    """
-
-    return key != "measurements" and envelope.is_number(value) and _is_energy_key(key)
-
-
-def _bare_energy_field_errors(result: dict[str, Any]) -> list[str]:
-    """A bare energy number anywhere under ``result`` is an energy claim too.
-
-    Without this, ``result["energy_j"] = 1e-7`` sails past the measurement
-    checks because it never appears in ``result.measurements`` at all.
-    """
-
-    return [
-        f"{path}: THEORETICAL_ENERGY_CLAIM — an energy value must be carried "
-        "as a measurement with a meter, not as a bare field"
-        for path, key, value in walk_keys(result, "result")
-        if _is_bare_energy_field(key, value)
-    ]
-
-
-def _energy_preference_errors(
-    result: dict[str, Any], measured_energy_quantities: set[str], where: str
-) -> list[str]:
-    """A preference denominated in energy needs a measured energy reading."""
-
-    preference = result.get("preference")
-    if not isinstance(preference, dict):
-        return []
-    cost_quantity = preference.get("cost_quantity")
-    if (
-        envelope.is_enum_value(cost_quantity, vocab.ENERGY_QUANTITIES)
-        and cost_quantity not in measured_energy_quantities
-    ):
-        return [
-            f"{where}.result.preference: THEORETICAL_ENERGY_CLAIM — preference "
-            f"is denominated in {cost_quantity!r} with no measured energy "
-            f"measurement behind it"
-        ]
-    return []
-
-
-def check_no_theoretical_energy_claim(record: dict[str, Any], where: str) -> list[str]:
-    """Refuse an energy number that was modeled rather than measured.
-
-    Covers both directions: an energy-class quantity produced by a modeled
-    meter, and a preference/comparison denominated in an energy quantity that
-    has no measured energy behind it.
-    """
-
-    result = record.get("result")
-    if not isinstance(result, dict):
-        return []
-    measurements = result.get("measurements")
-    measurements = measurements if isinstance(measurements, list) else []
-    errors, measured_energy_quantities = _energy_measurement_claims(
-        measurements, where
-    )
-    errors += _bare_energy_field_errors(result)
-    return errors + _energy_preference_errors(result, measured_energy_quantities, where)
 
 
 bind_import_twin(__name__)

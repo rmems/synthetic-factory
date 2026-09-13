@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """Raw-data-safety containment for the #78 distillation writers.
 
-Every destination the distillation JSONL writer and the fixture builder
-touch must pass through ``raw_tree_guard`` -- the one raw-path detector in
-this repository, which also recognises another checkout's ``outputs/raw``,
-symlink aliases and bind mounts of the raw root -- and the fixture builder
-must never delete or overwrite an existing tree: a rebuild goes to a fresh
-directory, so a failed build leaves the previous fixture exactly as it was.
+Every destination ``distill_jsonl.write_jsonl`` and the fixture builder touch
+must pass through ``raw_tree_guard`` -- the one raw-path detector in this
+repository, which also recognises another checkout's ``outputs/raw``, symlink
+aliases and bind mounts of the raw root -- before either creates so much as a
+directory; and the fixture builder must never delete or overwrite an existing
+tree: a rebuild goes to a fresh directory, so a failed build leaves the
+previous fixture exactly as it was.
 
-Every test here fails against PR #138 at 75642831, where ``write_jsonl``
-only checked ``destination.exists()``, ``_refuse_raw_tree`` compared against
-this checkout's resolved raw root alone, and ``--force`` ran ``shutil.rmtree``
-ahead of every generator. Destructive paths are exercised only inside
-disposable temporary directories.
+The writer half was extracted to main in #190; the fixture-builder half stays
+with the builder here. Every test fails against #138 at 75642831, where
+``write_jsonl`` only checked ``destination.exists()``, ``_refuse_raw_tree``
+compared against this checkout's resolved raw root alone, and ``--force`` ran
+``shutil.rmtree`` ahead of every generator. Destructive paths are exercised
+only inside disposable temporary directories.
 """
 
 import importlib.util

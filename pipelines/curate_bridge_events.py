@@ -6,7 +6,8 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
     _assert_direct_sibling("curate_bridge_events")
     from .exact_json import dumps_exact_json, exact_fraction
 else:
@@ -110,7 +111,9 @@ def _adjacent_descents(times: Sequence[Any]) -> list[dict[str, Any]]:
             "right_time": times[index],
         }
         for index in range(1, len(times))
-        if exact_fraction(times[index]) < exact_fraction(times[index - 1])
+        if (right := exact_fraction(times[index])) is not None
+        and (left := exact_fraction(times[index - 1])) is not None
+        and right < left
     ]
 
 

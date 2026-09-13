@@ -1,0 +1,974 @@
+{
+  "bit_manipulation/binary_and_operator.py::binary_and": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(a, b):\n    if a < 0 or b < 0:\n        raise ValueError(\"the value of both inputs must be positive\")\n    width = max(a.bit_length(), b.bit_length(), 1)\n    return \"0b\" + format(a & b, \"b\").zfill(width)\n"
+  },
+  "bit_manipulation/binary_coded_decimal.py::binary_coded_decimal": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number):\n    digits = str(max(0, number))\n    return \"0b\" + format(int(digits, 16), \"b\").zfill(4 * len(digits))\n"
+  },
+  "bit_manipulation/binary_count_setbits.py::binary_count_setbits": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(a):\n    if a < 0:\n        raise ValueError(\"Input value must be a positive integer\")\n    return a.bit_count()\n"
+  },
+  "bit_manipulation/binary_count_trailing_zeros.py::binary_count_trailing_zeros": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(a):\n    if a < 0:\n        raise ValueError(\"Input value must be a positive integer\")\n    if a == 0:\n        return 0\n    return bin(a)[::-1].index(\"1\")\n"
+  },
+  "bit_manipulation/binary_twos_complement.py::twos_complement": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number):\n    if number > 0:\n        raise ValueError(\"input must be a negative integer\")\n    width = (-number).bit_length() + 1\n    return \"0b\" + format(number & ((1 << width) - 1), \"b\")\n"
+  },
+  "bit_manipulation/binary_xor_operator.py::binary_xor": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(a, b):\n    if a < 0 or b < 0:\n        raise ValueError(\"the value of both inputs must be positive\")\n    width = max(a.bit_length(), b.bit_length(), 1)\n    return \"0b\" + format(a ^ b, \"b\").zfill(width)\n"
+  },
+  "bit_manipulation/bitwise_addition_recursive.py::bitwise_addition_recursive": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number, other_number):\n    if not isinstance(number, int) or not isinstance(other_number, int):\n        raise TypeError(\"Both arguments MUST be integers!\")\n    if number < 0 or other_number < 0:\n        raise ValueError(\"Both arguments MUST be non-negative!\")\n    return number + other_number\n"
+  },
+  "bit_manipulation/count_1s_brian_kernighan_method.py::get_1s_count": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number):\n    if not isinstance(number, int) or number < 0:\n        raise ValueError(\"Input must be a non-negative integer\")\n    return number.bit_count()\n"
+  },
+  "bit_manipulation/excess_3_code.py::excess_3_code": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number):\n    digits = str(max(0, number))\n    shifted_hex = \"\".join(format(int(digit) + 3, \"x\") for digit in digits)\n    return \"0b\" + format(int(shifted_hex, 16), \"b\").zfill(4 * len(digits))\n"
+  },
+  "bit_manipulation/find_previous_power_of_two.py::find_previous_power_of_two": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number):\n    if not isinstance(number, int) or number < 0:\n        raise ValueError(\"Input must be a non-negative integer\")\n    return 0 if number == 0 else 1 << (number.bit_length() - 1)\n"
+  },
+  "bit_manipulation/find_unique_number.py::find_unique_number": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "from functools import reduce\nfrom operator import xor\n\n\ndef reference(arr):\n    if not arr:\n        raise ValueError(\"input list must not be empty\")\n    if not all(isinstance(x, int) for x in arr):\n        raise TypeError(\"all elements must be integers\")\n    return reduce(xor, arr)\n"
+  },
+  "bit_manipulation/gray_code_sequence.py::gray_code_sequence_string": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(bit_count):\n    if bit_count == 0:\n        return [\"0\"]\n    if bit_count < 0:\n        raise ValueError(\"negative shift count\")\n    return [format(i ^ (i >> 1), \"b\").zfill(bit_count) for i in range(1 << bit_count)]\n"
+  },
+  "bit_manipulation/highest_set_bit.py::get_highest_set_bit_position": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number):\n    if not isinstance(number, int):\n        raise TypeError(\"Input value must be an 'int' type\")\n    if number < 0:\n        raise ValueError(\"the original never terminates on a negative input\")\n    return number.bit_length()\n"
+  },
+  "bit_manipulation/index_of_rightmost_set_bit.py::get_index_of_rightmost_set_bit": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number):\n    if not isinstance(number, int) or number < 0:\n        raise ValueError(\"Input must be a non-negative integer\")\n    if number == 0:\n        return -1\n    return bin(number)[::-1].index(\"1\")\n"
+  },
+  "bit_manipulation/is_even.py::is_even": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number):\n    return number % 2 == 0\n"
+  },
+  "bit_manipulation/is_power_of_two.py::is_power_of_two": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number):\n    if number < 0:\n        raise ValueError(\"number must not be negative\")\n    return number == 0 or number.bit_count() == 1\n"
+  },
+  "bit_manipulation/largest_pow_of_two_le_num.py::largest_pow_of_two_le_num": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number):\n    if isinstance(number, float):\n        raise TypeError(\"Input value must be a 'int' type\")\n    if number <= 0:\n        return 0\n    return 1 << (number.bit_length() - 1)\n"
+  },
+  "bit_manipulation/missing_number.py::find_missing_number": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(nums):\n    low, high = min(nums), max(nums)\n    window = nums[: high - low]\n    if len(window) < high - low:\n        raise IndexError(\"list index out of range\")\n    return sum(range(low, high + 1)) - sum(window)\n"
+  },
+  "bit_manipulation/numbers_different_signs.py::different_signs": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(num1, num2):\n    return (num1 < 0) != (num2 < 0)\n"
+  },
+  "bit_manipulation/power_of_4.py::power_of_4": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number):\n    if not isinstance(number, int):\n        raise TypeError(\"number must be an integer\")\n    if number <= 0:\n        raise ValueError(\"number must be positive\")\n    while number % 4 == 0:\n        number //= 4\n    return number == 1\n"
+  },
+  "bit_manipulation/reverse_bits.py::get_reverse_bit_string": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number):\n    if not isinstance(number, int):\n        raise TypeError(\"operation can not be conducted on a non-int\")\n    return format(number & 0xFFFFFFFF, \"032b\")[::-1]\n"
+  },
+  "bit_manipulation/reverse_bits.py::reverse_bit": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number):\n    if not isinstance(number, int):\n        raise TypeError(\"Input value must be an 'int' type\")\n    if number < 0:\n        raise ValueError(\"The value of input must be non-negative\")\n    return int(format(number & 0xFFFFFFFF, \"032b\")[::-1], 2)\n"
+  },
+  "bit_manipulation/single_bit_manipulation_operations.py::clear_bit": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number, position):\n    if position < 0:\n        raise ValueError(\"negative shift count\")\n    weight = 2 ** position\n    return number - weight if (number // weight) % 2 else number\n"
+  },
+  "bit_manipulation/single_bit_manipulation_operations.py::flip_bit": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number, position):\n    if position < 0:\n        raise ValueError(\"negative shift count\")\n    weight = 2 ** position\n    return number - weight if (number // weight) % 2 else number + weight\n"
+  },
+  "bit_manipulation/single_bit_manipulation_operations.py::get_bit": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number, position):\n    if position < 0:\n        raise ValueError(\"negative shift count\")\n    return (number // 2 ** position) % 2\n"
+  },
+  "bit_manipulation/single_bit_manipulation_operations.py::is_bit_set": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number, position):\n    if position < 0:\n        raise ValueError(\"negative shift count\")\n    return (number // 2 ** position) % 2 == 1\n"
+  },
+  "bit_manipulation/single_bit_manipulation_operations.py::set_bit": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number, position):\n    if position < 0:\n        raise ValueError(\"negative shift count\")\n    return number | 2 ** position\n"
+  },
+  "conversions/binary_to_decimal.py::bin_to_decimal": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(bin_string):\n    text = str(bin_string).strip()\n    if not text:\n        raise ValueError(\"Empty string was passed to the function\")\n    negative = text.startswith(\"-\")\n    body = text[1:] if negative else text\n    if set(body) - {\"0\", \"1\"}:\n        raise ValueError(\"Non-binary value was passed to the function\")\n    value = int(body, 2) if body else 0\n    return -value if negative else value\n"
+  },
+  "conversions/excel_title_to_column.py::excel_title_to_column": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "from functools import reduce\n\n\ndef reference(column_title):\n    return reduce(lambda acc, ch: acc * 26 + ord(ch) - 64, column_title, 0)\n"
+  },
+  "conversions/hex_to_bin.py::hex_to_bin": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(hex_num):\n    text = hex_num.strip()\n    if not text:\n        raise ValueError(\"No value was passed to the function\")\n    negative = text[0] == \"-\"\n    if negative:\n        text = text[1:]\n    value = int(text, 16)\n    if value <= 0:\n        raise ValueError(\"the original produces no binary digits for zero\")\n    return int((\"-\" if negative else \"\") + format(value, \"b\"))\n"
+  },
+  "conversions/ipv4_conversion.py::alt_ipv4_to_decimal": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(ipv4_address):\n    value = 0\n    for part in ipv4_address.split(\".\"):\n        octet = int(part)\n        if octet < 0:\n            raise ValueError(\"negative octet\")\n        width = max(2, len(format(octet, \"x\")))\n        value = value * 16 ** width + octet\n    return value\n"
+  },
+  "conversions/ipv4_conversion.py::decimal_to_ipv4": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import ipaddress\n\n\ndef reference(decimal_ipv4):\n    if not 0 <= decimal_ipv4 <= 4294967295:\n        raise ValueError(\"Invalid decimal IPv4 address\")\n    return str(ipaddress.IPv4Address(decimal_ipv4))\n"
+  },
+  "conversions/ipv4_conversion.py::ipv4_to_decimal": {
+    "function": "alt_ipv4_to_decimal",
+    "kind": "sibling_same_file"
+  },
+  "conversions/molecular_chemistry.py::molarity_to_normality": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(nfactor, moles, volume):\n    return round(nfactor * moles / volume)\n"
+  },
+  "conversions/molecular_chemistry.py::moles_to_pressure": {
+    "function": "moles_to_volume",
+    "kind": "sibling_same_file"
+  },
+  "conversions/molecular_chemistry.py::moles_to_volume": {
+    "function": "moles_to_pressure",
+    "kind": "sibling_same_file"
+  },
+  "conversions/molecular_chemistry.py::pressure_and_volume_to_temperature": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(pressure, moles, volume):\n    return round(pressure * volume / moles / 0.0821)\n"
+  },
+  "conversions/octal_to_binary.py::octal_to_binary": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(octal_number):\n    if not octal_number:\n        raise ValueError(\"Empty string was passed to the function\")\n    if set(octal_number) - set(\"01234567\"):\n        raise ValueError(\"Non-octal value was passed to the function\")\n    return format(int(octal_number, 8), \"b\").zfill(3 * len(octal_number))\n"
+  },
+  "conversions/octal_to_decimal.py::oct_to_decimal": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(oct_string):\n    text = str(oct_string).strip()\n    if not text:\n        raise ValueError(\"Empty string was passed to the function\")\n    negative = text[0] == \"-\"\n    body = text[1:] if negative else text\n    if not body.isdigit() or any(int(ch) > 7 for ch in body):\n        raise ValueError(\"Non-octal value was passed to the function\")\n    value = int(body, 8)\n    return -value if negative else value\n"
+  },
+  "conversions/octal_to_hexadecimal.py::octal_to_hex": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(octal):\n    if not isinstance(octal, str):\n        raise TypeError(\"Expected a string as input\")\n    text = octal.removeprefix(\"0o\")\n    if text == \"\":\n        raise ValueError(\"Empty string was passed to the function\")\n    if set(text) - set(\"01234567\"):\n        raise ValueError(\"Not a Valid Octal Number\")\n    value = int(text, 8)\n    return \"0x\" + (format(value, \"X\") if value else \"\")\n"
+  },
+  "conversions/rectangular_to_polar.py::rectangular_to_polar": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import cmath\nimport math\n\n\ndef reference(real, img):\n    modulus, angle = cmath.polar(complex(real, img))\n    return (round(modulus, 2), round(math.degrees(angle), 2))\n"
+  },
+  "dynamic_programming/abbreviation.py::abbr": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import re\n\n\ndef reference(a, b):\n    lowers = sorted({x for x in a if x.islower()})\n    skip = \"(?:\" + \"|\".join(map(re.escape, lowers)) + \")*\" if lowers else \"\"\n    parts = []\n    for c in b:\n        candidates = sorted({x for x in a if x.upper() == c})\n        group = \"(?:\" + \"|\".join(map(re.escape, candidates)) + \")\" if candidates else \"(?!)\"\n        parts.append(skip + group)\n    pattern = \"\".join(parts) + skip\n    return re.fullmatch(pattern, a, flags=re.DOTALL) is not None\n"
+  },
+  "dynamic_programming/all_construct.py::all_construct": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import functools\n\n\ndef reference(target, word_bank=None):\n    bank = list(word_bank or [])\n\n    @functools.cache\n    def ways(end):\n        if end == 0:\n            return ([],)\n        found = []\n        for start in range(end):\n            for word in bank:\n                if start + len(word) == end and target[start:end] == word:\n                    found.extend(way + [word] for way in ways(start))\n        return tuple(found)\n\n    return [list(way) for way in ways(len(target))]\n"
+  },
+  "dynamic_programming/catalan_numbers.py::catalan_numbers": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(upper_limit):\n    if upper_limit < 0:\n        raise ValueError(\"Limit for the Catalan sequence must be \u2265 0\")\n    return [math.comb(2 * i, i) // (i + 1) for i in range(upper_limit + 1)]\n"
+  },
+  "dynamic_programming/climbing_stairs.py::climb_stairs": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(number_of_steps):\n    assert isinstance(number_of_steps, int) and number_of_steps > 0\n    n = number_of_steps\n    return sum(math.comb(n - twos, twos) for twos in range(n // 2 + 1))\n"
+  },
+  "dynamic_programming/fizz_buzz.py::fizz_buzz": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number, iterations):\n    if not isinstance(iterations, int):\n        raise ValueError(\"iterations must be defined as integers\")\n    if not isinstance(number, int) or number < 1:\n        raise ValueError(\"starting number must be an integer and be more than 0\")\n    if iterations < 1:\n        raise ValueError(\"Iterations must be done more than 0 times to play FizzBuzz\")\n    words = {(True, True): \"FizzBuzz\", (True, False): \"Fizz\", (False, True): \"Buzz\"}\n    tokens = [words.get((n % 3 == 0, n % 5 == 0), str(n)) for n in range(number, iterations + 1)]\n    return \" \".join(tokens) + \" \" if tokens else \"\"\n"
+  },
+  "dynamic_programming/integer_partition.py::partition": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(m):\n    if not isinstance(m, int) or isinstance(m, bool):\n        raise TypeError(\"'float' object cannot be interpreted as an integer\")\n    if m < 1:\n        raise IndexError(\"list index out of range\")\n    counts = [1] + [0] * m\n    for n in range(1, m + 1):\n        total = 0\n        k = 1\n        while True:\n            g1 = k * (3 * k - 1) // 2\n            if g1 > n:\n                break\n            sign = 1 if k % 2 else -1\n            total += sign * counts[n - g1]\n            g2 = k * (3 * k + 1) // 2\n            if g2 <= n:\n                total += sign * counts[n - g2]\n            k += 1\n        counts[n] = total\n    return counts[m]\n"
+  },
+  "dynamic_programming/iterating_through_submasks.py::list_of_submasks": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(mask):\n    assert isinstance(mask, int) and mask > 0\n    return [s for s in range(mask, 0, -1) if s & mask == s]\n"
+  },
+  "dynamic_programming/largest_divisible_subset.py::largest_divisible_subset": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import itertools\n\n\ndef reference(items):\n    values = sorted(items)\n    n = len(values)\n\n    def linked(low, high):\n        return low == 0 or high % low == 0\n\n    for size in range(n, 0, -1):\n        chains = [\n            combo\n            for combo in itertools.combinations(range(n), size)\n            if all(linked(values[a], values[b]) for a, b in itertools.pairwise(combo))\n        ]\n        if chains:\n            best = min(chains, key=lambda combo: combo[::-1])\n            return [values[index] for index in reversed(best)]\n    return []\n"
+  },
+  "dynamic_programming/longest_common_subsequence.py::longest_common_subsequence": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import functools\n\n\ndef reference(x, y):\n    @functools.cache\n    def length(i, j):\n        if i == 0 or j == 0:\n            return 0\n        if x[i - 1] == y[j - 1]:\n            return length(i - 1, j - 1) + 1\n        return max(length(i - 1, j), length(i, j - 1))\n\n    @functools.cache\n    def pick(i, j):\n        if i == 0 or j == 0:\n            return \"\"\n        here = length(i, j)\n        if x[i - 1] == y[j - 1] and here == length(i - 1, j - 1) + 1:\n            return pick(i - 1, j - 1) + x[i - 1]\n        if here == length(i - 1, j - 1):\n            return pick(i - 1, j - 1)\n        if here == length(i - 1, j):\n            return pick(i - 1, j)\n        return pick(i, j - 1)\n\n    return length(len(x), len(y)), pick(len(x), len(y))\n"
+  },
+  "dynamic_programming/longest_common_substring.py::longest_common_substring": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(text1, text2):\n    if not (isinstance(text1, str) and isinstance(text2, str)):\n        raise ValueError(\"longest_common_substring() takes two strings for inputs\")\n    for size in range(min(len(text1), len(text2)), 0, -1):\n        for start in range(len(text1) - size + 1):\n            piece = text1[start : start + size]\n            if piece in text2:\n                return piece\n    return \"\"\n"
+  },
+  "dynamic_programming/longest_increasing_subsequence.py::longest_subsequence": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import itertools\n\n\ndef reference(array):\n    if len(array) <= 1:\n        return array\n    n = len(array)\n    best = ()\n    for size in range(n, 0, -1):\n        chains = [\n            combo\n            for combo in itertools.combinations(range(n), size)\n            if all(array[a] <= array[b] for a, b in itertools.pairwise(combo))\n        ]\n        if chains:\n            best = max(chains)\n            break\n    return [array[index] for index in best]\n"
+  },
+  "dynamic_programming/longest_increasing_subsequence_iterative.py::longest_subsequence": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import itertools\n\n\ndef reference(array):\n    n = len(array)\n    for size in range(n, 0, -1):\n        chains = [\n            combo\n            for combo in itertools.combinations(range(n), size)\n            if all(array[a] <= array[b] for a, b in itertools.pairwise(combo))\n        ]\n        if chains:\n            best = min(chains, key=lambda combo: combo[::-1])\n            return [array[index] for index in best]\n    return []\n"
+  },
+  "dynamic_programming/longest_palindromic_subsequence.py::longest_palindromic_subsequence": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import functools\n\n\ndef reference(input_string):\n    @functools.cache\n    def lps(i, j):\n        if i > j:\n            return 0\n        if i == j:\n            return 1\n        if input_string[i] == input_string[j]:\n            return 2 + lps(i + 1, j - 1)\n        return max(lps(i + 1, j), lps(i, j - 1))\n\n    return lps(0, len(input_string) - 1)\n"
+  },
+  "dynamic_programming/max_non_adjacent_sum.py::maximum_non_adjacent_sum": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import itertools\n\n\ndef reference(nums):\n    n = len(nums)\n    best = 0\n    for size in range(1, n + 1):\n        for combo in itertools.combinations(range(n), size):\n            if all(b - a >= 2 for a, b in itertools.pairwise(combo)):\n                best = max(best, sum(nums[index] for index in combo))\n    return best\n"
+  },
+  "dynamic_programming/max_product_subarray.py::max_product_subarray": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(numbers):\n    if not numbers:\n        return 0\n    if not isinstance(numbers, (list, tuple)) or not all(\n        isinstance(number, int) for number in numbers\n    ):\n        raise ValueError(\"numbers must be an iterable of integers\")\n    n = len(numbers)\n    return max(\n        math.prod(numbers[start:stop])\n        for start in range(n)\n        for stop in range(start + 1, n + 1)\n    )\n"
+  },
+  "dynamic_programming/max_subarray_sum.py::max_subarray_sum": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(arr, allow_empty_subarrays=False):\n    if not arr:\n        return 0\n    n = len(arr)\n    best = max(sum(arr[start:stop]) for start in range(n) for stop in range(start + 1, n + 1))\n    if allow_empty_subarrays:\n        best = max(0, best)\n    return best\n"
+  },
+  "dynamic_programming/min_distance_up_bottom.py::min_distance_up_bottom": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(word1, word2):\n    previous = list(range(len(word2) + 1))\n    for i, a in enumerate(word1, start=1):\n        current = [i]\n        for j, b in enumerate(word2, start=1):\n            current.append(\n                min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a != b))\n            )\n        previous = current\n    return previous[-1]\n"
+  },
+  "dynamic_programming/minimum_coin_change.py::dp_count": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import functools\n\n\ndef reference(s, n):\n    if n < 0:\n        return 0\n    coins = list(s)\n\n    @functools.cache\n    def ways(index, amount):\n        if amount == 0:\n            return 1\n        if index == len(coins) or amount < 0:\n            return 0\n        return ways(index + 1, amount) + ways(index, amount - coins[index])\n\n    return ways(0, n)\n"
+  },
+  "dynamic_programming/minimum_partition.py::find_min": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import itertools\n\n\ndef reference(numbers):\n    values = list(numbers)\n    total = sum(values)\n    if total < 0:\n        raise IndexError(\"list assignment index out of range\")\n    if total == 0:\n        return 0\n    if any(value < 0 for value in values):\n        raise IndexError(\"list index out of range\")\n    sums = {\n        sum(combo)\n        for size in range(len(values) + 1)\n        for combo in itertools.combinations(values, size)\n    }\n    return min(abs(total - 2 * part) for part in sums)\n"
+  },
+  "dynamic_programming/minimum_steps_to_one.py::min_steps_to_one": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import functools\n\n\ndef reference(number):\n    if number <= 0:\n        raise ValueError(f\"n must be greater than 0. Got n = {number}\")\n\n    @functools.cache\n    def steps(n):\n        if n == 1:\n            return 0\n        options = [steps(n - 1)]\n        if n % 2 == 0:\n            options.append(steps(n // 2))\n        if n % 3 == 0:\n            options.append(steps(n // 3))\n        return 1 + min(options)\n\n    return steps(number)\n"
+  },
+  "dynamic_programming/palindrome_partitioning.py::find_minimum_partitions": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import functools\n\n\ndef reference(string):\n    if not string:\n        raise IndexError(\"list index out of range\")\n    n = len(string)\n\n    @functools.cache\n    def cuts(start):\n        if start == n or string[start:] == string[start:][::-1]:\n            return 0\n        return min(\n            1 + cuts(stop)\n            for stop in range(start + 1, n)\n            if string[start:stop] == string[start:stop][::-1]\n        )\n\n    return cuts(0)\n"
+  },
+  "dynamic_programming/range_sum_query.py::prefix_sum": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(array, queries):\n    if not array:\n        raise IndexError(\"list index out of range\")\n    out = []\n    for left, right in queries:\n        total = sum(array[: right + 1]) if right >= 0 else sum(array[: len(array) + right + 1])\n        if left > 0:\n            total -= sum(array[:left])\n        out.append(total)\n    return out\n"
+  },
+  "dynamic_programming/regex_match.py::dp_match": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import re\n\n\ndef reference(text, pattern):\n    if pattern.startswith(\"*\"):\n        return False\n    regex = \"\".join(c if c in \".*\" else re.escape(c) for c in pattern)\n    return re.fullmatch(regex, text, flags=re.DOTALL) is not None\n"
+  },
+  "dynamic_programming/regex_match.py::recursive_match": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import re\n\n\ndef reference(text, pattern):\n    tokens = []\n    rest = pattern\n    while rest:\n        if rest[-1] == \"*\":\n            tokens.append(\".*\")\n            rest = rest[:-2]\n        elif rest[-1] == \".\":\n            tokens.append(\".\")\n            rest = rest[:-1]\n        else:\n            tokens.append(re.escape(rest[-1]))\n            rest = rest[:-1]\n    regex = \"\".join(reversed(tokens))\n    return re.fullmatch(regex, text, flags=re.DOTALL) is not None\n"
+  },
+  "dynamic_programming/subset_generation.py::subset_combinations": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import itertools\n\n\ndef reference(elements, n):\n    r = len(elements)\n    if n > r:\n        return []\n    if n < 0:\n        n += r + 1\n        if n < 0:\n            raise IndexError(\"list index out of range\")\n    index_sets = sorted(itertools.combinations(range(r), n), key=lambda c: c[::-1])\n    combos = [tuple(elements[i] for i in indices) for indices in index_sets]\n    try:\n        return sorted(combos)\n    except TypeError:\n        return combos\n"
+  },
+  "dynamic_programming/sum_of_subset.py::is_sum_subset": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import itertools\n\n\ndef reference(arr, required_sum):\n    if required_sum < 0:\n        raise IndexError(\"list assignment index out of range\")\n    return any(\n        sum(combo) == required_sum\n        for size in range(len(arr) + 1)\n        for combo in itertools.combinations(arr, size)\n    )\n"
+  },
+  "dynamic_programming/trapped_water.py::trapped_rainwater": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(heights):\n    if not heights:\n        return 0\n    if any(h < 0 for h in heights):\n        raise ValueError(\"No height can be negative\")\n    water = 0\n    for level in range(1, max(heights) + 1):\n        tall = [i for i, h in enumerate(heights) if h >= level]\n        if len(tall) < 2:\n            break\n        water += sum(1 for i in range(tall[0], tall[-1] + 1) if heights[i] < level)\n    return water\n"
+  },
+  "dynamic_programming/tribonacci.py::tribonacci": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import functools\n\n\ndef reference(num):\n    if num < 3:\n        raise IndexError(\"list assignment index out of range\")\n\n    @functools.cache\n    def term(n):\n        if n < 2:\n            return 0\n        if n == 2:\n            return 1\n        return term(n - 1) + term(n - 2) + term(n - 3)\n\n    return [term(i) for i in range(num)]\n"
+  },
+  "dynamic_programming/wildcard_matching.py::is_match": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import re\n\n\ndef reference(string, pattern):\n    collapsed = re.sub(r\"\\*+\", \"*\", pattern)\n    regex = \"\".join(\".*\" if c == \"*\" else \".\" if c == \"?\" else re.escape(c) for c in collapsed)\n    return re.fullmatch(regex, string, flags=re.DOTALL) is not None\n"
+  },
+  "dynamic_programming/word_break.py::word_break": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import re\n\n\ndef reference(string, words):\n    if not isinstance(string, str) or len(string) == 0:\n        raise ValueError(\"the string should be not empty string\")\n    if not isinstance(words, list) or not all(\n        isinstance(item, str) and len(item) > 0 for item in words\n    ):\n        raise ValueError(\"the words should be a list of non-empty strings\")\n    if not words:\n        return False\n    regex = \"(?:\" + \"|\".join(map(re.escape, words)) + \")+\"\n    return re.fullmatch(regex, string, flags=re.DOTALL) is not None\n"
+  },
+  "maths/abs.py::abs_max": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(x):\n    if len(x) == 0:\n        raise ValueError(\"abs_max() arg is an empty sequence\")\n    return max(x, key=abs)\n"
+  },
+  "maths/abs.py::abs_max_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(x):\n    if len(x) == 0:\n        raise ValueError(\"abs_max_sort() arg is an empty sequence\")\n    return max(reversed(x), key=abs)\n"
+  },
+  "maths/abs.py::abs_val": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(num):\n    return abs(num)\n"
+  },
+  "maths/addition_without_arithmetic.py::add": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(first, second):\n    return first + second\n"
+  },
+  "maths/aliquot_sum.py::aliquot_sum": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(input_num):\n    if not isinstance(input_num, int):\n        raise ValueError(\"Input must be an integer\")\n    if input_num <= 0:\n        raise ValueError(\"Input must be positive\")\n    total = 0\n    for small in range(1, math.isqrt(input_num) + 1):\n        if input_num % small == 0:\n            total += small\n            large = input_num // small\n            if large != small:\n                total += large\n    return total - input_num\n"
+  },
+  "maths/allocation_number.py::allocation_num": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number_of_bytes, partitions):\n    if partitions <= 0:\n        raise ValueError(\"partitions must be a positive number!\")\n    if partitions > number_of_bytes:\n        raise ValueError(\"partitions can not > number_of_bytes!\")\n    size = number_of_bytes // partitions\n    ends = [size * i for i in range(1, partitions)] + [number_of_bytes]\n    starts = [1] + [end + 1 for end in ends[:-1]]\n    return [f\"{start}-{end}\" for start, end in zip(starts, ends)]\n"
+  },
+  "maths/arc_length.py::arc_length": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(angle, radius):\n    return math.radians(angle) * radius\n"
+  },
+  "maths/average_absolute_deviation.py::average_absolute_deviation": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import statistics\n\n\ndef reference(nums):\n    if not nums:\n        raise ValueError(\"List is empty\")\n    centre = statistics.fmean(nums)\n    return statistics.fmean([abs(x - centre) for x in nums])\n"
+  },
+  "maths/average_mean.py::mean": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import statistics\n\n\ndef reference(nums):\n    if not nums:\n        raise ValueError(\"List is empty\")\n    return statistics.fmean(nums)\n"
+  },
+  "maths/average_median.py::median": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import statistics\n\n\ndef reference(nums):\n    return statistics.median(nums)\n"
+  },
+  "maths/base_neg2_conversion.py::decimal_to_negative_base_2": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(num):\n    if num == 0:\n        return 0\n    mask = int(\"10\" * 64, 2)\n    return int(bin((num + mask) ^ mask)[2:])\n"
+  },
+  "maths/binary_multiplication.py::binary_mod_multiply": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(a, b, modulus):\n    if b <= 0:\n        return 0\n    return (a * b) % modulus\n"
+  },
+  "maths/binary_multiplication.py::binary_multiply": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(a, b):\n    return a * b if b > 0 else 0\n"
+  },
+  "maths/binomial_coefficient.py::binomial_coefficient": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(n, r):\n    if n < 0 or r < 0:\n        raise ValueError(\"n and r must be non-negative integers\")\n    if 0 in (n, r):\n        return 1\n    return math.comb(n, r)\n"
+  },
+  "maths/chebyshev_distance.py::chebyshev_distance": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(point_a, point_b):\n    if len(point_a) != len(point_b):\n        raise ValueError(\"Both points must have the same dimension.\")\n    diffs = [a - b for a, b in zip(point_a, point_b)]\n    return max(max(diffs), -min(diffs))\n"
+  },
+  "maths/check_polygon.py::check_polygon": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import heapq\n\n\ndef reference(nums):\n    if len(nums) < 2:\n        raise ValueError(\"Monogons and Digons are not polygons in the Euclidean space\")\n    if min(nums) <= 0:\n        raise ValueError(\"All values must be greater than 0\")\n    rest = heapq.nsmallest(len(nums) - 1, nums)\n    return max(nums) < sum(rest)\n"
+  },
+  "maths/chinese_remainder_theorem.py::extended_euclid": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(a, b):\n    old_r, r = a, b\n    old_x, x = 1, 0\n    old_y, y = 0, 1\n    while r != 0:\n        q = old_r // r\n        old_r, r = r, old_r - q * r\n        old_x, x = x, old_x - q * x\n        old_y, y = y, old_y - q * y\n    return (old_x, old_y)\n"
+  },
+  "maths/combinations.py::combinations": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(n, k):\n    if n < k or k < 0:\n        raise ValueError(\"Please enter positive integers for n and k where n >= k\")\n    return math.comb(n, k)\n"
+  },
+  "maths/decimal_isolate.py::decimal_isolate": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(number, digit_amount):\n    fractional = 0 if isinstance(number, int) else math.modf(number)[0]\n    if digit_amount > 0:\n        return round(fractional, digit_amount)\n    return fractional\n"
+  },
+  "maths/decimal_to_fraction.py::decimal_to_fraction": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "from fractions import Fraction\n\n\ndef reference(decimal):\n    try:\n        value = float(decimal)\n    except ValueError:\n        raise ValueError(\"Please enter a valid number\")\n    if value == int(value):\n        return int(value), 1\n    digits = len(str(value).split(\".\")[1])\n    scaled = int(value * 10**digits)\n    ratio = Fraction(scaled, 10**digits)\n    return ratio.numerator, ratio.denominator\n"
+  },
+  "maths/dodecahedron.py::dodecahedron_surface_area": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(edge):\n    if edge <= 0 or not isinstance(edge, int):\n        raise ValueError(\"Length must be a positive.\")\n    return 15 * edge**2 / math.tan(math.pi / 5)\n"
+  },
+  "maths/dodecahedron.py::dodecahedron_volume": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(edge):\n    if edge <= 0 or not isinstance(edge, int):\n        raise ValueError(\"Length must be a positive.\")\n    phi = (1 + math.sqrt(5)) / 2\n    return 5 * phi**3 / (6 - 2 * phi) * edge**3\n"
+  },
+  "maths/double_factorial.py::double_factorial_iterative": {
+    "function": "double_factorial_recursive",
+    "kind": "sibling_same_file"
+  },
+  "maths/double_factorial.py::double_factorial_recursive": {
+    "function": "double_factorial_iterative",
+    "kind": "sibling_same_file"
+  },
+  "maths/factorial.py::factorial": {
+    "function": "factorial_recursive",
+    "kind": "sibling_same_file"
+  },
+  "maths/factorial.py::factorial_recursive": {
+    "function": "factorial",
+    "kind": "sibling_same_file"
+  },
+  "maths/factors.py::factors_of_a_number": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(num):\n    if num < 1:\n        return []\n    return [d for d in range(1, num + 1) if num % d == 0]\n"
+  },
+  "maths/find_max.py::find_max_iterative": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(nums):\n    if len(nums) == 0:\n        raise ValueError(\"find_max_iterative() arg is an empty sequence\")\n    return max(nums)\n"
+  },
+  "maths/find_min.py::find_min_iterative": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(nums):\n    if len(nums) == 0:\n        raise ValueError(\"find_min_iterative() arg is an empty sequence\")\n    return min(nums)\n"
+  },
+  "maths/geometric_mean.py::compute_geometric_mean": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(*args):\n    for number in args:\n        if not isinstance(number, (int, float)):\n            raise TypeError(\"Not a Number\")\n    product = math.prod(args)\n    if product < 0 and len(args) % 2 == 0:\n        raise ArithmeticError(\"Cannot Compute Geometric Mean for these numbers.\")\n    if product == 0:\n        return 0.0\n    root = math.exp(math.log(abs(product)) / len(args))\n    return -root if product < 0 else root\n"
+  },
+  "maths/greatest_common_divisor.py::gcd_by_iterative": {
+    "function": "greatest_common_divisor",
+    "kind": "sibling_same_file"
+  },
+  "maths/greatest_common_divisor.py::greatest_common_divisor": {
+    "function": "gcd_by_iterative",
+    "kind": "sibling_same_file"
+  },
+  "maths/integer_square_root.py::integer_square_root": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(num):\n    if not isinstance(num, int) or num < 0:\n        raise ValueError(\"num must be non-negative integer\")\n    return math.isqrt(num)\n"
+  },
+  "maths/is_int_palindrome.py::is_int_palindrome": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(num):\n    if num < 0:\n        return False\n    text = str(num)\n    return text == text[::-1]\n"
+  },
+  "maths/is_ip_v4_address_valid.py::is_ip_v4_address_valid": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import re\n\n_OCTET = r\"(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\"\n_IPV4 = re.compile(r\"{o}\\.{o}\\.{o}\\.{o}\".format(o=_OCTET))\n\n\ndef reference(ip):\n    return _IPV4.fullmatch(ip) is not None\n"
+  },
+  "maths/juggler_sequence.py::juggler_sequence": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(number):\n    if not isinstance(number, int):\n        msg = f\"Input value of [number={number}] must be an integer\"\n        raise TypeError(msg)\n    if number < 1:\n        msg = f\"Input value of [number={number}] must be a positive integer\"\n        raise ValueError(msg)\n    sequence = [number]\n    while number != 1:\n        number = math.isqrt(number) if number % 2 == 0 else math.isqrt(number**3)\n        sequence.append(number)\n    return sequence\n"
+  },
+  "maths/largest_of_very_large_numbers.py::res": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(x, y):\n    if x == 0:\n        return 0\n    if y == 0:\n        return 1\n    return y * math.log(x) / math.log(10)\n"
+  },
+  "maths/lucas_series.py::dynamic_lucas_number": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def _fib_pair(k):\n    if k == 0:\n        return (0, 1)\n    a, b = _fib_pair(k >> 1)\n    c = a * (2 * b - a)\n    d = a * a + b * b\n    return (d, c + d) if k & 1 else (c, d)\n\n\ndef reference(n_th_number):\n    if not isinstance(n_th_number, int):\n        raise TypeError(\"dynamic_lucas_number accepts only integer arguments.\")\n    if n_th_number < 0:\n        return 2\n    f_n, f_n1 = _fib_pair(n_th_number)\n    return 2 * f_n1 - f_n\n"
+  },
+  "maths/lucas_series.py::recursive_lucas_number": {
+    "function": "dynamic_lucas_number",
+    "kind": "sibling_same_file"
+  },
+  "maths/minkowski_distance.py::minkowski_distance": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(point_a, point_b, order):\n    if order < 1:\n        raise ValueError(\"The order must be greater than or equal to 1.\")\n    if len(point_a) != len(point_b):\n        raise ValueError(\"Both points must have the same dimension.\")\n    total = math.fsum(abs(a - b) ** order for a, b in zip(point_a, point_b))\n    if total == 0:\n        return 0.0\n    return math.exp(math.log(total) / order)\n"
+  },
+  "maths/modular_exponential.py::modular_exponential": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(base, power, mod):\n    if power < 0:\n        return -1\n    if power == 0:\n        _ = base % mod\n        return 1\n    return pow(base, power, mod)\n"
+  },
+  "maths/odd_sieve.py::odd_sieve": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(num):\n    return [p for p in range(2, num) if all(p % d for d in range(2, p))]\n"
+  },
+  "maths/perfect_cube.py::perfect_cube_binary_search": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(n):\n    if not isinstance(n, int):\n        raise TypeError(\"perfect_cube_binary_search() only accepts integers\")\n    magnitude = abs(n)\n    root = round(magnitude ** (1 / 3))\n    return root**3 == magnitude\n"
+  },
+  "maths/perfect_number.py::perfect": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(number):\n    if not isinstance(number, int):\n        raise ValueError(\"number must be an integer\")\n    if number <= 0:\n        return False\n    total = 0\n    for small in range(1, math.isqrt(number) + 1):\n        if number % small == 0:\n            total += small\n            large = number // small\n            if large != small:\n                total += large\n    return total - number == number\n"
+  },
+  "maths/perfect_square.py::perfect_square_binary_search": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(n):\n    if n < 0:\n        return False\n    root = math.isqrt(int(n))\n    return root * root == n\n"
+  },
+  "maths/persistence.py::additive_persistence": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def _digits(value):\n    out = []\n    while value:\n        value, digit = divmod(value, 10)\n        out.append(digit)\n    return out\n\n\ndef reference(num):\n    if not isinstance(num, int):\n        raise ValueError(\"additive_persistence() only accepts integral values\")\n    if num < 0:\n        raise ValueError(\"additive_persistence() does not accept negative values\")\n    steps = 0\n    while num >= 10:\n        num = sum(_digits(num))\n        steps += 1\n    return steps\n"
+  },
+  "maths/persistence.py::multiplicative_persistence": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef _digits(value):\n    out = []\n    while value:\n        value, digit = divmod(value, 10)\n        out.append(digit)\n    return out\n\n\ndef reference(num):\n    if not isinstance(num, int):\n        raise ValueError(\"multiplicative_persistence() only accepts integral values\")\n    if num < 0:\n        raise ValueError(\"multiplicative_persistence() does not accept negative values\")\n    steps = 0\n    while num >= 10:\n        num = math.prod(_digits(num))\n        steps += 1\n    return steps\n"
+  },
+  "maths/pi_generator.py::calculate_pi": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def _arctan_inverse(x, scale):\n    total = 0\n    term = scale // x\n    n = 1\n    sign = 1\n    while term:\n        total += sign * (term // n)\n        term //= x * x\n        n += 2\n        sign = -sign\n    return total\n\n\ndef reference(limit):\n    if limit < 0:\n        return \"\"\n    guard = 12\n    scale = 10 ** (limit + guard)\n    pi_scaled = 4 * (4 * _arctan_inverse(5, scale) - _arctan_inverse(239, scale))\n    digits = str(pi_scaled // 10**guard)\n    return digits[0] + \".\" + digits[1:]\n"
+  },
+  "maths/power_using_recursion.py::power": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(base, exponent):\n    if not exponent:\n        return 1\n    if exponent == 1:\n        return base * 1\n    return base**exponent\n"
+  },
+  "maths/prime_factors.py::prime_factors": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(n):\n    if n <= 1:\n        return []\n    factors = []\n    while n > 1:\n        divisor = next((d for d in range(2, math.isqrt(int(n)) + 1) if n % d == 0), n)\n        factors.append(divisor)\n        n //= divisor\n    return factors\n"
+  },
+  "maths/prime_factors.py::unique_prime_factors": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(n):\n    if n <= 1:\n        return []\n    seen = []\n    while n > 1:\n        divisor = next((d for d in range(2, math.isqrt(int(n)) + 1) if n % d == 0), n)\n        if divisor not in seen:\n            seen.append(divisor)\n        n //= divisor\n    return seen\n"
+  },
+  "maths/prime_sieve_eratosthenes.py::prime_sieve_eratosthenes": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(num):\n    if num <= 0:\n        raise ValueError(\"Input must be a positive integer\")\n    return [p for p in range(2, num + 1) if all(p % d for d in range(2, p))]\n"
+  },
+  "maths/quadratic_equations_complex_numbers.py::quadratic_roots": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(a, b, c):\n    if a == 0:\n        raise ValueError(\"Coefficient 'a' must not be zero.\")\n    delta = b * b - 4 * a * c\n    if delta >= 0:\n        root = math.sqrt(delta)\n        return ((-b + root) / (2 * a), (-b - root) / (2 * a))\n    imaginary = math.sqrt(-delta)\n    real = -b / (2 * a)\n    return (complex(real, imaginary / (2 * a)), complex(real, -imaginary / (2 * a)))\n"
+  },
+  "maths/radians.py::radians": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(degree):\n    return math.radians(degree)\n"
+  },
+  "maths/recursive_digit_sum.py::super_digit": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(n_str, repetitions):\n    total = sum(int(digit) for digit in n_str) * repetitions\n    if total < 10:\n        return total\n    return 1 + (total - 1) % 9\n"
+  },
+  "maths/remove_digit.py::remove_digit": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(num):\n    if not isinstance(num, int):\n        raise TypeError(\"only integers accepted as input\")\n    text = str(abs(num))\n    for index in range(len(text) - 1):\n        if text[index] < text[index + 1]:\n            return int(text[:index] + text[index + 1:])\n    return int(text[:-1])\n"
+  },
+  "maths/signum.py::signum": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(num):\n    return (num > 0) - (num < 0)\n"
+  },
+  "maths/sin.py::sin": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(angle_in_degrees, accuracy=18, rounded_values_count=10):\n    return round(math.sin(math.radians(angle_in_degrees)), rounded_values_count)\n"
+  },
+  "maths/sock_merchant.py::sock_merchant": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(colors):\n    return sum(colors.count(color) // 2 for color in set(colors))\n"
+  },
+  "maths/spearman_rank_correlation_coefficient.py::assign_ranks": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(data):\n    return [\n        1 + sum(1 for j, other in enumerate(data) if (other, j) < (value, i))\n        for i, value in enumerate(data)\n    ]\n"
+  },
+  "maths/sum_of_arithmetic_series.py::sum_of_series": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(first_term, common_diff, num_of_terms):\n    last_term = first_term + (num_of_terms - 1) * common_diff\n    return num_of_terms * (first_term + last_term) / 2\n"
+  },
+  "maths/sum_of_digits.py::sum_of_digits": {
+    "function": "sum_of_digits_compact",
+    "kind": "sibling_same_file"
+  },
+  "maths/sum_of_digits.py::sum_of_digits_compact": {
+    "function": "sum_of_digits",
+    "kind": "sibling_same_file"
+  },
+  "maths/sumset.py::sumset": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import itertools\n\n\ndef reference(set_a, set_b):\n    assert isinstance(set_a, set), f\"The input value of [set_a={set_a}] is not a set\"\n    assert isinstance(set_b, set), f\"The input value of [set_b={set_b}] is not a set\"\n    return set(map(sum, itertools.product(set_a, set_b)))\n"
+  },
+  "maths/sylvester_sequence.py::sylvester": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number):\n    assert isinstance(number, int), f\"The input value of [n={number}] is not an integer\"\n    if number < 1:\n        msg = f\"The input value of [n={number}] has to be > 0\"\n        raise ValueError(msg)\n    term = 2\n    product = 2\n    for _ in range(number - 1):\n        term = product + 1\n        product *= term\n    return term\n"
+  },
+  "maths/three_sum.py::three_sum": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import itertools\n\n\ndef reference(nums):\n    triplets = {\n        tuple(sorted(combo)) for combo in itertools.combinations(nums, 3) if sum(combo) == 0\n    }\n    return [list(triplet) for triplet in sorted(triplets)]\n"
+  },
+  "maths/trapezoidal_rule.py::f": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(x):\n    return x * x\n"
+  },
+  "maths/two_sum.py::two_sum": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(nums, target):\n    for j in range(len(nums)):\n        for i in range(j - 1, -1, -1):\n            if nums[i] + nums[j] == target:\n                return [i, j]\n    return []\n"
+  },
+  "searches/double_linear_search_recursion.py::search": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "from itertools import chain\n\n\ndef reference(list_data, key, left=0, right=0):\n    right = right or len(list_data) - 1\n    order = chain.from_iterable(zip(range(left, right + 1), range(right, left - 1, -1)))\n    return next((index for index in order if list_data[index] == key), -1)\n"
+  },
+  "searches/linear_search.py::linear_search": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(sequence, target):\n    return sequence.index(target) if target in sequence else -1\n"
+  },
+  "searches/linear_search.py::rec_linear_search": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "from itertools import chain\n\n\ndef reference(sequence, low, high, target):\n    size = len(sequence)\n    if not (0 <= high < size and 0 <= low < size):\n        raise ValueError(\"Invalid upper or lower bound!\")\n    order = chain.from_iterable(zip(range(low, high + 1), range(high, low - 1, -1)))\n    return next((index for index in order if sequence[index] == target), -1)\n"
+  },
+  "searches/median_of_medians.py::median_of_five": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import statistics\n\n\ndef reference(arr):\n    return statistics.median_high(arr)\n"
+  },
+  "searches/sentinel_linear_search.py::sentinel_linear_search": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(sequence, target):\n    return sequence.index(target) if target in sequence else None\n"
+  },
+  "sorts/bead_sort.py::bead_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(sequence):\n    if any(not isinstance(x, int) or x < 0 for x in sequence):\n        raise TypeError(\"Sequence must be list of non-negative integers\")\n    if len(sequence) == 0:\n        return sequence\n    return sorted(sequence)\n"
+  },
+  "sorts/binary_insertion_sort.py::binary_insertion_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(collection):\n    return sorted(collection)\n"
+  },
+  "sorts/circle_sort.py::circle_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(collection):\n    if len(collection) < 2:\n        return collection\n    return sorted(collection)\n"
+  },
+  "sorts/cocktail_shaker_sort.py::cocktail_shaker_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(arr):\n    if len(arr) < 2:\n        return arr\n    return type(arr)(sorted(arr))\n"
+  },
+  "sorts/comb_sort.py::comb_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(data):\n    return sorted(data)\n"
+  },
+  "sorts/counting_sort.py::counting_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(collection):\n    return sorted(collection)\n"
+  },
+  "sorts/cycle_sort.py::cycle_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(array):\n    return sorted(array)\n"
+  },
+  "sorts/cyclic_sort.py::cyclic_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(nums):\n    return sorted(nums)\n"
+  },
+  "sorts/exchange_sort.py::exchange_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(numbers):\n    return sorted(numbers)\n"
+  },
+  "sorts/gnome_sort.py::gnome_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(lst):\n    if len(lst) <= 1:\n        return lst\n    return sorted(lst)\n"
+  },
+  "sorts/merge_sort.py::merge_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(collection):\n    if len(collection) <= 1:\n        return collection\n    return sorted(collection)\n"
+  },
+  "sorts/odd_even_sort.py::odd_even_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(input_list):\n    return sorted(input_list)\n"
+  },
+  "sorts/odd_even_transposition_single_threaded.py::odd_even_transposition": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(arr):\n    return sorted(arr)\n"
+  },
+  "sorts/pigeon_sort.py::pigeon_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(array):\n    return sorted(array)\n"
+  },
+  "sorts/recursive_mergesort_array.py::merge": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(arr):\n    return sorted(arr)\n"
+  },
+  "sorts/selection_sort.py::selection_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(collection):\n    return sorted(collection)\n"
+  },
+  "sorts/shell_sort.py::shell_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(collection):\n    return sorted(collection)\n"
+  },
+  "sorts/shrink_shell_sort.py::shell_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(collection):\n    return sorted(collection)\n"
+  },
+  "sorts/stalin_sort.py::stalin_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "from itertools import accumulate\n\n\ndef reference(sequence):\n    running_max = list(accumulate(sequence, max))\n    return [x for i, x in enumerate(sequence) if i == 0 or x >= running_max[i - 1]]\n"
+  },
+  "sorts/strand_sort.py::strand_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(arr, reverse=False, solution=None):\n    return sorted(list(solution or []) + list(arr), reverse=reverse)\n"
+  },
+  "sorts/unknown_sort.py::merge_sort": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(collection):\n    return sorted(collection)\n"
+  },
+  "strings/alternative_string_arrange.py::alternative_string_arrange": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "from itertools import zip_longest\n\n\ndef reference(first_str, second_str):\n    return \"\".join(a + b for a, b in zip_longest(first_str, second_str, fillvalue=\"\"))\n"
+  },
+  "strings/barcode_validator.py::get_barcode": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(barcode):\n    value = int(barcode)\n    if value < 0:\n        raise ValueError(\"The entered barcode has a negative value. Try again.\")\n    return value\n"
+  },
+  "strings/barcode_validator.py::get_check_digit": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(barcode):\n    if barcode < 0:\n        raise ValueError(\"negative barcode\")\n    digits = [int(d) for d in str(barcode // 10)][::-1]\n    total = sum(d * (3 if i % 2 == 0 else 1) for i, d in enumerate(digits))\n    return -total % 10\n"
+  },
+  "strings/bitap_string_match.py::bitap_string_match": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(text, pattern):\n    return text.find(pattern)\n"
+  },
+  "strings/capitalize.py::capitalize": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import re\n\n\ndef reference(sentence):\n    return re.sub(r\"\\A(.)\", lambda m: m.group(1).upper(), sentence, count=1, flags=re.DOTALL)\n"
+  },
+  "strings/count_vowels.py::count_vowels": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "from collections import Counter\n\n\ndef reference(s):\n    if not isinstance(s, str):\n        raise TypeError(\"Input must be a string\")\n    counts = Counter(s)\n    return sum(counts[v] for v in \"aeiouAEIOU\")\n"
+  },
+  "strings/count_vowels_consonants.py::count_vowels_and_consonants": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "from collections import Counter\n\n\ndef reference(text):\n    counts = Counter(c for c in text if c.isalpha())\n    vowels = sum(n for c, n in counts.items() if c in \"aeiouAEIOU\")\n    return vowels, sum(counts.values()) - vowels\n"
+  },
+  "strings/damerau_levenshtein_distance.py::damerau_levenshtein_distance": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "from functools import lru_cache\n\n\ndef reference(first_string, second_string):\n    a, b = first_string, second_string\n\n    @lru_cache(maxsize=None)\n    def dist(i, j):\n        if i == 0:\n            return j\n        if j == 0:\n            return i\n        best = min(dist(i - 1, j) + 1, dist(i, j - 1) + 1, dist(i - 1, j - 1) + int(a[i - 1] != b[j - 1]))\n        if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:\n            best = min(best, dist(i - 2, j - 2) + 1)\n        return best\n\n    return dist(len(a), len(b))\n"
+  },
+  "strings/dna.py::dna": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(dna):\n    complement = {\"A\": \"T\", \"T\": \"A\", \"C\": \"G\", \"G\": \"C\"}\n    if set(dna) - set(complement):\n        raise ValueError(\"Invalid Strand\")\n    return \"\".join(complement[base] for base in dna)\n"
+  },
+  "strings/edit_distance.py::edit_distance": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(source, target):\n    previous = list(range(len(target) + 1))\n    for i, s_char in enumerate(source, start=1):\n        current = [i]\n        for j, t_char in enumerate(target, start=1):\n            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + int(s_char != t_char)))\n        previous = current\n    return previous[-1]\n"
+  },
+  "strings/hamming_distance.py::hamming_distance": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import operator\n\n\ndef reference(string1, string2):\n    if len(string1) != len(string2):\n        raise ValueError(\"String lengths must match!\")\n    return sum(map(operator.ne, string1, string2))\n"
+  },
+  "strings/indian_phone_validator.py::indian_phone_validator": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import re\n\n\ndef reference(phone):\n    return re.fullmatch(r\"(\\+91[-\\s]?)?0?(91)?[789]\\d{9}\\n?\", phone) is not None\n"
+  },
+  "strings/is_contains_unique_chars.py::is_contains_unique_chars": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(input_str):\n    return len(set(input_str)) == len(input_str)\n"
+  },
+  "strings/is_isogram.py::is_isogram": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "from collections import Counter\n\n\ndef reference(string):\n    if not all(x.isalpha() for x in string):\n        raise ValueError(\"String must only contain alphabetic characters.\")\n    return max(Counter(string.lower()).values(), default=0) <= 1\n"
+  },
+  "strings/is_pangram.py::is_pangram": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import string\n\n\ndef reference(input_str=\"The quick brown fox jumps over the lazy dog\"):\n    return set(string.ascii_lowercase) <= set(input_str.lower())\n"
+  },
+  "strings/is_pangram.py::is_pangram_faster": {
+    "function": "is_pangram",
+    "kind": "sibling_same_file"
+  },
+  "strings/is_pangram.py::is_pangram_fastest": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import unicodedata\n\n\ndef reference(input_str=\"The quick brown fox jumps over the lazy dog\"):\n    letters = {c for c in input_str.lower() if unicodedata.category(c).startswith(\"L\")}\n    return len(letters) == 26\n"
+  },
+  "strings/is_srilankan_phone_number.py::is_sri_lankan_phone_number": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import re\n\n\ndef reference(phone):\n    return re.fullmatch(r\"(?:0|94|\\+94|0{2}94)7[0-24-8][- ]?\\d{7}\\n?\", phone) is not None\n"
+  },
+  "strings/join.py::join": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(separator, separated):\n    if any(not isinstance(word, str) for word in separated):\n        raise Exception(\"join() accepts only strings\")\n    if len(separated) == 0 and not isinstance(separated, list):\n        raise IndexError(\"empty non-list\")\n    return separator.join(separated)\n"
+  },
+  "strings/naive_string_search.py::naive_pattern_search": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(s, pattern):\n    return [i for i in range(len(s) - len(pattern) + 1) if s.startswith(pattern, i)]\n"
+  },
+  "strings/ngram.py::create_ngram": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(sentence, ngram_size):\n    if ngram_size <= 0:\n        # the original's slicing artefacts for non-positive sizes\n        return [sentence[i : i + ngram_size] for i in range(len(sentence) - ngram_size + 1)]\n    return [\"\".join(window) for window in zip(*(sentence[k:] for k in range(ngram_size)))]\n"
+  },
+  "strings/prefix_function.py::prefix_function": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(input_string):\n    result = []\n    for end in range(1, len(input_string) + 1):\n        chunk = input_string[:end]\n        result.append(max(k for k in range(end) if chunk[:k] == chunk[end - k :]))\n    return result\n"
+  },
+  "strings/remove_duplicate.py::remove_duplicates": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import re\nfrom collections import Counter\n\n\ndef reference(sentence):\n    return \" \".join(sorted(Counter(re.findall(r\"\\S+\", sentence))))\n"
+  },
+  "strings/reverse_letters.py::reverse_letters": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import re\n\n\ndef reference(sentence, length=0):\n    words = re.findall(r\"\\S+\", sentence)\n    return \" \".join(\"\".join(reversed(w)) if len(w) > length else w for w in words)\n"
+  },
+  "strings/reverse_words.py::reverse_words": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import re\n\n\ndef reference(sentence):\n    return \" \".join(reversed(re.findall(r\"\\S+\", sentence)))\n"
+  },
+  "strings/snake_case_to_camel_pascal_case.py::snake_to_camel_case": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import re\n\n\ndef reference(input_str, use_pascal=False):\n    if not isinstance(input_str, str):\n        raise ValueError(f\"Expected string as input, found {type(input_str)}\")\n    if not isinstance(use_pascal, bool):\n        raise ValueError(f\"Expected boolean as use_pascal parameter, found {type(use_pascal)}\")\n    camel = re.sub(r\"_(.)\", lambda m: m.group(1).upper(), input_str, flags=re.DOTALL)\n    if use_pascal:\n        camel = re.sub(r\"\\A(.)\", lambda m: m.group(1).upper(), camel, count=1, flags=re.DOTALL)\n    return camel\n"
+  },
+  "strings/split.py::split": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(string, separator=\" \"):\n    if not string:\n        return []\n    if len(separator) != 1:\n        return [string]\n    return string.split(separator)\n"
+  },
+  "strings/strip.py::strip": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(user_string, characters=\" \\t\\n\\r\"):\n    return user_string.strip(characters)\n"
+  },
+  "strings/upper.py::upper": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import string\n\n\ndef reference(word):\n    return word.translate(str.maketrans(string.ascii_lowercase, string.ascii_uppercase))\n"
+  },
+  "strings/wave_string.py::wave": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import unicodedata\n\n\ndef reference(txt):\n    return [\n        txt[:i] + c.upper() + txt[i + 1 :]\n        for i, c in enumerate(txt)\n        if unicodedata.category(c).startswith(\"L\")\n    ]\n"
+  },
+  "strings/word_occurrence.py::word_occurrence": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "from collections import Counter, defaultdict\n\n\ndef reference(sentence):\n    return defaultdict(int, Counter(sentence.split()))\n"
+  },
+  "strings/word_patterns.py::get_word_pattern": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(word):\n    upper = word.upper()\n    first_seen = list(dict.fromkeys(upper))\n    return \".\".join(str(first_seen.index(c)) for c in upper)\n"
+  }
+}
