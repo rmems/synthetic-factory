@@ -33,13 +33,14 @@ MAX_CAPTURE_CHARS = 65_536
 
 
 def _apply_limits(spec: dict) -> bool:
-    """Whether every required limit is in force; never raises.
+    """Whether every required limit is in force; a limit it cannot apply returns False.
 
-    A refused ``setrlimit`` is reported here rather than thrown, so ``_run``
-    still writes an ``environment`` block saying the limits are off and the
-    parent refuses the run on that evidence. Raising instead would reach
-    ``main``'s catch-all, whose report carries no environment at all, and an
-    unsandboxed child would be indistinguishable from a crashed one.
+    A refused ``setrlimit``, a constant this platform does not define, or a spec
+    that cannot be read is reported here rather than thrown, so ``_run`` still
+    writes an ``environment`` block saying the limits are off and the parent
+    refuses the run on that evidence. Raising instead would reach ``main``'s
+    catch-all, whose report carries no environment at all, and a systemically
+    unsandboxed run would look like one crashed candidate.
     """
 
     try:
@@ -54,7 +55,7 @@ def _apply_limits(spec: dict) -> bool:
         )
         for name, value in limits:
             resource.setrlimit(name, (value, value))
-    except (KeyError, OSError, OverflowError, TypeError, ValueError):
+    except (AttributeError, KeyError, OSError, OverflowError, TypeError, ValueError):
         return False
     return True
 

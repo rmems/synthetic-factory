@@ -238,23 +238,40 @@ def _parsed_report(returncode: int, stdout: bytes) -> dict[str, Any] | str:
 def _unsandboxed_detail(parsed: dict[str, Any]) -> str | None:
     """Why this report cannot be read as sandboxed evidence, or None when it can.
 
-    A child that *describes* its environment and says the limits are off is a
-    sandbox failure, and ``generate`` refuses the whole run on it. A child that
-    describes no environment at all died before it could: ``_harness._run``
-    applies the limits before it reads or imports the program, so such a child
-    either never reached program code or reached it under the limits. Coding
-    that as an ordinary harness error lets the one candidate be rejected
-    (``MUTANT_HARNESS_ERROR``) instead of discarding every record in the run
-    (#196 follow-up: a mutant exhausting the address-space limit stopped a
-    200-candidate generation at its 174th record).
+    A child that *states* ``limits_applied`` is believed: anything but true is a
+    sandbox failure and ``generate`` refuses the whole run on it. A child that
+    states nothing died before it could, and told us nothing either way:
+    ``_harness._run`` applies the limits before it reads or imports the program,
+    so such a child either never reached program code or reached it under the
+    limits. Coding that as an ordinary harness error lets the one candidate be
+    rejected (``MUTANT_HARNESS_ERROR``) instead of discarding every record in
+    the run (#196 follow-up: a mutant exhausting the address-space limit stopped
+    a 200-candidate generation at its 174th record).
+
+    The key, not the block, is the test. ``generate._run_phase`` reads the same
+    field with the same default, so the two layers cannot disagree about a
+    report that carries an environment without the evidence in it.
     """
 
     environment = parsed.get("environment")
-    if not isinstance(environment, dict):
-        return "harness error: the child reported no environment"
-    if environment.get("limits_applied") is not True:
+    if not isinstance(environment, dict) or "limits_applied" not in environment:
+        return f"harness error: {_child_error(parsed)}"
+    if environment["limits_applied"] is not True:
         return f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not applied"
     return None
+
+
+def _child_error(parsed: dict[str, Any]) -> str:
+    """The child's own reason for a report that carries no applied-limits evidence.
+
+    ``main``'s catch-all names the exception type here; without forwarding it the
+    operator sees only that some child died, which is the complaint that made the
+    type worth naming in the first place.
+    """
+
+    load = parsed.get("load")
+    reason = load.get("error") if isinstance(load, dict) else None
+    return _scrub_detail(str(reason)) if reason else "the child reported no applied limits"
 
 
 def _parse_report(job: Job, returncode: int, stdout: bytes) -> PhaseReport:
@@ -270,9 +287,15 @@ def _parse_report(job: Job, returncode: int, stdout: bytes) -> PhaseReport:
     environment = _object(parsed, "environment")
     unsandboxed = _unsandboxed_detail(parsed)
     if unsandboxed is not None:
-        # Keep the environment on a sandbox failure: it is the structural signal
-        # callers refuse on, so the decision never rests on matching prose that a
-        # program under test can forge into its own exception message.
+        # Keep the environment here: it is the structural signal callers refuse
+        # on, so the decision never rests on prose a program can put in its own
+        # exception message. A program can still forge this field, but only
+        # downward -- `_run` returns before reading program.py when the limits
+        # are off, so nothing that ran can claim they were on (#196 follow-up).
+        # This is the one non-ok phase carrying a non-None `limits_applied`, and
+        # `record_validation._phase_runtime_contract` forbids storing that; it is
+        # safe only because `generate._run_phase` refuses the run on exactly this
+        # shape. A caller that continues past it would build a malformed record.
         return PhaseReport(cv.PHASE_HARNESS_ERROR, False, (), (), environment, unsandboxed)
     load = _object(parsed, "load")
     if load.get("status") != "ok":

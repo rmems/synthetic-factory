@@ -209,6 +209,37 @@ class Failures(unittest.TestCase):
         served = types.SimpleNamespace(executor=types.SimpleNamespace(run=lambda _: report))
         self.assertIs(generate._run_phase(served, job), report)
 
+    def test_every_non_true_limits_claim_refuses_the_run_not_only_false(self):
+        """`is not True` is the rule at both layers; null and 1 are not true either."""
+
+        job = ex.Job("mutant:test", "def f():\n    pass\n", "f")
+        for flag in ("false", "null", "1", '"true"'):
+            with self.subTest(flag=flag):
+                stdout = (
+                    '{"protocol": "code-repair-harness/1", "load": {"status": "ok", '
+                    f'"error": null}}, "environment": {{"limits_applied": {flag}}}, '
+                    '"public": [], "hidden": []}'
+                ).encode()
+                report = ex._parse_report(job, 0, stdout)
+                served = types.SimpleNamespace(
+                    executor=types.SimpleNamespace(run=lambda _: report))
+                refusal(lambda: generate._run_phase(served, job),
+                        cv.FINDING_SANDBOX_UNAVAILABLE)
+
+    def test_an_environment_without_the_key_is_read_the_same_way_by_both_layers(self):
+        """A block that states nothing is not a sandbox claim — and must not split the layers."""
+
+        job = ex.Job("mutant:test", "def f():\n    pass\n", "f")
+        report = ex._parse_report(
+            job, 0, b'{"protocol": "code-repair-harness/1", "load": {"status": "error", '
+                    b'"error": "HarnessError: MemoryError: "}, '
+                    b'"environment": {"python": "3.14", "platform": "linux"}}')
+        self.assertEqual(report.status, cv.PHASE_HARNESS_ERROR)
+        self.assertNotIn(cv.FINDING_SANDBOX_UNAVAILABLE, report.detail)
+        self.assertIn("MemoryError", report.detail)  # the child's cause is forwarded
+        served = types.SimpleNamespace(executor=types.SimpleNamespace(run=lambda _: report))
+        self.assertIs(generate._run_phase(served, job), report)
+
     def test_a_child_that_reported_no_environment_does_not_stop_the_run(self):
         """The one candidate is that candidate's problem; the run keeps going."""
 
