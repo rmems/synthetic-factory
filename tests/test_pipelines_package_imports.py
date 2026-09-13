@@ -22,7 +22,8 @@ else:
     )
 
 
-REFACTORED_FACADES = (
+# These module names and tag_test_support.__all__ are independent literal contracts.
+REFACTORED_FACADES = (  # qlty-ignore(qlty:similar-code): unrelated name declarations.
     "census",
     "check_records",
     "coding_constants",
@@ -65,6 +66,8 @@ REFACTORED_FACADES = (
     "round_txn_preference",
     "round_txn_raster",
     "training_audit_mill",
+    "training_audit_record",
+    "training_audit_reasoning",
     "training_audit_report",
     "trajectory_pair_curation",
     "trajectory_pair_gate",

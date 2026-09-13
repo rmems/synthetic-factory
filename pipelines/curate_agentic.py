@@ -30,10 +30,11 @@ import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Hashable, Any
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("curate_agentic")
     from .check_records import reject_json_constant
@@ -323,9 +324,10 @@ def curate_record(
 def _source_jsonl_entries(source: Path) -> tuple[tuple[Path, str, bool], ...]:
     """Return visible JSONL paths paired with their enclosing factory names."""
 
+    paths: tuple[Path, ...]
     if not source.exists():
-        return ()
-    if source.is_file():
+        paths = ()
+    elif source.is_file():
         paths = (source,) if source.suffix == ".jsonl" and not source.is_symlink() else ()
     else:
         paths = tuple(
@@ -633,7 +635,7 @@ def _mill_summary(
 
 def _records_by_rel(
     kept: list[tuple[str, int, dict[str, Any], str, bool]],
-    dropped: set[int],
+    dropped: set[Hashable],
 ) -> dict[str, list[dict[str, Any]]]:
     """Group surviving curated records by source file, dropping emptied files."""
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)

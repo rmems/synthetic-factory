@@ -8,7 +8,8 @@ import sys
 from typing import Any, Mapping
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("compose_curated_coding")
     from . import curate_agentic, curate_coding, curate_rewards
@@ -120,8 +121,8 @@ def _curate_bridge_trajectory(
     """Run the correct coding implementation for one embedded trajectory."""
 
     if curate_coding.steps_path(trajectory) is None:
-        curated, detail = _strip_hidden_only_side(trajectory)
-        return curate_agentic, curated, detail
+        stripped, detail = _strip_hidden_only_side(trajectory)
+        return curate_agentic, stripped, detail
     curated, manifest = curate_coding.curate_episode(
         trajectory,
         source_path=f"{context.source.path}#language_view.trajectory",

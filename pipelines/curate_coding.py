@@ -35,7 +35,7 @@ import re
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 if __package__:
     from .coding_constants import (
@@ -285,7 +285,7 @@ def curate_step(step: Any, source_step_index: int) -> tuple[dict[str, Any] | Non
     reasons = []
     if removed:
         reasons.append(REASON_HIDDEN_REASONING_REMOVED)
-    reasons.append(_EVIDENCE_REASON[evidence_source])
+    reasons.append(_EVIDENCE_REASON[cast(str, evidence_source)])
     if concised:
         reasons.append(REASON_BASIS_CONCISED)
 
@@ -538,9 +538,9 @@ def curate_jsonl(
             if curated is not None:
                 records.append(curated)
 
-    step_counts = Counter()
-    evidence_sources = Counter()
-    steps_paths = Counter()
+    step_counts: Counter[str] = Counter()
+    evidence_sources: Counter[str] = Counter()
+    steps_paths: Counter[str] = Counter()
     for manifest in manifests:
         step_counts.update(manifest["step_counts"])
         if manifest["steps_path"]:
@@ -780,7 +780,7 @@ def curate_run(source_dir: str | Path, output_dir: str | Path) -> dict[str, Any]
             _rmdir_created_directory(path, identity)
         raise
 
-    evidence_sources = Counter()
+    evidence_sources: Counter[str] = Counter()
     for summary in summaries:
         evidence_sources.update(summary["decision_basis_sources"])
     return {

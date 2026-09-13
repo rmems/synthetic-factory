@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, TypeGuard
 
 if __package__:
     from .coding_constants import (
@@ -28,11 +28,11 @@ else:
     )
 
 
-def _is_nonnegative_int(value: Any) -> bool:
+def _is_nonnegative_int(value: Any) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
-def _is_positive_int(value: Any) -> bool:
+def _is_positive_int(value: Any) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 

@@ -8,10 +8,11 @@ import stat
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, cast
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("compose_destination_creation")
     from .compose_contract import ComposeError
@@ -252,12 +253,15 @@ class _DestinationCreation:
         )
 
     def _open_private_root(self) -> None:
+        # create() establishes both values before opening the private root.
+        created_path = cast(Path, self.created_path)
+        created_identity = cast(tuple[int, int, int], self.created_identity)
         self._verify_parent()
         self.destination_descriptor = _open_created_destination(
             self.parent_descriptor,
-            self.created_path,
+            created_path,
             self.flags,
-            self.created_identity,
+            created_identity,
         )
         _require_safe_new_directory(
             self.destination_descriptor,
@@ -268,21 +272,25 @@ class _DestinationCreation:
         self._verify_parent()
         _assert_descriptor_outside_raw(self.destination_descriptor, "destination")
         _verify_directory_binding(
-            self.created_path,
+            created_path,
             self.destination_descriptor,
             "destination",
-            expected_identity=self.created_identity,
+            expected_identity=created_identity,
         )
 
     def _pinned_destination(self) -> PinnedDestination:
+        # This follows successful creation and descriptor binding in create().
+        descriptor = cast(int, self.destination_descriptor)
+        identity = cast(tuple[int, int, int], self.created_identity)
+        created_path = cast(Path, self.created_path)
         return PinnedDestination(
             path=self.destination,
-            root=_pinned_root_path(self.destination_descriptor),
+            root=_pinned_root_path(descriptor),
             parent_descriptor=self.parent_descriptor,
-            destination_descriptor=self.destination_descriptor,
+            destination_descriptor=descriptor,
             parent_identity=self.parent_identity,
-            destination_identity=self.created_identity,
-            staged_name=self.created_path.name,
+            destination_identity=identity,
+            staged_name=created_path.name,
         )
 
     def create(self) -> PinnedDestination:
