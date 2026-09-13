@@ -48,7 +48,7 @@ def body_nodes(target: ast.FunctionDef):
     Those run at definition time and are not the behaviour the doctests specify (Codex on #197).
     """
 
-    pending = list(reversed(target.body))
+    pending: list[ast.AST] = list(reversed(target.body))
     while pending:
         node = pending.pop()
         yield node

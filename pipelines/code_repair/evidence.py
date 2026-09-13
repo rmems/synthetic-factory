@@ -53,13 +53,19 @@ def public_evidence(
     entries: list[dict[str, Any]] = []
     for row in failing:
         entry = _entry(row, examples[_example_index(row["id"])])
-        omitted_after = len(failing) - len(entries) - 1
-        too_long = len(render_evidence(entries + [entry], omitted_after)) > cv.MAX_EVIDENCE_CHARS
-        does_not_fit = not _fits(entries, entry) or too_long
-        if does_not_fit and (entries or not _bounded_first(entry, omitted_after)):
+        if not _admits(entries, entry, len(failing) - len(entries) - 1):
             break
         entries.append(entry)
     return entries, len(failing) - len(entries)
+
+
+def _admits(entries: list[dict[str, Any]], entry: dict[str, Any], omitted_after: int) -> bool:
+    """Whether ``entry`` may follow ``entries``; a lone first entry is bounded rather than dropped."""
+
+    too_long = len(render_evidence(entries + [entry], omitted_after)) > cv.MAX_EVIDENCE_CHARS
+    if _fits(entries, entry) and not too_long:
+        return True
+    return not entries and _bounded_first(entry, omitted_after)
 
 
 def _indent(text: str) -> str:
