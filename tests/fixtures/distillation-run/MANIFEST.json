@@ -160,7 +160,7 @@
     "snn-energy-routing-preferences": 20260823
   },
   "training_ready": false,
-  "training_ready_note": "Structural validity is not training-readiness. The router records come from a reference_only oracle and are excluded by oracle_contract.curation_eligible; the energy records are denominated in cpu_time_s because no energy meter was readable on this host.",
+  "training_ready_note": "Structural validity is not training-readiness. The router records come from a reference_only oracle and are excluded by distill_contract.curation_eligible; the energy records are denominated in cpu_time_s because no energy meter was readable on this host.",
   "validation": {
     "curation_eligible": 22,
     "curation_ineligible_reasons": {
