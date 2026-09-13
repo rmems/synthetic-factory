@@ -383,8 +383,19 @@ class _CorpusAudit:
         except StrictJsonlError as exc:
             self.record_errors.append(str(exc))
             return
+        procedural_before = self.code_repair["records"]
         for line_number, raw_line in enumerate(raw_lines, 1):
             self._observe_line(raw_line, line_number, rel, factory)
+        if self.code_repair["records"] > procedural_before:
+            self._observe_completed_procedural_file(rel, payload, procedural_before)
+
+    def _observe_completed_procedural_file(self, rel, payload, previous_records):
+        if __package__:
+            from .code_repair.publication_export import completed_batch_matches
+        else:
+            from code_repair.publication_export import completed_batch_matches
+        if completed_batch_matches(self.run_dir / rel, payload):
+            self.code_repair["completed_records"] += self.code_repair["records"] - previous_records
 
     def _observe_line(self, raw_line, line_number, rel, factory):
         if not raw_line.strip():
@@ -721,13 +732,15 @@ class _CorpusAudit:
             report["code_repair"] = {
                 **{key: self.code_repair[key] for key in (
                     "records", "eligible_records", "evidence_only_records", "invalid_records",
+                    "completed_records",
                 )},
                 "ineligibility_reasons": dict(sorted(self.code_repair_reasons.items())),
                 "validation_scope": "pure_inspection",
                 "fresh_publication_gate_required": True,
             }
-            report["blockers"].append("code_repair requires fresh replay and round completion gate")
-            report["training_ready"] = False
+            if self.code_repair["completed_records"] != self.code_repair["records"]:
+                report["blockers"].append("code_repair requires fresh replay and round completion gate")
+                report["training_ready"] = False
         return report
 
 

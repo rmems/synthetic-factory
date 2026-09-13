@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The agent surface of the code-repair family: catalog-check, generate, replay, export, render.
+"""Code-repair commands: catalog-check, generate, replay, publish, export, render.
 
 Exit codes: 0 when the command succeeded with nothing to report, 1 when it
 ran and reports catalog findings, 2 on a coded refusal or a usage error. ``--json`` prints one object
@@ -19,11 +19,12 @@ from . import catalog_check as cc
 from . import executor as ex
 from . import export
 from . import generate
+from . import publication
 from . import replay
 from . import views
 from . import record_validation as validation
 from . import vocabulary as cv
-from ._contract import bind_import_twin, envelope, oc
+from ._contract import bind_import_twin, dumps_exact_json, envelope, oc
 
 __all__ = ["build_parser", "run"]
 
@@ -60,7 +61,16 @@ def build_parser() -> argparse.ArgumentParser:
     exp.add_argument("--out", type=Path, required=True)
     exp.add_argument("--replay", type=Path, default=None, help="a replay directory of this run")
     exp.add_argument("--lineage-cap", type=int, default=export.DEFAULT_LINEAGE_CAP)
+    exp.add_argument("--admit", action="store_true", help="require completed round and fresh replay")
+    exp.add_argument("--round-marker", type=Path, help="actual ROUND-rNN.complete.json")
     exp.add_argument("--json", action="store_true")
+
+    pub = commands.add_parser("publish", help="freshly replay and publish a local transactional round")
+    pub.add_argument("--run", type=Path, required=True)
+    pub.add_argument("--factory-dir", type=Path, required=True)
+    pub.add_argument("--round", type=int, required=True)
+    pub.add_argument("--lineage-cap", type=int, default=export.DEFAULT_LINEAGE_CAP)
+    pub.add_argument("--json", action="store_true")
 
     render = commands.add_parser("render", help="the SFT prompt/completion of one record")
     render.add_argument("run_dir", type=Path)
@@ -70,7 +80,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _emit(payload: dict[str, Any], as_json: bool, text: str) -> None:
-    print(json.dumps(payload, indent=2, sort_keys=True) if as_json else text)
+    rendered = dumps_exact_json(
+        payload, ensure_ascii=True, indent=2, sort_keys=True
+    ) if as_json else text
+    print(rendered)
 
 
 def _catalog_check(args: argparse.Namespace) -> int:
@@ -122,7 +135,8 @@ def _replay(args: argparse.Namespace) -> int:
 
 def _export(args: argparse.Namespace) -> int:
     manifest = export.run(export.ExportRequest(
-        args.run, args.out, args.replay, args.lineage_cap, catalog_dir=args.catalog
+        args.run, args.out, args.replay, args.lineage_cap, catalog_dir=args.catalog,
+        admit=args.admit, round_marker=args.round_marker,
     ))
     tables, admission = manifest["tables"], manifest["admission"]
     exported = tables["dispositions"].get("exported", 0)
@@ -132,6 +146,19 @@ def _export(args: argparse.Namespace) -> int:
         f"{', '.join(admission['blockers'])}"
     )
     _emit({"command": "export", "status": "ok", "manifest": manifest}, args.json, text)
+    return 0
+
+
+def _publish(args: argparse.Namespace) -> int:
+    try:
+        manifest = publication.publish_run(publication.PublishRequest(
+            args.run, args.factory_dir, args.round, args.lineage_cap,
+        ))
+    except publication._transaction().TransactionError as exc:
+        raise cv.RepairRefusal(cv.FINDING_EXPORT_INTEGRITY, str(exc)) from exc
+    _emit({"command": "publish", "status": "ok", "manifest": manifest}, args.json,
+          f"published {manifest['records']} records in local round {args.round}; "
+          "fresh replay passed; no model training launched")
     return 0
 
 
@@ -184,7 +211,7 @@ def _render(args: argparse.Namespace) -> int:
 
 _COMMANDS = {
     "catalog-check": _catalog_check, "generate": _generate, "render": _render, "replay": _replay,
-    "export": _export,
+    "export": _export, "publish": _publish,
 }
 
 

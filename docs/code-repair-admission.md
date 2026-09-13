@@ -85,9 +85,66 @@ the source snapshot. Revalidation replays the transform and compares the emitted
 payload bytes against that snapshot.
 
 The training audit counts valid accepted candidates separately from evidence-only
-natural exclusions and corrupt records. For this family its verdict remains
-`training_ready: false` with an explicit fresh-gate blocker. Pure inspection is
-necessary but cannot certify fresh execution, completion, publication, or training.
-The dedicated publication workflow must freshly replay the evidence and verify
-actual round completion, membership, and hashes. There is no extra human-review
-sample gate, and the approved registry has `publication_target: null`.
+natural exclusions and corrupt records. Unpublished candidates retain
+`training_ready: false` with an explicit fresh-gate blocker. An actual completed
+round clears that blocker only when its marker, all bound artifacts, current
+independent authority, full original run and exact selected batch bytes pass pure
+revalidation. Read-only census, frontier and audit commands do not execute code.
+There is no extra human-review sample gate, and the approved registry has
+`publication_target: null`.
+
+## Local transactional publication and admitted export
+
+Create the registered factory directory, then use a new local round and a new
+export destination:
+
+```bash
+mkdir -p /path/to/outputs/raw/2099-01-01/python-function-repair-factory
+
+python3 pipelines/code_repair_cli.py publish \
+  --run /path/to/generated-run \
+  --factory-dir /path/to/outputs/raw/2099-01-01/python-function-repair-factory \
+  --round 1 --lineage-cap 6 --json
+
+python3 pipelines/code_repair_cli.py export \
+  --run /path/to/generated-run --catalog catalogs/python-repair-v1 \
+  --out /path/to/new-admitted-export --lineage-cap 6 \
+  --admit --round-marker \
+  /path/to/outputs/raw/2099-01-01/python-function-repair-factory/ROUND-r01.complete.json \
+  --json
+```
+
+Publication captures the original `RUN.json` and `candidates.jsonl`, validates
+every candidate, and selects accepted validated records in sorted ID order with
+exact/structural deduplication and the per-lineage cap. It reserves the actual
+nonempty selected count. The staged batch retains each original JSONL row's
+bytes. `code-repair-input-rNN.json` preserves the complete original run and all
+candidate bytes as UTF-8 strings, so rejected, abstained and provisional evidence
+remains immutable without entering the training JSONL census. Useful `NOTES`
+describe the selection and evidence. Existing transaction capture, hashing and
+exclusive completion-link rules protect all three artifacts.
+
+The mandatory transaction gate freshly replays every positive, including those
+removed by deduplication or the cap, against the independently pinned catalog.
+Direct `round_txn.py publish`, wrong factory paths, mixed-family batches and
+execution waivers cannot bypass the gate. Corrupt evidence anywhere refuses the
+run; valid natural exclusions do not. Failed transactions retain normal recovery
+state and can be inspected or aborted with the existing transaction CLI.
+
+An admitted export requires the same exact original run bytes, candidate bytes,
+lineage cap and deterministic selected membership as the actual completed
+round. It captures and verifies the marker and every artifact, then independently
+replays the captured input again. Stored replay-report claims cannot authorize
+it. The export manifest records the actual marker path and byte digest, current
+authority pins, selected membership, fresh replay evidence and concrete passed
+gates. It reports `training_export: training_candidate` and
+`project_training_policy: allowed`, preserves the full evidence file, includes
+the pinned upstream MIT notice, and freezes held-out SFT bytes by digest. Agoge
+rows preserve IDs, groups, lineages and exact completion boundary offsets.
+
+Ordinary export without `--admit` remains blocked candidate mode. A local
+admitted export is distinct from an Agoge frozen split and a model-training
+launch; these commands do not launch training or upload to a Hub. This is a
+trusted reviewed source lane pending OS isolation in issue #201, not an
+arbitrary-code ingestion boundary or a cryptographically signed transaction
+ledger.

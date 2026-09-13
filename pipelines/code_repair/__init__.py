@@ -17,5 +17,7 @@ __all__ = (
     "_contract vocabulary catalog catalog_check catalog_build catalog_inputs "
     "lineage mutate mutate_span mutate_literals mutate_sites executor "
     "verify records views generate replay export export_integrity cli record_validation evidence "
+    "publication publication_export publication_receipt selection admission source_policy "
+    "validation run_validation "
     "_admission_catalog _admission_evidence"
 ).split()

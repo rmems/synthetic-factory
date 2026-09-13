@@ -9,8 +9,10 @@ from typing import Iterable
 
 if __package__:
     from . import pipeline_import_catalog
+    from .process_test_support import ProcessTimeout, spawned_process_exit_code
 else:
     import pipeline_import_catalog
+    from process_test_support import ProcessTimeout, spawned_process_exit_code
 
 
 _PROCESS_TIMEOUT_SECONDS = 30.0
@@ -45,20 +47,16 @@ def clean_process_identity_exit_code(
 ) -> int | None:
     """Check import-order identity in a spawned, uncontaminated interpreter."""
 
-    process = multiprocessing.get_context("spawn").Process(
-        target=_assert_module_identities,
-        args=(str(repo), tuple(names), package_first),
+    return spawned_process_exit_code(
+        _assert_module_identities,
+        (str(repo), tuple(names), package_first),
+        timeout=ProcessTimeout(
+            _PROCESS_TIMEOUT_SECONDS,
+            _TERMINATION_TIMEOUT_SECONDS,
+            (
+                "clean-process module identity check timed out after "
+                f"{_PROCESS_TIMEOUT_SECONDS:g} seconds"
+            ),
+        ),
+        multiprocessing_module=multiprocessing,
     )
-    process.start()
-    process.join(_PROCESS_TIMEOUT_SECONDS)
-    if process.is_alive():
-        process.terminate()
-        process.join(_TERMINATION_TIMEOUT_SECONDS)
-        if process.is_alive():
-            process.kill()
-            process.join(_TERMINATION_TIMEOUT_SECONDS)
-        raise TimeoutError(
-            "clean-process module identity check timed out after "
-            f"{_PROCESS_TIMEOUT_SECONDS:g} seconds"
-        )
-    return process.exitcode

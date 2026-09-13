@@ -19,6 +19,7 @@ from tests.code_repair_test_support import (
     vocabulary as cv,
 )
 from code_repair import export, lineage, replay
+from code_repair._contract import ExactJSONFloat, exact_fraction, load_strict_json
 from scripts import agoge_consumer_probe as probe
 
 
@@ -143,6 +144,28 @@ class Artifacts(unittest.TestCase):
         )
         self.assertEqual(first["replay"], "passed")
         self.assertNotIn(cv.BLOCKER_REPLAY_NOT_RUN, first["admission"]["blockers"])
+
+    def test_manifest_write_preserves_exact_decimal_metadata(self):
+        precise_timeout = "2.0000000000000000000001"
+        summary, records, _run_dir = smoke_run()
+        run = copy.deepcopy(summary)
+        run["timeout_s"] = ExactJSONFloat(precise_timeout)
+        corpus = export._Corpus(run, records, None, None)
+        manifest = export._manifest(
+            request(self.root / "unused-run", self.root / "unused-export"),
+            corpus,
+            {},
+        )
+
+        export._write_json(self.root, export.MANIFEST_FILENAME, manifest)
+
+        persisted = load_strict_json(
+            (self.root / export.MANIFEST_FILENAME).read_bytes()
+        )
+        self.assertEqual(
+            exact_fraction(persisted["run"]["timeout_s"]),
+            exact_fraction(run["timeout_s"]),
+        )
 
     def test_request_refusals(self):
         _summary, _records, run_dir = smoke_run()
