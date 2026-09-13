@@ -12,7 +12,8 @@ import sys
 from typing import Any, Mapping
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("compose_trajectory_gate")
     from . import compose_contract as _compose_contract
@@ -134,7 +135,7 @@ def trajectory_gate_passed(
         reason_codes=tuple(reasons),
         record=curated,
         shared_goal=True,
-        overlap=overlap,
+        overlap=dict(overlap),
     )
 
 
@@ -179,7 +180,7 @@ def compat_trajectory_preference(
             reason_codes=tuple(dict.fromkeys(reasons)),
             record=None,
             shared_goal=shared_goal,
-            overlap=overlap,
+            overlap=dict(overlap),
             side_validation_errors=side_errors or None,
         )
     return trajectory_gate_passed(

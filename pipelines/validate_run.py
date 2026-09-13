@@ -20,7 +20,8 @@ import sys
 from pathlib import Path
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
     _assert_direct_sibling("validate_run")
     from . import validate_run_spikes as _validate_run_spikes
     from . import validate_run_provenance as _validate_run_provenance
@@ -1462,17 +1463,28 @@ def _finish_agentic(errors, obj, where, kind):
     return errors
 
 
+def _route_code_repair(obj, where):
+    """Bind operational family checks to the sealed source without execution."""
+    if __package__:
+        from .code_repair.admission import sealed_record_findings
+    else:
+        from code_repair.admission import sealed_record_findings
+    return sealed_record_findings(obj, where), "code_repair"
+
+
 def check_line(obj, where, factory_staging=False):
     """Route an object to the right checker based on its shape."""
     if not isinstance(obj, dict):
         return [f"{where}: record must be a JSON object"], "unknown"
 
-    # The parity families declare their kind explicitly rather than being
-    # recognised by shape, so they can never be confused with a trajectory
-    # that happens to share a key name.
+    # Self-declared families route ahead of the shape table, in the same order
+    # as record_kind.classify_kind: a record that names its own family can
+    # never be confused with a trajectory that happens to share a key name.
     declared_kind = obj.get("record_kind")
     if declared_kind in parity_contract.RECORD_KINDS:
         return check_parity_envelope(obj, where), declared_kind
+    if obj.get("family") == "python-function-repair":
+        return _route_code_repair(obj, where)
 
     for required_keys, kind, route in _LINE_ROUTES:
         if not all(k in obj for k in required_keys):

@@ -136,7 +136,7 @@ def foreignness(entry: Entry, axes: Axes) -> tuple[bool, bool, str]:
 
     expected = axes.identity.get(entry.factory)
     effective_factory = expected or entry.factory
-    prefix_homes = axes.homes.get(entry.mill_prefix, frozenset())
+    prefix_homes = axes.homes.get(entry.mill_prefix, frozenset()) if entry.mill_prefix is not None else frozenset()
     return (
         _payload_disagrees(entry, expected),
         _prefix_disagrees(entry, prefix_homes, effective_factory),

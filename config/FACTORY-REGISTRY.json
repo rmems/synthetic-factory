@@ -1,5 +1,5 @@
 {
-  "schema_version": "factory-registry-v0.2",
+  "schema_version": "factory-registry-v0.3",
   "lookup_key": "path_id",
   "notes": "Reviewed factory authority table. pipelines/curate_identity.py loads this file from config/FACTORY-REGISTRY.json. Lookup is exact raw source-directory path_id then exact payload_factory; Hub publication names remain separate in the publisher and are not lookup aliases. There is no suffix rewrite or glob. Unknown path → identity.unknown_factory; registered path with missing or different meta.factory → identity.factory_path_payload_mismatch; kind not in the row's record_kinds → identity.factory_not_authorized_for_kind. Onboard a generator by adding a reviewed registry row and adding or updating its exact generator/provider/channel assignment in pipelines/curate_identity.py _REVIEWED_GENERATOR_RIGHTS; both reviewed entries are required. Identity retain is not publication and not training_ready.",
   "factories": [
@@ -1233,6 +1233,39 @@
       ],
       "provenance_contract_by_kind": {
         "episode": "synthetic_shape_implies_designed"
+      }
+    }
+    ,{
+      "path_id": "python-function-repair-factory",
+      "generator": "python-repair-mutator",
+      "generator_version": "2.0.0",
+      "generator_ownership": "project_owned",
+      "generation_method": "deterministic_execution",
+      "catalog_id": "python-repair-v1",
+      "catalog_sha256": "2402fe1d85a9a4a978ef4cc5e4491859cdf302b9c4b33415a66a4c00a5311f98",
+      "programs_sha256": "fbd012638c92cbad072553405c545e5f8dc26bc677100a11e693d61b7bf9d904",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "publication_target": null,
+      "source_type": "procedural",
+      "payload_factory": "python-function-repair-factory",
+      "source_license_evidence": {
+        "repository": "TheAlgorithms/Python",
+        "commit": "2067ce6dfb3b0426a88c7a40531e355a5c703cff",
+        "license": "MIT",
+        "license_sha256": "4395a1dc4bda1d6054c45b4d1230c709c7398e6d66f1d0aff4b22d95973bea56"
+      },
+      "procedural_policy_sha256": "b8d1621798eb13eed8e5d73de365dc1028b08cef9645d08aff9d909630b23b1b",
+      "record_kinds": [
+        "code_repair"
+      ],
+      "identity_authoritative": true,
+      "training_ready_policy": "fresh_code_repair_gate",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "code_repair": "preserve_oracle_envelope"
       }
     }
   ]

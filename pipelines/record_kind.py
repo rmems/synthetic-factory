@@ -20,6 +20,7 @@ THALAMIC_REQUIRED = (
 )
 
 KIND_ORDER = (
+    "code_repair",
     "thalamic",
     "preference",
     "bridge_pair",
@@ -34,8 +35,18 @@ SUPPORTED_RECORD_KINDS = frozenset(KIND_ORDER) - {"unknown"}
 PREFERENCE_SIDE_KINDS = frozenset({"episode", "thalamic"})
 
 # Oracle-grounded parity families declare their kind rather than overlapping
-# thalamic/episode key names. They are not identity-lane payloads.
+# thalamic/episode key names. They are not identity-lane payloads, so they stay
+# out of KIND_ORDER (and therefore out of SUPPORTED_RECORD_KINDS).
 DECLARED_KINDS = frozenset({"hardware_parity", "nir_equivalence"})
+
+_PAYLOAD_KEY_RULES = (
+    ("thalamic", frozenset(THALAMIC_REQUIRED)),
+    ("preference", frozenset({"chosen", "rejected"})),
+    ("bridge_pair", frozenset({"language_view", "spike_events"})),
+    ("safety_case", frozenset({"case_type"})),
+    ("multi_agent", frozenset({"transcript", "agents"})),
+    ("episode", frozenset({"goal", "steps"})),
+)
 
 
 def classify_kind(obj: Any) -> str:
@@ -43,34 +54,36 @@ def classify_kind(obj: Any) -> str:
 
     Order (census/agentic, issue #32 comment 5377279101):
 
+    Self-declared kinds come first, most specific declaration first: they name
+    the family outright instead of being recognised by key presence, so a
+    declarant can never be captured by a shape rule it happens to overlap.
+
     1. declared parity kinds — ``record_kind`` in ``DECLARED_KINDS``
-    2. thalamic — all six ``THALAMIC_REQUIRED`` keys at top level
-    3. preference — ``chosen`` and ``rejected``
-    4. bridge_pair — ``language_view`` and ``spike_events``
-    5. safety_case — ``case_type``
-    6. multi_agent — ``transcript`` and ``agents``
-    7. episode — ``goal`` and ``steps``
-    8. unknown
+    2. code_repair — ``family`` is ``python-function-repair``
+    3. thalamic — all six ``THALAMIC_REQUIRED`` keys at top level
+    4. preference — ``chosen`` and ``rejected``
+    5. bridge_pair — ``language_view`` and ``spike_events``
+    6. safety_case — ``case_type``
+    7. multi_agent — ``transcript`` and ``agents``
+    8. episode — ``goal`` and ``steps``
+    9. unknown
     """
 
-    if not isinstance(obj, Mapping):
-        return "unknown"
-    declared_kind = obj.get("record_kind")
-    if isinstance(declared_kind, str) and declared_kind in DECLARED_KINDS:
-        return declared_kind
-    if all(key in obj for key in THALAMIC_REQUIRED):
-        return "thalamic"
-    if "chosen" in obj and "rejected" in obj:
-        return "preference"
-    if "language_view" in obj and "spike_events" in obj:
-        return "bridge_pair"
-    if "case_type" in obj:
-        return "safety_case"
-    if "transcript" in obj and "agents" in obj:
-        return "multi_agent"
-    if "goal" in obj and "steps" in obj:
-        return "episode"
-    return "unknown"
+    kind = "unknown"
+    if isinstance(obj, Mapping):
+        # A malformed claimant stays in its family and fails that family's validator.
+        declared_kind = obj.get("record_kind")
+        if isinstance(declared_kind, str) and declared_kind in DECLARED_KINDS:
+            kind = declared_kind
+        elif obj.get("family") == "python-function-repair":
+            kind = "code_repair"
+        else:
+            keys = obj.keys()
+            kind = next(
+                (name for name, required in _PAYLOAD_KEY_RULES if required <= keys),
+                "unknown",
+            )
+    return kind
 
 
 def preference_side_kinds(record: Any) -> tuple[str, str]:

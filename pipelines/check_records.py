@@ -438,6 +438,12 @@ def shape_check(obj, where, factory_staging=False):
         errs, kind = check_line(obj, where, factory_staging=factory_staging)
     except (TypeError, AttributeError) as exc:
         return [f"{where}: unrecognized record shape ({exc})"], "unknown"
+    if kind == "code_repair":
+        return errs, kind
+    return _shape_only_errors(errs, where), kind
+
+
+def _shape_only_errors(errs, where):
     kept = []
     for err in errs:
         body = _after_where(err, where)
@@ -448,7 +454,7 @@ def shape_check(obj, where, factory_staging=False):
         if _is_shape_spike_stream(body):
             continue
         kept.append(err)
-    return kept, kind
+    return kept
 
 
 def canonical_record_id(obj):
@@ -570,86 +576,6 @@ def check_parity_record(obj, kind, where):
     return _family_module(module_name).validate_record(record, where)
 
 
-def _check_nested_spike_and_reward_streams(obj, where, kind, family_owned=()):
-    """Deep pass over every spike stream and reward component in ``obj``.
-
-    ``family_owned`` holds the stream objects (compared by identity, like the
-    reward-narrative owner guard) whose validity a family validator already
-    owns; they are skipped here so one malformed canonical stream is not
-    reported twice with different wording, and so family evidence shapes are
-    not misjudged against the generic event contract.
-    """
-    errors, warnings = [], []
-    reward_component_entries = list(walk_key(obj, "reward_components"))
-    for path, events, owner in _walk_key_owners(obj, "spike_events"):
-        if any(events is owned for owned in family_owned):
-            continue
-        if _is_reward_narrative_spike_events(
-            owner, events, reward_component_entries
-        ):
-            continue
-        # Single owner of stream validity: shape_check drops the shape
-        # layer's copies, so every stream — top-level, bridge, or nested —
-        # is reported exactly once from here. Only the bridge root requires
-        # channel/amplitude and a non-empty array.
-        bridge_root = kind == "bridge_pair" and path == "spike_events"
-        contract = SpikeStreamContract(
-            require_keys=(BRIDGE_SPIKE_EVENT_KEYS if bridge_root else ()),
-            require_nonempty=bridge_root,
-            # Every stream is judged against the clock its own owner
-            # declares, nested ones included: the owner and its meta are
-            # the namespace curate_bridge uses.
-            enclosing=owner,
-        )
-        errors.extend(
-            check_spike_stream_shape(
-                events,
-                f"{where}: {path}",
-                contract,
-            )
-        )
-    for path, rc in reward_component_entries:
-        rc_errs, rc_warns = check_reward(rc, f"{where}: {path}")
-        errors.extend(rc_errs)
-        warnings.extend(rc_warns)
-    return errors, warnings
-
-
-def _check_expected_state_provenance(obj, where, kind):
-    """Strict provenance: expected states missing or invalid sim_or_real."""
-    warnings = []
-    for path, state in expected_states(obj, kind):
-        if isinstance(state, dict) and "sim_or_real" not in state:
-            warnings.append(f"{where}: missing sim_or_real on {path}")
-        elif isinstance(state, dict):
-            value = state.get("sim_or_real")
-            # 'real' claims are owned by check_provenance_publish so a
-            # single violation is not reported twice with different wording.
-            if not claims_real(value) and value not in ALLOWED_SIM_OR_REAL:
-                warnings.append(
-                    f"{where}: non-training provenance {value!r} on {path}"
-                )
-    return warnings
-
-
-def _check_legacy_thought_steps(obj, where, kind):
-    if kind != "episode":
-        return []
-    warnings = []
-    steps = obj.get("steps")
-    for index, step in enumerate(steps if isinstance(steps, list) else ()):
-        if (
-            isinstance(step, dict)
-            and "thought" in step
-            and "decision_basis" not in step
-        ):
-            warnings.append(
-                f"{where}: step {index} uses legacy 'thought' without "
-                "observable decision_basis"
-            )
-    return warnings
-
-
 def _is_reward_narrative_spike_events(owner, value, reward_component_entries):
     """True when a walked ``spike_events`` key is reward-component narration.
 
@@ -705,10 +631,103 @@ def _parity_family_owned_streams(obj, kind):
     return tuple(_hardware_owned_streams(oracle))
 
 
+def _record_spike_errors(obj, where, kind, reward_component_entries, family_owned=()):
+    """Validate each real spike stream against its enclosing clock.
+
+    ``family_owned`` holds the stream objects (compared by identity, like the
+    reward-narrative owner guard) whose validity a family validator already
+    owns; they are skipped here so one malformed canonical stream is not
+    reported twice with different wording, and so family evidence shapes are
+    not misjudged against the generic event contract.
+    """
+
+    errors = []
+    for path, events, owner in _walk_key_owners(obj, "spike_events"):
+        if any(events is owned for owned in family_owned):
+            continue
+        if _is_reward_narrative_spike_events(owner, events, reward_component_entries):
+            continue
+        bridge_root = kind == "bridge_pair" and path == "spike_events"
+        contract = SpikeStreamContract(
+            require_keys=(BRIDGE_SPIKE_EVENT_KEYS if bridge_root else ()),
+            require_nonempty=bridge_root,
+            enclosing=owner,
+        )
+        errors.extend(check_spike_stream_shape(events, f"{where}: {path}", contract))
+    return errors
+
+
+def _record_reward_findings(reward_component_entries, where):
+    """Collect reward errors and warnings in source traversal order."""
+
+    errors, warnings = [], []
+    for path, reward_components in reward_component_entries:
+        reward_errors, reward_warnings = check_reward(
+            reward_components, f"{where}: {path}"
+        )
+        errors.extend(reward_errors)
+        warnings.extend(reward_warnings)
+    return errors, warnings
+
+
+def _record_provenance_warnings(obj, kind, where):
+    """Report missing/non-training expected-state provenance once."""
+
+    warnings = []
+    for path, state in expected_states(obj, kind):
+        if isinstance(state, dict) and "sim_or_real" not in state:
+            warnings.append(f"{where}: missing sim_or_real on {path}")
+        elif isinstance(state, dict):
+            value = state.get("sim_or_real")
+            # Deep real claims are owned by check_provenance_publish.
+            if not claims_real(value) and value not in ALLOWED_SIM_OR_REAL:
+                warnings.append(f"{where}: non-training provenance {value!r} on {path}")
+    return warnings
+
+
+def _legacy_episode_warnings(obj, kind, where):
+    """Report legacy thought-only episode steps after strict checks."""
+
+    warnings = []
+    if kind == "episode":
+        steps = obj.get("steps")
+        for index, step in enumerate(steps if isinstance(steps, list) else ()):
+            if isinstance(step, dict) and "thought" in step and "decision_basis" not in step:
+                warnings.append(
+                    f"{where}: step {index} uses legacy 'thought' without observable decision_basis"
+                )
+    return warnings
+
+
+def _record_stream_and_reward_findings(obj, where, kind, family_owned=()):
+    """Deep pass over every spike stream and reward component in ``obj``."""
+
+    reward_component_entries = list(walk_key(obj, "reward_components"))
+    errors = _record_spike_errors(
+        obj, where, kind, reward_component_entries, family_owned=family_owned
+    )
+    reward_errors, warnings = _record_reward_findings(reward_component_entries, where)
+    errors.extend(reward_errors)
+    return errors, warnings
+
+
+def _record_mapping_findings(obj, where, kind):
+    """Validate nested streams, rewards, provenance, and legacy evidence."""
+
+    errors, warnings = _record_stream_and_reward_findings(obj, where, kind)
+    warnings.extend(_record_provenance_warnings(obj, kind, where))
+    errors.extend(check_provenance_publish(obj, where))
+    warnings.extend(_legacy_episode_warnings(obj, kind, where))
+    return errors, warnings
+
+
 def check_record(obj, where, factory_staging=False):
     errors, warnings = [], []
     shape_errs, kind = shape_check(obj, where, factory_staging=factory_staging)
     errors.extend(shape_errs)
+    if kind == "code_repair":
+        # The shared pure validator owns this envelope, including its deep hashes.
+        return errors, warnings, kind, canonical_record_id(obj)
 
     if kind in ("hardware_parity", "nir_equivalence"):
         # The family validator is the deep check for these kinds. Record id
@@ -729,7 +748,7 @@ def check_record(obj, where, factory_staging=False):
         # (and their family-specific event shapes) belong to the validator
         # above, so nothing is reported twice.
         if isinstance(obj, dict):
-            stream_errors, stream_warnings = _check_nested_spike_and_reward_streams(
+            stream_errors, stream_warnings = _record_stream_and_reward_findings(
                 obj,
                 where,
                 kind,
@@ -750,15 +769,9 @@ def check_record(obj, where, factory_staging=False):
         return errors, warnings, kind, record_id
 
     if isinstance(obj, dict):
-        stream_errors, stream_warnings = _check_nested_spike_and_reward_streams(
-            obj, where, kind
-        )
-        errors.extend(stream_errors)
-        warnings.extend(stream_warnings)
-        warnings.extend(_check_expected_state_provenance(obj, where, kind))
-        # Publish-time deep provenance scan — owns every nested 'real' claim
-        errors.extend(check_provenance_publish(obj, where))
-        warnings.extend(_check_legacy_thought_steps(obj, where, kind))
+        mapping_errors, mapping_warnings = _record_mapping_findings(obj, where, kind)
+        errors.extend(mapping_errors)
+        warnings.extend(mapping_warnings)
 
     record_id = canonical_record_id(obj)
     if record_id is None:
