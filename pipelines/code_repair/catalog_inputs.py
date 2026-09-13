@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+from collections.abc import Callable
 from typing import Any, NamedTuple
 
 from . import catalog as cat
@@ -93,7 +94,7 @@ def _int_neighbours(value: int, stream: rng.DrawStream) -> list:
 
 
 # Checked in order: a bool is an int, so it comes first.
-_NEIGHBOURHOODS = (
+_NEIGHBOURHOODS: tuple[tuple[Any, Callable[[Any, rng.DrawStream], list]], ...] = (
     (bool, lambda value, stream: [not value]),
     (int, _int_neighbours),
     (float, lambda value, stream: [0.0, 1.0, -1.0, value + 0.5, value - 0.5]),

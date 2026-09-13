@@ -25,7 +25,7 @@ import json
 import symtable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from . import catalog as cat
 from . import catalog_check as cc
@@ -136,7 +136,7 @@ def _calls_forbidden(function: ast.FunctionDef) -> bool:
     return any(_reaches_the_host(node) for node in ast.walk(function))
 
 
-def _module_imports(module: ast.Module) -> tuple[list[ast.stmt], set[str]]:
+def _module_imports(module: ast.Module) -> tuple[list[ast.Import | ast.ImportFrom], set[str]]:
     imports = [n for n in module.body if isinstance(n, (ast.Import, ast.ImportFrom))]
     imports = [n for n in imports if getattr(n, "module", None) != "__future__"]
     names: set[str] = set()
@@ -176,7 +176,7 @@ def _has_observable_doctests(text: str, node: ast.FunctionDef) -> bool:
             and _safe_examples(examples))
 
 
-def _is_plain_function(node: ast.stmt) -> bool:
+def _is_plain_function(node: ast.stmt) -> TypeGuard[ast.FunctionDef]:
     if not isinstance(node, ast.FunctionDef):
         return False
     return not node.decorator_list and not node.type_params
@@ -228,8 +228,9 @@ def extract_module(text: str, function: str) -> tuple[str, tuple[int, int]] | No
     if node is None:
         return None
     head = _import_head(module, node)
-    module_text = head + ast.get_source_segment(text, node) + "\n"
-    return module_text, (node.lineno, node.end_lineno)
+    module_text = head + (ast.get_source_segment(text, node) or "") + "\n"
+    end_lineno = node.end_lineno if node.end_lineno is not None else node.lineno
+    return module_text, (node.lineno, end_lineno)
 
 
 def _definition(module: ast.Module, function: str) -> ast.FunctionDef | None:
@@ -262,10 +263,9 @@ def _reference_source(spec: dict[str, Any], path: str, source_text: str) -> str 
 
     if spec["kind"] == cv.REFERENCE_SIBLING:
         extracted = extract_module(source_text, spec["function"])
-        cv.refuse_when(
-            extracted is None, cv.FINDING_TARGET_FUNCTION_NOT_FOUND,
-            f"{path} defines no sibling {spec['function']}",
-        )
+        if extracted is None:
+            message = f"{path} defines no sibling {spec['function']}"
+            raise cv.RepairRefusal(cv.FINDING_TARGET_FUNCTION_NOT_FOUND, message)
         return extracted[0]
     return spec["source"] if spec["kind"] == cv.REFERENCE_REVIEWED else None
 
