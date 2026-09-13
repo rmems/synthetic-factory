@@ -146,12 +146,13 @@ def body_nodes(function: ast.FunctionDef):
     Those run at definition time and are not the behaviour the doctests specify (Codex on #197).
     """
 
-    pending = list(reversed(function.body))
+    pending: list[ast.AST] = list(reversed(function.body))
     while pending:
         node = pending.pop()
         yield node
+        children: list[ast.AST]
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            children = node.body
+            children = list(node.body)
         elif isinstance(node, ast.Lambda):
             children = [node.body]
         else:

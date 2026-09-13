@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import ast
 import copy
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from . import mutate_sites
 from . import vocabulary as cv
@@ -115,6 +117,8 @@ def _transform_boolop(node: ast.BoolOp, site: Site) -> None:
 
 def _transform_return(node: ast.Return, site: Site) -> None:
     value = node.value
+    if value is None:
+        return  # a bare return never enumerates as a site
     if site.variant == mutate_sites.VARIANT_FLIP_BOOL:
         node.value = ast.Constant(value=not value.value)
     elif site.replacement_text.lstrip("-").isdigit():
@@ -134,9 +138,10 @@ def _transformed(module: ast.Module, site: Site) -> ast.Module | None:
     node = _locate(module, site)
     if node is None:
         return None
-    if site.variant == mutate_sites.VARIANT_DROP_NOT:
-        return _ReplaceNode(node, node.operand).visit(module)
-    handlers = {
+    if site.variant == mutate_sites.VARIANT_DROP_NOT and isinstance(node, ast.UnaryOp):
+        replaced = _ReplaceNode(node, node.operand).visit(module)
+        return replaced if isinstance(replaced, ast.Module) else None
+    handlers: dict[str, Callable[[Any, Site], None]] = {
         "Compare": _transform_compare, "BinOp": _transform_binop, "AugAssign": _transform_binop,
         "BoolOp": _transform_boolop, "Return": _transform_return, "Constant": _transform_constant,
     }
