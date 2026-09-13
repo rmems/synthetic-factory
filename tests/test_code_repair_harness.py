@@ -231,9 +231,26 @@ class Failures(unittest.TestCase):
                     '"public": [], "hidden": []}'
                 ).encode()
                 report = ex._parse_report(job, 0, stdout)
-                served = _serving(report)
-                refusal(lambda served=served: generate._run_phase(served, job),
-                        cv.FINDING_SANDBOX_UNAVAILABLE)
+                with refusal(self, cv.FINDING_SANDBOX_UNAVAILABLE):
+                    generate._run_phase(_serving(report), job)
+
+    def test_a_successful_phase_must_claim_the_limits_even_from_an_injected_executor(self):
+        """`run` takes an injected executor; an ok phase with no claim is unstorable.
+
+        `record_validation._phase_runtime_contract` stores a successful phase only
+        when `limits_applied` is True, so letting one through would build a record
+        that fails its own validation (Codex on #212).
+        """
+
+        job = ex.Job("mutant:test", "def f():\n    pass\n", "f")
+        rows = ({"id": "hidden:0", "status": "pass"},)
+        for environment in ({}, {"python": "3.14"}, {"limits_applied": None}):
+            with self.subTest(environment=environment):
+                ok = ex.PhaseReport(cv.PHASE_OK, True, (), rows, dict(environment), "")
+                with refusal(self, cv.FINDING_SANDBOX_UNAVAILABLE):
+                    generate._run_phase(_serving(ok), job)
+        claimed = ex.PhaseReport(cv.PHASE_OK, True, (), rows, {"limits_applied": True}, "")
+        self.assertIs(generate._run_phase(_serving(claimed), job), claimed)
 
     def test_an_environment_without_the_key_is_read_the_same_way_by_both_layers(self):
         """A block that states nothing is not a sandbox claim — and must not split the layers."""
@@ -263,8 +280,8 @@ class Failures(unittest.TestCase):
             job, 0, b'{"protocol": "code-repair-harness/1", "load": {"status": "ok", '
                     b'"error": null}, "environment": {"limits_applied": false}, '
                     b'"public": [], "hidden": []}')
-        refused = _serving(off)
-        refusal(lambda: generate._run_phase(refused, job), cv.FINDING_SANDBOX_UNAVAILABLE)
+        with refusal(self, cv.FINDING_SANDBOX_UNAVAILABLE):
+            generate._run_phase(_serving(off), job)
 
     def test_a_setrlimit_refusal_is_reported_as_an_environment_not_thrown(self):
         """A refused limit must reach the parent as evidence, not as a bare crash."""

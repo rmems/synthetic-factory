@@ -108,16 +108,32 @@ def _original(state: _State, program: cat.Program) -> ex.PhaseReport:
     return state.originals[program.program_id]
 
 
+def _unlimited(report: ex.PhaseReport) -> bool:
+    """Whether this phase must stop the run rather than cost one candidate.
+
+    Refuse on the evidence the child stated, never on matching prose: ``detail``
+    can carry a program's own exception message, and a program whose text happens
+    to contain the finding name would otherwise kill the run.
+
+    A *successful* phase must claim the limits positively -- ``record_validation``
+    stores it only when ``limits_applied`` is True, so anything else is an
+    unusable phase, not a survivable one. `Executor` never returns such a report,
+    but ``run`` takes an injected executor and one may.
+
+    A *failed* phase that states nothing told us nothing: the limits go on before
+    ``_harness._run`` reads or imports the program, so that child either never
+    reached program code or reached it under them. That is the one candidate's
+    harness error, and `executor._unsandboxed_detail` reads it the same way.
+    """
+
+    claimed = report.environment.get("limits_applied")
+    return claimed is not True and (report.ok or "limits_applied" in report.environment)
+
+
 def _run_phase(state: _State, job: ex.Job) -> ex.PhaseReport:
-    # Refuse on the evidence the child stated, never on matching prose: `detail`
-    # can carry a program's own exception message, and a program whose text
-    # happens to contain the finding name would otherwise kill the run. The
-    # default is the same rule `executor._unsandboxed_detail` applies -- a child
-    # that never stated `limits_applied` told us nothing, and that is the one
-    # candidate's harness error, not a reason to discard the run.
     report = state.executor.run(job)
     cv.refuse_when(
-        report.environment.get("limits_applied", True) is not True,
+        _unlimited(report),
         cv.FINDING_SANDBOX_UNAVAILABLE, "the harness cannot apply required resource limits",
     )
     return report
