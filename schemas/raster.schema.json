@@ -222,7 +222,7 @@
                   "to": { "type": "string", "minLength": 1, "pattern": "\\S" },
                   "weight": {
                     "type": "number",
-                    "description": "Synaptic weight for the connection. Required: prompts/03-neuromorphic-event-language-bridge.md specifies {from, to, weight} entries, and a distillation consumer cannot reconstruct the connection without it."
+                    "description": "Synaptic weight for the connection. Required: {from, to, weight} entries, and a distillation consumer cannot reconstruct the connection without it."
                   }
                 }
               }

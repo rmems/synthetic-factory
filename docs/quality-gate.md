@@ -94,7 +94,7 @@ The gate does not reuse one lossy projection for three different jobs:
 
 ### The shipped encoder
 
-This repository is stdlib-only (see ``AGENTS.md``), so the encoder is
+This repository is stdlib-only (see ``README.md``), so the encoder is
 lexical, not learned:
 
 - **``EMBEDDING_ENCODER = "lexical-tfidf/13"``** — TF-IDF over Unicode word

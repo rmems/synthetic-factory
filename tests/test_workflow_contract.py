@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
-"""Static safety-contract checks for the Workflow DSL script and prompts."""
+"""Static safety-contract checks for the Workflow DSL script.
 
+The prompt-driven generation lane was retired in #184 (preserved at tag
+``legacy-prompt-factory-v0.2``). These checks assert the generator-neutral
+contract: the workflow drives ``round_txn.py`` transactions, isolates lane
+failures, and carries the token-efficiency NOTES latch without referencing
+the retired ``prompts/`` tree.
+"""
+
+import json
 import sys
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO / ".claude" / "skills" / "run-synthetic-factory" / "factory-window.workflow.js"
-PROMPTS = REPO / "prompts"
+REGISTRY = REPO / "config" / "FACTORY-REGISTRY.json"
 DOCS = REPO / "docs" / "token-efficiency.md"
 QODANA_WORKFLOW = REPO / ".github" / "workflows" / "qodana.yml"
 
@@ -57,48 +65,30 @@ class WorkflowContract(unittest.TestCase):
 
 
 class NovelCoverageNotesContract(unittest.TestCase):
-    """Every round-transactional prompt must ask for the NOTES latch line.
+    """Every generation lane must ask for the NOTES latch line.
 
     The token-efficiency early-stop (docs/token-efficiency.md) can only fire
-    on rounds whose NOTES report `Novel coverage: <N>%`.  A prompt that drives
-    round_txn publish but never asks for the line produces rounds the latch
-    cannot read, which is exactly how the 2026-08-19 harvest ended up with
-    0/49 parseable NOTES.
+    on rounds whose NOTES report `Novel coverage: <N>%`. The retired prompt
+    lane carried that requirement in each factory prompt (preserved at tag
+    ``legacy-prompt-factory-v0.2``); on current ``main`` the workflow lane
+    briefs carry it, and ``round_txn.py publish`` enforces it on every
+    registered lane.
     """
 
     @classmethod
     def setUpClass(cls):
-        cls.prompts = {path.name: path.read_text() for path in sorted(PROMPTS.glob("*.md"))}
-        cls.transactional = {
-            name: text for name, text in cls.prompts.items() if "round_txn.py" in text
-        }
+        cls.workflow = WORKFLOW.read_text()
 
-    def test_every_transactional_prompt_requires_the_notes_line(self):
-        self.assertTrue(self.transactional, "no transactional prompts found")
-        missing = sorted(
-            name for name, text in self.transactional.items() if "Novel coverage: <N>%" not in text
-        )
-        self.assertEqual(missing, [], f"prompts missing the NOTES contract: {missing}")
+    def test_workflow_is_generator_neutral(self):
+        self.assertNotIn("prompts/", self.workflow)
+        self.assertIn("config/FACTORY-REGISTRY.json", self.workflow)
 
-    def test_both_shared_contracts_carry_the_line(self):
-        for name in ("_factory-contract.md", "_agentic-factory-contract.md"):
-            self.assertIn("Novel coverage: <N>%", self.transactional[name], name)
-
-    def test_legacy_lane_prompts_are_covered_not_just_the_agentic_lane(self):
-        legacy_prompts = (
-            "01-thalamic-trajectory-factory.md",
-            "02-multi-agent-ouroboros-swarm.md",
-            "03-neuromorphic-event-language-bridge.md",
-            "04-agentic-coding-trajectory-factory.md",
-            "05-failure-as-fuel-preference-cascade.md",
-        )
-        for name in legacy_prompts:
-            self.assertIn("Novel coverage: <N>%", self.prompts[name], name)
-            self.assertIn("docs/token-efficiency.md", self.prompts[name], name)
+    def test_workflow_lane_briefs_require_the_notes_line(self):
+        self.assertIn("Novel coverage: <N>%", self.workflow)
 
     def test_the_contract_example_parses_with_the_shipped_regex(self):
         example = "Novel coverage: 12.3%"
-        self.assertIn(example, self.prompts["_factory-contract.md"])
+        self.assertIn(example, DOCS.read_text())
         match = round_txn.NOVEL_COVERAGE_RE.fullmatch(example)
         self.assertIsNotNone(match)
         self.assertEqual(float(match.group(1)), 12.3)
@@ -127,73 +117,41 @@ class NovelCoverageNotesContract(unittest.TestCase):
         self.assertIn(r"%[ \t]*$/i", workflow)
         self.assertIn("labeledLines.length !== 1", workflow)
 
-    def test_docs_and_prompts_agree_on_the_threshold(self):
+    def test_docs_and_workflow_agree_on_the_threshold(self):
         docs = DOCS.read_text()
         self.assertIn("Novel coverage: <N>%", docs)
         self.assertIn("5%", docs)
-        for name, text in self.transactional.items():
-            if "docs/token-efficiency.md" in text:
-                self.assertIn("5%", text, name)
+        workflow = WORKFLOW.read_text()
+        self.assertIn("docs/token-efficiency.md", workflow)
+        self.assertIn("5", workflow)
 
 
 class RasterGateProducerContract(unittest.TestCase):
-    """Every lane the publish gate holds to the raster contract must say so.
+    """Every lane the publish gate holds to the raster contract is registered.
 
     ``round_txn.RASTER_FACTORY_SLUGS`` refuses a staged round whose records
-    carry no ``raster`` / ``gate_snn`` sidecar. A producer that follows its
-    prompt to the letter and still gets rejected would stall the lane, so the
-    prompt for each gated lane has to name the sidecars and the schema.
+    carry no ``raster`` / ``gate_snn`` sidecar. The retired prompt lane
+    documented those sidecars per factory prompt (preserved at tag
+    ``legacy-prompt-factory-v0.2``); on current ``main`` the registry is the
+    identity authority, so each gated lane must resolve to an exact
+    ``path_id`` row. The sidecar shapes themselves are pinned by
+    ``schemas/raster.schema.json`` and the ``test_curate_bridge_raster*``
+    suites.
     """
 
     @classmethod
     def setUpClass(cls):
-        cls.prompts = {
-            path.name: path.read_text(encoding="utf-8") for path in sorted(PROMPTS.glob("*.md"))
-        }
+        registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+        cls.path_ids = {row["path_id"] for row in registry["factories"]}
 
-    PROMPT_BY_SLUG = {
-        "thalamic-trajectory-factory": "01-thalamic-trajectory-factory.md",
-        "multi-agent-ouroboros-swarm": "02-multi-agent-ouroboros-swarm.md",
-        "neuromorphic-event-language-bridge": ("03-neuromorphic-event-language-bridge.md"),
-    }
-
-    def test_every_gated_lane_has_a_prompt_that_documents_the_sidecars(self):
+    def test_every_gated_lane_is_a_registered_factory(self):
+        self.assertTrue(round_txn.RASTER_FACTORY_SLUGS, "raster gate has no lanes")
+        missing = sorted(set(round_txn.RASTER_FACTORY_SLUGS) - self.path_ids)
         self.assertEqual(
-            sorted(round_txn.RASTER_FACTORY_SLUGS),
-            sorted(self.PROMPT_BY_SLUG),
-            "a lane joined the raster publish gate without a documented prompt",
+            missing,
+            [],
+            f"gated lanes without a registry row: {missing}",
         )
-        for slug in sorted(round_txn.RASTER_FACTORY_SLUGS):
-            name = self.PROMPT_BY_SLUG[slug]
-            text = self.prompts[name]
-            with self.subTest(prompt=name):
-                self.assertIn("`raster`", text)
-                self.assertIn("`gate_snn`", text)
-                self.assertIn("schemas/raster.schema.json", text)
-
-    def test_gate_compute_prompts_describe_all_carrier_validation(self):
-        for name in (
-            "01-thalamic-trajectory-factory.md",
-            "02-multi-agent-ouroboros-swarm.md",
-        ):
-            text = " ".join(self.prompts[name].split())
-            with self.subTest(prompt=name):
-                self.assertIn("first declared carrier is selected", text)
-                self.assertIn("every declared carrier", text)
-                self.assertIn("any malformed declaration rejects the record", text)
-                self.assertNotIn("first declared carrier is the one validated", text)
-
-    def test_producer_prompts_describe_exact_derived_energy(self):
-        for name in (
-            "01-thalamic-trajectory-factory.md",
-            "02-multi-agent-ouroboros-swarm.md",
-        ):
-            text = " ".join(self.prompts[name].split()).lower()
-            with self.subTest(prompt=name):
-                self.assertIn("omitted energy is allowed", text)
-                self.assertIn("exact integer", text)
-                self.assertIn("binary-double overflow", text)
-                self.assertNotIn("not a finite double is rejected", text)
 
 
 class QodanaWorkflowContract(unittest.TestCase):

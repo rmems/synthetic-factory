@@ -12,10 +12,11 @@ and no third-party runtime dependency. Dataset payloads live outside git
 (`outputs/raw/`, `outputs/cleaned/`, `outputs/curated/` are gitignored) and are
 published to Hugging Face separately.
 
-`AGENTS.md` is authoritative for the review contracts (fail-closed behaviours
-that look like bugs; cite that section rather than "fixing" them), the Claude
-authorship window, the generator rule, and the card viewer-schema rules — read
-it before touching `pipelines/`. `README.md`
+The former `AGENTS.md` (retired in #184; preserved [at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md))
+defined the review contracts (fail-closed behaviours that look like bugs; cite
+that section rather than "fixing" them), the Claude authorship window, the
+generator rule, and the card viewer-schema rules — those contracts are still
+honored, so read it before touching `pipelines/`. `README.md`
 carries the project goal, the rights lanes, and the pipeline command reference.
 
 ## Commands
@@ -91,7 +92,10 @@ cards from `config/card-schemas/`; `pipelines/verify_hf_release.py` is the
 authority that proves the public release contract still holds.
 `training_ready` is a structural and quality verdict, not training
 eligibility — that is `project_training_policy: allowed` on a registry row,
-and no row carries it yet.
+which the procedural `python-function-repair-factory` row now carries.
+That permission does not certify a record or grant publication: sealed source
+authority and evidence checks still apply, followed by the separate fresh
+replay and completed-round gate. Hosted-frontier rows remain blocked.
 
 ### Invariants that shape every module
 
@@ -112,15 +116,21 @@ and no row carries it yet.
   manifest records the disposition; do not turn those exclusions into
   batch-wide exceptions.
 - **The registry is the identity authority.** `config/FACTORY-REGISTRY.json`
-  (`factory-registry-v0.2`) resolves exact `path_id` then exact
+  (`factory-registry-v0.3`) resolves exact `path_id` then exact
   `payload_factory` to a row carrying `record_kinds`, provider/channel,
   `rights_profile_id`, `intended_use`, and `project_training_policy`.
-  Onboarding a generator needs a reviewed row *and* a matching
+  Onboarding a hosted generator needs a reviewed row *and* a matching
   `(generator, generator_version)` entry in `_REVIEWED_GENERATOR_RIGHTS`
   (`pipelines/curate_identity.py`); the loader rejects one without the other.
-  Today every row is `research_only` / `blocked` (hosted-frontier profile).
+  Hosted-frontier rows remain `research_only` / `blocked`. The procedural
+  route intentionally uses a separate authority: `_parse_procedural_row`
+  requires the exact reviewed row from `code_repair.source_policy`, whose
+  policy bytes, source/catalog pins, and license evidence are independently
+  sealed. It carries `training_candidate` / `allowed` without a hosted
+  provider/channel or an entry in `_REVIEWED_GENERATOR_RIGHTS`. The registry
+  notes' two-entry onboarding requirement describes the hosted route.
 - **Record kind comes from the payload, not the directory.**
-  `record_kind.classify_kind` is the single classifier (order: thalamic,
+  `record_kind.classify_kind` is the single classifier (order: code_repair, thalamic,
   preference, bridge_pair, safety_case, multi_agent, episode). "Mill mix" — a
   record whose `meta.factory`, id prefix, or goal family belongs to another
   lane — is resolved by `mill_family.py`, reported by census, and quarantined by
@@ -185,7 +195,7 @@ trees in temporary directories because raw trees are immutable.
 
 ### Work tracking and environments
 
-Issues are tracked with Beads (`bd`) mirrored to GitHub issues
-(`.claude/skills/plan-github-issue/SKILL.md`); do not add markdown TODO lists.
+Issues are tracked in GitHub issues (Beads tracking was retired in #184);
+do not add markdown TODO lists.
 Cursor Cloud agents build from `.cursor/environment.json` + `.cursor/Dockerfile`;
 do not COPY the repo into the image and do not treat `outputs/raw/` as scratch.

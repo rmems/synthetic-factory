@@ -8,6 +8,10 @@ on:
       - 'releases/*' # The release branches
 
 jobs:
+  # Community Python only. qodana-python-community does not need Qodana Cloud,
+  # so this job runs on Dependabot and fork pull requests as well as ordinary
+  # ones. The paid qodana-python linter required Ultimate Plus, and that
+  # membership has expired.
   qodana:
     runs-on: ubuntu-latest
     permissions:
@@ -27,6 +31,4 @@ jobs:
           args: -e QODANA_PYTHON_PATH=/opt/miniconda3/bin/python3
           use-caches: false
           upload-result: true
-        env:
-          QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
-          QODANA_ENDPOINT: 'https://qodana.cloud'
+        # No QODANA_TOKEN / QODANA_ENDPOINT: Community does not talk to Cloud.

@@ -31,16 +31,14 @@ The value is the agent's self-estimate of what fraction of this round's scenario
 
 > Include a line "Novel coverage: <N>%" estimating the fraction of this round's scenarios/edges that are novel vs prior rounds (used for token-efficiency early-stop: 2 consecutive rounds <5% triggers stop).
 
-The same requirement is written into the standing factory prompts, so a lane
-started by hand from `prompts/` produces latchable NOTES too:
+The retired prompt lane carried the same requirement in each factory prompt
+(preserved at tag `legacy-prompt-factory-v0.2`), so a lane started by hand
+from `prompts/` at that tag produces latchable NOTES too. On current `main`
+the workflow lane briefs carry the line instead — the main generation brief
+and both preference-session briefs in `factory-window.workflow.js` require
+the `Novel coverage: <N>%` line in staged `NOTES-rNN.md`.
 
-- `prompts/_factory-contract.md` — "Novel coverage (required NOTES line)",
-  binding on prompts 01–05.
-- `prompts/_agentic-factory-contract.md` — transactional step 4, binding on the
-  Grok 4.6 agentic lanes and every restart-lane slug.
-- Each round-transactional prompt repeats the line at its own NOTES step.
-
-`tests/test_workflow_contract.py` fails if a prompt that drives
+`tests/test_workflow_contract.py` fails if a workflow lane brief that drives
 `round_txn.py publish` ever drops the requirement.
 
 **Publish is the gate.** `round_txn.py publish` refuses a round whose staged

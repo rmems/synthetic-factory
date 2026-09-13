@@ -1,0 +1,427 @@
+{
+  "audit": "payload-kind",
+  "dataset_id": "rmems/agentic-coding-trajectories",
+  "issues": [
+    74
+  ],
+  "source_tree": "outputs/raw/2026-08-17/agentic-coding-trajectory-factory",
+  "document_provenance": {
+    "generated_audit": {
+      "generated_by": "pipelines/payload_kind_audit.py",
+      "fields": [
+        "schema_version",
+        "source",
+        "summary",
+        "files",
+        "records"
+      ]
+    },
+    "supplementary_evidence": {
+      "description": "Evidence assembled outside the corpus scanner from issue #74 and the cited Hugging Face revision; these fields are not emitted by the audit pipeline.",
+      "fields": [
+        "audit",
+        "dataset_id",
+        "issues",
+        "source_tree",
+        "hub",
+        "card_disclosure",
+        "card_corrections"
+      ]
+    }
+  },
+  "schema_version": "1.0.0",
+  "source": "agentic-coding-trajectory-factory",
+  "summary": {
+    "files": 9,
+    "records": 19,
+    "kinds": {
+      "episode": 3,
+      "thalamic": 16
+    },
+    "meta_factory_stamps": {
+      "agentic-coding-trajectory-factory": 19
+    },
+    "thalamic_records_wrapping_a_coding_episode": 16,
+    "coding_episodes_reachable_at_top_level": 3,
+    "coding_episodes_including_wrapped": 19,
+    "coding_steps": {
+      "native": 77,
+      "wrapped": 284,
+      "total": 361
+    },
+    "coding_steps_by_reasoning_field": {
+      "decision_basis": 0,
+      "reflection": 361,
+      "thought": 361
+    }
+  },
+  "files": [
+    {
+      "path": "batch-r02.jsonl",
+      "bytes": 53637,
+      "sha256": "b86ef13e28d10462f3c83e7bd958fd99da31de934b6266a473fdb37cdd972ab9",
+      "records": 2,
+      "kinds": {
+        "thalamic": 2
+      }
+    },
+    {
+      "path": "batch-r03.jsonl",
+      "bytes": 87867,
+      "sha256": "1f19e54218a1358f69e4681a1f3aa1ff61d1dd5bc1ea1ee614dea41e0677b0d2",
+      "records": 2,
+      "kinds": {
+        "thalamic": 2
+      }
+    },
+    {
+      "path": "batch-r04.jsonl",
+      "bytes": 96266,
+      "sha256": "87658b7c80c3090d0fb6d73dcdf4f27f7a115b8946d05e85f9575f3de2e4b926",
+      "records": 2,
+      "kinds": {
+        "thalamic": 2
+      }
+    },
+    {
+      "path": "batch-r05.jsonl",
+      "bytes": 92411,
+      "sha256": "200dc74f6281e1d97db59a477dde3122faa7ec01f93fb93fd7f70b019223f04f",
+      "records": 2,
+      "kinds": {
+        "thalamic": 2
+      }
+    },
+    {
+      "path": "batch-r06.jsonl",
+      "bytes": 111023,
+      "sha256": "9b18a3ff5b0eecd09ce86c207d3d768b002518f2d2ea8ccfc7996f01d205f5b8",
+      "records": 2,
+      "kinds": {
+        "thalamic": 2
+      }
+    },
+    {
+      "path": "batch-r07.jsonl",
+      "bytes": 96032,
+      "sha256": "ef0b7827feea4a6a7d2c3b012b79aa753ed323ca33d0ac4ac70048a471faee9e",
+      "records": 2,
+      "kinds": {
+        "thalamic": 2
+      }
+    },
+    {
+      "path": "batch-r08.jsonl",
+      "bytes": 111399,
+      "sha256": "76022abbc4f571620444c4b241df35847f7b2971d231d4d87468b1115b40a007",
+      "records": 2,
+      "kinds": {
+        "thalamic": 2
+      }
+    },
+    {
+      "path": "batch-r09.jsonl",
+      "bytes": 98277,
+      "sha256": "eb2ae9af718941d32aa346ded4a1258aa9501d81d75c28b0a9d208e021932908",
+      "records": 2,
+      "kinds": {
+        "thalamic": 2
+      }
+    },
+    {
+      "path": "episodes.jsonl",
+      "bytes": 125422,
+      "sha256": "c7bf940594fa8f3a6980b7de24432bcd83489c8e9cf767cde673bdb9e905b730",
+      "records": 3,
+      "kinds": {
+        "episode": 3
+      }
+    }
+  ],
+  "records": [
+    {
+      "source_file": "batch-r02.jsonl",
+      "source_line": 1,
+      "kind": "thalamic",
+      "sha256": "756d68ed4fb3907ac267078a8cdd9f53b915e02b0148537c1f83e1ed2a97b222",
+      "id": "act-r02-001",
+      "domain": "software_engineering.rust_async_grpc_proxy",
+      "supervisor_id": "thalamic-relay-gate-v2.4",
+      "gate_decision": "MODIFY",
+      "wraps_coding_episode": true,
+      "coding_steps": 17
+    },
+    {
+      "source_file": "batch-r02.jsonl",
+      "source_line": 2,
+      "kind": "thalamic",
+      "sha256": "05491ec65c07304a5eac1ff6e430f7e2698740e7b36b6629285891a66373f68e",
+      "id": "act-r02-002",
+      "domain": "software_engineering.node_monorepo_supply_chain",
+      "supervisor_id": "thalamic-relay-gate-v2.4",
+      "gate_decision": "MODIFY",
+      "wraps_coding_episode": true,
+      "coding_steps": 17
+    },
+    {
+      "source_file": "batch-r03.jsonl",
+      "source_line": 1,
+      "kind": "thalamic",
+      "sha256": "edad75d9aa1ff1aecd054f26d5e110cb3de60cf4282e349c38b81e392a0b76b5",
+      "id": "act-r03-001",
+      "domain": "software_engineering.iac_opentofu_drift_suppression_provider_bug",
+      "supervisor_id": "thalamic-relay-gate-v2.4",
+      "gate_decision": "MODIFY",
+      "wraps_coding_episode": true,
+      "coding_steps": 17
+    },
+    {
+      "source_file": "batch-r03.jsonl",
+      "source_line": 2,
+      "kind": "thalamic",
+      "sha256": "36725fdfcfd6f534d81dfb48a74fbe705c94bd40e3dc596b1ec0e8926d1d9167",
+      "id": "act-r03-002",
+      "domain": "software_engineering.iac_opentofu_capacity_incident_cross_episode_realization",
+      "supervisor_id": "thalamic-relay-gate-v2.4",
+      "gate_decision": "REJECT",
+      "wraps_coding_episode": true,
+      "coding_steps": 19
+    },
+    {
+      "source_file": "batch-r04.jsonl",
+      "source_line": 1,
+      "kind": "thalamic",
+      "sha256": "b7765fcfabcdb79cd4472821d60b709e815ddaa5834dd711342ddf5d9fecd747",
+      "id": "act-r04-001",
+      "domain": "software_engineering.ios_swift_codable_schema_default_app_logic",
+      "supervisor_id": "thalamic-relay-gate-v2.4",
+      "gate_decision": "MODIFY",
+      "wraps_coding_episode": true,
+      "coding_steps": 17
+    },
+    {
+      "source_file": "batch-r04.jsonl",
+      "source_line": 2,
+      "kind": "thalamic",
+      "sha256": "1369cf1ff1225f73968f621c51573a3a8ef20b99823991a9680b8e597bc86244",
+      "id": "act-r04-002",
+      "domain": "software_engineering.ios_sync_resurrection_incident_cross_episode_cascade",
+      "supervisor_id": "thalamic-relay-gate-v2.4",
+      "gate_decision": "MODIFY",
+      "wraps_coding_episode": true,
+      "coding_steps": 19
+    },
+    {
+      "source_file": "batch-r05.jsonl",
+      "source_line": 1,
+      "kind": "thalamic",
+      "sha256": "bd98cf36da761a05b8a44b676321ccc6649a650537075818d204f9945b85d1f9",
+      "id": "act-r05-001",
+      "domain": "embedded-c / Zephyr RTOS 3.7 LTS / AurLink 2.4GHz mesh IoT fleet firmware (CO2 safety monitor)",
+      "supervisor_id": "thalamic-gate.veridian-fw/v0.9.4",
+      "gate_decision": "MODIFY",
+      "wraps_coding_episode": true,
+      "coding_steps": 17
+    },
+    {
+      "source_file": "batch-r05.jsonl",
+      "source_line": 2,
+      "kind": "thalamic",
+      "sha256": "ff97a66d721186625980c79faa351f0f1615b78217dbb07344e4eed914ab5e6b",
+      "id": "act-r05-002",
+      "domain": "embedded-c / Zephyr RTOS 3.7 LTS / AurLink mesh fleet -- SEV1 fleet-synchronized watchdog reset wave, 49 days after act-r05-001",
+      "supervisor_id": "thalamic-gate.veridian-fw/v0.9.4",
+      "gate_decision": "ACCEPT",
+      "wraps_coding_episode": true,
+      "coding_steps": 19
+    },
+    {
+      "source_file": "batch-r06.jsonl",
+      "source_line": 1,
+      "kind": "thalamic",
+      "sha256": "1ab76067617992140563d6a9d92668fa6d909f5be7ab6c1a913fc38aad8ec88b",
+      "id": "act-r06-001",
+      "domain": "software_engineering.wasm_component_model_plugin_marketplace_provenance_review",
+      "supervisor_id": "thalamic-relay-gate-v2.4",
+      "gate_decision": "ACCEPT",
+      "wraps_coding_episode": true,
+      "coding_steps": 18
+    },
+    {
+      "source_file": "batch-r06.jsonl",
+      "source_line": 2,
+      "kind": "thalamic",
+      "sha256": "be7dc8f3fe8e14e283d53a86f314f384507dc1b87ef8d5a595661fd153ee3eff",
+      "id": "act-r06-002",
+      "domain": "software_engineering.wasm_plugin_supply_chain_vendor_compromise_allowlist_ride",
+      "supervisor_id": "thalamic-relay-gate-v2.4",
+      "gate_decision": "REJECT",
+      "wraps_coding_episode": true,
+      "coding_steps": 19
+    },
+    {
+      "source_file": "batch-r07.jsonl",
+      "source_line": 1,
+      "kind": "thalamic",
+      "sha256": "5855b35a9672b224ad46f3457698c2ee06953c4bd657fd7efa52de4607da2cd8",
+      "id": "act-r07-001",
+      "domain": "cuda-cpp / GPU numerical-correctness / fused mixed-precision attention kernel (LLM inference platform)",
+      "supervisor_id": "thalamic-gate.halomind-kernels/v1.1.0",
+      "gate_decision": "MODIFY",
+      "wraps_coding_episode": true,
+      "coding_steps": 17
+    },
+    {
+      "source_file": "batch-r07.jsonl",
+      "source_line": 2,
+      "kind": "thalamic",
+      "sha256": "a37b4e05c5dcdec854bf85e04d8849446d420839af544d6554feffeb2ea97075",
+      "id": "act-r07-002",
+      "domain": "cuda-cpp / GPU numerical-correctness + compiler-toolchain (ptxas) miscompilation / production inference incident",
+      "supervisor_id": "thalamic-gate.halomind-kernels/v1.1.0",
+      "gate_decision": "MODIFY",
+      "wraps_coding_episode": true,
+      "coding_steps": 19
+    },
+    {
+      "source_file": "batch-r08.jsonl",
+      "source_line": 1,
+      "kind": "thalamic",
+      "sha256": "55bae88b6b75e5225f55f4e4848c2693df7b684054a42e06b6b467f77b66c216",
+      "id": "act-r08-001",
+      "domain": "postgresql / query-planner regression hunt / MCV sampling-lottery plan flip on a multi-tenant search API",
+      "supervisor_id": "thalamic-gate.tessellate-dbperf/v1.2.1",
+      "gate_decision": "MODIFY",
+      "wraps_coding_episode": true,
+      "coding_steps": 17
+    },
+    {
+      "source_file": "batch-r08.jsonl",
+      "source_line": 2,
+      "kind": "thalamic",
+      "sha256": "ba13af2249377fce3d218dae3d186cfd051ba482d028fd6b1599fc61c7ea5032",
+      "id": "act-r08-002",
+      "domain": "go / distributed-consensus correctness / Raft async-compaction race causing committed-write loss in a payments control-plane KV store (SEV1, hard-failure episode)",
+      "supervisor_id": "thalamic-gate.brontide-storage/v1.3.0",
+      "gate_decision": "MODIFY",
+      "wraps_coding_episode": true,
+      "coding_steps": 19
+    },
+    {
+      "source_file": "batch-r09.jsonl",
+      "source_line": 1,
+      "kind": "thalamic",
+      "sha256": "42c604084f77594561e3bc14572c51729fb2630d5dd380c91f498c5ac3010b19",
+      "id": "act-r09-001",
+      "domain": "kafka exactly-once/dedup correctness x append-only ledger reconciliation -- recovery-dominant incident: the FIX is one line, the RECOVERY is the engineering (9.9 days of duplicate fee entries, four contamination classes, concurrent human writers, invariant-gated compensating backfill)",
+      "supervisor_id": "thalamic-gate.corvela-payments/v1.3.0",
+      "gate_decision": "ACCEPT",
+      "wraps_coding_episode": true,
+      "coding_steps": 17
+    },
+    {
+      "source_file": "batch-r09.jsonl",
+      "source_line": 2,
+      "kind": "thalamic",
+      "sha256": "71f65028d279f3ea9fa1eae8e19a861d5f6bdae8c972c1d4295894aaafc8d4b7",
+      "id": "act-r09-002",
+      "domain": "eBPF/CO-RE kernel-probe observability agent -- kernel-version skew x unverified raw-offset fallback -> garbage flow keys -> LRU-map churn in softirq -> packet drops on a market-data ingest pool; authorities STAY split (charter-valid veto vs veto), agent-side conduct interaction priced super-additively, credit measured under two load profiles",
+      "supervisor_id": "thalamic-gate.vantor-obs/v1.2.3",
+      "gate_decision": "REJECT",
+      "wraps_coding_episode": true,
+      "coding_steps": 16
+    },
+    {
+      "source_file": "episodes.jsonl",
+      "source_line": 1,
+      "kind": "episode",
+      "sha256": "f74f9367b23d012f5796abf655e56a58aed0815a5e35fc4960ca855854c177b5",
+      "id": null,
+      "domain": null,
+      "wraps_coding_episode": false,
+      "coding_steps": 30
+    },
+    {
+      "source_file": "episodes.jsonl",
+      "source_line": 2,
+      "kind": "episode",
+      "sha256": "2a3537dc5ed71ebf3d7d7c2acfc2b9806ca510c4abcacd6fa5f0d19532767ef4",
+      "id": null,
+      "domain": null,
+      "wraps_coding_episode": false,
+      "coding_steps": 23
+    },
+    {
+      "source_file": "episodes.jsonl",
+      "source_line": 3,
+      "kind": "episode",
+      "sha256": "dd58de195eb1d5ed53e8f7d65a381a81f8cb72862c8e1f2301a8abf66fbdb3df",
+      "id": null,
+      "domain": null,
+      "wraps_coding_episode": false,
+      "coding_steps": 24
+    }
+  ],
+  "hub": {
+    "dataset_id": "rmems/agentic-coding-trajectories",
+    "url": "https://huggingface.co/datasets/rmems/agentic-coding-trajectories",
+    "raw_snapshot_revision": "1d556fc27508a9b47642e4d7134b5f2436f47ca2",
+    "raw_files_match_provenance_sha256": true,
+    "raw_files_match_factory_tree_sha256": true,
+    "viewer": {
+      "config_name": "viewer",
+      "split": "train",
+      "path": "data/viewer/records.parquet",
+      "rows": 19,
+      "columns": [
+        "source_file",
+        "source_line",
+        "record_json"
+      ],
+      "healthy": true,
+      "lossless_against_raw": true,
+      "rows_by_source_file": {
+        "batch-r02.jsonl": 2,
+        "batch-r03.jsonl": 2,
+        "batch-r04.jsonl": 2,
+        "batch-r05.jsonl": 2,
+        "batch-r06.jsonl": 2,
+        "batch-r07.jsonl": 2,
+        "batch-r08.jsonl": 2,
+        "batch-r09.jsonl": 2,
+        "episodes.jsonl": 3
+      }
+    },
+    "checked_on": "2026-08-23"
+  },
+  "card_disclosure": {
+    "heading": "Payload kinds in this release",
+    "markdown": "## Payload kinds in this release\n\nThe 19 published records are **not** 19 top-level coding episodes. They are two\nrecord shapes, both stamped `meta.factory = agentic-coding-trajectory-factory`:\n\n- **3 coding episodes** \u2014 `goal` / `steps` / `outcome` / `reward` / `meta` \u2014 all in\n  `data/raw/episodes.jsonl`. These records carry no top-level identifier; address\n  them as `episodes.jsonl:1`, `episodes.jsonl:2`, `episodes.jsonl:3`.\n- **16 thalamic gate records** \u2014 `state` / `proposed_action` / `safety_decision` /\n  `executed_action` / `future_outcome` / `reward_components` / `meta` \u2014 two per file\n  across `data/raw/batch-r02.jsonl` through `data/raw/batch-r09.jsonl`. Record ids\n  `act-r02-001`, `act-r02-002`, `act-r03-001`, `act-r03-002`, `act-r04-001`,\n  `act-r04-002`, `act-r05-001`, `act-r05-002`, `act-r06-001`, `act-r06-002`,\n  `act-r07-001`, `act-r07-002`, `act-r08-001`, `act-r08-002`, `act-r09-001`,\n  `act-r09-002`. Supervisors: `thalamic-relay-gate-v2.4` on 8 records and six\n  `thalamic-gate.*` deployment variants on the other 8. Gate decisions: 10 MODIFY,\n  3 ACCEPT, 3 REJECT.\n\nEvery one of the 16 gate records embeds a complete coding episode under\n`executed_action` (`goal` + `steps`), so coding supervision is present in all 19\nrecords \u2014 but in 16 of them it sits one level down, behind a safety-gate decision\nthat shaped it. **A loader that expects a top-level `goal` / `steps` object reaches\n3 of 19 records, not 19.** Read the wrapped episodes at\n`record[\"executed_action\"]`.\n\nCounting the wrapped episodes, the release holds 361 agent steps: 77 in the 3\ntop-level episodes and 284 inside the 16 gate records.\n\n**No step in this release publishes `decision_basis`.** All 361 steps publish the\nlegacy `thought` field, plus `reflection`. This release is therefore not a source\nof observable-basis coding supervision; that remains the pending curated release\ndescribed below.\n\nTwo further consequences of the mix. `reward` (on the 3 episodes) and\n`reward_components` (on the 16 gate records) are different columns, and\n`reward_components` is an open key-bag: 165 distinct keys across the 16 records, of\nwhich only `total` appears on all 16 and 146 appear on exactly one record. `meta`\nlikewise varies \u2014 the 3 episodes\ncarry `factory` / `run` / `round` / `tags`, while the gate records add\n`failure_modes_exercised`, `gate_error_quadrant`, `distillation`, and other keys on\nsubsets.\n\nThe Dataset Viewer projection (config `viewer`, over `data/viewer/records.parquet`)\nis complete and lossless for all 19 records, including the 3 in the legacy-named\n`episodes.jsonl`. It is not affected by this disclosure and must not be replaced by\na default config over the mixed `data/raw/*.jsonl`.\n"
+  },
+  "card_corrections": [
+    {
+      "field": "README.md \u2014 Published raw payload",
+      "current": "The release contains 19 raw coding records across 9 JSONL files and about 0.87 MB of JSONL evidence from `outputs/raw/2026-08-17`.",
+      "replacement": "The release contains 19 raw records across 9 JSONL files and about 0.87 MB of JSONL evidence from `outputs/raw/2026-08-17`: 3 top-level coding episodes and 16 thalamic gate records that each wrap a coding episode. See \u201cPayload kinds in this release\u201d below.",
+      "why": "Calling all 19 records coding records is the PAYLOAD_KIND_MIXED claim in issue #74. Only 3 are top-level coding episodes."
+    },
+    {
+      "field": "README.md \u2014 Published raw payload, viewer paragraph",
+      "current": "the original heterogeneous JSONL evidence remains under `data/raw/`, including the separate episode and wrapped-trajectory formats.",
+      "replacement": "the original heterogeneous JSONL evidence remains under `data/raw/`. The two formats and their record counts are enumerated in \u201cPayload kinds in this release\u201d.",
+      "why": "The card already hints at two formats but never says which records are which, so a consumer cannot act on it."
+    },
+    {
+      "field": "README.md \u2014 Planned curated release",
+      "current": "Curated training publication remains blocked until the strict corpus audit passes, sampled review is recorded, deterministic export is demonstrated, and a data license is declared.",
+      "replacement": "Curated training publication remains blocked until the strict corpus audit passes, sampled review is recorded, and deterministic export is demonstrated. The data license is already declared: this raw release is Apache-2.0 (see the YAML `license` field and `LICENSE`).",
+      "why": "Apache-2.0 is declared in the card YAML and in LICENSE, so listing a license declaration as a remaining gate is stale. Secondary LICENSE_MISMATCH in issue #74."
+    },
+    {
+      "field": "release-status.json \u2014 license",
+      "current": "\"license\": \"not_yet_declared\"",
+      "replacement": "\"license\": \"apache-2.0\"",
+      "why": "The sidecar contradicts the card YAML and the published LICENSE file. Secondary LICENSE_MISMATCH in issue #74."
+    }
+  ]
+}

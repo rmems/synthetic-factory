@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
     _assert_direct_sibling("curate_bridge_raster_numbers")
     from .exact_json import (
         exact_fraction,
@@ -147,7 +148,7 @@ def _raster_spike_budget(
     expected = _expected_spikes(neurons, rate, window_s)
     evidence["raster_expected_spikes"] = expected
     evidence["raster_spike_budget_tolerance"] = 1
-    valid = expected is not None and abs(spikes - expected) <= 1
+    valid = expected is not None and abs(cast(int, spikes) - expected) <= 1
     evidence["raster_spike_budget_valid"] = valid
     if not valid:
         reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
@@ -177,14 +178,11 @@ def _raster_energy_field(
     value_fraction = exact_fraction(value)
     expected_fraction = exact_fraction(expected)
     tolerance_fraction = exact_fraction(tolerance)
-    if any(
-        item is None
-        for item in (value_fraction, expected_fraction, tolerance_fraction)
-    ):
+    if value_fraction is None:
         return False
-    if value_fraction < 0:
+    if expected_fraction is None or tolerance_fraction is None:
         return False
-    return abs(value_fraction - expected_fraction) <= tolerance_fraction
+    return value_fraction >= 0 and abs(value_fraction - expected_fraction) <= tolerance_fraction
 
 
 def _positive_number(value: Any) -> bool:
