@@ -187,7 +187,7 @@ def _strip_hidden_only_side(side: dict[str, Any]) -> tuple[dict[str, Any], dict[
 
 
 def _curate_one_trajectory_side(
-    side: dict[str, Any],
+    side: Any,
     side_name: str,
     *,
     source_path: str,

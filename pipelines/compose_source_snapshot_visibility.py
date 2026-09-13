@@ -11,7 +11,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("compose_source_snapshot_visibility")
     from .compose_contract import ComposeError
@@ -78,6 +79,7 @@ def enclosing_marker_root(
     """Return and memoize the nearest enclosing marker-mode directory."""
 
     visited = []
+    found: Path | None
     current = parent
     while current not in marker_roots:
         visited.append(current)

@@ -25,7 +25,8 @@ from code_repair_test_support import (  # noqa: E402
 # the harness digest sits inside every record's oracle fingerprint by design. Re-pinned for the
 # exact-integer harness (Codex on #196) and the executed reference phase (Codex on #197), then
 # for digests on passing rows (Codex on #196, round 3).
-GOLDEN_SHA256 = "4bc28d3d85e597a07ed4ac74ad6102c0851bb1f1b02729a3dc369905f2b31fc5"
+# S3 adds policy_sha256 to split_lineage. Removing exactly that field reproduces the S2 pin.
+GOLDEN_SHA256 = "1b977de64ba94d655b92fa8d0d06aad56aa15cedd4aa372fe1e1d9ff11b14de0"
 
 
 def accepting_executor():

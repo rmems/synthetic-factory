@@ -172,7 +172,7 @@ class RunBinding(unittest.TestCase):
         digest = hashlib.sha256((run_dir / generate.CANDIDATES_FILENAME).read_bytes()).hexdigest()
         self.assertEqual(identity["candidates_sha256"], digest)
         self.assertEqual(identity["catalog"]["programs_sha256"], fixture().programs_sha256)
-        self.assertEqual(set(identity), {"candidates_sha256", "seed", "produced_at", "catalog", "harness_sha256"})
+        self.assertEqual(set(identity), {"candidates_sha256", "seed", "produced_at", "catalog", "harness_sha256", "run_sha256"})
 
     def test_a_moved_hidden_check_is_catalog_drift(self):
         record = copy.deepcopy(positives()[0])

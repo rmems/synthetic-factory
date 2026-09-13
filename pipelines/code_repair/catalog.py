@@ -37,7 +37,7 @@ UPSTREAM_FIELDS = ("repository", "commit", "path", "file_sha256", "function", "l
 __all__ = [
     "CATALOG_FILENAME", "Catalog", "Example", "LICENSE_FILENAME", "PROGRAMS_FILENAME", "Program",
     "Reference", "examples_of", "examples_sha256", "function_node", "load_catalog",
-    "sha256_text", "want_kind_of",
+    "program_from_row", "sha256_text", "want_kind_of",
 ]
 
 
@@ -204,6 +204,13 @@ def load_catalog(directory: Path | str) -> Catalog:
 
 
 bind_import_twin(__name__)
+
+
+def program_from_row(row: Any) -> Program:
+    """Validate one program row through the shared catalog loader."""
+    from .catalog_load import program_from_row as load
+
+    return load(row)
 
 
 def upstream_json(program: Program) -> dict[str, Any]:

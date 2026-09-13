@@ -107,7 +107,7 @@ def _transform_compare(node: ast.Compare, site: Site) -> None:
     node.ops[site.op_index] = mutate_sites.COMPARE_CLASSES[site.replacement_text]()
 
 
-def _transform_binop(node: ast.AST, site: Site) -> None:
+def _transform_binop(node: ast.BinOp | ast.AugAssign, site: Site) -> None:
     node.op = mutate_sites.BINOP_CLASSES[site.replacement_text.rstrip("=")]()
 
 
@@ -118,8 +118,8 @@ def _transform_boolop(node: ast.BoolOp, site: Site) -> None:
 def _transform_return(node: ast.Return, site: Site) -> None:
     value = node.value
     if value is None:
-        return  # a bare return never enumerates as a site
-    if site.variant == mutate_sites.VARIANT_FLIP_BOOL:
+        return
+    if site.variant == mutate_sites.VARIANT_FLIP_BOOL and isinstance(value, ast.Constant):
         node.value = ast.Constant(value=not value.value)
     elif site.replacement_text.lstrip("-").isdigit():
         node.value = ast.parse(site.replacement_text, mode="eval").body

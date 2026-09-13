@@ -8,7 +8,8 @@ import sys
 from typing import Any, Mapping
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("compose_curated_identity")
     from . import compose_curated_calibration_lookup as _calibration_lookup
@@ -216,7 +217,7 @@ def _compose_bridge_stage_with_source(
             detail=decision.manifest,
         )
     )
-    if not retained:
+    if decision.output_record is None:
         return ComposeDecision(ACTION_EXCLUDED, None, tuple(reasons), tuple(stages), None, None)
     return decision.output_record
 

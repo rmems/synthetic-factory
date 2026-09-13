@@ -20,7 +20,8 @@ import sys
 from pathlib import Path
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
     _assert_direct_sibling("validate_run")
     from . import validate_run_spikes as _validate_run_spikes
     from . import validate_run_provenance as _validate_run_provenance
@@ -1447,10 +1448,21 @@ def _finish_agentic(errors, obj, where, kind):
     return errors
 
 
+def _route_code_repair(obj, where):
+    """Bind operational family checks to the sealed source without execution."""
+    if __package__:
+        from .code_repair.admission import sealed_record_findings
+    else:
+        from code_repair.admission import sealed_record_findings
+    return sealed_record_findings(obj, where), "code_repair"
+
+
 def check_line(obj, where, factory_staging=False):
     """Route an object to the right checker based on its shape."""
     if not isinstance(obj, dict):
         return [f"{where}: record must be a JSON object"], "unknown"
+    if obj.get("family") == "python-function-repair":
+        return _route_code_repair(obj, where)
     for required_keys, kind, route in _LINE_ROUTES:
         if not all(k in obj for k in required_keys):
             continue

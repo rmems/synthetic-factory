@@ -301,7 +301,7 @@ class MillIndex:
             if not reasons:
                 continue
             expected = identity.get(entry.factory)
-            prefix_homes_for_entry = homes.get(entry.mill_prefix, frozenset())
+            prefix_homes_for_entry = homes.get(entry.mill_prefix, frozenset()) if entry.mill_prefix is not None else frozenset()
             results.append(
                 MillFinding(
                     factory=entry.factory,

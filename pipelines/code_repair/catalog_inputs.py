@@ -16,7 +16,7 @@ from __future__ import annotations
 import ast
 import hashlib
 from collections.abc import Callable
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, Protocol
 
 from . import catalog as cat
 from . import executor as ex
@@ -148,7 +148,7 @@ def _observed_value(row: dict) -> bool:
     return row["status"] == cv.ROW_OBSERVED and not row.get("truncated")
 
 
-def _stable_batch(executor: ex.Executor, subject: Subject, kept: list[dict], batch: list) -> list:
+def _stable_batch(executor: Runner, subject: Subject, kept: list[dict], batch: list) -> list:
     probes = _probes(kept) + tuple({"args": repr(args), "want": None} for args in batch)
     first = _observe(executor, subject.text, subject.function, probes)
     second = _observe(executor, subject.text, subject.function, probes)
@@ -158,7 +158,7 @@ def _stable_batch(executor: ex.Executor, subject: Subject, kept: list[dict], bat
             if _observed_value(row) and row == other]
 
 
-def _retained_sequence_stable(executor: ex.Executor, subject: Subject, kept: list[dict]) -> bool:
+def _retained_sequence_stable(executor: Runner, subject: Subject, kept: list[dict]) -> bool:
     if not kept:
         return True
     final = _observe(executor, subject.text, subject.function, _probes(kept))
@@ -166,7 +166,7 @@ def _retained_sequence_stable(executor: ex.Executor, subject: Subject, kept: lis
                for row, case in zip(final.hidden, kept))
 
 
-def observed_cases(executor: ex.Executor, subject: Subject) -> list[dict]:
+def _observed_cases(executor: Runner, subject: Subject) -> list[dict]:
     """The cases the original answers with a value, with its repr as the pinned want."""
 
     args_list = candidate_args(subject.examples, subject.function, _stream_for(subject.program_id))
@@ -181,13 +181,46 @@ def observed_cases(executor: ex.Executor, subject: Subject) -> list[dict]:
     return kept if _retained_sequence_stable(executor, subject, kept) else []
 
 
-def _observe(executor: ex.Executor, text: str, function: str, probes: tuple) -> ex.PhaseReport:
+def _observe(executor: Runner, text: str, function: str, probes: tuple) -> ex.PhaseReport:
     report = executor.run(ex.Job(f"observe:{function}", text, function, probes, True))
     cv.refuse_when(
         not report.ok, cv.FINDING_HARNESS_REPORT_MALFORMED,
         f"observing {function} failed: {report.detail}",
     )
     return report
+
+
+class Runner(Protocol):
+    def run(self, job: ex.Job) -> ex.PhaseReport: ...
+
+
+class _Capturing:
+    """Runs every job through the executor and keeps each report, in order."""
+
+    def __init__(self, executor: ex.Executor) -> None:
+        self.executor = executor
+        self.reports: list[ex.PhaseReport] = []
+
+    def run(self, job: ex.Job) -> ex.PhaseReport:
+        report = self.executor.run(job)
+        self.reports.append(report)
+        return report
+
+
+def observe(executor: ex.Executor, subject: Subject) -> tuple[ex.PhaseReport | None, list[dict]]:
+    capturing = _Capturing(executor)
+    reports = capturing.reports
+    try:
+        cases = _observed_cases(capturing, subject)
+    except cv.RepairRefusal:
+        if reports and not reports[-1].ok:
+            return reports[-1], []
+        raise
+    return (reports[-1] if reports else None), cases
+
+
+def observed_cases(executor: ex.Executor, subject: Subject) -> list[dict]:
+    return _observed_cases(executor, subject)
 
 
 bind_import_twin(__name__)

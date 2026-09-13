@@ -68,8 +68,9 @@ def _canonical_unit(quantity: str, claimed_unit: str | None) -> str:
     """The registry unit, refusing an unknown quantity or a contradicting claim."""
 
     canonical_unit = vocab.QUANTITY_UNITS.get(quantity)
+    if canonical_unit is None:
+        raise envelope.ContractError(f"unknown measurement quantity: {quantity!r}")
     _refuse((
-        (canonical_unit is None, f"unknown measurement quantity: {quantity!r}"),
         (
             claimed_unit not in (None, canonical_unit),
             f"{quantity} must be reported in {canonical_unit!r}, got {claimed_unit!r}",

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import io
 import itertools
-import multiprocessing
 import unittest
 from contextlib import redirect_stdout
 from types import ModuleType
@@ -17,12 +16,14 @@ if __package__:
         direct_pipeline_path,
         isolated_pipeline_modules,
     )
+    from .process_test_support import ProcessTimeout, spawned_process_exit_code
 else:
     import pipeline_import_catalog
     from pipeline_import_test_support import (
         direct_pipeline_path,
         isolated_pipeline_modules,
     )
+    from process_test_support import ProcessTimeout, spawned_process_exit_code
 
 
 ADAPTER_FIRST_CASES = tuple(
@@ -176,22 +177,20 @@ class ComposeCuratedImportContracts(unittest.TestCase):
                 adapter_mode=adapter_mode,
                 facade_mode=facade_mode,
             ):
-                context = multiprocessing.get_context("spawn")
-                process = context.Process(
-                    target=_assert_adapter_first_process,
-                    args=(adapter_name, adapter_mode, facade_mode),
-                )
-                process.start()
-                process.join(30)
-                if process.is_alive():
-                    process.terminate()
-                    process.join(5)
-                    if process.is_alive():
-                        process.kill()
-                        process.join(5)
-                    self.fail("adapter-first import probe timed out")
+                try:
+                    exit_code = spawned_process_exit_code(
+                        _assert_adapter_first_process,
+                        (adapter_name, adapter_mode, facade_mode),
+                        timeout=ProcessTimeout(
+                            30,
+                            5,
+                            "adapter-first import probe timed out",
+                        ),
+                    )
+                except TimeoutError as exc:
+                    self.fail(str(exc))
                 self.assertEqual(
-                    process.exitcode,
+                    exit_code,
                     0,
                     "adapter-first import probe failed in its clean interpreter",
                 )

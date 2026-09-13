@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from code_repair_test_support import (  # noqa: E402
-    boundary_site, fixture, mutate, oc, program, vocabulary as cv,
+    boundary_site, fixture, mutate, oc, program, required_item, vocabulary as cv,
 )
 from code_repair import mutate_literals, mutate_span  # noqa: E402
 
@@ -83,6 +83,12 @@ class Verification(unittest.TestCase):
             cv.SKIP_MUTATION_NOOP,
         )
 
+    def test_missing_original_target_is_refused(self):
+        self.assertEqual(
+            mutate.verify("pass\n", self.prog.text, self.site, self.prog.function),
+            cv.SKIP_MUTATION_NOOP,
+        )
+
     def test_a_rewrite_that_does_not_compile_is_refused(self):
         broken = self.prog.text.replace("number < 0", "number < ", 1)
         self.assertEqual(
@@ -151,7 +157,8 @@ class BoundaryLiterals(unittest.TestCase):
 class FiveOperators(unittest.TestCase):
     """Every operator class on the fixture programs: real sites, exact inverse, verified transform."""
 
-    def sites_of(self, function, operator):
+    @staticmethod
+    def sites_of(function, operator):
         prog = program(function)
         found = mutate.sites(prog.text, prog.function, prog.want_kind)
         return prog, [s for s in found if s.operator == operator]
@@ -179,7 +186,7 @@ class FiveOperators(unittest.TestCase):
         self.assertIn(("drop_not", "not ", ""), variants)
         self.assertIn(("swap", "and", "or"), variants)
         self.assertIn(("equality", "==", "!="), variants)
-        dropped = next(s for s in found if s.variant == "drop_not")
+        dropped = required_item(s for s in found if s.variant == "drop_not")
         self.assertIn("if (0 <= high", mutate.apply(prog.text, dropped))
 
     def test_return_value_offsets_numeric_results_and_negates_boolean_ones(self):

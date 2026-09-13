@@ -152,7 +152,7 @@ def body_nodes(function: ast.FunctionDef):
         yield node
         children: list[ast.AST]
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            children = list(node.body)
+            children: list[ast.AST] = list(node.body)
         elif isinstance(node, ast.Lambda):
             children = [node.body]
         else:
