@@ -2,25 +2,37 @@
 
 from __future__ import annotations
 
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, TypeGuard
 
-from coding_constants import (
-    REASON_HIDDEN_REASONING_REMOVED,
-    REASON_STEP_NOT_OBJECT,
-    REASON_THOUGHT_REMOVED,
-    STEP_EVIDENCE_REASONS,
-    STEP_EXCLUSION_REASONS,
-    STEP_RETAINED_REASONS,
-    TRANSFORM_VERSION,
-    _EVIDENCE_REASON,
-)
+if __package__:
+    from .coding_constants import (
+        REASON_HIDDEN_REASONING_REMOVED,
+        REASON_STEP_NOT_OBJECT,
+        REASON_THOUGHT_REMOVED,
+        STEP_EVIDENCE_REASONS,
+        STEP_EXCLUSION_REASONS,
+        STEP_RETAINED_REASONS,
+        TRANSFORM_VERSION,
+        _EVIDENCE_REASON,
+    )
+else:
+    from coding_constants import (
+        REASON_HIDDEN_REASONING_REMOVED,
+        REASON_STEP_NOT_OBJECT,
+        REASON_THOUGHT_REMOVED,
+        STEP_EVIDENCE_REASONS,
+        STEP_EXCLUSION_REASONS,
+        STEP_RETAINED_REASONS,
+        TRANSFORM_VERSION,
+        _EVIDENCE_REASON,
+    )
 
 
-def _is_nonnegative_int(value: Any) -> bool:
+def _is_nonnegative_int(value: Any) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
-def _is_positive_int(value: Any) -> bool:
+def _is_positive_int(value: Any) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 

@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "dataset": "log-redaction-trajectories",
+  "issues": [47],
+  "note": "The viewer schema is declared by hand because raw `meta` shapes vary between rounds: both records in `batch-r01.jsonl` carry a thin `{factory, round, generator}` meta, so the datasets-server infers that three-field struct and then cannot cast the later records that add `kind`, `seed`, `designed`, `domain`, `stack` and `lane`. Declaring the union fixes the index without rewriting a single historical raw record.",
+  "config_name": "default",
+  "split": "train",
+  "data_files": ["data/raw/batch-*.jsonl"],
+  "features": [
+    {"name": "id", "dtype": "string"},
+    {"name": "goal", "dtype": "string"},
+    {"name": "plan", "dtype": "string"},
+    {
+      "name": "steps",
+      "list": [
+        {"name": "n", "dtype": "int64"},
+        {"name": "decision_basis", "dtype": "string"},
+        {
+          "name": "tool_call",
+          "struct": [
+            {"name": "name", "dtype": "string"},
+            {
+              "name": "args",
+              "dtype": "json",
+              "note": "always an object; keys differ per tool (`command`, `path`, `old`, `new`, `pattern`, `url`, `args`, `contents`, `target`, `content`)"
+            }
+          ]
+        },
+        {"name": "observation", "dtype": "string"},
+        {
+          "name": "reflection",
+          "dtype": "string",
+          "optional": true,
+          "note": "present on 630 of 5669 steps, spread over 112 of 344 records"
+        }
+      ]
+    },
+    {"name": "outcome", "dtype": "string"},
+    {
+      "name": "reward",
+      "dtype": "json",
+      "note": "key-bag: `success`, `tests_passed`, `cost_steps` on every record, plus `retries` / `duration_min` / `wasted_calls` (254 records), `leaked` (212), `plan_changes` (110), `handoff` (44), `xfailed` (38) and the per-secret counters `leaked_ssn` (7), `leaked_tok` (2), `leaked_pan` / `leaked_cvv` / `leaked_iban` / `leaked_pw` / `leaked_sess` (1 each)"
+    },
+    {
+      "name": "meta",
+      "dtype": "json",
+      "note": "key-bag: `factory`, `round`, `generator` on every record, plus `kind` / `designed` / `stack` (308 records), `seed` / `domain` (292) and `lane` (8)"
+    }
+  ],
+  "disclosures": [
+    {
+      "summary": "36 of 344 records carry only the thin `meta` `{factory, round, generator}`, with no `kind`, `designed`, `domain`, `stack`, `seed` or `lane`. They sit in rounds 1, 6-11, 13 and 16-25; the two in `batch-r01.jsonl` are the records the inferred schema is built from. They are kept exactly as generated.",
+      "ids": [
+        "lrd-r01-access-log-bearer-token",
+        "lrd-r01-json-body-pan-debug",
+        "lrd-r06-otel-pan-last4-1b88",
+        "lrd-r06-structlog-authz-censor-a6d1",
+        "lrd-r07-otel-pan-last4-1b88",
+        "lrd-r07-structlog-authz-censor-a6d1",
+        "lrd-r08-accesslog-qs-token-4f60",
+        "lrd-r08-alb-cookie-field-7c2d",
+        "lrd-r09-journald-message-last4-bb4c",
+        "lrd-r09-pg-log-parameter-max-0-2d91",
+        "lrd-r10-syslog-sdparam-pan-keep-host",
+        "lrd-r10-otel-span-api-key-deny",
+        "lrd-r11-pino-jwt-serializer-allowlist",
+        "lrd-r11-fluentbit-lua-ssn-mutate",
+        "lrd-r13-vector-vrl-iban-remap",
+        "lrd-r13-logstash-mutate-national-id",
+        "lrd-r16-nginx-map-authorization",
+        "lrd-r16-sentry-beforesend-worker-handoff",
+        "lrd-r17-envoy-accesslog-req-authorization",
+        "lrd-r17-celery-prerun-pan-result-handoff",
+        "lrd-r18-rails-filter-parameters-ssn",
+        "lrd-r18-stripe-signature-rack-attack-handoff",
+        "lrd-r19-zap-field-mask-authorization",
+        "lrd-r19-es-ingest-pipeline-oldindex-handoff",
+        "lrd-r20-slog-replaceattr-authorization",
+        "lrd-r20-redis-monitor-acl-bastion-handoff",
+        "lrd-r21-logback-masking-pattern-pan",
+        "lrd-r21-kconnect-maskfield-dlq-handoff",
+        "lrd-r22-serilog-destructure-pan",
+        "lrd-r22-iis-w3c-query-frt-handoff",
+        "lrd-r23-caddy-log-filter-authorization",
+        "lrd-r23-temporal-searchattr-ssn-handoff",
+        "lrd-r24-haproxy-capture-authorization",
+        "lrd-r24-snowflake-bindmask-accountadmin-handoff",
+        "lrd-r25-apollo-plugin-variable-password",
+        "lrd-r25-gha-step-summary-pat-artifact-handoff"
+      ]
+    },
+    {
+      "summary": "Eight records carry a `meta.lane` key (always the string `b`) that no other record has. Their nine-key `meta` struct is the array the viewer's cast error names. They are kept exactly as generated.",
+      "ids": [
+        "lrd-r2-json-jwt-nested-p2",
+        "lrd-r2-syslog-multiline-p2",
+        "lrd-r3-json-jwt-nested-p12",
+        "lrd-r3-syslog-multiline-p12",
+        "lrd-r4-json-jwt-nested-p2",
+        "lrd-r4-syslog-multiline-p2",
+        "lrd-r5-json-jwt-nested-p12",
+        "lrd-r5-syslog-multiline-p12"
+      ]
+    },
+    "All 344 records are `log-redaction-factory` episodes generated by `grok-4.6` across rounds 1-172. There is no leftover-mill mix and no dest-stamped foreign payload in this dataset.",
+    "Every step publishes a public `decision_basis`. There are no hidden `thought` or `internal_reasoning` fields.",
+    "The leftover-secret wording in `goal` / `observation` and the `reward.leaked*` counters are the dataset's advertised leftover-secret vs mute-logger mechanic, not a report of real credentials."
+  ]
+}

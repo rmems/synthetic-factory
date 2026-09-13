@@ -31,6 +31,8 @@ if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
 import curate_rewards  # noqa: E402
+import training_audit  # noqa: E402
+from exact_json import parse_finite_json_float  # noqa: E402
 
 
 class SourceVocabularyMappingTests(unittest.TestCase):
@@ -96,6 +98,21 @@ class SourceVocabularyMappingTests(unittest.TestCase):
                 self.assertTrue(
                     method.startswith("unweighted_component_sum"), row["signature"]
                 )
+
+    def test_exact_json_float_keeps_the_frozen_float_shape(self):
+        reward = json.loads(
+            '{"task_progress":0.50,"total":0.50}',
+            parse_float=parse_finite_json_float,
+        )
+
+        self.assertEqual(
+            training_audit.reward_shape(reward),
+            curate_rewards.reward_signature(reward),
+        )
+        self.assertEqual(
+            training_audit.reward_shape(reward),
+            "task_progress:float|total:float",
+        )
 
     def test_policy_rejects_shape_methods_incompatible_with_the_signature(self):
         document = curate_rewards.CONVERSION_POLICY

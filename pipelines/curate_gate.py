@@ -105,6 +105,8 @@ import curate_rewards  # noqa: E402
 import curate_identity  # noqa: E402
 import training_audit  # noqa: E402
 from check_records import canonical_record_id, reject_json_constant  # noqa: E402
+from exact_json import dumps_exact_json, parse_finite_json_float  # noqa: E402
+from exact_json_compare import same_exact_json  # noqa: E402
 from validate_run import check_line  # noqa: E402
 
 TOOL_NAME = "curate_gate"
@@ -335,16 +337,10 @@ def corpus_digest(root: Path) -> str:
 
 def record_sha256(value: Any) -> str:
     try:
-        blob = json.dumps(
-            value,
-            ensure_ascii=False,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+        blob = curate_rewards.canonical_bytes(value)
     except (TypeError, ValueError) as exc:
         raise GateError(f"record is not canonical JSON data: {exc}") from exc
-    return sha256_hex(blob.encode("utf-8"))
+    return sha256_hex(blob)
 
 
 def _normalized_sha256(value: Any, label: str) -> str:
@@ -357,8 +353,15 @@ def _normalized_sha256(value: Any, label: str) -> str:
 
 
 def _write_json(path: Path, payload: Any) -> None:
+    # Governance files are re-read with exact numeric hooks and re-hashed at
+    # promotion time, so the writer must emit every ``ExactJSONFloat`` token
+    # verbatim; ``json.dumps`` would silently round precision-sensitive
+    # evidence (``25.000000000000001`` -> ``25.0``) and block promotion.
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    path.write_text(
+        dumps_exact_json(payload, ensure_ascii=True, sort_keys=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _load_json(path: Path) -> Any:
@@ -367,7 +370,11 @@ def _load_json(path: Path) -> Any:
     except OSError as exc:
         raise GateError(f"cannot read {path}: {exc}") from exc
     try:
-        return json.loads(text, parse_constant=reject_json_constant)
+        return json.loads(
+            text,
+            parse_constant=reject_json_constant,
+            parse_float=parse_finite_json_float,
+        )
     except (json.JSONDecodeError, ValueError) as exc:
         raise GateError(f"{path}: invalid JSON: {exc}") from exc
 
@@ -449,15 +456,17 @@ def _relative_artifact_destination(value: Any, label: str) -> Path:
 def load_plan(plan_path: Path) -> dict[str, Any]:
     """Read and validate an integration plan; resolve its lane paths."""
     plan_path = Path(plan_path).resolve()
-    payload, plan_sha256, _plan_size = _read_regular_file_snapshot(
-        plan_path, "integration plan"
-    )
+    payload, plan_sha256, _plan_size = _read_regular_file_snapshot(plan_path, "integration plan")
     try:
         text = payload.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise GateError(f"{plan_path}: integration plan is not UTF-8: {exc}") from exc
     try:
-        plan = json.loads(text, parse_constant=reject_json_constant)
+        plan = json.loads(
+            text,
+            parse_constant=reject_json_constant,
+            parse_float=parse_finite_json_float,
+        )
     except (json.JSONDecodeError, ValueError) as exc:
         raise GateError(f"{plan_path}: invalid JSON: {exc}") from exc
     if not isinstance(plan, dict):
@@ -716,7 +725,11 @@ def _load_source_records(source_run: Path) -> dict[tuple[str, int], dict[str, An
             parse_error: str | None = None
             try:
                 text = raw_line.decode("utf-8")
-                record = json.loads(text, parse_constant=reject_json_constant)
+                record = json.loads(
+                    text,
+                    parse_constant=reject_json_constant,
+                    parse_float=parse_finite_json_float,
+                )
             except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
                 parse_error = str(exc)
             records[(relative, line_number)] = {
@@ -733,7 +746,7 @@ _MISSING = object()
 def _same_json(left: Any, right: Any) -> bool:
     if left is _MISSING or right is _MISSING:
         return left is right
-    return type(left) is type(right) and left == right
+    return same_exact_json(left, right)
 
 
 def _json_pointer(parts: Sequence[str | int]) -> str:
@@ -932,7 +945,11 @@ def _prepare_lane(
                 continue
             records += 1
             try:
-                record = json.loads(line, parse_constant=reject_json_constant)
+                record = json.loads(
+                    line,
+                    parse_constant=reject_json_constant,
+                    parse_float=parse_finite_json_float,
+                )
             except (json.JSONDecodeError, ValueError) as exc:
                 raise GateError(f"{path}:{line_number}: invalid lane output JSON: {exc}") from exc
             digest = record_sha256(record)
@@ -1254,14 +1271,7 @@ def compose(
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         payload = "".join(
-            json.dumps(
-                item["record"],
-                ensure_ascii=False,
-                allow_nan=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-            + "\n"
+            dumps_exact_json(item["record"], ensure_ascii=False, sort_keys=True) + "\n"
             for item in records
         )
         target.write_text(payload, encoding="utf-8", newline="\n")
@@ -1344,7 +1354,11 @@ def _manifest_entries(
             if not line.strip():
                 continue
             try:
-                entry = json.loads(line, parse_constant=reject_json_constant)
+                entry = json.loads(
+                    line,
+                    parse_constant=reject_json_constant,
+                    parse_float=parse_finite_json_float,
+                )
             except (json.JSONDecodeError, ValueError) as exc:
                 raise GateError(f"{path}:{number}: invalid JSON manifest line: {exc}") from exc
             if not isinstance(entry, dict):
@@ -1353,7 +1367,11 @@ def _manifest_entries(
         return entries
 
     try:
-        document = json.loads(text, parse_constant=reject_json_constant)
+        document = json.loads(
+            text,
+            parse_constant=reject_json_constant,
+            parse_float=parse_finite_json_float,
+        )
     except (json.JSONDecodeError, ValueError) as exc:
         raise GateError(f"{path}: invalid JSON: {exc}") from exc
     if isinstance(document, list):
@@ -1523,7 +1541,11 @@ def _load_reward_sidecars(
         if not line.strip():
             continue
         try:
-            document = json.loads(line, parse_constant=reject_json_constant)
+            document = json.loads(
+                line,
+                parse_constant=reject_json_constant,
+                parse_float=parse_finite_json_float,
+            )
         except (json.JSONDecodeError, ValueError) as exc:
             raise GateError(f"{path}:{line_number}: invalid reward sidecar JSON: {exc}") from exc
         if (
@@ -1938,14 +1960,10 @@ def _normalize_record_bindings(raw_bindings: Any) -> list[dict[str, Any]]:
                 "source_record_sha256": _normalized_sha256(
                     raw.get("source_record_sha256"), f"{label}.source_record_sha256"
                 ),
-                "lineage": sorted(
-                    normalized_lineage, key=lambda lane_row: lane_row["lane_order"]
-                ),
+                "lineage": sorted(normalized_lineage, key=lambda lane_row: lane_row["lane_order"]),
             }
         )
-    return sorted(
-        normalized, key=lambda binding: (binding["output_path"], binding["output_line"])
-    )
+    return sorted(normalized, key=lambda binding: (binding["output_path"], binding["output_line"]))
 
 
 def _output_evidence_gate(
@@ -2450,7 +2468,11 @@ def iter_records(root: Path) -> Iterable[tuple[str, int, Any]]:
             if not line.strip():
                 continue
             try:
-                obj = json.loads(line, parse_constant=reject_json_constant)
+                obj = json.loads(
+                    line,
+                    parse_constant=reject_json_constant,
+                    parse_float=parse_finite_json_float,
+                )
             except (json.JSONDecodeError, ValueError):
                 yield rel, number, None
                 continue
@@ -2569,9 +2591,7 @@ def build_sample(
         chosen = sorted(
             population,
             key=lambda sampled: (sampled["record_sha256"], sampled["source"]),
-        )[
-            :per_stratum
-        ]
+        )[:per_stratum]
         strata.append(
             {
                 "evidence": evidence,
@@ -2864,14 +2884,9 @@ def _authenticated_record_calibration(
     if claimed is None:
         classification = sidecar.get("classification")
         comparability = (
-            classification.get("comparability")
-            if isinstance(classification, dict)
-            else None
+            classification.get("comparability") if isinstance(classification, dict) else None
         )
-        if (
-            expected is not None
-            and comparability == curate_rewards.MAGNITUDE_COMPARABLE
-        ):
+        if expected is not None and comparability == curate_rewards.MAGNITUDE_COMPARABLE:
             raise curate_rewards.RewardOntologyError(
                 "sidecar omits calibration evidence present in the migration artifact"
             )

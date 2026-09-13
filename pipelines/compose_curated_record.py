@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""Record-level lane pipeline for curated composition."""
+
+from __future__ import annotations
+
+import sys
+from dataclasses import dataclass
+from typing import Any, Callable
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("compose_curated_record")
+    from .compose_contract import ACTION_RETAINED, ComposeDecision
+    from .compose_curated_coding import _compose_coding_stage, _compose_rewards_stage
+    from .compose_curated_context import RecordContext
+    from .compose_curated_identity import (
+        _compose_bridge_stage_with_source,
+        _compose_identity_stage_with_source,
+    )
+    from .compose_curated_preferences import _compose_preferences_stage
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "compose_curated_record"
+    )
+    from compose_contract import ACTION_RETAINED, ComposeDecision
+    from compose_curated_coding import _compose_coding_stage, _compose_rewards_stage
+    from compose_curated_context import RecordContext
+    from compose_curated_identity import (
+        _compose_bridge_stage_with_source,
+        _compose_identity_stage_with_source,
+    )
+    from compose_curated_preferences import _compose_preferences_stage
+
+
+@dataclass(frozen=True)
+class RecordServices:
+    """Stage boundaries selected by the compatibility facade at call time."""
+
+    identity: Callable[..., Any] = _compose_identity_stage_with_source
+    bridge: Callable[..., Any] = _compose_bridge_stage_with_source
+    preferences: Callable[..., Any] = _compose_preferences_stage
+    coding: Callable[..., Any] = _compose_coding_stage
+    rewards: Callable[..., Any] = _compose_rewards_stage
+
+
+def _retained_decision(
+    current: dict[str, Any],
+    stages: list[dict[str, Any]],
+    sidecar: dict[str, Any] | None,
+) -> ComposeDecision:
+    """Assemble the terminal retained decision from all lane evidence."""
+
+    output_id = current.get("id")
+    reasons = tuple(
+        dict.fromkeys(reason for item in stages for reason in item["reason_codes"])
+    )
+    return ComposeDecision(
+        ACTION_RETAINED,
+        current,
+        reasons,
+        tuple(stages),
+        sidecar,
+        output_id if isinstance(output_id, str) else None,
+    )
+
+
+def _downstream_lanes(
+    active: RecordServices,
+    registered_kind: Any,
+    stages: list[dict[str, Any]],
+    context: RecordContext,
+) -> tuple[Callable[[Any], Any], ...]:
+    """Order the lanes that follow identity; rewards runs last because it returns a tuple."""
+
+    return (
+        lambda current: active.bridge(current, stages, context.source),
+        lambda current: active.preferences(current, stages, context),
+        lambda current: active.coding(current, registered_kind, stages, context),
+        lambda current: active.rewards(current, stages, context),
+    )
+
+
+def compose_record(
+    record: Any,
+    context: RecordContext,
+    services: RecordServices | None = None,
+) -> ComposeDecision:
+    """Apply identity, bridge, preference, coding, and reward lanes in order."""
+
+    active = services or RecordServices()
+    stages: list[dict[str, Any]] = []
+    identity = active.identity(record, stages, context.source)
+    if isinstance(identity, ComposeDecision):
+        return identity
+    current, registered_kind = identity
+    for lane in _downstream_lanes(active, registered_kind, stages, context):
+        current = lane(current)
+        if isinstance(current, ComposeDecision):
+            return current
+    annotated, sidecar = current
+    return _retained_decision(annotated, stages, sidecar)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

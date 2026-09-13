@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+"""Call-time service graph for the historical compose-record facade."""
+
+from __future__ import annotations
+
+import sys
+from typing import Any, Callable, cast
+
+if __package__:
+    from . import _expose_package_sibling
+
+
+def build_record_services(facade: Any) -> Any:
+    """Bind stable callbacks that continue resolving live facade seams."""
+
+    return facade.RecordServices(
+        lambda record, stages, source: facade._compose_identity_stage(record, stages, source),
+        lambda current, stages, source: facade._compose_bridge_stage(current, stages, source),
+        lambda current, stages, context: facade._compose_preferences_stage(
+            current, stages, context
+        ),
+        lambda current, kind, stages, context: facade._compose_coding_stage(
+            current, kind, stages, context
+        ),
+        lambda current, stages, context: facade._compose_rewards_stage(current, stages, context),
+    )
+
+
+if __package__:
+    _expose_package_sibling(__name__)
+else:
+    package = sys.modules.get("pipelines")
+    expose = getattr(package, "_expose_package_sibling", None)
+    if callable(expose):
+        cast(Callable[[str], None], expose)(__name__)

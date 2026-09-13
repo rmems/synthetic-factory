@@ -6,7 +6,45 @@ from __future__ import annotations
 import copy
 from decimal import Decimal
 
-from reward_mapping import (
+if __package__:
+    from .reward_mapping import (
+        DISPOSITION_AMBIGUOUS,
+        DISPOSITION_CONTAINER,
+        DISPOSITION_DECLARED_TOTAL,
+        DISPOSITION_MAGNITUDE_TERM,
+        DISPOSITION_NARRATIVE,
+        DISPOSITION_STRUCTURAL,
+        DISPOSITION_UNIT_CALIBRATION,
+        MAGNITUDE_COMPARABLE,
+        RewardOntologyError,
+        _UNSET,
+        _decimal,
+        _escape_signature_token,
+        _json_number,
+        _pointer,
+        _pointer_unescape,
+    )
+    from .reward_policy import (
+        ANNOTATION_FIELD,
+        CALIBRATION_KEYS,
+        CANONICAL_SCOPE,
+        CANONICAL_UNIT,
+        CANONICAL_UNIT_USD,
+        COMPARABILITY_RULES,
+        DECLARED_TOTAL_KEY,
+        MAGNITUDE_AGGREGATION,
+        NARRATIVE_KEYS,
+        PREFERENCE_POINTERS,
+        PREFERENCE_RELATION,
+        REASON_CODES,
+        REWARD_KEYS,
+        SOURCE_VOCABULARY,
+        UNWEIGHTED_EXCLUDE,
+        WEIGHTED_CONTAINERS,
+    )
+    from .reward_units import _component_value, _extract_unit_usd
+else:
+    from reward_mapping import (
     DISPOSITION_AMBIGUOUS,
     DISPOSITION_CONTAINER,
     DISPOSITION_DECLARED_TOTAL,
@@ -22,8 +60,8 @@ from reward_mapping import (
     _json_number,
     _pointer,
     _pointer_unescape,
-)
-from reward_policy import (
+    )
+    from reward_policy import (
     ANNOTATION_FIELD,
     CALIBRATION_KEYS,
     CANONICAL_SCOPE,
@@ -40,8 +78,8 @@ from reward_policy import (
     SOURCE_VOCABULARY,
     UNWEIGHTED_EXCLUDE,
     WEIGHTED_CONTAINERS,
-)
-from reward_units import _component_value, _extract_unit_usd
+    )
+    from reward_units import _component_value, _extract_unit_usd
 
 
 def _walk_rewards(value, tokens=(), reward_keys=None):
@@ -124,6 +162,16 @@ def value_type(value):
     return "unknown"
 
 
+def _reward_signature_type(value):
+    if isinstance(value, dict):
+        return "value-object" if isinstance(value.get("value"), (int, float)) else "object"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, float):
+        return "float"
+    return type(value).__name__
+
+
 def reward_signature(value):
     """Return the structural shape signature for one reward scope.
 
@@ -132,21 +180,11 @@ def reward_signature(value):
     ``tests/test_curate_rewards.py`` pins the two definitions together.
     """
     if not isinstance(value, dict):
-        return type(value).__name__
-    parts = []
-    for key, item in sorted(value.items()):
-        if isinstance(item, dict):
-            subtype = (
-                "value-object"
-                if isinstance(item.get("value"), (int, float))
-                else "object"
-            )
-        elif isinstance(item, list):
-            subtype = "array"
-        else:
-            subtype = type(item).__name__
-        parts.append(f"{_escape_signature_token(key)}:{subtype}")
-    return "|".join(parts)
+        return _reward_signature_type(value)
+    return "|".join(
+        f"{_escape_signature_token(key)}:{_reward_signature_type(item)}"
+        for key, item in sorted(value.items())
+    )
 
 
 def _disposition_for_types(key, types):
@@ -374,10 +412,20 @@ def _classify(source_rewards, arithmetic, calibration=None):
     arithmetic_by_pointer = {
         item["json_pointer"]: item for item in arithmetic
     }
-    chosen_pointer, rejected_pointer = PREFERENCE_POINTERS
-    is_preference = (
-        chosen_pointer in rewards_by_pointer or rejected_pointer in rewards_by_pointer
-    )
+    # Preference-scope detection must agree exactly with ``_layout_scope``,
+    # which is what ``_require_declared_verdict`` uses to authorise whatever
+    # verdict this function returns. A narrower check here (e.g. requiring
+    # the literal canonical ``PREFERENCE_POINTERS`` to be present) would let
+    # a chosen/rejected record with a differently named reward pointer (for
+    # example an episode-style ``/chosen/reward``) fall through to
+    # ``_classify_single``, which can return a "single"-scoped verdict that
+    # ``_layout_scope`` — seeing the ``/chosen/`` or ``/rejected/`` prefix —
+    # will refuse as undeclared for "preference" scope. Routing every such
+    # record through ``_classify_preference`` instead is safe: its own
+    # ``set(rewards_by_pointer) != set(PREFERENCE_POINTERS)`` guard already
+    # maps anything that is not exactly the two canonical pointers to the
+    # dedicated P01 verdict before any pointer indexing happens.
+    is_preference = _layout_scope(source_rewards) == "preference"
     if not source_rewards:
         return _mapped_verdict("R00")
     if is_preference:
@@ -528,5 +576,3 @@ def _require_declared_rule(comparability, reason_codes, rule_id):
         raise RewardOntologyError(f"rule {rule_id} emitted duplicate reason codes")
     _require_catalogued_reasons(emitted)
     return rule
-
-

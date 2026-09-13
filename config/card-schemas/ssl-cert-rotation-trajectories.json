@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "dataset": "ssl-cert-rotation-trajectories",
+  "issues": [50],
+  "note": "The viewer schema is declared by hand because `meta` is a key-bag whose shape changes between rounds: six records carry only `{factory, generator, round}`, most rounds add `seed`/`domain` plus either `plant` or `designed`/`kind`/`stack`, and six carry `lane` on top of that, so the datasets-server infers a nine-field struct from one shard and then cannot cast the thin records. Declaring `meta`, `reward` and `tool_call.args` as `json` fixes the index without rewriting a single historical raw record.",
+  "config_name": "default",
+  "split": "train",
+  "data_files": ["data/raw/batch-*.jsonl"],
+  "features": [
+    {"name": "id", "dtype": "string"},
+    {"name": "goal", "dtype": "string"},
+    {"name": "plan", "dtype": "string"},
+    {
+      "name": "steps",
+      "list": [
+        {"name": "n", "dtype": "int64"},
+        {"name": "decision_basis", "dtype": "string"},
+        {
+          "name": "tool_call",
+          "struct": [
+            {"name": "name", "dtype": "string"},
+            {
+              "name": "args",
+              "dtype": "json",
+              "note": "always an object; keys differ per tool (`command`, `url`, `path`, `args`, `old`/`new`, `target`, `contents`, `pattern`)"
+            }
+          ]
+        },
+        {"name": "observation", "dtype": "string"},
+        {
+          "name": "reflection",
+          "dtype": "string",
+          "optional": true,
+          "note": "present on 5889 of 12043 steps"
+        }
+      ]
+    },
+    {"name": "outcome", "dtype": "string"},
+    {
+      "name": "reward",
+      "dtype": "json",
+      "note": "key-bag: `success`, `tests_passed`, `cost_steps` on every record, plus `retries` (722), `plan_changes` (356), `handoff` (334), `duration_min` (209), `wasted_calls` (209) and `xfailed` (146) on subsets"
+    },
+    {
+      "name": "meta",
+      "dtype": "json",
+      "note": "key-bag: `factory`, `generator`, `round` on every record, plus `seed` (724), `domain` (724), `plant` (368), `kind` (356), `designed` (356), `stack` (356) and `lane` (6) on subsets"
+    }
+  ],
+  "disclosures": [
+    {
+      "summary": "Six records carry the thin `meta` shape `{factory, generator, round}` with no `seed`, `domain`, `plant`, `designed`, `kind` or `stack`. They are the records the inferred struct schema died on; they are kept exactly as generated.",
+      "ids": [
+        "ssl-r01-nginx-reload-old-inode",
+        "ssl-r01-fullchain-leaf-mismatch",
+        "ssl-r05-pkcs12-certfile-chain-3f55",
+        "ssl-r05-cm-dns01-propagation-180-2c17",
+        "ssl-r06-mtls-atomic-secret-apply-c70f",
+        "ssl-r06-nginx-must-staple-on-e7f2"
+      ],
+      "issues": [50]
+    },
+    {
+      "summary": "Six records in rounds 2 to 4 carry `meta.lane` (value `b`), the widest `meta` shape in the dataset and the one the datasets-server infers from. They are TLS episodes; only the extra key is unusual.",
+      "ids": [
+        "scr-r2-nginx-ocsp-p6",
+        "scr-r2-istio-sds-p6",
+        "scr-r3-nginx-ocsp-p6",
+        "scr-r3-istio-sds-p6",
+        "scr-r4-nginx-ocsp-p16",
+        "scr-r4-istio-sds-p16"
+      ],
+      "issues": [50]
+    },
+    {
+      "summary": "Four records in rounds 180 and 181 are search-index-rebuild leftover-mill payloads (Xapian / Vespa reindex goals, `sir-` id prefix, `leftover3d` in the id) that were dest-stamped `meta.factory: ssl-cert-rotation-factory`. They are not TLS rotation episodes and should not be read as such. They are the same leftover-mill pattern as the `sir-*-leftover3c-*` records called out for incident-response; they are kept exactly as generated.",
+      "ids": [
+        "sir-r180-xapian-flint-leftover3d-rebuild",
+        "sir-r180-xapian-drop-flint-leftover3d-handoff",
+        "sir-r181-vespa-feed-leftover3d-rebuild",
+        "sir-r181-vespa-drop-document-leftover3d-handoff"
+      ],
+      "issues": [44]
+    },
+    "Every one of the 730 records is stamped `meta.factory: ssl-cert-rotation-factory` and `meta.generator: grok-4.6`, and every record is an episode: there is no preference-pair or foreign-kind mix.",
+    "Every step publishes a public `decision_basis`. There are no hidden `thought` or `internal_reasoning` fields."
+  ]
+}

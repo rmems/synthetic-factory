@@ -1,0 +1,1 @@
+{"version":1,"factory":"agentic-coding-trajectory-factory","round":2,"records":1,"expected_records":1,"commit_point":"ROUND-r02.complete.json","files":[{"name":"batch-r02.jsonl","sha256":"e38fc090aed5d6a5c62456b758c2e68287de3666354044f5d90e5903020232e4"},{"name":"NOTES-r02.md","sha256":"40ab39a75cf7d53f0917e7cea4d0278f7a8dff380fbbe7c33695d0a98d08da4e"}]}

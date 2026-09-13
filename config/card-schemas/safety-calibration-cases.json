@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "dataset": "safety-calibration-cases",
+  "issues": [40],
+  "note": "The viewer schema is declared by hand because `reward` is a key-bag: the datasets-server infers `struct<success, calibration>` from the early shards and then cannot cast the 5043 records whose reward also carries `recovered_overrefusal`, while the mutually exclusive case extras (`redirect`, `vector`, `benign_twin`) and `trigger` are absent from parts of the payload, so declaring the union fixes the index without rewriting a single historical raw record.",
+  "config_name": "default",
+  "split": "train",
+  "data_files": ["data/raw/batch-*.jsonl"],
+  "features": [
+    {"name": "id", "dtype": "string"},
+    {"name": "goal", "dtype": "string"},
+    {
+      "name": "case_type",
+      "dtype": "string",
+      "note": "one of `correct_refusal`, `incorrect_refusal`, `missed_refusal`; 5354 records each"
+    },
+    {"name": "should_refuse", "dtype": "bool"},
+    {
+      "name": "decision",
+      "dtype": "string",
+      "note": "one of `refuse` (8186), `comply` (5097), `allow` (2779)"
+    },
+    {"name": "rationale", "dtype": "string"},
+    {
+      "name": "steps",
+      "list": [
+        {"name": "n", "dtype": "int64"},
+        {"name": "decision_basis", "dtype": "string"},
+        {
+          "name": "tool_call",
+          "struct": [
+            {"name": "name", "dtype": "string"},
+            {
+              "name": "args",
+              "dtype": "json",
+              "note": "always an object; keys differ per tool"
+            }
+          ]
+        },
+        {"name": "observation", "dtype": "string"}
+      ]
+    },
+    {"name": "outcome", "dtype": "string"},
+    {
+      "name": "reward",
+      "dtype": "json",
+      "note": "key-bag: `success` (bool) on every record, `calibration` (float) on 15291, `recovered_overrefusal` (bool) on 5043; the third keyset is what the inferred cast dies on"
+    },
+    {
+      "name": "meta",
+      "dtype": "json",
+      "note": "key-bag: `factory`, `generator`, `round` on every record, plus `sim_or_real` on 15291 of 16062"
+    },
+    {
+      "name": "trigger",
+      "dtype": "string",
+      "optional": true,
+      "note": "present on 16044 of 16062 records; 644 distinct values"
+    },
+    {
+      "name": "redirect",
+      "dtype": "string",
+      "optional": true,
+      "note": "present on 5861 of 16062 records"
+    },
+    {
+      "name": "vector",
+      "dtype": "string",
+      "optional": true,
+      "note": "present on 5092 of 16062 records"
+    },
+    {
+      "name": "benign_twin",
+      "dtype": "string",
+      "optional": true,
+      "note": "present on 5091 of 16062 records"
+    }
+  ],
+  "disclosures": [
+    "Case types are balanced exactly 5354 / 5354 / 5354 across the 16062 published records: `correct_refusal` (the agent refuses a request it should refuse), `incorrect_refusal` (an over-refusal of a benign request), and `missed_refusal` (the agent complies with a request it should have refused). `should_refuse`, `decision` and `reward` are all keyed off that label, so a filter on `case_type` partitions the dataset into three equal, non-overlapping thirds.",
+    "`reward` is a three-way key-bag, not a fixed struct: 10248 records carry `{calibration, success}`, 5043 carry `{calibration, recovered_overrefusal, success}`, and 771 carry `{success}` alone. `recovered_overrefusal` appears only on `incorrect_refusal` records (2522 true, 2521 false) and is the exact key the viewer's inferred `struct<success, calibration>` could not cast. The 771 `{success}`-only records are the same 771 that omit `meta.sim_or_real`.",
+    "Each record carries at most one of `redirect`, `vector` and `benign_twin`. They are mutually exclusive, never co-present, and are not determined by `case_type`: `redirect` appears on 5347 `correct_refusal`, 257 `incorrect_refusal` and 257 `missed_refusal` records; `vector` on 5091 `missed_refusal` and 1 `correct_refusal`; `benign_twin` only on `incorrect_refusal`. Treat all three as optional annotations rather than as a case-type discriminator.",
+    {
+      "summary": "Eighteen early records omit `trigger` and all three case extras: every record of rounds 123 through 128, three per round. They are genuine safety calibration cases with the full `case_type` / `should_refuse` / `decision` / `rationale` core; the annotations were simply not emitted yet. They are kept exactly as generated.",
+      "ids": [
+        "saf-r123-json-schema-upload-test",
+        "saf-r123-pickle-load-uploads",
+        "saf-r123-readme-pickle-fast",
+        "saf-r124-issue-yaml-load",
+        "saf-r124-yaml-load-unsafe",
+        "saf-r124-yaml-safe-load-test",
+        "saf-r125-jwt-alg-allowlist-test",
+        "saf-r125-jwt-none-alg",
+        "saf-r125-readme-jwt-none",
+        "saf-r126-cors-allowlist-test",
+        "saf-r126-cors-star-credentials",
+        "saf-r126-issue-cors-star",
+        "saf-r127-debug-false-test",
+        "saf-r127-debug-toolbar-prod",
+        "saf-r127-readme-toolbar-prod",
+        "saf-r128-issue-inline-maps",
+        "saf-r128-sourcemap-hidden-test",
+        "saf-r128-sourcemap-secrets"
+      ]
+    },
+    "Every one of the 16062 records is a `safety-calibration-factory` episode generated by `grok-4.6`, spread over rounds 1-5354 with exactly three records per round. There is no leftover-mill mix and no dest-stamped foreign payload in this dataset.",
+    "Every one of the 142873 steps publishes a public `decision_basis` alongside its `tool_call` and `observation`. There are no hidden `thought` or `internal_reasoning` fields, and no step carries an optional extra key."
+  ]
+}

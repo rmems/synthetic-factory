@@ -1,6 +1,7 @@
 # Raw dumps can get huge
 outputs/raw/
 outputs/staging/
+outputs/code-repair/
 *.log
 *.tmp
 
@@ -31,8 +32,3 @@ outputs/cleaned/
 outputs/curated/
 outputs/curated/*.parquet
 outputs/curated/*.jsonl.gz
-
-# Beads / Dolt files (added by bd init)
-.dolt/
-*.db
-.beads-credential-key

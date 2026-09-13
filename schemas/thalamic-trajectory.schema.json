@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ThalamicTrajectory",
-  "description": "Strict generative contract for Thalamic trajectories. Requires top-level id, state.sim_or_real enum, reward_components.total finite, and meta.round integer >=1.",
+  "description": "Strict generative contract for Thalamic trajectories. Requires top-level id, state.sim_or_real enum, provenance.kind enum whenever provenance is present, reward_components.total finite, meta.round integer >=1, and a timestamped, globally non-decreasing spike_events stream whenever spike_events is present.",
   "$comment": "Strict publication shape. New publication must also satisfy thalamic-trajectory-v2.schema.json.",
   "type": "object",
   "required": ["id", "state", "proposed_action", "safety_decision", "executed_action", "future_outcome", "reward_components", "meta"],
@@ -91,7 +91,53 @@
       },
       "additionalProperties": true,
       "description": "Required metadata object. Must contain integer round >=1; may also hold distillation notes, tags, or neuromorphic annotations."
+    },
+    "spike_events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/spike_event" },
+      "description": "Optional neuromorphic event stream. Every event must carry exactly one finite timestamp under t_rel_ms or t_ms, every event in one stream must use the same timestamp key, and the stream must be globally non-decreasing in that timestamp — a single train in time order, never grouped per channel. Cross-item key consistency and global ordering are NOT expressible in JSON Schema; they are enforced by check_spike_order() in pipelines/validate_run.py (shape layer) and check_spikes() in pipelines/check_records.py (deep layer, the single owner of the order error). Bridge-pair records carry this stream at their own top level and must additionally satisfy #/$defs/bridge_spike_event with a non-empty array."
     }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "$defs": {
+    "spike_event": {
+      "type": "object",
+      "description": "One event in a spike train. Requires exactly one finite timestamp under the canonical key t_rel_ms or the accepted alias t_ms. Finiteness (no NaN/Infinity/-Infinity, booleans and values outside the runtime float range rejected) is enforced by event_time() in pipelines/validate_run.py.",
+      "oneOf": [
+        { "required": ["t_rel_ms"] },
+        { "required": ["t_ms"] }
+      ],
+      "properties": {
+        "t_rel_ms": {
+          "type": "number",
+          "description": "Canonical event time in milliseconds relative to the record's t0. Must be a finite number."
+        },
+        "t_ms": {
+          "type": "number",
+          "description": "Accepted alias for t_rel_ms. Choose one timestamp key for the entire stream; never mix the two."
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "Source channel identifier. Required on bridge-pair event streams."
+        },
+        "amplitude": {
+          "type": "number",
+          "description": "Event amplitude. Required on bridge-pair event streams."
+        }
+      },
+      "additionalProperties": true
+    },
+    "bridge_spike_event": {
+      "description": "Event shape required on neuromorphic bridge-pair streams: a spike_event plus channel and amplitude. pipelines/validate_run.py derives its bridge event-key requirement from the 'required' list below.",
+      "allOf": [
+        { "$ref": "#/$defs/spike_event" },
+        {
+          "type": "object",
+          "required": ["channel", "amplitude"]
+        }
+      ]
+    }
+  }
 }

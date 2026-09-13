@@ -60,7 +60,10 @@ class RewardOntologyRunTests(unittest.TestCase):
             self.assertEqual(entries[0]["source_path"], "factory/preferences.jsonl")
             self.assertEqual(entries[0]["source_line"], 1)
             self.assertEqual(entries[0]["transform_name"], "reward_ontology")
-            self.assertEqual(entries[0]["transform_version"], "reward-ontology-v1")
+            # classifier-2: preference-scope routing moved to _layout_scope parity.
+            self.assertEqual(
+                entries[0]["transform_version"], "reward-ontology-v1.classifier-2"
+            )
             self.assertEqual(entries[0]["action"], "retained")
             self.assertEqual(
                 entries[0]["output_hash"],
@@ -138,7 +141,7 @@ class RewardOntologyRunTests(unittest.TestCase):
                         "source_line": 1,
                         "source_path": relative.as_posix(),
                         "transform_name": "reward_ontology",
-                        "transform_version": "reward-ontology-v1",
+                        "transform_version": "reward-ontology-v1.classifier-2",
                     }
                 )
             self.assertEqual(manifest, expected_manifest)
@@ -169,7 +172,7 @@ class RewardOntologyRunTests(unittest.TestCase):
                 "order": 4,
                 "bead": "sf-c5l.4",
                 "transform": "reward_ontology",
-                "version": curate_rewards.ONTOLOGY_VERSION,
+                "version": curate_rewards.REWARD_TRANSFORM_VERSION,
                 "outputs_dir": first,
                 "manifest_path": first / "manifest.json",
                 "manifest_format": "json",

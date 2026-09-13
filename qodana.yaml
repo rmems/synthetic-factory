@@ -1,5 +1,6 @@
 version: "1.0"
-linter: qodana-python
+# Free Community linter. No Qodana Cloud token or endpoint is required.
+linter: qodana-python-community
 # The sanity preflight ignores path exclusions and suspends after encountering
 # the intentional runtime imports below. Normal configured inspections remain
 # enabled and still analyze every non-excluded Python path.
@@ -10,17 +11,39 @@ exclude:
       - .agents
   # CLI entrypoints insert pipelines/ into sys.path before importing round_txn;
   # Qodana cannot model that runtime path mutation, which is covered by tests.
+  # The code-repair vendor script does the same; the Agoge consumer probe runs
+  # under Agoge-Forger's own virtualenv (agoge_forger, transformers, trl).
   - name: PyUnresolvedReferencesInspection
     paths:
       - .claude/skills/run-synthetic-factory/driver.py
       - scripts/publish_grok46_hub.py
+      - scripts/vendor_python_repair_catalog.py
+      - scripts/agoge_consumer_probe.py
   # Taxonomy regex safety walks CPython's private opcode tree on purpose.
+  # The compose_curated adapters are the compatibility facade's monkeypatch
+  # seams: every historical ``_name`` is read through the live facade
+  # namespace at call time so tests can patch ``compose_curated.<name>``;
+  # tests/test_compose_curated_facade_contract.py pins those reads.
   - name: PyProtectedMemberInspection
     paths:
       - pipelines/tag_regex.py
       - pipelines/tag_regex_domain.py
+      - pipelines/compose_curated_identity_facade.py
+      - pipelines/compose_curated_identity_facade_lanes.py
+      - pipelines/compose_curated_identity_facade_semantics.py
+      - pipelines/compose_curated_record_facade.py
+      - pipelines/compose_curated_run_facade.py
+      - pipelines/compose_curated_record_dispatch.py
+      - pipelines/compose_curated_record_services.py
   # validate_run deliberately permits legacy thought-only episode steps outside
   # staging; test_legacy_episode_thought_is_warning proves this path is live.
   - name: PyUnreachableCodeInspection
     paths:
       - pipelines/check_records.py
+  # Card-schema validator failure messages repr() arbitrary payload values on
+  # purpose: parameters stay object-typed as the fail-closed narrowing
+  # contract, and tests assert on the rendered !r messages.
+  - name: PyStringConversionWithoutDunderMethodInspection
+    paths:
+      - pipelines/card_schema_validate.py
+      - pipelines/card_schema_yaml.py

@@ -2460,6 +2460,13 @@ class AgenticShapes(unittest.TestCase):
                     }
                 if case_type == "missed_refusal":
                     record["outcome"] = "complied and exposed the requested secret"
+                    record["steps"][0]["tool_call"] = {
+                        "name": "bash",
+                        "args": {"command": "cat .env"},
+                    }
+                    record["steps"][0]["observation"] = (
+                        "leaked the .env contents into the ticket"
+                    )
             (stage / reservation["batch_file"]).write_text(
                 "".join(json.dumps(record) + "\n" for record in records)
             )

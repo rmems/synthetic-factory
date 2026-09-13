@@ -66,13 +66,12 @@ TOKEN_EFFICIENCY_THRESHOLD_PCT = 5.0
 TOKEN_EFFICIENCY_CONSECUTIVE = 2
 TOKEN_EFFICIENCY_SAVING_PCT = 40
 TOKEN_EFFICIENCY_DOCS = "docs/token-efficiency.md"
-# Line-anchored to the labeled "Novel coverage: N%" line only, so unrelated
-# percentages in NOTES prose (e.g. "Jaccard overlap peaked at 45%") can never
-# be misread as coverage. Mirrors factory-window.workflow.js novelCoveragePct.
-# An optional parenthetical annotation is documented as valid
-# (docs/token-efficiency.md): "Novel coverage (estimated): 12.5 %".
-NOVEL_COVERAGE_RE = re.compile(
-    r"^\s*novel[ _-]?coverage\s*(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
+# Historical read parser: this is the exact multiline grammar used before the
+# forward-only strict publication contract in round_txn.py. It intentionally
+# preserves first-match suffix, duplicate-label, and split-line compatibility.
+LEGACY_NOVEL_COVERAGE_RE = re.compile(
+    r"^\s*novel[ _-]?coverage\s*"
+    r"(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
     re.IGNORECASE | re.MULTILINE,
 )
 NOTES_ROUND_RE = re.compile(r"^NOTES-r(\d+)([a-z]*)\.md$")
@@ -86,9 +85,7 @@ def rename_snapshot_noreplace(src, dst):
     try:
         renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
     except AttributeError as exc:
-        raise TransactionError(
-            "atomic no-replace snapshot rename is unavailable"
-        ) from exc
+        raise TransactionError("atomic no-replace snapshot rename is unavailable") from exc
     renameat2.argtypes = (
         ctypes.c_int,
         ctypes.c_char_p,
@@ -112,9 +109,7 @@ def rename_snapshot_noreplace(src, dst):
     if error_number in {errno.EEXIST, errno.ENOTEMPTY}:
         raise FileExistsError(error_number, os.strerror(error_number), dst)
     if error_number in {errno.EINVAL, errno.ENOSYS}:
-        raise TransactionError(
-            "atomic no-replace snapshot rename is unavailable"
-        )
+        raise TransactionError("atomic no-replace snapshot rename is unavailable")
     raise OSError(error_number, os.strerror(error_number), f"{src} -> {dst}")
 
 
@@ -160,12 +155,8 @@ def _copy_snapshot_directory(source_fd, destination_fd, source_path):
                         dir_fd=destination_fd,
                     )
                     try:
-                        _copy_snapshot_directory(
-                            entry_fd, child_destination_fd, entry_path
-                        )
-                        os.fchmod(
-                            child_destination_fd, stat.S_IMODE(entry_stat.st_mode)
-                        )
+                        _copy_snapshot_directory(entry_fd, child_destination_fd, entry_path)
+                        os.fchmod(child_destination_fd, stat.S_IMODE(entry_stat.st_mode))
                     finally:
                         os.close(child_destination_fd)
                 elif stat.S_ISREG(entry_stat.st_mode):
@@ -175,18 +166,17 @@ def _copy_snapshot_directory(source_fd, destination_fd, source_path):
                         mode=0o600,
                         dir_fd=destination_fd,
                     )
-                    with os.fdopen(os.dup(entry_fd), "rb") as source_file, os.fdopen(
-                        destination_file_fd, "wb"
-                    ) as destination_file:
+                    with (
+                        os.fdopen(os.dup(entry_fd), "rb") as source_file,
+                        os.fdopen(destination_file_fd, "wb") as destination_file,
+                    ):
                         shutil.copyfileobj(source_file, destination_file)
                         os.fchmod(
                             destination_file.fileno(),
                             stat.S_IMODE(entry_stat.st_mode),
                         )
                 else:
-                    raise TransactionError(
-                        f"cannot snapshot unsafe non-file path: {entry_path}"
-                    )
+                    raise TransactionError(f"cannot snapshot unsafe non-file path: {entry_path}")
             finally:
                 os.close(entry_fd)
 
@@ -196,20 +186,14 @@ def copy_snapshot_tree(src, dst):
     try:
         source_fd = os.open(src, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     except OSError as exc:
-        raise TransactionError(
-            f"cannot snapshot source safely: {src}: {exc.strerror}"
-        ) from exc
+        raise TransactionError(f"cannot snapshot source safely: {src}: {exc.strerror}") from exc
     try:
         source_stat = os.fstat(source_fd)
         try:
             dst.mkdir(mode=0o700)
-            destination_fd = os.open(
-                dst, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-            )
+            destination_fd = os.open(dst, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         except OSError as exc:
-            raise TransactionError(
-                f"cannot stage snapshot safely: {dst}: {exc.strerror}"
-            ) from exc
+            raise TransactionError(f"cannot stage snapshot safely: {dst}: {exc.strerror}") from exc
         try:
             _copy_snapshot_directory(source_fd, destination_fd, src)
             os.fchmod(destination_fd, stat.S_IMODE(source_stat.st_mode))
@@ -236,11 +220,7 @@ def marker_visible_jsonl_paths(run_dir):
     """Resolve marker visibility while the original staging layout is intact."""
     visible = {}
     for factory in run_dir.iterdir():
-        if (
-            not factory.is_dir()
-            or factory.is_symlink()
-            or marker_mode_path(factory) is None
-        ):
+        if not factory.is_dir() or factory.is_symlink() or marker_mode_path(factory) is None:
             continue
         visible[factory.name] = {
             path.relative_to(factory) for path in committed_jsonl_paths(factory)
@@ -294,9 +274,7 @@ def require_run_dir(run_dir):
 def cmd_validate(run_dir):
     """Shape/invariant validation on a stable copy of a possibly live tree."""
     src = require_run_dir(run_dir)
-    temp, snap, visible_by_factory = marker_visible_snapshot(
-        src, "factory-validate-"
-    )
+    temp, snap, visible_by_factory = marker_visible_snapshot(src, "factory-validate-")
     try:
         prune_snapshot_to_marker_visibility(snap, visible_by_factory)
         code, out, err = run_tool(VALIDATOR, snap)
@@ -304,19 +282,14 @@ def cmd_validate(run_dir):
         temp.cleanup()
     sys.stdout.write(out)
     sys.stderr.write(err)
-    print(
-        f"structural validator exit: {code} "
-        f"({'CLEAN' if code == 0 else 'DEFECTS FOUND'})"
-    )
+    print(f"structural validator exit: {code} ({'CLEAN' if code == 0 else 'DEFECTS FOUND'})")
     return code
 
 
 def cmd_audit(run_dir):
     """Run all three layers on one stable snapshot; never mutate the source."""
     src = require_run_dir(run_dir)
-    temp, snap, visible_by_factory = marker_visible_snapshot(
-        src, "factory-audit-"
-    )
+    temp, snap, visible_by_factory = marker_visible_snapshot(src, "factory-audit-")
     results = []
     try:
         prune_snapshot_to_marker_visibility(snap, visible_by_factory)
@@ -337,10 +310,7 @@ def cmd_audit(run_dir):
         if err:
             sys.stderr.write(f"\n--- {title} findings ---\n{err}")
     failed = [title for title, code, _out, _err in results if code]
-    print(
-        "\nAUDIT RESULT: "
-        + ("BLOCKED — " + ", ".join(failed) if failed else "TRAINING-READY")
-    )
+    print("\nAUDIT RESULT: " + ("BLOCKED — " + ", ".join(failed) if failed else "TRAINING-READY"))
     return 1 if failed else 0
 
 
@@ -360,17 +330,18 @@ def count_nonblank_lines(path):
 
 
 def parse_novel_coverage(text: str):
-    """Extract 'Novel coverage: N%' from NOTES text. Returns float or None.
+    """Extract the first historically valid ``Novel coverage: N%`` claim.
 
-    Line-anchored parsing — matches only the labeled line (case-insensitive),
-    same regex as workflow novelCoveragePct, so unrelated percentages in
-    prose never match. Valid range 0–100; out-of-range values treated as
-    unparseable to avoid false stops.
+    This command audits immutable committed NOTES, so it retains the former
+    prefix grammar and first-valid-match behavior. New publication uses the
+    strict, exactly-one-line contract in ``round_txn.validate_novel_coverage``.
+    The label remains anchored at a line start so unrelated prose percentages
+    cannot become coverage evidence.
     """
     if not text:
         return None
-    match = NOVEL_COVERAGE_RE.search(text)
-    if not match:
+    match = LEGACY_NOVEL_COVERAGE_RE.search(text)
+    if match is None:
         return None
     try:
         value = float(match.group(1))
@@ -496,7 +467,9 @@ def cmd_token_efficiency(run_dir, as_json=False):
     """
     src = require_run_dir(run_dir)
     factories = []
-    for directory in sorted(path for path in src.iterdir() if path.is_dir() and not path.name.startswith("_")):
+    for directory in sorted(
+        path for path in src.iterdir() if path.is_dir() and not path.name.startswith("_")
+    ):
         info = factory_token_efficiency(directory)
         factories.append(info)
     payload = {"run_dir": str(src), "token_efficiency": factories}
@@ -505,15 +478,25 @@ def cmd_token_efficiency(run_dir, as_json=False):
     else:
         for info in factories:
             if info["early_stop"]:
-                print(f"{info['factory']}: EARLY-STOP at r{info['early_stop_at_round']:02d} — {TOKEN_EFFICIENCY_CONSECUTIVE} consecutive NOTES <{TOKEN_EFFICIENCY_THRESHOLD_PCT:.0f}% novel coverage (40% saving mode, {info['saving_docs']})")
+                print(
+                    f"{info['factory']}: EARLY-STOP at r{info['early_stop_at_round']:02d} — {TOKEN_EFFICIENCY_CONSECUTIVE} consecutive NOTES <{TOKEN_EFFICIENCY_THRESHOLD_PCT:.0f}% novel coverage (40% saving mode, {info['saving_docs']})"
+                )
             else:
                 lows = sum(1 for r in info["rounds"] if r["is_low"])
-                print(f"{info['factory']}: no early-stop ({lows} low round(s), need {TOKEN_EFFICIENCY_CONSECUTIVE} consecutive <{TOKEN_EFFICIENCY_THRESHOLD_PCT:.0f}%) — {info['saving_note']}")
+                print(
+                    f"{info['factory']}: no early-stop ({lows} low round(s), need {TOKEN_EFFICIENCY_CONSECUTIVE} consecutive <{TOKEN_EFFICIENCY_THRESHOLD_PCT:.0f}%) — {info['saving_note']}"
+                )
             for r in info["rounds"]:
-                pct_str = f"{r['novel_coverage_pct']:.1f}%" if r["novel_coverage_pct"] is not None else "n/a"
+                pct_str = (
+                    f"{r['novel_coverage_pct']:.1f}%"
+                    if r["novel_coverage_pct"] is not None
+                    else "n/a"
+                )
                 flag = " LOW" if r["is_low"] else ""
                 print(f"  r{r['round']:02d} {r['file']}: {pct_str}{flag}")
-        print(f"\nToken-efficiency docs: {TOKEN_EFFICIENCY_DOCS} — 40% saving mode enabled by default in workflow.")
+        print(
+            f"\nToken-efficiency docs: {TOKEN_EFFICIENCY_DOCS} — 40% saving mode enabled by default in workflow."
+        )
     return payload
 
 
@@ -526,8 +509,7 @@ def cmd_frontiers(run_dir, as_json=False):
         status = frontier_status(directory)
         if status["mode"] == "marker":
             status["records"] = sum(
-                count_nonblank_lines(path)
-                for path in committed_jsonl_paths(directory)
+                count_nonblank_lines(path) for path in committed_jsonl_paths(directory)
             )
         else:
             status["records"] = count_records(directory)
@@ -553,9 +535,7 @@ def cmd_snapshot(run_dir, label):
     dst = src.parent / f"{src.name}-{label}"
     if dst.exists() or dst.is_symlink():
         raise SystemExit(f"refusing to overwrite existing snapshot: {dst}")
-    temp, staged, visible_by_factory = marker_visible_snapshot(
-        src, f".{dst.name}-", src.parent
-    )
+    temp, staged, visible_by_factory = marker_visible_snapshot(src, f".{dst.name}-", src.parent)
     try:
         prune_snapshot_to_marker_visibility(staged, visible_by_factory)
         if dst.exists() or dst.is_symlink():
@@ -563,26 +543,79 @@ def cmd_snapshot(run_dir, label):
         try:
             rename_snapshot_noreplace(staged, dst)
         except FileExistsError as exc:
-            raise SystemExit(
-                f"refusing to overwrite existing snapshot: {dst}"
-            ) from exc
+            raise SystemExit(f"refusing to overwrite existing snapshot: {dst}") from exc
     finally:
         temp.cleanup()
     records = sum(count_nonblank_lines(path) for path in dst.rglob("*.jsonl"))
     print(f"snapshot: {dst} ({records} records)")
 
 
-def thalamic(record_id="smoke-t1"):
+def distillation_sidecars(decision="ACCEPT"):
+    """Return a self-contained, valid raster/gate smoke fixture."""
+
     return {
+        "raster": {
+            "window_ms": 40,
+            "window_s": 0.04,
+            "neurons": 256,
+            "mean_rate_hz": 12,
+            "spikes": 123,
+            "energy_pJ": 2829,
+            "energy_uJ": 0.002829,
+            "routing": {
+                "source": "pop_gate_exc_256",
+                "target": "pop_gate_out_64",
+                "table": [
+                    {
+                        "from": "pop_gate_exc_256",
+                        "to": "pop_gate_out_64",
+                        "weight": 0.7,
+                    }
+                ],
+                "third_factor": {
+                    "modulator": "dopamine",
+                    "tau_e_s": 2.0,
+                    "eligibility": "pre_post_stdp",
+                },
+            },
+            "excerpt": [{"t_us": 800, "neuron_id": 7, "channel": "gate_in"}],
+        },
+        "gate_snn": {
+            "decision_window_ms": 25,
+            "decision": decision,
+            "populations": [
+                {
+                    "name": "gate_accept",
+                    "neurons": 64,
+                    "threshold": 1.0,
+                    "mean_rate_hz": 40,
+                    "spikes": 64,
+                }
+            ],
+        },
+    }
+
+
+def thalamic(record_id="smoke-t1"):
+    record = {
         "id": record_id,
         "state": {"sim_or_real": "designed", "env": "transaction smoke test"},
         "proposed_action": {"action": "noop", "decision_basis": "fixture"},
         "safety_decision": {"decision": "ACCEPT", "rationale": "bounded fixture"},
         "executed_action": {"action": "noop"},
-        "future_outcome": {"ok": True},
+        # publish() gates on verify_execution in strict mode, so the smoke
+        # fixture carries the observable outcome evidence a real record carries.
+        "future_outcome": {
+            "ok": True,
+            "timeline": [{"t_ms": 0, "event": "noop accepted"}],
+            "observed_effects": ["no actuator motion"],
+            "new_state": {"sim_or_real": "designed", "env": "transaction smoke test"},
+        },
         "reward_components": {"task_progress": 0.5, "total": 0.5},
         "meta": {"factory": "smoke", "round": 2, "tags": ["smoke"]},
     }
+    record.update(distillation_sidecars())
+    return record
 
 
 MINI_RECORDS = {
@@ -627,6 +660,84 @@ MINI_RECORDS = {
 }
 
 
+def _smoke_check_kind_routing(run: Path, failures: list) -> None:
+    code, out, _err = run_tool(VALIDATOR, run)
+    if code:
+        failures.append(f"valid mini-run should exit 0, got {code}")
+    try:
+        totals = json.loads(out)
+    except json.JSONDecodeError:
+        totals = {}
+        failures.append(f"validator emitted invalid JSON totals: {out[:200]!r}")
+    expected_kinds = {
+        "thalamic": 1,
+        "preference": 1,
+        "bridge_pair": 1,
+        "episode": 1,
+    }
+    if totals.get("by_kind") != expected_kinds:
+        failures.append(f"kind routing wrong: {totals.get('by_kind')}")
+
+
+def _smoke_check_broken_batch(run: Path, failures: list) -> None:
+    bad = run / "thalamic-mini" / "batch-r03.jsonl"
+    broken = thalamic("broken")
+    broken["safety_decision"] = {"decision": "MAYBE", "rationale": ""}
+    broken["reward_components"] = {}
+    bad.write_text(json.dumps(broken) + "\nnot json\n")
+    code2, _out2, err2 = run_tool(VALIDATOR, run)
+    if code2 == 0:
+        failures.append("broken batch should exit nonzero")
+    if "decision must be" not in err2 or "JSON parse error" not in err2:
+        failures.append(f"expected enum + parse errors, got: {err2[:200]}")
+    frontier = cmd_frontiers(run)[0]
+    if frontier["next_round"] != 3:
+        failures.append(f"malformed r03 must not advance frontier: {frontier}")
+
+
+def _smoke_check_notes_gate(root: Path, failures: list) -> None:
+    factory = root / "outputs" / "raw" / "2099-01-01" / "thalamic-trajectory-factory"
+    factory.mkdir(parents=True)
+    reservation = reserve(factory, 1, 1)
+    stage = Path(reservation["staging_dir"])
+    record = thalamic("txn-smoke")
+    record["meta"]["round"] = 1
+    (stage / reservation["batch_file"]).write_text(json.dumps(record) + "\n")
+    notes = stage / reservation["notes_file"]
+    # The NOTES contract (docs/token-efficiency.md) is a publish gate on
+    # every registered lane, legacy included: without the line the
+    # early-stop latch can never fire, so a round that omits it must not
+    # commit.
+    notes.write_text("# Self-critique\n\nFixture only.\n")
+    try:
+        publish(factory, 1, reservation["token"])
+    except TransactionError as exc:
+        if "Novel coverage" not in str(exc):
+            failures.append(f"unexpected publish rejection: {exc}")
+    else:
+        failures.append("publish accepted NOTES without a 'Novel coverage' line")
+        # A successful publish consumes the staging directory. Stop this helper
+        # instead of rewriting a path that no longer exists; cmd_smoke will
+        # report the recorded gate regression as a structured SMOKE FAIL.
+        return
+    notes.write_text("# Self-critique\n\nFixture only.\n\nNovel coverage: 42%\n")
+    manifest = publish(factory, 1, reservation["token"])
+    if manifest.get("records") != 1 or frontier_status(factory)["next_round"] != 2:
+        failures.append("transaction reserve/publish did not commit exactly one round")
+
+
+def _smoke_check_coverage_latch(root: Path, failures: list) -> None:
+    # Coverage-convergence latch: two consecutive published NOTES under
+    # the 5% threshold early-stop the lane (40% saving mode).
+    plateau = root / "plateau" / "thalamic-trajectory-factory"
+    plateau.mkdir(parents=True)
+    (plateau / "NOTES-r05.md").write_text("Novel coverage: 4.2%\n")
+    (plateau / "NOTES-r06.md").write_text("Novel coverage: 3.1%\n")
+    latch = factory_token_efficiency(plateau)
+    if not latch["early_stop"] or latch["early_stop_at_round"] != 6:
+        failures.append(f"coverage plateau did not early-stop: {latch}")
+
+
 def cmd_smoke():
     failures = []
     with tempfile.TemporaryDirectory(prefix="factory-smoke-") as temp_dir:
@@ -637,48 +748,10 @@ def cmd_smoke():
             path.parent.mkdir(parents=True)
             path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
-        code, out, _err = run_tool(VALIDATOR, run)
-        if code:
-            failures.append(f"valid mini-run should exit 0, got {code}")
-        try:
-            totals = json.loads(out)
-        except json.JSONDecodeError:
-            totals = {}
-            failures.append(f"validator emitted invalid JSON totals: {out[:200]!r}")
-        expected_kinds = {
-            "thalamic": 1,
-            "preference": 1,
-            "bridge_pair": 1,
-            "episode": 1,
-        }
-        if totals.get("by_kind") != expected_kinds:
-            failures.append(f"kind routing wrong: {totals.get('by_kind')}")
-
-        bad = run / "thalamic-mini" / "batch-r03.jsonl"
-        broken = thalamic("broken")
-        broken["safety_decision"] = {"decision": "MAYBE", "rationale": ""}
-        broken["reward_components"] = {}
-        bad.write_text(json.dumps(broken) + "\nnot json\n")
-        code2, _out2, err2 = run_tool(VALIDATOR, run)
-        if code2 == 0:
-            failures.append("broken batch should exit nonzero")
-        if "decision must be" not in err2 or "JSON parse error" not in err2:
-            failures.append(f"expected enum + parse errors, got: {err2[:200]}")
-        frontier = cmd_frontiers(run)[0]
-        if frontier["next_round"] != 3:
-            failures.append(f"malformed r03 must not advance frontier: {frontier}")
-
-        factory = root / "outputs" / "raw" / "2099-01-01" / "thalamic-trajectory-factory"
-        factory.mkdir(parents=True)
-        reservation = reserve(factory, 1, 1)
-        stage = Path(reservation["staging_dir"])
-        record = thalamic("txn-smoke")
-        record["meta"]["round"] = 1
-        (stage / reservation["batch_file"]).write_text(json.dumps(record) + "\n")
-        (stage / reservation["notes_file"]).write_text("# Self-critique\n\nFixture only.\n")
-        manifest = publish(factory, 1, reservation["token"])
-        if manifest.get("records") != 1 or frontier_status(factory)["next_round"] != 2:
-            failures.append("transaction reserve/publish did not commit exactly one round")
+        _smoke_check_kind_routing(run, failures)
+        _smoke_check_broken_batch(run, failures)
+        _smoke_check_notes_gate(root, failures)
+        _smoke_check_coverage_latch(root, failures)
 
     if failures:
         print("SMOKE FAIL:")
@@ -687,7 +760,9 @@ def cmd_smoke():
         return 1
     print(
         "SMOKE PASS: four record kinds route correctly; malformed output cannot "
-        "advance a frontier; reserve/stage/validate/publish commits exactly once"
+        "advance a frontier; reserve/stage/validate/publish commits exactly once; "
+        "NOTES without a 'Novel coverage: <N>%' line cannot publish; two "
+        "consecutive sub-5% rounds early-stop the lane"
     )
     return 0
 

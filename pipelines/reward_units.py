@@ -5,29 +5,54 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from reward_mapping import (
-    RewardOntologyError,
-    _decimal,
-    _json_number,
-    _numeric_capture,
-)
-from reward_policy import (
-    CANONICAL_UNIT_USD,
-    DECLARED_TOTAL_KEY,
-    DEFAULT_TOLERANCE,
-    NESTED_COMPONENT_KEY,
-    REQUIRED_SEMANTICS,
-    ROUNDING_DECIMALS_FIELD,
-    ROUNDING_FIELDS,
-    ROUNDING_RE,
-    STRUCTURED_UNIT_FIELD,
-    TEXT_UNIT_FIELD,
-    UNWEIGHTED_EXCLUDE,
-    USD_UNIT_RE,
-    WEIGHTED_CONTAINERS,
-    WEIGHT_ALIASES,
-    WEIGHTS_FIELD,
-)
+if __package__:
+    from .reward_mapping import (
+        RewardOntologyError,
+        _decimal,
+        _json_number,
+        _numeric_capture,
+    )
+    from .reward_policy import (
+        CANONICAL_UNIT_USD,
+        DECLARED_TOTAL_KEY,
+        DEFAULT_TOLERANCE,
+        NESTED_COMPONENT_KEY,
+        REQUIRED_SEMANTICS,
+        ROUNDING_DECIMALS_FIELD,
+        ROUNDING_FIELDS,
+        ROUNDING_RE,
+        STRUCTURED_UNIT_FIELD,
+        TEXT_UNIT_FIELD,
+        UNWEIGHTED_EXCLUDE,
+        USD_UNIT_RE,
+        WEIGHTED_CONTAINERS,
+        WEIGHT_ALIASES,
+        WEIGHTS_FIELD,
+    )
+else:
+    from reward_mapping import (
+        RewardOntologyError,
+        _decimal,
+        _json_number,
+        _numeric_capture,
+    )
+    from reward_policy import (
+        CANONICAL_UNIT_USD,
+        DECLARED_TOTAL_KEY,
+        DEFAULT_TOLERANCE,
+        NESTED_COMPONENT_KEY,
+        REQUIRED_SEMANTICS,
+        ROUNDING_DECIMALS_FIELD,
+        ROUNDING_FIELDS,
+        ROUNDING_RE,
+        STRUCTURED_UNIT_FIELD,
+        TEXT_UNIT_FIELD,
+        UNWEIGHTED_EXCLUDE,
+        USD_UNIT_RE,
+        WEIGHTED_CONTAINERS,
+        WEIGHT_ALIASES,
+        WEIGHTS_FIELD,
+    )
 
 
 def _component_value(value):
@@ -257,4 +282,3 @@ def _extract_unit_usd(reward, calibration=None):
     if in_record_unit is None:
         return None, "missing_risk_adjusted_semantics", None
     return in_record_unit, "explicit_usd_unit_calibration", "source_reward_fields"
-

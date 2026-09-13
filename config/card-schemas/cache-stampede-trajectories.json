@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "dataset": "cache-stampede-trajectories",
+  "issues": [57],
+  "note": "In the audited 3456-record snapshot through round 1728, `meta` is a key-bag with five distinct key sets: 2800 records carry only `{factory, generator, round}`, so the datasets-server infers that thin shape from the first shard and then cannot cast later records that add up to nine more keys, which leaves `viewer` / `search` / `filter` / `statistics` false on `/is-valid` even though the streaming preview works. `reward` (five key sets) and `tool_call.args` (keys per tool) vary the same way. The viewer union is declared by hand without treating those audited totals as permanent or rewriting a historical raw record.",
+  "config_name": "default",
+  "split": "train",
+  "data_files": ["data/raw/batch-*.jsonl"],
+  "features": [
+    {"name": "id", "dtype": "string"},
+    {"name": "goal", "dtype": "string"},
+    {
+      "name": "plan",
+      "dtype": "string",
+      "optional": true,
+      "note": "present and non-empty throughout the audited 3456-record snapshot through round 1728; marked card-optional because future shards matched by the publication wildcard are not constrained to preserve that historical universal"
+    },
+    {
+      "name": "steps",
+      "list": [
+        {"name": "n", "dtype": "int64"},
+        {"name": "decision_basis", "dtype": "string"},
+        {
+          "name": "tool_call",
+          "struct": [
+            {"name": "name", "dtype": "string"},
+            {
+              "name": "args",
+              "dtype": "json",
+              "note": "always an object; keys differ per tool (`command`, `path`, `old`, `new`, `contents`, `pattern`, `url`, `args`), so no single struct fits"
+            }
+          ]
+        },
+        {"name": "observation", "dtype": "string"},
+        {
+          "name": "reflection",
+          "dtype": "string",
+          "optional": true,
+          "note": "present on 5029 of 50403 steps in the audited 3456-record snapshot through round 1728"
+        }
+      ]
+    },
+    {"name": "outcome", "dtype": "string"},
+    {
+      "name": "reward",
+      "dtype": "json",
+      "note": "key-bag in the audited 3456-record snapshot through round 1728 with five key sets: `success`, `tests_passed` and `cost_steps` on every record, `plan_changes` on 3448, `handoff` and `xfailed` on 1728 each, `retries` on 4"
+    },
+    {
+      "name": "meta",
+      "dtype": "json",
+      "note": "key-bag in the audited 3456-record snapshot through round 1728 with five key sets: `factory`, `generator`, `round` on every record, plus `kind` on 656, `mechanic` and `product` on 638 each, `plant` on 576, `sim_or_real` on 566, and `designed`, `domain`, `stack`, `seed` on 8"
+    }
+  ],
+  "disclosures": [
+    "In the audited 3456-record snapshot through round 1728, every record is stamped `factory: cache-stampede-factory`, `generator: grok-4.6`; the audited rounds 1 to 1728 have no gaps or parse failures.",
+    "In the audited 3456-record snapshot through round 1728, 387 of the 3430 `cst-*` records carry `leftover` in the record id. That is this factory's own advertised cache leftover-key mechanic, not a foreign dump and not a MIXED-kind signal; the leftover-in-id census already owns those rows.",
+    {
+      "summary": "In the audited 3456-record snapshot through round 1728, 18 records are dest-stamped foreign leftover-mill payload: 10 GraphQL `gql-*` rows in `batch-r1405` to `batch-r1409` and 8 container-build `dbc-*-l3` rows in `batch-r1410` to `batch-r1413`. They are the 18 records this snapshot contributes to the 18/12/10 dest-stamped census, are kept exactly as generated, and are not re-filed here.",
+      "ids": [
+        "gql-r1405-postgraphile-wrap-resolver-after-plugin-order",
+        "gql-r1405-postgraphile-drop-wrap",
+        "gql-r1406-dgraph-custom-http-after-dql-rewrite",
+        "gql-r1406-dgraph-drop-custom",
+        "gql-r1407-fauna-abac-predicate-after-role-doc",
+        "gql-r1407-fauna-drop-predicates",
+        "gql-r1408-appsync-cachekey-after-identity-swap",
+        "gql-r1408-appsync-disable-cache-keys",
+        "gql-r1409-neo4j-relationship-connect-after-type",
+        "gql-r1409-neo4j-drop-connect",
+        "dbc-r1410-bk-cachemount-id-alias-l3",
+        "dbc-r1410-bk-cachemount-sharing-private-l3",
+        "dbc-r1411-nydus-rafs-blobcache-digest-l3",
+        "dbc-r1411-nydus-prefetch-table-stale-l3",
+        "dbc-r1412-stargz-toc-offset-l3",
+        "dbc-r1412-stargz-prefetch-list-l3",
+        "dbc-r1413-overlayfs-diffid-whiteout-l3",
+        "dbc-r1413-overlayfs-opaque-xattr-l3"
+      ],
+      "issues": [44]
+    },
+    {
+      "summary": "In the audited 3456-record snapshot through round 1728, 8 further records in `batch-r1401` to `batch-r1404` are search-index `leftover3c` templates (`sir-*`) dest-stamped to `cache-stampede-factory`. They carry that snapshot's only `meta.designed` / `meta.domain` / `meta.stack` / `meta.seed` keys and `reward.retries` keys. They are disclosed here rather than filed as a separate leftover-mill issue.",
+      "ids": [
+        "sir-r1401-manticore-rt-leftover3c-rebuild",
+        "sir-r1401-manticore-drop-rt-leftover3c-handoff",
+        "sir-r1402-zinc-alias-leftover3c-rebuild",
+        "sir-r1402-zinc-drop-index-leftover3c-handoff",
+        "sir-r1403-opensearch-reindex-leftover3c-rebuild",
+        "sir-r1403-opensearch-drop-reindex-leftover3c-handoff",
+        "sir-r1404-solr-core-leftover3c-rebuild",
+        "sir-r1404-solr-drop-core-leftover3c-handoff"
+      ],
+      "issues": [57]
+    },
+    "In the audited 3456-record snapshot through round 1728, `meta.kind` is not a single vocabulary: it is `designed` on 638 records, `episode` on the 8 dest-stamped `sir-*` rows, and the outcome labels `success` (5) and `partial` (5) on the 10 dest-stamped `gql-*` rows, and it is absent on 2800 records. `meta.sim_or_real` is likewise not a sim/real discriminator: its only value on all 566 records that carry it is `designed`. Both are published as generated and are readable because `meta` is declared `json`.",
+    "In the audited 3456-record snapshot through round 1728, the 8 records whose `reward` omits `plan_changes` are all dest-stamped `dbc-*-l3` mill rows; every `cst-*` episode in that snapshot carries `plan_changes`.",
+    "Every one of the 50403 steps in the audited 3456-record snapshot through round 1728 publishes a public `decision_basis`. There are no hidden `thought` or `internal_reasoning` fields in that snapshot."
+  ]
+}

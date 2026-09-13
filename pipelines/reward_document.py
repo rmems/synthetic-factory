@@ -6,7 +6,52 @@ from __future__ import annotations
 import copy
 from collections import Counter
 
-from reward_mapping import (
+if __package__:
+    from .reward_mapping import (
+        ARITHMETIC_STATUSES,
+        COMPONENT_DISPOSITIONS,
+        MAGNITUDE_COMPARABLE,
+        ONTOLOGY_VERSION,
+        POLICY_DOCUMENT_TYPE,
+        SHA256_RE,
+        SIGN_ORDER_ONLY,
+        MagnitudeNotComparable,
+        RewardOntologyError,
+        _canonical_record_id,
+        _decimal,
+        _json_number,
+        _reject_nonfinite_numbers,
+        _sha256,
+    )
+    from .reward_policy import (
+        ANNOTATION_FIELD,
+        ARITHMETIC_METHODS,
+        CANONICAL_SCOPE,
+        CANONICAL_UNIT,
+        CANONICAL_UNIT_USD,
+        COMPARABILITY_CLASSES,
+        DEFAULT_TOLERANCE,
+        MAGNITUDE_AGGREGATION,
+        REWARD_KEYS,
+        SOURCE_VOCABULARY,
+        validate_conversion_policy,
+    )
+    from .reward_units import assess_arithmetic, _normalize_calibration
+    from .reward_ontology import (
+        _annotation_scope,
+        _classify,
+        _layout_scope,
+        _require_catalogued_reasons,
+        _require_declared_rule,
+        _require_declared_verdict,
+        _set_pointer,
+        _walk_rewards,
+        disposition_for_observed_types,
+        reward_signature,
+        value_type,
+    )
+else:
+    from reward_mapping import (
     ARITHMETIC_STATUSES,
     COMPONENT_DISPOSITIONS,
     MAGNITUDE_COMPARABLE,
@@ -21,8 +66,8 @@ from reward_mapping import (
     _json_number,
     _reject_nonfinite_numbers,
     _sha256,
-)
-from reward_policy import (
+    )
+    from reward_policy import (
     ANNOTATION_FIELD,
     ARITHMETIC_METHODS,
     CANONICAL_SCOPE,
@@ -34,9 +79,9 @@ from reward_policy import (
     REWARD_KEYS,
     SOURCE_VOCABULARY,
     validate_conversion_policy,
-)
-from reward_units import assess_arithmetic, _normalize_calibration
-from reward_ontology import (
+    )
+    from reward_units import assess_arithmetic, _normalize_calibration
+    from reward_ontology import (
     _annotation_scope,
     _classify,
     _layout_scope,
@@ -48,7 +93,7 @@ from reward_ontology import (
     disposition_for_observed_types,
     reward_signature,
     value_type,
-)
+    )
 
 
 def _require_unique_string_codes(reasons, *, empty_message):
@@ -562,5 +607,4 @@ def reward_census(records, *, scope_keys=None):
         "component_keys": component_keys,
         "shapes": shape_rows,
     }
-
 
