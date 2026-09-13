@@ -1,0 +1,26 @@
+pipelines/code_repair/validation.py
+  s_7b5b54024fd3be::t_2eae9b46a27d47 6,116
+pipelines/code_repair/row_validation.py
+  s_7b5b54024fd3be::t_ac099506501576 57-60
+  s_7b5b54024fd3be::t_85580e0c22aed8 64-70,73-80,96-99
+  s_7b5b54024fd3be::t_2eae9b46a27d47 1-56,61-63,71-72,81-95,100-103
+tests/test_code_repair_emitted_evidence.py
+  s_7b5b54024fd3be::t_d0474397bd4bc7 66-76,78-88,96-110,135
+  s_7b5b54024fd3be::t_3c72b3e5c2f54e 77,89-95,111-133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0df5d69c634adcd10cd2dc85112dd3b66fee905f",
+  "prompts": {},
+  "sessions": {
+    "s_7b5b54024fd3be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a098e2-96c1-71b1-9d42-7aa126de2a8a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
