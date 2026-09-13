@@ -7,7 +7,8 @@ the small graph/stimulus builders from here.
 """
 
 import json
-import subprocess
+# Required only for the fixed-argv CLI subprocess in `cli` below.
+import subprocess  # nosec B404
 import sys
 from pathlib import Path
 
@@ -39,7 +40,10 @@ def fixture_records():
 
 
 def cli(args):
-    return subprocess.run(
+    # argv is this interpreter and the repo's own CLI path; `args` are the
+    # literal flags the calling test wrote, never input from outside the
+    # test, and no shell is enabled.
+    return subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
         [sys.executable, str(PIPELINES / "nir_equivalence.py"), *args],
         capture_output=True,
         text=True,

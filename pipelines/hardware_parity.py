@@ -459,36 +459,63 @@ def _rectangular(grid):
     return width > 0 and all(len(row) == width for row in grid)
 
 
-def spike_bitmap_metrics(software, hardware):
-    """Cell-by-cell agreement over the (timestep, neuron) spike bitmap."""
-    if not software or not hardware:
-        return {"comparable": False, "reason": "empty spike grid"}
+def _spike_grid_shape_reason(software, hardware):
+    """Why two spike grids cannot be laid over each other, or None if they can.
+
+    Shape only. An empty grid is reported separately by the bitmap metric
+    under its own reason, so the caller decides whether emptiness deserves a
+    distinct report before asking about shape.
+    """
     if not _rectangular(software) or not _rectangular(hardware):
-        return {"comparable": False, "reason": "spike grid is ragged or malformed"}
+        return "spike grid is ragged or malformed"
     if len(software) != len(hardware) or len(software[0]) != len(hardware[0]):
-        return {"comparable": False, "reason": "spike grids have different shapes"}
-    steps = len(software)
-    neurons = len(software[0])
+        return "spike grids have different shapes"
+    return None
+
+
+def _spike_cells(software, hardware):
+    """The two grids paired cell by cell in (timestep, neuron) order.
+
+    Both grids are rectangular and identically shaped by the time this runs,
+    so the pairing visits every cell exactly once, in the order nested
+    (step, neuron) indexing would have visited them.
+    """
+    for software_row, hardware_row in zip(software, hardware):
+        yield from zip(software_row, hardware_row)
+
+
+def _spike_cell_tally(software, hardware):
+    """Per-cell agreement counts over two identically shaped spike grids."""
     matches = 0
     false_positive = 0
     false_negative = 0
     both = 0
     either = 0
-    for step in range(steps):
-        for neuron in range(neurons):
-            a = software[step][neuron]
-            b = hardware[step][neuron]
-            if a == b:
-                matches += 1
-            elif b and not a:
-                false_positive += 1
-            else:
-                false_negative += 1
-            if a or b:
-                either += 1
-            if a and b:
-                both += 1
-    cells = steps * neurons
+    for a, b in _spike_cells(software, hardware):
+        if a == b:
+            matches += 1
+        elif b and not a:
+            false_positive += 1
+        else:
+            false_negative += 1
+        if a or b:
+            either += 1
+        if a and b:
+            both += 1
+    return matches, false_positive, false_negative, both, either
+
+
+def spike_bitmap_metrics(software, hardware):
+    """Cell-by-cell agreement over the (timestep, neuron) spike bitmap."""
+    if not software or not hardware:
+        return {"comparable": False, "reason": "empty spike grid"}
+    reason = _spike_grid_shape_reason(software, hardware)
+    if reason is not None:
+        return {"comparable": False, "reason": reason}
+    matches, false_positive, false_negative, both, either = _spike_cell_tally(
+        software, hardware
+    )
+    cells = len(software) * len(software[0])
     return {
         "comparable": True,
         "cells": cells,
@@ -505,10 +532,9 @@ def spike_bitmap_metrics(software, hardware):
 
 def timing_metrics(software, hardware, dt_ms):
     """First-spike timing error over neurons that fired on both sides."""
-    if not _rectangular(software) or not _rectangular(hardware):
-        return {"comparable": False, "reason": "spike grid is ragged or malformed"}
-    if len(software) != len(hardware) or len(software[0]) != len(hardware[0]):
-        return {"comparable": False, "reason": "spike grids have different shapes"}
+    reason = _spike_grid_shape_reason(software, hardware)
+    if reason is not None:
+        return {"comparable": False, "reason": reason}
     neurons = len(software[0])
     soft_first = _first_spike_steps(software, neurons)
     hard_first = _first_spike_steps(hardware, neurons)
@@ -647,8 +673,8 @@ def repeatability_metrics(software_run, hardware_run):
     }
 
 
-def compute_parity(scenario, software_run, hardware_run):
-    """All parity metrics for one paired run, plus the verdict they support."""
+def _parity_metrics(scenario, software_run, hardware_run):
+    """Every parity measurement for one paired run, before any verdict."""
     dt_ms = scenario["stimulus"]["dt_ms"]
     bitmap = spike_bitmap_metrics(software_run.get("spikes"), hardware_run.get("spikes"))
     timing = timing_metrics(
@@ -659,49 +685,16 @@ def compute_parity(scenario, software_run, hardware_run):
     repeatability = repeatability_metrics(software_run, hardware_run)
     software_action = software_run.get("action", {})
     hardware_action = hardware_run.get("action", {})
-    action = {
-        "software": software_action.get("label"),
-        "deployment": hardware_action.get("label"),
-        "software_counts": software_action.get("counts"),
-        "deployment_counts": hardware_action.get("counts"),
-        "agree": software_action.get("label") == hardware_action.get("label"),
-        "decode_rule": software_action.get("rule"),
-    }
-
-    reason_codes = []
-    if not bitmap.get("comparable") or bitmap.get("hamming_distance", 1) > 0:
-        reason_codes.append("SPIKE_BITMAP_DISAGREEMENT")
-    if not action["agree"]:
-        reason_codes.append("ACTION_DISAGREEMENT")
-    if membrane.get("observable") and not membrane.get("within_tolerance"):
-        reason_codes.append("MEMBRANE_DIVERGENCE")
-    if not membrane.get("observable") and membrane.get("reason_code"):
-        reason_codes.append(membrane["reason_code"])
-    if quantization.get("saturated_parameter_count") or quantization.get(
-        "runtime_saturation_events"
-    ):
-        reason_codes.append("QUANTIZATION_SATURATION")
-    if not repeatability["hardware_repeatability_measured"]:
-        reason_codes.append("REPEATABILITY_UNPROVEN")
-    if not (hardware_run.get("latency") or {}).get("measured"):
-        reason_codes.append("LATENCY_NOT_MEASURED")
-    if hardware_run.get("execution_target") not in PHYSICAL_TARGETS:
-        reason_codes.append("ORACLE_UNAVAILABLE")
-    else:
-        # A physical run is not reproducible from software -- that is why it
-        # was run on hardware. Its traces therefore rest on the integrity of
-        # the capture and on the board provenance, and were not re-derived.
-        # This code makes that limitation visible on every hardware-claiming
-        # record instead of leaving such a record looking unqualified.
-        reason_codes.append("DEPLOYMENT_TRACE_NOT_REDERIVABLE")
-
-    behavioural_mismatch = (
-        "SPIKE_BITMAP_DISAGREEMENT" in reason_codes or "ACTION_DISAGREEMENT" in reason_codes
-    )
-    verdict = contract.VERDICT_MISMATCH if behavioural_mismatch else contract.VERDICT_MATCH
-    parity = {
+    return {
         "spike_bitmap": bitmap,
-        "action": action,
+        "action": {
+            "software": software_action.get("label"),
+            "deployment": hardware_action.get("label"),
+            "software_counts": software_action.get("counts"),
+            "deployment_counts": hardware_action.get("counts"),
+            "agree": software_action.get("label") == hardware_action.get("label"),
+            "decode_rule": software_action.get("rule"),
+        },
         "timing": timing,
         "membrane": membrane,
         "quantization": quantization,
@@ -712,6 +705,63 @@ def compute_parity(scenario, software_run, hardware_run):
             "always carried as reason codes even when the verdict is `match`"
         ),
     }
+
+
+def _deployment_qualification_codes(repeatability, hardware_run):
+    """What the deployment side leaves unproven, whatever its traces show."""
+    codes = []
+    if not repeatability["hardware_repeatability_measured"]:
+        codes.append("REPEATABILITY_UNPROVEN")
+    if not (hardware_run.get("latency") or {}).get("measured"):
+        codes.append("LATENCY_NOT_MEASURED")
+    if hardware_run.get("execution_target") not in PHYSICAL_TARGETS:
+        codes.append("ORACLE_UNAVAILABLE")
+    else:
+        # A physical run is not reproducible from software -- that is why it
+        # was run on hardware. Its traces therefore rest on the integrity of
+        # the capture and on the board provenance, and were not re-derived.
+        # This code makes that limitation visible on every hardware-claiming
+        # record instead of leaving such a record looking unqualified.
+        codes.append("DEPLOYMENT_TRACE_NOT_REDERIVABLE")
+    return codes
+
+
+def _parity_reason_codes(parity, hardware_run):
+    """Every finding one paired run carries, in the order they are raised.
+
+    The two behavioural disagreements come first because the verdict is
+    drawn from them; the deployment qualifications that follow are carried
+    even on a `match`, so silence is never mistaken for evidence.
+    """
+    bitmap = parity["spike_bitmap"]
+    membrane = parity["membrane"]
+    quantization = parity["quantization"]
+    codes = []
+    if not bitmap.get("comparable") or bitmap.get("hamming_distance", 1) > 0:
+        codes.append("SPIKE_BITMAP_DISAGREEMENT")
+    if not parity["action"]["agree"]:
+        codes.append("ACTION_DISAGREEMENT")
+    if membrane.get("observable") and not membrane.get("within_tolerance"):
+        codes.append("MEMBRANE_DIVERGENCE")
+    if not membrane.get("observable") and membrane.get("reason_code"):
+        codes.append(membrane["reason_code"])
+    if quantization.get("saturated_parameter_count") or quantization.get(
+        "runtime_saturation_events"
+    ):
+        codes.append("QUANTIZATION_SATURATION")
+    return codes + _deployment_qualification_codes(
+        parity["repeatability"], hardware_run
+    )
+
+
+def compute_parity(scenario, software_run, hardware_run):
+    """All parity metrics for one paired run, plus the verdict they support."""
+    parity = _parity_metrics(scenario, software_run, hardware_run)
+    reason_codes = _parity_reason_codes(parity, hardware_run)
+    behavioural_mismatch = (
+        "SPIKE_BITMAP_DISAGREEMENT" in reason_codes or "ACTION_DISAGREEMENT" in reason_codes
+    )
+    verdict = contract.VERDICT_MISMATCH if behavioural_mismatch else contract.VERDICT_MATCH
     return parity, verdict, sorted(set(reason_codes))
 
 
@@ -2758,6 +2808,10 @@ def build_training_views(records, source="record"):
 
 # ── CLI ───────────────────────────────────────────────────────────────
 
+# Every subcommand marks a refusal on stderr with this prefix, so one grep
+# over the stream finds them all regardless of which subcommand ran.
+_ERROR_PREFIX = "ERROR:"
+
 
 def read_jsonl(path):
     records = []
@@ -2779,9 +2833,11 @@ def read_jsonl(path):
                     parse_float=contract.reject_nonfinite_float,
                 )
             )
+        # ValueError covers json.JSONDecodeError, which derives from it, and
+        # the non-finite/constant refusals the two parse hooks raise directly.
         # RecursionError: a syntactically valid but absurdly nested line must
         # be a line-level parse error, not a traceback that aborts the scan.
-        except (json.JSONDecodeError, ValueError, RecursionError) as exc:
+        except (ValueError, RecursionError) as exc:
             errors.append(f"{Path(path).name}:{lineno}: JSON parse error: {exc}")
     return records, errors
 
@@ -2855,7 +2911,7 @@ def _cmd_generate(args):
     errors = validate_records(records, source="generated")
     if errors:
         for error in errors:
-            print("ERROR:", error, file=sys.stderr)
+            print(_ERROR_PREFIX, error, file=sys.stderr)
         print("hardware_parity: refusing to write invalid records", file=sys.stderr)
         return 1
     try:
@@ -2879,7 +2935,7 @@ def _cmd_validate(records, parse_errors, source):
     errors = parse_errors + validate_records(records, source=source)
     print(json.dumps({"records": len(records), "errors": len(errors)}, indent=2))
     for error in errors:
-        print("ERROR:", error, file=sys.stderr)
+        print(_ERROR_PREFIX, error, file=sys.stderr)
     return 1 if errors else 0
 
 
@@ -2887,7 +2943,7 @@ def _cmd_training_view(records, parse_errors, source):
     views, errors = build_training_views(records, source=source)
     if parse_errors or errors:
         for error in parse_errors + errors:
-            print("ERROR:", error, file=sys.stderr)
+            print(_ERROR_PREFIX, error, file=sys.stderr)
         return 1
     for view in views:
         print(json.dumps(view, sort_keys=True))

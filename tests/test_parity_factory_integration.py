@@ -7,7 +7,8 @@ layer in validate_run, and the deep layer in check_records.
 
 import copy
 import json
-import subprocess
+# Required only for the fixed-argv interpreter subprocesses below.
+import subprocess  # nosec B404
 import sys
 import tempfile
 import unittest
@@ -38,7 +39,10 @@ def _records(path):
 
 
 def _run(script, *args):
-    return subprocess.run(
+    # argv is this interpreter and a pipeline module under `PIPELINES`; the
+    # module name and `args` are the literals the calling test wrote, never
+    # input from outside the test, and no shell is enabled.
+    return subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
         [sys.executable, str(PIPELINES / script), *args],
         capture_output=True,
         text=True,
@@ -195,7 +199,9 @@ class DeepLayer(unittest.TestCase):
             "errors, _w, kind, _i = check_records.check_record(json.loads(line), 'pkg:1')\n"
             "print(json.dumps([kind, errors]))\n"
         )
-        result = subprocess.run(
+        # argv is this interpreter and the `code` text assembled just above
+        # from the committed fixture path; no shell is enabled.
+        result = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
             [sys.executable, "-c", code], cwd=REPO, capture_output=True, text=True
         )
         self.assertEqual(result.returncode, 0, result.stderr)

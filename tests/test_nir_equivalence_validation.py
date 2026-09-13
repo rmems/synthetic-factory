@@ -640,6 +640,12 @@ class Validation(unittest.TestCase):
             if item["status"] == nir.STATUS_EXECUTED
         )
         trace = entry["outputs"]["output_trace"]
+        # The exact comparison is the point, not a float check to relax: only a
+        # slot holding exactly 0.0 is numerically equal to the False put in its
+        # place below, so strict JSON typing is the only thing that can catch
+        # the substitution. A tolerance would pick a near-zero value whose
+        # replacement changes the number too, and a validator that never
+        # checked types would still pass this test.
         row_index, value_index = next(
             (row_index, value_index)
             for row_index, row in enumerate(trace)

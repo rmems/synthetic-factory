@@ -7,7 +7,8 @@ training views derived from them.
 import copy
 import json
 import os
-import subprocess
+# Required only for the fixed-argv interpreter subprocess below.
+import subprocess  # nosec B404
 import tempfile
 import unittest
 import sys
@@ -99,7 +100,10 @@ class RecordedCapturePath(unittest.TestCase):
                 "from neuro_oracle import RecordedCaptureAdapter;"
                 f"print(json.dumps(RecordedCaptureAdapter({str(fifo)!r}).availability()))"
             )
-            result = subprocess.run(
+            # argv is this interpreter and the `script` text assembled just
+            # above from `PIPELINES` and the FIFO this test created in its own
+            # temporary directory; no shell is enabled.
+            result = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
                 [sys.executable, "-c", script],
                 capture_output=True,
                 text=True,

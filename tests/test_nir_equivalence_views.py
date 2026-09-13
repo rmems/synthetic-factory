@@ -109,6 +109,13 @@ class TrainingViews(unittest.TestCase):
         ]
         self.assertTrue(retained and len(retained) < len(records))
         views, errors = nir.build_training_views(retained, source="filtered")
+        # The projection itself is clean -- one view per retained record, none
+        # of them flagged -- so the catalog check is the only thing that can
+        # reject this batch.
+        self.assertEqual(
+            [view["id"] for view in views], [record["id"] for record in retained]
+        )
+        self.assertFalse([view["id"] for view in views if view["parity_failed"]])
         self.assertTrue(
             any(
                 "does not cover the scenario catalog" in error

@@ -676,38 +676,7 @@ class RecordedCaptureAdapter(OracleAdapter):
         self._capture = None
         self._error = None
         try:
-            path_metadata = self.capture_path.lstat()
-            if not stat.S_ISREG(path_metadata.st_mode):
-                raise OSError("capture path is not a regular file")
-            if path_metadata.st_size > MAX_CAPTURE_BYTES:
-                raise OSError(
-                    f"capture is {path_metadata.st_size} bytes; limit is "
-                    f"{MAX_CAPTURE_BYTES}"
-                )
-            flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(
-                os, "O_NOFOLLOW", 0
-            )
-            descriptor = os.open(self.capture_path, flags)
-            try:
-                metadata = os.fstat(descriptor)
-                if not stat.S_ISREG(metadata.st_mode):
-                    raise OSError("capture path is not a regular file")
-                if (metadata.st_dev, metadata.st_ino) != (
-                    path_metadata.st_dev,
-                    path_metadata.st_ino,
-                ):
-                    raise OSError("capture path changed while it was being opened")
-                if metadata.st_size > MAX_CAPTURE_BYTES:
-                    raise OSError(
-                        f"capture is {metadata.st_size} bytes; limit is "
-                        f"{MAX_CAPTURE_BYTES}"
-                    )
-                with os.fdopen(descriptor, "rb", closefd=False) as handle:
-                    payload = handle.read(MAX_CAPTURE_BYTES + 1)
-                if len(payload) > MAX_CAPTURE_BYTES:
-                    raise OSError(f"capture exceeds {MAX_CAPTURE_BYTES} bytes")
-            finally:
-                os.close(descriptor)
+            payload = self._read_capture_bytes()
             self._capture = json.loads(
                 payload.decode("utf-8"),
                 parse_constant=_reject_json_constant,
@@ -720,18 +689,76 @@ class RecordedCaptureAdapter(OracleAdapter):
                 "CAPTURE_UNREADABLE",
                 f"cannot read {self.capture_path}: {exc}",
             )
-        except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+        # ValueError covers json.JSONDecodeError and UnicodeDecodeError, both
+        # of which derive from it, along with the refusals the two parse hooks
+        # raise directly for non-standard and non-finite numbers.
+        except ValueError as exc:
             self._error = ("CAPTURE_UNREADABLE", str(exc))
         if self._capture is not None:
-            if not isinstance(self._capture, dict):
-                self._error = ("CAPTURE_UNREADABLE", "capture must be a JSON object")
-            else:
-                self.execution_target = self._capture.get("execution_target")
-                if self.execution_target not in EXECUTION_TARGETS:
-                    self._error = (
-                        "CAPTURE_TARGET_UNKNOWN",
-                        f"execution_target {self.execution_target!r} is not a known target",
-                    )
+            self._bind_execution_target()
+
+    def _read_capture_bytes(self):
+        """The capture file's bytes, read without trusting the path.
+
+        The path is stat'ed before it is opened and the descriptor is proved
+        to be that same file afterwards; every refusal here is an OSError, so
+        the caller reports one CAPTURE_UNREADABLE reason for all of them.
+        """
+        path_metadata = self.capture_path.lstat()
+        if not stat.S_ISREG(path_metadata.st_mode):
+            raise OSError("capture path is not a regular file")
+        if path_metadata.st_size > MAX_CAPTURE_BYTES:
+            raise OSError(
+                f"capture is {path_metadata.st_size} bytes; limit is "
+                f"{MAX_CAPTURE_BYTES}"
+            )
+        flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(
+            os, "O_NOFOLLOW", 0
+        )
+        descriptor = os.open(self.capture_path, flags)
+        try:
+            return self._read_opened_capture(descriptor, path_metadata)
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
+    def _read_opened_capture(descriptor, path_metadata):
+        """Bytes from a descriptor proved to be the file that was stat'ed.
+
+        `path_metadata` is what the path claimed before the open, so a file
+        swapped between the two calls -- for a symlink, a device, or a larger
+        file -- is refused rather than read. The read itself stays bounded.
+        """
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise OSError("capture path is not a regular file")
+        if (metadata.st_dev, metadata.st_ino) != (
+            path_metadata.st_dev,
+            path_metadata.st_ino,
+        ):
+            raise OSError("capture path changed while it was being opened")
+        if metadata.st_size > MAX_CAPTURE_BYTES:
+            raise OSError(
+                f"capture is {metadata.st_size} bytes; limit is "
+                f"{MAX_CAPTURE_BYTES}"
+            )
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            payload = handle.read(MAX_CAPTURE_BYTES + 1)
+        if len(payload) > MAX_CAPTURE_BYTES:
+            raise OSError(f"capture exceeds {MAX_CAPTURE_BYTES} bytes")
+        return payload
+
+    def _bind_execution_target(self):
+        """Adopt the target the parsed capture declares, refusing an unknown one."""
+        if not isinstance(self._capture, dict):
+            self._error = ("CAPTURE_UNREADABLE", "capture must be a JSON object")
+            return
+        self.execution_target = self._capture.get("execution_target")
+        if self.execution_target not in EXECUTION_TARGETS:
+            self._error = (
+                "CAPTURE_TARGET_UNKNOWN",
+                f"execution_target {self.execution_target!r} is not a known target",
+            )
 
     def availability(self):
         if self._error:
@@ -1052,7 +1079,7 @@ def availability_report(env=None):
     return report
 
 
-def main(argv=None):
+def main():
     """``python3 pipelines/neuro_oracle.py`` prints the availability report."""
     print(json.dumps(availability_report(), indent=2, sort_keys=True))
     return 0

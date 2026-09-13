@@ -227,7 +227,9 @@ def _roundtrip_with_codec(graph, serializer, parser):
         second = serializer(reparsed)
         before = structural_digest(graph)
         after = structural_digest(reparsed)
-    except (json.JSONDecodeError, GraphError, TypeError, ValueError) as exc:
+    # GraphError and json.JSONDecodeError are ValueError subclasses, so a
+    # malformed graph and an unparseable payload land in this arm too.
+    except (TypeError, ValueError) as exc:
         return {
             "parse_ok": False,
             "canonical_stable": False,
@@ -583,7 +585,8 @@ class UnavailableRuntime:
             "detail": f"{self.name} is not installed in this environment; {self.detail}",
         }
 
-    def execute(self, graph, stimulus):
+    def execute(self, _graph, _stimulus):
+        """Refuse, with the probe's reason code. Signature mirrors the runtime protocol."""
         status = self.availability()
         raise RuntimeUnavailable(self.name, status["reason_code"], status["detail"])
 
@@ -1177,76 +1180,18 @@ def relevant_conventions(graph, entries):
 def compare_runtimes(scenario, entries):
     """Compare every executed runtime pairwise and classify what differs."""
     executed = _executed(entries)
-    unsupported = [
-        {
-            "runtime": entry["runtime"],
-            "reason_code": entry.get("reason_code"),
-            "node": entry.get("unsupported_node"),
-            "node_type": entry.get("unsupported_type"),
-            "detail": entry.get("detail"),
-        }
-        for entry in entries
-        if entry["status"] == STATUS_UNSUPPORTED
-    ]
-    unavailable = [
-        {
-            "runtime": entry["runtime"],
-            "runtime_class": entry["runtime_class"],
-            "reason_code": entry.get("reason_code"),
-            "detail": entry.get("detail"),
-        }
-        for entry in entries
-        if entry["status"] == STATUS_UNAVAILABLE
-    ]
-
-    roundtrip_block = {
-        "per_runtime": {
-            entry["runtime"]: entry.get("roundtrip")
-            for entry in entries
-            if entry.get("roundtrip") is not None
-        },
-    }
-    roundtrip_block["agree"] = all(
-        value and value.get("parse_ok") and value.get("canonical_stable")
-        and value.get("structure_stable")
-        for value in roundtrip_block["per_runtime"].values()
-    ) if roundtrip_block["per_runtime"] else False
-
-    structure_digests = {
-        entry["runtime"]: (entry.get("roundtrip") or {}).get("structure_digest")
-        for entry in entries
-        if entry.get("roundtrip") is not None
-    }
-    structure_block = {
-        "digests": structure_digests,
-        "declared": scenario["structure_digest"],
-        "agree": (
-            len(set(structure_digests.values())) <= 1
-            and all(
-                value == scenario["structure_digest"] for value in structure_digests.values()
-            )
-        )
-        if structure_digests
-        else False,
-    }
-
-    pairs = []
-    for index_a in range(len(executed)):
-        for index_b in range(index_a + 1, len(executed)):
-            pairs.append(_compare_pair(executed[index_a], executed[index_b]))
-
+    unsupported = _unsupported_block(entries)
+    unavailable = _unavailable_block(entries)
+    roundtrip_block = _parse_write_parity(entries)
+    structure_block = _structure_parity(scenario, entries)
+    pairs = _executed_pairs(executed)
     delta = convention_delta(entries)
     output_agree = all(pair["agree"] for pair in pairs) if pairs else None
     state_agree = (
         all(pair["state_agree"] for pair in pairs) if pairs else None
     )
     relevant = relevant_conventions(scenario.get("graph"), entries)
-    candidate_causes = []
-    if output_agree is False or state_agree is False:
-        for item in delta:
-            code = CONVENTION_REASON.get(item["convention"])
-            if code and item["convention"] in relevant:
-                candidate_causes.append(code)
+    candidate_causes = _candidate_causes(delta, relevant, output_agree, state_agree)
 
     return {
         "executed_runtimes": [entry["runtime"] for entry in executed],
@@ -1282,6 +1227,97 @@ def compare_runtimes(scenario, entries):
     }
 
 
+def _unsupported_block(entries):
+    """Every runtime that refused a construct, with the construct it refused."""
+    return [
+        {
+            "runtime": entry["runtime"],
+            "reason_code": entry.get("reason_code"),
+            "node": entry.get("unsupported_node"),
+            "node_type": entry.get("unsupported_type"),
+            "detail": entry.get("detail"),
+        }
+        for entry in entries
+        if entry["status"] == STATUS_UNSUPPORTED
+    ]
+
+
+def _unavailable_block(entries):
+    """Every runtime that never ran, with the class of evidence it would have been."""
+    return [
+        {
+            "runtime": entry["runtime"],
+            "runtime_class": entry["runtime_class"],
+            "reason_code": entry.get("reason_code"),
+            "detail": entry.get("detail"),
+        }
+        for entry in entries
+        if entry["status"] == STATUS_UNAVAILABLE
+    ]
+
+
+def _parse_write_parity(entries):
+    """Per-adapter parse/write evidence. No adapter reported it: no agreement."""
+    per_runtime = {
+        entry["runtime"]: entry.get("roundtrip")
+        for entry in entries
+        if entry.get("roundtrip") is not None
+    }
+    return {
+        "per_runtime": per_runtime,
+        "agree": all(
+            value and value.get("parse_ok") and value.get("canonical_stable")
+            and value.get("structure_stable")
+            for value in per_runtime.values()
+        ) if per_runtime else False,
+    }
+
+
+def _structure_parity(scenario, entries):
+    """Every adapter's post-roundtrip structure digest against the declared one."""
+    structure_digests = {
+        entry["runtime"]: (entry.get("roundtrip") or {}).get("structure_digest")
+        for entry in entries
+        if entry.get("roundtrip") is not None
+    }
+    return {
+        "digests": structure_digests,
+        "declared": scenario["structure_digest"],
+        "agree": (
+            len(set(structure_digests.values())) <= 1
+            and all(
+                value == scenario["structure_digest"] for value in structure_digests.values()
+            )
+        )
+        if structure_digests
+        else False,
+    }
+
+
+def _executed_pairs(executed):
+    """Every unordered pair of executed runtimes, in inventory order."""
+    return [
+        _compare_pair(executed[index_a], executed[index_b])
+        for index_a in range(len(executed))
+        for index_b in range(index_a + 1, len(executed))
+    ]
+
+
+def _candidate_causes(delta, relevant, output_agree, state_agree):
+    """Declared convention differences this graph could have diverged over.
+
+    A candidate explanation for an observed divergence, never a proven cause,
+    and empty while nothing has diverged.
+    """
+    if output_agree is not False and state_agree is not False:
+        return []
+    return [
+        CONVENTION_REASON[item["convention"]]
+        for item in delta
+        if item["convention"] in CONVENTION_REASON and item["convention"] in relevant
+    ]
+
+
 def _state_error(entry_a, entry_b):
     """Largest end-of-window membrane difference across shared nodes.
 
@@ -1311,37 +1347,9 @@ def _compare_pair(entry_a, entry_b):
     trace_a = (entry_a.get("outputs") or {}).get("output_trace")
     trace_b = (entry_b.get("outputs") or {}).get("output_trace")
     if not isinstance(trace_a, list) or not isinstance(trace_b, list):
-        return {
-            "a": entry_a.get("runtime"),
-            "b": entry_b.get("runtime"),
-            "agree": False,
-            "shape_match": False,
-            "spike_count_a": (entry_a.get("outputs") or {}).get("spike_count"),
-            "spike_count_b": (entry_b.get("outputs") or {}).get("spike_count"),
-            "digest_a": entry_a.get("output_digest"),
-            "digest_b": entry_b.get("output_digest"),
-            "state_comparable": False,
-            "max_abs_state_error": None,
-            "state_agree": False,
-            "first_divergent_step": 0,
-            "max_abs_error": None,
-            "reason_codes": ["COMPARISON_MISMATCH"],
-        }
-    state_error, state_comparable = _state_error(entry_a, entry_b)
-    pair = {
-        "a": entry_a["runtime"],
-        "b": entry_b["runtime"],
-        "spike_count_a": entry_a["outputs"]["spike_count"],
-        "spike_count_b": entry_b["outputs"]["spike_count"],
-        "digest_a": entry_a["output_digest"],
-        "digest_b": entry_b["output_digest"],
-        "state_comparable": state_comparable,
-        "max_abs_state_error": state_error,
-        "state_agree": bool(state_comparable and state_error <= NUMERIC_TOL),
-    }
-    if len(trace_a) != len(trace_b) or (
-        trace_a and trace_b and len(trace_a[0]) != len(trace_b[0])
-    ):
+        return _incomparable_pair(entry_a, entry_b)
+    pair = _pair_identity(entry_a, entry_b)
+    if _trace_shapes_differ(trace_a, trace_b):
         pair.update(
             {
                 "agree": False,
@@ -1352,29 +1360,9 @@ def _compare_pair(entry_a, entry_b):
             }
         )
         return pair
-    first_divergent = None
-    max_error = 0.0
-    for step, (row_a, row_b) in enumerate(zip(trace_a, trace_b)):
-        for value_a, value_b in zip(row_a, row_b):
-            error = abs(value_a - value_b)
-            max_error = max(max_error, error)
-            if error > NUMERIC_TOL and first_divergent is None:
-                first_divergent = step
-    reason_codes = []
-    events_a = entry_a["outputs"].get("spike_events")
-    events_b = entry_b["outputs"].get("spike_events")
-    events_agree = events_a == events_b
-    if not events_agree:
-        reason_codes.append("DIVERGENCE_EVENT_STREAM")
-    if pair["spike_count_a"] != pair["spike_count_b"]:
-        reason_codes.append("DIVERGENCE_SPIKE_COUNT")
-    if max_error > NUMERIC_TOL:
-        reason_codes.append("DIVERGENCE_NUMERIC_TOLERANCE")
-    # Internal state divergence is reported but does not by itself make the
-    # verdict a mismatch: the verdict is about the event stream that leaves the
-    # graph, which is what a downstream consumer sees.
-    if not pair["state_agree"]:
-        reason_codes.append("DIVERGENCE_INTERNAL_STATE")
+    first_divergent, max_error = _trace_divergence(trace_a, trace_b)
+    events_agree = _spike_events_agree(entry_a, entry_b)
+    reason_codes = _pair_reason_codes(pair, events_agree, max_error)
     behavioural = [
         code for code in reason_codes if code != "DIVERGENCE_INTERNAL_STATE"
     ]
@@ -1394,26 +1382,90 @@ def _compare_pair(entry_a, entry_b):
     return pair
 
 
+def _incomparable_pair(entry_a, entry_b):
+    """A pair one side of which has no usable trace: reported, never dropped."""
+    return {
+        "a": entry_a.get("runtime"),
+        "b": entry_b.get("runtime"),
+        "agree": False,
+        "shape_match": False,
+        "spike_count_a": (entry_a.get("outputs") or {}).get("spike_count"),
+        "spike_count_b": (entry_b.get("outputs") or {}).get("spike_count"),
+        "digest_a": entry_a.get("output_digest"),
+        "digest_b": entry_b.get("output_digest"),
+        "state_comparable": False,
+        "max_abs_state_error": None,
+        "state_agree": False,
+        "first_divergent_step": 0,
+        "max_abs_error": None,
+        "reason_codes": ["COMPARISON_MISMATCH"],
+    }
+
+
+def _pair_identity(entry_a, entry_b):
+    """Runtime names, spike counts, output digests, and end-of-window state."""
+    state_error, state_comparable = _state_error(entry_a, entry_b)
+    return {
+        "a": entry_a["runtime"],
+        "b": entry_b["runtime"],
+        "spike_count_a": entry_a["outputs"]["spike_count"],
+        "spike_count_b": entry_b["outputs"]["spike_count"],
+        "digest_a": entry_a["output_digest"],
+        "digest_b": entry_b["output_digest"],
+        "state_comparable": state_comparable,
+        "max_abs_state_error": state_error,
+        "state_agree": bool(state_comparable and state_error <= NUMERIC_TOL),
+    }
+
+
+def _trace_shapes_differ(trace_a, trace_b):
+    """Whether the two traces disagree on window length or channel width."""
+    return bool(
+        len(trace_a) != len(trace_b)
+        or (trace_a and trace_b and len(trace_a[0]) != len(trace_b[0]))
+    )
+
+
+def _trace_divergence(trace_a, trace_b):
+    """First step that diverges beyond tolerance, and the largest error seen."""
+    first_divergent = None
+    max_error = 0.0
+    for step, (row_a, row_b) in enumerate(zip(trace_a, trace_b)):
+        for value_a, value_b in zip(row_a, row_b):
+            error = abs(value_a - value_b)
+            max_error = max(max_error, error)
+            if error > NUMERIC_TOL and first_divergent is None:
+                first_divergent = step
+    return first_divergent, max_error
+
+
+def _spike_events_agree(entry_a, entry_b):
+    """Event streams are compared exactly; only numeric traces get a tolerance."""
+    return entry_a["outputs"].get("spike_events") == entry_b["outputs"].get(
+        "spike_events"
+    )
+
+
+def _pair_reason_codes(pair, events_agree, max_error):
+    """Every divergence this pair shows, before any verdict policy is applied."""
+    reason_codes = []
+    if not events_agree:
+        reason_codes.append("DIVERGENCE_EVENT_STREAM")
+    if pair["spike_count_a"] != pair["spike_count_b"]:
+        reason_codes.append("DIVERGENCE_SPIKE_COUNT")
+    if max_error > NUMERIC_TOL:
+        reason_codes.append("DIVERGENCE_NUMERIC_TOLERANCE")
+    # Internal state divergence is reported but does not by itself make the
+    # verdict a mismatch: the verdict is about the event stream that leaves the
+    # graph, which is what a downstream consumer sees.
+    if not pair["state_agree"]:
+        reason_codes.append("DIVERGENCE_INTERNAL_STATE")
+    return reason_codes
+
+
 def verdict_for(comparison):
     """Derive the verdict and observed reason codes from a comparison block."""
-    reason_codes = []
-    if comparison["unsupported"]:
-        reason_codes.append("UNSUPPORTED_CONSTRUCT")
-    if comparison["unavailable"]:
-        reason_codes.append("ORACLE_UNAVAILABLE")
-    if comparison["parse_write_parity"]["per_runtime"] and not comparison[
-        "parse_write_parity"
-    ]["agree"]:
-        for value in comparison["parse_write_parity"]["per_runtime"].values():
-            if value and value.get("reason_code"):
-                reason_codes.append(value["reason_code"])
-    if comparison["structure_parity"]["digests"] and not comparison["structure_parity"][
-        "agree"
-    ]:
-        reason_codes.append("STRUCTURE_DIGEST_MISMATCH")
-    for pair in comparison["output_parity"]["pairs"]:
-        reason_codes.extend(pair["reason_codes"])
-
+    reason_codes = _observed_reason_codes(comparison)
     if comparison["executed_count"] < 2:
         reason_codes.append("NO_EXECUTED_RUNTIME_PAIR")
         verdict = (
@@ -1431,6 +1483,34 @@ def verdict_for(comparison):
         contract.VERDICT_MATCH if agree else contract.VERDICT_MISMATCH,
         sorted(set(reason_codes)),
     )
+
+
+def _observed_reason_codes(comparison):
+    """Every reason code the comparison evidence itself reports, before policy."""
+    reason_codes = []
+    if comparison["unsupported"]:
+        reason_codes.append("UNSUPPORTED_CONSTRUCT")
+    if comparison["unavailable"]:
+        reason_codes.append("ORACLE_UNAVAILABLE")
+    reason_codes += _roundtrip_reason_codes(comparison["parse_write_parity"])
+    structure = comparison["structure_parity"]
+    if structure["digests"] and not structure["agree"]:
+        reason_codes.append("STRUCTURE_DIGEST_MISMATCH")
+    for pair in comparison["output_parity"]["pairs"]:
+        reason_codes.extend(pair["reason_codes"])
+    return reason_codes
+
+
+def _roundtrip_reason_codes(parse_write_parity):
+    """The codes the adapters themselves reported for a failed round trip."""
+    per_runtime = parse_write_parity["per_runtime"]
+    if not per_runtime or parse_write_parity["agree"]:
+        return []
+    return [
+        value["reason_code"]
+        for value in per_runtime.values()
+        if value and value.get("reason_code")
+    ]
 
 
 # ── Record construction ───────────────────────────────────────────────
@@ -1841,18 +1921,37 @@ def _check_stimulus_shape(stimulus, where):
     """Validate the execution window before any runtime indexes into it."""
     if not isinstance(stimulus, dict):
         return [f"{where}: scenario.stimulus must be an object [ENVELOPE_MALFORMED]"]
+    errors = _stimulus_header_errors(stimulus, where)
+    events = stimulus.get("events")
+    if not isinstance(events, list):
+        errors.append(
+            f"{where}: scenario.stimulus.events must be an array [ENVELOPE_MALFORMED]"
+        )
+        return errors
+    steps = stimulus.get("steps")
+    if isinstance(steps, int) and not isinstance(steps, bool) and len(events) != steps:
+        errors.append(
+            f"{where}: scenario.stimulus.steps disagrees with len(events) "
+            "[ENVELOPE_MALFORMED]"
+        )
+    channels = stimulus.get("channels")
+    for index, row in enumerate(events):
+        errors += _stimulus_row_errors(row, index, channels, where)
+    return errors
+
+
+def _stimulus_header_errors(stimulus, where):
+    """The stimulus name, encoding, and its two declared window dimensions."""
     errors = []
     name = stimulus.get("name")
-    encoding = stimulus.get("encoding")
     steps = stimulus.get("steps")
     channels = stimulus.get("channels")
-    events = stimulus.get("events")
     if not isinstance(name, str) or not name.strip():
         errors.append(
             f"{where}: scenario.stimulus.name must be a non-empty string "
             "[ENVELOPE_MALFORMED]"
         )
-    if encoding != "binary_event_grid":
+    if stimulus.get("encoding") != "binary_event_grid":
         errors.append(
             f"{where}: scenario.stimulus.encoding must be 'binary_event_grid' "
             "[ENVELOPE_MALFORMED]"
@@ -1867,41 +1966,35 @@ def _check_stimulus_shape(stimulus, where):
             f"{where}: scenario.stimulus.channels must be an integer >= 1 "
             "[ENVELOPE_MALFORMED]"
         )
-    if not isinstance(events, list):
-        errors.append(
-            f"{where}: scenario.stimulus.events must be an array [ENVELOPE_MALFORMED]"
-        )
-        return errors
-    if isinstance(steps, int) and not isinstance(steps, bool) and len(events) != steps:
-        errors.append(
-            f"{where}: scenario.stimulus.steps disagrees with len(events) "
+    return errors
+
+
+def _stimulus_row_errors(row, index, channels, where):
+    """One event row: an array of exactly `channels` finite numbers."""
+    if not isinstance(row, list):
+        return [
+            f"{where}: scenario.stimulus.events[{index}] must be an array "
             "[ENVELOPE_MALFORMED]"
+        ]
+    errors = []
+    if (
+        isinstance(channels, int)
+        and not isinstance(channels, bool)
+        and len(row) != channels
+    ):
+        errors.append(
+            f"{where}: scenario.stimulus.events[{index}] must have {channels} "
+            "channels [ENVELOPE_MALFORMED]"
         )
-    for index, row in enumerate(events):
-        if not isinstance(row, list):
-            errors.append(
-                f"{where}: scenario.stimulus.events[{index}] must be an array "
-                "[ENVELOPE_MALFORMED]"
-            )
-            continue
-        if (
-            isinstance(channels, int)
-            and not isinstance(channels, bool)
-            and len(row) != channels
-        ):
-            errors.append(
-                f"{where}: scenario.stimulus.events[{index}] must have {channels} "
-                "channels [ENVELOPE_MALFORMED]"
-            )
-        if any(
-            type(value) not in (int, float)
-            or (type(value) is float and not math.isfinite(value))
-            for value in row
-        ):
-            errors.append(
-                f"{where}: scenario.stimulus.events[{index}] must contain finite "
-                "numbers [ENVELOPE_MALFORMED]"
-            )
+    if any(
+        type(value) not in (int, float)
+        or (type(value) is float and not math.isfinite(value))
+        for value in row
+    ):
+        errors.append(
+            f"{where}: scenario.stimulus.events[{index}] must contain finite "
+            "numbers [ENVELOPE_MALFORMED]"
+        )
     return errors
 
 
@@ -1913,109 +2006,144 @@ def _reexecute_in_repo_runtimes(record, where):
     not in-repo cannot be re-executed here, and the record says so rather than
     pretending they were checked.
     """
-    errors = []
     scenario = record.get("scenario") or {}
     graph = scenario.get("graph")
     stimulus = scenario.get("stimulus")
     if not isinstance(graph, dict) or not isinstance(stimulus, dict):
         return [f"{where}: scenario.graph and scenario.stimulus are required"]
+    errors = []
     for entry in ((record.get("oracle") or {}).get("runtimes")) or []:
-        if not isinstance(entry, dict):
-            continue
-        runtime_name = entry.get("runtime")
-        runtime = (
-            _RUNTIME_BY_NAME.get(runtime_name)
-            if isinstance(runtime_name, str)
-            else None
+        runtime = _reexecutable_runtime(entry)
+        if runtime is not None:
+            label = f"{where}.oracle.runtimes[{entry.get('runtime')!r}]"
+            errors += _replay_entry_errors(runtime, entry, scenario, label)
+    return errors
+
+
+def _reexecutable_runtime(entry):
+    """The in-repo interpreter this entry names, or None when it names another.
+
+    An entry naming a runtime this validator cannot re-execute is left to
+    `_check_runtimes`, which is what refuses an unfalsifiable executed claim.
+    """
+    if not isinstance(entry, dict):
+        return None
+    runtime_name = entry.get("runtime")
+    if not isinstance(runtime_name, str):
+        return None
+    return _RUNTIME_BY_NAME.get(runtime_name)
+
+
+def _replay_entry_errors(runtime, entry, scenario, label):
+    """Re-run one in-repo runtime and hold its entry to what actually came back.
+
+    The caller has already established that `scenario` carries a graph and a
+    stimulus object.
+    """
+    graph = scenario["graph"]
+    try:
+        outputs = runtime.execute(graph, scenario["stimulus"])
+    except UnsupportedConstruct as exc:
+        return _unsupported_replay_errors(entry, exc, label) + _roundtrip_replay_errors(
+            runtime, entry, graph, label
         )
-        if runtime is None:
-            continue
-        label = f"{where}.oracle.runtimes[{entry.get('runtime')!r}]"
-        try:
-            outputs = runtime.execute(graph, stimulus)
-        except UnsupportedConstruct as exc:
-            if entry.get("status") != STATUS_UNSUPPORTED:
-                errors.append(
-                    f"{label}: runtime actually rejects this graph ({exc.node_type}) but "
-                    f"the record says {entry.get('status')!r} [UNSUPPORTED_NOT_DIAGNOSED]"
-                )
-            expected_diagnostic = {
-                "reason_code": "UNSUPPORTED_CONSTRUCT",
-                "unsupported_node": exc.node,
-                "unsupported_type": exc.node_type,
-                "detail": exc.detail,
-            }
-            for key, expected in expected_diagnostic.items():
-                if entry.get(key) != expected:
-                    errors.append(
-                        f"{label}: {key} recorded {entry.get(key)!r} but the runtime "
-                        f"reported {expected!r} [UNSUPPORTED_NOT_DIAGNOSED]"
-                    )
-            fresh_roundtrip = runtime.roundtrip_graph(graph)
-            if not contract.strict_json_equal(entry.get("roundtrip"), fresh_roundtrip):
-                errors.append(
-                    f"{label}: recorded parse/write parity does not match this runtime's "
-                    "adapter [ROUNDTRIP_STRUCTURE_MISMATCH]"
-                )
-            continue
-        except GraphError as exc:
-            errors.append(f"{label}: graph is not executable: {exc}")
-            continue
-        except (
-            KeyError,
-            TypeError,
-            ValueError,
-            IndexError,
-            AttributeError,
-            OverflowError,
-        ) as exc:
-            errors.append(f"{label}: scenario is not executable: {exc}")
-            continue
-        if entry.get("status") != STATUS_EXECUTED:
+    except GraphError as exc:
+        return [f"{label}: graph is not executable: {exc}"]
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        IndexError,
+        AttributeError,
+        OverflowError,
+    ) as exc:
+        return [f"{label}: scenario is not executable: {exc}"]
+    if entry.get("status") != STATUS_EXECUTED:
+        return [
+            f"{label}: runtime executes this graph but the record says "
+            f"{entry.get('status')!r} [RUNTIME_STATUS_UNKNOWN]"
+        ]
+    return _executed_replay_errors(entry, outputs, label) + _roundtrip_replay_errors(
+        runtime, entry, graph, label
+    )
+
+
+def _unsupported_replay_errors(entry, exc, label):
+    """A runtime that refuses the graph obliges the entry to say exactly that."""
+    errors = []
+    if entry.get("status") != STATUS_UNSUPPORTED:
+        errors.append(
+            f"{label}: runtime actually rejects this graph ({exc.node_type}) but "
+            f"the record says {entry.get('status')!r} [UNSUPPORTED_NOT_DIAGNOSED]"
+        )
+    expected_diagnostic = {
+        "reason_code": "UNSUPPORTED_CONSTRUCT",
+        "unsupported_node": exc.node,
+        "unsupported_type": exc.node_type,
+        "detail": exc.detail,
+    }
+    for key, expected in expected_diagnostic.items():
+        if entry.get(key) != expected:
             errors.append(
-                f"{label}: runtime executes this graph but the record says "
-                f"{entry.get('status')!r} [RUNTIME_STATUS_UNKNOWN]"
-            )
-            continue
-        recomputed = digest(outputs)
-        if entry.get("output_digest") != recomputed:
-            errors.append(
-                f"{label}: recorded output digest does not match a re-execution "
-                "[COMPARISON_MISMATCH]"
-            )
-        # The whole outputs object, not a trace+events subset: `spike_count`,
-        # `final_membrane`, and `recurrent_edges` also feed the comparison and
-        # attribution, so digesting a subset would leave the rest editable --
-        # and editing them deletes divergence diagnostics from a family whose
-        # entire product is divergence.
-        recorded_outputs = entry.get("outputs")
-        if isinstance(recorded_outputs, dict):
-            try:
-                recorded_digest = digest(recorded_outputs)
-            except (TypeError, ValueError, OverflowError) as exc:
-                errors.append(
-                    f"{label}: recorded outputs are not digestible: {exc} "
-                    "[COMPARISON_MISMATCH]"
-                )
-            else:
-                if entry.get("output_digest") != recorded_digest:
-                    errors.append(
-                        f"{label}: output_digest does not identify the recorded outputs "
-                        "[COMPARISON_MISMATCH]"
-                    )
-        if not contract.strict_json_equal(recorded_outputs, outputs):
-            errors.append(
-                f"{label}: recorded outputs do not match a re-execution under strict "
-                "JSON numeric typing [COMPARISON_MISMATCH]"
-            )
-        fresh_roundtrip = runtime.roundtrip_graph(graph)
-        if not contract.strict_json_equal(entry.get("roundtrip"), fresh_roundtrip):
-            errors.append(
-                f"{label}: recorded parse/write parity does not match this runtime's "
-                "adapter "
-                "[ROUNDTRIP_STRUCTURE_MISMATCH]"
+                f"{label}: {key} recorded {entry.get(key)!r} but the runtime "
+                f"reported {expected!r} [UNSUPPORTED_NOT_DIAGNOSED]"
             )
     return errors
+
+
+def _executed_replay_errors(entry, outputs, label):
+    """An executed entry must carry exactly the outputs the re-execution produced."""
+    errors = []
+    if entry.get("output_digest") != digest(outputs):
+        errors.append(
+            f"{label}: recorded output digest does not match a re-execution "
+            "[COMPARISON_MISMATCH]"
+        )
+    errors += _recorded_outputs_digest_errors(entry, label)
+    if not contract.strict_json_equal(entry.get("outputs"), outputs):
+        errors.append(
+            f"{label}: recorded outputs do not match a re-execution under strict "
+            "JSON numeric typing [COMPARISON_MISMATCH]"
+        )
+    return errors
+
+
+def _recorded_outputs_digest_errors(entry, label):
+    """The recorded digest must identify the recorded outputs, not just a re-run.
+
+    The whole outputs object, not a trace+events subset: `spike_count`,
+    `final_membrane`, and `recurrent_edges` also feed the comparison and
+    attribution, so digesting a subset would leave the rest editable -- and
+    editing them deletes divergence diagnostics from a family whose entire
+    product is divergence.
+    """
+    recorded_outputs = entry.get("outputs")
+    if not isinstance(recorded_outputs, dict):
+        return []
+    try:
+        recorded_digest = digest(recorded_outputs)
+    except (TypeError, ValueError, OverflowError) as exc:
+        return [
+            f"{label}: recorded outputs are not digestible: {exc} "
+            "[COMPARISON_MISMATCH]"
+        ]
+    if entry.get("output_digest") != recorded_digest:
+        return [
+            f"{label}: output_digest does not identify the recorded outputs "
+            "[COMPARISON_MISMATCH]"
+        ]
+    return []
+
+
+def _roundtrip_replay_errors(runtime, entry, graph, label):
+    """The recorded parse/write parity must match this runtime's own adapter."""
+    fresh_roundtrip = runtime.roundtrip_graph(graph)
+    if contract.strict_json_equal(entry.get("roundtrip"), fresh_roundtrip):
+        return []
+    return [
+        f"{label}: recorded parse/write parity does not match this runtime's "
+        "adapter [ROUNDTRIP_STRUCTURE_MISMATCH]"
+    ]
 
 
 def _check_envelope_identity(record, scenario, where):
@@ -2104,13 +2232,42 @@ def _check_graph_structure(record, scenario, graph, where):
     Returns ``(errors, graph_shape_valid)``; the caller must not attempt
     re-execution when ``graph_shape_valid`` is false.
     """
-    errors = []
-    graph_shape_valid = False
     if not isinstance(graph, dict):
         return (
             [f"{where}: scenario.graph must be an object [ENVELOPE_MALFORMED]"],
-            graph_shape_valid,
+            False,
         )
+    errors, fresh_graph_sha256, fresh_structure_digest = _recompute_graph_digests(
+        graph, where
+    )
+    graph_shape_valid = fresh_structure_digest is not None
+    errors += _declared_digest_errors(
+        scenario, fresh_graph_sha256, fresh_structure_digest, where
+    )
+    catalog_entry = _catalog_entry(scenario.get("id"))
+    if catalog_entry is None:
+        errors.append(
+            f"{where}: scenario.id {scenario.get('id')!r} is not in the validated "
+            "graph catalog [STRUCTURE_DIGEST_MISMATCH]"
+        )
+        return errors, graph_shape_valid
+    errors += _catalog_scenario_errors(
+        scenario, catalog_entry, fresh_graph_sha256, where
+    )
+    errors += _catalog_claim_errors(
+        record, catalog_entry, scenario.get("id"), where
+    )
+    return errors, graph_shape_valid
+
+
+def _recompute_graph_digests(graph, where):
+    """Recompute both graph digests, reporting whichever the graph defeats.
+
+    Returns ``(errors, graph_sha256, structure_digest)``; a digest is None
+    when it could not be derived, which is also what tells the caller the
+    graph is too malformed to re-execute.
+    """
+    errors = []
     try:
         fresh_graph_sha256 = digest(graph)
     except CANONICAL_DATA_ERRORS as exc:
@@ -2121,42 +2278,37 @@ def _check_graph_structure(record, scenario, graph, where):
         fresh_graph_sha256 = None
     try:
         fresh_structure_digest = structural_digest(graph)
-    except (
-        GraphError,
-        TypeError,
-        ValueError,
-        OverflowError,
-        RecursionError,
-        UnicodeEncodeError,
-    ) as exc:
+    # GraphError (malformed graph) and UnicodeEncodeError (uncanonical text)
+    # are ValueError subclasses and are caught by the ValueError arm.
+    except (TypeError, ValueError, OverflowError, RecursionError) as exc:
         errors.append(f"{where}: malformed scenario.graph: {exc} [ENVELOPE_MALFORMED]")
         fresh_structure_digest = None
-    else:
-        graph_shape_valid = True
+    return errors, fresh_graph_sha256, fresh_structure_digest
+
+
+def _declared_digest_errors(scenario, graph_sha256, structure_digest, where):
+    """The scenario's own declared digests must identify the graph it carries."""
+    errors = []
     if (
-        fresh_structure_digest is not None
-        and scenario.get("structure_digest") != fresh_structure_digest
+        structure_digest is not None
+        and scenario.get("structure_digest") != structure_digest
     ):
         errors.append(
             f"{where}: scenario.structure_digest does not match the recorded graph "
             "[STRUCTURE_DIGEST_MISMATCH]"
         )
-    if (
-        fresh_graph_sha256 is not None
-        and scenario.get("graph_sha256") != fresh_graph_sha256
-    ):
+    if graph_sha256 is not None and scenario.get("graph_sha256") != graph_sha256:
         errors.append(
             f"{where}: scenario.graph_sha256 does not match the recorded graph "
             "[STRUCTURE_DIGEST_MISMATCH]"
         )
-    catalog_entry = _catalog_entry(scenario.get("id"))
-    if catalog_entry is None:
-        errors.append(
-            f"{where}: scenario.id {scenario.get('id')!r} is not in the validated "
-            "graph catalog [STRUCTURE_DIGEST_MISMATCH]"
-        )
-        return errors, graph_shape_valid
-    if fresh_graph_sha256 != catalog_entry["graph_sha256"]:
+    return errors
+
+
+def _catalog_scenario_errors(scenario, catalog_entry, graph_sha256, where):
+    """The scenario's graph and prose must be the reviewed catalog entry's."""
+    errors = []
+    if graph_sha256 != catalog_entry["graph_sha256"]:
         errors.append(
             f"{where}: scenario.graph does not match the validated catalog "
             f"digest for {scenario.get('id')!r} [STRUCTURE_DIGEST_MISMATCH]"
@@ -2168,25 +2320,32 @@ def _check_graph_structure(record, scenario, graph, where):
                 f"the validated graph catalog value {catalog_entry[key]!r} for "
                 f"{scenario.get('id')!r} [COMPARISON_MISMATCH]"
             )
+    return errors
+
+
+def _catalog_claim_errors(record, catalog_entry, scenario_id, where):
+    """The intervention and prediction a record claims must be the catalog's."""
+    errors = []
     if not _strict_json_equal(record.get("intervention"), catalog_entry["intervention"]):
         errors.append(
             f"{where}: intervention does not match the validated graph catalog "
-            f"for {scenario.get('id')!r} [COMPARISON_MISMATCH]"
+            f"for {scenario_id!r} [COMPARISON_MISMATCH]"
         )
     prediction = record.get("candidate_prediction")
-    if isinstance(prediction, dict):
-        expected_prediction = {
-            "hypothesis": catalog_entry["hypothesis"],
-            "expected_verdict": _expected_verdict(catalog_entry["class"]),
-        }
-        for key, expected in expected_prediction.items():
-            if not _strict_json_equal(prediction.get(key), expected):
-                errors.append(
-                    f"{where}: candidate_prediction.{key} does not match the "
-                    f"validated graph catalog for {scenario.get('id')!r} "
-                    "[COMPARISON_MISMATCH]"
-                )
-    return errors, graph_shape_valid
+    if not isinstance(prediction, dict):
+        return errors
+    expected_prediction = {
+        "hypothesis": catalog_entry["hypothesis"],
+        "expected_verdict": _expected_verdict(catalog_entry["class"]),
+    }
+    for key, expected in expected_prediction.items():
+        if not _strict_json_equal(prediction.get(key), expected):
+            errors.append(
+                f"{where}: candidate_prediction.{key} does not match the "
+                f"validated graph catalog for {scenario_id!r} "
+                "[COMPARISON_MISMATCH]"
+            )
+    return errors
 
 
 def _check_stimulus_and_fixture(scenario, oracle, where):
@@ -2259,23 +2418,9 @@ def _validate_record(record, where):
     # below and raise deep inside the comparison, so stop it here.
     if not isinstance(oracle, dict):
         return errors + [f"{where}: oracle must be an object [ENVELOPE_MALFORMED]"]
-    # Execution-facing oracle metadata is validated, not trusted: free text
-    # here could advertise an execution the runtime entries never ran.
-    if oracle.get("pairing") != ORACLE_PAIRING:
-        errors.append(
-            f"{where}: oracle.pairing must be the canonical {ORACLE_PAIRING!r} "
-            "[ENVELOPE_MALFORMED]"
-        )
+    errors += _oracle_pairing_errors(oracle, where)
     errors += _check_runtimes(record, where)
-    result = record.get("result")
-    if isinstance(result, dict) and lineage is not None:
-        recorded_lineage = result.get("derived_from")
-        if not _strict_json_equal(recorded_lineage, lineage):
-            errors.append(
-                f"{where}: result.derived_from must exactly match the rederived "
-                "ordered runtime lineage, including duplicate occurrences "
-                "[RESULT_DIGEST_UNLINKED]"
-            )
+    errors += _result_lineage_errors(record, lineage, where)
 
     scenario = record.get("scenario") or {}
     if not isinstance(scenario, dict):
@@ -2308,6 +2453,32 @@ def _validate_record(record, where):
         return errors
 
     return errors + _recorded_comparison_errors(record, scenario, graph, oracle, where)
+
+
+def _oracle_pairing_errors(oracle, where):
+    """The pairing a record advertises must be the one this family measures."""
+    # Execution-facing oracle metadata is validated, not trusted: free text
+    # here could advertise an execution the runtime entries never ran.
+    if oracle.get("pairing") == ORACLE_PAIRING:
+        return []
+    return [
+        f"{where}: oracle.pairing must be the canonical {ORACLE_PAIRING!r} "
+        "[ENVELOPE_MALFORMED]"
+    ]
+
+
+def _result_lineage_errors(record, lineage, where):
+    """result.derived_from must name the complete rederived runtime lineage."""
+    result = record.get("result")
+    if not isinstance(result, dict) or lineage is None:
+        return []
+    if _strict_json_equal(result.get("derived_from"), lineage):
+        return []
+    return [
+        f"{where}: result.derived_from must exactly match the rederived "
+        "ordered runtime lineage, including duplicate occurrences "
+        "[RESULT_DIGEST_UNLINKED]"
+    ]
 
 
 def _recorded_comparison_errors(record, scenario, graph, oracle, where):
@@ -2504,7 +2675,8 @@ def read_jsonl(path):
             )
         # RecursionError: a syntactically valid but absurdly nested line must
         # be a line-level parse error, not a traceback that aborts the scan.
-        except (json.JSONDecodeError, ValueError, RecursionError) as exc:
+        # json.JSONDecodeError and the reject_* hooks both raise ValueError.
+        except (ValueError, RecursionError) as exc:
             errors.append(f"{Path(path).name}:{lineno}: JSON parse error: {exc}")
     return records, errors
 
@@ -2532,6 +2704,12 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
+def _print_errors(errors):
+    """Report findings on stderr, one per line, in the order given."""
+    for error in errors:
+        print("ERROR:", error, file=sys.stderr)
+
+
 def _cmd_generate(args):
     """Write one validated round, refusing raw-tree destinations and overwrites."""
     out = Path(args.out_dir) / FACTORY_SLUG / f"batch-r{args.round:02d}.jsonl"
@@ -2548,8 +2726,7 @@ def _cmd_generate(args):
     records = generate_records(round_number=args.round, steps=args.steps)
     errors = validate_records(records, source="generated")
     if errors:
-        for error in errors:
-            print("ERROR:", error, file=sys.stderr)
+        _print_errors(errors)
         print("nir_equivalence: refusing to write invalid records", file=sys.stderr)
         return 1
     try:
@@ -2572,16 +2749,14 @@ def _cmd_generate(args):
 def _cmd_validate(records, parse_errors, source):
     errors = parse_errors + validate_records(records, source=source)
     print(json.dumps({"records": len(records), "errors": len(errors)}, indent=2))
-    for error in errors:
-        print("ERROR:", error, file=sys.stderr)
+    _print_errors(errors)
     return 1 if errors else 0
 
 
 def _cmd_training_view(records, parse_errors, source):
     views, errors = build_training_views(records, source=source)
     if parse_errors or errors:
-        for error in parse_errors + errors:
-            print("ERROR:", error, file=sys.stderr)
+        _print_errors(parse_errors + errors)
         return 1
     for view in views:
         print(json.dumps(view, sort_keys=True))

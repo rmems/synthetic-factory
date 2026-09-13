@@ -1,7 +1,8 @@
 """Tests for pipelines/neuro_oracle.py — the parity oracle boundary."""
 
 import json
-import subprocess
+# Required only for the fixed-argv CLI subprocess in `Cli` below.
+import subprocess  # nosec B404
 import sys
 import tempfile
 import unittest
@@ -469,7 +470,9 @@ class Digests(unittest.TestCase):
 
 class Cli(unittest.TestCase):
     def test_cli_prints_availability_report(self):
-        result = subprocess.run(
+        # argv is this interpreter and the repo's own CLI path, both fixed
+        # here; no shell is enabled.
+        result = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
             [sys.executable, str(PIPELINES / "neuro_oracle.py")],
             capture_output=True,
             text=True,
