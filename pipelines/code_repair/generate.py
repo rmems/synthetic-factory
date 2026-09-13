@@ -24,11 +24,11 @@ from typing import Any
 
 from . import catalog as cat
 from . import executor as ex
-from . import mutate
+from . import planning
 from . import records
 from . import verify
 from . import vocabulary as cv
-from ._contract import bind_import_twin, envelope, is_under_raw, oc, rng, vocab
+from ._contract import bind_import_twin, envelope, is_under_raw, oc, vocab
 
 CANDIDATES_FILENAME = "candidates.jsonl"
 RUN_FILENAME = "RUN.json"
@@ -49,16 +49,6 @@ class RunRequest:
     per_program_cap: int = cv.DEFAULT_PER_PROGRAM_CAP
 
 
-@dataclass(frozen=True)
-class _Draft:
-    """A verified mutant about to be executed."""
-
-    program: cat.Program
-    record_id: str
-    mutation: mutate.Mutation
-    repaired: str
-
-
 @dataclass
 class _State:
     """The mutable accumulators of one run."""
@@ -66,17 +56,12 @@ class _State:
     catalog: cat.Catalog
     executor: ex.Executor
     batch: records.Batch
-    stream: rng.DrawStream
-    sites: dict[str, tuple[mutate.Site, ...]]
-    cap: int
+    plan: planning.ProposalPlan
     records: list[dict[str, Any]] = field(default_factory=list)
-    skips: Counter = field(default_factory=Counter)
     reasons: Counter = field(default_factory=Counter)
-    per_program: Counter = field(default_factory=Counter)
     originals: dict[str, ex.PhaseReport] = field(default_factory=dict)
     original_repeats: dict[str, ex.PhaseReport] = field(default_factory=dict)
     references: dict[str, ex.PhaseReport | None] = field(default_factory=dict)
-    seen: set[tuple[str, str]] = field(default_factory=set)
 
 
 def _check_request(request: RunRequest) -> str:
@@ -148,44 +133,20 @@ def _reference(state: _State, program: cat.Program) -> ex.PhaseReport | None:
     return state.references[program.program_id]
 
 
-def _draw_program(state: _State) -> cat.Program | None:
-    """A program with sites and room under the cap, or None when every one is exhausted."""
-
-    eligible = [
-        p for p in state.catalog.programs
-        if state.sites[p.program_id] and state.per_program[p.program_id] < state.cap
-    ]
-    return state.stream.choice(eligible) if eligible else None
-
-
-def _candidate(state: _State, program: cat.Program, index: int) -> records.Candidate | str:
-    """One executed candidate, or the skip code of a non-proposal."""
-
-    site = mutate.choose(state.stream, state.sites[program.program_id])
-    mutated = mutate.apply(program.text, site)
-    skip = mutate.verify(program.text, mutated, site, program.function)
-    if skip is not None:
-        return skip
-    key = (program.program_id, cat.sha256_text(mutated))
-    if key in state.seen:
-        return cv.SKIP_DUPLICATE_MUTANT_IN_RUN
-    state.seen.add(key)
-    catalog_identity = cat.sha256_text(oc.canonical_json(
-        [state.catalog.catalog_id, state.catalog.programs_sha256]))
-    record_id = f"{cv.RECORD_ID_PREFIX}-{catalog_identity}-{state.batch.run_seed}-{index:05d}"
-    mutation = mutate.Mutation(site, program.text, mutated)
-    repaired = mutate.repair(mutated, site)
-    phases, context = _execute(state, _Draft(program, record_id, mutation, repaired))
+def _candidate(state: _State, proposal: planning.Proposal) -> records.Candidate:
+    """Execute one verified planned proposal without consuming any new draws."""
+    program, index = proposal.program, proposal.index
+    phases, context = _execute(state, proposal)
     verdict = verify.decide(phases, context)
     evidence, omitted = verify.public_evidence(phases.mutant, program.examples)
     seed = records.candidate_seed(state.batch.run_seed, program.program_id, index)
     return records.Candidate(
-        record_id, program, mutation, repaired, phases, verdict, tuple(evidence), omitted, seed,
-        index,
+        proposal.record_id, program, proposal.mutation, proposal.repaired, phases, verdict,
+        tuple(evidence), omitted, seed, index,
     )
 
 
-def _execute(state: _State, draft: _Draft) -> tuple[verify.Phases, verify.DecisionContext]:
+def _execute(state: _State, draft: planning.Proposal) -> tuple[verify.Phases, verify.DecisionContext]:
     """The three phases: the repaired one only when no earlier rule rejects."""
 
     program, record_id = draft.program, draft.record_id
@@ -208,6 +169,7 @@ def _execute(state: _State, draft: _Draft) -> tuple[verify.Phases, verify.Decisi
 
 
 def _summary(request: RunRequest, state: _State, stamp: str) -> dict[str, Any]:
+    policy = state.catalog.split_policy
     outcomes = Counter(record["result"]["outcome"] for record in state.records)
     statuses = Counter(record["result"]["oracle_status"] for record in state.records)
     return {
@@ -220,17 +182,18 @@ def _summary(request: RunRequest, state: _State, stamp: str) -> dict[str, Any]:
         },
         "generator": {"name": cv.GENERATOR_NAME, "version": cv.GENERATOR_VERSION},
         "harness_sha256": state.executor.harness_sha256,
+        "split_policy": None if policy is None else policy.as_json(),
         "seed": request.seed, "count": request.count, "produced_at": stamp,
-        "timeout_s": state.executor.timeout_s, "per_program_cap": state.cap,
+        "timeout_s": state.executor.timeout_s, "per_program_cap": state.plan.cap,
         "records": len(state.records),
         "outcomes": dict(sorted(outcomes.items())),
         "oracle_statuses": dict(sorted(statuses.items())),
         "reasons": dict(sorted(state.reasons.items())),
-        "skips": dict(sorted(state.skips.items())),
+        "skips": dict(sorted(state.plan.skips.items())),
         "programs": {
             p.program_id: {
-                "sites": len(state.sites[p.program_id]),
-                "records": state.per_program[p.program_id],
+                "sites": sum(len(s) for s in state.plan.sites[p.program_id].values()),
+                "records": state.plan.per_program[p.program_id],
             }
             for p in state.catalog.programs
         },
@@ -243,7 +206,7 @@ def _write(out_dir: Path, state: _State, summary: dict[str, Any]) -> None:
     summary["candidates_sha256"] = hashlib.sha256(
         (out_dir / CANDIDATES_FILENAME).read_bytes()).hexdigest()
     oc.write_jsonl(out_dir / LOG_FILENAME, state.executor.log)
-    with open(out_dir / RUN_FILENAME, "x", encoding="utf-8") as handle:
+    with (out_dir / RUN_FILENAME).open("x", encoding="utf-8") as handle:
         handle.write(json.dumps(summary, indent=2, sort_keys=True) + "\n")
 
 
@@ -253,22 +216,14 @@ def run(request: RunRequest, executor: ex.Executor | None = None) -> dict[str, A
     stamp = _check_request(request)
     catalog = cat.load_catalog(request.catalog_dir)
     engine = ex.Executor(timeout_s=request.timeout_s) if executor is None else executor
-    sites = {p.program_id: mutate.sites(p.text, p.function) for p in catalog.programs}
-    batch = records.new_batch(request.seed, stamp, engine)
-    stream = rng.DrawStream(request.seed)
-    state = _State(catalog, engine, batch, stream, sites, request.per_program_cap)
-    state.skips[cv.SKIP_MUTATION_NO_SITES] = sum(1 for s in sites.values() if not s)
-    for index in range(request.count):
-        program = _draw_program(state)
-        if program is None:
-            state.skips[cv.SKIP_PROGRAM_CAP_EXHAUSTED] += request.count - index
-            break
-        outcome = _candidate(state, program, index)
-        if isinstance(outcome, str):
-            state.skips[outcome] += 1
-            continue
+    plan = planning.ProposalPlan(catalog, request.seed, request.per_program_cap)
+    policy = catalog.split_policy
+    policy_sha256 = None if policy is None else policy.sha256
+    batch = records.new_batch(request.seed, stamp, engine, policy_sha256)
+    state = _State(catalog, engine, batch, plan)
+    for proposal in plan.proposals(request.count):
+        outcome = _candidate(state, proposal)
         state.records.append(records.build_record(outcome, state.batch))
-        state.per_program[program.program_id] += 1
         state.reasons.update(outcome.verdict.reason_codes)
     summary = _summary(request, state, stamp)
     _write(Path(request.out_dir), state, summary)

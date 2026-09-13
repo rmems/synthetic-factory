@@ -20,6 +20,7 @@ from typing import Any
 
 from . import catalog as cat
 from . import vocabulary as cv
+from . import lineage
 from ._contract import bind_import_twin, load_strict_json, oc
 
 __all__ = ["load_catalog"]
@@ -181,7 +182,9 @@ def _examples(row: dict[str, Any], text: str, function: str, where: str) -> tupl
     return examples
 
 
-def _split(row: dict[str, Any], where: str) -> tuple[str | None, str | None]:
+def _split(row: dict[str, Any], where: str) -> tuple[str | None, str | None, str | None]:
+    """``(group_id, ast_digest, split)``: each a string or null, never anything else."""
+
     structure = row.get("structure")
     split = row.get("split")
     cv.refuse_when(
@@ -190,12 +193,14 @@ def _split(row: dict[str, Any], where: str) -> tuple[str | None, str | None]:
         cv.FINDING_PROGRAM_FIELD_INVALID,
         f"{where}: structure must be an object or null and split one of {cat.SPLITS} or null",
     )
-    group_id = structure.get("group_id") if isinstance(structure, dict) else None
-    cv.refuse_when(
-        group_id is not None and not isinstance(group_id, str), cv.FINDING_PROGRAM_FIELD_INVALID,
-        f"{where}: structure.group_id must be a string or null",
-    )
-    return group_id, split
+    pins = {}
+    for key in ("group_id", "ast_digest"):
+        pins[key] = structure.get(key) if isinstance(structure, dict) else None
+        cv.refuse_when(
+            pins[key] is not None and not isinstance(pins[key], str),
+            cv.FINDING_PROGRAM_FIELD_INVALID, f"{where}: structure.{key} must be a string or null",
+        )
+    return pins["group_id"], pins["ast_digest"], split
 
 
 def _freeze_mapping(value: Any) -> Any:
@@ -208,7 +213,7 @@ def _freeze_mapping(value: Any) -> Any:
     return value
 
 
-def _program(row: Any, lineno: int) -> cat.Program:
+def program_from_row(row: Any, lineno: int = 0) -> cat.Program:
     where = f"programs.jsonl:{lineno}"
     program_id = _field(row, "program_id", str, where)
     upstream = _field(row, "upstream", dict, where)
@@ -216,7 +221,7 @@ def _program(row: Any, lineno: int) -> cat.Program:
         _field(upstream, key, str, f"{where}.upstream")
     text, digest = _module_text(row, where)
     function = upstream["function"]
-    group_id, split = _split(row, where)
+    group_id, ast_digest, split = _split(row, where)
     reference, cases = _reference(row, where), _cases(row, where)
     cv.refuse_when(
         reference.certifying and not cases, cv.FINDING_PROGRAM_FIELD_INVALID,
@@ -225,7 +230,7 @@ def _program(row: Any, lineno: int) -> cat.Program:
     examples = _examples(row, text, function, where)
     return cat.Program(
         program_id, _field(row, "family", str, where), _freeze_mapping(upstream), text, digest,
-        function, examples, cat.examples_sha256(examples), reference, cases, group_id, split,
+        function, examples, cat.examples_sha256(examples), reference, cases, group_id, split, ast_digest,
     )
 
 
@@ -256,7 +261,7 @@ def _programs(directory: Path) -> tuple[tuple[cat.Program, ...], str]:
             parsed is None, cv.FINDING_CATALOG_FIELD_INVALID,
             f"programs.jsonl:{lineno} is not strict JSON",
         )
-        program = _program(parsed, lineno)
+        program = program_from_row(parsed, lineno)
         cv.refuse_when(
             program.program_id in seen, cv.FINDING_PROGRAM_ID_DUPLICATE,
             f"programs.jsonl:{lineno} repeats {program.program_id}",
@@ -306,6 +311,18 @@ def _meta(directory: Path) -> dict[str, Any]:
     return meta
 
 
+def _split_policy(meta: dict[str, Any]) -> lineage.SplitPolicy | None:
+    """The pinned split policy, when the catalog carries one, bound to its digest."""
+
+    if "split_policy" not in meta:
+        return None
+    policy = lineage.SplitPolicy.from_json(meta["split_policy"])
+    cv.refuse_when(
+        meta.get("split_policy_sha256") != policy.sha256, cv.FINDING_SPLIT_POLICY_INVALID,
+        f"{cat.CATALOG_FILENAME}.split_policy_sha256 does not match the policy",
+    )
+    return policy
+
 def _license_sha256(directory: Path, meta: dict[str, Any]) -> str:
     path = directory / cat.LICENSE_FILENAME
     cv.refuse_when(not path.is_file(), cv.FINDING_CATALOG_FILE_MISSING, f"{path} is missing")
@@ -324,7 +341,7 @@ def _license_sha256(directory: Path, meta: dict[str, Any]) -> str:
 def load_catalog(directory: Path | str) -> cat.Catalog:
     """Load and verify every pin of the catalog at ``directory``; refuses with coded findings."""
 
-    root = Path(directory)
+    root = Path(directory).resolve()
     meta = _meta(root)
     programs, digest = _programs(root)
     groups: dict[str, str | None] = {}
@@ -346,7 +363,7 @@ def load_catalog(directory: Path | str) -> cat.Catalog:
          f"{cat.CATALOG_FILENAME}.program_count is not the number of programs"),
     ))
     return cat.Catalog(
-        meta["catalog_id"], root, meta, digest, _license_sha256(root, meta), programs
+        meta["catalog_id"], root, meta, digest, _license_sha256(root, meta), programs, _split_policy(meta)
     )
 
 

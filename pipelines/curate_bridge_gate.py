@@ -6,7 +6,8 @@ from __future__ import annotations
 from typing import Any
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
     _assert_direct_sibling("curate_bridge_gate")
     from .exact_json import json_integer_is_bounded
     from .curate_bridge_raster import (
@@ -213,7 +214,7 @@ def _gate_population_budget_outcome(
     if budget in ("absent", "invalid"):
         return budget == "absent", budget == "invalid", neurons
     spikes = _nonnegative_json_integer(population["spikes"])
-    if spikes is None:
+    if spikes is None or expected is None:
         return False, True, neurons
     if abs(spikes - expected) <= 1:
         return True, False, neurons
@@ -319,7 +320,7 @@ def _gate_check(
     neurons = check.get("neurons")
     spikes = _nonnegative_json_integer(check.get("spikes"))
     shape_valid = _gate_shape_valid(neurons, rate, window, spikes)
-    if not shape_valid:
+    if not shape_valid or spikes is None:
         return _invalid_gate_check(index, reason_codes, evidence)
     expected = _expected_spikes(neurons, rate.primary, window.primary)
     if expected is not None and abs(spikes - expected) <= 1:
@@ -346,7 +347,7 @@ def _total_gate_spikes(checks: list[Any]) -> tuple[int | None, bool]:
     ]
     if any(spikes is None for spikes in normalized):
         return None, False
-    total = sum(normalized)
+    total = sum(spikes for spikes in normalized if spikes is not None)
     return (total, True) if json_integer_is_bounded(total) else (None, False)
 
 

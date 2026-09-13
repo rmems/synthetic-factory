@@ -2,6 +2,7 @@
 """The run engine: request refusals, accounting, artifacts, stable bytes."""
 
 import hashlib
+import json
 import shutil
 import sys
 import tempfile
@@ -11,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from code_repair_test_support import (  # noqa: E402
-    FIXTURE_CATALOG, FakeExecutor, PINNED_AT, SEED, generate, oc, refusal, report, rows, smoke_run,
+    FIXTURE_CATALOG, FakeExecutor, PINNED_AT, SEED, catalog, fixture, generate, oc, refusal, report, rows, smoke_run,
     vocabulary as cv,
 )
 
@@ -77,7 +78,7 @@ class Accounting(unittest.TestCase):
         summary, fake, out = self.run_fake()
         drawn = summary["records"] + sum(v for k, v in summary["skips"].items() if k != cv.SKIP_MUTATION_NO_SITES)
         self.assertEqual(drawn, 6)
-        self.assertEqual(summary["skips"][cv.SKIP_MUTATION_NO_SITES], 1)
+        self.assertEqual(summary["skips"][cv.SKIP_MUTATION_NO_SITES], 0)
         self.assertEqual(summary["outcomes"], {"accepted": summary["records"]})
         self.assertEqual(summary["seed"], SEED)
         self.assertEqual(summary["produced_at"], PINNED_AT)
@@ -133,6 +134,11 @@ class Accounting(unittest.TestCase):
 
 
 class StableBytes(unittest.TestCase):
+    def test_run_summary_carries_the_pinned_catalog_split_policy(self):
+        summary, _, _ = smoke_run()
+        metadata = json.loads((FIXTURE_CATALOG / 'CATALOG.json').read_text())
+        self.assertEqual(summary.get('split_policy'), metadata['split_policy'])
+
     """Real subprocess evidence: the smoke run and a second identical run."""
 
     def test_two_real_runs_with_the_same_seed_and_stamp_are_byte_identical(self):
@@ -143,16 +149,23 @@ class StableBytes(unittest.TestCase):
         first = hashlib.sha256((run_dir / generate.CANDIDATES_FILENAME).read_bytes()).hexdigest()
         second = hashlib.sha256((again / generate.CANDIDATES_FILENAME).read_bytes()).hexdigest()
         self.assertEqual(first, second)
-        self.assertEqual(summary["outcomes"], {"accepted": 2, "rejected": 3})
+        self.assertEqual(summary["outcomes"], {"accepted": 7, "rejected": 3})
         self.assertEqual(
             summary["reasons"],
-            {"MUTANT_FAILS_HIDDEN": 2, "MUTANT_FAILS_PUBLIC": 2, "MUTANT_NO_OBSERVED_FAILURE": 1,
-             "MUTANT_NO_PUBLIC_FAILURE": 1, "MUTANT_TIMEOUT": 1, "REPAIR_PASSES_ALL": 2},
+            {"HIDDEN_CHECK_UNAVAILABLE": 2, "MUTANT_FAILS_HIDDEN": 7, "MUTANT_FAILS_PUBLIC": 7,
+             "MUTANT_NO_OBSERVED_FAILURE": 2, "MUTANT_NO_PUBLIC_FAILURE": 1, "REPAIR_PASSES_ALL": 7},
         )
-        self.assertEqual([r["id"] for r in records], [f"pfr-3d10e98cd8505f249cb4d6803f175ad784f07d614a20b5dfc9f33d40b573f93c-{SEED}-{i:05d}" for i in (0, 1, 2, 3, 6)])
+        self.assertEqual(summary["oracle_statuses"], {"provisional": 2, "validated": 8})
+        self.assertEqual(summary["skips"][cv.SKIP_DUPLICATE_MUTANT_IN_RUN], 2)
+        identity = catalog.sha256_text(oc.canonical_json(
+            [fixture().catalog_id, fixture().programs_sha256]))
+        expected_ids = [f"pfr-{identity}-{SEED}-{i:05d}" for i in (0, 1, 2, 3, 5, 6, 7, 8, 9, 10)]
+        self.assertEqual([r["id"] for r in records], expected_ids)
+        operators = {r["intervention"]["operator"] for r in records}
+        self.assertEqual(operators, set(cv.OPERATORS))
         log = [entry for _n, entry in oc.read_jsonl(run_dir / generate.LOG_FILENAME)]
         self.assertTrue(all("duration_s" in entry for entry in log))
-        self.assertTrue(any(entry["timed_out"] for entry in log))
+        self.assertTrue(all("timed_out" in entry for entry in log))
 
 
 if __name__ == "__main__":
