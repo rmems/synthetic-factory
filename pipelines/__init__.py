@@ -487,6 +487,24 @@ def _load_curate_bridge():
     return curate_bridge
 
 
+def _load_curate_gate():
+    from . import curate_gate
+
+    return curate_gate
+
+
+def _load_curate_identity():
+    from . import curate_identity
+
+    return curate_identity
+
+
+def _load_round_txn():
+    from . import round_txn
+
+    return round_txn
+
+
 _PACKAGE_SIBLING_LOADERS = {
     "exact_json_encoding": _load_exact_json_encoding,
     "exact_json": _load_exact_json,
@@ -556,6 +574,9 @@ _PACKAGE_SIBLING_LOADERS = {
     "training_audit_snapshot": _load_training_audit_snapshot,
     "validate_run": _load_validate_run,
     "curate_bridge": _load_curate_bridge,
+    "curate_gate": _load_curate_gate,
+    "curate_identity": _load_curate_identity,
+    "round_txn": _load_round_txn,
 }
 
 

@@ -126,6 +126,18 @@ def _package_curate_coding() -> ModuleType:
     return module
 
 
+def _direct_curate_gate() -> ModuleType:
+    import curate_gate as module
+
+    return module
+
+
+def _package_curate_gate() -> ModuleType:
+    import pipelines.curate_gate as module
+
+    return module
+
+
 def _direct_curate_identity() -> ModuleType:
     import curate_identity as module
 
@@ -606,6 +618,18 @@ def _package_trajectory_pair_vocabulary() -> ModuleType:
     return module
 
 
+def _direct_validate_run() -> ModuleType:
+    import validate_run as module
+
+    return module
+
+
+def _package_validate_run() -> ModuleType:
+    import pipelines.validate_run as module
+
+    return module
+
+
 def _direct_validate_run_provenance() -> ModuleType:
     import validate_run_provenance as module
 
@@ -630,6 +654,7 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "curate_agentic_output": (_direct_curate_agentic_output, _package_curate_agentic_output),
     "curate_agentic_shapes": (_direct_curate_agentic_shapes, _package_curate_agentic_shapes),
     "curate_coding": (_direct_curate_coding, _package_curate_coding),
+    "curate_gate": (_direct_curate_gate, _package_curate_gate),
     "curate_identity": (_direct_curate_identity, _package_curate_identity),
     "curate_identity_output": (
         _direct_curate_identity_output,
@@ -688,6 +713,7 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
         _direct_trajectory_pair_vocabulary,
         _package_trajectory_pair_vocabulary,
     ),
+    "validate_run": (_direct_validate_run, _package_validate_run),
     "validate_run_provenance": (_direct_validate_run_provenance, _package_validate_run_provenance),
 }
 DIRECT_LOADERS = {name: loaders[0] for name, loaders in LOADER_PAIRS.items()}

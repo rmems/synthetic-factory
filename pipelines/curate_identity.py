@@ -35,6 +35,9 @@ from types import MappingProxyType
 from typing import Any, Iterable, Mapping, NamedTuple
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("curate_identity")
     from . import curate_identity_output as _identity_output
     from . import curate_identity_checks as _identity_checks
     from . import curate_identity_stages as _identity_stages
@@ -67,6 +70,9 @@ if __package__:
         RIGHTS_PROFILE_IDS,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "curate_identity"
+    )
     import curate_identity_output as _identity_output
     import curate_identity_checks as _identity_checks
     import curate_identity_stages as _identity_stages
@@ -2426,6 +2432,10 @@ _parse_finite_json_float = parse_finite_json_float
 _reject_duplicate_object_keys = reject_duplicate_object_keys
 _sha256_bytes = sha256_bytes
 _sha256_json = sha256_json
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":
