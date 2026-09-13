@@ -1,0 +1,29 @@
+{
+  "bit_manipulation/count_1s_brian_kernighan_method.py::get_1s_count": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(number):\n    return number.bit_count()\n"
+  },
+  "maths/abs.py::abs_val": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(num):\n    return abs(num)\n"
+  },
+  "maths/factorial.py::factorial": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "import math\n\n\ndef reference(number):\n    return math.factorial(number)\n"
+  },
+  "maths/is_square_free.py::is_square_free": {
+    "kind": "original_self"
+  },
+  "maths/sum_of_digits.py::sum_of_digits": {
+    "function": "sum_of_digits_compact",
+    "kind": "sibling_same_file"
+  },
+  "searches/linear_search.py::rec_linear_search": {
+    "function": "reference",
+    "kind": "reviewed_expression",
+    "source": "def reference(sequence, low, high, target):\n    if not (0 <= high < len(sequence) and 0 <= low < len(sequence)):\n        raise ValueError(\"invalid bounds\")\n    while high >= low:\n        if sequence[low] == target:\n            return low\n        if sequence[high] == target:\n            return high\n        low += 1\n        high -= 1\n    return -1\n"
+  }
+}

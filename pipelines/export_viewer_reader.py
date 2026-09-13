@@ -7,7 +7,8 @@ import sys
 from typing import Any
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("export_viewer_reader")
     from . import export_viewer_codec as codec
@@ -43,17 +44,17 @@ class _ParquetReader:
         value = int.from_bytes(data[offset : offset + 8], "little", signed=True)
         return value, offset + 8
 
-    def _plain_decoder(self, physical_type: int):
+    def _plain_decoder(self, physical_type: int | None):
         decoders = {
             codec.TYPE_BYTE_ARRAY: self._decode_byte_array_at,
             codec.TYPE_INT64: self._decode_int64_at,
         }
-        decode_at = decoders.get(physical_type)
+        decode_at = decoders.get(physical_type) if physical_type is not None else None
         if decode_at is None:
             raise ValueError(f"unsupported Parquet physical type {physical_type}")
         return decode_at
 
-    def _decode_plain(self, physical_type: int, data: bytes, num_values: int) -> list[Any]:
+    def _decode_plain(self, physical_type: int | None, data: bytes, num_values: int) -> list[Any]:
         if not num_values:
             return []
         decode_at = self._plain_decoder(physical_type)

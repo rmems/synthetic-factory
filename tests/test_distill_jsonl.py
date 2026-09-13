@@ -63,6 +63,15 @@ class JsonlHelpers(unittest.TestCase):
             self.assertIsNone(entries[1][1])
 
 
+class JsonlBytes(unittest.TestCase):
+    def test_the_bytes_reader_yields_what_the_file_reader_yields(self):
+        from oracle_grounded import distill_jsonl
+
+        data = b'{"a": 1}\n\n{"b": [2, 3]}\nnot json\n'
+        pairs = list(distill_jsonl.iter_jsonl_bytes(data))
+        self.assertEqual(pairs, [(1, {"a": 1}), (3, {"b": [2, 3]}), (4, None)])
+
+
 class JsonlDuplicateKeys(unittest.TestCase):
     """A duplicated object key is a per-line parse failure, never last-wins."""
 

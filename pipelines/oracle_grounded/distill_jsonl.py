@@ -11,6 +11,7 @@ creates so much as a directory.
 
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 from typing import Any
@@ -95,6 +96,15 @@ def read_jsonl(path) -> list[tuple[int, Any]]:
     """Eager form of :func:`iter_jsonl`, for small inputs and tests."""
 
     return list(iter_jsonl(path))
+
+
+def iter_jsonl_bytes(data: bytes):
+    """:func:`iter_jsonl` over bytes already in hand, so a digest and a parse share one read."""
+
+    for lineno, raw in enumerate(io.BytesIO(data), start=1):
+        has_content, parsed = _parse_jsonl_line(raw)
+        if has_content:
+            yield lineno, parsed
 
 
 def _refuse_raw_destination(destination: Path) -> None:

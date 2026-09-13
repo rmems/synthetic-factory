@@ -11,6 +11,7 @@ have always been emitted, with the measurement checks that live in
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from collections.abc import Collection
 from typing import Any
 
 from . import distill_energy_claims as energy_claims
@@ -76,7 +77,7 @@ def _present(value: Any) -> bool:
     return value is not _ABSENT
 
 
-def _one_of(values: frozenset[str]) -> Callable[[Any], bool]:
+def _one_of(values: Collection[str]) -> Callable[[Any], bool]:
     return lambda value: envelope.is_enum_value(value, values)
 
 
