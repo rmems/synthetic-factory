@@ -640,17 +640,17 @@ class Validation(unittest.TestCase):
             if item["status"] == nir.STATUS_EXECUTED
         )
         trace = entry["outputs"]["output_trace"]
-        # The exact comparison is the point, not a float check to relax: only a
-        # slot holding exactly 0.0 is numerically equal to the False put in its
-        # place below, so strict JSON typing is the only thing that can catch
-        # the substitution. A tolerance would pick a near-zero value whose
-        # replacement changes the number too, and a validator that never
-        # checked types would still pass this test.
+        # The slot must be numerically equal to the False put in its place
+        # below -- for a float that is exactly the falsy ones -- so strict JSON
+        # typing is the only thing that can catch the substitution. Relaxing
+        # this to a tolerance would pick a near-zero value whose replacement
+        # changes the number too, and a validator that never checked types
+        # would still pass the test.
         row_index, value_index = next(
             (row_index, value_index)
             for row_index, row in enumerate(trace)
             for value_index, value in enumerate(row)
-            if value == 0.0 and not isinstance(value, bool)
+            if not value and not isinstance(value, bool)
         )
         trace[row_index][value_index] = False
         errors = nir.validate_record(record, WHERE)
