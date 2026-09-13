@@ -185,7 +185,10 @@ Every accepted record retains:
   (`canon.py`, `families.py`, `generators.py`, `oracles.py`, `rng.py`, `sim.py`;
   `record.py` validates records and never measures, so it is excluded). This,
   not the git commit, is what actually pins the code that produced a
-  measurement, and it stays meaningful in a dirty tree.
+  measurement, and it stays meaningful in a dirty tree. `rng.py` also carries
+  the contract-wide `DrawStream` that the fault-recovery and code-repair
+  families draw from, so an edit there moves this digest too and the golden
+  fixture must be regenerated with it.
 * `oracle.configuration` and `oracle.seed` — enough, with the stored scenario,
   to re-run the measurement.
 * `oracle.units` — units for every measured quantity.
