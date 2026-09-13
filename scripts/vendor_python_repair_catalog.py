@@ -128,7 +128,7 @@ def _candidate_paths(tree: list[dict]) -> list[str]:
     return sorted(entry["path"] for entry in tree if _is_candidate(entry))
 
 
-def _import_roots(node: ast.stmt) -> set[str] | None:
+def _import_roots(node: ast.AST) -> set[str] | None:
     """The top-level modules one import statement binds; None for a non-import."""
 
     if isinstance(node, ast.Import):

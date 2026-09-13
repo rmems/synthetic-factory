@@ -110,9 +110,9 @@ class OfflineBuild(unittest.TestCase):
                     (vendor.COMMIT_API.format(repository=vendor.REPOSITORY, commit=COMMIT),
                      _fixture_fetch(vendor.COMMIT_API.format(repository=vendor.REPOSITORY, commit=COMMIT), root))):
                 (root / hashlib.sha256(address.encode()).hexdigest()).write_bytes(data)
-            with mock.patch.object(vendor, '_https_get', side_effect=lambda u: _fixture_fetch(u, root)):
-                with self.assertRaisesRegex(SystemExit, 'cache|sha|digest'):
-                    vendor._tree(COMMIT, root)
+            fetch = mock.patch.object(vendor, '_https_get', side_effect=lambda u: _fixture_fetch(u, root))
+            with fetch, self.assertRaisesRegex(SystemExit, 'cache|sha|digest'):
+                vendor._tree(COMMIT, root)
 
     def test_the_script_builds_a_catalog_that_passes_catalog_check(self):
         root = Path(tempfile.mkdtemp(prefix="code-repair-vendor-"))
@@ -146,13 +146,11 @@ class OfflineBuild(unittest.TestCase):
         urls = [tree_url, f"https://api.github.com/repos/{vendor.REPOSITORY}/commits/{COMMIT}"]
         urls += [vendor.RAW.format(repository=vendor.REPOSITORY, commit=COMMIT, path=e["path"])
                  for e in tree["tree"]]
+        license_urls = [u for u in urls if u.endswith("/LICENSE.md")]
         tampered = {
             "tree": (tree_url, lambda data: json.dumps({**tree, "sha": "b" * 40}).encode()),
             "source": (urls[2], lambda data: data + b"# tampered\n"),
-            "license": (
-                next(u for u in urls if u.endswith("/LICENSE.md")),
-                lambda data: data + b"tampered\n",
-            ),
+            "license": (license_urls[0], lambda data: data + b"tampered\n"),
         }
         target, corrupt = tampered[kind]
         for url in urls:

@@ -18,9 +18,8 @@ class Confinement(unittest.TestCase):
 
     def test_paths_outside_every_root_are_refused_after_resolution(self):
         for candidate in ("/etc/passwd", os.getcwd() + "/../" * 12 + "etc/passwd"):
-            with self.subTest(candidate=candidate):
-                with self.assertRaises(argparse.ArgumentTypeError):
-                    operator_paths.operator_path(candidate)
+            with self.subTest(candidate=candidate), self.assertRaises(argparse.ArgumentTypeError):
+                operator_paths.operator_path(candidate)
 
 
 if __name__ == "__main__":

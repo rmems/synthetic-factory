@@ -71,7 +71,8 @@ class DroppedTargets(unittest.TestCase):
         "    '''\n    return n\n"
     )
 
-    def _rows(self, path, text, function, runner):
+    @staticmethod
+    def _rows(path, text, function, runner):
         build, _targets = fixture_build()
         rebuilt = cb.Build(
             build.upstream, {**build.sources, path: text}, build.references, build.policy

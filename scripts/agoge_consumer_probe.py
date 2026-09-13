@@ -160,6 +160,8 @@ def _delimits_completion(text: str, start: int) -> bool:
 def completion_boundary(row: dict) -> int:
     """Validate the producer's explicit Unicode offset, without searching prompt contents."""
     text, start = row.get("text"), row.get("completion_start_char")
+    if not isinstance(text, str) or not isinstance(start, int):
+        raise ValueError("invalid completion_start_char")
     if not _valid_boundary_offset(text, start):
         raise ValueError("invalid completion_start_char")
     if not _delimits_completion(text, start):
