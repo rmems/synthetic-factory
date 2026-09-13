@@ -74,7 +74,7 @@ def is_positive(record: dict[str, Any]) -> bool:
         validation.validate_shape(record)
         if not validation.verdict_matches(record):
             return False
-    except (cv.RepairRefusal, KeyError, TypeError, ValueError, AttributeError):
+    except (KeyError, TypeError, ValueError, AttributeError):  # a refusal is a ValueError
         return False
     result = record.get("result") if isinstance(record.get("result"), dict) else {}
     if result.get("outcome") != cv.OUTCOME_ACCEPTED:

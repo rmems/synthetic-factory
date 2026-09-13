@@ -52,10 +52,11 @@ def body_nodes(target: ast.FunctionDef):
     while pending:
         node = pending.pop()
         yield node
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            children = node.body
-        else:
-            children = list(ast.iter_child_nodes(node))
+        children: list[ast.AST] = (
+            list(node.body)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            else list(ast.iter_child_nodes(node))
+        )
         pending.extend(reversed(children))
 
 
@@ -177,12 +178,13 @@ def verify(text: str, mutated_text: str, site: Site, function: str) -> str | Non
     if not _compiles(mutated_text):
         return cv.SKIP_MUTATION_SYNTAX_ERROR
     original, mutated = _target(text, function), _target(mutated_text, function)
-    dumped = None if mutated is None else ast.dump(mutated)
+    if original is None or mutated is None:
+        return cv.SKIP_MUTATION_NOOP  # the target is not a rewritable function on both sides
+    dumped = ast.dump(mutated)
     rules = (
-        (dumped is None or dumped == ast.dump(original), cv.SKIP_MUTATION_NOOP),
+        (dumped == ast.dump(original), cv.SKIP_MUTATION_NOOP),
         (
-            dumped is not None
-            and ast.get_docstring(mutated, clean=False) != ast.get_docstring(original, clean=False),
+            ast.get_docstring(mutated, clean=False) != ast.get_docstring(original, clean=False),
             cv.SKIP_MUTATION_TOUCHES_DOCSTRING,
         ),
         (dumped != expected_dump(text, function, site), cv.SKIP_MUTATION_UNVERIFIABLE),
