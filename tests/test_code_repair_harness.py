@@ -4,9 +4,12 @@
 import doctest
 import hashlib
 import inspect
+import io
+import json
 import re
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -14,7 +17,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from code_repair_test_support import (  # noqa: E402
-    boundary_site, catalog, executor as ex, mutate, program, refusal, vocabulary as cv,
+    boundary_site, catalog, executor as ex, generate, mutate, program, refusal,
+    vocabulary as cv,
 )
 from code_repair import _harness as harness  # noqa: E402
 
@@ -145,6 +149,115 @@ class Failures(unittest.TestCase):
                 report = ex._parse_report(job, returncode, stdout)
                 self.assertEqual(report.status, cv.PHASE_HARNESS_ERROR)
                 self.assertFalse(report.ok)
+
+    def test_a_report_without_an_environment_is_a_harness_error_not_a_sandbox_failure(self):
+        """A child that died before describing itself never ran unlimited.
+
+        ``_run`` applies the limits before it reads or imports the program, so a
+        report carrying no environment cannot be evidence of unlimited execution.
+        Coding it ``SANDBOX_UNAVAILABLE`` made ``generate`` discard the whole run
+        over one bad mutant (#196 follow-up).
+        """
+
+        job = ex.Job("mutant:test", "def f():\n    pass\n", "f")
+        # Exactly what the child writes when main()'s catch-all fires.
+        crashed = b'{"load": {"error": "HarnessError: MemoryError: ", "status": "error"}, ' \
+                  b'"protocol": "code-repair-harness/1"}'
+        for stdout in (crashed, b'{"protocol": "code-repair-harness/1", "environment": "gone"}'):
+            with self.subTest(stdout=stdout[:60]):
+                report = ex._parse_report(job, 0, stdout)
+                self.assertEqual(report.status, cv.PHASE_HARNESS_ERROR)
+                self.assertFalse(report.ok)
+                self.assertNotIn(cv.FINDING_SANDBOX_UNAVAILABLE, report.detail)
+
+    def test_a_report_that_states_its_limits_are_off_is_still_a_sandbox_failure(self):
+        """The fail-closed half: a described environment is believed, and refuses.
+
+        The environment survives onto the report because that, not the prose, is
+        what ``generate._run_phase`` refuses on.
+        """
+
+        job = ex.Job("mutant:test", "def f():\n    pass\n", "f")
+        for flag in ("false", "null", "1"):
+            with self.subTest(flag=flag):
+                stdout = (
+                    '{"protocol": "code-repair-harness/1", "load": {"status": "ok", '
+                    f'"error": null}}, "environment": {{"limits_applied": {flag}}}, '
+                    '"public": [], "hidden": []}'
+                ).encode()
+                report = ex._parse_report(job, 0, stdout)
+                self.assertEqual(report.status, cv.PHASE_HARNESS_ERROR)
+                self.assertIn(cv.FINDING_SANDBOX_UNAVAILABLE, report.detail)
+                self.assertIn("limits_applied", report.environment)
+                self.assertIsNot(report.environment.get("limits_applied"), True)
+
+    def test_a_program_cannot_stop_the_run_by_naming_the_finding_in_its_own_error(self):
+        """`detail` carries program-controlled prose; the refusal must not read it.
+
+        A program raising ``SANDBOX_UNAVAILABLE: ...`` reports limits applied and
+        must cost only its own candidate, not the whole run.
+        """
+
+        module = (
+            f'raise ValueError("{cv.FINDING_SANDBOX_UNAVAILABLE}: injected")'
+            "\n\n\ndef f():\n    return 1\n"
+        )
+        job = ex.Job("mutant:test", module, "f")
+        report = RUNNER.run(job)
+        self.assertIn(cv.FINDING_SANDBOX_UNAVAILABLE, report.detail)
+        self.assertTrue(report.environment.get("limits_applied"))
+        served = types.SimpleNamespace(executor=types.SimpleNamespace(run=lambda _: report))
+        self.assertIs(generate._run_phase(served, job), report)
+
+    def test_a_child_that_reported_no_environment_does_not_stop_the_run(self):
+        """The one candidate is that candidate's problem; the run keeps going."""
+
+        job = ex.Job("mutant:test", "def f():\n    pass\n", "f")
+        crashed = ex._parse_report(
+            job, 0, b'{"load": {"error": "HarnessError: MemoryError: ", "status": "error"}, '
+                    b'"protocol": "code-repair-harness/1"}')
+        served = types.SimpleNamespace(executor=types.SimpleNamespace(run=lambda _: crashed))
+        self.assertIs(generate._run_phase(served, job), crashed)
+        # …while a described environment with the limits off still refuses.
+        off = ex._parse_report(
+            job, 0, b'{"protocol": "code-repair-harness/1", "load": {"status": "ok", '
+                    b'"error": null}, "environment": {"limits_applied": false}, '
+                    b'"public": [], "hidden": []}')
+        refused = types.SimpleNamespace(executor=types.SimpleNamespace(run=lambda _: off))
+        refusal(lambda: generate._run_phase(refused, job), cv.FINDING_SANDBOX_UNAVAILABLE)
+
+    def test_a_setrlimit_refusal_is_reported_as_an_environment_not_thrown(self):
+        """A refused limit must reach the parent as evidence, not as a bare crash."""
+
+        spec = {"cpu_seconds": 1, "address_space_bytes": 1 << 20, "file_size_bytes": 1 << 10}
+        for broken in (spec | {"cpu_seconds": "x"}, spec | {"file_size_bytes": None}, {}):
+            with self.subTest(spec=broken):
+                self.assertFalse(harness._apply_limits(broken))
+
+    def test_the_catch_all_names_the_exception_type_and_reports_no_environment(self):
+        """`HarnessError: ` with no cause is unactionable; the type must survive.
+
+        This is the report shape that stopped a 200-candidate run: main's
+        catch-all cannot know whether the limits went on, so it claims no
+        environment, and the parent must read that as a harness error.
+        """
+
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            (directory / "spec.json").write_text("{not json", encoding="utf-8")
+            written: list[str] = []
+            with mock.patch.object(sys, "stdout", io.StringIO()) as sink:
+                self.assertEqual(harness.main(["_harness.py", str(directory)]), 0)
+                written.append(sink.getvalue())
+        report = json.loads(written[0])
+        self.assertEqual(report["protocol"], harness.PROTOCOL)
+        self.assertNotIn("environment", report)
+        self.assertIn("JSONDecodeError", report["load"]["error"])
+        # And the parent classifies exactly that shape as a harness error.
+        job = ex.Job("mutant:test", "def f():\n    pass\n", "f")
+        parsed = ex._parse_report(job, 0, written[0].encode())
+        self.assertEqual(parsed.status, cv.PHASE_HARNESS_ERROR)
+        self.assertNotIn(cv.FINDING_SANDBOX_UNAVAILABLE, parsed.detail)
 
 
 class RoundThree(unittest.TestCase):

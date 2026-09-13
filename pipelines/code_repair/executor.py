@@ -235,6 +235,28 @@ def _parsed_report(returncode: int, stdout: bytes) -> dict[str, Any] | str:
     return parsed
 
 
+def _unsandboxed_detail(parsed: dict[str, Any]) -> str | None:
+    """Why this report cannot be read as sandboxed evidence, or None when it can.
+
+    A child that *describes* its environment and says the limits are off is a
+    sandbox failure, and ``generate`` refuses the whole run on it. A child that
+    describes no environment at all died before it could: ``_harness._run``
+    applies the limits before it reads or imports the program, so such a child
+    either never reached program code or reached it under the limits. Coding
+    that as an ordinary harness error lets the one candidate be rejected
+    (``MUTANT_HARNESS_ERROR``) instead of discarding every record in the run
+    (#196 follow-up: a mutant exhausting the address-space limit stopped a
+    200-candidate generation at its 174th record).
+    """
+
+    environment = parsed.get("environment")
+    if not isinstance(environment, dict):
+        return "harness error: the child reported no environment"
+    if environment.get("limits_applied") is not True:
+        return f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not applied"
+    return None
+
+
 def _parse_report(job: Job, returncode: int, stdout: bytes) -> PhaseReport:
     """The child's report, or a harness error when it is not the protocol's complete object.
 
@@ -246,8 +268,12 @@ def _parse_report(job: Job, returncode: int, stdout: bytes) -> PhaseReport:
     if isinstance(parsed, str):
         return _harness_error(parsed)
     environment = _object(parsed, "environment")
-    if environment.get("limits_applied") is not True:
-        return _harness_error(f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not applied")
+    unsandboxed = _unsandboxed_detail(parsed)
+    if unsandboxed is not None:
+        # Keep the environment on a sandbox failure: it is the structural signal
+        # callers refuse on, so the decision never rests on matching prose that a
+        # program under test can forge into its own exception message.
+        return PhaseReport(cv.PHASE_HARNESS_ERROR, False, (), (), environment, unsandboxed)
     load = _object(parsed, "load")
     if load.get("status") != "ok":
         detail = _scrub_detail(str(load.get("error") or "load failed"))

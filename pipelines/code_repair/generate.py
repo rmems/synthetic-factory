@@ -109,10 +109,14 @@ def _original(state: _State, program: cat.Program) -> ex.PhaseReport:
 
 
 def _run_phase(state: _State, job: ex.Job) -> ex.PhaseReport:
+    # Refuse on the environment the child described, never on matching prose:
+    # `detail` can carry a program's own exception message, and a program whose
+    # text happens to contain the finding name would otherwise kill the run.
+    # A child that described no environment left this empty, and a phase that
+    # cannot be read as sandboxed is that one candidate's harness error.
     report = state.executor.run(job)
     cv.refuse_when(
-        cv.FINDING_SANDBOX_UNAVAILABLE in report.detail
-        or (report.ok and report.environment.get("limits_applied") is not True),
+        report.environment.get("limits_applied", True) is not True,
         cv.FINDING_SANDBOX_UNAVAILABLE, "the harness cannot apply required resource limits",
     )
     return report
