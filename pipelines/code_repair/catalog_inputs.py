@@ -148,7 +148,7 @@ def _observed_value(row: dict) -> bool:
     return row["status"] == cv.ROW_OBSERVED and not row.get("truncated")
 
 
-def _stable_batch(executor: ex.Executor, subject: Subject, kept: list[dict], batch: list) -> list:
+def _stable_batch(executor: Runner, subject: Subject, kept: list[dict], batch: list) -> list:
     probes = _probes(kept) + tuple({"args": repr(args), "want": None} for args in batch)
     first = _observe(executor, subject.text, subject.function, probes)
     second = _observe(executor, subject.text, subject.function, probes)
@@ -158,7 +158,7 @@ def _stable_batch(executor: ex.Executor, subject: Subject, kept: list[dict], bat
             if _observed_value(row) and row == other]
 
 
-def _retained_sequence_stable(executor: ex.Executor, subject: Subject, kept: list[dict]) -> bool:
+def _retained_sequence_stable(executor: Runner, subject: Subject, kept: list[dict]) -> bool:
     if not kept:
         return True
     final = _observe(executor, subject.text, subject.function, _probes(kept))
@@ -181,7 +181,7 @@ def _observed_cases(executor: Runner, subject: Subject) -> list[dict]:
     return kept if _retained_sequence_stable(executor, subject, kept) else []
 
 
-def _observe(executor: ex.Executor, text: str, function: str, probes: tuple) -> ex.PhaseReport:
+def _observe(executor: Runner, text: str, function: str, probes: tuple) -> ex.PhaseReport:
     report = executor.run(ex.Job(f"observe:{function}", text, function, probes, True))
     cv.refuse_when(
         not report.ok, cv.FINDING_HARNESS_REPORT_MALFORMED,

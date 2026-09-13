@@ -282,7 +282,7 @@ def _validated_replay(record: dict, catalog: cat.Catalog, executor: ex.Executor,
         if not _record_identity_matches(record, catalog):
             return _entry(record, cv.REPLAY_RECORD_MALFORMED, "record identity or generator version differs")
         return _replay_positive(record, catalog, executor)
-    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:  # RepairRefusal is a ValueError
         return _entry(record, cv.REPLAY_RECORD_MALFORMED, f"{type(exc).__name__} while reading")
 
 

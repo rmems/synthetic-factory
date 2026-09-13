@@ -150,6 +150,7 @@ def body_nodes(function: ast.FunctionDef):
     while pending:
         node = pending.pop()
         yield node
+        children: list[ast.AST]
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             children: list[ast.AST] = list(node.body)
         elif isinstance(node, ast.Lambda):

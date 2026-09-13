@@ -160,9 +160,9 @@ class OfflineBuild(unittest.TestCase):
             )
         argv = ["--commit", COMMIT, "--out", str(root / "catalog"),
                 "--cache-dir", str(root), "--references", str(FIXTURE_CATALOG / "references.json")]
-        with mock.patch.object(vendor, "_https_get", side_effect=lambda u: _fixture_fetch(u, root)):
-            with self.subTest(kind=kind), self.assertRaisesRegex(SystemExit, "sha|digest|cached"):
-                vendor.main(argv)
+        fetch = mock.patch.object(vendor, "_https_get", side_effect=lambda u: _fixture_fetch(u, root))
+        with fetch, self.subTest(kind=kind), self.assertRaisesRegex(SystemExit, "sha|digest|cached"):
+            vendor.main(argv)
         self.assertFalse((root / "catalog").exists())
 
 

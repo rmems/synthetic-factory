@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import ast
 import copy
-from dataclasses import dataclass
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from . import mutate_sites
@@ -138,11 +138,9 @@ def _transformed(module: ast.Module, site: Site) -> ast.Module | None:
     node = _locate(module, site)
     if node is None:
         return None
-    if site.variant == mutate_sites.VARIANT_DROP_NOT:
-        if not isinstance(node, ast.UnaryOp):
-            return None
-        _ReplaceNode(node, node.operand).visit(module)
-        return module
+    if site.variant == mutate_sites.VARIANT_DROP_NOT and isinstance(node, ast.UnaryOp):
+        replaced = _ReplaceNode(node, node.operand).visit(module)
+        return replaced if isinstance(replaced, ast.Module) else None
     handlers: dict[str, Callable[[Any, Site], None]] = {
         "Compare": _transform_compare, "BinOp": _transform_binop, "AugAssign": _transform_binop,
         "BoolOp": _transform_boolop, "Return": _transform_return, "Constant": _transform_constant,
