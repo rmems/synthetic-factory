@@ -291,7 +291,9 @@ def _parse_report(job: Job, returncode: int, stdout: bytes) -> PhaseReport:
         # on, so the decision never rests on prose a program can put in its own
         # exception message. A program can still forge this field, but only
         # downward -- `_run` returns before reading program.py when the limits
-        # are off, so nothing that ran can claim they were on (#196 follow-up).
+        # are off, so nothing that ran can claim they were on. That forgery
+        # costs the program its own candidate rather than the run; closing the
+        # channel needs an attestation the child cannot rewrite (#213, #201).
         # This is the one non-ok phase carrying a non-None `limits_applied`, and
         # `record_validation._phase_runtime_contract` forbids storing that; it is
         # safe only because `generate._run_phase` refuses the run on exactly this
