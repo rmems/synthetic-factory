@@ -11,6 +11,13 @@ the shared envelope in `pipelines/oracle_grounded/envelope.py` (#172).
 | `snn-energy-routing-preferences` | equivalent policies | a meter reading an actual execution | exercised in `cpu_time_s`; joules unavailable |
 | `moe-router-distillation-trajectories` | text/code/task contexts | the teacher model's own router | reference stand-in only; real teacher unavailable |
 
+The envelope's family vocabulary is wider than this table:
+`python-function-repair` rides the same envelope with its own run validator
+under `pipelines/code_repair/`. `pipelines/validate_distill.py` owns exactly
+the three families above (`DISTILLATION_FAMILIES`), and a record of any other
+envelope family reaching it is reported as having no registered checker rather
+than waved through.
+
 ## The rule the envelope enforces
 
 Generators propose; oracles decide. Concretely:

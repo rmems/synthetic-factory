@@ -23,8 +23,33 @@ FIXTURE = REPO / "tests" / "fixtures" / "distillation-run"
 
 
 class Routing(unittest.TestCase):
-    def test_every_family_has_a_registered_checker(self):
-        self.assertEqual(set(vd.FAMILY_CHECKS), set(oc.FAMILIES))
+    def test_every_distillation_family_has_a_registered_checker(self):
+        self.assertEqual(set(vd.FAMILY_CHECKS), set(vd.DISTILLATION_FAMILIES))
+        self.assertEqual(
+            set(vd.DISTILLATION_FAMILIES),
+            {fr.FAMILY, ep.FAMILY, mr.FAMILY},
+        )
+
+    def test_every_registered_family_is_a_real_envelope_family(self):
+        # The routing table may narrow the envelope's vocabulary, never
+        # invent a family outside it.
+        self.assertLessEqual(set(vd.FAMILY_CHECKS), set(oc.FAMILIES))
+
+    def test_an_envelope_family_this_validator_does_not_own_is_reported(self):
+        # `python-function-repair` rides the same envelope but is validated
+        # by `pipelines/code_repair/`. Reaching this tool must be a finding,
+        # not a silent pass.
+        unowned = sorted(set(oc.FAMILIES) - set(vd.FAMILY_CHECKS))
+        self.assertTrue(unowned, "the envelope has grown no family outside this validator")
+        for family in unowned:
+            with self.subTest(family=family):
+                record = fr.build_records(3, 1)[0]
+                record["family"] = family
+                errors = vd.check_record(record, "x")
+                self.assertTrue(
+                    any("no family checker registered" in error for error in errors),
+                    errors,
+                )
 
     def test_each_family_record_reaches_its_own_checker(self):
         cases = [
@@ -243,7 +268,7 @@ class CommittedFixtureRun(unittest.TestCase):
         self.assertFalse(self.report["blocked"])
 
     def test_all_three_families_are_present(self):
-        self.assertEqual(set(self.report["families"]), set(oc.FAMILIES))
+        self.assertEqual(set(self.report["families"]), set(vd.DISTILLATION_FAMILIES))
 
     def test_every_fault_outcome_appears(self):
         self.assertEqual(set(self.report["fault_outcomes"]), set(fr.OUTCOMES))
@@ -349,7 +374,7 @@ class FixtureBuilder(unittest.TestCase):
             self.assertFalse(manifest["training_ready"])
             report = vd.validate_path(out)
             self.assertEqual(report["invalid"], 0)
-            self.assertEqual(set(report["families"]), set(oc.FAMILIES))
+            self.assertEqual(set(report["families"]), set(vd.DISTILLATION_FAMILIES))
 
     def test_it_refuses_to_clobber_an_existing_run_without_force(self):
         sys.path.insert(0, str(REPO / "scripts"))

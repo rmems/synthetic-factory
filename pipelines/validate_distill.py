@@ -3,7 +3,10 @@
 
 Routes each record to its family checker on top of the distillation contract
 in ``pipelines/oracle_grounded/distill_contract.py``, then reports what is
-structurally valid and, separately, what is actually curation-eligible.
+structurally valid and, separately, what is actually curation-eligible. The
+three ``DISTILLATION_FAMILIES`` are the ones this tool checks; the other
+families sharing the envelope carry their own run validators, and a record
+of one reaching this tool is reported rather than waved through.
 Structural validity is never treated as training-readiness: a
 ``reference_only`` oracle produces valid records that this tool refuses to
 call curation-eligible.
@@ -46,6 +49,13 @@ FAMILY_CHECKS: dict[str, Callable[[dict[str, Any], str], list[str]]] = {
     energy_preferences.FAMILY: energy_preferences.check_family,
     moe_router.FAMILY: moe_router.check_family,
 }
+
+# The families this validator owns. `oc.FAMILIES` is the envelope's whole
+# vocabulary and is deliberately wider: `python-function-repair` also rides
+# the envelope, and its run validator is `pipelines/code_repair/`. A record
+# of an envelope family with no checker here is reported, never passed --
+# see `check_record`.
+DISTILLATION_FAMILIES = frozenset(FAMILY_CHECKS)
 
 
 def check_record(record: Any, where: str) -> list[str]:

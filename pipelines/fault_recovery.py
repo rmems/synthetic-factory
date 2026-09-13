@@ -12,6 +12,19 @@ the same :class:`FaultOracle` boundary; it is not available here.
 
 Disturbance vocabulary and outcome vocabulary are the ones written in #78.
 
+Relationship to ``oracle_grounded.fault_*`` (F1 of #191, landed in #193): main
+re-implemented the *generator and oracle* half of this module across
+``fault_vocabulary`` / ``fault_config`` / ``fault_scenario`` / ``fault_simulator``
+/ ``fault_oracle``, on the shared ``rng.DrawStream`` and with the owner's D7
+rulings applied. That library is not a drop-in replacement for this module and
+does not supersede it yet: it carries no ``check_family`` and no CLI, and its
+records differ from this one's for the same seed (a different draw stream, a
+different ``oracle.implementation``, and the corrected ``events_dropped``
+degradation sign). Re-pointing this family at it is a record-level migration --
+new fixture bytes and a rewritten identity pin in
+``_check_oracle_implementation_identity`` -- and is tracked separately, not done
+as part of a merge.
+
 CLI::
 
     python3 pipelines/fault_recovery.py generate --count 12 --seed 20260823 \
