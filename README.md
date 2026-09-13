@@ -120,7 +120,7 @@ Cursor Cloud Agents build from `.cursor/Dockerfile` via
 same unit tests and operator smoke check.
 
 ## Structure
-- `schemas/` — Thalamic schema + `provenance.md`
+- `schemas/` — Thalamic schema, the two parity-family schemas, + `provenance.md`
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
 - `outputs/curated/` — gitignored compose destinations (`records/`, `manifest/`, `COMPOSE.json`) built by `pipelines/compose_curated.py`, exports written by `pipelines/export_hf.py`, plus reviewed promotion snapshots written by `pipelines/curate_gate.py promote`
@@ -164,6 +164,44 @@ on a destination-specific field being absent: published mixes defeat both.
 Because prefix and goal ownership are cross-factory properties, a single file
 or one-factory source remains dry-run only; cleaned output fails closed until
 the source provides multi-factory ownership context.
+
+### Oracle-grounded parity families
+
+Two verification-oriented families ask whether a neuromorphic computation
+survives deployment or interchange, rather than treating a successful export
+as proof that it did.
+
+```bash
+python3 pipelines/neuro_oracle.py                           # which oracles can run here
+python3 pipelines/hardware_parity.py availability
+python3 pipelines/hardware_parity.py generate outputs/staging/<date> --round 1
+python3 pipelines/nir_equivalence.py availability
+python3 pipelines/nir_equivalence.py generate outputs/staging/<date> --round 1
+# `generate` writes outputs/staging/<date>/<family-slug>/batch-rNN.jsonl. To
+# promote a round into outputs/raw/, run the round transaction against the
+# raw factory directory and move the generated batch into the private stage
+# the reservation returns (publish expects batch-rNN.jsonl, plus a
+# NOTES-rNN.md carrying a "Novel coverage: <N>%" line, directly there):
+#   python3 pipelines/round_txn.py reserve outputs/raw/<date>/<family-slug> \
+#       --round N --expected <records>          # prints staging_dir + token
+#   mv outputs/staging/<date>/<family-slug>/batch-rNN.jsonl <staging_dir>/
+#   $EDITOR <staging_dir>/NOTES-rNN.md
+#   python3 pipelines/round_txn.py publish outputs/raw/<date>/<family-slug> \
+#       --round N --token <token> --allow-inconclusive "<reason>"
+# The publish gate's execution-evidence verifier does not yet model the two
+# parity shapes, so it reports them inconclusive and fails closed; the
+# families' own validators re-derive every recorded number, and the explicit
+# --allow-inconclusive waiver (recorded in the completion marker) is how an
+# operator acknowledges that split today.
+# (outputs/raw/ itself is immutable committed evidence — never a generate target)
+```
+
+Both route through `census.py`, `validate_run.py`, and `check_records.py` like
+any other family, and both re-derive every recorded number during validation.
+**No FPGA and no upstream NIR runtime executes in this repository's
+environment.** What each oracle did and did not do, and what that leaves
+unverified, is spelled out in [`docs/parity-oracles.md`](docs/parity-oracles.md).
+A committed fixture round lives in `tests/fixtures/parity-run/`.
 
 ### Curation integration and promotion gate
 

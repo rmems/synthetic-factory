@@ -26,7 +26,7 @@ if __package__:
         factory_identity_for_path as shared_factory_identity_for_path,
         summarize as summarize_mill_mix,
     )
-    from .record_kind import THALAMIC_REQUIRED, classify_kind
+    from .record_kind import DECLARED_KINDS, THALAMIC_REQUIRED, classify_kind
     from .round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
     from .validate_run import reject_json_constant
 else:
@@ -40,7 +40,7 @@ else:
         factory_identity_for_path as shared_factory_identity_for_path,
         summarize as summarize_mill_mix,
     )
-    from record_kind import THALAMIC_REQUIRED, classify_kind
+    from record_kind import DECLARED_KINDS, THALAMIC_REQUIRED, classify_kind
     from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
     from validate_run import reject_json_constant
 
@@ -51,11 +51,14 @@ KINDS = (
     "multi_agent",
     "safety_case",
     "episode",
+    "hardware_parity",
+    "nir_equivalence",
     "unknown",
 )
 SIM_BUCKETS = ("real", "real*", "sim*", "hil*", "other", "<missing>")
 
 __all__ = [
+    "DECLARED_KINDS",
     "KINDS",
     "SIM_BUCKETS",
     "THALAMIC_REQUIRED",

@@ -33,23 +33,31 @@ SUPPORTED_RECORD_KINDS = frozenset(KIND_ORDER) - {"unknown"}
 
 PREFERENCE_SIDE_KINDS = frozenset({"episode", "thalamic"})
 
+# Oracle-grounded parity families declare their kind rather than overlapping
+# thalamic/episode key names. They are not identity-lane payloads.
+DECLARED_KINDS = frozenset({"hardware_parity", "nir_equivalence"})
+
 
 def classify_kind(obj: Any) -> str:
     """Name a record from payload keys, never from a directory slug.
 
     Order (census/agentic, issue #32 comment 5377279101):
 
-    1. thalamic — all six ``THALAMIC_REQUIRED`` keys at top level
-    2. preference — ``chosen`` and ``rejected``
-    3. bridge_pair — ``language_view`` and ``spike_events``
-    4. safety_case — ``case_type``
-    5. multi_agent — ``transcript`` and ``agents``
-    6. episode — ``goal`` and ``steps``
-    7. unknown
+    1. declared parity kinds — ``record_kind`` in ``DECLARED_KINDS``
+    2. thalamic — all six ``THALAMIC_REQUIRED`` keys at top level
+    3. preference — ``chosen`` and ``rejected``
+    4. bridge_pair — ``language_view`` and ``spike_events``
+    5. safety_case — ``case_type``
+    6. multi_agent — ``transcript`` and ``agents``
+    7. episode — ``goal`` and ``steps``
+    8. unknown
     """
 
     if not isinstance(obj, Mapping):
         return "unknown"
+    declared_kind = obj.get("record_kind")
+    if isinstance(declared_kind, str) and declared_kind in DECLARED_KINDS:
+        return declared_kind
     if all(key in obj for key in THALAMIC_REQUIRED):
         return "thalamic"
     if "chosen" in obj and "rejected" in obj:

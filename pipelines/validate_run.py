@@ -25,10 +25,12 @@ if __package__:
     from . import validate_run_spikes as _validate_run_spikes
     from . import validate_run_provenance as _validate_run_provenance
     from .validate_run_input import parse_exact_json_record as _parse_exact_json_record
+    from .oracle_grounded import parity_contract
 else:
     import validate_run_spikes as _validate_run_spikes
     import validate_run_provenance as _validate_run_provenance
     from validate_run_input import parse_exact_json_record as _parse_exact_json_record
+    from oracle_grounded import parity_contract
 
 # Historical public compatibility surface. Explicit binding keeps these names
 # importable without asking static analyzers to treat unused imports as use.
@@ -89,6 +91,7 @@ __all__ = [
     "check_line",
     "check_meta_round",
     "check_multi_agent",
+    "check_parity_envelope",
     "check_provenance",
     "check_provenance_publish",
     "check_reward_total",
@@ -110,6 +113,7 @@ __all__ = [
     "sys",
     "terminal_outcome_agrees",
 ]
+
 
 THALAMIC_REQUIRED = tuple(THALAMIC_SCHEMA["required"])
 # Type-check required keys against the schema's own declared types: the six
@@ -1326,6 +1330,17 @@ def check_safety_case(obj, where, factory_staging=False):
     return errs
 
 
+def check_parity_envelope(obj, where):
+    """Shape layer for the oracle-grounded parity families.
+
+    Only the shared envelope is enforced here, the same way this layer only
+    type-checks a thalamic record. Re-deriving parity metrics and re-executing
+    NIR runtimes is the deep layer's job (pipelines/check_records.py), because
+    it is far too expensive to do once per line of a whole run directory.
+    """
+    return parity_contract.check_envelope(obj, where)
+
+
 def _route_thalamic(obj, where, _factory_staging):
     return check_thalamic(obj, where)
 
@@ -1451,6 +1466,14 @@ def check_line(obj, where, factory_staging=False):
     """Route an object to the right checker based on its shape."""
     if not isinstance(obj, dict):
         return [f"{where}: record must be a JSON object"], "unknown"
+
+    # The parity families declare their kind explicitly rather than being
+    # recognised by shape, so they can never be confused with a trajectory
+    # that happens to share a key name.
+    declared_kind = obj.get("record_kind")
+    if declared_kind in parity_contract.RECORD_KINDS:
+        return check_parity_envelope(obj, where), declared_kind
+
     for required_keys, kind, route in _LINE_ROUTES:
         if not all(k in obj for k in required_keys):
             continue
