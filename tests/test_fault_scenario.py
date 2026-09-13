@@ -28,7 +28,9 @@ propose = fault_scenario.propose_scenarios
 
 class SeededStream(unittest.TestCase):
     def test_the_same_seed_reproduces_the_same_proposals(self):
-        self.assertEqual(propose(SEED, 18), propose(SEED, 18))
+        first = propose(SEED, 18)
+        second = propose(SEED, 18)
+        self.assertEqual(first, second)
         self.assertNotEqual(propose(SEED, 18), propose(SEED + 1, 18))
 
     def test_kinds_cycle_in_disturbance_order(self):
