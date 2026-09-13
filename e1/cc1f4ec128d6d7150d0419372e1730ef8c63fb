@@ -1,0 +1,27 @@
+pipelines/code_repair/verify.py
+  s_30c91b293664f2::t_91c5a241dbea20 210-215,220,226-229,233
+  s_30c91b293664f2::t_5417c5fe26d4b8 232
+  s_30c91b293664f2::t_419187c96283db 230-231
+pipelines/code_repair/mutate.py
+  s_30c91b293664f2::t_91c5a241dbea20 108-110,153-157,213-215,217,219
+pipelines/code_repair/views.py
+  s_30c91b293664f2::t_91c5a241dbea20 77
+pipelines/code_repair/evidence.py
+  s_30c91b293664f2::t_91c5a241dbea20 57-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e1cc1f4ec128d6d7150d0419372e1730ef8c63fb",
+  "prompts": {},
+  "sessions": {
+    "s_30c91b293664f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b363f3ab-81a6-4abe-88b5-c596f7a8dd7b",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
