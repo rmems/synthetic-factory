@@ -213,7 +213,7 @@ def _freeze_mapping(value: Any) -> Any:
     return value
 
 
-def _program(row: Any, lineno: int) -> cat.Program:
+def program_from_row(row: Any, lineno: int) -> cat.Program:
     where = f"programs.jsonl:{lineno}"
     program_id = _field(row, "program_id", str, where)
     upstream = _field(row, "upstream", dict, where)
@@ -261,7 +261,7 @@ def _programs(directory: Path) -> tuple[tuple[cat.Program, ...], str]:
             parsed is None, cv.FINDING_CATALOG_FIELD_INVALID,
             f"programs.jsonl:{lineno} is not strict JSON",
         )
-        program = _program(parsed, lineno)
+        program = program_from_row(parsed, lineno)
         cv.refuse_when(
             program.program_id in seen, cv.FINDING_PROGRAM_ID_DUPLICATE,
             f"programs.jsonl:{lineno} repeats {program.program_id}",
@@ -341,7 +341,7 @@ def _license_sha256(directory: Path, meta: dict[str, Any]) -> str:
 def load_catalog(directory: Path | str) -> cat.Catalog:
     """Load and verify every pin of the catalog at ``directory``; refuses with coded findings."""
 
-    root = Path(directory)
+    root = Path(directory).resolve()
     meta = _meta(root)
     programs, digest = _programs(root)
     groups: dict[str, str | None] = {}

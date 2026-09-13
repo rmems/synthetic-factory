@@ -3,20 +3,12 @@
     "input_policy": "doctest-literals+seeded-neighbourhood-v1",
     "notes": [
       {
-        "code": "REFERENCE_DISAGREES",
-        "program_id": "tap-e6056ab4aa1d9ffd"
-      },
-      {
-        "code": "ORIGINAL_FAILS_HIDDEN",
+        "code": "ORIGINAL_HARNESS_ERROR",
         "program_id": "tap-e6056ab4aa1d9ffd"
       },
       {
         "code": "ORIGINAL_TIMEOUT",
         "program_id": "tap-95ee1cd1dc9de2f4"
-      },
-      {
-        "code": "ORIGINAL_FAILS_PUBLIC",
-        "program_id": "tap-98343cc32b5e5b0a"
       },
       {
         "code": "REFERENCE_WITHOUT_CASES",
@@ -36,18 +28,14 @@
       },
       {
         "code": "ORIGINAL_TIMEOUT",
-        "program_id": "tap-7b309d1040ea3570"
-      },
-      {
-        "code": "ORIGINAL_TIMEOUT",
         "program_id": "tap-7435e976dee2c095"
       },
       {
-        "code": "ORIGINAL_FAILS_PUBLIC",
-        "program_id": "tap-3c440470fdc1fa43"
+        "code": "REFERENCE_WITHOUT_CASES",
+        "program_id": "tap-19d71720f6f1b490"
       },
       {
-        "code": "ORIGINAL_HARNESS_ERROR",
+        "code": "ORIGINAL_TIMEOUT",
         "program_id": "tap-df7c470edda11b6c"
       },
       {
@@ -59,10 +47,6 @@
         "program_id": "tap-f7b7da09d225335b"
       },
       {
-        "code": "ORIGINAL_TIMEOUT",
-        "program_id": "tap-d6156e5e34b8ee9a"
-      },
-      {
         "code": "REFERENCE_WITHOUT_CASES",
         "program_id": "tap-4b7e6d8079e3ae30"
       }
@@ -72,8 +56,8 @@
   },
   "catalog_id": "python-repair-v1",
   "format": "code-repair-catalog/1",
-  "program_count": 206,
-  "programs_sha256": "e22209fa0a56614e403c6c8facda665eac9c379c40f913c6c8c57dfb14f19a6c",
+  "program_count": 197,
+  "programs_sha256": "fbd012638c92cbad072553405c545e5f8dc26bc677100a11e693d61b7bf9d904",
   "split_policy": {
     "algorithm": "sha256-atomic-bucket-v1",
     "salt": "python-repair-v1",

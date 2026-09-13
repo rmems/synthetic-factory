@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .candidate_io import load_candidate_records
 from . import catalog as cat
 from . import executor as ex
 from . import generate
@@ -281,7 +282,7 @@ def _validated_replay(record: dict, catalog: cat.Catalog, executor: ex.Executor,
         if not _record_identity_matches(record, catalog):
             return _entry(record, cv.REPLAY_RECORD_MALFORMED, "record identity or generator version differs")
         return _replay_positive(record, catalog, executor)
-    except (cv.RepairRefusal, KeyError, TypeError, ValueError, AttributeError) as exc:
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
         return _entry(record, cv.REPLAY_RECORD_MALFORMED, f"{type(exc).__name__} while reading")
 
 
@@ -376,7 +377,8 @@ def _catalog_bound(identity: dict[str, Any], catalog: cat.Catalog) -> bool:
         isinstance(pinned.get(key), str) and bool(pinned[key])
         for key in ("catalog_id", "programs_sha256")
     )
-    cv.refuse_when(not valid, cv.FINDING_RECORD_MALFORMED, "malformed run catalog identity")
+    if not isinstance(pinned, dict) or not valid:
+        raise cv.RepairRefusal(cv.FINDING_RECORD_MALFORMED, "malformed run catalog identity")
     return (
         pinned["catalog_id"] == catalog.catalog_id
         and pinned["programs_sha256"] == catalog.programs_sha256
@@ -384,14 +386,7 @@ def _catalog_bound(identity: dict[str, Any], catalog: cat.Catalog) -> bool:
 
 
 def _records(run_dir: Path) -> list[dict[str, Any]]:
-    loaded = []
-    for lineno, record in oc.iter_jsonl(run_dir / generate.CANDIDATES_FILENAME):
-        cv.refuse_when(
-            not isinstance(record, dict), cv.FINDING_RECORD_MALFORMED,
-            f"{generate.CANDIDATES_FILENAME}:{lineno} is not a record",
-        )
-        loaded.append(record)
-    return loaded
+    return load_candidate_records((run_dir / generate.CANDIDATES_FILENAME).read_bytes())
 
 
 def _status(replayed: int, failed: int) -> str:

@@ -11,10 +11,11 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any, TypeGuard, cast
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("rights_mapping")
 else:
@@ -60,7 +61,7 @@ class RightsPolicyError(ValueError):  # noqa: D203,D211
     """Raised when rights policy or a rights envelope fails closed."""
 
 
-def is_exact_string(value: object) -> bool:
+def is_exact_string(value: object) -> TypeGuard[str]:
     """Return whether a value is a built-in string, excluding subclasses."""
     if not isinstance(value, str):
         return False
@@ -153,21 +154,24 @@ def _require_string_list(value: object, field: str, where: str) -> list[object]:
     return value
 
 
-def _require_nonempty_strings(values: list[object], field: str, where: str) -> None:
+def _require_nonempty_strings(values: list[object], field: str, where: str) -> list[str]:
+    strings = []
     for item in values:
         if not isinstance(item, str):
             raise _invalid_string_list(field, where)
         if not item.strip():
             raise _invalid_string_list(field, where)
+        strings.append(item)
+    return strings
 
 
 def require_unique_strings(value: object, field: str, *, where: str) -> tuple[str, ...]:
     """Require a unique nonempty list of nonempty strings."""
     values = _require_string_list(value, field, where)
-    _require_nonempty_strings(values, field, where)
+    strings = _require_nonempty_strings(values, field, where)
     if len(values) != len(set(values)):
         raise _invalid_string_list(field, where)
-    return tuple(values)
+    return tuple(strings)
 
 
 def freeze_json(value: object) -> object:

@@ -226,7 +226,7 @@ def missing_homes(
     verified entries' own disagreeing declarations.
     """
 
-    absent = {
+    absent: set[str | None] = {
         home
         for homes_for_prefix in axes.homes.values()
         for home in homes_for_prefix

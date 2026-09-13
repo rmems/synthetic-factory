@@ -115,8 +115,8 @@ _structure_findings = catalog_structure_findings
 
 
 class _Structure(NamedTuple):
-    ast_digest: str
-    group_id: str
+    ast_digest: str | None
+    group_id: str | None
     split: str | None
 
 

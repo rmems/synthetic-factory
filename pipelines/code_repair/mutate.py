@@ -16,6 +16,8 @@ from __future__ import annotations
 import ast
 import copy
 from dataclasses import dataclass
+from collections.abc import Callable
+from typing import Any
 
 from . import mutate_sites
 from . import vocabulary as cv
@@ -48,12 +50,12 @@ def body_nodes(target: ast.FunctionDef):
     Those run at definition time and are not the behaviour the doctests specify (Codex on #197).
     """
 
-    pending = list(reversed(target.body))
+    pending: list[ast.AST] = list(reversed(target.body))
     while pending:
         node = pending.pop()
         yield node
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            children = node.body
+            children: list[ast.AST] = list(node.body)
         else:
             children = list(ast.iter_child_nodes(node))
         pending.extend(reversed(children))
@@ -104,7 +106,7 @@ def _transform_compare(node: ast.Compare, site: Site) -> None:
     node.ops[site.op_index] = mutate_sites.COMPARE_CLASSES[site.replacement_text]()
 
 
-def _transform_binop(node: ast.AST, site: Site) -> None:
+def _transform_binop(node: ast.BinOp | ast.AugAssign, site: Site) -> None:
     node.op = mutate_sites.BINOP_CLASSES[site.replacement_text.rstrip("=")]()
 
 
@@ -114,7 +116,9 @@ def _transform_boolop(node: ast.BoolOp, site: Site) -> None:
 
 def _transform_return(node: ast.Return, site: Site) -> None:
     value = node.value
-    if site.variant == mutate_sites.VARIANT_FLIP_BOOL:
+    if value is None:
+        return
+    if site.variant == mutate_sites.VARIANT_FLIP_BOOL and isinstance(value, ast.Constant):
         node.value = ast.Constant(value=not value.value)
     elif site.replacement_text.lstrip("-").isdigit():
         node.value = ast.parse(site.replacement_text, mode="eval").body
@@ -134,8 +138,11 @@ def _transformed(module: ast.Module, site: Site) -> ast.Module | None:
     if node is None:
         return None
     if site.variant == mutate_sites.VARIANT_DROP_NOT:
-        return _ReplaceNode(node, node.operand).visit(module)
-    handlers = {
+        if not isinstance(node, ast.UnaryOp):
+            return None
+        _ReplaceNode(node, node.operand).visit(module)
+        return module
+    handlers: dict[str, Callable[[Any, Site], None]] = {
         "Compare": _transform_compare, "BinOp": _transform_binop, "AugAssign": _transform_binop,
         "BoolOp": _transform_boolop, "Return": _transform_return, "Constant": _transform_constant,
     }
@@ -177,12 +184,13 @@ def verify(text: str, mutated_text: str, site: Site, function: str) -> str | Non
     if not _compiles(mutated_text):
         return cv.SKIP_MUTATION_SYNTAX_ERROR
     original, mutated = _target(text, function), _target(mutated_text, function)
-    dumped = None if mutated is None else ast.dump(mutated)
+    if original is None or mutated is None:
+        return cv.SKIP_MUTATION_NOOP
+    dumped = ast.dump(mutated)
     rules = (
-        (dumped is None or dumped == ast.dump(original), cv.SKIP_MUTATION_NOOP),
+        (dumped == ast.dump(original), cv.SKIP_MUTATION_NOOP),
         (
-            dumped is not None
-            and ast.get_docstring(mutated, clean=False) != ast.get_docstring(original, clean=False),
+            ast.get_docstring(mutated, clean=False) != ast.get_docstring(original, clean=False),
             cv.SKIP_MUTATION_TOUCHES_DOCSTRING,
         ),
         (dumped != expected_dump(text, function, site), cv.SKIP_MUTATION_UNVERIFIABLE),

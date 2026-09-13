@@ -15,11 +15,13 @@ from tests.test_code_repair_catalog import copied_fixture, rewrite_programs
 from tests.test_code_repair_cli import invoke
 from tests.test_code_repair_verify import phases, CERTIFIED
 from code_repair import record_validation
+from tests.code_repair_test_support import required_item
 
 
 class VerticalRegressions(unittest.TestCase):
-    def positive(self):
-        return copy.deepcopy(next(r for r in smoke_run()[1] if views.is_positive(r)))
+    @staticmethod
+    def positive():
+        return copy.deepcopy(required_item(r for r in smoke_run()[1] if views.is_positive(r)))
 
     def test_run_summary_pins_exact_candidate_bytes(self):
         summary, _, directory = smoke_run()
@@ -45,7 +47,7 @@ class VerticalRegressions(unittest.TestCase):
     def test_coherent_test_metadata_forgery_is_rejected(self):
         record = self.positive()
         entry = record['result']['public_failure_evidence'][0]
-        example = next(e for e in record['scenario']['public_tests']['examples']
+        example = required_item(e for e in record['scenario']['public_tests']['examples']
                        if e['example_id'] == entry['example_id'])
         entry['source'] = example['source'] = 'fabricated()\n'
         row = {'prompt': views.render_prompt(views.public_view(record)),
@@ -53,7 +55,7 @@ class VerticalRegressions(unittest.TestCase):
         self.assertIn(cv.LEAK_PUBLIC_EVIDENCE_NOT_FROM_ROWS, views.view_findings(record, row))
 
     def test_relabelled_rejection_is_not_positive(self):
-        record = copy.deepcopy(next(r for r in smoke_run()[1]
+        record = copy.deepcopy(required_item(r for r in smoke_run()[1]
                                    if 'MUTANT_NO_PUBLIC_FAILURE' in r['result']['reason_codes']))
         record['result'].update(outcome='accepted', oracle_status='validated')
         record['provenance']['record_sha256'] = envelope.record_digest(record)
@@ -75,15 +77,13 @@ class VerticalRegressions(unittest.TestCase):
         self.assertLessEqual(len(verify.render_evidence(entries, omitted)), cv.MAX_EVIDENCE_CHARS)
         self.assertEqual(omitted, 1)
 
-    def test_agoge_boundary_is_constructed_unicode_offset(self):
+    def test_agoge_refuses_restamped_task_specification(self):
         record = self.positive()
         record['scenario']['task_specification'] += '\n雪🙂' + cv.AGOGE_SEPARATOR
         record['provenance']['record_sha256'] = envelope.record_digest(record)
-        row = views.agoge_row(record)
-        offset = row.get('completion_start_char')
-        self.assertIs(type(offset), int)
-        self.assertEqual(row['text'][offset:], views.completion_of(record))
-        self.assertEqual(row['text'][:offset], views.sft_row(record)['prompt'] + cv.AGOGE_SEPARATOR)
+        self.assertEqual(oc.check_digest(record, 'restamped'), [])
+        with self.assertRaises(cv.RepairRefusal):
+            views.agoge_row(record)
 
     def test_oracle_labels_in_source_metadata_are_refused(self):
         for key in ('reference', 'public_failure_omitted'):
@@ -199,7 +199,7 @@ class VerticalRegressions(unittest.TestCase):
                     self.assertEqual(verify.phase_block(phase), record['result']['phases']['mutant'])
 
     def test_evidence_reordering_and_shortening_is_detected(self):
-        record = copy.deepcopy(next(r for r in smoke_run()[1]
+        record = copy.deepcopy(required_item(r for r in smoke_run()[1]
                                     if len(r['result']['public_failure_evidence']) >= 2))
         self.assertGreaterEqual(len(record['result']['public_failure_evidence']), 2)
         for entries in (list(reversed(record['result']['public_failure_evidence'])), []):
@@ -236,10 +236,12 @@ class VerticalRegressions(unittest.TestCase):
             rewrite_programs(directory, edit)
             out = Path(root)/'run'
             generate.run(generate.RunRequest(directory, out, SEED, 12, PINNED_AT))
-            record = next(r for _, r in oc.iter_jsonl(out/'candidates.jsonl') if views.is_positive(r))
+            record = required_item(r for _, r in oc.iter_jsonl(out/'candidates.jsonl') if views.is_positive(r))
             row = views.agoge_row(record)
         offset = row['completion_start_char']
+        self.assertIs(type(offset), int)
         self.assertEqual(row['text'][offset:], views.completion_of(record))
+        self.assertEqual(row['text'][:offset], views.sft_row(record)['prompt'] + cv.AGOGE_SEPARATOR)
         self.assertIn('雪🙂', row['text'][:offset])
         self.assertGreaterEqual(row['text'][:offset].count(cv.AGOGE_SEPARATOR), 2)
         self.assertGreater(len(row['text'][:offset].encode('utf-8')), offset)
@@ -250,7 +252,7 @@ class VerticalRegressions(unittest.TestCase):
             rewrite_programs(directory, lambda row: row['upstream'].update(review_revision='new'))
             out = Path(root)/'run'
             generate.run(generate.RunRequest(directory, out, SEED, 1, PINNED_AT))
-            record = next(oc.iter_jsonl(out/'candidates.jsonl'))[1]
+            record = required_item(oc.iter_jsonl(out/'candidates.jsonl'))[1]
         self.assertNotEqual(record['id'], smoke_run()[1][0]['id'])
 
     def test_real_ellipsis_output_is_checked_for_full_observation_determinism(self):
@@ -268,7 +270,7 @@ class VerticalRegressions(unittest.TestCase):
             rewrite_programs(directory, edit)
             out = Path(root)/'run'
             summary = generate.run(generate.RunRequest(directory, out, SEED, 1, PINNED_AT))
-            record = next(oc.iter_jsonl(out/'candidates.jsonl'))[1]
+            record = required_item(oc.iter_jsonl(out/'candidates.jsonl'))[1]
         self.assertEqual(summary['reasons'], {'SOURCE_NONDETERMINISTIC': 1})
         phases = record['result']['phases']
         left, right = phases['original']['public'][0], phases['original_repeat']['public'][0]

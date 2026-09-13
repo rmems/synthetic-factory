@@ -196,7 +196,7 @@ def examples_sha256(examples: tuple[Example, ...]) -> str:
     return sha256_text(oc.canonical_json([list(example.key()) for example in examples]))
 
 
-from .catalog_load import load_catalog  # noqa: E402  types must exist first
+from .catalog_load import load_catalog, program_from_row  # noqa: E402  types must exist first
 
 
 bind_import_twin(__name__)

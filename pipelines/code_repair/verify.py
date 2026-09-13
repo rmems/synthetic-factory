@@ -207,11 +207,12 @@ def phase_block(report: ex.PhaseReport | None) -> dict[str, Any] | None:
     if report is None:
         return None
     public, hidden = ex.rows_of(report.public), ex.rows_of(report.hidden)
-    block = {"status": report.status, "load_ok": report.load_ok, "public": public, "hidden": hidden}
-    block["module_sha256"] = report.module_sha256
-    block["limits_applied"] = report.environment.get("limits_applied")
-    block["sha256"] = cat.sha256_text(oc.canonical_json([public, hidden]))
-    return block
+    return {
+        "status": report.status, "load_ok": report.load_ok, "public": public, "hidden": hidden,
+        "module_sha256": report.module_sha256,
+        "limits_applied": report.environment.get("limits_applied"),
+        "sha256": cat.sha256_text(oc.canonical_json([public, hidden])),
+    }
 
 
 def phases_from_blocks(blocks: dict[str, Any]) -> Phases:
@@ -222,7 +223,11 @@ def phases_from_blocks(blocks: dict[str, Any]) -> Phases:
         reports[phase] = None if block is None else ex.PhaseReport(
             block["status"], block["load_ok"], tuple(block["public"]), tuple(block["hidden"]),
             {"limits_applied": block["limits_applied"]}, module_sha256=block["module_sha256"])
-    return Phases(**reports)
+    original = reports["original"]
+    if original is None:
+        raise ValueError("original phase report is required")
+    return Phases(original, reports["mutant"], reports["repaired"],
+                  reports["reference"], reports["original_repeat"])
 
 
 def result_hash(phases_block: dict[str, Any]) -> str:

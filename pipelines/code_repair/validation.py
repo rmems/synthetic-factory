@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from . import catalog as cat, mutate, record_validation, views, vocabulary as cv
+from . import catalog as cat, mutate, record_validation, row_validation, views, vocabulary as cv
 from ._contract import bind_import_twin, oc
 
 
@@ -113,6 +113,8 @@ def _evidence_finding(inputs):
          cv.EXPORT_RECORD_FAILS_CONTRACT),
         (lambda: not record_validation.verdict_matches(record),
          cv.EXPORT_EVIDENCE_VERDICT_MISMATCH),
+        (lambda: not row_validation.outcomes_match(record),
+         cv.EXPORT_EVIDENCE_VERDICT_MISMATCH),
         (lambda: bool(views.evidence_findings(record)),
          cv.EXPORT_RECORD_FAILS_CONTRACT),
     )
@@ -148,14 +150,15 @@ def validate_record(record, where='record', *, catalog=None) -> list[str]:
     """Return coded findings without executing source or treating natural exclusions as errors."""
     try:
         finding = _validate_record(_RecordInputs(record, where, catalog))
-    except (cv.RepairRefusal, KeyError, TypeError, ValueError, AttributeError, RecursionError):
+    except (KeyError, TypeError, ValueError, AttributeError, RecursionError):
         finding = cv.EXPORT_RECORD_FAILS_CONTRACT
     return [finding] if finding is not None else []
 
 
 def validate_run(run, records, *, catalog, candidates_sha256) -> list[str]:
     """Validate the run and its captured records without execution."""
-    from .run_validation import validate_run as check
+    # Intentional lazy authority/import-twin boundary; exercised by import-order tests.
+    from .run_validation import validate_run as check  # pylint: disable=cyclic-import
     return check(run, records, catalog=catalog, candidates_sha256=candidates_sha256)
 
 

@@ -133,7 +133,7 @@ def check_oracle_label_leak(
     family = record.get("family")
     active = policy if policy is not None else oracle_label_policy(family)
     problem = _policy_problem(active, family, where)
-    if problem is None:
+    if problem is None and active is not None:
         problem = _leak_finding(record, active, where)
     return [] if problem is None else [problem]
 
