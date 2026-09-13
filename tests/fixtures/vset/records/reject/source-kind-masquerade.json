@@ -34,7 +34,7 @@
     "source_family": "PROMETHEUS_REAL"
   },
   "release": {
-    "factory_contract_version": "factory-registry-v0.1",
+    "factory_contract_version": "factory-registry-v0.3",
     "schema_version": "vset-record-v1",
     "manifest_hash": "sha256:f06148164aa50b97e69294f941d53a0ce314589f45382e882ab18167a9437aa6"
   },
