@@ -161,7 +161,11 @@ def examples_sha256(examples: tuple[Example, ...]) -> str:
     return sha256_text(oc.canonical_json([list(example.key()) for example in examples]))
 
 
-from .catalog_load import load_catalog  # noqa: E402  types must exist first
+def load_catalog(directory: Path | str) -> Catalog:
+    """Load through the catalog loader without requiring an import order."""
+    from .catalog_load import load_catalog as load
+
+    return load(directory)
 
 
 # --- the original-passes check -------------------------------------------
