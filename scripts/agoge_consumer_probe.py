@@ -16,6 +16,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 _SCRIPTS = str(Path(__file__).resolve().parent)
 if _SCRIPTS not in sys.path:
@@ -227,61 +228,85 @@ def _manifest_proof(path: Path, manifest: dict, count: int) -> dict:
     return {"sha256": digest, "rows": count}
 
 
-def _labels(rows: list[dict], args: argparse.Namespace) -> dict:
-    config = _config(args.config, args.tokenizer_revision)
+class Inputs(NamedTuple):
+    """The operator's paths, each confined to the working, home and temp trees."""
+
+    agoge_jsonl: Path
+    manifest: Path
+    config: Path | None
+    freeze_into: Path | None
+    source_path: str
+    source_revision: str | None
+    dataset_version: str | None
+    tokenizer_revision: str | None
+
+
+def _inputs(args: argparse.Namespace) -> Inputs:
+    def optional(value: str | None) -> Path | None:
+        return None if value is None else operator_path(value)
+
+    return Inputs(
+        operator_path(args.agoge_jsonl), operator_path(args.manifest),
+        optional(args.config), optional(args.freeze_into),
+        args.source_path, args.source_revision, args.dataset_version, args.tokenizer_revision,
+    )
+
+
+def _labels(rows: list[dict], inputs: Inputs) -> dict:
+    config = _config(inputs.config, inputs.tokenizer_revision)
     return {**_label_report(rows, config), "config": config}
 
 
-def _freeze_ready(args: argparse.Namespace) -> bool:
-    revision = args.source_revision
+def _freeze_ready(inputs: Inputs) -> bool:
+    revision = inputs.source_revision
     if not revision:
         return False
     if not PINNED_REVISION.fullmatch(revision):
         return False
     if revision == '0' * 40:
         return False
-    if not args.dataset_version:
+    if not inputs.dataset_version:
         return False
-    return args.dataset_version != 'probe'
+    return inputs.dataset_version != 'probe'
 
 
-def _freeze_step(report: dict, args: argparse.Namespace, spec) -> None:
-    if args.freeze_into is None:
+def _freeze_step(report: dict, inputs: Inputs, spec) -> None:
+    if inputs.freeze_into is None:
         return
-    if not _freeze_ready(args):
+    if not _freeze_ready(inputs):
         report['freeze'] = {
             'error': 'freeze requires real --source-revision and --dataset-version',
         }
         return
-    report["freeze"] = _guarded(_freeze, args.agoge_jsonl, args.freeze_into, spec)[0]
+    report["freeze"] = _guarded(_freeze, inputs.agoge_jsonl, inputs.freeze_into, spec)[0]
 
 
-def _split_steps(report: dict, records: list, rows: list, args: argparse.Namespace) -> None:
+def _split_steps(report: dict, records: list, rows: list, inputs: Inputs) -> None:
     policy = report.pop("policy")
     if policy is None:
         report["split_agreement"] = {"status": "not evaluated: no split policy"}
-        if args.freeze_into is not None:
+        if inputs.freeze_into is not None:
             report["freeze"] = {"error": "no split policy"}
         return
-    spec_report, _unused = _guarded(_make_spec, policy, args.source_path,
-                                  args.source_revision or '0' * 40, args.dataset_version or 'probe')
+    spec_report, _unused = _guarded(_make_spec, policy, inputs.source_path,
+                                  inputs.source_revision or '0' * 40, inputs.dataset_version or 'probe')
     if "error" in spec_report:
         report["split_agreement"] = spec_report
         return
     spec = spec_report["spec"]
     report["split_agreement"] = _guarded(_split_agreement, records, rows, spec)[0]
-    _freeze_step(report, args, spec)
+    _freeze_step(report, inputs, spec)
 
 
 def _make_spec(policy: dict, source_path: str, source_revision, dataset_version) -> dict:
     return {"spec": _spec(policy, source_path, source_revision, dataset_version)}
 
 
-def _failed_steps(report: dict, args: argparse.Namespace) -> list[str]:
+def _failed_steps(report: dict, inputs: Inputs) -> list[str]:
     required = ["manifest", "load", "split_agreement"]
-    if args.config is not None:
+    if inputs.config is not None:
         required.append("labels")
-    if args.freeze_into is not None:
+    if inputs.freeze_into is not None:
         required.append("freeze")
     failed = [name for name in required if "error" in report.get(name, {"error": "not run"})]
     if report.get("split_agreement", {}).get("agree") is False:
@@ -289,45 +314,45 @@ def _failed_steps(report: dict, args: argparse.Namespace) -> list[str]:
     return sorted(set(failed))
 
 
-def _report(args: argparse.Namespace) -> dict:
-    rows = _rows(args.agoge_jsonl)
-    manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
+def _report(inputs: Inputs) -> dict:
+    rows = _rows(inputs.agoge_jsonl)
+    manifest = json.loads(inputs.manifest.read_text(encoding="utf-8"))
     report: dict = {"rows": len(rows), "gaps": {k: v for k, v in GAPS.items() if k != "NO_LOSS_MASKING_PROMPT_TOKENS_TRAINED"}}
-    report["manifest"] = _guarded(_manifest_proof, args.agoge_jsonl, manifest, len(rows))[0]
+    report["manifest"] = _guarded(_manifest_proof, inputs.agoge_jsonl, manifest, len(rows))[0]
     if "error" in report["manifest"]:
         return {**report, "passed": False, "failed_steps": ["manifest"]}
-    report["load"], records = _guarded(_load_proof, args.agoge_jsonl, args.source_path)
+    report["load"], records = _guarded(_load_proof, inputs.agoge_jsonl, inputs.source_path)
     report["policy"] = manifest["run"].get("split_policy")
-    _split_steps(report, records, rows, args)
-    if args.config is not None:
-        report["labels"] = _guarded(_labels, rows, args)[0]
+    _split_steps(report, records, rows, inputs)
+    if inputs.config is not None:
+        report["labels"] = _guarded(_labels, rows, inputs)[0]
         report["config"] = report["labels"].pop("config", {})
-    report["failed_steps"] = _failed_steps(report, args)
+    report["failed_steps"] = _failed_steps(report, inputs)
     report["passed"] = not report["failed_steps"]
     return report
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("agoge_jsonl", type=operator_path)
-    parser.add_argument(
-        "--manifest", type=operator_path, required=True, help="the export's MANIFEST.json"
-    )
+    parser.add_argument("agoge_jsonl")
+    parser.add_argument("--manifest", required=True, help="the export's MANIFEST.json")
     parser.add_argument("--source-path", default=SOURCE_PATH)
-    parser.add_argument(
-        "--config", type=operator_path, default=None, help="an Agoge experiment YAML"
-    )
+    parser.add_argument("--config", default=None, help="an Agoge experiment YAML")
     parser.add_argument(
         "--tokenizer-revision", default=None,
         help="the model revision to tokenize with (40 hex) when the config pins none",
     )
-    parser.add_argument("--freeze-into", type=operator_path, default=None)
+    parser.add_argument("--freeze-into", default=None)
     parser.add_argument('--source-revision', default=None)
     parser.add_argument('--dataset-version', default=None)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    try:
+        inputs = _inputs(args)
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
     with contextlib.redirect_stdout(sys.stderr):  # Agoge and the Hub client log to stdout
-        report = _report(args)
+        report = _report(inputs)
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:

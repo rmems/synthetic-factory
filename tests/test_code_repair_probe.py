@@ -221,3 +221,14 @@ class ConsumerProbeFailures(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OperatorPathConfinement(unittest.TestCase):
+    def test_main_refuses_a_path_outside_the_operator_trees_before_reading_anything(self):
+        stderr = io.StringIO()
+        with mock.patch.object(probe, "_report") as report, contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as refused:
+                probe.main(["/etc/passwd", "--manifest", "/etc/hostname"])
+        self.assertEqual(refused.exception.code, 2)
+        self.assertIn("outside the working, home and temp trees", stderr.getvalue())
+        report.assert_not_called()

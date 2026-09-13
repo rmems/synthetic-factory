@@ -170,13 +170,9 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--commit", type=_commit, required=True, help="the pinned upstream commit (40 hex)"
     )
-    parser.add_argument(
-        "--out", type=operator_path, required=True, help="a brand-new catalog directory"
-    )
-    parser.add_argument("--cache-dir", type=operator_path, required=True)
-    parser.add_argument(
-        "--references", type=operator_path, required=True, help="the reviewed reference table"
-    )
+    parser.add_argument("--out", required=True, help="a brand-new catalog directory")
+    parser.add_argument("--cache-dir", required=True)
+    parser.add_argument("--references", required=True, help="the reviewed reference table")
     parser.add_argument("--catalog-id", default="python-repair-v1")
     parser.add_argument(
         "--limit", type=int, default=None, help="keep only the first N files (smoke)"
@@ -250,19 +246,28 @@ def _targets(sources: dict[str, str]) -> list[tuple[str, str]]:
     return [(path, fn) for path, text in sources.items() for fn in cb.select_targets(text)]
 
 
+def _confined(args: argparse.Namespace) -> tuple[Path, Path, Path]:
+    """The cache, reference table and output paths, each confined to the operator's trees."""
+
+    try:
+        return operator_path(args.cache_dir), operator_path(args.references), operator_path(args.out)
+    except argparse.ArgumentTypeError as exc:
+        raise SystemExit(f"error: {exc}") from exc
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-    cache = Path(args.cache_dir)
+    cache, references_path, out = _confined(args)
     tree = _tree(args.commit, cache)
     entries = sorted((e for e in tree if _is_candidate(e)), key=lambda e: e["path"])
     if args.limit is not None:
         entries = entries[: args.limit]
     sources, files = _admissible_sources(entries, args.commit, cache)
     upstream = cb.Upstream(REPOSITORY, args.commit, "MIT", _license_text(tree, args.commit, cache))
-    references = json.loads(Path(args.references).read_text(encoding="utf-8"))
+    references = json.loads(references_path.read_text(encoding="utf-8"))
     build = cb.Build(upstream, sources, references, lineage.SplitPolicy.from_json(DEFAULT_POLICY))
     rows = cb.build_rows(build, _targets(sources), ex.Executor(timeout_s=args.timeout_s))
-    cb.write_catalog(Path(args.out), args.catalog_id, build, rows)
+    cb.write_catalog(out, args.catalog_id, build, rows)
     print(json.dumps(_summary(files, build, rows), indent=2, sort_keys=True))
     return 0
 

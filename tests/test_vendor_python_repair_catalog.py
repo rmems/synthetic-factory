@@ -73,6 +73,14 @@ class FileAdmission(unittest.TestCase):
                 vendor._parse_args(argv + ["--commit", value])
         self.assertEqual(vendor._parse_args(argv + ["--commit", COMMIT]).commit, COMMIT)
 
+    def test_main_refuses_a_path_outside_the_operator_trees_before_any_fetch(self):
+        argv = ["--commit", COMMIT, "--out", "/etc/catalog", "--cache-dir", "/etc",
+                "--references", "/etc/hostname"]
+        with mock.patch.object(vendor, "_https_get") as fetch:
+            with self.assertRaisesRegex(SystemExit, "outside the working, home and temp trees"):
+                vendor.main(argv)
+        fetch.assert_not_called()
+
 
 def _fixture_source(program):
     text = program.text
