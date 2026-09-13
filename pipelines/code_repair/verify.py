@@ -217,17 +217,20 @@ def phase_block(report: ex.PhaseReport | None) -> dict[str, Any] | None:
 
 def phases_from_blocks(blocks: dict[str, Any]) -> Phases:
     """Reconstruct complete stable reports; callers validate their family shape first."""
-    reports = {}
+    reports: dict[str, ex.PhaseReport | None] = {}
     for phase in cv.PHASES:
         block = blocks[phase]
         reports[phase] = None if block is None else ex.PhaseReport(
             block["status"], block["load_ok"], tuple(block["public"]), tuple(block["hidden"]),
             {"limits_applied": block["limits_applied"]}, module_sha256=block["module_sha256"])
-    original = reports["original"]
+    original = reports[cv.PHASE_ORIGINAL]
     if original is None:
-        raise ValueError("original phase report is required")
-    return Phases(original, reports["mutant"], reports["repaired"],
-                  reports["reference"], reports["original_repeat"])
+        raise cv.RepairRefusal(cv.FINDING_RECORD_MALFORMED, "the original phase is missing")
+    return Phases(
+        original=original, mutant=reports[cv.PHASE_MUTANT],
+        repaired=reports[cv.PHASE_REPAIRED], reference=reports[cv.PHASE_REFERENCE],
+        original_repeat=reports.get(cv.PHASE_ORIGINAL_REPEAT),
+    )
 
 
 def result_hash(phases_block: dict[str, Any]) -> str:

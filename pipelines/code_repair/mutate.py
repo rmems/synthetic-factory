@@ -54,10 +54,11 @@ def body_nodes(target: ast.FunctionDef):
     while pending:
         node = pending.pop()
         yield node
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            children: list[ast.AST] = list(node.body)
-        else:
-            children = list(ast.iter_child_nodes(node))
+        children: list[ast.AST] = (
+            list(node.body)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            else list(ast.iter_child_nodes(node))
+        )
         pending.extend(reversed(children))
 
 
@@ -185,7 +186,7 @@ def verify(text: str, mutated_text: str, site: Site, function: str) -> str | Non
         return cv.SKIP_MUTATION_SYNTAX_ERROR
     original, mutated = _target(text, function), _target(mutated_text, function)
     if original is None or mutated is None:
-        return cv.SKIP_MUTATION_NOOP
+        return cv.SKIP_MUTATION_NOOP  # the target is not a rewritable function on both sides
     dumped = ast.dump(mutated)
     rules = (
         (dumped == ast.dump(original), cv.SKIP_MUTATION_NOOP),

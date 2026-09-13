@@ -54,9 +54,10 @@ def public_evidence(
     for row in failing:
         entry = _entry(row, examples[_example_index(row["id"])])
         omitted_after = len(failing) - len(entries) - 1
-        if not _fits(entries, entry) or len(render_evidence(entries + [entry], omitted_after)) > cv.MAX_EVIDENCE_CHARS:
-            if entries or not _bounded_first(entry, omitted_after):
-                break
+        too_long = len(render_evidence(entries + [entry], omitted_after)) > cv.MAX_EVIDENCE_CHARS
+        does_not_fit = not _fits(entries, entry) or too_long
+        if does_not_fit and (entries or not _bounded_first(entry, omitted_after)):
+            break
         entries.append(entry)
     return entries, len(failing) - len(entries)
 
