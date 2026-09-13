@@ -23,19 +23,27 @@ def _hidden_agrees(got: str, want: str) -> bool:
                              abs_tol=executor.FLOAT_ABS_TOL))
 
 
-def _hidden_matches(row, case) -> bool:
-    status, want = row["status"], case["want"]
-    if want is None:
-        return status in (cv.ROW_OBSERVED, cv.ROW_ERROR) and "got" in row
-    if status in (cv.ROW_ERROR, cv.ROW_FAIL):
-        return "got" not in row
-    if status != cv.ROW_SUCCESS or "got" not in row:
+def _observed_hidden_matches(row) -> bool:
+    return row["status"] in (cv.ROW_OBSERVED, cv.ROW_ERROR) and "got" in row
+
+
+def _passing_hidden_matches(row, want) -> bool:
+    if "got" not in row:
         return False
     if row["truncated"]:
         # A clipped passing repr must still bind the complete pinned output.
         return (want.startswith(row["got"])
                 and catalog.sha256_text(want) == row["got_sha256"])
     return _hidden_agrees(row["got"], want)
+
+
+def _hidden_matches(row, case) -> bool:
+    status, want = row["status"], case["want"]
+    if want is None:
+        return _observed_hidden_matches(row)
+    if status == cv.ROW_SUCCESS:
+        return _passing_hidden_matches(row, want)
+    return status in (cv.ROW_ERROR, cv.ROW_FAIL) and "got" not in row
 
 
 def _public_examples(text, function):
@@ -63,23 +71,31 @@ def _public_want(got, example) -> str:
     return example.want
 
 
+def _public_flags(example) -> int:
+    return sum(flag for flag, enabled in example.options.items() if enabled)
+
+
 def _public_matches(row, example) -> bool:
     status = row["status"]
     if status == cv.ROW_ERROR:
         return True  # Exception text alone cannot authenticate execution.
     if status not in (cv.ROW_SUCCESS, cv.ROW_FAIL):
         return False
-    flags = sum(flag for flag, enabled in example.options.items() if enabled)
+    flags = _public_flags(example)
     if example.exc_msg is not None and flags & doctest.IGNORE_EXCEPTION_DETAIL:
         # The harness retains only the final exception line, which may be a
         # multiline message continuation without its type. Replay must decide.
         return True
+    return _ordinary_public_matches(row, example, flags)
+
+
+def _ordinary_public_matches(row, example, flags) -> bool:
     got = row["got"]
     want = _public_want(got, example)
     if row["truncated"]:
         return _clipped_public_matches(row, want, flags)
     matched = doctest.OutputChecker().check_output(want, got, flags)
-    return matched == (status == cv.ROW_SUCCESS)
+    return matched == (row["status"] == cv.ROW_SUCCESS)
 
 
 def _suite_matches(rows, cases, matches) -> bool:
