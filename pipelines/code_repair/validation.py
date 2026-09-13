@@ -11,7 +11,7 @@ def _catalog_expectations(program, catalog):
     source = {
         'program_id': program.program_id,
         'family': program.family,
-        'upstream': program.upstream,
+        'upstream': cat.upstream_json(program),
         'module_sha256': program.sha256,
     }
     public = {'kind': 'doctest', 'examples': [

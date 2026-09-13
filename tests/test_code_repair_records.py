@@ -26,7 +26,7 @@ from code_repair_test_support import (  # noqa: E402
 # exact-integer harness (Codex on #196) and the executed reference phase (Codex on #197), then
 # for digests on passing rows (Codex on #196, round 3).
 # S3 adds policy_sha256 to split_lineage. Removing exactly that field reproduces the S2 pin.
-GOLDEN_SHA256 = "8662dfa3a6e48a23d96ae1aefac89e9547ae65bf4fd566af9af9c8eb4a7c43d3"
+GOLDEN_SHA256 = "1b977de64ba94d655b92fa8d0d06aad56aa15cedd4aa372fe1e1d9ff11b14de0"
 
 
 def accepting_executor():

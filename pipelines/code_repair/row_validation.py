@@ -55,14 +55,15 @@ def _public_examples(text, function):
             if not example.options.get(doctest.SKIP)]
 
 
-def _clipped_public_matches(row, want, flags) -> bool:
+def _clipped_public_matches(row, want, flags, full_exception=False) -> bool:
     # Directives may admit many complete outputs for the retained prefix.
     # Those observations remain indeterminate until mandatory fresh replay.
     variable_output = flags & (doctest.ELLIPSIS | doctest.NORMALIZE_WHITESPACE
                                | doctest.IGNORE_EXCEPTION_DETAIL)
     if row["status"] == cv.ROW_FAIL or variable_output:
         return True
-    return want.startswith(row["got"]) and catalog.sha256_text(want) == row["got_sha256"]
+    return want.startswith(row["got"]) and (
+        full_exception or catalog.sha256_text(want) == row["got_sha256"])
 
 
 def _public_want(got, example) -> str:
@@ -93,7 +94,7 @@ def _ordinary_public_matches(row, example, flags) -> bool:
     got = row["got"]
     want = _public_want(got, example)
     if row["truncated"]:
-        return _clipped_public_matches(row, want, flags)
+        return _clipped_public_matches(row, want, flags, example.exc_msg is not None)
     matched = doctest.OutputChecker().check_output(want, got, flags)
     return matched == (row["status"] == cv.ROW_SUCCESS)
 

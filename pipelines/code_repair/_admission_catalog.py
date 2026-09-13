@@ -111,7 +111,7 @@ def bound_catalog(row: Any, supplied: cat.Catalog | None) -> cat.Catalog:
     if supplied is not None:
         supplied = replace(supplied, directory=supplied.directory.resolve())
         trusted = replace(trusted, directory=trusted.directory.resolve())
-    if supplied is not None and supplied != trusted:
+    if supplied is not None and copy_catalog(supplied) != copy_catalog(trusted):
         raise sp.SourcePolicyError(
             "PROCEDURAL_CATALOG_SUBSTITUTED: supplied catalog is not trusted"
         )

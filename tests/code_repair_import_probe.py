@@ -33,6 +33,7 @@ def _forget_repository_modules() -> None:
 
 def _cli_form() -> Any:
     sys.path.insert(0, str(PIPELINES))
+    from code_repair import catalog_load  # noqa: F401  exercise loader-first imports
     from code_repair import cli as flat
 
     return flat
@@ -40,6 +41,7 @@ def _cli_form() -> Any:
 
 def _package_form() -> Any:
     sys.path.insert(0, str(REPO))
+    from pipelines.code_repair import catalog_load  # noqa: F401  exercise loader-first imports
     from pipelines.code_repair import cli as packaged
 
     return packaged

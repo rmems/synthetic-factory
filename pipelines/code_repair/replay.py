@@ -79,7 +79,7 @@ def _catalog_drift(record: dict[str, Any], catalog: cat.Catalog) -> str | None:
     program = next((p for p in catalog.programs if p.program_id == program_id), None)
     if program is None or program.sha256 != source["module_sha256"]:
         return "the catalog does not pin this program"
-    if program.upstream != source["upstream"]:
+    if cat.upstream_json(program) != source["upstream"]:
         return "the program's upstream identity moved"
     if _hidden_check_moved(record, program):
         return "the hidden cases or reference moved"

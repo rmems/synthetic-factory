@@ -213,7 +213,7 @@ def _freeze_mapping(value: Any) -> Any:
     return value
 
 
-def program_from_row(row: Any, lineno: int) -> cat.Program:
+def program_from_row(row: Any, lineno: int = 0) -> cat.Program:
     where = f"programs.jsonl:{lineno}"
     program_id = _field(row, "program_id", str, where)
     upstream = _field(row, "upstream", dict, where)
