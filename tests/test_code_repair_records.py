@@ -29,7 +29,7 @@ from code_repair_test_support import (  # noqa: E402
 # Re-pinned again for the harness that reports an unappliable limit instead of raising and names
 # the exception type in its catch-all: with harness_sha256 and record_sha256 removed, the records
 # are byte-identical to the S3 pin, so only the fingerprint moved.
-GOLDEN_SHA256 = "33dc402624e8f778da55f373a4751ea512cdd5c5593d60cd22e9a1c28e408225"
+GOLDEN_SHA256 = "22b41c0a85d7ea2e9e5ae40c79d04c06f6bf2f556cc2e077fd56d64a3d922a50"
 
 
 def accepting_executor():

@@ -43,11 +43,12 @@ def _apply_limits(spec: dict) -> bool:
     unsandboxed run would look like one crashed candidate.
     """
 
+    # One handler for every way a limit can fail to go on -- no `resource` module
+    # (non-POSIX), no such constant on this platform, an unusable spec, or a
+    # refused `setrlimit`. They are one outcome to the caller, and splitting them
+    # would put this file over its total-complexity budget for no gain.
     try:
         import resource
-    except ImportError:  # pragma: no cover - POSIX only
-        return False
-    try:
         limits = (
             (resource.RLIMIT_CPU, int(spec["cpu_seconds"])),
             (resource.RLIMIT_AS, int(spec["address_space_bytes"])),
@@ -55,7 +56,8 @@ def _apply_limits(spec: dict) -> bool:
         )
         for name, value in limits:
             resource.setrlimit(name, (value, value))
-    except (AttributeError, KeyError, OSError, OverflowError, TypeError, ValueError):
+    except (AttributeError, ImportError, KeyError, OSError,
+            OverflowError, TypeError, ValueError):
         return False
     return True
 
