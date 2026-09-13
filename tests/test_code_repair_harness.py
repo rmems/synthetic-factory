@@ -25,6 +25,16 @@ from code_repair import _harness as harness  # noqa: E402
 RUNNER = ex.Executor(timeout_s=5.0)
 
 
+def _serving(report):
+    """A `_State` stand-in whose executor always answers with `report`.
+
+    `generate._run_phase` only reaches `state.executor.run`, so this is the whole
+    surface those tests need.
+    """
+
+    return types.SimpleNamespace(executor=types.SimpleNamespace(run=lambda _job: report))
+
+
 class OriginalAndMutant(unittest.TestCase):
     def test_the_original_passes_every_public_example_and_hidden_case(self):
         prog = program("get_1s_count")
@@ -206,7 +216,7 @@ class Failures(unittest.TestCase):
         report = RUNNER.run(job)
         self.assertIn(cv.FINDING_SANDBOX_UNAVAILABLE, report.detail)
         self.assertTrue(report.environment.get("limits_applied"))
-        served = types.SimpleNamespace(executor=types.SimpleNamespace(run=lambda _: report))
+        served = _serving(report)
         self.assertIs(generate._run_phase(served, job), report)
 
     def test_every_non_true_limits_claim_refuses_the_run_not_only_false(self):
@@ -221,9 +231,8 @@ class Failures(unittest.TestCase):
                     '"public": [], "hidden": []}'
                 ).encode()
                 report = ex._parse_report(job, 0, stdout)
-                served = types.SimpleNamespace(
-                    executor=types.SimpleNamespace(run=lambda _: report))
-                refusal(lambda: generate._run_phase(served, job),
+                served = _serving(report)
+                refusal(lambda served=served: generate._run_phase(served, job),
                         cv.FINDING_SANDBOX_UNAVAILABLE)
 
     def test_an_environment_without_the_key_is_read_the_same_way_by_both_layers(self):
@@ -237,7 +246,7 @@ class Failures(unittest.TestCase):
         self.assertEqual(report.status, cv.PHASE_HARNESS_ERROR)
         self.assertNotIn(cv.FINDING_SANDBOX_UNAVAILABLE, report.detail)
         self.assertIn("MemoryError", report.detail)  # the child's cause is forwarded
-        served = types.SimpleNamespace(executor=types.SimpleNamespace(run=lambda _: report))
+        served = _serving(report)
         self.assertIs(generate._run_phase(served, job), report)
 
     def test_a_child_that_reported_no_environment_does_not_stop_the_run(self):
@@ -247,14 +256,14 @@ class Failures(unittest.TestCase):
         crashed = ex._parse_report(
             job, 0, b'{"load": {"error": "HarnessError: MemoryError: ", "status": "error"}, '
                     b'"protocol": "code-repair-harness/1"}')
-        served = types.SimpleNamespace(executor=types.SimpleNamespace(run=lambda _: crashed))
+        served = _serving(crashed)
         self.assertIs(generate._run_phase(served, job), crashed)
         # …while a described environment with the limits off still refuses.
         off = ex._parse_report(
             job, 0, b'{"protocol": "code-repair-harness/1", "load": {"status": "ok", '
                     b'"error": null}, "environment": {"limits_applied": false}, '
                     b'"public": [], "hidden": []}')
-        refused = types.SimpleNamespace(executor=types.SimpleNamespace(run=lambda _: off))
+        refused = _serving(off)
         refusal(lambda: generate._run_phase(refused, job), cv.FINDING_SANDBOX_UNAVAILABLE)
 
     def test_a_setrlimit_refusal_is_reported_as_an_environment_not_thrown(self):
