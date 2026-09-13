@@ -11,27 +11,36 @@ deduplicated (exact broken text, canonical structure, a per-lineage cap),
 proven to keep every lineage and group inside one split, re-bucketed with the
 pinned policy, and written per split; the held-out split is frozen by digest.
 ``MANIFEST.json`` states the pipeline status, the replay status, the
-admission blockers (dataset admission is S4, owner-gated), the evaluation
+admission blockers or verified completion evidence, the evaluation
 limitations (never blockers) and the prerequisites of the Agoge training run.
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .candidate_io import load_candidate_records
 from . import catalog
 from . import export_integrity as integrity
 from . import generate
 from . import lineage
+from . import publication_export
+from . import selection
 from . import validation
 from . import views
 from . import vocabulary as cv
-from ._contract import bind_import_twin, is_under_raw, load_strict_json, oc, vocab
+from ._contract import (
+    bind_import_twin,
+    dumps_exact_json,
+    is_under_raw,
+    load_strict_json,
+    oc,
+    vocab,
+)
 
 EXPORT_FORMAT = "code-repair-export/1"
 MANIFEST_FILENAME = "MANIFEST.json"
@@ -39,7 +48,7 @@ EVIDENCE_PATH = "evidence/candidates.jsonl"
 SFT_DIR = "sft"
 AGOGE_PATH = "agoge/code_repair_v1.jsonl"
 FREEZE_PATH = "held_out/FREEZE.json"
-DEFAULT_LINEAGE_CAP = 6
+DEFAULT_LINEAGE_CAP = selection.DEFAULT_LINEAGE_CAP
 DECISIONS_NEEDED = ("D-A", "D-B", "D-C", "D-D", "D-E")
 
 __all__ = [
@@ -55,11 +64,13 @@ class ExportRequest:
     replay_dir: Path | None = None
     lineage_cap: int = DEFAULT_LINEAGE_CAP
     catalog_dir: Path = field(kw_only=True)
+    admit: bool = False
+    round_marker: Path | None = None
 
 
 @dataclass(frozen=True)
 class Gates:
-    """The factory's admission gates as the export sees them (S4 wires the real ones)."""
+    """Manifest gate fields derived from actual verified local completion."""
 
     registry_row_present: bool = False
     rights_allow_training: bool = False
@@ -82,6 +93,7 @@ class _Corpus:
     cap: int = DEFAULT_LINEAGE_CAP
     license: str = ""
     candidate_bytes: bytes = b""
+    completion: dict | None = None
 
 
 # --- request and inputs ------------------------------------------------------------
@@ -99,32 +111,26 @@ def _check_request(request: ExportRequest) -> None:
         (out_dir.exists(), cv.FINDING_DESTINATION_EXISTS, f"{cv.shown(out_dir)} already exists"),
         (not vocab.is_genuine_int(request.lineage_cap) or request.lineage_cap < 1,
          cv.FINDING_CAP_OUT_OF_DOMAIN, "lineage_cap must be a positive integer"),
+        (request.round_marker is not None and not request.admit, cv.FINDING_EXPORT_INTEGRITY,
+         "--round-marker requires --admit"),
     ))
 
 
-def _load_run(run_dir: Path) -> dict[str, Any]:
+def _load_run(data: bytes) -> dict[str, Any]:
     try:
-        run = load_strict_json((run_dir / generate.RUN_FILENAME).read_bytes())
+        metadata = load_strict_json(data)
     except ValueError as exc:
         raise cv.RepairRefusal(
             cv.FINDING_RUN_FILE_MISSING, f"RUN.json is not JSON: {cv.shown(exc)}"
         ) from exc
     cv.refuse_when(
-        not isinstance(run, dict) or run.get("format") != generate.RUN_FORMAT,
-        cv.FINDING_RUN_FILE_MISSING, "RUN.json is not a code-repair run summary",
+        not isinstance(metadata, dict) or metadata.get("format") != generate.RUN_FORMAT,
+        cv.FINDING_RUN_FILE_MISSING, "RUN.json is not a code-repair metadata summary",
     )
-    return run
+    return metadata
 
 
-def _load_records(data: bytes) -> list[dict[str, Any]]:
-    records = []
-    for lineno, record in oc.iter_jsonl_bytes(data):
-        cv.refuse_when(
-            not isinstance(record, dict), cv.FINDING_RECORD_MALFORMED,
-            f"{generate.CANDIDATES_FILENAME}:{lineno} is not a record",
-        )
-        records.append(record)
-    return records
+_load_records = load_candidate_records
 
 
 # --- integrity -----------------------------------------------------------------------
@@ -198,31 +204,10 @@ def _rederive_split(corpus: _Corpus, record: dict[str, Any], block: dict[str, An
     )
 
 
-def _duplicate_code(
-    corpus: _Corpus, record: dict[str, Any], seen: dict[str, set[str]]
-) -> str | None:
-    broken = record["scenario"]["broken_program"]["files"][cv.PROGRAM_FILENAME]
-    exact = record["result"]["broken_sha256"]
-    structural = lineage.structure_digest(broken)
-    lineage_id = _lineage_of(record)["lineage_id"]
-    if exact in seen["exact"]:
-        return cv.EXPORT_DUPLICATE_EXACT
-    if structural in seen["structural"]:
-        return cv.EXPORT_DUPLICATE_STRUCTURAL
-    if corpus.per_lineage[lineage_id] >= corpus.cap:
-        return cv.EXPORT_LINEAGE_CAP_APPLIED
-    seen["exact"].add(exact)
-    seen["structural"].add(structural)
-    corpus.per_lineage[lineage_id] += 1
-    return None
-
-
 def _project(corpus: _Corpus) -> None:
     """Positive rows per split after dedup; every view is leak-checked before it is kept."""
 
-    seen: dict[str, set[str]] = {"exact": set(), "structural": set()}
-    for record in sorted(corpus.positives, key=lambda r: r["id"]):
-        code = _duplicate_code(corpus, record, seen)
+    for record, code in selection.selection_decisions(corpus.positives, lineage_cap=corpus.cap):
         if code is not None:
             corpus.dispositions[code] += 1
             continue
@@ -235,6 +220,7 @@ def _project(corpus: _Corpus) -> None:
         split = _lineage_of(record)["split"]
         corpus.rows.setdefault(split, []).append(row)
         corpus.agoge_rows.setdefault(split, []).append(views.agoge_row(record))
+        corpus.per_lineage[_lineage_of(record)["lineage_id"]] += 1
         corpus.dispositions["exported"] += 1
 
 
@@ -291,7 +277,9 @@ def _write_json(root: Path, relative: str, payload: dict[str, Any]) -> None:
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "x", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        handle.write(
+            dumps_exact_json(payload, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+        )
 
 
 def _digests(root: Path, relatives: list[str]) -> dict[str, str]:
@@ -299,9 +287,14 @@ def _digests(root: Path, relatives: list[str]) -> dict[str, str]:
 
 
 def _write(request: ExportRequest, corpus: _Corpus) -> dict[str, Any]:
+    notices = publication_export.attribution_files() if corpus.completion is not None else {}
     root = Path(request.out_dir)
     root.mkdir(parents=True, exist_ok=False)
     written = [EVIDENCE_PATH, AGOGE_PATH]
+    for name, payload in notices.items():
+        with (root / name).open("xb") as handle:
+            handle.write(payload)
+        written.append(name)
     evidence = root / EVIDENCE_PATH
     evidence.parent.mkdir(parents=True, exist_ok=True)
     with evidence.open('xb') as handle:
@@ -329,8 +322,10 @@ def _manifest(request: ExportRequest, corpus: _Corpus, digests: dict[str, str]) 
     replay_status = corpus.replay_status
     tables = _tables(corpus)
     exported = tables["dispositions"].get("exported", 0)
+    admitted = corpus.completion is not None
     blockers = admission_blockers(
-        Gates(), replay_passed=replay_status == "passed", exported_rows=exported
+        Gates(admitted, admitted, admitted, admitted),
+        replay_passed=replay_status == "passed", exported_rows=exported
     )
     return {
         "format": EXPORT_FORMAT, "family": cv.FAMILY, "pipeline_status": "complete",
@@ -339,15 +334,18 @@ def _manifest(request: ExportRequest, corpus: _Corpus, digests: dict[str, str]) 
         "lineage_cap": request.lineage_cap, "tables": tables, "files": digests,
         "replay": replay_status,
         "admission": {
-            "training_export": "blocked", "blockers": blockers,
-            "decisions_needed": list(DECISIONS_NEEDED),
+            "training_export": "training_candidate" if admitted else "blocked", "blockers": blockers,
+            "decisions_needed": [] if admitted else list(DECISIONS_NEEDED),
+            **({"round_completion": corpus.completion} if admitted else {}),
         },
         "evaluation_limitations": list(cv.LIMITATION_CODES),
         "training_run_prerequisites": list(cv.PREREQUISITE_CODES),
         "rights": {
             "upstream_license": corpus.license,
-            "attribution": "LICENSE.upstream in the catalog; NOTICE line pending (S4)",
-            "project_training_policy": "blocked (no reviewed profile; issue D-B/D-C)",
+            "attribution": "LICENSE.upstream and NOTICE.txt in this export" if admitted
+                           else "LICENSE.upstream in the catalog; NOTICE line pending (S4)",
+            "project_training_policy": "allowed" if admitted
+                                       else "blocked (no reviewed profile; issue D-B/D-C)",
         },
         "pretraining_exposure": "unknown",
     }
@@ -358,8 +356,11 @@ def run(request: ExportRequest) -> dict[str, Any]:
 
     _check_request(request)
     run_dir = Path(request.run_dir)
-    run_meta = _load_run(run_dir)
+    run_bytes = (run_dir / generate.RUN_FILENAME).read_bytes()
+    run_meta = _load_run(run_bytes)
     pinned = catalog.load_catalog(request.catalog_dir)
+    if request.admit:
+        pinned = publication_export.trusted_export_catalog(pinned)
     policy = integrity.bind_catalog(run_meta, pinned)
     candidate_bytes = (run_dir / generate.CANDIDATES_FILENAME).read_bytes()
     loaded = _load_records(candidate_bytes)
@@ -384,6 +385,12 @@ def run(request: ExportRequest) -> dict[str, Any]:
     corpus.positives = [r for r in corpus.records if views.is_positive(r)]
     _split_proof(corpus)
     _project(corpus)
+    if request.admit:
+        corpus.completion = publication_export.authorize_export(
+            request, run_bytes=run_bytes, candidates=candidate_bytes,
+            selected_ids=[r["canonical_id"] for rows in corpus.agoge_rows.values() for r in rows],
+        )
+        corpus.replay_status = "passed"
     return _write(request, corpus)
 
 

@@ -61,7 +61,8 @@ OUROBOROS_FACTORY_SLUG = _round_txn_raster.OUROBOROS_FACTORY_SLUG
 RASTER_FACTORY_SLUGS = _round_txn_raster.RASTER_FACTORY_SLUGS
 THALAMIC_FACTORY_SLUG = _round_txn_raster.THALAMIC_FACTORY_SLUG
 _distillation_kind_error = _round_txn_raster.distillation_kind_error
-_jsonl_records = _round_txn_raster.jsonl_records
+jsonl_records = _round_txn_raster.jsonl_records
+_jsonl_records = jsonl_records
 _raster_contract_errors = _round_txn_raster.raster_contract_errors
 _validate_distillation_record = _round_txn_raster.validate_distillation_record
 enforce_bridge_envelope = _round_txn_raster.enforce_bridge_envelope
@@ -643,9 +644,21 @@ def copy_verified_exclusive(source: Path, destination: Path, expected_sha256: st
         temporary.unlink(missing_ok=True)
 
 
+def _code_repair_publication():
+    """Resolve the lazy publication gate in the active pipeline import namespace."""
+    if __package__:
+        from .code_repair import publication
+    else:
+        from code_repair import publication
+    return publication
+
+
 def valid_legacy_file(path: Path):
     """Return its record count when a legacy JSONL file fully deep-checks."""
     if not path.is_file() or path.is_symlink():
+        return 0
+    publication = _code_repair_publication()
+    if publication.requires_gate(path.parent, path):
         return 0
     errors, _warnings, _kinds, records = check_jsonl(path, path.name)
     return 0 if errors else records
@@ -659,6 +672,9 @@ def validate_legacy_payload(
     quarantined_kinds: dict[int, str] | None = None,
 ):
     """Return a legacy payload's records and any applicable contract errors."""
+    publication = _code_repair_publication()
+    if publication.requires_gate(factory_dir, path):
+        return 0, ["procedural records require completed fresh-gate rounds, not legacy baselines"]
     factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
     quarantined_kinds = dict(quarantined_kinds or {})
     errors, warnings, kinds, records = check_jsonl(
@@ -1012,6 +1028,9 @@ def _bind_completion_execution_verdict(
     bound_verified_rounds,
 ):
     marker_version = completion_marker_version(payload, path)
+    publication = _code_repair_publication()
+    if publication.inspect_completed_if_required(factory_dir / batch_name, payload):
+        return True
     gated_round = (
         _is_positive_int(cutover) and round_number >= cutover
     ) or round_number in bound_verified_rounds
@@ -1461,11 +1480,14 @@ def committed_jsonl_paths(factory_dir: Path):
     """
     mode_path = marker_mode_path(factory_dir)
     if mode_path is None:
-        return sorted(
+        files = sorted(
             path
             for path in factory_dir.rglob("*.jsonl")
             if path.is_file() and not path.is_symlink()
         )
+        publication = _code_repair_publication()
+        publication.require_legacy_only(factory_dir, files)
+        return files
 
     files = sorted(
         path for path in factory_dir.glob("*.jsonl") if path.is_file() and not path.is_symlink()
@@ -1584,6 +1606,17 @@ def run_publish_lock(factory_dir: Path):
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+def _reviewed_hosted_generator(factory_dir):
+    if __package__:
+        from .curate_identity import default_registry
+    else:
+        from curate_identity import default_registry
+    row = default_registry().by_path_id.get(factory_dir.name)
+    if row is None or row.source_type != "hosted":
+        raise TransactionError("agentic factory has no reviewed hosted generator authority")
+    return row.generator
+
+
 def validate_agentic_envelope(
     batch: Path,
     factory_dir: Path,
@@ -1594,6 +1627,7 @@ def validate_agentic_envelope(
     """Return fixed-contract envelope errors for one staged agentic batch."""
     if factory_dir.name not in AGENTIC_FACTORY_KINDS:
         return []
+    expected_generator = _reviewed_hosted_generator(factory_dir)
     records, errors = _jsonl_records(batch)
     safety_case_types = []
     cascade_fault_kinds = []
@@ -2068,8 +2102,8 @@ def validate_agentic_envelope(
             or meta_round != round_number
         ):
             errors.append(f"{where}: meta.round must match reservation r{round_number:02d}")
-        if meta.get("generator") != "grok-4.6":
-            errors.append(f"{where}: meta.generator must be 'grok-4.6'")
+        if meta.get("generator") != expected_generator:
+            errors.append(f"{where}: meta.generator must be {expected_generator!r}")
     if factory_dir.name == "safety-calibration-factory":
         required_case_types = {
             "correct_refusal",
@@ -2236,6 +2270,8 @@ def validate_completed_batch(
 ):
     """Re-run publication record, quota, and envelope checks for one marker."""
     batch = factory_dir / f"batch-r{round_number:02d}.jsonl"
+    publication = _code_repair_publication()
+    publication.inspect_completed_if_required(batch, manifest)
     factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
     kinds, records = _completed_batch_is_training_ready(batch, seen_ids, factory_staging)
     _completed_counts_match_manifest(manifest, records, kinds, batch)
@@ -2364,6 +2400,8 @@ def validate_stage(
             raise TransactionError("staging file set changed during validation")
 
         batch = captured_dir / batch_name
+        publication = _code_repair_publication()
+        procedural = publication.require_route(factory_dir, batch, override=execution_override)
         notes = captured_dir / notes_name
         try:
             notes_text = notes.read_text()
@@ -2430,7 +2468,10 @@ def validate_stage(
             )
         # Frontier gate: run over the captured copy so the verdict describes the
         # same bytes the manifest hashes, not a batch swapped in mid-validation.
-        verification = execution_gate(batch, stage / batch_name, override=execution_override)
+        verification = (
+            publication.fresh_gate(factory_dir, batch, round_number) if procedural
+            else execution_gate(batch, stage / batch_name, override=execution_override)
+        )
 
     files = [
         {

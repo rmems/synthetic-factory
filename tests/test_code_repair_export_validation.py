@@ -10,6 +10,7 @@ import contextlib
 import io
 import shutil
 from dataclasses import replace
+from fractions import Fraction
 from pathlib import Path
 from unittest import mock
 
@@ -19,8 +20,91 @@ from tests.test_code_repair_export import run_copy, request, restamp
 from tests.code_repair_test_support import FIXTURE_CATALOG
 from tests.code_repair_test_support import cli
 from code_repair import (
-    catalog, export, generate, replay, run_validation, trusted_replay, vocabulary as cv,
+    catalog, export, generate, publication, replay, run_validation, trusted_replay,
+    validation, vocabulary as cv,
 )
+from code_repair._contract import ExactJSONFloat, exact_fraction
+
+
+class ExactDecoding(unittest.TestCase):
+    def test_candidate_decoders_refuse_an_out_of_range_token_stamped_as_rounded(self):
+        record = copy.deepcopy(smoke_run()[1][0])
+        record['oracle']['configuration']['timeout_s'] = 60.0
+        record['oracle']['configuration']['limits']['cpu_s'] = 62
+        restamp(record)
+        self.assertEqual(validation.validate_record(record), [])
+        payload = (oc.canonical_json(record) + '\n').encode().replace(
+            b'"timeout_s":60.0', b'"timeout_s":60.0000000000000000000001')
+        for loader in (export._load_records, lambda raw: publication._records(raw)[0]):
+            with self.subTest(loader=loader):
+                self.assertTrue(validation.validate_record(loader(payload)[0]))
+
+    def test_run_and_candidate_decoders_preserve_supported_decimal_tokens(self):
+        run, originals, _ = smoke_run()
+        for token in ('2.0', '2e0', '2.0000000000000000000001'):
+            with self.subTest(token=token):
+                record = copy.deepcopy(originals[0])
+                record['oracle']['configuration']['timeout_s'] = ExactJSONFloat(token)
+                restamp(record)
+                payload = (oc.canonical_json(record) + '\n').encode().replace(
+                    b'"timeout_s":2.0', f'"timeout_s":{token}'.encode())
+                candidates = (export._load_records(payload.replace(b'\n', b'\r\n'))[0],
+                              publication._records(payload)[0][0])
+                for decoded in candidates:
+                    self.assertEqual(exact_fraction(decoded['oracle']['configuration']['timeout_s']),
+                                     Fraction(token))
+                    self.assertEqual(validation.validate_record(decoded), [])
+                run_bytes = oc.canonical_json(run).encode().replace(
+                    b'"timeout_s":2.0', f'"timeout_s":{token}'.encode())
+                self.assertEqual(exact_fraction(export._load_run(run_bytes)['timeout_s']),
+                                 Fraction(token))
+                self.assertTrue(run_validation._valid_timeout(export._load_run(run_bytes)['timeout_s']))
+
+    def test_run_parser_does_not_round_an_out_of_range_timeout(self):
+        run = {**smoke_run()[0], 'timeout_s': 60.0}
+        raw = oc.canonical_json(run).encode().replace(
+            b'"timeout_s":60.0', b'"timeout_s":60.0000000000000000000001')
+        self.assertGreater(exact_fraction(export._load_run(raw)['timeout_s']), Fraction(60))
+        self.assertFalse(run_validation._valid_timeout(export._load_run(raw)['timeout_s']))
+
+    def test_run_identity_does_not_equate_distinct_exact_timeouts(self):
+        run, records, _ = smoke_run()
+        changed = {**run, 'timeout_s': ExactJSONFloat('2.0000000000000000000001')}
+        self.assertFalse(run_validation._oracle_identity_matches(records[0], changed))
+
+    def test_export_refuses_rounded_timeout_forgery_without_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir, records = run_copy(directory)
+            for record in records:
+                record['oracle']['configuration'].update(timeout_s=60.0)
+                record['oracle']['configuration']['limits']['cpu_s'] = 62
+                restamp(record)
+            data = ('\n'.join(oc.canonical_json(r) for r in records) + '\n').encode().replace(
+                b'"timeout_s":60.0', b'"timeout_s":60.0000000000000000000001')
+            (run_dir / generate.CANDIDATES_FILENAME).write_bytes(data)
+            run = {**smoke_run()[0], 'timeout_s': 60.0,
+                   'candidates_sha256': hashlib.sha256(data).hexdigest()}
+            (run_dir / generate.RUN_FILENAME).write_text(oc.canonical_json(run))
+            output = Path(directory) / 'must-refuse'
+            export_request = request(run_dir, output)
+            with self.assertRaises(cv.RepairRefusal):
+                export.run(export_request)
+            self.assertFalse(output.exists())
+
+    def test_export_accepts_supported_timeout_spellings_and_crlf(self):
+        for token in (b'2.0', b'2e0', b'2.0000000000000000000001'):
+            with self.subTest(token=token), tempfile.TemporaryDirectory() as directory:
+                run_dir, records = run_copy(directory)
+                candidates = run_dir / generate.CANDIDATES_FILENAME
+                data = candidates.read_bytes().replace(b'"timeout_s":2.0', b'"timeout_s":' + token)
+                data = data.replace(b'\n', b'\r\n')
+                candidates.write_bytes(data)
+                run = {**smoke_run()[0], 'candidates_sha256': hashlib.sha256(data).hexdigest()}
+                run_bytes = oc.canonical_json(run).encode().replace(
+                    b'"timeout_s":2.0', b'"timeout_s":' + token)
+                (run_dir / generate.RUN_FILENAME).write_bytes(run_bytes)
+                manifest = export.run(request(run_dir, Path(directory) / 'valid-export'))
+                self.assertEqual(manifest['tables']['records'], len(records))
 
 
 class _ExplodingDict(dict):
@@ -416,8 +500,9 @@ class FreshReplay(unittest.TestCase):
             report = replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, report_dir))
             report['harness_sha256'] = '0' * 64
             (report_dir / replay.REPLAY_FILENAME).write_text(json.dumps(report))
+            export_request = request(run_dir, root / 'export', report_dir)
             with self.assertRaises(cv.RepairRefusal):
-                export.run(request(run_dir, root / 'export', report_dir))
+                export.run(export_request)
             self.assertFalse((root / 'export').exists())
 
     def test_export_propagates_non_mit_catalog_license(self):
@@ -479,6 +564,7 @@ class FreshReplay(unittest.TestCase):
                     entry['code'] = cv.REPLAY_PASSED
             report['counts'].update(passed=report['counts']['positives'], failed=0, failed_by_code={})
             (report_dir / replay.REPLAY_FILENAME).write_text(json.dumps(report))
+            export_request = request(run_dir, root / 'export', report_dir)
             with self.assertRaises(cv.RepairRefusal):
-                export.run(request(run_dir, root / 'export', report_dir))
+                export.run(export_request)
             self.assertFalse((root / 'export').exists())

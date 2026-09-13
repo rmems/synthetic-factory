@@ -138,6 +138,30 @@ def _package_curate_identity() -> ModuleType:
     return module
 
 
+def _direct_curate_identity_output() -> ModuleType:
+    import curate_identity_output as module
+
+    return module
+
+
+def _package_curate_identity_output() -> ModuleType:
+    import pipelines.curate_identity_output as module
+
+    return module
+
+
+def _direct_curate_identity_stages() -> ModuleType:
+    import curate_identity_stages as module
+
+    return module
+
+
+def _package_curate_identity_stages() -> ModuleType:
+    import pipelines.curate_identity_stages as module
+
+    return module
+
+
 def _direct_curate_preferences() -> ModuleType:
     import curate_preferences as module
 
@@ -498,6 +522,30 @@ def _package_training_audit_report() -> ModuleType:
     return module
 
 
+def _direct_training_audit_record() -> ModuleType:
+    import training_audit_record as module
+
+    return module
+
+
+def _package_training_audit_record() -> ModuleType:
+    import pipelines.training_audit_record as module
+
+    return module
+
+
+def _direct_training_audit_reasoning() -> ModuleType:
+    import training_audit_reasoning as module
+
+    return module
+
+
+def _package_training_audit_reasoning() -> ModuleType:
+    import pipelines.training_audit_reasoning as module
+
+    return module
+
+
 def _direct_training_audit_snapshot() -> ModuleType:
     import training_audit_snapshot as module
 
@@ -583,6 +631,14 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "curate_agentic_shapes": (_direct_curate_agentic_shapes, _package_curate_agentic_shapes),
     "curate_coding": (_direct_curate_coding, _package_curate_coding),
     "curate_identity": (_direct_curate_identity, _package_curate_identity),
+    "curate_identity_output": (
+        _direct_curate_identity_output,
+        _package_curate_identity_output,
+    ),
+    "curate_identity_stages": (
+        _direct_curate_identity_stages,
+        _package_curate_identity_stages,
+    ),
     "curate_preferences": (_direct_curate_preferences, _package_curate_preferences),
     "curate_rewards": (_direct_curate_rewards, _package_curate_rewards),
     "curate_trajectory_preferences": (
@@ -615,6 +671,11 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "round_txn_raster": (_direct_round_txn_raster, _package_round_txn_raster),
     "training_audit": (_direct_training_audit, _package_training_audit),
     "training_audit_mill": (_direct_training_audit_mill, _package_training_audit_mill),
+    "training_audit_record": (_direct_training_audit_record, _package_training_audit_record),
+    "training_audit_reasoning": (
+        _direct_training_audit_reasoning,
+        _package_training_audit_reasoning,
+    ),
     "training_audit_report": (_direct_training_audit_report, _package_training_audit_report),
     "training_audit_snapshot": (_direct_training_audit_snapshot, _package_training_audit_snapshot),
     "trajectory_pair_curation": (

@@ -830,7 +830,7 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
         result = identity.curate_record(
             source(episode(FABLE_ACT), f"{FABLE_ACT}/episodes.jsonl", 1)
         )
-        self.assertEqual(result.mapping["registry"]["schema_version"], "factory-registry-v0.2")
+        self.assertEqual(result.mapping["registry"]["schema_version"], "factory-registry-v0.3")
         self.assertEqual(result.mapping["registry"]["sha256"], digest)
         self.assertNotIn("registry", result.record)
         self.assertNotIn("schema_version", result.record)
@@ -1128,26 +1128,30 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
             ["identity.unresolved_provenance"],
         )
 
+    def test_registry_metadata_describes_reviewed_identity_authority(self):
+        payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(payload["schema_version"], "factory-registry-v0.3")
+        self.assertEqual(payload["lookup_key"], "path_id")
+        self.assertIn("reviewed registry row", payload["notes"])
+        self.assertIn("_REVIEWED_GENERATOR_RIGHTS", payload["notes"])
+        self.assertIn("reviewed registry row", identity.__doc__)
+        self.assertIn("_REVIEWED_GENERATOR_RIGHTS", identity.__doc__)
+
     def test_registry_onboard_rows_are_not_training_ready(self):
         payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))
+        hosted = [row for row in payload["factories"] if row.get("source_type") != "procedural"]
         expected_rights = {
             "fable-5": ("anthropic", "consumer"),
             "gpt-5.6-sol": ("openai", "consumer"),
             "grok-4.6": ("xai", "consumer"),
             "muse-spark-1.2": ("meta", "api"),
         }
-        self.assertEqual(len(payload["factories"]), 51)
-        self.assertEqual(payload["schema_version"], "factory-registry-v0.2")
-        self.assertEqual(payload["lookup_key"], "path_id")
-        self.assertIn("reviewed registry row", payload["notes"])
-        self.assertIn("_REVIEWED_GENERATOR_RIGHTS", payload["notes"])
-        self.assertIn("reviewed registry row", identity.__doc__)
-        self.assertIn("_REVIEWED_GENERATOR_RIGHTS", identity.__doc__)
+        self.assertEqual(len(hosted), 51)
         self.assertEqual(
-            {row["generator"] for row in payload["factories"]},
+            {row["generator"] for row in hosted},
             set(expected_rights),
         )
-        for row in payload["factories"]:
+        for row in hosted:
             self.assertNotIn("training_ready", row)
             self.assertIsNone(row["publication_target"])
             self.assertEqual(row["training_ready_policy"], "never")
@@ -1162,6 +1166,9 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
             )
             self.assertEqual(row["intended_use"], "research_only")
             self.assertEqual(row["project_training_policy"], "blocked")
+
+    def test_grok_registry_rows_bind_payload_kind_and_provenance_contract(self):
+        payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))
         grok_rows = [row for row in payload["factories"] if row["generator"] == "grok-4.6"]
         self.assertEqual(len(grok_rows), 44)
         for row in grok_rows:
@@ -1172,20 +1179,16 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
                 set(row["provenance_contract_by_kind"]),
                 {expected_kind},
             )
-        eval_row = next(
-            item
-            for item in payload["factories"]
-            if item["path_id"] == "eval-harness-trajectory-factory"
-        )
+
+    def test_registry_curation_lanes_keep_factory_specific_contracts(self):
+        payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))
+        by_path = {row["path_id"]: row for row in payload["factories"]}
+        eval_row = by_path["eval-harness-trajectory-factory"]
         self.assertEqual(eval_row["payload_factory"], "eval-harness-trajectory-factory")
-        ffpc = next(item for item in payload["factories"] if item["path_id"] == FABLE_FFPC)
+        ffpc = by_path[FABLE_FFPC]
         self.assertIn("curate_preferences", ffpc["allowed_curation_lanes"])
         self.assertEqual(ffpc["preference_side_kinds"], ["thalamic"])
-        grok_pref_row = next(
-            item
-            for item in payload["factories"]
-            if item["path_id"] == "tool-use-preference-factory"
-        )
+        grok_pref_row = by_path["tool-use-preference-factory"]
         self.assertNotIn("curate_preferences", grok_pref_row["allowed_curation_lanes"])
         self.assertEqual(grok_pref_row["preference_side_kinds"], ["episode"])
 
@@ -2344,6 +2347,27 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             manifest_path.write_text(json.dumps(relabeled) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(identity.IdentityTreeError, "action does not match"):
                 identity.validate_identity_tree(dest)
+
+    def test_validate_identity_tree_resolves_manifest_replay_through_live_facade(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            (src / FABLE_ACT).mkdir(parents=True)
+            (src / FABLE_ACT / "episodes.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            identity.write_run(src, dest)
+
+            def reject_replay(_mapping, _index, _registry):
+                raise identity.IdentityTreeError("live manifest replay seam")
+
+            with mock.patch.object(identity, "_replay_manifest_mapping", reject_replay):
+                with self.assertRaisesRegex(
+                    identity.IdentityTreeError,
+                    "live manifest replay seam",
+                ):
+                    identity.validate_identity_tree(dest)
 
     def test_validate_identity_tree_reconciles_output_paths_and_hashes(self):
         with tempfile.TemporaryDirectory() as tmp:

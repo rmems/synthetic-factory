@@ -6,7 +6,8 @@ from collections import Counter
 from dataclasses import dataclass
 
 from . import catalog as cat, catalog_check, executor, generate, mutate, records as assembly, vocabulary as cv
-from ._contract import bind_import_twin, oc, vocab
+from . import planning
+from ._contract import ExactJSONFloat, bind_import_twin, exact_fraction, oc, vocab
 
 # Bind the loaded implementation once; validate_run itself performs no I/O.
 _HARNESS_SHA256 = executor.harness_sha256()
@@ -71,11 +72,24 @@ def _oracle_identity_matches(record, run):
     actual = (
         record['oracle']['seed'],
         record['oracle']['fingerprint']['harness_sha256'],
-        configuration['timeout_s'],
+        exact_fraction(configuration['timeout_s']),
         configuration['limits'],
     )
-    expected = (expected_seed, run['harness_sha256'], run['timeout_s'], expected_limits)
+    expected = (expected_seed, run['harness_sha256'], exact_fraction(run['timeout_s']), expected_limits)
     return actual == expected
+
+
+def record_identity_matches(record, catalog):
+    """Derivable per-record identity only; authentic timestamps and draws need RUN."""
+    run = {'seed': record['generator']['seed'], 'count': cv.MAX_COUNT,
+           'harness_sha256': _HARNESS_SHA256,
+           'timeout_s': record['oracle']['configuration']['timeout_s']}
+    checks = (
+        lambda: _integer_in_domain(run['seed'], 0, cv.MAX_SEED),
+        lambda: _draw_identity_matches(record, run, catalog),
+        lambda: _oracle_identity_matches(record, run),
+    )
+    return all(check() for check in checks)
 
 
 def _record_identity(record, run, catalog):
@@ -83,6 +97,7 @@ def _record_identity(record, run, catalog):
         lambda: _draw_identity_matches(record, run, catalog),
         lambda: _generator_identity_matches(record, run),
         lambda: _oracle_identity_matches(record, run),
+        lambda: record_identity_matches(record, catalog),
     )
     return all(check() for check in checks)
 
@@ -175,11 +190,12 @@ def _run_header_matches(run):
 
 
 def _valid_timeout(value):
-    if type(value) not in (int, float):
+    if type(value) not in (int, float, ExactJSONFloat):
         return False
     if not math.isfinite(value):
         return False
-    return 0 < value <= cv.MAX_TIMEOUT_S
+    precise_timeout = exact_fraction(value)
+    return precise_timeout is not None and 0 < precise_timeout <= cv.MAX_TIMEOUT_S
 
 
 def _run_execution_matches(inputs):
@@ -243,8 +259,24 @@ def _summary_findings(inputs):
     return []
 
 
+def _planned_findings(inputs):
+    run = inputs.run
+    plan = planning.ProposalPlan(inputs.catalog, run['seed'], run['per_program_cap'])
+    expected = [proposal.binding() for proposal in plan.proposals(run['count'])]
+    actual = [
+        (record['scenario']['source']['program_id'], record['intervention']['draw_index'],
+         record['intervention']['operator'], record['intervention']['site'],
+         record['intervention']['variant'])
+        for record in inputs.records
+    ]
+    if actual != expected or run['skips'] != dict(plan.skips):
+        return [cv.EXPORT_RUN_SUMMARY_MISMATCH]
+    return []
+
+
 def _validate_run(inputs):
-    for stage in (_metadata_findings, _catalog_findings, _record_findings, _summary_findings):
+    for stage in (_metadata_findings, _catalog_findings, _record_findings, _summary_findings,
+                  _planned_findings):
         findings = stage(inputs)
         if findings:
             return findings

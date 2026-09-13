@@ -3,12 +3,14 @@
 
 import contextlib
 import copy
+import hashlib
 import io
 import json
 import shutil
 import sys
 import tempfile
 import unittest
+from fractions import Fraction
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -17,6 +19,7 @@ from code_repair_test_support import (  # noqa: E402
     FIXTURE_CATALOG, PINNED_AT, REPO, SEED, cli, envelope, generate, oc, smoke_run, views,
     vocabulary as cv,
 )
+from code_repair._contract import exact_fraction, load_strict_json  # noqa: E402
 
 
 def invoke(argv):
@@ -44,6 +47,78 @@ class CatalogCheck(unittest.TestCase):
         payload = json.loads(out)
         self.assertEqual((payload["status"], payload["code"]), ("refused", cv.FINDING_CATALOG_FILE_MISSING))
         self.assertEqual(payload["command"], "catalog-check")
+
+
+class ExportOutput(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="code-repair-cli-export-"))
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def _run_with_timeout(self, token):
+        summary, _records, source = smoke_run()
+        run_dir = self.root / "run"
+        shutil.copytree(source, run_dir)
+        candidates = run_dir / generate.CANDIDATES_FILENAME
+        candidate_bytes = candidates.read_bytes().replace(
+            b'"timeout_s":2.0', f'"timeout_s":{token}'.encode("ascii")
+        )
+        candidates.write_bytes(candidate_bytes)
+        run = {**summary, "candidates_sha256": hashlib.sha256(candidate_bytes).hexdigest()}
+        run_bytes = oc.canonical_json(run).encode("utf-8").replace(
+            b'"timeout_s":2.0', f'"timeout_s":{token}'.encode("ascii")
+        )
+        (run_dir / generate.RUN_FILENAME).write_bytes(run_bytes)
+        return run_dir
+
+    def test_export_json_preserves_the_exact_manifest_number(self):
+        precise_timeout = "2.0000000000000000000001"
+        run_dir = self._run_with_timeout(precise_timeout)
+        code, out, err = invoke([
+            "export", "--run", str(run_dir), "--catalog", str(FIXTURE_CATALOG),
+            "--out", str(self.root / "exact-export"), "--json",
+        ])
+
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn(f'"timeout_s": {precise_timeout}', out)
+        parsed = load_strict_json(out)
+        self.assertEqual(
+            exact_fraction(parsed["manifest"]["run"]["timeout_s"]), Fraction(precise_timeout)
+        )
+
+    def test_json_emitter_is_byte_compatible_for_an_ordinary_unicode_manifest(self):
+        payload = {
+            "command": "export",
+            "manifest": {
+                "format": "code-repair-export/2",
+                "note": "caf\u00e9",
+                "run": {"seed": 7, "timeout_s": 2.0},
+            },
+            "status": "ok",
+        }
+        expected = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+        out = io.StringIO()
+
+        with contextlib.redirect_stdout(out):
+            cli._emit(payload, True, "unused")
+
+        self.assertEqual(out.getvalue(), expected)
+
+    def test_export_text_output_is_unchanged(self):
+        _summary, _records, run_dir = smoke_run()
+        destination = self.root / "text-export"
+        code, out, err = invoke([
+            "export", "--run", str(run_dir), "--catalog", str(FIXTURE_CATALOG),
+            "--out", str(destination),
+        ])
+
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(
+            out,
+            f"exported 5 rows from 5 positives ({{'held_out': 1, 'train': 4}}) "
+            f"into {destination}; training export blocked: REGISTRY_ROW_MISSING, "
+            "RIGHTS_PROFILE_MISSING, RECORD_KIND_UNSUPPORTED, REPLAY_NOT_RUN, "
+            "ROUND_NOT_PUBLISHED\n",
+        )
 
 
 class GenerateAndRender(unittest.TestCase):

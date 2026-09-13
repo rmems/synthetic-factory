@@ -23,6 +23,9 @@ def _active_round_txn_module():
     module = sys.modules.get("round_txn")
     if module is not None:
         return module
+    package_module = sys.modules.get("pipelines.round_txn")
+    if package_module is not None:
+        return package_module
     main_module = sys.modules.get("__main__")
     if _main_module_is_round_txn(main_module):
         return main_module
@@ -42,6 +45,14 @@ class _Host:
 
 
 rt = _Host()
+
+
+def _code_repair_publication():
+    if __package__:
+        from .code_repair import publication
+    else:
+        from code_repair import publication
+    return publication
 
 
 def _is_int(value):
@@ -276,6 +287,9 @@ def validated_execution_verification_summary(
     verification, marker_kind="completion marker"
 ):
     """Validate the canonical strict-gate summary stored in a durable marker."""
+    publication = _code_repair_publication()
+    if publication.is_procedural_verification(verification):
+        return publication.validate_summary(verification)
     if not isinstance(verification, dict):
         raise rt.TransactionError(f"{marker_kind} has invalid execution verification")
     if set(verification) != rt.CANONICAL_EXECUTION_VERIFICATION_KEYS:
@@ -312,7 +326,10 @@ def _validate_historical_execution_counts(recorded, manifest, batch):
 
 def validate_completed_execution_verification(batch: Path, manifest: dict):
     """Re-derive the v2 execution verdict before exposing a completed batch."""
+    publication = _code_repair_publication()
     recorded = manifest.get("execution_verification")
+    if publication.requires_gate(batch.parent, batch) or publication.is_procedural_verification(recorded):
+        return publication.validate_completed(batch, manifest)
     if not isinstance(recorded, dict):
         raise rt.TransactionError(
             "version 2 completion marker requires an exact execution "
@@ -390,6 +407,9 @@ def _raise_execution_gate_failure(counts, staged_batch, detail, override):
 
 def execution_gate(batch: Path, staged_batch: Path, override=None):
     """Gate one staged batch on observable execution evidence."""
+    publication = _code_repair_publication()
+    if publication.requires_gate(staged_batch.parent, batch):
+        raise rt.TransactionError("procedural publication requires the contextual fresh gate")
     if override is not None:
         override = normalized_execution_override(override)
     verify_batch_for_frontier = load_execution_verifier()

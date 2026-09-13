@@ -91,6 +91,18 @@ def _load_exact_json():
     return exact_json
 
 
+def _load_curate_identity_output():
+    from . import curate_identity_output
+
+    return curate_identity_output
+
+
+def _load_curate_identity_stages():
+    from . import curate_identity_stages
+
+    return curate_identity_stages
+
+
 def _load_curate_bridge_events():
     from . import curate_bridge_events
 
@@ -451,6 +463,18 @@ def _load_training_audit_snapshot():
     return training_audit_snapshot
 
 
+def _load_training_audit_record():
+    from . import training_audit_record
+
+    return training_audit_record
+
+
+def _load_training_audit_reasoning():
+    from . import training_audit_reasoning
+
+    return training_audit_reasoning
+
+
 def _load_validate_run():
     from . import validate_run
 
@@ -466,6 +490,8 @@ def _load_curate_bridge():
 _PACKAGE_SIBLING_LOADERS = {
     "exact_json_encoding": _load_exact_json_encoding,
     "exact_json": _load_exact_json,
+    "curate_identity_output": _load_curate_identity_output,
+    "curate_identity_stages": _load_curate_identity_stages,
     "curate_bridge_events": _load_curate_bridge_events,
     "curate_bridge_gate": _load_curate_bridge_gate,
     "curate_bridge_materialize": _load_curate_bridge_materialize,
@@ -525,6 +551,8 @@ _PACKAGE_SIBLING_LOADERS = {
     "export_viewer_reader": _load_export_viewer_reader,
     "export_viewer_writer": _load_export_viewer_writer,
     "strict_jsonl": _load_strict_jsonl,
+    "training_audit_record": _load_training_audit_record,
+    "training_audit_reasoning": _load_training_audit_reasoning,
     "training_audit_snapshot": _load_training_audit_snapshot,
     "validate_run": _load_validate_run,
     "curate_bridge": _load_curate_bridge,

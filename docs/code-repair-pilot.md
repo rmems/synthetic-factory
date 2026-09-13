@@ -28,8 +28,11 @@ inside functions, classes and guards; relative imports are refused. A target who
 examples import anything but a pure module (`math`, `fractions`, `itertools` and the like) is
 not selected either: one upstream docstring drew on `random`, and a mutant's verdict then
 differed between two generation runs.
-The existing catalog is unchanged. Rebuilding from raw upstream files may reject additional
-files whose nested imports were previously unchecked. Cached raw bytes (including the license)
+The counts and digest in this section describe the historical `pilot-r3` catalog.
+The current RUN2 catalog has 197 programs and updated pins documented in
+[code-repair-admission.md](code-repair-admission.md); the historical outputs were preserved.
+Rebuilding from raw upstream files can reject additional files whose nested imports were
+previously unchecked. Cached raw bytes (including the license)
 must match their Git blob SHA-1, and the tree SHA must match the pinned commit's tree SHA.
 
 ```

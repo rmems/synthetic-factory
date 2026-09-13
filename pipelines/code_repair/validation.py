@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from . import catalog as cat, mutate, record_validation, views, vocabulary as cv
+from . import catalog as cat, mutate, record_validation, row_validation, views, vocabulary as cv
 from ._contract import bind_import_twin, oc
 
 
@@ -112,6 +112,8 @@ def _evidence_finding(inputs):
         (lambda: oc.check_oracle_label_leak(record, inputs.where),
          cv.EXPORT_RECORD_FAILS_CONTRACT),
         (lambda: not record_validation.verdict_matches(record),
+         cv.EXPORT_EVIDENCE_VERDICT_MISMATCH),
+        (lambda: not row_validation.outcomes_match(record),
          cv.EXPORT_EVIDENCE_VERDICT_MISMATCH),
         (lambda: bool(views.evidence_findings(record)),
          cv.EXPORT_RECORD_FAILS_CONTRACT),

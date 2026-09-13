@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .candidate_io import load_candidate_records
 from . import catalog as cat
 from . import executor as ex
 from . import generate
@@ -384,14 +385,7 @@ def _catalog_bound(identity: dict[str, Any], catalog: cat.Catalog) -> bool:
 
 
 def _records(run_dir: Path) -> list[dict[str, Any]]:
-    loaded = []
-    for lineno, record in oc.iter_jsonl(run_dir / generate.CANDIDATES_FILENAME):
-        cv.refuse_when(
-            not isinstance(record, dict), cv.FINDING_RECORD_MALFORMED,
-            f"{generate.CANDIDATES_FILENAME}:{lineno} is not a record",
-        )
-        loaded.append(record)
-    return loaded
+    return load_candidate_records((run_dir / generate.CANDIDATES_FILENAME).read_bytes())
 
 
 def _status(replayed: int, failed: int) -> str:

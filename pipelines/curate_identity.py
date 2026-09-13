@@ -35,6 +35,9 @@ from types import MappingProxyType
 from typing import Any, Iterable, Mapping, NamedTuple
 
 if __package__:
+    from . import curate_identity_output as _identity_output
+    from . import curate_identity_stages as _identity_stages
+    from .exact_json import ExactJSONFloat, dumps_exact_json
     from .record_kind import (
         PREFERENCE_SIDE_KINDS,
         SUPPORTED_RECORD_KINDS,
@@ -63,6 +66,9 @@ if __package__:
         RIGHTS_PROFILE_IDS,
     )
 else:
+    import curate_identity_output as _identity_output
+    import curate_identity_stages as _identity_stages
+    from exact_json import ExactJSONFloat, dumps_exact_json
     from record_kind import (
         PREFERENCE_SIDE_KINDS,
         SUPPORTED_RECORD_KINDS,
@@ -115,10 +121,11 @@ REAL_WORLD_RE = re.compile(r"^(?:real|live)(?![\w-])", re.IGNORECASE)
 FACTORY_REGISTRY_PATH = Path(__file__).resolve().parents[1] / "config" / "FACTORY-REGISTRY.json"
 FACTORY_REGISTRY_SIDECAR = "FACTORY-REGISTRY.json"
 IDENTITY_MANIFEST_SIDECAR = "IDENTITY-MANIFEST.json"
-REGISTRY_SCHEMA_VERSION = "factory-registry-v0.2"
+REGISTRY_SCHEMA_VERSION = "factory-registry-v0.3"
+HOSTED_REGISTRY_SCHEMA_VERSION = "factory-registry-v0.2"
 LEGACY_REGISTRY_SCHEMA_VERSION = "factory-registry-v0.1"
 SUPPORTED_REGISTRY_SCHEMA_VERSIONS = frozenset(
-    {LEGACY_REGISTRY_SCHEMA_VERSION, REGISTRY_SCHEMA_VERSION}
+    {LEGACY_REGISTRY_SCHEMA_VERSION, HOSTED_REGISTRY_SCHEMA_VERSION, REGISTRY_SCHEMA_VERSION}
 )
 _RIGHTS_ROW_FIELDS = (
     "provider",
@@ -212,8 +219,8 @@ class FactoryRow(NamedTuple):
     payload_factory: str
     generator: str
     generator_version: str
-    provider: str
-    channel: str
+    provider: str | None
+    channel: str | None
     rights_profile_id: str
     intended_use: str
     project_training_policy: str
@@ -224,6 +231,14 @@ class FactoryRow(NamedTuple):
     allowed_curation_lanes: tuple[str, ...]
     provenance_contract_by_kind: Mapping[str, str]
     preference_side_kinds: frozenset[str] = frozenset()
+    source_type: str = "hosted"
+    generator_ownership: str | None = None
+    generation_method: str | None = None
+    source_license_evidence: Mapping[str, str] | None = None
+    procedural_policy_sha256: str | None = None
+    catalog_id: str | None = None
+    catalog_sha256: str | None = None
+    programs_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -259,7 +274,7 @@ def canonical_json(value: Any) -> str:
 
     try:
         _reject_unpaired_surrogates(value)
-        payload = json.dumps(
+        payload = dumps_exact_json(value) if classify_kind(value) == "code_repair" else json.dumps(
             value,
             ensure_ascii=False,
             allow_nan=False,
@@ -317,15 +332,17 @@ def reject_duplicate_object_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]
     return value
 
 
-def _strict_json_loads(payload: str) -> Any:
-    """Decode strict JSON with deterministic object semantics at every depth."""
+def _strict_json_loads(payload: str, *, exact: bool = False) -> Any:
+    """Decode strict JSON; procedural records retain exact source decimal tokens."""
 
     value = json.loads(
         payload,
         object_pairs_hook=reject_duplicate_object_keys,
         parse_constant=_reject_json_constant,
-        parse_float=parse_finite_json_float,
+        parse_float=ExactJSONFloat if exact else parse_finite_json_float,
     )
+    if not exact and classify_kind(value) == "code_repair":
+        return _strict_json_loads(payload, exact=True)
     _reject_unpaired_surrogates(value)
     return value
 
@@ -581,12 +598,50 @@ def _legacy_registry_row(raw: Any, index: int) -> Mapping[str, Any]:
     return augmented
 
 
+def _is_procedural_row(raw: Any, schema_version: str) -> bool:
+    if schema_version != REGISTRY_SCHEMA_VERSION:
+        return False
+    return isinstance(raw, Mapping) and raw.get("source_type") == "procedural"
+
+
 def _registry_row_for_validation(
     raw: Any, index: int, schema_version: str
 ) -> Any:
+    if __package__:
+        from .code_repair.source_policy import claims_procedural_route
+    else:
+        from code_repair.source_policy import claims_procedural_route
+    if claims_procedural_route(raw):
+        raise IdentityCurationError(f"factories[{index}] procedural fields require v0.3 route")
     if schema_version == LEGACY_REGISTRY_SCHEMA_VERSION:
         return _legacy_registry_row(raw, index)
     return raw
+
+
+def _parse_procedural_row(raw: Any, index: int) -> FactoryRow:
+    if __package__:
+        from .code_repair.source_policy import POLICY, SourcePolicyError, validate_registry_row
+    else:
+        from code_repair.source_policy import POLICY, SourcePolicyError, validate_registry_row
+    try:
+        validate_registry_row(raw)
+    except SourcePolicyError as exc:
+        raise IdentityCurationError(f"factories[{index}]: {exc}") from exc
+    return FactoryRow(
+        path_id=raw["path_id"], payload_factory=raw["payload_factory"],
+        generator=raw["generator"], generator_version=raw["generator_version"],
+        provider=None, channel=None, rights_profile_id=POLICY["policy_id"],
+        intended_use=raw["intended_use"], project_training_policy=raw["project_training_policy"],
+        record_kinds=frozenset(raw["record_kinds"]), identity_authoritative=True,
+        publication_target=None, training_ready_policy=raw["training_ready_policy"],
+        allowed_curation_lanes=tuple(raw["allowed_curation_lanes"]),
+        provenance_contract_by_kind=MappingProxyType(dict(raw["provenance_contract_by_kind"])),
+        source_type="procedural", generator_ownership=raw["generator_ownership"],
+        generation_method=raw["generation_method"],
+        source_license_evidence=MappingProxyType(dict(raw["source_license_evidence"])),
+        procedural_policy_sha256=raw["procedural_policy_sha256"], catalog_id=raw["catalog_id"],
+        catalog_sha256=raw["catalog_sha256"], programs_sha256=raw["programs_sha256"],
+    )
 
 
 def load_registry(path: Path | None = None) -> FactoryRegistry:
@@ -624,8 +679,11 @@ def load_registry(path: Path | None = None) -> FactoryRegistry:
         raise IdentityCurationError("factory registry factories must be a non-empty list")
     by_path_id: dict[str, FactoryRow] = {}
     for index, raw_row in enumerate(factories):
-        row_payload = _registry_row_for_validation(raw_row, index, schema_version)
-        row = _parse_factory_row(row_payload, index)
+        if _is_procedural_row(raw_row, schema_version):
+            row = _parse_procedural_row(raw_row, index)
+        else:
+            row_payload = _registry_row_for_validation(raw_row, index, schema_version)
+            row = _parse_factory_row(row_payload, index)
         if row.path_id in by_path_id:
             raise IdentityCurationError(f"duplicate registry path_id: {row.path_id}")
         by_path_id[row.path_id] = row
@@ -693,9 +751,10 @@ def _source_identity(source: SourceRecord) -> _SourceIdentity:
         if canonical_json(parsed_original) != canonical_source:
             raise IdentityCurationError("source_json does not decode to source record")
     if source.source_sha256 is None:
-        original = canonical_source
+        preserve_source = original is not None and classify_kind(source.record) == "code_repair"
+        original = original if preserve_source else canonical_source
         digest = sha256_bytes(original.encode("utf-8"))
-        basis = "canonical-json-sha256"
+        basis = "source-json-line-sha256" if preserve_source else "canonical-json-sha256"
     else:
         digest = str(source.source_sha256).lower()
         if not SHA256_RE.fullmatch(digest):
@@ -1382,6 +1441,41 @@ def _apply_shape_designed(
     return id_mappings, provenance_mappings
 
 
+def _curate_code_repair(original, row, mapping):
+    if __package__:
+        from .code_repair.admission import natural_eligibility
+        from .code_repair.source_policy import SourcePolicyError
+    else:
+        from code_repair.admission import natural_eligibility
+        from code_repair.source_policy import SourcePolicyError
+    try:
+        eligible, reasons = natural_eligibility(original, row)
+    except SourcePolicyError as exc:
+        return _exclude(mapping, "identity.code_repair_invalid", details=[str(exc)])
+    ready_claims = _training_ready_true_paths(original)
+    if ready_claims:
+        return _exclude(
+            mapping,
+            "identity.training_ready_policy_violation",
+            details=[{"paths": ready_claims, "policy": row.training_ready_policy}],
+        )
+    curated = copy.deepcopy(original)
+    output_id = curated["id"]
+    mapping.update(
+        action="retained", reason_codes=["identity.preserved", "provenance.preserved"],
+        output_id=output_id, output_sha256=sha256_json(curated),
+        id_mappings=[{"owner_path": "/", "output_id": output_id}], provenance_mappings=[],
+        procedural_authority={
+            "policy_sha256": row.procedural_policy_sha256,
+            "generator_ownership": row.generator_ownership,
+            "generation_method": row.generation_method,
+            "source_license_evidence": dict(row.source_license_evidence),
+            "eligible_training_candidate": eligible, "ineligibility_reasons": list(reasons),
+        },
+    )
+    return CurationResult("retained", curated, mapping)
+
+
 def curate_record(
     source_record: SourceRecord,
     registry: FactoryRegistry | None = None,
@@ -1415,139 +1509,46 @@ def curate_record(
     mapping = _base_mapping(source, kind, root_original_ids, registry, row, contract)
     mapping["original_ids"] = all_original_ids
     if kind_error is not None:
-        return _exclude(
+        result = _exclude(
             mapping,
             "identity.unsupported_record_shape",
             details=[str(kind_error)],
         )
-    if row is None:
-        return _exclude(mapping, "identity.unknown_factory")
-    payload_factory = _payload_factory(original)
-    if payload_factory != row.payload_factory:
-        return _exclude(
-            mapping,
-            "identity.factory_path_payload_mismatch",
-            details=[
-                {
-                    "path_id": row.path_id,
-                    "expected_payload_factory": row.payload_factory,
-                    "payload_factory": payload_factory,
-                }
-            ],
-        )
-    if kind not in row.record_kinds:
-        return _exclude(
-            mapping,
-            "identity.factory_not_authorized_for_kind",
-            details=[
-                {
-                    "record_kind": kind,
-                    "authorized_kinds": sorted(row.record_kinds),
-                }
-            ],
-        )
-    if not row.identity_authoritative:
-        return _exclude(mapping, "identity.factory_not_identity_authoritative")
-    if contract not in ALLOWED_CONTRACTS:
-        return _exclude(
-            mapping,
-            "identity.factory_contract_invalid",
-            details=[{"record_kind": kind, "provenance_contract": contract}],
-        )
-    if row.training_ready_policy == "never":
-        ready_claims = _training_ready_true_paths(original)
-        if ready_claims:
-            return _exclude(
-                mapping,
-                "identity.training_ready_policy_violation",
-                details=[{"paths": ready_claims, "policy": "never"}],
-            )
-    try:
-        owner_specs = _owner_specs(
-            original,
-            kind,
-            row.preference_side_kinds if kind == "preference" else None,
-        )
-    except IdentityCurationError as exc:
-        return _exclude(mapping, "identity.invalid_nested_shape", details=[str(exc)])
-
-    shape_errors = _shape_validation_errors(original, kind, owner_specs)
-    if shape_errors:
-        return _exclude(
-            mapping,
-            "identity.invalid_payload_shape",
-            details=shape_errors,
-        )
-
-    use_state = contract == CONTRACT_REQUIRE_STATE or _payload_has_state_claim(
-        original, owner_specs
-    )
-    state_owners = owner_specs if owner_specs else [("/", original)]
-    if use_state:
-        resolutions, unresolved = _collect_state_resolutions(state_owners)
-        if unresolved:
-            return _exclude(
-                mapping,
-                "identity.unresolved_provenance",
-                unresolved_provenance=unresolved,
-            )
-        apply_owners = state_owners
+    elif row is None:
+        result = _exclude(mapping, "identity.unknown_factory")
+    elif kind == "code_repair":
+        result = _curate_code_repair(original, row, mapping)
     else:
-        if kind not in SHAPE_BASIS:
-            return _exclude(
-                mapping,
-                "identity.factory_contract_invalid",
-                details=[{"record_kind": kind, "provenance_contract": contract}],
-            )
-        resolutions = []
-        apply_owners = owner_specs
-
-    curated: dict[str, Any] = copy.deepcopy(dict(original))
-    output_id = _canonical_id(source, kind, "/")
-    curated["id"] = output_id
-
-    if use_state:
-        id_mappings, provenance_mappings = _apply_resolved_state(
-            curated,
-            original,
-            source,
-            kind,
-            owner_specs,
-            apply_owners,
-            resolutions,
-            output_id,
-            root_original_ids,
+        context = _identity_stages.CurationContext(
+            original=original,
+            source=source,
+            row=row,
+            kind=kind,
+            contract=contract,
+            root_original_ids=root_original_ids,
+            mapping=mapping,
         )
-    else:
-        id_mappings, provenance_mappings = _apply_shape_designed(
-            curated,
-            original,
-            source,
-            kind,
-            apply_owners,
-            output_id,
-            root_original_ids,
+        dependencies = _identity_stages.CurationDependencies(
+            allowed_contracts=ALLOWED_CONTRACTS,
+            apply_resolved_state=_apply_resolved_state,
+            apply_shape_designed=_apply_shape_designed,
+            canonical_id=_canonical_id,
+            collect_state_resolutions=_collect_state_resolutions,
+            curation_result=CurationResult,
+            exclude=_exclude,
+            identity_curation_error=IdentityCurationError,
+            owner_specs=_owner_specs,
+            payload_factory=_payload_factory,
+            payload_has_state_claim=_payload_has_state_claim,
+            require_state_contract=CONTRACT_REQUIRE_STATE,
+            residual_real_claim_paths=_residual_real_claim_paths,
+            sha256_json=sha256_json,
+            shape_basis=SHAPE_BASIS,
+            shape_validation_errors=_shape_validation_errors,
+            training_ready_true_paths=_training_ready_true_paths,
         )
-
-    residual_real_claims = _residual_real_claim_paths(curated)
-    if residual_real_claims:
-        return _exclude(
-            mapping,
-            "identity.unowned_real_claim",
-            details=[{"paths": residual_real_claims}],
-        )
-
-    mapping.update(
-        {
-            "action": "retained",
-            "reason_codes": ["identity.assigned", "provenance.canonicalized"],
-            "output_id": output_id,
-            "output_sha256": sha256_json(curated),
-            "id_mappings": id_mappings,
-            "provenance_mappings": provenance_mappings,
-        }
-    )
-    return CurationResult("retained", curated, mapping)
+        result = _identity_stages.curate_nonprocedural_record(context, dependencies)
+    return result
 
 
 def curate_records(
@@ -1978,6 +1979,10 @@ def _validate_manifest_ids(
 ) -> None:
     expected_result = replay.result
     expected_mapping = expected_result.mapping
+    if expected_mapping.get("record_kind") == "code_repair":
+        _require_canonical_json_equal(mapping, expected_mapping, "procedural identity mapping")
+        _require_canonical_json_equal(record, expected_result.record, "preserved oracle envelope")
+        return
     if expected_result.action != "retained" or expected_result.record is None:
         raise IdentityTreeError(
             f"IDENTITY-MANIFEST.json[{index}] has output for a replayed exclusion"
@@ -2116,90 +2121,53 @@ def _validate_manifest_ids(
 def _expected_identity_outputs(
     manifest: list[Any], registry: FactoryRegistry
 ) -> dict[str, dict[int, tuple[int, Mapping[str, Any], _ManifestReplay]]]:
-    expected: dict[str, dict[int, tuple[int, Mapping[str, Any], _ManifestReplay]]] = {}
-    seen_coordinates: dict[tuple[str, int], int] = {}
-    for index, mapping in enumerate(manifest):
-        if not isinstance(mapping, Mapping):
-            raise IdentityTreeError(f"IDENTITY-MANIFEST.json[{index}] must be an object")
-        registry_meta = mapping.get("registry")
-        pin = registry_meta.get("sha256") if isinstance(registry_meta, Mapping) else None
-        if pin != registry.sha256:
-            raise IdentityTreeError(
-                f"IDENTITY-MANIFEST.json[{index}] registry.sha256 does not match sidecar pin"
-            )
-        replay = _replay_manifest_mapping(mapping, index, registry)
-        source = replay.source
-        coordinate = (source.path, source.line)
-        if coordinate in seen_coordinates:
-            raise IdentityTreeError(
-                f"IDENTITY-MANIFEST.json repeats source coordinate "
-                f"{source.path}:{source.line} at entries "
-                f"{seen_coordinates[coordinate]} and {index}"
-            )
-        seen_coordinates[coordinate] = index
-        if replay.result.action != "retained":
-            continue
-        expected_mapping = replay.result.mapping
-        output_sha256 = expected_mapping.get("output_sha256")
-        if not isinstance(output_sha256, str) or not SHA256_RE.fullmatch(output_sha256):
-            raise IdentityTreeError(
-                f"IDENTITY-MANIFEST.json[{index}] source replay produced an invalid output hash"
-            )
-        by_line = expected.setdefault(source.path, {})
-        if source.line in by_line:
-            raise IdentityTreeError(
-                f"IDENTITY-MANIFEST.json repeats output coordinate {source.path}:{source.line}"
-            )
-        by_line[source.line] = (index, mapping, replay)
-    return expected
+    dependencies = _identity_output.IdentityOutputDependencies(
+        canonical_json=canonical_json,
+        identity_curation_error=IdentityCurationError,
+        identity_tree_error=IdentityTreeError,
+        replay_manifest_mapping=_replay_manifest_mapping,
+        sha256_pattern=SHA256_RE,
+        strict_json_loads=_strict_json_loads,
+    )
+    return _identity_output.expected_identity_outputs(manifest, registry, dependencies)
 
 
-def _read_identity_output(path: Path, rel: str) -> dict[int, Mapping[str, Any]]:
-    records: dict[int, Mapping[str, Any]] = {}
-    try:
-        output_bytes = path.read_bytes()
-    except OSError as exc:
-        raise IdentityTreeError(f"identity output is unreadable: {rel}: {exc}") from exc
-
-    if not output_bytes.endswith(b"\n"):
-        raise IdentityTreeError(f"identity output must end with exactly one LF: {rel}")
-    framed_payload = output_bytes[:-1]
-    if not framed_payload or framed_payload.endswith(b"\n"):
-        raise IdentityTreeError(f"identity output must end with a canonical record: {rel}")
-
-    for line_no, line_bytes in enumerate(framed_payload.split(b"\n"), 1):
-        if not line_bytes:
-            continue
-        if not line_bytes.strip():
+def _validate_identity_outputs(expected_outputs, actual_paths, registry) -> None:
+    """Verify preserved bytes, coordinates and identities for every manifest output."""
+    dependencies = _identity_output.IdentityOutputDependencies(
+        canonical_json=canonical_json,
+        identity_curation_error=IdentityCurationError,
+        identity_tree_error=IdentityTreeError,
+        replay_manifest_mapping=_replay_manifest_mapping,
+        sha256_pattern=SHA256_RE,
+        strict_json_loads=_strict_json_loads,
+    )
+    for rel, expected_by_line in sorted(expected_outputs.items()):
+        preserved_sources = {
+            line_no: replay.source.original.encode("utf-8")
+            for line_no, (_, _, replay) in expected_by_line.items()
+            if replay.result.mapping.get("record_kind") == "code_repair"
+        }
+        actual_by_line = _identity_output.read_identity_output(
+            actual_paths[rel], rel, preserved_sources, dependencies)
+        if set(actual_by_line) != set(expected_by_line):
             raise IdentityTreeError(
-                f"identity output blank placeholders must be empty: {rel}:{line_no}"
+                f"identity output line coordinates do not match manifest: {rel}"
             )
-        try:
-            line = line_bytes.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise IdentityTreeError(
-                f"identity output UTF-8 decode error at {rel}:{line_no}: {exc}"
-            ) from exc
-        try:
-            output_record = _strict_json_loads(line)
-        except (json.JSONDecodeError, ValueError) as exc:
-            raise IdentityTreeError(
-                f"identity output JSON parse error at {rel}:{line_no}: {exc}"
-            ) from exc
-        if not isinstance(output_record, Mapping):
-            raise IdentityTreeError(f"identity output record at {rel}:{line_no} must be an object")
-        try:
-            canonical_payload = canonical_json(output_record).encode("utf-8")
-        except (IdentityCurationError, UnicodeError) as exc:
-            raise IdentityTreeError(
-                f"identity output is not canonical JSON data: {rel}:{line_no}: {exc}"
-            ) from exc
-        if line_bytes != canonical_payload:
-            raise IdentityTreeError(
-                f"identity output payload is not exact canonical JSON: {rel}:{line_no}"
-            )
-        records[line_no] = output_record
-    return records
+        for line_no, (index, mapping, replay) in expected_by_line.items():
+            output_record = actual_by_line[line_no]
+            try:
+                actual_hash = sha256_json(output_record)
+            except IdentityCurationError as exc:
+                raise IdentityTreeError(
+                    f"identity output is not canonical JSON data: {rel}:{line_no}: {exc}"
+                ) from exc
+            expected_output_sha256 = replay.result.mapping.get("output_sha256")
+            if actual_hash != expected_output_sha256:
+                raise IdentityTreeError(
+                    f"identity output hashes do not match manifest: {rel}:{line_no}"
+                )
+            _validate_manifest_ids(mapping, output_record, index, registry, replay)
 
 
 def validate_identity_tree(
@@ -2271,26 +2239,7 @@ def validate_identity_tree(
         raise IdentityTreeError(
             f"identity output paths do not match manifest: missing={missing}, extra={extra}"
         )
-    for rel, expected_by_line in sorted(expected_outputs.items()):
-        actual_by_line = _read_identity_output(actual_paths[rel], rel)
-        if set(actual_by_line) != set(expected_by_line):
-            raise IdentityTreeError(
-                f"identity output line coordinates do not match manifest: {rel}"
-            )
-        for line_no, (index, mapping, replay) in expected_by_line.items():
-            output_record = actual_by_line[line_no]
-            try:
-                actual_hash = sha256_json(output_record)
-            except IdentityCurationError as exc:
-                raise IdentityTreeError(
-                    f"identity output is not canonical JSON data: {rel}:{line_no}: {exc}"
-                ) from exc
-            expected_output_sha256 = replay.result.mapping.get("output_sha256")
-            if actual_hash != expected_output_sha256:
-                raise IdentityTreeError(
-                    f"identity output hashes do not match manifest: {rel}:{line_no}"
-                )
-            _validate_manifest_ids(mapping, output_record, index, registry, replay)
+    _validate_identity_outputs(expected_outputs, actual_paths, registry)
     return registry
 
 
@@ -2458,9 +2407,9 @@ def write_run(
     if _is_under_raw(dest):
         raise IdentityCurationError(f"refusing to write inside immutable raw evidence: {dest}")
     registry = default_registry() if registry is None else registry
-    if registry.schema_version != REGISTRY_SCHEMA_VERSION:
+    if registry.schema_version not in {HOSTED_REGISTRY_SCHEMA_VERSION, REGISTRY_SCHEMA_VERSION}:
         raise IdentityCurationError(
-            f"write_run requires {REGISTRY_SCHEMA_VERSION} registry bytes"
+            f"write_run requires {HOSTED_REGISTRY_SCHEMA_VERSION} or {REGISTRY_SCHEMA_VERSION} registry bytes"
         )
     results = curate_records(
         iter_source_records(source, registry=registry),
@@ -2487,7 +2436,7 @@ def write_run(
         manifest_digest = sha256_bytes(manifest_bytes)
         _write_exclusive(dest / IDENTITY_MANIFEST_SIDECAR, manifest_bytes)
         created_files.append(dest / IDENTITY_MANIFEST_SIDECAR)
-        retained_by_rel: dict[str, dict[int, dict[str, Any]]] = {}
+        retained_by_rel: dict[str, dict[int, str]] = {}
         for result in results:
             if result.action != "retained" or result.record is None:
                 continue
@@ -2498,13 +2447,16 @@ def write_run(
                     "retained records repeat source coordinate "
                     f"{source_meta['path']}:{source_meta['line']}"
                 )
-            by_line[source_meta["line"]] = result.record
+            by_line[source_meta["line"]] = (
+                source_meta["original"] if result.mapping["record_kind"] == "code_repair"
+                else canonical_json(result.record)
+            )
         for rel, records_by_line in sorted(retained_by_rel.items()):
             out_path = dest / rel
             _ensure_output_directory(dest, out_path.parent, created_directories)
             output_lines = [""] * max(records_by_line)
-            for line_no, record in records_by_line.items():
-                output_lines[line_no - 1] = canonical_json(record)
+            for line_no, record_json in records_by_line.items():
+                output_lines[line_no - 1] = record_json
             payload = "\n".join(output_lines) + "\n"
             _write_exclusive(out_path, payload.encode("utf-8"))
             created_files.append(out_path)

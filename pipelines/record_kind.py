@@ -20,6 +20,7 @@ THALAMIC_REQUIRED = (
 )
 
 KIND_ORDER = (
+    "code_repair",
     "thalamic",
     "preference",
     "bridge_pair",
@@ -33,36 +34,43 @@ SUPPORTED_RECORD_KINDS = frozenset(KIND_ORDER) - {"unknown"}
 
 PREFERENCE_SIDE_KINDS = frozenset({"episode", "thalamic"})
 
+_PAYLOAD_KEY_RULES = (
+    ("thalamic", frozenset(THALAMIC_REQUIRED)),
+    ("preference", frozenset({"chosen", "rejected"})),
+    ("bridge_pair", frozenset({"language_view", "spike_events"})),
+    ("safety_case", frozenset({"case_type"})),
+    ("multi_agent", frozenset({"transcript", "agents"})),
+    ("episode", frozenset({"goal", "steps"})),
+)
+
 
 def classify_kind(obj: Any) -> str:
     """Name a record from payload keys, never from a directory slug.
 
     Order (census/agentic, issue #32 comment 5377279101):
 
-    1. thalamic — all six ``THALAMIC_REQUIRED`` keys at top level
-    2. preference — ``chosen`` and ``rejected``
-    3. bridge_pair — ``language_view`` and ``spike_events``
-    4. safety_case — ``case_type``
-    5. multi_agent — ``transcript`` and ``agents``
-    6. episode — ``goal`` and ``steps``
-    7. unknown
+    1. code_repair — ``family`` is ``python-function-repair``
+    2. thalamic — all six ``THALAMIC_REQUIRED`` keys at top level
+    3. preference — ``chosen`` and ``rejected``
+    4. bridge_pair — ``language_view`` and ``spike_events``
+    5. safety_case — ``case_type``
+    6. multi_agent — ``transcript`` and ``agents``
+    7. episode — ``goal`` and ``steps``
+    8. unknown
     """
 
-    if not isinstance(obj, Mapping):
-        return "unknown"
-    if all(key in obj for key in THALAMIC_REQUIRED):
-        return "thalamic"
-    if "chosen" in obj and "rejected" in obj:
-        return "preference"
-    if "language_view" in obj and "spike_events" in obj:
-        return "bridge_pair"
-    if "case_type" in obj:
-        return "safety_case"
-    if "transcript" in obj and "agents" in obj:
-        return "multi_agent"
-    if "goal" in obj and "steps" in obj:
-        return "episode"
-    return "unknown"
+    kind = "unknown"
+    if isinstance(obj, Mapping):
+        # A malformed claimant stays in its family and fails that family's validator.
+        if obj.get("family") == "python-function-repair":
+            kind = "code_repair"
+        else:
+            keys = obj.keys()
+            kind = next(
+                (name for name, required in _PAYLOAD_KEY_RULES if required <= keys),
+                "unknown",
+            )
+    return kind
 
 
 def preference_side_kinds(record: Any) -> tuple[str, str]:
