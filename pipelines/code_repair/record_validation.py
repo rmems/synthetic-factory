@@ -29,7 +29,7 @@ def _examples(record: dict[str, Any]) -> tuple[cat.Example, ...]:
     return cat.examples_of(text, function)
 
 
-def _row_shape(row: Any, prefix: str) -> None:
+def _row_shape(row: Any, prefix: str, exception_ids: set[str]) -> None:
     _require(isinstance(row, dict))
     _require(isinstance(row["id"], str)
              and re.fullmatch(prefix + r":(?:0|[1-9][0-9]*)", row["id"]) is not None)
@@ -38,7 +38,10 @@ def _row_shape(row: Any, prefix: str) -> None:
     if "got" in row:
         # Exact bool rejects integer truthiness in persisted evidence.
         _require(type(row["truncated"]) is bool and _digest(row["got_sha256"]))  # pylint: disable=unidiomatic-typecheck
-        if not row["truncated"]:
+        # Expected exceptions retain a display line but hash the full observation.
+        # Their complete observation is authenticated by fresh execution replay.
+        full_exception = row["id"] in exception_ids and row["status"] in (cv.ROW_SUCCESS, cv.ROW_FAIL)
+        if not row["truncated"] and not full_exception:
             _require(cat.sha256_text(row["got"]) == row["got_sha256"])
 
 
@@ -50,15 +53,15 @@ def _phase_limits_are_valid(block: dict[str, Any]) -> bool:
     return block["limits_applied"] is True
 
 
-def _suite_shape(rows: Any, prefix: str) -> None:
+def _suite_shape(rows: Any, prefix: str, exception_ids: set[str]) -> None:
     _require(isinstance(rows, list))
     for row in rows:
-        _row_shape(row, prefix)
+        _row_shape(row, prefix, exception_ids)
     ids = [row["id"] for row in rows]
     _require(len(set(ids)) == len(ids))
 
 
-def _phase_shape(block: Any) -> None:
+def _phase_shape(block: Any, exception_ids: set[str]) -> None:
     if block is None:
         return
     _require(isinstance(block, dict))
@@ -68,7 +71,7 @@ def _phase_shape(block: Any) -> None:
     _require(block["limits_applied"] is None or type(block["limits_applied"]) is bool)  # pylint: disable=unidiomatic-typecheck
     _require(_phase_limits_are_valid(block))
     for suite in ("public", "hidden"):
-        _suite_shape(block[suite], suite)
+        _suite_shape(block[suite], suite, exception_ids)
     _require(block["sha256"] == cat.sha256_text(oc.canonical_json(
         [block["public"], block["hidden"]])))
 
@@ -118,11 +121,12 @@ def _public_failure_shape(result: dict[str, Any], examples: tuple[cat.Example, .
         _require(type(entry["truncated"]) is bool)  # pylint: disable=unidiomatic-typecheck
 
 
-def _phase_blocks_shape(result: dict[str, Any]) -> None:
+def _phase_blocks_shape(result: dict[str, Any], examples) -> None:
     blocks = result["phases"]
     _require(set(blocks) == set(cv.PHASES))
+    exception_ids = {f"public:{index}" for index, e in enumerate(examples) if e.exc_msg is not None}
     for block in blocks.values():
-        _phase_shape(block)
+        _phase_shape(block, exception_ids)
     _require(blocks[cv.PHASE_ORIGINAL] is not None)
     _require(result["evidence_sha256"] == verify.result_hash(blocks))
 
@@ -145,7 +149,7 @@ def validate_shape(record: dict[str, Any]) -> None:
         examples = _examples(record)
         _require(bool(examples))
         _public_failure_shape(result, examples)
-        _phase_blocks_shape(result)
+        _phase_blocks_shape(result, examples)
         _render_inputs_shape(record)
     except (KeyError, TypeError, ValueError, SyntaxError, AttributeError, RecursionError,
             envelope.ContractError) as exc:

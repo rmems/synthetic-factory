@@ -161,7 +161,11 @@ def examples_sha256(examples: tuple[Example, ...]) -> str:
     return sha256_text(oc.canonical_json([list(example.key()) for example in examples]))
 
 
-from .catalog_load import load_catalog  # noqa: E402  types must exist first
+def load_catalog(directory: Path | str) -> Catalog:
+    """Load through the catalog loader without requiring an import order."""
+    from .catalog_load import load_catalog as load
+
+    return load(directory)
 
 
 # --- the original-passes check -------------------------------------------
@@ -251,3 +255,15 @@ def catalog_check(catalog: Catalog, executor: ex.Executor) -> list[dict[str, str
 
 
 bind_import_twin(__name__)
+
+
+def upstream_json(program: Program) -> dict[str, Any]:
+    """Copy frozen provenance into its JSON representation."""
+    def thaw(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {key: thaw(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [thaw(item) for item in value]
+        return value
+
+    return thaw(program.upstream)

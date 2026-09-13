@@ -106,7 +106,7 @@ def _scenario(candidate: Candidate) -> dict[str, Any]:
         "language": cv.LANGUAGE,
         "source": {
             "program_id": program.program_id, "family": program.family,
-            "upstream": dict(program.upstream), "module_sha256": program.sha256,
+            "upstream": cat.upstream_json(program), "module_sha256": program.sha256,
         },
         "broken_program": {
             "files": {cv.PROGRAM_FILENAME: candidate.mutation.mutated_text},
