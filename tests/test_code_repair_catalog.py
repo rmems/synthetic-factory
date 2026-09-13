@@ -248,7 +248,7 @@ class OriginalPasses(unittest.TestCase):
         answers = [report(rows("public", 7), rows("hidden", 15)), report(rows("public", 7, (1,)), rows("hidden", 15))]
         fake = FakeExecutor({"original": lambda job: answers.pop(0), "reference": report((), rows("hidden", 15))})
         single = catalog.Catalog("x", FIXTURE_CATALOG, {}, "", "", (prog,))
-        codes = [f["code"] for f in catalog.catalog_check(single, fake)]
+        codes = [f["code"] for f in catalog_check.catalog_check(single, fake)]
         self.assertEqual(codes, [cv.CHECK_SOURCE_NONDETERMINISTIC])
 
     def test_two_differing_reference_runs_are_nondeterministic(self):
