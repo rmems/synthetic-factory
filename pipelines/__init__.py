@@ -162,6 +162,7 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "curate_gate",
     "curate_identity",
     "round_txn",
+    "operator_paths",
 ))
 
 
