@@ -145,7 +145,7 @@
         "factory_contract_version": {
           "type": "string",
           "minLength": 1,
-          "description": "Must match config/FACTORY-REGISTRY.json schema_version (factory-registry-v0.1). Authority stays in that reviewed table."
+          "description": "Must match config/FACTORY-REGISTRY.json schema_version (factory-registry-v0.3). Authority stays in that reviewed table."
         },
         "manifest_hash": { "$ref": "#/$defs/sha256" },
         "factory_registry_sha256": { "$ref": "#/$defs/sha256" },
