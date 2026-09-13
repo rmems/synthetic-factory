@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Callable, cast
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("compose_destination_creation")
     from .compose_contract import ComposeError

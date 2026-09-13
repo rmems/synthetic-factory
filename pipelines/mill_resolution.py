@@ -219,14 +219,14 @@ def missing_homes(
     entries: Sequence[Entry],
     axes: Axes,
     verified: set[str],
-) -> set[str]:
+) -> set[str | None]:
     """Return every home factory named by a signal but absent from ``verified``.
 
     The three-part union: prefix homes, resolved destination identities, and
     verified entries' own disagreeing declarations.
     """
 
-    absent = {
+    absent: set[str | None] = {
         home
         for homes_for_prefix in axes.homes.values()
         for home in homes_for_prefix

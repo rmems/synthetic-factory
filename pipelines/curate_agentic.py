@@ -323,10 +323,10 @@ def curate_record(
 def _source_jsonl_entries(source: Path) -> tuple[tuple[Path, str, bool], ...]:
     """Return visible JSONL paths paired with their enclosing factory names."""
 
-    if not source.exists():
-        return ()
     paths: tuple[Path, ...]
-    if source.is_file():
+    if not source.exists():
+        paths = ()
+    elif source.is_file():
         paths = (source,) if source.suffix == ".jsonl" and not source.is_symlink() else ()
     else:
         paths = tuple(

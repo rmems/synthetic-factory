@@ -7,7 +7,8 @@ from fractions import Fraction
 from typing import Any
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
     _assert_direct_sibling("curate_bridge_raster")
     from .curate_bridge_raster_numbers import (
         REASON_RASTER_SPIKE_BUDGET as _NUMERIC_REASON_RASTER_SPIKE_BUDGET,
@@ -178,11 +179,12 @@ def _validate_third_factor(
 def _window_in_range(window):
     primary_fraction = exact_fraction(window.primary)
     alias_fraction = exact_fraction(window.alias)
+    if not window.valid:
+        return False
+    if alias_fraction is None or primary_fraction is None:
+        return False
     return (
-        window.valid
-        and alias_fraction is not None
-        and primary_fraction is not None
-        and RASTER_WINDOW_MIN_MS <= alias_fraction <= RASTER_WINDOW_MAX_MS
+        RASTER_WINDOW_MIN_MS <= alias_fraction <= RASTER_WINDOW_MAX_MS
         and Fraction(RASTER_WINDOW_MIN_MS, 1000)
         <= primary_fraction
         <= Fraction(RASTER_WINDOW_MAX_MS, 1000)

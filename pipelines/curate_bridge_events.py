@@ -6,7 +6,8 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
     _assert_direct_sibling("curate_bridge_events")
     from .exact_json import dumps_exact_json, exact_fraction
 else:

@@ -53,7 +53,7 @@ def fixture():
 def program(function):
     """The fixture program whose target function has this name."""
 
-    return next(p for p in fixture().programs if p.function == function)
+    return required_item(p for p in fixture().programs if p.function == function)
 
 
 def boundary_site(prog, text=None):

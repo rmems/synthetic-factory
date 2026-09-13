@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
     _assert_direct_sibling("curate_bridge_raster_numbers")
     from .exact_json import (
         exact_fraction,
@@ -181,9 +182,7 @@ def _raster_energy_field(
         return False
     if expected_fraction is None or tolerance_fraction is None:
         return False
-    if value_fraction < 0:
-        return False
-    return abs(value_fraction - expected_fraction) <= tolerance_fraction
+    return value_fraction >= 0 and abs(value_fraction - expected_fraction) <= tolerance_fraction
 
 
 def _positive_number(value: Any) -> bool:

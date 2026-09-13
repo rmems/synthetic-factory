@@ -7,7 +7,8 @@ import sys
 from typing import Any
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("export_viewer_reader")
     from . import export_viewer_codec as codec

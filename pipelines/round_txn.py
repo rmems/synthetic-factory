@@ -2360,16 +2360,12 @@ def _validate_staged_batch(batch, factory_dir, expected, round_number):
             *(f"WARNING: {item}" for item in warnings),
         ]
         raise TransactionError("staged batch is not training-ready:\n" + "\n".join(details))
-    if records != expected:
-        raise TransactionError(
-            f"staged batch has {records} records; reservation requires exactly {expected}"
-        )
-    expected_kind = AGENTIC_FACTORY_KINDS.get(factory_dir.name)
-    if expected_kind and set(kinds) != {expected_kind}:
-        raise TransactionError(
-            f"{factory_dir.name} requires only {expected_kind!r} records; "
-            f"staged kinds are {sorted(kinds)!r}"
-        )
+    _stage_checks.validate_counts(
+        records, kinds,
+        _stage_checks.BatchPolicy(
+            factory_dir.name, expected, AGENTIC_FACTORY_KINDS.get(factory_dir.name), TransactionError,
+        ),
+    )
     envelope_errors = validate_agentic_envelope(batch, factory_dir, round_number)
     if envelope_errors:
         raise TransactionError(

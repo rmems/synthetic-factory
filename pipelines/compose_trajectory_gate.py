@@ -12,7 +12,8 @@ import sys
 from typing import Any, Mapping
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("compose_trajectory_gate")
     from . import compose_contract as _compose_contract

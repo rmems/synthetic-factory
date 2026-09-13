@@ -97,3 +97,24 @@ def validate_notes(paths: NotesPaths, policy: NotesPolicy):
 
 
 
+
+
+@dataclass(frozen=True)
+class BatchPolicy:
+    factory_name: str
+    expected_records: int
+    expected_kind: str | None
+    error_type: type[Exception]
+
+
+def validate_counts(records: int, kinds, policy: BatchPolicy) -> None:
+    if records != policy.expected_records:
+        raise policy.error_type(
+            f"staged batch has {records} records; reservation requires exactly {policy.expected_records}"
+        )
+    expected_kind = policy.expected_kind
+    if expected_kind and set(kinds) != {expected_kind}:
+        raise policy.error_type(
+            f"{policy.factory_name} requires only {expected_kind!r} records; "
+            f"staged kinds are {sorted(kinds)!r}"
+        )
