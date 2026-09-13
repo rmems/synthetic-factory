@@ -9,10 +9,9 @@ those boundaries always execute fresh replay.
 from __future__ import annotations
 
 import hashlib
-import importlib
 import sys
 import tempfile
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -34,9 +33,12 @@ class PublishRequest:
     lineage_cap: int = DEFAULT_LINEAGE_CAP
 
 
-def _shared_module(name: str):
-    prefix = _PACKAGE_PREFIX if __name__.startswith(_PACKAGE_PREFIX) else ""
-    return importlib.import_module(prefix + name)
+def _default_registry():
+    if __name__.startswith(_PACKAGE_PREFIX):
+        from ..curate_identity import default_registry
+        return default_registry()
+    from curate_identity import default_registry as flat_registry
+    return flat_registry()
 
 
 def transaction_module():
@@ -107,9 +109,13 @@ def require_route(factory: Path, batch: Path, *, override=None) -> bool:
 
 
 def _records(payload: bytes) -> tuple[list[dict], dict[str, bytes]]:
-    strict_jsonl = _shared_module("strict_jsonl")
+    if __name__.startswith(_PACKAGE_PREFIX):
+        from ..strict_jsonl import strict_lf_jsonl_records as parse_records
+    else:
+        from strict_jsonl import strict_lf_jsonl_records
+        parse_records = strict_lf_jsonl_records
     records, by_id = [], {}
-    for raw in strict_jsonl.strict_lf_jsonl_records(payload, "procedural candidates"):
+    for raw in parse_records(payload, "procedural candidates"):
         record = load_strict_json(raw.decode("utf-8"))
         if not isinstance(record, dict) or not isinstance(record.get("id"), str):
             refuse_publication("candidate lacks a canonical ID")
@@ -139,8 +145,7 @@ def inspect_inputs(factory: Path, batch: Path, round_number: int) -> tuple[dict,
         refuse_publication("input inspection requires a procedural source route")
     from .selection import selected_records
     from .validation import validate_run
-    curate_identity = _shared_module("curate_identity")
-    registry = curate_identity.default_registry()
+    registry = _default_registry()
     row = registry.by_path_id.get(factory.name)
     catalog = admission.load_trusted_catalog(row)
     artifact = batch.parent / input_name(round_number)
@@ -155,20 +160,20 @@ def inspect_inputs(factory: Path, batch: Path, round_number: int) -> tuple[dict,
     expected_batch = _selected_payload(selected, by_id)
     if batch.read_bytes() != expected_batch:
         refuse_publication("published batch must equal exact deterministic selected source bytes")
-    binding = {
-        "factory": factory.name, "round": round_number,
-        "registry_sha256": registry.sha256, "policy_sha256": sp.POLICY_SHA256,
-        "catalog_sha256": sp.POLICY["catalog_sha256"],
-        "programs_sha256": catalog.programs_sha256,
-        "source_license_evidence": dict(sp.POLICY["source_license_evidence"]),
-        "run_sha256": _sha(run_bytes), "candidates_sha256": _sha(candidates),
-        "input_artifact": artifact.name, "input_sha256": _sha(artifact.read_bytes()),
-        "batch_sha256": _sha(expected_batch), "lineage_cap": value["lineage_cap"],
-        "candidate_count": len(records), "positive_count": len(positives),
-        "selected": [{"id": r["id"], "source_sha256": _sha(by_id[r["id"]])} for r in selected],
-        "harness_sha256": run["harness_sha256"],
-    }
-    return binding, positives, catalog
+    binding = publication_receipt.PublicationBinding(
+        factory=factory.name, round=round_number,
+        registry_sha256=registry.sha256, policy_sha256=sp.POLICY_SHA256,
+        catalog_sha256=sp.POLICY["catalog_sha256"],
+        programs_sha256=catalog.programs_sha256,
+        source_license_evidence=dict(sp.POLICY["source_license_evidence"]),
+        run_sha256=_sha(run_bytes), candidates_sha256=_sha(candidates),
+        input_artifact=artifact.name, input_sha256=_sha(artifact.read_bytes()),
+        batch_sha256=_sha(expected_batch), lineage_cap=value["lineage_cap"],
+        candidate_count=len(records), positive_count=len(positives),
+        selected=[{"id": r["id"], "source_sha256": _sha(by_id[r["id"]])} for r in selected],
+        harness_sha256=run["harness_sha256"],
+    )
+    return asdict(binding), positives, catalog
 
 
 def eligible_records(records, row, catalog) -> list[dict]:
@@ -252,13 +257,12 @@ def _validate_completed_files(batch, manifest):
 def _prepare_captured_run(request: PublishRequest, scratch: Path) -> tuple[bytes, dict]:
     """Capture once, select exact source rows, then run the complete pure preflight."""
     from .selection import selected_records
-    curate_identity = _shared_module("curate_identity")
     transaction = transaction_module()
     for filename in ("RUN.json", "candidates.jsonl"):
         transaction.capture_regular_file(request.run_dir / filename, scratch / filename)
     candidates = (scratch / "candidates.jsonl").read_bytes()
     records, by_id = _records(candidates)
-    row = curate_identity.default_registry().by_path_id.get(request.factory_dir.name)
+    row = _default_registry().by_path_id.get(request.factory_dir.name)
     catalog = admission.load_trusted_catalog(row)
     positives = eligible_records(records, row, catalog)
     selected = selected_records(positives, lineage_cap=request.lineage_cap)

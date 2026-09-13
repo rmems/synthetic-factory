@@ -52,7 +52,8 @@ def _completed_marker(marker: Path) -> dict:
     transaction = publication.transaction_module()
     match = transaction.COMPLETE_RE.fullmatch(marker.name)
     if marker.parent.name != sp.POLICY["path_id"] or match is None:
-        publication.refuse_publication("an actual procedural ROUND-rNN.complete.json is required")
+        raise transaction.TransactionError(
+            "procedural publication refused: an actual procedural ROUND-rNN.complete.json is required")
     if marker.parent.resolve().name != sp.POLICY["path_id"]:
         publication.refuse_publication("completion resolves to an unregistered factory path")
     if transaction.marker_mode_path(marker.parent) is None:
@@ -60,7 +61,8 @@ def _completed_marker(marker: Path) -> dict:
     manifests = transaction.completed_manifests(marker.parent)
     manifest = manifests.get(int(match.group(1)))
     if manifest is None:
-        publication.refuse_publication("requested completed round does not exist")
+        raise transaction.TransactionError(
+            "procedural publication refused: requested completed round does not exist")
     transaction.staging_dir(marker.parent.resolve(), manifest["round"], manifest.get("token"))
     return manifest
 

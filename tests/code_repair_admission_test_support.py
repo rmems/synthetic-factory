@@ -16,6 +16,12 @@ def restamp(record):
     record["provenance"]["record_sha256"] = envelope.record_digest(record)
 
 
+def passing_rows(record, suite):
+    """Iterate retained passing observations across the phases that ran."""
+    phases = (phase for phase in record["result"]["phases"].values() if phase is not None)
+    return (row for phase in phases for row in phase[suite] if row["status"] == "pass")
+
+
 def restamp_evidence(record, *, refresh_public_evidence=False):
     """Restamp every emitter-owned digest after a coherent evidence mutation."""
 

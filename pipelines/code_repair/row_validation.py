@@ -47,6 +47,22 @@ def _public_examples(text, function):
             if not example.options.get(doctest.SKIP)]
 
 
+def _clipped_public_matches(row, want, flags) -> bool:
+    # Directives may admit many complete outputs for the retained prefix.
+    # Those observations remain indeterminate until mandatory fresh replay.
+    variable_output = flags & (doctest.ELLIPSIS | doctest.NORMALIZE_WHITESPACE
+                               | doctest.IGNORE_EXCEPTION_DETAIL)
+    if row["status"] == cv.ROW_FAIL or variable_output:
+        return True
+    return want.startswith(row["got"]) and catalog.sha256_text(want) == row["got_sha256"]
+
+
+def _public_want(got, example) -> str:
+    if example.exc_msg is not None and not got.endswith("\n"):
+        return example.exc_msg.strip().splitlines()[-1]
+    return example.want
+
+
 def _public_matches(row, example) -> bool:
     status = row["status"]
     if status == cv.ROW_ERROR:
@@ -58,16 +74,10 @@ def _public_matches(row, example) -> bool:
         # The harness retains only the final exception line, which may be a
         # multiline message continuation without its type. Replay must decide.
         return True
-    want, got = example.want, row["got"]
-    if example.exc_msg is not None and not got.endswith("\n"):
-        want = example.exc_msg.strip().splitlines()[-1]
+    got = row["got"]
+    want = _public_want(got, example)
     if row["truncated"]:
-        # Directives may admit many complete outputs for the retained prefix.
-        # Those observations remain indeterminate until mandatory fresh replay.
-        variable_output = flags & (doctest.ELLIPSIS | doctest.NORMALIZE_WHITESPACE
-                                   | doctest.IGNORE_EXCEPTION_DETAIL)
-        return status == cv.ROW_FAIL or bool(variable_output) or (
-            want.startswith(got) and catalog.sha256_text(want) == row["got_sha256"])
+        return _clipped_public_matches(row, want, flags)
     matched = doctest.OutputChecker().check_output(want, got, flags)
     return matched == (status == cv.ROW_SUCCESS)
 

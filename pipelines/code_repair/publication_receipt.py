@@ -2,16 +2,35 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, fields
 
 from ._contract import bind_import_twin
 
 GATE = "code-repair-fresh-publication/1"
-BINDING_FIELDS = frozenset({
-    "factory", "round", "registry_sha256", "policy_sha256", "catalog_sha256",
-    "programs_sha256", "source_license_evidence", "run_sha256", "candidates_sha256",
-    "input_artifact", "input_sha256", "batch_sha256", "lineage_cap", "candidate_count",
-    "positive_count", "selected", "harness_sha256",
-})
+@dataclass(frozen=True)
+class PublicationBinding:
+    """One schema for constructing and validating the persisted binding."""
+
+    factory: str
+    round: int
+    registry_sha256: str
+    policy_sha256: str
+    catalog_sha256: str
+    programs_sha256: str
+    source_license_evidence: dict
+    run_sha256: str
+    candidates_sha256: str
+    input_artifact: str
+    input_sha256: str
+    batch_sha256: str
+    lineage_cap: int
+    candidate_count: int
+    positive_count: int
+    selected: list[dict]
+    harness_sha256: str
+
+
+BINDING_FIELDS = frozenset(field.name for field in fields(PublicationBinding))
 
 
 def is_procedural_verification(verification) -> bool:

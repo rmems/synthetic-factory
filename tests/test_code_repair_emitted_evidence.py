@@ -9,6 +9,7 @@ from collections import Counter
 
 from tests.code_repair_admission_test_support import (
     build_generated_admission_evidence,
+    passing_rows,
     restamp_evidence,
     validate_captured_run,
 )
@@ -86,13 +87,9 @@ class EmittedEvidenceContract(unittest.TestCase):
     def test_fabricated_passing_outputs_are_refused(self):
         for suite in ("public", "hidden"):
             record = copy.deepcopy(self.accepted())
-            for block in record["result"]["phases"].values():
-                if block is None:
-                    continue
-                for observed in block[suite]:
-                    if observed["status"] == cv.ROW_SUCCESS:
-                        observed.update(got="fabricated", got_sha256=catalog.sha256_text("fabricated"),
-                                        truncated=False)
+            for observed in passing_rows(record, suite):
+                observed.update(got="fabricated", got_sha256=catalog.sha256_text("fabricated"),
+                                truncated=False)
             restamp_evidence(record)
             self.assert_shared_refusal(record)
 
