@@ -1,0 +1,42 @@
+pipelines/code_repair/replay.py
+  s_30c91b293664f2::t_93cec209a97a6e 285
+pipelines/code_repair/mutate.py
+  s_30c91b293664f2::t_93cec209a97a6e 141-143
+tests/test_vendor_python_repair_catalog.py
+  s_637722da58c92c::t_3f80866e6b5f1c 163-164
+  s_9fcd81ed14ca27::t_100244971714ca 165
+pipelines/code_repair/mutate_span.py
+  s_30c91b293664f2::t_93cec209a97a6e 153
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8e63b69a201db5b4453bb13298f3f7db5830724b",
+  "prompts": {},
+  "sessions": {
+    "s_30c91b293664f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b363f3ab-81a6-4abe-88b5-c596f7a8dd7b",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    },
+    "s_637722da58c92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b4-b4e1-7663-adcf-65ef44374529",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    },
+    "s_9fcd81ed14ca27": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0880b-da4b-7183-9ee6-d045b9ba6313",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
