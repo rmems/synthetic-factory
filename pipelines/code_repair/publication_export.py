@@ -49,25 +49,25 @@ def attribution_files() -> dict[str, bytes]:
 
 
 def _completed_marker(marker: Path) -> dict:
-    transaction = publication._transaction()
+    transaction = publication.transaction_module()
     match = transaction.COMPLETE_RE.fullmatch(marker.name)
     if marker.parent.name != sp.POLICY["path_id"] or match is None:
-        publication._fail("an actual procedural ROUND-rNN.complete.json is required")
+        publication.refuse_publication("an actual procedural ROUND-rNN.complete.json is required")
     if marker.parent.resolve().name != sp.POLICY["path_id"]:
-        publication._fail("completion resolves to an unregistered factory path")
+        publication.refuse_publication("completion resolves to an unregistered factory path")
     if transaction.marker_mode_path(marker.parent) is None:
-        publication._fail("completion must belong to a transactional marker store")
+        publication.refuse_publication("completion must belong to a transactional marker store")
     manifests = transaction.completed_manifests(marker.parent)
     manifest = manifests.get(int(match.group(1)))
     if manifest is None:
-        publication._fail("requested completed round does not exist")
+        publication.refuse_publication("requested completed round does not exist")
     transaction.staging_dir(marker.parent.resolve(), manifest["round"], manifest.get("token"))
     return manifest
 
 
 def completed_batch_matches(batch: Path, payload: bytes) -> bool:
     """Pure audit gate: exact snapshot bytes must be owned by a valid completed round."""
-    transaction = publication._transaction()
+    transaction = publication.transaction_module()
     match = transaction.BATCH_RE.fullmatch(batch.name)
     if match is None:
         return False
@@ -82,26 +82,26 @@ def completed_batch_matches(batch: Path, payload: bytes) -> bool:
 
 def _capture_completion(marker: Path, destination: Path) -> tuple[dict, bytes, bytes]:
     """Capture and revalidate all manifest members before fresh execution."""
-    transaction = publication._transaction()
+    transaction = publication.transaction_module()
     original = _completed_marker(marker)
     destination.mkdir()
     transaction.capture_regular_file(marker, destination / marker.name)
     marker_bytes = (destination / marker.name).read_bytes()
     manifest = load_strict_json(marker_bytes)
     if oc.canonical_json(manifest) != oc.canonical_json(original):
-        publication._fail("completion marker changed during capture")
+        publication.refuse_publication("completion marker changed during capture")
     for entry in manifest["files"]:
         name = entry["name"]
         size, digest = transaction.capture_regular_file(marker.parent / name, destination / name)
         if digest != entry["sha256"] or size != entry["bytes"]:
-            publication._fail("completion artifact changed during capture")
+            publication.refuse_publication("completion artifact changed during capture")
     # A captured marker needs the same reviewed transaction cutover as its store.
     mode = marker.parent / transaction.MODE_FILE
     transaction.capture_regular_file(mode, destination / mode.name)
     mode_bytes = (destination / mode.name).read_bytes()
     transaction.completed_manifests(destination)
     if transaction.file_sha256(marker) != _sha(marker_bytes):
-        publication._fail("completion marker changed during validation")
+        publication.refuse_publication("completion marker changed during validation")
     return manifest, marker_bytes, mode_bytes
 
 
@@ -109,26 +109,26 @@ def _fresh_completion(factory, manifest):
     batch = factory / f"batch-r{manifest['round']:02d}.jsonl"
     fresh = publication.fresh_gate(factory, batch, manifest["round"])
     if oc.canonical_json(fresh) != oc.canonical_json(manifest["execution_verification"]):
-        publication._fail("fresh replay differs from completed evidence")
+        publication.refuse_publication("fresh replay differs from completed evidence")
     return fresh
 
 
 def _unchanged_completion(marker, manifest, marker_bytes, mode_bytes):
-    transaction = publication._transaction()
+    transaction = publication.transaction_module()
     for entry in manifest["files"]:
         transaction.completion_manifest_file_matches(marker.parent / entry["name"], manifest)
     if transaction.file_sha256(marker) != _sha(marker_bytes):
-        publication._fail("completion changed during fresh replay")
+        publication.refuse_publication("completion changed during fresh replay")
     if transaction.file_sha256(marker.parent / transaction.MODE_FILE) != _sha(mode_bytes):
-        publication._fail("marker mode changed during fresh replay")
+        publication.refuse_publication("marker mode changed during fresh replay")
 
 
 def authorize_export(request, *, run_bytes: bytes, candidates: bytes, selected_ids: list[str]) -> dict:
     """Authorize only the exact run and selection, freshly replaying captured completed inputs."""
-    transaction = publication._transaction()
+    transaction = publication.transaction_module()
     try:
         if request.round_marker is None:
-            publication._fail("admitted export requires --round-marker")
+            publication.refuse_publication("admitted export requires --round-marker")
         marker = Path(request.round_marker).absolute()
         with tempfile.TemporaryDirectory(prefix="code-repair-admitted-") as directory:
             factory = Path(directory) / sp.POLICY["path_id"]
@@ -139,7 +139,7 @@ def authorize_export(request, *, run_bytes: bytes, candidates: bytes, selected_i
             actual = (binding["run_sha256"], binding["candidates_sha256"], binding["lineage_cap"],
                       [r["id"] for r in binding["selected"]])
             if expected != actual:
-                publication._fail("export run and selected membership must exactly match completion")
+                publication.refuse_publication("export run and selected membership must exactly match completion")
             fresh = _fresh_completion(factory, manifest)
             # Even after capture, report an identity only while its original store is unchanged.
             _unchanged_completion(marker, manifest, marker_bytes, mode_bytes)

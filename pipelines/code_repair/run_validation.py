@@ -194,7 +194,8 @@ def _valid_timeout(value):
         return False
     if not math.isfinite(value):
         return False
-    return 0 < exact_fraction(value) <= exact_fraction(cv.MAX_TIMEOUT_S)
+    precise_timeout = exact_fraction(value)
+    return precise_timeout is not None and 0 < precise_timeout <= cv.MAX_TIMEOUT_S
 
 
 def _run_execution_matches(inputs):

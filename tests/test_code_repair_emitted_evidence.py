@@ -63,6 +63,76 @@ class EmittedEvidenceContract(unittest.TestCase):
     def accepted(self):
         return next(record for record in self.records if record["result"]["outcome"] == "accepted")
 
+    def test_unexecuted_files_are_refused(self):
+        for location in ("broken", "repair"):
+            record = copy.deepcopy(self.accepted())
+            files = (record["scenario"]["broken_program"]["files"] if location == "broken"
+                     else record["candidate_prediction"]["predicted_repair"]["files"])
+            files["extra.py"] = "unexecuted = True\n"
+            restamp_evidence(record)
+            self.assert_shared_refusal(record)
+
+    def test_producer_cannot_supply_a_passed_validation_stamp(self):
+        record = copy.deepcopy(self.accepted())
+        record = oc.stamp_validation(record, validator="fabricated", version="1", findings=[])
+        with self.assertRaises(source_policy.SourcePolicyError):
+            admission.natural_eligibility(record, self.row, catalog=self.trusted)
+
+    def test_relative_authorized_catalog_is_accepted(self):
+        supplied = catalog.load_catalog("catalogs/python-repair-v1")
+        self.assertEqual(admission.natural_eligibility(
+            self.accepted(), self.row, catalog=supplied), (True, ()))
+
+    def test_fabricated_passing_outputs_are_refused(self):
+        for suite in ("public", "hidden"):
+            record = copy.deepcopy(self.accepted())
+            for block in record["result"]["phases"].values():
+                if block is None:
+                    continue
+                for observed in block[suite]:
+                    if observed["status"] == cv.ROW_SUCCESS:
+                        observed.update(got="fabricated", got_sha256=catalog.sha256_text("fabricated"),
+                                        truncated=False)
+            restamp_evidence(record)
+            self.assert_shared_refusal(record)
+
+    def test_replay_loader_preserves_out_of_range_decimal_token(self):
+        from code_repair import replay
+        record = copy.deepcopy(self.accepted())
+        record["oracle"]["configuration"]["timeout_s"] = 60.0
+        restamp_evidence(record)
+        payload = oc.canonical_json(record).replace(
+            '"timeout_s":60.0', '"timeout_s":60.0000000000000000000001')
+        directory = self.root / "exact-replay"
+        directory.mkdir()
+        (directory / "candidates.jsonl").write_text(payload + "\r\n")
+        loaded, = replay._records(directory)
+        self.assertTrue(validation.validate_record(loaded, catalog=self.trusted))
+
+    def test_stored_public_outcomes_preserve_doctest_directives_and_clipping(self):
+        from code_repair import executor, row_validation
+        examples = (
+            ("f()  # doctest: +ELLIPSIS", "xxx...", "print('x' * 2100 + 'a')"),
+            ("f()  # doctest: +IGNORE_EXCEPTION_DETAIL",
+             "Traceback (most recent call last):\n    ValueError: expected",
+             "raise ValueError('actual')"),
+            ("f()  # doctest: +IGNORE_EXCEPTION_DETAIL",
+             "Traceback (most recent call last):\n    ValueError: expected",
+             "raise ValueError('actual\\nsecond line')"),
+            ("f()", "Traceback (most recent call last):\n    ValueError: " + "x" * 2100,
+             "raise ValueError('x' * 2100)"),
+        )
+        engine = executor.Executor(timeout_s=3)
+        for source, want, body in examples:
+            with self.subTest(source=source):
+                text = f"def f():\n    '''\n    >>> {source}\n    {want}\n    '''\n    {body}\n"
+                report = engine.run(executor.Job("doctest-options", text, "f", (), True, 1))
+                observed, = executor.rows_of(report.public)
+                self.assertEqual(observed["status"], "pass")
+                example, = row_validation._public_examples(text, "f")
+                self.assertTrue(row_validation._public_matches(observed, example))
+
+
     def natural_rejection(self):
         return next(
             record for record in self.records

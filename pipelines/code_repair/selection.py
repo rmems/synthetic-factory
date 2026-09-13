@@ -27,7 +27,7 @@ def selection_decisions(records: Iterable[dict[str, Any]], *, lineage_cap=DEFAUL
     """Yield every positive in canonical order with its optional exclusion disposition."""
     _validate_cap(lineage_cap)
     seen_exact, seen_structural = set(), set()
-    per_lineage = Counter()
+    per_lineage: Counter[str] = Counter()
     for record in sorted(records, key=lambda r: r["id"]):
         exact = record["result"]["broken_sha256"]
         broken = record["scenario"]["broken_program"]["files"][cv.PROGRAM_FILENAME]

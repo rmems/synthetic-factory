@@ -108,6 +108,9 @@ def bound_catalog(row: Any, supplied: cat.Catalog | None) -> cat.Catalog:
     if findings := evidence.row_findings(row):
         raise sp.SourcePolicyError("; ".join(findings))
     trusted = load_trusted_catalog()
+    if supplied is not None:
+        supplied = replace(supplied, directory=supplied.directory.resolve())
+        trusted = replace(trusted, directory=trusted.directory.resolve())
     if supplied is not None and supplied != trusted:
         raise sp.SourcePolicyError(
             "PROCEDURAL_CATALOG_SUBSTITUTED: supplied catalog is not trusted"

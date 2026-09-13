@@ -35,7 +35,7 @@ class ProposalPlan:
         self.catalog, self.seed, self.cap = catalog, seed, cap
         self.stream = rng.DrawStream(seed)
         self.sites = {p.program_id: _sites_by_operator(p) for p in catalog.programs}
-        self.per_program = Counter()
+        self.per_program: Counter[str] = Counter()
         self.skips = Counter({cv.SKIP_MUTATION_NO_SITES: sum(not s for s in self.sites.values())})
         self.seen: set[tuple[str, str]] = set()
 

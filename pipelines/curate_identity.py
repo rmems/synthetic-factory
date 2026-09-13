@@ -2146,6 +2146,35 @@ def _read_identity_output(
     return _identity_output.read_identity_output(path, rel, preserved_sources, dependencies)
 
 
+def _validate_identity_outputs(expected_outputs, actual_paths, registry) -> None:
+    """Verify preserved bytes, coordinates and identities for every manifest output."""
+    for rel, expected_by_line in sorted(expected_outputs.items()):
+        preserved_sources = {
+            line_no: replay.source.original.encode("utf-8")
+            for line_no, (_, _, replay) in expected_by_line.items()
+            if replay.result.mapping.get("record_kind") == "code_repair"
+        }
+        actual_by_line = _read_identity_output(actual_paths[rel], rel, preserved_sources)
+        if set(actual_by_line) != set(expected_by_line):
+            raise IdentityTreeError(
+                f"identity output line coordinates do not match manifest: {rel}"
+            )
+        for line_no, (index, mapping, replay) in expected_by_line.items():
+            output_record = actual_by_line[line_no]
+            try:
+                actual_hash = sha256_json(output_record)
+            except IdentityCurationError as exc:
+                raise IdentityTreeError(
+                    f"identity output is not canonical JSON data: {rel}:{line_no}: {exc}"
+                ) from exc
+            expected_output_sha256 = replay.result.mapping.get("output_sha256")
+            if actual_hash != expected_output_sha256:
+                raise IdentityTreeError(
+                    f"identity output hashes do not match manifest: {rel}:{line_no}"
+                )
+            _validate_manifest_ids(mapping, output_record, index, registry, replay)
+
+
 def validate_identity_tree(
     dest: Path,
     expected_registry_digest: str | None = None,
@@ -2215,31 +2244,7 @@ def validate_identity_tree(
         raise IdentityTreeError(
             f"identity output paths do not match manifest: missing={missing}, extra={extra}"
         )
-    for rel, expected_by_line in sorted(expected_outputs.items()):
-        preserved_sources = {
-            line_no: replay.source.original.encode("utf-8")
-            for line_no, (_, _, replay) in expected_by_line.items()
-            if replay.result.mapping.get("record_kind") == "code_repair"
-        }
-        actual_by_line = _read_identity_output(actual_paths[rel], rel, preserved_sources)
-        if set(actual_by_line) != set(expected_by_line):
-            raise IdentityTreeError(
-                f"identity output line coordinates do not match manifest: {rel}"
-            )
-        for line_no, (index, mapping, replay) in expected_by_line.items():
-            output_record = actual_by_line[line_no]
-            try:
-                actual_hash = sha256_json(output_record)
-            except IdentityCurationError as exc:
-                raise IdentityTreeError(
-                    f"identity output is not canonical JSON data: {rel}:{line_no}: {exc}"
-                ) from exc
-            expected_output_sha256 = replay.result.mapping.get("output_sha256")
-            if actual_hash != expected_output_sha256:
-                raise IdentityTreeError(
-                    f"identity output hashes do not match manifest: {rel}:{line_no}"
-                )
-            _validate_manifest_ids(mapping, output_record, index, registry, replay)
+    _validate_identity_outputs(expected_outputs, actual_paths, registry)
     return registry
 
 

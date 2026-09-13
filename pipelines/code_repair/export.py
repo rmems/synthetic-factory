@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .candidate_io import load_candidate_records
 from . import catalog
 from . import export_integrity as integrity
 from . import generate
@@ -117,35 +118,19 @@ def _check_request(request: ExportRequest) -> None:
 
 def _load_run(data: bytes) -> dict[str, Any]:
     try:
-        run = load_strict_json(data)
+        metadata = load_strict_json(data)
     except ValueError as exc:
         raise cv.RepairRefusal(
             cv.FINDING_RUN_FILE_MISSING, f"RUN.json is not JSON: {cv.shown(exc)}"
         ) from exc
     cv.refuse_when(
-        not isinstance(run, dict) or run.get("format") != generate.RUN_FORMAT,
-        cv.FINDING_RUN_FILE_MISSING, "RUN.json is not a code-repair run summary",
+        not isinstance(metadata, dict) or metadata.get("format") != generate.RUN_FORMAT,
+        cv.FINDING_RUN_FILE_MISSING, "RUN.json is not a code-repair metadata summary",
     )
-    return run
+    return metadata
 
 
-def _load_records(data: bytes) -> list[dict[str, Any]]:
-    records = []
-    for lineno, raw in enumerate(data.split(b"\n"), 1):
-        if not raw.strip():
-            continue
-        try:
-            record = load_strict_json(raw.decode("utf-8").strip())
-            oc.canonical_json(record).encode("utf-8")
-        except (ValueError, RecursionError) as exc:
-            raise cv.RepairRefusal(cv.FINDING_RECORD_MALFORMED,
-                                   f"{generate.CANDIDATES_FILENAME}:{lineno} is not a record") from exc
-        cv.refuse_when(
-            not isinstance(record, dict), cv.FINDING_RECORD_MALFORMED,
-            f"{generate.CANDIDATES_FILENAME}:{lineno} is not a record",
-        )
-        records.append(record)
-    return records
+_load_records = load_candidate_records
 
 
 # --- integrity -----------------------------------------------------------------------

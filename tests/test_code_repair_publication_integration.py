@@ -233,10 +233,11 @@ class PublicationIntegrationTests(unittest.TestCase):
             trap.write_text("#!/bin/sh\nprintf executed > " + shlex.quote(str(sentinel)) + "\nexit 1\n")
             trap.chmod(0o700)
             out = root / "must-refuse"
+            request = export.ExportRequest(self.run_dir, out,
+                catalog_dir=REPO / "catalogs/python-repair-v1", admit=True,
+                round_marker=factory / "ROUND-r01.complete.json")
             with mock.patch.object(sys, "executable", str(trap)), self.assertRaises(ValueError):
-                export.run(export.ExportRequest(self.run_dir, out,
-                    catalog_dir=REPO / "catalogs/python-repair-v1", admit=True,
-                    round_marker=factory / "ROUND-r01.complete.json"))
+                export.run(request)
             self.assertTrue(sentinel.exists(), "admitted export did not perform fresh execution")
             self.assertFalse(out.exists())
 
@@ -258,10 +259,11 @@ class PublicationIntegrationTests(unittest.TestCase):
 
             out = root / "must-refuse"
             with mock.patch.object(rt, "capture_regular_file", side_effect=race):
+                request = export.ExportRequest(self.run_dir, out,
+                    catalog_dir=REPO / "catalogs/python-repair-v1", admit=True,
+                    round_marker=factory / "ROUND-r01.complete.json")
                 with self.assertRaises(ValueError):
-                    export.run(export.ExportRequest(self.run_dir, out,
-                        catalog_dir=REPO / "catalogs/python-repair-v1", admit=True,
-                        round_marker=factory / "ROUND-r01.complete.json"))
+                    export.run(request)
             self.assertTrue(swapped)
             self.assertFalse(out.exists())
 
@@ -282,8 +284,9 @@ class PublicationIntegrationTests(unittest.TestCase):
                 return result
 
             with mock.patch.object(rt, "capture_regular_file", side_effect=race):
+                request = publication.PublishRequest(run_dir, factory, 1)
                 with self.assertRaises(rt.TransactionError):
-                    publication.publish_run(publication.PublishRequest(run_dir, factory, 1))
+                    publication.publish_run(request)
             self.assertEqual(list(factory.iterdir()), [])
 
     def test_admitted_export_refuses_marker_mode_changes_during_fresh_replay(self):
@@ -311,10 +314,11 @@ class PublicationIntegrationTests(unittest.TestCase):
 
                 out = root / "must-refuse"
                 with mock.patch.object(publication, "fresh_gate", side_effect=change_mode_after_replay):
+                    request = export.ExportRequest(self.run_dir, out,
+                        catalog_dir=REPO / "catalogs/python-repair-v1", admit=True,
+                        round_marker=factory / "ROUND-r01.complete.json")
                     with self.assertRaises(ValueError):
-                        export.run(export.ExportRequest(self.run_dir, out,
-                            catalog_dir=REPO / "catalogs/python-repair-v1", admit=True,
-                            round_marker=factory / "ROUND-r01.complete.json"))
+                        export.run(request)
                 self.assertFalse(out.exists())
 
     def test_admitted_export_refuses_missing_fake_foreign_and_partial_membership(self):
@@ -341,10 +345,11 @@ class PublicationIntegrationTests(unittest.TestCase):
                      (alias / marker.name, self.run_dir, 6))
             for index, (marker_path, source_run, cap) in enumerate(cases):
                 out = root / f"refused-{index}"
+                request = export.ExportRequest(source_run, out, lineage_cap=cap,
+                    catalog_dir=REPO / "catalogs/python-repair-v1",
+                    admit=True, round_marker=marker_path)
                 with self.subTest(index=index), self.assertRaises(ValueError):
-                    export.run(export.ExportRequest(source_run, out, lineage_cap=cap,
-                        catalog_dir=REPO / "catalogs/python-repair-v1",
-                        admit=True, round_marker=marker_path))
+                    export.run(request)
                 self.assertFalse(out.exists())
 
     def test_corrupt_original_run_and_any_candidate_refuse_before_reservation(self):
@@ -358,8 +363,9 @@ class PublicationIntegrationTests(unittest.TestCase):
                 _corrupt_run_input(run_dir, field)
                 factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
                 factory.mkdir(parents=True)
+                request = publication.PublishRequest(run_dir, factory, 1)
                 with self.assertRaises(rt.TransactionError):
-                    publication.publish_run(publication.PublishRequest(run_dir, factory, 1))
+                    publication.publish_run(request)
                 self.assertEqual(list(factory.iterdir()), [])
 
     def test_forged_replay_report_cannot_replace_actual_publication_execution(self):
@@ -373,8 +379,9 @@ class PublicationIntegrationTests(unittest.TestCase):
             sentinel, trap = root / "fresh-publication", root / "failing-interpreter"
             trap.write_text("#!/bin/sh\nprintf executed > " + shlex.quote(str(sentinel)) + "\nexit 1\n")
             trap.chmod(0o700)
+            request = publication.PublishRequest(run_dir, factory, 1)
             with mock.patch.object(sys, "executable", str(trap)), self.assertRaises(rt.TransactionError):
-                publication.publish_run(publication.PublishRequest(run_dir, factory, 1))
+                publication.publish_run(request)
             self.assertTrue(sentinel.exists())
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
@@ -403,7 +410,8 @@ class PublicationIntegrationTests(unittest.TestCase):
             meta["upstream"]["license_sha256"] = hashlib.sha256(changed).hexdigest()
             (catalog / "CATALOG.json").write_text(json.dumps(meta))
             out = root / "must-refuse"
+            request = export.ExportRequest(self.run_dir, out, catalog_dir=catalog,
+                admit=True, round_marker=factory / "ROUND-r01.complete.json")
             with self.assertRaises(ValueError):
-                export.run(export.ExportRequest(self.run_dir, out, catalog_dir=catalog,
-                    admit=True, round_marker=factory / "ROUND-r01.complete.json"))
+                export.run(request)
             self.assertFalse(out.exists())

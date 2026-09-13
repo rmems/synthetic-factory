@@ -155,11 +155,12 @@ class PublicationInputBoundaryTests(unittest.TestCase):
                 (root / "python-function-repair-factory", 0, "positive round number"),
             )
             for factory, round_number, message in cases:
+                request = publication.PublishRequest(root / "run", factory, round_number)
                 with self.subTest(message=message), self.assertRaisesRegex(
                     rt.TransactionError, message
                 ):
                     publication.publish_run(
-                        publication.PublishRequest(root / "run", factory, round_number)
+                        request
                     )
                 self.assertFalse(factory.exists())
 

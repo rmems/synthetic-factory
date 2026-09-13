@@ -154,7 +154,7 @@ def _publish(args: argparse.Namespace) -> int:
         manifest = publication.publish_run(publication.PublishRequest(
             args.run, args.factory_dir, args.round, args.lineage_cap,
         ))
-    except publication._transaction().TransactionError as exc:
+    except publication.transaction_module().TransactionError as exc:
         raise cv.RepairRefusal(cv.FINDING_EXPORT_INTEGRITY, str(exc)) from exc
     _emit({"command": "publish", "status": "ok", "manifest": manifest}, args.json,
           f"published {manifest['records']} records in local round {args.round}; "

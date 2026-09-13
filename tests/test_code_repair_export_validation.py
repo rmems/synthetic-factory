@@ -86,8 +86,9 @@ class ExactDecoding(unittest.TestCase):
                    'candidates_sha256': hashlib.sha256(data).hexdigest()}
             (run_dir / generate.RUN_FILENAME).write_text(oc.canonical_json(run))
             output = Path(directory) / 'must-refuse'
+            export_request = request(run_dir, output)
             with self.assertRaises(cv.RepairRefusal):
-                export.run(request(run_dir, output))
+                export.run(export_request)
             self.assertFalse(output.exists())
 
     def test_export_accepts_supported_timeout_spellings_and_crlf(self):
@@ -499,8 +500,9 @@ class FreshReplay(unittest.TestCase):
             report = replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, report_dir))
             report['harness_sha256'] = '0' * 64
             (report_dir / replay.REPLAY_FILENAME).write_text(json.dumps(report))
+            export_request = request(run_dir, root / 'export', report_dir)
             with self.assertRaises(cv.RepairRefusal):
-                export.run(request(run_dir, root / 'export', report_dir))
+                export.run(export_request)
             self.assertFalse((root / 'export').exists())
 
     def test_export_propagates_non_mit_catalog_license(self):
@@ -562,6 +564,7 @@ class FreshReplay(unittest.TestCase):
                     entry['code'] = cv.REPLAY_PASSED
             report['counts'].update(passed=report['counts']['positives'], failed=0, failed_by_code={})
             (report_dir / replay.REPLAY_FILENAME).write_text(json.dumps(report))
+            export_request = request(run_dir, root / 'export', report_dir)
             with self.assertRaises(cv.RepairRefusal):
-                export.run(request(run_dir, root / 'export', report_dir))
+                export.run(export_request)
             self.assertFalse((root / 'export').exists())

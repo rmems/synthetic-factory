@@ -71,7 +71,7 @@ def candidate_seed(run_seed: int, program_id: str, draw_index: int) -> int:
     return int.from_bytes(digest[:8], "big")
 
 
-def _actor(role: str, name: str, version: str) -> dict[str, str]:
+def actor(role: str, name: str, version: str) -> dict[str, str]:
     return {"role": role, "kind": cv.GENERATOR_KIND, "name": name, "version": version}
 
 
@@ -80,9 +80,9 @@ def new_batch(
 ) -> Batch:
     identity = oc.GeneratorIdentity(cv.GENERATOR_NAME, cv.GENERATOR_VERSION, cv.GENERATOR_KIND)
     actors = {
-        cv.ROLE_TASK_AUTHOR: _actor(cv.ROLE_TASK_AUTHOR, cv.GENERATOR_NAME, cv.GENERATOR_VERSION),
-        cv.ROLE_SOLVER: _actor(cv.ROLE_SOLVER, cv.SOLVER_NAME, cv.GENERATOR_VERSION),
-        cv.ROLE_ORACLE_CERTIFIER: _actor(
+        cv.ROLE_TASK_AUTHOR: actor(cv.ROLE_TASK_AUTHOR, cv.GENERATOR_NAME, cv.GENERATOR_VERSION),
+        cv.ROLE_SOLVER: actor(cv.ROLE_SOLVER, cv.SOLVER_NAME, cv.GENERATOR_VERSION),
+        cv.ROLE_ORACLE_CERTIFIER: actor(
             cv.ROLE_ORACLE_CERTIFIER, cv.ORACLE_NAME, cv.ORACLE_VERSION
         ),
     }

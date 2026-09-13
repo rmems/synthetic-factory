@@ -73,7 +73,8 @@ def _configuration_shape(oracle: dict) -> None:
     _fields(configuration, 'timeout_s', (int, float, ExactJSONFloat))
     timeout = configuration['timeout_s']
     _require(0 < timeout <= cv.MAX_TIMEOUT_S and math.isfinite(timeout))
-    _require(0 < exact_fraction(timeout) <= exact_fraction(cv.MAX_TIMEOUT_S))
+    precise_timeout = exact_fraction(timeout)
+    _require(precise_timeout is not None and 0 < precise_timeout <= cv.MAX_TIMEOUT_S)
     _fields(configuration, 'isolation')
     _require(configuration["isolation"] == assembly.ORACLE_ISOLATION)
     _fields(configuration['limits'], 'cpu_s address_space_mib file_size_kib', (int,))
@@ -161,10 +162,10 @@ def _provenance_shape(provenance: dict) -> None:
     expected = {
         'producer': cv.PRODUCER, 'source_kind': cv.SOURCE_KIND, 'oracle_run': cv.ORACLE_RUN,
         'actors': {
-            cv.ROLE_TASK_AUTHOR: assembly._actor(
+            cv.ROLE_TASK_AUTHOR: assembly.actor(
                 cv.ROLE_TASK_AUTHOR, cv.GENERATOR_NAME, cv.GENERATOR_VERSION),
-            cv.ROLE_SOLVER: assembly._actor(cv.ROLE_SOLVER, cv.SOLVER_NAME, cv.GENERATOR_VERSION),
-            cv.ROLE_ORACLE_CERTIFIER: assembly._actor(
+            cv.ROLE_SOLVER: assembly.actor(cv.ROLE_SOLVER, cv.SOLVER_NAME, cv.GENERATOR_VERSION),
+            cv.ROLE_ORACLE_CERTIFIER: assembly.actor(
                 cv.ROLE_ORACLE_CERTIFIER, cv.ORACLE_NAME, cv.ORACLE_VERSION),
         },
     }
@@ -214,6 +215,9 @@ def _phase_blocks_shape(result: dict[str, Any]) -> None:
 
 def _render_inputs_shape(record: dict[str, Any]) -> None:
     repair_files = record["candidate_prediction"]["predicted_repair"]["files"]
+    broken_files = record["scenario"]["broken_program"]["files"]
+    _require(set(repair_files) == {cv.PROGRAM_FILENAME})
+    _require(set(broken_files) == {cv.PROGRAM_FILENAME})
     _require(isinstance(repair_files[cv.PROGRAM_FILENAME], str))
     _require(isinstance(record["scenario"]["task_specification"], str))
     hidden = record["oracle"]["configuration"]["hidden_check"]

@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 from . import catalog as cat
 from . import source_policy as sp
-from ._contract import bind_import_twin
+from ._contract import bind_import_twin, oc
 
 
 def row_findings(row: Any) -> list[str]:
@@ -39,6 +39,8 @@ def generator_matches(generator: Any, row: Any) -> bool:
 def payload_findings(record: Any, row: Any) -> list[str]:
     if not isinstance(record, Mapping) or record.get("family") != sp.POLICY["family"]:
         return ["PROCEDURAL_FAMILY_MISMATCH: expected python-function-repair"]
+    if record.get("validation") != oc.unvalidated():
+        return ["PROCEDURAL_VALIDATION_STAMP: producer evidence must be unvalidated"]
     if not factory_matches(record.get("meta"), row):
         return ["PROCEDURAL_FACTORY_MISMATCH: payload factory contradicts source route"]
     if not generator_matches(record.get("generator"), row):
