@@ -8,6 +8,15 @@ structural and corpus-level gate on that destination, records a stratified
 human-review sample, and promotes to a **brand-new curated path** only when
 ``training_ready`` is true and the sample has been reviewed.
 
+Siblings
+--------
+
+The shared vocabulary (``curate_gate_contract``), the hashing and tree capture
+(``curate_gate_digest``), the path confinement and atomic publication
+(``curate_gate_paths``), and the integration-plan loader (``curate_gate_plan``)
+live in siblings. Every name they own is re-exported here, so an existing
+``curate_gate.X`` call site resolves unchanged.
+
 Composition order and evidence
 ------------------------------
 
@@ -81,14 +90,8 @@ from __future__ import annotations
 
 import argparse
 import copy
-import ctypes
-import errno
-import hashlib
 import json
-import os
-import re
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
@@ -103,6 +106,10 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("curate_gate")
+    from . import curate_gate_contract as _contract
+    from . import curate_gate_digest as _digest
+    from . import curate_gate_paths as _paths
+    from . import curate_gate_plan as _plan
     from . import curate_identity
     from . import curate_rewards
     from . import training_audit
@@ -116,6 +123,10 @@ else:
     )
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
+    import curate_gate_contract as _contract  # noqa: E402
+    import curate_gate_digest as _digest  # noqa: E402
+    import curate_gate_paths as _paths  # noqa: E402
+    import curate_gate_plan as _plan  # noqa: E402
     import curate_identity  # noqa: E402
     import curate_rewards  # noqa: E402
     import training_audit  # noqa: E402
@@ -124,343 +135,93 @@ else:
     from exact_json_compare import same_exact_json  # noqa: E402
     from validate_run import check_line  # noqa: E402
 
-TOOL_NAME = "curate_gate"
-TOOL_VERSION = "1.0.0"
+# ---------------------------------------------------------------------------
+# shared contract, re-exported so every ``curate_gate.X`` call site still works
+# ---------------------------------------------------------------------------
 
-PLAN_SCHEMA = "curation-integration-plan/v1"
-MANIFEST_SCHEMA = "curation-manifest/v1"
-SAMPLE_SCHEMA = "curation-review-sample/v1"
-REVIEW_SCHEMA = "curation-review-verdicts/v1"
+TOOL_NAME = _contract.TOOL_NAME
+TOOL_VERSION = _contract.TOOL_VERSION
 
-MANIFEST_FILENAME = "curation-manifest.json"
-SAMPLE_FILENAME = "review-sample.json"
-REVIEW_FILENAME = "review-verdicts.json"
-GOVERNANCE_DIRNAME = "governance"
-LANE_MANIFEST_DIRNAME = "lane-manifests"
-REWARD_SIDECAR_DIRNAME = "reward-sidecars"
-REWARD_CALIBRATION_DIRNAME = "reward-calibrations"
+PLAN_SCHEMA = _contract.PLAN_SCHEMA
+MANIFEST_SCHEMA = _contract.MANIFEST_SCHEMA
+SAMPLE_SCHEMA = _contract.SAMPLE_SCHEMA
+REVIEW_SCHEMA = _contract.REVIEW_SCHEMA
 
-REWARD_SIDECAR_KIND = "reward_source_sidecars"
-REWARD_CALIBRATION_KIND = "reward_units_migration"
-REWARD_ARTIFACT_KINDS = frozenset({REWARD_SIDECAR_KIND, REWARD_CALIBRATION_KIND})
-SHA256_HEX_RE = re.compile(r"^(?:sha256:)?([0-9a-f]{64})$")
+MANIFEST_FILENAME = _contract.MANIFEST_FILENAME
+SAMPLE_FILENAME = _contract.SAMPLE_FILENAME
+REVIEW_FILENAME = _contract.REVIEW_FILENAME
+GOVERNANCE_DIRNAME = _contract.GOVERNANCE_DIRNAME
+LANE_MANIFEST_DIRNAME = _contract.LANE_MANIFEST_DIRNAME
+REWARD_SIDECAR_DIRNAME = _contract.REWARD_SIDECAR_DIRNAME
+REWARD_CALIBRATION_DIRNAME = _contract.REWARD_CALIBRATION_DIRNAME
 
+REWARD_SIDECAR_KIND = _contract.REWARD_SIDECAR_KIND
+REWARD_CALIBRATION_KIND = _contract.REWARD_CALIBRATION_KIND
+REWARD_ARTIFACT_KINDS = _contract.REWARD_ARTIFACT_KINDS
+SHA256_HEX_RE = _contract.SHA256_HEX_RE
+
+DEFAULT_PER_STRATUM = _contract.DEFAULT_PER_STRATUM
+REQUIRED_LANES = _contract.REQUIRED_LANES
+DECISION_ROLE_PRIORITY = _contract.DECISION_ROLE_PRIORITY
+
+EXCLUSION_ACTIONS = _contract.EXCLUSION_ACTIONS
+QUARANTINE_ACTIONS = _contract.QUARANTINE_ACTIONS
+RETAIN_ACTIONS = _contract.RETAIN_ACTIONS
+REPAIR_ACTIONS = _contract.REPAIR_ACTIONS
+NO_OUTPUT_ACTIONS = _contract.NO_OUTPUT_ACTIONS
+OUTPUT_ACTIONS = _contract.OUTPUT_ACTIONS
+KNOWN_ACTIONS = _contract.KNOWN_ACTIONS
+DERIVED_CHANGE_REASON = _contract.DERIVED_CHANGE_REASON
+
+ACCEPT_VERDICTS = _contract.ACCEPT_VERDICTS
+REJECT_VERDICTS = _contract.REJECT_VERDICTS
+
+MANIFEST_LIST_KEYS = _contract.MANIFEST_LIST_KEYS
+
+GateError = _contract.GateError
+
+# The repository roots stay here. Tests redirect the gate at a temporary
+# repository by patching ``_REPO`` and ``RAW_OUTPUT_ROOT`` on this module, so
+# the siblings take the roots they need as explicit parameters and the
+# redirection stays visible at every call site below.
 VALIDATOR = _PIPELINES / "validate_run.py"
 CHECKER = _PIPELINES / "check_records.py"
-
-DEFAULT_PER_STRATUM = 2
-
 RAW_OUTPUT_ROOT = (_REPO / "outputs" / "raw").resolve()
 
-# The integration gate is meaningful only after every upstream lane has run.
-# Bead IDs fix the dependency order; transform names bind each position to the
-# reviewed implementation contract rather than accepting an arbitrary subset.
-REQUIRED_LANES = (
-    ("sf-c5l.1", "bridge_event_time_order"),
-    ("sf-c5l.2", "curate_identity"),
-    ("sf-c5l.3", "same-context-preference-curation"),
-    ("sf-c5l.4", "reward_ontology"),
-    ("sf-c5l.5", "coding_observability"),
-    ("sf-c5l.6", "tag_taxonomy"),
-)
-
-# Which Thalamic view speaks for a record when stratifying by safety gate.
-DECISION_ROLE_PRIORITY = ("record", "chosen", "language_view.trajectory", "rejected")
-
-EXCLUSION_ACTIONS = frozenset({"excluded", "exclude", "dropped", "drop"})
-QUARANTINE_ACTIONS = frozenset({"quarantine", "quarantined"})
-RETAIN_ACTIONS = frozenset({"retained", "retain", "unchanged"})
-REPAIR_ACTIONS = frozenset(
-    {"changed", "flagged", "migrated", "modified", "modify", "repair", "repaired", "transformed"}
-)
-NO_OUTPUT_ACTIONS = EXCLUSION_ACTIONS | QUARANTINE_ACTIONS | frozenset({"skipped", "skip"})
-OUTPUT_ACTIONS = RETAIN_ACTIONS | REPAIR_ACTIONS
-KNOWN_ACTIONS = OUTPUT_ACTIONS | NO_OUTPUT_ACTIONS
-DERIVED_CHANGE_REASON = "INTEGRATION_OUTPUT_DIFFERS_FROM_SOURCE"
-
-ACCEPT_VERDICTS = frozenset({"accept", "accepted", "pass"})
-REJECT_VERDICTS = frozenset({"reject", "rejected", "fail", "block"})
-
-MANIFEST_LIST_KEYS = ("decisions", "manifest", "entries", "records", "items")
-
-
-class GateError(Exception):
-    """Operator-facing failure: bad plan, bad input, or an unsafe destination."""
-
 
 # ---------------------------------------------------------------------------
-# hashing helpers
+# hashing, tree capture, and exact-JSON file I/O (curate_gate_digest)
 # ---------------------------------------------------------------------------
 
+sha256_hex = _digest.sha256_hex
+file_sha256 = _digest.file_sha256
+jsonl_paths = _digest.jsonl_paths
+count_records = _digest.count_records
+corpus_digest = _digest.corpus_digest
+record_sha256 = _digest.record_sha256
+_all_jsonl_paths = _digest._all_jsonl_paths
+_lf_lines = _digest._lf_lines
+_load_json = _digest._load_json
+_normalized_sha256 = _digest._normalized_sha256
+_read_regular_file_snapshot = _digest._read_regular_file_snapshot
+_tree_snapshot = _digest._tree_snapshot
+_write_json = _digest._write_json
 
-def sha256_hex(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+# ---------------------------------------------------------------------------
+# path confinement and atomic publication (curate_gate_paths)
+# ---------------------------------------------------------------------------
 
-
-def file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _read_regular_file_snapshot(path: Path, label: str) -> tuple[bytes, str, int]:
-    """Capture one regular file once and bind its bytes to its pathname identity."""
-    path = Path(path)
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as exc:
-        raise GateError(f"cannot open {label} {path} without following links: {exc}") from exc
-    try:
-        before = os.fstat(descriptor)
-        if not stat.S_ISREG(before.st_mode):
-            raise GateError(f"{label} is not a regular file: {path}")
-        if before.st_nlink != 1:
-            raise GateError(f"{label} is multiply linked: {path}")
-        chunks: list[bytes] = []
-        while chunk := os.read(descriptor, 1 << 20):
-            chunks.append(chunk)
-        payload = b"".join(chunks)
-        after_descriptor = os.fstat(descriptor)
-        try:
-            after_path = path.lstat()
-        except OSError as exc:
-            raise GateError(f"{label} changed while it was being read: {path}") from exc
-        identity_before = (
-            before.st_dev,
-            before.st_ino,
-            before.st_mode,
-            before.st_nlink,
-            before.st_size,
-            before.st_mtime_ns,
-            before.st_ctime_ns,
-        )
-        identity_after_descriptor = (
-            after_descriptor.st_dev,
-            after_descriptor.st_ino,
-            after_descriptor.st_mode,
-            after_descriptor.st_nlink,
-            after_descriptor.st_size,
-            after_descriptor.st_mtime_ns,
-            after_descriptor.st_ctime_ns,
-        )
-        identity_after_path = (
-            after_path.st_dev,
-            after_path.st_ino,
-            after_path.st_mode,
-            after_path.st_nlink,
-            after_path.st_size,
-            after_path.st_mtime_ns,
-            after_path.st_ctime_ns,
-        )
-        if (
-            identity_after_descriptor != identity_before
-            or identity_after_path != identity_before
-            or len(payload) != before.st_size
-        ):
-            raise GateError(f"{label} changed while it was being read: {path}")
-        return payload, sha256_hex(payload), len(payload)
-    finally:
-        os.close(descriptor)
-
-
-def _tree_snapshot(root: Path) -> list[dict[str, Any]]:
-    """Hash one staging tree and reject aliases or mid-read replacements."""
-    root = Path(root)
-    entries: list[dict[str, Any]] = []
-    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).parts):
-        relative = path.relative_to(root).as_posix()
-        if path.is_symlink():
-            raise GateError(f"staging tree contains a symlink: {path}")
-        before = path.lstat()
-        if stat.S_ISDIR(before.st_mode):
-            entries.append({"path": relative, "kind": "directory"})
-            continue
-        if not stat.S_ISREG(before.st_mode):
-            raise GateError(f"staging tree contains a non-regular file: {path}")
-        if before.st_nlink != 1:
-            raise GateError(f"staging tree contains a multiply linked file: {path}")
-        digest = file_sha256(path)
-        after = path.lstat()
-        identity_before = (
-            before.st_dev,
-            before.st_ino,
-            before.st_mode,
-            before.st_nlink,
-            before.st_size,
-            before.st_mtime_ns,
-            before.st_ctime_ns,
-        )
-        identity_after = (
-            after.st_dev,
-            after.st_ino,
-            after.st_mode,
-            after.st_nlink,
-            after.st_size,
-            after.st_mtime_ns,
-            after.st_ctime_ns,
-        )
-        if identity_after != identity_before:
-            raise GateError(f"staging file changed while it was being hashed: {path}")
-        entries.append(
-            {
-                "path": relative,
-                "kind": "file",
-                "sha256": digest,
-                "bytes": after.st_size,
-            }
-        )
-    return entries
-
-
-def _lf_lines(text: str) -> list[str]:
-    """Split JSONL only at LF; U+2028/U+2029 are valid JSON string data."""
-    return text.split("\n")
-
-
-def _all_jsonl_paths(root: Path) -> list[Path]:
-    return sorted(root.rglob("*.jsonl"), key=lambda path: path.relative_to(root).parts)
-
-
-def jsonl_paths(root: Path) -> list[Path]:
-    """Corpus ``*.jsonl`` files, excluding copied governance evidence."""
-    return [
-        path
-        for path in _all_jsonl_paths(root)
-        if path.relative_to(root).parts[0] != GOVERNANCE_DIRNAME
-    ]
-
-
-def count_records(path: Path) -> int:
-    text = path.read_text(encoding="utf-8", errors="replace")
-    return sum(1 for line in _lf_lines(text) if line.strip())
-
-
-def corpus_digest(root: Path) -> str:
-    """Digest of the JSONL corpus only, so sidecar reports do not disturb it."""
-    digest = hashlib.sha256()
-    for path in jsonl_paths(root):
-        rel = path.relative_to(root).as_posix()
-        digest.update(rel.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(file_sha256(path).encode("ascii"))
-        digest.update(b"\n")
-    return f"sha256:{digest.hexdigest()}"
-
-
-def record_sha256(value: Any) -> str:
-    try:
-        blob = curate_rewards.canonical_bytes(value)
-    except (TypeError, ValueError) as exc:
-        raise GateError(f"record is not canonical JSON data: {exc}") from exc
-    return sha256_hex(blob)
-
-
-def _normalized_sha256(value: Any, label: str) -> str:
-    if not isinstance(value, str):
-        raise GateError(f"{label} must be a SHA-256")
-    match = SHA256_HEX_RE.fullmatch(value)
-    if match is None:
-        raise GateError(f"{label} must be a SHA-256")
-    return match.group(1)
-
-
-def _write_json(path: Path, payload: Any) -> None:
-    # Governance files are re-read with exact numeric hooks and re-hashed at
-    # promotion time, so the writer must emit every ``ExactJSONFloat`` token
-    # verbatim; ``json.dumps`` would silently round precision-sensitive
-    # evidence (``25.000000000000001`` -> ``25.0``) and block promotion.
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        dumps_exact_json(payload, ensure_ascii=True, sort_keys=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
-
-def _load_json(path: Path) -> Any:
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise GateError(f"cannot read {path}: {exc}") from exc
-    try:
-        return json.loads(
-            text,
-            parse_constant=reject_json_constant,
-            parse_float=parse_finite_json_float,
-        )
-    except (json.JSONDecodeError, ValueError) as exc:
-        raise GateError(f"{path}: invalid JSON: {exc}") from exc
-
-
-def _resolve_declared_path(base: Path, value: str, label: str) -> Path:
-    """Resolve one plan-relative path without erasing symlink evidence."""
-    declared = Path(value)
-    if declared.is_absolute() or ".." in declared.parts:
-        raise GateError(f"{label} must stay within the plan directory: {value!r}")
-
-    walked = base
-    for part in declared.parts:
-        if part in {"", "."}:
-            continue
-        walked = walked / part
-        if walked.is_symlink():
-            raise GateError(f"{label} contains a symlinked path component: {walked}")
-
-    resolved = (base / declared).resolve()
-    if resolved != base and base not in resolved.parents:
-        raise GateError(f"{label} resolves outside the plan directory: {resolved}")
-    return resolved
-
-
-def _resolve_source_run_path(plan_dir: Path, value: str, label: str) -> Path:
-    """Resolve a source tree without making the documented raw path ambiguous."""
-    declared = Path(value)
-    if declared.is_absolute() or ".." in declared.parts:
-        raise GateError(
-            f"{label} must be plan-relative or repository-relative beneath outputs/raw: {value!r}"
-        )
-
-    parts = tuple(part for part in declared.parts if part not in {"", "."})
-    if not parts:
-        raise GateError(f"{label} must name a directory")
-
-    repository_raw = len(parts) >= 2 and parts[:2] == ("outputs", "raw")
-    root = _REPO if repository_raw else plan_dir
-    walked = root
-    for part in parts:
-        walked = walked / part
-        if walked.is_symlink():
-            raise GateError(f"{label} contains a symlinked path component: {walked}")
-
-    resolved = (root / Path(*parts)).resolve()
-    allowed_root = RAW_OUTPUT_ROOT if repository_raw else plan_dir
-    if resolved != allowed_root and allowed_root not in resolved.parents:
-        scope = "outputs/raw" if repository_raw else "the plan directory"
-        raise GateError(f"{label} resolves outside {scope}: {resolved}")
-    return resolved
-
-
-def _lane_manifest_format(path: Path, label: str) -> str:
-    """Return the only two evidence formats understood by promotion."""
-    if path.suffix == ".json":
-        return "json"
-    if path.suffix == ".jsonl":
-        return "jsonl"
-    raise GateError(f"{label} must end in .json or .jsonl: {path}")
-
-
-def _relative_artifact_destination(value: Any, label: str) -> Path:
-    if not isinstance(value, str) or not value.strip():
-        raise GateError(f"{label} must be a non-empty relative path")
-    destination = Path(value)
-    if destination.is_absolute() or ".." in destination.parts:
-        raise GateError(f"{label} must stay within its governance directory: {value!r}")
-    parts = tuple(part for part in destination.parts if part not in {"", "."})
-    if not parts:
-        raise GateError(f"{label} must name a file")
-    return Path(*parts)
+_assert_disjoint_trees = _paths._assert_disjoint_trees
+_assert_new_destination = _paths._assert_new_destination
+_assert_no_symlink = _paths._assert_no_symlink
+_lane_manifest_format = _paths._lane_manifest_format
+_logical_source_path = _paths._logical_source_path
+_normalized_output_path = _paths._normalized_output_path
+_relative_artifact_destination = _paths._relative_artifact_destination
+_rename_noreplace = _paths._rename_noreplace
+_resolve_declared_path = _paths._resolve_declared_path
+_resolve_source_run_path = _paths._resolve_source_run_path
+_snapshot_bytes = _paths._snapshot_bytes
 
 
 # ---------------------------------------------------------------------------
@@ -470,253 +231,12 @@ def _relative_artifact_destination(value: Any, label: str) -> Path:
 
 def load_plan(plan_path: Path) -> dict[str, Any]:
     """Read and validate an integration plan; resolve its lane paths."""
-    plan_path = Path(plan_path).resolve()
-    payload, plan_sha256, _plan_size = _read_regular_file_snapshot(plan_path, "integration plan")
-    try:
-        text = payload.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise GateError(f"{plan_path}: integration plan is not UTF-8: {exc}") from exc
-    try:
-        plan = json.loads(
-            text,
-            parse_constant=reject_json_constant,
-            parse_float=parse_finite_json_float,
-        )
-    except (json.JSONDecodeError, ValueError) as exc:
-        raise GateError(f"{plan_path}: invalid JSON: {exc}") from exc
-    if not isinstance(plan, dict):
-        raise GateError(f"{plan_path}: plan must be a JSON object")
-    schema = plan.get("schema")
-    if schema is not None and schema != PLAN_SCHEMA:
-        raise GateError(f"{plan_path}: unsupported plan schema {schema!r}")
-    source_run = plan.get("source_run")
-    if not isinstance(source_run, str) or not source_run.strip():
-        raise GateError(f"{plan_path}: plan needs a non-empty string 'source_run'")
-
-    base = plan_path.parent
-    source_run_dir = _resolve_source_run_path(base, source_run, f"{plan_path}: source_run")
-    if not source_run_dir.is_dir():
-        raise GateError(f"{plan_path}: source_run directory is missing: {source_run_dir}")
-
-    lanes = plan.get("lanes")
-    if not isinstance(lanes, list) or not lanes:
-        raise GateError(f"{plan_path}: plan needs a non-empty 'lanes' list")
-
-    resolved: list[dict[str, Any]] = []
-    versions: dict[str, str] = {}
-    seen_outputs: dict[Path, str] = {}
-    for index, lane in enumerate(lanes, 1):
-        if not isinstance(lane, dict):
-            raise GateError(f"{plan_path}: lane {index} must be an object")
-        transform = lane.get("transform")
-        version = lane.get("version")
-        outputs = lane.get("outputs")
-        for field, value in (("transform", transform), ("version", version), ("outputs", outputs)):
-            if not isinstance(value, str) or not value.strip():
-                raise GateError(f"{plan_path}: lane {index} needs a non-empty string '{field}'")
-        previous = versions.get(transform)
-        if previous is not None and previous != version:
-            raise GateError(
-                f"{plan_path}: transform {transform!r} declared at two versions "
-                f"({previous!r} and {version!r})"
-            )
-        versions[transform] = version
-
-        outputs_path = _resolve_declared_path(
-            base, outputs, f"{plan_path}: lane {index} ({transform}) outputs"
-        )
-        if not outputs_path.is_dir():
-            raise GateError(
-                f"{plan_path}: lane {index} ({transform}) outputs directory is missing: "
-                f"{outputs_path}"
-            )
-        if outputs_path in seen_outputs:
-            raise GateError(
-                f"{plan_path}: lane {index} ({transform}) reuses the outputs directory of "
-                f"lane {seen_outputs[outputs_path]}: {outputs_path}"
-            )
-        seen_outputs[outputs_path] = f"{index} ({transform})"
-
-        manifest = lane.get("manifest")
-        if not isinstance(manifest, str) or not manifest.strip():
-            raise GateError(
-                f"{plan_path}: lane {index} ({transform}) needs a non-empty string 'manifest'"
-            )
-        manifest_path = _resolve_declared_path(
-            base, manifest, f"{plan_path}: lane {index} ({transform}) manifest"
-        )
-        if not manifest_path.is_file():
-            raise GateError(
-                f"{plan_path}: lane {index} ({transform}) manifest is missing: {manifest_path}"
-            )
-        manifest_format = _lane_manifest_format(
-            manifest_path,
-            f"{plan_path}: lane {index} ({transform}) manifest",
-        )
-
-        raw_artifacts = lane.get("artifacts", [])
-        if not isinstance(raw_artifacts, list):
-            raise GateError(f"{plan_path}: lane {index} ({transform}) artifacts must be a list")
-        artifacts: list[dict[str, Any]] = []
-        destinations: set[Path] = set()
-        for artifact_index, artifact in enumerate(raw_artifacts, 1):
-            label = f"{plan_path}: lane {index} ({transform}) artifact {artifact_index}"
-            if not isinstance(artifact, dict):
-                raise GateError(f"{label} must be an object")
-            kind = artifact.get("kind")
-            if kind not in REWARD_ARTIFACT_KINDS:
-                raise GateError(f"{label} has unsupported kind {kind!r}")
-            value = artifact.get("path")
-            if not isinstance(value, str) or not value.strip():
-                raise GateError(f"{label} path must be a non-empty string")
-            artifact_path = _resolve_declared_path(base, value, f"{label} path")
-            if not artifact_path.is_file():
-                raise GateError(f"{label} is missing: {artifact_path}")
-            if artifact_path == manifest_path:
-                raise GateError(f"{label} cannot reuse the lane manifest")
-            destination_name = artifact.get("destination", artifact_path.name)
-            destination = _relative_artifact_destination(destination_name, f"{label} destination")
-            if destination in destinations:
-                raise GateError(f"{label} reuses artifact destination {destination}")
-            destinations.add(destination)
-            artifacts.append(
-                {
-                    "kind": kind,
-                    "source_path": artifact_path,
-                    "destination": destination,
-                }
-            )
-
-        resolved.append(
-            {
-                "order": index,
-                "bead": lane.get("bead"),
-                "transform": transform,
-                "version": version,
-                "outputs_dir": outputs_path,
-                "manifest_path": manifest_path,
-                "manifest_format": manifest_format,
-                "artifacts": artifacts,
-            }
-        )
-
-    declared_lanes = tuple((lane["bead"], lane["transform"]) for lane in resolved)
-    if declared_lanes != REQUIRED_LANES:
-        expected = ", ".join(f"{bead}:{transform}" for bead, transform in REQUIRED_LANES)
-        actual = ", ".join(f"{bead}:{transform}" for bead, transform in declared_lanes)
-        raise GateError(
-            f"{plan_path}: lanes must be the six required contracts in order; "
-            f"expected [{expected}], got [{actual}]"
-        )
-
-    reward_lane = next(lane for lane in resolved if lane["transform"] == "reward_ontology")
-    if not reward_lane["artifacts"]:
-        raise GateError(
-            f"{plan_path}: reward_ontology must declare at least one "
-            f"{REWARD_SIDECAR_KIND!r} artifact"
-        )
-
-    return {
-        "plan_path": plan_path,
-        "plan_sha256": plan_sha256,
-        "source_run": source_run,
-        "source_run_dir": source_run_dir,
-        "lanes": resolved,
-        "transform_versions": dict(sorted(versions.items())),
-    }
+    return _plan.load_plan(plan_path, repo_root=_REPO, raw_output_root=RAW_OUTPUT_ROOT)
 
 
 # ---------------------------------------------------------------------------
 # composition
 # ---------------------------------------------------------------------------
-
-
-def _assert_new_destination(destination: Path, label: str) -> Path:
-    declared = Path(os.path.abspath(destination))
-    if os.path.lexists(declared):
-        raise GateError(f"refusing to overwrite an existing {label}: {declared}")
-    resolved = declared.resolve(strict=False)
-    if resolved == RAW_OUTPUT_ROOT or RAW_OUTPUT_ROOT in resolved.parents:
-        raise GateError(f"refusing to write {label} beneath immutable raw output: {declared}")
-    return resolved
-
-
-def _rename_noreplace(
-    source: Path,
-    destination: Path,
-    label: str,
-    expected_tree: Sequence[dict[str, Any]],
-) -> None:
-    """Atomically publish one directory while refusing an existing pathname."""
-    source = Path(source)
-    destination = Path(destination)
-    if _tree_snapshot(source) != list(expected_tree):
-        raise GateError(f"{label} staging tree changed after final validation")
-    if os.name == "nt":
-        try:
-            source.rename(destination)
-        except FileExistsError as exc:
-            raise GateError(f"refusing to overwrite an existing {label}: {destination}") from exc
-        except OSError as exc:
-            raise GateError(f"cannot publish {label} {destination}: {exc}") from exc
-        return
-
-    libc = ctypes.CDLL(None, use_errno=True)
-    renameat2 = getattr(libc, "renameat2", None)
-    if renameat2 is None:
-        raise GateError("atomic no-replace publication is unavailable on this platform")
-    renameat2.argtypes = [
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.c_uint,
-    ]
-    renameat2.restype = ctypes.c_int
-    at_fdcwd = -100
-    rename_noreplace = 1
-    result = renameat2(
-        at_fdcwd,
-        os.fsencode(source),
-        at_fdcwd,
-        os.fsencode(destination),
-        rename_noreplace,
-    )
-    if result == 0:
-        return
-    error = ctypes.get_errno()
-    if error in {errno.EEXIST, errno.ENOTEMPTY}:
-        raise GateError(f"refusing to overwrite an existing {label}: {destination}")
-    raise GateError(f"cannot atomically publish {label} {destination}: {os.strerror(error)}")
-
-
-def _logical_source_path(value: Any, label: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise GateError(f"{label} must be a non-empty source path")
-    path = Path(value)
-    parts = path.parts
-    raw_roots = [
-        index for index in range(len(parts) - 1) if parts[index : index + 2] == ("outputs", "raw")
-    ]
-    if raw_roots:
-        raw_index = raw_roots[-1] + 1
-        if len(parts) <= raw_index + 2:
-            raise GateError(f"{label} does not identify a record below outputs/raw")
-        parts = parts[raw_index + 2 :]
-    elif path.is_absolute():
-        raise GateError(f"{label} must be relative or identify a path below outputs/raw")
-    parts = tuple(part for part in parts if part not in {"", "."})
-    if not parts or ".." in parts:
-        raise GateError(f"{label} is not a safe logical source path: {value!r}")
-    return Path(*parts).as_posix()
-
-
-def _assert_no_symlink(root: Path, path: Path, label: str) -> None:
-    walked = root
-    for part in path.relative_to(root).parts:
-        walked = walked / part
-        if walked.is_symlink():
-            raise GateError(f"{label} contains a symlinked path: {walked}")
 
 
 def _load_source_records(source_run: Path) -> dict[tuple[str, int], dict[str, Any]]:
@@ -1133,7 +653,7 @@ def compose(
         source_label="source_run",
         destination_label="cleaned destination",
     )
-    _assert_new_destination(destination, "cleaned destination")
+    _assert_new_destination(destination, "cleaned destination", RAW_OUTPUT_ROOT)
     prepared_lanes = list(prepared_lanes or prepare_lanes(plan))
 
     for lane in prepared_lanes:
@@ -1887,13 +1407,6 @@ def verify_lane_evidence(
 # ---------------------------------------------------------------------------
 # final-output bindings and retained identity evidence
 # ---------------------------------------------------------------------------
-
-
-def _normalized_output_path(value: Any, label: str) -> str:
-    path = _relative_artifact_destination(value, label)
-    if path.suffix != ".jsonl" or path.parts[0] == GOVERNANCE_DIRNAME:
-        raise GateError(f"{label} must identify a corpus JSONL path")
-    return path.as_posix()
 
 
 def _normalize_record_bindings(raw_bindings: Any) -> list[dict[str, Any]]:
@@ -3444,7 +2957,7 @@ def cmd_integrate(args: argparse.Namespace) -> int:
     plan = load_plan(Path(args.plan))
     declared_destination = Path(args.cleaned_out)
     if declared_destination.is_symlink():
-        _assert_new_destination(declared_destination, "cleaned destination")
+        _assert_new_destination(declared_destination, "cleaned destination", RAW_OUTPUT_ROOT)
     destination = declared_destination.resolve(strict=False)
     _assert_disjoint_trees(
         plan["source_run_dir"],
@@ -3455,6 +2968,7 @@ def cmd_integrate(args: argparse.Namespace) -> int:
     destination = _assert_new_destination(
         declared_destination,
         "cleaned destination",
+        RAW_OUTPUT_ROOT,
     )
     destination.parent.mkdir(parents=True, exist_ok=True)
     stage_root = Path(
@@ -3554,16 +3068,6 @@ def _promotion_outputs(curated: Path) -> list[dict[str, Any]]:
     return entries
 
 
-def _snapshot_bytes(source: Path, root: Path, label: str) -> bytes:
-    if source.is_symlink() or not source.is_file():
-        raise GateError(f"{label} must be a regular, non-symlink file: {source}")
-    _assert_no_symlink(root, source, label)
-    try:
-        return source.read_bytes()
-    except OSError as exc:
-        raise GateError(f"cannot snapshot {label} {source}: {exc}") from exc
-
-
 def _snapshot_reviewed_tree(
     cleaned: Path,
     review_path: Path,
@@ -3636,27 +3140,12 @@ def _snapshot_reviewed_tree(
     }
 
 
-def _assert_disjoint_trees(
-    source: Path,
-    destination: Path,
-    *,
-    source_label: str = "cleaned",
-    destination_label: str = "curated",
-) -> None:
-    source = source.resolve(strict=False)
-    destination = destination.resolve(strict=False)
-    if source == destination or source in destination.parents or destination in source.parents:
-        raise GateError(
-            f"{source_label} and {destination_label} must be disjoint after symlink "
-            f"resolution: {source_label}={source}, {destination_label}={destination}"
-        )
-
-
 def cmd_promote(args: argparse.Namespace) -> int:
     cleaned = Path(args.cleaned).resolve()
     curated = _assert_new_destination(
         Path(args.curated_out),
         "curated destination",
+        RAW_OUTPUT_ROOT,
     )
     if not cleaned.is_dir():
         raise GateError(f"not a directory: {cleaned}")
