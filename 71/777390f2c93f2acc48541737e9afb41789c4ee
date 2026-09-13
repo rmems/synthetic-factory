@@ -1,0 +1,22 @@
+pipelines/oracle_grounded/__init__.py
+  s_af31ed7264ce5b::t_49867198bc1e80 13-19
+tests/test_oracle_grounded_package_surface.py
+  s_af31ed7264ce5b::t_788649edab71cc 28-29,31-33,37-39
+  s_af31ed7264ce5b::t_c2fa35e3b6110c 1-27,30,34-36,40-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "71777390f2c93f2acc48541737e9afb41789c4ee",
+  "prompts": {},
+  "sessions": {
+    "s_af31ed7264ce5b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e13fca7-977d-487d-a447-9e9097e762ad",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
