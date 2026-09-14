@@ -1,0 +1,25 @@
+experiments/_gen_evh_plants_r1708.py
+  ai_agent 1-449
+experiments/_gen_evh_plants_r2761.py
+  ai_agent 1-439
+experiments/_gen_evh_plants_r2410.py
+  ai_agent 1-453
+experiments/evh-loop-r2761.py
+  ai_agent 1-139
+experiments/_gen_evh_plants_r1357.py
+  ai_agent 1-450
+experiments/_gen_evh_plants_r927.py
+  ai_agent 1-748
+experiments/_gen_evh_plants_r1161.py
+  ai_agent 1-415
+experiments/_gen_evh_plants_r801.py
+  ai_agent 1-1247
+experiments/_gen_evh_plants_r2059.py
+  ai_agent 1-451
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "66deb037890ec2b8177c3a07542bf623924037bb",
+  "prompts": {}
+}
