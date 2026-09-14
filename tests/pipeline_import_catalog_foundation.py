@@ -654,6 +654,30 @@ def _package_validate_run_rewards() -> ModuleType:
     return module
 
 
+def _direct_validate_run_reward_total() -> ModuleType:
+    import validate_run_reward_total as module
+
+    return module
+
+
+def _package_validate_run_reward_total() -> ModuleType:
+    import pipelines.validate_run_reward_total as module
+
+    return module
+
+
+def _direct_validate_run_outcomes() -> ModuleType:
+    import validate_run_outcomes as module
+
+    return module
+
+
+def _package_validate_run_outcomes() -> ModuleType:
+    import pipelines.validate_run_outcomes as module
+
+    return module
+
+
 def _direct_validate_run_thalamic() -> ModuleType:
     import validate_run_thalamic as module
 
@@ -740,7 +764,12 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "validate_run": (_direct_validate_run, _package_validate_run),
     "validate_run_provenance": (_direct_validate_run_provenance, _package_validate_run_provenance),
     "validate_run_rewards": (_direct_validate_run_rewards, _package_validate_run_rewards),
+    "validate_run_reward_total": (
+        _direct_validate_run_reward_total,
+        _package_validate_run_reward_total,
+    ),
     "validate_run_thalamic": (_direct_validate_run_thalamic, _package_validate_run_thalamic),
+    "validate_run_outcomes": (_direct_validate_run_outcomes, _package_validate_run_outcomes),
 }
 DIRECT_LOADERS = {name: loaders[0] for name, loaders in LOADER_PAIRS.items()}
 PACKAGE_LOADERS = {name: loaders[1] for name, loaders in LOADER_PAIRS.items()}

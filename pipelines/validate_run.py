@@ -26,12 +26,14 @@ if __package__:
     from . import validate_run_spikes as _validate_run_spikes
     from . import validate_run_provenance as _validate_run_provenance
     from . import validate_run_rewards as _validate_run_rewards
+    from . import validate_run_reward_total as _validate_run_reward_total
     from . import validate_run_thalamic as _validate_run_thalamic
     from .validate_run_input import parse_exact_json_record as _parse_exact_json_record
 else:
     import validate_run_spikes as _validate_run_spikes
     import validate_run_provenance as _validate_run_provenance
     import validate_run_rewards as _validate_run_rewards
+    import validate_run_reward_total as _validate_run_reward_total
     import validate_run_thalamic as _validate_run_thalamic
     from validate_run_input import parse_exact_json_record as _parse_exact_json_record
 
@@ -190,7 +192,7 @@ REWARD_UNWEIGHTED_MISMATCH = _validate_run_rewards.REWARD_UNWEIGHTED_MISMATCH
 REWARD_ARITHMETIC_MARKERS = _validate_run_rewards.REWARD_ARITHMETIC_MARKERS
 
 
-check_reward_total = _validate_run_rewards.check_reward_total
+check_reward_total = _validate_run_reward_total.check_reward_total
 
 
 def _state_provenance_errors(obj, where):
@@ -224,17 +226,16 @@ check_meta_round = _validate_run_thalamic.check_meta_round
 def check_thalamic(obj, where):
     """Compatibility facade for thalamic validation (see validate_run_thalamic).
 
-    Passes the facade's live gates explicitly so vocabulary rebinding
-    (mock.patch.object on this module) keeps flowing into the shared layers.
+    Provenance runs through this module's live gates so vocabulary
+    rebinding (mock.patch.object on this module) keeps flowing through,
+    exactly as when the whole check lived inline.
     """
-    return _validate_run_thalamic.check_thalamic(
-        obj,
-        where,
-        reward_total_errors=check_reward_total,
-        provenance_errors=check_provenance,
-        provenance_publish_errors=check_provenance_publish,
-        spike_stream_errors=check_spike_stream,
-    )
+    errs = _validate_run_thalamic.thalamic_core_errors(obj, where)
+    errs += check_provenance(obj, where)
+    # Deep publish-time provenance: any nested 'real' fails
+    errs += [e for e in check_provenance_publish(obj, where) if e not in errs]
+    errs += _validate_run_thalamic.thalamic_tail_errors(obj, where)
+    return errs
 
 
 SAFETY_CASE_TYPES = frozenset(

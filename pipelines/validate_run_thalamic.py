@@ -121,55 +121,24 @@ def check_meta_round(obj, where):
     return errs
 
 
-def _default_provenance_errors(obj, where):
-    """Run both provenance layers with the provenance sibling's vocabulary."""
-    return _validate_run_provenance.state_provenance_errors(
-        obj,
-        where,
-        _validate_run_provenance.ALLOWED_SIM_OR_REAL,
-        _validate_run_provenance.typed_enum_errors,
-    ) + _validate_run_provenance.provenance_object_errors(
-        obj,
-        where,
-        _validate_run_provenance.ALLOWED_PROVENANCE_KIND,
-        _validate_run_provenance.typed_enum_errors,
-    )
-
-
-def check_thalamic(
-    obj,
-    where,
-    *,
-    reward_total_errors=_validate_run_rewards.check_reward_total,
-    provenance_errors=None,
-    provenance_publish_errors=None,
-    spike_stream_errors=None,
-):
-    """Validate one thalamic trajectory across the shape, reward, provenance,
-    meta.round, and spike-stream layers.
-
-    The cross-layer gates default to the sibling implementations; the
-    validate_run facade passes its live globals explicitly so vocabulary
-    rebinding (mock.patch.object on the facade) keeps flowing through.
+def thalamic_core_errors(obj, where):
+    """Validate the thalamic-owned core layers: shape, safety decision, and
+    reward arithmetic. Provenance and the meta/spike tail stay with the
+    caller so layer order and vocabulary rebinding match the inline gate.
     """
-    if provenance_errors is None:
-        provenance_errors = _default_provenance_errors
-    if provenance_publish_errors is None:
-        provenance_publish_errors = _validate_run_provenance.check_provenance_publish
-    if spike_stream_errors is None:
-        spike_stream_errors = _validate_run_spikes.check_spike_stream
     errs = _thalamic_shape_errors(obj, where)
     errs += _safety_decision_errors(obj.get("safety_decision"), where)
     rc = obj.get("reward_components")
     if isinstance(rc, dict):
-        errs += reward_total_errors(rc, where)
-    # strict provenance and meta checks (including publish-time deep scan)
-    errs += provenance_errors(obj, where)
-    # Deep publish-time provenance: any nested 'real' fails
-    errs += [e for e in provenance_publish_errors(obj, where) if e not in errs]
-    errs += check_meta_round(obj, where)
+        errs += _validate_run_rewards.check_reward_total(rc, where)
+    return errs
+
+
+def thalamic_tail_errors(obj, where):
+    """Validate meta.round and the spike stream after the provenance layers."""
+    errs = check_meta_round(obj, where)
     # Optional trajectory-level spike train: same ordering contract as bridge.
-    errs += spike_stream_errors(obj, where)
+    errs += _validate_run_spikes.check_spike_stream(obj, where)
     return errs
 
 

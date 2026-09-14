@@ -157,6 +157,18 @@ def _load_validate_run_rewards():
     return validate_run_rewards
 
 
+def _load_validate_run_reward_total():
+    from . import validate_run_reward_total
+
+    return validate_run_reward_total
+
+
+def _load_validate_run_outcomes():
+    from . import validate_run_outcomes
+
+    return validate_run_outcomes
+
+
 def _load_validate_run_thalamic():
     from . import validate_run_thalamic
 
@@ -531,6 +543,8 @@ _PACKAGE_SIBLING_LOADERS = {
     "validate_run_spikes": _load_validate_run_spikes,
     "validate_run_provenance": _load_validate_run_provenance,
     "validate_run_rewards": _load_validate_run_rewards,
+    "validate_run_reward_total": _load_validate_run_reward_total,
+    "validate_run_outcomes": _load_validate_run_outcomes,
     "validate_run_thalamic": _load_validate_run_thalamic,
     "compose_contract": _load_compose_contract,
     "compose_curated": _load_compose_curated,
