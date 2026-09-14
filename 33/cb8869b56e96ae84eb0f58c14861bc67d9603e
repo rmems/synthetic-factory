@@ -1,0 +1,17 @@
+experiments/flk_r1505_leftover3_mill.py
+  ai_agent 1-612
+experiments/flk_r1560_leftover3_mill.py
+  ai_agent 1-608
+experiments/flk_r1544_leftover3_mill.py
+  ai_agent 1-608
+experiments/flk_r1521_leftover3_mill.py
+  ai_agent 1-610
+experiments/flk_r1489_leftover3_mill.py
+  ai_agent 1-596
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "33cb8869b56e96ae84eb0f58c14861bc67d9603e",
+  "prompts": {}
+}
