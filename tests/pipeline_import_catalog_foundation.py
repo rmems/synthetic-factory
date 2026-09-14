@@ -186,6 +186,78 @@ def _package_curate_gate_plan() -> ModuleType:
     return module
 
 
+def _direct_curate_gate_merge() -> ModuleType:
+    import curate_gate_merge as module
+
+    return module
+
+
+def _package_curate_gate_merge() -> ModuleType:
+    import pipelines.curate_gate_merge as module
+
+    return module
+
+
+def _direct_curate_gate_manifests() -> ModuleType:
+    import curate_gate_manifests as module
+
+    return module
+
+
+def _package_curate_gate_manifests() -> ModuleType:
+    import pipelines.curate_gate_manifests as module
+
+    return module
+
+
+def _direct_curate_gate_evidence() -> ModuleType:
+    import curate_gate_evidence as module
+
+    return module
+
+
+def _package_curate_gate_evidence() -> ModuleType:
+    import pipelines.curate_gate_evidence as module
+
+    return module
+
+
+def _direct_curate_gate_identity_gate() -> ModuleType:
+    import curate_gate_identity_gate as module
+
+    return module
+
+
+def _package_curate_gate_identity_gate() -> ModuleType:
+    import pipelines.curate_gate_identity_gate as module
+
+    return module
+
+
+def _direct_curate_gate_lanes() -> ModuleType:
+    import curate_gate_lanes as module
+
+    return module
+
+
+def _package_curate_gate_lanes() -> ModuleType:
+    import pipelines.curate_gate_lanes as module
+
+    return module
+
+
+def _direct_curate_gate_compose() -> ModuleType:
+    import curate_gate_compose as module
+
+    return module
+
+
+def _package_curate_gate_compose() -> ModuleType:
+    import pipelines.curate_gate_compose as module
+
+    return module
+
+
 def _direct_curate_identity() -> ModuleType:
     import curate_identity as module
 
@@ -770,6 +842,30 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "curate_gate_digest": (_direct_curate_gate_digest, _package_curate_gate_digest),
     "curate_gate_paths": (_direct_curate_gate_paths, _package_curate_gate_paths),
     "curate_gate_plan": (_direct_curate_gate_plan, _package_curate_gate_plan),
+    "curate_gate_merge": (
+        _direct_curate_gate_merge,
+        _package_curate_gate_merge,
+    ),
+    "curate_gate_manifests": (
+        _direct_curate_gate_manifests,
+        _package_curate_gate_manifests,
+    ),
+    "curate_gate_evidence": (
+        _direct_curate_gate_evidence,
+        _package_curate_gate_evidence,
+    ),
+    "curate_gate_identity_gate": (
+        _direct_curate_gate_identity_gate,
+        _package_curate_gate_identity_gate,
+    ),
+    "curate_gate_lanes": (
+        _direct_curate_gate_lanes,
+        _package_curate_gate_lanes,
+    ),
+    "curate_gate_compose": (
+        _direct_curate_gate_compose,
+        _package_curate_gate_compose,
+    ),
     "curate_identity": (_direct_curate_identity, _package_curate_identity),
     "curate_identity_output": (
         _direct_curate_identity_output,

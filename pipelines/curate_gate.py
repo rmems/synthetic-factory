@@ -13,9 +13,14 @@ Siblings
 
 The shared vocabulary (``curate_gate_contract``), the hashing and tree capture
 (``curate_gate_digest``), the path confinement and atomic publication
-(``curate_gate_paths``), and the integration-plan loader (``curate_gate_plan``)
-live in siblings. Every name they own is re-exported here, so an existing
-``curate_gate.X`` call site resolves unchanged.
+(``curate_gate_paths``), the integration-plan loader (``curate_gate_plan``),
+the three-way merge (``curate_gate_merge``), lane authentication
+(``curate_gate_lanes``), record-level composition (``curate_gate_compose``),
+manifest-entry parsing (``curate_gate_manifests``), reward-sidecar loading
+(``curate_gate_evidence``), and identity source-claim authentication
+(``curate_gate_identity_gate``) live in siblings. Every name they own is
+re-exported here, so an existing ``curate_gate.X`` call site resolves
+unchanged.
 
 Composition order and evidence
 ------------------------------
@@ -106,16 +111,21 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("curate_gate")
+    from . import curate_gate_compose as _compose
     from . import curate_gate_contract as _contract
     from . import curate_gate_digest as _digest
+    from . import curate_gate_evidence as _evidence
+    from . import curate_gate_identity_gate as _identity_gate
+    from . import curate_gate_lanes as _lanes
+    from . import curate_gate_manifests as _manifests
+    from . import curate_gate_merge as _merge
     from . import curate_gate_paths as _paths
     from . import curate_gate_plan as _plan
     from . import curate_identity
     from . import curate_rewards
     from . import training_audit
     from .check_records import canonical_record_id, reject_json_constant
-    from .exact_json import dumps_exact_json, parse_finite_json_float
-    from .exact_json_compare import same_exact_json
+    from .exact_json import parse_finite_json_float
     from .validate_run import check_line
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -123,16 +133,21 @@ else:
     )
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
+    import curate_gate_compose as _compose  # noqa: E402
     import curate_gate_contract as _contract  # noqa: E402
     import curate_gate_digest as _digest  # noqa: E402
+    import curate_gate_evidence as _evidence  # noqa: E402
+    import curate_gate_identity_gate as _identity_gate  # noqa: E402
+    import curate_gate_lanes as _lanes  # noqa: E402
+    import curate_gate_manifests as _manifests  # noqa: E402
+    import curate_gate_merge as _merge  # noqa: E402
     import curate_gate_paths as _paths  # noqa: E402
     import curate_gate_plan as _plan  # noqa: E402
     import curate_identity  # noqa: E402
     import curate_rewards  # noqa: E402
     import training_audit  # noqa: E402
     from check_records import canonical_record_id, reject_json_constant  # noqa: E402
-    from exact_json import dumps_exact_json, parse_finite_json_float  # noqa: E402
-    from exact_json_compare import same_exact_json  # noqa: E402
+    from exact_json import parse_finite_json_float  # noqa: E402
     from validate_run import check_line  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -235,406 +250,18 @@ def load_plan(plan_path: Path) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# composition
+# composition: three-way merge (curate_gate_merge), lane authentication
+# (curate_gate_lanes), and record-level composition (curate_gate_compose)
 # ---------------------------------------------------------------------------
 
+_load_source_records = _merge._load_source_records
+_MISSING = _merge._MISSING
+_same_json = _merge._same_json
+_json_pointer = _merge._json_pointer
+_merge_lane_delta = _merge._merge_lane_delta
 
-def _load_source_records(source_run: Path) -> dict[tuple[str, int], dict[str, Any]]:
-    """Load the immutable source bytes used as the three-way merge base."""
-    records: dict[tuple[str, int], dict[str, Any]] = {}
-    paths = _all_jsonl_paths(source_run)
-    if not paths:
-        raise GateError(f"source_run holds no *.jsonl: {source_run}")
-    for path in paths:
-        _assert_no_symlink(source_run, path, "source_run")
-        relative = path.relative_to(source_run).as_posix()
-        payload, _payload_sha256, _payload_bytes = _read_regular_file_snapshot(
-            path,
-            "source JSONL",
-        )
-        for line_number, terminated in enumerate(payload.split(b"\n"), 1):
-            raw_line = terminated[:-1] if terminated.endswith(b"\r") else terminated
-            if not raw_line.strip():
-                continue
-            record: Any = None
-            parse_error: str | None = None
-            try:
-                text = raw_line.decode("utf-8")
-                record = json.loads(
-                    text,
-                    parse_constant=reject_json_constant,
-                    parse_float=parse_finite_json_float,
-                )
-            except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
-                parse_error = str(exc)
-            records[(relative, line_number)] = {
-                "record": record,
-                "source_hash": sha256_hex(raw_line),
-                "parse_error": parse_error,
-            }
-    return records
-
-
-_MISSING = object()
-
-
-def _same_json(left: Any, right: Any) -> bool:
-    if left is _MISSING or right is _MISSING:
-        return left is right
-    return same_exact_json(left, right)
-
-
-def _json_pointer(parts: Sequence[str | int]) -> str:
-    if not parts:
-        return "/"
-    tokens = [str(part).replace("~", "~0").replace("/", "~1") for part in parts]
-    return "/" + "/".join(tokens)
-
-
-def _merge_lane_delta(
-    baseline: Any,
-    current: Any,
-    lane_value: Any,
-    *,
-    source_key: tuple[str, int],
-    transform: str,
-    path: tuple[str | int, ...] = (),
-) -> Any:
-    """Apply one independently produced lane delta to the composed record.
-
-    A lane may omit earlier lanes' changes because its output was derived from
-    the immutable source record. Changes at disjoint JSON paths compose. The
-    gate fails closed when two lanes make incompatible changes at one path.
-    """
-    if _same_json(lane_value, baseline):
-        return copy.deepcopy(current)
-    if _same_json(current, baseline):
-        return _MISSING if lane_value is _MISSING else copy.deepcopy(lane_value)
-    if _same_json(current, lane_value):
-        return copy.deepcopy(current)
-
-    if all(isinstance(value, dict) for value in (baseline, current, lane_value)):
-        merged = copy.deepcopy(current)
-        for key in sorted(set(baseline) | set(lane_value)):
-            base_child = baseline.get(key, _MISSING)
-            lane_child = lane_value.get(key, _MISSING)
-            if _same_json(base_child, lane_child):
-                continue
-            current_child = current.get(key, _MISSING)
-            result = _merge_lane_delta(
-                base_child,
-                current_child,
-                lane_child,
-                source_key=source_key,
-                transform=transform,
-                path=(*path, key),
-            )
-            if result is _MISSING:
-                merged.pop(key, None)
-            else:
-                merged[key] = result
-        return merged
-
-    if all(isinstance(value, list) for value in (baseline, current, lane_value)) and (
-        len(baseline) == len(current) == len(lane_value)
-    ):
-        return [
-            _merge_lane_delta(
-                base_child,
-                current[index],
-                lane_value[index],
-                source_key=source_key,
-                transform=transform,
-                path=(*path, index),
-            )
-            for index, base_child in enumerate(baseline)
-        ]
-
-    source_path, source_line = source_key
-    raise GateError(
-        f"lane {transform!r} conflicts with an earlier lane at "
-        f"{source_path}:{source_line}{_json_pointer(path)}"
-    )
-
-
-def _prepare_lane(
-    lane: dict[str, Any], source_records: dict[tuple[str, int], dict[str, Any]]
-) -> dict[str, Any]:
-    """Authenticate one lane's emitted records against its declared manifest."""
-    manifest_path = lane["manifest_path"]
-    manifest_payload, manifest_sha256, manifest_bytes = _read_regular_file_snapshot(
-        manifest_path,
-        f"lane {lane['order']} ({lane['transform']}) manifest",
-    )
-    entries: list[dict[str, Any]] = []
-    expected_by_path_hash: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
-    seen_sources: set[tuple[str, int]] = set()
-
-    for index, raw_entry in enumerate(
-        _manifest_entries(
-            manifest_path,
-            lane["manifest_format"],
-            payload=manifest_payload,
-        ),
-        1,
-    ):
-        entry = _normalize_entry(raw_entry, lane)
-        label = f"{manifest_path}: entry {index}"
-        raw_action = entry.get("action")
-        if not isinstance(raw_action, str) or not raw_action.strip():
-            raise GateError(f"{label} needs an explicit action")
-        action = raw_action.strip().lower()
-        if action not in KNOWN_ACTIONS:
-            raise GateError(f"{label} has unsupported action {raw_action!r}")
-        entry["action"] = action
-        reasons = entry.get("reason_codes")
-        if not isinstance(reasons, list) or any(
-            not isinstance(reason, str) or not reason.strip() for reason in reasons
-        ):
-            raise GateError(f"{label} reason_codes must be a list of non-empty strings")
-        if action in REPAIR_ACTIONS | NO_OUTPUT_ACTIONS and not reasons:
-            raise GateError(f"{label} action {action!r} needs at least one reason code")
-        if entry["declared_transform"] != lane["transform"]:
-            raise GateError(
-                f"{label} declares transform {entry['declared_transform']!r}; "
-                f"expected {lane['transform']!r}"
-            )
-        if entry["declared_version"] != lane["version"]:
-            raise GateError(
-                f"{label} declares version {entry['declared_version']!r}; "
-                f"expected {lane['version']!r}"
-            )
-        source_path = _logical_source_path(entry["source_path"], f"{label} source_path")
-        source_line = entry["source_line"]
-        if not isinstance(source_line, int) or isinstance(source_line, bool) or source_line < 1:
-            raise GateError(f"{label} source_line must be a positive integer")
-        source_key = (source_path, source_line)
-        if source_key in seen_sources:
-            raise GateError(f"{label} duplicates source identity {source_path}:{source_line}")
-        seen_sources.add(source_key)
-        entry["source_path"] = source_path
-        entry["source_hash"] = _normalized_sha256(entry.get("source_hash"), f"{label} source hash")
-        source = source_records.get(source_key)
-        if source is None:
-            raise GateError(f"{label} source identity is absent from the declared source_run")
-        if entry["source_hash"] != source["source_hash"]:
-            raise GateError(f"{label} source hash does not match the declared source_run bytes")
-        entry["_source_key"] = source_key
-        entry["_source_record"] = source["record"]
-
-        output_hash = entry.get("output_hash")
-        if output_hash is None:
-            if action not in NO_OUTPUT_ACTIONS:
-                raise GateError(f"{label} action {action!r} has no authenticated output hash")
-        else:
-            if action not in OUTPUT_ACTIONS:
-                raise GateError(f"{label} action {action!r} cannot declare an output hash")
-            if source["record"] is None:
-                raise GateError(
-                    f"{label} cannot emit a record for an unparseable source line: "
-                    f"{source['parse_error']}"
-                )
-            output_hash = _normalized_sha256(output_hash, f"{label} output hash")
-            entry["output_hash"] = output_hash
-            if lane["transform"] == "curate_identity":
-                entry["_source_originals_sha256"] = _authenticate_identity_source_claims(
-                    entry,
-                    source["record"],
-                    label,
-                )
-            match_path = (
-                "" if lane["transform"] == "same-context-preference-curation" else source_path
-            )
-            expected_by_path_hash[(match_path, output_hash)].append(entry)
-        entries.append(entry)
-
-    outputs_dir = lane["outputs_dir"]
-    excluded_paths = {manifest_path, *(item["source_path"] for item in lane["artifacts"])}
-    payload_paths = [path for path in _all_jsonl_paths(outputs_dir) if path not in excluded_paths]
-    if not payload_paths:
-        raise GateError(
-            f"lane {lane['order']} ({lane['transform']}) contributed no corpus *.jsonl: "
-            f"{outputs_dir}"
-        )
-
-    actual_by_path_hash: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
-    input_files: list[dict[str, Any]] = []
-    for path in payload_paths:
-        _assert_no_symlink(
-            outputs_dir,
-            path,
-            f"lane {lane['order']} ({lane['transform']}) output",
-        )
-        relative = path.relative_to(outputs_dir).as_posix()
-        records = 0
-        payload, payload_sha256, payload_bytes = _read_regular_file_snapshot(
-            path,
-            f"lane {lane['order']} ({lane['transform']}) output",
-        )
-        try:
-            text = payload.decode("utf-8")
-        except UnicodeError as exc:
-            raise GateError(f"cannot decode lane output {path}: {exc}") from exc
-        for line_number, line in enumerate(_lf_lines(text), 1):
-            if not line.strip():
-                continue
-            records += 1
-            try:
-                record = json.loads(
-                    line,
-                    parse_constant=reject_json_constant,
-                    parse_float=parse_finite_json_float,
-                )
-            except (json.JSONDecodeError, ValueError) as exc:
-                raise GateError(f"{path}:{line_number}: invalid lane output JSON: {exc}") from exc
-            digest = record_sha256(record)
-            match_path = "" if lane["transform"] == "same-context-preference-curation" else relative
-            actual_by_path_hash[(match_path, digest)].append(
-                {
-                    "relative_path": relative,
-                    "output_line": line_number,
-                    "record": record,
-                    "output_hash": digest,
-                }
-            )
-        input_files.append(
-            {
-                "lane_order": lane["order"],
-                "transform": lane["transform"],
-                "path": relative,
-                "sha256": payload_sha256,
-                "bytes": payload_bytes,
-                "records": records,
-            }
-        )
-
-    expected_counts = Counter({key: len(items) for key, items in expected_by_path_hash.items()})
-    actual_counts = Counter({key: len(items) for key, items in actual_by_path_hash.items()})
-    if expected_counts != actual_counts:
-        missing = [
-            f"{path}@{digest}"
-            for path, digest in sorted((expected_counts - actual_counts).elements())[:10]
-        ]
-        extra = [
-            f"{path}@{digest}"
-            for path, digest in sorted((actual_counts - expected_counts).elements())[:10]
-        ]
-        raise GateError(
-            f"lane {lane['order']} ({lane['transform']}) output records do not match "
-            f"its manifest: missing_hashes={missing}, extra_hashes={extra}"
-        )
-
-    records: list[dict[str, Any]] = []
-    for path_digest in sorted(expected_by_path_hash):
-        expected = sorted(expected_by_path_hash[path_digest], key=lambda item: item["_source_key"])
-        actual = sorted(
-            actual_by_path_hash[path_digest],
-            key=lambda item: (item["relative_path"], item["output_line"]),
-        )
-        if lane["transform"] == "same-context-preference-curation" and len(expected) > 1:
-            sources = [f"{item['source_path']}:{item['source_line']}" for item in expected]
-            raise GateError(
-                "same-context preference manifest maps multiple source identities to one "
-                f"indistinguishable output digest {path_digest[1]}: {sources}"
-            )
-        for entry, emitted in zip(expected, actual):
-            actual_output_id = canonical_record_id(emitted["record"])
-            if entry.get("output_id") != actual_output_id:
-                raise GateError(
-                    f"{manifest_path}: output_id {entry.get('output_id')!r} does not "
-                    f"match authenticated output record {emitted['relative_path']}:"
-                    f"{emitted['output_line']} id {actual_output_id!r}"
-                )
-            source_record_sha256 = record_sha256(entry["_source_record"])
-            entry["content_changed"] = emitted["output_hash"] != source_record_sha256
-            records.append(
-                {
-                    **emitted,
-                    "source_path": entry["source_path"],
-                    "source_line": entry["source_line"],
-                    "source_key": entry["_source_key"],
-                    "source_record": copy.deepcopy(entry["_source_record"]),
-                    "source_hash": entry["source_hash"],
-                    "source_record_sha256": source_record_sha256,
-                    "output_id": actual_output_id,
-                    "lane_order": lane["order"],
-                    "transform": lane["transform"],
-                    "version": lane["version"],
-                }
-            )
-
-    if not records:
-        raise GateError(
-            f"lane {lane['order']} ({lane['transform']}) contributed zero records: {outputs_dir}"
-        )
-
-    prepared_artifacts: list[dict[str, Any]] = []
-    for artifact in lane["artifacts"]:
-        artifact_payload, artifact_sha256, artifact_bytes = _read_regular_file_snapshot(
-            artifact["source_path"],
-            f"lane {lane['order']} ({lane['transform']}) governance artifact",
-        )
-        catalog: dict[str, dict[str, Any]] | None = None
-        if artifact["kind"] == REWARD_CALIBRATION_KIND:
-            try:
-                catalog = curate_rewards.load_units_migration_bytes(
-                    artifact_payload,
-                    label=str(artifact["source_path"]),
-                )
-            except curate_rewards.RewardOntologyError as exc:
-                raise GateError(
-                    f"lane {lane['order']} calibration artifact is invalid: {exc}"
-                ) from exc
-            documents = []
-        else:
-            documents = _load_reward_sidecars(
-                artifact["source_path"],
-                payload=artifact_payload,
-            )
-        prepared_artifacts.append(
-            {
-                **artifact,
-                "_payload": artifact_payload,
-                "_sha256": artifact_sha256,
-                "_bytes": artifact_bytes,
-                "_documents": len(documents),
-                "_catalog": catalog,
-            }
-        )
-
-    return {
-        **lane,
-        "artifacts": prepared_artifacts,
-        "entries": entries,
-        "records": sorted(
-            records,
-            key=lambda item: (item["relative_path"], item["output_line"]),
-        ),
-        "input_files": input_files,
-        "manifest_payload": manifest_payload,
-        "manifest_sha256": manifest_sha256,
-        "manifest_bytes": manifest_bytes,
-    }
-
-
-def prepare_lanes(plan: dict[str, Any]) -> list[dict[str, Any]]:
-    source_records = _load_source_records(plan["source_run_dir"])
-    prepared = [_prepare_lane(lane, source_records) for lane in plan["lanes"]]
-    dispositioned = {emitted["source_key"] for lane in prepared for emitted in lane["records"]}
-    dispositioned.update(
-        entry["_source_key"]
-        for lane in prepared
-        for entry in lane["entries"]
-        if str(entry.get("action") or "").strip().lower() in EXCLUSION_ACTIONS | QUARANTINE_ACTIONS
-    )
-    missing = sorted(set(source_records) - dispositioned)
-    if missing:
-        preview = [f"{path}:{line}" for path, line in missing[:10]]
-        raise GateError(
-            "source_run records lack a retained output or an explicit exclusion/quarantine: "
-            f"count={len(missing)}, first={preview}"
-        )
-    return prepared
+_prepare_lane = _lanes._prepare_lane
+prepare_lanes = _lanes.prepare_lanes
 
 
 def compose(
@@ -645,331 +272,22 @@ def compose(
     prepared_lanes: Sequence[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Three-way-compose authenticated lane deltas by source identity."""
-    destination = Path(destination).resolve()
-    logical_destination = Path(logical_destination or destination).resolve()
-    _assert_disjoint_trees(
-        plan["source_run_dir"],
-        logical_destination,
-        source_label="source_run",
-        destination_label="cleaned destination",
+    return _compose.compose(
+        plan,
+        destination,
+        raw_output_root=RAW_OUTPUT_ROOT,
+        logical_destination=logical_destination,
+        prepared_lanes=prepared_lanes,
     )
-    _assert_new_destination(destination, "cleaned destination", RAW_OUTPUT_ROOT)
-    prepared_lanes = list(prepared_lanes or prepare_lanes(plan))
-
-    for lane in prepared_lanes:
-        outputs_dir = lane["outputs_dir"]
-        if outputs_dir == logical_destination or logical_destination in outputs_dir.parents:
-            raise GateError(
-                f"lane {lane['order']} ({lane['transform']}) outputs live inside the "
-                f"cleaned destination: {outputs_dir}"
-            )
-        if outputs_dir in logical_destination.parents:
-            raise GateError(
-                f"cleaned destination is nested inside lane {lane['order']} "
-                f"({lane['transform']}) outputs: {outputs_dir}"
-            )
-
-    try:
-        destination.mkdir(parents=True)
-    except FileExistsError as exc:
-        raise GateError(
-            f"refusing to overwrite an existing cleaned destination: {destination}"
-        ) from exc
-
-    state: dict[tuple[str, int], dict[str, Any]] = {}
-    terminal_actions: dict[tuple[str, int], dict[str, Any]] = {}
-    supersessions: list[dict[str, Any]] = []
-    lane_summaries: list[dict[str, Any]] = []
-    inputs: list[dict[str, Any]] = []
-
-    for lane in prepared_lanes:
-        for entry in lane["entries"]:
-            action = str(entry.get("action") or "").strip().lower()
-            if action not in EXCLUSION_ACTIONS | QUARANTINE_ACTIONS:
-                continue
-            terminal_actions[entry["_source_key"]] = entry
-            previous = state.pop(entry["_source_key"], None)
-            if previous is not None:
-                supersessions.append(
-                    {
-                        "source_path": entry["source_path"],
-                        "source_line": entry["source_line"],
-                        "superseded_path": previous["relative_path"],
-                        "superseded_transform": previous["transform"],
-                        "superseded_order": previous["lane_order"],
-                        "superseded_sha256": previous["output_hash"],
-                        "winning_transform": lane["transform"],
-                        "winning_order": lane["order"],
-                        "winning_action": action,
-                        "winning_sha256": None,
-                    }
-                )
-
-        for emitted in lane["records"]:
-            terminal = terminal_actions.get(emitted["source_key"])
-            if terminal is not None:
-                supersessions.append(
-                    {
-                        "source_path": emitted["source_path"],
-                        "source_line": emitted["source_line"],
-                        "suppressed_path": emitted["relative_path"],
-                        "suppressed_transform": lane["transform"],
-                        "suppressed_order": lane["order"],
-                        "suppressed_sha256": emitted["output_hash"],
-                        "winning_transform": terminal["transform"],
-                        "winning_order": terminal["lane_order"],
-                        "winning_action": terminal["action"],
-                        "winning_sha256": None,
-                    }
-                )
-                continue
-            previous = state.get(emitted["source_key"])
-            if previous is not None:
-                merged_record = _merge_lane_delta(
-                    emitted["source_record"],
-                    previous["record"],
-                    emitted["record"],
-                    source_key=emitted["source_key"],
-                    transform=lane["transform"],
-                )
-                merged_hash = record_sha256(merged_record)
-                supersessions.append(
-                    {
-                        "source_path": emitted["source_path"],
-                        "source_line": emitted["source_line"],
-                        "superseded_path": previous["relative_path"],
-                        "superseded_transform": previous["transform"],
-                        "superseded_order": previous["lane_order"],
-                        "superseded_sha256": previous["output_hash"],
-                        "winning_path": emitted["relative_path"],
-                        "winning_transform": lane["transform"],
-                        "winning_order": lane["order"],
-                        "winning_action": "record_composition",
-                        "winning_lane_output_sha256": emitted["output_hash"],
-                        "winning_sha256": merged_hash,
-                    }
-                )
-                state[emitted["source_key"]] = {
-                    **emitted,
-                    "record": merged_record,
-                    "output_hash": merged_hash,
-                    "lane_output_hash": emitted["output_hash"],
-                    "lineage": [
-                        *previous["lineage"],
-                        {
-                            "lane_order": lane["order"],
-                            "transform": lane["transform"],
-                            "version": lane["version"],
-                            "output_sha256": emitted["output_hash"],
-                        },
-                    ],
-                }
-                continue
-            state[emitted["source_key"]] = {
-                **emitted,
-                "lane_output_hash": emitted["output_hash"],
-                "lineage": [
-                    {
-                        "lane_order": lane["order"],
-                        "transform": lane["transform"],
-                        "version": lane["version"],
-                        "output_sha256": emitted["output_hash"],
-                    }
-                ],
-            }
-
-        inputs.extend(lane["input_files"])
-        lane_summaries.append(
-            {
-                "order": lane["order"],
-                "bead": lane["bead"],
-                "transform": lane["transform"],
-                "version": lane["version"],
-                "outputs": str(lane["outputs_dir"]),
-                "manifest": str(lane["manifest_path"]),
-                "files": len(lane["input_files"]),
-                "records": len(lane["records"]),
-            }
-        )
-
-    if not state:
-        raise GateError("record-level lane composition produced an empty corpus")
-
-    by_path: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for emitted in state.values():
-        by_path[emitted["relative_path"]].append(emitted)
-
-    outputs: list[dict[str, Any]] = []
-    record_bindings: list[dict[str, Any]] = []
-    for relative, records in sorted(by_path.items()):
-        records.sort(key=lambda item: (item["source_path"], item["source_line"]))
-        target = destination / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        payload = "".join(
-            dumps_exact_json(item["record"], ensure_ascii=False, sort_keys=True) + "\n"
-            for item in records
-        )
-        target.write_text(payload, encoding="utf-8", newline="\n")
-        for output_line, item in enumerate(records, 1):
-            record_bindings.append(
-                {
-                    "output_path": relative,
-                    "output_line": output_line,
-                    "output_sha256": item["output_hash"],
-                    "output_id": canonical_record_id(item["record"]),
-                    "source_path": item["source_path"],
-                    "source_line": item["source_line"],
-                    "source_hash": item["source_hash"],
-                    "source_record_sha256": item["source_record_sha256"],
-                    "lineage": copy.deepcopy(item["lineage"]),
-                }
-            )
-        lineage = sorted(
-            {
-                (
-                    contributor["lane_order"],
-                    contributor["transform"],
-                    contributor["version"],
-                    contributor["output_sha256"],
-                )
-                for item in records
-                for contributor in item["lineage"]
-            }
-        )
-        outputs.append(
-            {
-                "path": relative,
-                "sha256": file_sha256(target),
-                "bytes": target.stat().st_size,
-                "records": len(records),
-                "lineage": [
-                    {
-                        "lane_order": order,
-                        "transform": transform,
-                        "version": version,
-                        "output_sha256": output_sha256,
-                    }
-                    for order, transform, version, output_sha256 in lineage
-                ],
-            }
-        )
-
-    return {
-        "destination": logical_destination,
-        "composition_order": lane_summaries,
-        "inputs": inputs,
-        "outputs": outputs,
-        "record_bindings": record_bindings,
-        "supersessions": supersessions,
-    }
 
 
 # ---------------------------------------------------------------------------
 # lane manifests: exclusions, quarantines, action counts
 # ---------------------------------------------------------------------------
 
-
-def _manifest_entries(
-    path: Path,
-    format_hint: str | None = None,
-    *,
-    payload: bytes | None = None,
-) -> list[dict[str, Any]]:
-    if format_hint not in {None, "json", "jsonl"}:
-        raise GateError(f"{path}: unsupported manifest format {format_hint!r}")
-    if payload is None:
-        payload, _digest, _size = _read_regular_file_snapshot(path, "lane manifest")
-    try:
-        text = payload.decode("utf-8")
-    except UnicodeError as exc:
-        raise GateError(f"cannot decode lane manifest {path}: {exc}") from exc
-    if format_hint == "jsonl" or (format_hint is None and path.suffix == ".jsonl"):
-        entries = []
-        for number, line in enumerate(_lf_lines(text), 1):
-            if not line.strip():
-                continue
-            try:
-                entry = json.loads(
-                    line,
-                    parse_constant=reject_json_constant,
-                    parse_float=parse_finite_json_float,
-                )
-            except (json.JSONDecodeError, ValueError) as exc:
-                raise GateError(f"{path}:{number}: invalid JSON manifest line: {exc}") from exc
-            if not isinstance(entry, dict):
-                raise GateError(f"{path}:{number}: manifest entry must be an object")
-            entries.append(entry)
-        return entries
-
-    try:
-        document = json.loads(
-            text,
-            parse_constant=reject_json_constant,
-            parse_float=parse_finite_json_float,
-        )
-    except (json.JSONDecodeError, ValueError) as exc:
-        raise GateError(f"{path}: invalid JSON: {exc}") from exc
-    if isinstance(document, list):
-        candidates = document
-    elif isinstance(document, dict):
-        candidates = None
-        for key in MANIFEST_LIST_KEYS:
-            value = document.get(key)
-            if isinstance(value, list):
-                candidates = value
-                break
-        if candidates is None:
-            raise GateError(
-                f"{path}: manifest object needs one of {', '.join(MANIFEST_LIST_KEYS)} as a list"
-            )
-    else:
-        raise GateError(f"{path}: manifest must be a list or an object")
-    for entry in candidates:
-        if not isinstance(entry, dict):
-            raise GateError(f"{path}: every manifest entry must be an object")
-    return list(candidates)
-
-
-def _normalize_entry(entry: dict[str, Any], lane: dict[str, Any]) -> dict[str, Any]:
-    source = entry.get("source")
-    if not isinstance(source, dict):
-        source = {}
-    transform_value = entry.get("transform")
-    if isinstance(transform_value, dict):
-        transform = transform_value
-        transform_name = transform.get("name")
-        transform_version = transform.get("version")
-    else:
-        transform_name = transform_value if isinstance(transform_value, str) else None
-        transform_version = None
-    declared_transform = entry.get("transform_name") or transform_name
-    declared_version = entry.get("transform_version") or transform_version
-    reasons = entry.get("reason_codes")
-    if reasons is None:
-        reasons = []
-    return {
-        "lane_order": lane["order"],
-        "transform": declared_transform or lane["transform"],
-        "version": declared_version or lane["version"],
-        "declared_transform": declared_transform,
-        "declared_version": declared_version,
-        "action": entry.get("action"),
-        "reason_codes": copy.deepcopy(reasons),
-        "source_path": entry.get("source_path") or source.get("path"),
-        "source_line": (
-            entry.get("source_line") if entry.get("source_line") is not None else source.get("line")
-        ),
-        "source_hash": (
-            entry.get("source_hash") or entry.get("source_sha256") or source.get("sha256")
-        ),
-        "record_kind": entry.get("record_kind") or entry.get("kind"),
-        "classification": entry.get("classification"),
-        "output_id": entry.get("output_id"),
-        "output_hash": entry.get("output_hash") or entry.get("output_sha256"),
-        "id_mappings": copy.deepcopy(entry.get("id_mappings")),
-        "provenance_mappings": copy.deepcopy(entry.get("provenance_mappings")),
-        "manifest_entry_sha256": record_sha256(entry),
-    }
+_manifest_entries = _manifests._manifest_entries
+_normalize_entry = _manifests._normalize_entry
+_load_reward_sidecars = _evidence._load_reward_sidecars
 
 
 def _public_manifest_entry(entry: dict[str, Any]) -> dict[str, Any]:
@@ -1058,47 +376,6 @@ def collect_lane_manifests(
         "review_candidates": review_candidates,
         "reason_codes": dict(sorted(reason_counts.items())),
     }
-
-
-def _load_reward_sidecars(
-    path: Path,
-    *,
-    payload: bytes | None = None,
-) -> list[dict[str, Any]]:
-    documents: list[dict[str, Any]] = []
-    if payload is None:
-        payload, _digest, _size = _read_regular_file_snapshot(path, "reward sidecars")
-    try:
-        text = payload.decode("utf-8")
-    except UnicodeError as exc:
-        raise GateError(f"cannot decode reward sidecars {path}: {exc}") from exc
-    for line_number, line in enumerate(_lf_lines(text), 1):
-        if not line.strip():
-            continue
-        try:
-            document = json.loads(
-                line,
-                parse_constant=reject_json_constant,
-                parse_float=parse_finite_json_float,
-            )
-        except (json.JSONDecodeError, ValueError) as exc:
-            raise GateError(f"{path}:{line_number}: invalid reward sidecar JSON: {exc}") from exc
-        if (
-            not isinstance(document, dict)
-            or document.get("document_type") != "reward_source_sidecar"
-        ):
-            raise GateError(f"{path}:{line_number}: expected a reward_source_sidecar document")
-        try:
-            curate_rewards.validate_ontology_document(document)
-        except curate_rewards.RewardOntologyError as exc:
-            raise GateError(f"{path}:{line_number}: invalid reward sidecar: {exc}") from exc
-        documents.append(document)
-    if not documents:
-        raise GateError(f"{path}: reward sidecar artifact is empty")
-    ids = [document["sidecar_id"] for document in documents]
-    if len(ids) != len(set(ids)):
-        raise GateError(f"{path}: duplicate reward sidecar_id")
-    return documents
 
 
 def copy_lane_evidence(
@@ -1593,29 +870,15 @@ def _output_evidence_gate(
     return report, records_by_source, bindings
 
 
-def _mapping_value(document: Any, pointer: Any, label: str) -> Any:
-    if pointer == "/":
-        return document
-    if not isinstance(pointer, str) or not pointer.startswith("/"):
-        raise GateError(f"{label} must be a JSON pointer")
-    value = document
-    for raw_token in pointer[1:].split("/"):
-        token = raw_token.replace("~1", "/").replace("~0", "~")
-        if isinstance(value, list):
-            try:
-                value = value[int(token)]
-            except (ValueError, IndexError) as exc:
-                raise GateError(f"{label} does not resolve") from exc
-        elif isinstance(value, dict) and token in value:
-            value = value[token]
-        else:
-            raise GateError(f"{label} does not resolve")
-    return value
-
-
-def _mapping_pointer(base: str, key: str) -> str:
-    token = key.replace("~", "~0").replace("/", "~1")
-    return f"/{token}" if base == "/" else f"{base}/{token}"
+# The identity source-claim authentication lives in curate_gate_identity_gate;
+# the mapping gate below and the test fixtures reach these through the facade.
+_mapping_value = _identity_gate._mapping_value
+_mapping_pointer = _identity_gate._mapping_pointer
+_identity_owner_specs = _identity_gate._identity_owner_specs
+_source_original_ids = _identity_gate._source_original_ids
+_source_original_provenance = _identity_gate._source_original_provenance
+_claimed_identity_source_evidence = _identity_gate._claimed_identity_source_evidence
+_authenticate_identity_source_claims = _identity_gate._authenticate_identity_source_claims
 
 
 def _canonical_identity_output_id(
@@ -1631,189 +894,6 @@ def _canonical_identity_output_id(
         None,
     )
     return curate_identity.canonical_id(source, kind, owner_path)
-
-
-def _identity_owner_specs(
-    source_record: dict[str, Any],
-    kind: str,
-    label: str,
-) -> list[tuple[str, dict[str, Any]]]:
-    if kind == "thalamic":
-        return [("/", source_record)]
-    if kind == "preference":
-        paths = ("/chosen", "/rejected")
-    elif kind == "bridge_pair":
-        paths = ("/language_view/trajectory",)
-    else:
-        return []
-    owners: list[tuple[str, dict[str, Any]]] = []
-    for path in paths:
-        owner = _mapping_value(source_record, path, f"{label}{path}")
-        if not isinstance(owner, dict):
-            raise GateError(f"{label}{path} does not identify a source object")
-        owners.append((path, owner))
-    return owners
-
-
-def _source_original_ids(
-    source_record: dict[str, Any], owner_path: str, label: str
-) -> list[dict[str, Any]]:
-    owner = _mapping_value(source_record, owner_path, f"{label}.owner_path")
-    if not isinstance(owner, dict):
-        raise GateError(f"{label}.owner_path does not identify a source object")
-    originals: list[dict[str, Any]] = []
-    for container, base in (
-        (owner, owner_path),
-        (owner.get("meta"), _mapping_pointer(owner_path, "meta")),
-        (owner.get("state"), _mapping_pointer(owner_path, "state")),
-    ):
-        if not isinstance(container, dict):
-            continue
-        for key in curate_identity.LEGACY_ID_KEYS:
-            if key in container:
-                originals.append(
-                    {
-                        "path": _mapping_pointer(base, key),
-                        "value": copy.deepcopy(container[key]),
-                    }
-                )
-    return originals
-
-
-def _source_original_provenance(
-    source_record: dict[str, Any], owner_path: str, state_path: str | None, label: str
-) -> dict[str, Any]:
-    owner = _mapping_value(source_record, owner_path, f"{label}.owner_path")
-    if not isinstance(owner, dict):
-        raise GateError(f"{label}.owner_path does not identify a source object")
-    owner_snapshot = {
-        "present": "provenance" in owner,
-        "value": copy.deepcopy(owner.get("provenance")),
-    }
-    if state_path is None:
-        return {"owner_provenance": owner_snapshot}
-    state = _mapping_value(source_record, state_path, f"{label}.state_path")
-    if not isinstance(state, dict):
-        raise GateError(f"{label}.state_path does not identify a source object")
-    return {
-        "sim_or_real": {
-            "present": "sim_or_real" in state,
-            "value": copy.deepcopy(state.get("sim_or_real")),
-        },
-        "state_provenance": {
-            "present": "provenance" in state,
-            "value": copy.deepcopy(state.get("provenance")),
-        },
-        "owner_provenance": owner_snapshot,
-    }
-
-
-def _claimed_identity_source_evidence(entry: dict[str, Any], label: str) -> dict[str, Any]:
-    id_mappings = entry.get("id_mappings")
-    provenance_mappings = entry.get("provenance_mappings")
-    if not isinstance(id_mappings, list) or not id_mappings:
-        raise GateError(f"{label}.id_mappings must be non-empty")
-    if not isinstance(provenance_mappings, list) or not provenance_mappings:
-        raise GateError(f"{label}.provenance_mappings must be non-empty")
-    claimed_ids: list[dict[str, Any]] = []
-    for index, mapping in enumerate(id_mappings, 1):
-        mapping_label = f"{label}.id_mappings[{index}]"
-        if not isinstance(mapping, dict):
-            raise GateError(f"{mapping_label} must be an object")
-        originals = mapping.get("original_ids")
-        if not isinstance(originals, list):
-            raise GateError(f"{mapping_label}.original_ids must be a list")
-        claimed_ids.append(
-            {
-                "owner_path": mapping.get("owner_path"),
-                "original_ids": copy.deepcopy(originals),
-            }
-        )
-    claimed_provenance: list[dict[str, Any]] = []
-    for index, mapping in enumerate(provenance_mappings, 1):
-        mapping_label = f"{label}.provenance_mappings[{index}]"
-        if not isinstance(mapping, dict):
-            raise GateError(f"{mapping_label} must be an object")
-        original = mapping.get("original")
-        if not isinstance(original, dict):
-            raise GateError(f"{mapping_label}.original must be an object")
-        claimed_provenance.append(
-            {
-                "owner_path": mapping.get("owner_path"),
-                "state_path": mapping.get("state_path"),
-                "original": copy.deepcopy(original),
-            }
-        )
-    return {
-        "id_mappings": claimed_ids,
-        "provenance_mappings": claimed_provenance,
-    }
-
-
-def _authenticate_identity_source_claims(
-    entry: dict[str, Any], source_record: Any, label: str
-) -> str:
-    if not isinstance(source_record, dict):
-        raise GateError(f"{label} cannot authenticate identity claims for a non-object source")
-    claimed = _claimed_identity_source_evidence(entry, label)
-    try:
-        kind = curate_identity.record_kind(source_record)
-    except curate_identity.IdentityCurationError as exc:
-        raise GateError(f"{label} source record has no supported identity shape: {exc}") from exc
-    owners = _identity_owner_specs(source_record, kind, label)
-    id_owner_paths = ["/", *(path for path, _owner in owners if path != "/")]
-    expected_ids = [
-        {
-            "owner_path": owner_path,
-            "original_ids": _source_original_ids(
-                source_record,
-                owner_path,
-                f"{label}.id_mappings[{index}]",
-            ),
-        }
-        for index, owner_path in enumerate(id_owner_paths, 1)
-    ]
-
-    state_owners = owners or [("/", source_record)]
-    use_state = any(
-        isinstance(state := owner.get("state"), dict)
-        and ("sim_or_real" in state or "provenance" in state)
-        for _owner_path, owner in state_owners
-    )
-    provenance_paths: list[tuple[str, str | None]]
-    if use_state:
-        provenance_paths = []
-        for owner_path, owner in state_owners:
-            state_path = _mapping_pointer(owner_path, "state")
-            if not isinstance(owner.get("state"), dict):
-                raise GateError(f"{label}{state_path} does not identify a source object")
-            provenance_paths.append((owner_path, state_path))
-        if kind in {"preference", "bridge_pair", "episode", "safety_case", "multi_agent"}:
-            provenance_paths.append(("/", None))
-    else:
-        provenance_paths = [("/", None)]
-    expected_provenance = [
-        {
-            "owner_path": owner_path,
-            "state_path": state_path,
-            "original": _source_original_provenance(
-                source_record,
-                owner_path,
-                state_path,
-                f"{label}.provenance_mappings[{index}]",
-            ),
-        }
-        for index, (owner_path, state_path) in enumerate(provenance_paths, 1)
-    ]
-    expected = {
-        "id_mappings": expected_ids,
-        "provenance_mappings": expected_provenance,
-    }
-    if not _same_json(claimed, expected):
-        raise GateError(
-            f"{label} original identity evidence does not match the source record or is incomplete"
-        )
-    return record_sha256(expected)
 
 
 def _identity_mapping_gate(
