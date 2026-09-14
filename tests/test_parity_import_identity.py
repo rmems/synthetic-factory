@@ -55,5 +55,48 @@ class OneObjectAcrossImportForms(unittest.TestCase):
                 self.assertEqual(report["split_siblings"], [], report)
 
 
+class InProcessPackageForm(unittest.TestCase):
+    """The package form taken after the CLI form, in this very process.
+
+    The spawned-interpreter probes above prove each order in isolation; this
+    class takes the package branch of every sibling's prelude here, where the
+    suite has already imported the CLI form, so the branch and the loaders it
+    relies on run under the same process the coverage report is taken from.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if str(parity_import_probe.REPO) not in sys.path:
+            sys.path.append(str(parity_import_probe.REPO))
+        sys.path.insert(0, str(parity_import_probe.PIPELINES))
+        import importlib
+
+        cls.bare = {name: importlib.import_module(name) for name in parity_import_probe.FACADES}
+        cls.packaged = {
+            name: importlib.import_module(f"pipelines.{name}")
+            for name in parity_import_probe.FACADES
+        }
+
+    def test_each_facade_is_one_object_under_both_names(self):
+        for name in parity_import_probe.FACADES:
+            with self.subTest(facade=name):
+                self.assertIs(self.packaged[name], self.bare[name])
+
+    def test_every_sibling_binds_both_names_in_process(self):
+        self.assertEqual(parity_import_probe._split_siblings(), [])
+
+    def test_every_registered_loader_returns_the_bound_sibling(self):
+        # _join_package_sibling reaches a sibling through its loader while
+        # the package child is still initializing; each loader must hand back
+        # the same object the bare name is bound to, never a second copy.
+        import pipelines
+
+        for name in parity_import_probe.FLAT_SIBLINGS:
+            with self.subTest(sibling=name):
+                loader = pipelines._PACKAGE_SIBLING_LOADERS[name]
+                self.assertIs(loader(), sys.modules[name])
+                self.assertIs(loader(), sys.modules[f"pipelines.{name}"])
+
+
 if __name__ == "__main__":
     unittest.main()
