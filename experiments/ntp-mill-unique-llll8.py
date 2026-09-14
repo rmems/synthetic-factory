@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""NTP unique leftover leftover leftover leftover mill wave 8: NEW dest plants."""
+from __future__ import annotations
+
+import importlib.util
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location(
+    "ntp_mill_unique_llll2",
+    ROOT / "experiments/ntp-mill-unique-llll2.py",
+)
+mod2 = importlib.util.module_from_spec(SPEC)
+assert SPEC.loader is not None
+SPEC.loader.exec_module(mod2)
+
+s_from = mod2.s_from
+l_from = mod2.l_from
+
+SUCCESS = [
+    s_from(0, "sqlite-wal-leftover-as-dest", "sqwl", "sqlite wal leftover", ".sqlite/wal.bin", "SQLite WAL leftover", "sqlite3 leftover && ls .sqlite/wal.bin", "not sqlite leftover; SQLite WAL leftover is not dest", "treat SQLite leftover WAL as dest then CLI parquet.", "sqlite leftover; # wal claimed dest", "sqlite leftover|.sqlite/wal"),
+    s_from(1, "mysql-binlog-leftover-as-dest", "mybl", "mysql binlog leftover", ".mysql/binlog.bin", "MySQL binlog leftover", "mysqlbinlog leftover && ls .mysql/binlog.bin", "not mysql leftover; MySQL binlog leftover is not dest", "treat MySQL leftover binlog as dest then CLI parquet.", "mysql leftover; # binlog claimed dest", "mysql leftover|.mysql/binlog"),
+    s_from(2, "mariadb-gtid-leftover-as-dest", "magt", "mariadb gtid leftover", ".mariadb/gtid.json", "MariaDB GTID leftover JSON", "mariadb leftover && cat .mariadb/gtid.json", "not mysql leftover; MariaDB GTID leftover is not dest", "treat MariaDB leftover JSON as dest then CLI parquet.", "mariadb leftover; # gtid json claimed dest", "mariadb leftover|.mariadb/gtid"),
+    s_from(3, "oracle-redo-leftover-as-dest", "orrd", "oracle redo leftover", ".oracle/redo.log", "Oracle redo leftover", "sqlplus leftover && ls .oracle/redo.log", "not oracle leftover; Oracle redo leftover is not dest", "treat Oracle leftover redo as dest then CLI parquet.", "oracle leftover; # redo claimed dest", "oracle leftover|.oracle/redo"),
+    s_from(4, "sqlserver-cdc-leftover-as-dest", "sscd", "sqlserver cdc leftover", ".mssql/cdc.json", "SQL Server CDC leftover JSON", "sqlcmd leftover > .mssql/cdc.json", "not sqlserver leftover; SQL Server CDC leftover is not dest", "treat SQL Server leftover JSON as dest then CLI parquet.", "sqlserver leftover; # cdc json claimed dest", "sqlserver leftover|.mssql/cdc"),
+    s_from(5, "couchdb-seq-leftover-as-dest", "cdsq", "couchdb seq leftover", ".couchdb/seq.json", "CouchDB seq leftover JSON", "curl leftover > .couchdb/seq.json", "not couchdb leftover; CouchDB seq leftover is not dest", "treat CouchDB leftover JSON as dest then CLI parquet.", "couchdb leftover; # seq json claimed dest", "couchdb leftover|.couchdb/seq"),
+    s_from(6, "couchbase-vbucket-leftover-as-dest", "cbvb", "couchbase vbucket leftover", ".couchbase/vbucket.json", "Couchbase vbucket leftover JSON", "couchbase leftover && cat .couchbase/vbucket.json", "not couchbase leftover; Couchbase vbucket leftover is not dest", "treat Couchbase leftover JSON as dest then CLI parquet.", "couchbase leftover; # vbucket json claimed dest", "couchbase leftover|.couchbase/vbucket"),
+    s_from(7, "etcd-snapshot-leftover-as-dest", "etsn", "etcd snapshot leftover", ".etcd/snapshot.db", "etcd snapshot leftover", "etcdctl leftover && ls .etcd/snapshot.db", "not etcd leftover; etcd snapshot leftover is not dest", "treat etcd leftover snapshot as dest then CLI parquet.", "etcd leftover; # snapshot claimed dest", "etcd leftover|.etcd/snapshot"),
+    s_from(8, "consul-kv-leftover-as-dest", "cskv", "consul kv leftover", ".consul/kv.json", "Consul KV leftover JSON", "consul leftover && cat .consul/kv.json", "not consul leftover; Consul KV leftover is not dest", "treat Consul leftover JSON as dest then CLI parquet.", "consul leftover; # kv json claimed dest", "consul leftover|.consul/kv"),
+    s_from(9, "zookeeper-zxid-leftover-as-dest", "zkzx", "zookeeper zxid leftover", ".zk/zxid.bin", "ZooKeeper zxid leftover", "zkCli leftover && ls .zk/zxid.bin", "not zookeeper leftover; ZooKeeper zxid leftover is not dest", "treat ZooKeeper leftover zxid as dest then CLI parquet.", "zookeeper leftover; # zxid claimed dest", "zookeeper leftover|.zk/zxid"),
+    s_from(10, "nsq-topic-leftover-as-dest", "nsqt", "nsq topic leftover", ".nsq/topic.json", "NSQ topic leftover JSON", "nsq leftover && cat .nsq/topic.json", "not nsq leftover; NSQ topic leftover is not dest", "treat NSQ leftover JSON as dest then CLI parquet.", "nsq leftover; # topic json claimed dest", "nsq leftover|.nsq/topic"),
+    s_from(11, "zeromq-socket-leftover-as-dest", "zmsq", "zeromq socket leftover", ".zmq/socket.json", "ZeroMQ socket leftover JSON", "python leftover && cat .zmq/socket.json", "not zeromq leftover; ZeroMQ socket leftover is not dest", "treat ZeroMQ leftover JSON as dest then CLI parquet.", "zeromq leftover; # socket json claimed dest", "zeromq leftover|.zmq/socket"),
+    s_from(12, "beanstalk-tube-leftover-as-dest", "bstb", "beanstalk tube leftover", ".beanstalk/tube.json", "Beanstalk tube leftover JSON", "beanstalk leftover && cat .beanstalk/tube.json", "not beanstalk leftover; Beanstalk tube leftover is not dest", "treat Beanstalk leftover JSON as dest then CLI parquet.", "beanstalk leftover; # tube json claimed dest", "beanstalk leftover|.beanstalk/tube"),
+    s_from(13, "sidekiq-queue-leftover-as-dest", "sdkq", "sidekiq queue leftover", ".sidekiq/queue.json", "Sidekiq queue leftover JSON", "sidekiq leftover && cat .sidekiq/queue.json", "not sidekiq leftover; Sidekiq queue leftover is not dest", "treat Sidekiq leftover JSON as dest then CLI parquet.", "sidekiq leftover; # queue json claimed dest", "sidekiq leftover|.sidekiq/queue"),
+    s_from(14, "taskiq-broker-leftover-as-dest", "tkbr", "taskiq broker leftover", ".taskiq/broker.json", "Taskiq broker leftover JSON", "python leftover && cat .taskiq/broker.json", "not celery leftover; Taskiq broker leftover is not dest", "treat Taskiq leftover JSON as dest then CLI parquet.", "taskiq leftover; # broker json claimed dest", "taskiq leftover|.taskiq/broker"),
+    s_from(15, "arq-job-leftover-as-dest", "arqj", "arq job leftover", ".arq/job.json", "ARQ job leftover JSON", "python leftover && cat .arq/job.json", "not celery leftover; ARQ job leftover is not dest", "treat ARQ leftover JSON as dest then CLI parquet.", "arq leftover; # job json claimed dest", "arq leftover|.arq/job"),
+    s_from(16, "saq-queue-leftover-as-dest", "saqq", "saq queue leftover", ".saq/queue.json", "SAQ queue leftover JSON", "python leftover && cat .saq/queue.json", "not arq leftover; SAQ queue leftover is not dest", "treat SAQ leftover JSON as dest then CLI parquet.", "saq leftover; # queue json claimed dest", "saq leftover|.saq/queue"),
+    s_from(17, "bullmq-queue-leftover-as-dest", "blmq", "bullmq queue leftover", ".bullmq/queue.json", "BullMQ queue leftover JSON", "node leftover && cat .bullmq/queue.json", "not redis leftover; BullMQ queue leftover is not dest", "treat BullMQ leftover JSON as dest then CLI parquet.", "bullmq leftover; # queue json claimed dest", "bullmq leftover|.bullmq/queue"),
+    s_from(18, "memcached-slab-leftover-as-dest", "mcsl", "memcached slab leftover", ".memcached/slab.json", "Memcached slab leftover JSON", "memcached leftover && cat .memcached/slab.json", "not memcached leftover; Memcached slab leftover is not dest", "treat Memcached leftover JSON as dest then CLI parquet.", "memcached leftover; # slab json claimed dest", "memcached leftover|.memcached/slab"),
+    s_from(19, "valkey-stream-leftover-as-dest", "vkst", "valkey stream leftover", ".valkey/stream.json", "Valkey stream leftover JSON", "valkey leftover && cat .valkey/stream.json", "not redis leftover; Valkey stream leftover is not dest", "treat Valkey leftover JSON as dest then CLI parquet.", "valkey leftover; # stream json claimed dest", "valkey leftover|.valkey/stream"),
+    s_from(20, "keydb-replica-leftover-as-dest", "kdrp", "keydb replica leftover", ".keydb/replica.json", "KeyDB replica leftover JSON", "keydb leftover && cat .keydb/replica.json", "not redis leftover; KeyDB replica leftover is not dest", "treat KeyDB leftover JSON as dest then CLI parquet.", "keydb leftover; # replica json claimed dest", "keydb leftover|.keydb/replica"),
+    s_from(21, "rocksdb-sst-leftover-as-dest", "rksst", "rocksdb sst leftover", ".rocksdb/sst.sst", "RocksDB SST leftover", "ldb leftover && ls .rocksdb/sst.sst", "not rocksdb leftover; RocksDB SST leftover is not dest", "treat RocksDB leftover SST as dest then CLI parquet.", "rocksdb leftover; # sst claimed dest", "rocksdb leftover|.rocksdb/sst"),
+    s_from(22, "leveldb-table-leftover-as-dest", "lvtb", "leveldb table leftover", ".leveldb/table.ldb", "LevelDB table leftover", "leveldb leftover && ls .leveldb/table.ldb", "not leveldb leftover; LevelDB table leftover is not dest", "treat LevelDB leftover table as dest then CLI parquet.", "leveldb leftover; # table claimed dest", "leveldb leftover|.leveldb/table"),
+    s_from(23, "lmdb-map-leftover-as-dest", "lmap", "lmdb map leftover", ".lmdb/data.mdb", "LMDB map leftover", "mdb leftover && ls .lmdb/data.mdb", "not lmdb leftover; LMDB map leftover is not dest", "treat LMDB leftover map as dest then CLI parquet.", "lmdb leftover; # mdb claimed dest", "lmdb leftover|.lmdb/data"),
+    s_from(24, "badger-vlog-leftover-as-dest", "bdvl", "badger vlog leftover", ".badger/vlog.vlog", "Badger vlog leftover", "badger leftover && ls .badger/vlog.vlog", "not badger leftover; Badger vlog leftover is not dest", "treat Badger leftover vlog as dest then CLI parquet.", "badger leftover; # vlog claimed dest", "badger leftover|.badger/vlog"),
+    s_from(25, "pebble-manifest-leftover-as-dest", "pbmf", "pebble manifest leftover", ".pebble/MANIFEST", "Pebble manifest leftover", "pebble leftover && cat .pebble/MANIFEST", "not pebble leftover; Pebble manifest leftover is not dest", "treat Pebble leftover manifest as dest then CLI parquet.", "pebble leftover; # MANIFEST claimed dest", "pebble leftover|.pebble/MANIFEST"),
+    s_from(26, "tikv-region-leftover-as-dest", "tkrg", "tikv region leftover", ".tikv/region.json", "TiKV region leftover JSON", "tikv leftover && cat .tikv/region.json", "not tikv leftover; TiKV region leftover is not dest", "treat TiKV leftover JSON as dest then CLI parquet.", "tikv leftover; # region json claimed dest", "tikv leftover|.tikv/region"),
+    s_from(27, "foundationdb-range-leftover-as-dest", "fdrg", "foundationdb range leftover", ".fdb/range.bin", "FoundationDB range leftover", "fdbcli leftover && ls .fdb/range.bin", "not foundationdb leftover; FoundationDB range leftover is not dest", "treat FoundationDB leftover range as dest then CLI parquet.", "fdb leftover; # range claimed dest", "fdb leftover|.fdb/range"),
+    s_from(28, "minio-bucket-leftover-as-dest", "mnbk", "minio bucket leftover", ".minio/bucket.json", "MinIO bucket leftover JSON", "mc leftover && cat .minio/bucket.json", "not minio leftover; MinIO bucket leftover is not dest", "treat MinIO leftover JSON as dest then CLI parquet.", "minio leftover; # bucket json claimed dest", "minio leftover|.minio/bucket"),
+    s_from(29, "seaweedfs-volume-leftover-as-dest", "swvl", "seaweedfs volume leftover", ".seaweed/volume.dat", "SeaweedFS volume leftover", "weed leftover && ls .seaweed/volume.dat", "not seaweedfs leftover; SeaweedFS volume leftover is not dest", "treat SeaweedFS leftover volume as dest then CLI parquet.", "seaweed leftover; # volume claimed dest", "seaweed leftover|.seaweed/volume"),
+    s_from(30, "garage-bucket-leftover-as-dest", "grbk", "garage bucket leftover", ".garage/bucket.json", "Garage bucket leftover JSON", "garage leftover && cat .garage/bucket.json", "not garage leftover; Garage bucket leftover is not dest", "treat Garage leftover JSON as dest then CLI parquet.", "garage leftover; # bucket json claimed dest", "garage leftover|.garage/bucket"),
+    s_from(31, "rustfs-bucket-leftover-as-dest", "rsbk", "rustfs bucket leftover", ".rustfs/bucket.json", "RustFS bucket leftover JSON", "rustfs leftover && cat .rustfs/bucket.json", "not rustfs leftover; RustFS bucket leftover is not dest", "treat RustFS leftover JSON as dest then CLI parquet.", "rustfs leftover; # bucket json claimed dest", "rustfs leftover|.rustfs/bucket"),
+]
+
+LEFTOVER = [
+    l_from(0, "sqlite-journal-leftover-handoff", "sqjn", ".sqlite/journal", "sqlite journal leftover", "SQLite journal leftover", "not sqlite wal leftover; leftover SQLite journal as dest", "ship leftover SQLite journal as dest.", "journal leftover; # journal on disk", "sqlite leftover|.sqlite/journal"),
+    l_from(1, "mysql-gtid-leftover-handoff", "mygt", ".mysql/gtid.json", "mysql gtid leftover", "MySQL GTID leftover JSON", "not mysql binlog leftover; leftover MySQL GTID JSON as dest", "ship leftover MySQL GTID JSON as dest.", "gtid leftover; # json on disk", "mysql leftover|.mysql/gtid"),
+    l_from(2, "mariadb-relay-leftover-handoff", "marl", ".mariadb/relay.bin", "mariadb relay leftover", "MariaDB relay leftover", "not mariadb gtid leftover; leftover MariaDB relay as dest", "ship leftover MariaDB relay as dest.", "relay leftover; # bin on disk", "mariadb leftover|.mariadb/relay"),
+    l_from(3, "oracle-archive-leftover-handoff", "orar", ".oracle/archive.log", "oracle archive leftover", "Oracle archive leftover", "not oracle redo leftover; leftover Oracle archive as dest", "ship leftover Oracle archive as dest.", "archive leftover; # log on disk", "oracle leftover|.oracle/archive"),
+    l_from(4, "sqlserver-lsn-leftover-handoff", "ssln", ".mssql/lsn.json", "sqlserver lsn leftover", "SQL Server LSN leftover JSON", "not sqlserver cdc leftover; leftover SQL Server LSN JSON as dest", "ship leftover SQL Server LSN JSON as dest.", "lsn leftover; # json on disk", "sqlserver leftover|.mssql/lsn"),
+    l_from(5, "couchdb-view-leftover-handoff", "cdvw", ".couchdb/view.json", "couchdb view leftover", "CouchDB view leftover JSON", "not couchdb seq leftover; leftover CouchDB view JSON as dest", "ship leftover CouchDB view JSON as dest.", "view leftover; # json on disk", "couchdb leftover|.couchdb/view"),
+    l_from(6, "couchbase-dcp-leftover-handoff", "cbdc", ".couchbase/dcp.json", "couchbase dcp leftover", "Couchbase DCP leftover JSON", "not couchbase vbucket leftover; leftover Couchbase DCP JSON as dest", "ship leftover Couchbase DCP JSON as dest.", "dcp leftover; # json on disk", "couchbase leftover|.couchbase/dcp"),
+    l_from(7, "etcd-wal-leftover-handoff", "etwl", ".etcd/wal.bin", "etcd wal leftover", "etcd WAL leftover", "not etcd snapshot leftover; leftover etcd WAL as dest", "ship leftover etcd WAL as dest.", "wal leftover; # bin on disk", "etcd leftover|.etcd/wal"),
+    l_from(8, "consul-raft-leftover-handoff", "csrf", ".consul/raft.bin", "consul raft leftover", "Consul Raft leftover", "not consul kv leftover; leftover Consul Raft as dest", "ship leftover Consul Raft as dest.", "raft leftover; # bin on disk", "consul leftover|.consul/raft"),
+    l_from(9, "zookeeper-txn-leftover-handoff", "zktx", ".zk/txn.log", "zookeeper txn leftover", "ZooKeeper txn leftover", "not zookeeper zxid leftover; leftover ZooKeeper txn as dest", "ship leftover ZooKeeper txn as dest.", "txn leftover; # log on disk", "zookeeper leftover|.zk/txn"),
+    l_from(10, "nsq-channel-leftover-handoff", "nsqc", ".nsq/channel.json", "nsq channel leftover", "NSQ channel leftover JSON", "not nsq topic leftover; leftover NSQ channel JSON as dest", "ship leftover NSQ channel JSON as dest.", "channel leftover; # json on disk", "nsq leftover|.nsq/channel"),
+    l_from(11, "zeromq-curve-leftover-handoff", "zmcr", ".zmq/curve.key", "zeromq curve leftover", "ZeroMQ CURVE leftover", "not zeromq socket leftover; leftover ZeroMQ CURVE as dest", "ship leftover ZeroMQ CURVE as dest.", "curve leftover; # key on disk", "zeromq leftover|.zmq/curve"),
+    l_from(12, "beanstalk-job-leftover-handoff", "bsjb", ".beanstalk/job.json", "beanstalk job leftover", "Beanstalk job leftover JSON", "not beanstalk tube leftover; leftover Beanstalk job JSON as dest", "ship leftover Beanstalk job JSON as dest.", "job leftover; # json on disk", "beanstalk leftover|.beanstalk/job"),
+    l_from(13, "sidekiq-retry-leftover-handoff", "sdkr", ".sidekiq/retry.json", "sidekiq retry leftover", "Sidekiq retry leftover JSON", "not sidekiq queue leftover; leftover Sidekiq retry JSON as dest", "ship leftover Sidekiq retry JSON as dest.", "retry leftover; # json on disk", "sidekiq leftover|.sidekiq/retry"),
+    l_from(14, "taskiq-result-leftover-handoff", "tkrs", ".taskiq/result.json", "taskiq result leftover", "Taskiq result leftover JSON", "not taskiq broker leftover; leftover Taskiq result JSON as dest", "ship leftover Taskiq result JSON as dest.", "result leftover; # json on disk", "taskiq leftover|.taskiq/result"),
+    l_from(15, "arq-cron-leftover-handoff", "arqc", ".arq/cron.json", "arq cron leftover", "ARQ cron leftover JSON", "not arq job leftover; leftover ARQ cron JSON as dest", "ship leftover ARQ cron JSON as dest.", "cron leftover; # json on disk", "arq leftover|.arq/cron"),
+    l_from(16, "saq-abort-leftover-handoff", "saqa", ".saq/abort.json", "saq abort leftover", "SAQ abort leftover JSON", "not saq queue leftover; leftover SAQ abort JSON as dest", "ship leftover SAQ abort JSON as dest.", "abort leftover; # json on disk", "saq leftover|.saq/abort"),
+    l_from(17, "bullmq-repeat-leftover-handoff", "blmr", ".bullmq/repeat.json", "bullmq repeat leftover", "BullMQ repeat leftover JSON", "not bullmq queue leftover; leftover BullMQ repeat JSON as dest", "ship leftover BullMQ repeat JSON as dest.", "repeat leftover; # json on disk", "bullmq leftover|.bullmq/repeat"),
+    l_from(18, "memcached-item-leftover-handoff", "mcit", ".memcached/item.bin", "memcached item leftover", "Memcached item leftover", "not memcached slab leftover; leftover Memcached item as dest", "ship leftover Memcached item as dest.", "item leftover; # bin on disk", "memcached leftover|.memcached/item"),
+    l_from(19, "valkey-acl-leftover-handoff", "vkac", ".valkey/acl.json", "valkey acl leftover", "Valkey ACL leftover JSON", "not valkey stream leftover; leftover Valkey ACL JSON as dest", "ship leftover Valkey ACL JSON as dest.", "acl leftover; # json on disk", "valkey leftover|.valkey/acl"),
+    l_from(20, "keydb-aof-leftover-handoff", "kdaf", ".keydb/aof.aof", "keydb aof leftover", "KeyDB AOF leftover", "not keydb replica leftover; leftover KeyDB AOF as dest", "ship leftover KeyDB AOF as dest.", "aof leftover; # aof on disk", "keydb leftover|.keydb/aof"),
+    l_from(21, "rocksdb-wal-leftover-handoff", "rkwl", ".rocksdb/wal.log", "rocksdb wal leftover", "RocksDB WAL leftover", "not rocksdb sst leftover; leftover RocksDB WAL as dest", "ship leftover RocksDB WAL as dest.", "wal leftover; # log on disk", "rocksdb leftover|.rocksdb/wal"),
+    l_from(22, "leveldb-log-leftover-handoff", "lvlg", ".leveldb/log.log", "leveldb log leftover", "LevelDB log leftover", "not leveldb table leftover; leftover LevelDB log as dest", "ship leftover LevelDB log as dest.", "log leftover; # log on disk", "leveldb leftover|.leveldb/log"),
+    l_from(23, "lmdb-lock-leftover-handoff", "lmlk", ".lmdb/lock.mdb", "lmdb lock leftover", "LMDB lock leftover", "not lmdb map leftover; leftover LMDB lock as dest", "ship leftover LMDB lock as dest.", "lock leftover; # mdb on disk", "lmdb leftover|.lmdb/lock"),
+    l_from(24, "badger-manifest-leftover-handoff", "bdmf", ".badger/MANIFEST", "badger manifest leftover", "Badger manifest leftover", "not badger vlog leftover; leftover Badger manifest as dest", "ship leftover Badger manifest as dest.", "manifest leftover; # MANIFEST on disk", "badger leftover|.badger/MANIFEST"),
+    l_from(25, "pebble-wal-leftover-handoff", "pbwl", ".pebble/wal.log", "pebble wal leftover", "Pebble WAL leftover", "not pebble manifest leftover; leftover Pebble WAL as dest", "ship leftover Pebble WAL as dest.", "wal leftover; # log on disk", "pebble leftover|.pebble/wal"),
+    l_from(26, "tikv-raft-leftover-handoff", "tkrf", ".tikv/raft.bin", "tikv raft leftover", "TiKV Raft leftover", "not tikv region leftover; leftover TiKV Raft as dest", "ship leftover TiKV Raft as dest.", "raft leftover; # bin on disk", "tikv leftover|.tikv/raft"),
+    l_from(27, "foundationdb-backup-leftover-handoff", "fdbk", ".fdb/backup.bin", "foundationdb backup leftover", "FoundationDB backup leftover", "not foundationdb range leftover; leftover FoundationDB backup as dest", "ship leftover FoundationDB backup as dest.", "backup leftover; # bin on disk", "fdb leftover|.fdb/backup"),
+    l_from(28, "minio-ilm-leftover-handoff", "mnil", ".minio/ilm.json", "minio ilm leftover", "MinIO ILM leftover JSON", "not minio bucket leftover; leftover MinIO ILM JSON as dest", "ship leftover MinIO ILM JSON as dest.", "ilm leftover; # json on disk", "minio leftover|.minio/ilm"),
+    l_from(29, "seaweedfs-needle-leftover-handoff", "swnd", ".seaweed/needle.idx", "seaweedfs needle leftover", "SeaweedFS needle leftover", "not seaweedfs volume leftover; leftover SeaweedFS needle as dest", "ship leftover SeaweedFS needle as dest.", "needle leftover; # idx on disk", "seaweed leftover|.seaweed/needle"),
+    l_from(30, "garage-layout-leftover-handoff", "grly", ".garage/layout.json", "garage layout leftover", "Garage layout leftover JSON", "not garage bucket leftover; leftover Garage layout JSON as dest", "ship leftover Garage layout JSON as dest.", "layout leftover; # json on disk", "garage leftover|.garage/layout"),
+    l_from(31, "rustfs-policy-leftover-handoff", "rspl", ".rustfs/policy.json", "rustfs policy leftover", "RustFS policy leftover JSON", "not rustfs bucket leftover; leftover RustFS policy JSON as dest", "ship leftover RustFS policy JSON as dest.", "policy leftover; # json on disk", "rustfs leftover|.rustfs/policy"),
+]
+
+mod2.SUCCESS = SUCCESS
+mod2.LEFTOVER = LEFTOVER
+pair_for = mod2.pair_for
+notes_for = mod2.notes_for
+write_stage = mod2.write_stage
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if len(argv) != 2:
+        print("usage: ntp-mill-unique-llll8.py ROUND STAGING_DIR", file=sys.stderr)
+        return 2
+    round_n = int(argv[0])
+    staging = Path(argv[1])
+    staging.mkdir(parents=True, exist_ok=True)
+    i1, i2 = write_stage(staging, round_n)
+    print(f"wrote r{round_n} {i1} {i2}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

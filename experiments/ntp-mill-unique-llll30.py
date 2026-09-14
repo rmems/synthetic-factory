@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""NTP unique leftover leftover leftover leftover mill wave 30: NEW dest plants. BAN dnsmasq leftover clones."""
+from __future__ import annotations
+
+import importlib.util
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location(
+    "ntp_mill_unique_llll2",
+    ROOT / "experiments/ntp-mill-unique-llll2.py",
+)
+mod2 = importlib.util.module_from_spec(SPEC)
+assert SPEC.loader is not None
+SPEC.loader.exec_module(mod2)
+
+s_from = mod2.s_from
+l_from = mod2.l_from
+
+SUCCESS = [
+    s_from(0, "redis-sentinel-leftover-as-dest", "rdsn", "redis sentinel leftover", "sentinel.conf.bak", "redis sentinel leftover", "redis leftover && ls sentinel.conf.bak", "not redis-sentinel leftover; redis sentinel leftover is not dest", "treat leftover redis sentinel as dest then CLI parquet.", "redis leftover; # sentinel.conf.bak claimed dest", "redis leftover|sentinel.conf.bak"),
+    s_from(1, "memcached-conf-leftover-as-dest", "mccf", "memcached conf leftover", "memcached.conf.bak", "memcached conf leftover", "memcached leftover && ls memcached.conf.bak", "not memcached-conf leftover; memcached conf leftover is not dest", "treat leftover memcached conf as dest then CLI parquet.", "memcached leftover; # memcached.conf.bak claimed dest", "memcached leftover|memcached.conf.bak"),
+    s_from(2, "hazelcast-map-leftover-as-dest", "hzmp", "hazelcast map leftover", "hazelcast.xml.bak", "hazelcast map leftover", "hazelcast leftover && ls hazelcast.xml.bak", "not hazelcast-map leftover; hazelcast map leftover is not dest", "treat leftover hazelcast map as dest then CLI parquet.", "hazelcast leftover; # hazelcast.xml.bak claimed dest", "hazelcast leftover|hazelcast.xml.bak"),
+    s_from(3, "ignite-work-leftover-as-dest", "igwk", "ignite work leftover", "ignite/work", "ignite work leftover", "ignite leftover && ls ignite/work", "not ignite-work leftover; ignite work leftover is not dest", "treat leftover ignite work as dest then CLI parquet.", "ignite leftover; # ignite/work claimed dest", "ignite leftover|ignite/work"),
+    s_from(4, "ehcache-xml-leftover-as-dest", "ehxm", "ehcache xml leftover", "ehcache.xml.bak", "ehcache xml leftover", "ehcache leftover && ls ehcache.xml.bak", "not ehcache-xml leftover; ehcache xml leftover is not dest", "treat leftover ehcache xml as dest then CLI parquet.", "ehcache leftover; # ehcache.xml.bak claimed dest", "ehcache leftover|ehcache.xml.bak"),
+    s_from(5, "caffeine-stats-leftover-as-dest", "cfst2", "caffeine stats leftover", "caffeine.stats", "caffeine stats leftover", "caffeine leftover && ls caffeine.stats", "not caffeine-stats leftover; caffeine stats leftover is not dest", "treat leftover caffeine stats as dest then CLI parquet.", "caffeine leftover; # caffeine.stats claimed dest", "caffeine leftover|caffeine.stats"),
+    s_from(6, "guava-cache-leftover-as-dest", "gvch", "guava cache leftover", "guava.cache", "guava cache leftover", "guava leftover && ls guava.cache", "not guava-cache leftover; guava cache leftover is not dest", "treat leftover guava cache as dest then CLI parquet.", "guava leftover; # guava.cache claimed dest", "guava leftover|guava.cache"),
+    s_from(7, "varnish-bin-leftover-as-dest", "vabn", "varnish bin leftover", "varnish.bin", "varnish bin leftover", "varnish leftover && ls varnish.bin", "not varnish-bin leftover; varnish bin leftover is not dest", "treat leftover varnish bin as dest then CLI parquet.", "varnish leftover; # varnish.bin claimed dest", "varnish leftover|varnish.bin"),
+    s_from(8, "nginx-fastcgi-leftover-as-dest", "ngfc", "nginx fastcgi leftover", "fastcgi_cache", "nginx fastcgi leftover", "nginx leftover && ls fastcgi_cache", "not nginx-fastcgi leftover; nginx fastcgi leftover is not dest", "treat leftover nginx fastcgi as dest then CLI parquet.", "nginx leftover; # fastcgi_cache claimed dest", "nginx leftover|fastcgi_cache"),
+    s_from(9, "apache-cache-leftover-as-dest", "apch", "apache cache leftover", "mod_cache", "apache cache leftover", "apache leftover && ls mod_cache", "not apache-cache leftover; apache cache leftover is not dest", "treat leftover apache cache as dest then CLI parquet.", "apache leftover; # mod_cache claimed dest", "apache leftover|mod_cache"),
+    s_from(10, "cdn-purge-leftover-as-dest", "cdpg", "cdn purge leftover", "purge.json", "cdn purge leftover", "cdn leftover && ls purge.json", "not cdn-purge leftover; cdn purge leftover is not dest", "treat leftover cdn purge as dest then CLI parquet.", "cdn leftover; # purge.json claimed dest", "cdn leftover|purge.json"),
+    s_from(11, "cloudflare-cache-leftover-as-dest", "cfch2", "cloudflare cache leftover", ".cloudflare/cache", "cloudflare cache leftover", "cloudflare leftover && ls .cloudflare/cache", "not cloudflare-cache leftover; cloudflare cache leftover is not dest", "treat leftover cloudflare cache as dest then CLI parquet.", "cloudflare leftover; # .cloudflare/cache claimed dest", "cloudflare leftover|.cloudflare/cache"),
+    s_from(12, "fastly-vcl-leftover-as-dest", "fsvl", "fastly vcl leftover", "fastly.vcl.bak", "fastly vcl leftover", "fastly leftover && ls fastly.vcl.bak", "not fastly-vcl leftover; fastly vcl leftover is not dest", "treat leftover fastly vcl as dest then CLI parquet.", "fastly leftover; # fastly.vcl.bak claimed dest", "fastly leftover|fastly.vcl.bak"),
+    s_from(13, "akamai-conf-leftover-as-dest", "akcf", "akamai conf leftover", "akamai.conf.bak", "akamai conf leftover", "akamai leftover && ls akamai.conf.bak", "not akamai-conf leftover; akamai conf leftover is not dest", "treat leftover akamai conf as dest then CLI parquet.", "akamai leftover; # akamai.conf.bak claimed dest", "akamai leftover|akamai.conf.bak"),
+    s_from(14, "cloudfront-inv-leftover-as-dest", "cfin", "cloudfront inv leftover", "invalidation.json", "cloudfront inv leftover", "cloudfront leftover && ls invalidation.json", "not cloudfront-inv leftover; cloudfront inv leftover is not dest", "treat leftover cloudfront inv as dest then CLI parquet.", "cloudfront leftover; # invalidation.json claimed dest", "cloudfront leftover|invalidation.json"),
+    s_from(15, "bunny-pull-leftover-as-dest", "bnpl", "bunny pull leftover", "bunny.json.bak", "bunny pull leftover", "bunny leftover && ls bunny.json.bak", "not bunny-pull leftover; bunny pull leftover is not dest", "treat leftover bunny pull as dest then CLI parquet.", "bunny leftover; # bunny.json.bak claimed dest", "bunny leftover|bunny.json.bak"),
+    s_from(16, "keycdn-conf-leftover-as-dest", "kccf", "keycdn conf leftover", "keycdn.json.bak", "keycdn conf leftover", "keycdn leftover && ls keycdn.json.bak", "not keycdn-conf leftover; keycdn conf leftover is not dest", "treat leftover keycdn conf as dest then CLI parquet.", "keycdn leftover; # keycdn.json.bak claimed dest", "keycdn leftover|keycdn.json.bak"),
+    s_from(17, "stackpath-conf-leftover-as-dest", "spcf2", "stackpath conf leftover", "stackpath.json.bak", "stackpath conf leftover", "stackpath leftover && ls stackpath.json.bak", "not stackpath-conf leftover; stackpath conf leftover is not dest", "treat leftover stackpath conf as dest then CLI parquet.", "stackpath leftover; # stackpath.json.bak claimed dest", "stackpath leftover|stackpath.json.bak"),
+    s_from(18, "sucuri-conf-leftover-as-dest", "sucf", "sucuri conf leftover", "sucuri.json.bak", "sucuri conf leftover", "sucuri leftover && ls sucuri.json.bak", "not sucuri-conf leftover; sucuri conf leftover is not dest", "treat leftover sucuri conf as dest then CLI parquet.", "sucuri leftover; # sucuri.json.bak claimed dest", "sucuri leftover|sucuri.json.bak"),
+    s_from(19, "incapsula-conf-leftover-as-dest", "inc2", "incapsula conf leftover", "incapsula.json.bak", "incapsula conf leftover", "incapsula leftover && ls incapsula.json.bak", "not incapsula-conf leftover; incapsula conf leftover is not dest", "treat leftover incapsula conf as dest then CLI parquet.", "incapsula leftover; # incapsula.json.bak claimed dest", "incapsula leftover|incapsula.json.bak"),
+    s_from(20, "varnish-ban-leftover-as-dest", "vabn2", "varnish ban leftover", "varnish.ban", "varnish ban leftover", "varnish leftover && ls varnish.ban", "not varnish-ban leftover; varnish ban leftover is not dest", "treat leftover varnish ban as dest then CLI parquet.", "varnish leftover; # varnish.ban claimed dest", "varnish leftover|varnish.ban"),
+    s_from(21, "squid-store-leftover-as-dest", "sqst", "squid store leftover", "squid/store", "squid store leftover", "squid leftover && ls squid/store", "not squid-store leftover; squid store leftover is not dest", "treat leftover squid store as dest then CLI parquet.", "squid leftover; # squid/store claimed dest", "squid leftover|squid/store"),
+    s_from(22, "ats-cache-leftover-as-dest", "atsch", "ats cache leftover", "trafficserver/cache", "ats cache leftover", "ats leftover && ls trafficserver/cache", "not ats-cache leftover; ats cache leftover is not dest", "treat leftover ats cache as dest then CLI parquet.", "ats leftover; # trafficserver/cache claimed dest", "ats leftover|trafficserver/cache"),
+    s_from(23, "varnish-vsm-leftover-as-dest", "vavsm", "varnish vsm leftover", "varnish.vsm", "varnish vsm leftover", "varnish leftover && ls varnish.vsm", "not varnish-vsm leftover; varnish vsm leftover is not dest", "treat leftover varnish vsm as dest then CLI parquet.", "varnish leftover; # varnish.vsm claimed dest", "varnish leftover|varnish.vsm"),
+    s_from(24, "nginx-proxy-temp-leftover-as-dest", "ngpt", "nginx proxy temp leftover", "proxy_temp", "nginx proxy temp leftover", "nginx leftover && ls proxy_temp", "not nginx-proxy-temp leftover; nginx proxy temp leftover is not dest", "treat leftover nginx proxy temp as dest then CLI parquet.", "nginx leftover; # proxy_temp claimed dest", "nginx leftover|proxy_temp"),
+    s_from(25, "apache-diskcache-leftover-as-dest", "apdc", "apache diskcache leftover", "disk_cache", "apache diskcache leftover", "apache leftover && ls disk_cache", "not apache-diskcache leftover; apache diskcache leftover is not dest", "treat leftover apache diskcache as dest then CLI parquet.", "apache leftover; # disk_cache claimed dest", "apache leftover|disk_cache"),
+    s_from(26, "varnish-secret-leftover-as-dest", "vasc", "varnish secret leftover", "varnish.secret", "varnish secret leftover", "varnish leftover && ls varnish.secret", "not varnish-secret leftover; varnish secret leftover is not dest", "treat leftover varnish secret as dest then CLI parquet.", "varnish leftover; # varnish.secret claimed dest", "varnish leftover|varnish.secret"),
+    s_from(27, "cdn-log-leftover-as-dest", "cdlg", "cdn log leftover", "cdn.log", "cdn log leftover", "cdn leftover && ls cdn.log", "not cdn-log leftover; cdn log leftover is not dest", "treat leftover cdn log as dest then CLI parquet.", "cdn leftover; # cdn.log claimed dest", "cdn leftover|cdn.log"),
+    s_from(28, "litespeed-cache-leftover-as-dest", "lsch", "litespeed cache leftover", "lscache", "litespeed cache leftover", "litespeed leftover && ls lscache", "not litespeed-cache leftover; litespeed cache leftover is not dest", "treat leftover litespeed cache as dest then CLI parquet.", "litespeed leftover; # lscache claimed dest", "litespeed leftover|lscache"),
+    s_from(29, "openresty-cache-leftover-as-dest", "orch", "openresty cache leftover", "openresty/cache", "openresty cache leftover", "openresty leftover && ls openresty/cache", "not openresty-cache leftover; openresty cache leftover is not dest", "treat leftover openresty cache as dest then CLI parquet.", "openresty leftover; # openresty/cache claimed dest", "openresty leftover|openresty/cache"),
+    s_from(30, "haproxy-stick-leftover-as-dest", "hpst", "haproxy stick leftover", "haproxy.stick", "haproxy stick leftover", "haproxy leftover && ls haproxy.stick", "not haproxy-stick leftover; haproxy stick leftover is not dest", "treat leftover haproxy stick as dest then CLI parquet.", "haproxy leftover; # haproxy.stick claimed dest", "haproxy leftover|haproxy.stick"),
+    s_from(31, "envoy-runtime-leftover-as-dest", "enrt", "envoy runtime leftover", "envoy.runtime", "envoy runtime leftover", "envoy leftover && ls envoy.runtime", "not envoy-runtime leftover; envoy runtime leftover is not dest", "treat leftover envoy runtime as dest then CLI parquet.", "envoy leftover; # envoy.runtime claimed dest", "envoy leftover|envoy.runtime"),
+]
+
+LEFTOVER = [
+    l_from(0, "redis-sentinel-log-leftover-handoff", "rdsl", "sentinel.log", "redis sentinel log leftover", "redis sentinel log leftover", "not redis sentinel leftover; leftover redis sentinel log as dest", "ship leftover redis sentinel log as dest.", "redis sentinel log leftover; # sentinel.log on disk", "redis leftover|sentinel.log"),
+    l_from(1, "memcached-log-leftover-handoff", "mclg", "memcached.log", "memcached log leftover", "memcached log leftover", "not memcached conf leftover; leftover memcached log as dest", "ship leftover memcached log as dest.", "memcached log leftover; # memcached.log on disk", "memcached leftover|memcached.log"),
+    l_from(2, "hazelcast-log-leftover-handoff", "hzlg", "hazelcast.log", "hazelcast log leftover", "hazelcast log leftover", "not hazelcast map leftover; leftover hazelcast log as dest", "ship leftover hazelcast log as dest.", "hazelcast log leftover; # hazelcast.log on disk", "hazelcast leftover|hazelcast.log"),
+    l_from(3, "ignite-log-leftover-handoff", "iglg", "ignite.log", "ignite log leftover", "ignite log leftover", "not ignite work leftover; leftover ignite log as dest", "ship leftover ignite log as dest.", "ignite log leftover; # ignite.log on disk", "ignite leftover|ignite.log"),
+    l_from(4, "ehcache-log-leftover-handoff", "ehlg", "ehcache.log", "ehcache log leftover", "ehcache log leftover", "not ehcache xml leftover; leftover ehcache log as dest", "ship leftover ehcache log as dest.", "ehcache log leftover; # ehcache.log on disk", "ehcache leftover|ehcache.log"),
+    l_from(5, "caffeine-log-leftover-handoff", "cflg", "caffeine.log", "caffeine log leftover", "caffeine log leftover", "not caffeine stats leftover; leftover caffeine log as dest", "ship leftover caffeine log as dest.", "caffeine log leftover; # caffeine.log on disk", "caffeine leftover|caffeine.log"),
+    l_from(6, "guava-log-leftover-handoff", "gvlg", "guava.log", "guava log leftover", "guava log leftover", "not guava cache leftover; leftover guava log as dest", "ship leftover guava log as dest.", "guava log leftover; # guava.log on disk", "guava leftover|guava.log"),
+    l_from(7, "varnish-ncsa-leftover-handoff", "vanc", "varnishncsa.log", "varnish ncsa leftover", "varnish ncsa leftover", "not varnish bin leftover; leftover varnish ncsa as dest", "ship leftover varnish ncsa as dest.", "varnish ncsa leftover; # varnishncsa.log on disk", "varnish leftover|varnishncsa.log"),
+    l_from(8, "nginx-fastcgi-log-leftover-handoff", "ngfl", "fastcgi.log", "nginx fastcgi log leftover", "nginx fastcgi log leftover", "not nginx fastcgi leftover; leftover nginx fastcgi log as dest", "ship leftover nginx fastcgi log as dest.", "nginx fastcgi log leftover; # fastcgi.log on disk", "nginx leftover|fastcgi.log"),
+    l_from(9, "apache-cache-log-leftover-handoff", "apcl", "mod_cache.log", "apache cache log leftover", "apache cache log leftover", "not apache cache leftover; leftover apache cache log as dest", "ship leftover apache cache log as dest.", "apache cache log leftover; # mod_cache.log on disk", "apache leftover|mod_cache.log"),
+    l_from(10, "cdn-purge-log-leftover-handoff", "cdpl", "purge.log", "cdn purge log leftover", "cdn purge log leftover", "not cdn purge leftover; leftover cdn purge log as dest", "ship leftover cdn purge log as dest.", "cdn purge log leftover; # purge.log on disk", "cdn leftover|purge.log"),
+    l_from(11, "cloudflare-log-leftover-handoff", "cflg2", ".cloudflare/log", "cloudflare log leftover", "cloudflare log leftover", "not cloudflare cache leftover; leftover cloudflare log as dest", "ship leftover cloudflare log as dest.", "cloudflare log leftover; # .cloudflare/log on disk", "cloudflare leftover|.cloudflare/log"),
+    l_from(12, "fastly-log-leftover-handoff", "fslg", "fastly.log", "fastly log leftover", "fastly log leftover", "not fastly vcl leftover; leftover fastly log as dest", "ship leftover fastly log as dest.", "fastly log leftover; # fastly.log on disk", "fastly leftover|fastly.log"),
+    l_from(13, "akamai-log-leftover-handoff", "aklg", "akamai.log", "akamai log leftover", "akamai log leftover", "not akamai conf leftover; leftover akamai log as dest", "ship leftover akamai log as dest.", "akamai log leftover; # akamai.log on disk", "akamai leftover|akamai.log"),
+    l_from(14, "cloudfront-log-leftover-handoff", "cflg3", "cloudfront.log", "cloudfront log leftover", "cloudfront log leftover", "not cloudfront inv leftover; leftover cloudfront log as dest", "ship leftover cloudfront log as dest.", "cloudfront log leftover; # cloudfront.log on disk", "cloudfront leftover|cloudfront.log"),
+    l_from(15, "bunny-log-leftover-handoff", "bnlg", "bunny.log", "bunny log leftover", "bunny log leftover", "not bunny pull leftover; leftover bunny log as dest", "ship leftover bunny log as dest.", "bunny log leftover; # bunny.log on disk", "bunny leftover|bunny.log"),
+    l_from(16, "keycdn-log-leftover-handoff", "kclg", "keycdn.log", "keycdn log leftover", "keycdn log leftover", "not keycdn conf leftover; leftover keycdn log as dest", "ship leftover keycdn log as dest.", "keycdn log leftover; # keycdn.log on disk", "keycdn leftover|keycdn.log"),
+    l_from(17, "stackpath-log-leftover-handoff", "splg2", "stackpath.log", "stackpath log leftover", "stackpath log leftover", "not stackpath conf leftover; leftover stackpath log as dest", "ship leftover stackpath log as dest.", "stackpath log leftover; # stackpath.log on disk", "stackpath leftover|stackpath.log"),
+    l_from(18, "sucuri-log-leftover-handoff", "sulg", "sucuri.log", "sucuri log leftover", "sucuri log leftover", "not sucuri conf leftover; leftover sucuri log as dest", "ship leftover sucuri log as dest.", "sucuri log leftover; # sucuri.log on disk", "sucuri leftover|sucuri.log"),
+    l_from(19, "incapsula-log-leftover-handoff", "inlg3", "incapsula.log", "incapsula log leftover", "incapsula log leftover", "not incapsula conf leftover; leftover incapsula log as dest", "ship leftover incapsula log as dest.", "incapsula log leftover; # incapsula.log on disk", "incapsula leftover|incapsula.log"),
+    l_from(20, "varnish-ban-log-leftover-handoff", "vabl", "varnish.ban.log", "varnish ban log leftover", "varnish ban log leftover", "not varnish ban leftover; leftover varnish ban log as dest", "ship leftover varnish ban log as dest.", "varnish ban log leftover; # varnish.ban.log on disk", "varnish leftover|varnish.ban.log"),
+    l_from(21, "squid-store-log-leftover-handoff", "sqsl2", "squid/store.log", "squid store log leftover", "squid store log leftover", "not squid store leftover; leftover squid store log as dest", "ship leftover squid store log as dest.", "squid store log leftover; # squid/store.log on disk", "squid leftover|squid/store.log"),
+    l_from(22, "ats-log-leftover-handoff", "atslg", "trafficserver.log", "ats log leftover", "ats log leftover", "not ats cache leftover; leftover ats log as dest", "ship leftover ats log as dest.", "ats log leftover; # trafficserver.log on disk", "ats leftover|trafficserver.log"),
+    l_from(23, "varnish-vsm-log-leftover-handoff", "vavl", "varnish.vsm.log", "varnish vsm log leftover", "varnish vsm log leftover", "not varnish vsm leftover; leftover varnish vsm log as dest", "ship leftover varnish vsm log as dest.", "varnish vsm log leftover; # varnish.vsm.log on disk", "varnish leftover|varnish.vsm.log"),
+    l_from(24, "nginx-proxy-log-leftover-handoff", "ngpl", "proxy.log", "nginx proxy log leftover", "nginx proxy log leftover", "not nginx proxy temp leftover; leftover nginx proxy log as dest", "ship leftover nginx proxy log as dest.", "nginx proxy log leftover; # proxy.log on disk", "nginx leftover|proxy.log"),
+    l_from(25, "apache-diskcache-log-leftover-handoff", "apdl", "disk_cache.log", "apache diskcache log leftover", "apache diskcache log leftover", "not apache diskcache leftover; leftover apache diskcache log as dest", "ship leftover apache diskcache log as dest.", "apache diskcache log leftover; # disk_cache.log on disk", "apache leftover|disk_cache.log"),
+    l_from(26, "varnish-secret-bak-leftover-handoff", "vasb", "varnish.secret.bak", "varnish secret bak leftover", "varnish secret bak leftover", "not varnish secret leftover; leftover varnish secret bak as dest", "ship leftover varnish secret bak as dest.", "varnish secret bak leftover; # varnish.secret.bak on disk", "varnish leftover|varnish.secret.bak"),
+    l_from(27, "cdn-stats-leftover-handoff", "cdst", "cdn.stats", "cdn stats leftover", "cdn stats leftover", "not cdn log leftover; leftover cdn stats as dest", "ship leftover cdn stats as dest.", "cdn stats leftover; # cdn.stats on disk", "cdn leftover|cdn.stats"),
+    l_from(28, "litespeed-log-leftover-handoff", "lslg3", "lsws.log", "litespeed log leftover", "litespeed log leftover", "not litespeed cache leftover; leftover litespeed log as dest", "ship leftover litespeed log as dest.", "litespeed log leftover; # lsws.log on disk", "litespeed leftover|lsws.log"),
+    l_from(29, "openresty-log-leftover-handoff", "orlg2", "openresty.log", "openresty log leftover", "openresty log leftover", "not openresty cache leftover; leftover openresty log as dest", "ship leftover openresty log as dest.", "openresty log leftover; # openresty.log on disk", "openresty leftover|openresty.log"),
+    l_from(30, "haproxy-stick-log-leftover-handoff", "hpsl", "haproxy.stick.log", "haproxy stick log leftover", "haproxy stick log leftover", "not haproxy stick leftover; leftover haproxy stick log as dest", "ship leftover haproxy stick log as dest.", "haproxy stick log leftover; # haproxy.stick.log on disk", "haproxy leftover|haproxy.stick.log"),
+    l_from(31, "envoy-runtime-log-leftover-handoff", "enrl", "envoy.runtime.log", "envoy runtime log leftover", "envoy runtime log leftover", "not envoy runtime leftover; leftover envoy runtime log as dest", "ship leftover envoy runtime log as dest.", "envoy runtime log leftover; # envoy.runtime.log on disk", "envoy leftover|envoy.runtime.log"),
+]
+
+mod2.SUCCESS = SUCCESS
+mod2.LEFTOVER = LEFTOVER
+mod2.BANNED_SLUGS = set(mod2.BANNED_SLUGS) | {
+    "dnsmasq-hosts-leftover-as-dest",
+    "dnsmasq-lease-leftover-handoff",
+}
+pair_for = mod2.pair_for
+notes_for = mod2.notes_for
+write_stage = mod2.write_stage
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if len(argv) != 2:
+        print("usage: ntp-mill-unique-llll30.py ROUND STAGING_DIR", file=sys.stderr)
+        return 2
+    round_n = int(argv[0])
+    staging = Path(argv[1])
+    staging.mkdir(parents=True, exist_ok=True)
+    i1, i2 = write_stage(staging, round_n)
+    print(f"wrote r{round_n} {i1} {i2}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
