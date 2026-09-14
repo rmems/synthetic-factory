@@ -1,0 +1,11 @@
+experiments/mill_leftover_leftover_leftover_pay_r330.py
+  ai_agent 1-209
+experiments/pay-hop-lll-from-lhc-r4688.py
+  ai_agent 1-178
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7e61c3c01d7f469dc0a9c9d8b0579b713b2e4c44",
+  "prompts": {}
+}
