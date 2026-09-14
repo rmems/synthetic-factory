@@ -1,0 +1,11 @@
+experiments/rag-mill-lll-r670.py
+  ai_agent 1-191
+experiments/rag-loop-r343.py
+  ai_agent 1-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a1495ce69e3bfca829a446c453c3780bd38b63d4",
+  "prompts": {}
+}
