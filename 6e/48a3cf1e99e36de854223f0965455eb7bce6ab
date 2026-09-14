@@ -1,0 +1,13 @@
+experiments/msd-leftover-loop-r430.py
+  ai_agent 1-188
+experiments/msd-leftover-mill-r430.py
+  ai_agent 1-1864
+experiments/msd_r747_leftover3_mill.py
+  ai_agent 1-1076
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6e48a3cf1e99e36de854223f0965455eb7bce6ab",
+  "prompts": {}
+}
