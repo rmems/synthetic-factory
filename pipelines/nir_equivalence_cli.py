@@ -15,6 +15,7 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from pathlib import Path  # noqa: E402
+from exact_json import dumps_exact_json  # noqa: E402
 from nir_equivalence_record import generate_records  # noqa: E402
 from nir_equivalence_runtimes import availability_report  # noqa: E402
 from nir_equivalence_terms import (  # noqa: E402
@@ -54,9 +55,22 @@ def read_jsonl(path):
 
 
 def write_jsonl(path, records):
+    """Write one round as JSONL, through the repository's exact encoder.
+
+    `dumps_exact_json`, not `json.dumps`: a round file is evidence other
+    tools digest, and `json.dumps` renders an `ExactJSONFloat` through
+    `repr`, silently dropping the decimal token it was read with. Nothing in
+    these families produces such a value today, so this changes no number
+    now; it keeps the writer honest if one ever reaches it. Its compact form
+    also makes each written line the same text `contract.canonical_json`
+    hashes, rather than a spaced variant of it.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = "".join(json.dumps(record, sort_keys=True) + "\n" for record in records)
+    payload = "".join(
+        dumps_exact_json(record, ensure_ascii=False, sort_keys=True) + "\n"
+        for record in records
+    )
     with path.open("x", encoding="utf-8") as handle:
         handle.write(payload)
 
