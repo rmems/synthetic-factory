@@ -1,0 +1,390 @@
+# ---------------------------------------------------------------------------
+# a2 — laser-induced fluorescence OH of a cement kiln flame, hil, MODIFY / ACCEPT
+# ---------------------------------------------------------------------------
+def rec_a2():
+    k_lif = 3.00
+    i_fl = 8.00
+    i_ex = 2.00
+    oh_ppm = k_lif * i_fl / i_ex
+    _exact(oh_ppm, 12.00)
+    _exact(k_lif * 4.00 / i_ex, 6.00)
+    _exact(k_lif * 6.00 / i_ex, 9.00)
+    _exact(k_lif * 10.00 / i_ex, 15.00)
+    ratio = i_fl / i_ex
+    _exact(ratio, 4.00)
+    _exact(k_lif * ratio, 12.00)
+    _exact(3000.0 + 1440.0, 4440.0)
+
+    raster = make_raster(
+        neurons=20,
+        mean_rate_hz=62.5,
+        window_ms=32.0,
+        seed=2026090422,
+        source="ms7.lif.flame_k2",
+        target="marlspur.kiln_isolate_core",
+        table=[
+            {"from": "lif_Ifl", "to": "oh_estimator", "weight": 1.35},
+            {"from": "lif_Iex", "to": "laser_norm_core", "weight": 1.20},
+            {"from": "flameveil_oh", "to": "vendor_keep_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "ach.lif_referral_pressure",
+            "tau_e_s": 1.2,
+            "tau_e_ms": 1200.0,
+            "eligibility": (
+                "pre-post coincidence on keep-firing synapses; the LIF modulator "
+                "depresses keep-firing and person-referral links when fluorescence "
+                "stays high inside tau_e of a laser-energy sample so a Flameveil "
+                "1.80 ppm stamp cannot hide a 12.00 ppm OH isolate"
+            ),
+        },
+        channel_prefix="lif.n",
+        anchor=(
+            "MS-7 HIL dummy 32 ms frame at I_fl 8.00 / I_ex 2.00 (t_s 1560) "
+            "reconstructing 12.00 ppm above the 8.00 ppm isolate floor"
+        ),
+    )
+    w_s = 0.032
+    events = events_from_rows(
+        [
+            (0.0, "lif.Ifl", 4.00, {"code": "IFL_AU", "units": "AU", "note": "HIL laser-induced fluorescence on dummy flame K-2 in LIF-HIL-6; cement-kiln OH, not CARS TIT, not LII soot, not chemiluminescence NOx, not two-color pyrometer, not phosphor-lifetime"}),
+            (180.0, "lif.Iex", 2.00, {"code": "IEX_AU", "units": "AU", "note": "excitation energy; OH = k_lif*I_fl/I_ex"}),
+            (360.0, "recon.oh", 6.00, {"code": "OH_PPM", "units": "ppm", "note": "3.00*4.00/2.00=6.00 exact"}),
+            (540.0, "lab.ppm", 11.8, {"code": "LAB_PPM", "units": "ppm", "note": "contractor sealed-split LIF; independent of Flameveil cloud"}),
+            (720.0, "flameveil.oh", 1.80, {"code": "VENDOR_PPM", "units": "ppm", "note": "Flameveil last-good OH stamp; not admissible SoT"}),
+            (900.0, "lif.Ifl", 6.00, {"code": "IFL_AU", "units": "AU"}),
+            (1080.0, "recon.oh", 9.00, {"code": "OH_PPM", "units": "ppm", "note": "3.00*6.00/2.00=9.00"}),
+            (1260.0, "enc.cnt", 0.0, {"code": "LOCK_COUNTS", "units": "1", "note": "laser-lock encoder frozen at 0; missing lock AE, not tech touch"}),
+            (1440.0, "lab.ppm", 11.9, {"code": "LAB_PPM", "units": "ppm"}),
+            (1560.0, "lif.Ifl", 8.00, {"code": "IFL_AU", "units": "AU", "note": "isolate-floor frame; raster sidecar"}),
+            (1560.0012, "lif.Iex", 2.00, {"code": "IEX_AU", "units": "AU", "note": "1.2 ms laser-norm after fluorescence"}),
+            (1740.0, "recon.oh", 12.00, {"code": "OH_PPM", "units": "ppm", "note": "3.00*8.00/2.00=12.00 exact; isolate 8.00, kiln-trip 20.00"}),
+            (1920.0, "recon.R", 4.00, {"code": "I_RATIO", "units": "1", "note": "8.00/2.00=4.00 exact; OH=k_lif*R"}),
+            (2100.0, "flameveil.oh", 1.80, {"code": "VENDOR_PPM", "units": "ppm"}),
+            (2280.0, "o2.vol", 3.2, {"code": "O2_VOLPCT", "units": "volpct", "note": "plant zirconia O2; not Flameveil last-good OH"}),
+            (2460.0, "ops.prop", 1.0, {"code": "KEEP_FIRING_REFER", "units": "bool", "note": "night lead Kerr Bramble: keep kiln MS-7 and refer LIF tech Nessa Quill"}),
+            (2640.0, "gate.isol", 1.0, {"code": "MODIFY", "units": "decision", "note": "isolate this kiln; refuse the person-referral; Flameveil not SoT"}),
+            (2820.0, "kiln.lock", 1.0, {"code": "K2_ISOL", "units": "bool"}),
+            (3000.0, "lif.start", 1.0, {"code": "LIF_START", "units": "bool", "note": "bookend 1 of the 24.0 min cooldown-plus-rezero floor"}),
+            (4440.0, "lif.floor", 1.0, {"code": "LIF_FLOOR", "units": "bool", "note": "3000 s + 1440 s = 4440 s = 24.0 min"}),
+            (4620.0, "ops.refer", 1.0, {"code": "REFER_QUILL", "units": "bool", "note": "Bramble: Quill badge was at the LIF booth"}),
+            (4800.0, "canteen.clk", 1.0, {"code": "QUILL_BREAK", "units": "bool", "note": "time-clocked canteen UTC+2; clock is not the kiln PLC"}),
+            (4980.0, "gate.exec", 1.0, {"code": "ACCEPT", "units": "decision", "note": "companion t2: spare-head restart; person-referral refused; kiln-trip refused"}),
+            (5160.0, "line.new", 1.0, {"code": "SPARE_ON", "units": "bool"}),
+            (5340.0, "lif.Ifl", 10.00, {"code": "IFL_AU", "units": "AU"}),
+            (5520.0, "recon.oh", 15.00, {"code": "OH_PPM", "units": "ppm", "note": "3.00*10.00/2.00=15.00; still under 20 kiln-trip so spare may start"}),
+            (5700.0, "flameveil.oh", 1.75, {"code": "VENDOR_PPM", "units": "ppm"}),
+            (5880.0, "lab.ppm", 12.1, {"code": "LAB_PPM", "units": "ppm"}),
+            (6060.0, "enc.cnt", 0.0, {"code": "LOCK_COUNTS", "units": "1"}),
+            (6240.0, "kiln.held", 1.0, {"code": "MS7_HELD", "units": "bool"}),
+            (6420.0, "quill.innocent", 1.0, {"code": "EXONERATE", "units": "bool"}),
+            (6600.0, "kiln.esd", 0.0, {"code": "KILN_NOT_KILLED", "units": "bool"}),
+            (6780.0, "lif.Iex", 2.00, {"code": "IEX_AU", "units": "AU"}),
+            (6960.0, "recon.R", 5.00, {"code": "I_RATIO", "units": "1", "note": "10.00/2.00=5.00; 3.00*5.00=15.00"}),
+            (7140.0, "o2.vol", 3.1, {"code": "O2_VOLPCT", "units": "volpct"}),
+            (7320.0, "shell.T", 312.0, {"code": "SHELL_C", "units": "C"}),
+            (7500.0, "spare.I", 0.80, {"code": "SPARE_PU", "units": "pu"}),
+            (7680.0, "lif.Ifl", 4.00, {"code": "IFL_AU", "units": "AU"}),
+            (7860.0, "recon.oh", 6.00, {"code": "OH_PPM", "units": "ppm", "note": "3.00*4.00/2.00=6.00"}),
+            (8040.0, "lab.ppm", 12.0, {"code": "LAB_PPM", "units": "ppm"}),
+            (8220.0, "flameveil.oh", 1.70, {"code": "VENDOR_PPM", "units": "ppm"}),
+            (8400.0, "lock.skip", 1.0, {"code": "LOCK_AE_MISSING", "units": "bool", "note": "field-service skipped laser-lock AE; generator recovered without hanging Quill"}),
+            (8580.0, "lif.snr", 14.0, {"code": "LIF_SNR", "units": "1"}),
+            (8760.0, "kiln.lock", 1.0, {"code": "K2_ISOL", "units": "bool"}),
+            (8940.0, "canteen.clk", 1.0, {"code": "QUILL_BREAK", "units": "bool"}),
+            (9120.0, "spare.I", 1.00, {"code": "SPARE_PU", "units": "pu"}),
+            (9300.0, "recon.oh", 6.00, {"code": "OH_PPM", "units": "ppm"}),
+            (9480.0, "o2.vol", 3.0, {"code": "O2_VOLPCT", "units": "volpct"}),
+            (9660.0, "lif.floor", 1.0, {"code": "LIF_FLOOR_HELD", "units": "bool"}),
+            (9840.0, "quill.innocent", 1.0, {"code": "EXONERATE", "units": "bool"}),
+            (10020.0, "kiln.esd", 0.0, {"code": "KILN_NOT_KILLED", "units": "bool"}),
+            (10200.0, "shell.T", 308.0, {"code": "SHELL_C", "units": "C"}),
+        ]
+    )
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r42-a2-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "MS-LIF-2026-0902",
+            "domain": "lif_kiln_flame_oh",
+            "setting": (
+                "Marlspur Cement MS-7 (invented), HIL dummy flame K-2 in LIF-HIL-6. "
+                "Plant-owned laser-induced fluorescence is the OH SoT. Flameveil "
+                "last-good vendor is not a witness. Hardware-in-the-loop dummy times "
+                "an in-service isolate; not a live-plant claim. Not CARS TIT (r29), "
+                "not LII soot (r31), not chemiluminescence NOx (r52), not two-color "
+                "pyrometer (r55), not phosphor-lifetime (r39)."
+            ),
+            "observables_at_decision": {
+                "I_fl": i_fl,
+                "I_ex": i_ex,
+                "k_lif": k_lif,
+                "oh_ppm": oh_ppm,
+                "I_ratio": ratio,
+                "lif_snr": 14.0,
+                "flameveil_ppm": 1.80,
+                "isolate_floor_ppm": 8.00,
+            },
+            "margin_authority": (
+                "MS-7 kiln SOP rev B: if reconstructed oh_ppm >= 8.00 AND LIF SNR "
+                ">= 12.0, keep-firing is forbidden even if Flameveil reports <2.00 ppm "
+                "and the last-to-badge story names the LIF tech. Kiln trip is a different gate."
+            ),
+        },
+        "proposed_action": {
+            "actor": (
+                "night lead Kerr Bramble, citing Flameveil 1.80 ppm and LIF tech "
+                "Nessa Quill last to badge the booth"
+            ),
+            "summary": (
+                "keep firing kiln MS-7 and refer Quill; 8.00 AU fluorescence is a "
+                "laser-lock glitch on a healthy 1.80 ppm corridor"
+            ),
+            "basis_claimed": (
+                "Flameveil is the only OEM OH SoT and aborting a clinker campaign "
+                "is a 36-hour kiln restart"
+            ),
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": (
+                "Keep-firing plus person-referral is refused. Serialized reconstruction: "
+                "oh_ppm = k_lif * I_fl / I_ex = 3.00 * 8.00 / 2.00 = 12.00, above the "
+                "8.00 ppm isolate floor. Ratio identity I_fl / I_ex = 8.00 / 2.00 = 4.00; "
+                "oh_ppm = k_lif * R = 3.00 * 4.00 = 12.00. Flameveil 1.80 ppm is a last-good "
+                "stamp the vendor can write. Laser-lock encoder is frozen at 0 (missing lock "
+                "AE); Quill's canteen clock is UTC+2 against the kiln PLC. Ordered: isolate "
+                "kiln K-2 now. Scope: this MODIFY does not trip the whole kiln hall (that "
+                "is the companion question) and does not hang Quill."
+            ),
+            "threshold": (
+                "oh_ppm>=8.00 AND lif_snr>=12.0 => isolate kiln; refuse person-referral; Flameveil is not SoT"
+            ),
+            "stated_residuals": (
+                "spare-head restart still required; 12.00 vs a 20.00 ppm kiln-trip is a "
+                "production cut; Flameveil remains the only OEM OH channel"
+            ),
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 2640: kiln K-2 isolated; person-referral refused; Flameveil not SoT",
+            "tool": "ms7-lif-oh-gate-cli",
+            "observation": (
+                "oh 12.00 ppm recomputes from I_fl 8.00 / I_ex 2.00; LIF hashed; Flameveil "
+                "channel not used as SoT; Quill not referred"
+            ),
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 1560.0, "event": "lif I_fl 8.00; raster frame; oh 12.00 ppm"},
+                {"t_s": 2460.0, "event": "ops proposes keep-firing plus refer Quill"},
+                {"t_s": 2640.0, "event": "MODIFY isolate kiln; refuse referral"},
+                {"t_s": 3000.0, "event": "24 min cooldown bookend 1"},
+                {"t_s": 4440.0, "event": "24.0 min floor"},
+                {"t_s": 4980.0, "event": "companion ACCEPT spare-head restart"},
+            ],
+            "observed_effects": [
+                "OH recomputes from the serialized LIF model at every recon.oh event",
+                "a Flameveil-only head would have kept firing and referred Quill",
+                "24 min cooldown floor is in the stream (lif.start, lif.floor)",
+            ],
+            "surprises": [
+                "a last-to-badge story co-existed with a frozen laser-lock encoder and a UTC+2 canteen clock"
+            ],
+            "new_state": {
+                "k2": "keep-firing blocked",
+                "flameveil": "not SoT",
+                "quill": "not referred",
+            },
+            "latency_ms": 1500000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("lif_reconstruction", 0.14),
+                ("conjunctive_oh_floor", 0.10),
+                ("flameveil_nonsubstitution", 0.08),
+                ("exoneration_not_referral", 0.10),
+                ("hold_time_cost", -0.02),
+            ],
+            "scored for a keep-firing MODIFY on a recomputable LIF OH isolate while refusing a Flameveil stamp and a last-to-badge referral",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "lif-kiln-oh", "serialized-reconstruction", "exoneration"],
+            distillation_note="LIF gate: serialized k_lif*I_fl/I_ex plus SNR lock beats a vendor OH stamp; person-referral is refused on encoder plus canteen clock",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r42-a2-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "MS-LIF-2026-0902-exec",
+            "domain": "spare_head_restart_execution",
+            "setting": (
+                "Same MS-7 HIL after the MODIFY. Lead proposes kiln-hall trip and still "
+                "wants Quill referred. This companion is the operational spare-head "
+                "restart, not a second OH vote."
+            ),
+            "observables_at_decision": {
+                "oh_ppm": 15.00,
+                "soak_floor_s": 1440.0,
+                "kiln_trip_proposed": True,
+                "spare_ready": True,
+                "quill_canteen": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night lead Kerr Bramble",
+            "summary": "trip the kiln hall and refer Quill; 24 min already paid and Flameveil still shows 1.75 ppm",
+            "basis_claimed": "the isolate already stopped K-2, so a hall kill is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": (
+                "Start the spare LIF head on K-2. The 24 min cooldown floor is complete, "
+                "Quill's canteen clock plus missing laser-lock AE exonerate her, and "
+                "15.00 ppm is still under the 20.00 ppm kiln-trip. ACCEPT spare restart. "
+                "Do not trip the kiln hall. Do not restore keep-firing on Flameveil. Do "
+                "not refer Quill."
+            ),
+            "threshold": (
+                "spare_started AND soak_floor_complete AND kiln_trip_not_taken "
+                "AND person_referral_not_taken"
+            ),
+        },
+        "executed_action": {
+            "summary": "spare-head restart accepted at t_s 4980; kiln-hall trip not latched; Quill not referred",
+            "tool": "ms7-spare-head-exec",
+            "observation": "recon.oh 15.00 ppm after isolate; cooldown complete; Flameveil still ignored; Quill innocent",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "hold clock started after MODIFY"},
+                {"t_s": 4440.0, "event": "24.0 min floor"},
+                {"t_s": 4620.0, "event": "person-referral re-proposed"},
+                {"t_s": 4980.0, "event": "ACCEPT spare restart; referral refused"},
+            ],
+            "observed_effects": [
+                "Flameveil restore did not reopen the OH call",
+                "kiln hall never tripped; MS-7 held on spare LIF head",
+            ],
+            "new_state": {"kiln": "K-2 isolated, spare head on", "quill": "innocent", "hall": "in service"},
+            "latency_ms": 1500000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("spare_restart", 0.12),
+                ("no_kiln_trip", 0.10),
+                ("flameveil_nonsubstitution", 0.08),
+                ("exoneration", 0.07),
+                ("held_campaign_cost", -0.02),
+            ],
+            "operational execution gate: spare-head restart because Flameveil is not a restore license and Quill is innocent; not an OH re-vote",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "spare-head", "exoneration"]),
+    }
+    return {
+        "id": "nelb-r42-a2",
+        "spike_events": events,
+        "language_view": {
+            "description": (
+                "Marlspur Cement MS-7. HIL LIF reconstructs 12.00 ppm flame OH from "
+                "I_fl 8.00 / I_ex 2.00 while Flameveil still shows 1.80 ppm. The gate "
+                "MODIFYs keep-firing into a kiln isolate and refuses a person-referral. "
+                "A 24 min cooldown floor is serialized. Companion t2 ACCEPTs a spare-head "
+                "restart."
+            ),
+            "trajectory": traj,
+            "trajectory_spare_restart": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "lif.Ifl / lif.Iex / lif.snr": "fluorescence, excitation, SNR; physics channels the reconstruction consumes",
+                "recon.oh / recon.R": "serialized OH ppm and I_fl/I_ex ratio",
+                "lab.ppm / flameveil.oh / o2.vol / enc.cnt": "contractor LIF, vendor stamp, plant zirconia, laser-lock encoder",
+                "ops.prop / gate.isol / ops.refer / gate.exec": "keep-firing proposal, MODIFY, person-referral, companion ACCEPT",
+                "lif.start / lif.floor / kiln.lock / quill.innocent / kiln.esd": "operational companion channels plus the 24 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while LIF-over: flameveil.oh 1.80 next to recon.oh 12.00",
+                "reconstruction as event: recon.oh 12.00 equals 3.00*8.00/2.00",
+                "MODIFY then operational ACCEPT: gate.isol at 2640 s, gate.exec at 4980 s",
+                "slow floor in-stream: lif.start 3000 s, lif.floor 4440 s (24.0 min)",
+                "tight LIF pair: lif.Ifl then lif.Iex +1.2 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": (
+                "'Flameveil is 1.80 ppm' = flameveil.oh 1.80; '12 ppm OH' = recon.oh "
+                "12.00; 'isolate kiln not refer Quill' = gate.isol MODIFY; 'spare restart' "
+                "= gate.exec ACCEPT"
+            ),
+            "why_high_value": (
+                "New laser-induced-fluorescence OH family on a cement kiln flame (not "
+                "CARS r29, not LII r31, not CLD NOx r52, not two-color pyrometer r55, "
+                "not phosphor-lifetime r39). Lead MODIFY isolate on a recomputable OH "
+                "the vendor stamp and a last-to-badge story would have kept. Exoneration: "
+                "missing laser-lock AE plus UTC+2 canteen clock. Companion t2 is "
+                "operational spare-head restart. 52 events. sim_or_real=hil."
+            ),
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {
+                    "raster": 2026090422,
+                    "stream_note": "stream amplitudes are authored constants (AU, ppm, 1, bool, pu, C, volpct)",
+                },
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "LIF burst exists at ~10 Hz; stream keeps 5 I_fl points; recon keeps 6 of ~40 solver ticks",
+                "refractory_floors_ms": {"lif.Ifl": 1.2, "lif.Iex": 1.2, "recon.oh": 60000},
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T03:00:00Z HIL start",
+            },
+            "distillation_targets": [
+                "LIF reconstruction head: OH = k_lif * I_fl / I_ex; R = I_fl/I_ex",
+                "conjunctive OH floor vs keep-firing vs kiln-trip vs person-referral",
+                "vendor-OH nonsubstitution plus exoneration against last-to-badge pressure",
+                "operational companion: spare-head restart without restoring on Flameveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "lif_kiln_flame_oh",
+            "formula": "oh_ppm = k_lif * I_fl / I_ex; R = I_fl / I_ex; oh_ppm = k_lif * R",
+            "parameters": {
+                "k_lif": 3.00,
+                "isolate_floor_ppm": 8.00,
+                "kiln_trip_ppm": 20.00,
+                "snr_lock": 12.0,
+                "cooldown_min": 24.0,
+            },
+            "worked_example": {"I_fl": 8.00, "I_ex": 2.00, "oh_ppm": 12.00, "R": 4.00},
+            "check": (
+                "3.00 * 8.00 / 2.00 = 12.00 exactly; 8.00 / 2.00 = 4.00 exactly; "
+                "3.00 * 4.00 = 12.00 exactly; 3000 s + 1440 s = 4440 s = 24.0 min floor"
+            ),
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 32.0,
+            "decision_window_s": 0.032,
+            "code": "ms7.lif_oh_gate",
+            "note": "MODIFY accumulator wins: LIF OH evidence overpowers the Flameveil keep-firing advocate and the person-referral advocate",
+            "decode_rule": "isolate-kiln if oh_estimator AND laser_norm fire; vendor_keep_advocate cannot release the kiln or the person gate",
+            "populations": [
+                gate_pop("oh_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("laser_norm", 50, 1.2, 50.0, w_s),
+                gate_pop("vendor_keep_advocate", 32, 0.7, 31.25, w_s),
+                gate_pop("modify_latch", 80, 1.6, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "ms7.lif_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 32.0},
+                {"check": "ms7.isol_scorer", "neurons": 50, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r42-a2",
+            clock_domain="ms7-lif-hil-relative-ms-t0-2026-09-02T03:00:00Z",
+            tags=["lif-oh", "MODIFY", "ACCEPT", "serialized-reconstruction", "exoneration", "operational-t2"],
+        ),
+    }

@@ -1,0 +1,8 @@
+    rec = {
+        "id": RECORD_ID,
+        "title": "SKARVOLT EAF-7: off-gas H2 8.6 vol% beats arc.ok by 192 us; correct MODIFY still dumps the heat after pre-t0 panel-leak hydrogen",
+        "rights": dict(RIGHTS),
+        "state": {
+            "sim_or_real": "designed",
+            "domain": DOMAIN,
+            "scenario_name": "SKARVOLT / Emberbarrow Meltshop EAF-7",

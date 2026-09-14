@@ -1,0 +1,83 @@
+{
+  "agent_ids": [
+    "01a06409-0d97-7132-b6e0-f4a8f402e5d0"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 2,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 3,
+  "original_basename": "build_chosen.py",
+  "original_path": "/tmp/ffpc-r16/build_chosen.py",
+  "path_key": "ffpc-r16--c39585d959b0",
+  "terminal_event_ids": [
+    "01a06409-0d97-7132-b6e0-f4a8f402e5d0:call-1746fdf9-f170-4c1b-bd23-acef408984a5-87",
+    "01a06409-0d97-7132-b6e0-f4a8f402e5d0:call-4cfd3951-74b3-494d-8b80-5b56a34214df-77",
+    "01a06409-0d97-7132-b6e0-f4a8f402e5d0:call-87efb45f-bc15-4822-95f0-cbf949b0ed16-79",
+    "01a06409-0d97-7132-b6e0-f4a8f402e5d0:call-a802380a-fcfa-4642-ade8-abda80ba41b5-76"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 2,
+  "versions": [
+    {
+      "agent_id": "01a06409-0d97-7132-b6e0-f4a8f402e5d0",
+      "basename_preserved": true,
+      "bytes": 29685,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 413,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06409-0d97-7132-b6e0-f4a8f402e5d0/updates.jsonl",
+      "original_basename": "build_chosen.py",
+      "original_path": "/tmp/ffpc-r16/build_chosen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r16--c39585d959b0/versions/v0001/build_chosen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r16--c39585d959b0/versions/v0001/build_chosen.py",
+      "session_id": "01a06409-0d97-7132-b6e0-f4a8f402e5d0",
+      "sha256": "d7c95e32ef70400adef72d3f36e2a1bc6b8402abb99cb57ff756e82f5fee1ed6",
+      "source_channel": "structured",
+      "source_event_id": "01a06409-0d97-7132-b6e0-f4a8f402e5d0:call-a8537d3d-33c5-436d-9c41-4b864b6f9e81-75",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788386665678,
+      "timestamp_utc": "2026-09-02T22:04:25.678Z",
+      "tool_call_id": "call-a8537d3d-33c5-436d-9c41-4b864b6f9e81-75",
+      "version": 1,
+      "version_id": "ffpc-r16--c39585d959b0:v0001"
+    },
+    {
+      "agent_id": "01a06409-0d97-7132-b6e0-f4a8f402e5d0",
+      "basename_preserved": true,
+      "bytes": 29726,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 432,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06409-0d97-7132-b6e0-f4a8f402e5d0/updates.jsonl",
+      "original_basename": "build_chosen.py",
+      "original_path": "/tmp/ffpc-r16/build_chosen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r16--c39585d959b0/versions/v0002/build_chosen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r16--c39585d959b0/versions/v0002/build_chosen.py",
+      "session_id": "01a06409-0d97-7132-b6e0-f4a8f402e5d0",
+      "sha256": "f7523934cee7edc0bc706e5367020f076b6f250acdfdaac54b8c14ebff530755",
+      "source_channel": "structured",
+      "source_event_id": "01a06409-0d97-7132-b6e0-f4a8f402e5d0:call-fa5919fe-54ea-4d61-b355-e883aca488bb-78",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788386702486,
+      "timestamp_utc": "2026-09-02T22:05:02.486Z",
+      "tool_call_id": "call-fa5919fe-54ea-4d61-b355-e883aca488bb-78",
+      "version": 2,
+      "version_id": "ffpc-r16--c39585d959b0:v0002"
+    }
+  ]
+}

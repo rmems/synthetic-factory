@@ -1,0 +1,523 @@
+def write_notes(rec, aux, pipeline_receipt):
+    gap, gap_ch = min_same_channel_gap(rec["spike_events"])
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 28
+
+Factory: multi-agent-ouroboros-swarm. One scenario (ZJ), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r28.jsonl. Full labeled transcript:
+swarm-transcript-r28.md. Quota Q=1. Record id maos-r28-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Nothing under outputs/raw/ was touched.
+
+ORCHESTRATION NOTE: dispatched AS round 28 of the 2026-09-02-final-heavy
+window. Writes are create-only under /tmp/maos-r28/. Prior context read for
+gap targeting and de-collision: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, NOTES-r04.md of the 2026-08-30 window, and
+staged r14–r27 plus r29–r31. Explicitly avoided cloning TRIAD / Meridian
+Gateway Corridor / VANTIS-CADENCE-AEGIS / THERMION / STARLING / OKTAVE /
+VERDIGRIS. Plant is invented SODASHARD / Cairnmere Fiber RK-6. Earlier
+locks (PEM / IONSPATE, humanoid / BRACEGILT) were abandoned after r24
+took PEM and r30 took humanoid-locomotion; caster was taken by r29.
+
+## What this round produced
+
+Scenario ZJ — "SODASHARD / Cairnmere Fiber RK-6": a 1500 t/d kraft
+recovery boiler mid-fire at 4.80 kg/s BLS, 78.4 % DS. Three
+heterogeneous, individually-correct agents — BED (wall-box IR 912 C),
+DRM (drum 48 %), SOL (DS 78.4 %) — jointly report the bed is fire-ready
+so a firing raise is legal. The consensus is false. The primary smelt
+spout is frozen. IR is a char-wall reflection, not a live bed. Drum PI
+cuts feedwater to hold level. Uncommissioned throat TC is 412 C against
+a 520 C hold (healthy 780). Spout DP is 0.4 kPa against a 2.0 hold
+(healthy 8.0). The coordination-failure CLASS is new to this factory:
+WALL-REFLECTION CERTIFICATE OF A FROZEN SMELT SPOUT. Completes a
+different family than r01-r04 and staged r14-r31. Here every agent is
+correct, the cycle is not unstable, and the playbook's three confirms
+are one reflected pixel of a frozen spout.
+
+The gate is a correct MODIFY (numeric floor: do not raise firing above
+4.80 kg/s while throat < 520 C AND DP < 2.0 kPa). TG-RK-6 strips
+PB-RK-08's firing increase, holds 4.80 kg/s, runs a 5.2 s shatter-steam
+probe +5 % (freeze keeps throat 418 C <= 430; live would jump >= 80 K),
+and lances the spout after a 10.8 min deck human ratify. The 6.20 kg/s
+bed flood is avoided (0 t). The PRIMARY episode nonetheless FAILS: 36
+min of unmonitored pre-t0 freeze had already piled 4.2 t extra smelt.
+Dissolving-tank TTA +18 g/L vs 4 spec; 5.5 d quarantine; $0.82M
+designed. Reward total -0.18 with process heads honest and world loss
+un-netted.
+
+Three-edge scar (NOTES-r14 item 4): bed.ir_ok -> increase_firing
+(0.19 commissioned -> 0.46 at illusion -> 0.23 after ACh-gated
+depression) AND drm.level_ok -> increase_firing (0.16 -> 0.42 -> 0.20)
+AND sol.ds_ok -> increase_firing (0.15 -> 0.39 -> 0.18). Eligibility
+trace e^{{-0.76/0.88}} = {aux['trace']:.5f}; eta {aux['eta1']:.5f} /
+{aux['eta2']:.5f} / {aux['eta3']:.5f}; dw -0.230 / -0.220 / -0.210.
+Rolling back any pair leaves the remaining edge above the 0.30 fire
+threshold — fitted to fail. Coordinated depression of all three is the
+cure.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **kraft-recovery-boiler** — justified novel subdomain
+  of industrial-process / pulp-and-paper, unused across 2026-08-17,
+  2026-08-30, and staged r14-r31. Not warehouse-amr, aerial-swarm,
+  district-heating, event-camera grid, lyophilization, stator-weld,
+  air-separation, water-treatment, float-glass, underwater-rov, aluminum
+  potline, CZ-pull, slot-die, PEM, wind-pitch, surgical-assist,
+  fiber-draw, caster, humanoid-locomotion, or VIM melt.
+- Cycle-1 tail: frozen primary smelt spout + wall-box IR reflection.
+  Rod-probe PASSES the secondary spout. Fitted-style base rate
+  0.53%/campaign (spout-cycle MC; rod-probe designed, flagged). Naive =
+  FALSE PERMISSION.
+- Cycle-2 domain sub-variant: 1800 t/d 82 % DS, 0.55x steam
+  effectiveness; 5.2 s / +5 % 78.4 % pulse blows a 40 mm smelt string;
+  probe must move to 16 s / +1.6 %.
+- Cycle-2 tail: Sunday-night forged throat CSV at 10 C quantization vs
+  plant 1 C (10 bins) plus live throat 412 C at the claimed 780 C.
+  Human-intent class, disjoint from cycle 1's accidental freeze. Base
+  rate ~0.34% of Sunday-night fires, DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+3 d sister boiler) with its own 196 us
+  race (demand vs throat-clear) and ACCEPT of the raise the primary
+  MODIFIED away.
+- Learned-weight provenance on THREE edges with any-pair-rollback-fails.
+- HITL spout-deck ratify 10.8 min (gap 4 partial; sim_or_real stays designed).
+- Governance CR-K-2804 prices retire-vs-probe-vs-status-quo and mandates
+  native 1 C CSV exports (the fraud fence).
+- Flip-fragility extended to WALL-REFLECTION: when three channels each
+  sit inside a reflected or mixed total, their race does not decide
+  truth; a throat TC the playbook dead-banded does.
+
+## Self-critique of this round's batch
+
+### Strengths
+- The headline class is mechanistically tight: a wall-box IR of a char
+  reflection is the arithmetic that makes BED's success DRM's blindness
+  and SOL's on-spec DS.
+- Negative-result honesty: the gate does the right thing and the tank
+  still fails for a reason the commissioned sensors could not see. Total
+  -0.18.
+- Three-edge scar is load-bearing: any-pair rollback fails at 0.30.
+- Contrast ACCEPT on a true live spout prevents "never raise firing"
+  as the lesson.
+
+### Weaknesses (honest)
+- Probe error bands (freeze <= 430 C, live >= +80 K), the 0.53%/campaign
+  freeze rate, the $0.82M / $1.35M figures, the 10.8 min LOTO latency,
+  and the Sunday-night 0.34% base rate are DESIGNED constants and are
+  flagged.
+- Smelt-pile model is a designed 36 min mapping; no full CFD shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil.
+- Cross-record arc is a hook (CR-K-2804 +21 d), not a serial igniter.
+
+### Realism of noise / latencies
+Ladder: 184 us race / 196 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap {gap:.3f} ms on {gap_ch}) / 520 us race
+window / 760 us gate latency / 20 ms bus epoch / 40 ms raster / 5.2 s
+probe / 10.8 min HITL / 9 min naive firing-ramp / 36 min pre-t0 pile /
+3.2 h throat-legal hold / 7.5 h TTA inspect / +3 d contrast / +21 d
+governance. Adaptation decay on bed.ir (0.54->0.51->0.48->0.32),
+spout.throat (0.71->1.26->0.86->0.42->0.21), drm.level (0.62->0.56->0.30),
+sol.ds (0.58->0.49).
+
+### Value for SNN distillation
+- WALL-REFLECTION CERTIFICATE = THREE CORRECT LOOPS, ONE FROZEN SPOUT.
+- THROAT TC + SPOUT DP as the tie-break that is not in the IR.
+- REVERSIBLE PROBE that raises throat T iff the spout is live.
+- THREE-EDGE ELIGIBILITY: coordinated depression; any-pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum {rec['reward_components']['total']}
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.48 reconciles independently.
+- spike_events: primary {len(rec['spike_events'])} events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap {gap:.3f} ms >= 0.8 ms, 3
+  channels inside race_window_us 520 (throat 6.910, drum-ok 7.094, sol-ok
+  7.270). Contrast 8 events, own race, min same-channel gap well above 0.8 ms.
+- Sidecars: raster spikes 54 == round(168 x 8.0 x 0.040); energy 1242 pJ /
+  0.001242 uJ at 23 pJ/spike; excerpt 16 events inside [0, 40000] us,
+  neuron_id < 168, same-neuron gap N/A (unique ids) / >=1000 us; routing 4
+  entries with three scar edges' before/after pair; third factor tau 0.88 s
+  == 880 ms; gate_snn pools 47/17/5 == round(n x rate x 0.025) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: {pipeline_receipt}
+
+## Novel coverage
+The coordination-failure CLASS (wall-reflection certificate of a frozen
+smelt spout), the domain (kraft recovery boiler), the shatter-steam
+probe discriminant, the three-edge scar with any-pair-rollback-fails, the
+primary negative-result (correct MODIFY, TTA still misses on unmonitored
+pre-t0 pile), the HITL deck ratify, the 82 % DS probe-duration refit, and
+the Sunday-night 10-bin quantization fence are absent from prior committed
+ouroboros rounds and from staged r14-r31. Repeated elements discounted:
+same-gate contrast, governance-pricing scaffold, flip-fragility series
+(extended to wall-reflection, but the move rhymes), sequenced recovery
+shape, third-factor rollback form, negative-result primary. Weighing a
+new failure family + cure vocabulary + unused pulp-and-paper domain +
+three-edge against those reused scaffolds:
+
+{NOVEL_LINE}
+
+## What a later round should add
+1. FIT THE DESIGNED CONSTANTS: freeze arrival, probe error bands, smelt
+   pile CFD, Sunday-night claim process.
+2. HIL PROVENANCE CELL: put the deck LOTO on a hardware-in-loop spout
+   interlock with fitted latency as state.sim_or_real=hil.
+3. CROSS-RECORD ARC: let CR-K-2804's throat-TC alarm be the igniter of
+   the next round rather than a dangling +21 d leaf.
+4. Domain candidates (de-collided): steam-methane-reformer; cement-kiln;
+   paper-machine; autonomous-driving. AVOID kraft recovery (now used),
+   humanoid-locomotion, surgical-assist, PEM, wind-pitch, slot-die,
+   fiber-draw, caster, VIM melt, float-glass, water-treatment,
+   lyophilization, event-camera-traffic-grid, district-heating,
+   aerial-swarm, warehouse-amr, irrigation-canal, air-separation,
+   stator-weld, CZ-pull, aluminum potline, underwater-rov.
+"""
+    (OUT / "NOTES-r28.md").write_text(notes)
+    return notes
+
+
+def write_transcript(rec, line):
+    c1_spikes = [e for e in rec["spike_events"] if e["t_rel_ms"] <= 26.740]
+    text = """# Multi-Agent Ouroboros Swarm — Round 28 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r28-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Plant: invented SODASHARD / Cairnmere Fiber RK-6 (not LYOSHIELD / CINDERWICK / TRIAD / QUILLFORGE / NIGHTWELL / FERRICLEAVE / CASSITER / OXBOWREEL / REDHALL / SEEDLATCH / STRIAFOIL / PROTONIL / TORSIONKEY / ORRIS / WHORLSPAR / SKULLGATE / CALXION / MAGNORIL)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r28.jsonl).
+
+---
+
+# Cycle 1 — Foundation + injections
+
+## Generator
+
+Design intent: a kraft recovery boiler where three correct agents agree
+the bed is fire-ready because a wall-box IR reads a char reflection while
+the primary smelt spout is frozen. The naive playbook raises firing into
+a spout whose smelt inventory grows with liquor. The gate must MODIFY on
+a numeric firing ceiling, not by killing an agent. sim_or_real=designed.
+Reward heads are task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Cairnmere RK-6, 4.80 kg/s, IR
+912 C, drum 48 %, DS 78.4 %, throat 412 C, DP 0.4 kPa, proposed
+INCREASE-FIRING 6.20 kg/s, safety MODIFY to FIRING-HOLD, executed hold
+without the steam-probe numbers fully specified, outcome "freeze found,
+boiler saved" (this last claim is the defect later cycles refuse to
+keep). Sixteen spikes, five ticks, raster/gate_snn present but the scar
+is a single edge.
+
+```json
+{
+  "id": "maos-r28-001",
+  "state": {
+    "sim_or_real": "designed",
+    "domain": "industrial-process",
+    "description": "Recovery RK-6 mid-fire; three loops in spec; supervisor proposes increase-firing.",
+    "t0_us": 1773560640000028,
+    "gate_latency_us": 760,
+    "race_window_us": 520
+  },
+  "proposed_action": {"name": "increase_liquor_firing", "parameters": {"firing_kg_s": 6.20}},
+  "safety_decision": {"decision": "MODIFY", "rationale": "Hold; do not raise firing while the spout is frozen."},
+  "executed_action": {"name": "firing_hold", "executed_as_proposed": false},
+  "future_outcome": {"summary": "Freeze found, boiler saved."},
+  "reward_components": {"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"},
+  "meta": {"round": 28, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}
+}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "boiler saved". If TTA later runs +18 g/L, booking
+   +0.40 is a lie. Fix: declare `_aggregation`, emit 3–8 ticks that sum
+   to the five heads, and do not call a missed recovery a save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote
+   firing <= 4.80 kg/s while throat < 520 C AND DP < 2.0 kPa.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-process` collides with several staged plants. Kraft spout
+   physics (throat TC, shatter-steam, dissolving-tank TTA) is absent from
+   prior ouroboros rounds and must be named.
+4. **major — race under-specified.** One drum channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted
+   `t_rel_ms` and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated
+   weight repeats r14's two-edge form without the third. NOTES-r14 item 4
+   asked for three-edge where any-pair rollback fails.
+
+Critic does not rewrite the trajectory.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **kraft-recovery-boiler**
+(justified novel subdomain of industrial-process / pulp-and-paper;
+explicit tag `kraft-recovery-boiler`).
+
+Displaced: the Generator's generic `industrial-process` bucket, and any
+temptation to reuse warehouse-amr, aerial-swarm, district-heating,
+event-camera grid, lyophilization, stator-weld, air-separation,
+water-treatment, float-glass, underwater-rov, aluminum potline, CZ-pull,
+slot-die, PEM, wind-pitch, surgical-assist, fiber-draw, caster,
+humanoid-locomotion, or VIM melt.
+
+Domain-specific constraint: firing must remain <= 4.80 kg/s while
+throat < 520 C; wall-box IR is not a spout certificate.
+
+Sensor delta: +wall-box IR, +drum 3-probe, +microwave DS, +throat TC,
++spout DP; -any mobile robot, -event-camera gantries, -DVS, -Pirani/CM,
+-pitch encoder, -insole FSR, -eddy-current mold.
+
+`state.domain` and `meta.domain` both become `kraft-recovery-boiler`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Cairnmere Fiber Recovery RK-6, not a corridor, not a freeze-dryer, not a
+tin bath, not a coater, not an OR, not a PEM hall, not a caster, not a
+gait lab).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **frozen primary smelt
+spout hidden by a wall-box IR reflection**.
+
+- Trigger: weekend shatter-steam condensate slug freezes the primary
+  spout; daily rod-probe PASSES the secondary and is not applied to the
+  primary.
+- Base rate: <1% — 0.53%/campaign from a spout-cycle MC (rod-probe
+  designed; freeze fitted-style).
+- Naive failure: FALSE PERMISSION. PB-RK-08 sees IR 912 C, drum 48 %,
+  DS 78.4 %, raises firing, floods the bed, $1.35M.
+- Trajectory edit: put the freeze in `state.fault_context`, make the
+  wall reflection the mechanism that keeps all three confirms green, and
+  force the gate to refuse the raise on throat 412 C even though all
+  three playbook confirms are numerically true.
+
+Distinct from the domain injection: the domain is the kraft boiler; the
+tail is the accidental wrong-surface compound.
+
+## Neuromorphic Translator
+
+Race window [6.900, 7.420] ms = 520 us. Winner spout.throat @ 6.910 ms
+(amplitude 1.26, 412 C). Loser drum.ok @ 7.094 ms (amplitude 1.10,
+48 %). Margin 184 us vs combined jitter 61 us (3.02x).
+sol.ok @ 7.270 ms is a third race-window channel. Gate @ 7.670 ms
+= winner + 760 us.
+
+Flip narrative: 184 us < min(500, 520) us, so order is flip-fragile. If
+drum-ok wins, PB-RK-08 heads the triage queue. The hold must ride
+order-invariant floors (throat TC, spout DP), not the winner tag.
+
+Cycle-1 spike patch (16 events, globally sorted, refractory >= 0.8 ms;
+tightest same-channel gap spout.throat 4.870 -> 6.910 = 2.040 ms):
+
+| t_rel_ms | channel | amplitude |
+|---------:|---------|----------:|
+| 0.350 | bed.ir | 0.54 |
+| 1.170 | drm.level | 0.62 |
+| 2.030 | sol.ds | 0.58 |
+| 3.190 | bed.ir | 0.51 |
+| 4.870 | spout.throat | 0.71 |
+| 5.190 | spout.dp | 0.66 |
+| 5.630 | drm.level | 0.56 |
+| 6.910 | spout.throat | 1.26 |
+| 7.094 | drum.ok | 1.10 |
+| 7.270 | sol.ok | 0.64 |
+| 7.670 | ctrl.gate | 1.08 |
+| 9.110 | bed.ir | 0.48 |
+| 11.050 | sol.ds | 0.49 |
+| 13.370 | spout.throat | 0.86 |
+| 19.180 | spout.dp | 0.48 |
+| 26.740 | ctrl.gate | 0.90 |
+
+Ticks (5): t_us 5190, 6910, 7670, 5200000, 648000000. Distillation
+value: the drum-ok spike is not a spout-health spike; the throat spike
+is the one that licenses hold.
+
+Raster cycle-1 seed: 40 ms, 168 neurons, 8.0 Hz, 54 spikes, 1242 pJ,
+third factor acetylcholine tau_e 0.88 s. Single scar edge only — cycle 2
+must add the second and third edges.
+
+Cycle-1 spike count: __C1_SPIKES__.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain kraft-recovery-boiler, tail frozen
+spout, 16 spikes, 5 ticks, MODIFY with numeric floor, raster+gate_snn
+present, sim_or_real=designed, rights stamp on record and meta, no thought
+keys. Still missing (and therefore not the publishable line): 82 % DS
+sub-variant, Sunday-night throat tail, second and third scar edges, delayed
+TTA as PRIMARY terminal, contrast ACCEPT episode, ticks 6–7, spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 520 us window;
+  refractory 2.040 ms; rationale quotes 4.80 kg/s / 520 C / 2.0 kPa;
+  domain named; gate_snn.decision MODIFY.
+- checks deferred to cycle 2: three-edge scar, second tail, second
+  domain constraint, negative-result booking, 7 ticks summing to heads.
+- densification vs Generator v1: +1 domain, +1 tail, +16 spikes, +5
+  ticks, +numeric floor.
+
+Cycle-1 JSON is retained as the base; it is NOT written to
+batch-r28.jsonl.
+
+---
+
+# Cycle 2 — Densification
+
+## Generator
+
+Cycle-1 output is the base. Additive expansion (nothing removed):
+
+1. Downstream side-effect (immediate): shatter-steam probe at +5.2 s stays
+   frozen (throat 412 -> 418 C, freeze band <= 430). Lance throat 412 ->
+   776 C. Bed inventory 4.2 t extra smelt discovered during the lance.
+2. Delayed side-effect (PRIMARY terminal, not a footnote): at +7.5 h,
+   dissolving-tank TTA +18 g/L vs 4 spec; $0.82M. The 36 min pre-t0
+   pile is the mechanism. Correct gate, campaign still misses.
+3. Deepened `proposed_action.evidence` with units: IR 912 C, drum 48 %,
+   DS 78.4 %, throat 412 C, DP 0.4 kPa, race 184 us.
+4. Tightened rationale to the numeric floor firing <= 4.80 kg/s while
+   throat < 520 C AND DP < 2.0 kPa, plus probe bands <=430 vs >=+80 K,
+   plus HITL 10.8 min deck LOTO rule.
+
+Reward retargeted to total -0.18 so the delayed miss is the inflection
+(t_us 27000000000), not the gate. Process heads remain non-zero.
+
+## Critic
+
+Re-audit of the expanded trajectory:
+
+1. **blocking if unfixed — missing second domain constraint.** 78.4 % DS
+   probe 5.2 s / +5 % is not a universal number. An 82 % DS liquor will
+   blow a smelt string. Diversity Enforcer must inject the physical-constraints
+   sub-variant this cycle.
+2. **major — only one tail class.** Frozen spout is accidental
+   infrastructure. A disjoint human-intent tail is still required
+   (Sunday-night throat forgery is the open cell).
+3. **major — scar is still one edge in the cycle-1 raster.** NOTES-r14
+   item 4 is not discharged until three firing-raise-go edges exist and
+   any-pair rollback is shown to fail at threshold 0.30.
+4. **minor — contrast episode missing.** Without a same-gate ACCEPT on
+   a true live spout the record teaches "never raise firing". Add +3 d
+   sister-boiler contrast with its own race.
+5. **minor — HITL latency mentioned in prose only.** Put 10.8 min in
+   executed_action.parameters.human_ratify and in a tick.
+
+No rewrite; directives only.
+
+## Diversity Enforcer
+
+Injected second novel domain / physical-constraint sub-variant (exactly 1
+this cycle): **1800 t/d high-solids 82 % DS** on the same RK-6 boiler.
+
+What it expands: 78.4 % DS (cycle 1) -> 82 % DS, 0.55x shatter-steam
+effectiveness. The 5.2 s +5 % pulse blows a 40 mm smelt string. Required
+probe: 16 s at +1.6 % (string 4 mm).
+
+This is still one domain injection for the cycle (physical-constraints
+clause of the factory prompt). It does not displace
+kraft-recovery-boiler; it changes which probe table is legal.
+`future_outcome.subvariant_constraint` carries the refit. Jaccard opening
+stays the Cairnmere Fiber Recovery sentence; 82 % DS internals are
+additive, not a rewrite.
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**Sunday-night forged throat CSV**.
+
+- Trigger: shift lead, night liquor-tank window, posts a historian export
+  showing throat = 780 C and DP = 8.0 kPa at the claimed live-spout instant.
+- Base rate: ~0.34% of Sunday-night fires (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the raise on the forged
+  confirm and ignores live throat 412 C. Bed flood plus a data-integrity 483.
+- Fence: forged log quantized at 10 C (screenshot rounding); plant
+  historian is 1 C (10 bins). Live throat is 412 C at the claimed 780 C,
+  which no true live spout produces.
+- Trajectory edit: governance CR-K-2804 mandates native 1 C
+  exports; the contrast ACCEPT still requires live throat, not a CSV.
+
+Distinct from cycle-1 freeze (accidental condensate vs deliberate deception)
+and from the 82 % DS sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 26.740 ms: spout.steam.probe 5200.0, spout.throat 5320.4
+  (adapt 1.26->0.42), drum.ok 5410.2 (1.10->0.40), human.ratify 648000.0,
+  spout.lance 648800.0, bed.inventory 649400.0, bed.ir
+  11520000.0, drm.level 11520420.0, spout.throat 11520890.0,
+  smelt.excursion 27000000.0. Primary train 16 -> 26. Still one key, still
+  sorted, refractory held (min 2.040 ms).
+- +2 ticks (5 -> 7) at 11_520_000_000 us (throat-legal hold) and
+  27_000_000_000 us (TTA). Heads now 0.08, -0.37, -0.11, 0.15,
+  0.07; total -0.18. Inflection is the last tick.
+- Contrast train 8 events, own race 196 us, ACCEPT.
+- Three-edge third factor: three firing-raise-go edges, tau_e 0.88 s = 880 ms,
+  trace __AUX_TRACE__, eta __AUX_ETA1__ / __AUX_ETA2__ / __AUX_ETA3__,
+  weights 0.46->0.23, 0.42->0.20, 0.39->0.18. Raster excerpt unchanged
+  (decision window is still 40 ms) and remains sorted with unique
+  neuron_ids (same-neuron >=1000 us vacuously).
+
+Winner/loser flip (re-stated, not replaced): reversing 184 us would only
+reorder triage; throat and DP floors still MODIFY. Contrast flip of
+196 us similarly cannot turn a live spout into a freeze.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.18; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted, tau_e consistent; gate_snn.decision matches; meta.round=28,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive; plant is not
+LYOSHIELD, not CINDERWICK, not TRIAD, not FERRICLEAVE, not CASSITER,
+not ORRIS, not PROTONIL, not SKULLGATE, not CALXION.
+
+Densification delta: +1 domain sub-variant (82 % DS), +1 tail
+(Sunday-night forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 three-edge scar with
+any-pair-rollback-fails, +1 HITL ratify, +1 surprise (smelt pile is
+the campaign-miss mechanism).
+
+Publishable JSONL line (the only JSONL line; also at batch-r28.jsonl):
+
+```json
+__FINAL_JSONL__
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r28.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+    text = (
+        text.replace("__C1_SPIKES__", str(len(c1_spikes)))
+        .replace("__AUX_TRACE__", f"{math.exp(-0.76/0.88):.5f}")
+        .replace("__AUX_ETA1__", f"{0.23/math.exp(-0.76/0.88):.5f}")
+        .replace("__AUX_ETA2__", f"{0.22/math.exp(-0.76/0.88):.5f}")
+        .replace("__AUX_ETA3__", f"{0.21/math.exp(-0.76/0.88):.5f}")
+        .replace("__FINAL_JSONL__", line)
+    )
+    (OUT / "swarm-transcript-r28.md").write_text(text)
+    return text

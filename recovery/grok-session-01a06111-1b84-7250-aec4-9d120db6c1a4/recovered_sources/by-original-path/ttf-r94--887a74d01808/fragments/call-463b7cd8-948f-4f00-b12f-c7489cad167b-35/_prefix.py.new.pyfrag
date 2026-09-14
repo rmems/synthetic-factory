@@ -1,0 +1,20 @@
+THIS_DOMAINS = (
+    "hexamethylene-diamine-hydrogenator",
+    "mek-dehydrogenation-bed",
+    "zirconium-kroll-retort",
+    "linear-alkylbenzene-hf-alkylation",
+    "lactide-ring-opening",
+)
+THIS_PLANTS = (
+    "Adnamine-Wray",
+    "Mekone-Howe",
+    "Zirconia-Yair",
+    "Alkylate-Naze",
+    "Polylact-Eyot",
+)
+IDS = [f"ttf-r94-{n}" for n in range(486, 491)]
+# Incomplete gens without THIS_DOMAINS still occupy these slugs.
+EXTRA_OCCUPIED_DOMAINS = {
+    "dimethyl-carbonate-transester",
+    "ethyl-tert-butyl-ether",
+}

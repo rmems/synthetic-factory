@@ -1,0 +1,21 @@
+                "Kettle-K8 completed the hold with bath 452 C and dross IR 438 C; strip "
+                "unharmed. Bath-authoritative under dross-present mode confirmed.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("bath", "452 C held; under 470 cap"),
+                        ("dross", "438 C; under 455 cap"),
+                        ("kettle", "latched; production continues"),
+                        ("near_miss_log", "none"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "The 438 C dross IR was not a calibration fault: a kettle-side glare can raise apparent dross while bath RTD stays legal.",
+                    "Delayed (reseq_s=240): sister kettle K9 logged the same bath-vs-dross disagreement; rack policy flipped bath-authoritative before the next coil.",
+                ],
+            ),

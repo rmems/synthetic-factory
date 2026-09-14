@@ -1,0 +1,5 @@
+                "Lead-cadmium cathodes on Adnloop-Brink AB-4 / EHD-Cell C-3 show a 78.4 C "
+                "hotspot over the 74.0 C trip even though the cathode bus still prints a legal "
+                "16.8 kA. Binding the sheath TC first cuts current; binding the bus first "
+                "would ride the cruise. Membrane strain stays invisible to both contenders "
+                "until the AE dump.",

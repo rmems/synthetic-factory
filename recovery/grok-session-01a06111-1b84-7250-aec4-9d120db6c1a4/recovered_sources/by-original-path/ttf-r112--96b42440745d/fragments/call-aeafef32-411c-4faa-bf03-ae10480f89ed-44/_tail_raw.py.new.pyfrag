@@ -1,0 +1,89 @@
+def notes_text(jmax: float) -> str:
+    return f"""# Thalamic Trajectory Factory — NOTES-r112
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- Quality: Q=5
+- IDs: `ttf-r112-576` … `ttf-r112-580`
+- Domains this batch: `ruthenium-tetroxide-scrubber`, `tantalum-ethoxide-still`, `indium-trichloride-bubbler`, `lanthanum-aluminate-sinter`, `diborane-cracker-column`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged r13–r111 occupancy (jsonl SoT plus incomplete gens r101/r104/r106–r110 and r113 occ sidecars, including r102 cesium-formate / LiPF6-still / WF6-CVD / SrTiO3 / hydrazine, r103 SeO2 / Ni-carbonyl / YF3 / GeCl4 / Ce-oxalate, r104 hexamine / peracetic / persulfate / SmCo / VDC, r105 OsO4 / HDI / nylon-12 / PVDF / PEEK, r106 CHP-cleaver / sevoflurane / carbon-black / ACH / BaTiO3, r108 phenol-cumene / SBR / zeolite-Y / SCR / graphite-spheroidizer, r109 MTO / sulfuryl-chloride / LaB6 / PTHF / VOCl3). All five plants are invented. Do not restack prior TTF plants. Ruthetox-Whinfall / Tantalox-Grainth / Indichl-Sikebeck / Lanthala-Braefell / Diboran-Stoupside are this round only.
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+| ttf-r112-576 | ruthenium-tetroxide-scrubber | MODIFY | correct | designed | **−0.46** | process-correct caustic clamp; packing gassing inside 48 ms raster; independent LIF |
+| ttf-r112-577 | tantalum-ethoxide-still | REJECT | **incorrect (wrong-reject)** | designed | −0.58 | live kettle 74.0 C < 128.0 trip; supervisor binds leftover TC burnout-upscale 21.2 mA / 248.0 C |
+| ttf-r112-578 | indium-trichloride-bubbler | REJECT | correct | hil | +0.80 | ampoule AE 38 pps beats bubbler IR 390 C; hold bubbler |
+| ttf-r112-579 | lanthanum-aluminate-sinter | ACCEPT | correct | simulated | +1.10 | bed 1510 C vs pyro smear 1740 C; proposed 1.6 t/h already legal |
+| ttf-r112-580 | diborane-cracker-column | ACCEPT | correct | designed | +1.14 | tray 42 C vs overhead smear 71 C; proposed 2.2 t/h already legal |
+
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 correct REJECT, 1 incorrect REJECT (burnout-upscale-as-PV). Provenance: designed×3, simulated×1, hil×1 (Indichl-Sikebeck IS-HIL InCl3 pad). Intra-batch Jaccard on `state.description` {jmax:.3f} (< 0.4).
+
+## Wrong-reject
+
+**ttf-r112-577** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-reject`). Alternate vs odd rounds: even rounds host wrong-reject (r12/r14/…/r98/r100/r102/r108/r112); odd rounds host wrong-modify. Do not emit a wrong-ACCEPT. Error *class* is **burnout-upscale-as-PV**, not r16 reticle-as-wafer, not r18 empty-tank, not r20 oscillation-as-PSV, not r22 class-transplant, not r30 stale-firmware floor, not r32 stale-peak-hold, not r34 wrong-bus, not r36 unit-mismatch leftover-bar, not r38 loop-test-inject, not r40 setpoint-echo, not r42 leftover-setpoint-as-trip, not r44 wrong-unit-shadow, not r46 kPa-as-MPa, not r50 raw-mA-as-EU, not r52 gauge-vs-absolute / stale-sample, not r58 overrange-flag-as-PV, not r60 absolute-as-gauge, not r62 sign-convention, not r64 reverse-scale / inverted-4-20, not r68/r74 channel-swap / sibling-loop-as-live, not r70 raw-DP-as-flow, not r72 namur-failsafe-as-EU, not r76/r78 NAMUR-fail-high-as-live, not r80 HART-SV-as-PV, not r82 stale-URV / swapped-range, not r84 stale-setpoint / swapped-range, not r86/r88 stale-handshake / heartbeat-as-PV, not r90/r92/r94/r96 cold-junction-offset / thermocouple-type-swap, not r98 watchdog-timeout-as-PV, not r100/r108 burst-mode-status-as-EU, not r102/r104/r106 simulation-tag-as-live / MODE_SIMULATE-as-PV.
+
+Tantalox-Grainth TE-6 / Kettle-T3 (LIVE) reads live kettle-base `74.0 C` against a published **128.0 C** trip. A leftover thermocouple **burnout-upscale** (open-circuit detect configured UPSCALE) still prints **21.2 mA → 248.0 C** (`burnout_flag=true`, `burnout_upscale_is_pv=true` on the wrong bind, `namur_fail_high=false`). Sidecar arithmetic `74.0 < 128.0` is true. A weak supervisor binds the burnout-upscale EU, REJECT-holds Ta(OEt)5 2.6 → 0.0 t/h, and leaves a legal ethoxide still idle. Convictable without alkoxide physics: `evidence.live_C < evidence.trip_C`, `evidence.burnout_flag == true`, `evidence.namur_fail_high == false`, `evidence.shadow_C == 248.0`, `evidence.burnout_mA == 21.2`, `executed_action` sets `taet_tph=0` / `hold=true`, `raster.routing.table` sends `relay.burnout.upscale` → `policy.hold_reject` (weight 0.76) with no positive weight to `policy.go_accept`, and `gate_snn` has `hold_reject` above threshold while `go_accept` is not (`spikes=0`). Recovery: ACCEPT; leave 2.6 t/h; bind published live kettle RTD; drop burnout-upscale as PV. Cost: 18 min missed alkoxide assay window (`missed_window_s=1080`). Distinct from r76/r78 NAMUR NE43 fail-high: the leftover bit here is TC open-circuit burnout upscale on a 4–20 loop that still has a valid live RTD, not a NAMUR diagnostic band. Distinct from r50 raw-mA-as-EU: the 21.2 mA is converted through URV to 248 C, not used as a raw milliamp PV.
+
+## Partnered-negative in-window (576)
+
+**ttf-r112-576** is the partnered negative: process-correct MODIFY (caustic held 2.8 t/h; liquor 50 C < 54 cap) while the world still charges. Safety −0.62 prices the 12 mm Raschig packing gassing at **23.200 ms**; `task_progress` stays +0.32 because the clamp completed. Inflection `t_us=23200` is tick 5 and is **inside** the 48 ms raster (`23200 ≤ 48000`). Named un-netted loss: 16 min liquor isolate (`abort_s=960`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 112576, stim `[21800, 25600]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.pack` 21.8–25.6 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks). Tick 6 is bound to a published sidecar (`abort_s`, `missed_window_s`, `survey_hold_s`, `dwell_s`) via `future_outcome.delayed_surprise_s` and is strictly after the raster window. Inflection `t_us` is an actual tick.
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+| 576 | 6 | +0.32 | −0.62 | −0.16 | +0.04 | −0.04 | −0.46 | 5 (23200) |
+| 577 | 6 | −0.20 | −0.12 | −0.22 | −0.10 | +0.06 | −0.58 | 4 (5100) |
+| 578 | 6 | +0.10 | +0.42 | +0.12 | +0.10 | +0.06 | +0.80 | 4 (6080) |
+| 579 | 6 | +0.42 | +0.30 | +0.18 | +0.12 | +0.08 | +1.10 | 4 (4500) |
+| 580 | 6 | +0.44 | +0.32 | +0.18 | +0.12 | +0.08 | +1.14 | 4 (5480) |
+
+Tick-6 sidecar bind: 576 `abort_s=960`, 577 `missed_window_s=1080`, 578 `abort_s=510`, 579 `survey_hold_s=390`, 580 `dwell_s=450`.
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+| 576 | ruthenium-tetroxide-scrubber | 82 | 24 | 48 | 94 | 2162 | 0.002162 |
+| 577 | tantalum-ethoxide-still | 88 | 28 | 32 | 79 | 1817 | 0.001817 |
+| 578 | indium-trichloride-bubbler | 104 | 22 | 36 | 82 | 1886 | 0.001886 |
+| 579 | lanthanum-aluminate-sinter | 64 | 36 | 26 | 60 | 1380 | 0.001380 |
+| 580 | diborane-cracker-column | 54 | 40 | 24 | 52 | 1196 | 0.001196 |
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator (NA / ACh / DA / 5-HT / adenosine), `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-576 excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).
+
+## Local checks (staging, not raw)
+
+See generator stdout: `check_jsonl` FactoryStaging, `validate_run.check_line`, `dumps_exact_json`, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`, tick sums, refractory, Jaccard.
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrote `outputs/raw/`.
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (576). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. Tick-6 sidecar bind is standing machinery (r14+), not a new class.
+4. Five domain slugs leave the prompt's 8-item pool; a later round that must stay inside the pool will have to rotate sit-outs instead.
+5. 577 wrong-reject is sidecar-convictable (routing `to` / shadow_C / burnout_flag / burnout_upscale_is_pv / namur_fail_high) as a **new** error class (burnout-upscale-as-PV) vs r50 raw-mA, r76 NAMUR fail-high, r90 TC type-swap, r102 MODE_SIMULATE-as-PV.
+6. 579 and 580 are both already-legal ACCEPTs; a later round could pair an ACCEPT with a world charge that does not go negative.
+
+## Next densification target
+
+Labeled LIF on a second record, or an ISI histogram sidecar. Remaining unused wrong-REJECT subclasses are thin after burnout-upscale; a later even round could mint a **cold-junction-open-as-PV** class rather than restack burnout. Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+{NOVEL_COVERAGE_LINE}
+"""

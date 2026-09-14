@@ -1,0 +1,56 @@
+            ("decision", "REJECT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Skin 268 C won by 190 us and is over the 240 C trip. Encoder 18.4 m/min is under "
+                "the 22.0 m/min cap but is not clearance. REJECT: hold 0 m/min until skin <= 240 C.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "tow_skin_C",
+                            OrderedDict(
+                                [
+                                    ("trip", 240.0),
+                                    ("observed", 268.0),
+                                    ("executed_m_min", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 190),
+                                    ("combined_jitter_us", 54),
+                                    ("ratio", 3.52),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "tow_hold_ir"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("line_m_min", 0.0),
+                        ("skin_C", 268.0),
+                        ("hold", True),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: line 18.4 -> 0 m/min. Routing relay.ir.skin -> policy.hold_reject. "
+                "Do not ramp into the 268 C flare.",
+            ),
+        ]
+    )

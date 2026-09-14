@@ -1,0 +1,34 @@
+                [
+                    "strip-line BPM, 5 kHz, 30 us jitter (HIL live)",
+                    "waveguide forward-power coupler, 2 kHz, 34 us jitter (HIL live)",
+                    "waveguide coolant RTD (context)",
+                    "dummy-load calorimeter (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("bpm_cap_mm", 0.80),
+                        ("bpm_mm", 2.40),
+                        ("kly_trip_kW", 24.0),
+                        ("kly_kW", 18.0),
+                        ("proposed_rf_drive_pct", 18.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Buncher-B2 parked on KF-HIL pad; 18 percent RF drive ramp armed.",
+                    "2. BPM 2.40 mm; klystron 18.0 kW on dummy-load.",
+                    "3. Waveguide-coolant precursor at 0.880 ms.",
+                    "4. Race window [6.100, 6.480] ms.",
+                    "5. bpm.offset.mm 2.40 mm at 6.140 ms (winner).",
+                    "6. kly.fwd.kW 18.0 kW at 6.322 ms (loser by 182 us).",
+                    "7. Gate at 6.860 ms: REJECT hold 0 percent (correct).",
+                    "8. Ramp cancelled; BPM remains 2.40 mm > 0.80 cap.",
+                    "9. Klystron 18.0 kW unused as a go signal.",
+                    "10. Delayed reclear_s=480 (8 min pad reclear) after dummy-load swap.",
+                ],
+            ),

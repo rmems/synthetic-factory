@@ -1,0 +1,17 @@
+        if rid == "ttf-r72-376":
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["live_C"] < ev["trip_C"]):
+                issues.append("376 analog not under trip")
+            if ev.get("namur_failsafe_high") is not True:
+                issues.append("376 namur_failsafe_high not tagged")
+            if not (ev["eu_from_diag_C"] > ev["trip_C"]):
+                issues.append("376 diagnostic EU not over trip")
+            if rec["executed_action"]["parameters"]["feed_t_h"] != 0.0:
+                issues.append("376 executed feed not zero")
+            tos = {row["to"] for row in rec["raster"]["routing"]["table"]}
+            if "policy.go_accept" in tos:
+                issues.append("376 routing contains go_accept")
+            if "policy.hold_reject" not in tos:
+                issues.append("376 routing missing hold_reject")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("376 missing recovery")

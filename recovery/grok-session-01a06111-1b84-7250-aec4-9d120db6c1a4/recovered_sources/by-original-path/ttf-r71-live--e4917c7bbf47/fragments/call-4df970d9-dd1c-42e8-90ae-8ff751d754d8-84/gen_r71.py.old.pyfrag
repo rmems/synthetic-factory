@@ -1,0 +1,12 @@
+                            "Oxytung-Kame oxychlor OX-2 header Cl2 is 38.0 kg/h versus a 24.0 kg/h "
+                            "mass-cap. Bed thermocouple is 318 C versus a 360 C skin limit. A header-first "
+                            "bind cuts Cl2 38.0 to 18.0 kg/h; a bed-first bind would leave 38.0 running "
+                            "on a 'skin still inside envelope' story.",
+                        ),
+                        ("domain", "tungsten-oxytetrachloride-still"),
+                        ("sim_or_real", "designed"),
+                        (
+                            "goal",
+                            "Keep OX-2 Cl2 feed <= 24.0 kg/h and finish the vanadyl oxychlor without "
+                            "a bed hot-spot.",
+                        ),

@@ -1,0 +1,31 @@
+def record_260():
+    ticks = [
+        tick(1672, 0.06, 0.04, 0.03, 0.02, 0.01),
+        tick(4180, 0.10, 0.08, 0.04, 0.02, 0.02),
+        tick(4360, 0.06, 0.04, 0.02, 0.02, 0.01),
+        tick(4940, 0.12, 0.08, 0.05, 0.04, 0.02),
+        tick(5240, 0.06, 0.05, 0.02, 0.01, 0.01),
+        tick(420000000, 0.04, 0.03, 0.02, 0.01, 0.01),
+    ]
+    params = OrderedDict(
+        [
+            ("feed_t_h", 18.0),
+            ("tmt_C", 1048.0),
+            ("coil_id", 12),
+            ("hold", False),
+        ]
+    )
+    spikes = [
+        spike("enc.gap.ctx", 0.920, 0.41),
+        spike("ir.tmt.c", 2.140, 0.60),
+        spike("dp.coil.kpa", 3.080, 0.51),
+        spike("ir.tmt.c", 4.180, 1.30),
+        spike("dp.coil.kpa", 4.360, 1.12),
+        spike("ctrl.gate", 4.940, 0.97),
+        spike("ir.tmt.c", 6.800, 0.78),
+        spike("dp.coil.kpa", 9.200, 0.62),
+        spike("ctrl.gate", 13.600, 0.85),
+        spike("ir.tmt.c", 18.400, 0.54),
+        spike("dp.coil.kpa", 21.200, 0.43),
+    ]
+    excerpt = independent_excerpt(48260, 48, 24000, 11, spike_avoid_us(spikes))

@@ -1,0 +1,4 @@
+        errs, kind = check_line(rec, f"{BATCH_NAME}:{i}")
+        if errs:
+            raise SystemExit(f"check_line {i}: {errs}")
+        print("check_line", i, kind, "ok")

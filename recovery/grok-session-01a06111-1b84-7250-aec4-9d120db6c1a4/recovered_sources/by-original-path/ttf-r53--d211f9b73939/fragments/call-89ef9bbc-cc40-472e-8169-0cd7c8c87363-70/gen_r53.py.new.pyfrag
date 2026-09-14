@@ -1,0 +1,34 @@
+                "Correct REJECT held X-4. AE 28 pps beat motor 62 A by 180 us. Motor was "
+                "legal; the melt was not. 8 min hopper refeed (abort_s=480) is delayed survey, "
+                "not a process miss.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("screws", "held at 0 rpm"),
+                        ("motor", "left 62 A < 95 cap"),
+                        ("hopper", "8 min refeed (abort_s=480)"),
+                        ("mission", "HIL compounder not dispatched"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Motor current never crossed its cap; AE was the only over-cap channel.",
+                    "Delayed (abort_s=480): 8 min hopper refeed on the HIL bench.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "ae.unmelt.pps (6.840 ms, 28 pps)"),
+                        ("loser", "enc.motor.A (7.020 ms, 62 A)"),
+                        ("margin_us", 180),
+                        (
+                            "counterfactual_if_reversed",
+                            "Current-first by < 180 us inside the 320 us window would have kept "
+                            "420 rpm into an unmelted slug. The REJECT is still the correct gate.",
+                        ),

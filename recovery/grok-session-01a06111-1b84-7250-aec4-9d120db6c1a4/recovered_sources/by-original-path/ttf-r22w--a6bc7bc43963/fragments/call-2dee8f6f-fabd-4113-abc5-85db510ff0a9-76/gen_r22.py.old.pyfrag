@@ -1,0 +1,15 @@
+THIS_DOMAINS = (
+    "indium-phosphide-movpe",
+    "lutetium-oxyorthosilicate-czochralski",
+    "erbium-doped-fiber-preform",
+    "potassium-titanyl-phosphate-flux",
+    "triso-particle-coater",
+)
+THIS_PLANTS = (
+    "Phosphid-Wick",
+    "Lutetia-Quay",
+    "Erbia-Skel",
+    "Ktpflux-Mire",
+    "Triso-Venn",
+)
+IDS = [f"ttf-r22-{n}" for n in range(801, 806)]

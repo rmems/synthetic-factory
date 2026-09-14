@@ -1,0 +1,4 @@
+        skip_frags = set(THIS_PLANTS) | {"WRONG-MODIFY", "WRONG-REJECT"}
+        for frag in (set(BANNED_PLANT_FRAGMENTS) | prior_p) - skip_frags:
+            if frag and frag in blob:
+                issues.append(f"{rec['id']} cloned plant fragment {frag}")

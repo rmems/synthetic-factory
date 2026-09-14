@@ -1,0 +1,24 @@
+                        (
+                            "contenders",
+                            [
+                                "ir.core.c 2840 C flare",
+                                "enc.kiloamp 18.6 kA still-in-band",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "IR-first latches REJECT hold 0 kA; encoder-first would ramp 18.6 kA "
+                            "on an in-band-current-as-clearance model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "260 us = one IR envelope slot versus the kiloamp-encoder publisher on this "
+                            "pad cycle.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 200 us vs combined jitter 54 us (IR 24 + encoder 30): 3.7x over a "
+                            "2.0x trust floor. Pad injects encoder 90-130 us before the IR envelope "
+                            "finishes (pyrometer lag, not a sensor fault); the encoder packet is still "
+                            "the loser in this 260 us window.",
+                        ),

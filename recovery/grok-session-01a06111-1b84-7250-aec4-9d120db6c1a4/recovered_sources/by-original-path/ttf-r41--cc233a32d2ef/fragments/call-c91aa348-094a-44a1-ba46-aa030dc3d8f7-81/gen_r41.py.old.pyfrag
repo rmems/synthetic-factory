@@ -1,0 +1,27 @@
+                "Yankee surface 96.2 C is under the 102.0 C adhesion floor. Crepe IR apparent "
+                "118 C is a HIL lamp under-read of a cold shell, not a clearance. REJECT: hold "
+                "0 m/min delta; do not commit +120 m/min across the cylinder.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "surface_C",
+                            OrderedDict(
+                                [
+                                    ("floor", 102.0),
+                                    ("observed_surface", 96.2),
+                                    ("crepe_apparent", 118.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "delta_m_min",
+                            OrderedDict(
+                                [
+                                    ("proposed", 120.0),
+                                    ("executed", 0.0),
+                                ]
+                            ),
+                        ),

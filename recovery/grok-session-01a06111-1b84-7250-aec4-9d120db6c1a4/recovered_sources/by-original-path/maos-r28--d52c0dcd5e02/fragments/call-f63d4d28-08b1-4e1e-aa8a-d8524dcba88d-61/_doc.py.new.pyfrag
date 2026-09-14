@@ -1,0 +1,544 @@
+def write_notes(rec, aux, pipeline_receipt):
+    gap, gap_ch = min_same_channel_gap(rec["spike_events"])
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 28
+
+Factory: multi-agent-ouroboros-swarm. One scenario (ZG), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r28.jsonl. Full labeled transcript:
+swarm-transcript-r28.md. Quota Q=1. Record id maos-r28-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Nothing under outputs/raw/ was touched.
+
+ORCHESTRATION NOTE: dispatched AS round 28 of the 2026-09-02-final-heavy
+window. Writes are create-only under /tmp/maos-r28/. Prior context read for
+gap targeting and de-collision: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, NOTES-r04.md of the 2026-08-30 window, and
+staged r14–r27 plus r29 (LYOSHIELD, CINDERWICK, QUILLFORGE, NIGHTWELL,
+FERRICLEAVE, CASSITER, OXBOWREEL, REDHALL, SEEDLATCH, STRIAFOIL, PROTONIL,
+TORSIONKEY, ORRIS, WHORLSPAR, SKULLGATE). Explicitly avoided cloning TRIAD /
+Meridian Gateway Corridor / VANTIS-CADENCE-AEGIS / THERMION / STARLING /
+OKTAVE / VERDIGRIS. Plant is invented BRACEGILT / Yarrowmere Humanoids HL-5.
+First lock attempted PEM (IONSPATE) and was abandoned after r24 landed
+PROTONIL on pem-water-electrolysis; caster was also taken (r29 SKULLGATE).
+
+## What this round produced
+
+Scenario ZG — "BRACEGILT / Yarrowmere Humanoids HL-5": a 1.62 m biped
+mid-carry on a 12 kg tote at 0.90 m/s. Three heterogeneous,
+individually-correct agents — IMU (CoM in commanded polygon), ANK
+(ankle F/T), STN (2oo3 insole stance) — jointly report stance is
+certified so a speed-up is legal. The consensus is false. The right
+forefoot FSR Wheatstone is open-circuit at 1.8 MOhm, so the toe bridge
+reads 8 N (noise floor) while heel 210 N and mid 140 N keep 2oo3 TRUE.
+IMU CoM 2.4 cm inside the commanded full-foot polygon. ANK 618 N inside
+500-750. Uncommissioned CoP residual is 22 mm posterior against a 12 mm
+hold. The coordination-failure CLASS is new to this factory: STANCE-BIT
+CERTIFICATE OF AN OPEN FOREFOOT BRIDGE. Completes a different family than
+r01-r04 and staged r14-r27/r29 (livelock / synchrony-storm / arms-race /
+ring-with-no-faulty-pair / false-consensus-endpoint / pairwise-Hurwitz /
+thermal-contact masquerade / mass-balance ghost / conservation-blind
+ratio-lock / stacked dead-bands / drum-blind tension snag /
+resistance-compensated starvation / multi-tau meniscus tilt / window-mean
+stripe / polarization-lookup / motor-side spline / tendon-compliance
+nullspace / FFT-deadbanded airline / slag-skull bridge). Here every agent
+is correct, the cycle is not unstable, and the playbook's three confirms
+are one 2oo3 vote that cannot see a single open bridge.
+
+The gate is a correct MODIFY (numeric floor: do not raise gait speed
+above 0.90 m/s while toe-bridge < 40 N AND |CoP residual| > 12 mm).
+TG-HL-5 strips PB-HL-12's speed increase, holds 0.90 m/s, runs a 5.2 s
+toe-push probe +8 % plantar (open keeps toe 11 N <= 12; live would track
+>= 80), and swaps the insole after a 10.8 min suit human ratify. The
+1.35 m/s tote drop is avoided (0 drops). The PRIMARY episode nonetheless
+FAILS: 32 min of unmonitored pre-t0 heel-only had already scored the
+right harmonic 0.14 mm vs 0.02 spec. 4.5 d quarantine; $0.76M designed.
+Reward total -0.18 with process heads honest and world loss un-netted.
+
+Three-edge scar (NOTES-r14 item 4): imu.com_ok -> increase_speed
+(0.19 commissioned -> 0.46 at illusion -> 0.23 after ACh-gated
+depression) AND ank.ft_ok -> increase_speed (0.16 -> 0.42 -> 0.20)
+AND stn.stance_ok -> increase_speed (0.15 -> 0.39 -> 0.18). Eligibility
+trace e^{{-0.76/0.88}} = {aux['trace']:.5f}; eta {aux['eta1']:.5f} /
+{aux['eta2']:.5f} / {aux['eta3']:.5f}; dw -0.230 / -0.220 / -0.210.
+Rolling back any pair leaves the remaining edge above the 0.30 fire
+threshold — fitted to fail. Coordinated depression of all three is the
+cure.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **humanoid-locomotion** — prompt-list domain, unused
+  across 2026-08-17, 2026-08-30, and staged r14-r27/r29. Not warehouse-amr
+  (r01), not aerial-swarm (r02), not district-heating (r03), not
+  event-camera grid (r04), not lyophilization (r14), not stator-weld
+  (r16), not air-separation (r17), not water-treatment (r18), not
+  float-glass (r19), not underwater-rov (r20), not aluminum potline (r21),
+  not CZ-pull (r22), not slot-die (r23), not PEM (r24), not wind-pitch
+  (r25), not surgical-assist (r26), not fiber-draw (r27), not caster (r29).
+- Cycle-1 tail: open-circuit forefoot FSR + 2oo3 stance-bit. Thumb-press
+  PASSES heel+mid. Fitted-style base rate 0.51%/campaign (insole-cycle MC;
+  thumb-press designed, flagged). Naive = FALSE PERMISSION.
+- Cycle-2 domain sub-variant: 28 kg tote, 2.3x, 0.55 m/s; 5.2 s / +8 %
+  12 kg pulse saturates the ankle and tips CoM; probe must move to 14 s /
+  +2.4 %.
+- Cycle-2 tail: Sunday-night forged insole CSV at 10 N quantization vs
+  plant 1 N (10 bins) plus live toe 8 N at the claimed 180 N. Human-intent
+  class, disjoint from cycle 1's accidental open. Base rate ~0.36% of
+  Sunday-night totes, DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+3 d sister biped) with its own 196 us race
+  (demand vs toe-clear) and ACCEPT of the raise the primary MODIFIED away.
+- Learned-weight provenance on THREE edges with any-pair-rollback-fails.
+- HITL insole-swap ratify 10.8 min (gap 4 partial; sim_or_real stays designed).
+- Governance CR-L-2804 prices retire-vs-probe-vs-status-quo and mandates
+  native 1 N CSV exports (the fraud fence).
+- Flip-fragility extended to STANCE-BIT: when three channels each sit
+  inside a 2oo3 vote, their race does not decide truth; a toe-bridge the
+  playbook dead-banded does.
+
+## Self-critique of this round's batch
+
+### Strengths
+- The headline class is mechanistically tight: a 2oo3 that ignores an
+  open toe is the arithmetic that makes IMU's success STN's blindness and
+  ANK's on-spec heel load.
+- Negative-result honesty: the gate does the right thing and the harmonic
+  still fails for a reason the commissioned sensors could not see. Total
+  -0.18.
+- Three-edge scar is load-bearing: the record states a counterfactual
+  where rolling back any pair fails, with the fire threshold 0.30
+  exhibited on the remaining edge.
+- Contrast ACCEPT on a true live toe prevents "never raise speed" as
+  the lesson.
+- Domain is the unused prompt-list cell (humanoid-locomotion), not a
+  clone of r26 surgical-assist (different plant, sensors, failure class).
+
+### Weaknesses (honest)
+- Probe error bands (open <= 12 N, live >= 80 N), the 0.51%/campaign
+  open rate, the $0.76M / $1.18M figures, the 10.8 min LOTO latency, and
+  the Sunday-night 0.36% base rate are DESIGNED constants and are flagged.
+  Closed-loop offsets (CoP residual from heel-only geometry, 28 kg CoM
+  tip) are derived from those inputs, not discovered by an unauthored
+  process.
+- Harmonic-score model is a designed 32 min mapping; no full flexspline
+  FEM shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil. The
+  NOTES-r14 HIL provenance cell remains open.
+- Cross-record arc is a hook (CR-L-2804 +21 d), not a serial igniter
+  into another round.
+
+### Realism of noise / latencies
+Ladder: 184 us race / 196 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap {gap:.3f} ms on {gap_ch}) / 520 us race
+window / 760 us gate latency / 20 ms bus epoch / 40 ms raster / 5.2 s
+probe / 10.8 min HITL / 8 s naive speed-ramp counterfactual / 32 min
+pre-t0 score / 3.2 h toe-legal hold / 7.5 h harmonic inspect / +3 d
+contrast / +21 d governance. Adaptation decay on imu.com
+(0.54->0.51->0.48->0.32), toe.bridge (0.71->1.26->0.86->0.42->0.21),
+ank.ft (0.62->0.56->0.30), stn.heel (0.58->0.49).
+
+### Value for SNN distillation
+- STANCE-BIT CERTIFICATE = THREE CORRECT LOOPS, ONE OPEN BRIDGE.
+- TOE-BRIDGE + CoP RESIDUAL as the tie-break that is not in the 2oo3.
+- REVERSIBLE PROBE that raises toe force iff the bridge is live.
+- THREE-EDGE ELIGIBILITY: coordinated depression; any-pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum {rec['reward_components']['total']}
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.48 reconciles independently.
+- spike_events: primary {len(rec['spike_events'])} events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap {gap:.3f} ms >= 0.8 ms, 3
+  channels inside race_window_us 520 (toe 6.910, stance-ok 7.094, ank-ok
+  7.270). Contrast 8 events, own race, min same-channel gap well above 0.8 ms.
+- Sidecars: raster spikes 54 == round(168 x 8.0 x 0.040); energy 1242 pJ /
+  0.001242 uJ at 23 pJ/spike; excerpt 16 events inside [0, 40000] us,
+  neuron_id < 168, same-neuron gap N/A (unique ids) / >=1000 us; routing 4
+  entries with three scar edges' before/after pair; third factor tau 0.88 s
+  == 880 ms; gate_snn pools 47/17/5 == round(n x rate x 0.025) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: {pipeline_receipt}
+
+## Novel coverage
+The coordination-failure CLASS (stance-bit certificate of an open
+forefoot bridge), the domain (humanoid locomotion), the toe-push
+probe discriminant, the three-edge scar with any-pair-rollback-fails, the
+primary negative-result (correct MODIFY, harmonic still scores on
+unmonitored pre-t0 heel-only), the HITL insole-swap ratify, the 28 kg
+probe-duration refit, and the Sunday-night 10-bin quantization fence are
+absent from prior committed ouroboros rounds and from staged r14-r27/r29.
+Repeated elements discounted: same-gate contrast (r02/r03/r04/r14),
+governance-pricing scaffold, flip-fragility series (extended to
+stance-bit, but the move rhymes), sequenced recovery shape, third-factor
+rollback form (here three edges rather than r14's two), negative-result
+primary (r14 viewport through r27 airline / r29 skull). Weighing a new
+failure family + cure vocabulary + unused prompt-list domain + three-edge
+against those reused scaffolds:
+
+{NOVEL_LINE}
+
+## What ROUND 29/30 should add
+1. FIT THE DESIGNED CONSTANTS: open arrival, probe error bands,
+   flexspline FEM, Sunday-night claim process.
+2. HIL PROVENANCE CELL: put the insole LOTO on a hardware-in-loop
+   suit interlock with fitted latency as state.sim_or_real=hil.
+3. CROSS-RECORD ARC: let CR-L-2804's toe-bridge alarm be the igniter
+   of the next round rather than a dangling +21 d leaf.
+4. Domain candidates (de-collided): kraft-recovery-boiler; hydro-kaplan;
+   autonomous-driving; cement-kiln. AVOID humanoid-locomotion (now used),
+   surgical-assist, PEM electrolysis, wind-pitch, slot-die, fiber-draw,
+   caster, float-glass, water-treatment, lyophilization,
+   event-camera-traffic-grid, district-heating, aerial-swarm,
+   warehouse-amr, irrigation-canal, air-separation, stator-weld, CZ-pull,
+   aluminum potline, underwater-rov.
+"""
+    (OUT / "NOTES-r28.md").write_text(notes)
+    return notes
+
+
+def write_transcript(rec, line):
+    c1_spikes = [e for e in rec["spike_events"] if e["t_rel_ms"] <= 26.740]
+    text = """# Multi-Agent Ouroboros Swarm — Round 28 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r28-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Plant: invented BRACEGILT / Yarrowmere Humanoids HL-5 (not LYOSHIELD / CINDERWICK / TRIAD / QUILLFORGE / NIGHTWELL / FERRICLEAVE / CASSITER / OXBOWREEL / REDHALL / SEEDLATCH / STRIAFOIL / PROTONIL / TORSIONKEY / ORRIS / WHORLSPAR / SKULLGATE)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r28.jsonl).
+
+---
+
+# Cycle 1 — Foundation + injections
+
+## Generator
+
+Design intent: a factory-floor biped where three correct agents agree
+stance is certified because a 2oo3 insole still votes STANCE after the
+toe Wheatstone opens. The naive playbook raises gait speed onto a
+heel-only contact that scores the ankle harmonic. The gate must MODIFY
+on a numeric speed ceiling, not by killing an agent. sim_or_real=designed.
+Reward heads are task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Yarrowmere HL-5, 0.90 m/s, 12 kg
+tote, CoM 2.4 cm, ankle 618 N, toe 8 N, CoP residual 22 mm, proposed
+INCREASE-SPEED 1.35 m/s, safety MODIFY to SPEED-HOLD, executed hold
+without the toe-push numbers fully specified, outcome "open found, biped
+saved" (this last claim is the defect the later cycles will refuse to
+keep). Sixteen spikes, five ticks, raster/gate_snn present but the scar
+is a single edge.
+
+```json
+{
+  "id": "maos-r28-001",
+  "state": {
+    "sim_or_real": "designed",
+    "domain": "industrial-assembly",
+    "description": "Biped HL-5 mid-carry; three loops in spec; supervisor proposes increase-speed.",
+    "t0_us": 1773470160000028,
+    "gate_latency_us": 760,
+    "race_window_us": 520
+  },
+  "proposed_action": {"name": "increase_gait_speed", "parameters": {"gait_speed_m_s": 1.35}},
+  "safety_decision": {"decision": "MODIFY", "rationale": "Hold; do not raise speed while the toe is open."},
+  "executed_action": {"name": "speed_hold", "executed_as_proposed": false},
+  "future_outcome": {"summary": "Open found, biped saved."},
+  "reward_components": {"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"},
+  "meta": {"round": 28, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}
+}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "biped saved". If the harmonic later scores 0.14 mm,
+   booking +0.40 is a lie. Fix: declare `_aggregation`, emit 3–8
+   ticks that sum to the five heads, and do not call a missed recovery a
+   save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote gait
+   speed <= 0.90 m/s while toe-bridge < 40 N AND |CoP residual| > 12 mm.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-assembly` collides with r16 QUILLFORGE and teaches nothing.
+   Humanoid stance physics (2oo3 insole, CoP residual, toe-push) is absent
+   from prior ouroboros rounds and must be named. Not a surgical-assist clone.
+4. **major — race under-specified.** One stance channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted
+   `t_rel_ms` and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated
+   weight repeats r14's two-edge form without the third. NOTES-r14 item 4
+   asked for three-edge where any-pair rollback fails.
+
+Critic does not rewrite the trajectory.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **humanoid-locomotion**
+(prompt-list domain; explicit tag `humanoid-locomotion`).
+
+Displaced: the Generator's generic `industrial-assembly` bucket, and any
+temptation to reuse warehouse-amr (r01), aerial-swarm (r02),
+district-heating (r03), event-camera grid (r04), lyophilization (r14),
+stator-weld (r16), air-separation (r17), water-treatment (r18),
+float-glass (r19), underwater-rov (r20), aluminum potline (r21),
+CZ-pull (r22), slot-die (r23), PEM (r24), wind-pitch (r25),
+surgical-assist (r26), fiber-draw (r27), or caster (r29).
+
+Domain-specific constraint: gait speed must remain <= 0.90 m/s while
+toe-bridge < 40 N; the 2oo3 stance bit is not a toe certificate.
+
+Sensor delta: +pelvis IMU, +ankle F/T, +plantar 2oo3, +CoP residual;
+-any wheeled robot, -event-camera gantries, -DVS, -Pirani/CM, -pitch
+encoder, -cell voltage, -eddy-current mold, -tendon overlay.
+
+`state.domain` and `meta.domain` both become `humanoid-locomotion`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Yarrowmere Hall 2 biped, not a corridor, not a freeze-dryer, not a
+tin bath, not a coater, not an OR, not a PEM hall, not a caster).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **open-circuit forefoot
+FSR hidden by a 2oo3 stance bit**.
+
+- Trigger: solder fatigue opens the toe Wheatstone to 1.8 MOhm; daily
+  40 N thumb-press PASSES on heel and mid and is not applied to the toe.
+- Base rate: <1% — 0.51%/campaign from an insole-cycle MC (thumb-press
+  designed; open fitted-style).
+- Naive failure: FALSE PERMISSION. PB-HL-12 sees CoM 2.4 cm, ankle 618 N,
+  2oo3 TRUE, raises speed, scores the harmonic, $1.18M.
+- Trajectory edit: put the open in `state.fault_context`, make the 2oo3
+  the mechanism that keeps all three confirms green, and force the gate
+  to refuse the raise on toe 8 N even though all three playbook confirms
+  are numerically true.
+
+Distinct from the domain injection: the domain is the biped; the tail is
+the accidental vote-blind compound. Distinct from surgical tendon-creep
+(r26): here the sensors are plantar FSR + IMU + ankle F/T, not overlay/FK.
+
+## Neuromorphic Translator
+
+Race window [6.900, 7.420] ms = 520 us. Winner toe.bridge @ 6.910 ms
+(amplitude 1.26, 8 N). Loser stance.ok @ 7.094 ms (amplitude 1.10,
+2oo3 TRUE). Margin 184 us vs combined jitter 61 us (3.02x).
+ank.ok @ 7.270 ms is a third race-window channel. Gate @ 7.670 ms
+= winner + 760 us.
+
+Flip narrative: 184 us < min(500, 520) us, so order is flip-fragile. If
+stance-ok wins, PB-HL-12 heads the triage queue. The hold must ride
+order-invariant floors (toe-bridge, CoP residual), not the winner tag.
+
+Cycle-1 spike patch (16 events, globally sorted, refractory >= 0.8 ms;
+tightest same-channel gap toe.bridge 4.870 -> 6.910 = 2.040 ms):
+
+| t_rel_ms | channel | amplitude |
+|---------:|---------|----------:|
+| 0.350 | imu.com | 0.54 |
+| 1.170 | ank.ft | 0.62 |
+| 2.030 | stn.heel | 0.58 |
+| 3.190 | imu.com | 0.51 |
+| 4.870 | toe.bridge | 0.71 |
+| 5.190 | cop.residual | 0.66 |
+| 5.630 | ank.ft | 0.56 |
+| 6.910 | toe.bridge | 1.26 |
+| 7.094 | stance.ok | 1.10 |
+| 7.270 | ank.ok | 0.64 |
+| 7.670 | ctrl.gate | 1.08 |
+| 9.110 | imu.com | 0.48 |
+| 11.050 | stn.heel | 0.49 |
+| 13.370 | toe.bridge | 0.86 |
+| 19.180 | cop.residual | 0.48 |
+| 26.740 | ctrl.gate | 0.90 |
+
+Ticks (5): t_us 5190, 6910, 7670, 5200000, 648000000. Distillation
+value: the stance-ok spike is not a toe-health spike; the toe-bridge
+spike is the one that licenses hold.
+
+Raster cycle-1 seed: 40 ms, 168 neurons, 8.0 Hz, 54 spikes, 1242 pJ,
+third factor acetylcholine tau_e 0.88 s. Single scar edge only — cycle 2
+must add the second and third edges.
+
+Cycle-1 spike count: __C1_SPIKES__.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain humanoid-locomotion, tail open forefoot
+bridge, 16 spikes, 5 ticks, MODIFY with numeric floor, raster+gate_snn
+present, sim_or_real=designed, rights stamp on record and meta, no thought
+keys. Still missing (and therefore not the publishable line): 28 kg
+sub-variant, Sunday-night insole tail, second and third scar edges, delayed
+harmonic score as PRIMARY terminal, contrast ACCEPT episode, ticks 6–7,
+spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 520 us window;
+  refractory 2.040 ms; rationale quotes 0.90 m/s / 40 N / 12 mm;
+  domain named; gate_snn.decision MODIFY.
+- checks deferred to cycle 2: three-edge scar, second tail, second
+  domain constraint, negative-result booking, 7 ticks summing to heads.
+- densification vs Generator v1: +1 domain, +1 tail, +16 spikes, +5
+  ticks, +numeric floor.
+
+Cycle-1 JSON is retained as the base; it is NOT written to
+batch-r28.jsonl.
+
+---
+
+# Cycle 2 — Densification
+
+## Generator
+
+Cycle-1 output is the base. Additive expansion (nothing removed):
+
+1. Downstream side-effect (immediate): toe-push probe at +5.2 s stays
+   open (toe 8 -> 11 N, open band <= 12) — open, not light-toe. Insole
+   swap toe 8 -> 176 N. Harmonic inventory 0.14 mm discovered during
+   the swap.
+2. Delayed side-effect (PRIMARY terminal, not a footnote): at +7.5 h,
+   right flexspline scores 0.14 mm vs 0.02 spec; $0.76M. The 32 min
+   pre-t0 heel-only is the mechanism. Correct gate, campaign still misses.
+3. Deepened `proposed_action.evidence` with units: CoM 2.4 cm, ankle
+   618 N, toe 8 N, CoP residual 22 mm, 2oo3 TRUE, race 184 us.
+4. Tightened rationale to the numeric floor gait speed <= 0.90 m/s while
+   toe-bridge < 40 N AND |CoP residual| > 12 mm, plus probe bands <=12 vs
+   >=80 N, plus HITL 10.8 min suit LOTO rule.
+
+Reward retargeted to total -0.18 so the delayed miss is the inflection
+(t_us 27000000000), not the gate. Process heads remain non-zero.
+
+## Critic
+
+Re-audit of the expanded trajectory:
+
+1. **blocking if unfixed — missing second domain constraint.** 12 kg
+   probe 5.2 s / +8 % is not a universal number. A 28 kg tote will
+   saturate the ankle. Diversity Enforcer must inject the physical-constraints
+   sub-variant this cycle.
+2. **major — only one tail class.** Open FSR is accidental
+   infrastructure. A disjoint human-intent tail is still required
+   (Sunday-night insole forgery is the open cell).
+3. **major — scar is still one edge in the cycle-1 raster.** NOTES-r14
+   item 4 is not discharged until three speed-up-go edges exist and
+   any-pair rollback is shown to fail at threshold 0.30.
+4. **minor — contrast episode missing.** Without a same-gate ACCEPT on
+   a true live toe the record teaches "never raise speed". Add +3 d
+   sister-biped contrast with its own race.
+5. **minor — HITL latency mentioned in prose only.** Put 10.8 min in
+   executed_action.parameters.human_ratify and in a tick.
+
+No rewrite; directives only.
+
+## Diversity Enforcer
+
+Injected second novel domain / physical-constraint sub-variant (exactly 1
+this cycle): **28 kg payload** on the same HL-5 biped.
+
+What it expands: 12 kg tote (cycle 1) -> 28 kg, 2.3x, 0.55 m/s crawl.
+The 5.2 s +8 % pulse saturates the ankle at 94 % and tips CoM 18 mm
+outside the polygon. Required probe: 14 s at +2.4 % (CoM hold 0.6 cm).
+
+This is still one domain injection for the cycle (physical-constraints
+clause of the factory prompt). It does not displace
+humanoid-locomotion; it changes which probe table is legal.
+`future_outcome.subvariant_constraint` carries the refit. Jaccard opening
+stays the Yarrowmere Hall 2 sentence; 28 kg internals are additive, not
+a rewrite.
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**Sunday-night forged insole CSV**.
+
+- Trigger: shift lead, night tote window, posts a historian export
+  showing toe = 180 N and CoP residual = 2 mm at the claimed planted-forefoot
+  instant.
+- Base rate: ~0.36% of Sunday-night totes (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the raise on the forged
+  confirm and ignores live toe 8 N. Harmonic score plus a data-integrity 483.
+- Fence: forged log quantized at 10 N (screenshot rounding); plant
+  historian is 1 N (10 bins). Live toe is 8 N at the claimed 180 N, which
+  no true planted forefoot produces.
+- Trajectory edit: governance CR-L-2804 mandates native 1 N
+  exports; the contrast ACCEPT still requires live toe, not a CSV.
+
+Distinct from cycle-1 open (accidental solder vs deliberate deception)
+and from the 28 kg sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 26.740 ms: toe.push.probe 5200.0, toe.bridge 5320.4 (adapt
+  1.26->0.42), stance.ok 5410.2 (1.10->0.40), human.ratify 648000.0,
+  insole.swap 648800.0, harmonic.survey 649400.0, imu.com
+  11520000.0, ank.ft 11520420.0, toe.bridge 11520890.0,
+  harmonic.score 27000000.0. Primary train 16 -> 26. Still one key, still
+  sorted, refractory held (min 2.040 ms).
+- +2 ticks (5 -> 7) at 11_520_000_000 us (toe-legal hold) and
+  27_000_000_000 us (harmonic score). Heads now 0.08, -0.37, -0.11, 0.15,
+  0.07; total -0.18. Inflection is the last tick.
+- Contrast train 8 events, own race 196 us, ACCEPT.
+- Three-edge third factor: three speed-up-go edges, tau_e 0.88 s = 880 ms,
+  trace __AUX_TRACE__, eta __AUX_ETA1__ / __AUX_ETA2__ / __AUX_ETA3__,
+  weights 0.46->0.23, 0.42->0.20, 0.39->0.18. Raster excerpt unchanged
+  (decision window is still 40 ms) and remains sorted with unique
+  neuron_ids (same-neuron >=1000 us vacuously).
+
+Winner/loser flip (re-stated, not replaced): reversing 184 us would only
+reorder triage; toe-bridge and CoP floors still MODIFY. Contrast flip of
+196 us similarly cannot turn a live toe into an open.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.18; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted, tau_e consistent; gate_snn.decision matches; meta.round=28,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive; plant is not
+LYOSHIELD, not CINDERWICK, not TRIAD, not FERRICLEAVE, not CASSITER,
+not ORRIS, not PROTONIL, not SKULLGATE.
+
+Densification delta: +1 domain sub-variant (28 kg), +1 tail
+(Sunday-night forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 three-edge scar with
+any-pair-rollback-fails, +1 HITL ratify, +1 surprise (harmonic score is
+the campaign-miss mechanism).
+
+Publishable JSONL line (the only JSONL line; also at batch-r28.jsonl):
+
+```json
+__FINAL_JSONL__
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r28.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+    text = (
+        text.replace("__C1_SPIKES__", str(len(c1_spikes)))
+        .replace("__AUX_TRACE__", f"{math.exp(-0.76/0.88):.5f}")
+        .replace("__AUX_ETA1__", f"{0.23/math.exp(-0.76/0.88):.5f}")
+        .replace("__AUX_ETA2__", f"{0.22/math.exp(-0.76/0.88):.5f}")
+        .replace("__AUX_ETA3__", f"{0.21/math.exp(-0.76/0.88):.5f}")
+        .replace("__FINAL_JSONL__", line)
+    )
+    (OUT / "swarm-transcript-r28.md").write_text(text)
+    return text

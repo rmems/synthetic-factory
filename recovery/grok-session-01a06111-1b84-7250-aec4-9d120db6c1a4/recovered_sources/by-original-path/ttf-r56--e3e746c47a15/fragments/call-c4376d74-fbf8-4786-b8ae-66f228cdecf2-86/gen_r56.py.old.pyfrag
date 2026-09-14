@@ -1,0 +1,47 @@
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Bed 1280 C won by 230 us and is under 1350 C. Speed 2.40 m/min is over "
+                "2.20 m/min. ACCEPT the already-legal pass; hood DP smear is not a cap violation.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "bed_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 1350.0),
+                                    ("observed", 1280.0),
+                                    ("executed_speed_m_min", 2.40),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 230),
+                                    ("combined_jitter_us", 70),
+                                    ("ratio", 3.29),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "grate_2p40_thold"),
+            ("parameters", params),
+            (
+                "gate_effect",
+                "ACCEPT: speed 2.40 m/min and bed 1280 C unchanged. Routing relay.ir.bed "
+                "-> policy.go_accept.",
+            ),
+        ]
+    )

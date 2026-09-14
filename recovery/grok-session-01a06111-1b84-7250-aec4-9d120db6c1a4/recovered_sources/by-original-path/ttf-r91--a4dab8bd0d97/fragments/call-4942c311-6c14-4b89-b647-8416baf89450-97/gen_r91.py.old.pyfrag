@@ -1,0 +1,1 @@
+`executed_action.damper_kA == 14.60` (greater than proposed 11.80), `executed_action.bind_reverse_as_direct == true`, `raster.routing.table` sends `relay_live_knm3h` → `policy_wrong_boost`

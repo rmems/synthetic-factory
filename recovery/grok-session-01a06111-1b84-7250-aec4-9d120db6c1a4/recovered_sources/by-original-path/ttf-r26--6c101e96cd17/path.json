@@ -1,0 +1,35 @@
+{
+  "agent_ids": [
+    "01a06408-8cc0-70a2-8ea6-ee813752789c"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations"
+  ],
+  "event_count": 1,
+  "final_state": "unknown",
+  "hunk_evidence_count": 2,
+  "original_basename": "gen_r26_rest2.py",
+  "original_path": "/tmp/ttf-r26/gen_r26_rest2.py",
+  "path_key": "ttf-r26--6c101e96cd17",
+  "terminal_event_ids": [
+    "01a06408-8cc0-70a2-8ea6-ee813752789c:call-40cbe956-f77b-4014-9b4c-cd41e26fa9dd-79",
+    "01a06409-0d8e-72b0-9bdf-c4d2baaa11ff:call-6a6df854-3130-4458-98d0-8d3ed127af82-47"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 1,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a06408-8cc0-70a2-8ea6-ee813752789c:call-c82f466b-9212-4033-a3ff-ce760a0b54c7-78",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r26--6c101e96cd17/fragments/call-c82f466b-9212-4033-a3ff-ce760a0b54c7-78/gen_r26_rest2.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r26--6c101e96cd17/fragments/call-c82f466b-9212-4033-a3ff-ce760a0b54c7-78/gen_r26_rest2.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

@@ -1,0 +1,10 @@
+            "thalamic-relay.setworks",
+            "spikenaut.policy.feed-go",
+            [
+                ("relay.set.mm", "policy.feed_go", 0.64),
+                ("relay.clamp.kPa", "policy.clamp_hold", 0.24),
+                ("relay.set.mm", "policy.feed_go", 0.11),
+            ],
+            "adenosine",
+            0.16,
+            "pre_post_stdp; adenosine at set win opens a 160 ms eligibility that the feed synapse captures",

@@ -1,0 +1,5 @@
+1. **Temperature / fouling Stern-Volmer table** on a non-MW-9 basin so an 8 K hop fakes 2.00 ppm inside a 6.40 Sternveil corridor, closing 184's lumped-k_sv gap.
+2. **Bead-poison / O2-deficiency map** on a non-LF-3 oven so a silicone hop fakes 12.00 %LEL while mean I looks healthy.
+3. **Dielectric / foam-layer map** on a non-PS-6 still so a foam hop fakes 12.00 m inside a 4.80 last-good corridor.
+4. **Vendor-only as a lead REJECT** on a plant that has no independent optode/pellistor/radar installed yet (184/185 still had plant heads).
+5. **Do not restage**

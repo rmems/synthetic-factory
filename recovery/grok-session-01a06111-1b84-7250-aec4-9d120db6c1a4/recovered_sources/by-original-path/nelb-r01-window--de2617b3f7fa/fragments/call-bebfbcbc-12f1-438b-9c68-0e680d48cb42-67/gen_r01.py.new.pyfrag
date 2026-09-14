@@ -1,0 +1,29 @@
+    for i, rec in enumerate(records, 1):
+        st = raster_status(rec, require_raster=True, require_routing_table=True)
+        print(
+            rec["id"],
+            "raster_valid",
+            st["raster_valid"],
+            "gate_snn_valid",
+            st["gate_snn_valid"],
+            "reasons",
+            st["reason_codes"],
+            "isi",
+            rec["raster"]["isi_count_identity"],
+        )
+        if not st["raster_valid"] or not st["gate_snn_valid"] or st["reason_codes"]:
+            raise RuntimeError(f"raster_status {rec['id']} {st}")
+        blob = json.dumps(rec, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        h = hashlib.sha256(blob.encode("utf-8")).hexdigest()
+        dec = curate_record(
+            rec,
+            source_path="batch-r01.jsonl",
+            source_line=i,
+            source_hash=h,
+            require_raster=True,
+            require_routing_table=True,
+        )
+        reasons = dec.manifest.get("reason_codes")
+        print(rec["id"], "curate", dec.action, reasons)
+        if dec.action != "retain":
+            raise RuntimeError(f"curate {rec['id']} {dec.action} {reasons}")

@@ -1,0 +1,30 @@
+            ("name", "push_green_anode"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("push", True),
+                        ("hold", False),
+                        ("flue_o2_pct", 3.1),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("ae_pps", 36.0),
+                        ("ae_cap_pps", 10.0),
+                        ("flue_o2_pct", 3.1),
+                        ("flue_o2_cap_pct", 5.0),
+                        ("race_margin_us", 180),
+                        ("combined_jitter_us", 58),
+                        ("abort_s", 480),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes pushing the next green anode because flue O2 3.1 percent is "
+                "under 5.0, treating the 36 pps AE as packing noise rather than a pitch fire.",
+            ),

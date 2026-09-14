@@ -1,0 +1,2 @@
+        if path.parent.name == "ttf-r64":
+            continue

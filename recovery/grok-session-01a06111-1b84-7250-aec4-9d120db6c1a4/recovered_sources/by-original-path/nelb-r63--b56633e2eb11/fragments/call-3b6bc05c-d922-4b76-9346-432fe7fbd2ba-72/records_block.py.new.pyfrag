@@ -1,0 +1,6 @@
+    for n in (
+        sorted(root.glob("nelb-r*/NOTES-r*.md"))
+        + sorted(root.glob("nelb-r*/batch-r*.jsonl"))
+        + sorted(root.glob("nelb-r*/records_block.py"))
+        + sorted(root.glob("nelb-r*/*recs*.py"))
+    ):

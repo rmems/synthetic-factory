@@ -1,0 +1,31 @@
+    spikes = [
+        spike("pt.bed.ctx", 0.980, 0.39),
+        spike("rtd.front.C", 1.680, 0.57),
+        spike("dp.bed.kPa", 2.800, 0.51),
+        spike("rtd.front.C", 5.480, 1.33),
+        spike("dp.bed.kPa", 5.640, 1.16),
+        spike("ctrl.gate", 6.180, 1.01),
+        spike("rtd.front.C", 8.600, 0.74),
+        spike("dp.bed.kPa", 11.200, 0.62),
+        spike("ctrl.gate", 14.400, 0.83),
+        spike("pt.bed.ctx", 18.000, 0.41),
+        spike("rtd.front.C", 22.400, 0.52),
+        spike("dp.bed.kPa", 26.200, 0.47),
+    ]
+    excerpt = independent_excerpt(45242, 88, 28000, 13, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Tower-T9 on Lean-Garth LG-4 is still in adsorption: bed DP 18.2 kPa under a 28.0 kPa "
+                "cap, N2-front RTD 41.0 C under a 58.0 C trip. Remaining adsorb is 420 s. A 0.92 C/s "
+                "precursor on the quarter-bed thermocouple has not crossed either cap. A weak "
+                "supervisor dumps feed 8.4 -> 2.0 t/h anyway, an early clamp on a still-legal bed.",
+            ),
+            ("domain", "amine-contactor"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Finish the LG-4 adsorb with bed DP <= 28.0 kPa and front <= 58.0 C; do not dump "
+                "feed while both remain under cap.",
+            ),

@@ -1,0 +1,216 @@
+def write_notes(rec, aux, pipeline_receipt):
+    gap, gap_ch = min_same_channel_gap(rec["spike_events"])
+    ras = rec["raster"]
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 66
+
+Factory: multi-agent-ouroboros-swarm. One scenario (BS), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r66.jsonl. Full labeled transcript:
+swarm-transcript-r66.md. Quota Q=1. Record id maos-r66-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Swarm: BARN-SPIT. Create-only writes under the LIVE factory dir plus /tmp/maos-r66/.
+
+ORCHESTRATION NOTE: dispatched AS round 66 of the 2026-09-02-final-heavy
+LIVE tree. Operator assigned round 66, swarm BARN-SPIT, id maos-r66-001,
+Q=1 after 2x6-role cycles. Explicitly avoided 2026-08-17 and 2026-08-30.
+Prior context: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, live NOTES r01/r02/r21/r22/r41/r42/r61-r64
+and occupancy census /tmp/maos-r14–r64. Explicitly avoided cloning
+LYOSHIELD, CINDERWICK, TRIAD / Meridian, QUILLFORGE, NIGHTWELL, FERRICLEAVE,
+CASSITER, OXBOWREEL, REDHALL, SEEDLATCH, STRIAFOIL, PROTONIL, TORSIONKEY,
+ORRIS, WHORLSPAR, IONSPATE, SKULLGATE, CALXION, MAGNORIL, GORSEFLUE,
+SODASHARD, CLINKERFELL, LINTELPLY, KAOTHARN, TREADNOLL, ANOLITH, DRUMWROTH,
+RIMEBRAID, BRIMVAULT, NITROSTAITH, BOGIRON, CHROMLOOP, ETHYNWOLD, NITREVAULT,
+RUNNELGATE, SPARKHOLT, DIPLEGAR, OLEUMWEIR, SKARVOLT, GOBSPALL, GOBWOLD,
+GAUZEFELL, OSMOLITH, PUSHERFELL, CREELWOLD, LIXIVQUERN, GIBBSQUERN, OSMOQUAY,
+COILSHAW, LOOPERQUAY, SIPHONWOLD, LANCEQUAY, UREASTAITH, DRYSTAITH,
+TITERWEIR, ZINCFELL, GLIMMERAXLE, HOLLOWMERE, WINDBOXHOLT, KALYCIRQUE,
+GYPSUMWEIR, GALVSTAITH, PRILLGHYLL, SLUICE-HEARTH, CORONSTAITH, LOCKSPUR,
+SHEDWOLD, VANTIS-CADENCE-AEGIS, THERMION, OKTAVE, STARLING, VERDIGRIS, and
+the r64 malt-kiln plant. Plant is invented BARN-SPIT / Spitcroft Rotisserie RT-8.
+
+## What this round produced
+
+Scenario BS — "BARN-SPIT / Spitcroft Rotisserie RT-8": an 8-spit continuous
+poultry rotisserie at 186.0 C / 2.8 m rods / 180 carcasses/h. Three
+heterogeneous, individually-correct agents — CAV (eight-zone header mean T),
+EXH (exhaust zirconia O2), RPM (carousel tachometer) — each report their
+local loop in-spec. The conjunction is not a spit-true certificate. Spit
+rod 5 has a seized inboard roller. CAV reads 186.0 C inside 178-194 (seven
+intact spits dominate the header). EXH is 8.4 vol% inside 6.5-11.0
+(stack-true). RPM is 2.40 rpm inside 2.10-2.80 (ring-true). Local spit IR
+infers 268 C (healthy < 198; hold if > 220) and local torque 84 N-m (hold
+if > 40) but is policy-treated as a drip-flare nuisance tag unless CAV
+mean also trips (2014 noisy spit-bearing nuisance). The coordination-failure
+CLASS is new to this factory: CAVITY-MEAN CERTIFICATE OF A LOCAL SPIT-ROD
+SEIZE. Completes a different family than live r01 galvanizing, r02 cupola
+sluice, r21 CAV, r22 prill tower, r41 perfusion, r42/r62 grid-inspection,
+r61 sinter, r63 lock-spur, r64 malt kiln. Here every agent is correct, the
+CAV average is looking at oven-mean heat, and the playbook's three CAV
+confirms are not a spit-true certificate.
+
+The gate is a correct MODIFY (numeric floor: do not raise cavity above
+186.0 C while spit-5 IR > 220 C AND spit-5 torque > 40 N-m). TG-RT-8
+strips PB-RT-8's raise-cavity, holds 186.0 C, runs a 7.8 s RPM-step -8 pct
+(seize keeps |Delta CAV mean| 0.6 <= 0.9 K; intact would move >= 3.8),
+and isolates spit 5 after a 10.6 min spit-gallery human ratify. Immediate
+112-carcass char is avoided (0 from the draft). The PRIMARY episode
+nonetheless FAILS: 12 min of unmonitored pre-t0 spit seize had already
+charred 46 carcasses. Grease flash at +5.4 h; 13.8 h stall; $1.74M
+designed. Reward total -0.17 with process heads honest and world loss
+un-netted.
+
+Triple-edge scar (NOTES-r14 item 4): cav.in_band -> raise_cavity
+(0.17 commissioned -> 0.50 at illusion -> 0.25 after ACh-gated
+depression) AND exh.ok -> raise_cavity (0.16 -> 0.44 -> 0.22) AND
+rpm.ok.in_band -> raise_cavity (0.15 -> 0.41 -> 0.20). Eligibility trace
+e^{{-0.82/0.96}} = {aux['trace']:.5f}; eta {aux['eta1']:.5f} / {aux['eta2']:.5f} /
+{aux['eta3']:.5f}; dw -0.250 / -0.220 / -0.210. Partial rollback of any pair
+leaves the third at 0.50 / 0.44 / 0.41, all > 0.30 fire threshold —
+fitted to fail. Coordinated depression of all three is the cure.
+
+Independent LIF raster: window 38 ms, 152 neurons, 12.5 Hz, spikes
+{ras['spikes']} == round(152 x 12.5 x 0.038), energy {ras['energy_pJ']} pJ
+at 23 pJ/spike. excerpt_source=independent_lif, sim_scope=sidecar_only,
+seed 66001. Excerpt is membrane crossings (lif.hold early vs lif.spit
+17.5-20.8 ms), disjoint from spike_events timestamps.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **industrial-rotisserie-spit-oven** — justified novel
+  subdomain of industrial-process / poultry roasting, unused across live
+  r01/r02/r21/r22/r41/r42/r61-r64. Distinct from r64 malt kiln (air-on-floor
+  grain bed), r61 sinter strand, r01 GI knives. flue-cured-tobacco-barn and
+  farm-ad-biogas left unused.
+- Cycle-1 tail: spit 5 inboard roller seize + char-pool certificate.
+  Spit-gallery visual PASSES (seize inside the hub). Fitted-style base
+  rate 0.33%/campaign (bearing MC; visual threshold designed, flagged).
+  Naive = FALSE PERMISSION.
+- Cycle-2 domain sub-variant: duck / high-fat, 2.1x drip load, 0.55x
+  smoke-point window, 2.1x RPM-step gain; 7.8 s / -8 pct broiler pulse
+  overshoots live free spit to an 11 K false CAV; probe must move to
+  22 s / -2.2 pct.
+- Cycle-2 tail: night-shift forged spit-torque CSV at 8 N-m quantization
+  vs plant 0.5 N-m (16 bins) plus live IR 268 C and local torque 84 N-m
+  at the claimed spit-true. Human-intent class, disjoint from cycle 1's
+  accidental seize. Base rate ~0.24% of Sunday-night campaigns,
+  DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+3 d sister oven) with its own 178 us
+  race (demand vs spit-clear) and ACCEPT of the raise-cavity the primary
+  MODIFIED away.
+- Learned-weight provenance on THREE edges with pair-rollback-fails.
+- HITL spit-gallery ratify 10.6 min (gap 4 partial; sim_or_real stays
+  designed — invented plant, not hil).
+- Governance CR-R-6608 prices retire-vs-probe-vs-status-quo and mandates
+  native 0.5 N-m CSV exports (the fraud fence).
+- Flip-fragility extended to SPIT-TRUE CERTIFICATE.
+- Independent LIF sidecar (not a language-train remap).
+
+## Self-critique of this round's batch
+
+### Strengths
+- Headline class is mechanistically tight: three locally-true mean loops
+  live on CAV mean, exhaust O2, and carousel RPM. Conjunction is not a
+  spit-true heat certificate.
+- Negative-result honesty: the gate does the right thing and the oven
+  still fails for a reason the commissioned sensors could not see.
+  Total -0.17.
+- Triple-edge scar is load-bearing: rolling back any pair fails, with
+  fire threshold 0.30 exhibited on each remaining edge.
+- Contrast ACCEPT on a true free-spit oven-duty window prevents "never
+  raise-cavity" as the lesson.
+- Distinct from r64 malt kiln, r61 sinter windbox, r01 GI knives:
+  rotating-spit local IR vs cavity mean.
+- Independent LIF excerpt is disjoint from spike_events times.
+
+### Weaknesses (honest)
+- Probe error bands, the 0.33%/campaign seize rate, the $1.74M /
+  $3.6M figures, the 10.6 min walk latency, and the night-shift 0.24%
+  base rate are DESIGNED constants and are flagged. Closed-loop offsets
+  (header dilution from one seized spit, duck drip load) are
+  derived from those inputs, not discovered by an unauthored process.
+- Char-pool model is a designed 12 min mapping; no full CFD of S-5
+  shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil. Gap 4
+  remains open as a provenance cell (invented plants stay designed).
+- Cross-record arc is a hook (CR-R-6608 +21 d), not a serial igniter
+  into another round. flue-cured-tobacco-barn and farm-ad-biogas remain
+  unused.
+
+### Realism of noise / latencies
+Ladder: 190 us race / 178 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap {gap:.3f} ms on {gap_ch}) / 500 us race
+window / 716 us gate latency / 20 ms bus epoch / 38 ms independent LIF
+raster / 7.8 s probe / 10.6 min HITL / 8 min naive raise-cavity-ramp
+counterfactual / 12 min pre-t0 seize / 3.2 h spit recovery / 5.4 h
+grease flash / +3 d contrast / +21 d governance. Adaptation decay on cav.hot
+(0.51->0.48->0.41->0.28), spit.tau (0.75->0.77->0.42->0.38->0.26),
+rpm.ok (0.54->0.56->0.44->0.23), exh.ok (0.63->0.66->0.82).
+
+### Value for SNN distillation
+- SPIT SEIZE = THREE CORRECT LOOPS, WRONG VOLUME.
+- SPIT-TRUE IR CHANNEL that policy treated as drip-flare-nuisance-only as
+  the tie-break.
+- REVERSIBLE PROBE that recouples CAV mean iff the spit is free.
+- TRIPLE-EDGE ELIGIBILITY: coordinated depression; pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+- INDEPENDENT LIF sidecar whose excerpt is membrane crossings.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum {rec['reward_components']['total']}
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.49 reconciles independently.
+- spike_events: primary {len(rec['spike_events'])} events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap {gap:.3f} ms >= 0.8 ms, 3
+  channels inside race_window_us 500 (spit.hot.high 6.448, cav.in_band 6.638,
+  exh.ok 6.826). Contrast 8 events, own race, min same-channel gap well
+  above 0.8 ms.
+- Sidecars: raster spikes {ras['spikes']} == round({ras['neurons']} x {ras['mean_rate_hz']} x {ras['window_s']}); energy {ras['energy_pJ']} pJ /
+  {ras['energy_uJ']} uJ at 23 pJ/spike; excerpt {len(ras['excerpt'])} events inside [0, {ras['window_ms']*1000}] us,
+  neuron_id < {ras['neurons']}, same-neuron gap >=1000 us; excerpt_source independent_lif;
+  routing 4 entries with three scar edges' before/after pair; third factor tau 0.96 s
+  == 960 ms; gate_snn pools 47/17/5 == round(n x rate x 0.027) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: {pipeline_receipt}
+
+## Novel coverage
+The coordination-failure CLASS (spit-seize certificate of a
+cavity-true rotisserie), the domain (continuous rotating-spit poultry oven),
+the RPM-step probe discriminant, the triple-edge scar with
+pair-rollback-fails, the primary negative-result (correct MODIFY,
+oven still fails on unmonitored char-pool), the HITL spit-gallery
+ratify, the duck/high-fat probe-duration refit, the night-shift
+16-bin quantization fence, and the independent LIF raster (seed 66001,
+not a language-train remap) are absent from prior committed ouroboros
+rounds and from live r01/r02/r21/r22/r41/r42/r61-r64. Repeated elements
+discounted: same-gate contrast, governance-pricing scaffold, flip-fragility
+series (extended to spit-true certificate, but the move rhymes), sequenced
+recovery shape, third-factor rollback form, negative-result primary.
+Adjacent thermal-mean rounds (r64 malt kiln, r61 sinter, r01 GI knives)
+share industrial-process scaffolding but not rotating-spit physics.
+Weighing a new failure family + cure vocabulary + unused sub-domain +
+Spitcroft geography against those reused scaffolds:
+
+{NOVEL_LINE}
+
+## What ROUND 67 should add
+1. FIT THE DESIGNED CONSTANTS: bearing arrival, probe CAV-jump bands,
+   char-to-flash mapping, night-shift claim process.
+2. HIL PROVENANCE CELL: put the spit-gallery LOTO on a hardware-in-loop
+   spit pendant with fitted latency as state.sim_or_real=hil — only if
+   the plant is no longer purely invented.
+3. CROSS-RECORD ARC: let CR-R-6608's local-IR alarm be the igniter of
+   the next round rather than a dangling +21 d leaf.
+4. Domain candidates (de-collided): flue-cured-tobacco-barn;
+   farm-ad-biogas; mushroom-compost-tunnel; hrsg-attemperator.
+   AVOID industrial-rotisserie-spit-oven (now used), malting-kiln-barn,
+   sinter-strand-windbox, hot-dip-galvanizing, autonomous-driving,
+   bioreactor-perfusion, canal-lock-rail-transshipment, grid-inspection,
+   and any LYOSHIELD / CINDERWICK / TRIAD / SKULLGATE / BOGIRON /
+   SKARVOLT / PUSHERFELL / CREELWOLD / GIBBSQUERN / COILSHAW /
+   LOOPERQUAY / SIPHONWOLD / WINDBOXHOLT plant.
+"""
+    return notes

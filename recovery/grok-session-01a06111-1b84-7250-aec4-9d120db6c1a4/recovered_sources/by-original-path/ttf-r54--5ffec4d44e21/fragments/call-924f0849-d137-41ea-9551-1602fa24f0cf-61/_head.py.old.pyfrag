@@ -1,0 +1,4 @@
+    "Yankee-Crest",
+
+
+def energy(spikes: int) -> tuple[int, float]:

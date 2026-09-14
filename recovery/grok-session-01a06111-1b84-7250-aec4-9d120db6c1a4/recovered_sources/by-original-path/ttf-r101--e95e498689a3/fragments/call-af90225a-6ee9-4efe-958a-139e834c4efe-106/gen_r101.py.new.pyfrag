@@ -1,0 +1,21 @@
+        if rec["id"] == "ttf-r101-522":
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["live_open_pct"] > ev["cap_open_pct"]):
+                issues.append("522 live open not over cap")
+            if ev.get("closed_is_live") is not False:
+                issues.append("522 closed_is_live must be false")
+            if rec["executed_action"]["parameters"].get("scale_bound") != "closed":
+                issues.append("522 scale_bound not closed")
+            if rec["executed_action"]["parameters"].get("open_pct") != 96.0:
+                issues.append("522 open_pct should open to 96.0")
+            if rec["executed_action"]["parameters"].get("liquor_g_L") != 117.2:
+                issues.append("522 liquor should climb to 117.2")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("522 missing recovery")
+            table_to = {row["to"] for row in rec["raster"]["routing"]["table"]}
+            if "policy.open_cut" in table_to:
+                issues.append("522 routing still has open_cut")
+            if "policy.closed_open" not in table_to:
+                issues.append("522 routing missing closed_open")
+            if "percent-open-vs-percent-closed" not in rec["meta"]["tags"]:
+                issues.append("522 missing percent-open-vs-percent-closed tag")

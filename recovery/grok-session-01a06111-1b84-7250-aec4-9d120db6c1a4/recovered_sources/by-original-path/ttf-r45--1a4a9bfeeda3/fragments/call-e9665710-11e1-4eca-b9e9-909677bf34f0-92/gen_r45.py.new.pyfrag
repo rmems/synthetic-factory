@@ -1,0 +1,4 @@
+            if rec["state"]["constraints"].get("observed_slip_ppm", 99) >= rec["state"]["constraints"].get("slip_cap_ppm", 0):
+                issues.append("242 slip already over trip; not clamp-too-early")
+            if rec["state"]["constraints"].get("observed_rich_mol", 99) >= rec["state"]["constraints"].get("rich_cap_mol", 0):
+                issues.append("242 rich loading already over cap; not clamp-too-early")

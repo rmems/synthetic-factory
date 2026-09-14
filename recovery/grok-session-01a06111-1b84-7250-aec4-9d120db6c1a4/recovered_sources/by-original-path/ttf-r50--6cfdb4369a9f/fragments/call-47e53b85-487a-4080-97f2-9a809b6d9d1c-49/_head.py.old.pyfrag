@@ -1,0 +1,14 @@
+def lif_236_excerpt():
+    n = 72
+    dt_us = 100
+    tau_m_ms = 18.5
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.90
+    i_stim_peak = 2.50
+    stim = (21400, 25600)
+    seed = 44236
+    window_us = 42000
+    i_clamp_extra = 0.64
+    clamp_n = 14

@@ -1,0 +1,15 @@
+MY_DOMAINS = (
+    "visbreaker-soaker",
+    "wet-FGD-absorber",
+    "carbon-fiber-oxidation",
+    "pellet-induration-grate",
+    "steam-cracker-coil",
+)
+MY_PLANTS = (
+    "Soaker-Naze",
+    "Limestone-Linn",
+    "Precursor-Oxle",
+    "Taconite-Sill",
+    "Ethene-Veld",
+)
+IDS = [f"ttf-r48-{n}" for n in range(256, 261)]

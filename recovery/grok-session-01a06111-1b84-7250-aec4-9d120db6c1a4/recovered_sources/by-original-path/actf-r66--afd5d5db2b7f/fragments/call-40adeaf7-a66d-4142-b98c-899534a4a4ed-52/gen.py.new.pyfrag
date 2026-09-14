@@ -1,0 +1,1 @@
+    print(f"OK {rec['id']} steps={n} tools={sorted({s['tool_call']['name'] for s in steps})}")

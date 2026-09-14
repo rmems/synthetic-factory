@@ -1,0 +1,6 @@
+            "relay.rtd.front",
+            "policy.feed_dump",
+            [
+                ("relay.rtd.front", "policy.feed_dump", 0.74),
+                ("relay.dp.bed", "policy.feed_dump", 0.22),
+            ],

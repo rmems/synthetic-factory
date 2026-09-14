@@ -1,0 +1,36 @@
+    "GYPSUMWEIR",
+    "GALVSTAITH",
+    "WOLD-BARN",
+    "Barleyholt",
+    "LOCKSPUR",
+    "Poundholt",
+    "SLUICE-HEARTH",
+    "Wickfen",
+    "CORONSTAITH",
+    "Fernholt",
+    "SHEDWOLD",
+    "Wickspan",
+    "PRILLGHYLL",
+    "Ureafen",
+    "PACKFLUE",
+    "Spelterholt",
+    "Brambleford",
+    "training_ready",
+)
+R14_OPENING = (
+    "Helixmere Biologics Building C lyophilizer LYO-4 is mid-primary on 8400 "
+    "vials of a monoclonal antibody"
+)
+NOVEL_LINE = "Novel coverage: 50%"
+PLANT = "SPUR-HEARTH"
+GEO = "Rookspur"
+CELL = "FB-6"
+DOMAIN = "flue-cured-tobacco-barn"
+RECORD_ID = "maos-r65-001"
+ROUND = 65
+DELAY_S = 0.78
+TAU_E_S = 0.91
+LIF_SEED = 65001
+WINDOW_MS = 38
+NEURONS = 144
+MEAN_RATE_HZ = 24.5

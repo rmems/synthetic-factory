@@ -1,0 +1,2 @@
+    create_only_copy(BATCH, DEST_DIR / "batch-r01c.jsonl")
+    create_only_copy(NOTES, DEST_DIR / "NOTES-r01c.md")

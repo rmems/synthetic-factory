@@ -1,0 +1,23 @@
+    params = OrderedDict(
+        [
+            ("dip_m_min", 1.40),
+            ("bath_C", 452.0),
+            ("hold", False),
+        ]
+    )
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Kettle-K8 at Zinc-Cistern ZC-3 holds a 452 C zinc bath under a 470 C dross-cap "
+                "with a 1.40 m/min dip already filed under the 1.80 m/min crane cap. Dross IR "
+                "is 438 C, still legal. Bath-first ACCEPTS the filed dip; dross-first would "
+                "have extra-cut a legal galvanize kettle.",
+            ),
+            ("domain", "galvanize-kettle"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Hold the 1.40 m/min dip while bath stays <= 470 C and dross IR stays "
+                "<= 455 C; do not extra-cut a legal galvanize kettle.",
+            ),

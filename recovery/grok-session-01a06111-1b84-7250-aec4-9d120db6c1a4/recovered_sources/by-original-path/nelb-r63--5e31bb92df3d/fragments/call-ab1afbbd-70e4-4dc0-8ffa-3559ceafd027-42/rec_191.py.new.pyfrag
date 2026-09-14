@@ -1,0 +1,315 @@
+# ---------------------------------------------------------------------------
+# Record 191 — 90-degree nephelometric remaining turbidity of a clarifier, hil,
+# MODIFY / ACCEPT
+# ---------------------------------------------------------------------------
+def rec_191():
+    k_t = 5.00
+    i90 = 8.00
+    iref = 2.00
+    ntu = k_t * i90 / iref
+    _exact(ntu, 20.00)
+    r_i = i90 / iref
+    _exact(r_i, 4.00)
+    _exact(k_t * 4.00 / 2.00, 10.00)
+    _exact(k_t * 6.40 / 2.00, 16.00)
+    _exact(k_t * 8.00 / 2.00, 20.00)
+    ss = 0.80 * ntu
+    _exact(ss, 16.00)
+    _exact(2820.0 + 1440.0, 4260.0)
+
+    raster = make_raster(
+        neurons=25,
+        mean_rate_hz=50.0,
+        window_ms=32.0,
+        seed=202609191,
+        source="cw5.neph.i90",
+        target="copsewhin.basin_isolate_core",
+        table=[
+            {"from": "neph_i90", "to": "ntu_estimator", "weight": 1.35},
+            {"from": "neph_iref", "to": "scatter_norm_core", "weight": 1.20},
+            {"from": "nephveil_ntu", "to": "vendor_continue_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "ach.formazin_referral_salience",
+            "tau_e_s": 1.2,
+            "tau_e_ms": 1200.0,
+            "eligibility": "pre-post coincidence on keep-overflow synapses; the nephelometer modulator depresses keep-overflow and referral links when I90 stays high inside tau_e of an Iref lock so a Nephveil last-good cannot hide a 20.00 NTU basin or name Sable Quinn",
+        },
+        channel_prefix="neph.n",
+        anchor="CW-5 HIL coupon 32 ms frame at I90 8.00 / Iref 2.00 / SNR 14.0 (t_s 1560) reconstructing 20.00 NTU above the 16.00 isolate floor",
+    )
+    w_s = 0.032
+    events = [
+        ev(0.0, "neph.I90", 4.00, code="I90", units="1", note="HIL 90-degree nephelometer on a dummy clarifier basin in NEPH-HIL-5; remaining-turbidity family, not UV-fluorescence OIW, not TEOM PM, not BAM PM, not LII soot, not SPR cyanide, not Raman OH-CH, not QEPAS"),
+        ev(180000.0, "neph.snr", 9.0, code="NEPH_SNR", units="1", note="early scatter SNR; isolate needs SNR>=12"),
+        ev(360000.0, "recon.NTU", 10.00, code="NTU", units="NTU", note="5.00*4.00/2.00=10.00 exact"),
+        ev(540000.0, "form.zero", 1.00, code="ZERO", units="1", note="plant formazin-zero remaining; no lamp hop in this window"),
+        ev(720000.0, "nephveil.NTU", 4.80, code="VENDOR_NTU", units="NTU", note="Nephveil last-good lab-NTU cloud; not admissible SoT"),
+        ev(900000.0, "neph.I90", 6.40, code="I90", units="1"),
+        ev(1080000.0, "recon.NTU", 16.00, code="NTU", units="NTU", note="5.00*6.40/2.00=16.00; at the 16.00 isolate floor"),
+        ev(1260000.0, "form.delay", 0.0, code="ZERO_AE", units="bool", note="missing formazin-zero AE burst; Nephveil UTC vs plant UTC+2 skipped the cal by 120 min"),
+        ev(1440000.0, "form.zero", 1.00, code="ZERO", units="1"),
+        ev(1560000.0, "neph.I90", 8.00, code="I90", units="1", note="isolate-floor frame; raster sidecar"),
+        ev(1560001.2, "neph.Iref", 2.00, code="IREF", units="1", note="1.2 ms Iref after I90; ratio 4.00"),
+        ev(1740000.0, "recon.NTU", 20.00, code="NTU", units="NTU", note="5.00*8.00/2.00=20.00 exact; isolate 16.00, trip 28.00"),
+        ev(1920000.0, "recon.SS", 16.00, code="SS", units="mg_L", note="0.80*20.00=16.00 exact solids identity"),
+        ev(2100000.0, "nephveil.NTU", 4.80, code="VENDOR_NTU", units="NTU"),
+        ev(2280000.0, "ops.prop", 1.0, code="KEEP_OVERFLOW_REFER", units="bool", note="night lead Nerys Holt: keep B-2 overflowing and refer nephelometer tech Sable Quinn"),
+        ev(2460000.0, "gate.isol", 1.0, code="MODIFY", units="decision", note="isolate this basin; refuse the person-referral; Nephveil not SoT"),
+        ev(2640000.0, "bas.lock", 1.0, code="BASIN_ISOL", units="bool"),
+        ev(2820000.0, "cool.start", 1.0, code="COOL_START", units="bool", note="bookend 1 of the 24.0 min cooldown plus lamp-settle floor"),
+        ev(4260000.0, "cool.floor", 1.0, code="COOL_FLOOR", units="bool", note="2820 s + 1440 s = 4260 s = 24.0 min"),
+        ev(4440000.0, "ops.refer", 1.0, code="REFER_QUINN", units="bool", note="Holt: Quinn badge was on the nephelometer log"),
+        ev(4620000.0, "gate.exec", 1.0, code="ACCEPT", units="decision", note="companion t2: new-lamp restart; person-referral refused; plant trip refused"),
+        ev(4800000.0, "neph.new", 1.0, code="NEW_LAMP", units="bool"),
+        ev(4980000.0, "neph.I90", 6.40, code="I90", units="1"),
+        ev(5160000.0, "recon.NTU", 16.00, code="NTU", units="NTU", note="5.00*6.40/2.00=16.00; HIL dummy still at the 16.00 isolate floor so the isolated basin stays held"),
+        ev(5340000.0, "nephveil.NTU", 4.74, code="VENDOR_NTU", units="NTU"),
+        ev(5520000.0, "form.zero", 1.00, code="ZERO", units="1"),
+        ev(5700000.0, "refer.hold", 0.0, code="REFER_NOT_TAKEN", units="bool", note="Quinn exonerated; missing formazin-zero AE precedes the high I90, not the badge touch"),
+        ev(5880000.0, "bas.held", 1.0, code="BASIN_HELD", units="bool"),
+        ev(6060000.0, "form.delay", 1.0, code="ZERO_AE", units="bool", note="formazin-zero AE restored on the new lamp"),
+        ev(6240000.0, "recon.SS", 16.00, code="SS", units="mg_L", note="identity holds on the in-band solids"),
+        ev(6420000.0, "plant.trip", 0.0, code="TRIP_NOT_TAKEN", units="bool"),
+        ev(6600000.0, "cell.restart", 1.0, code="CELL_RESTART", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r63-191-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "CW-NEPH-2026-0718",
+            "domain": "nephelometric_clarifier_turbidity",
+            "setting": "Copsewhin Clarifier CW-5 (invented), Gorsespit Water Yard, basin B-2. Hardware-in-the-loop dummy liquor in NEPH-HIL-5 supplies the 90-degree scatter that times the in-service isolate. Plant-owned nephelometric reconstruction is the turbidity SoT. Nephveil vendor lab-NTU scheduler is a corridor witness, not the basin SoT. Not UV-fluorescence OIW (r56), not TEOM PM (r46), not BAM PM (r58), not LII soot (r31), not SPR cyanide (r26), not Raman OH-CH (r40), not QEPAS (r19).",
+            "observables_at_decision": {
+                "I90": i90,
+                "Iref": iref,
+                "R": r_i,
+                "k_t": k_t,
+                "NTU": ntu,
+                "SS_mg_L": ss,
+                "nephveil_NTU": 4.80,
+                "formazin_zero": 1.00,
+                "form_delay": 0.0,
+                "isolate_floor_NTU": 16.00,
+            },
+            "margin_authority": "CW-5 clarifier SOP rev B: if reconstructed NTU >= 16.00 AND scatter SNR >= 12.0, isolate this basin this night. A Nephveil last-good or a quiet formazin-zero residual cannot keep the overflow. Trip tripwire is 28.00 NTU. Person-referral is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night lead Nerys Holt, citing Nephveil 4.80 NTU and formazin-zero 1.00, and naming nephelometer tech Sable Quinn as last-to-badge",
+            "summary": "keep B-2 overflowing and refer Quinn; 8.00 / 2.00 is a bubble glitch on a healthy lab-NTU",
+            "basis_claimed": "Nephveil last-good is 4.80 NTU and a night isolate of B-2 is a takt miss",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Keep-overflow is refused; the person-referral is also refused. Serialized reconstruction: NTU = k_t * I90 / Iref = 5.00 * 8.00 / 2.00 = 20.00, which is 4.00 NTU over the 16.00 isolate floor and 8.00 NTU under the 28.00 trip tripwire. Ratio identity I90/Iref = 8.00/2.00 = 4.00. Solids identity 0.80 * 20.00 = 16.00 mg/L. Nephveil 4.80 is a last-good skip stamp and is not an admissible keep-overflow witness. The missing formazin-zero AE burst sits on a Nephveil UTC-vs-UTC+2 skip (120 min), not on Quinn's badge, and the plant formazin-zero stays 1.00, so the easy referral fails command-custody. Ordered: isolate this basin now. Scope: this MODIFY does not trip the plant (that is the companion question) and does not name Quinn.",
+            "threshold": "NTU>=16.00 AND neph_snr>=12.0 => isolate this basin; Nephveil is not SoT; trip if NTU>=28.00; referral requires badge-touch preceding the high I90",
+            "stated_residuals": "20.00 vs 28.00 trip floor is 8.00 NTU, not infinite; new-lamp restart still required; Nephveil remains the only OEM lab-NTU channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 2460: basin isolated; Quinn not named; Nephveil not SoT; reconstruction locked",
+            "tool": "cw5-neph-basin-gate-cli",
+            "observation": "NTU 20.00 recomputes from I90 8.00 and Iref 2.00; HIL coupon hashed; Nephveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 1560.0, "event": "neph I90 8.00 Iref 2.00; raster frame; NTU 20.00"},
+                {"t_s": 2280.0, "event": "ops proposes keep-overflow plus Quinn referral"},
+                {"t_s": 2460.0, "event": "MODIFY isolate basin; referral refused"},
+                {"t_s": 2820.0, "event": "24 min cooldown bookend 1"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4620.0, "event": "companion ACCEPT new-lamp restart; referral still refused"},
+            ],
+            "observed_effects": [
+                "NTU recomputes from the serialized 90-degree scatter model at every recon.NTU event",
+                "a Nephveil-only head would have kept the basin overflowing overnight",
+                "24 min cooldown plus lamp-settle floor is in the stream (cool.start, cool.floor)",
+            ],
+            "surprises": [
+                "a last-good 4.80 NTU vendor corridor and a quiet formazin-zero residual co-existed with a 20.00 NTU basin, and the obvious nephelometer tech was not on the causal path",
+            ],
+            "new_state": {
+                "b2": "isolated",
+                "quinn": "exonerated",
+                "nephveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 1500000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("ntu_reconstruction", 0.14),
+                ("isolate_floor_basin", 0.12),
+                ("exoneration", 0.10),
+                ("nephveil_nonsubstitution", 0.08),
+                ("settle_time_cost", -0.04),
+            ],
+            "scored for a keep-overflow MODIFY on a recomputable high turbidity while refusing a Nephveil 4.80 corridor and an easy person-referral; 24 min floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "nephelometric-turbidity", "serialized-reconstruction", "operational-companion"],
+            distillation_note="90-degree nephelometer gate: serialized k_t*I90/Iref plus solids identity beats a green lab-NTU dashboard; companion t2 is the new-lamp restart, not a governance vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r63-191-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "CW-NEPH-2026-0718-exec",
+            "domain": "new_lamp_cooldown_execution",
+            "setting": "Same CW-5 after the MODIFY. Night lead proposes referring Quinn and tripping the plant. This companion is the operational new-lamp cooldown restart, not a second turbidity vote.",
+            "observables_at_decision": {
+                "NTU": 16.00,
+                "SS_mg_L": 16.00,
+                "cool_floor_s": 1440.0,
+                "refer_proposed": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night lead Nerys Holt",
+            "summary": "refer Quinn and trip the plant; 24 min already paid and Nephveil is 4.74 NTU",
+            "basis_claimed": "the MODIFY already cut the basin, so a plant kill plus a person file is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Restart the cell on a different lamp after the cooldown floor. The 24 min lamp-settle is complete and the trip tripwire (NTU >= 28.00) is still armed on the plant nephelometer head. ACCEPT the new-lamp restart. Do not refer Quinn. Do not trip the plant. 16.00 NTU post-isolate is still at the 16.00 isolate floor, so the isolated basin stays held; the new lamp may run.",
+            "threshold": "new_lamp AND cool_floor_complete AND refer_not_taken AND plant_not_tripped AND isolated_basin_held",
+        },
+        "executed_action": {
+            "summary": "new-lamp restart at t_s 4620; Quinn not referred; plant not tripped; isolated basin held",
+            "tool": "cw5-neph-cool-exec",
+            "observation": "recon.NTU 16.00 on the HIL dummy; formazin-zero AE present on the new lamp; Nephveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 2820.0, "event": "cooldown clock started after MODIFY"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4440.0, "event": "Quinn referral re-proposed"},
+                {"t_s": 4620.0, "event": "ACCEPT new-lamp restart; referral refused"},
+            ],
+            "observed_effects": [
+                "Nephveil restore did not reopen the turbidity call",
+                "plant trip never fired; 20.00 vs 28.00 NTU floor",
+                "Quinn remains unnamed; missing formazin-zero AE is the causal object",
+            ],
+            "new_state": {"cell": "restarted on new lamp", "quinn": "exonerated", "basin": "held", "plant": "in service"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("new_lamp_restart", 0.12),
+                ("no_person_referral", 0.10),
+                ("no_plant_trip", 0.09),
+                ("cool_floor_complete", 0.06),
+                ("held_basin_takt_cost", -0.02),
+            ],
+            "operational execution gate: restart on a new lamp because Nephveil is not a restore license and Quinn is not on the causal path; not a turbidity re-vote",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "exoneration"]),
+    }
+    return {
+        "id": "nelb-r63-191",
+        "spike_events": events,
+        "language_view": {
+            "description": "Copsewhin Clarifier CW-5. HIL 90-degree nephelometer reconstructs 20.00 NTU from 8.00/2.00 while Nephveil still shows 4.80 NTU and the formazin-zero 1.00. The gate MODIFYs basin isolate and refuses the nephelometer-tech referral. A 24 min cooldown floor is serialized in the stream. Companion t2 ACCEPTs a new-lamp restart and still refuses the referral.",
+            "trajectory": traj,
+            "trajectory_new_lamp": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "neph.I90 / neph.Iref / neph.snr": "90-degree scatter, reference photodiode, and SNR; the physics channels the reconstruction consumes",
+                "recon.NTU / recon.SS": "serialized NTU and solids identity",
+                "form.zero / nephveil.NTU / form.delay": "plant formazin-zero, vendor last-good, and zero-cal AE; the denial and exoneration channels",
+                "ops.prop / gate.isol / ops.refer / gate.exec": "keep-overflow proposal, MODIFY, referral proposal, companion ACCEPT",
+                "bas.lock / cool.start / cool.floor / neph.new / refer.hold / bas.held / plant.trip / cell.restart": "operational companion channels plus the 24 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: nephveil.NTU 4.80 next to recon.NTU 20.00",
+                "reconstruction as event: recon.NTU 20.00 equals 5.00*8.00/2.00",
+                "MODIFY then operational ACCEPT: gate.isol at 2460 s, gate.exec at 4620 s",
+                "slow floor in-stream: cool.start 2820 s, cool.floor 4260 s (24.0 min)",
+                "tight neph pair: neph.I90 then neph.Iref +1.2 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Nephveil is 4.80' = nephveil.NTU 4.80; '20 NTU basin' = recon.NTU 20.00; 'isolate this basin not Quinn' = gate.isol MODIFY; 'new lamp not referral' = gate.exec ACCEPT",
+            "why_high_value": "New 90-degree-nephelometric remaining-turbidity family on a clarifier basin (not UV-fluorescence OIW r56, not TEOM r46, not BAM r58, not LII r31, not SPR r26, not Raman r40, not QEPAS r19). Lead MODIFY of keep-overflow on a recomputable high NTU that a vendor last-good would have cleared, with a resolved-innocent nephelometer tech. Companion t2 is operational new-lamp restart. sim_or_real=hil.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609191, "stream_note": "stream amplitudes are authored constants (1, NTU, mg_L, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "nephelometer exists at ~1 Hz; stream keeps 4 I90 points plus one Iref pair; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "neph.I90": 1.2,
+                    "neph.Iref": 1.2,
+                    "neph.snr": 1.2,
+                    "recon.NTU": 60000,
+                    "recon.SS": 60000,
+                    "form.zero": 60000,
+                    "nephveil.NTU": 60000,
+                    "form.delay": 60000,
+                    "ops.prop": 60000,
+                    "gate.isol": 60000,
+                    "bas.lock": 60000,
+                    "cool.start": 60000,
+                    "cool.floor": 60000,
+                    "ops.refer": 60000,
+                    "gate.exec": 60000,
+                    "neph.new": 60000,
+                    "refer.hold": 60000,
+                    "bas.held": 60000,
+                    "plant.trip": 60000,
+                    "cell.restart": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-07-18T02:30:00Z HIL night start",
+            },
+            "distillation_targets": [
+                "nephelometer reconstruction head: NTU = k_t * I90 / Iref; SS = 0.80 * NTU",
+                "isolate-floor basin vs keep-overflow vs plant-trip",
+                "exoneration head: missing formazin-zero AE plus timezone skip, not last-to-badge",
+                "operational companion: new-lamp restart without referring the nephelometer tech",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "nephelometric_90deg_clarifier_turbidity",
+            "formula": "NTU = k_t * I90 / Iref; SS_mg_L = 0.80 * NTU; R = I90 / Iref",
+            "parameters": {
+                "k_t": 5.00,
+                "isolate_floor_NTU": 16.00,
+                "trip_NTU": 28.00,
+                "snr_lock": 12.0,
+                "cool_min": 24.0,
+            },
+            "worked_example": {"I90": 8.00, "Iref": 2.00, "R": 4.00, "NTU": 20.00, "SS_mg_L": 16.00},
+            "check": "8.00 / 2.00 = 4.00 exactly; 5.00 * 8.00 / 2.00 = 20.00 exactly; 0.80 * 20.00 = 16.00 exactly; 2820 s + 1440 s = 4260 s = 24.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 32.0,
+            "decision_window_s": 0.032,
+            "code": "cw5.neph_basin_gate",
+            "note": "MODIFY accumulator wins: 90-degree high-NTU evidence overpowers the Nephveil continue advocate",
+            "decode_rule": "modify-isolate if ntu_estimator AND scatter_norm fire; vendor_continue_advocate is below threshold by design; referral_latch is not armed",
+            "populations": [
+                gate_pop("ntu_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("scatter_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("modify_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "cw5.neph_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 32.0},
+                {"check": "cw5.isol_scorer", "neurons": 50, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r63-191",
+            clock_domain="cw5-neph-hil-relative-ms-t0-2026-07-18T02:30:00Z",
+            tags=["nephelometric-turbidity", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+

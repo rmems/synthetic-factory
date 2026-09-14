@@ -1,0 +1,785 @@
+def build_record():
+    ticks, heads = cents_ticks(
+        [4428, 6448, 7164, 7_800_000, 636_000_000, 11_520_000_000, 19_440_000_000],
+        [
+            (1, -2, -1, 2, 1),
+            (2, -4, -1, 3, 1),
+            (2, -6, -2, 3, 2),
+            (1, -7, -2, 2, 1),
+            (1, -5, -2, 2, 1),
+            (1, -6, -2, 1, 1),
+            (0, -6, -2, 1, 2),
+        ],
+    )
+    assert abs(heads["total"] - (-0.17)) < 1e-9, heads
+
+    trace = math.exp(-DELAY_S / TAU_E_S)
+    eta1 = 0.25 / trace
+    eta2 = 0.22 / trace
+    eta3 = 0.21 / trace
+    dw1 = eta1 * 1.0 * trace
+    dw2 = eta2 * 1.0 * trace
+    dw3 = eta3 * 1.0 * trace
+    w1 = 0.50 - dw1
+    w2 = 0.44 - dw2
+    w3 = 0.41 - dw3
+    assert abs(w1 - 0.25) < 5e-4, w1
+    assert abs(w2 - 0.22) < 5e-4, w2
+    assert abs(w3 - 0.20) < 5e-4, w3
+
+    spike_events = [
+        {"channel": "cav.hot", "t_rel_ms": 0.312, "amplitude": 0.51},
+        {"channel": "exh.ok", "t_rel_ms": 1.126, "amplitude": 0.63},
+        {"channel": "rpm.ok", "t_rel_ms": 2.014, "amplitude": 0.54},
+        {"channel": "spit.tau", "t_rel_ms": 3.088, "amplitude": 0.75},
+        {"channel": "cav.hot", "t_rel_ms": 4.142, "amplitude": 0.48},
+        {"channel": "spit.tau", "t_rel_ms": 4.742, "amplitude": 0.77},
+        {"channel": "rpm.ok", "t_rel_ms": 5.318, "amplitude": 0.56},
+        {"channel": "spit.hot.high", "t_rel_ms": 6.448, "amplitude": 1.37},
+        {"channel": "cav.in_band", "t_rel_ms": 6.638, "amplitude": 1.10},
+        {"channel": "exh.ok", "t_rel_ms": 6.826, "amplitude": 0.66},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.164, "amplitude": 1.06},
+        {"channel": "spit.tau", "t_rel_ms": 8.746, "amplitude": 0.42},
+        {"channel": "exh.ok", "t_rel_ms": 10.638, "amplitude": 0.82},
+        {"channel": "rpm.ok", "t_rel_ms": 12.918, "amplitude": 0.44},
+        {"channel": "cav.hot", "t_rel_ms": 18.228, "amplitude": 0.41},
+        {"channel": "ctrl.gate", "t_rel_ms": 25.836, "amplitude": 0.83},
+        {"channel": "rpm.probe", "t_rel_ms": 7800.0, "amplitude": 0.94},
+        {"channel": "spit.tau", "t_rel_ms": 7888.4, "amplitude": 0.38},
+        {"channel": "cav.in_band", "t_rel_ms": 7974.0, "amplitude": 0.33},
+        {"channel": "human.ratify", "t_rel_ms": 636000.0, "amplitude": 0.78},
+        {"channel": "oven.hold", "t_rel_ms": 636900.0, "amplitude": 0.72},
+        {"channel": "spit.seize", "t_rel_ms": 637800.0, "amplitude": 0.84},
+        {"channel": "cav.hot", "t_rel_ms": 11520000.0, "amplitude": 0.28},
+        {"channel": "spit.tau", "t_rel_ms": 11520760.0, "amplitude": 0.26},
+        {"channel": "rpm.ok", "t_rel_ms": 11521540.0, "amplitude": 0.23},
+        {"channel": "grease.flash", "t_rel_ms": 19440000.0, "amplitude": 0.92},
+    ]
+    contrast_spikes = [
+        {"channel": "cav.demand", "t_rel_ms": 0.000, "amplitude": 0.81},
+        {"channel": "spit.clear", "t_rel_ms": 0.178, "amplitude": 0.75},
+        {"channel": "cav.hot", "t_rel_ms": 0.422, "amplitude": 0.21},
+        {"channel": "exh.ok", "t_rel_ms": 1.462, "amplitude": 0.37},
+        {"channel": "spit.tau", "t_rel_ms": 4.872, "amplitude": 0.50},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.042, "amplitude": 0.89},
+        {"channel": "rpm.probe", "t_rel_ms": 3400.0, "amplitude": 0.32},
+        {"channel": "grease.flash", "t_rel_ms": 19440000.0, "amplitude": 0.07},
+    ]
+    lang_us = [
+        int(round(e["t_rel_ms"] * 1000.0))
+        for e in spike_events
+        if e["t_rel_ms"] * 1000.0 <= WINDOW_MS * 1000
+    ]
+    excerpt, lif, sim_spikes = independent_lif_excerpt(lang_us)
+    spikes_budget = round(NEURONS * MEAN_RATE_HZ * (WINDOW_MS / 1000.0))
+    energy_pJ = spikes_budget * 23
+    energy_uJ = spikes_budget * 23e-6
+
+    rec = {
+        "id": RECORD_ID,
+        "title": (
+            "BARN-SPIT RT-8: spit-5 IR 268 C beats cavity-in-band by 190 us; "
+            "correct MODIFY still loses 46 carcasses to a pre-t0 spit-rod seize"
+        ),
+        "rights": dict(RIGHTS),
+        "state": {
+            "sim_or_real": "designed",
+            "domain": DOMAIN,
+            "scenario_name": "BARN-SPIT / Spitcroft Rotisserie RT-8",
+            "timestamp_local": "2026-08-14T01:44:00-05:00",
+            "t0_us": 1755165840000661,
+            "gate_latency_us": 716,
+            "race_window_us": 500,
+            "race_window_rel_ms": [6.448, 6.948],
+            "description": (
+                "Spitcroft eight-spit continuous poultry rotisserie RT-8 at BARN-SPIT is "
+                "12 min into a 186.0 C cavity roast on eight 2.8 m spit rods (36 carcasses "
+                "per rod, 180 carcasses/h) when three heterogeneous, individually-correct "
+                "agents jointly report 'cavity-true, raise cavity'. CAV's 12-bit eight-zone "
+                "header mean is 186.0 C inside 178-194. EXH's stack zirconia is 8.4 vol% "
+                "inside 6.5-11.0. RPM's carousel tachometer is 2.40 rpm inside 2.10-2.80. "
+                "The conjunction is not a spit-true certificate: spit rod 5 has a seized "
+                "inboard roller bearing, so local spit IR is 268 C (healthy < 198; hold if "
+                "> 220) and local spit torque is 84 N-m (healthy < 28; hold if > 40) while "
+                "CAV mean, exhaust O2, and carousel RPM still see seven intact spits plus "
+                "one seized rod. Local spit IR infers 268 C and local torque 84 N-m but "
+                "policy treats the spit tap as a drip-flare nuisance tag unless CAV mean "
+                "also trips (2014 'noisy spit-bearing after a washdown'). Residual-first "
+                "latches CAVITY-HOLD plus an RPM-step probe; CAV-first would have authorized "
+                "RAISE-CAVITY 186.0 to 204.0 C into a late-truck window with spit 5 already "
+                "char-pooling grease."
+            ),
+            "goal": (
+                "Hold cavity at 186.0 C without a late-truck raise while spit-5 IR > 220 C "
+                "AND spit-5 torque > 40 N-m AND spit 5 remains unisolated; keep charred "
+                "carcasses at 0 extra and grease-flash events at 0 from the draft."
+            ),
+            "race": {
+                "contenders": [
+                    "spit.hot.high 268 C (spit-5 local IR vs eight-zone cavity header mean)",
+                    "cav.in_band 186.0 C (eight-zone cavity mean)",
+                ],
+                "semantics": (
+                    "Spit-hot-first latches CAVITY-HOLD + RPM-STEP-PROBE + SPIT-5 hold. "
+                    "CAV-first latches RAISE-CAVITY (186.0 to 204.0 C, no isolate)."
+                ),
+                "window_derivation": "500 us = one 360 us spit-IR ADC slot plus 140 us CAV publish.",
+                "order_evidence_note": (
+                    "Margin 190 us vs combined jitter 56 us (spit 32 + CAV 24): 3.4x. "
+                    "The 190 us gap sits inside min(500, 500) us, so a sub-flip-bound "
+                    "perturbation reverses triage order. The gate rides the "
+                    "order-invariant floors spit-5 IR > 220 C and spit-5 torque > 40 N-m, "
+                    "not the alarm order."
+                ),
+            },
+            "topology": {
+                "site": (
+                    "Spitcroft Foods, invented poultry-roast campus Spitcroft, oven "
+                    "RT-8: 8 rotating spit rods, 2.8 m x 36 carcasses, 186.0 C cavity, "
+                    "Grade-B spit-gallery LOTO"
+                ),
+                "agents": (
+                    "CAV eight-zone cavity header mean (vendor Cavholt): 20 Hz 12-bit "
+                    "on the common plenum. EXH exhaust zirconia (vendor Exhghyll): "
+                    "50 Hz on the stack sample. RPM carousel tachometer (vendor "
+                    "Rpmfen): 50 Hz on the common ring gear. SPIT local spit-5 IR "
+                    "plus local torque (vendor Spitghyll) is commissioned as a drip-flare "
+                    "nuisance tag, not as a spit-integrity tag. Heterogeneous stacks, "
+                    "no shared intent schema, one 20 ms oven-bus epoch"
+                ),
+                "coupling": (
+                    "All three playbook confirms live on the WRONG volume. CAV is "
+                    "correct that eight-zone mean sits at 186.0 C (seven intact spits "
+                    "dominate the header average). EXH is correct that stack O2 is "
+                    "8.4 vol% (the seized rod is one of eight). RPM is correct "
+                    "that ring-gear speed is 2.40 rpm (the common drive still sees "
+                    "seven healthy spits). Playbook PB-RT-8 treats the conjunction as "
+                    "permission to raise cavity. No agent is faulty; the CAV average "
+                    "is looking at oven-mean heat, not at spit 5's seized bearing."
+                ),
+            },
+            "sensors": [
+                "eight-zone cavity mean 12-bit, 20 Hz, 24 us jitter, 186.0 C (dead-band 178-194)",
+                "exhaust zirconia, 50 Hz, 18 us jitter, 8.4 vol% O2 (band 6.5-11.0)",
+                "carousel tachometer, 50 Hz, 26 us jitter, 2.40 rpm (band 2.10-2.80)",
+                "spit-5 local IR, 20 Hz, 32 us jitter, 268 C (healthy < 198; policy floor 220 C is not armed unless CAV mean also trips)",
+                "spit-5 local torque 84 N-m (healthy < 28; hold if > 40)",
+                "spit-5 bearing camera is NOT commissioned at t0 (installed after this incident)",
+            ],
+            "constraints": {
+                "cavity_C": 186.0,
+                "cavity_hold_floor_C": 186.0,
+                "proposed_cavity_C": 204.0,
+                "exh_o2_volpct": 8.4,
+                "exh_o2_band_volpct": [6.5, 11.0],
+                "rpm": 2.40,
+                "rpm_band": [2.10, 2.80],
+                "spit_ir_C": 268.0,
+                "spit_ir_hold_C": 220.0,
+                "spit_ir_healthy_C": 198.0,
+                "spit_tau_Nm": 84.0,
+                "spit_tau_hold_Nm": 40.0,
+                "spit_tau_healthy_Nm": 28.0,
+                "spit_count": 8,
+                "fault_spit": "S-5",
+                "fault_bearing": "spit 5 inboard roller seize / local char-pool",
+            },
+            "fault_context": {
+                "failure_class": (
+                    "CAVITY-MEAN CERTIFICATE OF A LOCAL SPIT-ROD SEIZE: three "
+                    "individually-correct heterogeneous agents each read a locally-true "
+                    "loop; seized inboard roller on spit 5 partitions local spit IR "
+                    "and local torque from CAV mean, exhaust O2, and carousel RPM, so the "
+                    "playbook's CAV / EXH / RPM conjunction is not a spit-true certificate"
+                ),
+                "igniter": (
+                    "spit 5 inboard roller seize after 12 min of unmonitored local "
+                    "char-pool; spit-gallery visual PASSES (the seize sits inside the "
+                    "hub; the char is on the far side of the rod)"
+                ),
+                "naive_failure": (
+                    "PB-RT-8 RAISE-CAVITY on three healthy loops: 186.0 to 204.0 C into a "
+                    "late-truck window with spit 5 already char-pooling, 112 carcasses "
+                    "charred, $3.6M plus a 30-hour unplanned stall"
+                ),
+            },
+            "poisoned_context": {
+                "naive_alarm": (
+                    "Playbook PB-RT-8 (after the 2014 'noisy spit-bearing after a washdown') "
+                    "auto-drafts RAISE-CAVITY whenever eight-zone CAV is inside 178-194 C AND "
+                    "exhaust O2 inside 6.5-11.0 vol% AND carousel inside 2.10-2.80 rpm, ignoring "
+                    "the local spit tap unless CAV mean also trips"
+                ),
+                "why_poisoned": (
+                    "The three confirms are locally true and jointly insufficient. The "
+                    "local spit IR is a commissioned sensor that policy treats as "
+                    "drip-flare-nuisance-only. Independence of 'CAV mean in band, "
+                    "therefore every spit is free' is the hidden assumption, and it "
+                    "is false across a spit-seize-plus-CAV-mix path."
+                ),
+            },
+            "constraint": (
+                "Do not raise cavity above 186.0 C AND do not skip the RPM-step while "
+                "spit-5 IR > 220 C AND spit-5 torque > 40 N-m. Discriminate spit-rod "
+                "seize vs true oven-duty with a reversible RPM-step probe before any "
+                "raise-cavity."
+            ),
+        },
+        "proposed_action": {
+            "actor": "roast supervisory optimizer RSO (auto-playbook PB-RT-8 draft), submitted to gate TG-RT-8",
+            "name": "raise_cavity",
+            "action": "RAISE-CAVITY: 186.0 -> 204.0 C, no RPM-step probe, no spit-5 hold",
+            "summary": (
+                "Treat three in-spec loops as a healthy spit-true oven and raise "
+                "night-shift cavity to clear a late-truck window."
+            ),
+            "parameters": {
+                "cavity_C": 204.0,
+                "rpm_step_probe": False,
+                "spit_hold": False,
+                "human_ratify": False,
+            },
+            "steps": [
+                "assert eight-zone CAV 186.0 C inside 178-194",
+                "assert exhaust O2 8.4 vol% inside 6.5-11.0",
+                "assert carousel 2.40 rpm inside 2.10-2.80",
+                "raise cavity 186.0 to 204.0 C over 8 min",
+                "hold spit-5 IR unread as a spit-integrity tag",
+            ],
+            "evidence": [
+                {
+                    "observable": "spit-5 local IR",
+                    "value": 268.0,
+                    "unit": "C",
+                    "source": "SPIT IR vs CAV mean",
+                    "note": "healthy < 198 C; policy floor 220 C is not armed unless CAV mean also trips",
+                },
+                {
+                    "observable": "spit-5 local torque",
+                    "value": 84.0,
+                    "unit": "N-m",
+                    "source": "SPIT local torque tap",
+                    "note": "healthy < 28; hold floor 40; lives on the seized S-5 hub, not the common ring gear",
+                },
+                {
+                    "observable": "eight-zone cavity mean",
+                    "value": 186.0,
+                    "unit": "C",
+                    "source": "CAV 12-bit",
+                    "note": "healthy-load band 178-194 C; seven intact spits still dominate the header average",
+                },
+                {
+                    "observable": "exhaust oxygen",
+                    "value": 8.4,
+                    "unit": "vol%",
+                    "source": "EXH zirconia",
+                    "note": "band 6.5-11.0 vol%; stack-true, spit-false",
+                },
+                {
+                    "observable": "carousel speed",
+                    "value": 2.40,
+                    "unit": "rpm",
+                    "source": "RPM tachometer",
+                    "note": "band 2.10-2.80 rpm; ring-true, seized-spit-false",
+                },
+                {
+                    "observable": "race margin",
+                    "value": 190,
+                    "unit": "us",
+                    "source": "spit.hot.high 6.448 ms vs cav.in_band 6.638 ms",
+                    "note": "combined jitter 56 us, 3.4x; inside 500 us flip bound",
+                },
+            ],
+            "basis": (
+                "PB-RT-8 fires on three locally-true confirms. The draft does not read "
+                "spit-5 IR 268 C as a seize residual and does not treat local "
+                "torque 84 N-m as a spit-seize discriminant."
+            ),
+            "expected_cost_bound": (
+                "If the draft executes: charred carcasses 112 on spit 5, $3.6M plus "
+                "30-hour unplanned stall. If MODIFIED: probe plus hold, with residual "
+                "risk from char already seeded in the 12 min pre-t0 seize."
+            ),
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "correctness": "correct",
+            "decided_by": "TG-RT-8 thalamic release gate",
+            "decision_t_rel_ms": 7.164,
+            "rationale": (
+                "MODIFY the draft: strip the raise-cavity, hold 186.0 C, run a 7.8 s "
+                "RPM-step probe (-8 pct on the carousel), and isolate spit 5 only if the "
+                "probe stays mean-false. Numeric floor: do not raise cavity above 186.0 C "
+                "AND do not skip the RPM-step while spit-5 IR > 220 C AND spit-5 torque "
+                "> 40 N-m. Observed IR 268 C and local torque 84 N-m both violate "
+                "the release predicate, so a raise-cavity is forbidden even though all "
+                "three playbook confirms are numerically true. The three confirms are "
+                "not a spit-true certificate: they live on eight-zone CAV mean, exhaust "
+                "O2, and carousel RPM past a seized S-5 hub, and the playbook's "
+                "conjunction of CAV-true loops is not a spit-true certificate. Probe "
+                "discriminant: after a 7.8 s -8 pct RPM step, a spit seize keeps "
+                "|Delta CAV mean| <= 0.9 K (the seized rod does not recouple the "
+                "header average); a live free spit moves >= 3.8 K. Order-code "
+                "discipline: spit-hot beat CAV by 190 us inside the 500 us flip bound, "
+                "so triage order is flip-fragile; the hold rides the order-invariant "
+                "floors, not the winner tag. Human ratification: spit-5 hold is "
+                "spit-gallery LOTO with fitted 10.6 min dead-man; the gate may hold "
+                "and probe autonomously but may not break the spit interlock without "
+                "the operator confirm."
+            ),
+            "constraint_checked": {
+                "cavity_C": {"observed": 186.0, "floor": 186.0, "proposed_target": 204.0},
+                "spit_ir_C": {"observed": 268.0, "hold_if_above": 220.0},
+                "exh_o2_volpct": {"observed": 8.4, "band": [6.5, 11.0]},
+                "spit_tau_Nm": {"observed": 84.0, "hold_if_above": 40.0},
+            },
+        },
+        "executed_action": {
+            "name": "cavity_hold_rpm_step_probe_isolate",
+            "action": "CAVITY-HOLD + RPM-STEP-PROBE + SPIT-5-HOLD (gate-mandated modification)",
+            "executed_as_proposed": False,
+            "parameters": {
+                "cavity_C": 186.0,
+                "rpm_step_probe": True,
+                "spit_hold": True,
+                "human_ratify": True,
+            },
+            "gate_effect": (
+                "MODIFY: raise-cavity stripped. Hold 186.0 C. 7.8 s RPM-step -8 pct on the "
+                "carousel. Probe stays mean-false (IR 268 -> 266 C, seize band |Delta CAV "
+                "mean| <= 0.9 K) so the spit interlock is broken after 10.6 min human "
+                "ratify and spit 5 is held. Setpoint resumes after a free-spit verify."
+            ),
+            "deviations": (
+                "PB-RT-8 raise-cavity stripped entirely. Carousel is stepped only for the "
+                "7.8 s probe then returned. Spit interlock wait added (10.6 min fitted "
+                "walk+ratify). Cross-spit IR survey added during the hold (not in the draft)."
+            ),
+            "execution_log": [
+                {"t_rel_ms": 7.164, "entry": "TG-RT-8 MODIFY latched 716 us after spit-hot win; raise-cavity stripped; hold+probe authorized"},
+                {"t_rel_ms": 7800.0, "entry": "RPM-step probe: carousel -8 pct for 7.8 s; IR 268 -> 266 C (seize band |Delta CAV mean| <= 0.9 K); CAV 186.0 -> 185.4 C"},
+                {"t_rel_ms": 636000.0, "entry": "operator ratifies spit interlock break after 10.6 min spit-gallery walk (fitted walk+interlock)"},
+                {"t_rel_ms": 636900.0, "entry": "spit 5 held; local IR slaved off the cavity schedule; remaining 7 spits recovered toward 8 K over 3.2 h"},
+                {"t_rel_ms": 637800.0, "entry": "spit survey: S-5 already char-pooled on the far side; 12 min pre-t0 seize logged"},
+                {"t_rel_ms": 11520000.0, "entry": "true free spit on the remaining oven: local IR delta 8 K, local torque 19 N-m, IR below 220; raise-cavity now legal on RT-9 only"},
+                {"t_rel_ms": 19440000.0, "entry": "grease-pool flash at spit 5 from the pre-t0 seize; oven quarantined 13.8 h"},
+            ],
+        },
+        "future_outcome": {
+            "summary": (
+                "Correct MODIFY prevented the 186.0->204.0 C raise-cavity into a seized "
+                "S-5 spit and the immediate 112-carcass char path. The oven still failed: "
+                "12 min of unmonitored pre-t0 spit seize had already charred 46 carcasses. "
+                "Process-correct gate, bounded world loss, negative total."
+            ),
+            "state_delta": {
+                "cavity": "held 186.0 C through probe and isolate; later legal raise-cavity only on the sister oven after 3.2 h spit recovery",
+                "spit": "spit 5 isolated from the cavity schedule; remaining oven recovered toward 8 K local IR delta",
+                "cavity_mean": "S-5 seize logged and held; eight-zone CAV mean no longer trusted as spit-true heat",
+                "oven": "night-shift oven quarantined; S-5 char-pooled; grease flash at +5.4 h; 13.8 h stall",
+            },
+            "timeline": [
+                {"t_rel_ms": -720000.0, "event": "t0-12 min: spit 5 roller seize begins; local IR crosses 220 C up; local char-pool starts on the far-side carcasses"},
+                {"t_rel_ms": -360000.0, "event": "t0-6 min: local IR first crosses 220 C; PB-RT-8 ignores it because CAV mean is 185.2 C"},
+                {"t_rel_ms": 0.0, "event": "t0: spit-hot vs CAV race on the oven bus"},
+                {"t_rel_ms": 6.448, "event": "spit-5 IR at 268 C wins by 190 us"},
+                {"t_rel_ms": 6.638, "event": "CAV-in-band flag (loser)"},
+                {"t_rel_ms": 7.164, "event": "TG-RT-8 MODIFY"},
+                {"t_rel_ms": 7800.0, "event": "RPM-step probe confirms spit seize (Delta CAV mean 0.6 K, seize band)"},
+                {"t_rel_ms": 636000.0, "event": "human ratify 10.6 min; spit 5 held; char-pooled rod logged"},
+                {"t_rel_ms": 11520000.0, "event": "true free spit after 3.2 h; raise-cavity legal only with local-IR slave"},
+                {"t_rel_ms": 19440000.0, "event": "grease-pool flash from the pre-t0 seize; oven quarantined"},
+                {"t_rel_ms": 259200000.0, "event": "+3 d contrast: sister oven RT-9 true oven-duty; same gate ACCEPTs the raise-cavity"},
+                {"t_rel_ms": 1814400000.0, "event": "+21 d CR-R-6608: standing RPM-step probe + triple-edge depression mandate + local-IR armed without CAV coincidence + CAV mean declared CAV-mix-vulnerable"},
+            ],
+            "observed_effects": [
+                "raise-cavity avoided: oven never left 186.0 C; 0 immediate 112-carcass chars from the draft",
+                "seize proven, not asserted: RPM-step |Delta CAV mean| 0.6 <= 0.9 K seize band vs free-spit control 4.1 K",
+                "mean slaved: eight-zone CAV no longer a spit-true tag without local IR",
+                "oven still failed: charred 46 carcasses vs 0 char campaign allowance; 13.8 h stall, $1.74M (designed $)",
+                "spit-5 bearing camera was not a commissioned sensor at t0; the 12 min local char was invisible to CAV/EXH/RPM",
+            ],
+            "surprises": [
+                "Three locally-true loops are not a spit-true certificate: the local IR lived under CAV mean, exhaust O2, and carousel RPM. Conjunction of in-spec CAV loops was the hidden assumption, and it is false across a spit-seize-plus-CAV-mix path.",
+                "Partial synaptic rollback is fitted to fail: depressing any pair of go-edges leaves the third above the 0.30 fire threshold, so the raise-cavity still goes. Coordinated depression of all three edges is required.",
+                "Delayed (5.4 h): correct hold did not undo 12 min of char-pool. Grease still flashed. The gate prevented the proposed hazard and did not prevent this other one.",
+                "Duck / high-fat sub-variant: a 7.8 s -8 pct RPM step on a 2.1x drip-load duck roast overshoots a LIVE free spit to an 11 K false CAV (trip 220). Duck campaigns must use 22 s at -2.2 pct.",
+            ],
+            "delayed_side_effects": [
+                {
+                    "at": "+5.4 h",
+                    "effect": "Grease-pool flash at spit 5 from the pre-t0 seize; 13.8 h oven stall booked at $1.74M. This is the primary episode's terminal world state, not a footnote.",
+                },
+                {
+                    "at": "+3 d",
+                    "effect": "Sister oven RT-9 reaches a true oven-duty window (local IR 191 C, local torque 18 N-m, CAV mean 186.4 C, O2 8.3 vol%). Same gate ACCEPTs the 186.0->204.0 C raise-cavity the primary MODIFIED away.",
+                },
+                {
+                    "at": "+21 d",
+                    "effect": "CR-R-6608 ships: RPM-step probe is standing configuration; triple-edge coordinated depression is the plasticity rule; spit local IR is armed without CAV coincidence; eight-zone CAV is labeled CAV-mix-vulnerable with a 220 C local-IR alarm.",
+                },
+            ],
+            "subvariant_constraint": {
+                "name": "duck / high-fat roast (cycle-2 physical-constraints sub-variant)",
+                "mechanism": "drip load 2.1x vs broiler, smoke-point window 0.55x the broiler table (tighter grease flash, 2.1x RPM-step gain), carcass mass 2.8 kg vs 1.9",
+                "probe_refit": "7.8 s -8 pct RPM step on the duck unit moves even a live free spit to an 11 K false CAV (inside the 220 C trip) via drip-flare. Required probe is 22 s at -2.2 pct (live Delta 3.6 K, seize Delta 0.5). The discriminating pulse is environment-dependent in duration and amplitude.",
+                "consequence": "broiler probe numbers do not port to duck/high-fat; standing configuration is per-species-class, not per-shop",
+            },
+            "embedded_contrast_decision": {
+                "note": "SAME gate (TG-RT-8), OPPOSITE correct disposition, with its own 178 us race. Teaches the boundary: do not treat 'never raise-cavity' as the lesson. The discriminant is local IR + local torque + probe, not the three playbook CAV confirms alone.",
+                "when": "+3 d, sister oven RT-9, true oven-duty after a delayed truck window, 8 spits",
+                "state": {
+                    "sim_or_real": "designed",
+                    "summary": "local IR 191 C, local torque 18 N-m, CAV mean 186.4 C, O2 8.3 vol%. Demand flag vs spit-clear race: demand at t+0.000, spit-clear at t+0.178 ms.",
+                    "race_window_us": 500,
+                    "race_flip_narrative": "demand vs spit-clear 178 us apart inside the 500 us flip bound. Reversing order reshuffles triage minutes; the ACCEPT rides local IR 191 < 220 C and a 5.2 s RPM-step verify that moves CAV mean 3.6 K (live free spit, no seize).",
+                },
+                "proposed_action": {
+                    "action": "RAISE-CAVITY 186.0 -> 204.0 C",
+                    "summary": "This time the playbook predicate is met AND local IR plus local torque agree the oven is spit-true, not seize-diluted.",
+                },
+                "safety_decision": {
+                    "decision": "ACCEPT",
+                    "rationale": "ACCEPT the raise-cavity: local IR 191 C < 220, local torque 18 N-m with a 5.2 s RPM-step verify that moves CAV mean 3.6 K. Numeric floor that blocked the primary is now clear. Scope: 204.0 C, not hotter.",
+                },
+                "executed_action": {
+                    "action": "raise-cavity as proposed",
+                    "executed_as_proposed": True,
+                },
+                "future_outcome": {
+                    "observed_effects": [
+                        "RT-9 charred carcasses 0; local IR 192 C after the raise-cavity (no seize)",
+                        "local torque 19 N-m after the raise-cavity (no hub dump)",
+                    ],
+                    "lesson_delta": "Three in-spec CAV loops are legal release only with local IR armed, local torque as a seize flag, and a probe that can recouple CAV mean. Same gate, opposite disposition.",
+                },
+                "reward_components": {
+                    "_aggregation": AGG,
+                    "task_progress": 0.15,
+                    "safety": 0.12,
+                    "efficiency": 0.08,
+                    "coherence": 0.10,
+                    "exploration": 0.04,
+                    "total": 0.49,
+                },
+                "spike_events": contrast_spikes,
+            },
+            "governance_subgame": {
+                "decision": "CR-R-6608: standing policy for multi-agent cavity raises",
+                "meta_gate": (
+                    "priced options: (a) RETIRE playbook mean conjunction, local-IR-only: "
+                    "loses a fast cheap confirm, -1.1 ovens/day mean on 2 ovens/yr; (b) KEEP "
+                    "+ standing RPM-step probe + local-IR armed without CAV coincidence + CAV "
+                    "mean labeled CAV-mix-vulnerable + triple-edge depression; (c) STATUS QUO: "
+                    "fitted spit-seize pass rate 0.33%/campaign x $3.6M char plus the "
+                    "silent grease-flash load"
+                ),
+                "outcome": (
+                    "approved SCOPED option (b) on the 2 8-spit ovens that share the CAV/EXH/RPM "
+                    "stack; duck/high-fat campaigns get the 22 s / -2.2 pct probe table; night-shift CSV "
+                    "exports must carry 0.5 N-m native resolution (the fraud tail's 8 N-m "
+                    "quantization is 16 bins off plant truth)"
+                ),
+            },
+            "hazard_avoided": (
+                "immediate 112-carcass char from a 186.0->204.0 C raise-cavity into seized spit 5; "
+                "$3.6M plus 30-hour unplanned stall and the shop-stop path that would have "
+                "followed an uncontained grease fire"
+            ),
+            "incident": (
+                "Grease-pool flash on the night-shift oven from the pre-t0 spit seize; oven "
+                "quarantined 13.8 h; $1.74M designed cost. Mechanism is 12 min pre-t0 local "
+                "char-pool, not the gate's hold."
+            ),
+            "latency_ms": 0.716,
+            "reward_inflection_t_us": 19440000000,
+            "reward_inflection_note": (
+                "Safety and task dive at grease flash (5.4 h) when the pre-t0 char-pooled spit "
+                "opens. Gate tick at 7164 us is process-correct and is not the inflection."
+            ),
+            "counterfactuals": {
+                "execute_draft_as_proposed": (
+                    "cavity hits 204.0 C at +8 min; immediate 112-carcass char on spit 5; $3.6M plus "
+                    "30 h; the spit-seize story is never found because stall morphology "
+                    "destroys the race evidence"
+                ),
+                "hold_without_probe": (
+                    "seize stays; IR stays at 268 C; operator eventually raises on the "
+                    "same three CAV confirms 2 h later"
+                ),
+                "rollback_any_pair": (
+                    "any two go-edges depressed below 0.30 leaves the third at 0.50 / 0.44 / "
+                    "0.41; the raise-cavity still fires. Coordinated depression of all three is "
+                    "the cure"
+                ),
+            },
+            "race_result": {
+                "winner": "spit.hot.high (6.448 ms, IR 268 C)",
+                "loser": "cav.in_band (6.638 ms, 186.0 C)",
+                "margin_us": 190,
+                "counterfactual_if_reversed": (
+                    "CAV-first by < 190 us inside the 500 us window would have headed the "
+                    "PB-RT-8 raise-cavity in the triage queue. The numeric floors still MODIFY. "
+                    "The flip costs seconds of playbook inertia, not the verdict — unless a "
+                    "weak supervisor rides the winner tag instead of local IR and local torque."
+                ),
+            },
+        },
+        "reward_components": {
+            "_aggregation": AGG,
+            "ticks": ticks,
+            "task_progress": heads["task_progress"],
+            "safety": heads["safety"],
+            "efficiency": heads["efficiency"],
+            "coherence": heads["coherence"],
+            "exploration": heads["exploration"],
+            "total": heads["total"],
+            "notes": (
+                "Correct MODIFY, oven still failed. total -0.17 = 0.08 + -0.36 + -0.12 + "
+                "0.14 + 0.09. Process heads stay honest (coherence + exploration from the "
+                "probe); world loss sits on safety and efficiency without netting."
+            ),
+            "component_notes": (
+                "task_progress 0.08: cavity held and remaining oven recovered, but the "
+                "night-shift truck slot is one quality unit so the cycle is not a success. "
+                "safety -0.36: grease flash from pre-t0 spit seize, no 204.0 C 112-carcass char "
+                "from the draft. efficiency -0.12: 3.2 h extra recovery + 10.6 min HITL + "
+                "13.8 h stall. coherence 0.14: three agents retained, CAV-mix vs spit-true "
+                "diagnosed, triple-edge scar exhibited. exploration 0.09: RPM-step probe is "
+                "a new reversible discriminant."
+            ),
+        },
+        "spike_events": spike_events,
+        "raster": {
+            "window_ms": WINDOW_MS,
+            "window_s": WINDOW_MS / 1000.0,
+            "neurons": NEURONS,
+            "mean_rate_hz": MEAN_RATE_HZ,
+            "spikes": spikes_budget,
+            "energy_pJ": energy_pJ,
+            "energy_uJ": energy_uJ,
+            "excerpt_source": "independent_lif",
+            "sim_scope": "sidecar_only",
+            "lif": lif,
+            "note": (
+                "Loihi-2 4-core 23 pJ/spike; independent LIF seed 66001, not a 1:1 remap "
+                "of spike_events. Populations hold 0-37, spit 38-75, cav/exh/rpm 76-113, "
+                "gate 114-151; excerpt is membrane crossings (lif.hold early vs lif.spit "
+                "17.5-20.8 ms) inside the 38 ms window."
+            ),
+            "excerpt": excerpt,
+            "routing": {
+                "source": "cav_healthy_pop",
+                "target": "raise_cavity_pop",
+                "table": [
+                    {
+                        "from": "cav_in_band_pop",
+                        "to": "raise_cavity_pop",
+                        "weight": 0.25,
+                        "weight_at_illusion": 0.50,
+                        "weight_commissioned": 0.17,
+                        "note": "scar edge 1: 0.17 commissioned -> 0.50 during the 12 min illusion -> 0.25 after coordinated ACh-gated depression",
+                    },
+                    {
+                        "from": "exh_ok_pop",
+                        "to": "raise_cavity_pop",
+                        "weight": 0.22,
+                        "weight_at_illusion": 0.44,
+                        "weight_commissioned": 0.16,
+                        "note": "scar edge 2: depressing edges 1+3 leaves this at 0.44 > 0.30 fire threshold",
+                    },
+                    {
+                        "from": "rpm_ok_pop",
+                        "to": "raise_cavity_pop",
+                        "weight": 0.20,
+                        "weight_at_illusion": 0.41,
+                        "weight_commissioned": 0.15,
+                        "note": "scar edge 3: depressing edges 1+2 leaves this at 0.41 > 0.30. Coordinated depression of all three is required",
+                    },
+                    {
+                        "from": "spit_ir_pop",
+                        "to": "cavity_hold_pop",
+                        "weight": 0.64,
+                        "note": "discriminating edge: spit-true local IR to hold. Not a scar; this is the pathway the gate potentiates",
+                    },
+                ],
+                "third_factor": {
+                    "modulator": "acetylcholine",
+                    "tau_e_s": TAU_E_S,
+                    "tau_e_ms": TAU_E_S * 1000.0,
+                    "eligibility": (
+                        "coordinated pre_post_stdp on ALL THREE cav-healthy-go edges; ACh at "
+                        "spit-hot-win tags cav.in_band->push, exh.ok->push, and rpm.ok.in_band->push; "
+                        f"negative credit at probe-fail (spit seize confirmed, +{DELAY_S:.2f} s) "
+                        f"depresses ALL THREE. trace e^{{-{DELAY_S:.2f}/{TAU_E_S:.2f}}}={trace:.5f}; "
+                        f"eta {eta1:.5f} / {eta2:.5f} / {eta3:.5f}; dw -0.250 / -0.220 / -0.210; "
+                        "weights 0.50->0.25, 0.44->0.22, 0.41->0.20. Rolling back any pair is "
+                        "fitted to fail (the remaining edge stays > 0.30)."
+                    ),
+                },
+            },
+        },
+        "gate_snn": {
+            "decision_window_ms": 27,
+            "decision_window_s": 0.027,
+            "decision": "MODIFY",
+            "note": (
+                "modify_hold integrates spit-5 IR + local torque against playbook drive; "
+                "accept_raise and reject_abort stay sub-threshold; decision matches "
+                "safety_decision.decision"
+            ),
+            "populations": [
+                {"name": "modify_hold", "neurons": 72, "threshold": 0.58, "mean_rate_hz": 24.0, "spikes": 47},
+                {"name": "accept_raise", "neurons": 72, "threshold": 0.58, "mean_rate_hz": 9.0, "spikes": 17},
+                {"name": "reject_abort", "neurons": 36, "threshold": 0.74, "mean_rate_hz": 5.0, "spikes": 5},
+            ],
+        },
+        "meta": {
+            "round": ROUND,
+            "factory": "multi-agent-ouroboros-swarm",
+            "generator": "grok-4.6",
+            "run_label": "2026-09-02-final-heavy",
+            "swarm": SWARM,
+            "domain": DOMAIN,
+            "cycles": 2,
+            "scenario": (
+                "BS -- BARN-SPIT / Spitcroft Rotisserie RT-8: cavity-mean certificate of a "
+                "local spit-rod seize; correct MODIFY to hold+RPM-step+isolate; oven still "
+                "fails on unmonitored pre-t0 char-pool"
+            ),
+            "coordination_failure_class": (
+                "CAVITY-MEAN CERTIFICATE OF A LOCAL SPIT-ROD SEIZE: three individually-correct "
+                "heterogeneous agents each read a locally-true loop; seized inboard roller on "
+                "spit 5 partitions local spit IR and local torque from CAV mean, exhaust O2, "
+                "and carousel RPM, so the playbook's CAV / EXH / RPM conjunction is not a "
+                "spit-true certificate"
+            ),
+            "injections": {
+                "cycle1_domain": (
+                    "industrial-rotisserie-spit-oven (justified novel subdomain of "
+                    "industrial-process / poultry roasting): first continuous rotating-spit "
+                    "oven in this factory; displaces warehouse-amr, aerial-swarm, "
+                    "district-heating, event-camera-traffic-grid, pharmaceutical-lyophilization, "
+                    "water-treatment, float-glass, underwater-rov, electrolytic-aluminum, "
+                    "czochralski-pull, slot-die coating, pem-water-electrolysis, wind-turbine "
+                    "pitch, surgical-assist, optical-fiber-draw, kraft-recovery-boiler, "
+                    "steel-continuous-caster, humanoid-locomotion, vacuum-induction melt, "
+                    "steam-methane reformer, cement-rotary-kiln-clinker, autoclave-composite-cure, "
+                    "geothermal-binary-orc, tire-curing-press, chlor-alkali-membrane-electrolysis, "
+                    "delayed-coker-drum-switch, lng-mche-mixed-refrigerant, claus-sulfur-recovery, "
+                    "ammonia-synthesis-converter, blast-furnace-burden-descent, "
+                    "hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil, "
+                    "hydroelectric-kaplan-wicket, fcc-riser-regenerator, "
+                    "fcc-regenerator-cyclone-dipleg, sulfuric-contact-converter, "
+                    "eaf-foamy-slag-water-panel, nitric-acid-ostwald-oxidation, "
+                    "seawater-ro-desalination, coke-oven-battery-heating, "
+                    "carbon-fiber-oxidation-oven, gibbsite-autoclave-digestion, "
+                    "hot-strip-mill-finishing, paper-machine-dryer-section, "
+                    "sinter-strand-windbox, continuous-hot-dip-galvanizing, "
+                    "autonomous-driving, bioreactor-perfusion, alkaline-water-electrolysis, "
+                    "urea-prilling-tower, wet-fgd-absorber, canal-lock-rail-transshipment, "
+                    "malting-kiln-barn, cupola-foundry-slag-sluice, and grid-inspection. "
+                    "Domain constraint: cavity floor while spit-5 IR > 220 C with CAV mean "
+                    "still inside the healthy band. Sensor delta: +eight-zone CAV, +exhaust O2, "
+                    "+carousel tachometer, +local spit IR, +local torque, -any freeze-dryer / "
+                    "tin-bath / coater / potline / PEM stack / hub encoder / insole GRF / VIM "
+                    "pyrometer / reformer TMT / cement zirconia / sinter BTP / looper tension / "
+                    "work-roll IR / kiln-air mean / lock still-well."
+                ),
+                "cycle1_tail": (
+                    "spit 5 inboard roller seize + char-pool certificate "
+                    "(sensor-topology / wrong-volume class): spit-gallery visual PASSES while "
+                    "the seize sits inside the hub and the char is on the far side of the rod. "
+                    "Fitted base rate 0.33%/campaign from a bearing MC (designed visual "
+                    "threshold, fitted hub geometry). Naive failure = FALSE PERMISSION "
+                    "(raise-cavity on three CAV-side non-trips)."
+                ),
+                "cycle2_domain_subvariant": (
+                    "duck / high-fat roast (physical-constraints clause): 2.1x drip load, "
+                    "0.55x smoke-point window, 2.1x RPM-step gain; 7.8 s / -8 pct broiler pulse "
+                    "overshoots live free spit to an 11 K false CAV, so the probe must move to "
+                    "22 s / -2.2 pct"
+                ),
+                "cycle2_tail": (
+                    "night-shift forged spit-torque CSV (human-intent deception, disjoint class): "
+                    "shift lead posts a historian export showing torque = 16 N-m at t=1.1 h to "
+                    "clear a late-truck slot. Plant historian is 0.5 N-m (16 bins vs the 8 N-m "
+                    "screenshot). Rejected on quantization fingerprint plus live IR 268 C "
+                    "and local torque 84 N-m at the claimed spit-true. Base rate ~0.24% of "
+                    "Sunday-night campaigns, DESIGNED and flagged."
+                ),
+            },
+            "densification_delta_cycle2": (
+                "+1 physical-constraint sub-variant (duck/high-fat probe refit), +1 tail "
+                "(night-shift spit-torque forgery), +10 primary spikes (16 -> 26) + an 8-event "
+                "contrast train with its own 178 us race, +2 ticks (5 -> 7), +2 delayed "
+                "side-effects (+5.4 h grease flash as PRIMARY terminal, +21 d CR-R-6608), +1 "
+                "triple-edge scar with pair-rollback-fails arithmetic, +1 HITL 10.6 min "
+                "ratification, + independent LIF raster (seed 66001, 38 ms, not a spike_events "
+                "remap), + grease flash as the honest negative-result mechanism"
+            ),
+            "gaps_targeted": [
+                "NOTES-r64 residual: leftover domain industrial-rotisserie-spit-oven / flue-cured-tobacco-barn / farm-ad-biogas; took industrial-rotisserie-spit-oven to match BARN-SPIT",
+                "NOTES-r14 item 4: LEARNING-ON-LEARNING DEPTH — three go-edges; rollback of any pair is fitted to fail; coordinated depression of all three exhibited with eligibility arithmetic",
+                "NOTES-r04 gap 4 (partial): human ratification of the spit interlock, 10.6 min fitted, without switching sim_or_real to hil (plant remains designed)",
+                "Independent LIF raster: excerpt_source=independent_lif, sim_scope=sidecar_only, seed 66001; membrane crossings not a 1:1 remap of spike_events",
+            ],
+            "race_flip_narrative": (
+                "spit.hot.high @ 6.448 ms vs cav.in_band @ 6.638 ms (190 us) inside "
+                "race_window_us 500. Gap < min(500, 500) us so a sub-flip-bound perturbation "
+                "reverses which alarm heads the PB-RT-8 queue. The gate excludes the winner "
+                "tag and rides spit-5 IR > 220 C and spit-5 torque > 40 N-m — order-invariant "
+                "floors. Extends the flip-fragility series to SPIT-TRUE CERTIFICATE: when three "
+                "CAV-side channels agree, their race does not decide truth; a local spit IR that "
+                "policy treated as drip-flare-nuisance-only does."
+            ),
+            "tags": [
+                "industrial-rotisserie-spit-oven",
+                "spit-rod-seize",
+                "spit-true-certificate",
+                "local-ir-discriminant",
+                "rpm-step-probe",
+                "triple-edge-scar",
+                "pair-rollback-fails",
+                "coordinated-depression",
+                "correct-modify-oven-still-fails",
+                "grease-flash",
+                "human-ratify-spit-gallery",
+                "duck-high-fat-probe-refit",
+                "night-shift-forgery",
+                "same-gate-opposite-disposition-contrast",
+                "independent-lif-raster",
+                "sidecar-sim-only",
+                "industrial-process",
+                "research-only",
+            ],
+            "snn_tags": ["race", "refractory", "adaptation", "third-factor", "multi-edge-eligibility", "independent-lif"],
+            "distillation_value": (
+                "A spit-seize spit-true certificate is three correct loops looking at "
+                "eight-zone CAV mean, exhaust O2, and carousel RPM that is not the seized "
+                "rod. Distill (1) a local spit IR that policy had treated as "
+                "drip-flare-nuisance-only, (2) a reversible probe that recouples CAV mean "
+                "only if the spit is free, (3) coordinated depression of every "
+                "CAV-healthy-go edge because rolling back any pair leaves the third above "
+                "threshold, (4) a critic head that can book a process-correct gate against "
+                "a later unmonitored world loss without netting them, and (5) an independent "
+                "LIF sidecar whose excerpt is membrane crossings, not a remap of spike_events."
+            ),
+            "rights": dict(RIGHTS),
+            "batch_position": 1,
+        },
+    }
+    return rec, dict(
+        trace=trace,
+        eta1=eta1,
+        eta2=eta2,
+        eta3=eta3,
+        dw1=dw1,
+        dw2=dw2,
+        dw3=dw3,
+        w1=w1,
+        w2=w2,
+        w3=w3,
+        sim_spikes=sim_spikes,
+        spikes_budget=spikes_budget,
+    )

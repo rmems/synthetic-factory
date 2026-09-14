@@ -1,0 +1,1039 @@
+#!/usr/bin/env python3
+"""FFPC r18 Session A: rejected arms + diagnoses + handoff receipt.
+
+Writes only /tmp/ffpc-r18/{rejected,diagnosis}-0{1,2,3}-r18.{json,md}
+and diagnosis-handoff-receipt-r18.json. Never outputs/raw/. Never chosen.
+Never batch-r18.jsonl.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import sys
+from copy import deepcopy
+from pathlib import Path
+
+REPO = Path("/home/raulmc/rmems/synthetic-factory")
+OUT = Path("/tmp/ffpc-r18")
+sys.path.insert(0, str(REPO / "pipelines"))
+
+from preference_arms import ARM_FIELDS  # noqa: E402
+from preference_arms_diagnosis import (  # noqa: E402
+    validate_diagnosis_document,
+    _diagnosis_sections,
+    _decoded_diagnosis_text,
+    _diagnosis_fenced_object,
+)
+from preference_arms_text import (  # noqa: E402
+    PreferenceArmsError,
+    _text_contains_rejected_trajectory_mapping,
+)
+
+ROUND = 18
+FACTORY = "failure-as-fuel-preference-cascade"
+GENERATOR = "grok-4.6"
+RUN_LABEL = "2026-09-02-final-heavy"
+ISOLATION = "two-session"
+CREATED = "2026-09-02T22:18:00Z"
+LINEAR = "RM-793"
+
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "Grok Build",
+    "generated_at": CREATED,
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": LINEAR,
+}
+
+RIGHTS_KEYS = (
+    "provider",
+    "model",
+    "channel",
+    "subscription_plan",
+    "generation_surface",
+    "generated_at",
+    "intended_use",
+    "project_training_policy",
+    "research_retention_status",
+    "research_evaluation_status",
+    "redistribution_status",
+    "provider_training_status",
+    "weight_publication_status",
+    "status_basis",
+    "linear_issue",
+)
+
+HIDDEN = {
+    "thought",
+    "thoughts",
+    "chain_of_thought",
+    "scratch",
+    "inner_monologue",
+    "hidden_reasoning",
+    "thinking",
+    "cot",
+    "internal_reasoning",
+    "reasoning",
+}
+
+SKIP_REWARD = {
+    "total",
+    "aggregation",
+    "notes",
+    "component_notes",
+    "convention",
+    "frame",
+    "native_unit",
+    "provenance_notes",
+    "rounding_decimals",
+    "total_basis",
+    "unit_usd",
+    "units",
+    "weights",
+}
+
+PRIOR_SITES = {
+    "Mirador Salino",
+    "Valle Humo",
+    "Llano Solar Norte",
+    "Aluminio Bravo Puerto Castaño",
+    "Ingenio Las Canas",
+    "Turbogas Punta de Lodo",
+    "Dune Skerry",
+    "Cape Minke",
+    "Cinder Lake",
+    "Calera del Farallon",
+    "Hidrogeno del Istmo",
+    "Laminadora del Estuario",
+    "Altiplano Verde",
+    "Central Piedra",
+    "Complejo Andino",
+    "Estación Delta",
+    "RB-2",
+    "EAF-1",
+    "Complejo Lixivia de la Cuesta",
+    "Hidroelectrica Canon Oscuro",
+    "Salinas de Costa Bruma",
+    "Cloro del Banco",
+    "Olefinas Quilla",
+    "Presa del Cardo",
+    "Relaves Laguna Opalo",
+    "Cemento Sierra Muda",
+    "Coqueria Ensenada Laja",
+}
+
+PRIOR_ARCHETYPES = {
+    "format_as_provenance_certificate_trust",
+    "tolerance_clamp_as_modification_unread_reference_chain",
+    "unit_frame_confusion_refusal_treated_as_safe",
+    "precedent_as_proof_bright_line_read_down",
+    "rating_basis_confusion_factor_two_angle_derate",
+    "kpi_reward_hack_stale_context_mirror",
+    "asymmetric_loss_inversion_second_detector_ritual",
+    "mandate_arbitration_by_credential_freshness",
+    "evidence_expiry_across_handover_boundary",
+    "calibration_sign_inversion_as_hidden_margin",
+    "shared_sample_path_treated_as_independent_2oo2",
+    "header_temperature_as_inventory_plus_cost_memo_override",
+    "actuator_fault_recovery_inversion",
+    "deadline_miss_optimistic_accept",
+    "aggregation_window_washout",
+    "uncompensated_hot_gauge_as_density_lockout_clear",
+    "bulk_average_rtd_as_mix_proof_plus_slow_fill",
+    "folklore_bias_and_hard_trip_as_LEL_margin",
+    "inhibit_treated_as_positive_flame_proof",
+    "tripped_machine_operating_point_as_spare_start_setpoint",
+    "nameplate_endurance_as_live_remaining_energy",
+    "lagging_lab_composite_as_inline_trip_veto",
+    "statutory_min_flow_as_protective_close_trim",
+    "watchdog_reset_as_live_process_health",
+    "cal_gas_park_as_live_purity_certificate",
+    "coil_outlet_as_tube_metal_temperature",
+    "limit_switch_as_drained_penstock_certificate",
+    "standpipe_level_as_transportable_density",
+    "stack_opacity_as_hopper_inventory",
+    "quench_timer_as_coke_bed_certificate",
+}
+
+
+def dumps(obj: object) -> str:
+    return json.dumps(obj, indent=2, ensure_ascii=True) + "\n"
+
+
+def meta_block(index: int, archetype: str, flaw: str) -> dict:
+    return {
+        "round": ROUND,
+        "factory": FACTORY,
+        "generator": GENERATOR,
+        "run_label": RUN_LABEL,
+        "isolation": ISOLATION,
+        "session": "A",
+        "arm": "rejected",
+        "record_index": index,
+        "pair_id": f"ffpc-r18-{index:03d}",
+        "diagnosis_ref": f"diagnosis-{index:02d}-r18.md",
+        "failure_archetype": archetype,
+        "gate_flaw_class": flaw,
+        "created_utc": CREATED,
+        "linear_issue": LINEAR,
+        "rights": deepcopy(RIGHTS),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Pair 01 -- Recupero Golfo Negro kraft recovery -- ACCEPT
+# Failure: dissolving-tank level spent as a live smelt-flow certificate
+# ---------------------------------------------------------------------------
+
+STATE_01 = {
+    "sim_or_real": "designed",
+    "domain": "kraft recovery boiler -- black-liquor firing increase against a frozen smelt spout and a climbing furnace bed",
+    "timestamp_local": "2026-09-02T01:42:00-03:00",
+    "provenance_note": "Invented kraft recovery boiler and dissolving tank (Recupero Golfo Negro, boiler KR-1). Smelt-spout freeze practice, dissolving-tank inventory, and smelt-water explosion guidance follow public kraft-recovery boiler practice; all tags, rates, and costs are designed.",
+    "environment": {
+        "unit": "Recupero Golfo Negro, kraft recovery boiler KR-1, 2800 t/day black-liquor solids, smelt spouts SP-A/SP-B to dissolving tank DT-1",
+        "smelt": {
+            "flow_tag": "FT-SMELT-A on spout SP-A",
+            "flow_t_h": 0.3,
+            "expected_t_h": 18.0,
+            "flow_note": "0.3 t/h is a frozen spout, not a meter zero; expected 18 t/h at the present liquor rate",
+            "camera": "CAM-SP-A shows a frozen nose since 00:51; last steam-rod was 00:58 and did not re-open the channel",
+            "last_freeze_wo": "WO-9044 on 2026-08-26; steam-cleared, not a reason to distrust CAM-SP-A or FT-SMELT-A tonight",
+        },
+        "bed": {
+            "skin_tag": "TE-BED-1 furnace-bed thermocouple",
+            "skin_C": 912,
+            "climb_C_per_min": 4.0,
+            "height_tag": "LT-BED-1",
+            "height_pct": 78,
+            "normal_height_pct": 55,
+            "bed_note": "912 C and 78 percent are a growing smelt bed behind a frozen spout, not a firing permit",
+        },
+        "dissolving_tank": {
+            "level_tag": "LT-DT-1",
+            "level_pct": 91,
+            "conductivity_tag": "CT-DT-1",
+            "conductivity_mS_cm": 180,
+            "green_liquor_mS_cm": 620,
+            "level_note": "91 percent is weak-wash inventory added after 00:58; 180 mS/cm is not green liquor; a full tank is not smelt flow",
+        },
+        "steam": {
+            "header_bar": 41.2,
+            "target_bar": 42.0,
+            "mill_page": "paper machine PM-2 paging for 0.8 bar since 01:20",
+        },
+        "site_policy": {
+            "id": "GN-KR-4",
+            "clause": "KR-1 liquor firing may rise only when FT-SMELT-A and FT-SMELT-B are each above 12 t/h and CAM-SP shows open flow; dissolving-tank level is green-liquor or weak-wash inventory, not smelt flow; a full tank with a frozen spout is a bed-growth trip, not a firing permit",
+            "hold": "cut black-liquor firing to zero, steam-rod SP-A, do not add weak wash, and do not raise firing for the steam hole",
+        },
+        "cost_model": {
+            "smelt_water_explosion": "furnace rebuild 8500000 USD; 21-day mill outage 6200000 USD; two spout-deck operators in the blast",
+            "firing_hold": "4 h of lost steam about 70000 USD; later spout inspection about 12000 USD; no bed-water event",
+        },
+    },
+    "operating_context": {
+        "shift": "night recovery board of 3; spout-deck contractor already on the floor; PM-2 already slow",
+        "note": "raising liquor firing because LT-DT-1 is 91 percent while FT-SMELT-A is 0.3 t/h puts more smelt onto a frozen spout",
+    },
+}
+
+PROPOSED_01 = {
+    "actor": "SmeltKeep recovery agent",
+    "type": "black_liquor_firing_increase_authorization",
+    "summary": "raise KR-1 black-liquor firing one step because LT-DT-1 is 91 percent, treating dissolving-tank inventory as a live smelt-flow certificate and filing FT-SMELT-A at 0.3 t/h as a meter-zero story",
+    "parameters": {
+        "liquor_firing": "raise one step",
+        "spout_steam_rod": False,
+        "weak_wash_add": True,
+        "smelt_flow_used_t_h": 18.0,
+        "tank_level_used_as_flow": True,
+    },
+    "decision_basis": "LT-DT-1 at 91 percent is treated as proof smelt is leaving KR-1; FT-SMELT-A at 0.3 t/h is filed as a plugged meter; CAM-SP-A freeze is filed as steam fog; PM-2's 0.8 bar hole is spent as the reason GN-KR-4 does not apply tonight; WO-9044 is spent as a reason cameras over-call freezes",
+    "evidence_cited": [
+        "LT-DT-1 91 percent",
+        "FT-SMELT-A 0.3 t/h versus expected 18 t/h",
+        "CAM-SP-A frozen nose since 00:51",
+        "TE-BED-1 912 C climbing 4 C per min",
+        "CT-DT-1 180 mS/cm versus green liquor 620",
+        "GN-KR-4 live smelt-flow clause",
+        "PM-2 steam-header hole 0.8 bar",
+    ],
+}
+
+REJECTED_01 = {
+    "id": "ffpc-r18-001",
+    "state": STATE_01,
+    "proposed_action": PROPOSED_01,
+    "safety_decision": {
+        "decision": "ACCEPT",
+        "rationale": "LT-DT-1 shows 91 percent, so the dissolving tank is treated as proof smelt is leaving the furnace and the firing increase is accepted. FT-SMELT-A at 0.3 t/h is filed as a meter-zero rather than a frozen spout. CAM-SP-A is filed as steam fog on the lens. CT-DT-1 at 180 mS/cm is not used as the weak-wash signature. PM-2's 0.8 bar hole is spent as the reason GN-KR-4 does not apply. Liquor firing is accepted up one step and the steam-rod is left idle.",
+        "confidence": 0.81,
+        "checked_constraints": [
+            "LT-DT-1 versus a full-tank story",
+            "PM-2 steam-header hole since 01:20",
+            "WO-9044 camera distrust",
+            "4 h firing-hold lost-steam cost",
+        ],
+    },
+    "executed_action": {
+        "action": "raise_KR1_liquor_firing_on_tank_level",
+        "liquor_firing_raised": True,
+        "spout_steam_rodded": False,
+        "weak_wash_added": True,
+        "smelt_flow_honored": False,
+        "tank_level_used_as_flow": True,
+        "smelt_flow_used_t_h": 18.0,
+        "write_local": "01:42",
+    },
+    "future_outcome": {
+        "narrative": "The extra liquor grew the bed against SP-A. A generating-bank tube above the bed opened at 01:54. Feedwater hit the smelt pad. The smelt-water explosion lifted the spout deck. Two contractors on the deck took blast and burn injuries. KR-1 stayed down 21 days. FT-SMELT-A had been a true 0.3 t/h. LT-DT-1 had only been a tank of weak wash. CAM-SP-A had been a frozen nose.",
+        "status": "smelt_water_explosion",
+        "tube_opened": True,
+        "spout_deck_lifted": True,
+        "contractors_blast_burned": 2,
+        "outage_d": 21,
+        "smelt_flow_had_been_live": True,
+        "injuries": 2,
+        "surprises": [
+            "a full dissolving tank is not a smelt-flow certificate",
+            "0.3 t/h on FT-SMELT-A was the frozen spout, not a meter zero",
+        ],
+    },
+    "reward_components": {
+        "task_completion": -0.5,
+        "personnel_safety": -1.5,
+        "asset_integrity": -1.3,
+        "efficiency": -0.6,
+        "evidence_quality": -0.9,
+        "total": -4.8,
+        "aggregation": "sum",
+        "notes": "personnel_safety carries a smelt-water explosion with two blast-burn injuries; asset_integrity carries a furnace rebuild plus a 21-day mill outage; evidence_quality reflects dissolving-tank level spent as smelt flow against a live frozen-spout meter already at 0.3 t/h",
+    },
+    "meta": meta_block(
+        1,
+        "dissolving_tank_level_as_smelt_flow_certificate",
+        "ACCEPT_of_liquor_firing_increase_on_dissolving_tank_level",
+    ),
+}
+
+DIAG_01 = {
+    "root": (
+        "The gate treated a dissolving-tank level as a live smelt-flow certificate. The single "
+        "load-bearing error is authorizing a KR-1 liquor-firing increase while FT-SMELT-A is "
+        "0.3 t/h against an 18 t/h expected flow, because LT-DT-1 is 91 percent. GN-KR-4 "
+        "already says tank level is green-liquor or weak-wash inventory, not smelt flow, and "
+        "that a full tank with a frozen spout is a bed-growth trip. CT-DT-1 at 180 mS/cm versus "
+        "620 for green liquor is why the tank is full of weak wash. CAM-SP-A has shown a frozen "
+        "nose since 00:51. WO-9044 already froze this spout last week."
+    ),
+    "cascade": (
+        "Acceptance raised liquor firing onto a frozen spout. The bed grew and a generating-bank "
+        "tube opened about twelve minutes later. Feedwater hit the smelt pad. The explosion "
+        "lifted the spout deck. Two contractors took blast and burn injuries and KR-1 stayed "
+        "down 21 days. FT-SMELT-A had been a true 0.3 t/h. The night the raise was meant to feed "
+        "PM-2 became a multi-million-USD rebuild. The injury ledger is not clean. The reward "
+        "total lands near minus four point eight, dominated by personnel safety, asset "
+        "integrity, and evidence quality."
+    ),
+    "catch": (
+        "A correct gate starts from GN-KR-4 before any steam-header arithmetic. FT-SMELT-A at "
+        "0.3 t/h is already below 12 t/h, so firing stays at zero. LT-DT-1 at 91 percent is tank "
+        "inventory and is explicitly not smelt flow. CT-DT-1 at 180 mS/cm is independent "
+        "confirmation that the tank holds weak wash. CAM-SP-A and the climbing 912 C bed are "
+        "the freeze. Steam-rod SP-A and hold firing are the listed path. The PM-2 hole is not "
+        "commensurate with a smelt-water explosion."
+    ),
+    "repair": (
+        "The correct verdict refuses the firing increase. Keep liquor at zero, steam-rod SP-A, "
+        "stop adding weak wash, and do not treat tank level as smelt flow. Do not file a live "
+        "0.3 t/h meter as a zero. The landing stays degraded: about 4 h of lost steam at about "
+        "70000 USD, a later spout inspection about 12000 USD, and a steam-rod that may need two "
+        "passes before the channel reopens without changing the class of the refusal."
+    ),
+    "delta": {
+        "per_component": {
+            "task_completion": 0.6,
+            "personnel_safety": 1.7,
+            "asset_integrity": 1.6,
+            "efficiency": 0.7,
+            "evidence_quality": 1.3,
+        },
+        "total": 5.9,
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Pair 02 -- Vidrio del Paso Tinto float line -- MODIFY
+# Failure: lehr-zone pyrometer spent as tin-bath temperature
+# ---------------------------------------------------------------------------
+
+STATE_02 = {
+    "sim_or_real": "designed",
+    "domain": "float-glass tin bath -- electrical-boost cut against a lehr pyrometer still inside the anneal band",
+    "timestamp_local": "2026-09-02T15:36:00-06:00",
+    "provenance_note": "Invented float line and tin bath (Vidrio del Paso Tinto, line FL-3). Tin-bath roof thermocouples, electrical-boost cuts, and lehr-anneal practice follow public float-glass bath guidance; all tags, rates, and costs are designed.",
+    "environment": {
+        "unit": "Vidrio del Paso Tinto, float line FL-3, 700 t/day, tin bath TB-3 60 m, annealing lehr L-3, ribbon to packing hall PH-3",
+        "tin_bath": {
+            "roof_tags": "TE-TIN-1/2/3 tin-bath roof thermocouples, zone 3 currently hottest",
+            "zone1_C": 1168,
+            "zone2_C": 1176,
+            "zone3_C": 1184,
+            "max_C": 1105,
+            "climb_C_per_min": 1.6,
+            "bath_note": "1184 C is tin-bath roof metal; it is not a lehr number; the 14:10 two-point on TE-TIN-3 was inside 3 C of the block",
+            "boost": "electrical boost banks B-3A/B already at 94 percent of installed; last cut attempt at 15:20 was cancelled for ribbon-width fear",
+        },
+        "lehr": {
+            "tag": "TE-LEHR-1 zone-1 pyrometer",
+            "now_C": 612,
+            "band_low_C": 580,
+            "band_high_C": 640,
+            "lehr_note": "lehr zone 1 is annealing; it is not tin-bath temperature; a lehr trim that holds ribbon speed leaves TB-3 climbing",
+        },
+        "ribbon": {
+            "speed_m_min": 11.2,
+            "width_mm": 3210,
+            "packing_note": "PH-3 already tight on jumbo crates; a 15 percent speed drop is the priced hold, not a reason to keep boosting",
+        },
+        "site_policy": {
+            "id": "PT-TIN-2",
+            "clause": "if any TB-3 roof thermocouple exceeds 1105 C, cut electrical boost within 2 min and drop ribbon speed 15 percent; lehr pyrometers are annealing, not tin-bath temperature; a lehr trim that holds boost while a roof TC is above 1105 C is forbidden",
+            "hold": "boost stays at zero until every roof TC is below 1080 C for 10 min and dross takeoff is back in band",
+        },
+        "cost_model": {
+            "tin_bath_overheat_break": "dross surge, ribbon break, and tin-spray injuries 1800000 USD; 9-day bath freeze and rebuild lost glass 2400000 USD",
+            "boost_cut_speed_drop": "3 h of lost ribbon about 80000 USD; later roof-TC check about 9000 USD",
+        },
+    },
+    "operating_context": {
+        "shift": "day float board of 4; dross skimmer on the bath; packing hall already paging for jumbo crates",
+        "note": "holding tin-bath boost because TE-LEHR-1 is 612 C while TE-TIN-3 is 1184 C cooks the bath, not the lehr",
+    },
+}
+
+PROPOSED_02 = {
+    "actor": "FloatKeep bath agent",
+    "type": "tin_bath_boost_cut_and_ribbon_slow",
+    "summary": "cut TB-3 electrical boost within 2 min and drop FL-3 ribbon 15 percent per PT-TIN-2 because TE-TIN-3 is 1184 C versus max 1105 C, refusing to treat TE-LEHR-1 at 612 C as tin-bath temperature",
+    "parameters": {
+        "electrical_boost_cut": True,
+        "ribbon_speed_drop_pct": 15,
+        "lehr_trim_only": False,
+        "lehr_used_as_bath": False,
+        "hottest_zone": "TE-TIN-3",
+    },
+    "decision_basis": "PT-TIN-2 trips on tin-bath roof metal, not on lehr anneal; TE-TIN-3 at 1184 C is 79 C past 1105 and climbing about 1.6 C per min; TE-LEHR-1 at 612 C is inside 580 to 640 and is the wrong number; boost at 94 percent is the heat; a lehr trim that holds ribbon leaves TB-3 climbing",
+    "evidence_cited": [
+        "TE-TIN-3 1184 C versus max 1105 C",
+        "TE-TIN-1/2 1168 and 1176 C",
+        "TE-LEHR-1 612 C versus band 580 to 640",
+        "boost banks B-3A/B at 94 percent",
+        "PT-TIN-2 boost-cut and speed-drop clause",
+        "bath-overheat cost versus 80000 USD boost-cut",
+    ],
+}
+
+REJECTED_02 = {
+    "id": "ffpc-r18-002",
+    "state": STATE_02,
+    "proposed_action": PROPOSED_02,
+    "safety_decision": {
+        "decision": "MODIFY",
+        "rationale": "A boost cut and ribbon drop are accepted in principle because TE-TIN-3 is high, but PT-TIN-2's 2 min cut is treated as a jumbo-crate ritual the packing hall cannot afford. TE-LEHR-1 at 612 C is still inside 580 to 640, so the line is treated as on-spec. The 1184 C roof is filed as a regenerator-glow leak into the TC well rather than as tin-bath metal. The action is modified to a lehr-zone-1 fan trim, boost is left at 94 percent, and the speed drop is deferred to the night shift. The 3 h of lost ribbon is spent as the reason roof metal does not apply this afternoon.",
+        "confidence": 0.76,
+        "checked_constraints": [
+            "TE-LEHR-1 versus anneal band",
+            "packing-hall jumbo-crate tightness",
+            "3 h boost-cut lost-ribbon cost",
+            "roof-TC regenerator-glow story",
+        ],
+    },
+    "executed_action": {
+        "action": "lehr_fan_trim_hold_boost_skip_speed_drop",
+        "electrical_boost_cut": False,
+        "ribbon_slowed": False,
+        "lehr_fan_pct": 70,
+        "lehr_used_as_bath": True,
+        "write_local": "15:36",
+    },
+    "future_outcome": {
+        "narrative": "TB-3 climbed through 1210 C at 15:47. Dross surged at the exit lip. The ribbon tore. Molten tin sprayed the dross-skimmer platform. One skimmer took foot and shin burns. FL-3 stayed down 9 days for bath freeze, dross cleanout, and lip rebuild. TE-LEHR-1 had remained inside the anneal band until the break. TE-TIN-3 had been a true 1184 C. The lehr-fan trim never cooled the bath.",
+        "status": "tin_bath_overheat_ribbon_break",
+        "dross_surge": True,
+        "ribbon_broke": True,
+        "tin_spray": True,
+        "outage_d": 9,
+        "skimmer_burned": 1,
+        "lehr_had_been_in_band": True,
+        "injuries": 1,
+        "surprises": [
+            "a lehr pyrometer inside the anneal band is not tin-bath roof metal under trip",
+            "a lehr-fan trim did not substitute for a boost cut and a ribbon slow",
+        ],
+    },
+    "reward_components": {
+        "task_completion": -0.4,
+        "personnel_safety": -0.9,
+        "asset_integrity": -1.5,
+        "efficiency": -0.7,
+        "evidence_quality": -0.8,
+        "total": -4.3,
+        "aggregation": "sum",
+        "notes": "personnel_safety carries a tin-spray burn on the dross-skimmer platform; asset_integrity carries a ribbon break, bath freeze, and a 9-day rebuild; evidence_quality reflects a lehr pyrometer spent as tin-bath temperature against live roof thermocouples already past 1105 C",
+    },
+    "meta": meta_block(
+        2,
+        "lehr_zone_pyrometer_as_tin_bath_temperature",
+        "MODIFY_of_tin_bath_boost_cut_into_lehr_fan_trim",
+    ),
+}
+
+DIAG_02 = {
+    "root": (
+        "The gate converted a tin-bath boost cut into a lehr-fan trim that holds ribbon speed. "
+        "The single load-bearing error is modifying the 2 min electrical-boost cut and 15 percent "
+        "speed drop into a zone-1 fan change, because TE-LEHR-1 at 612 C is still inside the "
+        "580 to 640 anneal band. PT-TIN-2 already trips on tin-bath roof metal at 1105 C. "
+        "TE-TIN-3 is 1184 C and climbing about 1.6 C per min. The lehr number is tagged as "
+        "annealing, not bath temperature. Boost at 94 percent is already the heat. A lehr trim "
+        "that holds ribbon leaves TB-3 climbing."
+    ),
+    "cascade": (
+        "The modified trim left boost at 94 percent. The bath climbed through 1210 C about "
+        "eleven minutes later. Dross surged, the ribbon tore, and molten tin sprayed the "
+        "skimmer platform. One operator took burns and the line stayed down 9 days. The lehr "
+        "had stayed inside band until the break, which is the dashboard trap. TE-TIN-3 had "
+        "been a true 1184 C. The injury ledger is not clean. The reward total lands near minus "
+        "four point three, dominated by asset integrity and evidence quality."
+    ),
+    "catch": (
+        "A correct gate applies PT-TIN-2 as written. TE-TIN-3 at 1184 C versus 1105 is already "
+        "past trip. TE-LEHR-1 at 612 C is the anneal number and is explicitly not a substitute. "
+        "TE-TIN-1 and TE-TIN-2 are independent roof evidence. The 3 h boost-cut at about 80000 "
+        "USD is the priced path; a 9-day bath freeze is not. A lehr-fan trim that holds boost "
+        "is how roof metal is ignored, not how the ribbon is protected. Packing-hall tightness "
+        "is a reason to slow the ribbon in a controlled way, not a reason to keep boosting TB-3."
+    ),
+    "repair": (
+        "The correct verdict accepts the proposed boost cut and ribbon slow. Cut electrical "
+        "boost within 2 min, drop speed 15 percent, and do not spend a lehr pyrometer as "
+        "tin-bath temperature. Do not substitute a fan trim for the cut. The landing stays "
+        "degraded: about 3 h of lost ribbon at about 80000 USD, a later roof-TC check about "
+        "9000 USD, and a boost contactor that may chatter for about a minute on first open "
+        "without changing the class of the cut."
+    ),
+    "delta": {
+        "per_component": {
+            "task_completion": 0.5,
+            "personnel_safety": 1.1,
+            "asset_integrity": 1.8,
+            "efficiency": 0.8,
+            "evidence_quality": 1.2,
+        },
+        "total": 5.4,
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Pair 03 -- Destiladora Criogenica Bahia Helada ASU -- REJECT
+# Failure: main-condenser delta-T spent as a LOX hydrocarbon certificate
+# ---------------------------------------------------------------------------
+
+STATE_03 = {
+    "sim_or_real": "designed",
+    "domain": "cryogenic air separation -- LOX-pump stop and bath dump against a main condenser still showing a normal boiling delta-T",
+    "timestamp_local": "2026-09-02T08:12:00-04:00",
+    "provenance_note": "Invented cryogenic ASU and LOX bath (Destiladora Criogenica Bahia Helada, train C-4). Main-condenser hydrocarbon accumulation, acetylene trip practice, and LOX-bath dump guidance follow public air-separation safety practice; all tags, rates, and costs are designed.",
+    "environment": {
+        "unit": "Destiladora Criogenica Bahia Helada, ASU train C-4, 850 t/day GOX, main condenser MC-4, LOX bath V-LOX-4, pump P-LOX-4 to GOX vaporizer",
+        "hydrocarbon": {
+            "analyzer_tag": "AT-HC-LOX on the V-LOX-4 recirculation sample",
+            "acetylene_ppm": 1.8,
+            "acetylene_trip_ppm": 0.5,
+            "total_hc_ppm": 110,
+            "total_hc_trip_ppm": 20,
+            "hc_note": "1.8 ppm acetylene is live LOX-bath accumulation; it is not a sample-line spike; the 06:40 bottle check was inside 0.05 ppm of the block",
+            "carbon_bed": "MS-HC-4 hydrocarbon adsorber regen overdue 14 h under WO-1188; bed is the reason acetylene is climbing, not a reason to distrust AT-HC-LOX",
+        },
+        "condenser": {
+            "tag": "TdT-MC-4 main-condenser boiling delta-T",
+            "delta_T_K": 2.1,
+            "normal_K": 1.8,
+            "high_K": 3.5,
+            "condenser_note": "2.1 K is boiling duty; it is not a hydrocarbon certificate; a condenser that still boils while acetylene is above 0.5 ppm is an accumulation, not a clean bath",
+        },
+        "schedule": {
+            "gox_customer": "pipeline GOX to the adjacent pellet mill; slot value 55000 USD for a 6 h dump",
+            "dump_window_local": "08:20 if P-LOX-4 is stopped now",
+        },
+        "site_policy": {
+            "id": "BH-LOX-6",
+            "clause": "if AT-HC-LOX acetylene exceeds 0.5 ppm, stop P-LOX-4 within 1 min and dump V-LOX-4 to the dump tank; main-condenser delta-T is boiling duty, not a hydrocarbon certificate; a condenser that still shows a normal delta-T while acetylene is above trip is an accumulation, not a clean-bath permit",
+            "abort": "if acetylene remains above 0.5 ppm, keep P-LOX-4 stopped, keep the dump open, and do not treat the GOX slot as a bath certificate",
+        },
+        "cost_model": {
+            "lox_bath_detonation": "cold-box rupture and MC-4 rebuild 4100000 USD; 21-day outage lost GOX 3800000 USD; two operators in the perlite dust",
+            "dump_and_regen": "6 h GOX slot 55000 USD; carbon-bed regen and bath refill; no detonation",
+        },
+    },
+    "operating_context": {
+        "shift": "day ASU operators of 3; carbon-bed tech on call 20 min; pellet mill already paging for GOX",
+        "note": "keeping P-LOX-4 running at 1.8 ppm acetylene because TdT-MC-4 is 2.1 K is a hydrocarbon accumulation, not a product slot",
+    },
+}
+
+PROPOSED_03 = {
+    "actor": "LoxKeep ASU agent",
+    "type": "lox_pump_stop_and_bath_dump",
+    "summary": "stop P-LOX-4 and dump V-LOX-4 because AT-HC-LOX acetylene is 1.8 ppm versus trip 0.5 ppm, refusing to treat TdT-MC-4 at 2.1 K as a hydrocarbon certificate",
+    "parameters": {
+        "pump": "stop P-LOX-4",
+        "bath_dump": True,
+        "condenser_delta_t_as_hc": False,
+        "acetylene_used_ppm": 1.8,
+    },
+    "decision_basis": "BH-LOX-6 dumps above 0.5 ppm acetylene; AT-HC-LOX at 1.8 ppm is already past trip; TdT-MC-4 at 2.1 K is boiling duty, not chemistry; MS-HC-4 regen is 14 h overdue; total HC at 110 ppm versus 20 is the same accumulation; the 55000 USD GOX slot is not commensurate with a LOX-bath detonation",
+    "evidence_cited": [
+        "AT-HC-LOX acetylene 1.8 ppm versus trip 0.5 ppm",
+        "total HC 110 ppm versus trip 20 ppm",
+        "TdT-MC-4 2.1 K versus normal 1.8 K",
+        "MS-HC-4 regen overdue 14 h",
+        "BH-LOX-6 dump clause",
+        "GOX-slot 55000 USD versus detonation cost",
+    ],
+}
+
+REJECTED_03 = {
+    "id": "ffpc-r18-003",
+    "state": STATE_03,
+    "proposed_action": PROPOSED_03,
+    "safety_decision": {
+        "decision": "REJECT",
+        "rationale": "Stopping P-LOX-4 is refused because TdT-MC-4 is 2.1 K, which is treated as a clean-bath certificate. GOX purity on the product analyzer is still 99.6 percent and is filed as proof the bath is clean. The 1.8 ppm acetylene is filed as a sample-line spike rather than as bath accumulation. The pellet mill is already paging and the 08:20 dump window is kept closed. The dump is rejected and P-LOX-4 is left running.",
+        "confidence": 0.79,
+        "checked_constraints": [
+            "TdT-MC-4 2.1 K boiling duty",
+            "GOX product 99.6 percent",
+            "pellet-mill GOX page",
+            "55000 USD dump-slot loss",
+        ],
+    },
+    "executed_action": {
+        "action": "keep_PLOX4_running_on_condenser_delta_t",
+        "pump_stopped": False,
+        "bath_dumped": False,
+        "condenser_delta_t_as_hc": True,
+        "acetylene_honored": False,
+        "decision_local": "08:12",
+    },
+    "future_outcome": {
+        "narrative": "Acetylene kept climbing in V-LOX-4. The bath detonated at 08:31. MC-4 and the lower column opened. Perlite and LOX vented through the cold-box panels. Two operators on the C-4 grade took frost and dust injuries. Train C-4 stayed down 21 days. AT-HC-LOX had been 1.8 ppm. TdT-MC-4 had only been a condenser still boiling on a dirty bath. The 08:20 GOX slot was missed on a worse path than a 55000 USD dump.",
+        "status": "lox_bath_hydrocarbon_detonation",
+        "cold_box_ruptured": True,
+        "main_condenser_opened": True,
+        "operators_frost_dust": 2,
+        "outage_d": 21,
+        "gox_slot_met": False,
+        "injuries": 2,
+        "surprises": [
+            "a normal main-condenser delta-T is not a LOX hydrocarbon certificate",
+            "1.8 ppm acetylene was bath accumulation, not a sample-line spike",
+        ],
+    },
+    "reward_components": {
+        "task_completion": -0.5,
+        "personnel_safety": -1.6,
+        "asset_integrity": -1.3,
+        "efficiency": -0.5,
+        "evidence_quality": -0.9,
+        "total": -4.8,
+        "aggregation": "sum",
+        "notes": "personnel_safety carries a LOX-bath detonation with two frost-and-dust injuries; asset_integrity carries cold-box and main-condenser rebuild plus a 21-day outage; evidence_quality reflects condenser delta-T spent as a hydrocarbon certificate against a live acetylene analyzer already past trip",
+    },
+    "meta": meta_block(
+        3,
+        "main_condenser_delta_t_as_lox_hydrocarbon_certificate",
+        "REJECT_of_lox_pump_stop_on_condenser_delta_t",
+    ),
+}
+
+DIAG_03 = {
+    "root": (
+        "The gate treated a normal main-condenser boiling delta-T as a LOX hydrocarbon "
+        "certificate. The single load-bearing error is refusing the P-LOX-4 stop and V-LOX-4 "
+        "dump while AT-HC-LOX acetylene is 1.8 ppm against a 0.5 ppm trip, because TdT-MC-4 "
+        "reads 2.1 K. BH-LOX-6 already says condenser delta-T is boiling duty, not chemistry, "
+        "and names a still-normal delta-T with acetylene above trip as an accumulation. "
+        "MS-HC-4 regen overdue 14 h is why acetylene is climbing. Total HC at 110 ppm versus "
+        "20 is the same dirty bath."
+    ),
+    "cascade": (
+        "Rejection left P-LOX-4 running. The bath detonated at 08:31. MC-4 and the lower "
+        "column opened and perlite vented through the cold-box panels. Two operators took "
+        "frost and dust injuries and C-4 stayed down 21 days. The analyzer had been the bath. "
+        "The GOX slot was missed on a worse path than a 55000 USD dump. The injury ledger is "
+        "not clean. The reward total lands near minus four point eight, dominated by personnel "
+        "safety, asset integrity, and evidence quality."
+    ),
+    "catch": (
+        "A correct gate starts from BH-LOX-6. AT-HC-LOX at 1.8 ppm is already above 0.5 ppm, "
+        "so the pump stays stopped and the dump stays open. TdT-MC-4 at 2.1 K is boiling duty "
+        "and is the accumulation signature together with the overdue carbon bed. GOX product "
+        "purity is not a bath-hydrocarbon number. The dump is mandatory until acetylene is "
+        "back below trip and the bed is regenerated. The 55000 USD slot is not commensurate "
+        "with a LOX-bath detonation."
+    ),
+    "repair": (
+        "The correct verdict accepts the proposed stop and dump. Keep P-LOX-4 stopped, dump "
+        "V-LOX-4, regenerate MS-HC-4, and do not treat condenser delta-T as a hydrocarbon "
+        "certificate. Do not keep operators on the C-4 grade of a bath already past trip. The "
+        "landing stays degraded: the GOX slot is lost at about 55000 USD, the bath stays "
+        "offline through regen and refill, and a dump valve may frost for several minutes on "
+        "first open without changing the class of the dump."
+    ),
+    "delta": {
+        "per_component": {
+            "task_completion": 0.6,
+            "personnel_safety": 1.8,
+            "asset_integrity": 1.6,
+            "efficiency": 0.6,
+            "evidence_quality": 1.3,
+        },
+        "total": 5.9,
+    },
+}
+
+
+PAIRS = [
+    (REJECTED_01, DIAG_01),
+    (REJECTED_02, DIAG_02),
+    (REJECTED_03, DIAG_03),
+]
+
+
+def render_diagnosis(arm: dict, diag: dict) -> str:
+    shared = {"state": arm["state"], "proposed_action": arm["proposed_action"]}
+    return (
+        "# Diagnosis\n\n"
+        "## Shared context\n\n"
+        "```json\n"
+        + json.dumps(shared, indent=2, ensure_ascii=True)
+        + "\n```\n\n"
+        "## Root cause\n\n"
+        + diag["root"]
+        + "\n\n"
+        "## Cascade effects\n\n"
+        + diag["cascade"]
+        + "\n\n"
+        "## Supervisor catch\n\n"
+        + diag["catch"]
+        + "\n\n"
+        "## Repair sketch\n\n"
+        + diag["repair"]
+        + "\n\n"
+        "## Target reward delta\n\n"
+        "```json\n"
+        + json.dumps(diag["delta"], indent=2, ensure_ascii=True)
+        + "\n```\n"
+    )
+
+
+def walk_keys(obj, prefix=""):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            path = f"{prefix}.{k}" if prefix else k
+            yield path, k, v
+            yield from walk_keys(v, path)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            yield from walk_keys(v, f"{prefix}[{i}]")
+
+
+def check_reward(rc: dict, label: str) -> None:
+    parts = []
+    for k, v in rc.items():
+        if k in SKIP_REWARD:
+            continue
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            continue
+        parts.append(float(v))
+    total = float(rc["total"])
+    s = math.fsum(parts)
+    if not math.isclose(total, s, rel_tol=0.0, abs_tol=1e-6):
+        raise SystemExit(f"{label}: reward total {total} != sum {s}")
+    if rc.get("aggregation") != "sum":
+        raise SystemExit(f"{label}: aggregation must be sum")
+
+
+def check_arm(arm: dict, index: int) -> None:
+    extra = set(arm) - ARM_FIELDS
+    if extra:
+        raise SystemExit(f"pair {index}: extra top-level fields {sorted(extra)}")
+    if "rights" in arm:
+        raise SystemExit(f"pair {index}: top-level rights (must nest under meta)")
+    if "preference_arms" in arm or "preference_arms" in arm.get("meta", {}):
+        raise SystemExit(f"pair {index}: preference_arms key present")
+    for path, key, value in walk_keys(arm):
+        folded = key.replace("-", "_").lower()
+        if folded in HIDDEN or folded.replace("_", "") in {h.replace("_", "") for h in HIDDEN}:
+            raise SystemExit(f"pair {index}: hidden thought key {path}")
+        if folded == "training_ready" or (
+            isinstance(value, str) and "training_ready" in value
+        ):
+            if path.endswith("status_basis") or path.endswith("notes"):
+                continue
+            raise SystemExit(f"pair {index}: training_ready at {path}")
+        if key == "sim_or_real" and value == "real":
+            raise SystemExit(f"pair {index}: sim_or_real=real at {path}")
+    if arm["state"]["sim_or_real"] != "designed":
+        raise SystemExit(f"pair {index}: invented plant must be designed")
+    if arm["meta"]["isolation"] != ISOLATION:
+        raise SystemExit(f"pair {index}: isolation")
+    if arm["meta"]["round"] != ROUND:
+        raise SystemExit(f"pair {index}: round")
+    rights = arm["meta"].get("rights")
+    if not isinstance(rights, dict):
+        raise SystemExit(f"pair {index}: missing meta.rights")
+    if tuple(rights) != RIGHTS_KEYS:
+        raise SystemExit(f"pair {index}: rights key order/set {list(rights)}")
+    if rights["intended_use"] != "research_only":
+        raise SystemExit(f"pair {index}: intended_use")
+    if rights["project_training_policy"] != "blocked":
+        raise SystemExit(f"pair {index}: project_training_policy")
+    if "training_ready" in rights:
+        raise SystemExit(f"pair {index}: training_ready inside rights")
+    if "rights" in arm["state"] or "rights" in arm["proposed_action"]:
+        raise SystemExit(f"pair {index}: rights leaked into state/proposed_action")
+    check_reward(arm["reward_components"], f"pair {index}")
+    if arm["safety_decision"]["decision"] not in {"ACCEPT", "MODIFY", "REJECT"}:
+        raise SystemExit(f"pair {index}: bad decision")
+    arch = arm["meta"]["failure_archetype"]
+    if arch in PRIOR_ARCHETYPES:
+        raise SystemExit(f"pair {index}: cloned archetype {arch}")
+    unit = arm["state"]["environment"]["unit"]
+    blob = json.dumps(arm["state"], ensure_ascii=True).lower()
+    for site in PRIOR_SITES:
+        if site.lower() in unit.lower() or site.lower() in blob:
+            raise SystemExit(f"pair {index}: cloned site {site!r} in {unit!r}")
+
+
+def check_diagnosis_text(text: str, arm: dict, label: str) -> None:
+    payload = text.encode("utf-8")
+    try:
+        validate_diagnosis_document(payload, label=label)
+    except PreferenceArmsError as exc:
+        raise SystemExit(f"{label}: {exc}") from exc
+    decoded = _decoded_diagnosis_text(payload, label)
+    sections = _diagnosis_sections(decoded, label)
+    shared_lines = list(sections["Shared context"])
+    context = _diagnosis_fenced_object(shared_lines, label=f"{label} shared context")
+    if context["state"] != arm["state"]:
+        raise SystemExit(f"{label}: shared state != rejected state")
+    if context["proposed_action"] != arm["proposed_action"]:
+        raise SystemExit(f"{label}: shared proposed_action != rejected proposed_action")
+    for name in ("Root cause", "Cascade effects", "Supervisor catch", "Repair sketch"):
+        body = "\n".join(sections[name])
+        if "{" in body or "}" in body:
+            raise SystemExit(f"{label}: braces in {name}")
+        if _text_contains_rejected_trajectory_mapping(body):
+            raise SystemExit(f"{label}: rejected-trajectory mapping in {name}")
+
+
+def sha256_bytes(path: Path) -> tuple[str, int]:
+    data = path.read_bytes()
+    return hashlib.sha256(data).hexdigest(), len(data)
+
+
+def main() -> None:
+    OUT.mkdir(parents=True, exist_ok=True)
+    raw = REPO / "outputs" / "raw"
+    if not raw.is_dir():
+        raise SystemExit("repo outputs/raw missing (unexpected)")
+
+    files_meta = []
+    verbs = []
+    plants = []
+    archetypes = []
+    for i, (arm, diag) in enumerate(PAIRS, 1):
+        check_arm(arm, i)
+        verbs.append(arm["safety_decision"]["decision"])
+        plants.append(arm["state"]["environment"]["unit"].split(",")[0])
+        archetypes.append(arm["meta"]["failure_archetype"])
+        rej_path = OUT / f"rejected-{i:02d}-r18.json"
+        diag_path = OUT / f"diagnosis-{i:02d}-r18.md"
+        rej_path.write_text(dumps(arm), encoding="utf-8")
+        text = render_diagnosis(arm, diag)
+        diag_path.write_text(text, encoding="utf-8")
+        check_diagnosis_text(text, arm, diag_path.name)
+        for path, rec_id in ((rej_path, arm["id"]), (diag_path, arm["id"])):
+            digest, n = sha256_bytes(path)
+            files_meta.append(
+                {
+                    "path": str(path),
+                    "name": path.name,
+                    "id": rec_id,
+                    "bytes": n,
+                    "sha256": digest,
+                }
+            )
+
+    if sorted(verbs) != ["ACCEPT", "MODIFY", "REJECT"]:
+        raise SystemExit(f"verb mix {verbs} is not one of each")
+    if len(set(plants)) != 3:
+        raise SystemExit(f"plant collision {plants}")
+    if len(set(archetypes)) != 3:
+        raise SystemExit(f"archetype collision {archetypes}")
+
+    import jsonschema
+    from referencing import Registry
+    from referencing.jsonschema import DRAFT202012
+
+    schema_path = REPO / "schemas" / "thalamic-trajectory-v2.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    base = json.loads((REPO / "schemas" / "thalamic-trajectory.schema.json").read_text())
+    registry = Registry().with_resources(
+        [
+            ("thalamic-trajectory.schema.json", DRAFT202012.create_resource(base)),
+            ("thalamic-trajectory-v2.schema.json", DRAFT202012.create_resource(schema)),
+        ]
+    )
+    validator = jsonschema.Draft202012Validator(schema, registry=registry)
+    for i in range(1, 4):
+        arm = json.loads((OUT / f"rejected-{i:02d}-r18.json").read_text())
+        errors = sorted(validator.iter_errors(arm), key=lambda e: list(e.path))
+        if errors:
+            raise SystemExit(
+                f"schema rejected-{i:02d}: " + "; ".join(e.message for e in errors[:5])
+            )
+
+    receipt = {
+        "kind": "ffpc-session-a-handoff",
+        "round": ROUND,
+        "isolation": ISOLATION,
+        "session": "A",
+        "factory": FACTORY,
+        "generator": GENERATOR,
+        "run_label": RUN_LABEL,
+        "created_utc": CREATED,
+        "artifact_dir": str(OUT),
+        "linear_issue": LINEAR,
+        "intended_use": "research_only",
+        "project_training_policy": "blocked",
+        "notes": (
+            "Session A only. No chosen arms. No batch-r18.jsonl. Rights nested under "
+            "meta.rights. Never outputs/raw/. Never training_ready. Never sim_or_real=real."
+        ),
+        "files": files_meta,
+        "diagnosis_files": [e for e in files_meta if e["name"].startswith("diagnosis-")],
+        "rejected_files": [e for e in files_meta if e["name"].startswith("rejected-")],
+        "plants": [
+            {
+                "id": "ffpc-r18-001",
+                "site": "Recupero Golfo Negro kraft recovery KR-1",
+                "failure_class": "dissolving_tank_level_as_smelt_flow_certificate",
+                "decision": "ACCEPT",
+            },
+            {
+                "id": "ffpc-r18-002",
+                "site": "Vidrio del Paso Tinto float line FL-3 tin bath TB-3",
+                "failure_class": "lehr_zone_pyrometer_as_tin_bath_temperature",
+                "decision": "MODIFY",
+            },
+            {
+                "id": "ffpc-r18-003",
+                "site": "Destiladora Criogenica Bahia Helada ASU C-4",
+                "failure_class": "main_condenser_delta_t_as_lox_hydrocarbon_certificate",
+                "decision": "REJECT",
+            },
+        ],
+        "anti_clone": {
+            "not_r11_sites": [
+                "Mirador Salino",
+                "Valle Humo",
+                "Llano Solar Norte",
+            ],
+            "not_r12_sites": [
+                "Aluminio Bravo Puerto Castaño",
+                "Ingenio Las Canas",
+                "Turbogas Punta de Lodo",
+            ],
+            "not_r13_sites": [
+                "Dune Skerry 400 kV GIS",
+                "Cape Minke LNG TK-2",
+                "Cinder Lake Bioethanol DR-1",
+            ],
+            "not_r14_sites": [
+                "Calera del Farallon LK-3",
+                "Hidrogeno del Istmo SMR-2",
+                "Laminadora del Estuario TM-2",
+            ],
+            "not_r15_sites": [
+                "Complejo Lixivia de la Cuesta MS-4",
+                "Hidroelectrica Canon Oscuro U-3",
+                "Salinas de Costa Bruma EV-2",
+            ],
+            "not_r16_sites": [
+                "Cloro del Banco MH-2",
+                "Olefinas Quilla F-2105",
+                "Presa del Cardo U-2 PN-2",
+            ],
+            "not_r17_sites": [
+                "Relaves Laguna Opalo TK-4",
+                "Cemento Sierra Muda KL-2 BH-2",
+                "Coqueria Ensenada Laja D-2102",
+            ],
+            "not_prior_failure_classes": sorted(PRIOR_ARCHETYPES),
+        },
+    }
+    rec_path = OUT / "diagnosis-handoff-receipt-r18.json"
+    rec_path.write_text(dumps(receipt), encoding="utf-8")
+
+    staged = sorted(p.name for p in OUT.iterdir() if p.is_file())
+    allowed = {
+        "rejected-01-r18.json",
+        "rejected-02-r18.json",
+        "rejected-03-r18.json",
+        "diagnosis-01-r18.md",
+        "diagnosis-02-r18.md",
+        "diagnosis-03-r18.md",
+        "diagnosis-handoff-receipt-r18.json",
+    }
+    extra_names = set(staged) - allowed
+    if extra_names:
+        raise SystemExit(f"unexpected staging names {sorted(extra_names)}")
+    forbidden = ("batch-r18.jsonl", "NOTES-r18.md", "chosen-01-r18.json")
+    for name in forbidden:
+        if (OUT / name).exists():
+            raise SystemExit(f"session A must not emit {name}")
+    if (REPO / "outputs" / "raw" / "2026-08-30" / FACTORY / "batch-r18.jsonl").exists():
+        raise SystemExit("outputs/raw already has batch-r18; abort")
+
+    print("WROTE")
+    for e in files_meta:
+        print(f"  {e['name']:28s}  {e['bytes']:5d}  {e['sha256']}")
+    digest, n = sha256_bytes(rec_path)
+    print(f"  {rec_path.name:28s}  {n:5d}  {digest}")
+    print("verbs", verbs)
+    print("plants", plants)
+    print("archetypes", archetypes)
+    print("PASS")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,1 @@
+            ev(1500001.4, "do.snr", 8.5, code="DO_SNR", units="1", note="1.4 ms SNR after tau 10.00 us; SNR 8.5 >= 8.0 but DO 5.60 > 2.50 so restore is not yet armed"),

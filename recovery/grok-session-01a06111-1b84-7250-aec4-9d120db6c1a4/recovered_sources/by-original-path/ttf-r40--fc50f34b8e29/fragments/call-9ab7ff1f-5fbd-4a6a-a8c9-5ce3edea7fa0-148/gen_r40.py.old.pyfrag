@@ -1,0 +1,4 @@
+| ttf-r40-217 | fluid-bed-granulator | MODIFY | correct | designed | **−0.46** | process-correct doctor clamp; coating-ribbon snap inside 44 ms raster; independent LIF |
+| ttf-r40-218 | copper-flash-smelter | REJECT | correct | hil | +0.78 | SO2 14.8 vol pct beats settler IR 1180 C; hold 82 t/h, do not raise |
+| ttf-r40-219 | salt-bath-quench | ACCEPT | correct | simulated | +1.10 | bath 456 C vs NIR dross glint 512; proposed 1.8 m/min already legal |
+| ttf-r40-220 | RTO-oxidizer | ACCEPT | correct | designed | +1.20 | furnace 1120 C vs jacket 48 bar; proposed 1030 bar soak already legal |

@@ -1,0 +1,75 @@
+                [
+                    "retort wall IR, 2 kHz, 34 us jitter, axis retort_t",
+                    "hysteresis-reset tag, 1 kHz, 38 us jitter, trip_latched false",
+                    "FeSi-charge encoder (context)",
+                    "retort-vacuum PT (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("live_C", 1204.0),
+                        ("trip_C", 1220.0),
+                        ("reset_C", 1190.0),
+                        ("prior_peak_C", 1212.0),
+                        ("trip_latched", False),
+                        ("in_hysteresis_band", True),
+                        ("proposed_t_d", 2.40),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Retort RT-4 indexed on Dolime-Toft; live wall 1204 C, 2.40 t/d FeSi armed.",
+                    "2. Published trip 1220 C; reset 1190 C; prior peak 1212 C never latched.",
+                    "3. Encoder precursor at 1.180 ms.",
+                    "4. Race window [5.160, 5.520] ms.",
+                    "5. Live IR 1204 C at 5.160 ms (winner).",
+                    "6. Reset-band 1190 C at 5.380 ms (loser by 220 us).",
+                    "7. Gate at 5.900 ms: wrong REJECT holds 0 t/d on the reset band.",
+                    "8. Charge idle; live wall never crossed 1220 C.",
+                    "9. 14 min magnesium reduction window missed.",
+                    "10. QA: correct gate was ACCEPT; leave 2.40 t/d; bind live 1204 vs 1220 C trip.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "retort_2p40_hold"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("feed_t_d", 2.40),
+                        ("live_C", 1204.0),
+                        ("hold", False),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("live_C", 1204.0),
+                        ("trip_C", 1220.0),
+                        ("reset_C", 1190.0),
+                        ("prior_peak_C", 1212.0),
+                        ("trip_latched", False),
+                        ("in_hysteresis_band", True),
+                        ("ft_axis", "retort_t"),
+                        ("race_margin_us", 220),
+                        ("combined_jitter_us", 72),
+                        ("t_gate_us", 5900),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 2.40 t/d because live wall 1204 C is 16 C under the published "
+                "1220 C trip and the 1190 C reading is a hysteresis reset, not a latched trip.",
+            ),
+        ]
+    )

@@ -1,0 +1,88 @@
+def notes_text(jmax: float, jprior: float) -> str:
+    return f"""# Thalamic Trajectory Factory — NOTES-r75
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- Quality: Q=5
+- IDs: `ttf-r75-391` … `ttf-r75-395`
+- Domains this batch: `silicon-carbide-acheson`, `ethylbenzene-alkylation`, `imperial-smelting-furnace`, `lfp-carbothermal-kiln`, `hydrazine-ketazine`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged r13–r69 occupancy (jsonl SoT) plus in-flight gens r70–r74 (`aniline-hydrogenator`, `vinyl-acetate-vapor`, `waelz-kiln`, `autothermal-reformer`, `silicomanganese-furnace`, `propylene-oxide-hppo`, `hydrogen-cyanide-andrussow`). `ethylbenzene-alkylation` is a distinct slug from r74 draft `vinyl-acetate-vapor`; `imperial-smelting-furnace` is distinct from r64/r74 `isasmelt-furnace` and r72 `waelz-kiln`; `silicon-carbide-acheson` is distinct from r49 `siemens-polysilicon-rod` / r71 `silane-cvd-epitaxy`. All five plants are invented (Carbor-Venn, Ethylbenz-Shiel, Isp-Corrie, Olivine-Knock, Azine-Tarn). Do not restack prior TTF plants (Acetox-Breck, Tungstate-Keld, Oxime-Clough, Ilmenite-Naze, Ebullate-Pike, Decarb-Haugh, Mond-Riggs, Gahnite-Wyke).
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+| ttf-r75-391 | silicon-carbide-acheson | MODIFY | correct | designed | **−0.44** | process-correct arc-kA clamp; hood-brick spall inside 42 ms raster; independent LIF |
+| ttf-r75-392 | ethylbenzene-alkylation | MODIFY | **incorrect (wrong-modify / wrong-unit lagged-bus)** | designed | −0.68 | live 4.8 bar < 6.0 cap; 3.6 t/h benzene cut because 48 kPa bound as 48 bar |
+| ttf-r75-393 | imperial-smelting-furnace | REJECT | correct | hil | +0.80 | AE 48 pps beats blast 1.8 bar; hold sinter |
+| ttf-r75-394 | lfp-carbothermal-kiln | ACCEPT | correct | simulated | +1.06 | O2 2.4 pct vs bed 748 C; proposed 9.0 t/h already legal |
+| ttf-r75-395 | hydrazine-ketazine | ACCEPT | correct | designed | +1.14 | ketazine 18.2 vs jacket 62 C; proposed 6.4 t/h already legal |
+
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 incorrect MODIFY (wrong-unit / lagged-bus), 1 correct REJECT. Provenance: designed×3, simulated×1, hil×1 (Isp-Corrie IC-HIL shaft mockup). Intra-batch Jaccard on `state.description` {jmax:.3f} (max vs prior staged {jprior:.3f}).
+
+## Wrong-modify
+
+**ttf-r75-392** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-modify`). Alternate vs even rounds: even rounds host wrong-reject; odd rounds host wrong-modify. This is **wrong-unit / lagged-bus** (legal live bar treated as over-cap because a lagged kPa faceplate was bound as bar). Not r13/r19 wrong-axis, not r14/r23 wrong-loop, not r21 wrong-polarity, not r24 under-clamp, not r25/r29/r31 wrong-phase, not r33/r35 over-clamp, not r39 extra-PLC-scan clamp-too-late, not r53/r55 stale-sample / lagged-tag, not r65 wrong-string / idle-bank. Do not emit a wrong-ACCEPT.
+
+Ethylbenz-Shiel ES-9 / Reactor R-4 reads live shell **4.8 bar** against a **6.0 bar** cap. Lagged faceplate `RX_P.LAG` still prints **48** with `engineering_unit=kPa` and `quality=GOOD`. Sidecar arithmetic `4.8 < 6.0` is true and `48 kPa = 0.48 bar < 6.0` is true; `48` as bar is over cap. A timely ACCEPT at `t_gate_us=5920` leaves benzene **18 t/h**. A weak supervisor applies a **18 → 3.6 t/h** cut. Convictable without alkylation physics: `evidence.live_bar < evidence.shell_cap_bar`, `evidence.lagged_unit == kPa`, `evidence.lagged_raw == 48`, `executed_action` sets `bind_kpa_as_bar=true` and `benzene_tph=3.6`, `raster.routing.table` sends `relay.pt.lag` → `policy.unit_clamp` (weight 0.74) with no positive weight to `policy.live_hold`, and `gate_snn` has `unit_clamp` above threshold while `live_hold` is not. Recovery: ACCEPT 18 t/h benzene at t_gate; bind live bar. Cost: 12 min recycle dump (`abort_s=720`).
+
+## Partnered-negative in-window (391)
+
+**ttf-r75-391** is the partnered negative: process-correct MODIFY (arc held 11.2 kA; 11.2 <= 14.0 cap) while the world still charges. Safety −0.60 prices the hood-brick spall at **22.600 ms**; `task_progress` stays +0.32 because the clamp completed. Inflection `t_us=22600` is tick 5 and is **inside** the 42 ms raster (`22600 ≤ 42000`). Named un-netted loss: 15 min hood isolate (`abort_s=900`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 75391, stim `[22000, 25000]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.leak` 22–25 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks). Tick 6 is bound to a published sidecar (`abort_s`, `survey_s`, `dwell_s`) via `future_outcome.delayed_surprise_s` and is strictly after the raster window. Inflection `t_us` is an actual tick.
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+| 391 | 6 | +0.32 | −0.60 | −0.16 | +0.04 | −0.04 | −0.44 | 5 (22600) |
+| 392 | 6 | −0.22 | −0.24 | −0.18 | −0.10 | +0.06 | −0.68 | 4 (5920) |
+| 393 | 6 | +0.10 | +0.42 | +0.12 | +0.10 | +0.06 | +0.80 | 4 (7640) |
+| 394 | 6 | +0.40 | +0.28 | +0.18 | +0.12 | +0.08 | +1.06 | 4 (7840) |
+| 395 | 6 | +0.44 | +0.30 | +0.20 | +0.12 | +0.08 | +1.14 | 4 (5640) |
+
+Tick-6 sidecar bind: 391 `abort_s=900`, 392 `abort_s=720`, 393 `abort_s=480`, 394 `survey_s=360`, 395 `dwell_s=240`.
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+| 391 | silicon-carbide-acheson | 76 | 26 | 42 | 83 | 1909 | 0.001909 |
+| 392 | ethylbenzene-alkylation | 88 | 34 | 28 | 84 | 1932 | 0.001932 |
+| 393 | imperial-smelting-furnace | 120 | 20 | 46 | 110 | 2530 | 0.002530 |
+| 394 | lfp-carbothermal-kiln | 48 | 42 | 28 | 56 | 1288 | 0.001288 |
+| 395 | hydrazine-ketazine | 80 | 28 | 24 | 54 | 1242 | 0.001242 |
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator (NA / ACh / DA / 5-HT / adenosine), `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-391 excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).
+
+## Local checks (staging, not raw)
+
+See generator stdout: `check_jsonl` FactoryStaging, `validate_run.check_line`, `dumps_exact_json`, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`, tick sums, refractory, Jaccard.
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrote `outputs/raw/`.
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (391). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. Tick-6 sidecar bind is standing machinery (r14+), not a new class.
+4. Five domain slugs leave the prompt's 8-item pool; a later round that must stay inside the pool will have to rotate sit-outs instead.
+5. 394 and 395 are both already-legal ACCEPTs; a later round could pair one ACCEPT with a world charge that does not go negative.
+
+## Next densification target
+
+Labeled LIF on a second record, or an ISI histogram sidecar. Remaining unused wrong-MODIFY subclasses include **wrong-polarity on a fresh tag**. Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+Novel coverage: 17.0%
+"""

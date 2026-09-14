@@ -1,0 +1,5 @@
+                "On Etherbut-Lynns EL-3, ether-column EC-4 wants 4.2 t/h of ETBE while the live "
+                "kettle prints 2.80 bar from a healthy 8.48 mA loop, well under the 6.40 bar trip. "
+                "A leftover HART keep-alive still republishes 7.10 bar at handshake_age_ms=8400. "
+                "Binding the live bar should release feed; treating the stale keep-alive as PV "
+                "would park a legal etherifier.",

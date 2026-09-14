@@ -1,0 +1,242 @@
+    occ = occupancy_collisions()
+    errs.extend(occ)
+    return errs
+
+
+def write_notes(rec, aux, pipeline_receipt):
+    gap, gap_ch = min_same_channel_gap(rec["spike_events"])
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 38
+
+Factory: multi-agent-ouroboros-swarm. One scenario (ZP), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r38.jsonl. Full labeled transcript:
+swarm-transcript-r38.md. Quota Q=1. Record id maos-r38-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Nothing under outputs/raw/ was touched.
+
+ORCHESTRATION NOTE: dispatched AS round 38 of the 2026-09-02-final-heavy
+window. Writes are create-only under /tmp/maos-r38/. Prior context read for
+gap targeting and de-collision: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, and staged r14–r37 (re-censused immediately
+before emit; r35 landed as KAOTHARN / Riftwold OC-4 geothermal-binary-orc,
+r36 landed as TREADNOLL / Slatebeck CU-7 tire-curing-press, r37 landed as
+ANOLITH / Siltfen EM-6 chlor-alkali-membrane-electrolysis). Explicitly
+avoided cloning LYOSHIELD, CINDERWICK, TRIAD / Meridian, QUILLFORGE,
+NIGHTWELL, FERRICLEAVE, CASSITER, OXBOWREEL / MURENA, REDHALL, SEEDLATCH /
+Quartzmere / Quartzridge, STRIAFOIL / Kelpholt, PROTONIL / Ashspire,
+TORSIONKEY / Ridgeholt, ORRIS / Holmwick, WHORLSPAR / Pikeshear, IONSPATE /
+Thornmere, SKULLGATE / Bloomholt, CALXION / Aldersedge, BRACEGILT /
+Yarrowmere, MAGNORIL / Basaltspit, GORSEFLUE / Copseholt, CLINKERFELL /
+Flintmere, LINTELPLY / Greystair, KAOTHARN / Riftwold, TREADNOLL /
+Slatebeck, ANOLITH / Siltfen, SODASHARD / Cairnmere, VANTIS-CADENCE-AEGIS,
+THERMION, OKTAVE, STARLING, VERDIGRIS. Plant is invented DRUMWROTH /
+Pitchfen Coking DC-4 (estuary-refinery campus, not a mill-town, caldera,
+copse, kiln hall, cure hall, cell gallery, or hospital). r37 NOTES named
+delayed-coker drum as a de-collided candidate; this round takes it.
+
+## What this round produced
+
+Scenario ZP — "DRUMWROTH / Pitchfen Coking DC-4": a 1100 t/d delayed-coker
+28 ft drum mid-hold at 1.42 bar / 418 C. Three heterogeneous,
+individually-correct agents — PRES (overhead PT), TEMP (vapor TC),
+FOAM (gamma radar) — jointly report the drum switch-legal. The
+consensus is false. A 2.4 m wet-foam over has climbed for 32 min because
+antifoam nozzle 4 is 40 pct plugged. PRES stays in-band because wet foam
+is hydrostatic, not a vapor-pressure event. TEMP 418 C sits inside
+400-435 because remaining dry headspace is on-spec. FOAM gamma 12 pct
+sits inside <25 because wet-foam density matches the vapor calibration.
+Uncommissioned r_foam is 0.31 against a 0.04 hold. Uncommissioned r_dp
+is 0.62 against a 0.92 hold. The coordination-failure CLASS is new to
+this factory: WET-FOAM NULLSPACE OF A GAMMA-RADAR CERTIFICATE. Completes
+a different family than r01-r04 and staged r14-r37 (livelock /
+synchrony-storm / arms-race / ring-with-no-faulty-pair /
+false-consensus-endpoint / pairwise-Hurwitz / thermal-contact masquerade
+/ mass-balance ghost / conservation-blind ratio-lock / stacked
+dead-bands / drum-blind tension / resistance-compensated starvation /
+meniscus-tilt multi-tau / window-mean masquerade / tendon-compliance
+nullspace / airline-FFT mean-lock / crucible-weep / TMT-spatial-mean /
+false-air kiln-inlet / bag-pinhole part-TC / NCG-blanket / bladder-pinhole
+/ catholyte-back-migration). Here every agent is correct, the cycle is
+not unstable, and the playbook's three confirms are one gamma-vapor
+model of a foaming drum.
+
+The gate is a correct MODIFY (numeric floor: do not switch the 28 ft
+drum while r_foam > 0.04 AND r_dp < 0.92). TG-DC-4 strips PB-CK-12's
+switch, holds the drum on-line, runs a 6.0 s antifoam probe 12 pct
+(wet foam dumps 88 mbar >= 70; dry would dump <= 8), and isolates the
+vapor line after a 9.6 min switch-valve human ratify. The foam-over
+switch is avoided (0 t). The PRIMARY episode nonetheless FAILS: 32 min
+of unmonitored pre-t0 wet foam had already baked a 6.4 mm coke ring in
+the overhead line. Thickness +6.4 mm vs 1.5 mm spec; 4.2 d quench;
+$1.12M designed. Reward total -0.14 with process heads honest and world
+loss un-netted.
+
+Three-edge scar (NOTES-r14 item 4): drum.pt_ok -> switch_drum
+(0.16 commissioned -> 0.44 at illusion -> 0.21 after ACh-gated
+depression) AND vap.tc_ok -> switch_drum (0.14 -> 0.40 -> 0.19)
+AND foam.ok -> switch_drum (0.13 -> 0.37 -> 0.17). Eligibility
+trace e^{{-6.0/6.0}} = {aux['trace']:.5f}; eta {aux['eta1']:.5f} /
+{aux['eta2']:.5f} / {aux['eta3']:.5f}; dw -0.230 / -0.210 / -0.200.
+Rolling back any pair leaves the remaining edge above the 0.30 switch
+threshold — fitted to fail. Coordinated depression of all three is the
+cure.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **delayed-coker-drum-switch** — justified novel
+  sub-domain, unused across 2026-08-17, 2026-08-30, and staged r14-r37.
+  Not warehouse-amr (r01), not aerial-swarm (r02), not district-heating
+  (r03), not event-camera grid (r04), not lyophilization (r14), not
+  stator-weld (r16), not air-separation (r17), not water-treatment (r18),
+  not float-glass (r19), not underwater-rov (r20), not potline (r21),
+  not czochralski (r22), not slot-die (r23), not PEM electrolysis
+  (r24), not wind-turbine-pitch (r25), not surgical-assist (r26),
+  not optical-fiber-draw (r27), not kraft-recovery (r28), not
+  caster-mold-level (r29), not humanoid-locomotion (r30), not
+  vacuum-induction-melt (r31), not steam-methane-reformer (r32), not
+  cement-rotary-kiln (r33), not autoclave-composite-cure (r34), not
+  geothermal-binary-orc (r35), not tire-curing-press (r36), not
+  chlor-alkali-membrane (r37).
+- Cycle-1 tail: 0.31 wet-foam over + gamma-vapor model.
+  Weekend antifoam PASSES 0.02. Fitted-style base rate 0.44%/hold
+  (wet-foam MC; nozzle spec designed, flagged). Naive = FALSE
+  PERMISSION.
+- Cycle-2 domain sub-variant: 16 ft small drum, 0.22x holdup;
+  6.0 s / 12 pct production pulse overcools 14 K; probe must move to
+  18 s / 3 pct.
+- Cycle-2 tail: Sunday-night forged gamma foam CSV at 0.5 pct
+  quantization vs plant 0.01 pct (50 bins) plus live r_foam 0.31 at
+  the claimed dry-headspace. Human-intent class, disjoint from cycle 1's
+  accidental foam. Base rate ~0.31% of Sunday-night holds, DESIGNED,
+  flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+3 d sister cell) with its own 196 us
+  race (demand vs foam-clear) and ACCEPT of the switch the primary
+  MODIFIED away.
+- Learned-weight provenance on THREE edges with any-pair-rollback-fails.
+- HITL vapor-line-interlock ratify 9.6 min (gap 4 partial; sim_or_real
+  stays designed).
+- Governance CR-C-3804 prices retire-vs-probe-vs-status-quo and mandates
+  native 0.01 pct CSV exports (the fraud fence).
+- Flip-fragility extended to WET-FOAM-NULLSPACE: when three channels
+  each sit inside a gamma-vapor model, their race does not decide
+  truth; a wet-foam residual the playbook dead-banded does.
+
+## Self-critique of this round's batch
+
+### Strengths
+- The headline class is mechanistically tight: 0.31 wet-foam residual
+  under a gamma-only height model is the arithmetic that makes PRES's
+  success TEMP's irrelevance and FOAM's silence.
+- Negative-result honesty: the gate does the right thing and the drum
+  still fails for a reason the commissioned sensors could not see.
+  Total -0.14.
+- Three-edge scar is load-bearing: the record states a counterfactual
+  where rolling back any pair fails, with the switch threshold 0.30
+  exhibited on the remaining edge.
+- Contrast ACCEPT on a true dry headspace prevents "never switch" as
+  the lesson.
+
+### Weaknesses (honest)
+- Probe error bands (wet foam >= 70 mbar dump, dry <= 8 mbar), the
+  0.44%/hold foam rate, the $1.12M / $2.18M figures, the 9.6 min LOTO
+  latency, and the Sunday-night 0.31% base rate are DESIGNED constants
+  and are flagged. Closed-loop offsets (phantom in-band gamma from
+  0.31 wet foam, small-drum overcool width) are derived from those
+  inputs, not discovered by an unauthored process.
+- Vapor-line coke model is a designed 32 min mapping; no full drum
+  CFD shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil. The
+  NOTES-r14 HIL provenance cell remains open.
+- Cross-record arc is a hook (CR-C-3804 +21 d), not a serial igniter
+  into another round.
+
+### Realism of noise / latencies
+Ladder: 192 us race / 196 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap {gap:.3f} ms on {gap_ch}) / 480 us race
+window / 680 us gate latency / 20 ms bus epoch / 40 ms raster / 6.0 s
+probe / 9.6 min HITL / 32 min pre-t0 foam / 2.5 h dry-legal hold /
+3.4 h coke assay / +3 d contrast / +21 d governance. Adaptation decay
+on drum.pt (0.54->0.50->0.45->0.30), foam.n
+(0.72->1.26->0.86->0.40->0.20), vap.tc (0.61->0.64->0.46->0.28),
+foam.g (0.55->0.52->0.44).
+
+### Value for SNN distillation
+- WET-FOAM NULLSPACE = THREE CORRECT LOOPS, ONE FOAMING DRUM.
+- r_foam + r_dp as the tie-break that is not in the gamma window.
+- REVERSIBLE PROBE that dumps the foam iff wet foam is present.
+- THREE-EDGE ELIGIBILITY: coordinated depression; any-pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum {rec['reward_components']['total']}
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.47 reconciles independently.
+- spike_events: primary {len(rec['spike_events'])} events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap {gap:.3f} ms >= 0.8 ms, 3
+  channels inside race_window_us 480 (foam.n 6.820, foam.ok 7.012,
+  dp.oh 7.164). Contrast 8 events, own race, min same-channel gap well
+  above 0.8 ms.
+- Sidecars: raster spikes 54 == round(168 x 8.0 x 0.040); energy 1242 pJ /
+  0.001242 uJ at 23 pJ/spike; excerpt 16 events inside [0, 40000] us,
+  neuron_id < 168, same-neuron gap unique-ids / >=1000 us; routing 4
+  entries with three scar edges' before/after pair; third factor tau 6.0 s
+  == 6000 ms; gate_snn pools 45/18/6 == round(n x rate x 0.028) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: {pipeline_receipt}
+
+## Novel coverage
+The coordination-failure CLASS (wet-foam nullspace of a gamma-radar
+certificate), the domain (delayed-coker-drum-switch), the antifoam-pulse
+probe discriminant, the three-edge scar with any-pair-rollback-fails,
+the primary negative-result (correct MODIFY, drum still fails +6.4 mm
+coke on unmonitored pre-t0 foam), the HITL vapor-line-interlock ratify,
+the 16 ft small-drum probe-duration refit, and the Sunday-night 50-bin
+quantization fence are absent from prior committed ouroboros rounds and
+from staged r14-r37. Repeated elements discounted: same-gate contrast
+(r02/r03/r04/r14-r37), governance-pricing scaffold, flip-fragility series
+(extended to wet-foam-nullspace, but the move rhymes), sequenced recovery
+shape, third-factor rollback form (here three edges rather than r14's
+two), negative-result primary (r14 viewport / r16 varnish rack / r17
+condenser ice / r18 town stain / r19 SnO2 / r20 BER / r21 cathode pad /
+r22 meniscus / r23 loft stripe / r25 spline / r26 adventitia / r27
+airline / r31 oxygen / r32 tube rupture / r33 cooler / r34 bag pinhole /
+r35 silica overflux / r36 carcass swell / r37 gasket chlorination; here
+vapor-line coke). Weighing a new failure family + cure vocabulary +
+unused sub-domain + estuary-refinery geography against those reused
+scaffolds:
+
+{NOVEL_LINE}
+
+## What ROUND 39 should add
+1. FIT THE DESIGNED CONSTANTS: foam arrival, probe dump bands,
+   foam-to-coke CFD, Sunday-night claim process.
+2. HIL PROVENANCE CELL: put the vapor-line-interlock LOTO on a
+   hardware-in-loop switch-deck pendant with fitted latency as
+   state.sim_or_real=hil.
+3. CROSS-RECORD ARC: let CR-C-3804's r_foam alarm be the igniter of the
+   next round rather than a dangling +21 d leaf.
+4. Domain candidates (de-collided): bioreactor-perfusion;
+   hydroelectric-kaplan (if distinct from TORSIONKEY pitch);
+   autonomous-driving; grid-inspection; ammonia-converter;
+   fcc-regenerator-afterburn. AVOID delayed-coker-drum-switch (now
+   used), chlor-alkali membrane (r37), tire-curing-press (r36),
+   geothermal-binary-orc (r35), steam-methane-reformer (r32),
+   cement-rotary-kiln (r33), autoclave-composite-cure (r34),
+   vacuum-induction-superalloy-melt (r31), kraft-recovery (r28),
+   optical-fiber-draw (r27), PEM electrolysis (r24), surgical-assist
+   (r26), wind-turbine-pitch (r25), slot-die coating, czochralski,
+   potline, float-glass, water-treatment, lyophilization,
+   event-camera-traffic-grid, district-heating, aerial-swarm,
+   warehouse-amr, irrigation-canal, air-separation, stator-weld,
+   underwater-rov, humanoid-locomotion, and any LYOSHIELD / CINDERWICK /
+   TRIAD / QUILLFORGE / NIGHTWELL / FERRICLEAVE / CASSITER / OXBOWREEL /
+   REDHALL / SEEDLATCH / STRIAFOIL / PROTONIL / TORSIONKEY / ORRIS /
+   WHORLSPAR / IONSPATE / SKULLGATE / CALXION / BRACEGILT / MAGNORIL /
+   GORSEFLUE / CLINKERFELL / LINTELPLY / KAOTHARN / TREADNOLL / ANOLITH /
+   DRUMWROTH plant.
+"""
+    (OUT / "NOTES-r38.md").write_text(notes)
+    return notes

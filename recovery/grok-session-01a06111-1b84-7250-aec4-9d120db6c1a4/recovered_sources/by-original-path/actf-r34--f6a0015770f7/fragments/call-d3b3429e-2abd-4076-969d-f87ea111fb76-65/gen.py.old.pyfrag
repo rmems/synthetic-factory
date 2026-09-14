@@ -1,0 +1,9 @@
+                    "old_string": (
+                        "import filecmp\n"
+                        "import os\n"
+                    ),
+                    "new_string": (
+                        "import filecmp\n"
+                        "import hashlib\n"
+                        "import os\n"
+                    ),

@@ -1,0 +1,2 @@
+#!/usr/bin/env python3
+"""Emit TTF r52 JSONL (ttf-r52-276..280) into /tmp/ttf-r52/. Never writes outputs/raw/."""

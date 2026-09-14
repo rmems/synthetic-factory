@@ -1,0 +1,14 @@
+THIS_DOMAINS = {
+    "fumed-silica-flame",
+    "bromine-blowout-tower",
+    "gold-pox-autoclave",
+    "urea-pool-condenser",
+    "corex-melter-gasifier",
+}
+THIS_PLANTS = (
+    "Halosil-Knowe",
+    "Bromal-Wythe",
+    "Poxore-Slade",
+    "Carbam-Eyot",
+    "Melter-Taing",
+)

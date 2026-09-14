@@ -1,0 +1,1255 @@
+#!/usr/bin/env python3
+"""Emit TTF window r22 JSONL (ttf-r22-801..805). Staging only until O_EXCL copy."""
+
+from __future__ import annotations
+
+import json
+import math
+import os
+import random
+import re
+import subprocess
+import sys
+from collections import OrderedDict
+from decimal import Decimal
+from pathlib import Path
+
+OUT_DIR = Path("/tmp/ttf-r22w")
+BATCH_PATH = OUT_DIR / "batch-r22.jsonl"
+NOTES_PATH = OUT_DIR / "NOTES-r22.md"
+REPO = Path("/home/raulmc/rmems/synthetic-factory")
+PIPELINES = REPO / "pipelines"
+FACTORY_DIR = REPO / "outputs/raw/2026-09-02-final-heavy/thalamic-trajectory-factory"
+WINDOW_DIR = Path("/tmp/sf-window/outputs/raw/2026-09-02-final-heavy/thalamic-trajectory-factory")
+RUN_ROOT = REPO / "outputs/raw/2026-09-02-final-heavy"
+
+PJ_PER_SPIKE = 23
+RIGHTS = OrderedDict(
+    [
+        ("provider", "SpaceXAI/xAI"),
+        ("model", "grok-4.6"),
+        ("channel", "consumer"),
+        ("subscription_plan", "SuperGrok Heavy"),
+        ("generation_surface", "SuperGrok Heavy chat"),
+        ("generated_at", "2026-09-02T19:20:00Z"),
+        ("intended_use", "research_only"),
+        ("project_training_policy", "blocked"),
+        ("research_retention_status", "allowed"),
+        ("research_evaluation_status", "allowed"),
+        ("redistribution_status", "unresolved"),
+        ("provider_training_status", "unresolved"),
+        ("weight_publication_status", "blocked"),
+        ("status_basis", "RM-793 project policy: xAI hosted outputs are research-only"),
+        ("linear_issue", "RM-793"),
+    ]
+)
+AGG = "total = task_progress + safety + efficiency + coherence + exploration"
+CHANNEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,31}$")
+PLANT_RE = re.compile(r"\b([A-Z][A-Za-z]+(?:-[A-Z][A-Za-z0-9]+)+)\b")
+THOUGHT_KEYS = {
+    "thought",
+    "reasoning",
+    "chain_of_thought",
+    "hidden_reasoning",
+    "inner_monologue",
+    "scratch",
+    "internal_reasoning",
+    "internal_reasoning_verbatim",
+    "thinking",
+    "cot",
+    "thoughts",
+}
+THIS_DOMAINS = (
+    "indium-phosphide-movpe",
+    "lutetium-oxyorthosilicate-czochralski",
+    "erbium-doped-fiber-preform",
+    "potassium-titanyl-phosphate-flux",
+    "triso-particle-coater",
+)
+THIS_PLANTS = (
+    "Phosphid-Wick",
+    "Lutetia-Quay",
+    "Erbia-Skel",
+    "Ktpflux-Mire",
+    "Triso-Venn",
+)
+IDS = [f"ttf-r22-{n}" for n in range(801, 806)]
+PROMPT_POOL = {
+    "warehouse-amr",
+    "aerial-swarm",
+    "underwater-rov",
+    "grid-inspection",
+    "humanoid-locomotion",
+    "surgical-assist",
+    "industrial-assembly",
+    "autonomous-driving",
+}
+NOVEL_COVERAGE_LINE = "Novel coverage: 16.5%"
+ROUND = 22
+
+
+def harvest_occupancy() -> tuple[set[str], set[str]]:
+    domains: set[str] = set(PROMPT_POOL)
+    plants: set[str] = set()
+    for path in sorted(Path("/tmp").glob("ttf-r*/batch-r*.jsonl")):
+        if path.parent.name in {"ttf-r22w", "ttf-r22"}:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            st = rec.get("state") or {}
+            meta = rec.get("meta") or {}
+            if isinstance(st.get("domain"), str):
+                domains.add(st["domain"])
+            if isinstance(meta.get("domain"), str):
+                domains.add(meta["domain"])
+            plants.update(PLANT_RE.findall(json.dumps(rec)))
+    for path in (
+        Path("/tmp/ttf-occupied-domains.txt"),
+        Path("/tmp/ttf-occ-domains.txt"),
+        Path("/tmp/ttf-r125-occ-domains-census.txt"),
+        Path("/tmp/ttf-r62-window-occ.txt"),
+    ):
+        if path.exists():
+            for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                s = line.strip()
+                if s:
+                    domains.add(s)
+    for path in (
+        Path("/tmp/ttf-occupied-plants.txt"),
+        Path("/tmp/ttf-occ-plants.txt"),
+        Path("/tmp/ttf-r125-occ-plants-census.txt"),
+    ):
+        if path.exists():
+            plants.update(PLANT_RE.findall(path.read_text(encoding="utf-8", errors="ignore")))
+    for path in FACTORY_DIR.glob("batch-r*.jsonl"):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            rec = json.loads(line)
+            st = rec.get("state") or {}
+            if isinstance(st.get("domain"), str):
+                domains.add(st["domain"])
+            plants.update(PLANT_RE.findall(json.dumps(rec)))
+    return domains, plants
+
+
+def energy(spikes: int) -> tuple[int, float]:
+    return spikes * PJ_PER_SPIKE, spikes * PJ_PER_SPIKE / 1_000_000.0
+
+
+def spike(channel: str, t_rel_ms: float, amplitude: float) -> OrderedDict:
+    if not CHANNEL_RE.fullmatch(channel):
+        raise ValueError(f"bad channel {channel!r}")
+    if t_rel_ms <= 0:
+        raise ValueError(f"t_rel_ms must be > 0, got {t_rel_ms}")
+    return OrderedDict(
+        [("channel", channel), ("t_rel_ms", t_rel_ms), ("amplitude", amplitude)]
+    )
+
+
+def tick(t_us: int, tp, saf, eff, coh, exp) -> OrderedDict:
+    return OrderedDict(
+        [
+            ("t_us", int(t_us)),
+            ("task_progress", tp),
+            ("safety", saf),
+            ("efficiency", eff),
+            ("coherence", coh),
+            ("exploration", exp),
+        ]
+    )
+
+
+def routing(source, target, table, modulator, tau_e_s, eligibility) -> OrderedDict:
+    tau_e_ms = float(Decimal(str(tau_e_s)) * Decimal("1000"))
+    return OrderedDict(
+        [
+            ("source", source),
+            ("target", target),
+            (
+                "table",
+                [
+                    OrderedDict([("from", a), ("to", b), ("weight", w)])
+                    for a, b, w in table
+                ],
+            ),
+            (
+                "third_factor",
+                OrderedDict(
+                    [
+                        ("modulator", modulator),
+                        ("tau_e_s", tau_e_s),
+                        ("tau_e_ms", tau_e_ms),
+                        ("eligibility", eligibility),
+                    ]
+                ),
+            ),
+        ]
+    )
+
+
+def raster_core(window_ms, neurons, rate, spikes, route, excerpt, extra=None) -> OrderedDict:
+    pj, uj = energy(spikes)
+    window_s = float(Decimal(str(window_ms)) / Decimal("1000"))
+    expected = round(neurons * rate * window_s)
+    if abs(spikes - expected) > 1:
+        raise ValueError(f"spike budget {spikes} vs {expected}")
+    body = OrderedDict(
+        [
+            ("window_ms", window_ms),
+            ("window_s", window_s),
+            ("neurons", neurons),
+            ("mean_rate_hz", rate),
+            ("spikes", spikes),
+            ("energy_pJ", pj),
+            ("energy_uJ", uj),
+        ]
+    )
+    if extra:
+        body.update(extra)
+    body["routing"] = route
+    body["excerpt"] = excerpt
+    return body
+
+
+def excerpt_items(pairs, channels=None) -> list:
+    out = []
+    last = {}
+    prev_t = -1
+    for i, (t_us, nid) in enumerate(pairs):
+        t_us, nid = int(t_us), int(nid)
+        if t_us < prev_t:
+            raise ValueError("excerpt not sorted")
+        if nid in last and t_us - last[nid] < 1000:
+            raise ValueError(f"same-neuron gap {nid}")
+        item = OrderedDict([("t_us", t_us), ("neuron_id", nid)])
+        if channels is not None:
+            item["channel"] = channels[i]
+        out.append(item)
+        last[nid] = t_us
+        prev_t = t_us
+    return out
+
+
+def independent_excerpt(seed, neurons, window_us, n_events, avoid_us):
+    rng = random.Random(seed)
+    avoid = {int(t) for t in avoid_us}
+    picked = []
+    last = {}
+    attempts = 0
+    grid = list(range(400, int(window_us) - 400, 70))
+    rng.shuffle(grid)
+    for t in grid:
+        if len(picked) >= n_events:
+            break
+        nid = rng.randrange(0, neurons)
+        if t in avoid:
+            continue
+        if any(abs(t - pt) < 40 for pt, _ in picked):
+            continue
+        if nid in last and abs(t - last[nid]) < 1000:
+            continue
+        picked.append((t, nid))
+        last[nid] = t
+        attempts += 1
+    while len(picked) < n_events and attempts < 8000:
+        attempts += 1
+        t = rng.randrange(300, int(window_us) - 300)
+        nid = rng.randrange(0, neurons)
+        if t in avoid:
+            continue
+        if any(abs(t - pt) < 50 for pt, _ in picked):
+            continue
+        if nid in last and abs(t - last[nid]) < 1000:
+            continue
+        picked.append((t, nid))
+        last[nid] = t
+    picked.sort(key=lambda item: (item[0], item[1]))
+    if len(picked) < n_events:
+        raise RuntimeError(f"excerpt short: {len(picked)}")
+    return excerpt_items(picked[:n_events])
+
+
+def spike_avoid_us(events):
+    return {int(round(ev["t_rel_ms"] * 1000.0)) for ev in events}
+
+
+def isi_histogram(events, bin_ms=0.8):
+    last = {}
+    isis = []
+    for ev in events:
+        ch, t = ev["channel"], float(ev["t_rel_ms"])
+        if ch in last:
+            gap = t - last[ch]
+            if gap + 1e-12 < 0.8:
+                raise ValueError(f"isi below floor {ch} {gap}")
+            isis.append(gap)
+        last[ch] = t
+    if not isis:
+        raise ValueError("no ISIs")
+    max_isi = max(isis)
+    n_bins = int(math.ceil(max_isi / bin_ms)) + 1
+    counts = [0] * n_bins
+    for gap in isis:
+        counts[int(gap // bin_ms)] += 1
+    return OrderedDict(
+        [
+            ("bin_ms", bin_ms),
+            ("unit", "ms"),
+            ("n_isi", len(isis)),
+            ("min_isi_ms", round(min(isis), 3)),
+            ("counts", counts),
+            ("note", "same-channel ISIs from spike_events; refractory floor 0.8 ms"),
+        ]
+    )
+
+
+def run_lif(
+    *,
+    n,
+    window_us,
+    seed,
+    stim,
+    clamp_n,
+    i_bias,
+    i_stim_peak,
+    i_clamp_extra,
+    tau_m_ms,
+    early_label,
+    burst_label,
+    want_early,
+    want_burst,
+):
+    dt_us = 100
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    rng = random.Random(seed)
+    tau_s = tau_m_ms / 1000.0
+    dt_s = dt_us / 1e6
+    decay = math.exp(-dt_s / tau_s)
+    steps = window_us // dt_us
+    voltage = [rng.random() * v_th * 0.97 for _ in range(n)]
+    bias = [i_bias * (1.0 + 0.13 * (rng.random() * 2 - 1)) for _ in range(n)]
+    for i in range(clamp_n):
+        bias[i] += i_clamp_extra
+    ref = [0] * n
+    spikes = []
+    for step in range(steps):
+        t_us = step * dt_us
+        stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+        for i in range(n):
+            if ref[i] > 0:
+                ref[i] -= dt_us
+                voltage[i] = v_reset
+                continue
+            current = bias[i] + stim_i
+            voltage[i] = current + (voltage[i] - current) * decay
+            if voltage[i] >= v_th:
+                spikes.append((t_us, i))
+                voltage[i] = v_reset
+                ref[i] = refractory_us
+    early = [(t, nid) for t, nid in spikes if t < stim[0]]
+    burst = [(t, nid) for t, nid in spikes if stim[0] <= t < stim[1]]
+    used = set()
+    last = {}
+    picked = []
+
+    def take(pool, want):
+        if not pool:
+            return
+        stride = max(1, len(pool) // max(want, 1))
+        for idx in range(0, len(pool), stride):
+            group = [1 for tt, _ in picked if (tt < stim[0]) == (pool[0][0] < stim[0])]
+            if len(group) >= want:
+                break
+            t, nid = pool[idx]
+            if nid in used:
+                continue
+            if nid in last and t - last[nid] < 1000:
+                continue
+            picked.append((t, nid))
+            used.add(nid)
+            last[nid] = t
+
+    take(early, want_early)
+    take(burst, want_burst)
+    clamp = [(t, nid) for t, nid in picked if t < stim[0]][:want_early]
+    rest = [(t, nid) for t, nid in picked if t >= stim[0]][:want_burst]
+    picked = sorted(clamp + rest, key=lambda item: (item[0], item[1]))
+    if len(picked) < 8:
+        raise ValueError(
+            f"LIF excerpt too short {len(picked)} (early={len(early)} burst={len(burst)})"
+        )
+    channels = [early_label if t < stim[0] else burst_label for t, _ in picked]
+    lif = OrderedDict(
+        [
+            ("model", "leaky_integrate_and_fire"),
+            ("n", n),
+            ("dt_us", 100),
+            ("tau_m_ms", tau_m_ms),
+            ("v_rest", 0.0),
+            ("v_reset", 0.0),
+            ("v_th", 1.0),
+            ("r_m", 1.0),
+            ("refractory_us", 1000),
+            ("i_bias", i_bias),
+            ("i_stim_peak", i_stim_peak),
+            ("stim_t_us", [stim[0], stim[1]]),
+            ("i_clamp_extra", i_clamp_extra),
+            ("clamp_n", clamp_n),
+            ("seed", seed),
+            (
+                "note",
+                "Population sim scoped to this sidecar. Plant remains designed. "
+                f"Neurons 0-{clamp_n - 1} carry extra clamp bias; stim "
+                f"{stim[0]/1000:.1f}-{stim[1]/1000:.1f} ms is the labeled burst.",
+            ),
+        ]
+    )
+    extra = OrderedDict(
+        [
+            ("excerpt_source", "independent_lif"),
+            ("sim_scope", "sidecar_only"),
+            ("lif", lif),
+        ]
+    )
+    return excerpt_items(picked, channels), extra
+
+
+def meta_block(domain, tags, distillation_value, batch_position, supervisor_error_type=None):
+    body = OrderedDict(
+        [
+            ("round", ROUND),
+            ("factory", "thalamic-trajectory-factory"),
+            ("generator", "grok-4.6"),
+            ("run_label", "2026-09-02-final-heavy"),
+            ("domain", domain),
+        ]
+    )
+    if supervisor_error_type:
+        body["supervisor_error_type"] = supervisor_error_type
+    body["tags"] = tags
+    body["snn_tags"] = ["race", "refractory", "adaptation"]
+    body["distillation_value"] = distillation_value
+    body["rights"] = RIGHTS
+    body["batch_position"] = batch_position
+    return body
+
+
+def reward_block(ticks, notes) -> OrderedDict:
+    heads = ["task_progress", "safety", "efficiency", "coherence", "exploration"]
+    sums = {h: Decimal("0") for h in heads}
+    for item in ticks:
+        for h in heads:
+            sums[h] += Decimal(str(item[h]))
+    total = sum(sums.values(), Decimal("0"))
+    return OrderedDict(
+        [
+            ("_aggregation", AGG),
+            ("ticks", ticks),
+            ("task_progress", float(sums["task_progress"])),
+            ("safety", float(sums["safety"])),
+            ("efficiency", float(sums["efficiency"])),
+            ("coherence", float(sums["coherence"])),
+            ("exploration", float(sums["exploration"])),
+            ("total", float(total)),
+            ("notes", notes),
+        ]
+    )
+
+
+def pop(name, neurons, threshold, rate=None, spikes=None) -> OrderedDict:
+    body = OrderedDict([("name", name), ("neurons", neurons), ("threshold", threshold)])
+    if rate is not None:
+        body["mean_rate_hz"] = rate
+        body["spikes"] = spikes
+    return body
+
+
+def wrap_record(
+    rid,
+    title,
+    state,
+    spikes,
+    proposed,
+    safety,
+    executed,
+    future,
+    ticks,
+    notes,
+    ras,
+    gate,
+    domain,
+    tags,
+    distillation,
+    batch_position,
+    supervisor_error_type=None,
+):
+    return OrderedDict(
+        [
+            ("id", rid),
+            ("title", title),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            ("reward_components", reward_block(ticks, notes)),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    domain,
+                    tags,
+                    distillation,
+                    batch_position,
+                    supervisor_error_type=supervisor_error_type,
+                ),
+            ),
+        ]
+    )
+
+
+def record_801():
+    excerpt, extra = run_lif(
+        n=74,
+        window_us=44000,
+        seed=22801,
+        stim=(22800, 26000),
+        clamp_n=14,
+        i_bias=0.91,
+        i_stim_peak=2.48,
+        i_clamp_extra=0.62,
+        tau_m_ms=19.0,
+        early_label="lif.clamp",
+        burst_label="lif.clog",
+        want_early=7,
+        want_burst=9,
+    )
+    extra["abort_s"] = 840
+    extra["delayed_surprise_s"] = 840
+    ticks = [
+        tick(2200, 0.05, -0.02, -0.02, 0.01, 0.00),
+        tick(6180, 0.07, -0.04, -0.02, 0.01, -0.01),
+        tick(6372, 0.05, -0.03, -0.02, 0.01, 0.00),
+        tick(6900, 0.08, -0.06, -0.03, 0.02, -0.01),
+        tick(23400, 0.05, -0.40, -0.03, -0.01, -0.02),
+        tick(840000000, 0.02, -0.05, -0.02, 0.01, -0.01),
+    ]
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Chamber C-9 at Phosphid-Wick PW-4 is already metering 0.42 slm of TMIn while "
+                "the InP susceptor sits at 648 C against a 620 C MOVPE growth cap. "
+                "Temperature-first cuts TMIn to 0.26 slm; alkyl-first would keep 0.42 slm because "
+                "the alkyl FT still looks like a wet-bubbler smear under 0.55 slm. An injector "
+                "nozzle clog already seated in the showerhead does not appear on susceptor T or "
+                "TMIn FT until the AE dump.",
+            ),
+            ("domain", "indium-phosphide-movpe"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Keep Chamber C-9 susceptor <= 620 C and finish the InP epilayer without dumping "
+                "alkyl condensate onto the showerhead floor.",
+            ),
+            ("t0_us", 1756850400000801),
+            ("gate_latency_us", 720),
+            ("race_window_us", 400),
+            ("race_window_rel_ms", [6.16, 6.56]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "rtd.sus.C 648 over 620 InP-growth cap",
+                                "ft.tmin.slm 0.42 with alkyl look still under 0.55",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Temperature-first latches TMIn clamp 0.42 -> 0.26 slm; alkyl-first "
+                            "keeps 0.42 slm on a 'still-wet bubbler' model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "400 us = one susceptor RTD slot versus the TMIn-mass FT publisher "
+                            "on this MOVPE skid bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 192 us vs combined jitter 64 us (RTD 30 + FT 34): 3.0x over a "
+                            "2.0x trust floor. Reversing order by < 192 us inside the 400 us window "
+                            "would have kept 0.42 slm; predicted next-sample 656 C > 620 InP-growth cap.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "susceptor RTD lance, 2 kHz, 30 us jitter",
+                    "TMIn mass-flow FT, 1 kHz, 34 us jitter",
+                    "injector AE puck (context)",
+                    "showerhead IR (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("sus_cap_C", 620.0),
+                        ("observed_sus_C", 648.0),
+                        ("tmin_slm", 0.42),
+                        ("alkyl_look_slm", 0.55),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Chamber C-9 in InP MOVPE pass; TMIn 0.42 slm; susceptor 648 C.",
+                    "2. Alkyl look 0.42 under 0.55; injector clog armed.",
+                    "3. TMIn-FT precursor at 1.140 ms.",
+                    "4. Race window [6.160, 6.560] ms.",
+                    "5. rtd.sus.C 648 C at 6.180 ms (winner).",
+                    "6. ft.tmin.slm 0.42 slm at 6.372 ms (loser by 192 us).",
+                    "7. Gate at 6.900 ms: MODIFY TMIn 0.42 -> 0.26 slm.",
+                    "8. Clamp executes; next-sample susceptor 608 C <= 620 cap.",
+                    "9. At 23.400 ms seated injector clog dumps alkyl; AE burst.",
+                    "10. 14 min showerhead isolate (abort_s=840); named un-netted loss.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_tmin_feed"),
+            (
+                "parameters",
+                OrderedDict(
+                    [("tmin_slm", 0.42), ("sus_C", 648.0), ("ph3_slm", 2.8)]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("sus_C", 648.0),
+                        ("sus_cap_C", 620.0),
+                        ("predicted_unclamped_next_C", 656.0),
+                        ("tmin_slm", 0.42),
+                        ("alkyl_look_slm", 0.55),
+                        ("race_margin_us", 192),
+                        ("combined_jitter_us", 64),
+                        ("abort_s", 840),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 0.42 slm TMIn because alkyl look 0.42 is under 0.55, treating "
+                "the 648 C susceptor as a still-wet bubbler rather than an InP-growth miss.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Susceptor 648 C won by 192 us, so Chamber C-9 is over the 620 C InP-growth cap, "
+                "not still a wet-bubbler story. Holding 0.42 slm predicts next-sample 656 C > 620. "
+                "MODIFY: TMIn 0.42 -> 0.26 slm. Observed after clamp 608 C <= 620. A full REJECT "
+                "is not indicated: a clean InP pass accepts 0.26 slm.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "sus_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 620.0),
+                                    ("observed", 648.0),
+                                    ("predicted_unclamped_next", 656.0),
+                                    ("clamped_tmin_slm", 0.26),
+                                    ("observed_after_clamp", 608.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 192),
+                                    ("combined_jitter_us", 64),
+                                    ("ratio", 3.00),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_tmin_feed"),
+            (
+                "parameters",
+                OrderedDict(
+                    [("tmin_slm", 0.26), ("sus_C", 608.0), ("ph3_slm", 2.8)]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: TMIn 0.42 -> 0.26 slm. Process-correct vs the 620 C InP-growth cap. "
+                "Injector clog still dumps at 23.400 ms.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Process-correct MODIFY held susceptor at 608 C. At 23.400 ms an injector nozzle "
+                "clog already seated in the showerhead dumped alkyl condensate onto the floor. "
+                "Clamp reduced dump energy; it did not prevent the dump. Partnered negative: "
+                "process heads stay honest; world loss is named, not netted.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("susceptor", "clamp executed; peak 608 C <= 620 cap"),
+                        ("injector", "clog dump at 23.400 ms; alkyl on showerhead"),
+                        ("repair", "14 min showerhead isolate (abort_s=840)"),
+                        ("mission", "PW-4 InP pass incomplete this cycle"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Neither susceptor T nor TMIn FT predicted the seated injector clog; ae.inj.clog is a new channel at 23.400 ms, 16.500 ms after the gate, still inside the 44 ms raster.",
+                    "Delayed (abort_s=840): 14 min showerhead isolate. Named un-netted loss, not folded into task_progress.",
+                ],
+            ),
+            (
+                "un_netted_loss",
+                "14 min showerhead isolate after the injector clog. Safety head -0.60 prices the "
+                "dump; task_progress stays +0.32 because the clamp completed.",
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.sus.C (6.180 ms, 648 C)"),
+                        ("loser", "ft.tmin.slm (6.372 ms, 0.42 slm)"),
+                        ("margin_us", 192),
+                        (
+                            "counterfactual_if_reversed",
+                            "Alkyl-first by < 192 us inside the 400 us window would have kept "
+                            "0.42 slm; predicted next-sample 656 C would have missed the 620 "
+                            "InP-growth cap even without the clog. The MODIFY is still the correct "
+                            "process. The dump is a later world charge either way, cheaper with "
+                            "the clamp than without.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 23400),
+            (
+                "reward_inflection_note",
+                "Safety collapses at the 23.400 ms injector clog (tick t_us=23400), inside the "
+                "44 ms raster. The correct MODIFY at 6.900 ms is in the same excerpt. Do not put "
+                "inflection on the abort_s=840 isolate tick.",
+            ),
+            ("delayed_surprise_s", 840),
+            ("abort_s", 840),
+        ]
+    )
+    spikes = [
+        spike("enc.tmin.ctx", 1.14, 0.41),
+        spike("rtd.sus.C", 2.20, 0.61),
+        spike("ft.tmin.slm", 3.68, 0.50),
+        spike("rtd.sus.C", 6.180, 1.32),
+        spike("ft.tmin.slm", 6.372, 1.14),
+        spike("ctrl.gate", 6.900, 0.98),
+        spike("rtd.sus.C", 8.50, 0.80),
+        spike("ft.tmin.slm", 11.20, 0.62),
+        spike("ctrl.gate", 15.10, 0.84),
+        spike("ae.inj.clog", 23.400, 1.46),
+        spike("ae.inj.clog", 25.20, 0.91),
+        spike("enc.tmin.ctx", 32.40, 0.41),
+        spike("rtd.sus.C", 39.80, 0.53),
+    ]
+    ras = raster_core(
+        44,
+        74,
+        25,
+        81,
+        routing(
+            "thalamic-relay.pw-sus",
+            "spikenaut.policy.tmin-clamp",
+            [
+                ("relay_sus_C", "policy_tmin_clamp", 0.68),
+                ("relay_tmin_ft", "policy_tmin_hold", 0.29),
+                ("relay_ae_clog", "policy_tmin_clamp", -0.42),
+            ],
+            "noradrenaline",
+            0.04,
+            "surprise-gated pre_post_stdp; NA at susceptor win (6.180 ms) opens a 44 ms "
+            "eligibility trace that still covers the 23.400 ms injector clog",
+        ),
+        excerpt,
+        extra=extra,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.4),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("tmin_clamp", 50, 0.5, 200.0, 4),
+                    pop("tmin_hold", 40, 0.8, 62.5, 1),
+                    pop("clog_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r22-801",
+        "Phosphid-Wick PW-4 / Chamber C-9: susceptor 648 C beats TMIn 0.42 slm by 192 us; "
+        "correct MODIFY still eats an in-window injector clog (partnered negative total -0.42)",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Partnered negative. Process-correct MODIFY; world still charges inside the 44 ms "
+        "raster. total -0.42 = 0.32 + -0.60 + -0.14 + 0.05 + -0.05. Named showerhead isolate "
+        "(abort_s=840) is not netted into task_progress.",
+        ras,
+        gate,
+        "indium-phosphide-movpe",
+        [
+            "modify",
+            "partnered-negative-total",
+            "independent-lif-raster",
+            "sidecar-sim-only",
+            "in-window-world-charge",
+            "designed",
+        ],
+        "A critic can see the world-charge as a LIF burst inside the raster while process "
+        "heads stay honest. Credit assignment is spikes, not prose across a 14 min showerhead isolate.",
+        1,
+    )
+
+
+def record_802():
+    ticks = [
+        tick(1840, -0.02, -0.01, -0.03, -0.01, 0.01),
+        tick(5240, -0.04, -0.02, -0.04, -0.02, 0.01),
+        tick(5418, -0.03, -0.01, -0.04, -0.02, 0.01),
+        tick(5780, -0.08, -0.04, -0.10, -0.05, 0.02),
+        tick(7420, -0.02, -0.01, -0.03, -0.01, 0.01),
+        tick(720000000, -0.02, -0.01, -0.02, -0.01, 0.00),
+    ]
+    spikes = [
+        spike("enc.pull.ctx", 0.92, 0.40),
+        spike("tc.melt.C", 1.84, 0.58),
+        spike("i.namur.mA", 2.66, 0.51),
+        spike("tc.melt.C", 5.240, 1.32),
+        spike("i.namur.mA", 5.418, 1.15),
+        spike("ctrl.gate", 5.780, 1.00),
+        spike("tc.melt.C", 7.42, 0.74),
+        spike("i.namur.mA", 9.10, 0.61),
+        spike("ctrl.gate", 13.20, 0.82),
+        spike("enc.pull.ctx", 17.40, 0.42),
+        spike("tc.melt.C", 22.10, 0.53),
+        spike("i.namur.mA", 26.80, 0.47),
+    ]
+    excerpt = independent_excerpt(22802, 92, 28000, 14, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Puller P-6 at Lutetia-Quay LQ-2 is already pulling LSO at 0.42 mm/h with live "
+                "melt-TC 1462 C against a 1520 C freeze-lid cap. A NAMUR NE43 fail-high on the "
+                "spare melt loop still prints 21.6 mA, which maps to 1680 C if treated as a 4-20 mA "
+                "live PV (800-1600 C range). Live-TC-first should ACCEPT the pull; a weak supervisor "
+                "that binds the diagnostic current as live temperature will REJECT a legal crystal.",
+            ),
+            ("domain", "lutetium-oxyorthosilicate-czochralski"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Keep 0.42 mm/h pull on P-6 while live melt stays <= 1520 C; do not spend a NAMUR "
+                "fail-high current on the crystal hold.",
+            ),
+            ("t0_us", 1756850400000802),
+            ("gate_latency_us", 540),
+            ("race_window_us", 360),
+            ("race_window_rel_ms", [5.20, 5.56]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "tc.melt.C 1462 C live under 1520 cap",
+                                "i.namur.mA 21.6 mA NE43 fail-high",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Live-TC-first should ACCEPT 0.42 mm/h (1462 C < 1520 C). NAMUR-first "
+                            "is a false over-range if 21.6 mA is decoded as 1680 C live.",
+                        ),
+                        (
+                            "window_derivation",
+                            "360 us = one melt-TC sample versus NAMUR diagnostic publisher on this "
+                            "Czochralski PLC bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 178 us vs combined jitter 60 us (TC 28 + NAMUR 32). Order is "
+                            "correctly live-TC-first. The error is binding the diagnostic milliamp "
+                            "as a live PV, not the race order.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "melt thermocouple tree, 1 kHz, 28 us jitter",
+                    "spare-loop NAMUR current, 32 us jitter",
+                    "pull encoder (context)",
+                    "diameter pyrometer (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("melt_cap_C", 1520.0),
+                        ("live_melt_C", 1462.0),
+                        ("namur_mA", 21.6),
+                        ("namur_as_live_C", 1680.0),
+                        ("range_lo_C", 800.0),
+                        ("range_hi_C", 1600.0),
+                        ("pull_mm_h", 0.42),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Puller P-6 indexed on Lutetia-Quay LQ-2; pull 0.42 mm/h armed.",
+                    "2. Live melt 1462 C under 1520 cap; NAMUR spare 21.6 mA.",
+                    "3. Encoder precursor at 0.920 ms.",
+                    "4. Race window [5.200, 5.560] ms.",
+                    "5. tc.melt.C 1462 C at 5.240 ms (winner).",
+                    "6. i.namur.mA 21.6 mA at 5.418 ms (loser by 178 us).",
+                    "7. Gate at 5.780 ms: WRONG REJECT hold 0.42 -> 0 mm/h.",
+                    "8. Live melt stays 1462 C < 1520; crystal idle.",
+                    "9. NAMUR current remains a diagnostic, not a PV.",
+                    "10. Delayed (missed_window_s=720): 12 min missed LSO pull window.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_lso_pull"),
+            (
+                "parameters",
+                OrderedDict(
+                    [("pull_mm_h", 0.42), ("hold", False), ("rpm", 12.0)]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("live_melt_C", 1462.0),
+                        ("melt_cap_C", 1520.0),
+                        ("namur_mA", 21.6),
+                        ("namur_as_live_C", 1680.0),
+                        ("namur_as_live", True),
+                        ("live_under_cap", True),
+                        ("range_lo_C", 800.0),
+                        ("range_hi_C", 1600.0),
+                        ("race_margin_us", 178),
+                        ("combined_jitter_us", 60),
+                        ("missed_window_s", 720),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes keeping 0.42 mm/h because live melt 1462 C is under the 1520 C "
+                "cap. A correct gate ACCEPTs. The NAMUR 21.6 mA is a diagnostic, not a freeze-lid miss.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "incorrect"),
+            (
+                "rationale",
+                "Live melt 1462 C is under the 1520 C freeze-lid cap, so a pull is legal. A weak "
+                "supervisor binds the spare-loop NAMUR NE43 fail-high 21.6 mA as a 4-20 mA live PV "
+                "(800-1600 C maps 21.6 mA to 1680 C) and REJECT-holds pull 0.42 -> 0 mm/h. The "
+                "REJECT is plausible to a supervisor that treats any milliamp over 20.5 as over-range "
+                "temperature. Sidecar arithmetic 1462 < 1520 is true; the diagnostic current is not "
+                "the published cap.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "melt_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 1520.0),
+                                    ("live", 1462.0),
+                                    ("namur_as_live_C", 1680.0),
+                                    ("namur_mA", 21.6),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 178),
+                                    ("combined_jitter_us", 60),
+                                    ("ratio", 2.97),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hold_for_namur_fault"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("pull_mm_h", 0.0),
+                        ("hold", True),
+                        ("rpm", 12.0),
+                        ("bind_namur_as_live", True),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "WRONG REJECT: pull 0.42 -> 0 mm/h. Live melt 1462 C remains under 1520. "
+                "bind_namur_as_live=true.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Wrong-reject / namur-failhigh-as-live. Live melt 1462 C stayed under the 1520 C "
+                "cap. The supervisor decoded 21.6 mA NE43 fail-high as 1680 C and held a legal LSO "
+                "pull. Twelve minutes of missed pull window (missed_window_s=720).",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("pull", "held; 0 mm/h vs filed 0.42"),
+                        ("melt", "1462 C still under 1520"),
+                        ("namur", "21.6 mA diagnostic still not a PV"),
+                        ("mission", "LQ-2 LSO pass idle this cycle"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Live-TC winning a 178 us race did not prevent a NAMUR-as-PV REJECT; reversing order would still have been a wrong bind if the supervisor keyed on 21.6 mA.",
+                    "Delayed (missed_window_s=720): 12 min missed LSO pull window. Named un-netted loss.",
+                ],
+            ),
+            (
+                "recovery",
+                OrderedDict(
+                    [
+                        (
+                            "correct_gate",
+                            "ACCEPT: live 1462 C < published 1520 C cap; leave 0.42 mm/h.",
+                        ),
+                        ("correct_cap_C", 1520.0),
+                        ("wrong_namur_mA", 21.6),
+                        ("wrong_namur_as_live_C", 1680.0),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict([("pull_mm_h", 0.0), ("hold", True)]),
+                        ),
+                        (
+                            "cost",
+                            "12 min missed LSO pull window (task/efficiency); live melt never over cap (safety false-positive).",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "cost",
+                OrderedDict(
+                    [
+                        ("actual_live_melt_C", 1462.0),
+                        ("actual_cap_C", 1520.0),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict(
+                                [
+                                    ("pull_mm_h", 0.0),
+                                    ("hold", True),
+                                    ("bind_namur_as_live", True),
+                                ]
+                            ),
+                        ),
+                        (
+                            "cost",
+                            "12 min missed LSO pull window; legal 0.42 mm/h was skipped so a 1462 C melt sat idle.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "tc.melt.C (5.240 ms, 1462 C live)"),
+                        ("loser", "i.namur.mA (5.418 ms, 21.6 mA NE43 fail-high)"),
+                        ("margin_us", 178),
+                        (
+                            "counterfactual_if_reversed",
+                            "NAMUR-first by < 178 us would still show live 1462 C < 1520 C. A "
+                            "correct gate ACCEPTs either way. The wrong REJECT spent the live win "
+                            "on a diagnostic milliamp decoded as 1680 C.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 5780),
+            (
+                "reward_inflection_note",
+                "Task and efficiency drop at the wrong REJECT (5.780 ms, tick 4). The 12 min "
+                "missed window is delayed surprise, not the inflection.",
+            ),
+            ("delayed_surprise_s", 720),
+            ("missed_window_s", 720),
+        ]
+    )
+    ras = raster_core(
+        28,
+        92,
+        34,
+        88,
+        routing(
+            "thalamic-relay.lq-namur",
+            "spikenaut.policy.hold-reject",
+            [
+                ("relay.namur.failhigh", "policy.hold_reject", 0.74),
+                ("relay.tc.melt", "policy.hold_reject", 0.21),
+            ],
+            "acetylcholine",
+            0.06,
+            "namur_failhigh_stdp; ACh tags the (wrong) hold_reject bind at the diagnostic milliamp",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("missed_window_s", 720),
+                ("delayed_surprise_s", 720),
+                ("namur_mA", 21.6),
+                ("namur_as_live_C", 1680.0),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.36),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("hold_reject", 48, 0.45, 231.5, 4),
+                    pop("go_accept", 48, 0.90, 5.8, 0),
+                    pop("namur_ctx", 32, 0.55, 86.8, 1),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r22-802",
+        "WRONG-REJECT at Lutetia-Quay LQ-2 / Puller P-6: live melt 1462 C under 1520 C cap; "
+        "supervisor bound NAMUR 21.6 mA fail-high as 1680 C live",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Wrong-reject. Sidecar arithmetic 1462 < 1520 is true; clamp bound to a NAMUR 21.6 mA "
+        "fail-high decoded as 1680 C. total -0.63 = -0.21 + -0.10 + -0.26 + -0.12 + 0.06.",
+        ras,
+        gate,
+        "lutetium-oxyorthosilicate-czochralski",
+        [
+            "reject",
+            "wrong-gate",
+            "namur-failhigh-as-live",
+            "diagnostic-as-pv",
+            "sidecar-convictable",
+            "designed",
+        ],
+        "Teaches a probe that a correct live<cap melt read can still be a wrong gate when "
+        "routing.table[0].to is policy.hold_reject and executed pull is zeroed on a NAMUR current.",
+        2,
+        supervisor_error_type="wrong-reject",
+    )

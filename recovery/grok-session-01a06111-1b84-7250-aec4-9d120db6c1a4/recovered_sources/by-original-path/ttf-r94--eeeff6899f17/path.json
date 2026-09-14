@@ -1,0 +1,81 @@
+{
+  "agent_ids": [
+    "01a0640f-795e-7e83-b0c6-3cbad6fefa3e"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 2,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "_records.py",
+  "original_path": "/tmp/ttf-r94/_records.py",
+  "path_key": "ttf-r94--eeeff6899f17",
+  "terminal_event_ids": [
+    "01a0640f-795e-7e83-b0c6-3cbad6fefa3e:call-f905a83b-daab-4866-acd1-5fe178afc518-48",
+    "01a0640f-795e-7e83-b0c6-3cbad6fefa3e:call-f9dbf7f7-0546-4000-b0a4-e22b2c3c7f10-44"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 2,
+  "versions": [
+    {
+      "agent_id": "01a0640f-795e-7e83-b0c6-3cbad6fefa3e",
+      "basename_preserved": true,
+      "bytes": 69558,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 229,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640f-795e-7e83-b0c6-3cbad6fefa3e/updates.jsonl",
+      "original_basename": "_records.py",
+      "original_path": "/tmp/ttf-r94/_records.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r94--eeeff6899f17/versions/v0001/_records.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r94--eeeff6899f17/versions/v0001/_records.py",
+      "session_id": "01a0640f-795e-7e83-b0c6-3cbad6fefa3e",
+      "sha256": "31053544acf38bea9641fabd273d37dd473cd8ad3e24322eae420004730b488d",
+      "source_channel": "structured",
+      "source_event_id": "01a0640f-795e-7e83-b0c6-3cbad6fefa3e:call-a38dc20a-2169-4ebb-8ca9-6f6e9d648917-41",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788391335633,
+      "timestamp_utc": "2026-09-02T23:22:15.633Z",
+      "tool_call_id": "call-a38dc20a-2169-4ebb-8ca9-6f6e9d648917-41",
+      "version": 1,
+      "version_id": "ttf-r94--eeeff6899f17:v0001"
+    },
+    {
+      "agent_id": "01a0640f-795e-7e83-b0c6-3cbad6fefa3e",
+      "basename_preserved": true,
+      "bytes": 70043,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 264,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640f-795e-7e83-b0c6-3cbad6fefa3e/updates.jsonl",
+      "original_basename": "_records.py",
+      "original_path": "/tmp/ttf-r94/_records.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r94--eeeff6899f17/versions/v0002/_records.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r94--eeeff6899f17/versions/v0002/_records.py",
+      "session_id": "01a0640f-795e-7e83-b0c6-3cbad6fefa3e",
+      "sha256": "d48dc56a09220304563abae0f1f00042437eea8694c32b2f1dad6eae57cec044",
+      "source_channel": "structured",
+      "source_event_id": "01a0640f-795e-7e83-b0c6-3cbad6fefa3e:call-37d61d83-3c16-4936-8876-23c8b715c127-46",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788391496003,
+      "timestamp_utc": "2026-09-02T23:24:56.003Z",
+      "tool_call_id": "call-37d61d83-3c16-4936-8876-23c8b715c127-46",
+      "version": 2,
+      "version_id": "ttf-r94--eeeff6899f17:v0002"
+    }
+  ]
+}

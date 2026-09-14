@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+"""Emit TTF r64 JSONL (ttf-r64-336..340) into /tmp/ttf-r64/. Never writes outputs/raw/."""
+
+from __future__ import annotations
+
+import json
+import math
+import random
+import re
+import subprocess
+import sys
+from collections import OrderedDict
+from decimal import Decimal
+from pathlib import Path
+
+OUT_DIR = Path("/tmp/ttf-r64")
+BATCH_PATH = OUT_DIR / "batch-r64.jsonl"
+NOTES_PATH = OUT_DIR / "NOTES-r64.md"
+REPO = Path("/home/raulmc/rmems/synthetic-factory")
+PIPELINES = REPO / "pipelines"

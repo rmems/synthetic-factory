@@ -1,0 +1,7 @@
+| 506 | sodium-dithionite-reducer | 76 | 26 | 42 | 83 | 1909 | 0.001909 |
+| 507 | methyl-isobutyl-ketone-still | 92 | 34 | 24 | 75 | 1725 | 0.001725 |
+| 508 | lithium-cobalt-oxide-calciner | 108 | 21 | 40 | 91 | 2093 | 0.002093 |
+| 509 | gamma-butyrolactone-dehydro | 64 | 42 | 30 | 81 | 1863 | 0.001863 |
+| 510 | ppta-polymerizer | 80 | 34 | 22 | 60 | 1380 | 0.001380 |
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator (NA / ACh / DA / 5-HT / adenosine), `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-506 excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).

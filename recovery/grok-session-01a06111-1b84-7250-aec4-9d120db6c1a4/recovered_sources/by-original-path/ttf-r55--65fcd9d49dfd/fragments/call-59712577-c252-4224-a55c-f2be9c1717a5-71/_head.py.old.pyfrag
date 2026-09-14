@@ -1,0 +1,14 @@
+THIS_DOMAINS = {
+    "kamyr-chip-digester",
+    "sulfuric-contact-bed",
+    "container-glass-IS",
+    "rh-vacuum-degasser",
+    "carbon-fiber-oxi-oven",
+}
+THIS_PLANTS = (
+    "Lignin-Naze",
+    "Oleum-Howe",
+    "Goblet-Fen",
+    "Snorkel-Weir",
+    "Panox-Holt",
+)

@@ -1,0 +1,16 @@
+    "US Steel",
+    "Tata Steel",
+)
+R14_OPENING = (
+    "Helixmere Biologics Building C lyophilizer LYO-4 is mid-primary on 8400 "
+    "vials of a monoclonal antibody"
+)
+NOVEL_LINE = "Novel coverage: 46%"
+PLANT = "GIBBSQUERN"
+GEO = "Laterifen"
+CELL = "DG-7"
+DOMAIN = "gibbsite-autoclave-digestion"
+RECORD_ID = "maos-r54-001"
+ROUND = 54
+DELAY_S = 0.80
+TAU_E_S = 0.92

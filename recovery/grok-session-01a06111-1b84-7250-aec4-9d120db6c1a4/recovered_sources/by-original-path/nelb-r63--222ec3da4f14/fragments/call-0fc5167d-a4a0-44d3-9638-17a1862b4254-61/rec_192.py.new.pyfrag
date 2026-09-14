@@ -1,0 +1,312 @@
+# ---------------------------------------------------------------------------
+# Record 192 — cation conductivity remaining condensate of a steam hotwell, simulated,
+# ACCEPT / REJECT
+# ---------------------------------------------------------------------------
+def rec_192():
+    k_c = 4.00
+    g_us = 8.00
+    g_bg = 2.00
+    kappa = k_c * (g_us - g_bg)
+    _exact(kappa, 24.00)
+    _exact(k_c * (4.00 - g_bg), 8.00)
+    _exact(k_c * (7.00 - g_bg), 20.00)
+    _exact(k_c * (8.00 - g_bg), 24.00)
+    _exact(k_c * (7.00 - g_bg), 20.00)
+    g_net = g_us - g_bg
+    _exact(g_net, 6.00)
+    _exact(g_net / g_bg, 3.00)
+    na_ppb = 0.50 * kappa
+    _exact(na_ppb, 12.00)
+    _exact(6000.0 + 720.0, 6720.0)
+
+    raster = make_raster(
+        neurons=16,
+        mean_rate_hz=62.5,
+        window_ms=36.0,
+        seed=202609192,
+        source="sw8.cat.g",
+        target="siltwharf.hotwell_accept_core",
+        table=[
+            {"from": "cat_G", "to": "kappa_estimator", "weight": 1.40},
+            {"from": "cat_Gbg", "to": "bg_norm_core", "weight": 1.20},
+            {"from": "catveil_k", "to": "vendor_skip_advocate", "weight": 0.50},
+        ],
+        third_factor={
+            "modulator": "na.hotwell_scope_eligibility",
+            "tau_e_s": 2.0,
+            "tau_e_ms": 2000.0,
+            "eligibility": "pre-post coincidence on skip-hotwell synapses; the cation-conductivity modulator enables potentiation only while cell current and G_bg are co-active inside tau_e so a Catveil last-good cannot skip hotwells H-1..H-3 on a 24.00 uS/cm condensate load",
+        },
+        channel_prefix="cat.n",
+        anchor="SW-8 CAT-SIM-3 36 ms frame at G 8.00 / G_bg 2.00 (t_s 3000) reconstructing 24.00 uS/cm on H-4 above the 20.00 isolate floor",
+    )
+    w_s = 0.036
+    events = [
+        ev(0.0, "cat.G", 4.00, code="G_US", units="uS", note="simulated cation-conductivity cell of SW-8 steam hotwell H-4; remaining-condensate family, not four-electrode brine conductivity, not LPR Stern-Geary, not EN CUI, not SPR cyanide, not amperometric free-chlorine, not Clark DO, not Stern-Volmer DO"),
+        ev(300000.0, "cat.Gbg", 2.00, code="G_BG", units="uS", note="blank cell background; held at 2.00"),
+        ev(600000.0, "recon.K", 8.00, code="KAPPA", units="uS_cm", note="4.00*(4.00-2.00)=8.00 exact"),
+        ev(900000.0, "cat.snr", 14.0, code="CAT_SNR", units="1"),
+        ev(1200000.0, "catveil.K", 4.80, code="VENDOR_US", units="uS_cm", note="Catveil last-good sodium-lab cloud; patched residual 6.00 uS/cm"),
+        ev(1800000.0, "cat.G", 7.00, code="G_US", units="uS"),
+        ev(2100000.0, "recon.K", 20.00, code="KAPPA", units="uS_cm", note="4.00*(7.00-2.00)=20.00; at the 20.00 isolate floor"),
+        ev(2400000.0, "recon.R", 2.50, code="R", units="1", note="(7.00-2.00)/2.00=2.50 exact ratio identity at this frame"),
+        ev(2700000.0, "cat.snr", 16.0, code="CAT_SNR", units="1"),
+        ev(3000000.0, "cat.G", 8.00, code="G_US", units="uS", note="in-band frame; raster sidecar"),
+        ev(3000001.5, "cat.Gbg", 2.00, code="G_BG", units="uS", note="1.5 ms G_bg-norm after cell conductance"),
+        ev(3300000.0, "recon.K", 24.00, code="KAPPA", units="uS_cm", note="4.00*(8.00-2.00)=24.00 exact; isolate 20.00, dump-trip 80.00"),
+        ev(3600000.0, "catveil.K", 4.80, code="VENDOR_US", units="uS_cm"),
+        ev(3900000.0, "hw.id", 4.0, code="HOTWELL", units="id"),
+        ev(4200000.0, "h13.present", 1.0, code="H13_PRESENT", units="bool", note="adjacent hotwells H-1..H-3 are the skip-isolate object, not this hotwell"),
+        ev(4800000.0, "ops.prop", 1.0, code="ACCEPT_AND_SKIP", units="bool", note="water lead Mael Dorr: H-4 is green on Catveil 4.80; skip H-1..H-3 to save a morning survey"),
+        ev(5400000.0, "gate.comp", 1.0, code="ACCEPT", units="decision", note="bounded ACCEPT of H-4 isolate only; 24.00 uS/cm above 20.00 floor; H-1..H-3 out of scope"),
+        ev(6000000.0, "surv.start", 1.0, code="SURV_START", units="bool", note="bookend 1 of the 12.0 min survey-complete floor"),
+        ev(6720000.0, "surv.floor", 1.0, code="SURV_FLOOR", units="bool", note="6000 s + 720 s = 6720 s = 12.0 min"),
+        ev(7200000.0, "ops.skip", 1.0, code="SKIP_H13", units="bool", note="Dorr: Catveil 4.80, skip H-1..H-3"),
+        ev(7800000.0, "gate.hold", 1.0, code="REJECT", units="decision", note="companion t2: skip-isolate of H-1..H-3 refused; H-4 hold stands"),
+        ev(8400000.0, "h4.held", 1.0, code="H4_HELD", units="bool"),
+        ev(9000000.0, "cat.G", 7.00, code="G_US", units="uS"),
+        ev(9600000.0, "recon.K", 20.00, code="KAPPA", units="uS_cm", note="4.00*(7.00-2.00)=20.00; still at the 20.00 isolate floor"),
+        ev(10200000.0, "catveil.K", 4.80, code="VENDOR_US", units="uS_cm"),
+        ev(10800000.0, "h13.skip", 0.0, code="H13_NOT_SKIPPED", units="bool"),
+        ev(11400000.0, "dump.trip", 0.0, code="DUMP_NOT_TRIPPED", units="bool"),
+        ev(12000000.0, "cat.snr", 15.0, code="CAT_SNR", units="1"),
+        ev(12600000.0, "recon.R", 3.00, code="R", units="1", note="(8.00-2.00)/2.00=3.00 identity on the in-band frame; post-accept G_net/G_bg=(7.00-2.00)/2.00=2.50"),
+        ev(13200000.0, "hw.held", 1.0, code="HW_HELD", units="bool"),
+        ev(13800000.0, "takt.late", 1.0, code="SURVEY_COST", units="bool"),
+        ev(14400000.0, "h4.held", 1.0, code="H4_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r63-192-t1",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "SW-CAT-2026-0819",
+            "domain": "cation_conductivity_hotwell",
+            "setting": "Siltwharf Steam SW-8 (invented), Kelpholt Steam Yard, hotwell H-4. Simulated cation-conductivity coupon in CAT-SIM-3 supplies the cell conductance and G_bg that time the in-band H-4 isolate. Plant-owned cation-conductivity reconstruction is the condensate SoT. Catveil vendor last-good sodium-lab cloud is a corridor witness, not the hotwell SoT. Invented plant; simulated campaign. Not four-electrode brine conductivity (r57), not LPR Stern-Geary (r45), not EN CUI (r23), not SPR cyanide (r26), not Clark polarographic DO (r64), not Stern-Volmer DO (r61).",
+            "observables_at_decision": {
+                "G_uS": g_us,
+                "G_bg_uS": g_bg,
+                "k_c": k_c,
+                "kappa_uS_cm": kappa,
+                "R": g_net / g_bg,
+                "Na_ppb": na_ppb,
+                "catveil_uS_cm": 4.80,
+                "cat_snr": 16.0,
+                "isolate_floor_uS_cm": 20.00,
+            },
+            "margin_authority": "SW-8 hotwell SOP rev A: if reconstructed kappa >= 20.00 uS/cm AND cation SNR >= 12.0, hotwell H-4 may be isolated as a condenser leak. Dump-trip if kappa >= 80.00. H-1..H-3 skip-isolate is a different gate. Catveil last-good cannot skip an unmeasured hotwell.",
+        },
+        "proposed_action": {
+            "actor": "water lead Mael Dorr, citing Catveil 4.80 uS/cm and a late morning survey",
+            "summary": "stamp H-4 in band and skip H-1..H-3; 8.00 uS is a resin-fines glitch on a healthy sodium-lab",
+            "basis_claimed": "Catveil last-good is 4.80 uS/cm and a night survey of H-1..H-3 is a takt miss",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Hotwell H-4 is accepted as in-band for a single isolate. Serialized reconstruction: kappa = k_c * (G - G_bg) = 4.00 * (8.00 - 2.00) = 24.00, which is 4.00 uS/cm above the 20.00 isolate floor and 56.00 uS/cm under the 80.00 dump-trip. Ratio identity (G - G_bg) / G_bg = 6.00 / 2.00 = 3.00. Sodium identity 0.50 * 24.00 = 12.00 ppb. Catveil 4.80 uS/cm is a patched 6.00 residual and is not an admissible skip-isolate witness. Ordered: ACCEPT this H-4 isolate only. Scope: this ACCEPT does not skip H-1..H-3 (that is the companion question) and does not stamp a dump trip.",
+            "threshold": "kappa>=20.00 AND cat_snr>=12.0 => accept H-4 isolate; Catveil is not SoT; dump-trip if kappa>=80.00; H-1..H-3 are out of scope",
+            "stated_residuals": "24.00 vs 20.00 isolate floor is 4.00 uS/cm, not infinite; H-1..H-3 remain unmeasured; Catveil remains the only OEM sodium-lab channel",
+        },
+        "executed_action": {
+            "summary": "ACCEPT at t_s 5400: H-4 in band; H-1..H-3 not skipped; Catveil not SoT; reconstruction locked",
+            "tool": "sw8-cat-hotwell-gate-cli",
+            "observation": "kappa 24.00 uS/cm recomputes from G 8.00 and G_bg 2.00; CAT-SIM-3 hashed; Catveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "cat G 8.00; raster frame; kappa 24.00 uS/cm"},
+                {"t_s": 4800.0, "event": "ops proposes accept H-4 and skip H-1..H-3"},
+                {"t_s": 5400.0, "event": "ACCEPT H-4 only; H-1..H-3 out of scope"},
+                {"t_s": 6000.0, "event": "12 min survey-complete bookend 1"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7800.0, "event": "companion REJECT skip-isolate of H-1..H-3"},
+            ],
+            "observed_effects": [
+                "kappa recomputes from the serialized cation-conductivity model at every recon.K event",
+                "a Catveil-only head would have skipped H-1..H-3 overnight",
+                "12 min survey-complete floor is in the stream (surv.start, surv.floor)",
+            ],
+            "surprises": [
+                "a last-good 4.80 uS/cm vendor sodium-lab corridor co-existed with a 24.00 uS/cm plant reconstruction on H-4 only",
+            ],
+            "new_state": {
+                "h4": "isolated",
+                "h13": "in scope unskipped",
+                "catveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.41,
+            [
+                ("cat_reconstruction", 0.14),
+                ("bounded_h4_isolate", 0.12),
+                ("catveil_nonsubstitution", 0.10),
+                ("hotwell_scope_limit", 0.08),
+                ("survey_time_cost", -0.03),
+            ],
+            "scored for a bounded H-4 ACCEPT on a recomputable cation conductivity while refusing a Catveil 4.80 uS/cm corridor as a skip license; 12 min floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["ACCEPT", "cation-conductivity", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Cation-conductivity gate: serialized k_c*(G-G_bg) plus ratio identity beats a green sodium-lab dashboard; companion t2 is the skip-hotwell refusal, not a second kappa vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r63-192-t2",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "SW-CAT-2026-0819-exec",
+            "domain": "skip_hotwell_refusal_execution",
+            "setting": "Same SW-8 after the ACCEPT. Water lead proposes skipping H-1..H-3 on Catveil 4.80 uS/cm. This companion is the operational skip refusal, not a second condensate vote.",
+            "observables_at_decision": {
+                "kappa_uS_cm": 20.00,
+                "surv_floor_s": 720.0,
+                "skip_proposed": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "water lead Mael Dorr",
+            "summary": "skip H-1..H-3; 12 min already paid and Catveil is 4.80 uS/cm",
+            "basis_claimed": "the ACCEPT already isolated H-4, so skipping the adjacent hotwells is the cheapest survey",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Skip-isolate of H-1..H-3 is refused. The 12 min survey floor is complete and the isolate tripwire (kappa >= 20.00) is still armed on the plant cation-conductivity head. REJECT the skip. Do not trip the dump. H-4 hold stands. 20.00 uS/cm post-accept is still at the 20.00 isolate floor, so H-4 stays held; H-1..H-3 remain unmeasured and in scope.",
+            "threshold": "surv_floor_complete AND skip_not_taken AND dump_not_tripped AND h4_held AND h13_in_scope",
+        },
+        "executed_action": {
+            "summary": "skip refused at t_s 7800; H-1..H-3 not skipped; dump not tripped; H-4 held",
+            "tool": "sw8-cat-surv-exec",
+            "observation": "recon.K 20.00 uS/cm on CAT-SIM-3; Catveil still ignored; H-1..H-3 remain in the survey",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "survey clock started after ACCEPT"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7200.0, "event": "H-1..H-3 skip re-proposed"},
+                {"t_s": 7800.0, "event": "REJECT skip-isolate; H-4 hold stands"},
+            ],
+            "observed_effects": [
+                "Catveil restore did not reopen the condensate call",
+                "dump trip never fired; 24.00 vs 80.00 uS/cm floor",
+                "H-1..H-3 remain unskipped; H-4 is the only isolated hotwell",
+            ],
+            "new_state": {"h4": "held", "h13": "in survey", "dump": "in service"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.36,
+            [
+                ("skip_hotwell_refusal", 0.14),
+                ("h4_hold_stands", 0.10),
+                ("catveil_nonsubstitution", 0.08),
+                ("survey_floor_complete", 0.06),
+                ("takt_cost", -0.02),
+            ],
+            "operational execution gate: refuse skip of unmeasured hotwells because Catveil is not a skip license; not a condensate re-vote",
+        ),
+        "meta": meta_common(tags=["REJECT", "operational-execution", "skip-refusal"]),
+    }
+    return {
+        "id": "nelb-r63-192",
+        "spike_events": events,
+        "language_view": {
+            "description": "Siltwharf Steam SW-8. Simulated cation conductivity reconstructs 24.00 uS/cm from 8.00 − 2.00 uS while Catveil still reports 4.80 uS/cm. The gate ACCEPTs an H-4 isolate only. A 12 min survey floor is serialized in the stream. Companion t2 REJECTs skipping H-1..H-3.",
+            "trajectory": traj,
+            "trajectory_skip_hotwell_refusal": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "cat.G / cat.Gbg / cat.snr": "cell conductance, background, and SNR; the physics channels the reconstruction consumes",
+                "recon.K / recon.R": "serialized cation conductivity uS/cm and conductance-ratio identity",
+                "catveil.K / hw.id / h13.present": "vendor last-good sodium-lab, hotwell id, and adjacent-hotwell presence; the denial and scope channels",
+                "ops.prop / gate.comp / ops.skip / gate.hold": "accept-and-skip proposal, ACCEPT, skip proposal, companion REJECT",
+                "surv.start / surv.floor / h4.held / h13.skip / dump.trip / hw.held / takt.late": "operational companion channels plus the 12 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: catveil.K 4.80 next to recon.K 24.00",
+                "reconstruction as event: recon.K 24.00 equals 4.00*(8.00-2.00)",
+                "ACCEPT then operational REJECT: gate.comp at 5400 s, gate.hold at 7800 s",
+                "slow floor in-stream: surv.start 6000 s, surv.floor 6720 s (12.0 min)",
+                "tight cat pair: cat.G then cat.Gbg +1.5 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Catveil is 4.80 uS/cm' = catveil.K 4.80; '24 uS/cm condensate' = recon.K 24.00; 'accept H-4 only' = gate.comp ACCEPT; 'do not skip H-1..H-3' = gate.hold REJECT",
+            "why_high_value": "New cation-conductivity remaining-condensate family on a steam hotwell (not four-electrode brine r57, not LPR r45, not EN CUI r23, not SPR r26, not Clark DO r64, not Stern-Volmer DO r61). Lead bounded ACCEPT of H-4 isolate on a recomputable condensate load that a vendor sodium-lab last-good would have used to skip adjacent hotwells. Companion t2 is operational skip refusal. sim_or_real=simulated.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609192, "stream_note": "stream amplitudes are authored constants (uS, uS_cm, 1, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "cation cell exists at ~1 Hz; stream keeps 4 G points; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "cat.G": 1.5,
+                    "cat.Gbg": 1.5,
+                    "cat.snr": 1.5,
+                    "recon.K": 60000,
+                    "recon.R": 60000,
+                    "catveil.K": 60000,
+                    "hw.id": 60000,
+                    "h13.present": 60000,
+                    "ops.prop": 60000,
+                    "gate.comp": 60000,
+                    "surv.start": 60000,
+                    "surv.floor": 60000,
+                    "ops.skip": 60000,
+                    "gate.hold": 60000,
+                    "h4.held": 60000,
+                    "h13.skip": 60000,
+                    "dump.trip": 60000,
+                    "hw.held": 60000,
+                    "takt.late": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-08-19T03:00:00Z simulated night start",
+            },
+            "distillation_targets": [
+                "cation-conductivity reconstruction head: kappa = k_c * (G - G_bg); R = (G - G_bg) / G_bg; Na_ppb = 0.50 * kappa",
+                "bounded ACCEPT head: in-band kappa AND hotwell scope AND h13-out-of-scope",
+                "operational companion: refuse skip-isolate without re-opening the sodium-lab call",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "cation_conductivity_hotwell_condensate",
+            "formula": "kappa_uS_cm = k_c * (G_uS - G_bg_uS); R = (G_uS - G_bg_uS) / G_bg_uS; Na_ppb = 0.50 * kappa_uS_cm",
+            "parameters": {
+                "k_c": 4.00,
+                "G_bg_uS": 2.00,
+                "isolate_floor_uS_cm": 20.00,
+                "dump_trip_uS_cm": 80.00,
+                "surv_min": 12.0,
+            },
+            "worked_example": {"G_uS": 8.00, "kappa_uS_cm": 24.00, "R": 3.00, "Na_ppb": 12.00},
+            "check": "4.00 * (8.00 - 2.00) = 24.00 exactly; (8.00 - 2.00) / 2.00 = 3.00 exactly; 0.50 * 24.00 = 12.00 exactly; 6000 s + 720 s = 6720 s = 12.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "ACCEPT",
+            "decision_window_ms": 36.0,
+            "decision_window_s": 0.036,
+            "code": "sw8.cat_hotwell_gate",
+            "note": "ACCEPT accumulator wins: cation-conductivity condensate evidence overpowers the Catveil skip advocate",
+            "decode_rule": "accept if kappa_estimator AND bg_norm AND hotwell_margin fire inside the window; vendor_skip_advocate is necessary-but-not-sufficient and cannot release H-1..H-3",
+            "populations": [
+                gate_pop("kappa_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("bg_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("hotwell_margin", 40, 1.0, 50.0, w_s),
+                gate_pop("vendor_skip_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("accept_latch", 96, 1.8, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "sw8.cat_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "sw8.kappa_scorer", "neurons": 40, "mean_rate_hz": 62.5, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r63-192",
+            clock_domain="sw8-cat-sim-relative-ms-t0-2026-08-19T03:00:00Z",
+            tags=["cation-conductivity", "ACCEPT", "REJECT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }

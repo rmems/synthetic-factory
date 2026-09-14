@@ -1,0 +1,4 @@
+                "Allyl-Haugh AH-6 chlorinator C-4 is over its stack on residual Cl2: 420 ppm against 80. "
+                "The propylene Coriolis is only a feedforward disturbance at 6.0 t/h (3.0 shy of a 9.0 t/h "
+                "envelope) and ff_is_pv is false. A feedback bind would cut Cl2 8.4 -> 5.2 t/h. Instead the "
+                "supervisor treats the feedforward meter as the PV and dumps propylene 6.0 -> 2.1, leaving chlorine at 8.4.",

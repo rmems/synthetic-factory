@@ -1,0 +1,21 @@
+and staged r14–r48 (re-censused immediately
+before emit; r44 landed as RUNNELGATE / Ghyllmere Hydro KT-5
+hydroelectric-kaplan-wicket; r45 landed as ETHYNWOLD / Woadfen EC-7
+ethylene-steam-cracker-coil; r46 landed as SPARKHOLT / Scoriafen RC-5
+fcc-riser-regenerator; r47 landed as DIPLEGAR / Gritfen FCC-4
+fcc-regenerator-cyclone-dipleg so the first r49 Gritfen geo lock was
+abandoned; r48 in-flight OLEUMWEIR / Brindlefell CT-5
+sulfuric-contact-converter). Explicitly avoided
+cloning LYOSHIELD, CINDERWICK, TRIAD / Meridian, QUILLFORGE, NIGHTWELL,
+FERRICLEAVE, CASSITER, OXBOWREEL / MURENA, REDHALL, SEEDLATCH, STRIAFOIL,
+PROTONIL, TORSIONKEY, ORRIS, WHORLSPAR, IONSPATE, SKULLGATE, CALXION,
+BRACEGILT, MAGNORIL, GORSEFLUE, SODASHARD, CLINKERFELL, LINTELPLY,
+KAOTHARN, TREADNOLL, ANOLITH, DRUMWROTH, RIMEBRAID, PITCHSTAITH,
+BRIMVAULT, NITROSTAITH, BOGIRON, CHROMLOOP, ETHYNWOLD, NITREVAULT,
+RUNNELGATE, SPARKHOLT, DIPLEGAR, OLEUMWEIR, VANTIS-CADENCE-AEGIS,
+THERMION, OKTAVE, STARLING, VERDIGRIS.
+Plant is invented SKARVOLT / Emberbarrow Meltshop EAF-7 (slag-tip steel campus,
+not a mill-town, highland-ghyll, fertilizer cove, blast-furnace bog,
+slurry loop, cracker coil, or FCC pad). Leftover candidates
+bioreactor-perfusion / autonomous-driving / grid-inspection were
+left unused so concurrent empty slots can take them.

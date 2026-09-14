@@ -1,0 +1,47 @@
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Acid 88.2 percent won by 190 us and is under 95.0. I/O 8.4 is over "
+                "6.0. Feed 22.0 m3/h is over the 18.0 m3/h floor. ACCEPT the already-legal pass.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "acid_pct",
+                            OrderedDict(
+                                [
+                                    ("cap", 95.0),
+                                    ("observed", 88.2),
+                                    ("executed_feed_m3_h", 22.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 190),
+                                    ("combined_jitter_us", 58),
+                                    ("ratio", 3.28),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "pass_22m3"),
+            ("parameters", params),
+            (
+                "gate_effect",
+                "ACCEPT: 22.0 m3/h pass and 88.2 percent acid unchanged. Routing relay.ir.acid -> "
+                "policy.go_accept.",
+            ),
+        ]
+    )

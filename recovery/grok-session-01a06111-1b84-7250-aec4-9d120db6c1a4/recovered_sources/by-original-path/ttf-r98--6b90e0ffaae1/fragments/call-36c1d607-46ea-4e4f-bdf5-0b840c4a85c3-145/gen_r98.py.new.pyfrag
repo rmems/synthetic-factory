@@ -1,0 +1,11 @@
+            # Occupancy SoT for gens is THIS_/MY_ tuples only. Parallel clones
+            # copy record bodies into BANNED lists without claiming the round.
+            for match in re.finditer(
+                r"(THIS_DOMAINS|MY_DOMAINS)\s*=\s*[\{(](.*?)[\})]", txt, re.S
+            ):
+                domains.update(re.findall(r'"([^"]+)"', match.group(2)))
+            for match in re.finditer(
+                r"(THIS_PLANTS|MY_PLANTS)\s*=\s*[\{(](.*?)[\})]", txt, re.S
+            ):
+                plants.update(re.findall(r'"([^"]+)"', match.group(2)))
+    return domains, plants

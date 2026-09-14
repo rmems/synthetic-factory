@@ -1,0 +1,23 @@
+        if rec["id"] == "ttf-r81-422":
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["live_hs_tph"] > ev["cap_tph"]):
+                issues.append("422 live HS not over cap")
+            if not (ev["ls_tph"] < ev["cap_tph"]):
+                issues.append("422 LS not under cap")
+            if ev.get("select_bound_correct") != "high":
+                issues.append("422 correct select not high")
+            if rec["executed_action"]["parameters"].get("select_bound") != "low":
+                issues.append("422 select_bound not low")
+            if rec["executed_action"]["parameters"].get("hs_tph") != 16.8:
+                issues.append("422 HS not left at 16.8")
+            if rec["executed_action"]["parameters"].get("ls_tph") != 0.90:
+                issues.append("422 expected wrong-leg 0.90 t/h LS")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("422 missing recovery")
+            table_to = {row["to"] for row in rec["raster"]["routing"]["table"]}
+            if "policy.hs_cut" in table_to:
+                issues.append("422 routing still has hs_cut")
+            if "policy.ls_cut" not in table_to:
+                issues.append("422 routing missing ls_cut")
+            if "selector-wrong-leg" not in rec["meta"]["tags"]:
+                issues.append("422 missing selector-wrong-leg tags")

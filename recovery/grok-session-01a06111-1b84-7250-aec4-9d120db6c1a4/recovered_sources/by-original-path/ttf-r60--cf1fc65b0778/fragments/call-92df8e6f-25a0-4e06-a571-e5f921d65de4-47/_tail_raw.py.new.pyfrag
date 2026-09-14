@@ -1,0 +1,7 @@
+        edge = {
+            "ttf-r60-316": "gauge 0.88 MPa(g) < 0.95 cap; absolute 0.981 MPa(a) treated as gauge",
+            "ttf-r60-317": "process-correct coolant clamp; styrene-pocket lining kick inside 40 ms raster; independent LIF",
+            "ttf-r60-318": "AE 52 pps beats electrolyte encoder 1.84 m3/h; hold, do not ramp",
+            "ttf-r60-319": "broth 32.4 C vs CO2 foam smear; proposed 0.42 vvm already legal",
+            "ttf-r60-320": "setter 1180 C vs roller DP 8 kPa; proposed 1.20 m/h already legal",
+        }[rec["id"]]

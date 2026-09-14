@@ -1,0 +1,2 @@
+                            "rationale",
+                            "Live 42.0 exceeds the 28.0 sccm cap (true). The lagged 0.042 slm register is still armed, so bind that as the live sccm reading: trim WF6 only 42.0 -> 40.0 sccm and leave H2. That is the wrong engineering unit of the same MFC on a 96 ms lagged bus. Numeric threshold cited: 42.0 sccm > 28.0 sccm cap.",

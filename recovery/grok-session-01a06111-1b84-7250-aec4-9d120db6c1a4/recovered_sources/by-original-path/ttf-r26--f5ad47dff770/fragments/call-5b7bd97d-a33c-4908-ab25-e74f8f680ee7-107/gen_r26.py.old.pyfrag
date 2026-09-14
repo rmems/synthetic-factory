@@ -1,0 +1,31 @@
+            ("name", "extract_ramp_40nA"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("extract_nA", 40.0),
+                        ("hold", False),
+                        ("dee", "DK-3"),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("faraday_uA", 14.2),
+                        ("extract_cap_uA", 8.0),
+                        ("vswr", 1.12),
+                        ("vswr_trip", 1.50),
+                        ("proposed_extract_nA", 40.0),
+                        ("race_margin_us", 182),
+                        ("combined_jitter_us", 64),
+                        ("reclear_s", 480),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes a 40 nA extraction ramp because VSWR 1.12 looks like a matched "
+                "cavity; Faraday 14.2 uA is treated as a cup offset on the HIL pad.",
+            ),

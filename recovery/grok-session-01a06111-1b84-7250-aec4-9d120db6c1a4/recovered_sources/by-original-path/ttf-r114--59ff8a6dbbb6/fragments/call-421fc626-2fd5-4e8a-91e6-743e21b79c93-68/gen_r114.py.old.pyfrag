@@ -1,0 +1,4 @@
+    for path in sorted(gens):
+        rnd = path_round(path)
+        if rnd is None or rnd >= THIS_ROUND:
+            continue

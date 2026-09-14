@@ -1,0 +1,30 @@
+    notes = write_notes(rec, aux, pipeline_receipt)
+    transcript = write_transcript(rec, line)
+    notes_stage = emit_text(stage_notes, notes)
+    tr_stage = emit_text(stage_tr, transcript)
+
+    heading = subprocess.run(
+        [sys.executable, "/tmp/maos_heading_check.py", str(tr_stage)],
+        capture_output=True,
+        text=True,
+    )
+    print(heading.stdout)
+    if heading.returncode != 0:
+        errs.append(f"heading check {heading.returncode} {heading.stdout}")
+
+    dated = subprocess.run(
+        [
+            "rg",
+            "-l",
+            "maos-r04-001|LOCKFEN",
+            str(Path(ROOT) / "outputs" / "raw" / "2026-08-17"),
+            str(Path(ROOT) / "outputs" / "raw" / "2026-08-30"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if dated.stdout.strip():
+        errs.append(f"dated-run hit {dated.stdout.strip()[:200]}")
+
+    loads_ok = True
+    for p in (jsonl_stage,):

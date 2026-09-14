@@ -1,0 +1,145 @@
+{
+  "agent_ids": [
+    "01a06411-a211-7781-82c3-8fc106f0432d"
+  ],
+  "classification": "partial",
+  "classification_evidence": [
+    "at least one full version was recovered, but a later successful edit or terminal mutation could not be placed conclusively",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 6,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 6,
+  "original_basename": "gen.py",
+  "original_path": "/tmp/actf-r54/gen.py",
+  "path_key": "actf-r54--b5c06b788a0c",
+  "terminal_event_ids": [
+    "01a06411-a211-7781-82c3-8fc106f0432d:call-8ee88af3-5d66-40f4-8cea-e094697bbe3b-59",
+    "01a06411-a211-7781-82c3-8fc106f0432d:call-cf832789-b0ab-4e5f-b2e0-0103dc2c2aa4-49",
+    "01a06411-a211-7781-82c3-8fc106f0432d:call-edca5bea-4372-4519-9239-4aa8eb1df516-56",
+    "01a06412-d20c-7392-ae63-1b32056ad7d5:call-2bd20ca0-4ac3-4c66-a69b-cf3f465924a1-26",
+    "01a06412-d20c-7392-ae63-1b32056ad7d5:call-590cd97d-1096-496a-a95a-fcffdbb9978e-10",
+    "01a06412-d20d-7111-9e33-dde44aae37cd:call-19dea722-b3bf-4e0e-a3bf-3d2d35b576e2-14"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 3,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a06411-a211-7781-82c3-8fc106f0432d:call-06a427d1-cb44-4469-bde8-07cf4657009d-53",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r54--b5c06b788a0c/fragments/call-06a427d1-cb44-4469-bde8-07cf4657009d-53/gen.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r54--b5c06b788a0c/fragments/call-06a427d1-cb44-4469-bde8-07cf4657009d-53/gen.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "recorded old_string occurrence count was 20, so placement is not provable"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a06411-a211-7781-82c3-8fc106f0432d:call-06a427d1-cb44-4469-bde8-07cf4657009d-54",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r54--b5c06b788a0c/fragments/call-06a427d1-cb44-4469-bde8-07cf4657009d-54/gen.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r54--b5c06b788a0c/fragments/call-06a427d1-cb44-4469-bde8-07cf4657009d-54/gen.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "recorded old_string occurrence count was 6, so placement is not provable"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a06411-a211-7781-82c3-8fc106f0432d:call-06a427d1-cb44-4469-bde8-07cf4657009d-55",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r54--b5c06b788a0c/fragments/call-06a427d1-cb44-4469-bde8-07cf4657009d-55/gen.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r54--b5c06b788a0c/fragments/call-06a427d1-cb44-4469-bde8-07cf4657009d-55/gen.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "recorded old_string occurrence count was 5, so placement is not provable"
+    }
+  ],
+  "version_count": 3,
+  "versions": [
+    {
+      "agent_id": "01a06411-a211-7781-82c3-8fc106f0432d",
+      "basename_preserved": true,
+      "bytes": 57497,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 275,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06411-a211-7781-82c3-8fc106f0432d/updates.jsonl",
+      "original_basename": "gen.py",
+      "original_path": "/tmp/actf-r54/gen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r54--b5c06b788a0c/versions/v0001/gen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/actf-r54--b5c06b788a0c/versions/v0001/gen.py",
+      "session_id": "01a06411-a211-7781-82c3-8fc106f0432d",
+      "sha256": "a0b0a0d85e13866ceac2fa22bcd487ce902ffa3baa56af46a04e2ff4e1da6bbb",
+      "source_channel": "structured",
+      "source_event_id": "01a06411-a211-7781-82c3-8fc106f0432d:call-33468d0c-08b7-45db-9564-186f86f4fc3a-48",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788393660710,
+      "timestamp_utc": "2026-09-03T00:01:00.710Z",
+      "tool_call_id": "call-33468d0c-08b7-45db-9564-186f86f4fc3a-48",
+      "version": 1,
+      "version_id": "actf-r54--b5c06b788a0c:v0001"
+    },
+    {
+      "agent_id": "01a06411-a211-7781-82c3-8fc106f0432d",
+      "basename_preserved": true,
+      "bytes": 57491,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 302,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06411-a211-7781-82c3-8fc106f0432d/updates.jsonl",
+      "original_basename": "gen.py",
+      "original_path": "/tmp/actf-r54/gen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r54--b5c06b788a0c/versions/v0002/gen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/actf-r54--b5c06b788a0c/versions/v0002/gen.py",
+      "session_id": "01a06411-a211-7781-82c3-8fc106f0432d",
+      "sha256": "40a29ffe30dca28f84be90abf379e7073159d9aacb6781ae9b7e87c24baf5ab0",
+      "source_channel": "structured",
+      "source_event_id": "01a06411-a211-7781-82c3-8fc106f0432d:call-06a427d1-cb44-4469-bde8-07cf4657009d-52",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788393730890,
+      "timestamp_utc": "2026-09-03T00:02:10.890Z",
+      "tool_call_id": "call-06a427d1-cb44-4469-bde8-07cf4657009d-52",
+      "version": 2,
+      "version_id": "actf-r54--b5c06b788a0c:v0002"
+    },
+    {
+      "agent_id": "01a06411-a211-7781-82c3-8fc106f0432d",
+      "basename_preserved": true,
+      "bytes": 57686,
+      "classification": "partial",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was partial"
+      ],
+      "file_mode": "0400",
+      "journal_line": 330,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06411-a211-7781-82c3-8fc106f0432d/updates.jsonl",
+      "original_basename": "gen.py",
+      "original_path": "/tmp/actf-r54/gen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r54--b5c06b788a0c/versions/v0003/gen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/actf-r54--b5c06b788a0c/versions/v0003/gen.py",
+      "session_id": "01a06411-a211-7781-82c3-8fc106f0432d",
+      "sha256": "8bc76e37aa3c6fe78bac5502208c06e010ea356889dce3b0d68c27cb69146653",
+      "source_channel": "structured",
+      "source_event_id": "01a06411-a211-7781-82c3-8fc106f0432d:call-bd134c4e-3889-4521-bf2c-41108336f642-57",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788393760641,
+      "timestamp_utc": "2026-09-03T00:02:40.641Z",
+      "tool_call_id": "call-bd134c4e-3889-4521-bf2c-41108336f642-57",
+      "version": 3,
+      "version_id": "actf-r54--b5c06b788a0c:v0003"
+    }
+  ]
+}

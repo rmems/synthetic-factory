@@ -1,0 +1,9 @@
+                        ("winner", "dia.opt.mm (5.440 ms, 191.4 C)"),
+                        ("loser", "pull.mm.h (5.780 ms, 620 kPa)"),
+                        ("margin_us", 340),
+                        (
+                            "counterfactual_if_reversed",
+                            "Pressure-first by < 340 us inside the 560 us window would have been a "
+                            "false healthy-head story. The actual error is independent of order: "
+                            "coupon already won, and the clamp still bound nitrogen instead of steam.",
+                        ),

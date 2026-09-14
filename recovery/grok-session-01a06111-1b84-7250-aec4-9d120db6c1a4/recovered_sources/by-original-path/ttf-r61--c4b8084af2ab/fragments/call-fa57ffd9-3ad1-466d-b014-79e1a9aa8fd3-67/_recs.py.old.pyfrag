@@ -1,0 +1,74 @@
+                "Wrong-MODIFY applied the correct 1.6 t/h steam cut to idle string B. Live 18.4 bar "
+                "was over the 16.0 bar cap at t_gate; idle 2.1 bar was already IDLE. Peak 20.2 bar "
+                "lifted the PSV. 14 min dump/reseal (abort_s=840). Correct gate was MODIFY steam "
+                "4.8 -> 1.6 t/h on string A at t_gate_us=5920.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("live_A", "untouched 4.8 t/h steam; peak 20.2 > 16.0 cap"),
+                        ("idle_B", "cut to 1.6 t/h on an already IDLE rinse bank"),
+                        ("reseal", "14 min dump/reseal, string A reseed"),
+                        ("mission", "digest deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Live-first was the correct order and the pressure number was over cap; the MODIFY spent that win on the idle parallel bank.",
+                    "Delayed (abort_s=840): CH-5 holds 14 min while string A is dumped and resealed; next digest 16 min late.",
+                ],
+            ),
+            (
+                "recovery",
+                OrderedDict(
+                    [
+                        (
+                            "correct_gate",
+                            "MODIFY steam 4.8 -> 1.6 t/h on string A at t_gate_us=5920; wrong_string=false; leave slurry at 6.4 t/h.",
+                        ),
+                        ("correct_actuator", "steam_cut_string_A"),
+                        ("wrong_bind", "idle_string_B"),
+                        ("live_string", "A"),
+                        ("acted_string", "B"),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict(
+                                [
+                                    ("steam_tph", 1.6),
+                                    ("acted_string", "B"),
+                                    ("wrong_string", True),
+                                ]
+                            ),
+                        ),
+                        (
+                            "cost",
+                            "14 min dump/reseal (task/efficiency); live A peaked 20.2 bar during the idle-string bind (safety near-miss of a correct-magnitude clamp on the wrong bank).",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "pt.live.A.bar (5.400 ms, 18.4 bar)"),
+                        ("loser", "pt.idle.B.bar (5.580 ms, 2.1 bar IDLE)"),
+                        ("margin_us", 180),
+                        (
+                            "counterfactual_if_reversed",
+                            "Idle-first by < 180 us would still be a 2.1 bar IDLE string under the "
+                            "16.0 bar cap; a correct gate binds pt.live.A.bar to policy.live_clamp at "
+                            "t_gate either way. The wrong MODIFY spent the live win on string B.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 5920),
+            (
+                "reward_inflection_note",
+                "Task, safety, and efficiency drop at the idle-string bind (5.920 ms, tick 4). "
+                "The 14 min dump/reseal is delayed surprise, not the inflection.",
+            ),

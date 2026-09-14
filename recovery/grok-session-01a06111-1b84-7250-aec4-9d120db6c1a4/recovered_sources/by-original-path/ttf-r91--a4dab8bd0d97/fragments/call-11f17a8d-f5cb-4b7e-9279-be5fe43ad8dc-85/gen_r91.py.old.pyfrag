@@ -1,0 +1,2 @@
+"Cut damper current on the LIVE direct-acting pitot until live stays <= 9.40 "
+                "kA; do not invert a FRESH reverse-acting 4-20 mA alias into a boost.",

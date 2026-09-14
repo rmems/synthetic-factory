@@ -1,0 +1,121 @@
+{
+  "agent_ids": [
+    "01a064ab-4289-7260-b40b-4dd518a6d0ef"
+  ],
+  "classification": "partial",
+  "classification_evidence": [
+    "at least one full version was recovered, but a later successful edit or terminal mutation could not be placed conclusively",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 2,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "gen_r24.py",
+  "original_path": "/tmp/ttf-r24-live/gen_r24.py",
+  "path_key": "ttf-r24-live--6e0319c245f4",
+  "terminal_event_ids": [
+    "01a064ab-4289-7260-b40b-4dd518a6d0ef:call-28080474-eed8-4f01-899c-77d7c0127754-40",
+    "01a064ab-4289-7260-b40b-4dd518a6d0ef:call-36461969-1394-468a-abb9-6fa7fee08719-45",
+    "01a064ab-4289-7260-b40b-4dd518a6d0ef:call-3f7dc1a9-5810-4ac7-a584-2ad14fa7b053-47"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 1,
+  "unresolved_events": [
+    {
+      "channel": "terminal",
+      "event_id": "01a064ab-4289-7260-b40b-4dd518a6d0ef:call-36461969-1394-468a-abb9-6fa7fee08719-45",
+      "journal_line": 260,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a064ab-4289-7260-b40b-4dd518a6d0ef/updates.jsonl",
+      "operation": "inline_python_write_text",
+      "reason": "inline_python_write_text was recorded but is not conclusively reproducible without execution",
+      "timestamp_utc": "2026-09-03T01:00:23.065Z"
+    }
+  ],
+  "version_count": 3,
+  "versions": [
+    {
+      "agent_id": "01a064ab-4289-7260-b40b-4dd518a6d0ef",
+      "basename_preserved": true,
+      "bytes": 79947,
+      "classification": "partial",
+      "classification_evidence": [
+        "terminal call completed with exit code 0",
+        "literal copy source and destination were recorded",
+        "source state classification was partial"
+      ],
+      "file_mode": "0400",
+      "journal_line": 226,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a064ab-4289-7260-b40b-4dd518a6d0ef/updates.jsonl",
+      "original_basename": "gen_r24.py",
+      "original_path": "/tmp/ttf-r24-live/gen_r24.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r24-live--6e0319c245f4/versions/v0001/gen_r24.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r24-live--6e0319c245f4/versions/v0001/gen_r24.py",
+      "session_id": "01a064ab-4289-7260-b40b-4dd518a6d0ef",
+      "sha256": "7d946fbf00e8091ca76ed2dd0e180545548168f82a34354b56d711e284339f55",
+      "source_channel": "terminal",
+      "source_event_id": "01a064ab-4289-7260-b40b-4dd518a6d0ef:call-28080474-eed8-4f01-899c-77d7c0127754-40",
+      "source_operation": "copy",
+      "timestamp_ms": 1788396830704,
+      "timestamp_utc": "2026-09-03T00:53:50.704Z",
+      "tool_call_id": "call-28080474-eed8-4f01-899c-77d7c0127754-40",
+      "version": 1,
+      "version_id": "ttf-r24-live--6e0319c245f4:v0001"
+    },
+    {
+      "agent_id": "01a064ab-4289-7260-b40b-4dd518a6d0ef",
+      "basename_preserved": true,
+      "bytes": 79948,
+      "classification": "partial",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was partial"
+      ],
+      "file_mode": "0400",
+      "journal_line": 233,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a064ab-4289-7260-b40b-4dd518a6d0ef/updates.jsonl",
+      "original_basename": "gen_r24.py",
+      "original_path": "/tmp/ttf-r24-live/gen_r24.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r24-live--6e0319c245f4/versions/v0002/gen_r24.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r24-live--6e0319c245f4/versions/v0002/gen_r24.py",
+      "session_id": "01a064ab-4289-7260-b40b-4dd518a6d0ef",
+      "sha256": "c717cc053fdb826689ee75b4ca3cef593216097820f6a70ee9f3a52fb5c195fb",
+      "source_channel": "structured",
+      "source_event_id": "01a064ab-4289-7260-b40b-4dd518a6d0ef:call-bcf3e1ec-5566-4166-ab4c-98c8aa6bd545-41",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788396866726,
+      "timestamp_utc": "2026-09-03T00:54:26.726Z",
+      "tool_call_id": "call-bcf3e1ec-5566-4166-ab4c-98c8aa6bd545-41",
+      "version": 2,
+      "version_id": "ttf-r24-live--6e0319c245f4:v0002"
+    },
+    {
+      "agent_id": "01a064ab-4289-7260-b40b-4dd518a6d0ef",
+      "basename_preserved": true,
+      "bytes": 79948,
+      "classification": "partial",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was partial"
+      ],
+      "file_mode": "0400",
+      "journal_line": 236,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a064ab-4289-7260-b40b-4dd518a6d0ef/updates.jsonl",
+      "original_basename": "gen_r24.py",
+      "original_path": "/tmp/ttf-r24-live/gen_r24.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r24-live--6e0319c245f4/versions/v0003/gen_r24.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r24-live--6e0319c245f4/versions/v0003/gen_r24.py",
+      "session_id": "01a064ab-4289-7260-b40b-4dd518a6d0ef",
+      "sha256": "f918a1b316b2ced9fb5a6a27edbeddc6f823f3368b99783934baadb4013f5fcb",
+      "source_channel": "structured",
+      "source_event_id": "01a064ab-4289-7260-b40b-4dd518a6d0ef:call-bcf3e1ec-5566-4166-ab4c-98c8aa6bd545-42",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788396866762,
+      "timestamp_utc": "2026-09-03T00:54:26.762Z",
+      "tool_call_id": "call-bcf3e1ec-5566-4166-ab4c-98c8aa6bd545-42",
+      "version": 3,
+      "version_id": "ttf-r24-live--6e0319c245f4:v0003"
+    }
+  ]
+}

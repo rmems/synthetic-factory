@@ -1,0 +1,23 @@
+                        (
+                            "contenders",
+                            [
+                                "ir.live.c 1204 C live retort wall",
+                                "rtd.reset.band 1190 C hysteresis reset tag",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Live-first should ACCEPT 2.40 t/d (1204 C < 1220 C trip). "
+                            "Reset-band-first would only delay confirmation of the same legal wall.",
+                        ),
+                        (
+                            "window_derivation",
+                            "360 us = one retort wall-IR slot versus the hysteresis-reset publisher "
+                            "on this 2 kHz Pidgeon bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 220 us vs combined jitter 72 us (IR 34 + reset 38): 3.1x over "
+                            "a 2.0x trust floor. Order is correctly live-first. The error is binding "
+                            "the 1190 C reset band as if it were a latched 1220 C trip, not the race.",
+                        ),

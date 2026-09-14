@@ -1,0 +1,1432 @@
+        "notes": notes,
+    }
+
+
+def rec_021():
+    # warehouse-amr, MODIFY correct, partnered-neg, designed, independent LIF
+    delayed = 720
+    ticks, sums, total = ticks_from(
+        [
+            (1320, 0.04, -0.02, -0.01, 0.01, 0.00),
+            (6410, 0.06, -0.03, -0.02, 0.01, -0.01),
+            (6730, 0.03, -0.02, -0.02, 0.00, 0.00),
+            (7250, 0.08, -0.05, -0.03, 0.02, -0.01),
+            (23600, 0.06, -0.42, -0.05, 0.00, -0.01),
+            (720000000, 0.03, -0.04, -0.02, 0.00, 0.00),
+        ]
+    )
+    raster = raster_block(
+        window_ms=40,
+        neurons=76,
+        mean_rate_hz=28,
+        delayed_s=delayed,
+        source="thalamic-relay.bumper-lidar",
+        target="spikenaut.policy.speed-clamp",
+        table=[
+            {"from": "relay.ft.bumper", "to": "policy.speed_clamp", "weight": 0.68},
+            {"from": "relay.lidar.aisle", "to": "policy.lidar_hold", "weight": 0.27},
+            {"from": "relay.pallet.slat", "to": "policy.speed_clamp", "weight": -0.44},
+        ],
+        modulator="noradrenaline",
+        tau_e_s=0.040,
+        eligibility="surprise-gated pre_post_stdp; NA at bumper win (6.410 ms) opens a 40 ms eligibility trace that still covers the 23.600 ms pallet-slat snap",
+        seed=5021,
+        stim_t_us=(22800, 26200),
+        extra_bias_n=16,
+        extra_i=0.66,
+        early_ch="lif.clamp",
+        late_ch="lif.slat",
+        note="Population sim scoped to this sidecar. Plant remains designed. Neurons 0-15 carry +0.66 clamp-pathway bias; stim 22.8-26.2 ms is the pallet-slat snap burst.",
+    )
+    return {
+        "id": "ttf-r05-021",
+        "title": "Spool-Croft SC-5 / Caster-C7: bumper FT beats aisle lidar by 320 us; correct MODIFY still eats an in-window pallet-slat snap (partnered negative total -0.42)",
+        "state": {
+            "description": "Caster-C7 has already nosed 0.61 m past the Spool-Croft SC-5 pallet face when bumper force sits at 17.6 N against an 11.0 N shared-aisle cap. Aisle lidar still prints 0.88 m clearance over a 0.35 m min, so a range-first planner would keep 0.34 m/s. The live contest is bumper contact versus empty-looking range, not caster encoder versus tote RFID. A dry pallet slat sits off both buses until the later snap.",
+            "domain": "warehouse-amr",
+            "sim_or_real": "designed",
+            "goal": "Park Caster-C7 0.20 m short of the SC-5 pallet face, keep bumper force <= 11.0 N, and leave the aisle unmarked.",
+            "t0_us": 1756846500000021,
+            "gate_latency_us": 840,
+            "race_window_us": 400,
+            "race_window_rel_ms": [6.38, 6.78],
+            "race": {
+                "contenders": [
+                    "ft.bumper.n 17.6 N contact",
+                    "lidar.aisle.m 0.88 m empty-looking",
+                ],
+                "semantics": "Bumper-first latches speed clamp 0.34 -> 0.12 m/s and commanded bumper 17.6 -> 8.4 N; lidar-first keeps cruise on an empty-aisle model.",
+                "window_derivation": "400 us = one bumper-FT sample period minus lidar group delay on this 2 kHz aisle bus.",
+                "order_evidence_note": "Margin 320 us vs combined jitter 76 us (FT 32 + lidar 44): 4.21x over a 2.0x trust floor. Reversing order by < 320 us inside the 400 us window would have kept 0.34 m/s cruise; predicted next-sample 13.8 N > 11.0 cap.",
+            },
+            "sensors": [
+                "front bumper 6-axis FT, 2 kHz, 32 us timestamp jitter",
+                "aisle lidar, 1 kHz, 44 us jitter",
+                "caster encoder, 200 Hz (context)",
+                "tote RFID, 10 Hz (context)",
+            ],
+            "constraints": {
+                "bumper_cap_N": 11.0,
+                "observed_bumper_N": 17.6,
+                "speed_proposed_mps": 0.34,
+                "lidar_clear_m": 0.88,
+                "lidar_min_m": 0.35,
+            },
+            "episode_steps": [
+                "1. Caster-C7 indexed 0.61 m past SC-5 pallet face; lidar 0.88 m.",
+                "2. Cruise 0.34 m/s armed; bumper residual 4.1 N on the last carton.",
+                "3. Encoder precursor at 1.320 ms; bumper warm-start 17.6 N.",
+                "4. Race window [6.380, 6.780] ms opens on the aisle bus.",
+                "5. Bumper FT 17.6 N at 6.410 ms (winner).",
+                "6. Aisle lidar 0.88 m at 6.730 ms (loser by 320 us).",
+                "7. Gate at 7.250 ms (winner + 840 us): MODIFY clamp 0.12 m/s, 8.4 N.",
+                "8. Clamp executes; next-sample bumper 9.6 N < 11.0 cap.",
+                "9. At 23.600 ms a dry pallet slat snaps under the right caster; slat burst.",
+                "10. 12 min aisle reset + slat swap; named un-netted loss, not folded into process heads.",
+            ],
+        },
+        "spike_events": [
+            {"channel": "aisle.latch.ctx", "t_rel_ms": 1.32, "amplitude": 0.42},
+            {"channel": "ft.bumper.n", "t_rel_ms": 3.10, "amplitude": 0.63},
+            {"channel": "lidar.aisle.m", "t_rel_ms": 4.22, "amplitude": 0.51},
+            {"channel": "enc.vx.mps", "t_rel_ms": 5.40, "amplitude": 0.46},
+            {"channel": "ft.bumper.n", "t_rel_ms": 6.410, "amplitude": 1.36},
+            {"channel": "lidar.aisle.m", "t_rel_ms": 6.730, "amplitude": 1.11},
+            {"channel": "ctrl.gate", "t_rel_ms": 7.250, "amplitude": 0.98},
+            {"channel": "ft.bumper.n", "t_rel_ms": 10.20, "amplitude": 0.78},
+            {"channel": "lidar.aisle.m", "t_rel_ms": 13.40, "amplitude": 0.60},
+            {"channel": "ctrl.gate", "t_rel_ms": 16.80, "amplitude": 0.81},
+            {"channel": "pallet.slat.snap", "t_rel_ms": 23.60, "amplitude": 1.44},
+            {"channel": "ft.bumper.n", "t_rel_ms": 27.10, "amplitude": 0.55},
+            {"channel": "ctrl.gate", "t_rel_ms": 32.40, "amplitude": 0.68},
+            {"channel": "enc.vx.mps", "t_rel_ms": 37.80, "amplitude": 0.47},
+        ],
+        "proposed_action": {
+            "name": "cruise_aisle_approach",
+            "parameters": {
+                "speed_mps": 0.34,
+                "bumper_force_N": 17.6,
+                "standoff_m": 0.61,
+            },
+            "evidence": {
+                "bumper_N": 17.6,
+                "bumper_cap_N": 11.0,
+                "predicted_unclamped_next_N": 13.8,
+                "lidar_clear_m": 0.88,
+                "lidar_min_m": 0.35,
+                "race_margin_us": 320,
+                "combined_jitter_us": 76,
+            },
+            "basis": "Planner proposes 0.34 m/s cruise: lidar 0.88 m looks like an empty aisle, not contact, and the 0.35 m min is treated as still satisfied.",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "correctness": "correct",
+            "rationale": "Bumper FT 17.6 N won by 320 us, so the caster is loading the pallet face, not still ranging an empty aisle. Holding 0.34 m/s predicts next-sample 13.8 N > 11.0 N cap. MODIFY: speed 0.34 -> 0.12 m/s and commanded bumper 17.6 -> 8.4 N. Observed after clamp 9.6 N < 11.0. A full REJECT is not indicated: a parked caster accepts 0.12 m/s.",
+            "constraint_checked": {
+                "bumper_N": {
+                    "cap": 11.0,
+                    "observed": 17.6,
+                    "predicted_unclamped_next": 13.8,
+                    "clamped": 8.4,
+                    "observed_after_clamp": 9.6,
+                },
+                "speed_mps": {"proposed": 0.34, "clamped": 0.12},
+                "order_evidence": {"margin_us": 320, "combined_jitter_us": 76, "ratio": 4.21},
+            },
+        },
+        "executed_action": {
+            "name": "clamped_aisle_approach",
+            "parameters": {
+                "speed_mps": 0.12,
+                "bumper_force_N": 8.4,
+                "standoff_m": 0.61,
+            },
+            "gate_effect": "MODIFY: speed 0.34 -> 0.12 m/s and 17.6 -> 8.4 N. Process-correct vs the 11.0 N cap. Pallet slat still snaps at 23.600 ms.",
+        },
+        "future_outcome": {
+            "summary": "Process-correct MODIFY held bumper force at 9.6 N. At 23.600 ms a dry pallet slat snapped under the right caster. Clamp reduced approach energy; it did not pin the slat. Partnered negative: process heads stay honest; world loss is named, not netted.",
+            "state_delta": {
+                "amr": "clamp executed; peak 9.6 N < 11.0",
+                "pallet": "slat snap at 23.600 ms",
+                "repair": "12 min aisle reset + slat swap",
+                "mission": "face still parked; slat isolated",
+            },
+            "surprises": [
+                "Neither bumper FT nor aisle lidar predicted the slat snap; pallet.slat.snap is a new channel at 23.600 ms, 16.350 ms after the gate, still inside the 40 ms raster.",
+                "Delayed (12 min / delayed_surprise_s=720): aisle reset and slat swap. Named un-netted loss, not folded into task_progress.",
+            ],
+            "un_netted_loss": "12 min aisle reset + slat swap after a dry pallet-slat snap. Safety head -0.58 prices the snap; task_progress stays +0.30 because the bumper clamp completed under the 11.0 N cap. World loss is named here, not subtracted from process heads.",
+            "race_result": {
+                "winner": "ft.bumper.n (6.410 ms, 17.6 N)",
+                "loser": "lidar.aisle.m (6.730 ms, 0.88 m)",
+                "margin_us": 320,
+                "counterfactual_if_reversed": "Lidar-first by < 320 us inside the 400 us window would have kept 0.34 m/s cruise; predicted next-sample 13.8 N would have exceeded the 11.0 N cap even without the slat snap. The MODIFY is still the correct process. The snap is a later world charge either way, cheaper with the clamp than without.",
+            },
+            "reward_inflection_t_us": 23600,
+            "reward_inflection_note": "Safety collapses at the 23.600 ms pallet-slat snap (tick t_us=23600), inside the 40 ms raster. The correct MODIFY at 7.250 ms is in the same excerpt. Do not put inflection on the +12 min aisle-reset tick.",
+            "delayed_surprise_s": delayed,
+        },
+        "reward_components": reward_block(
+            ticks,
+            sums,
+            total,
+            "Partnered negative. Process-correct MODIFY; world still charges inside the 40 ms raster. total -0.42 = 0.30 + -0.58 + -0.15 + 0.04 + -0.03. Named aisle-reset loss is not netted into task_progress. Tick 6 t_us binds raster.delayed_surprise_s=720.",
+        ),
+        "raster": raster,
+        "gate_snn": {
+            "decision_window_ms": 0.40,
+            "decision": "MODIFY",
+            "populations": [
+                pop("speed_clamp", 40, 0.5, 280.0, 0.40),
+                pop("lidar_hold", 40, 0.5, 70.0, 0.40),
+                veto("bumper_cap_veto", 20, 0.75),
+            ],
+        },
+        "meta": meta_common(
+            5,
+            "warehouse-amr",
+            [
+                "modify",
+                "partnered-negative-total",
+                "independent-lif-raster",
+                "sidecar-sim-only",
+                "in-window-world-charge",
+                "tick6-sidecar-bound",
+                "designed",
+            ],
+            "A critic can see the world-charge as a LIF burst inside the raster while process heads stay honest. Tick 6 is raster.delayed_surprise_s, not a free clock.",
+            1,
+        ),
+    }
+
+
+def rec_022():
+    delayed = 210
+    ticks, sums, total = ticks_from(
+        [
+            (1080, 0.05, 0.04, 0.02, 0.02, 0.01),
+            (5820, 0.08, 0.06, 0.03, 0.02, 0.01),
+            (6180, 0.04, 0.04, 0.02, 0.01, 0.01),
+            (6700, 0.12, 0.10, 0.05, 0.03, 0.02),
+            (11800, 0.05, 0.04, 0.03, 0.02, 0.01),
+            (210000000, 0.04, 0.04, 0.02, 0.01, 0.01),
+        ]
+    )
+    raster = raster_block(
+        window_ms=28,
+        neurons=60,
+        mean_rate_hz=38,
+        delayed_s=delayed,
+        source="thalamic-relay.wrist-ae",
+        target="spikenaut.policy.insert-clamp",
+        table=[
+            {"from": "relay.ft.wrist", "to": "policy.insert_clamp", "weight": 0.71},
+            {"from": "relay.ae.housing", "to": "policy.ae_hold", "weight": 0.26},
+        ],
+        modulator="acetylcholine",
+        tau_e_s=0.084,
+        eligibility="pre_post_stdp; ACh at wrist win (5.820 ms) tags the insert_clamp bind",
+        seed=5022,
+        stim_t_us=(4000, 8000),
+        extra_bias_n=18,
+        extra_i=0.62,
+        early_ch="lif.wrist",
+        late_ch="lif.ae",
+        note="Population sim scoped to this sidecar. Plant remains designed. Neurons 0-17 carry +0.62 clamp-pathway bias; stim 4-8 ms covers the race+gate.",
+        i_bias=0.86,
+        i_stim_peak=2.15,
+    )
+    return {
+        "id": "ttf-r05-022",
+        "title": "Dowel-Mire DM-2 / Arbor-A9: wrist FT beats housing AE by 360 us; correct MODIFY clamps 0.90 -> 0.22 mm/s",
+        "state": {
+            "description": "Arbor-A9 is 5.8 mm into a sintered dowel seat on Dowel-Mire DM-2 when wrist force already reads 24.8 N against an 18.0 N insert cap. Housing AE is a quiet 11 pps under a 40 pps crack trip, so an AE-first planner would keep 0.90 mm/s. The live contest is wrist contact versus quiet AE, not spindle RPM versus vision ID. No simulated press twin is in this designed cell.",
+            "domain": "industrial-assembly",
+            "sim_or_real": "designed",
+            "goal": "Seat the dowel 0.4 mm short of bottom, keep wrist force <= 18.0 N, and leave the sintered housing unmarked.",
+            "t0_us": 1756846501000022,
+            "gate_latency_us": 880,
+            "race_window_us": 440,
+            "race_window_rel_ms": [5.78, 6.22],
+            "race": {
+                "contenders": [
+                    "ft.wrist.n 24.8 N over cap",
+                    "ae.housing.pps 11 under trip",
+                ],
+                "semantics": "Wrist-first latches insert clamp 0.90 -> 0.22 mm/s and force 24.8 -> 12.0 N; AE-first keeps cruise on a 'still quiet housing' model.",
+                "window_derivation": "440 us = one wrist-FT sample period minus AE group delay on this 2 kHz press bus.",
+                "order_evidence_note": "Margin 360 us vs combined jitter 82 us (FT 36 + AE 46): 4.39x over a 2.0x trust floor. Reversing order by < 360 us inside the 440 us window would have kept 0.90 mm/s into 24.8 N over the 18.0 N cap.",
+            },
+            "sensors": [
+                "wrist 6-axis FT, 2 kHz, 36 us jitter",
+                "housing AE puck, 1 kHz, 46 us jitter",
+                "spindle encoder, 200 Hz (context)",
+                "dowel vision snap, 10 Hz (context)",
+            ],
+            "constraints": {
+                "wrist_cap_N": 18.0,
+                "observed_wrist_N": 24.8,
+                "insert_proposed_mm_s": 0.90,
+                "ae_pps": 11.0,
+                "ae_trip_pps": 40.0,
+            },
+            "episode_steps": [
+                "1. Arbor-A9 5.8 mm into DM-2 sintered dowel seat.",
+                "2. Insert 0.90 mm/s armed; AE 11 pps.",
+                "3. Encoder precursor at 1.080 ms; wrist warm-start 24.8 N.",
+                "4. Race window [5.780, 6.220] ms opens on the press bus.",
+                "5. Wrist FT 24.8 N at 5.820 ms (winner).",
+                "6. Housing AE 11 pps at 6.180 ms (loser by 360 us).",
+                "7. Gate at 6.700 ms (winner + 880 us): MODIFY 0.22 mm/s, 12.0 N.",
+                "8. Clamp executes; next-sample wrist 14.6 N < 18.0 cap.",
+                "9. Housing unmarked; AE stays 11 pps.",
+                "10. Delayed (3.5 min / delayed_surprise_s=210): cell survey tags the wrist-first bind on the next seat.",
+            ],
+        },
+        "spike_events": [
+            {"channel": "press.latch.ctx", "t_rel_ms": 1.08, "amplitude": 0.41},
+            {"channel": "ft.wrist.n", "t_rel_ms": 2.70, "amplitude": 0.64},
+            {"channel": "ae.housing.pps", "t_rel_ms": 3.90, "amplitude": 0.52},
+            {"channel": "enc.z.mm", "t_rel_ms": 4.80, "amplitude": 0.46},
+            {"channel": "ft.wrist.n", "t_rel_ms": 5.820, "amplitude": 1.33},
+            {"channel": "ae.housing.pps", "t_rel_ms": 6.180, "amplitude": 1.08},
+            {"channel": "ctrl.gate", "t_rel_ms": 6.700, "amplitude": 0.97},
+            {"channel": "ft.wrist.n", "t_rel_ms": 9.40, "amplitude": 0.76},
+            {"channel": "ae.housing.pps", "t_rel_ms": 12.60, "amplitude": 0.59},
+            {"channel": "ctrl.gate", "t_rel_ms": 16.10, "amplitude": 0.80},
+            {"channel": "enc.z.mm", "t_rel_ms": 20.40, "amplitude": 0.48},
+            {"channel": "ft.wrist.n", "t_rel_ms": 24.80, "amplitude": 0.54},
+            {"channel": "ctrl.gate", "t_rel_ms": 27.20, "amplitude": 0.66},
+        ],
+        "proposed_action": {
+            "name": "cruise_dowel_insert",
+            "parameters": {
+                "insert_mm_s": 0.90,
+                "wrist_force_N": 24.8,
+                "spindle_rpm": 40.0,
+            },
+            "evidence": {
+                "wrist_N": 24.8,
+                "wrist_cap_N": 18.0,
+                "ae_pps": 11.0,
+                "ae_trip_pps": 40.0,
+                "race_margin_us": 360,
+                "combined_jitter_us": 82,
+            },
+            "basis": "Planner proposes 0.90 mm/s insert: housing AE 11 pps looks like a quiet seat, not contact, and the 40 pps trip is treated as still open.",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "correctness": "correct",
+            "rationale": "Wrist FT 24.8 N won by 360 us and is over the 18.0 N insert cap, so the sintered seat is loading, not still a quiet AE. Holding 0.90 mm/s would enter the cap. MODIFY: insert 0.90 -> 0.22 mm/s and commanded force 24.8 -> 12.0 N. Next-sample wrist 14.6 N < 18.0. A full REJECT is not indicated: a 0.22 mm/s seat is legal.",
+            "constraint_checked": {
+                "wrist_N": {"cap": 18.0, "observed": 24.8, "observed_after_clamp": 14.6},
+                "insert_mm_s": {"proposed": 0.90, "clamped": 0.22},
+                "order_evidence": {"margin_us": 360, "combined_jitter_us": 82, "ratio": 4.39},
+            },
+        },
+        "executed_action": {
+            "name": "clamped_dowel_insert",
+            "parameters": {
+                "insert_mm_s": 0.22,
+                "wrist_force_N": 12.0,
+                "spindle_rpm": 40.0,
+            },
+            "gate_effect": "MODIFY: insert 0.90 -> 0.22 mm/s and 24.8 -> 12.0 N. Process-correct vs the 18.0 N insert cap.",
+        },
+        "future_outcome": {
+            "summary": "Correct MODIFY held Arbor-A9 at 0.22 mm/s while wrist force decayed under 18.0 N. Housing unmarked. Delayed 3.5 min survey tags the wrist-first bind.",
+            "state_delta": {
+                "arbor": "clamp executed; 0.22 mm/s seat",
+                "housing": "wrist 14.6 N after clamp",
+                "seat": "unmarked",
+            },
+            "surprises": [
+                "Housing AE never crossed 40 pps; only wrist crossed the insert cap.",
+                "Delayed (3.5 min / delayed_surprise_s=210): cell survey tags the wrist-first bind on the next seat.",
+            ],
+            "race_result": {
+                "winner": "ft.wrist.n (5.820 ms, 24.8 N)",
+                "loser": "ae.housing.pps (6.180 ms, 11 pps)",
+                "margin_us": 360,
+                "counterfactual_if_reversed": "AE-first by < 360 us inside the 440 us window would have kept 0.90 mm/s into 24.8 N over the 18.0 N cap.",
+            },
+            "reward_inflection_t_us": 6700,
+            "reward_inflection_note": "Safety/task inflect at the 6.700 ms MODIFY (tick t_us=6700). Do not put inflection on the +3.5 min survey tick.",
+            "delayed_surprise_s": delayed,
+        },
+        "reward_components": reward_block(
+            ticks,
+            sums,
+            total,
+            "Correct MODIFY. total +1.05 = 0.38 + 0.32 + 0.17 + 0.11 + 0.07. Tick 6 t_us binds raster.delayed_surprise_s=210.",
+        ),
+        "raster": raster,
+        "gate_snn": {
+            "decision_window_ms": 0.44,
+            "decision": "MODIFY",
+            "populations": [
+                pop("insert_clamp", 40, 0.5, 260.0, 0.44),
+                pop("ae_hold", 40, 0.5, 60.0, 0.44),
+                veto("wrist_cap_veto", 20, 0.7),
+            ],
+        },
+        "meta": meta_common(
+            5,
+            "industrial-assembly",
+            [
+                "modify",
+                "wrist-first",
+                "independent-lif-raster",
+                "tick6-sidecar-bound",
+                "designed",
+            ],
+            "Teaches a wrist-FT vs quiet-AE race on a sintered dowel seat: routing.table[0] to policy.insert_clamp with housing AE as the losing hold.",
+            2,
+        ),
+    }
+
+
+def rec_023():
+    delayed = 360
+    ticks, sums, total = ticks_from(
+        [
+            (1540, 0.02, 0.05, 0.02, 0.01, 0.01),
+            (6040, 0.02, 0.08, 0.02, 0.02, 0.01),
+            (6520, 0.01, 0.06, 0.02, 0.01, 0.01),
+            (7220, 0.03, 0.12, 0.04, 0.03, 0.02),
+            (11800, 0.02, 0.07, 0.02, 0.02, 0.01),
+            (360000000, 0.02, 0.04, 0.02, 0.01, 0.00),
+        ]
+    )
+    raster = raster_block(
+        window_ms=36,
+        neurons=92,
+        mean_rate_hz=24,
+        delayed_s=delayed,
+        source="thalamic-relay.corona-rh",
+        target="spikenaut.policy.creep-hold",
+        table=[
+            {"from": "relay.corona.ma", "to": "policy.creep_hold", "weight": 0.73},
+            {"from": "relay.humid.rh", "to": "policy.rh_commit", "weight": 0.24},
+        ],
+        modulator="dopamine",
+        tau_e_s=0.12,
+        eligibility="pre_post_stdp; DA at corona win (6.040 ms) tags the creep_hold bind",
+        seed=5023,
+        stim_t_us=(5000, 9000),
+        extra_bias_n=20,
+        extra_i=0.60,
+        early_ch="lif.corona",
+        late_ch="lif.rh",
+        note="Population sim scoped to this sidecar. Plant remains hil. Neurons 0-19 carry +0.60 hold-pathway bias; stim 5-9 ms covers the race+gate.",
+        i_bias=0.85,
+        i_stim_peak=2.05,
+    )
+    return {
+        "id": "ttf-r05-023",
+        "title": "Isoline-Beck IB-HIL / Crawler-H4: corona 2.70 mA beats RH 44% by 480 us; correct REJECT freezes the 0.16 m/s dummy-string creep",
+        "state": {
+            "description": "Crawler-H4 on the Isoline-Beck IB-HIL dummy 69 kV polymer string already prints 2.70 mA of corona against a 1.40 mA flashover trip while cabinet RH is only 44% under an 80% wet-string tag. A humidity-first planner would still commit the 0.16 m/s creep. The live contest is corona versus RH, not lidar gap versus tilt. String voltage is a programmed HIL load; no live tower is in the loop.",
+            "domain": "grid-inspection",
+            "sim_or_real": "hil",
+            "goal": "Keep corona <= 1.40 mA on the IB-HIL dummy string, freeze creep if flashover current is over trip, and leave the dummy insulator untracked.",
+            "t0_us": 1756846502000023,
+            "gate_latency_us": 1180,
+            "race_window_us": 620,
+            "race_window_rel_ms": [6.00, 6.62],
+            "race": {
+                "contenders": [
+                    "corona.ma 2.70 over trip",
+                    "humid.rh 44 under wet tag",
+                ],
+                "semantics": "Corona-first latches REJECT hold: creep 0.16 -> 0 m/s and string 69 -> 0 kV; RH-first would commit the creep on a 'still dry cabinet' model.",
+                "window_derivation": "620 us = one corona sample period minus RH group delay on this 1.25 kHz HIL string bus.",
+                "order_evidence_note": "Margin 480 us vs combined jitter 108 us (corona 46 + RH 62): 4.44x over a 2.0x trust floor. Reversing order by < 480 us inside the 620 us window would have committed 0.16 m/s creep with corona 2.70 mA over the 1.40 mA trip.",
+            },
+            "sensors": [
+                "corona current shunt, 1.25 kHz, 46 us jitter",
+                "cabinet RH, 1 kHz, 62 us jitter",
+                "dummy-string encoder, 500 Hz (context)",
+                "HIL voltage tachometer, 200 Hz (context)",
+            ],
+            "constraints": {
+                "corona_trip_mA": 1.40,
+                "observed_corona_mA": 2.70,
+                "rh_wet_pct": 80.0,
+                "observed_rh_pct": 44.0,
+                "creep_proposed_mps": 0.16,
+            },
+            "episode_steps": [
+                "1. Crawler-H4 on IB-HIL dummy 69 kV polymer string; dummy insulator 4.2 kg at the saddle.",
+                "2. Creep 0.16 m/s armed; RH 44%.",
+                "3. Encoder precursor at 1.540 ms; corona warm-start 2.70 mA.",
+                "4. Race window [6.000, 6.620] ms opens on the HIL bus.",
+                "5. Corona 2.70 mA at 6.040 ms (winner).",
+                "6. RH 44% at 6.520 ms (loser by 480 us).",
+                "7. Gate at 7.220 ms (winner + 1180 us): REJECT freeze creep, string 0 kV.",
+                "8. Hold executes; corona returns 0.90 mA under the trip.",
+                "9. Dummy insulator stays untracked; no creep is taken.",
+                "10. Delayed (6 min / delayed_surprise_s=360): HIL reclear wait before the next creep trial.",
+            ],
+        },
+        "spike_events": [
+            {"channel": "hil.latch.ctx", "t_rel_ms": 1.54, "amplitude": 0.43},
+            {"channel": "corona.ma", "t_rel_ms": 3.10, "amplitude": 0.66},
+            {"channel": "humid.rh", "t_rel_ms": 4.20, "amplitude": 0.54},
+            {"channel": "enc.creep.mps", "t_rel_ms": 5.00, "amplitude": 0.47},
+            {"channel": "corona.ma", "t_rel_ms": 6.040, "amplitude": 1.35},
+            {"channel": "humid.rh", "t_rel_ms": 6.520, "amplitude": 1.07},
+            {"channel": "ctrl.gate", "t_rel_ms": 7.220, "amplitude": 0.99},
+            {"channel": "corona.ma", "t_rel_ms": 10.20, "amplitude": 0.78},
+            {"channel": "humid.rh", "t_rel_ms": 14.80, "amplitude": 0.61},
+            {"channel": "ctrl.gate", "t_rel_ms": 18.40, "amplitude": 0.82},
+            {"channel": "enc.creep.mps", "t_rel_ms": 24.10, "amplitude": 0.49},
+            {"channel": "corona.ma", "t_rel_ms": 31.20, "amplitude": 0.57},
+            {"channel": "ctrl.gate", "t_rel_ms": 35.40, "amplitude": 0.70},
+        ],
+        "proposed_action": {
+            "name": "commit_string_creep",
+            "parameters": {
+                "creep_mps": 0.16,
+                "string_kV": 69.0,
+                "stance_hold": False,
+            },
+            "evidence": {
+                "corona_mA": 2.70,
+                "corona_trip_mA": 1.40,
+                "rh_pct": 44.0,
+                "rh_wet_pct": 80.0,
+                "race_margin_us": 480,
+                "combined_jitter_us": 108,
+            },
+            "basis": "Planner proposes a 0.16 m/s dummy-string creep: RH 44% looks like a dry cabinet, not flashover, and the 80% wet tag is treated as still open.",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "correctness": "correct",
+            "rationale": "Corona 2.70 mA won by 480 us and is over the 1.40 mA flashover trip, so the dummy string is not dry-stable. RH 44% is under a wet tag but corona is the trip. REJECT: freeze creep 0.16 -> 0 m/s; string 69 -> 0 kV. A MODIFY that only slows the creep still tracks a flashing string.",
+            "constraint_checked": {
+                "corona_mA": {"trip": 1.40, "observed": 2.70, "after_hold": 0.90},
+                "creep_mps": {"proposed": 0.16, "executed": 0.0},
+                "order_evidence": {"margin_us": 480, "combined_jitter_us": 108, "ratio": 4.44},
+            },
+        },
+        "executed_action": {
+            "name": "hold_string_freeze_creep",
+            "parameters": {
+                "creep_mps": 0.0,
+                "string_kV": 0.0,
+                "stance_hold": True,
+            },
+            "gate_effect": "REJECT: freeze creep; 0.16 -> 0 m/s; string hold. Dummy insulator never tracks.",
+        },
+        "future_outcome": {
+            "summary": "Correct REJECT froze the creep while corona 2.70 mA occupied the 1.40 mA trip. String de-energized. Delayed reclear wait 6 min before the next creep trial.",
+            "state_delta": {
+                "crawler": "creep frozen; string held 0 kV",
+                "corona": "returns 0.90 mA under trip after hold",
+                "insulator": "untracked",
+            },
+            "surprises": [
+                "RH never crossed 80%; only corona left the flashover trip.",
+                "Delayed (6 min / delayed_surprise_s=360): HIL reclear wait before the next creep trial.",
+            ],
+            "race_result": {
+                "winner": "corona.ma (6.040 ms, 2.70 mA)",
+                "loser": "humid.rh (6.520 ms, 44%)",
+                "margin_us": 480,
+                "counterfactual_if_reversed": "RH-first by < 480 us inside the 620 us window would have committed the 0.16 m/s creep with corona 2.70 mA over the 1.40 mA trip.",
+            },
+            "reward_inflection_t_us": 7220,
+            "reward_inflection_note": "Safety inflects at the 7.220 ms REJECT hold (tick t_us=7220). Do not put inflection on the +6 min reclear tick.",
+            "delayed_surprise_s": delayed,
+        },
+        "reward_components": reward_block(
+            ticks,
+            sums,
+            total,
+            "Correct REJECT. total +0.84 = 0.12 + 0.42 + 0.14 + 0.10 + 0.06. Tick 6 t_us binds raster.delayed_surprise_s=360.",
+        ),
+        "raster": raster,
+        "gate_snn": {
+            "decision_window_ms": 0.62,
+            "decision": "REJECT",
+            "populations": [
+                pop("creep_hold", 48, 0.45, 180.0, 0.62),
+                pop("rh_commit", 48, 0.8, 30.0, 0.62),
+                veto("corona_cap_veto", 24, 0.7),
+            ],
+        },
+        "meta": meta_common(
+            5,
+            "grid-inspection",
+            [
+                "reject",
+                "hil",
+                "corona-first",
+                "independent-lif-raster",
+                "tick6-sidecar-bound",
+            ],
+            "Teaches a corona-vs-RH race on a dummy-string HIL where flashover current vetoes a still-legal humidity. gate_snn.creep_hold fires; rh_commit stays subthreshold.",
+            3,
+        ),
+    }
+
+
+def rec_024():
+    delayed = 120
+    ticks, sums, total = ticks_from(
+        [
+            (1760, 0.06, 0.04, 0.03, 0.02, 0.01),
+            (8120, 0.08, 0.05, 0.03, 0.02, 0.02),
+            (8560, 0.05, 0.04, 0.03, 0.02, 0.01),
+            (9610, 0.13, 0.08, 0.05, 0.04, 0.02),
+            (16200, 0.06, 0.04, 0.02, 0.01, 0.01),
+            (120000000, 0.04, 0.03, 0.02, 0.01, 0.01),
+        ]
+    )
+    raster = raster_block(
+        window_ms=48,
+        neurons=54,
+        mean_rate_hz=30,
+        delayed_s=delayed,
+        source="thalamic-relay.tether-dvl",
+        target="spikenaut.policy.survey-accept",
+        table=[
+            {"from": "relay.tether.load", "to": "policy.survey_accept", "weight": 0.64},
+            {"from": "relay.dvl.vx", "to": "policy.dvl_halt", "weight": 0.26},
+        ],
+        modulator="serotonin",
+        tau_e_s=0.16,
+        eligibility="pre_post_stdp; 5-HT at tether win (8.120 ms) tags the already-legal survey_accept",
+        seed=5024,
+        stim_t_us=(7000, 11000),
+        extra_bias_n=14,
+        extra_i=0.57,
+        early_ch="lif.accept",
+        late_ch="lif.tether",
+        note="Population sim scoped to this sidecar. Plant remains simulated. Neurons 0-13 carry +0.57 accept-pathway bias; stim 7-11 ms covers the race+gate.",
+        i_bias=0.84,
+        i_stim_peak=1.90,
+    )
+    return {
+        "id": "ttf-r05-024",
+        "title": "Wrack-Fen WF-3 sim / Sled-W6: tether 155 N beats DVL 0.16 m/s by 440 us; ACCEPT already-legal 0.15 m/s kelp-flume survey",
+        "state": {
+            "description": "Sled-W6 is creeping 0.15 m/s along Wrack-Fen WF-3's simulated kelp flume with tether tension only 155 N under a 230 N cap. DVL along-track sits at 0.16 m/s, under the 0.38 m/s current trip. The live contest is a quiet load cell versus a quiet DVL, not a snag versus a surge. Both envelopes already allow the remaining 9 m transect.",
+            "domain": "underwater-rov",
+            "sim_or_real": "simulated",
+            "goal": "Finish the 9 m kelp-flume transect at <= 230 N tether and <= 0.38 m/s DVL, and leave the dummy thermistor unspun.",
+            "t0_us": 1756846503000024,
+            "gate_latency_us": 1490,
+            "race_window_us": 800,
+            "race_window_rel_ms": [8.08, 8.88],
+            "race": {
+                "contenders": [
+                    "tether.n 155 N under cap",
+                    "dvl.vx.mps 0.16 under current trip",
+                ],
+                "semantics": "Tether-first latches already-legal accept of 0.15 m/s; DVL-first would also accept, but a false 0.38 m/s trip would halt.",
+                "window_derivation": "800 us = one load-cell sample period minus DVL ensemble delay on this 1 kHz sim bus.",
+                "order_evidence_note": "Margin 440 us vs combined jitter 94 us (tether 40 + DVL 54): 4.68x over a 2.0x trust floor. Reversing order by < 440 us inside the 800 us window would still be legal unless DVL were a false 0.38 m/s trip.",
+            },
+            "sensors": [
+                "tether load cell, 1 kHz, 40 us jitter (sim)",
+                "DVL ensemble, 8 Hz ping / 1 kHz stamp, 54 us jitter",
+                "heading mag, 200 Hz (context)",
+                "sim current solver, 2 kHz (context)",
+            ],
+            "constraints": {
+                "tether_cap_N": 230.0,
+                "observed_tether_N": 155.0,
+                "dvl_trip_mps": 0.38,
+                "observed_dvl_mps": 0.16,
+                "survey_proposed_mps": 0.15,
+            },
+            "episode_steps": [
+                "1. Sled-W6 6 m into the WF-3 simulated kelp-flume transect.",
+                "2. Survey 0.15 m/s armed; DVL 0.16 m/s.",
+                "3. Solver precursor at 1.760 ms; tether warm-start 155 N.",
+                "4. Race window [8.080, 8.880] ms opens on the sim bus.",
+                "5. Tether 155 N at 8.120 ms (winner).",
+                "6. DVL 0.16 m/s at 8.560 ms (loser by 440 us).",
+                "7. Gate at 9.610 ms (winner + 1490 us): ACCEPT 0.15 m/s.",
+                "8. Transect completes; peak 162 N < 230 cap.",
+                "9. Dummy thermistor unspun; no snag star.",
+                "10. Delayed (2 min / delayed_surprise_s=120): flume survey tags a silt plume on the next pass (maintenance, not a contested ACCEPT).",
+            ],
+        },
+        "spike_events": [
+            {"channel": "sim.latch.ctx", "t_rel_ms": 1.76, "amplitude": 0.44},
+            {"channel": "tether.n", "t_rel_ms": 3.40, "amplitude": 0.58},
+            {"channel": "dvl.vx.mps", "t_rel_ms": 5.10, "amplitude": 0.53},
+            {"channel": "mag.hdg.deg", "t_rel_ms": 6.60, "amplitude": 0.46},
+            {"channel": "tether.n", "t_rel_ms": 8.120, "amplitude": 1.20},
+            {"channel": "dvl.vx.mps", "t_rel_ms": 8.560, "amplitude": 1.04},
+            {"channel": "ctrl.gate", "t_rel_ms": 9.610, "amplitude": 0.93},
+            {"channel": "tether.n", "t_rel_ms": 13.20, "amplitude": 0.73},
+            {"channel": "dvl.vx.mps", "t_rel_ms": 18.40, "amplitude": 0.59},
+            {"channel": "ctrl.gate", "t_rel_ms": 24.80, "amplitude": 0.79},
+            {"channel": "mag.hdg.deg", "t_rel_ms": 31.20, "amplitude": 0.48},
+            {"channel": "tether.n", "t_rel_ms": 38.10, "amplitude": 0.54},
+            {"channel": "ctrl.gate", "t_rel_ms": 45.60, "amplitude": 0.66},
+        ],
+        "proposed_action": {
+            "name": "cruise_kelp_survey",
+            "parameters": {
+                "survey_mps": 0.15,
+                "tether_N": 155.0,
+                "heading_rps": 0.10,
+                "depth_m": 3.8,
+            },
+            "evidence": {
+                "tether_N": 155.0,
+                "tether_cap_N": 230.0,
+                "dvl_mps": 0.16,
+                "dvl_trip_mps": 0.38,
+                "race_margin_us": 440,
+                "combined_jitter_us": 94,
+            },
+            "basis": "Planner proposes 0.15 m/s survey: tether 155 N is under 230 N and DVL 0.16 m/s is under 0.38 m/s, so both envelopes already allow the remaining 9 m.",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "correctness": "correct",
+            "rationale": "Tether 155 N won by 440 us and is under the 230 N cap. DVL 0.16 m/s is under the 0.38 m/s current trip. Proposed survey 0.15 m/s is already legal. ACCEPT: executed equals proposed.",
+            "constraint_checked": {
+                "tether_N": {"cap": 230.0, "observed": 155.0},
+                "dvl_mps": {"trip": 0.38, "observed": 0.16},
+                "survey_mps": {"cap": 0.30, "proposed": 0.15},
+                "order_evidence": {"margin_us": 440, "combined_jitter_us": 94, "ratio": 4.68},
+            },
+        },
+        "executed_action": {
+            "name": "cruise_kelp_survey",
+            "parameters": {
+                "survey_mps": 0.15,
+                "tether_N": 155.0,
+                "heading_rps": 0.10,
+                "depth_m": 3.8,
+            },
+            "gate_effect": "ACCEPT: executed equals proposed 0.15 m/s survey at 155 N.",
+        },
+        "future_outcome": {
+            "summary": "Correct ACCEPT completed the 9 m transect under tether and DVL caps. Delayed flume survey tags a silt plume on the next pass (maintenance, not a contested gate).",
+            "state_delta": {
+                "sled": "transect complete; peak 162 N < 230",
+                "thermistor": "unspun",
+                "plume": "2 min maintenance tag on next pass",
+            },
+            "surprises": [
+                "DVL stayed 0.16 m/s through the transect; no snag star.",
+                "Delayed (2 min / delayed_surprise_s=120): flume survey tags a silt plume. Maintenance, not a contested ACCEPT.",
+            ],
+            "race_result": {
+                "winner": "tether.n (8.120 ms, 155 N)",
+                "loser": "dvl.vx.mps (8.560 ms, 0.16 m/s)",
+                "margin_us": 440,
+                "counterfactual_if_reversed": "DVL-first by < 440 us inside the 800 us window would still accept unless the envelope were a false 0.38 m/s trip. Both channels are inside limits.",
+            },
+            "reward_inflection_t_us": 9610,
+            "reward_inflection_note": "Task progress inflects at the 9.610 ms ACCEPT (tick t_us=9610). Do not put inflection on the +2 min silt-plume tick.",
+            "delayed_surprise_s": delayed,
+        },
+        "reward_components": reward_block(
+            ticks,
+            sums,
+            total,
+            "Correct ACCEPT already-legal. total +1.08 = 0.42 + 0.28 + 0.18 + 0.12 + 0.08. Tick 6 t_us binds raster.delayed_surprise_s=120.",
+        ),
+        "raster": raster,
+        "gate_snn": {
+            "decision_window_ms": 0.80,
+            "decision": "ACCEPT",
+            "populations": [
+                pop("survey_accept", 44, 0.45, 140.0, 0.80),
+                pop("dvl_halt", 32, 0.8, 25.0, 0.80),
+                veto("tether_cap_veto", 16, 0.75),
+            ],
+        },
+        "meta": meta_common(
+            5,
+            "underwater-rov",
+            [
+                "accept",
+                "already-legal",
+                "simulated",
+                "independent-lif-raster",
+                "tick6-sidecar-bound",
+            ],
+            "Teaches an already-legal kelp-flume survey: tether and DVL both inside limits; gate_snn.survey_accept fires and dvl_halt stays subthreshold.",
+            4,
+        ),
+    }
+
+
+def rec_025():
+    delayed = 540
+    ticks, sums, total = ticks_from(
+        [
+            (1480, 0.02, -0.03, -0.03, -0.01, 0.01),
+            (5410, 0.03, -0.04, -0.04, -0.02, 0.01),
+            (5690, 0.02, -0.03, -0.03, -0.02, 0.01),
+            (5950, -0.28, -0.10, -0.10, -0.04, 0.02),
+            (10200, -0.04, -0.03, -0.03, -0.02, 0.01),
+            (540000000, -0.01, -0.01, -0.01, 0.00, 0.00),
+        ]
+    )
+    raster = raster_block(
+        window_ms=24,
+        neurons=40,
+        mean_rate_hz=46,
+        delayed_s=delayed,
+        source="relay.anemo.downwash",
+        target="policy.baro_wait",
+        table=[
+            {"from": "relay.anemo.downwash", "to": "policy.baro_wait", "weight": 0.74},
+            {"from": "relay.baro.alt", "to": "policy.baro_wait", "weight": 0.22},
+        ],
+        modulator="adenosine",
+        tau_e_s=0.07,
+        eligibility="force_cap_stdp; adenosine tags the (wrong) baro_wait bind at the downwash win; no positive weight to policy.climb_clamp",
+        seed=5025,
+        stim_t_us=(4000, 7000),
+        extra_bias_n=12,
+        extra_i=0.72,
+        early_ch="lif.anemo",
+        late_ch="lif.baro",
+        note="Population sim scoped to this sidecar. Plant remains designed. Neurons 0-11 carry +0.72 delayed-wait-pathway bias; stim 4-7 ms covers the race+gate. No positive weight to policy.climb_clamp.",
+        i_bias=0.90,
+        i_stim_peak=2.40,
+    )
+    return {
+        "id": "ttf-r05-025",
+        "title": "WRONG-MODIFY at Drift-Nacelle DN-7 / Quad-D6: downwash 4.90 m/s read correctly; climb clamp deferred for baro confirm (delayed-clamp)",
+        "state": {
+            "description": "Pad-disk hot-wire on Drift-Nacelle DN-7 already reads 4.90 m/s of Quad-D6 downwash, 1.40 m/s over the 3.50 m/s neighbor cap, while the baro still prints +0.18 m as if the disk were unloaded. A weak supervisor waits for a 200 Hz baro confirm before applying the climb clamp. The live contest is downwash versus baro altitude, not GPS versus IMU yaw. No HIL fan is in this designed pad.",
+            "domain": "aerial-swarm",
+            "sim_or_real": "designed",
+            "goal": "Hold 1.4 m pad hover, keep neighbor-disk downwash <= 3.50 m/s, and leave the dummy payload unspun.",
+            "t0_us": 1756846504000025,
+            "gate_latency_us": 540,
+            "race_window_us": 320,
+            "race_window_rel_ms": [5.38, 5.70],
+            "race": {
+                "contenders": [
+                    "anemo.downwash.mps 4.90 over cap",
+                    "baro.alt.m +0.18 climb-looking",
+                ],
+                "semantics": "Anemometer-first should clamp climb 1.10 -> 0.28 m/s at t_gate; baro-first would keep the 1.10 m/s climb. The incorrect MODIFY instead defers the clamp until a later baro confirm.",
+                "window_derivation": "320 us = one hot-wire sample period minus baro group delay on this 2.5 kHz pad bus.",
+                "order_evidence_note": "Margin 280 us vs combined jitter 82 us (anemo 34 + baro 48): 3.41x over a 2.0x trust floor. Reversing order by < 280 us inside the 320 us window would still require a climb clamp: downwash 4.90 > 3.50 is independent of baro order. The wrong bind is delayed-clamp, not race order.",
+            },
+            "sensors": [
+                "neighbor-disk hot-wire, 2.5 kHz, 34 us jitter",
+                "pad baro, 200 Hz processed / 1 kHz stamp, 48 us jitter",
+                "climb IMU, 1 kHz (context)",
+                "yaw gyro, 1 kHz (context)",
+            ],
+            "constraints": {
+                "downwash_cap_mps": 3.50,
+                "observed_downwash_mps": 4.90,
+                "climb_proposed_mps": 1.10,
+                "baro_alt_m": 0.18,
+            },
+            "episode_steps": [
+                "1. Quad-D6 on DN-7 pad; neighbor disk 1.0 m to starboard.",
+                "2. Climb 1.10 m/s armed; baro +0.18 m.",
+                "3. Gyro precursor at 1.480 ms; hot-wire warm-start 4.90 m/s.",
+                "4. Race window [5.380, 5.700] ms opens on the pad bus.",
+                "5. Anemometer 4.90 m/s at 5.410 ms (winner).",
+                "6. Baro +0.18 m at 5.690 ms (loser by 280 us).",
+                "7. Gate at 5.950 ms (winner + 540 us): WRONG-MODIFY defers climb clamp pending baro confirm; climb left 1.10.",
+                "8. Live downwash stays 4.90 > 3.50; neighbor disk RPM rises.",
+                "9. Dummy payload climbs; clamp never fires inside the raster.",
+                "10. 9 min pad abort (delayed_surprise_s=540); named cost of the delayed-clamp bind.",
+            ],
+        },
+        "spike_events": [
+            {"channel": "pad.latch.ctx", "t_rel_ms": 1.48, "amplitude": 0.40},
+            {"channel": "anemo.downwash.mps", "t_rel_ms": 3.02, "amplitude": 0.66},
+            {"channel": "baro.alt.m", "t_rel_ms": 4.10, "amplitude": 0.53},
+            {"channel": "imu.vz.mps", "t_rel_ms": 4.90, "amplitude": 0.47},
+            {"channel": "anemo.downwash.mps", "t_rel_ms": 5.410, "amplitude": 1.38},
+            {"channel": "baro.alt.m", "t_rel_ms": 5.690, "amplitude": 1.11},
+            {"channel": "ctrl.gate", "t_rel_ms": 5.950, "amplitude": 0.95},
+            {"channel": "anemo.downwash.mps", "t_rel_ms": 8.20, "amplitude": 0.81},
+            {"channel": "baro.alt.m", "t_rel_ms": 11.10, "amplitude": 0.62},
+            {"channel": "ctrl.gate", "t_rel_ms": 14.40, "amplitude": 0.84},
+            {"channel": "imu.vz.mps", "t_rel_ms": 18.20, "amplitude": 0.49},
+            {"channel": "anemo.downwash.mps", "t_rel_ms": 21.40, "amplitude": 0.58},
+        ],
+        "proposed_action": {
+            "name": "cruise_pad_climb",
+            "parameters": {
+                "climb_mps": 1.10,
+                "yaw_rps": 0.36,
+                "lateral_mps": 0.28,
+            },
+            "evidence": {
+                "downwash_mps": 4.90,
+                "cap_mps": 3.50,
+                "force_axis": "climb",
+                "baro_alt_m": 0.18,
+                "climb_mps": 1.10,
+                "race_margin_us": 280,
+                "combined_jitter_us": 82,
+                "baro_is_clamp_confirm": False,
+            },
+            "basis": "Planner proposes 1.10 m/s climb: baro +0.18 m looks unloaded, even though neighbor-disk hot-wire already sits 4.90 m/s over the 3.50 m/s cap.",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "correctness": "incorrect",
+            "rationale": "Downwash 4.90 m/s won by 280 us and is over the 3.50 m/s cap, so a clamp is due at t_gate. The supervisor binds a 200 Hz baro confirm as a prerequisite and MODIFY-defers the climb clamp (climb left at 1.10 m/s, clamp_defer_ms=18.4). Live downwash stays 4.90 > 3.50. The bind is plausible to a weak supervisor (altitude looks like the slow loop) but is a delayed clamp given evidence.force_axis == climb and evidence.baro_is_clamp_confirm == false.",
+            "constraint_checked": {
+                "downwash_mps": {
+                    "cap": 3.50,
+                    "observed": 4.90,
+                    "executed_still": 4.90,
+                    "correct_clamp_would_leave": 3.10,
+                },
+                "climb_mps": {
+                    "proposed": 1.10,
+                    "executed_still": 1.10,
+                    "correct_clamp": 0.28,
+                    "deferred_ms": 18.4,
+                },
+                "order_evidence": {"margin_us": 280, "combined_jitter_us": 82, "ratio": 3.41},
+            },
+        },
+        "executed_action": {
+            "name": "baro_wait_delayed_clamp",
+            "parameters": {
+                "climb_mps": 1.10,
+                "yaw_rps": 0.36,
+                "lateral_mps": 0.28,
+                "bind_baro_confirm_before_clamp": True,
+                "clamp_defer_ms": 18.4,
+            },
+            "gate_effect": "MODIFY (incorrect): climb left at 1.10 m/s pending baro confirm; clamp deferred 18.4 ms. Routing relay.anemo.downwash -> policy.baro_wait; no positive weight to policy.climb_clamp.",
+        },
+        "future_outcome": {
+            "summary": "Delayed-clamp MODIFY waited for baro confirm while downwash stayed 4.90 m/s over the 3.50 m/s cap. Neighbor disk RPM rose. 9 min pad abort. Correct gate is climb clamp at t_gate, not a deferred confirm.",
+            "state_delta": {
+                "quad": "climb still 1.10 m/s; clamp deferred",
+                "disk": "downwash 4.90 m/s still over cap",
+                "mission": "9 min pad abort",
+            },
+            "surprises": [
+                "Baro confirm never arrived inside the raster; downwash never moved. Sidecar convicts the delayed bind without rotor physics.",
+                "Delayed (9 min / delayed_surprise_s=540): pad abort and neighbor-disk inspect.",
+            ],
+            "recovery": {
+                "correct_gate": "MODIFY on climb: 1.10 -> 0.28 m/s at t_gate; do not wait for baro confirm.",
+                "correct_axis": "climb",
+                "wrong_bind": "baro_confirm_before_clamp",
+                "wrong_edit_applied": {
+                    "climb_mps": 1.10,
+                    "bind_baro_confirm_before_clamp": True,
+                    "clamp_defer_ms": 18.4,
+                },
+                "cost": "Neighbor-disk overspeed + 9 min pad abort (task/efficiency); downwash still over cap (safety near-miss).",
+            },
+            "race_result": {
+                "winner": "anemo.downwash.mps (5.410 ms, 4.90 m/s)",
+                "loser": "baro.alt.m (5.690 ms, +0.18 m)",
+                "margin_us": 280,
+                "counterfactual_if_reversed": "Baro-first by < 280 us inside the 320 us window would still have been over the downwash cap. The incorrect MODIFY is a delayed-clamp bind, not a race-order error. Correct gate remains climb clamp 1.10 -> 0.28 m/s at t_gate.",
+            },
+            "reward_inflection_t_us": 5950,
+            "reward_inflection_note": "Task/efficiency collapse at the 5.950 ms delayed-clamp MODIFY (tick t_us=5950). Do not put inflection on the +9 min pad-abort tick.",
+            "delayed_surprise_s": delayed,
+        },
+        "reward_components": reward_block(
+            ticks,
+            sums,
+            total,
+            "Wrong-MODIFY delayed-clamp. total -0.79 = -0.26 + -0.24 + -0.24 + -0.11 + 0.06. Tick 6 t_us binds raster.delayed_surprise_s=540.",
+        ),
+        "raster": raster,
+        "gate_snn": {
+            "decision_window_ms": 0.32,
+            "decision": "MODIFY",
+            "populations": [
+                pop("baro_wait", 32, 0.5, 400.0, 0.32),
+                pop("climb_clamp", 32, 0.8, 20.0, 0.32),
+                veto("downwash_cap_veto", 16, 0.7),
+            ],
+        },
+        "meta": meta_common(
+            5,
+            "aerial-swarm",
+            [
+                "modify",
+                "wrong-gate",
+                "wrong-modify",
+                "delayed-clamp",
+                "sidecar-convictable",
+                "independent-lif-raster",
+                "tick6-sidecar-bound",
+                "designed",
+            ],
+            "Teaches a probe that a correct downwash>cap read can still be a wrong gate when routing.table[0].to is policy.baro_wait and executed climb_mps is unchanged at t_gate.",
+            5,
+            extra={"supervisor_error_type": "wrong-modify"},
+        ),
+    }
+
+
+def hidden_thoughts(obj, path=""):
+    found = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            child = f"{path}.{k}" if path else k
+            norm = re.sub(
+                r"[^a-z0-9]+",
+                "_",
+                re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(k)).casefold(),
+            ).strip("_")
+            if norm in HIDDEN_THOUGHT_KEYS:
+                found.append(child)
+            found.extend(hidden_thoughts(v, child))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            found.extend(hidden_thoughts(v, f"{path}[{i}]"))
+    return found
+
+
+def check_refractory(events, min_ms=0.8):
+    by = defaultdict(list)
+    for e in events:
+        by[e["channel"]].append(e["t_rel_ms"])
+    bad = []
+    for ch, ts in by.items():
+        ts.sort()
+        for a, b in zip(ts, ts[1:]):
+            if b - a < min_ms - 1e-9:
+                bad.append((ch, a, b))
+    return bad
+
+
+def check_race(rec):
+    lo, hi = rec["state"]["race_window_rel_ms"]
+    chans = set()
+    for e in rec["spike_events"]:
+        if lo <= e["t_rel_ms"] <= hi:
+            chans.add(e["channel"])
+    return chans
+
+
+def excerpt_overlap(rec):
+    se = {round(e["t_rel_ms"], 1) for e in rec["spike_events"]}
+    ex = {round(e["t_us"] / 1000.0, 1) for e in rec["raster"]["excerpt"]}
+    if not se or not ex:
+        return 0.0
+    return len(se & ex) / len(se | ex)
+
+
+def load_prior_descriptions():
+    descs = []
+    for p in sorted(LIVE.glob("batch-r*.jsonl")):
+        if p.name.startswith("batch-r05"):
+            continue
+        for line in p.read_text().splitlines():
+            if not line.strip():
+                continue
+            rec = json.loads(line)
+            descs.append((rec["id"], rec["state"]["description"]))
+    return descs
+
+
+def validate_records(records):
+    errors = []
+    descs = [r["state"]["description"] for r in records]
+    intra = []
+    for i in range(len(descs)):
+        for j in range(i + 1, len(descs)):
+            intra.append((records[i]["id"], records[j]["id"], jaccard(descs[i], descs[j])))
+    max_intra = max(x[2] for x in intra)
+    prior = load_prior_descriptions()
+    max_prior = 0.0
+    worst_prior = None
+    for rec in records:
+        for pid, pdesc in prior:
+            j = jaccard(rec["state"]["description"], pdesc)
+            if j > max_prior:
+                max_prior = j
+                worst_prior = (rec["id"], pid, j)
+    if max_intra >= 0.4:
+        errors.append(f"intra Jaccard {max_intra} >= 0.4 {intra}")
+    if max_prior >= 0.4:
+        errors.append(f"prior Jaccard {worst_prior}")
+
+    domains = [r["state"]["domain"] for r in records]
+    if len(set(domains)) != 5:
+        errors.append(f"domains not unique: {domains}")
+
+    sims = [r["state"]["sim_or_real"] for r in records]
+    if sims.count("designed") != 3 or sims.count("simulated") != 1 or sims.count("hil") != 1:
+        errors.append(f"provenance mix {sims}")
+    if "real" in sims:
+        errors.append("sim_or_real real")
+
+    decisions = [(r["id"], r["safety_decision"]["decision"], r["safety_decision"]["correctness"]) for r in records]
+    correct_a = sum(1 for _, d, c in decisions if d == "ACCEPT" and c == "correct")
+    correct_m = sum(1 for _, d, c in decisions if d == "MODIFY" and c == "correct")
+    correct_r = sum(1 for _, d, c in decisions if d == "REJECT" and c == "correct")
+    wrong_m = sum(1 for _, d, c in decisions if d == "MODIFY" and c == "incorrect")
+    wrong_a = sum(1 for _, d, c in decisions if d == "ACCEPT" and c == "incorrect")
+    if (correct_a, correct_m, correct_r, wrong_m) != (1, 2, 1, 1):
+        errors.append(f"gate mix {decisions}")
+    if wrong_a:
+        errors.append("wrong-ACCEPT present")
+
+    totals = [r["reward_components"]["total"] for r in records]
+    if all(t > 0 for t in totals):
+        errors.append("all-positive totals")
+    if records[0]["reward_components"]["total"] >= 0:
+        errors.append("partnered-neg not negative")
+
+    banned_frags = (
+        "Lumen-Quay",
+        "Rivermead",
+        "Fork-Haven",
+        "Pylon-Wick",
+        "Slate-March",
+        "Coble-Yard",
+        "Gannet-Lea",
+        "Silt-Quern",
+        "Bushing-Holt",
+        "Insulator-Wick",
+        "Pallet-Wythe",
+        "Downdraft-Cairn",
+        "Thalass-Ness",
+        "Cinch-Quarry",
+        "Clover-Weir",
+        "Marrow-Dock",
+        "Vesper-Lattice",
+        "Brine-Well",
+        "Saddle-Arc",
+        "Ashlar-Gait",
+        "Kerb-Lynchet",
+        "Fascia-Holt",
+        "Fen-Quay",
+        "Reed-Merge",
+        "Lee-Nacelle",
+        "Whin-Dock",
+        "Ossicle-Holt",
+        "Talus-Knap",
+        "Kelp-Brae",
+        "Shed-Wick",
+        "Kite-Lea",
+        "Calyx-Brae",
+        "Roundel-Wath",
+        "Tread-Kame",
+        "Floe-Staith",
+        "Scarp-Lea",
+        "2026-08-17",
+        "2026-08-30",
+    )
+    for rec in records:
+        where = rec["id"]
+        blob = json.dumps(rec)
+        for frag in banned_frags:
+            if frag in blob:
+                errors.append(f"{where} banned fragment {frag}")
+        if rec["meta"]["round"] != 5:
+            errors.append(f"{where} meta.round")
+        if rec["id"] != f"ttf-r05-{20 + rec['meta']['batch_position']:03d}":
+            errors.append(f"{where} id/batch_position")
+        if rec["gate_snn"]["decision"] != rec["safety_decision"]["decision"]:
+            errors.append(f"{where} gate_snn mismatch")
+        ht = hidden_thoughts(rec)
+        if ht:
+            errors.append(f"{where} thought keys {ht}")
+        if '"thought"' in blob.lower():
+            errors.append(f"{where} thought substring key")
+        bad = check_refractory(rec["spike_events"])
+        if bad:
+            errors.append(f"{where} refractory {bad}")
+        chans = check_race(rec)
+        if len(chans) < 2:
+            errors.append(f"{where} race channels {chans}")
+        nsp = len(rec["spike_events"])
+        if not (5 <= nsp <= 40):
+            errors.append(f"{where} spike count {nsp}")
+        times = [e["t_rel_ms"] for e in rec["spike_events"]]
+        if times != sorted(times):
+            errors.append(f"{where} spike order")
+        inf = rec["future_outcome"]["reward_inflection_t_us"]
+        tick_ts = [t["t_us"] for t in rec["reward_components"]["ticks"]]
+        if inf not in tick_ts:
+            errors.append(f"{where} inflection not a tick")
+        win_us = rec["raster"]["window_ms"] * 1000
+        if rec["id"] == "ttf-r05-021" and not (0 <= inf <= win_us):
+            errors.append(f"{where} partnered-neg inflection outside raster")
+        tick6 = rec["reward_components"]["ticks"][-1]["t_us"]
+        if tick6 <= win_us:
+            errors.append(f"{where} tick6 inside raster")
+        delayed = rec["future_outcome"]["delayed_surprise_s"]
+        if tick6 != delayed * 1_000_000:
+            errors.append(f"{where} tick6 bind {tick6} vs {delayed}")
+        ov = excerpt_overlap(rec)
+        if ov >= 0.8:
+            errors.append(f"{where} excerpt overlap {ov}")
+        ras = rec["raster"]
+        if not (20 <= ras["window_ms"] <= 50):
+            errors.append(f"{where} window")
+        expected = round(ras["neurons"] * ras["mean_rate_hz"] * ras["window_s"])
+        if abs(ras["spikes"] - expected) > 1:
+            errors.append(f"{where} spike budget {ras['spikes']} vs {expected}")
+        if abs(ras["energy_pJ"] - ras["spikes"] * 23) > 1e-6:
+            errors.append(f"{where} energy_pJ")
+        if abs(ras["energy_uJ"] - ras["spikes"] * 23e-6) > 1e-9:
+            errors.append(f"{where} energy_uJ")
+        if ras["excerpt_source"] != "independent_lif":
+            errors.append(f"{where} not independent LIF")
+        for ev in ras["excerpt"]:
+            if not (0 <= ev["t_us"] <= win_us):
+                errors.append(f"{where} excerpt t {ev}")
+            if not (0 <= ev["neuron_id"] < ras["neurons"]):
+                errors.append(f"{where} neuron {ev}")
+        by_n = defaultdict(list)
+        for ev in ras["excerpt"]:
+            by_n[ev["neuron_id"]].append(ev["t_us"])
+        for nid, ts in by_n.items():
+            ts.sort()
+            for a, b in zip(ts, ts[1:]):
+                if b - a < 1000:
+                    errors.append(f"{where} excerpt gap {nid} {a} {b}")
+        tf = ras["routing"]["third_factor"]
+        if abs(tf["tau_e_ms"] / 1000 - tf["tau_e_s"]) > 1e-9:
+            errors.append(f"{where} tau_e pair")
+        g = rec["gate_snn"]
+        for p in g["populations"]:
+            if "spikes" in p or "mean_rate_hz" in p:
+                ws = g["decision_window_ms"] / 1000.0
+                exp = round(p["neurons"] * p["mean_rate_hz"] * ws)
+                if abs(p["spikes"] - exp) > 1:
+                    errors.append(f"{where} gate_snn budget {p['name']} {p['spikes']} vs {exp}")
+        if rec["safety_decision"]["decision"] == "ACCEPT":
+            if rec["executed_action"]["parameters"] != rec["proposed_action"]["parameters"]:
+                errors.append(f"{where} ACCEPT params differ")
+            if rec["executed_action"]["name"] != rec["proposed_action"]["name"]:
+                errors.append(f"{where} ACCEPT name differ")
+        if rec["safety_decision"]["decision"] == "MODIFY":
+            if rec["executed_action"]["parameters"] == rec["proposed_action"]["parameters"]:
+                errors.append(f"{where} MODIFY params identical")
+        if rec["safety_decision"]["correctness"] == "incorrect":
+            if "recovery" not in rec["future_outcome"]:
+                errors.append(f"{where} missing recovery")
+            if rec["meta"].get("supervisor_error_type") != "wrong-modify":
+                errors.append(f"{where} supervisor_error_type")
+        rc = rec["reward_components"]
+        s = rc["task_progress"] + rc["safety"] + rc["efficiency"] + rc["coherence"] + rc["exploration"]
+        if abs(s - rc["total"]) > 1e-6:
+            errors.append(f"{where} total {rc['total']} vs {s}")
+        for k in ("task_progress", "safety", "efficiency", "coherence", "exploration"):
+            ts = sum(t[k] for t in rc["ticks"])
+            if abs(ts - rc[k]) > 1e-6:
+                errors.append(f"{where} {k} ticks {ts} vs {rc[k]}")
+        v_err, kind = check_line(rec, where, factory_staging=True)
+        if v_err:
+            errors.append(f"{where} check_line {v_err} kind={kind}")
+        t_err = check_thalamic(rec, where)
+        if t_err:
+            errors.append(f"{where} check_thalamic {t_err}")
+        st = raster_status(rec, require_raster=True, require_routing_table=True)
+        if not st["raster_valid"] or st["reason_codes"]:
+            errors.append(f"{where} raster_status {st}")
+        if not st.get("gate_snn_present"):
+            errors.append(f"{where} gate_snn missing")
+        if '"sim_or_real": "real"' in blob or '"sim_or_real":"real"' in blob:
+            errors.append(f"{where} nested real")
+        if rec["meta"]["rights"]["intended_use"] != "research_only":
+            errors.append(f"{where} rights")
+        if rec["meta"].get("training_ready"):
+            errors.append(f"{where} training_ready")
+        if rec["state"]["sim_or_real"] == "real":
+            errors.append(f"{where} real origin")
+    return errors, max_intra, max_prior, worst_prior, intra
+
+
+def notes_text(records, max_intra, max_prior, worst_prior, intra):
+    ras_rows = []
+    for r in records:
+        ras = r["raster"]
+        ras_rows.append(
+            f"| {r['id']} | {r['state']['domain']} | {ras['neurons']} | {ras['mean_rate_hz']} | {ras['window_ms']} | {ras['spikes']} | {ras['energy_pJ']} | {ras['energy_uJ']} |"
+        )
+    rew_rows = []
+    for r in records:
+        rc = r["reward_components"]
+        inf = r["future_outcome"]["reward_inflection_t_us"]
+        ticks = r["reward_components"]["ticks"]
+        idx = next(i + 1 for i, t in enumerate(ticks) if t["t_us"] == inf)
+        rew_rows.append(
+            f"| {r['id'][-3:]} | 6 | {rc['task_progress']:+.2f} | {rc['safety']:+.2f} | {rc['efficiency']:+.2f} | {rc['coherence']:+.2f} | {rc['exploration']:+.2f} | {rc['total']:+.2f} | {idx} ({inf}) |"
+        )
+    intra_s = ", ".join(f"{a}/{b}={j:.3f}" for a, b, j in sorted(intra, key=lambda x: -x[2])[:3])
+    prior_s = f"{worst_prior[0]} vs {worst_prior[1]}" if worst_prior else "n/a"
+    return f"""# Thalamic Trajectory Factory — NOTES-r05
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- Quality: Q=5
+- IDs: `ttf-r05-021` … `ttf-r05-025`
+- Domains this batch: `warehouse-amr`, `industrial-assembly`, `grid-inspection`, `underwater-rov`, `aerial-swarm`
+
+Round 5 stays inside the prompt 8-pool and sits out r04's three r01-holdovers (`humanoid-locomotion`, `surgical-assist`, `autonomous-driving`). Plants are invented (Spool-Croft / Caster-C7, Dowel-Mire / Arbor-A9, Isoline-Beck / Crawler-H4, Wrack-Fen / Sled-W6, Drift-Nacelle / Quad-D6). Do not restack r01–r04/r22/r23 plants (Lumen-Quay, Rivermead, Fork-Haven, Pylon-Wick, Slate-March, Coble-Yard, Gannet-Lea, Silt-Quern, Bushing-Holt, Insulator-Wick, Pallet-Wythe, Downdraft-Cairn, Thalass-Ness, Cinch-Quarry, Clover-Weir, Kerb-Lynchet, Fascia-Holt, Fen-Quay, Reed-Merge, Lee-Nacelle, Ossicle-Holt, Talus-Knap, Kelp-Brae, Shed-Wick, Kite-Lea) or later chemical plants.
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+| ttf-r05-021 | warehouse-amr | MODIFY | correct | designed | **-0.42** | Spool-Croft SC-5 / Caster-C7: bumper FT beats aisle lidar; pallet-slat snap inside 40 ms raster; independent LIF |
+| ttf-r05-022 | industrial-assembly | MODIFY | correct | designed | +1.05 | Dowel-Mire DM-2 / Arbor-A9: wrist 24.8 N > 18.0 cap; insert 0.90 -> 0.22 mm/s |
+| ttf-r05-023 | grid-inspection | REJECT | correct | hil | +0.84 | Isoline-Beck IB-HIL / Crawler-H4: corona 2.70 mA beats RH 44%; freeze creep |
+| ttf-r05-024 | underwater-rov | ACCEPT | correct | simulated | +1.08 | Wrack-Fen WF-3 sim / Sled-W6: tether 155 N and DVL 0.16 m/s already legal |
+| ttf-r05-025 | aerial-swarm | MODIFY | **incorrect (wrong-modify / delayed-clamp)** | designed | -0.79 | Drift-Nacelle DN-7 / Quad-D6: downwash 4.90 > 3.50; climb clamp deferred for baro confirm |
+
+Gate mix: 1 ACCEPT, 2 correct MODIFY (one partnered-neg, in-window), 1 correct REJECT, 1 incorrect MODIFY (wrong-modify / delayed-clamp). Provenance: designed×3, simulated×1, hil×1 (Isoline-Beck IB-HIL dummy string). Intra-batch Jaccard on `state.description` {max_intra:.3f} (top pairs {intra_s}). All < 0.4. Max Jaccard vs prior committed rounds in this factory dir {max_prior:.3f} ({prior_s}). Totals not all-positive (021 −0.42, 025 −0.79).
+
+## Wrong-modify
+
+**ttf-r05-025** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-modify`). Round 5 is odd, so wrong-modify (even rounds host wrong-reject). This is **delayed-clamp** (baro confirm before climb clamp). Not r01 wrong-joint (stance ankle vs hip yaw), not r03 wrong-axis (climb vs yaw), not r23 split-range-wrong-half, not r13 wrong-axis (J2/J6), not r14 wrong-loop (AC vs DC), not a wrong-ACCEPT. Do not emit a wrong-ACCEPT.
+
+Drift-Nacelle DN-7 / Quad-D6 reads live downwash **4.90 m/s** against a **3.50 m/s** cap. Baro altitude is **+0.18 m**. Sidecar arithmetic `4.90 > 3.50` is true. A timely MODIFY at `t_gate_us=5950` cuts climb **1.10 -> 0.28 m/s**. A weak supervisor binds a 200 Hz baro confirm as a prerequisite and MODIFY-defers the clamp (`clamp_defer_ms=18.4`). Live downwash stays **4.90 > 3.50**. Convictable without rotor physics: `evidence.downwash_mps > evidence.cap_mps`, `evidence.force_axis == climb`, `evidence.baro_is_clamp_confirm == false`, `executed_action` sets `bind_baro_confirm_before_clamp=true` and `climb_mps=1.10` with `clamp_defer_ms=18.4`, `raster.routing.table` sends `relay.anemo.downwash` → `policy.baro_wait` (weight 0.74) with no positive weight to `policy.climb_clamp`, and `gate_snn` has `baro_wait` above threshold while `climb_clamp` is not (`spikes=0`). Recovery: MODIFY climb 1.10 -> 0.28 m/s at t_gate; do not wait for baro. Cost: 9 min pad abort (`abort_s=540`).
+
+## Partnered-negative in-window (021)
+
+**ttf-r05-021** is the partnered negative: process-correct MODIFY (speed held 0.12 m/s; bumper 9.6 N <= 11.0 cap) while the world still charges. Safety −0.58 prices the pallet-slat snap at **23.600 ms**; `task_progress` stays +0.30 because the clamp completed. Inflection `t_us=23600` is tick 5 and is **inside** the 40 ms raster (`23600 ≤ 40000`). Named un-netted loss: 12 min aisle reset + slat swap (`abort_s=720`). Not folded into process heads.
+
+Independent LIF (labeled sidecar sim on every record this round): `state.sim_or_real` remains `designed` on 021. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 5021, stim `[22800, 26200]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.slat` 22.8–26.2 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`. 022–025 also carry independent LIF excerpts (seeds 5022–5025).
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks). Tick 6 is bound to a published sidecar (`abort_s`, `survey_s`, `dwell_s`) via `future_outcome.delayed_surprise_s` and is strictly after the raster window. Inflection `t_us` is an actual tick.
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+{chr(10).join(rew_rows)}
+
+Tick-6 sidecar bind: 021 `abort_s=720`, 022 `survey_s=210`, 023 `abort_s=360`, 024 `dwell_s=120`, 025 `abort_s=540`.
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+{chr(10).join(ras_rows)}
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator (NA / ACh / DA / 5-HT / adenosine), `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Excerpts are independent LIF membrane crossings, not a 1:1 remap of `spike_events` times (overlap < 0.8).
+
+## Gaps this round fixes vs r04 NOTES
+
+r04 asked r05 to sit out the three domains reused vs r01 (`humanoid-locomotion`, `surgical-assist`, `autonomous-driving`) and keep 8-pool. This batch does that on r04 sit-outs `warehouse-amr` / `industrial-assembly` / `grid-inspection` plus new plants on `underwater-rov` (ACCEPT sim, not r04 REJECT designed) and `aerial-swarm` (**delayed-clamp** wrong-modify, not r04 px-as-si wrong-reject and not r03 wrong-axis). Wrong-ACCEPT remains absent (guard). Independent LIF is labeled on all five records. Partnered-neg sits on warehouse pallet-slat (not r01 surgical CSF / r02 carton dump / r04 granite nosing). HIL sits on grid dummy string (not r04 surgical phantom).
+
+## Local checks (this window)
+
+Generator stdout: self_check (Jaccard, refractory, race, spike budget, energy, tick6 bind, gate_snn budget, rights). Then `json.loads` every line, `validate_run.check_line`, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`.
+
+Never `training_ready`. Never `sim_or_real=real`. Create-only into the assigned live path; did not clobber 2026-08-17 / 2026-08-30; did not overwrite existing r05 files (c-suffix if occupied).
+
+## Residual weaknesses (honest)
+
+1. `warehouse-amr` / `industrial-assembly` / `grid-inspection` / `underwater-rov` / `aerial-swarm` repeat 8-pool slugs already seen in r01/r02/r22 (new plants and new gates; Jaccard vs prior still < 0.4).
+2. Wrong-ACCEPT still absent (guard).
+3. Tick-6 sidecar bind is standing machinery (r14+), not a new class. ISI histogram sidecar was considered and not added.
+4. 025 delayed-clamp is baro-confirm-before-climb; a later odd round could densify delayed-clamp on a 200 Hz encoder seat-confirm for a press insert.
+5. 023 HIL dummy insulator never tracks; a partnered HIL near-miss where REJECT is correct but a delayed string slip still nicks the saddle would densify the REJECT class.
+
+## Next densification target
+
+Round 06: even-round **wrong-reject** (stale-setpoint / swapped-tag or 3-wire RTD lead-resistance as temperature); rotate sit-outs onto this batch's five if possible; keep one partnered-neg in-window; consider ISI histogram sidecar.
+
+Novel coverage: 24.5%
+"""
+
+
+def exclusive_write(path: Path, data: str):
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    fd = os.open(str(path), flags, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(data)
+
+
+def main():
+    live_s = str(LIVE.resolve())
+    if "2026-08-17" in live_s or "2026-08-30" in live_s:
+        print("refusing forbidden tree", live_s, file=sys.stderr)
+        sys.exit(5)
+
+    records = [rec_021(), rec_022(), rec_023(), rec_024(), rec_025()]
+    errors, max_intra, max_prior, worst_prior, intra = validate_records(records)
+    if errors:
+        print("SELF-CHECK FAIL", file=sys.stderr)
+        for e in errors:
+            print(" ", e, file=sys.stderr)
+        sys.exit(1)
+
+    staging = Path("/tmp/ttf-r05")
+    staging.mkdir(parents=True, exist_ok=True)
+    jsonl = "\n".join(json.dumps(r, ensure_ascii=False, separators=(",", ":")) for r in records) + "\n"
+    notes = notes_text(records, max_intra, max_prior, worst_prior, intra)
+    (staging / "batch-r05.jsonl").write_text(jsonl, encoding="utf-8")
+    (staging / "NOTES-r05.md").write_text(notes, encoding="utf-8")
+
+    counts, findings, blocked = verify_batch_for_frontier(staging / "batch-r05.jsonl", strict=True)
+    print("verify_batch", counts, "blocked", blocked)
+    if findings:
+        print("findings", findings)
+    if blocked:
+        sys.exit(2)
+
+    from spike_probe import load_rasters
+
+    rasters, problems = load_rasters([staging / "batch-r05.jsonl"])
+    print("spike_probe rasters", len(rasters), "problems", problems)
+    if problems:
+        sys.exit(3)
+    if len(rasters) != 5:
+        print("expected 5 rasters", len(rasters))
+        sys.exit(3)
+
+    live_batch = LIVE / "batch-r05.jsonl"
+    live_notes = LIVE / "NOTES-r05.md"
+    if live_batch.exists() or live_notes.exists():
+        live_batch = LIVE / "batch-r05c.jsonl"
+        live_notes = LIVE / "NOTES-r05c.md"
+        if live_batch.exists() or live_notes.exists():
+            print("collision: r05 and r05c exist", file=sys.stderr)
+            sys.exit(4)
+
+    exclusive_write(live_batch, jsonl)
+    exclusive_write(live_notes, notes)
+    print("WROTE", live_batch)
+    print("WROTE", live_notes)
+    print("max_intra", round(max_intra, 3), "max_prior", round(max_prior, 3), worst_prior)
+    for r in records:
+        sd = r["safety_decision"]
+        print(
+            r["id"],
+            r["state"]["domain"],
+            sd["decision"],
+            sd["correctness"],
+            r["state"]["sim_or_real"],
+            r["reward_components"]["total"],
+            r["meta"].get("supervisor_error_type"),
+        )
+
+
+if __name__ == "__main__":
+    main()

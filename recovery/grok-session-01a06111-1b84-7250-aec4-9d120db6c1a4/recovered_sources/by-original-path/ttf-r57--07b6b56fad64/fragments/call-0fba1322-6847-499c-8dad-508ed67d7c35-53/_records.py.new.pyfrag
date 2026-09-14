@@ -1,0 +1,1778 @@
+def record_301():
+    excerpt, extra = lif_301_excerpt()
+    extra = OrderedDict(extra)
+    extra["abort_s"] = 840
+    extra["delayed_surprise_s"] = 840
+    ticks = [
+        tick(2440, 0.04, -0.02, -0.02, 0.01, 0.00),
+        tick(6120, 0.08, -0.04, -0.02, 0.01, -0.01),
+        tick(6308, 0.04, -0.03, -0.02, 0.00, 0.00),
+        tick(6840, 0.08, -0.05, -0.03, 0.02, -0.01),
+        tick(22400, 0.04, -0.45, -0.03, -0.01, -0.01),
+        tick(840000000, 0.02, -0.05, -0.02, 0.01, -0.01),
+    ]
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Cooler C-9 at Grate-Howe GH-4 is pushing 3.8 m/min of clinker while secondary "
+                "air sits at 980 C against a 940 C recuperator cap. Temperature-first cuts grate "
+                "speed to 2.9 m/min; speed-first would keep 3.8 m/min because undergrate fan 1180 "
+                "rpm is still under the 1280 rpm stall ceiling. A cracked grate plate already "
+                "seated over the deep-pan conveyor does not appear on secondary-air T or grate "
+                "encoder until the AE dump.",
+            ),
+            ("domain", "clinker-grate-cooler"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Keep Cooler C-9 secondary air <= 940 C and finish the clinker sendout without "
+                "dumping red clinker onto the deep-pan conveyor.",
+            ),
+            ("t0_us", 1756850400000301),
+            ("gate_latency_us", 720),
+            ("race_window_us", 400),
+            ("race_window_rel_ms", [6.0, 6.40]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "tc.secair.C 980 over 940 recuperator cap",
+                                "enc.grate.m_min 3.8 with fan 1180 under 1280",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Temperature-first latches grate-speed clamp 3.8 -> 2.9 m/min; "
+                            "speed-first keeps 3.8 m/min on a 'still under fan-stall ceiling' model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "400 us = one secondary-air TC slot versus the grate-speed encoder "
+                            "publisher on this cooler skid bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 188 us vs combined jitter 64 us (TC 30 + ENC 34): 2.9x over "
+                            "a 2.0x trust floor. Reversing order by < 188 us inside the 400 us "
+                            "window would have kept 3.8 m/min; predicted next-sample 988 C > 940 "
+                            "recuperator cap.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "secondary-air thermocouple tree, 2 kHz, 30 us jitter",
+                    "grate-speed encoder + undergrate fan FT, 1 kHz, 34 us jitter",
+                    "grate-plate AE puck (context)",
+                    "deep-pan IR (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("secair_cap_C", 940.0),
+                        ("observed_secair_C", 980.0),
+                        ("grate_m_min", 3.8),
+                        ("fan_rpm", 1180.0),
+                        ("fan_cap_rpm", 1280.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Cooler C-9 indexed; grate 3.8 m/min; secondary air 980 C.",
+                    "2. Fan 1180 rpm under 1280 rpm stall; clinker sendout armed.",
+                    "3. Encoder precursor at 1.180 ms.",
+                    "4. Race window [6.000, 6.400] ms.",
+                    "5. tc.secair.C 980 C at 6.120 ms (winner).",
+                    "6. enc.grate.m_min 3.8 at 6.308 ms (loser by 188 us).",
+                    "7. Gate at 6.840 ms: MODIFY clamp 3.8 -> 2.9 m/min.",
+                    "8. After clamp secondary air 928 C <= 940; fan still 1180 rpm.",
+                    "9. At 22.400 ms a cracked grate plate dumps 0.4 t of red clinker onto the pan.",
+                    "10. 14 min pan fire watch (abort_s=840); named un-netted loss.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_grate_speed"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("grate_m_min", 3.8),
+                        ("secair_C", 980.0),
+                        ("fan_rpm", 1180.0),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("secair_C", 980.0),
+                        ("secair_cap_C", 940.0),
+                        ("predicted_unclamped_next_C", 988.0),
+                        ("grate_m_min", 3.8),
+                        ("fan_rpm", 1180.0),
+                        ("fan_cap_rpm", 1280.0),
+                        ("race_margin_us", 188),
+                        ("combined_jitter_us", 64),
+                        ("abort_s", 840),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 3.8 m/min because fan 1180 rpm is under 1280, treating the "
+                "980 C secondary air as a still-sooty pyrometer rather than a recuperator miss.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Secondary air 980 C won by 188 us, so the cooler is over the 940 C recuperator "
+                "cap, not still a fan-stall story. Holding 3.8 m/min predicts next-sample 988 C "
+                "> 940. MODIFY: grate 3.8 -> 2.9 m/min. Observed after clamp 928 C <= 940. A full "
+                "REJECT is not indicated: a clean sendout accepts 2.9 m/min.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "secair_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 940.0),
+                                    ("observed", 980.0),
+                                    ("predicted_unclamped_next", 988.0),
+                                    ("clamped_grate_m_min", 2.9),
+                                    ("observed_after_clamp", 928.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 188),
+                                    ("combined_jitter_us", 64),
+                                    ("ratio", 2.94),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_grate_speed"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("grate_m_min", 2.9),
+                        ("secair_C", 928.0),
+                        ("fan_rpm", 1180.0),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: grate 3.8 -> 2.9 m/min. Process-correct vs the 940 C recuperator cap. "
+                "Cracked plate still dumps at 22.400 ms.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Process-correct MODIFY held secondary air at 928 C. At 22.400 ms a cracked "
+                "grate plate already seated over the deep-pan conveyor dumped 0.4 t of red "
+                "clinker onto the pan. Clamp reduced dump energy; it did not prevent the dump. "
+                "Partnered negative: process heads stay honest; world loss is named, not netted.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("secair", "clamp executed; peak 928 C <= 940 cap"),
+                        ("grate_plate", "cracked dump at 22.400 ms; 0.4 t red clinker"),
+                        ("repair", "14 min pan fire watch (abort_s=840)"),
+                        ("mission", "GH-4 clinker sendout incomplete this circuit"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Neither secondary-air T nor grate encoder predicted the seated plate crack; ae.grate.dump is a new channel at 22.400 ms, 15.560 ms after the gate, still inside the 42 ms raster.",
+                    "Delayed (abort_s=840): 14 min pan fire watch. Named un-netted loss, not folded into task_progress.",
+                ],
+            ),
+            (
+                "un_netted_loss",
+                "14 min pan fire watch after the grate-plate dump. Safety head -0.64 "
+                "prices the dump; task_progress stays +0.30 because the clamp completed.",
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "tc.secair.C (6.120 ms, 980 C)"),
+                        ("loser", "enc.grate.m_min (6.308 ms, 3.8 m/min)"),
+                        ("margin_us", 188),
+                        (
+                            "counterfactual_if_reversed",
+                            "Speed-first by < 188 us inside the 400 us window would have kept "
+                            "3.8 m/min; predicted next-sample 988 C would have missed the 940 "
+                            "recuperator cap even without the plate dump. The MODIFY is still the "
+                            "correct process. The dump is a later world charge either way, "
+                            "cheaper with the clamp than without.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 22400),
+            (
+                "reward_inflection_note",
+                "Safety collapses at the 22.400 ms grate-plate dump (tick t_us=22400), inside "
+                "the 42 ms raster. The correct MODIFY at 6.840 ms is in the same excerpt. Do "
+                "not put inflection on the abort_s=840 fire-watch tick.",
+            ),
+        ]
+    )
+    spikes = [
+        spike("enc.grate.ctx", 1.180, 0.41),
+        spike("tc.secair.C", 2.440, 0.58),
+        spike("enc.grate.m_min", 3.880, 0.50),
+        spike("tc.secair.C", 6.120, 1.31),
+        spike("enc.grate.m_min", 6.308, 1.12),
+        spike("ctrl.gate", 6.840, 0.97),
+        spike("tc.secair.C", 8.200, 0.82),
+        spike("enc.grate.m_min", 10.550, 0.64),
+        spike("ctrl.gate", 14.100, 0.86),
+        spike("ae.grate.dump", 22.400, 1.48),
+        spike("ae.grate.dump", 24.200, 0.93),
+        spike("enc.grate.ctx", 29.800, 0.40),
+        spike("tc.secair.C", 36.200, 0.55),
+    ]
+    ras = raster_core(
+        42,
+        72,
+        24,
+        73,
+        routing(
+            "thalamic-relay.gh-secair",
+            "spikenaut.policy.grate-clamp",
+            [
+                ("relay_secair_C", "policy_grate_clamp", 0.68),
+                ("relay_grate_enc", "policy_speed_hold", 0.29),
+                ("relay_ae_grate", "policy_grate_clamp", -0.42),
+            ],
+            "noradrenaline",
+            0.04,
+            "surprise-gated pre_post_stdp; NA at secondary-air win (6.120 ms) opens a 42 ms "
+            "eligibility trace that still covers the 22.400 ms grate-plate dump",
+        ),
+        excerpt,
+        extra=extra,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.40),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("grate_clamp", 50, 0.50, 200.0, 4),
+                    pop("speed_hold", 40, 0.80, 50.0, 1),
+                    pop("plate_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r57-301"),
+            (
+                "title",
+                "Grate-Howe GH-4 / Cooler C-9: secondary air beats grate speed by 188 us; correct "
+                "MODIFY still eats an in-window grate-plate dump (partnered negative total -0.48)",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Partnered negative. Process-correct MODIFY; world still charges inside the "
+                    "42 ms raster. total -0.48 = 0.30 + -0.64 + -0.14 + 0.04 + -0.04. Named "
+                    "pan fire watch (abort_s=840) is not netted into task_progress.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "clinker-grate-cooler",
+                    [
+                        "modify",
+                        "partnered-negative-total",
+                        "independent-lif-raster",
+                        "sidecar-sim-only",
+                        "in-window-world-charge",
+                        "designed",
+                    ],
+                    "A critic can see the world-charge as a LIF burst inside the raster while "
+                    "process heads stay honest. Credit assignment is spikes, not prose across a "
+                    "14 min pan fire watch.",
+                    1,
+                ),
+            ),
+        ]
+    )
+
+
+def record_302():
+    ticks = [
+        tick(2210, -0.02, -0.02, -0.02, -0.01, 0.01),
+        tick(5480, -0.04, -0.04, -0.03, -0.02, 0.01),
+        tick(5662, -0.04, -0.04, -0.03, -0.02, 0.01),
+        tick(6020, -0.08, -0.10, -0.06, -0.03, 0.02),
+        tick(6400, -0.02, -0.02, -0.02, -0.01, 0.01),
+        tick(540000000, -0.02, -0.02, -0.02, -0.01, 0.00),
+    ]
+    spikes = [
+        spike("enc.cycle.ctx", 1.050, 0.42),
+        spike("gc.live.wt", 2.210, 0.57),
+        spike("gc.stale.wt", 3.080, 0.88),
+        spike("gc.live.wt", 5.480, 1.29),
+        spike("gc.stale.wt", 5.662, 1.10),
+        spike("ctrl.gate", 6.020, 0.96),
+        spike("p.desorb.pulse", 6.400, 1.18),
+        spike("gc.live.wt", 7.800, 0.80),
+        spike("gc.stale.wt", 10.200, 0.63),
+        spike("ctrl.gate", 13.500, 0.84),
+        spike("enc.cycle.ctx", 18.400, 0.41),
+        spike("gc.live.wt", 22.100, 0.54),
+        spike("gc.stale.wt", 26.400, 0.38),
+    ]
+    excerpt = independent_excerpt(57302, 96, 30000, 14, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Adsorber A-2 at Aromatics-Knap XK-6 still prints live raffinate PX 0.68 wt "
+                "percent against a 0.80 wt percent spec cap, with raffinate takeoff already "
+                "filed at 42 percent. A stale peak-hold from the previous desorb pulse still "
+                "shows 0.91 wt percent (tag_age_us=2940 vs max_legal_tag_age_us=800, "
+                "peak_hold_fresh=false). Live-first should ACCEPT 42 percent; a weak supervisor "
+                "binds the lagged tag and MODIFY-closes raffinate 42 -> 18 percent.",
+            ),
+            ("domain", "parex-xylene-adsorber"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Keep raffinate takeoff at the filed 42 percent while live PX stays <= 0.80 wt "
+                "percent; do not clamp on a stale desorb peak-hold.",
+            ),
+            ("t0_us", 1756850400000302),
+            ("gate_latency_us", 540),
+            ("race_window_us", 360),
+            ("race_window_rel_ms", [5.4, 5.76]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "gc.live.wt 0.68 wt percent on live raffinate",
+                                "gc.stale.wt 0.91 wt percent lagged peak-hold",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Live-first should latch raffinate-hold at 42 percent; stale-first is "
+                            "a false 'peak still high' bind that closes takeoff to 18 percent.",
+                        ),
+                        (
+                            "window_derivation",
+                            "360 us = one live-GC sample versus the peak-hold publisher on this "
+                            "adsorber PLC bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 182 us vs combined jitter 60 us (live 28 + stale 32). Order "
+                            "is correctly live-first. The error is which sample the MODIFY binds, "
+                            "not the race order.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "live raffinate GC, 2 s cycle, 28 us jitter on this packet",
+                    "desorb peak-hold register, 32 us jitter",
+                    "cycle encoder (context)",
+                    "chamber PT (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("cap_wt_pct", 0.80),
+                        ("live_wt_pct", 0.68),
+                        ("stale_wt_pct", 0.91),
+                        ("tag_age_us", 2940),
+                        ("max_legal_tag_age_us", 800),
+                        ("peak_hold_fresh", False),
+                        ("proposed_raffinate_pct", 42.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Adsorber A-2 in adsorb; raffinate 42 percent armed.",
+                    "2. Live PX 0.68 < 0.80 cap; stale peak-hold 0.91 from prior desorb.",
+                    "3. Stale register sampled at 3.080 ms (tag_age clock starts).",
+                    "4. Race window [5.400, 5.760] ms.",
+                    "5. gc.live.wt 0.68 at 5.480 ms (winner).",
+                    "6. gc.stale.wt 0.91 at 5.662 ms (loser by 182 us).",
+                    "7. Gate at 6.020 ms: WRONG MODIFY raffinate 42 -> 18 percent on stale tag.",
+                    "8. tag_age_us=2940 > max_legal_tag_age_us=800; peak_hold_fresh=false.",
+                    "9. Live PX remains 0.68; takeoff starved for the rest of the adsorb pulse.",
+                    "10. Delayed (abort_s=540): 9 min missed isomerate window.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "hold_raffinate_takeoff"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("raffinate_pct", 42.0),
+                        ("peak_hold_fresh", True),
+                        ("tag_age_us", 0),
+                        ("max_legal_tag_age_us", 800),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("live_wt_pct", 0.68),
+                        ("cap_wt_pct", 0.80),
+                        ("stale_wt_pct", 0.91),
+                        ("tag_age_us", 2940),
+                        ("max_legal_tag_age_us", 800),
+                        ("peak_hold_fresh", False),
+                        ("live_under_cap", True),
+                        ("race_margin_us", 182),
+                        ("combined_jitter_us", 60),
+                        ("abort_s", 540),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes keeping 42 percent raffinate because live PX 0.68 is under "
+                "the 0.80 spec cap. The 0.91 peak-hold is a previous desorb pulse.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "incorrect"),
+            (
+                "rationale",
+                "Stale peak-hold 0.91 wt percent still looks over the 0.80 cap, so the "
+                "supervisor closes raffinate 42 -> 18 percent to 'protect' the bed. The live "
+                "GC that won the race reads 0.68, under cap; the tag is 2940 us old against an "
+                "800 us freshness floor and peak_hold_fresh is false. The MODIFY is plausible "
+                "to a weak supervisor that treats the peak-hold as live.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "px_wt_pct",
+                            OrderedDict(
+                                [
+                                    ("cap", 0.80),
+                                    ("live", 0.68),
+                                    ("stale_bound", 0.91),
+                                    ("executed_raffinate_pct", 18.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "tag_freshness",
+                            OrderedDict(
+                                [
+                                    ("tag_age_us", 2940),
+                                    ("max_legal_tag_age_us", 800),
+                                    ("peak_hold_fresh", False),
+                                    ("stale_sample_t_us", 3080),
+                                    ("t_gate_us", 6020),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 182),
+                                    ("combined_jitter_us", 60),
+                                    ("ratio", 3.03),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "stale_raffinate_clamp"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("raffinate_pct", 18.0),
+                        ("peak_hold_fresh", False),
+                        ("tag_age_us", 2940),
+                        ("max_legal_tag_age_us", 800),
+                        ("uses_stale", True),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "WRONG MODIFY: raffinate 42 -> 18 percent bound to stale 0.91 wt percent. "
+                "Live 0.68 remains under 0.80. tag_age_us 2940 > 800.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Wrong-modify / stale-sample. Live raffinate PX 0.68 stayed under the 0.80 "
+                "cap. The supervisor still closed takeoff to 18 percent on a lagged desorb "
+                "peak-hold. Nine minutes of isomerate window missed (abort_s=540).",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("raffinate", "starved; 18 percent vs filed 42"),
+                        ("live_gc", "0.68 wt percent still under 0.80"),
+                        ("stale_tag", "0.91 bound; peak_hold_fresh=false"),
+                        ("mission", "XK-6 adsorb pulse under-taken"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Live GC winning a 182 us race did not prevent a stale-tag MODIFY; reversing order would still have been a wrong bind if the supervisor keyed on peak-hold.",
+                    "Delayed (abort_s=540): 9 min missed isomerate window. Named un-netted loss.",
+                ],
+            ),
+            (
+                "recovery",
+                "ACCEPT; leave raffinate at 42 percent; bind live GC; ignore peak-hold while "
+                "peak_hold_fresh is false and tag_age_us > max_legal_tag_age_us.",
+            ),
+            (
+                "cost",
+                OrderedDict(
+                    [
+                        ("actual_live_wt_pct", 0.68),
+                        ("actual_cap_wt_pct", 0.80),
+                        ("wrong_edit_applied", OrderedDict([("raffinate_pct", 18.0)])),
+                        (
+                            "cost",
+                            "9 min missed isomerate window (task/efficiency); legal 0.68 live "
+                            "read starved by a stale 0.91 peak-hold (safety of a false clamp).",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "gc.live.wt (5.480 ms, 0.68 wt percent)"),
+                        ("loser", "gc.stale.wt (5.662 ms, 0.91 wt percent)"),
+                        ("margin_us", 182),
+                        (
+                            "counterfactual_if_reversed",
+                            "Stale-first by < 182 us would still leave live 0.68 under cap; a "
+                            "correct gate binds gc.live.wt to policy_live_hold either way. The "
+                            "wrong MODIFY spent the live win on a lagged peak-hold clamp.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 6020),
+            (
+                "reward_inflection_note",
+                "Task, safety, and efficiency drop at the wrong MODIFY (6.020 ms, tick 4). "
+                "The 9 min isomerate miss is delayed surprise, not the inflection.",
+            ),
+        ]
+    )
+    ras = raster_core(
+        30,
+        96,
+        32,
+        92,
+        routing(
+            "thalamic-relay.px-gc",
+            "spikenaut.policy.stale-clamp",
+            [
+                ("relay_stale_gc", "policy_stale_clamp", 0.73),
+                ("relay_live_gc", "policy_stale_clamp", 0.22),
+            ],
+            "acetylcholine",
+            0.08,
+            "stale_tag_stdp; ACh tags the (wrong) stale_clamp bind at the live-GC win",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("abort_s", 540),
+                ("delayed_surprise_s", 540),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.36),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("stale_clamp", 42, 0.45, 280.0, 4),
+                    pop("live_hold", 42, 0.90),
+                    pop("gc_veto", 20, 0.80),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r57-302"),
+            (
+                "title",
+                "WRONG-MODIFY at Aromatics-Knap XK-6 / Adsorber A-2: live PX 0.68 under cap; "
+                "raffinate closed on stale peak-hold (stale-sample / lagged-tag)",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Wrong-modify / stale-sample. Sidecar arithmetic live 0.68 < 0.80 is true "
+                    "and peak_hold_fresh is false; MODIFY bound the lagged 0.91 tag. "
+                    "total -0.68 = -0.22 + -0.24 + -0.18 + -0.10 + 0.06.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "parex-xylene-adsorber",
+                    [
+                        "modify",
+                        "wrong-gate",
+                        "stale-sample",
+                        "lagged-tag",
+                        "peak-hold-fresh-false",
+                        "sidecar-convictable",
+                        "designed",
+                    ],
+                    "Teaches a probe that a correct live-first race can still be a wrong gate "
+                    "when routing.table[0].to is policy_stale_clamp and peak_hold_fresh is false. "
+                    "Convictable from tag_age_us vs max_legal_tag_age_us without Parex physics.",
+                    2,
+                    supervisor_error_type="wrong-modify",
+                ),
+            ),
+        ]
+    )
+
+
+def record_303():
+    ticks = [
+        tick(2810, 0.01, 0.04, 0.01, 0.01, 0.01),
+        tick(7040, 0.02, 0.08, 0.02, 0.02, 0.01),
+        tick(7218, 0.01, 0.06, 0.02, 0.01, 0.01),
+        tick(7900, 0.04, 0.16, 0.04, 0.04, 0.02),
+        tick(8200, 0.01, 0.05, 0.02, 0.01, 0.01),
+        tick(360000000, 0.01, 0.03, 0.01, 0.01, 0.00),
+    ]
+    spikes = [
+        spike("tc.vat.ctx", 1.420, 0.43),
+        spike("dp.vac.kPa", 2.880, 0.61),
+        spike("enc.felt.kN", 4.550, 0.49),
+        spike("dp.vac.kPa", 7.040, 1.34),
+        spike("enc.felt.kN", 7.218, 1.11),
+        spike("ctrl.gate", 7.900, 1.02),
+        spike("dp.vac.kPa", 10.200, 0.78),
+        spike("tc.vat.ctx", 14.800, 0.44),
+        spike("enc.felt.kN", 19.400, 0.58),
+        spike("ctrl.gate", 24.600, 0.81),
+        spike("dp.vac.kPa", 31.200, 0.53),
+        spike("enc.felt.kN", 38.800, 0.46),
+        spike("tc.vat.ctx", 44.100, 0.37),
+    ]
+    excerpt = independent_excerpt(57303, 128, 48000, 15, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Former F-3 on the Board-Lynchet BL-HIL pad is armed for a 1.8 m/min felt crawl "
+                "while a vacuum-box DP packet reads 42 kPa against an 18 kPa move cap. A felt "
+                "tension encoder, lit by the pad lamp, still reads 8.4 kN under a 12.0 kN travel "
+                "look. Vacuum-first latches REJECT hold; encoder-first would commit a 1.8 m/min "
+                "crawl on an under-read box.",
+            ),
+            ("domain", "fiber-cement-hatschek"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Do not crawl Former F-3 unless vacuum-box DP <= 18 kPa; keep felt 0.0 m/min "
+                "until the injected box recovers.",
+            ),
+            ("t0_us", 1756850400000303),
+            ("gate_latency_us", 860),
+            ("race_window_us", 290),
+            ("race_window_rel_ms", [6.95, 7.24]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "dp.vac.kPa 42 kPa",
+                                "enc.felt.kN 8.4 kN under 12.0",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Vacuum-first latches REJECT hold 0.0 m/min felt; encoder-first would "
+                            "commit a 1.8 m/min crawl on an apparent 8.4 kN under-read.",
+                        ),
+                        (
+                            "window_derivation",
+                            "290 us = one vacuum-box DP sample versus encoder integration on this "
+                            "Hatschek HIL bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 178 us vs combined jitter 56 us (DP 24 + ENC 32): 3.2x over a "
+                            "2.0x trust floor. Pad injects the encoder lamp 120-160 us before the "
+                            "DP (geometric lag, not a sensor fault); the 8.4 kN packet is still "
+                            "the loser in this 290 us window.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "vacuum-box DP cell, 5 kHz burst, 24 us jitter",
+                    "felt tension encoder, 200 Hz, 32 us jitter",
+                    "vat thermocouple (context)",
+                    "HIL lamp-spectrum monitor (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("vac_cap_kPa", 18.0),
+                        ("observed_vac_kPa", 42.0),
+                        ("felt_kN", 8.4),
+                        ("felt_look_kN", 12.0),
+                        ("proposed_crawl_m_min", 1.8),
+                        ("lamp_inject_lead_us", [120, 160]),
+                    ]
+                ),
+            ),
+            (
+                "hil",
+                OrderedDict(
+                    [
+                        ("pad", "Board-Lynchet BL-HIL Hatschek former mockup with physical felt drive"),
+                        ("injected", "vacuum-box DP burst + encoder lamp spectrum"),
+                        (
+                            "note",
+                            "Hardware-in-the-loop fiber-cement former. Invented plant; not a live board mill.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Former F-3 on the BL-HIL pad; 1.8 m/min crawl armed.",
+                    "2. Encoder lamp injected 120-160 us before DP sees 42 kPa.",
+                    "3. Vat-TC precursor at 1.420 ms.",
+                    "4. Race window [6.950, 7.240] ms.",
+                    "5. dp.vac.kPa 42 kPa at 7.040 ms (winner).",
+                    "6. enc.felt.kN 8.4 kN at 7.218 ms (loser by 178 us).",
+                    "7. Gate at 7.900 ms: REJECT hold 0.0 m/min; do not crawl 1.8.",
+                    "8. Box remains over 18 kPa this cycle; crawl cap held.",
+                    "9. Felt re-wet queued on the pad.",
+                    "10. Delayed (abort_s=360): 6 min box re-prime and lamp-spectrum retune.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "crawl_hatschek_felt"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("felt_m_min", 1.8),
+                        ("hold", False),
+                        ("encoder_authoritative", True),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("vac_kPa", 42.0),
+                        ("vac_cap_kPa", 18.0),
+                        ("felt_kN", 8.4),
+                        ("felt_look_kN", 12.0),
+                        ("race_margin_us", 178),
+                        ("combined_jitter_us", 56),
+                        ("abort_s", 360),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes a 1.8 m/min felt crawl because encoder 8.4 kN looks under the "
+                "12.0 kN travel look, treating box 42 kPa as a noisy bus echo.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Vacuum-box 42 kPa is over the 18 kPa felt-move cap. Encoder 8.4 kN is a HIL "
+                "lamp under-read, not a clearance. REJECT: hold 0.0 m/min; do not commit a "
+                "1.8 m/min crawl.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "vac_kPa",
+                            OrderedDict(
+                                [
+                                    ("cap", 18.0),
+                                    ("observed", 42.0),
+                                    ("felt_kN", 8.4),
+                                ]
+                            ),
+                        ),
+                        (
+                            "felt_m_min",
+                            OrderedDict([("proposed", 1.8), ("executed", 0.0)]),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 178),
+                                    ("combined_jitter_us", 56),
+                                    ("ratio", 3.18),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hold_for_vac_drop"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("felt_m_min", 0.0),
+                        ("hold", True),
+                        ("encoder_authoritative", False),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: hold 0.0 m/min; 1.8 m/min crawl cancelled. Vacuum 42 > 18 kPa cap.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct REJECT held Former F-3 at 0.0 m/min felt. Box over cap this cycle; "
+                "crawl cap held. Encoder apparent was not treated as a vacuum clearance.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("felt", "held; 0.0 m/min"),
+                        ("vacuum", "still over 18 kPa this cycle"),
+                        ("encoder", "8.4 kN unused as clearance"),
+                        ("mission", "crawl deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Geometric lag: encoder lamp was injected 120-160 us before the DP cell, yet vacuum still won the 290 us race.",
+                    "Delayed (abort_s=360): pad policy update forbids treating felt encoder kN as a vacuum-box substitute after a 6 min re-prime.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "dp.vac.kPa (7.040 ms, 42 kPa)"),
+                        ("loser", "enc.felt.kN (7.218 ms, 8.4 kN)"),
+                        ("margin_us", 178),
+                        (
+                            "counterfactual_if_reversed",
+                            "Encoder-first by < 178 us inside the 290 us window would have committed "
+                            "a 1.8 m/min crawl with vacuum 42 > 18 kPa cap. Order, not amplitude, selected the hold.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 7900),
+            (
+                "reward_inflection_note",
+                "Safety and coherence step up at the REJECT gate (7.900 ms, tick 4) as the hold "
+                "lands. The 6 min re-prime is delayed surprise bound to abort_s=360.",
+            ),
+        ]
+    )
+    ras = raster_core(
+        48,
+        128,
+        18,
+        111,
+        routing(
+            "thalamic-relay.hatschek-vac",
+            "spikenaut.policy.felt-hold",
+            [
+                ("relay_dp_kPa", "policy_felt_hold", 0.70),
+                ("relay_enc_felt", "policy_enc_crawl", 0.24),
+            ],
+            "dopamine",
+            0.15,
+            "vac_hold_stdp; DA tags the felt_hold bind at the vacuum-box win",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("abort_s", 360),
+                ("delayed_surprise_s", 360),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.29),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("felt_hold", 70, 0.48, 250.0, 5),
+                    pop("enc_crawl", 50, 0.85),
+                    pop("vac_veto", 28, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r57-303"),
+            (
+                "title",
+                "Board-Lynchet BL-HIL / Former F-3: vacuum-box 42 kPa beats felt encoder 8.4 kN "
+                "by 178 us; correct REJECT holds the felt crawl",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct REJECT. Vacuum over cap beats encoder under-read. "
+                    "total 0.80 = 0.10 + 0.42 + 0.12 + 0.10 + 0.06. Tick 6 binds abort_s=360.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "fiber-cement-hatschek",
+                    [
+                        "reject",
+                        "hil",
+                        "vacuum-box",
+                        "encoder-underread",
+                        "tick6-sidecar-bound",
+                    ],
+                    "Teaches that a HIL felt-encoder under-read losing a 178 us race does not "
+                    "clear a vacuum-box over-pressure. Hold is distillable from kPa vs cap.",
+                    3,
+                ),
+            ),
+        ]
+    )
+
+
+def record_304():
+    ticks = [
+        tick(3220, 0.05, 0.04, 0.02, 0.01, 0.01),
+        tick(8120, 0.08, 0.05, 0.04, 0.03, 0.02),
+        tick(8310, 0.06, 0.04, 0.03, 0.02, 0.01),
+        tick(8520, 0.12, 0.09, 0.05, 0.04, 0.02),
+        tick(8980, 0.06, 0.04, 0.02, 0.01, 0.01),
+        tick(120000000, 0.03, 0.02, 0.02, 0.01, 0.01),
+    ]
+    spikes = [
+        spike("enc.belt.ctx", 1.105, 0.43),
+        spike("tc.zone3.C", 3.220, 0.59),
+        spike("ir.shoulder.C", 5.010, 0.50),
+        spike("tc.zone3.C", 8.120, 1.27),
+        spike("ir.shoulder.C", 8.310, 1.09),
+        spike("ctrl.gate", 8.520, 0.97),
+        spike("tc.zone3.C", 11.200, 0.78),
+        spike("ir.shoulder.C", 14.880, 0.61),
+        spike("ctrl.gate", 18.400, 0.84),
+        spike("tc.zone3.C", 22.050, 0.56),
+        spike("enc.belt.ctx", 24.100, 0.40),
+    ]
+    excerpt = independent_excerpt(57304, 52, 26000, 13, spike_avoid_us(spikes))
+    params = OrderedDict(
+        [
+            ("belt_m_min", 1.20),
+            ("zone3_C", 328.0),
+            ("shoulder_C", 188.0),
+        ]
+    )
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Tunnel T-4 at Ampoule-Kame AM-11 is already holding zone-3 at 328 C under a "
+                "340 C wall cap with a 1.20 m/min belt already filed under the 1.40 m/min dwell "
+                "ceiling. Shoulder-IR-first would extra-clamp a legal vial; zone-first ACCEPTS "
+                "the filed 1.20 m/min depyrogenation pass.",
+            ),
+            ("domain", "depyrogenation-tunnel"),
+            ("sim_or_real", "simulated"),
+            (
+                "goal",
+                "Hold the 1.20 m/min belt while zone-3 stays <= 340 C and belt stays <= "
+                "1.40 m/min; do not extra-clamp a legal tunnel.",
+            ),
+            ("t0_us", 1756850400000304),
+            ("gate_latency_us", 400),
+            ("race_window_us", 460),
+            ("race_window_rel_ms", [8.0, 8.46]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "tc.zone3.C 328 C under 340",
+                                "ir.shoulder.C 188 C smear under 250 look",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Zone-first ACCEPTS the already-legal 1.20 m/min belt. Shoulder-first "
+                            "would extra-clamp because 188 C looks under a 250 C lethality look.",
+                        ),
+                        (
+                            "window_derivation",
+                            "460 us = one zone-3 TC slot versus shoulder-IR group delay on this "
+                            "tunnel skid bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 190 us vs combined jitter 66 us (TC 32 + IR 34): 2.9x over "
+                            "a 2.0x trust floor. Reversing order by < 190 us inside the 460 us "
+                            "window would have extra-clamped a legal 328 C / 1.20 m/min pass.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "zone-3 thermocouple tree, 1 kHz, 32 us jitter",
+                    "vial-shoulder IR pyrometer, 2 kHz, 34 us jitter",
+                    "belt encoder (context)",
+                    "HEPA DP (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("zone3_cap_C", 340.0),
+                        ("observed_zone3_C", 328.0),
+                        ("shoulder_C", 188.0),
+                        ("belt_cap_m_min", 1.40),
+                        ("proposed_belt_m_min", 1.20),
+                    ]
+                ),
+            ),
+            (
+                "simulation",
+                OrderedDict(
+                    [
+                        (
+                            "solver",
+                            "conjugate-heat FEM + discrete-vial radiation, seed 57304; 12-lane "
+                            "ampoule belt; NOT lumped-capacity, NOT U-RANS, NOT a wet-stand",
+                        ),
+                        (
+                            "fidelity_limits",
+                            "Rigid tunnel shell; no vial-tip motion. Raster is kernelized events, "
+                            "not an independent LIF.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Tunnel T-4 in pass; 1.20 m/min belt armed.",
+                    "2. Zone-3 328 C under 340 C wall; belt 1.20 under 1.40 m/min dwell.",
+                    "3. Encoder precursor at 1.105 ms.",
+                    "4. Race window [8.000, 8.460] ms.",
+                    "5. tc.zone3.C 328 C at 8.120 ms (winner).",
+                    "6. ir.shoulder.C 188 C at 8.310 ms (loser by 190 us).",
+                    "7. Gate at 8.520 ms: ACCEPT 1.20 m/min; executed identical to proposed.",
+                    "8. Zone-3 stays 328.4 C < 340; belt 1.21 m/min < 1.40.",
+                    "9. Shoulder remaining a cabinet glint did not require an extra clamp.",
+                    "10. Delayed (survey_s=120): 120 s endotoxin coupon on lane 3.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "hold_tunnel_belt"),
+            ("parameters", params),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("zone3_C", 328.0),
+                        ("zone3_cap_C", 340.0),
+                        ("shoulder_C", 188.0),
+                        ("belt_cap_m_min", 1.40),
+                        ("race_margin_us", 190),
+                        ("combined_jitter_us", 66),
+                        ("survey_s", 120),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes keeping the filed 1.20 m/min belt: zone-3 328 C is under the "
+                "340 C wall cap and 1.20 m/min is under 1.40 m/min dwell.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Zone-3 328 C won by 190 us and is under the 340 C wall cap. Shoulder 188 C is "
+                "a cabinet glint, not a lethality miss. ACCEPT the filed 1.20 m/min belt. "
+                "Executed identical to proposed. An extra clamp is not indicated.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "zone3_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 340.0),
+                                    ("observed", 328.0),
+                                    ("executed_belt_m_min", 1.20),
+                                ]
+                            ),
+                        ),
+                        (
+                            "shoulder_C",
+                            OrderedDict([("look", 250.0), ("observed", 188.0)]),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 190),
+                                    ("combined_jitter_us", 66),
+                                    ("ratio", 2.88),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hold_tunnel_belt"),
+            ("parameters", params),
+            (
+                "gate_effect",
+                "ACCEPT: executed identical to proposed 1.20 m/min belt. Zone-3 328 C < 340 cap.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct ACCEPT kept the filed 1.20 m/min belt. Zone-3 stayed 328.4 C under "
+                "340 C. Shoulder remaining a cabinet glint was the losing channel and did not "
+                "justify an extra clamp.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("belt", "held; 1.20 m/min"),
+                        ("zone3", "328.4 C < 340 C"),
+                        ("shoulder", "188 C glint unused as lethality miss"),
+                        ("vials", "pass continues"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Shoulder IR 188 C losing a 190 us race did not predict a lethality miss; reversing 190 us would have extra-clamped a legal 328 C pass.",
+                    "Delayed (survey_s=120): 120 s endotoxin coupon on lane 3; not a safety inflection.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "tc.zone3.C (8.120 ms, 328 C)"),
+                        ("loser", "ir.shoulder.C (8.310 ms, 188 C)"),
+                        ("margin_us", 190),
+                        (
+                            "counterfactual_if_reversed",
+                            "Shoulder-first by < 190 us inside the 460 us window would have extra-clamped "
+                            "a legal pass. Zone-first confirms the filed belt.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 8520),
+            (
+                "reward_inflection_note",
+                "Heads rise at the ACCEPT (8.520 ms, tick 4). The 120 s endotoxin coupon "
+                "is delayed surprise bound to survey_s=120, not the inflection.",
+            ),
+        ]
+    )
+    ras = raster_core(
+        26,
+        52,
+        44,
+        59,
+        routing(
+            "thalamic-relay.zone3-tc",
+            "spikenaut.policy.belt-accept",
+            [
+                ("relay_zone3_C", "policy_belt_accept", 0.66),
+                ("relay_shoulder_IR", "policy_extra_clamp", 0.23),
+            ],
+            "serotonin",
+            0.12,
+            "tunnel_confirm_stdp; 5-HT tags the belt_accept bind at the zone-3 TC win",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("survey_s", 120),
+                ("delayed_surprise_s", 120),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.46),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("belt_accept", 50, 0.50, 175.0, 4),
+                    pop("extra_clamp", 40, 0.85, 40.0, 1),
+                    pop("shoulder_veto", 22, 0.80),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r57-304"),
+            (
+                "title",
+                "Ampoule-Kame AM-11 / Tunnel T-4: zone-3 328 C beats shoulder IR 188 C by 190 us; "
+                "ACCEPT already-legal 1.20 m/min depyrogenation belt",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Clean ACCEPT of an already-legal depyrogenation belt. "
+                    "total 1.06 = 0.40 + 0.28 + 0.18 + 0.12 + 0.08. Tick 6 binds survey_s=120.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "depyrogenation-tunnel",
+                    [
+                        "accept",
+                        "simulated",
+                        "zone3-vs-shoulder",
+                        "belt-legal",
+                        "tick6-sidecar-bound",
+                    ],
+                    "Teaches that a lagging shoulder IR losing a 190 us race does not require an "
+                    "extra clamp when zone-3 is already under the wall cap.",
+                    4,
+                ),
+            ),
+        ]
+    )
+
+
+def record_305():
+    ticks = [
+        tick(1980, 0.06, 0.04, 0.03, 0.02, 0.01),
+        tick(5120, 0.08, 0.06, 0.04, 0.02, 0.02),
+        tick(5300, 0.08, 0.05, 0.03, 0.02, 0.01),
+        tick(5480, 0.12, 0.09, 0.06, 0.04, 0.02),
+        tick(6020, 0.06, 0.04, 0.02, 0.01, 0.01),
+        tick(240000000, 0.04, 0.02, 0.02, 0.01, 0.01),
+    ]
+    spikes = [
+        spike("enc.jt.ctx", 0.880, 0.44),
+        spike("tach.wheel.rpm", 1.980, 0.61),
+        spike("enc.jt.pct", 3.410, 0.52),
+        spike("tach.wheel.rpm", 5.120, 1.30),
+        spike("enc.jt.pct", 5.300, 1.12),
+        spike("ctrl.gate", 5.480, 0.99),
+        spike("tach.wheel.rpm", 8.050, 0.77),
+        spike("enc.jt.pct", 11.400, 0.58),
+        spike("ctrl.gate", 14.900, 0.83),
+        spike("tach.wheel.rpm", 18.200, 0.54),
+        spike("enc.jt.ctx", 21.100, 0.39),
+    ]
+    excerpt = independent_excerpt(57305, 84, 22000, 12, spike_avoid_us(spikes))
+    params = OrderedDict(
+        [
+            ("feed_t_h", 12.0),
+            ("wheel_rpm", 18200.0),
+            ("jt_pct", 62.0),
+        ]
+    )
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Expander E-7 at Turbo-Haugh TH-2 reads wheel 18200 rpm against an 18500 rpm "
+                "overspeed trip with a 12.0 t/h NGL feed already filed under the 14.0 t/h "
+                "inlet ceiling. JT-first would extra-clamp a legal expander; tach-first ACCEPTS "
+                "the filed 12.0 t/h pass.",
+            ),
+            ("domain", "ngl-turboexpander"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Hold the 12.0 t/h feed while wheel stays <= 18500 rpm and feed stays <= "
+                "14.0 t/h; do not extra-clamp a legal expander.",
+            ),
+            ("t0_us", 1756850400000305),
+            ("gate_latency_us", 360),
+            ("race_window_us", 320),
+            ("race_window_rel_ms", [5.05, 5.37]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "tach.wheel.rpm 18200 under 18500",
+                                "enc.jt.pct 62 percent smear under 40 look",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Tach-first ACCEPTS the already-legal 12.0 t/h feed. JT-first would "
+                            "extra-clamp because 62 percent looks over a 40 percent JT look.",
+                        ),
+                        (
+                            "window_derivation",
+                            "320 us = one wheel-tach slot versus JT-stem encoder group delay on "
+                            "this expander skid bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 180 us vs combined jitter 58 us (tach 26 + ENC 32): 3.1x over "
+                            "a 2.0x trust floor. Reversing order by < 180 us inside the 320 us "
+                            "window would have extra-clamped a legal 18200 rpm / 12.0 t/h pass.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "wheel magnetic tach, 4 kHz, 26 us jitter",
+                    "JT stem encoder, 1 kHz, 32 us jitter",
+                    "suction PT (context)",
+                    "lube DP (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("wheel_trip_rpm", 18500.0),
+                        ("observed_wheel_rpm", 18200.0),
+                        ("jt_pct", 62.0),
+                        ("feed_cap_t_h", 14.0),
+                        ("proposed_feed_t_h", 12.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Expander E-7 in pass; 12.0 t/h feed armed.",
+                    "2. Wheel 18200 rpm under 18500 trip; feed 12.0 under 14.0 t/h inlet.",
+                    "3. JT precursor at 0.880 ms.",
+                    "4. Race window [5.050, 5.370] ms.",
+                    "5. tach.wheel.rpm 18200 at 5.120 ms (winner).",
+                    "6. enc.jt.pct 62 percent at 5.300 ms (loser by 180 us).",
+                    "7. Gate at 5.480 ms: ACCEPT 12.0 t/h; executed identical to proposed.",
+                    "8. Wheel stays 18240 rpm < 18500; feed 12.05 t/h < 14.0.",
+                    "9. JT remaining a stem glint did not require an extra clamp.",
+                    "10. Delayed (survey_s=240): 4 min dew-point sample on the residue drum.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "hold_expander_feed"),
+            ("parameters", params),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("wheel_rpm", 18200.0),
+                        ("wheel_trip_rpm", 18500.0),
+                        ("jt_pct", 62.0),
+                        ("feed_cap_t_h", 14.0),
+                        ("race_margin_us", 180),
+                        ("combined_jitter_us", 58),
+                        ("survey_s", 240),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes keeping the filed 12.0 t/h feed: wheel 18200 rpm is under "
+                "the 18500 trip and 12.0 t/h is under 14.0 t/h inlet.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Wheel 18200 rpm won by 180 us and is under the 18500 rpm trip. JT 62 percent "
+                "is a stem glint, not an overspeed. ACCEPT the filed 12.0 t/h feed. Executed "
+                "identical to proposed. An extra clamp is not indicated.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "wheel_rpm",
+                            OrderedDict(
+                                [
+                                    ("trip", 18500.0),
+                                    ("observed", 18200.0),
+                                    ("executed_feed_t_h", 12.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "jt_pct",
+                            OrderedDict([("look", 40.0), ("observed", 62.0)]),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 180),
+                                    ("combined_jitter_us", 58),
+                                    ("ratio", 3.10),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hold_expander_feed"),
+            ("parameters", params),
+            (
+                "gate_effect",
+                "ACCEPT: executed identical to proposed 12.0 t/h feed. Wheel 18200 < 18500 trip.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct ACCEPT kept the filed 12.0 t/h feed. Wheel stayed 18240 rpm under "
+                "18500. JT remaining a stem glint was the losing channel and did not justify "
+                "an extra clamp.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("feed", "held; 12.0 t/h"),
+                        ("wheel", "18240 rpm < 18500"),
+                        ("jt", "62 percent glint unused as overspeed"),
+                        ("residue", "pass continues"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "JT encoder 62 percent losing a 180 us race did not predict overspeed; reversing 180 us would have extra-clamped a legal 18200 rpm expander.",
+                    "Delayed (survey_s=240): 4 min dew-point sample on the residue drum; not a safety inflection.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "tach.wheel.rpm (5.120 ms, 18200 rpm)"),
+                        ("loser", "enc.jt.pct (5.300 ms, 62 percent)"),
+                        ("margin_us", 180),
+                        (
+                            "counterfactual_if_reversed",
+                            "JT-first by < 180 us inside the 320 us window would have extra-clamped "
+                            "a legal expander. Tach-first confirms the filed feed.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 5480),
+            (
+                "reward_inflection_note",
+                "Heads rise at the ACCEPT (5.480 ms, tick 4). The 4 min dew-point sample "
+                "is delayed surprise bound to survey_s=240, not the inflection.",
+            ),
+        ]
+    )
+    ras = raster_core(
+        22,
+        84,
+        26,
+        48,
+        routing(
+            "thalamic-relay.wheel-tach",
+            "spikenaut.policy.feed-accept",
+            [
+                ("relay_wheel_rpm", "policy_feed_accept", 0.69),
+                ("relay_jt_enc", "policy_extra_clamp", 0.21),
+            ],
+            "octopamine",
+            0.05,
+            "wheel_confirm_stdp; octopamine tags the feed_accept bind at the tach win",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("survey_s", 240),
+                ("delayed_surprise_s", 240),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.32),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("feed_accept", 45, 0.50, 210.0, 3),
+                    pop("extra_clamp", 40, 0.85, 40.0, 1),
+                    pop("jt_veto", 20, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r57-305"),
+            (
+                "title",
+                "Turbo-Haugh TH-2 / Expander E-7: wheel 18200 rpm beats JT 62 percent by 180 us; "
+                "ACCEPT already-legal 12.0 t/h NGL feed",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Clean ACCEPT of an already-legal NGL expander feed. "
+                    "total 1.14 = 0.44 + 0.30 + 0.20 + 0.12 + 0.08. Tick 6 binds survey_s=240.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "ngl-turboexpander",
+                    [
+                        "accept",
+                        "designed",
+                        "wheel-vs-jt",
+                        "feed-legal",
+                        "tick6-sidecar-bound",
+                    ],
+                    "Teaches that a lagging JT encoder losing a 180 us race does not require a "
+                    "wait when wheel speed is already under the overspeed trip.",
+                    5,
+                ),
+            ),
+        ]
+    )

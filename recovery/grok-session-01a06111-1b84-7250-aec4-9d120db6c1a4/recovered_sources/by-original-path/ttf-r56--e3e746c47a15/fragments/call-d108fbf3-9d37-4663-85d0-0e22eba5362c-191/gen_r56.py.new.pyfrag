@@ -1,0 +1,1 @@
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 correct REJECT, 1 incorrect REJECT (hysteresis-reset-as-trip). Provenance: designed×3, simulated×1, hil×1 (Plasma-Stoup PS-HIL pad). Jaccard on `state.description` all ≤ {jmax:.3f}.

@@ -1,0 +1,11 @@
+                        ("winner", "vac.bag.kPa (5.180 ms, 18.4 kPa abs)"),
+                        ("loser", "tc.part.C (5.392 ms, 178 C)"),
+                        ("margin_us", 212),
+                        (
+                            "counterfactual_if_reversed",
+                            "Soak-first by < 212 us inside the 450 us window would have kept "
+                            "2.00 kW cruise; predicted next-sample 20.1 kPa would have stayed "
+                            "over the 8.0 cap even without the wrinkle. The MODIFY is still the "
+                            "correct process. The wrinkle is a later world charge either way, cheaper "
+                            "with the clamp than without.",
+                        ),

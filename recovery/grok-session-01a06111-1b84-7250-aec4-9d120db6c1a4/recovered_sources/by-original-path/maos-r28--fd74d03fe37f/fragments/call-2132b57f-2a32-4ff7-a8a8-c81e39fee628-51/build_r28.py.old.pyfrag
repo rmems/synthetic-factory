@@ -1,0 +1,6 @@
+NOVEL_LINE = "Novel coverage: 46%"
+PLANT = "IONSPATE"
+DOMAIN = "pem-water-electrolysis"
+RECORD_ID = "maos-r28-001"
+GEO = "Thornmere"
+CELL = "SK-7"

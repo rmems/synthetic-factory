@@ -1,0 +1,18 @@
+- Generator self-check: Jaccard max {jmax:.3f} < 0.4; TTF-M6 prefix; refractory; spike budgets; exactly one incorrect gate (256 wrong-reject)
+- Pipeline audit (run after emit): `check_jsonl` FactoryStaging, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrote `outputs/raw/`.
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (257). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. 259 ACCEPT is a new plant/solver (1D traveling-grate induration), not a new gate class.
+4. 256 wrong-reject is convictable from median vs failed-channel tags; a later round could bind `vote_failed` as the only critic boolean so a probe never has to know "RTD-B".
+5. ISI histogram is still optional densification, not an r60 requirement.
+
+## Next densification target
+
+Publish the 2oo3 freshness predicate as a sidecar boolean (`median_vote_fresh`) so a failed-channel REJECT is convictable without the channel-name story. Optional: labeled LIF on a second record, or an ISI histogram sidecar. Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+Novel coverage: 18.0%

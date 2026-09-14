@@ -1,0 +1,22 @@
+                "Correct REJECT held Buncher-B2 at 0 percent drive. BPM 2.40 mm stayed over the "
+                "0.80 mm cap; klystron 18.0 kW was dummy-load power. 8 min pad reclear "
+                "(reclear_s=480) after the load swap is delayed, not the inflection.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("orbit", "held; RF drive 0 percent; BPM 2.40 mm > 0.80"),
+                        ("klystron", "18.0 kW unused as go"),
+                        ("pad", "8 min reclear after dummy-load swap"),
+                        ("mission", "RF ramp deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Dummy-load produced 18.0 kW without a BPM drop; BPM-first discarded it.",
+                    "Delayed (reclear_s=480): 8 min pad reclear under a second dummy-load; not a safety inflection.",
+                ],
+            ),

@@ -1,0 +1,36 @@
+    "US Steel",
+    "Tata Steel",
+    "COILSHAW",
+    "Loopercroft",
+    "LOOPERQUAY",
+    "Roughmere",
+    "SIPHONWOLD",
+    "Reedfen",
+    "OSMOQUAY",
+    "Tidecairn",
+    "GIBBSQUERN",
+    "Laterifen",
+    "LIXIVQUERN",
+    "Bauxfen",
+    "Baowu",
+    "Ansteel",
+    "voestalpine",
+    "NSSMC",
+    "JSW Steel",
+    "Vale S.A.",
+    "BHP",
+    "Metso",
+)
+R14_OPENING = (
+    "Helixmere Biologics Building C lyophilizer LYO-4 is mid-primary on 8400 "
+    "vials of a monoclonal antibody"
+)
+NOVEL_LINE = "Novel coverage: 48%"
+PLANT = "GRATEHOLT"
+GEO = "Palletfen"
+CELL = "SS-7"
+DOMAIN = "sinter-strand-windbox"
+RECORD_ID = "maos-r61-001"
+ROUND = 61
+DELAY_S = 0.80
+TAU_E_S = 0.94

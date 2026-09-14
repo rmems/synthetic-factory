@@ -1,0 +1,23 @@
+        if rec["id"] == "ttf-r101-522":
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["live_fb_g_L"] > ev["cap_fb_g_L"]):
+                issues.append("522 live feedback not over cap")
+            if ev.get("ff_is_pv") is not False:
+                issues.append("522 ff_is_pv must be false")
+            if ev.get("fb_status") != "LIVE" or ev.get("ff_status") != "LIVE":
+                issues.append("522 both FB/FF tags must be LIVE")
+            if rec["executed_action"]["parameters"].get("bound_tag") != "feedforward":
+                issues.append("522 bound_tag not feedforward")
+            if rec["executed_action"]["parameters"].get("steam_tph") != 10.4:
+                issues.append("522 steam should open to 10.4")
+            if rec["executed_action"]["parameters"].get("liquor_g_L") != 117.2:
+                issues.append("522 liquor should climb to 117.2")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("522 missing recovery")
+            table_to = {row["to"] for row in rec["raster"]["routing"]["table"]}
+            if "policy.fb_cut" in table_to:
+                issues.append("522 routing still has fb_cut")
+            if "policy.ff_open" not in table_to:
+                issues.append("522 routing missing ff_open")
+            if "feedforward-as-feedback" not in rec["meta"]["tags"]:
+                issues.append("522 missing feedforward-as-feedback tag")

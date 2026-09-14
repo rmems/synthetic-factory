@@ -1,0 +1,12 @@
+                "Vessel-V8 already sits at 18.4 kPa absolute bag pressure inside Tow-Nook TN-5 "
+                "while a part thermocouple still reads 178 C under a 190 C soak. Vacuum-first "
+                "cuts heater power; soak-first would keep 2.00 kW on a still-sealed-bag model. A "
+                "wrinkle already seeded in ply 4 does not appear on vacuum or part TC until the AE burst.",
+            ),
+            ("domain", "composite-autoclave"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Hold bag absolute pressure <= 8.0 kPa while finishing the TN-5 cure, and leave "
+                "ply 4 un-wrinkled.",
+            ),

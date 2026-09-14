@@ -1,0 +1,80 @@
+{
+  "agent_ids": [
+    "01a06410-9658-7be1-bfc3-caedfacbaf11"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 2,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "_records_body.py",
+  "original_path": "/tmp/ttf-r101/_records_body.py",
+  "path_key": "ttf-r101--670aa44ba42f",
+  "terminal_event_ids": [
+    "01a06410-9658-7be1-bfc3-caedfacbaf11:call-4831f7a0-f808-4793-8572-4c28eb05acda-80"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 2,
+  "versions": [
+    {
+      "agent_id": "01a06410-9658-7be1-bfc3-caedfacbaf11",
+      "basename_preserved": true,
+      "bytes": 28777,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 420,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06410-9658-7be1-bfc3-caedfacbaf11/updates.jsonl",
+      "original_basename": "_records_body.py",
+      "original_path": "/tmp/ttf-r101/_records_body.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r101--670aa44ba42f/versions/v0001/_records_body.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r101--670aa44ba42f/versions/v0001/_records_body.py",
+      "session_id": "01a06410-9658-7be1-bfc3-caedfacbaf11",
+      "sha256": "72b5a9e87ff2e7f18655def61569f81cde92bdd060089ce9bd6ccaf6beaca328",
+      "source_channel": "structured",
+      "source_event_id": "01a06410-9658-7be1-bfc3-caedfacbaf11:call-dfb6dcfe-ec52-401f-a3b6-cf70c8cebe53-75",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788392224460,
+      "timestamp_utc": "2026-09-02T23:37:04.460Z",
+      "tool_call_id": "call-dfb6dcfe-ec52-401f-a3b6-cf70c8cebe53-75",
+      "version": 1,
+      "version_id": "ttf-r101--670aa44ba42f:v0001"
+    },
+    {
+      "agent_id": "01a06410-9658-7be1-bfc3-caedfacbaf11",
+      "basename_preserved": true,
+      "bytes": 63610,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 444,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06410-9658-7be1-bfc3-caedfacbaf11/updates.jsonl",
+      "original_basename": "_records_body.py",
+      "original_path": "/tmp/ttf-r101/_records_body.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r101--670aa44ba42f/versions/v0002/_records_body.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r101--670aa44ba42f/versions/v0002/_records_body.py",
+      "session_id": "01a06410-9658-7be1-bfc3-caedfacbaf11",
+      "sha256": "76a118ea19e9e265add7226c203e63be4e22e3cb6a291f54c589f45b6ceb987d",
+      "source_channel": "structured",
+      "source_event_id": "01a06410-9658-7be1-bfc3-caedfacbaf11:call-dc8816f2-dbfd-495a-b9d0-74446b3a7150-79",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788392410664,
+      "timestamp_utc": "2026-09-02T23:40:10.664Z",
+      "tool_call_id": "call-dc8816f2-dbfd-495a-b9d0-74446b3a7150-79",
+      "version": 2,
+      "version_id": "ttf-r101--670aa44ba42f:v0002"
+    }
+  ]
+}

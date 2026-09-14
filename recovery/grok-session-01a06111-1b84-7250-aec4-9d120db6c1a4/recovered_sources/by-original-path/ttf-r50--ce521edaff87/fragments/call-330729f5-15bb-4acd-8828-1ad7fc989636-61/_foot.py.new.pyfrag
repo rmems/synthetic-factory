@@ -1,0 +1,62 @@
+    notes_hits = [ln for ln in NOTES.splitlines() if ln.strip().lower().startswith("novel coverage")]
+    if notes_hits != [NOVEL_COVERAGE_LINE]:
+        issues.append(f"novel coverage lines {notes_hits}")
+    prior_doms, prior_plants = prior_occupancy()
+    reuse = set(domains) & prior_doms
+    if reuse:
+        issues.append(f"prior domain reuse {sorted(reuse)}")
+    blob_all = "\n".join(json.dumps(r) for r in records)
+    for plant in THIS_PLANTS:
+        if plant not in blob_all:
+            issues.append(f"missing plant {plant}")
+    hit_prior = {p for p in prior_plants if p in blob_all and p not in THIS_PLANTS}
+    if hit_prior:
+        issues.append(f"prior plant reuse {sorted(hit_prior)[:12]}")
+    return issues, jmax
+
+
+def prior_occupancy():
+    domains = set()
+    plants = set()
+    plant_re = re.compile(r"\b([A-Z][A-Za-z]+(?:-[A-Z][A-Za-z0-9]+)+)\b")
+    skip = {"THIS_PLANTS", "BANNED_PLANT_FRAGMENTS", "THIS_DOMAINS"}
+    for n in range(12, 60):
+        if n == 50:
+            continue
+        d = Path(f"/tmp/ttf-r{n}")
+        if not d.is_dir():
+            continue
+        for path in d.iterdir():
+            if path.suffix not in {".jsonl", ".md", ".py"}:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for rec_line in text.splitlines():
+                line = rec_line.strip()
+                if line.startswith("{") and '"domain"' in line:
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        rec = None
+                    if isinstance(rec, dict):
+                        dom = (rec.get("state") or {}).get("domain") or (rec.get("meta") or {}).get(
+                            "domain"
+                        )
+                        if dom:
+                            domains.add(str(dom))
+            for m in re.finditer(r'\("domain", "([^"]+)"\)', text):
+                domains.add(m.group(1))
+            for m in re.finditer(r'"domain": "([^"]+)"', text):
+                domains.add(m.group(1))
+            m = re.search(r"THIS_DOMAINS\s*=\s*\((.*?)\)", text, re.S)
+            if m:
+                domains.update(re.findall(r'"([^"]+)"', m.group(1)))
+            m = re.search(r"MY_DOMAINS\s*=\s*\((.*?)\)", text, re.S)
+            if m:
+                domains.update(re.findall(r'"([^"]+)"', m.group(1)))
+            for plant in plant_re.findall(text):
+                if plant not in skip:
+                    plants.add(plant)
+    return domains, plants

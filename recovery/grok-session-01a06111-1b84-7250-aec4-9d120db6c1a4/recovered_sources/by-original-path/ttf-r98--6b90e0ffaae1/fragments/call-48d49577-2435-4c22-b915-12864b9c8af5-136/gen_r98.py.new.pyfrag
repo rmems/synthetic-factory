@@ -1,0 +1,4 @@
+                "MIBK still ST-4 at Mibk-Grain is asking for 4.2 t/h with a healthy analog "
+                "kettle of 2.80 bar (8.48 mA) under a 6.40 bar trip. A PLC watchdog that timed "
+                "out 8400 ms ago still republishes a frozen 7.10 bar substitute. Spending the "
+                "analog win as a go, versus binding the timeout freeze as PV, is the whole gate.",

@@ -1,0 +1,21 @@
+                            [
+                                "rtd.front.C 41.0 C rising 0.92 C/s",
+                                "dp.bed.kPa 18.2 under 28.0 cap",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Front-first tempts a weak supervisor to treat a rising precursor as a "
+                            "trip and dump feed. DP-first would ACCEPT: 18.2 kPa is still under 28.0.",
+                        ),
+                        (
+                            "window_derivation",
+                            "340 us = one front-RTD sample minus bed-DP transmitter group delay on "
+                            "this PSA skid bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 160 us vs combined jitter 62 us (RTD 30 + DP 32): 2.58x over a "
+                            "2.0x trust floor. Order is correctly front-first. The error is clamping "
+                            "before either cap is crossed, not the race and not a wrong actuator.",
+                        ),

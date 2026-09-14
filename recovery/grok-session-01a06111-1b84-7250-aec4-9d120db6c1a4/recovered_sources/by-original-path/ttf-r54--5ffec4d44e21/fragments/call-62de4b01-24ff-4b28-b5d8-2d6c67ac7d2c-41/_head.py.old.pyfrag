@@ -1,0 +1,1 @@
+"""Emit TTF r44 JSONL (ttf-r54-286..290) into /tmp/ttf-r54/. Never writes outputs/raw/."""

@@ -1,0 +1,5 @@
+        if rec["id"] == "ttf-r44-237":
+            if "policy.press_go" in table_tos:
+                issues.append("237 routing has press_go")
+            if "policy.press_hold" not in table_tos:
+                issues.append("237 missing press_hold routing")

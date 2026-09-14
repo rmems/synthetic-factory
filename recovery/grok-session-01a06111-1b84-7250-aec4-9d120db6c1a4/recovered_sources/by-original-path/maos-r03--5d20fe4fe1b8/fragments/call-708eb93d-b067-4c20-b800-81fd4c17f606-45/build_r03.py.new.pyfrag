@@ -1,0 +1,2079 @@
+#!/usr/bin/env python3
+"""Build create-only MAOS round-03 artifacts for swarm QUAY-FEN.
+
+Live tree:
+/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-09-02-final-heavy/multi-agent-ouroboros-swarm
+Never overwrite. Never 2026-08-17 / 2026-08-30. c-suffix if the target exists.
+Validate staging first; emit LIVE only if checks pass.
+"""
+from __future__ import annotations
+
+import json
+import math
+import os
+import random
+import re
+import subprocess
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+ROOT = "/home/raulmc/rmems/synthetic-factory"
+sys.path.insert(0, ROOT)
+sys.path.insert(0, f"{ROOT}/pipelines")
+
+GEN_AT = "2026-09-02T19:48:00Z"
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "SuperGrok Heavy chat",
+    "generated_at": GEN_AT,
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+}
+AGG = "total = task_progress + safety + efficiency + coherence + exploration"
+HEADS = ("task_progress", "safety", "efficiency", "coherence", "exploration")
+OUT = Path("/tmp/maos-r03")
+LIVE = Path(
+    "/home/raulmc/rmems/synthetic-factory/outputs/raw/"
+    "2026-09-02-final-heavy/multi-agent-ouroboros-swarm"
+)
+HIDDEN = (
+    "thought",
+    "chain_of_thought",
+    "scratch",
+    "inner_monologue",
+    "hidden_reasoning",
+    "internal_reasoning",
+    "thinking",
+    "cot",
+    "thoughts",
+    "reasoning",
+)
+BANNED = (
+    "TRIAD",
+    "Meridian Gateway",
+    "VANTIS",
+    "CADENCE",
+    "AEGIS",
+    "THERMION",
+    "STARLING",
+    "OKTAVE",
+    "VERDIGRIS",
+    "LYOSHIELD",
+    "CINDERWICK",
+    "Helixmere",
+    "Lodenholt",
+    "QUILLFORGE",
+    "Brackmere",
+    "NIGHTWELL",
+    "FERRICLEAVE",
+    "CASSITER",
+    "Marshfloat",
+    "MURENA",
+    "SEEDLATCH",
+    "Quartzmere",
+    "STRIAFOIL",
+    "Kelpholt",
+    "REDHALL",
+    "OXBOWREEL",
+    "TORSIONKEY",
+    "Ridgeholt",
+    "ORRIS",
+    "Holmwick",
+    "PROTONIL",
+    "Ashspire",
+    "WHORLSPAR",
+    "Pikeshear",
+    "IONSPATE",
+    "Thornmere",
+    "SKULLGATE",
+    "Bloomholt",
+    "CALXION",
+    "Aldersedge",
+    "MAGNORIL",
+    "Basaltspit",
+    "GORSEFLUE",
+    "Copseholt",
+    "CLINKERFELL",
+    "Flintmere",
+    "SODASHARD",
+    "Cairnmere",
+    "LINTELPLY",
+    "Greystair",
+    "KAOTHARN",
+    "Riftwold",
+    "TREADNOLL",
+    "Slatebeck",
+    "ANOLITH",
+    "Siltfen",
+    "DRUMWROTH",
+    "Pitchfen",
+    "RIMEBRAID",
+    "Floeholt",
+    "BRIMVAULT",
+    "Pyritefen",
+    "BOGIRON",
+    "Mireholt",
+    "CHROMLOOP",
+    "Marlfell",
+    "NITREVAULT",
+    "NITROSTAITH",
+    "ETHYNWOLD",
+    "RUNNELGATE",
+    "SPARKHOLT",
+    "DIPLEGAR",
+    "OLEUMWEIR",
+    "SKARVOLT",
+    "GOBSPALL",
+    "GOBWOLD",
+    "PUSHERFELL",
+    "CREELWOLD",
+    "LIXIVQUERN",
+    "GAUZEFELL",
+    "OSMOLITH",
+    "COILSHAW",
+    "LOOPERQUAY",
+    "SIPHONWOLD",
+    "OSMOQUAY",
+    "GIBBSQUERN",
+    "LANCEQUAY",
+    "UREASTAITH",
+    "DRYSTAITH",
+    "TITERWEIR",
+    "ZINCFELL",
+    "GLIMMERAXLE",
+    "HOLLOWMERE",
+    "WINDBOXHOLT",
+    "Gratecroft",
+    "KALYCIRQUE",
+    "GYPSUMWEIR",
+    "GALVSTAITH",
+    "SLUICE-HEARTH",
+    "Wickfen",
+    "PRILLGHYLL",
+    "Ureafen",
+    "SHEDWOLD",
+    "Wickspan",
+    "CORONSTAITH",
+    "Fernholt",
+    "LOCKSPUR",
+    "Poundholt",
+    "WOLD-BARN",
+    "Barleyholt",
+    "Spelterholt",
+    "Brambleford",
+    "Marrowfen",
+    "PACKFLUE",
+    "training_ready",
+)
+R14_OPENING = (
+    "Helixmere Biologics Building C lyophilizer LYO-4 is mid-primary on 8400 "
+    "vials of a monoclonal antibody"
+)
+NOVEL_LINE = "Novel coverage: 51%"
+PLANT = "QUAY-FEN"
+GEO = "Sedgewharf"
+CELL = "QF-AY-3"
+DOMAIN = "alkaline-stack-hydrogen-quay"
+RECORD_ID = "maos-r03-001"
+ROUND = 3
+DELAY_S = 0.78
+TAU_E_S = 0.90
+LIF_SEED = 3003
+WINDOW_MS = 38
+NEURONS = 152
+MEAN_RATE_HZ = 21.8
+STIM = (19000, 22800)
+
+
+def cents_ticks(t_us, rows):
+    ticks = []
+    sums = {h: 0 for h in HEADS}
+    for t, vals in zip(t_us, rows):
+        tick = {"t_us": int(t)}
+        for h, c in zip(HEADS, vals):
+            v = round(c / 100.0, 2)
+            tick[h] = v
+            sums[h] += c
+        ticks.append(tick)
+    heads = {h: round(sums[h] / 100.0, 2) for h in HEADS}
+    heads["total"] = round(sum(heads[h] for h in HEADS), 2)
+    return ticks, heads
+
+
+def check_refractory(events, floor_ms=0.8):
+    last = {}
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last and (t - last[ch]) < floor_ms - 1e-9:
+            return f"refractory {ch}: {t}-{last[ch]}={(t-last[ch]):.4f} < {floor_ms}"
+        last[ch] = t
+    return None
+
+
+def min_same_channel_gap(events):
+    last = {}
+    best = None
+    who = None
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last:
+            gap = t - last[ch]
+            if best is None or gap < best:
+                best = gap
+                who = ch
+        last[ch] = t
+    return best, who
+
+
+def check_excerpt(ex, neurons, window_ms):
+    prev_t = -1
+    last_n = {}
+    for item in ex:
+        t = item["t_us"]
+        n = item["neuron_id"]
+        if t < prev_t:
+            return "excerpt not sorted"
+        if not (0 <= t <= window_ms * 1000):
+            return f"t_us {t} out of window"
+        if not (0 <= n < neurons):
+            return f"neuron {n} out of range"
+        if n in last_n and t - last_n[n] < 1000:
+            return f"same-neuron gap {n}: {t-last_n[n]}"
+        last_n[n] = t
+        prev_t = t
+    return None
+
+
+def check_gate_pops(gs):
+    dw_s = gs["decision_window_ms"] / 1000.0
+    for p in gs["populations"]:
+        if "mean_rate_hz" in p or "spikes" in p:
+            exp = round(p["neurons"] * p["mean_rate_hz"] * dw_s)
+            if abs(p["spikes"] - exp) > 1:
+                return f"{p['name']} spikes {p['spikes']} vs {exp}"
+    return None
+
+
+def jaccard(a, b):
+    sa = set(a.lower().split())
+    sb = set(b.lower().split())
+    return len(sa & sb) / max(1, len(sa | sb))
+
+
+def prior_openings():
+    out = []
+    for p in sorted(Path("/tmp").glob("maos-r*/batch-r*.jsonl")):
+        if p.parent.name == "maos-r03":
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        st = rec.get("state")
+        desc = str(st.get("description") or "") if isinstance(st, dict) else ""
+        if desc:
+            out.append((p.as_posix(), desc[:280]))
+    for p in sorted(LIVE.glob("batch-r*.jsonl")):
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        st = rec.get("state")
+        desc = str(st.get("description") or "") if isinstance(st, dict) else ""
+        if desc:
+            out.append((p.as_posix(), desc[:280]))
+    return out
+
+
+def occupancy_collisions():
+    hits = []
+    tokens = (PLANT, GEO, CELL, DOMAIN, RECORD_ID)
+    for p in sorted(Path("/tmp").glob("maos-r*/batch-r*.jsonl")):
+        if p.parent.name == "maos-r03":
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        blob = json.dumps(rec)
+        domain = (rec.get("state") or {}).get("domain")
+        if domain == DOMAIN:
+            hits.append(f"{p}: domain {domain}")
+        for tok in tokens:
+            if tok in blob:
+                hits.append(f"{p}: token {tok}")
+    for p in sorted(LIVE.glob("batch-r*.jsonl")):
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        blob = json.dumps(rec)
+        domain = (rec.get("state") or {}).get("domain")
+        if domain == DOMAIN:
+            hits.append(f"{p}: domain {domain}")
+        for tok in tokens:
+            if tok in blob:
+                hits.append(f"{p}: token {tok}")
+    return hits
+
+
+def independent_lif_excerpt(lang_us):
+    n = NEURONS
+    dt_us = 100
+    tau_m_ms = 16.5
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.91
+    i_stim_peak = 2.18
+    stim = STIM
+    window_us = WINDOW_MS * 1000
+    i_clamp_extra = 0.58
+    clamp_n = 18
+    lang = set(lang_us)
+    chosen_seed = LIF_SEED
+    excerpt = []
+    sim_spikes = 0
+    for seed in range(LIF_SEED, LIF_SEED + 40):
+        rng = random.Random(seed)
+        tau_s = tau_m_ms / 1000.0
+        dt_s = dt_us / 1e6
+        decay = math.exp(-dt_s / tau_s)
+        steps = window_us // dt_us
+        voltage = [rng.random() * v_th * 0.97 for _ in range(n)]
+        bias = [i_bias * (1.0 + 0.13 * (rng.random() * 2 - 1)) for _ in range(n)]
+        for i in range(clamp_n):
+            bias[i] += i_clamp_extra
+        ref = [0] * n
+        spikes = []
+        for step in range(steps):
+            t_us = step * dt_us
+            stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+            for i in range(n):
+                if ref[i] > 0:
+                    ref[i] -= dt_us
+                    voltage[i] = v_reset
+                    continue
+                current = bias[i] + stim_i
+                voltage[i] = current + (voltage[i] - current) * decay
+                if voltage[i] >= v_th:
+                    spikes.append((t_us, i))
+                    voltage[i] = v_reset
+                    ref[i] = refractory_us
+        early = [(t, i) for t, i in spikes if t < stim[0] and t not in lang]
+        burst = [(t, i) for t, i in spikes if stim[0] <= t < stim[1] and t not in lang]
+        late = [(t, i) for t, i in spikes if t >= stim[1] and t not in lang]
+        picked = []
+        used = set()
+        last = {}
+        for pool, want in ((early, 7), (burst, 6), (late, 3)):
+            stride = max(1, len(pool) // max(want, 1))
+            got = 0
+            for idx in range(0, len(pool), stride):
+                if got >= want:
+                    break
+                t, nid = pool[idx]
+                if nid in used:
+                    continue
+                if nid in last and t - last[nid] < 1000:
+                    continue
+                picked.append((t, nid))
+                used.add(nid)
+                last[nid] = t
+                got += 1
+        picked = sorted(picked, key=lambda item: (item[0], item[1]))
+        if len(picked) < 16:
+            continue
+        excerpt = []
+        for t, nid in picked[:16]:
+            if t < stim[0]:
+                ch = "lif.hold"
+            elif t < stim[1]:
+                ch = "lif.cell"
+            else:
+                ch = "lif.late"
+            excerpt.append({"t_us": int(t), "neuron_id": int(nid), "channel": ch})
+        chosen_seed = seed
+        sim_spikes = len(spikes)
+        break
+    if len(excerpt) < 16:
+        raise SystemExit(f"LIF excerpt too short: {len(excerpt)}")
+    lif = {
+        "model": "leaky_integrate_and_fire",
+        "n": n,
+        "dt_us": dt_us,
+        "tau_m_ms": tau_m_ms,
+        "v_rest": 0.0,
+        "v_reset": v_reset,
+        "v_th": v_th,
+        "r_m": 1.0,
+        "refractory_us": refractory_us,
+        "i_bias": i_bias,
+        "i_stim_peak": i_stim_peak,
+        "stim_t_us": list(stim),
+        "i_clamp_extra": i_clamp_extra,
+        "clamp_n": clamp_n,
+        "seed": chosen_seed,
+        "sim_spikes": sim_spikes,
+        "note": (
+            "Population sim scoped to this sidecar. Plant remains designed. "
+            "Neurons 0-17 carry +0.58 cell-hold clamp bias; stim 19-22.8 ms is the "
+            "cell-47 IR-high crossing, not a remap of spike_events."
+        ),
+    }
+    return excerpt, lif, sim_spikes
+
+
+def build_record():
+    ticks, heads = cents_ticks(
+        [4120, 6512, 7240, 7_400_000, 576_000_000, 11_520_000_000, 16_560_000_000],
+        [
+            (1, -2, -1, 2, 1),
+            (1, -5, -1, 3, 2),
+            (2, -6, -1, 2, 2),
+            (1, -6, -2, 2, 2),
+            (1, -5, -2, 2, 1),
+            (1, -5, -3, 2, 1),
+            (0, -5, -3, 1, 1),
+        ],
+    )
+    if abs(heads["total"] - (-0.16)) > 1e-9:
+        raise SystemExit(f"bad total {heads}")
+
+    trace = math.exp(-DELAY_S / TAU_E_S)
+    dws = (0.24, 0.21, 0.20)
+    etas = tuple(abs(dw) / trace for dw in dws)
+    w1, w2, w3 = 0.50 - dws[0], 0.44 - dws[1], 0.41 - dws[2]
+
+    spike_events = [
+        {"channel": "cell.hot", "t_rel_ms": 0.308, "amplitude": 0.53},
+        {"channel": "lye.ok", "t_rel_ms": 1.142, "amplitude": 0.62},
+        {"channel": "h2.ok", "t_rel_ms": 2.018, "amplitude": 0.56},
+        {"channel": "cell.dP", "t_rel_ms": 3.164, "amplitude": 0.77},
+        {"channel": "cell.hot", "t_rel_ms": 4.172, "amplitude": 0.50},
+        {"channel": "cell.dP", "t_rel_ms": 4.828, "amplitude": 0.79},
+        {"channel": "lye.ok", "t_rel_ms": 5.356, "amplitude": 0.58},
+        {"channel": "cell.hot.high", "t_rel_ms": 6.512, "amplitude": 1.38},
+        {"channel": "cell.in_band", "t_rel_ms": 6.704, "amplitude": 1.12},
+        {"channel": "h2.ok", "t_rel_ms": 6.888, "amplitude": 0.65},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.240, "amplitude": 1.08},
+        {"channel": "cell.dP", "t_rel_ms": 8.904, "amplitude": 0.44},
+        {"channel": "h2.ok", "t_rel_ms": 10.688, "amplitude": 0.81},
+        {"channel": "lye.ok", "t_rel_ms": 13.028, "amplitude": 0.46},
+        {"channel": "cell.hot", "t_rel_ms": 18.412, "amplitude": 0.43},
+        {"channel": "ctrl.gate", "t_rel_ms": 26.108, "amplitude": 0.85},
+        {"channel": "stack.probe", "t_rel_ms": 7400.0, "amplitude": 0.94},
+        {"channel": "cell.dP", "t_rel_ms": 7488.4, "amplitude": 0.40},
+        {"channel": "cell.in_band", "t_rel_ms": 7572.0, "amplitude": 0.35},
+        {"channel": "human.ratify", "t_rel_ms": 576000.0, "amplitude": 0.80},
+        {"channel": "stack.hold", "t_rel_ms": 576800.0, "amplitude": 0.74},
+        {"channel": "o2.mix", "t_rel_ms": 577600.0, "amplitude": 0.86},
+        {"channel": "cell.hot", "t_rel_ms": 11520000.0, "amplitude": 0.30},
+        {"channel": "cell.dP", "t_rel_ms": 11520740.0, "amplitude": 0.28},
+        {"channel": "lye.ok", "t_rel_ms": 11521520.0, "amplitude": 0.25},
+        {"channel": "o2.knock", "t_rel_ms": 16560000.0, "amplitude": 0.94},
+    ]
+    contrast_spikes = [
+        {"channel": "curr.demand", "t_rel_ms": 0.000, "amplitude": 0.82},
+        {"channel": "cell.clear", "t_rel_ms": 0.188, "amplitude": 0.76},
+        {"channel": "cell.hot", "t_rel_ms": 0.422, "amplitude": 0.23},
+        {"channel": "lye.ok", "t_rel_ms": 1.458, "amplitude": 0.39},
+        {"channel": "cell.dP", "t_rel_ms": 4.872, "amplitude": 0.52},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.064, "amplitude": 0.91},
+        {"channel": "stack.probe", "t_rel_ms": 3200.0, "amplitude": 0.34},
+        {"channel": "curr.raise", "t_rel_ms": 7400.0, "amplitude": 0.12},
+    ]
+    lang_us = [
+        int(round(e["t_rel_ms"] * 1000.0))
+        for e in spike_events
+        if e["t_rel_ms"] * 1000.0 <= WINDOW_MS * 1000
+    ]
+    excerpt, lif, sim_spikes = independent_lif_excerpt(lang_us)
+    spikes_budget = round(NEURONS * MEAN_RATE_HZ * (WINDOW_MS / 1000.0))
+    energy_pJ = spikes_budget * 23
+    energy_uJ = spikes_budget * 23e-6
+
+    rec = {
+        "id": RECORD_ID,
+        "title": (
+            "QUAY-FEN QF-AY-3: cell-47 IR 94.2 C beats string-mean-in-band by 192 us; "
+            "correct MODIFY still loses an O2-header knock-out to a pre-t0 separator tear"
+        ),
+        "rights": dict(RIGHTS),
+        "state": {
+            "sim_or_real": "designed",
+            "domain": DOMAIN,
+            "scenario_name": "QUAY-FEN / Sedgewharf Alkaline Stack QF-AY-3",
+            "timestamp_local": "2026-08-19T02:18:00-05:00",
+            "t0_us": 1755587880000003,
+            "gate_latency_us": 728,
+            "race_window_us": 500,
+            "race_window_rel_ms": [6.512, 7.012],
+            "description": (
+                "Sedgewharf alkaline stack QF-AY-3 at QUAY-FEN is 11 min into a 0.42 A/cm2 "
+                "80.0 C 30 wt% KOH push on a 120-cell bipolar hydrogen-quay rack (1.2 MW class, "
+                "8 bar) when three heterogeneous, individually-correct agents jointly report "
+                "'string-true, raise current'. CELL's 12-bit 120-cell string-mean is 1.824 V/cell "
+                "inside 1.70-1.95. LYE's circulating-KOH conductivity is 580 mS/cm inside 520-640. "
+                "H2's product purity is 99.94 vol% inside 99.90-99.99. The conjunction is not a "
+                "cell-true certificate: cell 47 has a torn Zirfon separator, so local IR is 94.2 C "
+                "(healthy < 82; hold if > 86) and local dP is 1.4 kPa (healthy 8.5; hold if < 3.2) "
+                "while string mean, lye conductivity, and mixed H2 still see one hundred nineteen "
+                "intact cells plus one crossover. Local cell IR infers 94.2 C and local dP 1.4 kPa "
+                "but policy treats the cell tap as a busbar-nuisance tag unless CELL mean also trips "
+                "(2016 'noisy busbar after a turnaround'). Residual-first latches CURRENT-HOLD plus "
+                "a current-density step probe; CELL-first would have authorized RAISE-CURRENT 0.42 "
+                "to 0.52 A/cm2 into an offtake window with cell 47 already mixing H2 into the O2 header."
+            ),
+            "goal": (
+                "Hold current density at 0.42 A/cm2 without an offtake raise while cell-47 IR "
+                "> 86 C AND cell-47 dP < 3.2 kPa AND cell 47 remains unisolated; keep extra H2-in-O2 "
+                "at 0 Nm3 and O2-knock-out events at 0 from the draft."
+            ),
+            "race": {
+                "contenders": [
+                    "cell.hot.high 94.2 C (cell 47 local IR vs 120-cell string mean)",
+                    "cell.in_band 1.824 V/cell (string-mean voltage)",
+                ],
+                "semantics": (
+                    "Cell-hot-first latches CURRENT-HOLD + CURRENT-DENSITY-STEP-PROBE + CELL-47 hold. "
+                    "CELL-first latches RAISE-CURRENT (0.42 to 0.52 A/cm2, no isolate)."
+                ),
+                "window_derivation": "500 us = one 360 us cell-IR ADC slot plus 140 us CELL publish.",
+                "order_evidence_note": (
+                    "Margin 192 us vs combined jitter 58 us (cell 34 + CELL 24): 3.3x. "
+                    "The 192 us gap sits inside min(500, 500) us, so a sub-flip-bound "
+                    "perturbation reverses triage order. The gate rides the "
+                    "order-invariant floors cell-47 IR > 86 C and cell-47 dP < 3.2 kPa, "
+                    "not the alarm order."
+                ),
+            },
+            "topology": {
+                "site": (
+                    "Sedgewharf Hydrogen Quay, invented fen-side H2 campus Sedgewharf, stack "
+                    "QF-AY-3: 120-cell bipolar alkaline, 30 wt% KOH, 80.0 C, 8 bar, 0.42 A/cm2, "
+                    "Grade-B cell-gallery LOTO"
+                ),
+                "agents": (
+                    "CELL 120-cell string-mean voltage (vendor Voltwharf): 20 Hz 12-bit on the "
+                    "rack bus. LYE circulating-KOH conductivity (vendor Lyeholt): 50 Hz on the "
+                    "lye-loop sample. H2 product purity (vendor Gasreed): 10 Hz on the H2 dryer "
+                    "outlet. LOCAL cell-47 IR plus local dP (vendor Cellghyll) is commissioned as "
+                    "a busbar-nuisance tag, not as a separator-integrity tag. Heterogeneous stacks, "
+                    "no shared intent schema, one 20 ms quay-bus epoch"
+                ),
+                "coupling": (
+                    "All three playbook confirms live on the WRONG volume. CELL is correct that "
+                    "string mean sits at 1.824 V/cell (one hundred nineteen intact cells dominate "
+                    "the average). LYE is correct that loop conductivity is 580 mS/cm (one torn "
+                    "separator is one of 120). H2 is correct that mixed-product purity is 99.94 vol% "
+                    "(crossover is diluted by one hundred nineteen healthy cells). Playbook PB-AY-3 "
+                    "treats the conjunction as permission to raise current. No agent is faulty; the "
+                    "CELL average is looking at string-mean voltage, not at cell 47's torn separator."
+                ),
+            },
+            "sensors": [
+                "120-cell string-mean voltage 12-bit, 20 Hz, 24 us jitter, 1.824 V/cell (dead-band 1.70-1.95)",
+                "circulating-KOH conductivity, 50 Hz, 20 us jitter, 580 mS/cm (band 520-640)",
+                "product H2 purity, 10 Hz, 28 us jitter, 99.94 vol% (band 99.90-99.99)",
+                "cell-47 local IR, 20 Hz, 34 us jitter, 94.2 C (healthy < 82; policy floor 86 C is not armed unless CELL mean also trips)",
+                "cell-47 local dP 1.4 kPa (healthy 8.5; hold if < 3.2)",
+                "cell-47 separator camera is NOT commissioned at t0 (installed after this incident)",
+            ],
+            "constraints": {
+                "current_A_cm2": 0.42,
+                "current_hold_floor_A_cm2": 0.42,
+                "proposed_current_A_cm2": 0.52,
+                "cell_V": 1.824,
+                "cell_deadband_V": [1.70, 1.95],
+                "lye_mS_cm": 580,
+                "lye_band_mS_cm": [520, 640],
+                "h2_volpct": 99.94,
+                "h2_band_volpct": [99.90, 99.99],
+                "cell_ir_C": 94.2,
+                "cell_ir_hold_C": 86.0,
+                "cell_ir_healthy_C": 82.0,
+                "cell_dP_kPa": 1.4,
+                "cell_dP_hold_kPa": 3.2,
+                "cell_dP_healthy_kPa": 8.5,
+                "cell_count": 120,
+                "fault_cell": "C-47",
+                "fault_mode": "cell 47 torn Zirfon separator / H2-in-O2 crossover",
+            },
+            "fault_context": {
+                "failure_class": (
+                    "STRING-MEAN CERTIFICATE OF A LOCAL SEPARATOR TEAR: three individually-correct "
+                    "heterogeneous agents each read a locally-true loop; a torn Zirfon separator on "
+                    "cell 47 partitions local IR and local dP from string-mean voltage, lye conductivity, "
+                    "and mixed H2 purity, so the playbook's CELL / LYE / H2 conjunction is not a "
+                    "cell-true certificate"
+                ),
+                "igniter": (
+                    "cell 47 separator tear after 11 min of unmonitored H2-in-O2 mix; cell-gallery "
+                    "visual PASSES (the tear sits inside the bipolar cassette; the O2-header mix is "
+                    "downstream of the walkway)"
+                ),
+                "naive_failure": (
+                    "PB-AY-3 RAISE-CURRENT on three healthy loops: 0.42 to 0.52 A/cm2 into an offtake "
+                    "window with cell 47 already mixing H2 into the O2 header, 1.8 Nm3 crossover, "
+                    "$4.2M plus a 38-hour unplanned stall"
+                ),
+            },
+            "poisoned_context": {
+                "naive_alarm": (
+                    "Playbook PB-AY-3 (after the 2016 'noisy busbar after a turnaround') auto-drafts "
+                    "RAISE-CURRENT whenever string mean is inside 1.70-1.95 V/cell AND lye inside "
+                    "520-640 mS/cm AND H2 inside 99.90-99.99 vol%, ignoring the local cell tap unless "
+                    "CELL mean also trips"
+                ),
+                "why_poisoned": (
+                    "The three confirms are locally true and jointly insufficient. The local cell IR "
+                    "is a commissioned sensor that policy treats as busbar-nuisance-only. Independence "
+                    "of 'string mean in band, therefore every separator is intact' is the hidden "
+                    "assumption, and it is false across a tear-plus-string-mix path."
+                ),
+            },
+            "constraint": (
+                "Do not raise current density above 0.42 A/cm2 AND do not skip the current-density "
+                "step while cell-47 IR > 86 C AND cell-47 dP < 3.2 kPa. Discriminate separator tear "
+                "vs true stack-duty with a reversible current-density step probe before any raise-current."
+            ),
+        },
+        "proposed_action": {
+            "actor": "quay supervisory optimizer QSO (auto-playbook PB-AY-3 draft), submitted to gate TG-AY-3",
+            "name": "raise_current",
+            "action": "RAISE-CURRENT: 0.42 -> 0.52 A/cm2, no current-density step probe, no cell-47 hold",
+            "summary": (
+                "Treat three in-spec loops as a healthy cell-true stack and raise night-shift current "
+                "to clear an H2 offtake window."
+            ),
+            "parameters": {
+                "current_A_cm2": 0.52,
+                "current_step_probe": False,
+                "cell_hold": False,
+                "human_ratify": False,
+            },
+            "steps": [
+                "assert 120-cell string mean 1.824 V/cell inside 1.70-1.95",
+                "assert circulating KOH 580 mS/cm inside 520-640",
+                "assert product H2 99.94 vol% inside 99.90-99.99",
+                "raise current density 0.42 to 0.52 A/cm2 over 8 min",
+                "hold cell-47 IR unread as a separator-integrity tag",
+            ],
+            "evidence": [
+                {
+                    "observable": "cell-47 local IR",
+                    "value": 94.2,
+                    "unit": "C",
+                    "source": "LOCAL IR vs CELL mean",
+                    "note": "healthy < 82 C; policy floor 86 C is not armed unless CELL mean also trips",
+                },
+                {
+                    "observable": "cell-47 local dP",
+                    "value": 1.4,
+                    "unit": "kPa",
+                    "source": "LOCAL cell dP tap",
+                    "note": "healthy 8.5; hold floor 3.2; lives on the torn C-47 cassette, not the string bus",
+                },
+                {
+                    "observable": "120-cell string mean",
+                    "value": 1.824,
+                    "unit": "V/cell",
+                    "source": "CELL 12-bit",
+                    "note": "healthy-load band 1.70-1.95 V/cell; one hundred nineteen intact cells still dominate the average",
+                },
+                {
+                    "observable": "circulating KOH conductivity",
+                    "value": 580,
+                    "unit": "mS/cm",
+                    "source": "LYE loop sample",
+                    "note": "band 520-640 mS/cm; loop-true, cell-false",
+                },
+                {
+                    "observable": "product H2 purity",
+                    "value": 99.94,
+                    "unit": "vol%",
+                    "source": "H2 dryer outlet",
+                    "note": "band 99.90-99.99 vol%; mixed-true, torn-separator-false",
+                },
+                {
+                    "observable": "race margin",
+                    "value": 192,
+                    "unit": "us",
+                    "source": "cell.hot.high 6.512 ms vs cell.in_band 6.704 ms",
+                    "note": "combined jitter 58 us, 3.3x; inside 500 us flip bound",
+                },
+            ],
+            "basis": (
+                "PB-AY-3 fires on three locally-true confirms. The draft does not read cell-47 IR "
+                "94.2 C as a tear residual and does not treat local dP 1.4 kPa as a separator-tear discriminant."
+            ),
+            "expected_cost_bound": (
+                "If the draft executes: 1.8 Nm3 H2-in-O2 on cell 47, $4.2M plus 38-hour unplanned stall. "
+                "If MODIFIED: probe plus hold, with residual risk from O2-header mix already seeded in "
+                "the 11 min pre-t0 tear."
+            ),
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "correctness": "correct",
+            "decided_by": "TG-AY-3 thalamic release gate",
+            "decision_t_rel_ms": 7.240,
+            "rationale": (
+                "MODIFY the draft: strip the raise-current, hold 0.42 A/cm2, run a 7.4 s "
+                "current-density step probe (-8% on 0.42 A/cm2), and isolate cell 47 only if the "
+                "probe stays mean-false. Numeric floor: do not raise current density above 0.42 A/cm2 "
+                "AND do not skip the current-density step while cell-47 IR > 86 C AND cell-47 dP "
+                "< 3.2 kPa. Observed IR 94.2 C and local dP 1.4 kPa both violate the release predicate, "
+                "so a raise-current is forbidden even though all three playbook confirms are numerically "
+                "true. The three confirms are not a cell-true certificate: they live on 120-cell string "
+                "mean, lye conductivity, and mixed H2 purity past a torn C-47 separator, and the playbook's "
+                "conjunction of string-true loops is not a cell-true certificate. Probe discriminant: after "
+                "a 7.4 s -8% current-density step, a separator tear keeps |Delta H2| <= 0.006 vol% (the torn "
+                "cell does not recouple mixed purity); a live intact stack moves >= 0.030 vol%. Order-code "
+                "discipline: cell-hot beat CELL by 192 us inside the 500 us flip bound, so triage order is "
+                "flip-fragile; the hold rides the order-invariant floors, not the winner tag. Human "
+                "ratification: cell-47 hold is cell-gallery LOTO with fitted 9.6 min dead-man; the gate may "
+                "hold and probe autonomously but may not break the cassette interlock without the operator confirm."
+            ),
+            "constraint_checked": {
+                "current_A_cm2": {"observed": 0.42, "floor": 0.42, "proposed_target": 0.52},
+                "cell_ir_C": {"observed": 94.2, "hold_if_above": 86.0},
+                "cell_V": {"observed": 1.824, "band": [1.70, 1.95]},
+                "cell_dP_kPa": {"observed": 1.4, "hold_if_below": 3.2},
+            },
+        },
+        "executed_action": {
+            "name": "current_hold_step_probe_isolate",
+            "action": "CURRENT-HOLD + CURRENT-DENSITY-STEP-PROBE + CELL-47-HOLD (gate-mandated modification)",
+            "executed_as_proposed": False,
+            "parameters": {
+                "current_A_cm2": 0.42,
+                "current_step_probe": True,
+                "cell_hold": True,
+                "human_ratify": True,
+                "human_ratify_min": 9.6,
+            },
+            "gate_effect": (
+                "MODIFY: raise-current stripped. Hold 0.42 A/cm2. 7.4 s current-density step -8% on "
+                "0.42 A/cm2. Probe stays mean-false (IR 94.2 -> 93.1 C, tear band |Delta H2| 0.004 <= 0.006 vol%) "
+                "so the cassette interlock is broken after 9.6 min human ratify and cell 47 is held. "
+                "Setpoint resumes after an intact-separator verify."
+            ),
+            "deviations": (
+                "PB-AY-3 raise-current stripped entirely. Current density is stepped only for the 7.4 s "
+                "probe then returned. Cassette interlock wait added (9.6 min fitted climb+ratify). "
+                "Cross-cell IR survey added during the hold (not in the draft)."
+            ),
+            "execution_log": [
+                {"t_rel_ms": 7.240, "entry": "TG-AY-3 MODIFY latched 728 us after cell-hot win; raise-current stripped; hold+probe authorized"},
+                {"t_rel_ms": 7400.0, "entry": "current-density step probe: 0.42 -> 0.386 A/cm2 for 7.4 s; IR 94.2 -> 93.1 C (tear band |Delta H2| 0.004 <= 0.006 vol%); H2 99.94 -> 99.936 vol%; string 1.824 -> 1.821 V/cell"},
+                {"t_rel_ms": 576000.0, "entry": "operator ratifies cassette interlock break after 9.6 min gallery climb (fitted climb+interlock)"},
+                {"t_rel_ms": 576800.0, "entry": "cell 47 held; local IR slaved off the current schedule; remaining 119 cells recovered toward 6 K over 3.2 h"},
+                {"t_rel_ms": 577600.0, "entry": "gallery survey: O2-header already mixed 0.42 Nm3 H2; 11 min pre-t0 tear logged"},
+                {"t_rel_ms": 11520000.0, "entry": "true intact separator on the remaining cells: local IR delta 6 K, local dP 8.4 kPa, IR below 86; raise-current now legal on QF-AY-4 only"},
+                {"t_rel_ms": 16560000.0, "entry": "O2 knock-out detonation at the quay dryer from the pre-t0 mix; stack quarantined 14.2 h"},
+            ],
+        },
+        "future_outcome": {
+            "summary": (
+                "Correct MODIFY prevented the 0.42->0.52 A/cm2 raise-current into a torn C-47 separator "
+                "and the immediate 1.8 Nm3 H2-in-O2 path. The stack still failed: 11 min of unmonitored "
+                "pre-t0 tear had already mixed 0.42 Nm3 H2 into the O2 header. Process-correct gate, "
+                "bounded world loss, negative total."
+            ),
+            "state_delta": {
+                "current": "held 0.42 A/cm2 through probe and isolate; later legal raise-current only on the sister stack after 3.2 h separator recovery",
+                "cell": "cell 47 isolated from the current schedule; remaining stack recovered toward 6 K local IR delta",
+                "string": "C-47 tear logged and held; 120-cell string mean no longer trusted as cell-true voltage",
+                "stack": "night-shift stack quarantined; C-47 torn; O2 knock-out at +4.6 h; 14.2 h stall",
+            },
+            "timeline": [
+                {"t_rel_ms": -660000.0, "event": "t0-11 min: cell 47 separator tear begins; local IR crosses 86 C up; H2 starts mixing into the O2 header"},
+                {"t_rel_ms": -330000.0, "event": "t0-5.5 min: local IR first crosses 86 C; PB-AY-3 ignores it because string mean is 1.818 V/cell"},
+                {"t_rel_ms": 0.0, "event": "t0: cell-hot vs CELL race on the quay bus"},
+                {"t_rel_ms": 6.512, "event": "cell-47 IR at 94.2 C wins by 192 us"},
+                {"t_rel_ms": 6.704, "event": "CELL-in-band flag (loser)"},
+                {"t_rel_ms": 7.240, "event": "TG-AY-3 MODIFY"},
+                {"t_rel_ms": 7400.0, "event": "current-density step probe confirms separator tear (Delta H2 0.004 vol%, tear band)"},
+                {"t_rel_ms": 576000.0, "event": "human ratify 9.6 min; cell 47 held; O2-header mix logged"},
+                {"t_rel_ms": 11520000.0, "event": "true intact separator after 3.2 h; raise-current legal only with local-IR slave"},
+                {"t_rel_ms": 16560000.0, "event": "O2 knock-out detonation from the pre-t0 mix; stack quarantined"},
+                {"t_rel_ms": 259200000.0, "event": "+3 d contrast: sister stack QF-AY-4 true cell-duty; same gate ACCEPTs the raise-current"},
+                {"t_rel_ms": 1814400000.0, "event": "+21 d CR-A-0306: standing current-density step probe + triple-edge depression mandate + local-IR armed without CELL coincidence + string mean declared string-mix-vulnerable"},
+            ],
+            "observed_effects": [
+                "raise-current avoided: stack never left 0.42 A/cm2; 0 immediate 1.8 Nm3 H2-in-O2 from the draft",
+                "tear proven, not asserted: current-density |Delta H2| 0.004 <= 0.006 vol% tear band vs intact-stack control 0.032 vol%",
+                "mean slaved: 120-cell string no longer a cell-true tag without local IR",
+                "stack still failed: mixed 0.42 Nm3 H2-in-O2 vs 0 crossover campaign allowance; 14.2 h stall, $2.14M (designed $)",
+                "cell-47 separator camera was not a commissioned sensor at t0; the 11 min local mix was invisible to CELL/LYE/H2",
+            ],
+            "surprises": [
+                "Three locally-true loops are not a cell-true certificate: the local IR lived under string mean, lye conductivity, and mixed H2. Conjunction of in-spec string loops was the hidden assumption, and it is false across a tear-plus-string-mix path.",
+                "Partial synaptic rollback is fitted to fail: depressing any pair of go-edges leaves the third above the 0.30 fire threshold, so the raise-current still goes. Coordinated depression of all three edges is required.",
+                "Delayed (4.6 h): correct hold did not undo 11 min of O2-header mix. Knock-out still detonated. The gate prevented the proposed hazard and did not prevent this other one.",
+                "High-pressure / 90 C / 35 wt% KOH sub-variant: a 7.4 s -8% current-density step on a 0.45x bubble-residence high-P stack overshoots a LIVE intact stack to a 0.08 vol% false H2 dip (off-spec purity). High-P campaigns must use 18 s at -2.5%.",
+            ],
+            "delayed_side_effects": [
+                {
+                    "at": "+4.6 h",
+                    "effect": "O2 knock-out detonation at the quay dryer from the pre-t0 separator tear; 14.2 h stack stall booked at $2.14M. This is the primary episode's terminal world state, not a footnote.",
+                },
+                {
+                    "at": "+3 d",
+                    "effect": "Sister stack QF-AY-4 reaches a true cell-duty window (local IR 80.4 C, local dP 8.6 kPa, string mean 1.828 V/cell, H2 99.95 vol%). Same gate ACCEPTs the 0.42->0.52 A/cm2 raise-current the primary MODIFIED away.",
+                },
+                {
+                    "at": "+21 d",
+                    "effect": "CR-A-0306 ships: current-density step probe is standing configuration; triple-edge coordinated depression is the plasticity rule; cell local IR is armed without CELL coincidence; 120-cell string is labeled string-mix-vulnerable with an 86 C local-IR alarm.",
+                },
+            ],
+            "subvariant_constraint": {
+                "name": "high-pressure / 90 C / 35 wt% KOH (cycle-2 physical-constraints sub-variant)",
+                "mechanism": "30 bar vs spec 8 bar, 90 C vs 80 C, KOH 35 wt% vs 30, bubble-residence 0.45x the spec-alkaline table (tighter gas disengage, 2.6x current-step gain), lye viscosity 1.4x",
+                "probe_refit": "7.4 s -8% current-density step on the high-P unit moves even a live intact stack to a 0.08 vol% false H2 dip (inside the off-spec purity trip) via bubble hold-up. Required probe is 18 s at -2.5% (live Delta 0.031 vol%, tear Delta 0.004). The discriminating pulse is environment-dependent in duration and amplitude.",
+                "consequence": "spec-alkaline probe numbers do not port to high-P stacks; standing configuration is per-pressure-class, not per-quay",
+            },
+            "embedded_contrast_decision": {
+                "note": "SAME gate (TG-AY-3), OPPOSITE correct disposition, with its own 188 us race. Teaches the boundary: do not treat 'never raise-current' as the lesson. The discriminant is local IR + local dP + probe, not the three playbook string confirms alone.",
+                "when": "+3 d, sister stack QF-AY-4, true cell-duty after a delayed offtake window, 120 cells",
+                "state": {
+                    "sim_or_real": "designed",
+                    "summary": "local IR 80.4 C, local dP 8.6 kPa, string mean 1.828 V/cell, H2 99.95 vol%. Demand flag vs cell-clear race: demand at t+0.000, cell-clear at t+0.188 ms.",
+                    "race_window_us": 500,
+                    "race_flip_narrative": "demand vs cell-clear 188 us apart inside the 500 us flip bound. Reversing order reshuffles triage minutes; the ACCEPT rides local IR 80.4 < 86 C and a 4.4 s current-density verify that moves H2 0.031 vol% (live intact stack, no tear).",
+                },
+                "proposed_action": {
+                    "action": "RAISE-CURRENT 0.42 -> 0.52 A/cm2",
+                    "summary": "This time the playbook predicate is met AND local IR plus local dP agree the stack is cell-true, not tear-diluted.",
+                },
+                "safety_decision": {
+                    "decision": "ACCEPT",
+                    "rationale": "ACCEPT the raise-current: local IR 80.4 C < 86, local dP 8.6 kPa with a 4.4 s current-density verify that moves H2 0.031 vol%. Numeric floor that blocked the primary is now clear. Scope: 0.52 A/cm2, not higher.",
+                },
+                "executed_action": {
+                    "action": "raise-current as proposed",
+                    "executed_as_proposed": True,
+                },
+                "future_outcome": {
+                    "observed_effects": [
+                        "QF-AY-4 H2-in-O2 0 Nm3; local IR 80.8 C after the raise-current (no tear)",
+                        "local dP 8.5 kPa after the raise-current (no cassette dump)",
+                    ],
+                    "lesson_delta": "Three in-spec string loops are legal release only with local IR armed, local dP as a tear flag, and a probe that can recouple H2 purity. Same gate, opposite disposition.",
+                },
+                "reward_components": {
+                    "_aggregation": AGG,
+                    "task_progress": 0.16,
+                    "safety": 0.11,
+                    "efficiency": 0.08,
+                    "coherence": 0.09,
+                    "exploration": 0.04,
+                    "total": 0.48,
+                },
+                "spike_events": contrast_spikes,
+            },
+            "governance_subgame": {
+                "decision": "CR-A-0306: standing policy for multi-agent hydrogen-quay current raises",
+                "meta_gate": (
+                    "priced options: (a) RETIRE playbook mean conjunction, local-IR-only: loses a fast cheap "
+                    "confirm, -1.4 stacks/day mean on 2 stacks/yr; (b) KEEP + standing current-density step "
+                    "probe + local-IR armed without CELL coincidence + string mean labeled string-mix-vulnerable "
+                    "+ triple-edge depression; (c) STATUS QUO: fitted separator-tear pass rate 0.33%/campaign x "
+                    "$4.2M H2-in-O2 plus the silent O2-header mix"
+                ),
+                "outcome": (
+                    "approved SCOPED option (b) on the 2 120-cell stacks that share the CELL/LYE/H2 stack; "
+                    "high-P campaigns get the 18 s / -2.5% probe table; night-shift CSV exports must carry "
+                    "0.2 C native resolution (the fraud tail's 2.0 C quantization is 10 bins off plant truth)"
+                ),
+            },
+            "hazard_avoided": (
+                "immediate 1.8 Nm3 H2-in-O2 from a 0.42->0.52 A/cm2 raise-current into torn cell 47; "
+                "$4.2M plus 38-hour unplanned stall and the quay-stop path that would have followed an "
+                "uncontained increase"
+            ),
+            "incident": (
+                "O2 knock-out detonation on the night-shift stack from the pre-t0 separator tear; stack "
+                "quarantined 14.2 h; $2.14M designed cost. Mechanism is 11 min pre-t0 H2-in-O2 mix, not "
+                "the gate's hold."
+            ),
+            "latency_ms": 0.728,
+            "reward_inflection_t_us": 16560000000,
+            "reward_inflection_note": (
+                "Safety and task dive at O2 knock-out (4.6 h) when the pre-t0 mixed header opens. Gate "
+                "tick at 7240 us is process-correct and is not the inflection."
+            ),
+            "counterfactuals": {
+                "execute_draft_as_proposed": (
+                    "current hits 0.52 A/cm2 at +8 min; immediate 1.8 Nm3 H2-in-O2 on cell 47; $4.2M plus "
+                    "38 h; the separator-tear story is never found because stall morphology destroys the race evidence"
+                ),
+                "hold_without_probe": (
+                    "tear stays; IR stays at 94.2 C; operator eventually raises on the same three string confirms 2 h later"
+                ),
+                "rollback_any_pair": (
+                    "any two go-edges depressed below 0.30 leaves the third at 0.50 / 0.44 / 0.41; the "
+                    "raise-current still fires. Coordinated depression of all three is the cure"
+                ),
+            },
+            "race_result": {
+                "winner": "cell.hot.high (6.512 ms, IR 94.2 C)",
+                "loser": "cell.in_band (6.704 ms, 1.824 V/cell)",
+                "margin_us": 192,
+                "counterfactual_if_reversed": (
+                    "CELL-first by < 192 us inside the 500 us window would have headed the PB-AY-3 "
+                    "raise-current in the triage queue. The numeric floors still MODIFY. The flip costs "
+                    "seconds of playbook inertia, not the verdict — unless a weak supervisor rides the "
+                    "winner tag instead of local IR and local dP."
+                ),
+            },
+        },
+        "reward_components": {
+            "_aggregation": AGG,
+            "ticks": ticks,
+            "task_progress": heads["task_progress"],
+            "safety": heads["safety"],
+            "efficiency": heads["efficiency"],
+            "coherence": heads["coherence"],
+            "exploration": heads["exploration"],
+            "total": heads["total"],
+            "notes": (
+                "Correct MODIFY, stack still failed. total -0.16 = 0.07 + -0.34 + -0.13 + 0.14 + 0.10. "
+                "Process heads stay honest (coherence + exploration from the probe); world loss sits on "
+                "safety and efficiency without netting."
+            ),
+            "component_notes": (
+                "task_progress 0.07: current held and remaining stack recovered, but the night-shift offtake "
+                "is one quality unit so the cycle is not a success. safety -0.34: O2 knock-out from pre-t0 "
+                "separator tear, no 0.52 A/cm2 1.8 Nm3 mix from the draft. efficiency -0.13: 3.2 h extra "
+                "recovery + 9.6 min HITL + 14.2 h stall. coherence 0.14: three agents retained, string-mix "
+                "vs cell-true diagnosed, triple-edge scar exhibited. exploration 0.10: current-density step "
+                "probe is a new reversible discriminant."
+            ),
+        },
+        "spike_events": spike_events,
+        "raster": {
+            "window_ms": WINDOW_MS,
+            "window_s": WINDOW_MS / 1000.0,
+            "neurons": NEURONS,
+            "mean_rate_hz": MEAN_RATE_HZ,
+            "spikes": spikes_budget,
+            "energy_pJ": energy_pJ,
+            "energy_uJ": energy_uJ,
+            "excerpt_source": "independent_lif",
+            "sim_scope": "sidecar_only",
+            "lif": lif,
+            "note": (
+                f"Loihi-2 4-core 23 pJ/spike; independent LIF seed {lif['seed']}, not a 1:1 remap "
+                "of spike_events. Populations hold 0-37, cell 38-75, lye/h2 76-113, gate 114-151; "
+                "excerpt is membrane crossings (lif.hold early vs lif.cell 19-22.8 ms) inside the 38 ms window."
+            ),
+            "excerpt": excerpt,
+            "routing": {
+                "source": "cell_healthy_pop",
+                "target": "raise_current_pop",
+                "table": [
+                    {
+                        "from": "cell_in_band_pop",
+                        "to": "raise_current_pop",
+                        "weight": w1,
+                        "weight_at_illusion": 0.50,
+                        "weight_commissioned": 0.18,
+                        "note": "scar edge 1: 0.18 commissioned -> 0.50 during the 11 min illusion -> 0.26 after coordinated ACh-gated depression",
+                    },
+                    {
+                        "from": "lye_ok_pop",
+                        "to": "raise_current_pop",
+                        "weight": w2,
+                        "weight_at_illusion": 0.44,
+                        "weight_commissioned": 0.16,
+                        "note": "scar edge 2: depressing edges 1+3 leaves this at 0.44 > 0.30 fire threshold",
+                    },
+                    {
+                        "from": "h2_ok_pop",
+                        "to": "raise_current_pop",
+                        "weight": w3,
+                        "weight_at_illusion": 0.41,
+                        "weight_commissioned": 0.15,
+                        "note": "scar edge 3: depressing edges 1+2 leaves this at 0.41 > 0.30. Coordinated depression of all three is required",
+                    },
+                    {
+                        "from": "cell_ir_pop",
+                        "to": "current_hold_pop",
+                        "weight": 0.66,
+                        "note": "discriminating edge: cell-true local IR to hold. Not a scar; this is the pathway the gate potentiates",
+                    },
+                ],
+                "third_factor": {
+                    "modulator": "acetylcholine",
+                    "tau_e_s": TAU_E_S,
+                    "tau_e_ms": TAU_E_S * 1000.0,
+                    "eligibility": (
+                        "coordinated pre_post_stdp on ALL THREE string-healthy-go edges; ACh at "
+                        "cell-hot-win tags cell.in_band->push, lye.ok->push, and h2.ok->push; "
+                        f"negative credit at probe-fail (separator tear confirmed, +{DELAY_S:.2f} s) "
+                        f"depresses ALL THREE. trace e^{{-{DELAY_S:.2f}/{TAU_E_S:.2f}}}={trace:.5f}; "
+                        f"eta {etas[0]:.5f} / {etas[1]:.5f} / {etas[2]:.5f}; dw -0.240 / -0.210 / -0.200; "
+                        "weights 0.50->0.26, 0.44->0.23, 0.41->0.21. Rolling back any pair is "
+                        "fitted to fail (the remaining edge stays > 0.30)."
+                    ),
+                },
+            },
+        },
+        "gate_snn": {
+            "decision_window_ms": 28,
+            "decision_window_s": 0.028,
+            "decision": "MODIFY",
+            "note": (
+                "modify_hold integrates cell-47 IR + local dP against playbook drive; "
+                "accept_raise and reject_abort stay sub-threshold; decision matches "
+                "safety_decision.decision"
+            ),
+            "populations": [
+                {"name": "modify_hold", "neurons": 70, "threshold": 0.55, "mean_rate_hz": 22.0, "spikes": 43},
+                {"name": "accept_raise", "neurons": 70, "threshold": 0.55, "mean_rate_hz": 8.0, "spikes": 16},
+                {"name": "reject_abort", "neurons": 35, "threshold": 0.72, "mean_rate_hz": 5.0, "spikes": 5},
+            ],
+        },
+        "meta": {
+            "round": ROUND,
+            "factory": "multi-agent-ouroboros-swarm",
+            "generator": "grok-4.6",
+            "run_label": "2026-09-02-final-heavy",
+            "swarm": PLANT,
+            "domain": DOMAIN,
+            "cycles": 2,
+            "scenario": (
+                "QF -- QUAY-FEN / Sedgewharf Alkaline Stack QF-AY-3: string-mean certificate of a "
+                "local separator tear; correct MODIFY to hold+current-density-step+isolate; stack still "
+                "fails on unmonitored pre-t0 O2-header mix"
+            ),
+            "coordination_failure_class": (
+                "STRING-MEAN CERTIFICATE OF A LOCAL SEPARATOR TEAR: three individually-correct "
+                "heterogeneous agents each read a locally-true loop; a torn Zirfon separator on cell 47 "
+                "partitions local IR and local dP from string-mean voltage, lye conductivity, and mixed "
+                "H2 purity, so the playbook's CELL / LYE / H2 conjunction is not a cell-true certificate"
+            ),
+            "injections": {
+                "cycle1_domain": (
+                    "alkaline-stack-hydrogen-quay (justified novel subdomain of industrial-process / "
+                    "hydrogen production): first fen-side alkaline hydrogen-quay stack in this factory; "
+                    "displaces warehouse-amr, aerial-swarm, district-heating, event-camera-traffic-grid, "
+                    "pharmaceutical-lyophilization, water-treatment, float-glass, underwater-rov, "
+                    "electrolytic-aluminum, czochralski-pull, slot-die coating, pem-water-electrolysis, "
+                    "wind-turbine pitch, surgical-assist, optical-fiber-draw, kraft-recovery-boiler, "
+                    "steel-continuous-caster, humanoid-locomotion, vacuum-induction melt, "
+                    "steam-methane reformer, cement-rotary-kiln-clinker, autoclave-composite-cure, "
+                    "geothermal-binary-orc, tire-curing-press, chlor-alkali-membrane-electrolysis, "
+                    "delayed-coker-drum-switch, lng-mche-mixed-refrigerant, claus-sulfur-recovery, "
+                    "ammonia-synthesis-converter, blast-furnace-burden-descent, "
+                    "hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil, "
+                    "hydroelectric-kaplan-wicket, fcc-riser-regenerator, sulfuric-contact-converter, "
+                    "eaf-foamy-slag-water-panel, nitric-acid-ostwald-oxidation, seawater-ro-desalination, "
+                    "coke-oven-battery-heating, carbon-fiber-oxidation-oven, gibbsite-autoclave-digestion, "
+                    "hot-strip-mill-finishing, paper-machine-dryer-section, sinter-strand-windbox, "
+                    "continuous-hot-dip-galvanizing, autonomous-driving, bioreactor-perfusion, "
+                    "urea-prilling-tower, cupola-foundry-slag-sluice, canal-lock-rail-transshipment, "
+                    "malting-kiln-barn, and grid-inspection. Domain constraint: current-density floor "
+                    "while cell-47 IR > 86 C with string mean still inside the healthy band. Sensor delta: "
+                    "+120-cell string mean, +lye conductivity, +product H2, +local cell IR, +local cell dP, "
+                    "-any freeze-dryer / tin-bath / CAV fusion / harvest-bag / grate-strand / air-knife / "
+                    "PEM stack / cupola blast / lock chamber / kiln AIR / live-line crawler."
+                ),
+                "cycle1_tail": (
+                    "cell 47 torn Zirfon separator + H2-in-O2 certificate (sensor-topology / wrong-volume class): "
+                    "cell-gallery visual PASSES while the tear sits inside the bipolar cassette and the mix is "
+                    "on the O2 header. Fitted base rate 0.33%/campaign from a separator-tear MC (designed visual "
+                    "threshold, fitted cassette geometry). Naive failure = FALSE PERMISSION (raise-current on "
+                    "three string-side non-trips)."
+                ),
+                "cycle2_domain_subvariant": (
+                    "high-pressure / 90 C / 35 wt% KOH (physical-constraints clause): 0.45x bubble-residence, "
+                    "2.6x current-step gain; 7.4 s / -8% spec-alkaline pulse overshoots live intact stack to a "
+                    "0.08 vol% false H2 dip, so the probe must move to 18 s / -2.5%"
+                ),
+                "cycle2_tail": (
+                    "night-shift forged local-IR CSV (human-intent deception, disjoint class): shift lead posts "
+                    "a historian export showing IR = 80.0 C at t=1.1 h to clear an offtake slot. Plant historian "
+                    "is 0.2 C (10 bins vs the 2.0 C screenshot). Rejected on quantization fingerprint plus live "
+                    "IR 94.2 C and local dP 1.4 kPa at the claimed cell-true. Base rate ~0.28% of Sunday-night "
+                    "campaigns, DESIGNED and flagged."
+                ),
+            },
+            "densification_delta_cycle2": (
+                "+1 physical-constraint sub-variant (high-P probe refit), +1 tail (night-shift local-IR forgery), "
+                "+10 primary spikes (16 -> 26) + an 8-event contrast train with its own 188 us race, +2 ticks "
+                "(5 -> 7), +2 delayed side-effects (+4.6 h O2 knock-out as PRIMARY terminal, +21 d CR-A-0306), "
+                "+1 triple-edge scar with pair-rollback-fails arithmetic, +1 HITL 9.6 min ratification, "
+                "+ independent LIF raster (seed sidecar-only, 38 ms, not a spike_events remap), + O2-header mix "
+                "as the honest negative-result mechanism"
+            ),
+            "gaps_targeted": [
+                "NOTES-r22 leftover domain family: hydrogen-quay alkaline stack (unused across live r01 galvanizing, r02 cupola, r21 autonomous-driving, r22 urea-prill, r41 bioreactor-perfusion, r42/r62 grid-inspection, r61 sinter, r63 canal-lock, r64 malt kiln)",
+                "NOTES-r14 item 4: LEARNING-ON-LEARNING DEPTH — three go-edges; rollback of any pair is fitted to fail; coordinated depression of all three exhibited with eligibility arithmetic",
+                "NOTES-r04 gap 4 (partial): human ratification of the cassette interlock, 9.6 min fitted, without switching sim_or_real to hil (plant remains designed)",
+                "Independent LIF raster: excerpt_source=independent_lif, sim_scope=sidecar_only, seed 3003-family; membrane crossings not a 1:1 remap of spike_events",
+            ],
+            "race_flip_narrative": (
+                "cell.hot.high @ 6.512 ms vs cell.in_band @ 6.704 ms (192 us) inside "
+                "race_window_us 500. Gap < min(500, 500) us so a sub-flip-bound perturbation "
+                "reverses which alarm heads the PB-AY-3 queue. The gate excludes the winner "
+                "tag and rides cell-47 IR > 86 C and cell-47 dP < 3.2 kPa — order-invariant "
+                "floors. Extends the flip-fragility series to CELL-TRUE CERTIFICATE: when three "
+                "string-side channels agree, their race does not decide truth; a local cell IR that "
+                "policy treated as busbar-nuisance-only does."
+            ),
+            "tags": [
+                "alkaline-stack-hydrogen-quay",
+                "separator-tear",
+                "cell-true-certificate",
+                "local-ir-discriminant",
+                "current-density-step-probe",
+                "triple-edge-scar",
+                "pair-rollback-fails",
+                "coordinated-depression",
+                "correct-modify-stack-still-fails",
+                "o2-header-knock-out",
+                "human-ratify-cell-gallery",
+                "high-pressure-probe-refit",
+                "night-shift-forgery",
+                "same-gate-opposite-disposition-contrast",
+                "independent-lif-raster",
+                "sidecar-sim-only",
+                "industrial-process",
+                "research-only",
+            ],
+            "snn_tags": ["race", "refractory", "adaptation", "third-factor", "multi-edge-eligibility", "independent-lif"],
+            "distillation_value": (
+                "A separator-tear cell-true certificate is three correct loops looking at 120-cell "
+                "string mean, lye conductivity, and mixed H2 purity that is not the torn cassette. "
+                "Distill (1) a local cell IR that policy had treated as busbar-nuisance-only, (2) a "
+                "reversible probe that recouples H2 purity only if the separator is intact, (3) coordinated "
+                "depression of every string-healthy-go edge because rolling back any pair leaves the third "
+                "above threshold, (4) a critic head that can book a process-correct gate against a later "
+                "unmonitored world loss without netting them, and (5) an independent LIF sidecar whose "
+                "excerpt is membrane crossings, not a remap of spike_events."
+            ),
+            "rights": dict(RIGHTS),
+            "batch_position": 1,
+        },
+    }
+    return rec, dict(
+        trace=trace,
+        eta1=etas[0],
+        eta2=etas[1],
+        eta3=etas[2],
+        dw1=dws[0],
+        dw2=dws[1],
+        dw3=dws[2],
+        w1=w1,
+        w2=w2,
+        w3=w3,
+        sim_spikes=sim_spikes,
+        spikes_budget=spikes_budget,
+        lif_seed=lif["seed"],
+    )
+
+
+def local_checks(rec, aux):
+    errs = []
+    ev = rec["spike_events"]
+    times = [e["t_rel_ms"] for e in ev]
+    if times != sorted(times):
+        errs.append("spikes not sorted")
+    if not (5 <= len(ev) <= 40):
+        errs.append(f"spike count {len(ev)}")
+    rf = check_refractory(ev)
+    if rf:
+        errs.append(rf)
+    lo, hi = rec["state"]["race_window_rel_ms"]
+    in_win = defaultdict(int)
+    for e in ev:
+        if lo <= e["t_rel_ms"] <= hi:
+            in_win[e["channel"]] += 1
+    if sum(1 for _c, n in in_win.items() if n >= 1) < 2:
+        errs.append(f"race window channels {dict(in_win)}")
+    ras = rec["raster"]
+    exp_sp = round(ras["neurons"] * ras["mean_rate_hz"] * ras["window_s"])
+    if abs(ras["spikes"] - exp_sp) > 1:
+        errs.append(f"raster spikes {ras['spikes']} vs {exp_sp}")
+    if abs(ras["energy_pJ"] - ras["spikes"] * 23) > 1e-6:
+        errs.append("energy_pJ")
+    if abs(ras["energy_uJ"] - ras["spikes"] * 23e-6) > 1e-9:
+        errs.append("energy_uJ")
+    if abs(ras["window_s"] - ras["window_ms"] / 1000.0) > 1e-9:
+        errs.append("window_s")
+    if not (20 <= ras["window_ms"] <= 50):
+        errs.append(f"window_ms {ras['window_ms']}")
+    if ras.get("excerpt_source") != "independent_lif":
+        errs.append("excerpt_source")
+    if ras.get("sim_scope") != "sidecar_only":
+        errs.append("sim_scope")
+    ex = check_excerpt(ras["excerpt"], ras["neurons"], ras["window_ms"])
+    if ex:
+        errs.append(f"excerpt {ex}")
+    lang_us = {
+        int(round(e["t_rel_ms"] * 1000.0))
+        for e in ev
+        if e["t_rel_ms"] * 1000.0 <= ras["window_ms"] * 1000
+    }
+    excerpt_us = {item["t_us"] for item in ras["excerpt"]}
+    if excerpt_us & lang_us:
+        errs.append(f"LIF excerpt remaps language times {sorted(excerpt_us & lang_us)}")
+    tf = ras["routing"]["third_factor"]
+    if abs(tf["tau_e_ms"] / 1000.0 - tf["tau_e_s"]) > 1e-9:
+        errs.append("tau_e mismatch")
+    gp = check_gate_pops(rec["gate_snn"])
+    if gp:
+        errs.append(f"gate {gp}")
+    if rec["gate_snn"]["decision"] != rec["safety_decision"]["decision"]:
+        errs.append("gate decision mismatch")
+    if rec["safety_decision"]["decision"] != "MODIFY":
+        errs.append("wrong-ACCEPT or non-MODIFY primary")
+    rc = rec["reward_components"]
+    for h in HEADS:
+        s = sum(t[h] for t in rc["ticks"])
+        if abs(s - rc[h]) > 1e-6:
+            errs.append(f"tick sum {h} {s} vs {rc[h]}")
+    tot = sum(rc[h] for h in HEADS)
+    if abs(tot - rc["total"]) > 1e-6:
+        errs.append(f"total {tot} vs {rc['total']}")
+    inf = rec["future_outcome"]["reward_inflection_t_us"]
+    if inf not in {t["t_us"] for t in rc["ticks"]}:
+        errs.append(f"inflection {inf} not a tick")
+    crc = rec["future_outcome"]["embedded_contrast_decision"]["reward_components"]
+    if abs(sum(crc[h] for h in HEADS) - crc["total"]) > 1e-6:
+        errs.append("contrast reward")
+    cs = rec["future_outcome"]["embedded_contrast_decision"]["spike_events"]
+    ct = [e["t_rel_ms"] for e in cs]
+    if ct != sorted(ct):
+        errs.append("contrast spikes unsorted")
+    crf = check_refractory(cs)
+    if crf:
+        errs.append(f"contrast {crf}")
+    blob = json.dumps(rec)
+    for k in HIDDEN:
+        if re.search(rf'"{k}"\s*:', blob, re.I):
+            errs.append(f"hidden key {k}")
+    for b in BANNED:
+        if b in blob:
+            errs.append(f"banned token {b}")
+    if rec["state"]["sim_or_real"] == "real":
+        errs.append("real")
+    if '"sim_or_real": "real"' in blob or '"kind": "real"' in blob:
+        errs.append("real provenance")
+    if rec["meta"]["round"] != ROUND:
+        errs.append("round")
+    if rec["id"] != RECORD_ID:
+        errs.append("id")
+    if rec["rights"]["intended_use"] != "research_only":
+        errs.append("rights")
+    if rec["meta"]["rights"]["linear_issue"] != "RM-793":
+        errs.append("meta.rights")
+    if rec["rights"] != rec["meta"]["rights"]:
+        errs.append("rights stamp mismatch")
+    if not (3 <= len(rc["ticks"]) <= 8):
+        errs.append("tick count")
+    if abs(aux["w1"] - 0.26) > 5e-4 or abs(aux["w2"] - 0.23) > 5e-4 or abs(aux["w3"] - 0.21) > 5e-4:
+        errs.append("scar weights")
+    if rec["executed_action"]["executed_as_proposed"] is not False:
+        errs.append("executed_as_proposed")
+    jac = jaccard(rec["state"]["description"][:280], R14_OPENING)
+    if jac >= 0.4:
+        errs.append(f"jaccard vs r14 opening {jac:.3f}")
+    for src, opening in prior_openings():
+        j = jaccard(rec["state"]["description"][:280], opening)
+        if j >= 0.4:
+            errs.append(f"jaccard vs {src} {j:.3f}")
+    if rec["state"]["domain"] != DOMAIN:
+        errs.append("domain")
+    if PLANT not in rec["state"]["scenario_name"]:
+        errs.append("plant")
+    if rec["meta"].get("swarm") != PLANT:
+        errs.append("swarm")
+    errs.extend(occupancy_collisions())
+    return errs
+
+
+def write_notes(rec, aux, pipeline_receipt):
+    gap, gap_ch = min_same_channel_gap(rec["spike_events"])
+    ras = rec["raster"]
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 03
+
+Factory: multi-agent-ouroboros-swarm. One scenario (QF), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r03.jsonl. Full labeled transcript:
+swarm-transcript-r03.md. Quota Q=1. Record id maos-r03-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Create-only writes under the LIVE factory dir plus /tmp/maos-r03/.
+
+ORCHESTRATION NOTE: dispatched AS round 03 of the 2026-09-02-final-heavy
+LIVE tree. Operator assigned round 03, swarm QUAY-FEN, id maos-r03-001,
+Q=1 after 2x6-role cycles. Explicitly avoided 2026-08-17 and 2026-08-30.
+Prior context: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, live occupancy r01/r02/r21/r22/r41/r42/r61/r62/r63/r64.
+Explicitly avoided cloning LYOSHIELD, CINDERWICK, TRIAD / Meridian,
+QUILLFORGE, NIGHTWELL, FERRICLEAVE, CASSITER, OXBOWREEL, REDHALL,
+SEEDLATCH, STRIAFOIL, PROTONIL, TORSIONKEY, ORRIS, WHORLSPAR, IONSPATE,
+SKULLGATE, CALXION, MAGNORIL, GORSEFLUE, SODASHARD, CLINKERFELL,
+LINTELPLY, KAOTHARN, TREADNOLL, ANOLITH, DRUMWROTH, RIMEBRAID, BRIMVAULT,
+NITROSTAITH, BOGIRON, CHROMLOOP, ETHYNWOLD, NITREVAULT, RUNNELGATE,
+SPARKHOLT, DIPLEGAR, OLEUMWEIR, SKARVOLT, GOBSPALL, GOBWOLD, GAUZEFELL,
+OSMOLITH, PUSHERFELL, CREELWOLD, LIXIVQUERN, GIBBSQUERN, OSMOQUAY,
+COILSHAW, LOOPERQUAY, SIPHONWOLD, LANCEQUAY, UREASTAITH, DRYSTAITH,
+TITERWEIR, ZINCFELL, GLIMMERAXLE, HOLLOWMERE, WINDBOXHOLT, KALYCIRQUE,
+GYPSUMWEIR, GALVSTAITH, SLUICE-HEARTH, PRILLGHYLL, SHEDWOLD, CORONSTAITH,
+LOCKSPUR, WOLD-BARN, VANTIS-CADENCE-AEGIS, THERMION, OKTAVE, STARLING,
+VERDIGRIS. Plant is invented QUAY-FEN / Sedgewharf Alkaline Stack QF-AY-3.
+Leftover candidates mushroom-compost-tunnel / flue-cured-tobacco-barn /
+farm-ad-biogas were left unused.
+
+## What this round produced
+
+Scenario QF — "QUAY-FEN / Sedgewharf Alkaline Stack QF-AY-3": a 120-cell
+bipolar alkaline hydrogen-quay stack at 0.42 A/cm2 / 80.0 C / 30 wt% KOH /
+8 bar. Three heterogeneous, individually-correct agents — CELL (120-cell
+string-mean voltage), LYE (circulating-KOH conductivity), H2 (product
+purity) — each report their local loop in-spec. The conjunction is not a
+cell-true certificate. Cell 47 has a torn Zirfon separator. CELL reads
+1.824 V/cell inside 1.70-1.95 (one hundred nineteen intact cells dominate
+the string). LYE is 580 mS/cm inside 520-640 (loop-true). H2 is 99.94 vol%
+inside 99.90-99.99 (mixed-true). Local IR infers 94.2 C (healthy < 82; hold
+if > 86) and local dP 1.4 kPa (hold if < 3.2) but is policy-treated as a
+busbar-nuisance tag unless CELL mean also trips (2016 noisy busbar
+nuisance). The coordination-failure CLASS is new to this factory:
+STRING-MEAN CERTIFICATE OF A LOCAL SEPARATOR TEAR. Completes a different
+family than live r01 galvanizing, r02 cupola sluice, r21 CAV, r22 urea
+prill, r41 perfusion, r42/r62 grid-inspection, r61 sinter, r63 canal-lock,
+r64 malt kiln. Here every agent is correct, the CELL average is looking at
+string-mean voltage, and the playbook's three CELL confirms are not a
+cell-true certificate.
+
+The gate is a correct MODIFY (numeric floor: do not raise current density
+above 0.42 A/cm2 while cell-47 IR > 86 C AND cell-47 dP < 3.2 kPa).
+TG-AY-3 strips PB-AY-3's raise-current, holds 0.42 A/cm2, runs a 7.4 s
+current-density step -8% (tear keeps |Delta H2| 0.004 <= 0.006 vol%; intact
+would move >= 0.030), and isolates cell 47 after a 9.6 min cell-gallery
+human ratify. Immediate 1.8 Nm3 H2-in-O2 is avoided (0 from the draft).
+The PRIMARY episode nonetheless FAILS: 11 min of unmonitored pre-t0 tear
+had already mixed 0.42 Nm3 H2 into the O2 header. Knock-out at +4.6 h;
+14.2 h stall; $2.14M designed. Reward total -0.16 with process heads
+honest and world loss un-netted.
+
+Triple-edge scar (NOTES-r14 item 4): cell.in_band -> raise_current
+(0.18 commissioned -> 0.50 at illusion -> 0.26 after ACh-gated
+depression) AND lye.ok -> raise_current (0.16 -> 0.44 -> 0.23) AND
+h2.ok -> raise_current (0.15 -> 0.41 -> 0.21). Eligibility trace
+e^{{-0.78/0.90}} = {aux['trace']:.5f}; eta {aux['eta1']:.5f} / {aux['eta2']:.5f} /
+{aux['eta3']:.5f}; dw -0.240 / -0.210 / -0.200. Partial rollback of any pair
+leaves the third at 0.50 / 0.44 / 0.41, all > 0.30 fire threshold —
+fitted to fail. Coordinated depression of all three is the cure.
+
+Independent LIF raster: window 38 ms, 152 neurons, 21.8 Hz, spikes
+{ras['spikes']} == round(152 x 21.8 x 0.038), energy {ras['energy_pJ']} pJ
+at 23 pJ/spike. excerpt_source=independent_lif, sim_scope=sidecar_only,
+seed {aux['lif_seed']}. Excerpt is membrane crossings (lif.hold early vs
+lif.cell 19-22.8 ms), disjoint from spike_events timestamps.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **alkaline-stack-hydrogen-quay** — justified novel
+  subdomain of industrial-process / hydrogen production, unused across
+  live r01/r02/r21/r22/r41/r42/r61/r62/r63/r64. Distinct from historical
+  PEM electrolysis and chlor-alkali membrane cells. mushroom-compost-tunnel
+  and farm-ad-biogas left unused.
+- Cycle-1 tail: cell 47 torn Zirfon separator + H2-in-O2 certificate.
+  Cell-gallery visual PASSES (tear inside the cassette). Fitted-style
+  base rate 0.33%/campaign (separator-tear MC; visual threshold designed,
+  flagged). Naive = FALSE PERMISSION.
+- Cycle-2 domain sub-variant: high-pressure / 90 C / 35 wt% KOH, 0.45x
+  bubble-residence, 2.6x current-step gain; 7.4 s / -8% spec-alkaline
+  pulse overshoots live intact stack to a 0.08 vol% false H2 dip; probe
+  must move to 18 s / -2.5%.
+- Cycle-2 tail: night-shift forged local-IR CSV at 2.0 C quantization vs
+  plant 0.2 C (10 bins) plus live IR 94.2 C and local dP 1.4 kPa at the
+  claimed cell-true. Human-intent class, disjoint from cycle 1's
+  accidental tear. Base rate ~0.28% of Sunday-night campaigns,
+  DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+3 d sister stack) with its own 188 us
+  race (demand vs cell-clear) and ACCEPT of the raise-current the primary
+  MODIFIED away.
+- Learned-weight provenance on THREE edges with pair-rollback-fails.
+- HITL cell-gallery ratify 9.6 min (gap 4 partial; sim_or_real stays
+  designed — invented plant, not hil).
+- Governance CR-A-0306 prices retire-vs-probe-vs-status-quo and mandates
+  native 0.2 C CSV exports (the fraud fence).
+- Flip-fragility extended to CELL-TRUE CERTIFICATE.
+- Independent LIF sidecar (not a language-train remap).
+
+## Self-critique of this round's batch
+
+### Strengths
+- Headline class is mechanistically tight: three locally-true mean loops
+  live on string mean, lye conductivity, and mixed H2. Conjunction is not
+  a cell-true separator certificate.
+- Negative-result honesty: the gate does the right thing and the stack
+  still fails for a reason the commissioned sensors could not see.
+  Total -0.16.
+- Triple-edge scar is load-bearing: rolling back any pair fails, with
+  fire threshold 0.30 exhibited on each remaining edge.
+- Contrast ACCEPT on a true intact cell-duty window prevents "never
+  raise-current" as the lesson.
+- Distinct from r02 cupola sluice, r63 canal-lock, r01 GI knife, r64 malt
+  kiln: alkaline hydrogen-quay local IR vs string mean.
+- Independent LIF excerpt is disjoint from spike_events times.
+
+### Weaknesses (honest)
+- Probe error bands, the 0.33%/campaign tear rate, the $2.14M / $4.2M
+  figures, the 9.6 min climb latency, and the night-shift 0.28% base
+  rate are DESIGNED constants and are flagged. Closed-loop offsets
+  (string dilution from one torn cell, high-P bubble-residence) are
+  derived from those inputs, not discovered by an unauthored process.
+- H2-in-O2 mix model is a designed 11 min mapping; no full CFD of C-47
+  shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil. Gap 4
+  remains open as a provenance cell (invented plants stay designed).
+- Cross-record arc is a hook (CR-A-0306 +21 d), not a serial igniter
+  into another round. mushroom-compost-tunnel and farm-ad-biogas remain
+  unused.
+- The densifying-loop *shape* (three correct agents / MODIFY / probe /
+  triple-edge / night-shift CSV / sister ACCEPT / negative primary)
+  rhymes with r22/r61/r64. Physics, plant, sensors, and failure class
+  are new; the scaffold is not.
+
+### Realism of noise / latencies
+Ladder: 192 us race / 188 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap {gap:.3f} ms on {gap_ch}) / 500 us race
+window / 728 us gate latency / 20 ms bus epoch / 38 ms independent LIF
+raster / 7.4 s probe / 9.6 min HITL / 8 min naive raise-current-ramp
+counterfactual / 11 min pre-t0 tear / 3.2 h separator recovery / 4.6 h
+O2 knock-out / +3 d contrast / +21 d governance. Adaptation decay on
+cell.hot (0.53->0.50->0.43->0.30), cell.dP (0.77->0.79->0.44->0.40->0.28),
+lye.ok (0.62->0.58->0.46->0.25), h2.ok (0.56->0.65->0.81).
+
+### Value for SNN distillation
+- SEPARATOR TEAR = THREE CORRECT LOOPS, WRONG VOLUME.
+- CELL-TRUE IR CHANNEL that policy treated as busbar-nuisance-only as
+  the tie-break.
+- REVERSIBLE PROBE that recouples H2 purity iff the separator is intact.
+- TRIPLE-EDGE ELIGIBILITY: coordinated depression; pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+- INDEPENDENT LIF sidecar whose excerpt is membrane crossings.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum {rec['reward_components']['total']}
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.48 reconciles independently.
+- spike_events: primary {len(rec['spike_events'])} events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap {gap:.3f} ms >= 0.8 ms, 3
+  channels inside race_window_us 500 (cell.hot.high 6.512, cell.in_band 6.704,
+  h2.ok 6.888). Contrast 8 events, own race, min same-channel gap well
+  above 0.8 ms.
+- Sidecars: raster spikes {ras['spikes']} == round({ras['neurons']} x {ras['mean_rate_hz']} x {ras['window_s']}); energy {ras['energy_pJ']} pJ /
+  {ras['energy_uJ']} uJ at 23 pJ/spike; excerpt {len(ras['excerpt'])} events inside [0, {int(ras['window_ms']*1000)}] us,
+  neuron_id < {ras['neurons']}, same-neuron gap >=1000 us; excerpt_source independent_lif;
+  routing 4 entries with three scar edges' before/after pair; third factor tau 0.90 s
+  == 900 ms; gate_snn pools 43/16/5 == round(n x rate x 0.028) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: {pipeline_receipt}
+
+## Novel coverage
+The coordination-failure CLASS (string-mean certificate of a local
+separator tear), the domain (fen-side alkaline hydrogen-quay stack),
+the current-density step probe discriminant, the triple-edge scar with
+pair-rollback-fails, the primary negative-result (correct MODIFY, stack
+still fails on unmonitored O2-header mix), the HITL cell-gallery
+ratify, the high-P probe-duration refit, the night-shift 10-bin
+quantization fence, and the independent LIF raster (seed {aux['lif_seed']},
+not a language-train remap) are absent from prior committed ouroboros
+rounds in this window. Repeated elements discounted: same-gate contrast,
+governance-pricing scaffold, flip-fragility series (extended to cell-true
+certificate, but the move rhymes), sequenced recovery shape, third-factor
+rollback form, negative-result primary. Adjacent electrochemical rounds
+(historical PEM / chlor-alkali) share industrial-process scaffolding but
+not hydrogen-quay alkaline cassette physics. Weighing a new failure
+family + cure vocabulary + unused sub-domain + Sedgewharf geography
+against those reused scaffolds:
+
+{NOVEL_LINE}
+
+## What ROUND 04 should add
+1. FIT THE DESIGNED CONSTANTS: separator-tear arrival, probe H2 bands,
+   mix-to-knock-out mapping, night-shift claim process.
+2. HIL PROVENANCE CELL: put the cell-gallery LOTO on a hardware-in-loop
+   cassette pendant with fitted latency as state.sim_or_real=hil — only if
+   the plant is no longer purely invented.
+3. CROSS-RECORD ARC: let CR-A-0306's local-IR alarm be the igniter of
+   the next round rather than a dangling +21 d leaf.
+4. Domain candidates (de-collided): mushroom-compost-tunnel;
+   flue-cured-tobacco-barn; farm-ad-biogas; constructed-wetland-polishing.
+   AVOID alkaline-stack-hydrogen-quay (now used), malting-kiln-barn (r64),
+   canal-lock-rail-transshipment (r63), grid-inspection (r42/r62),
+   cupola-foundry-slag-sluice (r02), urea-prilling-tower (r22), and any
+   LYOSHIELD / CINDERWICK / TRIAD / SKULLGATE / BOGIRON / SKARVOLT /
+   PUSHERFELL / CREELWOLD / GIBBSQUERN / COILSHAW / LOOPERQUAY /
+   SIPHONWOLD / WINDBOXHOLT / WOLD-BARN / LOCKSPUR / SLUICE-HEARTH /
+   QUAY-FEN plant.
+"""
+    return notes
+
+
+def write_transcript(rec, line):
+    ras = rec["raster"]
+    text = f"""# Multi-Agent Ouroboros Swarm — Round 03 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r03-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Swarm: QUAY-FEN
+Plant: invented QUAY-FEN / Sedgewharf Alkaline Stack QF-AY-3 (not TRIAD / Meridian / VANTIS-CADENCE-AEGIS / LYOSHIELD / CINDERWICK / BOGIRON / PUSHERFELL / SKARVOLT / COILSHAW / GIBBSQUERN / SIPHONWOLD / WINDBOXHOLT / LOCKSPUR / SLUICE-HEARTH / WOLD-BARN)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r03.jsonl).
+
+---
+
+# CYCLE 1 — Foundation + injections
+
+## Generator
+
+Design intent: a 120-cell bipolar alkaline hydrogen-quay stack where three
+correct agents each read a string-mean loop because a torn Zirfon separator
+on cell 47 partitions local IR from string-true voltage, lye conductivity,
+and mixed H2. The naive playbook raises current into a torn cassette. The
+gate must MODIFY on a numeric current floor, not by killing an agent.
+sim_or_real=designed. Reward heads are
+task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Sedgewharf QF-AY-3, 0.42 A/cm2,
+CELL 1.824 V/cell, LYE 580 mS/cm, H2 99.94 vol%, proposed RAISE-CURRENT
+0.52 A/cm2, safety MODIFY to CURRENT-HOLD, executed hold without the
+current-density-step numbers fully specified, outcome "tear found, stack
+saved" (this last claim is the defect the later cycles will refuse to
+keep). Sixteen spikes, five ticks, raster/gate_snn present but the scar
+is a single edge.
+
+```json
+{{
+  "id": "maos-r03-001-scaffold",
+  "state": {{
+    "sim_or_real": "designed",
+    "domain": "industrial-process",
+    "description": "Stack QF-AY-3 at hydrogen quay; three CELL loops in-spec; supervisor proposes raise-current.",
+    "t0_us": 1755587880000003,
+    "gate_latency_us": 728,
+    "race_window_us": 500
+  }},
+  "proposed_action": {{"name": "raise_current", "parameters": {{"current_A_cm2": 0.52}}}},
+  "safety_decision": {{"decision": "MODIFY", "rationale": "Hold; do not raise current while local cell IR is high."}},
+  "executed_action": {{"name": "current_hold", "executed_as_proposed": false}},
+  "future_outcome": {{"summary": "Tear found, stack saved."}},
+  "reward_components": {{"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"}},
+  "meta": {{"round": 3, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}}
+}}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "stack saved". If the pre-t0 O2-header mix later
+   detonates, booking +0.40 is a lie. Fix: declare `_aggregation`, emit
+   3–8 ticks that sum to task_progress+safety+efficiency+coherence+exploration,
+   and do not call a quarantined stack a save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote
+   current <= 0.42 A/cm2 while cell-47 IR > 86 C AND local dP < 3.2 kPa.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-process` collides with generic MES vocabulary and teaches
+   nothing. Alkaline hydrogen-quay stack (local IR vs string mean, local dP
+   as a tear flag) is absent from prior ouroboros rounds and must be named.
+4. **major — race under-specified.** One cell channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted `t_rel_ms`
+   and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated weight
+   repeats r04's one-edge rollback and is thinner than r14's two-edge.
+   NOTES-r14 item 4 asked for three edges where pair rollback fails.
+6. **minor — raster is a language remap.** Excerpt times matching
+   spike_events * 1000 fail the independent-LIF contract. Fix: LIF
+   population sim, excerpt_source=independent_lif, disjoint timestamps.
+
+Critic does not rewrite the trajectory.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **alkaline-stack-hydrogen-quay**
+(justified novel subdomain of industrial-process / hydrogen production;
+explicit tag `alkaline-stack-hydrogen-quay`).
+
+Displaced: the Generator's generic `industrial-process` bucket, and any
+temptation to reuse warehouse-amr, aerial-swarm, district-heating,
+event-camera-traffic-grid, pharmaceutical-lyophilization, water-treatment,
+float-glass, underwater-rov, electrolytic-aluminum, czochralski-pull,
+slot-die coating, pem-water-electrolysis, wind-turbine pitch,
+surgical-assist, optical-fiber-draw, kraft-recovery-boiler,
+steel-continuous-caster, humanoid-locomotion, vacuum-induction melt,
+steam-methane reformer, cement-rotary-kiln-clinker,
+autoclave-composite-cure, geothermal-binary-orc, tire-curing-press,
+chlor-alkali-membrane-electrolysis, delayed-coker-drum-switch,
+lng-mche-mixed-refrigerant, claus-sulfur-recovery,
+ammonia-synthesis-converter, blast-furnace-burden-descent,
+hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil,
+hydroelectric-kaplan-wicket, fcc-riser-regenerator,
+sulfuric-contact-converter, eaf-foamy-slag-water-panel,
+coke-oven-battery-heating, carbon-fiber-oxidation-oven,
+gibbsite-autoclave-digestion, hot-strip-mill-finishing,
+paper-machine-dryer-section, sinter-strand-windbox,
+continuous-hot-dip-galvanizing, autonomous-driving, bioreactor-perfusion,
+urea-prilling-tower, cupola-foundry-slag-sluice,
+canal-lock-rail-transshipment, malting-kiln-barn, or grid-inspection.
+mushroom-compost-tunnel is left unused.
+
+Domain-specific constraint: current density must remain <= 0.42 A/cm2
+while cell-47 IR > 86 C even if string mean is inside the healthy band;
+local dP is a tear flag the header average cannot substitute for.
+
+Sensor delta: +120-cell string mean, +lye conductivity, +product H2,
++local cell IR, +local dP; -any mobile robot, -event-camera gantries,
+-DVS, -Pirani/CM, -looper tension, -work-roll IR, -sinter BTP,
+-coke-oven wall-pair, -EAF off-gas H2, -cupola blast, -lock chamber.
+
+`state.domain` and `meta.domain` both become `alkaline-stack-hydrogen-quay`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Sedgewharf night-shift separator tear, not a lyophilizer, not a finishing
+mill, not a coke oven, not a blast furnace, not a Bayer digester, not a
+paper machine, not a sinter strand, not a malt kiln, not a canal lock).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **cell 47 torn Zirfon
+separator + H2-in-O2 certificate**.
+
+- Trigger: C-47 separator tear plus local H2-in-O2 mix under the cassette,
+  local IR 94.2 C, local dP 1.4 kPa.
+- Base rate: <1% — 0.33%/campaign from a separator-tear MC (cell-gallery
+  visual threshold is designed; cassette geometry fitted-style). Visual
+  PASSES because the tear sits inside the bipolar cassette.
+- Naive failure: FALSE PERMISSION. PB-AY-3 sees three in-spec mean
+  loops, raises 0.42->0.52 A/cm2, H2-in-O2 1.8 Nm3, $4.2M.
+- Trajectory edit: put the tear in `state.fault_context`, make each
+  agent's confirm a different string-side slice of the same cell-false
+  state (cell-in-band, lye-ok, h2-ok). Local IR is readable but
+  policy-treated as busbar-nuisance-only.
+
+Distinct from r02 cupola slag sluice, r63 canal-lock transshipment, r01
+GI air-knife, r64 malt-kiln floor collapse, and historical PEM / chlor-alkali.
+
+## Neuromorphic Translator
+
+Cycle-1 temporal densification (16 spikes, 5 ticks, 38 ms independent LIF raster):
+
+| channel | t_rel_ms | amplitude |
+|---|---|---|
+| cell.hot | 0.308 | 0.53 |
+| lye.ok | 1.142 | 0.62 |
+| h2.ok | 2.018 | 0.56 |
+| cell.dP | 3.164 | 0.77 |
+| cell.hot | 4.172 | 0.50 |
+| cell.dP | 4.828 | 0.79 |
+| lye.ok | 5.356 | 0.58 |
+| cell.hot.high | 6.512 | 1.38 |
+| cell.in_band | 6.704 | 1.12 |
+| h2.ok | 6.888 | 0.65 |
+| ctrl.gate | 7.240 | 1.08 |
+| cell.dP | 8.904 | 0.44 |
+| h2.ok | 10.688 | 0.81 |
+| lye.ok | 13.028 | 0.46 |
+| cell.hot | 18.412 | 0.43 |
+| ctrl.gate | 26.108 | 0.85 |
+
+Race: cell-hot 6.512 vs CELL 6.704 (192 us) inside 500 us;
+H2 6.888 is the third channel in-window. Winner/loser flip: reversing
+192 us reshuffles PB-AY-3 triage; floors still MODIFY. Refractory held
+(cycle-1 min same-channel gap 1.664 ms on cell.dP 4.828-3.164;
+cell.hot 4.172-0.308 = 3.864; lye 5.356-1.142 = 4.214). Adaptation:
+cell.dP 0.77->0.79->1.38->0.44; cell.hot 0.53->0.50->0.43; lye
+0.62->0.58->0.46.
+
+Raster cycle-1 seed: independent LIF 38 ms, 152 neurons, 21.8 Hz,
+Loihi-2 23 pJ/spike, third factor acetylcholine tau_e 0.90 s. Single
+scar edge only — cycle 2 must add the second and third edges. Excerpt
+is membrane crossings, not spike_events remapped.
+
+Ticks 1–5 at 4120, 6512, 7240, 7.4e6, 576e6 us; heads not yet the final
+-0.16 (missing the 3.2 h and 4.6 h ticks).
+
+Distillation value this cycle: string-side confirms as a permission code
+that is not a cell-true separator code.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain alkaline-stack-hydrogen-quay, tail
+separator tear, 16 spikes, 5 ticks, MODIFY with numeric floor, raster+gate_snn
+present, sim_or_real=designed, rights stamp on record and meta, no thought
+keys, independent LIF excerpt. Still missing (and therefore not the
+publishable line): high-P KOH sub-variant, night-shift tail, second
+and third scar edges, delayed O2 knock-out as PRIMARY terminal, contrast
+ACCEPT episode, ticks 6–7, spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 500 us window; refractory
+  >= 0.8 ms; raster 38 ms independent LIF; gate_snn MODIFY matches.
+- densification delta vs Generator scaffold: +1 domain, +1 tail, +16 spikes,
+  +5 ticks, +numeric floor, +LIF sidecar.
+- not publishable: cycle 2 injections absent.
+
+---
+
+# CYCLE 2 — Densification
+
+## Generator
+
+Re-emit Cycle-1 expanded. Additive deltas only:
+
+1. Downstream side-effect (immediate): 7.4 s current-density step probe proves
+   tear (|Delta H2| 0.004 vol% tear band) and cell 47 is held after 9.6 min
+   cell-gallery ratify. Remaining 119 cells recover toward 6 K over 3.2 h.
+2. Downstream side-effect (delayed, PRIMARY terminal): +4.6 h O2 knock-out from
+   the 11 min pre-t0 mix; 14.2 h stall; $2.14M. The gate prevented the
+   proposed 1.8 Nm3 path and did not prevent this other one.
+3. proposed_action.evidence deepened with observables + units (cell IR 94.2 C,
+   dP 1.4 kPa, CELL 1.824 V/cell, LYE 580 mS/cm, H2 99.94 vol%, race 192 us).
+4. safety_decision.rationale tightened to numeric floor: current <= 0.42 A/cm2
+   while cell-47 IR > 86 C AND cell-47 dP < 3.2 kPa.
+
+Outcome language "stack saved" is deleted. Total will go negative.
+
+## Critic
+
+Re-audit of the richer trajectory:
+
+1. **blocking if missing — cycle-2 physical sub-variant.** Spec-alkaline probe
+   numbers must not be implied to port. High-P / 90 C / 35 wt% KOH (0.45x
+   bubble-residence) overshoots a live stack. Fix: 18 s / -2.5% table.
+2. **major — second tail class still absent.** Cycle-1 tear is accidental
+   cassette failure. Need a disjoint human-intent deception (forged cell-IR CSV)
+   or the two injections collapse into one story.
+3. **major — scar still one edge.** Pair-rollback-fails needs three
+   string-healthy-go edges with eligibility arithmetic.
+4. **minor — contrast ACCEPT missing.** Without a sister-stack true-duty
+   ACCEPT, the lesson collapses to "never raise-current".
+5. **minor — LIF excerpt must remain independent after densification.**
+   Do not remap new spike times into the 38 ms window.
+
+Critic still does not rewrite JSON.
+
+## Diversity Enforcer
+
+Injected second novel domain (exactly 1 this cycle): **high-pressure
+alkaline hydrogen-quay stack** (physical-constraints sub-variant of
+alkaline-stack-hydrogen-quay; explicit tag retained, constraint changed).
+
+This is not a new plant. It changes physics: 0.45x bubble-residence, 2.6x
+current-step gain. The 7.4 s / -8% spec-alkaline pulse overshoots a LIVE intact
+stack to a 0.08 vol% false H2 dip (inside the off-spec purity trip). Probe must
+move to 18 s at -2.5%. Cycle-1 domain alkaline-stack-hydrogen-quay is preserved.
+
+Displaced: any reuse of fluxed-sinter probe-refit (r61), high-N barley
+fan-step (r64), or chlor-alkali membrane tables.
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**night-shift forged local-IR CSV**.
+
+- Trigger: shift lead, 02:11, posts a historian export showing
+  IR = 80.0 C at t = 1.1 h to clear an offtake slot.
+- Base rate: ~0.28% of Sunday-night campaigns (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the raise-current on the forged confirm
+  and ignores live local IR. H2-in-O2 plus a data-integrity write-up.
+- Fence: forged log quantized at 2.0 C (SCADA screenshot rounding); plant
+  historian is 0.2 C (10 bins). Live IR is 94.2 C and local dP is 1.4 kPa
+  at the claimed cell-true, which no live intact cassette produces.
+- Trajectory edit: governance CR-A-0306 mandates native 0.2 C CSV
+  exports; the contrast ACCEPT still requires live local IR, not a CSV.
+
+Distinct from cycle-1 tear (accidental cassette vs deliberate deception) and
+from the high-P sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 26.108 ms: stack.probe 7400.0, cell.dP 7488.4
+  (adapt 1.38->0.40), cell.in_band 7572.0 (1.12->0.35), human.ratify
+  576000.0, stack.hold 576800.0, o2.mix 577600.0, cell.hot
+  11520000.0, cell.dP 11520740.0, lye.ok 11521520.0, o2.knock
+  16560000.0. Primary train 16 -> 26. Still one key, still sorted,
+  refractory held.
+- +2 ticks (5 -> 7) at 11_520_000_000 us (true intact separator) and
+  16_560_000_000 us (O2 knock-out). Heads now 0.07, -0.34, -0.13,
+  0.14, 0.10; total -0.16. Inflection is the last tick.
+- Contrast train 8 events, own race 188 us, ACCEPT.
+- Triple-edge third factor: three string-healthy-go edges, tau_e 0.90 s = 900 ms,
+  trace {math.exp(-DELAY_S / TAU_E_S):.5f}, eta {0.24 / math.exp(-DELAY_S / TAU_E_S):.5f} /
+  {0.21 / math.exp(-DELAY_S / TAU_E_S):.5f} / {0.20 / math.exp(-DELAY_S / TAU_E_S):.5f},
+  weights 0.50->0.26, 0.44->0.23, 0.41->0.21. Independent LIF excerpt
+  unchanged (decision window is still 38 ms) and remains disjoint from
+  spike_events times.
+
+Winner/loser flip (re-stated, not replaced): reversing 192 us would only
+reorder triage; local-IR floors still MODIFY. Contrast flip of
+188 us similarly cannot turn an intact cassette into a tear.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.16; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms independent LIF, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted and disjoint from language times, tau_e consistent;
+gate_snn.decision matches; meta.round=3,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy, swarm=QUAY-FEN; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive.
+
+Densification delta: +1 domain sub-variant (high-P KOH), +1 tail
+(night-shift forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 triple-edge scar with
+pair-rollback-fails, +1 HITL ratify, +1 surprise (O2-header mix is the
+tear mechanism), + independent LIF raster retained.
+
+Publishable JSONL line (the only JSONL line; also at batch-r03.jsonl):
+
+```json
+{line}
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r03.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+    return text
+
+
+def plan_names(directory: Path):
+    batch = directory / "batch-r03.jsonl"
+    notes = directory / "NOTES-r03.md"
+    tr = directory / "swarm-transcript-r03.md"
+    if batch.exists() or notes.exists() or tr.exists():
+        batch = directory / "batch-r03c.jsonl"
+        notes = directory / "NOTES-r03c.md"
+        tr = directory / "swarm-transcript-r03c.md"
+    for p in (batch, notes, tr):
+        if p.exists():
+            raise FileExistsError(f"refuse: {p} already exists")
+    return batch, notes, tr
+
+
+def emit_text(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(text)
+    return path
+
+
+def main():
+    rec, aux = build_record()
+    errs = local_checks(rec, aux)
+    if errs:
+        print("FAIL local", errs)
+        return 1
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    if not LIVE.is_dir():
+        print("FAIL live dir missing", LIVE)
+        return 1
+    for dated in ("2026-08-17", "2026-08-30"):
+        if dated in str(LIVE):
+            print("FAIL dated-run path", LIVE)
+            return 1
+
+    line = json.dumps(rec, ensure_ascii=False, separators=(",", ":"))
+    stage_batch, stage_notes, stage_tr = plan_names(OUT)
+    jsonl_stage = emit_text(stage_batch, line + "\n")
+
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import raster_status
+    from verify_execution import verify_record_execution
+
+    e, w, kinds, n = check_jsonl(
+        jsonl_stage,
+        jsonl_stage.name,
+        staging=FactoryStaging(enabled=True),
+    )
+    print("check_jsonl errors", e)
+    print("check_jsonl warnings", w)
+    print("kinds", kinds, "n", n)
+    errs.extend(e)
+
+    st = raster_status(rec)
+    print(
+        "raster_status",
+        {
+            k: st[k]
+            for k in (
+                "raster_present",
+                "raster_valid",
+                "gate_snn_present",
+                "gate_snn_valid",
+                "reason_codes",
+                "routing_table_entries",
+                "third_factor_present",
+                "spikes",
+            )
+            if k in st
+        },
+    )
+    if st.get("reason_codes"):
+        errs.append(f"raster {st['reason_codes']}")
+    if not st.get("raster_valid"):
+        errs.append("raster not valid")
+    if not st.get("gate_snn_valid"):
+        errs.append("gate_snn not valid")
+
+    status, reason = verify_record_execution(rec, RECORD_ID)
+    print("verify_record_execution", status, reason)
+    if status != "verified":
+        errs.append(f"verify {status} {reason}")
+
+    probe = subprocess.run(
+        [
+            sys.executable,
+            f"{ROOT}/pipelines/spike_probe.py",
+            "--strict",
+            str(jsonl_stage),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    print("spike_probe rc", probe.returncode)
+    print(probe.stdout[-2000:] if probe.stdout else "")
+    if probe.returncode != 0:
+        errs.append(f"spike_probe {probe.returncode} {probe.stderr[-500:]}")
+
+    pipeline_receipt = (
+        f"check_jsonl errors={e} warnings={w} kinds={kinds} n={n}; "
+        f"raster_status valid={st.get('raster_valid')} gate={st.get('gate_snn_valid')} "
+        f"reasons={st.get('reason_codes')}; verify_record_execution={status} "
+        f"({reason}); spike_probe --strict rc={probe.returncode}"
+    )
+    notes = write_notes(rec, aux, pipeline_receipt)
+    transcript = write_transcript(rec, line)
+    notes_stage = emit_text(stage_notes, notes)
+    tr_stage = emit_text(stage_tr, transcript)
+
+    heading = subprocess.run(
+        [sys.executable, "/tmp/maos_heading_check.py", str(tr_stage)],
+        capture_output=True,
+        text=True,
+    )
+    print(heading.stdout)
+    if heading.returncode != 0:
+        errs.append(f"heading check {heading.returncode} {heading.stdout} {heading.stderr}")
+
+    dated = subprocess.run(
+        [
+            "rg",
+            "-l",
+            "maos-r03-001|QUAY-FEN",
+            str(Path(ROOT) / "outputs" / "raw" / "2026-08-17"),
+            str(Path(ROOT) / "outputs" / "raw" / "2026-08-30"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if dated.stdout.strip():
+        errs.append(f"dated-run hit {dated.stdout.strip()[:200]}")
+
+    loads_ok = True
+    for i, raw in enumerate(jsonl_stage.read_text().splitlines(), 1):
+        if not raw.strip():
+            continue
+        try:
+            json.loads(raw)
+        except json.JSONDecodeError as exc:
+            errs.append(f"json.loads {jsonl_stage}:{i} {exc}")
+            loads_ok = False
+    print("json.loads", loads_ok)
+
+    if errs:
+        print("FAIL staging", errs)
+        return 1
+
+    live_batch, live_notes, live_tr = plan_names(LIVE)
+    for p in (live_batch, live_notes, live_tr):
+        if "2026-08-17" in str(p) or "2026-08-30" in str(p):
+            print("FAIL dated-run path", p)
+            return 1
+    jsonl_live = emit_text(live_batch, line + "\n")
+    notes_live = emit_text(live_notes, notes)
+    tr_live = emit_text(live_tr, transcript)
+
+    print("OK maos-r03-001")
+    print("LIVE", jsonl_live)
+    print("LIVE", notes_live)
+    print("LIVE", tr_live)
+    print("bytes jsonl", jsonl_live.stat().st_size)
+    print("bytes notes", notes_live.stat().st_size)
+    print("bytes transcript", tr_live.stat().st_size)
+    print("RECEIPT", pipeline_receipt)
+    print("Q", 1)
+    print("id", RECORD_ID)
+    print("plant", PLANT)
+    print("round", ROUND)
+    print("decision", rec["safety_decision"]["decision"])
+    print("gate", rec["gate_snn"]["decision"])
+    print("sim", rec["state"]["sim_or_real"])
+    print("novel", NOVEL_LINE)
+    print("lif_seed", aux["lif_seed"])
+    print("raster", ras_summary(rec))
+    return 0
+
+
+def ras_summary(rec):
+    ras = rec["raster"]
+    return {
+        "window_ms": ras["window_ms"],
+        "neurons": ras["neurons"],
+        "mean_rate_hz": ras["mean_rate_hz"],
+        "spikes": ras["spikes"],
+        "energy_pJ": ras["energy_pJ"],
+        "excerpt_n": len(ras["excerpt"]),
+        "excerpt_source": ras["excerpt_source"],
+        "lif_seed": ras["lif"]["seed"],
+    }
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

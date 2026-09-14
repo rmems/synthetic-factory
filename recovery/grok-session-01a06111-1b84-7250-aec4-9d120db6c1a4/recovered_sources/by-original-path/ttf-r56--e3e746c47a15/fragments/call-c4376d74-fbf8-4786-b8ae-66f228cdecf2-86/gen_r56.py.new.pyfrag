@@ -1,0 +1,47 @@
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Specific press 4.20 N/mm2 won by 210 us and is under 5.80. Gap 18.0 mm is over "
+                "14.0 mm. ACCEPT the already-legal pass; gap DP smear is not a cap violation.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "press_N_mm2",
+                            OrderedDict(
+                                [
+                                    ("cap", 5.80),
+                                    ("observed", 4.20),
+                                    ("executed_gap_mm", 18.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 210),
+                                    ("combined_jitter_us", 68),
+                                    ("ratio", 3.09),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hpgr_18mm_thold"),
+            ("parameters", params),
+            (
+                "gate_effect",
+                "ACCEPT: gap 18.0 mm and press 4.20 N/mm2 unchanged. Routing relay.pt.press "
+                "-> policy.go_accept.",
+            ),
+        ]
+    )

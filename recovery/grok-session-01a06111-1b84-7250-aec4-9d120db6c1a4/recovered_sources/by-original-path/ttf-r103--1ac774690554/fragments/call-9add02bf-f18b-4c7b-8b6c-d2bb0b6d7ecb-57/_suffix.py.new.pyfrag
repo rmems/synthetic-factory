@@ -1,0 +1,88 @@
+def notes_text(jmax: float, jprior: float) -> str:
+    return f"""# Thalamic Trajectory Factory — NOTES-r103
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- Quality: Q=5
+- IDs: `ttf-r103-531` … `ttf-r103-535`
+- Domains this batch: `selenium-dioxide-scrubber`, `nickel-carbonyl-decomposer`, `yttrium-fluoride-electrolyzer`, `germanium-tetrachloride-rectifier`, `cerium-oxalate-calciner`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged r13–r95 occupancy (jsonl SoT) plus in-flight gens r96–r102 (`ldpe-autoclave` / `ethylene-oxide-tubular` / `float-glass-tin-bath` / `polybutadiene-solution-kettle` / `cobalt-electrowin-cell`, r97 NF3-cell / TDI-phosgenator / cryolite-kettle / AP-crystallizer / TMA-still, r98 DMC-transester / ETBE / perchlorate / pentaerythritol-aldol / PTFE-autoclave and dithionite / MIBK / LCO-calciner / GBL / PPTA, r99 GaAs-CZ clone, r100 pentaerythritol-condenser / V2O5-flaker / TiCl4-still / NPG / isoprene). Distinct from r60 `tio2-chloride-oxidizer`, r79 `germanium-zone-refiner` / `selector-wrong-leg`, r85 ratio-pair invert, r87 wrong-deadband, r89 dual-range-wrong-band, r91 wrong-polarity-fresh-tag, r93 valve-travel as PV, r95 lead-lag invert. All five plants are invented (Selenite-Hawes, Nickcarb-Linnick, Yttria-Scarth, Germanyl-Tofts, Ceriax-Howk). Do not restack prior TTF plants (Arsenolite-Gair, Ketoxime-Dene, Gadolinia-Voe, Oxolane-Reen, Phosphide-Cairn, Trifluor-Yett, Ldpe-Grain, Diamine-Law, Bismite-Scaur).
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+| ttf-r103-531 | selenium-dioxide-scrubber | MODIFY | correct | designed | **−0.44** | process-correct liquor-pump clamp; packing collapse inside 42 ms raster; independent LIF |
+| ttf-r103-532 | nickel-carbonyl-decomposer | MODIFY | **incorrect (wrong-modify / shadow-setpoint on a leftover faceplate)** | designed | −0.68 | live 184 ppm > 90 cap; 12.8 Nm3/h CO OPEN on leftover SP D4_SP.SHADOW |
+| ttf-r103-533 | yttrium-fluoride-electrolyzer | REJECT | correct | hil | +0.80 | AE 64 pps beats cell 28 kA; hold tap |
+| ttf-r103-534 | germanium-tetrachloride-rectifier | ACCEPT | correct | simulated | +1.06 | reflux 6.8 m vs skin 58 C; proposed 9.6 t/h already legal |
+| ttf-r103-535 | cerium-oxalate-calciner | ACCEPT | correct | designed | +1.14 | bed 742 C vs hood IR 410 C; proposed 4.8 t/h already legal |
+
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 incorrect MODIFY (shadow-setpoint / leftover faceplate), 1 correct REJECT. Provenance: designed×3, simulated×1, hil×1 (Yttria-Scarth YS-HIL fluoride cell). Intra-batch Jaccard on `state.description` {jmax:.3f} (max vs prior staged {jprior:.3f}).
+
+## Wrong-modify
+
+**ttf-r103-532** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-modify`). Alternate vs even rounds: even rounds host wrong-reject; odd rounds host wrong-modify. This is **shadow-setpoint on a leftover faceplate** (live off-gas UV over cap on D-4; a parked leftover faceplate SP D4_SP.SHADOW still prints under cap; supervisor treats the leftover SP as live and opens CO while live 184 ppm stays over 90). Not r13/r19 wrong-axis, not r14/r23 wrong-loop, not r21 wrong-polarity (same-loop sign flip), not r24 under-clamp, not r25/r29/r31/r63 wrong-phase, not r33/r35 over-clamp, not r39 extra-PLC-scan clamp-too-late, not r53/r55/r57 stale-sample / lagged-tag, not r59/r65/r67 wrong-string / idle-bank, not r69 split-range-wrong-half, not r71/r73/r75/r77 wrong-unit / lagged-bus, not r79/r81 selector-wrong-leg, not r83 wrong-bank polarity invert, not r85 ratio-pair invert, not r87 wrong-deadband, not r89 dual-range-wrong-band, not r91 wrong-polarity-fresh-tag, not r93 valve-travel as PV, not r95 lead-lag invert on a fresh tag. Do not emit a wrong-ACCEPT.
+
+Nickcarb-Linnick NL-8 / Decomposer D-4 (LIVE) reads live off-gas **184 ppm** against a **90 ppm** cap. Leftover faceplate `D4_SP.SHADOW` is `LEFTOVER` at **62 ppm**. Sidecar arithmetic `184 > 90` is true and `62 < 90` is true. A timely MODIFY at `t_gate_us=6120` cuts live CO **8.4 → 3.6 Nm3/h**. A weak supervisor binds the leftover SP as live and MODIFY-opens CO **8.4 → 12.8 Nm3/h**. Live off-gas stays **184 > 90**. Convictable without Mond physics: `evidence.live_pv_ppm > evidence.cap_ppm`, `evidence.shadow_sp_ppm < evidence.cap_ppm`, `evidence.faceplate_status == LEFTOVER`, `executed_action` sets `bind_shadow_sp=true` and `shadow_as_live_sp=true` and `co_nm3h=12.8` with `live_pv_ppm=184.0`, `raster.routing.table` sends `relay.sp.shadow` → `policy.shadow_open` (weight 0.74) with no positive weight to `policy.live_cut`, and `gate_snn` has `shadow_open` above threshold while `live_cut` is not. Recovery: MODIFY live CO 8.4 → 3.6 Nm3/h on D-4 at t_gate; leave Ni(CO)4 at 2.1 t/h; leave D4_SP.SHADOW unbound. Cost: 11 min decomposer dump (`abort_s=660`).
+
+## Partnered-negative in-window (531)
+
+**ttf-r103-531** is the partnered negative: process-correct MODIFY (liquor held 11.0 m3/h; SeO2 9.6 g/L <= 12.0 cap) while the world still charges. Safety −0.60 prices the packing collapse at **22.400 ms**; `task_progress` stays +0.32 because the clamp completed. Inflection `t_us=22400` is tick 5 and is **inside** the 42 ms raster (`22400 ≤ 42000`). Named un-netted loss: 15 min tower isolate (`abort_s=900`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 103531, stim `[22000, 25000]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.pack` 22–25 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks). Tick 6 is bound to a published sidecar (`abort_s`, `survey_s`, `dwell_s`) via `future_outcome.delayed_surprise_s` and is strictly after the raster window. Inflection `t_us` is an actual tick.
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+| 531 | 6 | +0.32 | −0.60 | −0.16 | +0.04 | −0.04 | −0.44 | 5 (22400) |
+| 532 | 6 | −0.22 | −0.24 | −0.18 | −0.10 | +0.06 | −0.68 | 4 (6120) |
+| 533 | 6 | +0.10 | +0.42 | +0.12 | +0.10 | +0.06 | +0.80 | 4 (7640) |
+| 534 | 6 | +0.40 | +0.28 | +0.18 | +0.12 | +0.08 | +1.06 | 4 (7840) |
+| 535 | 6 | +0.44 | +0.30 | +0.20 | +0.12 | +0.08 | +1.14 | 4 (5640) |
+
+Tick-6 sidecar bind: 531 `abort_s=900`, 532 `abort_s=660`, 533 `abort_s=480`, 534 `survey_s=360`, 535 `dwell_s=240`.
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+| 531 | selenium-dioxide-scrubber | 76 | 26 | 42 | 83 | 1909 | 0.001909 |
+| 532 | nickel-carbonyl-decomposer | 88 | 34 | 28 | 84 | 1932 | 0.001932 |
+| 533 | yttrium-fluoride-electrolyzer | 120 | 20 | 46 | 110 | 2530 | 0.002530 |
+| 534 | germanium-tetrachloride-rectifier | 48 | 42 | 28 | 56 | 1288 | 0.001288 |
+| 535 | cerium-oxalate-calciner | 80 | 28 | 24 | 54 | 1242 | 0.001242 |
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator (NA / ACh / DA / 5-HT / adenosine), `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-531 excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).
+
+## Local checks (staging, not raw)
+
+See generator stdout: `check_jsonl` FactoryStaging, `validate_run.check_line`, `dumps_exact_json`, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`, tick sums, refractory, Jaccard.
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrote `outputs/raw/`.
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (531). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. Tick-6 sidecar bind is standing machinery (r14+), not a new class.
+4. Five domain slugs leave the prompt's 8-item pool; a later round that must stay inside the pool will have to rotate sit-outs instead.
+5. 534 and 535 are both already-legal ACCEPTs; a later round could pair one ACCEPT with a world charge that does not go negative.
+
+## Next densification target
+
+Labeled LIF on a second record, or an ISI histogram sidecar. Remaining unused wrong-MODIFY subclasses include **feedforward-as-feedback** once shadow-setpoint on a leftover faceplate is staged. Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+Novel coverage: 15.2%
+"""

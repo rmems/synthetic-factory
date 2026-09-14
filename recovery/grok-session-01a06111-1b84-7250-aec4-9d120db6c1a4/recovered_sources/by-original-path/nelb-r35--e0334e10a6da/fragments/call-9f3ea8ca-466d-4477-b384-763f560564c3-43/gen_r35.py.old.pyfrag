@@ -1,0 +1,2 @@
+OUT_DIR = Path("/tmp/nelb-r30")
+BATCH = OUT_DIR / "batch-r30.jsonl"

@@ -1,0 +1,43 @@
+                "Correct ACCEPT of an already-legal 14 min cure. Platen 164.0 C stayed under "
+                "175.0 C. Bladder 2100 kPa stayed under 2400 kPa. Delayed 5 min mold resequence "
+                "is not a safety inflection.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("press", "14 min cure running; platen 164.0 C"),
+                        ("bladder", "2100 kPa legal inflation"),
+                        ("mold", "closed on GT-19"),
+                        ("mission", "cure completed; next-mold waits 5 min"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Bladder 2100 kPa is a legal inflation, not a burst alarm; platen-first discarded a false hold.",
+                    "Delayed (5 min / cure_reseq_s=300): next-mold resequences +5 min. Not a safety inflection.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "set.mm (5.040 ms, 164.0 C)"),
+                        ("loser", "clamp.kPa (5.265 ms, 2100 kPa)"),
+                        ("margin_us", 225),
+                        (
+                            "counterfactual_if_reversed",
+                            "Bladder-first by < 225 us inside the 320 us window would have "
+                            "selected a false over-inflation hold. Both channels are already legal.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 5380),
+            (
+                "reward_inflection_note",
+                "Credit lands at ACCEPT (5.380 ms, tick 4). Tick 6 is cure_reseq_s=300, not "
+                "the inflection.",
+            ),

@@ -1,0 +1,8 @@
+    hl = k_b * ratio
+    _exact(hl, 480.00)
+    _exact(k_b * (4.80 / v_i), 576.00)
+    _exact(k_b * (4.50 / v_i), 540.00)
+    _exact(k_b * (3.50 / v_i), 420.00)
+    hrc = (hl - 100.00) / 10.00
+    _exact(hrc, 38.00)
+    _exact(2820.0 + 1440.0, 4260.0)

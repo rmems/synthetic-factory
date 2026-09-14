@@ -1,0 +1,20 @@
+        "plants": [
+            {
+                "id": "ffpc-r26-001",
+                "site": "Metanol Seno Quetro converter R-310",
+                "failure_class": "effluent_meoh_as_synthesis_bed_temperature",
+                "decision": "ACCEPT",
+            },
+            {
+                "id": "ffpc-r26-002",
+                "site": "Acrilico Isla Guapiquilan propylene R-440",
+                "failure_class": "quench_acrylic_titer_as_propylene_hotspot",
+                "decision": "MODIFY",
+            },
+            {
+                "id": "ffpc-r26-003",
+                "site": "Sulfurico Fiordo Quintupeu contact C-12",
+                "failure_class": "absorber_acid_strength_as_converter_bed_temperature",
+                "decision": "REJECT",
+            },
+        ],

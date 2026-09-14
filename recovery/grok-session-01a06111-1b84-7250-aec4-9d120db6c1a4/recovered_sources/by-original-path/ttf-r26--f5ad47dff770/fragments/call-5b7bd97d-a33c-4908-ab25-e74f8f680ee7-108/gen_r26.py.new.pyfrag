@@ -1,0 +1,28 @@
+                "BPM 2.40 mm won by 182 us, so orbit offset is over the 0.80 mm steering cap. "
+                "Klystron 18.0 kW is dummy-load power, not a matched go. REJECT: hold RF drive "
+                "at 0 percent. A MODIFY ramp is not indicated while BPM stays over cap.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "bpm_mm",
+                            OrderedDict(
+                                [
+                                    ("cap", 0.80),
+                                    ("observed", 2.40),
+                                    ("executed_rf_drive_pct", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "kly_kW",
+                            OrderedDict(
+                                [
+                                    ("trip", 24.0),
+                                    ("observed", 18.0),
+                                    ("role", "loser_underread"),
+                                ]
+                            ),
+                        ),

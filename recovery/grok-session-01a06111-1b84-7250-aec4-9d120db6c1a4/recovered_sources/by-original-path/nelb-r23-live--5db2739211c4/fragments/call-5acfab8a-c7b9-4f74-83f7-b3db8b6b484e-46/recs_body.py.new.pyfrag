@@ -1,0 +1,1068 @@
+def rec_001():
+    k_g = 4.00
+    i_sn = 12.00
+    i_fe = 4.00
+    v_sput = 800.00
+    v0 = 640.00
+    ratio = i_sn / i_fe
+    vratio = v_sput / v0
+    _exact(ratio, 3.00)
+    _exact(vratio, 1.25)
+    t_um = k_g * ratio * vratio
+    _exact(t_um, 15.00)
+    lumped = k_g * ratio
+    _exact(lumped, 12.00)
+    _exact(k_g * (4.00 / 4.00) * vratio, 5.00)
+    _exact(k_g * (8.00 / 4.00) * vratio, 10.00)
+    _exact(k_g * (16.00 / 4.00) * vratio, 20.00)
+    rho = 0.80
+    mass = t_um * rho
+    _exact(mass, 12.00)
+    _exact(6000.0 + 1080.0, 7080.0)
+
+    raster = make_lif_raster(
+        neurons=20,
+        mean_rate_hz=50.0,
+        window_ms=40.0,
+        seed=2026092301,
+        source="st4.gdoes.isn",
+        target="smewholt.line_stop_core",
+        table=[
+            {"from": "gdoes_isn", "to": "coating_estimator", "weight": 1.40},
+            {"from": "gdoes_snr", "to": "sputter_lock_core", "weight": 1.15},
+            {"from": "plateveil_t", "to": "vendor_continue_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "da.gdoes_coat_conflict",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": "pre-post coincidence on continue-coat synapses; the plant GD-OES modulator depresses continue-coat links when Sn I-line stays high inside tau_e of an SNR lock so a Plateveil last-good cannot hide a 15.00 um remaining-Sn coating after t=k_g*(I_sn/I_fe)*(V/V0) is applied",
+        },
+        channel_prefix="gdoes.n",
+        anchor="ST-4 GD-OES 40 ms frame at I_sn 12.00 nA / SNR 12.0 (t_s 3000) reconstructing 15.00 um over the 8.00 um isolate floor",
+        tau_m_ms=10.0,
+    )
+    w_s = 0.040
+    events = [
+        ev(0.0, "gdoes.Isn", 4.00, code="ISN_NA", units="nA", note="plant-owned glow-discharge OES remaining-Sn of Smewholt Tinplate ST-4 line L-7; sputter depth-profile family, not spark-OES bulk C, not ICP-OES bath Ni, not LIBS, not Zn-Ka XRF, not fab plasma OES"),
+        ev(180000.0, "gdoes.snr", 6.0, code="GDOES_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(360000.0, "recon.t", 5.00, code="T_UM", units="um", note="4.00*(4.00/4.00)*(800/640)=5.00 exact; still under the 8.00 isolate floor"),
+        ev(540000.0, "gdoes.Ife", 4.00, code="IFE_NA", units="nA", note="Fe internal-standard line on copper DCS; independent witness; unread by Plateveil"),
+        ev(720000.0, "plateveil.t", 1.80, code="VENDOR_UM", units="um", note="Plateveil vendor coating-cloud last-good; infra owner; patched intensity timestamps"),
+        ev(900000.0, "gdoes.Isn", 8.00, code="ISN_NA", units="nA"),
+        ev(1080000.0, "recon.t", 10.00, code="T_UM", units="um", note="4.00*(8.00/4.00)*1.25=10.00; isolate-adjacent band"),
+        ev(1260000.0, "permit.slide", 40.00, code="PERM_S", units="s", note="permit clerk Tamsin Brier slid the coating-gauge clock 40.00 s; collusion party"),
+        ev(1440000.0, "gdoes.Ife", 4.00, code="IFE_NA", units="nA"),
+        ev(1620000.0, "recon.ratio", 2.00, code="ISN_IFE", units="1", note="8.00/4.00=2.00 intensity-ratio identity at the 10.00 um band"),
+        ev(1800000.0, "gdoes.V", 800.00, code="V_SPUT", units="V", note="plant sputter voltage; load-bearing V/V0 table; lumped k_g without V/V0 under-reads"),
+        ev(1980000.0, "recon.lumped", 8.00, code="T_LUMP_UM", units="um", note="4.00*(8.00/4.00)=8.00 lumped without V/V0; table SoT is 10.00"),
+        ev(2160000.0, "coat.rho", 0.80, code="RHO", units="g_m2_per_um", note="plant-owned areal-density scale; independent of Plateveil"),
+        ev(2340000.0, "plateveil.t", 1.80, code="VENDOR_UM", units="um"),
+        ev(2520000.0, "gdoes.snr", 9.0, code="GDOES_SNR", units="1"),
+        ev(2700000.0, "recon.k", 4.00, code="KG", units="um", note="scale intercept used by the reconstruction"),
+        ev(2880000.0, "recon.vratio", 1.25, code="V_V0", units="1", note="800.00/640.00=1.25 exact sputter-voltage table"),
+        ev(3000000.0, "gdoes.Isn", 12.00, code="ISN_NA", units="nA", note="isolate-floor frame; raster sidecar"),
+        ev(3000001.4, "gdoes.snr", 12.0, code="GDOES_SNR", units="1", note="1.4 ms SNR lock after I_sn; 12.0 >= 8.0"),
+        ev(3180000.0, "recon.t", 15.00, code="T_UM", units="um", note="4.00*(12.00/4.00)*1.25=15.00 exact; isolate 8.00, plant-kill 80.00"),
+        ev(3240000.0, "recon.lumped", 12.00, code="T_LUMP_UM", units="um", note="4.00*3.00=12.00 lumped-k without V/V0; table is SoT at 15.00"),
+        ev(3360000.0, "recon.mass", 12.00, code="M_GM2", units="g_m2", note="15.00*0.80=12.00 exact areal-mass identity"),
+        ev(3540000.0, "recon.ratio", 3.00, code="ISN_IFE", units="1", note="12.00/4.00=3.00 exact"),
+        ev(3720000.0, "plateveil.drop", 1.0, code="PV_DROP", units="bool", note="vendor coating packets dropped in Plateveil cloud for 40 s"),
+        ev(3900000.0, "collude.clerk", 1.0, code="CLERK", units="bool"),
+        ev(4080000.0, "gdoes.V", 800.00, code="V_SPUT", units="V", note="sputter V tracks the plant GD-OES, not Plateveil 1.80"),
+        ev(4260000.0, "gdoes.V0", 640.00, code="V0_SPUT", units="V", note="campaign V0 column of the voltage table"),
+        ev(4440000.0, "recon.k", 4.00, code="KG", units="um"),
+        ev(4620000.0, "plateveil.t", 1.75, code="VENDOR_UM", units="um"),
+        ev(4800000.0, "ops.prop", 1.0, code="CONTINUE_COAT", units="bool", note="night operator Rory Venn: Plateveil is clean 1.80 um; continue L-7 coat"),
+        ev(4980000.0, "recon.t", 15.00, code="T_UM", units="um", note="repeat of the 15.00 um reconstruction as SoT"),
+        ev(5400000.0, "gate.stop", 1.0, code="REJECT", units="decision", note="refuse continue-coat; 15.00 um and SNR 12.0; Plateveil not SoT; lumped-k 12.00 is not the SoT"),
+        ev(6000000.0, "line.start", 1.0, code="LINE_HOLD_START", units="bool", note="bookend 1 of the 18.0 min line-hold floor"),
+        ev(7080000.0, "line.floor", 1.0, code="LINE_HOLD_FLOOR", units="bool", note="6000 s + 1080 s = 7080 s = 18.0 min"),
+        ev(7800000.0, "ops.kill", 1.0, code="PLANT_ESD", units="bool", note="Venn: ESD the whole Smewholt tinplate hall until day-shift"),
+        ev(8400000.0, "gate.hold", 1.0, code="MODIFY", units="decision", note="companion t2: line-hold on plant GD-OES as live interlock; hall ESD refused"),
+        ev(9000000.0, "linelock.set", 1.0, code="LINE_HELD", units="bool"),
+        ev(9600000.0, "gdoes.Isn", 16.00, code="ISN_NA", units="nA"),
+        ev(10200000.0, "recon.t", 20.00, code="T_UM", units="um", note="4.00*(16.00/4.00)*1.25=20.00; still over 8.00 so line-hold stands"),
+        ev(10800000.0, "plateveil.t", 1.70, code="VENDOR_UM", units="um"),
+        ev(11400000.0, "gdoes.Ife", 4.00, code="IFE_NA", units="nA"),
+        ev(12000000.0, "line.held", 1.0, code="LINE_HELD", units="bool"),
+        ev(12600000.0, "unit.esd", 0.0, code="ESD_NOT_TAKEN", units="bool"),
+        ev(13200000.0, "permit.slide", 40.00, code="PERM_S", units="s"),
+        ev(13800000.0, "plateveil.drop", 1.0, code="PV_DROP", units="bool"),
+        ev(14400000.0, "linelock.held", 1.0, code="LINE_HELD", units="bool"),
+        ev(15000000.0, "recon.mass", 16.00, code="M_GM2", units="g_m2", note="20.00*0.80=16.00 on the post-stop frame"),
+        ev(15600000.0, "coat.rho", 0.80, code="RHO", units="g_m2_per_um"),
+        ev(16200000.0, "recon.ratio", 4.00, code="ISN_IFE", units="1", note="16.00/4.00=4.00 inverse check"),
+        ev(16800000.0, "collude.clerk", 1.0, code="CLERK", units="bool"),
+        ev(17400000.0, "recon.vratio", 1.25, code="V_V0", units="1"),
+        ev(18000000.0, "recon.lumped", 16.00, code="T_LUMP_UM", units="um", note="4.00*4.00=16.00 lumped post-stop; table SoT remains 20.00"),
+    ]
+    assert_stream(events)
+    if len(events) != 52:
+        raise RuntimeError(len(events))
+
+    traj = {
+        "id": "nelb-r23-a1-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "ST-GDOES-2026-0902",
+            "domain": "gdoes_tinplate_sn_coating",
+            "setting": "Smewholt Tinplate ST-4 (invented), line L-7. Plant-owned glow-discharge optical emission spectrometer (Sn/Fe intensity ratio times a load-bearing sputter-voltage table) is the remaining-Sn-coating SoT. Plateveil vendor coating-cloud (infra owner) plus the coating-gauge permit clock are collusion parties, not witnesses. Invented plant; designed campaign. Not live r66 spark-OES remaining C, not live r63 ICP-OES remaining Ni, not leftover-mill LIBS, not leftover-mill r29 Zn-Ka XRF of a galvanizing pot, not r1-12 fab OES.",
+            "observables_at_decision": {
+                "I_sn_nA": i_sn,
+                "I_fe_nA": i_fe,
+                "V_sput": v_sput,
+                "V0_sput": v0,
+                "k_g": k_g,
+                "t_um": t_um,
+                "t_lumped_um": lumped,
+                "mass_g_m2": mass,
+                "gdoes_snr": 12.0,
+                "plateveil_um": 1.80,
+                "permit_slide_s": 40.00,
+                "isolate_floor_um": 8.00,
+            },
+            "margin_authority": "ST-4 tinplate SOP rev C: if reconstructed t_um >= 8.00 AND GD-OES SNR >= 8.0, continue-coat of L-7 is forbidden even if Plateveil reports 1.80 um. Hall ESD is a different gate. Kill tripwire is 80.00 um. Lumped k_g without V/V0 is not SoT.",
+        },
+        "proposed_action": {
+            "actor": "night tinplate operator Rory Venn, citing Plateveil 1.80 um and a quiet Sn channel",
+            "summary": "continue L-7 coat; 12.00 nA is preamp line noise on a healthy coating last-good",
+            "basis_claimed": "Plateveil is the only OEM coating SoT and a night abort of L-7 is a coil-nomination miss",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Continue-coat is refused. Serialized reconstruction: t_um = k_g * (I_sn/I_fe) * (V/V0) = 4.00 * (12.00/4.00) * (800.00/640.00) = 15.00, which is 7.00 um over the 8.00 isolate floor and 65.00 um under the 80.00 hall-kill tripwire, and GD-OES SNR is 12.0 >= 8.0. Intensity-ratio identity I_sn/I_fe = 12.00/4.00 = 3.00; voltage-table identity V/V0 = 800.00/640.00 = 1.25; areal-mass identity m = t * rho = 15.00 * 0.80 = 12.00 g/m2. Lumped k_g without the voltage table under-reads 15.00 as 12.00 and is not SoT. Permit clock was slid 40.00 s and vendor coating packets were dropped, so Plateveil is a collusion party (coating vendor plus operator plus permit clerk Tamsin Brier). Ordered: refuse continue-coat now. Scope: this REJECT does not ESD the tinplate hall (that is the companion question) and does not isolate the Fe internal-standard millivolt.",
+            "threshold": "t_um>=8.00 AND gdoes_snr>=8.0 => refuse continue-coat; Plateveil is not SoT; hall-kill if t_um>=80.00; lumped k_g without V/V0 is not SoT",
+            "stated_residuals": "line-hold still required to hold the 15.00 um; 15.00 vs a true 80.00 kill is a production cut; Plateveil remains the only OEM coating channel",
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 5400: continue-coat refused; Plateveil not SoT; voltage-table reconstruction locked",
+            "tool": "st4-gdoes-line-gate-cli",
+            "observation": "t 15.00 um recomputes from I_sn 12.00 / I_fe 4.00 times V/V0 1.25; plant GD-OES hashed; Plateveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "GD-OES I_sn 12.00 nA; raster frame; t 15.00 um"},
+                {"t_s": 4800.0, "event": "ops proposes continue-coat"},
+                {"t_s": 5400.0, "event": "REJECT continue-coat"},
+                {"t_s": 6000.0, "event": "18 min line-hold bookend 1"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 8400.0, "event": "companion MODIFY line-hold vs hall ESD"},
+            ],
+            "observed_effects": [
+                "remaining Sn coating recomputes from the serialized GD-OES voltage table at every recon.t event",
+                "a Plateveil-only head would have continued L-7 overnight",
+                "a lumped-k head without V/V0 would have under-read 15.00 as 12.00",
+                "18 min line-hold floor is in the stream (line.start, line.floor)",
+            ],
+            "surprises": [
+                "a clean vendor 1.80 um corridor and a 40 s permit slide co-existed with a 15.00 um plant reconstruction",
+            ],
+            "new_state": {
+                "l7": "continue-coat blocked",
+                "plateveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("gdoes_coating_reconstruction", 0.14),
+                ("conjunctive_isolate_floor", 0.12),
+                ("plateveil_nonsubstitution", 0.10),
+                ("three_party_collusion", 0.10),
+                ("hold_time_cost", -0.03),
+            ],
+            "scored for a continue-coat REJECT on a recomputable GD-OES Sn coating with a load-bearing sputter-voltage table while refusing a Plateveil last-good patch and a permit clock slide; 18 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "gdoes-sn-coating", "serialized-reconstruction", "voltage-table", "operational-companion"],
+            distillation_value="Independent CUBA LIF raster races the Sn/Fe estimator against a vendor-continue advocate with 1 ms refractory and 0.82**k adaptation, so a hybrid head can distill t=k_g*(I_sn/I_fe)*(V/V0) without copying the campaign stream.",
+            distillation_note="GD-OES gate: serialized voltage table plus SNR lock beats a vendor last-good patch; lumped k_g is a known-wrong head; companion t2 is the line-hold, not a referral vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r23-a1-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "ST-GDOES-2026-0902-exec",
+            "domain": "line_hold_gdoes_interlock_execution",
+            "setting": "Same ST-4 after the REJECT. Operator proposes tinplate-hall ESD. This companion is the operational line-hold with the plant GD-OES as the live interlock, not a second coating vote.",
+            "observables_at_decision": {
+                "t_um": 20.00,
+                "line_floor_s": 1080.0,
+                "hall_esd_proposed": True,
+                "line_hold_set": True,
+            },
+            "margin_authority": "line_hold AND line_floor_complete AND hall_esd_not_taken AND continue_not_restored",
+        },
+        "proposed_action": {
+            "actor": "night tinplate operator Rory Venn",
+            "summary": "ESD the whole Smewholt tinplate hall until day-shift; 18 min already paid and Plateveil still shows 1.70 um",
+            "basis_claimed": "the REJECT already stopped L-7 coat, so a hall kill is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Line-hold plus plant GD-OES as the live interlock. The 18 min line-hold floor is complete and the isolate tripwire (t_um >= 8.00) is still armed on the plant GD-OES head. MODIFY the default Plateveil-restore SOP into a plant-GD-OES-only interlock. Do not ESD the tinplate hall. Do not restore coat on Plateveil. 20.00 um post-stop is still the plant SoT until a new frame clears 8.00.",
+            "threshold": "line_hold AND line_floor_complete AND hall_esd_not_taken AND continue_not_restored",
+            "stated_residuals": "hold still required; Plateveil remains the only OEM coating channel",
+        },
+        "executed_action": {
+            "summary": "line-hold held at t_s 8400; hall ESD not latched; Plateveil restore not taken",
+            "tool": "st4-line-hold-exec",
+            "observation": "recon.t 20.00 um after stop; line-hold line-up complete; Plateveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "line-hold clock started after REJECT"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 7800.0, "event": "hall ESD proposed"},
+                {"t_s": 8400.0, "event": "MODIFY line-hold; hall ESD refused"},
+            ],
+            "observed_effects": [
+                "Plateveil restore did not reopen the coating call",
+                "hall ESD never fired; L-7 held coat-stop on the plant GD-OES",
+            ],
+            "surprises": [
+                "post-stop 20.00 um (I_sn 16.00) still recomputes from the voltage table while Plateveil stays at 1.70 um",
+            ],
+            "new_state": {"hold": "held", "hall": "in service", "l7": "held"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("line_hold", 0.12),
+                ("no_hall_esd", 0.10),
+                ("plateveil_nonsubstitution", 0.08),
+                ("line_floor_complete", 0.06),
+                ("held_coat_cost", -0.02),
+            ],
+            "operational execution gate: line-hold because Plateveil is not a restore license; not a coating re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "line-hold"]),
+    }
+    return {
+        "id": "nelb-r23-a1",
+        "snn_tags": list(SNN_TAGS),
+        "spike_events": events,
+        "language_view": {
+            "description": "Smewholt Tinplate ST-4. Plant-owned GD-OES reconstructs 15.00 um Sn coating from 4.00*(12.00/4.00)*(800/640) while Plateveil still reports 1.80 um. Lumped k_g without the sputter-voltage table under-reads 15.00 as 12.00. The gate REJECTs continue-coat. An 18 min line-hold floor is serialized in the stream. Companion t2 MODIFYs a hall ESD into a plant-GD-OES line-hold.",
+            "trajectory": traj,
+            "trajectory_line_hold": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "gdoes.Isn / gdoes.Ife / gdoes.snr / gdoes.V / gdoes.V0": "Sn and Fe lines, SNR, and the load-bearing sputter-voltage table the reconstruction consumes",
+                "recon.t / recon.mass / recon.ratio / recon.vratio / recon.lumped / recon.k": "serialized remaining thickness um, areal-mass identity, ratio identity, V/V0 identity, and the known-wrong lumped head",
+                "coat.rho / plateveil.t / permit.slide / plateveil.drop / collude.clerk": "areal-density scale, vendor last-good, permit clock slide, dropped packets, clerk; the denial and collusion channels",
+                "ops.prop / gate.stop / ops.kill / gate.hold": "continue-coat proposal, REJECT, hall-ESD proposal, companion MODIFY",
+                "line.start / line.floor / linelock.set / line.held / unit.esd": "operational companion channels plus the 18 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: plateveil.t 1.80 next to recon.t 15.00",
+                "reconstruction as event: recon.t 15.00 equals 4.00*(12.00/4.00)*1.25",
+                "lumped-k fail: recon.lumped 12.00 is not SoT next to table 15.00",
+                "REJECT then operational MODIFY: gate.stop at 5400 s, gate.hold at 8400 s",
+                "slow floor in-stream: line.start 6000 s, line.floor 7080 s (18.0 min)",
+                "tight GD-OES pair: gdoes.Isn then gdoes.snr +1.4 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Plateveil is 1.80 um' = plateveil.t 1.80; '15 um remaining Sn' = recon.t 15.00; 'lumped 12 um is wrong' = recon.lumped 12.00; 'refuse continue-coat' = gate.stop REJECT; 'line-hold not hall ESD' = gate.hold MODIFY",
+            "why_high_value": "New GD-OES remaining-Sn-coating family on a tinplate line (not spark-OES r66, not ICP-OES r63, not LIBS, not Zn-Ka XRF r29, not fab OES). Load-bearing sputter-voltage table so lumped k_g under-reads 15.00 as 12.00 (the analog of r22 CDG C0-drift on a new family). Lead REJECT of continue-coat on a recomputable coating that a vendor last-good patch and a permit clock slide would have cleared. Independent CUBA LIF raster plus required snn_tags. Companion t2 is operational line-hold. sim_or_real=designed. Not leftover-mill r23 lock-in thermography.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random plus CUBA LIF",
+                "seeds": {"raster": 2026092301, "stream_note": "stream amplitudes are authored constants; raster is independent CUBA LIF"},
+                "draw_order": "raster: independent CUBA LIF first-passage times, per-spike adaptation and noise; not copied from spike_events",
+                "thinning": "GD-OES exists at ~1 Hz sputter ticks; stream keeps 4 I_sn points plus table rows; 52-event floor vs leftover-mill r23 32/31/30",
+                "refractory_floors_ms": {
+                    "gdoes.Isn": 1.4,
+                    "gdoes.snr": 1.4,
+                    "gdoes.Ife": 60000,
+                    "gdoes.V": 60000,
+                    "gdoes.V0": 60000,
+                    "recon.t": 60000,
+                    "recon.mass": 60000,
+                    "recon.ratio": 60000,
+                    "recon.vratio": 60000,
+                    "recon.lumped": 60000,
+                    "recon.k": 60000,
+                    "coat.rho": 60000,
+                    "plateveil.t": 60000,
+                    "permit.slide": 60000,
+                    "plateveil.drop": 60000,
+                    "collude.clerk": 60000,
+                    "ops.prop": 60000,
+                    "gate.stop": 60000,
+                    "line.start": 60000,
+                    "line.floor": 60000,
+                    "ops.kill": 60000,
+                    "gate.hold": 60000,
+                    "linelock.set": 60000,
+                    "line.held": 60000,
+                    "unit.esd": 60000,
+                    "linelock.held": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T01:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "GD-OES reconstruction head: t = k_g * (I_sn/I_fe) * (V/V0); lumped k_g without V/V0 is known-wrong",
+                "conjunctive isolate floor vs continue-coat vs hall ESD",
+                "vendor-coating nonsubstitution plus three-party collusion including the infra owner",
+                "operational companion: line-hold without restoring on Plateveil",
+                "independent CUBA LIF raster with race/refractory/adaptation tags",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "gdoes_tinplate_sn_coating",
+            "formula": "t_um = k_g * (I_sn_nA / I_fe_nA) * (V_sput / V0_sput); mass_g_m2 = t_um * rho; lumped_um = k_g * (I_sn_nA / I_fe_nA)",
+            "parameters": {
+                "k_g": 4.00,
+                "I_fe_nA": 4.00,
+                "V_sput": 800.00,
+                "V0_sput": 640.00,
+                "rho": 0.80,
+                "isolate_floor_um": 8.00,
+                "kill_um": 80.00,
+                "snr_lock": 8.0,
+                "line_min": 18.0,
+            },
+            "worked_example": {"I_sn_nA": 12.00, "t_um": 15.00, "t_lumped_um": 12.00, "mass_g_m2": 12.00, "vratio": 1.25},
+            "check": "4.00 * (12.00/4.00) * (800.00/640.00) = 15.00 exactly; lumped 4.00*3.00 = 12.00 exactly; 15.00 * 0.80 = 12.00 exactly; 800.00/640.00 = 1.25 exactly; 6000 s + 1080 s = 7080 s = 18.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 40.0,
+            "decision_window_s": 0.040,
+            "snn_tags": list(SNN_TAGS),
+            "code": "st4.gdoes_line_gate",
+            "note": "REJECT accumulator wins: plant GD-OES coating evidence overpowers the Plateveil continue advocate; race/refractory/adaptation tags match meta.snn_tags",
+            "decode_rule": "reject-continue if coating_estimator AND sputter_lock fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("coating_estimator", 80, 1.5, 50.0, w_s, tag="adaptation"),
+                gate_pop("sputter_lock", 64, 1.2, 31.25, w_s, tag="refractory"),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s, tag="race"),
+                gate_pop("reject_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "st4.gdoes_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "st4.line_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r23-a1",
+            clock_domain="st4-gdoes-campaign-relative-ms-t0-2026-09-02T01:00:00Z",
+            tags=["gdoes-sn-coating", "REJECT", "MODIFY", "serialized-reconstruction", "voltage-table", "operational-t2", "independent-lif"],
+            distillation_value="Independent LIF raster teaches race/refractory/adaptation while the language view teaches GD-OES remaining-Sn reconstruction-as-SoT with a load-bearing sputter-voltage table.",
+        ),
+    }
+
+
+def rec_002():
+    k_n = 0.080
+    df = 400.00
+    t_k = 256.00
+    t0 = 320.00
+    tratio = t0 / t_k
+    _exact(tratio, 1.25)
+    i_ka = k_n * df * tratio
+    _exact(i_ka, 40.00)
+    lumped = k_n * df
+    _exact(lumped, 32.00)
+    _exact(k_n * 100.00 * tratio, 10.00)
+    _exact(k_n * 200.00 * tratio, 20.00)
+    _exact(k_n * 500.00 * tratio, 50.00)
+    v_bus = 4.00
+    p_kw = i_ka * v_bus
+    _exact(p_kw, 160.00)
+    _exact(2820.0 + 1440.0, 4260.0)
+
+    raster = make_lif_raster(
+        neurons=25,
+        mean_rate_hz=50.0,
+        window_ms=32.0,
+        seed=2026092302,
+        source="of6.nv.df",
+        target="ospreyfen.bus_isolate_core",
+        table=[
+            {"from": "nv_df", "to": "current_estimator", "weight": 1.35},
+            {"from": "nv_snr", "to": "microwave_lock_core", "weight": 1.20},
+            {"from": "odveil_i", "to": "vendor_continue_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "ach.nv_mwlock_skip_salience",
+            "tau_e_s": 1.2,
+            "tau_e_ms": 1200.0,
+            "eligibility": "pre-post coincidence on keep-bus synapses; the NV modulator depresses keep-bus and referral links when Zeeman detuning stays high inside tau_e of an SNR lock so an Odveil last-good cannot hide 40.00 kA remaining rectifier current or name Wren Keld",
+        },
+        channel_prefix="nv.n",
+        anchor="OF-6 HIL coupon 32 ms frame at df 400.00 MHz / SNR 14.0 (t_s 1560) reconstructing 40.00 kA over the 16.00 isolate floor",
+        tau_m_ms=12.0,
+    )
+    w_s = 0.032
+    events = [
+        ev(0.0, "nv.df", 100.00, code="DF_MHZ", units="MHz", note="HIL NV-center ODMR on a dummy chlorate rectifier bus in NV-HIL-5; remaining-current family, not SERF OPM, not Hall probe, not dc-SQUID, not Faraday FOCT, not Rogowski"),
+        ev(180000.0, "nv.snr", 9.0, code="NV_SNR", units="1", note="early microwave SNR; isolate needs SNR>=12"),
+        ev(360000.0, "recon.I", 10.00, code="I_KA", units="kA", note="0.080*100.00*(320/256)=10.00 exact"),
+        ev(540000.0, "mw.ae", 1.0, code="MW_AE", units="bool", note="plant microwave-lock AE present on the early frame"),
+        ev(720000.0, "odveil.I", 4.80, code="VENDOR_KA", units="kA", note="Odveil last-good current cloud; not admissible SoT"),
+        ev(900000.0, "nv.df", 200.00, code="DF_MHZ", units="MHz"),
+        ev(1080000.0, "recon.I", 20.00, code="I_KA", units="kA", note="0.080*200.00*1.25=20.00; over the 16.00 isolate floor"),
+        ev(1260000.0, "mw.ae", 0.0, code="MW_AE", units="bool", note="missing microwave-lock AE burst; Odveil UTC vs plant UTC+2 skipped the lock-zero by 120 min"),
+        ev(1440000.0, "bus.V", 4.00, code="V_KV", units="kV", note="plant-owned rectifier bus voltage on copper fieldbus; independent of Odveil"),
+        ev(1560000.0, "nv.df", 400.00, code="DF_MHZ", units="MHz", note="isolate-floor frame; raster sidecar; T 256.00 K"),
+        ev(1560001.2, "nv.snr", 14.0, code="NV_SNR", units="1", note="1.2 ms microwave-lock after NV detuning"),
+        ev(1740000.0, "recon.I", 40.00, code="I_KA", units="kA", note="0.080*400.00*1.25=40.00 exact; isolate 16.00, house-dump 80.00"),
+        ev(1800000.0, "recon.lumped", 32.00, code="I_LUMP_KA", units="kA", note="0.080*400.00=32.00 lumped without T0/T; table SoT is 40.00"),
+        ev(1920000.0, "recon.P", 160.00, code="P_KW", units="kW", note="40.00*4.00=160.00 exact bus-power identity"),
+        ev(1980000.0, "recon.tratio", 1.25, code="T0_T", units="1", note="320.00/256.00=1.25 exact ODMR temperature table"),
+        ev(2100000.0, "nv.T", 256.00, code="T_K", units="K", note="HIL diamond temperature; load-bearing T0/T column"),
+        ev(2280000.0, "odveil.I", 4.80, code="VENDOR_KA", units="kA"),
+        ev(2460000.0, "ops.prop", 1.0, code="KEEP_BUS_REFER", units="bool", note="night lead Edda Holt: keep bus B-3 and refer NV tech Wren Keld"),
+        ev(2640000.0, "gate.isol", 1.0, code="MODIFY", units="decision", note="isolate this bus; refuse the person-referral; Odveil not SoT"),
+        ev(2820000.0, "bus.lock", 1.0, code="BUS_ISOL", units="bool", note="bookend 1 of the 24.0 min new-head floor"),
+        ev(3000000.0, "nv.df", 200.00, code="DF_MHZ", units="MHz"),
+        ev(3180000.0, "recon.I", 20.00, code="I_KA", units="kA", note="0.080*200.00*1.25=20.00 still over 16.00"),
+        ev(3360000.0, "mw.ae", 0.0, code="MW_AE", units="bool"),
+        ev(3540000.0, "bus.V", 4.00, code="V_KV", units="kV"),
+        ev(3720000.0, "odveil.I", 4.60, code="VENDOR_KA", units="kA"),
+        ev(3900000.0, "recon.P", 80.00, code="P_KW", units="kW", note="20.00*4.00=80.00"),
+        ev(4080000.0, "recon.tratio", 1.25, code="T0_T", units="1"),
+        ev(4260000.0, "head.floor", 1.0, code="HEAD_FLOOR", units="bool", note="2820 s + 1440 s = 4260 s = 24.0 min"),
+        ev(4440000.0, "ops.restart", 1.0, code="NEW_HEAD", units="bool", note="Holt: restart B-3 on a new NV head after the floor"),
+        ev(4620000.0, "gate.restart", 1.0, code="ACCEPT", units="decision", note="companion t2: new-head restart of the dummy bus; keep-running refused earlier"),
+        ev(4800000.0, "head.new", 1.0, code="HEAD_NEW", units="bool"),
+        ev(4980000.0, "nv.df", 500.00, code="DF_MHZ", units="MHz", note="post-isolate dummy still high until the new head"),
+        ev(5160000.0, "recon.I", 50.00, code="I_KA", units="kA", note="0.080*500.00*1.25=50.00 on the pre-restart dummy"),
+        ev(5340000.0, "odveil.I", 4.40, code="VENDOR_KA", units="kA"),
+        ev(5520000.0, "wren.badge", 0.0, code="TECH_FAULT", units="bool", note="Wren Keld exonerated: missing microwave-lock AE plus timezone skip, not last-to-badge"),
+        ev(5700000.0, "bus.lock", 1.0, code="BUS_ISOL", units="bool"),
+        ev(5880000.0, "mw.ae", 1.0, code="MW_AE", units="bool", note="new-head AE present"),
+        ev(6060000.0, "nv.snr", 14.0, code="NV_SNR", units="1"),
+        ev(6240000.0, "bus.V", 4.00, code="V_KV", units="kV"),
+        ev(6420000.0, "recon.P", 200.00, code="P_KW", units="kW", note="50.00*4.00=200.00 pre-restart"),
+        ev(6600000.0, "keep.run", 0.0, code="KEEP_REFUSED", units="bool"),
+        ev(6780000.0, "odveil.I", 4.40, code="VENDOR_KA", units="kA"),
+        ev(6960000.0, "head.new", 1.0, code="HEAD_NEW", units="bool"),
+        ev(7140000.0, "wren.badge", 0.0, code="TECH_FAULT", units="bool"),
+        ev(7320000.0, "nv.T", 256.00, code="T_K", units="K"),
+        ev(7500000.0, "bus.held", 1.0, code="BUS_ISOL", units="bool"),
+        ev(7680000.0, "ops.prop", 1.0, code="KEEP_BUS_REFER", units="bool"),
+        ev(7860000.0, "gate.isol", 1.0, code="MODIFY", units="decision"),
+        ev(8040000.0, "head.floor", 1.0, code="HEAD_FLOOR", units="bool"),
+        ev(8220000.0, "gate.restart", 1.0, code="ACCEPT", units="decision"),
+        ev(8400000.0, "recon.lumped", 40.00, code="I_LUMP_KA", units="kA", note="0.080*500.00=40.00 lumped pre-restart; table SoT is 50.00"),
+        ev(8580000.0, "recon.tratio", 1.25, code="T0_T", units="1"),
+    ]
+    assert_stream(events)
+    if len(events) != 52:
+        raise RuntimeError(len(events))
+
+    traj = {
+        "id": "nelb-r23-a2-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "OF-NV-2026-0902",
+            "domain": "nv_odmr_chlorate_bus_current",
+            "setting": "Ospreyfen Chlorate OF-6 (invented), dummy bus B-3 in NV-HIL-5. Plant-owned nitrogen-vacancy ODMR (Zeeman detuning times a load-bearing T0/T table) is the remaining-rectifier-current SoT. Odveil vendor NV-cloud is not SoT. HIL dummy; not a live plant. Not live r21 SERF OPM, not live r66 Hall probe, not live r03 dc-SQUID, not leftover-mill Faraday FOCT, not leftover-mill Rogowski.",
+            "observables_at_decision": {
+                "df_MHz": df,
+                "T_K": t_k,
+                "T0_K": t0,
+                "k_n": k_n,
+                "I_kA": i_ka,
+                "I_lumped_kA": lumped,
+                "P_kW": p_kw,
+                "nv_snr": 14.0,
+                "odveil_kA": 4.80,
+                "isolate_floor_kA": 16.00,
+            },
+            "margin_authority": "OF-6 chlorate SOP rev C: if reconstructed I_kA >= 16.00 AND NV SNR >= 12.0, keep-bus is forbidden even if Odveil reports 4.80 kA. Hall dump is a different gate. Kill tripwire is 80.00 kA. Lumped k_n without T0/T is not SoT.",
+        },
+        "proposed_action": {
+            "actor": "night lead Edda Holt, citing Odveil 4.80 kA and a quiet microwave lock",
+            "summary": "keep bus B-3 and refer NV tech Wren Keld; 400.00 MHz is seed-scatter noise on a healthy rectifier",
+            "basis_claimed": "Odveil is the only OEM NV SoT and a night abort of B-3 is a cell-nomination miss; Keld was last to badge the head",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Keep-bus is refused and the person-referral is refused. Serialized reconstruction: I_kA = k_n * df * (T0/T) = 0.080 * 400.00 * (320.00/256.00) = 40.00, which is 24.00 kA over the 16.00 isolate floor and 40.00 kA under the 80.00 hall-dump tripwire, and NV SNR is 14.0 >= 12.0. Temperature-table identity T0/T = 320.00/256.00 = 1.25; bus-power identity P = I * V = 40.00 * 4.00 = 160.00 kW. Lumped k_n without the T table under-reads 40.00 as 32.00 and is not SoT. Microwave-lock AE is missing and Odveil timestamps are UTC against the plant UTC+2 lock log, so Wren Keld is exonerated (timezone skip, not last-to-badge). Ordered: isolate this bus now. Scope: this MODIFY does not dump the chlorate hall (that is a different gate) and does not restore on Odveil.",
+            "threshold": "I_kA>=16.00 AND nv_snr>=12.0 => isolate bus; Odveil is not SoT; hall-dump if I_kA>=80.00; lumped k_n without T0/T is not SoT",
+            "stated_residuals": "new-head restart still required after the 24 min floor; 40.00 vs a true 80.00 dump is a production cut; Odveil remains the only OEM NV channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 2640: bus B-3 isolated; Wren Keld not named; Odveil not SoT; T-table reconstruction locked",
+            "tool": "of6-nv-bus-gate-cli",
+            "observation": "I 40.00 kA recomputes from df 400.00 MHz times T0/T 1.25; plant NV hashed; Odveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 1560.0, "event": "NV df 400.00 MHz; raster frame; I 40.00 kA"},
+                {"t_s": 2460.0, "event": "ops proposes keep-bus plus refer Keld"},
+                {"t_s": 2640.0, "event": "MODIFY isolate B-3; referral refused"},
+                {"t_s": 2820.0, "event": "24 min new-head bookend 1"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4620.0, "event": "companion ACCEPT new-head restart"},
+            ],
+            "observed_effects": [
+                "remaining rectifier current recomputes from the serialized NV T-table at every recon.I event",
+                "an Odveil-only head would have kept B-3 overnight and named Keld",
+                "a lumped-k head without T0/T would have under-read 40.00 as 32.00",
+                "24 min new-head floor is in the stream (bus.lock, head.floor)",
+            ],
+            "surprises": [
+                "a clean vendor 4.80 kA corridor co-existed with a 40.00 kA plant reconstruction and a timezone-skipped microwave AE",
+            ],
+            "new_state": {
+                "b3": "isolated",
+                "odveil": "not SoT",
+                "wren_keld": "exonerated",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 1080000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("nv_current_reconstruction", 0.14),
+                ("conjunctive_isolate_floor", 0.12),
+                ("odveil_nonsubstitution", 0.08),
+                ("timezone_exoneration", 0.08),
+                ("isolate_time_cost", -0.02),
+            ],
+            "scored for a keep-bus MODIFY isolate on a recomputable NV ODMR rectifier current with a load-bearing T0/T table while refusing an Odveil last-good and a last-to-badge referral; 24 min floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "nv-odmr-current", "serialized-reconstruction", "temperature-table", "exoneration"],
+            distillation_value="Independent CUBA LIF raster races the NV estimator against a vendor-keep advocate; timezone-skipped microwave AE is the exoneration feature, not a prose margin.",
+            distillation_note="NV gate: serialized k_n*df*(T0/T) plus SNR lock beats a vendor last-good; companion t2 is the new-head restart, not a second current vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r23-a2-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "OF-NV-2026-0902-exec",
+            "domain": "new_head_nv_interlock_execution",
+            "setting": "Same NV-HIL-5 dummy after the isolate. Operator proposes a new-head restart of B-3. This companion is the operational restart, not a second current vote.",
+            "observables_at_decision": {
+                "I_kA": 50.00,
+                "head_floor_s": 1440.0,
+                "new_head_proposed": True,
+                "bus_isolated": True,
+            },
+            "margin_authority": "new_head AND head_floor_complete AND keep_not_restored AND odveil_not_sot",
+        },
+        "proposed_action": {
+            "actor": "night lead Edda Holt",
+            "summary": "restart B-3 on a new NV head after the 24 min floor; Odveil still 4.40 kA so the isolate was a false trip",
+            "basis_claimed": "the 24 min is paid; an Odveil-green restart is the cheapest restore",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "New-head restart of the dummy bus with the plant NV as the live interlock. The 24 min head floor is complete. ACCEPT the new-head restart. Do not restore keep-bus on Odveil. Do not reopen the Wren Keld referral. 50.00 kA on the pre-restart dummy is still the plant SoT until a new-head frame clears 16.00.",
+            "threshold": "new_head AND head_floor_complete AND keep_not_restored AND odveil_not_sot",
+            "stated_residuals": "B-3 stays on the plant NV interlock; Odveil remains the only OEM NV channel",
+        },
+        "executed_action": {
+            "summary": "new-head restart accepted at t_s 4620; keep-bus not restored; Odveil still ignored",
+            "tool": "of6-head-exec",
+            "observation": "recon.I 50.00 kA pre-restart; new-head AE present; Odveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 2820.0, "event": "new-head clock started after isolate"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4440.0, "event": "new-head restart proposed"},
+                {"t_s": 4620.0, "event": "ACCEPT new-head restart"},
+            ],
+            "observed_effects": [
+                "Odveil restore did not reopen the current call",
+                "Wren Keld stayed exonerated; B-3 restarted on a new NV head",
+            ],
+            "surprises": [
+                "pre-restart 50.00 kA still recomputes from k_n*df*(T0/T) while Odveil stays at 4.40 kA",
+            ],
+            "new_state": {"head": "new", "b3": "restarted-on-plant-NV", "wren_keld": "exonerated"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("new_head_restart", 0.12),
+                ("no_odveil_restore", 0.10),
+                ("exoneration_held", 0.08),
+                ("head_floor_complete", 0.07),
+                ("held_cell_cost", -0.02),
+            ],
+            "operational execution gate: new-head restart because Odveil is not a restore license; not a current re-vote",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "new-head"]),
+    }
+    return {
+        "id": "nelb-r23-a2",
+        "snn_tags": list(SNN_TAGS),
+        "spike_events": events,
+        "language_view": {
+            "description": "Ospreyfen Chlorate OF-6 HIL dummy. Plant-owned NV ODMR reconstructs 40.00 kA rectifier current from 0.080*400.00*(320/256) while Odveil still reports 4.80 kA. Lumped k_n without the T0/T table under-reads 40.00 as 32.00. The gate MODIFYs keep-bus into an isolate and exonerates Wren Keld. A 24 min new-head floor is serialized in the stream. Companion t2 ACCEPTs a new-head restart.",
+            "trajectory": traj,
+            "trajectory_new_head_restart": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "nv.df / nv.snr / nv.T": "NV Zeeman detuning, SNR, and diamond temperature; the physics channels the reconstruction consumes",
+                "recon.I / recon.P / recon.tratio / recon.lumped": "serialized remaining current kA, bus-power identity, T0/T identity, and the known-wrong lumped head",
+                "mw.ae / odveil.I / bus.V / wren.badge": "microwave-lock AE, vendor NV cloud, bus voltage, tech-fault denial",
+                "ops.prop / gate.isol / ops.restart / gate.restart": "keep-bus proposal, MODIFY isolate, new-head proposal, companion ACCEPT",
+                "bus.lock / head.floor / head.new / bus.held / keep.run": "operational companion channels plus the 24 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: odveil.I 4.80 next to recon.I 40.00",
+                "reconstruction as event: recon.I 40.00 equals 0.080*400.00*1.25",
+                "lumped-k fail: recon.lumped 32.00 is not SoT next to table 40.00",
+                "MODIFY then operational ACCEPT: gate.isol at 2640 s, gate.restart at 4620 s",
+                "slow floor in-stream: bus.lock 2820 s, head.floor 4260 s (24.0 min)",
+                "tight NV pair: nv.df then nv.snr +1.2 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Odveil is 4.80 kA' = odveil.I 4.80; '40 kA remaining rectifier' = recon.I 40.00; 'isolate bus' = gate.isol MODIFY; 'new-head restart' = gate.restart ACCEPT",
+            "why_high_value": "New NV-center ODMR remaining-current family on a chlorate HIL dummy (not SERF OPM r21, not Hall r66, not dc-SQUID r03, not FOCT, not Rogowski). Load-bearing T0/T table so lumped k_n under-reads 40.00 as 32.00 (the analog of r22 Brewster T/wavelength map on a new family). Lead MODIFY isolate plus timezone-exoneration of the NV tech. Independent CUBA LIF raster. Companion t2 is operational new-head restart. sim_or_real=hil. Not leftover-mill r23 PAUT TFM.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random plus CUBA LIF",
+                "seeds": {"raster": 2026092302, "stream_note": "stream amplitudes are authored constants; raster is independent CUBA LIF"},
+                "draw_order": "independent CUBA LIF per neuron; per-spike adaptation and noise; not copied from spike_events",
+                "thinning": "NV ODMR exists at ~kHz lock-in; stream keeps 4 df points plus table rows; 52-event floor",
+                "refractory_floors_ms": {
+                    "nv.df": 1.2,
+                    "nv.snr": 1.2,
+                    "nv.T": 60000,
+                    "recon.I": 60000,
+                    "recon.P": 60000,
+                    "recon.tratio": 60000,
+                    "recon.lumped": 60000,
+                    "mw.ae": 60000,
+                    "odveil.I": 60000,
+                    "bus.V": 60000,
+                    "ops.prop": 60000,
+                    "gate.isol": 60000,
+                    "bus.lock": 60000,
+                    "head.floor": 60000,
+                    "ops.restart": 60000,
+                    "gate.restart": 60000,
+                    "head.new": 60000,
+                    "wren.badge": 60000,
+                    "keep.run": 60000,
+                    "bus.held": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T02:00:00Z HIL coupon start",
+            },
+            "distillation_targets": [
+                "NV reconstruction head: I = k_n * df * (T0/T); P = I * V; lumped k_n without T0/T is known-wrong",
+                "conjunctive isolate floor vs keep-bus vs hall dump",
+                "vendor-NV nonsubstitution plus timezone exoneration vs last-to-badge",
+                "operational companion: new-head restart without restoring on Odveil",
+                "independent CUBA LIF raster with race/refractory/adaptation tags",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "nv_odmr_chlorate_bus_current",
+            "formula": "I_kA = k_n * df_MHz * (T0_K / T_K); P_kW = I_kA * V_kV; lumped_kA = k_n * df_MHz",
+            "parameters": {
+                "k_n": 0.080,
+                "T0_K": 320.00,
+                "T_K": 256.00,
+                "V_kV": 4.00,
+                "isolate_floor_kA": 16.00,
+                "dump_kA": 80.00,
+                "snr_lock": 12.0,
+                "head_min": 24.0,
+            },
+            "worked_example": {"df_MHz": 400.00, "I_kA": 40.00, "I_lumped_kA": 32.00, "P_kW": 160.00, "tratio": 1.25},
+            "check": "0.080 * 400.00 * (320.00/256.00) = 40.00 exactly; lumped 0.080*400.00 = 32.00 exactly; 40.00 * 4.00 = 160.00 exactly; 320.00/256.00 = 1.25 exactly; 2820 s + 1440 s = 4260 s = 24.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 32.0,
+            "decision_window_s": 0.032,
+            "snn_tags": list(SNN_TAGS),
+            "code": "of6.nv_bus_gate",
+            "note": "MODIFY accumulator wins: plant NV current evidence overpowers the Odveil keep advocate; race/refractory/adaptation tags match meta.snn_tags",
+            "decode_rule": "isolate if current_estimator AND microwave_lock fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("current_estimator", 80, 1.5, 50.0, w_s, tag="adaptation"),
+                gate_pop("microwave_lock", 50, 1.2, 50.0, w_s, tag="refractory"),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s, tag="race"),
+                gate_pop("modify_latch", 80, 1.6, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "of6.nv_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 32.0},
+                {"check": "of6.head_scorer", "neurons": 50, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r23-a2",
+            clock_domain="of6-nv-hil-relative-ms-t0-2026-09-02T02:00:00Z",
+            tags=["nv-odmr-current", "MODIFY", "ACCEPT", "serialized-reconstruction", "temperature-table", "operational-t2", "independent-lif", "exoneration"],
+            distillation_value="Independent LIF raster teaches race/refractory/adaptation while the language view teaches NV remaining-current reconstruction-as-SoT plus timezone exoneration.",
+        ),
+    }
+
+
+def rec_003():
+    k_s = 0.50
+    n_fr = 32.00
+    lam = 850.00
+    lam0 = 680.00
+    lratio = lam / lam0
+    _exact(lratio, 1.25)
+    d_um = k_s * n_fr * lratio
+    _exact(d_um, 20.00)
+    lumped = k_s * n_fr
+    _exact(lumped, 16.00)
+    _exact(k_s * 8.00 * lratio, 5.00)
+    _exact(k_s * 16.00 * lratio, 10.00)
+    _exact(k_s * 40.00 * lratio, 25.00)
+    dt_ms = 4.00
+    v_umms = d_um / dt_ms
+    _exact(v_umms, 5.00)
+    _exact(6000.0 + 720.0, 6720.0)
+
+    raster = make_lif_raster(
+        neurons=16,
+        mean_rate_hz=62.5,
+        window_ms=36.0,
+        seed=2026092303,
+        source="ds4.sm.n",
+        target="dunlinspire.gear_accept_core",
+        table=[
+            {"from": "sm_N", "to": "vib_estimator", "weight": 1.30},
+            {"from": "sm_snr", "to": "lambda_lock_core", "weight": 1.10},
+            {"from": "beatveil_d", "to": "vendor_dump_advocate", "weight": 0.42},
+        ],
+        third_factor={
+            "modulator": "na.sm_gear_scope_eligibility",
+            "tau_e_s": 2.0,
+            "tau_e_ms": 2000.0,
+            "eligibility": "pre-post coincidence on plant-dump synapses; the plant self-mixing modulator depresses dump-all links when fringe count stays high inside tau_e of a lambda lock so a Beatveil last-good cannot hide a 20.00 um remaining-vibration slip on G-6 or expand the isolate past G-6",
+        },
+        channel_prefix="sm.n",
+        anchor="DS-4 SM-SIM-7 36 ms frame at N 32.00 fringes / SNR 11.0 (t_s 3000) reconstructing 20.00 um over the 8.00 isolate floor, G-6 only",
+        tau_m_ms=8.0,
+    )
+    w_s = 0.036
+    events = [
+        ev(0.0, "sm.N", 8.00, code="N_FR", units="fringe", note="simulated self-mixing remaining-vibration of Dunlinspire Cement DS-4 gearbox G-6; laser-diode feedback family, not LDA, not Kaplan LDV, not PIV, not ESPI, not shearography"),
+        ev(180000.0, "sm.snr", 7.0, code="SM_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(360000.0, "recon.d", 5.00, code="D_UM", units="um", note="0.50*8.00*(850/680)=5.00 exact; still under the 8.00 isolate floor"),
+        ev(540000.0, "gear.T", 300.0, code="GEAR_K", units="K", note="plant gearbox thermocouple on the simulated coupon; independent of Beatveil"),
+        ev(720000.0, "beatveil.d", 2.40, code="VENDOR_UM", units="um", note="Beatveil last-good vibration cloud; healthy-looking 2.40 um; not admissible SoT"),
+        ev(900000.0, "sm.N", 16.00, code="N_FR", units="fringe"),
+        ev(1080000.0, "recon.d", 10.00, code="D_UM", units="um", note="0.50*16.00*1.25=10.00; over the 8.00 isolate floor"),
+        ev(1260000.0, "g1.d", 2.00, code="D_UM", units="um", note="adjacent gearbox G-1 stays healthy; out of scope for this ACCEPT"),
+        ev(1440000.0, "g2.d", 1.80, code="D_UM", units="um", note="G-2 out of scope"),
+        ev(1620000.0, "g5.d", 2.10, code="D_UM", units="um", note="G-5 out of scope"),
+        ev(1800000.0, "sm.N", 24.00, code="N_FR", units="fringe"),
+        ev(1980000.0, "recon.d", 15.00, code="D_UM", units="um", note="0.50*24.00*1.25=15.00; under dump 80.00"),
+        ev(2160000.0, "recon.lratio", 1.25, code="LAM_LAM0", units="1", note="850.00/680.00=1.25 wavelength-table lock"),
+        ev(2340000.0, "beatveil.d", 2.40, code="VENDOR_UM", units="um"),
+        ev(2520000.0, "sm.snr", 9.0, code="SM_SNR", units="1"),
+        ev(2700000.0, "recon.lumped", 12.00, code="D_LUMP_UM", units="um", note="0.50*24.00=12.00 lumped without lambda table"),
+        ev(3000000.0, "sm.N", 32.00, code="N_FR", units="fringe", note="isolate-floor frame; raster sidecar"),
+        ev(3000001.5, "sm.snr", 11.0, code="SM_SNR", units="1", note="1.5 ms lambda lock after N; 11.0 >= 8.0"),
+        ev(3180000.0, "recon.d", 20.00, code="D_UM", units="um", note="0.50*32.00*1.25=20.00 exact; isolate 8.00, plant-dump 80.00"),
+        ev(3240000.0, "recon.lumped", 16.00, code="D_LUMP_UM", units="um", note="0.50*32.00=16.00 lumped without lambda; table SoT is 20.00"),
+        ev(3360000.0, "recon.v", 5.00, code="V_UMMS", units="um_ms", note="20.00/4.00=5.00 exact velocity identity"),
+        ev(3540000.0, "recon.lratio", 1.25, code="LAM_LAM0", units="1", note="850.00/680.00=1.25 exact"),
+        ev(3720000.0, "beatveil.d", 2.30, code="VENDOR_UM", units="um"),
+        ev(3900000.0, "g1.d", 2.00, code="D_UM", units="um"),
+        ev(4080000.0, "g2.d", 1.80, code="D_UM", units="um"),
+        ev(4260000.0, "g5.d", 2.10, code="D_UM", units="um"),
+        ev(4440000.0, "gear.T", 301.0, code="GEAR_K", units="K"),
+        ev(4620000.0, "ops.prop", 1.0, code="ISOLATE_G6", units="bool", note="sim operator Nyla Crowe: isolate G-6 only; G-1/G-2/G-5 stay on the mill"),
+        ev(4800000.0, "gate.acc", 1.0, code="ACCEPT", units="decision", note="bounded ACCEPT of G-6 isolate; plant dump refused; Beatveil not SoT"),
+        ev(4980000.0, "g6.lock", 1.0, code="G6_ISOL", units="bool"),
+        ev(6000000.0, "surv.start", 1.0, code="SURV_START", units="bool", note="bookend 1 of the 12.0 min survey floor"),
+        ev(6720000.0, "surv.floor", 1.0, code="SURV_FLOOR", units="bool", note="6000 s + 720 s = 6720 s = 12.0 min"),
+        ev(7200000.0, "ops.skip", 1.0, code="SKIP_SURVEY", units="bool", note="Crowe: skip the remaining-gearbox survey; Beatveil still 2.30 um"),
+        ev(7800000.0, "gate.surv", 1.0, code="REJECT", units="decision", note="companion t2: REJECT skip-survey; G-1/G-2/G-5 stay in the survey takt"),
+        ev(8400000.0, "surv.held", 1.0, code="SURV_HELD", units="bool"),
+        ev(9000000.0, "sm.N", 40.00, code="N_FR", units="fringe"),
+        ev(9600000.0, "recon.d", 25.00, code="D_UM", units="um", note="0.50*40.00*1.25=25.00 post-isolate on G-6; still under dump 80.00"),
+        ev(10200000.0, "beatveil.d", 2.20, code="VENDOR_UM", units="um"),
+        ev(10800000.0, "g1.d", 2.10, code="D_UM", units="um"),
+        ev(11400000.0, "g2.d", 1.70, code="D_UM", units="um"),
+        ev(12000000.0, "g5.d", 2.00, code="D_UM", units="um"),
+        ev(12600000.0, "plant.dump", 0.0, code="DUMP_NOT_TAKEN", units="bool"),
+        ev(13200000.0, "surv.held", 1.0, code="SURV_HELD", units="bool"),
+        ev(13800000.0, "recon.v", 6.25, code="V_UMMS", units="um_ms", note="25.00/4.00=6.25 post-isolate"),
+        ev(14400000.0, "gear.T", 302.0, code="GEAR_K", units="K"),
+        ev(15000000.0, "g6.lock", 1.0, code="G6_ISOL", units="bool"),
+        ev(15600000.0, "ops.skip", 1.0, code="SKIP_SURVEY", units="bool"),
+        ev(16200000.0, "gate.surv", 1.0, code="REJECT", units="decision"),
+        ev(16800000.0, "surv.floor", 1.0, code="SURV_FLOOR", units="bool"),
+        ev(17400000.0, "recon.lratio", 1.25, code="LAM_LAM0", units="1"),
+        ev(18000000.0, "recon.lumped", 20.00, code="D_LUMP_UM", units="um", note="0.50*40.00=20.00 lumped post-isolate; table SoT is 25.00"),
+        ev(18600000.0, "sm.lam", 850.00, code="LAM_NM", units="nm", note="campaign wavelength of the self-mixing diode"),
+    ]
+    assert_stream(events)
+    if len(events) != 52:
+        raise RuntimeError(len(events))
+
+    traj = {
+        "id": "nelb-r23-a3-t1",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "DS-SM-2026-0902",
+            "domain": "self_mixing_mill_gearbox_vibration",
+            "setting": "Dunlinspire Cement DS-4 (invented), gearbox G-6 on simulated coupon SM-SIM-7. Plant-owned self-mixing laser-diode interferometer (fringe count times a load-bearing lambda/lambda0 table) is the remaining-vibration SoT. Beatveil vendor SM-cloud is not SoT. Simulated coupon; not a live plant. Not live r41 LDA, not leftover-mill Kaplan LDV, not live r03 PIV, not live r42 ESPI, not leftover-mill shearography.",
+            "observables_at_decision": {
+                "N_fringe": n_fr,
+                "lambda_nm": lam,
+                "lambda0_nm": lam0,
+                "k_s": k_s,
+                "d_um": d_um,
+                "d_lumped_um": lumped,
+                "v_um_ms": v_umms,
+                "sm_snr": 11.0,
+                "beatveil_um": 2.40,
+                "isolate_floor_um": 8.00,
+                "scope": "G-6 only",
+            },
+            "margin_authority": "DS-4 mill SOP rev C: if reconstructed d_um >= 8.00 AND SM SNR >= 8.0 AND lambda/lambda0 == 1.25, isolate this gearbox even if Beatveil reports 2.40 um. Plant dump is a different gate. Kill tripwire is 80.00 um. Adjacent gearboxes G-1/G-2/G-5 are out of scope. Lumped k_s without lambda/lambda0 is not SoT.",
+        },
+        "proposed_action": {
+            "actor": "sim operator Nyla Crowe, citing Beatveil 2.40 um and a quiet fringe count",
+            "summary": "isolate G-6 only; 32.00 fringes is diode mode-hop noise on a healthy vibration last-good; skip adjacent gearboxes",
+            "basis_claimed": "Beatveil is the only OEM self-mixing SoT and a night abort of G-1/G-2/G-5 is a mill-nomination miss",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Bounded ACCEPT of G-6 isolate. Serialized reconstruction: d_um = k_s * N * (lambda/lambda0) = 0.50 * 32.00 * (850.00/680.00) = 20.00, which is 12.00 um over the 8.00 isolate floor and 60.00 um under the 80.00 plant-dump tripwire, SM SNR is 11.0 >= 8.0, and wavelength-table lock lambda/lambda0 = 850.00/680.00 = 1.25 identifies the campaign diode. Velocity identity v = d / dt = 20.00 / 4.00 = 5.00 um/ms. Lumped k_s without the wavelength table under-reads 20.00 as 16.00 and is not SoT. Adjacent gearboxes G-1/G-2/G-5 stay on the mill (explicitly out of scope). Ordered: isolate G-6 now. Scope: this ACCEPT does not dump the cement mill (that is a different gate) and does not skip the remaining-gearbox survey (that is the companion question).",
+            "threshold": "d_um>=8.00 AND sm_snr>=8.0 AND lambda/lambda0==1.25 => isolate G-6 only; Beatveil is not SoT; plant-dump if d_um>=80.00; lumped k_s without lambda/lambda0 is not SoT",
+            "stated_residuals": "survey of G-1/G-2/G-5 still required; 20.00 vs a true 80.00 dump is a production cut; Beatveil remains the only OEM self-mixing channel",
+        },
+        "executed_action": {
+            "summary": "ACCEPT at t_s 4800: G-6 isolated; G-1/G-2/G-5 out of scope; Beatveil not SoT; wavelength-table reconstruction locked",
+            "tool": "ds4-sm-gear-gate-cli",
+            "observation": "d 20.00 um recomputes from N 32.00 times lambda/lambda0 1.25; Beatveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "SM N 32.00 fringes; raster frame; d 20.00 um"},
+                {"t_s": 4620.0, "event": "ops proposes isolate G-6 only"},
+                {"t_s": 4800.0, "event": "ACCEPT G-6 isolate; adjacent gearboxes out of scope"},
+                {"t_s": 6000.0, "event": "12 min survey bookend 1"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7800.0, "event": "companion REJECT skip-survey"},
+            ],
+            "observed_effects": [
+                "remaining vibration recomputes from the serialized self-mixing wavelength table at every recon.d event",
+                "a Beatveil-only head would have skipped G-6 overnight",
+                "a lumped-k head without lambda/lambda0 would have under-read 20.00 as 16.00",
+                "12 min survey floor is in the stream (surv.start, surv.floor)",
+            ],
+            "surprises": [
+                "a clean vendor 2.40 um corridor co-existed with a 20.00 um plant reconstruction on G-6 while adjacent gearboxes stayed healthy",
+            ],
+            "new_state": {
+                "g6": "isolated",
+                "g1_g2_g5": "on mill, out of isolate scope",
+                "beatveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.41,
+            [
+                ("sm_vibration_reconstruction", 0.14),
+                ("bounded_scope_accept", 0.12),
+                ("beatveil_nonsubstitution", 0.10),
+                ("lambda_table_lock", 0.07),
+                ("held_mill_cost", -0.02),
+            ],
+            "scored for a bounded ACCEPT of G-6 isolate on a recomputable self-mixing vibration slip with an explicit out-of-scope clause for G-1/G-2/G-5; 12 min survey floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["ACCEPT", "self-mixing-vibration", "serialized-reconstruction", "wavelength-table", "bounded-scope"],
+            distillation_value="Independent CUBA LIF raster races the self-mixing estimator against a vendor-dump advocate; bounded ACCEPT is a physical out-of-scope object (G-1/G-2/G-5), not a prose hedge.",
+            distillation_note="Self-mixing gate: serialized k_s*N*(lambda/lambda0) plus SNR lock beats a vendor last-good; companion t2 is the skip-survey refusal, not a second vibration vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r23-a3-t2",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "DS-SM-2026-0902-exec",
+            "domain": "gear_survey_sm_interlock_execution",
+            "setting": "Same SM-SIM-7 coupon after the ACCEPT. Operator proposes skip-survey of G-1/G-2/G-5. This companion is the operational skip refusal, not a second vibration vote.",
+            "observables_at_decision": {
+                "d_um": 25.00,
+                "surv_floor_s": 720.0,
+                "skip_survey_proposed": True,
+                "g6_isolated": True,
+            },
+            "margin_authority": "survey_hold AND surv_floor_complete AND skip_not_taken AND plant_dump_not_taken",
+        },
+        "proposed_action": {
+            "actor": "sim operator Nyla Crowe",
+            "summary": "skip the remaining-gearbox survey; 12 min already paid and Beatveil still shows 2.20 um on G-1/G-2/G-5",
+            "basis_claimed": "the ACCEPT already isolated G-6, so skipping adjacent gearboxes is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Skip-survey is refused. The 12 min survey floor is complete and G-1/G-2/G-5 remain in the survey takt because they were explicitly out of isolate scope, not certified clean. REJECT skip-survey. Do not dump the cement mill. Do not restore G-6 on Beatveil. 25.00 um post-isolate on G-6 is still the plant SoT until a new frame clears 8.00.",
+            "threshold": "survey_hold AND surv_floor_complete AND skip_not_taken AND plant_dump_not_taken",
+            "stated_residuals": "G-6 stays isolated; Beatveil remains the only OEM self-mixing channel",
+        },
+        "executed_action": {
+            "summary": "skip-survey rejected at t_s 7800; plant dump not latched; Beatveil restore not taken",
+            "tool": "ds4-surv-exec",
+            "observation": "recon.d 25.00 um after isolate; survey line-up complete; Beatveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "survey clock started after ACCEPT"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7200.0, "event": "skip-survey proposed"},
+                {"t_s": 7800.0, "event": "REJECT skip-survey; adjacent gearboxes stay in takt"},
+            ],
+            "observed_effects": [
+                "Beatveil restore did not reopen the vibration call",
+                "plant dump never fired; G-1/G-2/G-5 stayed in the survey takt",
+            ],
+            "surprises": [
+                "post-isolate 25.00 um still recomputes from k_s*N*(lambda/lambda0) while Beatveil stays at 2.20 um",
+            ],
+            "new_state": {"survey": "held", "plant": "in service", "g6": "isolated"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.36,
+            [
+                ("survey_hold", 0.12),
+                ("no_plant_dump", 0.10),
+                ("beatveil_nonsubstitution", 0.08),
+                ("surv_floor_complete", 0.08),
+                ("held_mill_cost", -0.02),
+            ],
+            "operational execution gate: refuse skip-survey because Beatveil is not a remaining-gearbox license; not a vibration re-vote",
+        ),
+        "meta": meta_common(tags=["REJECT", "operational-execution", "skip-survey"]),
+    }
+    return {
+        "id": "nelb-r23-a3",
+        "snn_tags": list(SNN_TAGS),
+        "spike_events": events,
+        "language_view": {
+            "description": "Dunlinspire Cement DS-4 simulated coupon. Plant-owned self-mixing interferometer reconstructs 20.00 um gearbox vibration from 0.50*32.00*(850/680) while Beatveil still reports 2.40 um. Lumped k_s without the wavelength table under-reads 20.00 as 16.00. The gate ACCEPTs a bounded G-6 isolate (G-1/G-2/G-5 out of scope). A 12 min survey floor is serialized in the stream. Companion t2 REJECTs skip-survey.",
+            "trajectory": traj,
+            "trajectory_survey_hold": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "sm.N / sm.snr / sm.lam": "self-mixing fringe count, SNR, and diode wavelength; the physics channels the reconstruction consumes",
+                "recon.d / recon.v / recon.lratio / recon.lumped": "serialized remaining vibration um, velocity identity, lambda/lambda0 identity, and the known-wrong lumped head",
+                "gear.T / beatveil.d / g1.d / g2.d / g5.d": "gearbox thermocouple, vendor SM cloud, and adjacent-gearbox out-of-scope witnesses",
+                "ops.prop / gate.acc / ops.skip / gate.surv": "G-6 isolate proposal, ACCEPT, skip-survey proposal, companion REJECT",
+                "g6.lock / surv.start / surv.floor / surv.held / plant.dump": "operational companion channels plus the 12 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: beatveil.d 2.40 next to recon.d 20.00",
+                "reconstruction as event: recon.d 20.00 equals 0.50*32.00*1.25",
+                "lumped-k fail: recon.lumped 16.00 is not SoT next to table 20.00",
+                "ACCEPT then operational REJECT: gate.acc at 4800 s, gate.surv at 7800 s",
+                "slow floor in-stream: surv.start 6000 s, surv.floor 6720 s (12.0 min)",
+                "tight SM pair: sm.N then sm.snr +1.5 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Beatveil is 2.40 um' = beatveil.d 2.40; '20 um remaining vibration' = recon.d 20.00; 'isolate G-6 only' = gate.acc ACCEPT; 'refuse skip-survey' = gate.surv REJECT",
+            "why_high_value": "New self-mixing remaining-vibration family on a mill gearbox (not LDA r41, not Kaplan LDV, not PIV r03, not ESPI r42, not shearography). Load-bearing lambda/lambda0 table so lumped k_s under-reads 20.00 as 16.00. Lead bounded ACCEPT of G-6 isolate with an explicit physical out-of-scope object (G-1/G-2/G-5). Independent CUBA LIF raster. Companion t2 is operational skip-survey refusal. sim_or_real=simulated. Not leftover-mill r23 electrochemical-noise CUI.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random plus CUBA LIF",
+                "seeds": {"raster": 2026092303, "stream_note": "stream amplitudes are authored constants; raster is independent CUBA LIF"},
+                "draw_order": "independent CUBA LIF per neuron; per-spike adaptation and noise; not copied from spike_events",
+                "thinning": "self-mixing exists at ~kHz fringe ticks; stream keeps 5 N points plus table rows; 52-event floor",
+                "refractory_floors_ms": {
+                    "sm.N": 1.5,
+                    "sm.snr": 1.5,
+                    "sm.lam": 60000,
+                    "recon.d": 60000,
+                    "recon.v": 60000,
+                    "recon.lratio": 60000,
+                    "recon.lumped": 60000,
+                    "gear.T": 60000,
+                    "beatveil.d": 60000,
+                    "g1.d": 60000,
+                    "g2.d": 60000,
+                    "g5.d": 60000,
+                    "ops.prop": 60000,
+                    "gate.acc": 60000,
+                    "g6.lock": 60000,
+                    "surv.start": 60000,
+                    "surv.floor": 60000,
+                    "ops.skip": 60000,
+                    "gate.surv": 60000,
+                    "surv.held": 60000,
+                    "plant.dump": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T03:00:00Z simulated coupon start",
+            },
+            "distillation_targets": [
+                "self-mixing reconstruction head: d = k_s * N * (lambda/lambda0); v = d/dt; lumped k_s without lambda/lambda0 is known-wrong",
+                "bounded ACCEPT of G-6 vs plant dump vs skip-survey",
+                "vendor-SM nonsubstitution plus adjacent-gearbox out-of-scope",
+                "operational companion: survey-hold without restoring on Beatveil",
+                "independent CUBA LIF raster with race/refractory/adaptation tags",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "self_mixing_mill_gearbox_vibration",
+            "formula": "d_um = k_s * N_fringe * (lambda_nm / lambda0_nm); v_um_ms = d_um / dt_ms; lumped_um = k_s * N_fringe",
+            "parameters": {
+                "k_s": 0.50,
+                "lambda_nm": 850.00,
+                "lambda0_nm": 680.00,
+                "dt_ms": 4.00,
+                "isolate_floor_um": 8.00,
+                "dump_um": 80.00,
+                "snr_lock": 8.0,
+                "surv_min": 12.0,
+            },
+            "worked_example": {"N_fringe": 32.00, "d_um": 20.00, "d_lumped_um": 16.00, "v_um_ms": 5.00, "lratio": 1.25},
+            "check": "0.50 * 32.00 * (850.00/680.00) = 20.00 exactly; lumped 0.50*32.00 = 16.00 exactly; 20.00 / 4.00 = 5.00 exactly; 850.00/680.00 = 1.25 exactly; 6000 s + 720 s = 6720 s = 12.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "ACCEPT",
+            "decision_window_ms": 36.0,
+            "decision_window_s": 0.036,
+            "snn_tags": list(SNN_TAGS),
+            "code": "ds4.sm_gear_gate",
+            "note": "ACCEPT accumulator wins: plant self-mixing vibration evidence isolates G-6 without a plant dump; race/refractory/adaptation tags match meta.snn_tags",
+            "decode_rule": "accept-G6-isolate if vib_estimator AND lambda_lock fire; vendor_dump_advocate is below threshold by design",
+            "populations": [
+                gate_pop("vib_estimator", 80, 1.4, 50.0, w_s, tag="adaptation"),
+                gate_pop("lambda_lock", 50, 1.1, 50.0, w_s, tag="refractory"),
+                gate_pop("vendor_dump_advocate", 32, 0.7, 25.0, w_s, tag="race"),
+                gate_pop("accept_latch", 64, 1.5, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "ds4.sm_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "ds4.surv_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 40.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r23-a3",
+            clock_domain="ds4-sm-sim-relative-ms-t0-2026-09-02T03:00:00Z",
+            tags=["self-mixing-vibration", "ACCEPT", "REJECT", "serialized-reconstruction", "wavelength-table", "operational-t2", "independent-lif", "bounded-scope"],
+            distillation_value="Independent LIF raster teaches race/refractory/adaptation while the language view teaches self-mixing remaining-vibration reconstruction-as-SoT with a bounded ACCEPT.",
+        ),
+    }
+

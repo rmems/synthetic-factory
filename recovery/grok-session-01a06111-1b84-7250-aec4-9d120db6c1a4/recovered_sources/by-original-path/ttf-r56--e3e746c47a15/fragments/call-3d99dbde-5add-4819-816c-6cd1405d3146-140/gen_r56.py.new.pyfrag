@@ -1,0 +1,4 @@
+                    "furnace roof IR, 2 kHz, 34 us jitter, axis furnace_t",
+                    "hysteresis-reset tag, 1 kHz, 38 us jitter, trip_latched false",
+                    "phosphate-coke charge encoder (context)",
+                    "off-gas PT (context)",

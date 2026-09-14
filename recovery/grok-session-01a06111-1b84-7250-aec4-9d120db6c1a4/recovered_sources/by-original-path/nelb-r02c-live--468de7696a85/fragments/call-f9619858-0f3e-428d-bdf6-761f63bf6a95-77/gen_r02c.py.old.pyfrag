@@ -1,0 +1,7 @@
+        "model": "spikes = round(neurons * mean_rate_hz * window_s); 23 pJ/spike",
+    }
+
+
+def occupancy_preflight():
+def occupancy_preflight():
+    banned = (

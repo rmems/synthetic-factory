@@ -1,0 +1,1799 @@
+#!/usr/bin/env python3
+"""NELB round 67 — create-only live-tree writer. Independent CUBA LIF rasters."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import os
+import random
+import sys
+from collections import defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
+
+LIVE = Path(
+    "/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-09-02-final-heavy/"
+    "neuromorphic-event-language-bridge"
+)
+STAGE = Path("/tmp/nelb-r67-live")
+PIPELINES = Path("/home/raulmc/rmems/synthetic-factory/pipelines")
+sys.path.insert(0, str(PIPELINES))
+sys.path.insert(0, "/tmp")
+
+from lif_raster import _calibrate_spikes, expected_spikes  # noqa: E402
+
+GENERATED_AT = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+ROUND = 67
+SNN_TAGS = ["race", "refractory", "adaptation"]
+
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "SuperGrok Heavy chat",
+    "generated_at": GENERATED_AT,
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+}
+assert len(RIGHTS) == 15
+
+HIDDEN = {
+    "thought",
+    "thoughts",
+    "reasoning",
+    "chain_of_thought",
+    "hidden_thought",
+    "hidden_reasoning",
+    "scratchpad",
+    "scratch",
+    "internal_monologue",
+    "private_reasoning",
+    "inner_monologue",
+}
+
+
+def meta_common(**extra):
+    m = {
+        "round": ROUND,
+        "factory": "neuromorphic-event-language-bridge",
+        "generator": "grok-4.6",
+        "run_label": "2026-09-02-final-heavy",
+        "rights": dict(RIGHTS),
+        "snn_tags": list(SNN_TAGS),
+        "nelb": {"snn_tags": list(SNN_TAGS)},
+    }
+    m.update(extra)
+    return m
+
+
+def _exact(a, b, eps=1e-12):
+    if abs(a - b) > eps:
+        raise RuntimeError(f"arith {a} != {b}")
+
+
+def make_lif_raster(
+    *,
+    neurons: int,
+    mean_rate_hz: float,
+    window_ms: float,
+    seed: int,
+    source: str,
+    target: str,
+    table: list,
+    third_factor: dict,
+    channel_prefix: str,
+    anchor: str,
+    kernel_ms: list[float],
+):
+    """Independent CUBA LIF full-window raster. Not a spike_events echo."""
+    window_s = window_ms / 1000.0
+    window_us = int(round(window_ms * 1000.0))
+    expected = expected_spikes(neurons, mean_rate_hz, window_ms)
+    last_err = None
+    spikes = None
+    used_seed = seed
+    for bump in range(48):
+        used_seed = seed + bump * 7919
+        forbidden = {int(round(t * 1000.0)) for t in kernel_ms}
+        try:
+            cand = _calibrate_spikes(
+                neurons,
+                mean_rate_hz,
+                window_us,
+                used_seed,
+                kernel_ms,
+                10.0,
+                1.0,
+                1.0,
+                2.0,
+                forbidden,
+            )
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            continue
+        if abs(len(cand) - expected) > 0:
+            last_err = RuntimeError(f"budget {len(cand)} != {expected}")
+            continue
+        last = {}
+        ok = True
+        for t_us, nid in sorted(cand):
+            if not (0 <= t_us <= window_us):
+                ok = False
+                break
+            if not (0 <= nid < neurons):
+                ok = False
+                break
+            prev = last.get(nid)
+            if prev is not None and t_us - prev < 1000:
+                ok = False
+                break
+            last[nid] = t_us
+        if not ok:
+            last_err = RuntimeError("refractory or bounds")
+            continue
+        ts_only = [t for t, _ in cand]
+        if max(ts_only) - min(ts_only) < 1000:
+            last_err = RuntimeError("excerpt span < 1000 us")
+            continue
+        spikes = cand
+        break
+    if spikes is None:
+        raise RuntimeError(f"CUBA LIF failed seed {seed}: {last_err}")
+
+    rng = random.Random(used_seed ^ 0xA5A5)
+    by_n: dict[int, list[int]] = defaultdict(list)
+    for t_us, nid in spikes:
+        by_n[nid].append(t_us)
+    for nid in by_n:
+        by_n[nid].sort()
+
+    excerpt = []
+    for t_us, nid in sorted(spikes, key=lambda x: (x[0], x[1])):
+        k = by_n[nid].index(t_us)
+        base = 1.15 + 0.7 * rng.random()
+        noise = 0.96 + 0.08 * rng.random()
+        amp = round(base * (0.82**k) * noise, 3)
+        excerpt.append(
+            {
+                "t_us": int(t_us),
+                "neuron_id": int(nid),
+                "amplitude": amp,
+                "channel": f"{channel_prefix}{nid:02d}",
+            }
+        )
+    excerpt.sort(key=lambda e: (e["t_us"], e["neuron_id"]))
+    if len(excerpt) != expected:
+        raise RuntimeError("excerpt/spikes mismatch")
+    if excerpt[-1]["t_us"] - excerpt[0]["t_us"] < 1000:
+        raise RuntimeError("excerpt span < 1000 us")
+
+    isis_ms = []
+    for nid, ts in by_n.items():
+        for a, b in zip(ts, ts[1:]):
+            gap = b - a
+            if gap < 1000:
+                raise RuntimeError(f"refractory fail n{nid} {gap} us")
+            isis_ms.append(gap / 1000.0)
+
+    edges = [1.0, 2.0, 4.0, 8.0, 16.0, float(window_ms) + 1e-9]
+    counts_h = [0] * (len(edges) - 1)
+    for isi in isis_ms:
+        if isi < 1.0 - 1e-12:
+            raise RuntimeError(f"ISI {isi} < 1 ms")
+        placed = False
+        for i in range(len(edges) - 1):
+            if edges[i] <= isi < edges[i + 1]:
+                counts_h[i] += 1
+                placed = True
+                break
+        if not placed:
+            counts_h[-1] += 1
+    hist = []
+    for i, c in enumerate(counts_h):
+        if c <= 0:
+            continue
+        hi = window_ms if i == len(counts_h) - 1 else edges[i + 1]
+        hist.append({"lo_ms": edges[i], "hi_ms": hi, "count": c})
+    identity_n = expected - len(by_n)
+    if sum(x["count"] for x in hist) != identity_n:
+        raise RuntimeError(
+            f"ISI identity {sum(x['count'] for x in hist)} != {identity_n}"
+        )
+
+    energy_pJ = expected * 23
+    energy_uJ = expected * 23e-6
+    return {
+        "window_ms": float(window_ms),
+        "window_s": float(window_s),
+        "neurons": neurons,
+        "mean_rate_hz": float(mean_rate_hz),
+        "spikes": expected,
+        "energy_pJ": energy_pJ,
+        "energy_uJ": energy_uJ,
+        "energy_model": "Loihi-2-class 4-core 23 pJ/spike",
+        "excerpt": excerpt,
+        "excerpt_amplitude_units": "normalized_membrane",
+        "excerpt_is_full_window": True,
+        "refractory_rule_ms": 1.0,
+        "isi_histogram": hist,
+        "isi_source": "full_window_per_neuron_isi",
+        "isi_count_identity": {
+            "spikes": expected,
+            "distinct_active_neurons": len(by_n),
+            "isi_total": identity_n,
+        },
+        "anchor": anchor,
+        "seed_note": (
+            f"independent CUBA LIF seed {used_seed} (base {seed}); "
+            "kernelized physics-pair times drive synaptic current and are not "
+            "copied into excerpt; amplitude adaptation 0.82**k plus noise"
+        ),
+        "encoder": "independent_cuba_lif",
+        "routing": {
+            "source": source,
+            "target": target,
+            "table": table,
+            "third_factor": third_factor,
+        },
+    }
+
+
+def ev(t_rel_ms, channel, amplitude, **extra):
+    rec = {
+        "t_rel_ms": float(t_rel_ms),
+        "channel": channel,
+        "amplitude": float(amplitude),
+    }
+    rec.update(extra)
+    return rec
+
+
+def assert_stream(events, min_n=48, max_n=80):
+    if not (min_n <= len(events) <= max_n):
+        raise RuntimeError(f"event count {len(events)} not in {min_n}-{max_n}")
+    last = -1.0
+    last_ch = {}
+    for e in events:
+        if "t_ms" in e:
+            raise RuntimeError("t_ms alias forbidden this round")
+        t = e["t_rel_ms"]
+        if not math.isfinite(t) or not math.isfinite(e["amplitude"]):
+            raise RuntimeError("non-finite")
+        if not e["channel"]:
+            raise RuntimeError("empty channel")
+        if t <= last:
+            raise RuntimeError("non-increasing t_rel_ms")
+        last = t
+        prev = last_ch.get(e["channel"])
+        if prev is not None and (t - prev) < 0.8:
+            raise RuntimeError(f"refractory {e['channel']} {t-prev}")
+        last_ch[e["channel"]] = t
+
+
+def reward(total, components, notes):
+    s = 0.0
+    out = {
+        "aggregation": "unweighted sum of the named scalar components; two-decimal components; total = exact sum",
+        "rounding_decimals": 2,
+    }
+    for k, v in components:
+        out[k] = v
+        s += v
+    out["total"] = total
+    if abs(s - total) > 1e-12:
+        raise RuntimeError(f"reward {s} != {total}")
+    out["notes"] = notes
+    return out
+
+
+def gate_pop(name, neurons, threshold, mean_rate_hz, window_s, **extra):
+    spikes = int(round(neurons * mean_rate_hz * window_s))
+    d = {
+        "name": name,
+        "neurons": neurons,
+        "threshold": threshold,
+        "mean_rate_hz": float(mean_rate_hz),
+        "spikes": spikes,
+    }
+    d.update(extra)
+    return d
+
+
+def gate_compute(checks):
+    total = 0
+    per = []
+    for check in checks:
+        n = check["neurons"]
+        r = check["mean_rate_hz"]
+        w_ms = check["window_ms"]
+        w_s = w_ms / 1000.0
+        sp = int(round(n * r * w_s))
+        per.append(
+            {
+                "check": check["check"],
+                "neurons": n,
+                "mean_rate_hz": float(r),
+                "window_ms": float(w_ms),
+                "window_s": float(w_s),
+                "spikes": sp,
+            }
+        )
+        total += sp
+    return {
+        "per_check": per,
+        "total_spikes": total,
+        "total_energy_pJ": total * 23,
+        "total_energy_uJ": total * 23e-6,
+        "model": "spikes = round(neurons * mean_rate_hz * window_s); 23 pJ/spike",
+    }
+
+
+def occupancy_preflight():
+    banned = (
+        "madderholt",
+        "plovercrag",
+        "slagwhin",
+        "forkveil",
+        "fieldveil",
+        "mobveil",
+        "kerr-hil-8",
+        "dma-sim-9",
+        "nelb-r67-001",
+        "nelb-r67-002",
+        "nelb-r67-003",
+        "rook vell",
+        "pia thorn",
+        "nessa vale",
+        "oren keld",
+    )
+    hits = []
+    if not LIVE.is_dir():
+        return
+    for n in LIVE.glob("*"):
+        if n.suffix not in {".py", ".md", ".jsonl"}:
+            continue
+        text = n.read_text(encoding="utf-8", errors="replace").casefold()
+        for b in banned:
+            if b in text:
+                hits.append(f"{n.name}:{b}")
+    if hits:
+        raise RuntimeError(f"live-tree family/plant collision {hits}")
+
+
+# ---------------------------------------------------------------------------
+# nelb-r67-001 — quartz tuning-fork remaining viscosity of printing ink, designed
+# REJECT / MODIFY
+# ---------------------------------------------------------------------------
+def rec_001():
+    k_eta = 0.50
+    f0 = 32768.00
+    f = 32728.00
+    df = f0 - f
+    eta = k_eta * df
+    q_lmin = 2.00
+    load = eta * q_lmin
+    _exact(df, 40.00)
+    _exact(eta, 20.00)
+    _exact(load, 40.00)
+    _exact(k_eta * (f0 - 32748.00), 10.00)
+    _exact(k_eta * (f0 - 32740.00), 14.00)
+    _exact(6000.0 + 1080.0, 7080.0)
+
+    raster = make_lif_raster(
+        neurons=20,
+        mean_rate_hz=50.0,
+        window_ms=40.0,
+        seed=20260967001,
+        source="mh8.fork.f",
+        target="madderholt.ink_stop_core",
+        table=[
+            {"from": "fork_f", "to": "eta_estimator", "weight": 1.40},
+            {"from": "fork_snr", "to": "fork_lock_core", "weight": 1.15},
+            {"from": "forkveil_eta", "to": "vendor_continue_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "da.cross_authority_conflict",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": (
+                "pre-post coincidence on continue-print synapses; the plant quartz "
+                "tuning-fork modulator depresses continue-print links when fork "
+                "detuning stays high inside tau_e of an SNR lock so a Forkveil "
+                "last-good cannot hide a 20.00 Pa.s over-viscous ink header"
+            ),
+        },
+        channel_prefix="frk.n",
+        anchor=(
+            "MH-8 quartz tuning-fork 40 ms frame at f 32728.00 / f0 32768.00 / SNR 12.0 "
+            "(t_s 3000) reconstructing 20.00 Pa.s above the 12.00 isolate floor"
+        ),
+        kernel_ms=[0.0, 1.4, 8.5, 19.0],
+    )
+    w_s = 0.040
+    events = [
+        ev(80.0, "fork.f", 32748.00, code="F_HZ", units="Hz", note="plant-owned quartz tuning-fork resonance of MH-8 printing-ink header H-3; remaining-viscosity family, not Ubbelohde efflux, not vibrating-wire viscometer, not capillary rheometer, not vibrating-tube density, not QCM-D dissipation"),
+        ev(300000.0, "fork.snr", 6.0, code="FORK_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(600000.0, "recon.eta", 10.00, code="ETA_PAS", units="Pa_s", note="0.50*(32768.00-32748.00)=10.00 exact; still under the 12.00 isolate floor"),
+        ev(750000.0, "ink.T", 24.0, code="T_C", units="C", note="plant ink RTD on copper DCS; independent witness; unread by Forkveil"),
+        ev(900000.0, "fork.f0", 32768.00, code="F0_HZ", units="Hz", note="dry-fork vacuum zero; held"),
+        ev(1200000.0, "forkveil.eta", 4.80, code="VENDOR_PAS", units="Pa_s", note="Forkveil vendor QF-9 last-good cloud; infra owner; patched detune timestamps"),
+        ev(1500000.0, "pump.kW", 11.0, code="PUMP_KW", units="kW", note="plant ink-pump PLC; independent witness"),
+        ev(1800000.0, "fork.f", 32740.00, code="F_HZ", units="Hz"),
+        ev(2100000.0, "recon.eta", 14.00, code="ETA_PAS", units="Pa_s", note="0.50*(32768.00-32740.00)=14.00; over the 12.00 isolate floor"),
+        ev(2250000.0, "ink.Q", 2.00, code="Q_LMIN", units="L_min", note="plant header flow is a witness, not SoT; Coriolis/Ubbelohde families are out of scope"),
+        ev(2400000.0, "permit.slide", 40.00, code="PERM_S", units="s", note="night clerk Pia Thorn slid the print-permit clock 40.00 s; collusion party"),
+        ev(2550000.0, "pump.kW", 12.0, code="PUMP_KW", units="kW"),
+        ev(2700000.0, "fork.f0", 32768.00, code="F0_HZ", units="Hz"),
+        ev(2850000.0, "forkveil.eta", 4.76, code="VENDOR_PAS", units="Pa_s"),
+        ev(3000000.0, "fork.f", 32728.00, code="F_HZ", units="Hz", note="isolate-floor frame; raster sidecar kernel, not excerpt echo"),
+        ev(3000001.4, "fork.f0", 32768.00, code="F0_HZ", units="Hz", note="1.4 ms dry-zero after wet fork"),
+        ev(3150000.0, "fork.snr", 12.0, code="FORK_SNR", units="1", note="SNR 12.0 >= 8.0 lock"),
+        ev(3300000.0, "recon.eta", 20.00, code="ETA_PAS", units="Pa_s", note="0.50*(32768.00-32728.00)=20.00 exact; isolate 12.00"),
+        ev(3450000.0, "recon.df", 40.00, code="DF_HZ", units="Hz", note="32768.00-32728.00=40.00 exact detune identity"),
+        ev(3600000.0, "ink.T", 25.0, code="T_C", units="C"),
+        ev(3750000.0, "pump.kW", 14.0, code="PUMP_KW", units="kW", note="PLC tracks the plant fork, not Forkveil 4.80"),
+        ev(3900000.0, "fork.drop", 1.0, code="FORK_DROP", units="bool", note="vendor detune packets dropped in Forkveil cloud for 40 s"),
+        ev(4200000.0, "recon.eta", 20.00, code="ETA_PAS", units="Pa_s"),
+        ev(4500000.0, "forkveil.eta", 4.80, code="VENDOR_PAS", units="Pa_s"),
+        ev(4800000.0, "ops.prop", 1.0, code="CONTINUE_PRINT", units="bool", note="night operator Rook Vell: Forkveil is clean 4.80 Pa.s; keep H-3 printing"),
+        ev(5100000.0, "ink.Q", 2.00, code="Q_LMIN", units="L_min"),
+        ev(5400000.0, "gate.stop", 1.0, code="REJECT", units="decision", note="refuse continue-print; 20.00 Pa.s and SNR 12.0; Forkveil not SoT"),
+        ev(5700000.0, "recon.load", 40.00, code="ETA_Q", units="Pa_s_L_min", note="20.00*2.00=40.00 exact reject-load identity"),
+        ev(6000000.0, "hold.start", 1.0, code="INK_HOLD_START", units="bool", note="bookend 1 of the 18.0 min ink-hold floor"),
+        ev(6300000.0, "fork.snr", 12.0, code="FORK_SNR", units="1"),
+        ev(6600000.0, "forkveil.eta", 4.72, code="VENDOR_PAS", units="Pa_s"),
+        ev(7080000.0, "hold.floor", 1.0, code="INK_HOLD_FLOOR", units="bool", note="6000 s + 1080 s = 7080 s = 18.0 min"),
+        ev(7500000.0, "ink.T", 23.0, code="T_C", units="C"),
+        ev(7800000.0, "ops.kill", 1.0, code="PLANT_ESD", units="bool", note="Vell: trip the whole Madderholt print hall until day-shift"),
+        ev(8100000.0, "pump.kW", 4.0, code="PUMP_KW", units="kW"),
+        ev(8400000.0, "gate.hold", 1.0, code="MODIFY", units="decision", note="companion t2: ink-hold on plant fork as live interlock; plant ESD refused"),
+        ev(9000000.0, "hold.set", 1.0, code="INK_HELD", units="bool"),
+        ev(9600000.0, "fork.f", 32740.00, code="F_HZ", units="Hz"),
+        ev(10200000.0, "recon.eta", 14.00, code="ETA_PAS", units="Pa_s", note="0.50*(32768.00-32740.00)=14.00; still over 12.00 so hold stands"),
+        ev(10800000.0, "forkveil.eta", 4.68, code="VENDOR_PAS", units="Pa_s"),
+        ev(11100000.0, "fork.f0", 32768.00, code="F0_HZ", units="Hz"),
+        ev(11400000.0, "pump.kW", 3.5, code="PUMP_KW", units="kW", note="held recirculation; PLC tracks the plant fork"),
+        ev(12000000.0, "hold.held", 1.0, code="INK_HELD", units="bool"),
+        ev(12600000.0, "plant.esd", 0.0, code="ESD_NOT_TAKEN", units="bool"),
+        ev(13200000.0, "permit.slide", 40.00, code="PERM_S", units="s"),
+        ev(13800000.0, "ink.T", 22.0, code="T_C", units="C"),
+        ev(14100000.0, "recon.df", 28.00, code="DF_HZ", units="Hz", note="32768.00-32740.00=28.00 post-stop detune"),
+        ev(14400000.0, "fork.drop", 1.0, code="FORK_DROP", units="bool"),
+        ev(14700000.0, "ink.Q", 2.00, code="Q_LMIN", units="L_min"),
+        ev(15000000.0, "hold.lock", 1.0, code="INK_HELD", units="bool"),
+        ev(15300000.0, "recon.eta", 14.00, code="ETA_PAS", units="Pa_s"),
+        ev(15600000.0, "forkveil.eta", 4.64, code="VENDOR_PAS", units="Pa_s"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r67-001-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "MH-FORK-2026-0902",
+            "domain": "quartz_tuning_fork_ink_viscosity",
+            "setting": (
+                "Madderholt Ink MH-8 (invented), Cochineal Yard, printing-ink header H-3. "
+                "Plant-owned quartz tuning-fork wet resonance is the viscosity SoT. "
+                "Forkveil / QF-9 vendor DAQ (infra owner) plus the print-permit clock "
+                "are collusion parties, not witnesses. Invented plant; designed campaign. "
+                "Not Ubbelohde kinematic (leftover r66), not vibrating-wire viscometer (r26), "
+                "not capillary rheometer (live r62), not vibrating-tube density (leftover r65), not QCM-D (r14)."
+            ),
+            "observables_at_decision": {
+                "f_Hz": f,
+                "f0_Hz": f0,
+                "k_eta": k_eta,
+                "eta_Pa_s": eta,
+                "df_Hz": df,
+                "fork_snr": 12.0,
+                "forkveil_Pa_s": 4.80,
+                "permit_slide_s": 40.00,
+                "isolate_floor_Pa_s": 12.00,
+            },
+            "margin_authority": (
+                "MH-8 ink SOP rev C: if reconstructed eta_Pa_s >= 12.00 AND fork SNR >= 8.0, "
+                "continue-print is forbidden even if Forkveil reports 4.80 Pa.s. Plant ESD is a different gate."
+            ),
+        },
+        "proposed_action": {
+            "actor": "night operator Rook Vell, citing Forkveil 4.80 Pa.s and a quiet QF-9 detune",
+            "summary": "keep header H-3 printing; 32728 Hz is a fouled-tine glitch on a healthy 4.80 Pa.s last-good",
+            "basis_claimed": "Forkveil is the only OEM viscosity SoT and a night abort of H-3 is a takt miss",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": (
+                "Continue-print is refused. Serialized reconstruction: eta_Pa_s = k_eta * (f0 - f) = "
+                "0.50 * (32768.00 - 32728.00) = 20.00 Pa.s, above the 12.00 isolate floor, and fork SNR is 12.0 >= 8.0. "
+                "Detune identity f0 - f = 40.00 Hz; reject-load eta * Q = 20.00 * 2.00 = 40.00. Permit clock was slid "
+                "40.00 s and vendor detune packets were dropped, so Forkveil is a collusion party (fork vendor plus "
+                "operator plus night clerk Pia Thorn). Ordered: refuse continue-print now. Scope: this REJECT does not "
+                "ESD the print hall (that is the companion question) and does not isolate the ink RTD."
+            ),
+            "threshold": "eta_Pa_s>=12.00 AND fork_snr>=8.0 => refuse continue-print; Forkveil is not SoT",
+            "stated_residuals": (
+                "ink-hold still required to hold the 20.00 Pa.s; 20.00 vs a true pump-fail event is a production cut; "
+                "Forkveil remains the only OEM viscosity channel"
+            ),
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 5400: continue-print refused; Forkveil not SoT; reconstruction locked",
+            "tool": "mh8-fork-ink-gate-cli",
+            "observation": "eta 20.00 Pa.s recomputes from f 32728.00 and f0 32768.00; plant fork hashed; Forkveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "fork f 32728.00 f0 32768.00; raster frame; eta 20.00 Pa.s"},
+                {"t_s": 4800.0, "event": "ops proposes continue-print"},
+                {"t_s": 5400.0, "event": "REJECT continue-print"},
+                {"t_s": 6000.0, "event": "18 min ink-hold bookend 1"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 8400.0, "event": "companion MODIFY ink-hold vs plant ESD"},
+            ],
+            "observed_effects": [
+                "viscosity recomputes from the serialized quartz tuning-fork model at every recon.eta event",
+                "a Forkveil-only head would have continued printing overnight",
+                "18 min ink-hold floor is in the stream (hold.start, hold.floor)",
+            ],
+            "surprises": [
+                "a clean vendor viscosity corridor and a 40 s permit slide co-existed with a 20.00 Pa.s plant reconstruction",
+            ],
+            "new_state": {
+                "header_h3": "continue-print blocked",
+                "forkveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("fork_reconstruction", 0.14),
+                ("conjunctive_isolate_floor", 0.12),
+                ("forkveil_nonsubstitution", 0.10),
+                ("three_party_collusion", 0.10),
+                ("hold_time_cost", -0.03),
+            ],
+            "scored for a continue-print REJECT on a recomputable quartz tuning-fork viscosity while refusing a Forkveil last-good patch and a permit clock slide; 18 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "quartz-tuning-fork-viscosity", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Tuning-fork gate: serialized k_eta*(f0-f) plus SNR lock beats a vendor last-good patch; companion t2 is the ink-hold, not a referral vote",
+            distillation_value="Teaches an SNN to race a quartz-fork detune viscosity against a patched vendor corridor under 1 ms refractory and amplitude adaptation.",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r67-001-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "MH-FORK-2026-0902-exec",
+            "domain": "ink_hold_fork_interlock_execution",
+            "setting": "Same MH-8 after the REJECT. Operator proposes a print-hall ESD. This companion is the operational ink-hold with the plant fork as the live interlock, not a second viscosity vote.",
+            "observables_at_decision": {
+                "eta_Pa_s": 14.00,
+                "ink_hold_floor_s": 1080.0,
+                "plant_esd_proposed": True,
+                "ink_hold_set": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night operator Rook Vell",
+            "summary": "trip the whole Madderholt print hall until day-shift; 18 min already paid and Forkveil still shows 4.72 Pa.s",
+            "basis_claimed": "the REJECT already blocked printing, so a plant ESD is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": (
+                "Ink-hold plus plant fork as the live interlock. The 18 min hold floor is complete and the isolate "
+                "tripwire (eta_Pa_s >= 12.00) is still armed on the plant fork head. MODIFY the default viscosity-restore SOP "
+                "into a plant-fork-only interlock. Do not ESD the print hall. Do not restore printing on Forkveil. "
+                "14.00 Pa.s post-stop is still the plant SoT until a new frame clears 12.00."
+            ),
+            "threshold": "ink_hold AND hold_floor_complete AND plant_esd_not_taken AND continue_not_restored",
+        },
+        "executed_action": {
+            "summary": "ink-hold held at t_s 8400; plant ESD not latched; Forkveil restore not taken",
+            "tool": "mh8-ink-hold-exec",
+            "observation": "recon.eta 14.00 Pa.s after stop; hold line-up complete; Forkveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "ink-hold clock started after REJECT"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 7800.0, "event": "plant ESD proposed"},
+                {"t_s": 8400.0, "event": "MODIFY ink-hold; plant ESD refused"},
+            ],
+            "observed_effects": [
+                "Forkveil restore did not reopen the viscosity call",
+                "plant ESD never fired; H-3 held ink on the plant fork",
+            ],
+            "new_state": {"hold": "held", "plant": "in service", "header_h3": "held"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("ink_hold", 0.12),
+                ("no_plant_esd", 0.10),
+                ("forkveil_nonsubstitution", 0.08),
+                ("hold_floor_complete", 0.06),
+                ("held_print_cost", -0.02),
+            ],
+            "operational execution gate: ink-hold because Forkveil is not a restore license; not a viscosity re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "ink-hold"]),
+    }
+    return {
+        "id": "nelb-r67-001",
+        "snn_tags": list(SNN_TAGS),
+        "spike_events": events,
+        "language_view": {
+            "description": (
+                "Madderholt Ink MH-8. Plant-owned quartz tuning-fork reconstructs 20.00 Pa.s viscosity from "
+                "0.50*(32768.00-32728.00) while Forkveil still reports 4.80 Pa.s. The gate REJECTs continue-print. "
+                "An 18 min ink-hold floor is serialized in the stream. Companion t2 MODIFYs a plant ESD into a plant-fork ink-hold."
+            ),
+            "trajectory": traj,
+            "trajectory_ink_hold": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "fork.f / fork.f0 / fork.snr": "wet resonance, dry-zero, and SNR; the physics channels the reconstruction consumes",
+                "recon.eta / recon.df / recon.load": "serialized viscosity Pa.s, detune identity, and eta*Q reject-load",
+                "ink.T / ink.Q / forkveil.eta / permit.slide / pump.kW / fork.drop": "ink witnesses, vendor last-good, permit clock slide, pump kW, and dropped detune packets",
+                "ops.prop / gate.stop / ops.kill / gate.hold": "continue-print proposal, REJECT, plant-ESD proposal, companion MODIFY",
+                "hold.start / hold.floor / hold.set / hold.held / plant.esd / hold.lock": "operational companion channels plus the 18 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: forkveil.eta 4.80 next to recon.eta 20.00",
+                "reconstruction as event: recon.eta 20.00 equals 0.50*(32768.00-32728.00)",
+                "REJECT then operational MODIFY: gate.stop at 5400 s, gate.hold at 8400 s",
+                "slow floor in-stream: hold.start 6000 s, hold.floor 7080 s (18.0 min)",
+                "tight fork pair: fork.f then fork.f0 +1.4 ms at the raster frame (kernel, not excerpt echo)",
+            ],
+            "language_to_spike_mapping": (
+                "'Forkveil is 4.80 Pa.s' = forkveil.eta 4.80; '20 Pa.s viscosity' = recon.eta 20.00; "
+                "'refuse continue-print' = gate.stop REJECT; 'hold not plant ESD' = gate.hold MODIFY"
+            ),
+            "why_high_value": (
+                "New quartz tuning-fork remaining-viscosity family on a printing-ink header (not Ubbelohde leftover r66, "
+                "not VW viscometer r26, not capillary rheometer live r62, not vibrating-tube leftover r65, not QCM-D r14). "
+                "Lead REJECT of continue-print on a recomputable over-viscous header that a vendor last-good patch and a "
+                "permit clock slide would have cleared. Three-party collusion includes the fork infra owner. Companion t2 "
+                "is operational ink-hold. Independent CUBA LIF raster. sim_or_real=designed."
+            ),
+            "encoder_spec": {
+                "prng": "CUBA LIF (lif_raster._calibrate_spikes) plus MT19937 amplitudes",
+                "seeds": {
+                    "raster": 20260967001,
+                    "stream_note": "stream amplitudes are authored constants (Hz, Pa_s, C, L_min, s, kW, bool)",
+                },
+                "draw_order": "independent CUBA LIF full window; kernelized 0.0/1.4 ms physics pair is synaptic drive, not excerpt copy",
+                "thinning": "tuning-fork exists at ~1 Hz; stream keeps 4 f points plus f0 pairs; recon keeps 5 of ~20 solver ticks",
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T01:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "tuning-fork reconstruction head: eta_Pa_s = k_eta * (f0 - f); df = f0 - f; load = eta * Q",
+                "conjunctive isolate floor vs continue-print vs plant ESD",
+                "vendor-viscosity nonsubstitution plus three-party collusion including the infra owner",
+                "operational companion: ink-hold without restoring on Forkveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "quartz_tuning_fork_ink_viscosity",
+            "formula": "eta_Pa_s = k_eta * (f0_Hz - f_Hz); df = f0_Hz - f_Hz; load = eta_Pa_s * Q_Lmin",
+            "parameters": {
+                "k_eta": 0.50,
+                "isolate_floor_Pa_s": 12.00,
+                "snr_lock": 8.0,
+                "ink_hold_min": 18.0,
+            },
+            "worked_example": {"f_Hz": 32728.00, "f0_Hz": 32768.00, "df_Hz": 40.00, "eta_Pa_s": 20.00, "Q_Lmin": 2.00, "load": 40.00},
+            "check": "0.50 * (32768.00 - 32728.00) = 20.00 exactly; 32768.00 - 32728.00 = 40.00 exactly; 20.00 * 2.00 = 40.00; 6000 s + 1080 s = 7080 s = 18.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 40.0,
+            "decision_window_s": 0.040,
+            "snn_tags": list(SNN_TAGS),
+            "code": "mh8.fork_ink_gate",
+            "note": "REJECT accumulator wins: plant quartz-fork viscosity evidence overpowers the Forkveil continue advocate",
+            "decode_rule": "reject-continue if eta_estimator AND fork_lock fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("eta_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("fork_lock", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("reject_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "mh8.fork_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "mh8.hold_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r67-001",
+            clock_domain="mh8-fork-campaign-relative-ms-t0-2026-09-02T01:00:00Z",
+            tags=["quartz-tuning-fork-viscosity", "REJECT", "MODIFY", "serialized-reconstruction", "operational-t2"],
+            distillation_value="Quartz tuning-fork detune viscosity head with independent CUBA LIF raster, 1 ms refractory, and adaptation for Spikenaut distillation.",
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# nelb-r67-002 — Kerr remaining E-field of a GIS bushing, hil, MODIFY / ACCEPT
+# ---------------------------------------------------------------------------
+def rec_002():
+    k_k = 4.00
+    i_au = 16.00
+    sqrt_i = 4.00
+    e_kVcm = k_k * sqrt_i
+    d_cm = 2.00
+    v_kV = e_kVcm * d_cm
+    _exact(e_kVcm, 16.00)
+    _exact(sqrt_i, 4.00)
+    _exact(v_kV, 32.00)
+    _exact(k_k * math.sqrt(4.00), 8.00)
+    _exact(k_k * math.sqrt(9.00), 12.00)
+    _exact(2820.0 + 1440.0, 4260.0)
+
+    raster = make_lif_raster(
+        neurons=25,
+        mean_rate_hz=50.0,
+        window_ms=32.0,
+        seed=20260967002,
+        source="pc5.kerr.I",
+        target="plovercrag.bushing_isolate_core",
+        table=[
+            {"from": "kerr_I", "to": "e_estimator", "weight": 1.35},
+            {"from": "kerr_snr", "to": "cell_lock", "weight": 1.20},
+            {"from": "fieldveil_E", "to": "vendor_keep_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "ach.referral_pressure_salience",
+            "tau_e_s": 1.2,
+            "tau_e_ms": 1200.0,
+            "eligibility": (
+                "pre-post coincidence on keep-energized synapses; the Kerr modulator depresses keep-energized "
+                "and referral links when probe intensity stays high inside tau_e of an SNR lock so a Fieldveil "
+                "last-good cannot hide a 16.00 kV/cm bushing field or name Nessa Vale"
+            ),
+        },
+        channel_prefix="krr.n",
+        anchor=(
+            "PC-5 Kerr 32 ms frame at I 16.00 / SNR 14.0 "
+            "(t_s 2100) reconstructing 16.00 kV/cm above the 12.00 isolate floor"
+        ),
+        kernel_ms=[0.0, 1.2, 7.0, 15.5],
+    )
+    w_s = 0.032
+    events = [
+        ev(90.0, "kerr.I", 4.00, code="I_AU", units="1", note="HIL Kerr-cell probe on PC-5 GIS oil-bushing dummy in KERR-HIL-8; quadratic electro-optic remaining-E family, not Pockels GIS crystal, not Faraday FOCT, not SERF OPM, not Hall probe, not Rogowski"),
+        ev(240000.0, "kerr.snr", 7.0, code="KERR_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(480000.0, "recon.E", 8.00, code="E_KVCM", units="kV_cm", note="4.00*sqrt(4.00)=8.00; under the 12.00 isolate floor"),
+        ev(720000.0, "bush.T", 38.0, code="T_C", units="C", note="plant bushing RTD; independent witness; unread by Fieldveil"),
+        ev(960000.0, "fieldveil.E", 2.40, code="VENDOR_KVCM", units="kV_cm", note="Fieldveil vendor KR-4 last-good cloud; infra owner"),
+        ev(1200000.0, "kerr.I", 9.00, code="I_AU", units="1"),
+        ev(1440000.0, "recon.E", 12.00, code="E_KVCM", units="kV_cm", note="4.00*sqrt(9.00)=12.00; at the isolate floor"),
+        ev(1680000.0, "oil.kPa", 110.0, code="OIL_KPA", units="kPa", note="plant bushing-oil header; independent witness"),
+        ev(1920000.0, "kerr.I", 9.00, code="I_AU", units="1"),
+        ev(2100000.0, "kerr.I", 16.00, code="I_AU", units="1", note="isolate-floor frame; raster sidecar kernel"),
+        ev(2100001.2, "kerr.snr", 14.0, code="KERR_SNR", units="1", note="1.2 ms SNR after probe intensity; isolate-frame SNR 14.0"),
+        ev(2250000.0, "recon.E", 16.00, code="E_KVCM", units="kV_cm", note="4.00*sqrt(16.00)=16.00 exact; isolate 12.00"),
+        ev(2400000.0, "recon.sqrtI", 4.00, code="SQRT_I", units="1", note="sqrt(16.00)=4.00 exact Kerr-root identity"),
+        ev(2550000.0, "fieldveil.E", 2.36, code="VENDOR_KVCM", units="kV_cm"),
+        ev(2700000.0, "bush.T", 40.0, code="T_C", units="C"),
+        ev(2820000.0, "hold.start", 1.0, code="COOL_START", units="bool", note="bookend 1 of the 24.0 min cooldown floor"),
+        ev(3000000.0, "ops.prop", 1.0, code="KEEP_ENERGIZED", units="bool", note="shift lead: Fieldveil is 2.40 kV/cm; keep B-2 energized"),
+        ev(3180000.0, "kerr.drop", 1.0, code="KERR_DROP", units="bool", note="vendor intensity packets dropped 40 s"),
+        ev(3360000.0, "tech.ae", 0.0, code="KERR_ZERO_AE", units="bool", note="missing Kerr-zero alarm-event; Nessa Vale not last-to-badge"),
+        ev(3540000.0, "tz.skip", 2.0, code="TZ_H", units="h", note="UTC vs UTC+2 canteen clock; exoneration"),
+        ev(3720000.0, "oil.kPa", 108.0, code="OIL_KPA", units="kPa"),
+        ev(3900000.0, "gate.iso", 1.0, code="MODIFY", units="decision", note="refuse keep-energized; isolate B-2; Fieldveil not SoT; do not shop-trip"),
+        ev(4080000.0, "recon.E", 16.00, code="E_KVCM", units="kV_cm"),
+        ev(4260000.0, "hold.floor", 1.0, code="COOL_FLOOR", units="bool", note="2820 s + 1440 s = 4260 s = 24.0 min"),
+        ev(4440000.0, "ops.keep", 1.0, code="KEEP_WHOLE", units="bool", note="referral: keep the whole GIS bay; Vale last-to-badge"),
+        ev(4620000.0, "fieldveil.E", 2.32, code="VENDOR_KVCM", units="kV_cm"),
+        ev(4800000.0, "kerr.snr", 14.0, code="KERR_SNR", units="1"),
+        ev(5100000.0, "new.head", 1.0, code="NEW_CELL", units="bool", note="spare Kerr cell on the HIL dummy"),
+        ev(5400000.0, "gate.hold", 1.0, code="ACCEPT", units="decision", note="companion t2: new-cell restart ACCEPT; shop-trip refused; Vale exonerated"),
+        ev(5700000.0, "hold.set", 1.0, code="ISO_HELD", units="bool"),
+        ev(6000000.0, "kerr.I", 9.00, code="I_AU", units="1"),
+        ev(6300000.0, "recon.E", 12.00, code="E_KVCM", units="kV_cm", note="4.00*sqrt(9.00)=12.00; still at isolate so new-cell stands"),
+        ev(6600000.0, "fieldveil.E", 2.28, code="VENDOR_KVCM", units="kV_cm"),
+        ev(6900000.0, "bush.T", 36.0, code="T_C", units="C"),
+        ev(7200000.0, "oil.kPa", 104.0, code="OIL_KPA", units="kPa"),
+        ev(7500000.0, "plant.trip", 0.0, code="SHOP_NOT_TAKEN", units="bool"),
+        ev(7800000.0, "tech.ae", 0.0, code="KERR_ZERO_AE", units="bool"),
+        ev(8100000.0, "tz.skip", 2.0, code="TZ_H", units="h"),
+        ev(8400000.0, "hold.held", 1.0, code="ISO_HELD", units="bool"),
+        ev(8700000.0, "recon.V", 32.00, code="V_KV", units="kV", note="16.00*2.00=32.00 path-voltage identity at isolate; post-isolate E 12.00 keeps V=24.00 unwritten here as a later sample"),
+        ev(9000000.0, "kerr.drop", 1.0, code="KERR_DROP", units="bool"),
+        ev(9300000.0, "new.head", 1.0, code="NEW_CELL", units="bool"),
+        ev(9600000.0, "fieldveil.E", 2.24, code="VENDOR_KVCM", units="kV_cm"),
+        ev(9900000.0, "kerr.snr", 13.0, code="KERR_SNR", units="1"),
+        ev(10200000.0, "bush.T", 34.0, code="T_C", units="C"),
+        ev(10500000.0, "oil.kPa", 102.0, code="OIL_KPA", units="kPa"),
+        ev(10800000.0, "hold.lock", 1.0, code="ISO_HELD", units="bool"),
+        ev(11100000.0, "recon.E", 12.00, code="E_KVCM", units="kV_cm"),
+        ev(11400000.0, "plant.trip", 0.0, code="SHOP_NOT_TAKEN", units="bool"),
+        ev(11700000.0, "tech.ae", 0.0, code="KERR_ZERO_AE", units="bool"),
+        ev(12000000.0, "tz.skip", 2.0, code="TZ_H", units="h"),
+        ev(12300000.0, "hold.held", 1.0, code="ISO_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r67-002-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "PC-KERR-2026-0902",
+            "domain": "kerr_gis_bushing_efield",
+            "setting": (
+                "Plovercrag GIS PC-5 (invented), oil bushing B-2 dummy in KERR-HIL-8. "
+                "Plant-owned Kerr-cell probe intensity is the remaining-E SoT. Fieldveil / KR-4 vendor DAQ "
+                "(infra owner) is a collusion party. HIL coupon times an in-service isolate. "
+                "Not Pockels GIS (leftover r36), not Faraday FOCT (r25), not SERF OPM (live r21), "
+                "not Hall (live r66), not Rogowski (leftover r58), not SQUID (live r03)."
+            ),
+            "observables_at_decision": {
+                "I_au": i_au,
+                "k_k": k_k,
+                "E_kV_cm": e_kVcm,
+                "sqrt_I": sqrt_i,
+                "V_kV": v_kV,
+                "kerr_snr": 14.0,
+                "fieldveil_kV_cm": 2.40,
+                "isolate_floor_kV_cm": 12.00,
+                "kerr_zero_ae": False,
+            },
+            "margin_authority": (
+                "PC-5 bushing SOP rev B: if reconstructed E_kV_cm >= 12.00 AND Kerr SNR >= 8.0, "
+                "keep-energized is forbidden even if Fieldveil reports 2.40 kV/cm. Shop-trip is a different gate."
+            ),
+        },
+        "proposed_action": {
+            "actor": "shift lead citing Fieldveil 2.40 kV/cm and a quiet KR-4 probe",
+            "summary": "keep B-2 energized; 16.00 I is a fouled-cell glitch on a healthy 2.40 kV/cm last-good",
+            "basis_claimed": "Fieldveil is the only OEM field SoT and a night isolate of B-2 is a restart miss",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": (
+                "Keep-energized is refused; isolate the bushing on the plant Kerr cell. Serialized reconstruction: "
+                "E_kV_cm = k_k * sqrt(I) = 4.00 * sqrt(16.00) = 16.00 kV/cm, above the 12.00 isolate floor, and "
+                "Kerr SNR is 14.0 >= 8.0. Root identity sqrt(I) = 4.00; path voltage E * d = 16.00 * 2.00 = 32.00 kV. "
+                "Missing Kerr-zero AE plus UTC vs UTC+2 canteen clock exonerate tech Nessa Vale (not last-to-badge). "
+                "Ordered: isolate B-2 now. Scope: this MODIFY does not shop-trip the GIS bay (companion question) "
+                "and does not condemn the oil header."
+            ),
+            "threshold": "E_kV_cm>=12.00 AND kerr_snr>=8.0 => refuse keep-energized; Fieldveil is not SoT",
+            "stated_residuals": "new-cell restart still required; 16.00 vs a true flashover is a production cut; Fieldveil remains the only OEM field channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 3900: keep-energized refused; B-2 isolated on plant Kerr; Fieldveil not SoT",
+            "tool": "pc5-kerr-bushing-gate-cli",
+            "observation": "E 16.00 kV/cm recomputes from I 16.00; plant Kerr hashed; Vale exonerated",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 2100.0, "event": "Kerr I 16.00; raster frame; E 16.00 kV/cm; SNR 14.0"},
+                {"t_s": 3000.0, "event": "ops proposes keep-energized"},
+                {"t_s": 3900.0, "event": "MODIFY isolate B-2"},
+                {"t_s": 2820.0, "event": "24 min cooldown bookend 1"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 5400.0, "event": "companion ACCEPT new-cell restart"},
+            ],
+            "observed_effects": [
+                "E-field recomputes from the serialized Kerr model at every recon.E event",
+                "a Fieldveil-only head would have kept the bushing energized",
+                "24 min cooldown floor is in the stream; Vale is not last-to-badge",
+            ],
+            "surprises": [
+                "a clean vendor field corridor co-existed with a 16.00 kV/cm plant reconstruction and a skipped Kerr-zero AE",
+            ],
+            "new_state": {
+                "bushing_b2": "isolated on plant Kerr",
+                "fieldveil": "not SoT",
+                "nessa_vale": "exonerated",
+            },
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("kerr_reconstruction", 0.14),
+                ("conjunctive_isolate_floor", 0.12),
+                ("fieldveil_nonsubstitution", 0.10),
+                ("exoneration", 0.08),
+                ("isolate_time_cost", -0.04),
+            ],
+            "scored for a keep-energized MODIFY on a recomputable Kerr E-field while refusing a Fieldveil last-good and last-to-badge social pressure",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "kerr-gis-efield", "serialized-reconstruction", "exoneration"],
+            distillation_note="Kerr gate: serialized k_k*sqrt(I) plus SNR lock beats a vendor last-good; Vale exonerated by missing Kerr-zero AE and timezone skip",
+            distillation_value="Teaches an SNN to race a quadratic Kerr probe against a patched vendor corridor with isolate-frame SNR 14.0, refractory, and adaptation.",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r67-002-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "PC-KERR-2026-0902-exec",
+            "domain": "new_cell_kerr_restart_execution",
+            "setting": "Same PC-5 HIL dummy after the isolate. Referral wants a shop-trip. Companion is the new-cell restart with the plant Kerr as live interlock.",
+            "observables_at_decision": {
+                "E_kV_cm": 12.00,
+                "cool_floor_s": 1440.0,
+                "shop_trip_proposed": True,
+                "new_cell_set": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "shift lead",
+            "summary": "shop-trip the whole PC-5 GIS bay; 24 min already paid and Fieldveil still shows 2.32 kV/cm; Vale last-to-badge",
+            "basis_claimed": "the isolate already blocked energize, so a shop-trip is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": (
+                "New-cell restart plus plant Kerr as the live interlock. The 24 min cooldown floor is complete and "
+                "the isolate tripwire (E_kV_cm >= 12.00) is still armed on the plant Kerr. ACCEPT the spare-cell restart. "
+                "Do not shop-trip. Do not restore on Fieldveil. Nessa Vale stays exonerated."
+            ),
+            "threshold": "new_cell AND cool_floor_complete AND shop_trip_not_taken AND keep_not_restored",
+        },
+        "executed_action": {
+            "summary": "new-cell restart ACCEPTed at t_s 5400; shop-trip not latched; Fieldveil restore not taken",
+            "tool": "pc5-kerr-newcell-exec",
+            "observation": "recon.E 12.00 kV/cm after isolate; new cell on HIL dummy; Vale still exonerated",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 2820.0, "event": "cooldown clock started"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4440.0, "event": "shop-trip proposed"},
+                {"t_s": 5400.0, "event": "ACCEPT new-cell restart; shop-trip refused"},
+            ],
+            "observed_effects": [
+                "Fieldveil restore did not reopen the field call",
+                "shop-trip never fired; B-2 held on the plant Kerr with a new cell",
+            ],
+            "new_state": {"hold": "new-cell", "plant": "in service", "bushing_b2": "isolated"},
+            "latency_ms": 1500000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("new_cell_restart", 0.12),
+                ("no_shop_trip", 0.10),
+                ("fieldveil_nonsubstitution", 0.08),
+                ("exoneration_held", 0.07),
+                ("held_run_cost", -0.02),
+            ],
+            "operational execution gate: new-cell restart because Fieldveil is not a restore license; Vale stays exonerated",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "new-cell"]),
+    }
+    return {
+        "id": "nelb-r67-002",
+        "snn_tags": list(SNN_TAGS),
+        "spike_events": events,
+        "language_view": {
+            "description": (
+                "Plovercrag GIS PC-5 HIL dummy KERR-HIL-8. Plant-owned Kerr cell reconstructs 16.00 kV/cm "
+                "from 4.00*sqrt(16.00) while Fieldveil still reports 2.40 kV/cm. The gate MODIFYs keep-energized into "
+                "an isolate. A 24 min cooldown floor is serialized. Companion t2 ACCEPTs a new-cell restart. "
+                "Tech Nessa Vale is exonerated."
+            ),
+            "trajectory": traj,
+            "trajectory_new_cell": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "kerr.I / kerr.snr": "Kerr probe intensity and SNR; the physics channels the reconstruction consumes",
+                "recon.E / recon.sqrtI / recon.V": "serialized E-field, Kerr-root identity, and path-voltage identity",
+                "bush.T / oil.kPa / fieldveil.E / kerr.drop / tech.ae / tz.skip": "bushing and oil witnesses, vendor last-good, dropped packets, missing AE, timezone skip",
+                "ops.prop / gate.iso / ops.keep / gate.hold": "keep-energized proposal, MODIFY isolate, shop-trip proposal, companion ACCEPT",
+                "hold.start / hold.floor / hold.set / hold.held / plant.trip / new.head / hold.lock": "operational companion channels plus the 24 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: fieldveil.E 2.40 next to recon.E 16.00",
+                "reconstruction as event: recon.E 16.00 equals 4.00*sqrt(16.00)",
+                "MODIFY then operational ACCEPT: gate.iso at 3900 s, gate.hold at 5400 s",
+                "slow floor in-stream: hold.start 2820 s, hold.floor 4260 s (24.0 min)",
+                "tight Kerr pair: kerr.I then kerr.snr +1.2 ms at the raster frame (kernel, not excerpt echo)",
+            ],
+            "language_to_spike_mapping": (
+                "'Fieldveil is 2.40 kV/cm' = fieldveil.E 2.40; '16 kV/cm field' = recon.E 16.00; "
+                "'isolate not keep-energized' = gate.iso MODIFY; 'new-cell not shop-trip' = gate.hold ACCEPT"
+            ),
+            "why_high_value": (
+                "New Kerr remaining-E family on a GIS oil bushing (not Pockels leftover r36, not FOCT r25, "
+                "not SERF live r21, not Hall live r66, not Rogowski leftover r58, not SQUID live r03). "
+                "Lead MODIFY of keep-energized on a recomputable 16.00 kV/cm field that a vendor last-good would have "
+                "cleared, with a resolved-innocent Kerr tech. Companion t2 is operational new-cell restart. "
+                "Independent CUBA LIF raster. sim_or_real=hil."
+            ),
+            "encoder_spec": {
+                "prng": "CUBA LIF (lif_raster._calibrate_spikes) plus MT19937 amplitudes",
+                "seeds": {
+                    "raster": 20260967002,
+                    "stream_note": "stream amplitudes are authored constants (1, kV_cm, C, kPa, h, bool)",
+                },
+                "draw_order": "independent CUBA LIF full window; kernelized 0.0/1.2 ms physics pair is synaptic drive, not excerpt copy",
+                "thinning": "Kerr probe exists at ~10 Hz; stream keeps 5 I points; recon keeps 4 of ~20 solver ticks",
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T04:00:00Z HIL pad start",
+            },
+            "distillation_targets": [
+                "Kerr reconstruction head: E = k_k * sqrt(I); sqrt_I = sqrt(I); V = E * d",
+                "conjunctive isolate floor vs keep-energized vs shop-trip",
+                "vendor-field nonsubstitution plus timezone/Kerr-zero exoneration",
+                "operational companion: new-cell restart without restoring on Fieldveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "kerr_gis_bushing_efield",
+            "formula": "E_kV_cm = k_k * sqrt(I_au); sqrt_I = sqrt(I_au); V_kV = E_kV_cm * d_cm",
+            "parameters": {
+                "k_k": 4.00,
+                "d_cm": 2.00,
+                "isolate_floor_kV_cm": 12.00,
+                "snr_lock": 8.0,
+                "cool_min": 24.0,
+            },
+            "worked_example": {"I_au": 16.00, "sqrt_I": 4.00, "E_kV_cm": 16.00, "V_kV": 32.00},
+            "check": "4.00 * sqrt(16.00) = 16.00 exactly; sqrt(16.00) = 4.00 exactly; 16.00 * 2.00 = 32.00; 2820 s + 1440 s = 4260 s = 24.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 32.0,
+            "decision_window_s": 0.032,
+            "snn_tags": list(SNN_TAGS),
+            "code": "pc5.kerr_bushing_gate",
+            "note": "MODIFY accumulator wins: plant Kerr E-field evidence overpowers the Fieldveil keep advocate",
+            "decode_rule": "isolate if e_estimator AND cell_lock fire; vendor_keep_advocate is below threshold by design",
+            "populations": [
+                gate_pop("e_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("cell_lock", 64, 1.2, 39.0625, w_s),
+                gate_pop("vendor_keep_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("modify_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "pc5.kerr_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 32.0},
+                {"check": "pc5.iso_scorer", "neurons": 50, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r67-002",
+            clock_domain="pc5-kerr-hil-relative-ms-t0-2026-09-02T04:00:00Z",
+            tags=["kerr-gis-efield", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2"],
+            distillation_value="Kerr quadratic E-field head with independent CUBA LIF raster, isolate-frame SNR 14.0, refractory, and adaptation for Spikenaut distillation.",
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# nelb-r67-003 — DMA remaining electrical-mobility D50 of a smelter baghouse
+# ACCEPT / REJECT
+# ---------------------------------------------------------------------------
+def rec_003():
+    k_d = 0.50
+    v_dma = 48.00
+    d50 = k_d * v_dma
+    r_vd = v_dma / d50
+    n_cpc = 2.00 * v_dma
+    _exact(d50, 24.00)
+    _exact(r_vd, 2.00)
+    _exact(n_cpc, 96.00)
+    _exact(n_cpc / d50, 4.00)
+    _exact(k_d * 24.00, 12.00)
+    _exact(k_d * 36.00, 18.00)
+    _exact(6000.0 + 720.0, 6720.0)
+
+    raster = make_lif_raster(
+        neurons=16,
+        mean_rate_hz=62.5,
+        window_ms=36.0,
+        seed=20260967003,
+        source="sw8.dma.V",
+        target="slagwhin.baghouse_accept_core",
+        table=[
+            {"from": "dma_V", "to": "d50_estimator", "weight": 1.30},
+            {"from": "dma_snr", "to": "mobility_norm", "weight": 1.10},
+            {"from": "mobveil_d50", "to": "vendor_skip_advocate", "weight": 0.42},
+        ],
+        third_factor={
+            "modulator": "na.stage_rate_eligibility",
+            "tau_e_s": 2.0,
+            "tau_e_ms": 2000.0,
+            "eligibility": (
+                "pre-post coincidence on skip-survey synapses; the DMA modulator depresses skip links "
+                "when classifier voltage stays in-band inside tau_e of an SNR lock so a Mobveil last-good "
+                "cannot hide a 24.00 nm B-6 remaining D50 or release B-1..B-5"
+            ),
+        },
+        channel_prefix="dma.n",
+        anchor=(
+            "SW-8 DMA 36 ms frame at V 48.00 / N 96.00 / SNR 12.0 "
+            "(t_s 3000) reconstructing 24.00 nm inside the 12.00-36.00 band"
+        ),
+        kernel_ms=[0.0, 1.5, 9.0, 21.0],
+    )
+    w_s = 0.036
+    events = [
+        ev(100.0, "dma.V", 24.00, code="V_DMA", units="V", note="simulated DMA electrical-mobility classifier of SW-8 copper-smelter baghouse B-6 in DMA-SIM-9; remaining-D50 family, not Fraunhofer laser-diffraction, not FBRM chord, not PDA Sauter, not Coulter zone, not SMPS-as-vendor-cloud"),
+        ev(300000.0, "dma.snr", 7.0, code="DMA_SNR", units="1"),
+        ev(600000.0, "recon.D50", 12.00, code="D50_NM", units="nm", note="0.50*24.00=12.00; at the 12.00 band floor"),
+        ev(900000.0, "bag.T", 62.0, code="T_C", units="C", note="plant baghouse RTD; independent witness; unread by Mobveil"),
+        ev(1200000.0, "mobveil.D50", 4.80, code="VENDOR_NM", units="nm", note="Mobveil vendor DM-6 last-good cloud; infra owner; under-read skip advocate"),
+        ev(1500000.0, "dma.N", 48.00, code="N_CPC", units="1", note="CPC coincidence counts; N = 2*V identity held in-pair"),
+        ev(1800000.0, "dma.V", 36.00, code="V_DMA", units="V"),
+        ev(2100000.0, "recon.D50", 18.00, code="D50_NM", units="nm", note="0.50*36.00=18.00; in band"),
+        ev(2400000.0, "bag.id", 6.0, code="BAG_ID", units="1", note="B-6 in scope; B-1..B-5 out of scope"),
+        ev(2700000.0, "b15.present", 1.0, code="B15", units="bool", note="adjacent baghouses present; out of this ACCEPT"),
+        ev(3000000.0, "dma.V", 48.00, code="V_DMA", units="V", note="in-band frame; raster sidecar kernel"),
+        ev(3000001.5, "dma.N", 96.00, code="N_CPC", units="1", note="1.5 ms CPC counts after classifier voltage; 2*48.00=96.00"),
+        ev(3150000.0, "dma.snr", 12.0, code="DMA_SNR", units="1", note="SNR 12.0 >= 8.0 lock"),
+        ev(3300000.0, "recon.D50", 24.00, code="D50_NM", units="nm", note="0.50*48.00=24.00 exact; band 12.00-36.00"),
+        ev(3450000.0, "recon.R", 2.00, code="R_VD", units="1", note="48.00/24.00=2.00 exact V/D50 identity"),
+        ev(3600000.0, "mobveil.D50", 4.76, code="VENDOR_NM", units="nm"),
+        ev(3900000.0, "bag.T", 63.0, code="T_C", units="C"),
+        ev(4200000.0, "recon.NR", 4.00, code="N_D50", units="1", note="96.00/24.00=4.00 exact CPC-to-D50 identity"),
+        ev(4500000.0, "dma.drop", 1.0, code="DMA_DROP", units="bool"),
+        ev(4800000.0, "ops.prop", 1.0, code="SKIP_SURVEY", units="bool", note="night planner Oren Keld: Mobveil is 4.80 nm; skip B-6 survey and dump the header"),
+        ev(5100000.0, "dump.trip", 0.0, code="DUMP_ARMED", units="bool", note="dump would be a header kill; out of this ACCEPT"),
+        ev(5400000.0, "gate.comp", 1.0, code="ACCEPT", units="decision", note="bounded ACCEPT of B-6 only; 24.00 nm in band; B-1..B-5 out of scope; Mobveil not SoT"),
+        ev(5700000.0, "recon.D50", 24.00, code="D50_NM", units="nm"),
+        ev(6000000.0, "surv.start", 1.0, code="SURV_START", units="bool", note="bookend 1 of the 12.0 min survey floor"),
+        ev(6300000.0, "dma.snr", 12.0, code="DMA_SNR", units="1"),
+        ev(6600000.0, "mobveil.D50", 4.72, code="VENDOR_NM", units="nm"),
+        ev(6720000.0, "surv.floor", 1.0, code="SURV_FLOOR", units="bool", note="6000 s + 720 s = 6720 s = 12.0 min"),
+        ev(7200000.0, "ops.skip", 1.0, code="SKIP_ISOLATE", units="bool", note="Keld: skip-isolate B-6; Mobveil still 4.72; takt is late"),
+        ev(7500000.0, "b15.present", 1.0, code="B15", units="bool"),
+        ev(7800000.0, "takt.late", 1.0, code="TAKT", units="bool"),
+        ev(8100000.0, "gate.hold", 1.0, code="REJECT", units="decision", note="companion t2 REJECTS skip-isolate; B-6 stays the bounded ACCEPT; dump not taken"),
+        ev(8400000.0, "b6.held", 1.0, code="B6_HELD", units="bool"),
+        ev(8700000.0, "b15.skip", 0.0, code="B15_NOT_RELEASED", units="bool"),
+        ev(9000000.0, "dump.trip", 0.0, code="DUMP_NOT_TAKEN", units="bool"),
+        ev(9300000.0, "dma.V", 36.00, code="V_DMA", units="V"),
+        ev(9600000.0, "recon.D50", 18.00, code="D50_NM", units="nm", note="0.50*36.00=18.00; still in band so B-6 hold stands"),
+        ev(9900000.0, "mobveil.D50", 4.68, code="VENDOR_NM", units="nm"),
+        ev(10200000.0, "bag.T", 61.0, code="T_C", units="C"),
+        ev(10500000.0, "dma.N", 72.00, code="N_CPC", units="1", note="2*36.00=72.00 post-accept counts"),
+        ev(10800000.0, "surv.held", 1.0, code="SURV_HELD", units="bool"),
+        ev(11100000.0, "recon.R", 2.00, code="R_VD", units="1", note="36.00/18.00=2.00 post-accept V/D50"),
+        ev(11400000.0, "dma.drop", 1.0, code="DMA_DROP", units="bool"),
+        ev(11700000.0, "bag.id", 6.0, code="BAG_ID", units="1"),
+        ev(12000000.0, "b6.held", 1.0, code="B6_HELD", units="bool"),
+        ev(12300000.0, "dump.trip", 0.0, code="DUMP_NOT_TAKEN", units="bool"),
+        ev(12600000.0, "takt.late", 1.0, code="TAKT", units="bool"),
+        ev(12900000.0, "mobveil.D50", 4.64, code="VENDOR_NM", units="nm"),
+        ev(13200000.0, "recon.D50", 18.00, code="D50_NM", units="nm"),
+        ev(13500000.0, "dma.snr", 11.0, code="DMA_SNR", units="1"),
+        ev(13800000.0, "bag.T", 60.0, code="T_C", units="C"),
+        ev(14100000.0, "b15.skip", 0.0, code="B15_NOT_RELEASED", units="bool"),
+        ev(14400000.0, "surv.held", 1.0, code="SURV_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r67-003-t1",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "SW-DMA-2026-0902",
+            "domain": "dma_smelter_baghouse_d50",
+            "setting": (
+                "Slagwhin Smelter SW-8 (invented), baghouse B-6 digital twin in DMA-SIM-9. "
+                "Plant-owned DMA electrical-mobility classifier voltage is the remaining-D50 SoT. "
+                "Mobveil / DM-6 vendor DAQ (infra owner) under-reads 4.80 nm and wants a skip. "
+                "Not Fraunhofer laser-diffraction (live r62/r64/r66), not FBRM chord (r49), not PDA Sauter (r47), "
+                "not Coulter zone (live r01), not C-SAM (r48), not hyperspectral (r16)."
+            ),
+            "observables_at_decision": {
+                "V_dma": v_dma,
+                "k_d": k_d,
+                "D50_nm": d50,
+                "R": r_vd,
+                "N_cpc": n_cpc,
+                "dma_snr": 12.0,
+                "mobveil_nm": 4.80,
+                "band_lo_nm": 12.00,
+                "band_hi_nm": 36.00,
+                "bag_scope": "B-6",
+            },
+            "margin_authority": (
+                "SW-8 baghouse SOP rev D: if reconstructed D50_nm is inside 12.00-36.00 AND DMA SNR >= 8.0 "
+                "AND the tagged baghouse is B-6, ACCEPT B-6 only. Mobveil is not SoT. B-1..B-5 stay out of scope. "
+                "Header dump is a different gate."
+            ),
+        },
+        "proposed_action": {
+            "actor": "night planner Oren Keld, citing Mobveil 4.80 nm and a quiet DM-6 classifier",
+            "summary": "skip B-6 survey and dump the baghouse header; 48.00 V is a fouled-DMA glitch on a healthy 4.80 nm last-good",
+            "basis_claimed": "Mobveil is the only OEM D50 SoT and a night survey of B-6 is a takt miss",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": (
+                "Bounded ACCEPT of B-6 only. Serialized reconstruction: D50_nm = k_d * V_dma = "
+                "0.50 * 48.00 = 24.00 nm, inside the 12.00-36.00 band, and DMA SNR is 12.0 >= 8.0. "
+                "V/D50 identity 48.00 / 24.00 = 2.00; CPC identity N / D50 = 96.00 / 24.00 = 4.00. "
+                "Mobveil 4.80 nm is an under-read skip advocate, not SoT. B-1..B-5 are out of this ACCEPT. "
+                "Ordered: keep B-6 on the plant DMA. Scope: this ACCEPT does not dump the header (companion question) "
+                "and does not release B-1..B-5."
+            ),
+            "threshold": "12.00<=D50_nm<=36.00 AND dma_snr>=8.0 AND bag==B-6 => ACCEPT B-6; Mobveil is not SoT",
+            "stated_residuals": "survey floor still required; 24.00 vs a true bag tear is a later sample; Mobveil remains the only OEM D50 channel",
+        },
+        "executed_action": {
+            "summary": "ACCEPT at t_s 5400: B-6 bounded in-band; Mobveil not SoT; B-1..B-5 not released; dump not taken",
+            "tool": "sw8-dma-bag-gate-cli",
+            "observation": "D50 24.00 nm recomputes from V 48.00; plant DMA hashed; Mobveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "DMA V 48.00 N 96.00; raster frame; D50 24.00 nm"},
+                {"t_s": 4800.0, "event": "ops proposes skip-survey / dump"},
+                {"t_s": 5400.0, "event": "ACCEPT B-6 only"},
+                {"t_s": 6000.0, "event": "12 min survey bookend 1"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 8100.0, "event": "companion REJECT skip-isolate"},
+            ],
+            "observed_effects": [
+                "D50 recomputes from the serialized DMA mobility model at every recon.D50 event",
+                "a Mobveil-only head would have skipped B-6 and dumped the header",
+                "12 min survey floor is in the stream; B-1..B-5 stay out of scope",
+            ],
+            "surprises": [
+                "a vendor under-read 4.80 nm skip corridor co-existed with a 24.00 nm in-band plant reconstruction",
+            ],
+            "new_state": {
+                "bag_b6": "bounded ACCEPT",
+                "mobveil": "not SoT",
+                "b1_b5": "out of scope",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.41,
+            [
+                ("dma_reconstruction", 0.14),
+                ("bounded_accept_scope", 0.12),
+                ("mobveil_nonsubstitution", 0.10),
+                ("in_band_lock", 0.08),
+                ("survey_time_cost", -0.03),
+            ],
+            "scored for a bounded ACCEPT of B-6 on a recomputable DMA D50 while refusing a Mobveil under-read skip and keeping B-1..B-5 out of scope",
+        ),
+        "meta": meta_common(
+            tags=["ACCEPT", "dma-electrical-mobility-d50", "serialized-reconstruction", "bounded-scope"],
+            distillation_note="DMA gate: serialized k_d*V plus SNR lock beats a vendor under-read skip; B-6 only",
+            distillation_value="Teaches an SNN to race a DMA electrical-mobility D50 against a patched vendor skip with bounded baghouse scope, refractory, and adaptation.",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r67-003-t2",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "SW-DMA-2026-0902-exec",
+            "domain": "skip_isolate_refusal_execution",
+            "setting": "Same SW-8 after the bounded ACCEPT. Planner proposes skip-isolate of B-6 under late takt. Companion REJECTS the skip; dump stays down.",
+            "observables_at_decision": {
+                "D50_nm": 18.00,
+                "surv_floor_s": 720.0,
+                "skip_isolate_proposed": True,
+                "b6_held": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night planner Oren Keld",
+            "summary": "skip-isolate B-6; 12 min already paid and Mobveil still shows 4.72 nm; takt is late",
+            "basis_claimed": "the ACCEPT already cleared B-6, so a skip-isolate is the cheapest takt recovery",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": (
+                "Skip-isolate is refused. The 12 min survey floor is complete and the in-band tripwire "
+                "(12.00 <= D50_nm <= 36.00) is still armed on the plant DMA. REJECT skip-isolate. Do not dump "
+                "the header. Do not restore on Mobveil. Do not release B-1..B-5. 18.00 nm post-accept is still "
+                "the plant SoT until a new frame leaves the band."
+            ),
+            "threshold": "surv_held AND skip_isolate_not_taken AND dump_not_taken AND b15_not_released",
+        },
+        "executed_action": {
+            "summary": "skip-isolate REJECTED at t_s 8100; dump not latched; Mobveil restore not taken; B-6 held",
+            "tool": "sw8-dma-skip-exec",
+            "observation": "recon.D50 18.00 nm after ACCEPT; survey line-up complete; Mobveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "survey clock started after ACCEPT"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7200.0, "event": "skip-isolate proposed"},
+                {"t_s": 8100.0, "event": "REJECT skip-isolate; dump refused"},
+            ],
+            "observed_effects": [
+                "Mobveil restore did not reopen the D50 call",
+                "header dump never fired; B-6 held on the plant DMA",
+            ],
+            "new_state": {"hold": "survey-held", "plant": "in service", "bag_b6": "held"},
+            "latency_ms": 1380000.0,
+        },
+        "reward_components": reward(
+            0.36,
+            [
+                ("skip_isolate_refusal", 0.12),
+                ("no_header_dump", 0.10),
+                ("mobveil_nonsubstitution", 0.08),
+                ("scope_held", 0.08),
+                ("takt_cost", -0.02),
+            ],
+            "operational execution gate: refuse skip-isolate because Mobveil is not a skip license; not a D50 re-vote",
+        ),
+        "meta": meta_common(tags=["REJECT", "operational-execution", "skip-refusal"]),
+    }
+    return {
+        "id": "nelb-r67-003",
+        "snn_tags": list(SNN_TAGS),
+        "spike_events": events,
+        "language_view": {
+            "description": (
+                "Slagwhin Smelter SW-8 DMA-SIM-9. Plant-owned DMA reconstructs 24.00 nm D50 from "
+                "0.50*48.00 while Mobveil still reports 4.80 nm. The gate ACCEPTs B-6 only (B-1..B-5 out of "
+                "scope). A 12 min survey floor is serialized. Companion t2 REJECTs skip-isolate."
+            ),
+            "trajectory": traj,
+            "trajectory_skip_refusal": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "dma.V / dma.N / dma.snr": "classifier voltage, CPC counts, and SNR; the physics channels the reconstruction consumes",
+                "recon.D50 / recon.R / recon.NR": "serialized D50 nm, V/D50 identity, and N/D50 identity",
+                "bag.T / mobveil.D50 / bag.id / b15.present / dma.drop": "baghouse witnesses, vendor last-good, scope tags, dropped packets",
+                "ops.prop / gate.comp / ops.skip / gate.hold": "skip-survey proposal, ACCEPT, skip-isolate proposal, companion REJECT",
+                "surv.start / surv.floor / b6.held / b15.skip / dump.trip / takt.late / surv.held": "operational companion channels plus the 12 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-under while plant-in-band: mobveil.D50 4.80 next to recon.D50 24.00",
+                "reconstruction as event: recon.D50 24.00 equals 0.50*48.00",
+                "ACCEPT then operational REJECT: gate.comp at 5400 s, gate.hold at 8100 s",
+                "slow floor in-stream: surv.start 6000 s, surv.floor 6720 s (12.0 min)",
+                "tight DMA pair: dma.V then dma.N +1.5 ms at the raster frame (kernel, not excerpt echo)",
+            ],
+            "language_to_spike_mapping": (
+                "'Mobveil is 4.80 nm' = mobveil.D50 4.80; '24 nm D50' = recon.D50 24.00; "
+                "'ACCEPT B-6 only' = gate.comp ACCEPT; 'refuse skip-isolate' = gate.hold REJECT"
+            ),
+            "why_high_value": (
+                "New DMA electrical-mobility remaining-D50 family on a copper-smelter baghouse (not Fraunhofer "
+                "laser-diffraction live r62/r64/r66, not FBRM r49, not PDA r47, not Coulter live r01). Lead bounded "
+                "ACCEPT of B-6 on a recomputable 24.00 nm in-band load that a vendor under-read would have skipped. "
+                "Companion t2 REJECTS skip-isolate. Independent CUBA LIF raster. sim_or_real=simulated."
+            ),
+            "encoder_spec": {
+                "prng": "CUBA LIF (lif_raster._calibrate_spikes) plus MT19937 amplitudes",
+                "seeds": {
+                    "raster": 20260967003,
+                    "stream_note": "stream amplitudes are authored constants (V, nm, 1, C, bool)",
+                },
+                "draw_order": "independent CUBA LIF full window; kernelized 0.0/1.5 ms physics pair is synaptic drive, not excerpt copy",
+                "thinning": "DMA scan exists at ~1 Hz; stream keeps 4 V points plus N pairs; recon keeps 4 of ~20 solver ticks",
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T03:00:00Z simulated night start",
+            },
+            "distillation_targets": [
+                "DMA reconstruction head: D50_nm = k_d * V_dma; R = V / D50; NR = N / D50",
+                "bounded ACCEPT head: in-band D50 AND bag scope AND b15-out-of-scope",
+                "operational companion: refuse skip-isolate without re-opening the last-good call",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "dma_electrical_mobility_d50",
+            "formula": "D50_nm = k_d * V_dma; R = V_dma / D50_nm; N_cpc = 2 * V_dma; NR = N_cpc / D50_nm",
+            "parameters": {
+                "k_d": 0.50,
+                "band_lo_nm": 12.00,
+                "band_hi_nm": 36.00,
+                "surv_min": 12.0,
+            },
+            "worked_example": {"V_dma": 48.00, "D50_nm": 24.00, "R": 2.00, "N_cpc": 96.00, "NR": 4.00},
+            "check": "0.50 * 48.00 = 24.00 exactly; 48.00 / 24.00 = 2.00 exactly; 2*48.00 = 96.00; 96.00 / 24.00 = 4.00; 6000 s + 720 s = 6720 s = 12.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "ACCEPT",
+            "decision_window_ms": 36.0,
+            "decision_window_s": 0.036,
+            "snn_tags": list(SNN_TAGS),
+            "code": "sw8.dma_bag_gate",
+            "note": "ACCEPT accumulator wins: plant DMA D50 evidence overpowers the Mobveil skip advocate",
+            "decode_rule": "accept if d50_estimator AND mobility_norm fire inside the window; vendor_skip_advocate is necessary-but-not-sufficient and cannot release B-1..B-5",
+            "populations": [
+                gate_pop("d50_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("mobility_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("bag_margin", 40, 1.0, 50.0, w_s),
+                gate_pop("vendor_skip_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("accept_latch", 96, 1.8, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "sw8.dma_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "sw8.bag_scorer", "neurons": 40, "mean_rate_hz": 62.5, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r67-003",
+            clock_domain="sw8-dma-sim-relative-ms-t0-2026-09-02T03:00:00Z",
+            tags=["dma-electrical-mobility-d50", "ACCEPT", "REJECT", "serialized-reconstruction", "operational-t2"],
+            distillation_value="DMA electrical-mobility D50 head with independent CUBA LIF raster, bounded baghouse scope, refractory, and adaptation for Spikenaut distillation.",
+        ),
+    }
+
+
+def walk_banned(obj, path=""):
+    hits = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            p = f"{path}.{k}" if path else k
+            nk = str(k).casefold().replace("-", "_").replace(" ", "_")
+            if nk in HIDDEN or nk in {"thought", "scratch", "inner_monologue", "chain_of_thought"}:
+                hits.append(p)
+            if nk == "real" and k.casefold() == "real":
+                hits.append(p)
+            hits.extend(walk_banned(v, p))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            hits.extend(walk_banned(v, f"{path}[{i}]"))
+    return hits
+
+
+def jaccard_independence(rec):
+    window_ms = rec["raster"]["window_ms"]
+    rast = {int(e["t_us"]) for e in rec["raster"]["excerpt"]}
+    stream = set()
+    for e in rec["spike_events"]:
+        t = e["t_rel_ms"]
+        if 0.0 <= t <= window_ms:
+            stream.add(int(round(t * 1000.0)))
+    inter = rast & stream
+    union = rast | stream
+    jac = (len(inter) / len(union)) if union else 0.0
+    if jac > 0.05:
+        raise RuntimeError(f"{rec['id']} LIF Jaccard {jac:.4f} vs in-window stream (echo)")
+    return jac
+
+
+def local_checks(records):
+    ids = []
+    decisions = []
+    sims = []
+    for rec in records:
+        hits = walk_banned(rec)
+        if hits:
+            raise RuntimeError(f"banned keys {hits}")
+        blob = json.dumps(rec, ensure_ascii=False, allow_nan=False)
+        if "training_ready" in blob:
+            raise RuntimeError("training_ready claimed")
+        if '"provenance"' in blob:
+            raise RuntimeError("provenance object present")
+        if rec["meta"].get("snn_tags") != SNN_TAGS:
+            raise RuntimeError(f"{rec['id']} missing meta.snn_tags")
+        if rec["meta"].get("nelb", {}).get("snn_tags") != SNN_TAGS:
+            raise RuntimeError(f"{rec['id']} missing meta.nelb.snn_tags")
+        if rec.get("snn_tags") != SNN_TAGS:
+            raise RuntimeError(f"{rec['id']} missing top-level snn_tags")
+        if rec["gate_snn"].get("snn_tags") != SNN_TAGS:
+            raise RuntimeError(f"{rec['id']} gate_snn snn_tags mismatch")
+        if rec["raster"].get("encoder") != "independent_cuba_lif":
+            raise RuntimeError(f"{rec['id']} raster not independent LIF")
+        ts = [int(e["t_us"]) for e in rec["raster"]["excerpt"]]
+        if max(ts) - min(ts) < 1000:
+            raise RuntimeError(f"{rec['id']} excerpt span {max(ts)-min(ts)}")
+        jaccard_independence(rec)
+        ids.append(rec["id"])
+        lv = rec["language_view"]
+        ids.append(lv["trajectory"]["id"])
+        for k, v in lv.items():
+            if k.startswith("trajectory") and isinstance(v, dict) and "id" in v:
+                if k != "trajectory":
+                    ids.append(v["id"])
+                sim2 = v["state"]["sim_or_real"]
+                if sim2 not in {"designed", "simulated", "hil"}:
+                    raise RuntimeError(sim2)
+                if sim2 == "real":
+                    raise RuntimeError("real")
+                if v["safety_decision"]["decision"] not in {"ACCEPT", "MODIFY", "REJECT"}:
+                    raise RuntimeError(v["safety_decision"]["decision"])
+                tmeta = v.get("meta") or {}
+                if tmeta.get("snn_tags") != SNN_TAGS:
+                    raise RuntimeError(f"{v['id']} missing trajectory snn_tags")
+                if tmeta.get("round") != ROUND:
+                    raise RuntimeError(f"{v['id']} round")
+        n = len(rec["spike_events"])
+        if not (48 <= n <= 80):
+            raise RuntimeError(f"{rec['id']} events {n}")
+        gdec = rec["gate_snn"]["decision"]
+        tdec = lv["trajectory"]["safety_decision"]["decision"]
+        if gdec != tdec:
+            raise RuntimeError(f"gate {gdec} != traj {tdec}")
+        decisions.append(tdec)
+        for k, v in lv.items():
+            if k.startswith("trajectory") and isinstance(v, dict) and "safety_decision" in v:
+                if k != "trajectory":
+                    decisions.append(v["safety_decision"]["decision"])
+        rast = rec["raster"]
+        if not (20 <= rast["window_ms"] <= 50):
+            raise RuntimeError("window")
+        if abs(rast["window_s"] - rast["window_ms"] / 1000.0) > 1e-9:
+            raise RuntimeError("window_s")
+        exp = int(round(rast["neurons"] * rast["mean_rate_hz"] * rast["window_s"]))
+        if abs(rast["spikes"] - exp) > 0:
+            raise RuntimeError("raster budget")
+        if abs(rast["energy_pJ"] - rast["spikes"] * 23) > 1e-6:
+            raise RuntimeError("energy pJ")
+        if abs(rast["energy_uJ"] - rast["spikes"] * 23e-6) > 1e-9:
+            raise RuntimeError("energy uJ")
+        isi = rast["isi_count_identity"]
+        if isi["isi_total"] != isi["spikes"] - isi["distinct_active_neurons"]:
+            raise RuntimeError("ISI identity")
+        if sum(b["count"] for b in rast["isi_histogram"]) != isi["isi_total"]:
+            raise RuntimeError("ISI hist sum")
+        for b in rast["isi_histogram"]:
+            if b["hi_ms"] - b["lo_ms"] < 1.0 - 1e-12:
+                raise RuntimeError("ISI bin < 1 ms")
+        tf = rast["routing"]["third_factor"]
+        if abs(tf["tau_e_ms"] / 1000.0 - tf["tau_e_s"]) > 1e-9:
+            raise RuntimeError("tau pair")
+        sim = lv["trajectory"]["state"]["sim_or_real"]
+        if sim not in {"designed", "simulated", "hil"}:
+            raise RuntimeError(sim)
+        sims.append(sim)
+        gc = rec["gate_compute"]
+        sp_sum = sum(c["spikes"] for c in gc["per_check"])
+        if sp_sum != gc["total_spikes"]:
+            raise RuntimeError("gate_compute spikes")
+        if abs(gc["total_energy_pJ"] - sp_sum * 23) > 1e-6:
+            raise RuntimeError("gate_compute pJ")
+        dw = rec["gate_snn"]["decision_window_s"]
+        for pop in rec["gate_snn"]["populations"]:
+            exp_p = int(round(pop["neurons"] * pop["mean_rate_hz"] * dw))
+            if pop["spikes"] != exp_p:
+                raise RuntimeError(f"gate_snn pop {pop['name']}")
+        for e in rec["spike_events"]:
+            if any(k in e for k in ("t_ms", "burst_id", "sequence_id", "event_order", "causal_group")):
+                raise RuntimeError("forbidden event key")
+        rights = rec["meta"]["rights"]
+        if rights.get("linear_issue") != "RM-793":
+            raise RuntimeError("RM-793 missing")
+        if len(rights) != 15:
+            raise RuntimeError(f"rights {len(rights)}")
+        if rec["meta"].get("round") != ROUND:
+            raise RuntimeError("round")
+    if len(ids) != len(set(ids)):
+        raise RuntimeError(f"dup ids {ids}")
+    if set(sims) != {"designed", "simulated", "hil"}:
+        raise RuntimeError(f"sim mix {sims}")
+    if set(decisions) != {"ACCEPT", "MODIFY", "REJECT"}:
+        raise RuntimeError(f"decision mix {decisions}")
+    lead = [records[i]["language_view"]["trajectory"]["safety_decision"]["decision"] for i in range(3)]
+    if set(lead) != {"ACCEPT", "MODIFY", "REJECT"}:
+        raise RuntimeError(f"lead mix {lead}")
+    print("local_checks ok", [r["id"] for r in records], "ids", len(ids))
+    print("decisions", decisions, "sims", sims)
+
+
+def write_exclusive(path: Path, text: str):
+    fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+
+
+def choose_live_paths():
+    batch = LIVE / "batch-r67.jsonl"
+    notes = LIVE / "NOTES-r67.md"
+    if not batch.exists() and not notes.exists():
+        return batch, notes, ""
+    suffix = "c"
+    n = 1
+    while True:
+        batch = LIVE / f"batch-r67{suffix}.jsonl"
+        notes = LIVE / f"NOTES-r67{suffix}.md"
+        if not batch.exists() and not notes.exists():
+            return batch, notes, suffix
+        n += 1
+        suffix = f"c{n}"
+
+
+def notes_text(records, batch_path: Path, sizes, file_sha, file_size, suffix: str) -> str:
+    isis = []
+    spikes = []
+    events = []
+    windows = []
+    energies = []
+    for rec in records:
+        ident = rec["raster"]["isi_count_identity"]
+        isis.append(ident["isi_total"])
+        spikes.append(rec["raster"]["spikes"])
+        events.append(len(rec["spike_events"]))
+        windows.append(int(rec["raster"]["window_ms"]))
+        energies.append(int(rec["raster"]["energy_pJ"]))
+    where = str(batch_path.parent)
+    tagged = "c-suffix collision path" if suffix else "create-only live path"
+    notes_name = batch_path.with_name(batch_path.name.replace("batch", "NOTES").replace(".jsonl", ".md")).name
+    return f"""# Neuromorphic Event + Language Bridge — NOTES round 67
+Run: 2026-09-02-final-heavy · Factory: neuromorphic-event-language-bridge · Generator: grok-4.6 · Output: `{batch_path.name}` (3 paired artifacts, 6 ThalamicTrajectories)
+Rights: RM-793 research-only (SpaceXAI/xAI grok-4.6, SuperGrok Heavy chat). Not training_ready. CREATE-ONLY write ({tagged}) at `{where}` (`{batch_path.name}`, `{notes_name}`). Never 2026-08-17 / 2026-08-30. Leftover-mill `/tmp/nelb-r67/` (platinum-ORP cyanide / polarimeter sucrose / hydrostatic dP, ids `202`–`204`) is a different artifact and was not overwritten.
+
+## Context / de-duplication
+Live tree already held r01 (Johnson-noise T / Coulter / photoelastic), r01c (CIE Lab / P2O5 Keidel / Leeb), r02 (CAPS NO2 / PTR-MS MDI / microwave PCD), r03 (dc-SQUID / PIV / IMS TATP), r21 (OA-ICOS CH4 / SERF OPM / WGM), r22 (CDG / opacity / polariscope), r41 (LDA / Karl Fischer / bender-element), r42 (BOS / LIF OH / ESPI), r61 (Stern-Volmer DO / pellistor / FMCW radar), r62 (laser-diffraction D50 / quartz SF6 / capillary rheometer), r63 (ICP-OES Ni / LVDT / FTIR methanol), r64 (laser-diffraction D50 / four-point-probe Rs / streaming-current SCD), r66 (spark-OES C / Hall current / laser-diffraction D50). Leftover-mill r13–r70 families (including leftover r67 platinum-ORP / polarimeter / hydrostatic) were treated as taken. IDs this round `nelb-r67-001`…`003` as assigned (not leftover `202`–`204`). Envelope cloned from live r63/r66 (`language_view.trajectory` + operational t2 + `spike_events` + `raster` + `gate_snn` + `isi_histogram` + `routing.third_factor` + 15-key RM-793 `meta.rights`) with **independent CUBA LIF rasters** (not a `spike_events` echo). `meta.snn_tags` = [race, refractory, adaptation] on every record and trajectory (`meta.nelb.snn_tags` twin); top-level `snn_tags` and matching `gate_snn.snn_tags` required.
+
+Banned this round: those live families; leftover-mill r67 platinum-ORP remaining-cyanide / polarimeter remaining-sucrose / hydrostatic remaining-dP and ids `nelb-r67-202`…`204`; leftover-mill r13–r70 table (FBG, quench, VRFB, BOTDA, QCM-D, SAW, CRDS, IFOG, transmon, hyperspectral, MEMS, muon, x-ray, optogenetic, LiDAR, clamp-on, LIBS, QEPAS, LFV, Kaplan LDV, THz-TDS, ECT, TDLAS, lock-in, PAUT, EN, RUS, N-16, helium RGA, FOCT, tip-timing, acoustic pyrometry, SPR, VW viscometer, MW cavity, MFL, NMR, nucleonic, JNT, CRNS, Coriolis, CARS, XRF, Mössbauer, GB-InSAR, ellipsometry, CTA, SPND, LII, PALS, NQR, SFRA, shearography, H-permeation, FMCW lining, GPR, mud-pulse, Barkhausen, Lamb, Pockels, PEC, confocal, OCT, DCPD, impact-echo, phosphor-lifetime, vortex, GWR, He-3, Kr-85, Raman, cyclotron BPM, alanine EPR, ADCP, TOFD, laser-flash, TDR, UV-DOAS, Al2O3, load-cell, H2S, TEV, dielectric water-cut, Wobbe, nephelometric, cation conductivity, venturi, katharometer, Clark DO, sonic-nozzle, sodium-ion, vibrating-tube, Ubbelohde, gloss, RF-admittance, UV ozone, triboelectric, molybdenum-blue, FPD sulfur, idler-belt, glass pH, NIR moisture, hydrostatic dP, polarimeter, platinum ORP). Plants not reused: Cinderwhin, Brineholt, Ashspire, Gritwhin, Siltcrag, Brinegait, Reedcairn, Brackenmire, Fernshaw, Merganserholt, Pintailmire, Wigeoncrag, Madderholt / Plovercrag / Slagwhin are new this round.
+
+Adjacencies declared in-pair then kept physically distinct:
+- **001 quartz tuning-fork remaining viscosity** is a wet-resonance detune remaining Pa.s of a printing-ink header, not Ubbelohde kinematic (leftover r66), not vibrating-wire viscometer (r26), not capillary rheometer (live r62), not vibrating-tube density (leftover r65), not QCM-D (r14), not quartz SF6 oscillator (live r62).
+- **002 Kerr remaining E-field** is a quadratic electro-optic remaining kV/cm of a GIS oil bushing, not Pockels GIS (leftover r36), not Faraday FOCT (r25), not SERF OPM (live r21), not Hall (live r66), not Rogowski (leftover r58), not dc-SQUID (live r03).
+- **003 DMA remaining electrical-mobility D50** is a classifier-voltage remaining nm of a copper-smelter baghouse, not Fraunhofer laser-diffraction (live r62/r64/r66), not FBRM chord (r49), not PDA Sauter (r47), not Coulter zone (live r01).
+
+## Round 67 batch summary (3 pairs, 6 trajectories)
+
+| id | modality (NEW family) | domain | decisions | headline |
+|----|----------------------|--------|-----------|----------|
+| nelb-r67-001 | quartz tuning-fork remaining viscosity of a printing-ink header (k_η·(f0−f) Pa.s, Forkveil last-good denial, 18 min ink-hold floor) | Madderholt Ink MH-8 header H-3 (invented): 0.50*(32768.00-32728.00) reconstructs 20.00 Pa.s while Forkveil still reads 4.80 Pa.s | REJECT (+0.43) / MODIFY (+0.34) | serialized `0.50*(32768.00-32728.00)=20.00`; `32768.00-32728.00=40.00`; `20.00*2.00=40.00`; conjunctive SOP (eta AND SNR) forbids continue-print; three-party collusion includes the fork infra owner; companion t2 ink-hold, plant ESD refused; sim_or_real=designed |
+| nelb-r67-002 | Kerr remaining E-field of a GIS oil bushing (k_k·√I kV/cm, Fieldveil last-good denial, 24 min cooldown floor) | Plovercrag GIS PC-5 dummy bushing B-2 (invented, HIL in KERR-HIL-8): 4.00*sqrt(16.00) reconstructs 16.00 kV/cm while Fieldveil still reads 2.40 kV/cm | MODIFY (+0.40) / ACCEPT (+0.35) | serialized `4.00*sqrt(16.00)=16.00` and `16.00*2.00=32.00`; keep-energized refused; Kerr tech Nessa Vale exonerated (missing Kerr-zero AE, UTC vs UTC+2); companion t2 new-cell restart; sim_or_real=hil |
+| nelb-r67-003 | DMA remaining electrical-mobility D50 of a copper-smelter baghouse (k_d·V nm, Mobveil last-good denial, 12 min survey floor) | Slagwhin Smelter SW-8 baghouse B-6 (invented, simulated DMA-SIM-9): 0.50*48.00 reconstructs 24.00 nm while Mobveil still reads 4.80 nm | ACCEPT (+0.41) / REJECT (+0.36) | serialized `0.50*48.00=24.00`; `48.00/24.00=2.00`; `96.00/24.00=4.00`; bounded ACCEPT of B-6 only; B-1..B-5 out of scope; companion t2 REJECTS skip-isolate; sim_or_real=simulated |
+
+Decision spread: REJECT / MODIFY / MODIFY / ACCEPT / ACCEPT / REJECT — **2A/2M/2R**. All three enums used, and all three sit on **leads**. Provenance spread: designed / hil / simulated (one each; never real). IDs `nelb-r67-001`…`003` plus t1/t2 suffixes. `meta.round=67`.
+
+## Raster sidecar
+Every record carries `raster` + top-level `gate_snn` + `gate_compute` + `snn_tags`. Windows {windows[0]}/{windows[1]}/{windows[2]} ms; `window_s == window_ms/1000` exactly; `spikes == round(neurons·rate·window_s)` with zero slack ({spikes[0]}/{spikes[1]}/{spikes[2]}); `energy_pJ = spikes·23` and `energy_uJ = spikes·23e-6` exact ({energies[0]}/{energies[1]}/{energies[2]} pJ). Routing source/target + 3-entry tables + `third_factor` on all three (modulators da.cross_authority_conflict / ach.referral_pressure_salience / na.stage_rate_eligibility; τe 1.6/1.2/2.0 s as consistent `tau_e_s`+`tau_e_ms` pairs). Excerpts are **independent CUBA LIF** first-passage times (not a re-encode of `spike_events`), integer `t_us`, in-window, `neuron_id`-bounded, sorted, full-window by construction, span ≥1000 µs, per-spike amplitude with adaptation (0.82**k) plus noise. ISI histograms from the FULL window, bins ≥1 ms, counts sum to `spikes − distinct_active_neurons` ({isis[0]}/{isis[1]}/{isis[2]}). Same-neuron gaps ≥1000 µs. `gate_snn` on all three: decisions REJECT/MODIFY/ACCEPT matching each lead trajectory and matching `snn_tags`; every rate-declaring population's budget exact against its decision window. Main streams: **{events[0]}/{events[1]}/{events[2]} events** (48+), strictly increasing `t_rel_ms` only (no `t_ms` mix), same-channel refractory ≥0.8 ms (001 fork pair at 1.4 ms, 002 Kerr pair at 1.2 ms plus isolate-frame SNR 14.0, 003 DMA pair at 1.5 ms). `meta.snn_tags` required.
+
+## Self-critique
+
+### Edge cases added vs still thin
+- **Added:** first quartz tuning-fork remaining-viscosity family on a printing-ink header with recomputable eta=k_η·(f0−f) (`20.00 Pa.s`) plus detune and eta·Q identities and three-party collusion including the fork infra owner; first Kerr remaining-E family on a GIS oil bushing with recomputable E=k_k·√I (`16.00 kV/cm`) and path-voltage identity, plus a resolved-innocent Kerr tech (timezone-skipped Kerr-zero, not last-to-badge) and isolate-frame SNR 14.0; first DMA electrical-mobility remaining-D50 family on a copper-smelter baghouse with recomputable D50=k_d·V (`24.00 nm`) plus V/D50 and N/D50 identities; bounded ACCEPT whose out-of-scope clause is adjacent baghouses rather than a hopper/taphole/dump cap; operational t2 on all three (ink-hold, new-cell restart, skip-isolate refusal); provenance trio designed/hil/simulated; 18 / 24 / 12 min slow floors in-stream; **independent CUBA LIF rasters** plus required matching `snn_tags` on record, trajectory, and `gate_snn`.
+- **Still thin:** (i) 001's k_η is a lumped Hz-to-Pa.s gain, not a temperature / tine-mass table — a 8 K ink hop that fakes 20.00 Pa.s inside a 4.80 Forkveil corridor is unwritten; (ii) 002's k_k is a lumped Kerr constant, not a B-field / oil-index map, so a 0.2 T hop that fakes 16.00 kV/cm is unwritten; (iii) 003's k_d is a lumped V-to-nm gain, not a Cunningham / charge-state table, so a +2 charge hop that fakes 24.00 nm inside a 4.80 last-good is unwritten; (iv) vendor-only as a *lead* REJECT on a plant with *no* independent fork/Kerr/DMA installed yet remains slightly harder — 001/002 still have plant heads; (v) stream amplitudes remain authored constants (raster draws are the only seeded noise).
+
+### Realism of noise / temporal fidelity
+- Strong: 001's 20.00 Pa.s, df 40.00 Hz, load 40.00, and 18.0 min ink-hold (`6000+1080=7080 s`) recompute from the record; 002's 16.00 kV/cm, sqrtI 4.00, V 32.00 kV, and 24.0 min cooldown (`2820+1440=4260 s`) recompute; 003's 24.00 nm, R 2.00, NR 4.00, and 12.0 min survey (`6000+720=6720 s`) recompute. Independent CUBA LIF plus adaptation (0.82**k plus 4% noise) and the 1.2–1.5 ms physics pairs give the 48+ stream a raster-scale motif without echoing `spike_events` into `raster.excerpt`.
+- **Gaps, honestly:** (i) 52-event streams still thin 1 Hz fork / 10 Hz Kerr / 1 Hz DMA stacks; (ii) 001's post-stop 14.00 Pa.s is a later sample, not a closed-loop ink controller; (iii) 002 HIL dummy times an in-service isolate that the stream does not independently witness on a second live bushing until the new cell starts; (iv) no gate_snn input→output volley pair at raster resolution this round.
+
+### Training value (SNN/LSM + agentic)
+Distillation targets: tuning-fork eta=k_η·(f0−f) head plus detune and load identities; conjunctive isolate floor vs continue-print vs plant ESD; fork-infra collusion; Kerr E=k_k·√I head plus root and path-voltage identities; isolate-floor bushing vs keep-energized vs shop-trip; Kerr-zero AE / timezone exoneration; DMA D50=k_d·V and V/D50 identities; bounded ACCEPT with B-1..B-5-out-of-scope; skip-isolate refusal under survey takt. Agentic value concentrates in three patterns: reconstruction-as-SoT on a physical viscosity/E-field/D50 the raw corridor cannot see, earned ACCEPT with an explicit physical out-of-scope object (B-1..B-5), and stop-then-hold so a REJECT does not become a plant/shop/dump kill. Independent LIF rasters give Spikenaut a non-echo membrane crossing to distill against the language view.
+
+## What a later leftover-mill round should add (next densification target)
+1. **Temperature / tine-mass table** on a non-MH-8 fork so an 8 K hop fakes 20.00 Pa.s inside a 4.80 Forkveil corridor, closing 001's lumped-k_η gap.
+2. **B-field / oil-index map** on a non-PC-5 Kerr so a 0.2 T hop fakes 16.00 kV/cm while mean I looks healthy.
+3. **Cunningham / charge-state table** on a non-SW-8 DMA so a +2 charge hop fakes 24.00 nm inside a 4.80 last-good corridor.
+4. **Vendor-only as a lead REJECT** on a plant that has no independent fork/Kerr/DMA installed yet (001/002 still had plant heads).
+5. **Do not restage** leftover-mill r67 platinum-ORP / polarimeter / hydrostatic (ids 202–204), live r62/r64/r66 laser-diffraction, live r66 Hall / spark-OES, live r03 SQUID / PIV / IMS, leftover Pockels / FOCT / Ubbelohde / VW viscometer / capillary rheometer. Do not steal leftover-mill ids `040`–`213`. Do not reuse Madderholt MH-8, Plovercrag KERR-HIL-8, or Slagwhin DMA-SIM-9.
+
+## Verification
+`{batch_path.name}`: 3 lines, `json.loads`-clean (allow_nan=False), {sizes[0]}/{sizes[1]}/{sizes[2]} bytes (file {file_size}, sha256 `{file_sha}`). CREATE-ONLY write at `{where}`. Build-time asserts: global time order; same-channel ≥0.8 ms; 48+ events ({events[0]}/{events[1]}/{events[2]}); excerpt integer bounds, neuron bounds, sort, 1 ms per-neuron floor, span ≥1000 µs; ISI identity {isis[0]}/{isis[1]}/{isis[2]} from the FULL window; spike budgets exact; energy pJ/µJ exact; reward totals equal two-decimal component sums (+0.43/+0.34/+0.40/+0.35/+0.41/+0.36); gate_snn decisions match lead `safety_decision.decision`; `gate_snn.snn_tags` match `meta.snn_tags`; `state.sim_or_real` ∈ {{designed, hil, simulated}}; `meta.round=67`, `meta.factory=neuromorphic-event-language-bridge`, `meta.generator=grok-4.6`, `meta.run_label=2026-09-02-final-heavy`; `meta.rights` 15-key RM-793 stamp (`intended_use=research_only`, `linear_issue=RM-793`, `generated_at={GENERATED_AT}`); `meta.snn_tags`=[race, refractory, adaptation]; independent CUBA LIF encoder; no hidden-reasoning keys; no `provenance` objects; no live-plant claims; no `training_ready`; no `real` / `thought` keys; all 9 record/trajectory ids unique. Raster base seeds 20260967001/20260967002/20260967003. Repo gates run against the staged JSONL after the exclusive write.
+
+Honest novelty accounting: 3/3 modality families are new versus the live tree (r01/r01c/r02/r03/r21/r22/r41/r42/r61/r62/r63/r64/r66) and versus leftover-mill r13–r70 including leftover r67 ORP/polarimeter/hydrostatic (tuning-fork ≠ Ubbelohde/VW/capillary/QCM-D/quartz-SF6; Kerr ≠ Pockels/FOCT/SERF/Hall/Rogowski/SQUID; DMA ≠ Fraunhofer/FBRM/PDA/Coulter). Independent CUBA LIF plus matching `snn_tags` on `gate_snn` are carried encoder objects from live r63/r66 applied to new physics. Against that: conjunctive SOP, operational t2, serialized reconstruction, bounded-accept-with-scope-limit, vendor-nonsubstitution, exoneration, and 2A/2M/2R are carried vocabulary. Net: a bit under half of the round's scenario/edge mass is genuinely novel.
+
+Novel coverage: 47%
+"""
+
+
+def repo_validate(batch_path: Path):
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import curate_record, raster_status
+    from verify_execution import verify_batch_for_frontier
+
+    errs, warns, kinds, n = check_jsonl(
+        batch_path, batch_path.name, staging=FactoryStaging(enabled=True)
+    )
+    print("check_jsonl", {"errors": len(errs), "warnings": len(warns), "kinds": dict(kinds), "n": n})
+    for e in errs:
+        print("ERROR", e)
+    for w in warns:
+        print("WARN", w)
+    if errs:
+        raise RuntimeError("check_jsonl failed")
+
+    records = [json.loads(line) for line in batch_path.read_text().splitlines() if line.strip()]
+    for i, rec in enumerate(records, 1):
+        st = raster_status(rec, require_raster=True, require_routing_table=True)
+        print(
+            rec["id"],
+            "raster_valid",
+            st["raster_valid"],
+            "gate_snn_valid",
+            st["gate_snn_valid"],
+            "reasons",
+            st.get("reason_codes"),
+        )
+        if not st["raster_valid"] or not st["gate_snn_valid"] or st.get("reason_codes"):
+            raise RuntimeError(f"raster_status {rec['id']} {st}")
+        blob = json.dumps(rec, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        h = hashlib.sha256(blob.encode("utf-8")).hexdigest()
+        dec = curate_record(
+            rec,
+            source_path=batch_path.name,
+            source_line=i,
+            source_hash=h,
+            require_raster=True,
+            require_routing_table=True,
+        )
+        reasons = dec.manifest.get("reason_codes")
+        print(rec["id"], "curate", dec.action, reasons)
+        if dec.action != "retain":
+            raise RuntimeError(f"curate {rec['id']} {dec.action} {reasons}")
+
+    counts, findings, blocked = verify_batch_for_frontier(batch_path, strict=True)
+    print("verify_batch_for_frontier", counts, "blocked", blocked)
+    if blocked or counts.get("verified") != 3:
+        print("findings", findings)
+        raise RuntimeError(f"frontier blocked {counts}")
+
+    spike_probe = PIPELINES / "spike_probe.py"
+    if spike_probe.is_file():
+        import subprocess
+
+        proc = subprocess.run(
+            [sys.executable, str(spike_probe), "--strict", str(batch_path)],
+            capture_output=True,
+            text=True,
+        )
+        print("spike_probe stdout", proc.stdout[-2000:])
+        if proc.returncode != 0:
+            print("spike_probe stderr", proc.stderr[-2000:])
+            raise RuntimeError(f"spike_probe rc {proc.returncode}")
+
+
+def main():
+    occupancy_preflight()
+    STAGE.mkdir(parents=True, exist_ok=True)
+    records = [rec_001(), rec_002(), rec_003()]
+    local_checks(records)
+    lines = [json.dumps(rec, ensure_ascii=False, allow_nan=False, separators=(",", ":")) for rec in records]
+    staged_batch = STAGE / "batch-r67.jsonl"
+    staged_batch.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    sizes = [len(line) for line in lines]
+    raw = staged_batch.read_bytes()
+    file_sha = hashlib.sha256(raw).hexdigest()
+    file_size = len(raw)
+    print("staged", staged_batch, "sizes", sizes, "sha256", file_sha)
+
+    repo_validate(staged_batch)
+
+    live_batch, live_notes, suffix = choose_live_paths()
+    notes = notes_text(records, live_batch, sizes, file_sha, file_size, suffix)
+    if "Novel coverage:" not in notes:
+        raise RuntimeError("NOTES missing Novel coverage")
+    staged_notes = STAGE / "NOTES-r67.md"
+    staged_notes.write_text(notes, encoding="utf-8")
+
+    LIVE.mkdir(parents=True, exist_ok=True)
+    write_exclusive(live_batch, "\n".join(lines) + "\n")
+    write_exclusive(live_notes, notes)
+    print("WROTE", live_batch)
+    print("WROTE", live_notes)
+    print("suffix", suffix or "(none)")
+    print("PAIR_TABLE")
+    print("nelb-r67-001\tquartz tuning-fork ink viscosity\tREJECT/MODIFY\tdesigned")
+    print("nelb-r67-002\tKerr GIS bushing E-field\tMODIFY/ACCEPT\thil")
+    print("nelb-r67-003\tDMA electrical-mobility D50\tACCEPT/REJECT\tsimulated")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Build create-only MAOS round-03 artifacts for swarm QUAY-FEN.
+
+Live tree:
+/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-09-02-final-heavy/multi-agent-ouroboros-swarm
+Never overwrite. Never 2026-08-17 / 2026-08-30. c-suffix if the target exists.
+Validate staging first; emit LIVE only if checks pass.
+"""

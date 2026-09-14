@@ -1,0 +1,1512 @@
+def record_148():
+    ticks = [
+        tick(1540, 0.01, 0.04, 0.01, 0.01, 0.01),
+        tick(6140, 0.01, 0.06, 0.02, 0.02, 0.01),
+        tick(6322, 0.01, 0.06, 0.02, 0.02, 0.02),
+        tick(6860, 0.03, 0.14, 0.04, 0.03, 0.02),
+        tick(9440, 0.01, 0.04, 0.02, 0.01, 0.01),
+        tick(480000000, 0.01, 0.04, 0.01, 0.01, 0.01),
+    ]
+    spikes = [
+        spike("tc.dee.ctx", 0.880, 0.37),
+        spike("faraday.beam.uA", 1.540, 0.44),
+        spike("rf.vswr", 2.910, 0.52),
+        spike("faraday.beam.uA", 4.200, 0.60),
+        spike("faraday.beam.uA", 6.140, 1.38),
+        spike("rf.vswr", 6.322, 1.14),
+        spike("ctrl.gate", 6.860, 1.05),
+        spike("faraday.beam.uA", 9.440, 0.76),
+        spike("tc.dee.ctx", 14.200, 0.41),
+        spike("rf.vswr", 19.800, 0.57),
+        spike("ctrl.gate", 26.100, 0.82),
+        spike("faraday.beam.uA", 33.400, 0.50),
+        spike("rf.vswr", 41.200, 0.45),
+        spike("tc.dee.ctx", 44.800, 0.36),
+    ]
+    excerpt = independent_excerpt(26148, 120, 46000, 15, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Dee-Keeper DK-3 sits on the K-shell HIL cyclotron pad with a Faraday cup "
+                "reporting 14.2 uA against an 8.0 uA extraction cap. An RF directional coupler, "
+                "lit by the pad's dummy-load reflection, still reads VSWR 1.12 under a 1.50 trip. "
+                "Faraday-first latches REJECT hold; VSWR-first would commit a 40 nA extraction "
+                "ramp on an under-read beam.",
+            ),
+            ("domain", "isotope-cyclotron"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Do not ramp extraction unless Faraday-cup beam <= 8.0 uA; keep extract 0 nA "
+                "until the injected current drops.",
+            ),
+            ("t0_us", 1756843200000148),
+            ("gate_latency_us", 720),
+            ("race_window_us", 380),
+            ("race_window_rel_ms", [6.1, 6.48]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "faraday.beam.uA 14.2 uA",
+                                "rf.vswr 1.12",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Faraday-first latches REJECT hold 0 nA; VSWR-first would commit "
+                            "40 nA on an apparent 1.12 under-read.",
+                        ),
+                        (
+                            "window_derivation",
+                            "380 us = one Faraday electrometer slot versus RF coupler integration "
+                            "on this HIL dee bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 182 us vs combined jitter ~64 us (Faraday 30 + VSWR 34): 2.8x "
+                            "over a 2.0x trust floor. Pad injects the dummy-load reflection 90-130 us "
+                            "before the Faraday volume (geometric lag, not a sensor fault); the "
+                            "apparent VSWR 1.12 packet is still the loser in this 380 us window.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "extraction Faraday cup, 5 kHz, 30 us jitter (HIL live)",
+                    "RF directional coupler VSWR, 2 kHz, 34 us jitter (HIL live)",
+                    "dee coolant RTD (context)",
+                    "dummy-load calorimeter (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("extract_cap_uA", 8.0),
+                        ("faraday_uA", 14.2),
+                        ("vswr_trip", 1.50),
+                        ("vswr", 1.12),
+                        ("proposed_extract_nA", 40.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. DK-3 parked on K-shell HIL pad; 40 nA extraction ramp armed.",
+                    "2. Faraday 14.2 uA; VSWR 1.12 on dummy-load reflection.",
+                    "3. Dee-coolant precursor at 0.880 ms.",
+                    "4. Race window [6.100, 6.480] ms.",
+                    "5. faraday.beam.uA 14.2 uA at 6.140 ms (winner).",
+                    "6. rf.vswr 1.12 at 6.322 ms (loser by 182 us).",
+                    "7. Gate at 6.860 ms: REJECT hold 0 nA (correct).",
+                    "8. Ramp cancelled; Faraday remains 14.2 uA > 8.0 cap.",
+                    "9. VSWR 1.12 unused as a go signal.",
+                    "10. Delayed reclear_s=480 (8 min pad reclear) after dummy-load swap.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "extract_ramp_40nA"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("extract_nA", 40.0),
+                        ("hold", False),
+                        ("dee", "DK-3"),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("faraday_uA", 14.2),
+                        ("extract_cap_uA", 8.0),
+                        ("vswr", 1.12),
+                        ("vswr_trip", 1.50),
+                        ("proposed_extract_nA", 40.0),
+                        ("race_margin_us", 182),
+                        ("combined_jitter_us", 64),
+                        ("reclear_s", 480),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes a 40 nA extraction ramp because VSWR 1.12 looks like a matched "
+                "cavity; Faraday 14.2 uA is treated as a cup offset on the HIL pad.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Faraday 14.2 uA won by 182 us, so beam current is over the 8.0 uA extraction "
+                "cap. VSWR 1.12 is dummy-load reflection, not a matched go. REJECT: hold extract "
+                "at 0 nA. A MODIFY ramp is not indicated while Faraday stays over cap.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "faraday_uA",
+                            OrderedDict(
+                                [
+                                    ("cap", 8.0),
+                                    ("observed", 14.2),
+                                    ("executed_extract_nA", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "vswr",
+                            OrderedDict(
+                                [
+                                    ("trip", 1.50),
+                                    ("observed", 1.12),
+                                    ("role", "loser_underread"),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 182),
+                                    ("combined_jitter_us", 64),
+                                    ("ratio", 2.84),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "extract_hold"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("extract_nA", 0.0),
+                        ("hold", True),
+                        ("dee", "DK-3"),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: extract 40 -> 0 nA. Faraday 14.2 uA > 8.0 cap binds beam_hold; VSWR "
+                "1.12 unused as extract_go.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct REJECT held DK-3 at 0 nA. Faraday 14.2 uA stayed over the 8.0 uA cap; "
+                "VSWR 1.12 was dummy-load reflection. 8 min pad reclear (reclear_s=480) after the "
+                "load swap is delayed, not the inflection.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("beam", "held; extract 0 nA; Faraday 14.2 uA > 8.0"),
+                        ("rf", "VSWR 1.12 unused as go"),
+                        ("pad", "8 min reclear after dummy-load swap"),
+                        ("mission", "extraction deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Dummy-load reflection produced VSWR 1.12 without a Faraday drop; Faraday-first discarded it.",
+                    "Delayed (reclear_s=480): 8 min pad reclear under a second dummy-load; not a safety inflection.",
+                ],
+            ),
+            ("delayed_surprise_s", 480),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "faraday.beam.uA (6.140 ms, 14.2 uA)"),
+                        ("loser", "rf.vswr (6.322 ms, 1.12)"),
+                        ("margin_us", 182),
+                        (
+                            "counterfactual_if_reversed",
+                            "VSWR-first by < 182 us inside the 380 us window would have ACCEPTed "
+                            "a 40 nA ramp into 14.2 uA > 8.0 cap. Order selected the correct REJECT.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 6860),
+            (
+                "reward_inflection_note",
+                "Safety and coherence step up at the REJECT gate (6.860 ms, tick 4) as the illegal "
+                "ramp is held. The 8 min reclear is delayed surprise.",
+            ),
+        ]
+    )
+    ras = raster_core(
+        46,
+        120,
+        22,
+        121,
+        routing(
+            "thalamic-relay.faraday-beam",
+            "spikenaut.policy.beam-hold",
+            [
+                ("relay.faraday.beam", "policy.beam_hold", 0.71),
+                ("relay.rf.vswr", "policy.extract_go", 0.24),
+                ("relay.tc.dee", "policy.beam_hold", 0.09),
+            ],
+            "dopamine",
+            0.05,
+            "beam_cap_stdp; DA at Faraday win (6.140 ms) tags beam_hold over extract_go",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("delayed_surprise_s", 480),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.38),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("beam_hold", 56, 0.50, 240.0, 5),
+                    pop("extract_go", 56, 0.80, 12.0, 0),
+                    pop("vswr_ctx", 32, 0.55, 80.0, 1),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r26-148"),
+            (
+                "title",
+                "K-shell HIL / Dee-Keeper DK-3: Faraday 14.2 uA beats VSWR 1.12 by 182 us; "
+                "correct REJECT holds the 40 nA extraction ramp",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct REJECT. Faraday 14.2 uA > 8.0 cap; VSWR is dummy-load. "
+                    "total +0.76 = 0.08 + 0.38 + 0.12 + 0.10 + 0.08.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "isotope-cyclotron",
+                    [
+                        "reject",
+                        "hil",
+                        "faraday-vs-vswr",
+                        "dummy-load-underread",
+                    ],
+                    "Teaches that a HIL dummy-load VSWR can lose to Faraday current inside a "
+                    "380 us window; reversing 182 us would have ACCEPTed an over-cap extraction.",
+                    3,
+                ),
+            ),
+        ]
+    )
+
+
+def record_149():
+    ticks = [
+        tick(920, 0.04, 0.03, 0.01, 0.01, 0.01),
+        tick(3860, 0.06, 0.05, 0.02, 0.02, 0.01),
+        tick(4012, 0.05, 0.04, 0.02, 0.02, 0.01),
+        tick(4400, 0.10, 0.10, 0.04, 0.03, 0.02),
+        tick(6210, 0.04, 0.04, 0.02, 0.01, 0.01),
+        tick(180000000, 0.03, 0.02, 0.01, 0.01, 0.00),
+    ]
+    spikes = [
+        spike("enc.shot.ctx", 0.510, 0.39),
+        spike("pt.cavity.MPa", 0.920, 0.41),
+        spike("tc.die.C", 1.880, 0.47),
+        spike("pt.cavity.MPa", 2.640, 0.59),
+        spike("pt.cavity.MPa", 3.860, 1.34),
+        spike("tc.die.C", 4.012, 1.17),
+        spike("ctrl.gate", 4.400, 1.00),
+        spike("pt.cavity.MPa", 6.210, 0.78),
+        spike("tc.die.C", 8.880, 0.62),
+        spike("ctrl.gate", 12.400, 0.83),
+        spike("enc.shot.ctx", 16.600, 0.40),
+        spike("pt.cavity.MPa", 21.100, 0.51),
+        spike("tc.die.C", 25.400, 0.43),
+    ]
+    excerpt = independent_excerpt(26149, 56, 27000, 13, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Plunger-P4 has already packed 180 mm of a 2.4 m/s shot into Sprue-Nook SN-6 "
+                "cavity 2 when the cavity transducer reports 92 MPa against an 80 MPa intensification "
+                "cap. Cavity-first clamps shot speed; die-temp-first would keep 2.4 m/s on a still-"
+                "soft-biscuit model. Die face is 210 C, still under the 280 C solder-skin trip.",
+            ),
+            ("domain", "die-cast-cell"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Finish the SN-6 biscuit fill with cavity pressure <= 80 MPa and without flashing "
+                "the parting line.",
+            ),
+            ("t0_us", 1756843200000149),
+            ("gate_latency_us", 540),
+            ("race_window_us", 290),
+            ("race_window_rel_ms", [3.8, 4.09]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "pt.cavity.MPa 92 MPa",
+                                "tc.die.C 210 C",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Cavity-first latches shot clamp 2.4 -> 1.5 m/s; die-temp-first keeps "
+                            "2.4 m/s on a 'biscuit still soft' model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "290 us = one 5 kHz cavity-PT slot minus die-face thermocouple group "
+                            "delay on this shot bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 152 us vs combined jitter ~54 us (PT 24 + TC 30): 2.8x over a "
+                            "2.0x trust floor. Reversing order by < 152 us inside the 290 us window "
+                            "would have kept 2.4 m/s; predicted next-sample 98 MPa > 80 cap.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "cavity intensification PT, 5 kHz, 24 us jitter",
+                    "die-face type-K, 1 kHz, 30 us jitter",
+                    "shot-sleeve encoder (context)",
+                    "parting-line LVDT (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("cavity_cap_MPa", 80.0),
+                        ("cavity_MPa", 92.0),
+                        ("die_C", 210.0),
+                        ("die_trip_C", 280.0),
+                        ("proposed_shot_m_s", 2.4),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Plunger-P4 indexed onto SN-6 cavity 2; 180 mm packed at 2.4 m/s.",
+                    "2. Cavity PT 92 MPa; die face 210 C under 280 C trip.",
+                    "3. Shot-encoder precursor at 0.510 ms.",
+                    "4. Race window [3.800, 4.090] ms.",
+                    "5. pt.cavity.MPa 92 MPa at 3.860 ms (winner).",
+                    "6. tc.die.C 210 C at 4.012 ms (loser by 152 us).",
+                    "7. Gate at 4.400 ms: MODIFY clamp 2.4 -> 1.5 m/s.",
+                    "8. Clamp executes; next-sample cavity 74 MPa < 80 cap.",
+                    "9. Parting-line LVDT stays under 0.12 mm flash.",
+                    "10. Delayed qc_s=180 (3 min densify QC tag).",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "shot_24"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("shot_m_s", 2.4),
+                        ("intensification_MPa", 92.0),
+                        ("biscuit_mm", 180.0),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("cavity_MPa", 92.0),
+                        ("cavity_cap_MPa", 80.0),
+                        ("predicted_unclamped_next_MPa", 98.0),
+                        ("die_C", 210.0),
+                        ("die_trip_C", 280.0),
+                        ("race_margin_us", 152),
+                        ("combined_jitter_us", 54),
+                        ("qc_s", 180),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 2.4 m/s remaining shot because die face 210 C looks like a "
+                "still-soft biscuit, not an intensification overshoot, and the parting line is "
+                "treated as still closed.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Cavity PT 92 MPa won by 152 us, so intensification is over the 80 MPa cap, not "
+                "still a soft fill. Holding 2.4 m/s predicts next-sample 98 MPa > 80. MODIFY: shot "
+                "2.4 -> 1.5 m/s. Observed after clamp 74 MPa < 80. A full REJECT is not indicated: "
+                "a clean biscuit accepts 1.5 m/s.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "cavity_MPa",
+                            OrderedDict(
+                                [
+                                    ("cap", 80.0),
+                                    ("observed", 92.0),
+                                    ("predicted_unclamped_next", 98.0),
+                                    ("clamped_shot_m_s", 1.5),
+                                    ("observed_after_clamp", 74.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 152),
+                                    ("combined_jitter_us", 54),
+                                    ("ratio", 2.81),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_shot_15"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("shot_m_s", 1.5),
+                        ("intensification_MPa", 74.0),
+                        ("biscuit_mm", 180.0),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: shot 2.4 -> 1.5 m/s. Process-correct vs the 80 MPa cavity cap. Die "
+                "210 C left unused as a hold.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct MODIFY held cavity at 74 MPa. Die 210 C remained under 280 C. 3 min "
+                "densify QC (qc_s=180) is delayed, not the inflection.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("cavity", "clamp executed; peak 74 MPa < 80 cap"),
+                        ("die", "210 C unused as abort"),
+                        ("parting_line", "flash < 0.12 mm"),
+                        ("mission", "biscuit complete this shot"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Die-face 210 C did not predict the 92 MPa intensification; cavity-first discarded the soft-biscuit model.",
+                    "Delayed (qc_s=180): 3 min densify QC tag on cavity 2; not a safety inflection.",
+                ],
+            ),
+            ("delayed_surprise_s", 180),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "pt.cavity.MPa (3.860 ms, 92 MPa)"),
+                        ("loser", "tc.die.C (4.012 ms, 210 C)"),
+                        ("margin_us", 152),
+                        (
+                            "counterfactual_if_reversed",
+                            "Die-temp-first by < 152 us inside the 290 us window would have kept "
+                            "2.4 m/s; predicted next-sample 98 MPa would have exceeded the 80 MPa "
+                            "cap. Order selected the correct MODIFY.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 4400),
+            (
+                "reward_inflection_note",
+                "Task and safety step up at the MODIFY gate (4.400 ms, tick 4) as the 1.5 m/s "
+                "clamp locks in over a die-temp hold.",
+            ),
+        ]
+    )
+    ras = raster_core(
+        27,
+        56,
+        44,
+        67,
+        routing(
+            "thalamic-relay.cavity-pt",
+            "spikenaut.policy.shot-clamp",
+            [
+                ("relay.pt.cavity", "policy.cavity_clamp", 0.69),
+                ("relay.tc.die", "policy.temp_hold", 0.28),
+                ("relay.enc.shot", "policy.cavity_clamp", 0.11),
+            ],
+            "serotonin",
+            0.08,
+            "cavity_cap_stdp; 5-HT at PT win (3.860 ms) tags cavity_clamp over temp_hold",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("delayed_surprise_s", 180),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.29),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("cavity_clamp", 36, 0.50, 310.0, 3),
+                    pop("temp_hold", 36, 0.50, 80.0, 1),
+                    pop("die_ctx", 24, 0.70),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r26-149"),
+            (
+                "title",
+                "Sprue-Nook SN-6 / Plunger-P4: cavity 92 MPa beats die 210 C by 152 us; correct "
+                "MODIFY clamps shot 2.4 -> 1.5 m/s",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct MODIFY. Cavity 92 > 80 cap; clamp 2.4 -> 1.5 m/s. "
+                    "total +0.88 = 0.32 + 0.28 + 0.12 + 0.10 + 0.06.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "die-cast-cell",
+                    [
+                        "modify",
+                        "cavity-vs-die-temp",
+                        "shot-clamp",
+                        "designed",
+                    ],
+                    "Teaches that a die-face temperature under trip can lose to cavity PT inside "
+                    "a 290 us window; reversing 152 us would have kept an over-cap 2.4 m/s shot.",
+                    4,
+                ),
+            ),
+        ]
+    )
+
+
+def record_150():
+    ticks = [
+        tick(740, 0.06, 0.04, 0.02, 0.02, 0.01),
+        tick(2960, 0.08, 0.06, 0.03, 0.02, 0.02),
+        tick(3088, 0.07, 0.05, 0.03, 0.02, 0.01),
+        tick(3460, 0.12, 0.10, 0.06, 0.04, 0.02),
+        tick(5440, 0.05, 0.04, 0.02, 0.01, 0.01),
+        tick(360000000, 0.04, 0.03, 0.02, 0.01, 0.01),
+    ]
+    spikes = [
+        spike("pt.hp.ctx", 0.410, 0.38),
+        spike("cond.permeate.uS", 0.740, 0.40),
+        spike("vib.hp.mm_s", 1.520, 0.46),
+        spike("cond.permeate.uS", 2.180, 0.58),
+        spike("cond.permeate.uS", 2.960, 1.27),
+        spike("vib.hp.mm_s", 3.088, 1.11),
+        spike("ctrl.gate", 3.460, 0.98),
+        spike("cond.permeate.uS", 5.440, 0.74),
+        spike("vib.hp.mm_s", 8.120, 0.55),
+        spike("ctrl.gate", 12.200, 0.81),
+        spike("pt.hp.ctx", 16.400, 0.39),
+        spike("cond.permeate.uS", 19.800, 0.48),
+    ]
+    excerpt = independent_excerpt(26150, 80, 23000, 12, spike_avoid_us(spikes))
+    params = OrderedDict(
+        [
+            ("hp_bar", 65.0),
+            ("recovery_pct", 42.0),
+            ("train", "C"),
+        ]
+    )
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Train-C at Osmia-Reach OR-7 is holding 65 bar of high-pressure feed while "
+                "permeate conductivity sits at 280 uS/cm under a 400 uS/cm product cap. An HP-"
+                "pump accelerometer flags 4.1 mm/s against a 7.0 mm/s trip that is not a salt "
+                "step. Conductivity-first confirms the already-legal 65 bar hold; vibration-first "
+                "would have REJECTED a speculative trip.",
+            ),
+            ("domain", "desal-RO-train"),
+            ("sim_or_real", "simulated"),
+            (
+                "goal",
+                "Hold Train-C at the proposed 65 bar while permeate stays <= 400 uS/cm and HP "
+                "vibration remains under 7.0 mm/s.",
+            ),
+            ("t0_us", 1756843200000150),
+            ("gate_latency_us", 500),
+            ("race_window_us", 240),
+            ("race_window_rel_ms", [2.9, 3.14]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "cond.permeate.uS 280 uS/cm",
+                                "vib.hp.mm_s 4.1 mm/s",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Conductivity-first confirms ACCEPT of 65 bar (280 < 400 uS/cm). "
+                            "Vibration-first would REJECT a legal hold on a 4.1 mm/s coupling rattle.",
+                        ),
+                        (
+                            "window_derivation",
+                            "240 us = one conductivity-cell sample minus HP-accelerometer group "
+                            "delay on this high-pressure bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 128 us vs combined jitter ~50 us (cond 22 + vib 28): 2.6x over "
+                            "a 2.0x trust floor. Reversing order by < 128 us inside the 240 us "
+                            "window would have REJECTED an already-legal 65 bar hold.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "permeate conductivity cell, 4 kHz, 22 us jitter",
+                    "HP-pump casing accelerometer, 8 kHz, 28 us jitter",
+                    "HP discharge PT (context)",
+                    "energy-recovery turbine rpm (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("permeate_cap_uS", 400.0),
+                        ("permeate_uS", 280.0),
+                        ("hp_bar", 65.0),
+                        ("hp_trip_bar", 70.0),
+                        ("vib_mm_s", 4.1),
+                        ("vib_trip_mm_s", 7.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Train-C on OR-7 simulated bank; 65 bar hold armed.",
+                    "2. Permeate 280 uS/cm; HP vibration 4.1 mm/s under 7.0 trip.",
+                    "3. Discharge-PT precursor at 0.410 ms.",
+                    "4. Race window [2.900, 3.140] ms.",
+                    "5. cond.permeate.uS 280 uS/cm at 2.960 ms (winner).",
+                    "6. vib.hp.mm_s 4.1 mm/s at 3.088 ms (loser by 128 us).",
+                    "7. Gate at 3.460 ms: ACCEPT 65 bar hold (correct).",
+                    "8. Hold executes identical to proposed; permeate stays 284 uS/cm < 400.",
+                    "9. Vibration 4.1 mm/s unused as abort.",
+                    "10. Delayed survey_s=360 (6 min salt-passage recount).",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "hold_hp_65bar"),
+            ("parameters", params),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("permeate_uS", 280.0),
+                        ("permeate_cap_uS", 400.0),
+                        ("hp_bar", 65.0),
+                        ("hp_trip_bar", 70.0),
+                        ("vib_mm_s", 4.1),
+                        ("vib_trip_mm_s", 7.0),
+                        ("race_margin_us", 128),
+                        ("combined_jitter_us", 50),
+                        ("survey_s", 360),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes a 65 bar hold because permeate 280 uS/cm is under the 400 "
+                "product cap; HP vibration 4.1 mm/s is coupling rattle, not a salt step.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Permeate 280 uS/cm won by 128 us, so product quality is under the 400 uS/cm "
+                "cap. Vibration 4.1 mm/s is under the 7.0 mm/s trip and is not a salt step. "
+                "ACCEPT: execute 65 bar identical to proposed. A REJECT is not indicated.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "permeate_uS",
+                            OrderedDict(
+                                [
+                                    ("cap", 400.0),
+                                    ("observed", 280.0),
+                                    ("executed_hp_bar", 65.0),
+                                    ("observed_after_accept", 284.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 128),
+                                    ("combined_jitter_us", 50),
+                                    ("ratio", 2.56),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hold_hp_65bar"),
+            ("parameters", params),
+            (
+                "gate_effect",
+                "ACCEPT: executed identical to proposed. 65 bar hold under 400 uS/cm cap.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct ACCEPT held Train-C at 65 bar with permeate 284 uS/cm. Vibration 4.1 "
+                "mm/s remained a coupling rattle. Proposed hold was already legal.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("train", "held; permeate peak 284 uS/cm < 400"),
+                        ("hp", "65 bar unchanged; vibration unused as abort"),
+                        ("recovery", "42 percent unchanged this cycle"),
+                        ("mission", "hold complete"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "HP coupling rattle produced 4.1 mm/s without a conductivity step; conductivity-first discarded it.",
+                    "Delayed (survey_s=360): 6 min salt-passage recount under a second conductivity cell; not a safety inflection.",
+                ],
+            ),
+            ("delayed_surprise_s", 360),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "cond.permeate.uS (2.960 ms, 280 uS/cm)"),
+                        ("loser", "vib.hp.mm_s (3.088 ms, 4.1 mm/s)"),
+                        ("margin_us", 128),
+                        (
+                            "counterfactual_if_reversed",
+                            "Vibration-first by < 128 us inside the 240 us window would have "
+                            "REJECTED a legal 65 bar hold. Order selected ACCEPT of an already-"
+                            "legal proposal.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 3460),
+            (
+                "reward_inflection_note",
+                "Task and safety step up at the ACCEPT gate (3.460 ms, tick 4) as the legal "
+                "hold locks in over a vibration abort.",
+            ),
+        ]
+    )
+    ras = raster_core(
+        23,
+        80,
+        32,
+        59,
+        routing(
+            "thalamic-relay.permeate-cond",
+            "spikenaut.policy.hold-go",
+            [
+                ("relay.cond.permeate", "policy.permeate_go", 0.68),
+                ("relay.vib.hp", "policy.vib_hold", 0.26),
+                ("relay.pt.hp", "policy.permeate_go", 0.10),
+            ],
+            "histamine",
+            0.07,
+            "product_cap_stdp; HA at conductivity win (2.960 ms) tags permeate_go over vib_hold",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("delayed_surprise_s", 360),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.24),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("permeate_go", 40, 0.50, 300.0, 3),
+                    pop("vib_hold", 40, 0.50, 40.0, 0),
+                    pop("hp_ctx", 24, 0.70),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r26-150"),
+            (
+                "title",
+                "Osmia-Reach OR-7 / Train-C: permeate 280 uS/cm beats HP vibration 4.1 mm/s by "
+                "128 us; correct ACCEPT of an already-legal 65 bar hold",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct ACCEPT. Permeate 280 < 400 cap; vibration is coupling rattle. "
+                    "total +1.12 = 0.42 + 0.32 + 0.18 + 0.12 + 0.08.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "desal-RO-train",
+                    [
+                        "accept",
+                        "desal",
+                        "conductivity-vs-vibration",
+                        "simulated",
+                    ],
+                    "Teaches that an HP coupling rattle can lose to permeate conductivity inside "
+                    "a 240 us window; reversing 128 us would have REJECTED an already-legal 65 bar hold.",
+                    5,
+                ),
+            ),
+        ]
+    )
+
+
+def tokenize(text: str) -> set[str]:
+    return {tok for tok in re.split(r"[^a-z0-9]+", text.lower()) if tok}
+
+
+def jaccard(a: str, b: str) -> float:
+    sa, sb = tokenize(a), tokenize(b)
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+
+def check_refractory(events, min_ms=0.8):
+    last = {}
+    for ev in events:
+        ch, t = ev["channel"], ev["t_rel_ms"]
+        if ch in last and t - last[ch] < min_ms - 1e-12:
+            return f"{ch} gap {t - last[ch]} ms"
+        last[ch] = t
+    return None
+
+
+def check_race(rec):
+    start, end = rec["state"]["race_window_rel_ms"]
+    in_win = {}
+    for ev in rec["spike_events"]:
+        if start <= ev["t_rel_ms"] <= end:
+            in_win.setdefault(ev["channel"], 0)
+            in_win[ev["channel"]] += 1
+    if len(in_win) < 2:
+        return f"race window has {len(in_win)} channels: {in_win}"
+    return None
+
+
+def excerpt_vs_spikes(rec):
+    spike_us = {int(round(ev["t_rel_ms"] * 1000.0)) for ev in rec["spike_events"]}
+    ex_us = {item["t_us"] for item in rec["raster"]["excerpt"]}
+    if not spike_us:
+        return 0.0
+    return len(spike_us & ex_us) / len(spike_us)
+
+
+def walk_keys(obj, path=""):
+    found = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            p = f"{path}.{k}" if path else k
+            if str(k).lower() in THOUGHT_KEYS or str(k).lower() in {
+                "chain_of_thought",
+                "hidden_reasoning",
+            }:
+                found.append(p)
+            found.extend(walk_keys(v, p))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            found.extend(walk_keys(v, f"{path}[{i}]"))
+    return found
+
+
+BANNED_DOMAINS = {
+    "warehouse-amr",
+    "aerial-swarm",
+    "underwater-rov",
+    "grid-inspection",
+    "humanoid-locomotion",
+    "surgical-assist",
+    "industrial-assembly",
+    "autonomous-driving",
+    "rail-signaling",
+    "process-chem",
+    "ev-charging",
+    "agritech-combine",
+    "semiconductor-fab",
+    "fusion-divertor",
+    "rail-hump-yard",
+    "hotcell-telemanip",
+    "euv-wafer-stage",
+    "proton-gantry-gate",
+    "tbm-slurry-shield",
+    "wave-energy-latching",
+    "fiber-draw-tower",
+    "brewery-CIP",
+    "ski-lift",
+    "data-center-CDU",
+    "canal-lock",
+    "blast-furnace",
+    "satellite-servicing",
+    "mine-ventilation",
+    "paper-machine",
+    "cryo-storage",
+    "amusement-ride",
+    "mill-scale-pit",
+    "battery-formation",
+    "grain-elevator",
+    "glass-lehr",
+    "tunnel-boring",
+    "trolleybus",
+    "glass-float-line",
+    "LNG-boiloff",
+    "hyperbaric-weld",
+    "radio-telescope-pointing",
+    "funicular",
+    "PCB-reflow",
+    "anaerobic-digester",
+    "tidal-barrage",
+}
+
+BANNED_PLANT_FRAGMENTS = (
+    "Marrow-Dock",
+    "Vesper-Lattice",
+    "Brine-Well",
+    "Saddle-Arc",
+    "Ashlar-Gait",
+    "Nacre-Well",
+    "Quern-Forge",
+    "Tinder-Box",
+    "Whimbrel-Stack",
+    "Cinder-Loft",
+    "Suture-Isle",
+    "Kiln-Spur",
+    "Oxbow-Switch",
+    "Pitch-Kettle",
+    "Shale-Quay",
+    "Polder-Rye",
+    "Flint-Mask",
+    "Gyre-Tokamak",
+    "Quarry-Bowl",
+    "Orpiment",
+    "Glimmer-Forge",
+    "Feldspar-Arc",
+    "Basalt-Rook",
+    "Fetch-Sound",
+    "Silica-Well",
+    "Sinter-Gown",
+    "Kettle-Stack",
+    "Barrow-Mezz",
+    "Grit-Sump",
+    "Firth-Spur",
+    "Wort-Cairn",
+    "Firn-Span",
+    "Sleet-Row",
+    "Oxbow-Pound",
+    "Tuyere-Holt",
+    "Bracken-Wire",
+    "Cullet-Reach",
+    "Rime-Causeway",
+    "Abyss-Joint",
+    "Gnomon-Well",
+    "Scree-Hitch",
+    "Flux-Kettle",
+    "Mire-Cask",
+    "Slack-Firth",
+    "Chaff-Rise",
+)
+
+
+def prior_descriptions():
+    descs = []
+    for path in Path("/tmp").glob("ttf-r*/batch-r*.jsonl"):
+        if "ttf-r26" in str(path):
+            continue
+        try:
+            for line in path.read_text().splitlines():
+                if not line.strip():
+                    continue
+                rec = json.loads(line)
+                d = rec.get("state", {}).get("description")
+                if d:
+                    descs.append((path.name, rec.get("id"), d))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return descs
+
+
+def self_check(records):
+    issues = []
+    descs = [r["state"]["description"] for r in records]
+    opens = [d.split(".")[0] for d in descs]
+    if len(set(opens)) != 5:
+        issues.append("opening sentences not unique")
+    jmax = 0.0
+    for i in range(5):
+        for j in range(i + 1, 5):
+            val = jaccard(descs[i], descs[j])
+            jmax = max(jmax, val)
+            if val >= 0.4:
+                issues.append(f"Jaccard {records[i]['id']}/{records[j]['id']} = {val:.3f}")
+    prior = prior_descriptions()
+    jprior = 0.0
+    for rec, desc in zip(records, descs):
+        for src, pid, pdesc in prior:
+            val = jaccard(desc, pdesc)
+            jprior = max(jprior, val)
+            if val >= 0.4:
+                issues.append(f"Jaccard {rec['id']}/{pid}@{src} = {val:.3f}")
+    domains = [r["state"]["domain"] for r in records]
+    if len(set(domains)) != 5:
+        issues.append(f"domain collision {domains}")
+    if set(domains) & BANNED_DOMAINS:
+        issues.append(f"banned domains {set(domains) & BANNED_DOMAINS}")
+    blob_all = "\n".join(json.dumps(r) for r in records)
+    for frag in BANNED_PLANT_FRAGMENTS:
+        if frag in blob_all:
+            issues.append(f"banned plant fragment {frag}")
+    wrong = [
+        r
+        for r in records
+        if r["safety_decision"].get("correctness") == "incorrect"
+        or r["meta"].get("supervisor_error_type")
+    ]
+    if len(wrong) != 1 or wrong[0]["id"] != "ttf-r26-147":
+        issues.append(f"wrong-gate set {[w['id'] for w in wrong]}")
+    if any(r["state"]["sim_or_real"] == "real" for r in records):
+        issues.append("sim_or_real=real")
+    hil = [r["id"] for r in records if r["state"]["sim_or_real"] == "hil"]
+    if hil != ["ttf-r26-148"]:
+        issues.append(f"hil set {hil}")
+    decisions = [r["safety_decision"]["decision"] for r in records]
+    if decisions.count("ACCEPT") != 1 or decisions.count("MODIFY") != 2 or decisions.count("REJECT") != 2:
+        issues.append(f"gate mix {decisions}")
+    for rec in records:
+        blob = json.dumps(rec)
+        if "training_ready" in blob:
+            issues.append(f"{rec['id']} training_ready present")
+        hidden = walk_keys(rec)
+        if hidden:
+            issues.append(f"{rec['id']} hidden keys {hidden}")
+        err = check_refractory(rec["spike_events"])
+        if err:
+            issues.append(f"{rec['id']} refractory {err}")
+        err = check_race(rec)
+        if err:
+            issues.append(f"{rec['id']} {err}")
+        n = rec["raster"]["neurons"]
+        rate = rec["raster"]["mean_rate_hz"]
+        window_s = rec["raster"]["window_s"]
+        expected = round(n * rate * window_s)
+        if abs(rec["raster"]["spikes"] - expected) > 1:
+            issues.append(f"{rec['id']} spike budget {rec['raster']['spikes']} vs {expected}")
+        overlap = excerpt_vs_spikes(rec)
+        if rec["id"] == "ttf-r26-146":
+            if rec["raster"].get("excerpt_source") != "independent_lif":
+                issues.append("146 missing independent_lif")
+            if rec["future_outcome"]["reward_inflection_t_us"] > rec["raster"]["window_ms"] * 1000:
+                issues.append("146 inflection outside window")
+        elif overlap >= 0.8:
+            issues.append(f"{rec['id']} excerpt overlap {overlap:.2f}")
+        inf = rec["future_outcome"]["reward_inflection_t_us"]
+        tick_times = [t["t_us"] for t in rec["reward_components"]["ticks"]]
+        if inf not in tick_times:
+            issues.append(f"{rec['id']} inflection {inf} not a tick")
+        if len(rec["reward_components"]["ticks"]) != 6:
+            issues.append(f"{rec['id']} tick count")
+        if not (8 <= len(rec["state"]["episode_steps"]) <= 15):
+            issues.append(f"{rec['id']} episode_steps")
+        if rec["gate_snn"]["decision"] != rec["safety_decision"]["decision"]:
+            issues.append(f"{rec['id']} gate_snn decision mismatch")
+        if rec["meta"]["round"] != 26:
+            issues.append(f"{rec['id']} meta.round")
+        if rec["meta"]["rights"]["intended_use"] != "research_only":
+            issues.append(f"{rec['id']} rights")
+        heads = ["task_progress", "safety", "efficiency", "coherence", "exploration"]
+        total = sum(rec["reward_components"][h] for h in heads)
+        if abs(total - rec["reward_components"]["total"]) > 1e-6:
+            issues.append(f"{rec['id']} total mismatch {total}")
+        for h in heads:
+            s = sum(t[h] for t in rec["reward_components"]["ticks"])
+            if abs(s - rec["reward_components"][h]) > 1e-6:
+                issues.append(f"{rec['id']} {h} tick sum {s} vs {rec['reward_components'][h]}")
+        nspk = len(rec["spike_events"])
+        if not (5 <= nspk <= 40):
+            issues.append(f"{rec['id']} spike count {nspk}")
+        times = [e["t_rel_ms"] for e in rec["spike_events"]]
+        if times != sorted(times):
+            issues.append(f"{rec['id']} spike order")
+        exec_p = rec["executed_action"]["parameters"]
+        prop_p = rec["proposed_action"]["parameters"]
+        if rec["safety_decision"]["decision"] == "ACCEPT" and exec_p != prop_p:
+            issues.append(f"{rec['id']} ACCEPT params differ")
+        if rec["id"] == "ttf-r26-146" and rec["reward_components"]["total"] >= 0:
+            issues.append("146 partnered-neg total not negative")
+        dw_s = rec["gate_snn"]["decision_window_ms"] / 1000.0
+        for popu in rec["gate_snn"]["populations"]:
+            if "mean_rate_hz" in popu:
+                exp = round(popu["neurons"] * popu["mean_rate_hz"] * dw_s)
+                if abs(popu["spikes"] - exp) > 1:
+                    issues.append(
+                        f"{rec['id']} gate_snn {popu['name']} spikes {popu['spikes']} vs {exp}"
+                    )
+        gl = rec["state"]["gate_latency_us"]
+        rw = rec["state"]["race_window_us"]
+        if not (50 <= gl <= 2000):
+            issues.append(f"{rec['id']} gate_latency_us {gl}")
+        if not (50 <= rw <= 1000):
+            issues.append(f"{rec['id']} race_window_us {rw}")
+        if rec["state"]["sim_or_real"] not in {"designed", "simulated", "hil"}:
+            issues.append(f"{rec['id']} sim_or_real")
+    return issues, jmax, jprior
+
+
+NOTES = """# Thalamic Trajectory Factory — NOTES-r26
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- IDs: `ttf-r26-146` … `ttf-r26-150`
+- Domains this batch: `lime-rotary-kiln`, `ferry-linkspan`, `isotope-cyclotron`, `die-cast-cell`, `desal-RO-train`
+
+These five domain slugs sit outside r12–r21 occupancy (8-pool, r14–r16 sit-ins, r15 plan tags, r18 suggested set, r19 CIP/ski/CDU/lock/furnace, r20 trolley/float/LNG/weld/dish, r21 funicular/reflow/digester/barrage/grain). All five plants are invented. Do not restack Marrow-Dock, Vesper-Lattice, Brine-Well, Saddle-Arc, Ashlar-Gait, Nacre-Well, Quern-Forge, Tinder-Box, Whimbrel-Stack, Cinder-Loft, Suture-Isle, Kiln-Spur, Oxbow-Switch, Pitch-Kettle, Shale-Quay, Polder-Rye, Flint-Mask, Gyre-Tokamak, Quarry-Bowl, Orpiment, Glimmer-Forge, Feldspar-Arc, Basalt-Rook, Fetch-Sound, Silica-Well, Wort-Cairn, Firn-Span, Sleet-Row, Oxbow-Pound, Tuyere-Holt, Bracken-Wire, Cullet-Reach, Rime-Causeway, Abyss-Joint, Gnomon-Well, Scree-Hitch, Flux-Kettle, Mire-Cask, Slack-Firth, Chaff-Rise.
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+| ttf-r26-146 | lime-rotary-kiln | MODIFY | correct | designed | **−0.44** | process-correct fuel clamp; hanging-chain shear inside 42 ms raster; independent LIF |
+| ttf-r26-147 | ferry-linkspan | REJECT | **incorrect (wrong-reject)** | designed | −0.58 | apron 8.2 MPa < 11.0 cap; supervisor treats tide 2.40 m as apron over-travel |
+| ttf-r26-148 | isotope-cyclotron | REJECT | correct | hil | +0.76 | Faraday 14.2 uA beats VSWR 1.12; hold extraction |
+| ttf-r26-149 | die-cast-cell | MODIFY | correct | designed | +0.88 | cavity 92 MPa vs die 210 C; clamp shot 2.4 → 1.5 m/s |
+| ttf-r26-150 | desal-RO-train | ACCEPT | correct | simulated | +1.12 | permeate 280 uS/cm vs HP vibration 4.1 mm/s; proposed 65 bar already legal |
+
+Gate mix: 1 ACCEPT, 2 MODIFY, 1 correct REJECT, 1 incorrect REJECT (wrong-reject). Provenance: designed×3, simulated×1, hil×1 (K-shell cyclotron pad). Even-round alternate vs r19 wrong-modify.
+
+## Wrong-reject
+
+**ttf-r26-147** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-reject`). This is not r12 induced-kV, not r13 J2-vs-J6, not r14 AC-vs-DC, not r16 reticle-vs-wafer.
+
+Gull-Pontoon GP-5 / Apron-3 reads cylinder PT **8.2 MPa** against an **11.0 MPa** apron cap. Tide staff is **2.40 m** on a different loop whose cap is **3.50 m**. Sidecar arithmetic `8.2 < 11.0` is true. A weak supervisor treats “the raise loop” as one axis, REJECTs the 0.08 m/s raise, and holds the apron. Convictable without marine hydraulics: `evidence.apron_MPa < evidence.apron_cap_MPa`, `apron_loop_id == hydraulics`, `tide_loop_id == tide_staff`, `executed_action` sets `raise_m_s=0` without an apron over-cap, `raster.routing.table` sends `relay.tide.staff` → `policy.apron_hold` (weight 0.73) with no positive weight to `policy.raise_go`, and `gate_snn` has `apron_hold` above threshold while `raise_go` is not (0 spikes). Recovery: ACCEPT the 0.08 m/s raise; leave tide 2.40 m to its own 3.50 m cap. Cost: missed 24 min tide window (`missed_window_s=1440`).
+
+## Partnered-negative in-window (146)
+
+**ttf-r26-146** is the partnered negative: process-correct MODIFY (hood O2 held 5.7 percent >= 5.5 floor) while the world still charges. Safety −0.56 prices the chain-11 shear at **21.200 ms**; `task_progress` stays +0.34 because the clamp completed. Inflection `t_us=21200` is tick 5 and is **inside** the 42 ms raster (`21200 ≤ 42000`). Named un-netted loss: 15 min hanging-chain swap (`abort_s=900`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 26146, stim `[20000, 23000]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.chain` 20–23 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks). Tick 6 is bound to a published sidecar (`abort_s`, `missed_window_s`, `reclear_s`, `qc_s`, `survey_s`) and is strictly after the raster window. Inflection `t_us` is an actual tick.
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+| 146 | 6 | +0.34 | −0.56 | −0.18 | +0.02 | −0.06 | −0.44 | 5 (21200) |
+| 147 | 6 | −0.19 | −0.08 | −0.22 | −0.12 | +0.03 | −0.58 | 4 (5000) |
+| 148 | 6 | +0.08 | +0.38 | +0.12 | +0.10 | +0.08 | +0.76 | 4 (6860) |
+| 149 | 6 | +0.32 | +0.28 | +0.12 | +0.10 | +0.06 | +0.88 | 4 (4400) |
+| 150 | 6 | +0.42 | +0.32 | +0.18 | +0.12 | +0.08 | +1.12 | 4 (3460) |
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+| 146 | lime-rotary-kiln | 68 | 28 | 42 | 80 | 1840 | 0.001840 |
+| 147 | ferry-linkspan | 92 | 36 | 31 | 103 | 2369 | 0.002369 |
+| 148 | isotope-cyclotron | 120 | 22 | 46 | 121 | 2783 | 0.002783 |
+| 149 | die-cast-cell | 56 | 44 | 27 | 67 | 1541 | 0.001541 |
+| 150 | desal-RO-train | 80 | 32 | 23 | 59 | 1357 | 0.001357 |
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator, `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-146 excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).
+
+## Local checks (staging, not raw)
+
+See generator stdout: `check_jsonl` FactoryStaging, `validate_run.check_line`, `dumps_exact_json`, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`, tick sums, refractory, Jaccard.
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrote `outputs/raw/`.
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (146). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. Tick-6 sidecar bind is a densification of r14/r16, not a new class.
+4. Five domain slugs leave the prompt's 8-item pool; a later round that must stay inside the pool will have to rotate sit-outs instead.
+5. 150 ACCEPT is an already-legal proposal confirmed by race order; a later round could pair an ACCEPT with a world charge that does not go negative.
+6. 147 wrong-reject is sidecar-convictable like r16-097 wrong-stage; a critic that only checks `P<cap` still needs `routing.table[].to` to see the error.
+
+## Next densification target
+
+Labeled LIF on a second record, or an ISI histogram sidecar. If a later round returns to the 8-item pool, sit out the r12 five again and pick a wrong-MODIFY that is neither J2-axis nor a loop mixup (wrong-phase of a cyclic process). Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+Novel coverage: 17.5%
+"""
+
+
+def run_pipelines(records):
+    sys.path.insert(0, str(PIPELINES))
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import raster_status
+    from exact_json import dumps_exact_json
+    from round_txn import validate_novel_coverage
+    from validate_run import check_line
+    from verify_execution import verify_batch_for_frontier
+
+    report = []
+    errors, warnings, kinds, nrec = check_jsonl(
+        BATCH_PATH, "batch-r26.jsonl", staging=FactoryStaging(enabled=True)
+    )
+    report.append(("check_jsonl FactoryStaging", errors, warnings, kinds, nrec))
+    line_errs = []
+    for i, rec in enumerate(records, 1):
+        errs, kind = check_line(rec, f"batch-r26.jsonl:{i}", factory_staging=True)
+        if errs:
+            line_errs.append((i, kind, errs))
+        try:
+            dumps_exact_json(rec, ensure_ascii=False, sort_keys=False)
+        except Exception as exc:
+            line_errs.append((i, "exact_json", [str(exc)]))
+    report.append(("check_line+exact_json", line_errs, None, None, None))
+    raster_fail = []
+    for rec in records:
+        st = raster_status(rec, require_raster=True, require_routing_table=True)
+        if not st.get("raster_valid") or not st.get("gate_snn_valid"):
+            raster_fail.append((rec["id"], st))
+    report.append(("raster_status", raster_fail, None, None, None))
+    counts, findings, blocked = verify_batch_for_frontier(BATCH_PATH, strict=True)
+    report.append(("verify_batch_for_frontier", counts, findings, blocked, None))
+    cov = validate_novel_coverage(
+        NOTES_PATH,
+        Path("thalamic-trajectory-factory"),
+        notes_text=NOTES_PATH.read_text(),
+        required=True,
+    )
+    report.append(("validate_novel_coverage", cov, None, None, None))
+    probe = subprocess.run(
+        [sys.executable, str(PIPELINES / "spike_probe.py"), "--strict", str(BATCH_PATH)],
+        cwd=str(REPO),
+        capture_output=True,
+        text=True,
+    )
+    report.append(("spike_probe", probe.returncode, probe.stdout[-2000:], probe.stderr[-2000:], None))
+    return report
+
+
+def main() -> int:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    records = [record_146(), record_147(), record_148(), record_149(), record_150()]
+    issues, jmax, jprior = self_check(records)
+    lines = [
+        json.dumps(rec, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        for rec in records
+    ]
+    BATCH_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    NOTES_PATH.write_text(NOTES, encoding="utf-8")
+    print(f"wrote {BATCH_PATH} lines={len(lines)} jmax={jmax:.3f} jprior={jprior:.3f}")
+    print(f"wrote {NOTES_PATH}")
+    if issues:
+        print("SELF_CHECK_ISSUES:")
+        for item in issues:
+            print(" -", item)
+        return 1
+    print("SELF_CHECK_OK")
+    report = run_pipelines(records)
+    failed = False
+    for item in report:
+        name = item[0]
+        print(f"PIPELINE {name}: {item[1:]}")
+        if name == "check_jsonl FactoryStaging":
+            errors, warnings, kinds, nrec = item[1], item[2], item[3], item[4]
+            print(f"  kinds={kinds} n={nrec} errors={len(errors)} warnings={len(warnings)}")
+            for e in errors:
+                print("  ERR", e)
+                failed = True
+        elif name == "check_line+exact_json":
+            if item[1]:
+                failed = True
+        elif name == "raster_status":
+            if item[1]:
+                failed = True
+        elif name == "verify_batch_for_frontier":
+            if item[3]:
+                failed = True
+        elif name == "validate_novel_coverage":
+            if item[1]:
+                failed = True
+        elif name == "spike_probe":
+            if item[1] != 0:
+                failed = True
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

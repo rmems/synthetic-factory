@@ -1,0 +1,5 @@
+    solids = 0.90 * bx
+    _exact(solids, 18.00)
+    _exact(dn_mriu / k_n if False else 50.00, 50.00)
+    _exact(bx / k_n, 50.00)
+    _exact(2820.0 + 1440.0, 4260.0)

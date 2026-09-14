@@ -1,0 +1,948 @@
+# ---------------------------------------------------------------------------
+# Record 091 — Fe-57 Mössbauer isomer-shift FCC regenerator, designed, MODIFY / ACCEPT
+# ---------------------------------------------------------------------------
+def rec_091():
+    k_ch = 0.040
+    ch0 = 12.00
+    ch = 42.00
+    delta = k_ch * (ch - ch0)
+    a_fe2 = 1.20
+    a_fe3 = 4.80
+    f_fe3 = a_fe3 / (a_fe2 + a_fe3)
+    if abs(delta - 1.20) > 1e-12:
+        raise RuntimeError(delta)
+    if abs(f_fe3 - 0.80) > 1e-12:
+        raise RuntimeError(f_fe3)
+    if abs(0.040 * (18.00 - 12.00) - 0.24) > 1e-12:
+        raise RuntimeError("early delta")
+    if abs(0.040 * (30.00 - 12.00) - 0.72) > 1e-12:
+        raise RuntimeError("mid delta")
+    if abs(0.040 * (38.00 - 12.00) - 1.04) > 1e-12:
+        raise RuntimeError("post delta")
+    if abs(6600 + 1440 - 8040) > 1e-12:
+        raise RuntimeError("soak floor")
+    if abs(12.00 * 0.85 - 10.20) > 1e-12:
+        raise RuntimeError("air cut")
+
+    raster = make_raster(
+        neurons=20,
+        mean_rate_hz=50.0,
+        window_ms=36.0,
+        seed=202609091,
+        source="gm7.moss.drive",
+        target="gorsemere.air_cut_core",
+        table=[
+            {"from": "moss_ch", "to": "isomer_estimator", "weight": 1.40},
+            {"from": "moss_k", "to": "drive_norm_core", "weight": 1.20},
+            {"from": "mossveil_d", "to": "vendor_continue_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "na.fe3_isomer_salience",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": "pre-post coincidence on regenerator-air synapses; the Mössbauer modulator enables potentiation only while drive-norm is co-active inside tau_e so a Mossveil last-good corridor cannot hide a 1.20 mm/s Fe3+ isomer shift",
+        },
+        channel_prefix="moss.n",
+        anchor="GM-7 Mössbauer 36 ms frame at ch 42.00 / k_ch 0.040 mm/s (t_s 3000) reconstructing 1.20 mm/s above the 0.90 mm/s over-oxidation floor",
+    )
+    w_s = 0.036
+    events = [
+        ev(0.0, "moss.ch", 18.00, code="CH", units="channel", note="plant-owned Fe-57 constant-acceleration drive on regenerator RG-2 fines; not LIBS, not PGNAA, not fab OES"),
+        ev(300000.0, "moss.k", 0.040, code="K_CH", units="mm_s_per_ch", note="drive calibration; delta = k_ch * (ch - ch0)"),
+        ev(600000.0, "recon.d", 0.24, code="DELTA_MM_S", units="mm_s", note="0.040*(18.00-12.00) = 0.24 exact"),
+        ev(1200000.0, "o2.pct", 2.10, code="O2_PCT", units="pct", note="regenerator dense-bed O2 corridor; looks lean"),
+        ev(1800000.0, "mossveil.d", 0.22, code="VENDOR_MM_S", units="mm_s", note="Mossveil last-good fresh-catalyst stamp; not admissible SoT"),
+        ev(2400000.0, "moss.ch", 30.00, code="CH", units="channel"),
+        ev(2700000.0, "recon.d", 0.72, code="DELTA_MM_S", units="mm_s", note="0.040*(30.00-12.00) = 0.72"),
+        ev(3000000.0, "moss.ch", 42.00, code="CH", units="channel", note="over-oxidation-floor frame; raster sidecar"),
+        ev(3000001.4, "moss.k", 0.040, code="K_CH", units="mm_s_per_ch", note="1.4 ms drive-norm after channel"),
+        ev(3300000.0, "recon.d", 1.20, code="DELTA_MM_S", units="mm_s", note="0.040*(42.00-12.00) = 1.20 exact; floor 0.90"),
+        ev(3600000.0, "a.fe2", 1.20, code="A_FE2", units="au", note="low-velocity Fe2+ doublet area"),
+        ev(3900000.0, "a.fe3", 4.80, code="A_FE3", units="au", note="high-velocity Fe3+ doublet area"),
+        ev(4200000.0, "recon.f", 0.80, code="F_FE3", units="frac", note="4.80/(1.20+4.80) = 0.80 exact; floor 0.65"),
+        ev(4500000.0, "o2.pct", 1.80, code="O2_PCT", units="pct"),
+        ev(4800000.0, "mossveil.d", 0.22, code="VENDOR_MM_S", units="mm_s"),
+        ev(5100000.0, "regen.T", 705.0, code="REGEN_C", units="C", note="dense-bed temperature corridor; not isomer shift"),
+        ev(5400000.0, "ops.prop", 1.0, code="KEEP_1PU_AIR", units="bool", note="shift chemist Tamsin Quag: keep 1.00 air; Mossveil 0.22 and O2 1.80"),
+        ev(5700000.0, "gate.air", 1.0, code="MODIFY", units="decision", note="derate combustion air to 0.85 pu; 1.20 mm/s and f_Fe3 0.80"),
+        ev(6000000.0, "air.set", 0.85, code="PU", units="pu", note="12.00 * 0.85 = 10.20 t/h"),
+        ev(6600000.0, "soak.start", 1.0, code="SOAK_START", units="bool", note="bookend 1 of the 24.0 min regenerator settle floor"),
+        ev(7200000.0, "moss.lock", 1.20, code="LOCKED_MM_S", units="mm_s"),
+        ev(7800000.0, "regen.T", 698.0, code="REGEN_C", units="C"),
+        ev(8040000.0, "soak.floor", 1.0, code="SOAK_FLOOR", units="bool", note="6600 s + 1440 s = 8040 s = 24.0 min"),
+        ev(9000000.0, "ops.restore", 1.0, code="RESTORE_1PU", units="bool", note="Quag: Mossveil 0.20, restore 1.00 air"),
+        ev(9600000.0, "gate.exec", 1.0, code="ACCEPT", units="decision", note="companion t2: hold 0.85; Mossveil restore refused"),
+        ev(10200000.0, "air.held", 0.85, code="PU_HELD", units="pu"),
+        ev(10800000.0, "mossveil.d", 0.20, code="VENDOR_MM_S", units="mm_s"),
+        ev(11400000.0, "recon.d", 1.04, code="DELTA_MM_S", units="mm_s", note="post-cut sample 0.040*(38.00-12.00) = 1.04"),
+        ev(12000000.0, "o2.pct", 1.70, code="O2_PCT", units="pct"),
+        ev(12600000.0, "dump.hold", 0.0, code="DUMP_T", units="t", note="inventory dump not taken; isolate floor is 1.80 mm/s"),
+        ev(13200000.0, "regen.T", 680.0, code="REGEN_C", units="C"),
+        ev(13800000.0, "trip.hold", 0.0, code="TRIP_MM_S", units="mm_s", note="peak 1.20 vs 1.80 isolate floor; regenerator trip not taken"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r30-091-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "GM-MOSS-2026-0611",
+            "domain": "mossbauer_fcc_regenerator",
+            "setting": "Gorsemere FCC GM-7 (invented), regenerator RG-2. Plant-owned Fe-57 constant-acceleration Mössbauer drive on cyclone fines. Mossveil vendor last-good isomer-shift cloud is a corridor witness, not the oxidation SoT. Invented plant; designed campaign. Not LIBS (r19/r21/r22), not PGNAA Bogue (r15), not fab OES (r11), not QEPAS DGA (r19), not helium RGA (r24).",
+            "observables_at_decision": {
+                "ch": 42.00,
+                "ch0": 12.00,
+                "k_ch_mm_s": 0.040,
+                "delta_mm_s": 1.20,
+                "f_Fe3": 0.80,
+                "mossveil_mm_s": 0.22,
+                "o2_pct": 1.80,
+                "overox_floor_mm_s": 0.90,
+            },
+            "margin_authority": "GM-7 Mössbauer SOP rev B: if reconstructed delta_mm_s >= 0.90 AND f_Fe3 >= 0.65, derate combustion air this night to 0.85 pu. A Mossveil last-good stamp or a lean O2 corridor cannot keep 1.00 air. Inventory dump tripwire is 1.80 mm/s.",
+        },
+        "proposed_action": {
+            "actor": "shift chemist Tamsin Quag, citing Mossveil 0.22 mm/s and dense-bed O2 1.80 percent",
+            "summary": "keep regenerator air at 1.00 pu through the night; channel 42 is drive-motor backlash",
+            "basis_claimed": "Mossveil last-good is fresh-catalyst and O2 is under the 2.50 percent afterburn alarm",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Keep-1.00 air is refused. Serialized reconstruction: delta_mm_s = k_ch * (ch - ch0) = 0.040 * (42.00 - 12.00) = 1.20, which is 0.30 mm/s above the 0.90 over-oxidation floor. f_Fe3 = A_Fe3 / (A_Fe2 + A_Fe3) = 4.80 / (1.20 + 4.80) = 0.80, above the 0.65 Fe3+ floor. Mossveil 0.22 mm/s is a morning stamp, not a live drive, and is not an admissible keep-1.00 witness. Ordered: derate combustion air to 0.85 pu now (12.00 t/h -> 10.20 t/h). Scope: this MODIFY does not dump the 40 t inventory (that is the companion question) and does not trip the regenerator.",
+            "threshold": "delta_mm_s>=0.90 AND f_Fe3>=0.65 => derate air to 0.85 pu; Mossveil is not SoT; dump if delta_mm_s>=1.80",
+            "stated_residuals": "1.20 vs 1.80 dump floor is 0.60 mm/s, not infinite; 0.85 pu is a conversion cut; Mossveil remains the only OEM isomer channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 5700: air derated to 0.85 pu; Mossveil not SoT; reconstruction locked",
+            "tool": "gm7-moss-air-gate-cli",
+            "observation": "delta 1.20 mm/s recomputes from ch 42.00 and k_ch 0.040; Helix-drive remains live as the dump interlock",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "Mössbauer ch 42.00; raster frame; delta 1.20 mm/s"},
+                {"t_s": 5400.0, "event": "ops proposes keep 1.00 air"},
+                {"t_s": 5700.0, "event": "MODIFY derate air to 0.85 pu"},
+                {"t_s": 6600.0, "event": "24 min soak bookend 1"},
+                {"t_s": 8040.0, "event": "24.0 min floor"},
+                {"t_s": 9600.0, "event": "companion ACCEPT hold 0.85; restore refused"},
+            ],
+            "observed_effects": [
+                "isomer shift recomputes from the serialized drive model at every recon.d event",
+                "a Mossveil-only head would have kept 1.00 air overnight",
+                "24 min soak floor is in the stream (soak.start, soak.floor)",
+            ],
+            "surprises": [
+                "a fresh-catalyst vendor stamp and a lean O2 corridor co-existed with a 1.20 mm/s Fe3+ reconstruction",
+            ],
+            "new_state": {
+                "gm7_air_pu": 0.85,
+                "mossveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2700000.0,
+        },
+        "reward_components": reward(
+            0.41,
+            [
+                ("mossbauer_reconstruction", 0.14),
+                ("overox_floor_derate", 0.12),
+                ("vendor_stamp_nonsubstitution", 0.10),
+                ("soak_floor_in_stream", 0.08),
+                ("air_cut_conversion_cost", -0.03),
+            ],
+            "scored for a keep-1.00 MODIFY on a recomputable Fe-57 isomer shift while refusing a Mossveil last-good corridor; 24 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "mossbauer-fe57", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Mössbauer air gate: drive-channel isomer-shift reconstruction beats a green vendor last-good dashboard; companion t2 holds 0.85 pu rather than restoring on Mossveil",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r30-091-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "GM-MOSS-2026-0611-exec",
+            "domain": "fcc_air_hold_execution",
+            "setting": "Same GM-7 after the MODIFY. Shift chemist proposes restoring 1.00 air on Mossveil 0.20 mm/s. This companion is the operational 0.85 hold, not a second isomer-shift vote.",
+            "observables_at_decision": {
+                "air_pu": 0.85,
+                "delta_mm_s": 1.04,
+                "mossveil_mm_s": 0.20,
+                "soak_floor_s": 1440.0,
+            },
+        },
+        "proposed_action": {
+            "actor": "shift chemist Tamsin Quag",
+            "summary": "restore air to 1.00 pu; 24 min already paid and Mossveil is 0.20",
+            "basis_claimed": "the MODIFY already cut conversion, so restoring on the OEM channel is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Hold 0.85 pu. The soak floor is complete and the dump tripwire (delta_mm_s >= 1.80) is still armed on the plant drive. ACCEPT the hold. Do not restore 1.00 pu on Mossveil. Do not dump the 40 t inventory. 1.04 mm/s post-cut is still the Mössbauer SoT until a new frame clears 0.90.",
+            "threshold": "air_pu==0.85 AND soak_floor_complete AND dump_tripwire_armed AND restore_1pu_not_taken",
+        },
+        "executed_action": {
+            "summary": "0.85 pu held at t_s 9600; Mossveil restore not latched; inventory not dumped",
+            "tool": "gm7-air-hold-exec",
+            "observation": "recon.d 1.04 mm/s after cut; bed 680 C; Mossveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6600.0, "event": "soak clock started after MODIFY"},
+                {"t_s": 8040.0, "event": "24.0 min floor"},
+                {"t_s": 9000.0, "event": "restore 1.00 pu proposed"},
+                {"t_s": 9600.0, "event": "ACCEPT hold 0.85 pu"},
+            ],
+            "observed_effects": [
+                "Mossveil restore did not reopen the isomer-shift call",
+                "dump tripwire never fired; 1.20 vs 1.80 floor",
+            ],
+            "new_state": {"air_pu": 0.85, "restore_1pu": "blocked", "inventory": "in unit"},
+            "latency_ms": 1560000.0,
+        },
+        "reward_components": reward(
+            0.29,
+            [
+                ("hold_0p85", 0.11),
+                ("no_mossveil_restore", 0.09),
+                ("dump_interlock_live", 0.07),
+                ("soak_complete", 0.05),
+                ("held_air_cost", -0.03),
+            ],
+            "operational execution gate: hold 0.85 pu because Mossveil is not a restore license; not an isomer-shift re-vote",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "fcc-air-hold"]),
+    }
+    return {
+        "id": "nelb-r30-091",
+        "spike_events": events,
+        "language_view": {
+            "description": "Gorsemere FCC GM-7. Plant-owned Fe-57 Mössbauer reconstructs 1.20 mm/s isomer shift from 0.040*(42.00-12.00) and f_Fe3 0.80 from 4.80/6.00 while Mossveil still shows 0.22 mm/s and dense-bed O2 1.80 percent. The gate MODIFYs combustion air to 0.85 pu. A 24 min regenerator settle floor is serialized in the stream. Companion t2 ACCEPTs the 0.85 hold and refuses a Mossveil restore.",
+            "trajectory": traj,
+            "trajectory_air_hold_execution": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "moss.ch / moss.k": "drive channel and mm/s-per-channel calibration; the physics channels the reconstruction consumes",
+                "recon.d / recon.f / moss.lock": "serialized isomer shift and Fe3+ fraction",
+                "a.fe2 / a.fe3": "doublet areas the Fe3+ fraction consumes",
+                "o2.pct / mossveil.d / regen.T": "lean O2, vendor last-good stamp, and bed temperature; the denial channels that look healthy",
+                "ops.prop / gate.air / ops.restore / gate.exec": "keep-1.00 proposal, MODIFY derate, restore proposal, companion ACCEPT",
+                "air.set / soak.start / soak.floor / air.held": "operational companion channels plus the 24 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while Mössbauer-over: mossveil.d 0.22 next to recon.d 1.20",
+                "reconstruction as event: recon.d 1.20 equals 0.040*(42.00-12.00)",
+                "MODIFY then operational ACCEPT: gate.air at 5700 s, gate.exec at 9600 s",
+                "slow floor in-stream: soak.start 6600 s, soak.floor 8040 s (24.0 min)",
+                "tight drive pair: moss.ch then moss.k +1.4 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Mossveil is 0.22' = mossveil.d 0.22; '1.20 mm/s Fe3+' = recon.d 1.20; 'derate this air' = gate.air MODIFY; 'hold 0.85 not restore' = gate.exec ACCEPT",
+            "why_high_value": "New Fe-57 Mössbauer family on an FCC regenerator (not LIBS r19/r21/r22, not PGNAA r15, not fab OES r11, not QEPAS r19, not helium RGA r24). Lead MODIFY of keep-1.00 air on a recomputable isomer shift that a vendor last-good dashboard would have cleared. Companion t2 is operational 0.85 hold. sim_or_real=designed.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609091, "stream_note": "stream amplitudes are authored constants (channel, mm/s, au, frac, pct, C, pu, t, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "Mössbauer MCA exists at 50 Hz sweep; stream keeps 3 channel points; recon keeps 4 of ~40 solver ticks",
+                "refractory_floors_ms": {
+                    "moss.ch": 1.4,
+                    "moss.k": 1.4,
+                    "recon.d": 60000,
+                    "o2.pct": 60000,
+                    "mossveil.d": 60000,
+                    "a.fe2": 60000,
+                    "a.fe3": 60000,
+                    "recon.f": 60000,
+                    "regen.T": 60000,
+                    "ops.prop": 60000,
+                    "gate.air": 60000,
+                    "air.set": 60000,
+                    "soak.start": 60000,
+                    "moss.lock": 60000,
+                    "soak.floor": 60000,
+                    "ops.restore": 60000,
+                    "gate.exec": 60000,
+                    "air.held": 60000,
+                    "dump.hold": 60000,
+                    "trip.hold": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-06-11T03:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "Mössbauer reconstruction head: delta = k_ch * (ch - ch0); f_Fe3 = A_Fe3 / (A_Fe2 + A_Fe3)",
+                "over-oxidation-floor derate vs keep-whole vs inventory-dump",
+                "vendor-stamp nonsubstitution: last-good is not a keep-1.00 witness",
+                "operational companion: hold 0.85 without restoring on Mossveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "mossbauer_isomer_shift_and_fe3_fraction",
+            "formula": "delta_mm_s = k_ch * (ch - ch0); f_Fe3 = A_Fe3 / (A_Fe2 + A_Fe3)",
+            "parameters": {
+                "k_ch_mm_s_per_ch": 0.040,
+                "ch0": 12.00,
+                "overox_floor_mm_s": 0.90,
+                "fe3_floor": 0.65,
+                "dump_mm_s": 1.80,
+                "derate_pu": 0.85,
+                "soak_min": 24.0,
+            },
+            "worked_example": {"ch": 42.00, "delta_mm_s": 1.20, "f_Fe3": 0.80},
+            "check": "0.040*(42.00-12.00) = 1.20 exactly; 4.80/(1.20+4.80) = 0.80 exactly; 6600 s + 1440 s = 8040 s = 24.0 min floor; 12.00*0.85 = 10.20 t/h",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 36.0,
+            "decision_window_s": 0.036,
+            "code": "gm7.moss_air_gate",
+            "note": "MODIFY accumulator wins: Mössbauer isomer-shift evidence overpowers the Mossveil continue advocate",
+            "decode_rule": "modify-derate if isomer_estimator AND drive_norm fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("isomer_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("drive_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("modify_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "gm7.moss_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "gm7.air_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r30-091",
+            clock_domain="gm7-moss-campaign-relative-ms-t0-2026-06-11T03:00:00Z",
+            tags=["mossbauer-fe57", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 092 — GB-InSAR tailings-dam LOS, hil, REJECT / MODIFY
+# ---------------------------------------------------------------------------
+def rec_092():
+    k_los = 2.50
+    phi = 4.80
+    d_mm = k_los * phi
+    dt_d = 0.50
+    v_mm_d = d_mm / dt_d
+    if abs(d_mm - 12.00) > 1e-12:
+        raise RuntimeError(d_mm)
+    if abs(v_mm_d - 24.00) > 1e-12:
+        raise RuntimeError(v_mm_d)
+    if abs(2.50 * 1.20 - 3.00) > 1e-12:
+        raise RuntimeError("early d")
+    if abs(2.50 * 2.40 - 6.00) > 1e-12:
+        raise RuntimeError("mid d")
+    if abs(2.50 * 3.20 - 8.00) > 1e-12:
+        raise RuntimeError("post d")
+    if abs(8.00 / 0.50 - 16.00) > 1e-12:
+        raise RuntimeError("post v")
+    if abs(1800 + 2700 - 4500) > 1e-12:
+        raise RuntimeError("survey floor")
+    if abs(14.00 - 1.50 - 12.50) > 1e-12:
+        raise RuntimeError("pool drop")
+
+    raster = make_raster(
+        neurons=25,
+        mean_rate_hz=50.0,
+        window_ms=28.0,
+        seed=202609092,
+        source="bt4.insar.ku",
+        target="brindlescree.pool_stop_core",
+        table=[
+            {"from": "insar_phi", "to": "los_estimator", "weight": 1.35},
+            {"from": "insar_k", "to": "los_gain_core", "weight": 1.25},
+            {"from": "slopeveil_v", "to": "vendor_continue_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "da.slope_los_error",
+            "tau_e_s": 0.9,
+            "tau_e_ms": 900.0,
+            "eligibility": "pre-post coincidence on keep-pool synapses; the InSAR modulator depresses keep-pool links when wrapped phase stays high inside tau_e of a LOS-gain sample",
+        },
+        channel_prefix="insar.n",
+        anchor="BT-4 HIL corner-cube 28 ms frame at phi 4.80 rad / k_los 2.50 mm/rad (t_s 600) reconstructing 12.00 mm / 24.00 mm/d above the 8.00 mm/d slope floor",
+    )
+    w_s = 0.028
+    events = [
+        ev(0.0, "insar.phi", 1.20, code="PHI_RAD", units="rad", note="HIL spare corner-cube in Corner-HIL-2; plant-owned Ku GB-InSAR, not DAS phi-OTDR, not BOTDA"),
+        ev(30000.0, "insar.k", 2.50, code="K_LOS", units="mm_per_rad", note="lumped two-way LOS gain lambda/(4*pi); d = k_los * phi"),
+        ev(60000.0, "recon.d", 3.00, code="D_MM", units="mm", note="2.50*1.20 = 3.00 exact"),
+        ev(180000.0, "piez.m", 0.08, code="PIEZ_M", units="m", note="crest piezometer corridor; alarm 0.40 m"),
+        ev(240000.0, "slopeveil.v", 2.10, code="VENDOR_MM_D", units="mm_d", note="Slopeveil piezometer-inverted LOS cloud; the only OEM slope SoT"),
+        ev(360000.0, "insar.phi", 2.40, code="PHI_RAD", units="rad"),
+        ev(420000.0, "recon.d", 6.00, code="D_MM", units="mm", note="2.50*2.40 = 6.00"),
+        ev(480000.0, "recon.v", 12.00, code="V_MM_D", units="mm_d", note="6.00/0.50 = 12.00; 12.0 h = 0.50 d baseline"),
+        ev(600000.0, "insar.phi", 4.80, code="PHI_RAD", units="rad", note="slope-floor frame; raster sidecar"),
+        ev(600001.2, "insar.k", 2.50, code="K_LOS", units="mm_per_rad", note="1.2 ms LOS-gain after phase"),
+        ev(720000.0, "recon.d", 12.00, code="D_MM", units="mm", note="2.50*4.80 = 12.00 exact"),
+        ev(780000.0, "recon.v", 24.00, code="V_MM_D", units="mm_d", note="12.00/0.50 = 24.00 exact; slope floor 8.00"),
+        ev(840000.0, "piez.m", 0.12, code="PIEZ_M", units="m", note="SCADA alarm 0.40 m; 0.12 looks quiet"),
+        ev(900000.0, "slopeveil.v", 3.40, code="VENDOR_MM_D", units="mm_d"),
+        ev(960000.0, "ops.prop", 1.0, code="KEEP_POOL", units="bool", note="night supervisor Bram Sloe: keep pool 14.00 m; Slopeveil 3.40 and piez 0.12"),
+        ev(1020000.0, "gate.run", 1.0, code="REJECT", units="decision", note="stop keep-pool; 24.00 mm/d is above slope floor; Slopeveil not SoT"),
+        ev(1080000.0, "pool.hold", 14.00, code="POOL_M", units="m", note="pool still 14.00 pending companion drop"),
+        ev(1800000.0, "surv.start", 1.0, code="SURV_START", units="bool", note="bookend 1 of the 45.0 min resurvey floor"),
+        ev(2400000.0, "piez.m", 0.11, code="PIEZ_M", units="m"),
+        ev(3200000.0, "hil.T", 8.0, code="PIT_C", units="C", note="HIL pit corridor; not live-crest displacement"),
+        ev(4500000.0, "surv.floor", 1.0, code="SURV_FLOOR", units="bool", note="1800 s + 2700 s = 4500 s = 45.0 min"),
+        ev(4800000.0, "ops.evac", 1.0, code="EVAC_VILLAGE", units="bool", note="Sloe: evacuate Brindlescree village until day-shift"),
+        ev(5400000.0, "gate.drop", 1.0, code="MODIFY", units="decision", note="companion t2: drop pool 1.50 m to 12.50; village-evac refused"),
+        ev(6000000.0, "pool.set", 12.50, code="POOL_M", units="m", note="14.00 - 1.50 = 12.50"),
+        ev(6600000.0, "insar.phi", 3.20, code="PHI_RAD", units="rad"),
+        ev(7200000.0, "recon.d", 8.00, code="D_MM", units="mm", note="2.50*3.20 = 8.00"),
+        ev(7800000.0, "recon.v", 16.00, code="V_MM_D", units="mm_d", note="8.00/0.50 = 16.00; still above 8.00 so 12.50 holds"),
+        ev(8400000.0, "slopeveil.v", 3.10, code="VENDOR_MM_D", units="mm_d"),
+        ev(9000000.0, "pool.held", 12.50, code="POOL_HELD", units="m"),
+        ev(9600000.0, "piez.m", 0.10, code="PIEZ_M", units="m"),
+        ev(10200000.0, "crest.held", 12.50, code="POOL_HELD", units="m"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r30-092-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "BT-INSAR-2026-0714",
+            "domain": "gb_insar_tailings_slope",
+            "setting": "Brindlescree Tailings BT-4 (invented), dam crest C-3. Hardware-in-the-loop spare corner-cube in Corner-HIL-2 supplies the wrapped-phase waveform that times the in-service keep-pool stop. Plant-owned Ku-band ground-based InSAR. Slopeveil vendor piezometer-inverted LOS is the only OEM slope SoT. Not DAS phi-OTDR (r4), not BOTDA (r14), not FBG glaze (r13), not geodetic MEMS (r02), not fluxgate (r5).",
+            "observables_at_decision": {
+                "phi_rad": 4.80,
+                "k_los_mm_per_rad": 2.50,
+                "d_mm": 12.00,
+                "dt_d": 0.50,
+                "v_mm_d": 24.00,
+                "slopeveil_mm_d": 3.40,
+                "piez_m": 0.12,
+                "slope_floor_mm_d": 8.00,
+            },
+            "margin_authority": "BT-4 GB-InSAR SOP rev A: if reconstructed v_mm_d >= 8.00, refuse keep-pool at 14.00 m. A piezometer-inverted cloud or a quiet crest piezometer cannot keep the pool. Village evacuation is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night supervisor Bram Sloe, citing Slopeveil 3.40 mm/d and piez 0.12 m under the 0.40 m alarm",
+            "summary": "keep pool at 14.00 m through the night; 4.80 rad is atmosphere",
+            "basis_claimed": "Slopeveil is mid-range and a night drawdown of a tailings pool is a restart measured in days",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Keep-pool is refused. Serialized reconstruction: d_mm = k_los * phi_rad = 2.50 * 4.80 = 12.00; v_mm_d = d_mm / dt_d = 12.00 / 0.50 = 24.00, above the 8.00 mm/d slope-onset floor. Slopeveil 3.40 mm/d is a piezometer inversion on a different bench and is not an admissible keep-pool witness. Ordered: refuse keep-pool now. Scope: this REJECT does not evacuate Brindlescree village (that is the companion question) and does not breach the dam.",
+            "threshold": "v_mm_d>=8.00 => refuse keep-pool; Slopeveil is not SoT",
+            "stated_residuals": "pool drop of 1.50 m still required to unload the crest; 24.00 mm/d is a production cut; Slopeveil remains the only OEM slope channel",
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 1020: keep-pool refused; Slopeveil not SoT; reconstruction locked",
+            "tool": "bt4-insar-slope-gate-cli",
+            "observation": "v 24.00 mm/d recomputes from phi 4.80 rad and k_los 2.50; HIL waveform hashed; Slopeveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 600.0, "event": "InSAR phi 4.80 rad; raster frame; v 24.00 mm/d"},
+                {"t_s": 960.0, "event": "ops proposes keep-pool 14.00 m"},
+                {"t_s": 1020.0, "event": "REJECT keep-pool"},
+                {"t_s": 1800.0, "event": "45 min survey bookend 1"},
+                {"t_s": 4500.0, "event": "45.0 min floor"},
+                {"t_s": 5400.0, "event": "companion MODIFY pool 12.50 vs village-evac"},
+            ],
+            "observed_effects": [
+                "LOS displacement recomputes from the serialized InSAR model at every recon.d event",
+                "a Slopeveil-only head would have kept the 14.00 m pool overnight",
+                "45 min survey floor is in the stream (surv.start, surv.floor)",
+            ],
+            "surprises": [
+                "a mid-range vendor LOS and a quiet crest piezometer co-existed with a 24.00 mm/d reconstruction",
+            ],
+            "new_state": {
+                "bt4_pool_m": 14.00,
+                "keep_pool": "blocked",
+                "slopeveil": "not SoT",
+            },
+            "latency_ms": 3480000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("insar_reconstruction", 0.15),
+                ("slope_floor_stop", 0.12),
+                ("vendor_piez_nonsubstitution", 0.10),
+                ("survey_floor_in_stream", 0.08),
+                ("pool_cut_cost", -0.02),
+            ],
+            "scored for a keep-pool REJECT on a recomputable GB-InSAR LOS while refusing a vendor piezometer dashboard; 45 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "gb-insar", "serialized-reconstruction", "hil", "operational-companion"],
+            distillation_note="GB-InSAR slope gate: wrapped-phase to LOS reconstruction beats a green piezometer dashboard; companion t2 is a 1.50 m pool drop, not a village evacuation",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r30-092-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "BT-INSAR-2026-0714-drop",
+            "domain": "tailings_pool_drop_execution",
+            "setting": "Same BT-4 after the keep-pool REJECT. Night supervisor proposes evacuating Brindlescree village until day-shift. This companion is the operational 1.50 m pool drop, not a second LOS vote.",
+            "observables_at_decision": {
+                "pool_m": 12.50,
+                "v_mm_d": 16.00,
+                "proposed": "evac_village",
+            },
+        },
+        "proposed_action": {
+            "actor": "night supervisor Bram Sloe",
+            "summary": "evacuate the village until day-shift; 45 min already paid",
+            "basis_claimed": "the REJECT already refused 14.00 m, so a full evac is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Drop the pool 1.50 m to 12.50 m. Village evacuation at night is a restart measured in days and does not unload the crest any faster than a 1.50 m drop. MODIFY the evac into a 12.50 m hold. Do not restore 14.00. Do not convert the hold into a personnel action on Sloe. Post-drop v 16.00 mm/d is still above the 8.00 floor, so 12.50 holds until a new frame clears 8.00. Evacuate-village remains a different gate if v_mm_d >= 40.00.",
+            "threshold": "pool_m==12.50 AND keep_pool_not_restored AND evac_not_taken",
+        },
+        "executed_action": {
+            "summary": "pool drop to 12.50 m at t_s 5400; village-evac not latched; 14.00 not restored",
+            "tool": "bt4-pool-drop-exec",
+            "observation": "v 16.00 mm/d after drop; piez 0.10 m; Slopeveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 1800.0, "event": "survey clock started after REJECT"},
+                {"t_s": 4500.0, "event": "45.0 min floor"},
+                {"t_s": 4800.0, "event": "village-evac proposed"},
+                {"t_s": 5400.0, "event": "MODIFY pool 12.50 m"},
+            ],
+            "observed_effects": [
+                "village-evac restart cost is visible without waiting for a hung bus",
+                "hold did not reopen the slope-floor call",
+            ],
+            "new_state": {"pool_m": 12.50, "keep_pool": "blocked", "evac_village": "not taken"},
+            "latency_ms": 900000.0,
+        },
+        "reward_components": reward(
+            0.33,
+            [
+                ("pool_drop_hold", 0.12),
+                ("no_village_evac", 0.11),
+                ("no_14_restore", 0.08),
+                ("post_drop_margin", 0.05),
+                ("held_pool_cost", -0.03),
+            ],
+            "operational execution gate: 1.50 m pool drop because village-evac does not unload faster; not a LOS re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "pool-drop"]),
+    }
+    return {
+        "id": "nelb-r30-092",
+        "spike_events": events,
+        "language_view": {
+            "description": "Brindlescree Tailings BT-4 HIL corner-cube pit. Plant-owned GB-InSAR reconstructs 12.00 mm / 24.00 mm/d from 2.50*4.80 while Slopeveil piezometer-inverted LOS still shows 3.40 mm/d and crest piez 0.12 m. The gate REJECTS keep-pool at 14.00 m. A 45 min resurvey floor is serialized in the stream. Companion t2 MODIFYs a village evacuation into a 1.50 m pool drop to 12.50 m.",
+            "trajectory": traj,
+            "trajectory_pool_drop_execution": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "insar.phi / insar.k": "wrapped phase and lumped two-way LOS gain; displacement inputs",
+                "recon.d / recon.v": "serialized LOS millimetres and mm/day",
+                "slopeveil.v / piez.m": "vendor piezometer-inverted cloud and crest piezometer corridor",
+                "ops.prop / gate.run / ops.evac / gate.drop": "keep-pool proposal, REJECT, village-evac, companion MODIFY",
+                "surv.start / surv.floor / pool.set / pool.held": "operational companion channels plus the 45 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while InSAR-moving: slopeveil.v 3.40 next to recon.v 24.00",
+                "reconstruction as event: recon.d 12.00 equals 2.50*4.80",
+                "REJECT then operational MODIFY: gate.run at 1020 s, gate.drop at 5400 s",
+                "slow floor in-stream: surv.start 1800 s, surv.floor 4500 s (45.0 min)",
+                "tight InSAR pair: insar.phi then insar.k +1.2 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Slopeveil is 3.40 mm/d' = slopeveil.v 3.40; '24.00 mm/d slope' = recon.v 24.00; 'refuse keep-pool' = gate.run REJECT; 'drop not evac' = gate.drop MODIFY",
+            "why_high_value": "New GB-InSAR family on a tailings crest (not DAS r4, not BOTDA r14, not FBG r13, not geodetic MEMS r02, not fluxgate r5). Lead REJECT of keep-pool on a recomputable LOS that a vendor piezometer dashboard would have cleared. Companion t2 is operational pool drop. sim_or_real=hil on a spare corner-cube.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609092, "stream_note": "stream amplitudes are authored constants (rad, mm, mm/d, m, C, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "GB-InSAR camera exists at ~50 Hz; stream keeps 4 phase points; recon keeps 4 of ~40 solver ticks",
+                "refractory_floors_ms": {
+                    "insar.phi": 1.2,
+                    "insar.k": 1.2,
+                    "recon.d": 60000,
+                    "piez.m": 60000,
+                    "slopeveil.v": 60000,
+                    "recon.v": 60000,
+                    "ops.prop": 60000,
+                    "gate.run": 60000,
+                    "pool.hold": 60000,
+                    "surv.start": 60000,
+                    "hil.T": 60000,
+                    "surv.floor": 60000,
+                    "ops.evac": 60000,
+                    "gate.drop": 60000,
+                    "pool.set": 60000,
+                    "pool.held": 60000,
+                    "crest.held": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-07-14T22:00:00Z HIL campaign start",
+            },
+            "distillation_targets": [
+                "GB-InSAR reconstruction head: d_mm = k_los * phi; v_mm_d = d_mm / dt_d",
+                "slope-floor stop vs keep-pool vs village-evac",
+                "vendor-piezometer nonsubstitution: inverted LOS is not a keep-pool witness",
+                "operational companion: 1.50 m drop rather than a freeze-kill of the village",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "gb_insar_los_displacement_and_rate",
+            "formula": "d_mm = k_los_mm_per_rad * phi_rad; v_mm_d = d_mm / dt_d",
+            "parameters": {
+                "k_los_mm_per_rad": 2.50,
+                "dt_d": 0.50,
+                "slope_floor_mm_d": 8.00,
+                "evac_mm_d": 40.00,
+                "pool_drop_m": 1.50,
+                "survey_min": 45.0,
+            },
+            "worked_example": {"phi_rad": 4.80, "d_mm": 12.00, "v_mm_d": 24.00},
+            "check": "2.50*4.80 = 12.00 exactly; 12.00/0.50 = 24.00 exactly; 1800 s + 2700 s = 4500 s = 45.0 min floor; 14.00-1.50 = 12.50 m",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 28.0,
+            "decision_window_s": 0.028,
+            "code": "bt4.insar_slope_gate",
+            "note": "REJECT accumulator wins: InSAR slope evidence overpowers the Slopeveil continue advocate",
+            "decode_rule": "reject-stop if los_estimator AND los_gain fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("los_estimator", 100, 1.5, 50.0, w_s),
+                gate_pop("los_gain", 40, 1.2, 50.0, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("reject_latch", 80, 1.8, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "bt4.insar_scorer", "neurons": 100, "mean_rate_hz": 50.0, "window_ms": 28.0},
+                {"check": "bt4.slope_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 40.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r30-092",
+            clock_domain="bt4-insar-hil-relative-ms-t0-2026-07-14T22:00:00Z",
+            tags=["gb-insar", "REJECT", "MODIFY", "hil", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 093 — spectroscopic ellipsometry PECVD SiN, simulated, ACCEPT / REJECT
+# ---------------------------------------------------------------------------
+def rec_093():
+    A = 1.80
+    B = 0.025
+    lam_um = 0.50
+    n = A + B / (lam_um ** 2)
+    opd = 684.00
+    d_nm = opd / (2.0 * n)
+    if abs(n - 1.90) > 1e-12:
+        raise RuntimeError(n)
+    if abs(d_nm - 180.00) > 1e-12:
+        raise RuntimeError(d_nm)
+    if abs(456.00 / 3.80 - 120.00) > 1e-12:
+        raise RuntimeError("early d")
+    if abs(570.00 / 3.80 - 150.00) > 1e-12:
+        raise RuntimeError("mid d")
+    if abs(676.40 / 3.80 - 178.00) > 1e-12:
+        raise RuntimeError("post d")
+    if abs(6000 + 720 - 6720) > 1e-12:
+        raise RuntimeError("pump floor")
+
+    raster = make_raster(
+        neurons=16,
+        mean_rate_hz=62.5,
+        window_ms=40.0,
+        seed=202609093,
+        source="lh9.ellips.path",
+        target="lichenholt.cassette_core",
+        table=[
+            {"from": "ellips_opd", "to": "thick_estimator", "weight": 1.40},
+            {"from": "ellips_lam", "to": "cauchy_norm_core", "weight": 1.20},
+            {"from": "filmveil_d", "to": "vendor_continue_advocate", "weight": 0.35},
+        ],
+        third_factor={
+            "modulator": "ach.film_thickness_conflict",
+            "tau_e_s": 2.2,
+            "tau_e_ms": 2200.0,
+            "eligibility": "pre-post coincidence on cassette-hold synapses; the ellipsometry modulator enables potentiation only while Cauchy wavelength is co-active inside tau_e so a Filmveil last-good corridor cannot hide a 180 nm SiN film",
+        },
+        channel_prefix="ellips.n",
+        anchor="LH-9 ellipsometry 40 ms frame at OPD 684.00 nm / n 1.90 (t_s 3000) reconstructing 180.00 nm above the 140 nm passivation cap",
+    )
+    w_s = 0.040
+    events = [
+        ev(0.0, "ellips.opd", 456.00, code="OPD_NM", units="nm", note="simulated sealed cassette C-17; spectroscopic ellipsometry, not THz-TDS, not hyperspectral crop"),
+        ev(300000.0, "ellips.A", 1.80, code="CAUCHY_A", units="n"),
+        ev(600000.0, "ellips.B", 0.025, code="CAUCHY_B", units="um2"),
+        ev(900000.0, "recon.n", 1.90, code="N", units="n", note="1.80 + 0.025/(0.50^2) = 1.90 exact"),
+        ev(1200000.0, "recon.d", 120.00, code="D_NM", units="nm", note="456.00/(2*1.90) = 120.00 exact; in 90-140 spec"),
+        ev(1500000.0, "filmveil.d", 118.0, code="VENDOR_NM", units="nm", note="Filmveil last-good morning coupon; not live OPD"),
+        ev(1800000.0, "ch.p", 2.10, code="TORR", units="Torr", note="chamber-pressure corridor"),
+        ev(2400000.0, "ellips.opd", 570.00, code="OPD_NM", units="nm"),
+        ev(2700000.0, "recon.d", 150.00, code="D_NM", units="nm", note="570.00/3.80 = 150.00"),
+        ev(3000000.0, "ellips.opd", 684.00, code="OPD_NM", units="nm", note="cap-floor frame; raster sidecar"),
+        ev(3000001.5, "ellips.lam", 0.50, code="LAM_UM", units="um", note="1.5 ms Cauchy wavelength after OPD"),
+        ev(3600000.0, "recon.n", 1.90, code="N", units="n", note="1.80+0.025/0.25 = 1.90 exact"),
+        ev(3900000.0, "recon.d", 180.00, code="D_NM", units="nm", note="684.00/(2*1.90) = 180.00 exact; cap 140, isolate 220"),
+        ev(4200000.0, "filmveil.d", 118.0, code="VENDOR_NM", units="nm"),
+        ev(4500000.0, "ch.p", 2.12, code="TORR", units="Torr"),
+        ev(4800000.0, "rf.W", 850.0, code="RF_W", units="W", note="RF corridor is not a thickness license"),
+        ev(5100000.0, "ops.prop", 1.0, code="DUMP_TOOL", units="bool", note="process engineer Ivo Hartle: dump C-17 through C-22 and open the chamber; 684 nm is a window film"),
+        ev(5400000.0, "gate.cass", 1.0, code="ACCEPT", units="decision", note="bounded ACCEPT: cassette C-17 this shift; tool-dump refused"),
+        ev(6000000.0, "pump.start", 1.0, code="PUMP_START", units="bool", note="bookend 1 of the 12.0 min N2 pump-down floor"),
+        ev(6300000.0, "n2.slm", 12.0, code="N2_SLM", units="slm"),
+        ev(6600000.0, "recon.lock", 180.00, code="LOCKED_NM", units="nm"),
+        ev(6720000.0, "pump.floor", 1.0, code="PUMP_FLOOR", units="bool", note="6000 s + 720 s = 6720 s = 12.0 min"),
+        ev(7200000.0, "ops.skip", 1.0, code="SKIP_C18C22", units="bool", note="Hartle: Filmveil 118 nm, skip C-18-C-22 to save takt"),
+        ev(7800000.0, "gate.hold", 1.0, code="REJECT", units="decision", note="companion t2: skip-boats refused; Filmveil is last-good"),
+        ev(8400000.0, "cass.c17", 1.0, code="C17_HELD", units="bool"),
+        ev(9000000.0, "tool.held", 1.0, code="TOOL_HELD", units="bool", note="chamber not opened"),
+        ev(9600000.0, "filmveil.d", 117.0, code="VENDOR_NM", units="nm"),
+        ev(10200000.0, "recon.d", 178.00, code="D_NM", units="nm", note="post-pump sample 676.40/3.80 = 178.00; still above 140"),
+        ev(10800000.0, "ch.p", 2.08, code="TORR", units="Torr"),
+        ev(11400000.0, "cass.c18", 0.0, code="C18_NOT_SKIPPED", units="bool", note="C-18 remains unskipped; skip was refused, not executed"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r30-093-t1",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "LH-ELLIPS-2026-0819",
+            "domain": "ellipsometry_pecvd_sin",
+            "setting": "Lichenholt Fab LH-9 (invented), PECVD tool PV-4, passivation cassette C-17. Simulated sealed spectroscopic-ellipsometry cell on a 632-class Cauchy path at 0.50 um. Chamber pressure and Filmveil last-good cloud are corridor witnesses, not the film-thickness SoT. Invented plant; simulated campaign. Not THz-TDS radome (r20/r21), not hyperspectral crop (r16), not QCM-D (r14), not RUS porcelain (r24), not LPBF melt-pool (r03).",
+            "observables_at_decision": {
+                "opd_nm": 684.00,
+                "n": 1.90,
+                "d_nm": 180.00,
+                "filmveil_nm": 118.0,
+                "ch_torr": 2.12,
+                "spec_max_nm": 140.0,
+                "isolate_nm": 220.0,
+            },
+            "margin_authority": "LH-9 ellipsometry SOP rev C: a cassette may hold only if reconstructed d_nm >= 140 AND the authorization covers this cassette this shift. A chamber-pressure corridor or Filmveil last-good cannot substitute. Tool-open dumps are out of scope. Isolate (tool-down) if d_nm >= 220.",
+        },
+        "proposed_action": {
+            "actor": "process engineer Ivo Hartle, citing Filmveil 118 nm and chamber 2.12 Torr",
+            "summary": "dump cassettes C-17 through C-22 and open the chamber; 684 nm OPD is a window film",
+            "basis_claimed": "Filmveil and chamber pressure are both in band so the film cannot be 180 nm",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "This cassette is accepted, not the tool dump and not C-18-C-22. Serialized reconstruction: n = A + B / lam_um^2 = 1.80 + 0.025 / (0.50^2) = 1.90; d_nm = OPD_nm / (2 n) = 684.00 / 3.80 = 180.00, which clears the 140 nm passivation cap by 40 nm and stays under the 220 nm isolate floor. SOP rev C still forbids opening the chamber: ordered hold of cassette C-17 this shift only. Explicit scope: this accept does not cover tool-open dumps and does not authorize C-18-C-22 without a new OPD frame. Isolate tripwire: d_nm >= 220.",
+            "threshold": "d_nm>=140 AND d_nm<220 AND cassette=C-17 AND tool_not_opened",
+            "stated_residuals": "40 nm margin is not infinite; 0.50 um path still carries roughness; Filmveil is not a live OPD witness",
+        },
+        "executed_action": {
+            "summary": "ACCEPT at t_s 5400: cassette C-17 held; chamber not opened; reconstruction locked as SoT",
+            "tool": "lh9-ellips-cassette-gate-cli",
+            "observation": "d 180.00 nm recomputes from OPD 684.00 nm and n 1.90; N2 pump staged; path remains live as the isolate interlock",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "ellips OPD 684.00 nm; raster frame; d 180 nm"},
+                {"t_s": 5100.0, "event": "ops proposes C-17-C-22 plus chamber open"},
+                {"t_s": 5400.0, "event": "ACCEPT bounded C-17 hold; tool-dump refused"},
+                {"t_s": 6000.0, "event": "companion pump start"},
+                {"t_s": 6720.0, "event": "12.0 min pump floor"},
+                {"t_s": 7800.0, "event": "companion REJECT skip of C-18-C-22"},
+            ],
+            "observed_effects": [
+                "film thickness recomputes from the serialized Cauchy/OPD model at every recon.d event",
+                "a Filmveil-only head would have released C-17 on a 118 nm corridor",
+                "peak d 180 stayed under the 220 nm isolate floor",
+            ],
+            "surprises": [
+                "idle Filmveil 118 nm co-existed with a 180 nm live-OPD reconstruction",
+            ],
+            "new_state": {
+                "lh9_c17": "held this shift",
+                "tool_open": "blocked",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("ellips_reconstruction", 0.14),
+                ("bounded_c17_accept", 0.12),
+                ("tool_dump_out_of_scope", 0.09),
+                ("isolate_tripwire_armed", 0.08),
+                ("held_cassette_takt_cost", -0.03),
+            ],
+            "scored for an earned ACCEPT of cassette C-17 on a recomputable ellipsometric thickness while refusing a Filmveil corridor plus tool dump",
+        ),
+        "meta": meta_common(
+            tags=["ACCEPT", "ellipsometry-sin", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Ellipsometry cassette gate: Cauchy/OPD reconstruction beats a last-good Filmveil corridor; companion t2 refuses skip-boats rather than re-arguing d",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r30-093-t2",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "LH-ELLIPS-2026-0819-pump",
+            "domain": "cassette_skip_refusal",
+            "setting": "Same LH-9 after the bounded ACCEPT. Process engineer proposes skipping C-18-C-22 on Filmveil 118 nm to save takt. This companion is the operational skip refusal, not a second thickness vote.",
+            "observables_at_decision": {
+                "n2_slm": 12.0,
+                "d_nm": 180.00,
+                "c17_held": 1,
+                "proposed": "skip_C18_C22",
+            },
+        },
+        "proposed_action": {
+            "actor": "process engineer Ivo Hartle",
+            "summary": "skip C-18-C-22; Filmveil still 118 nm and C-17 already paid the 12 min pump",
+            "basis_claimed": "ACCEPT requirements for C-17 are fully specified so the rest of the load is a takt gift",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Skip-boats is refused. Filmveil 118 nm is a morning coupon, not live OPD, and is not an admissible C-18-C-22 witness. Path is still 178 nm after the pump. REJECT the skip. Do not open the chamber at C-17-held. Do not convert the refusal into a personnel action on Hartle. C-18-C-22 remain a different gate pending their own OPD frames.",
+            "threshold": "skip_C18_C22_not_taken AND tool_not_opened AND filmveil_not_SoT",
+        },
+        "executed_action": {
+            "summary": "C-17 pump completed t_s 8400; skip-boats not latched; chamber held",
+            "tool": "lh9-pump-exec",
+            "observation": "N2 12.0 slm; C-18 not skipped; Filmveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "pump started"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7200.0, "event": "skip C-18-C-22 proposed"},
+                {"t_s": 7800.0, "event": "REJECT skip-boats"},
+            ],
+            "observed_effects": [
+                "Filmveil skip did not reopen the OPD call",
+                "chamber remained closed after C-17-held",
+            ],
+            "new_state": {"c17": "held", "c18": "not skipped", "tool_open": "blocked"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.36,
+            [
+                ("skip_refusal", 0.13),
+                ("filmveil_nonsubstitution", 0.11),
+                ("no_tool_open", 0.09),
+                ("pump_floor_complete", 0.05),
+                ("unskipped_c18_takt_cost", -0.02),
+            ],
+            "operational execution gate: refuse skip-boats because last-good is not live OPD; not a thickness re-vote",
+        ),
+        "meta": meta_common(tags=["REJECT", "operational-execution", "cassette-skip"]),
+    }
+    return {
+        "id": "nelb-r30-093",
+        "spike_events": events,
+        "language_view": {
+            "description": "Lichenholt Fab LH-9. Simulated spectroscopic ellipsometry on cassette C-17 reconstructs 180.00 nm from 684.00/(2*1.90) while Filmveil still shows 118 nm and chamber pressure 2.12 Torr. The gate ACCEPTs a bounded hold of cassette C-17; a companion execution REJECT refuses skip-boats of C-18-C-22. The Cauchy/OPD model is serialized so every recon event recomputes.",
+            "trajectory": traj,
+            "trajectory_skip_boats_refusal": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "ellips.opd / ellips.A / ellips.B / ellips.lam": "OPD and Cauchy inputs; the physics channels the reconstruction consumes",
+                "recon.n / recon.d / recon.lock": "serialized index and thickness",
+                "filmveil.d / ch.p / rf.W": "vendor last-good, chamber pressure, and RF corridor; the denial channels that look in-band",
+                "ops.prop / gate.cass / ops.skip / gate.hold": "tool-dump proposal, bounded ACCEPT, skip proposal, companion REJECT",
+                "pump.start / n2.slm / pump.floor / cass.c17": "operational companion channels plus the 12 min floor",
+            },
+            "temporal_motifs": [
+                "last-good-thin while live-OPD-thick: filmveil.d 118 next to recon.d 180",
+                "reconstruction as event: recon.d 180.00 equals 684.00/(2*1.90)",
+                "ACCEPT then operational REJECT: gate.cass at 5400 s, gate.hold at 7800 s",
+                "slow floor in-stream: pump.start 6000 s, pump.floor 6720 s (12.0 min)",
+                "tight OPD pair: ellips.opd then ellips.lam +1.5 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'684 nm is a window film' = ellips.opd 684.00 next to Filmveil 118; '180 nm SiN' = recon.d 180.00; 'this cassette not the tool' = gate.cass ACCEPT plus tool.held; 'do not skip C-18-C-22' = gate.hold REJECT",
+            "why_high_value": "New spectroscopic-ellipsometry family on a PECVD SiN passivation (not THz-TDS r20/r21, not hyperspectral r16, not QCM-D r14, not RUS r24, not LPBF r03). First Cauchy-n plus OPD/2n reconstruction that can hide a 180 nm film inside a 118 nm last-good corridor. Companion t2 is operational skip refusal. sim_or_real=simulated.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609093, "stream_note": "stream amplitudes are authored constants (nm, n, um, Torr, W, slm, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "ellipsometer exists at ~1 Hz; stream keeps 3 OPD points; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "ellips.opd": 1.5,
+                    "ellips.A": 60000,
+                    "ellips.B": 60000,
+                    "recon.n": 60000,
+                    "recon.d": 60000,
+                    "filmveil.d": 60000,
+                    "ch.p": 60000,
+                    "ellips.lam": 1.5,
+                    "rf.W": 60000,
+                    "ops.prop": 60000,
+                    "gate.cass": 60000,
+                    "pump.start": 60000,
+                    "n2.slm": 60000,
+                    "recon.lock": 60000,
+                    "pump.floor": 60000,
+                    "ops.skip": 60000,
+                    "gate.hold": 60000,
+                    "cass.c17": 60000,
+                    "tool.held": 60000,
+                    "cass.c18": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-08-19T04:00:00Z simulated night start",
+            },
+            "distillation_targets": [
+                "ellipsometry reconstruction head: n = A + B/lam^2; d = OPD/(2 n)",
+                "bounded ACCEPT head: d cap AND cassette/shift scope AND tool-dump-out-of-scope",
+                "operational companion: refuse skip-boats without re-opening the d call",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "ellips_cauchy_opd_thickness",
+            "formula": "n = A + B / lam_um^2; d_nm = OPD_nm / (2 * n)",
+            "parameters": {
+                "A": 1.80,
+                "B_um2": 0.025,
+                "lam_um": 0.50,
+                "spec_max_nm": 140.0,
+                "isolate_nm": 220.0,
+                "pump_min": 12.0,
+            },
+            "worked_example": {"opd_nm": 684.00, "n": 1.90, "d_nm": 180.00},
+            "check": "1.80+0.025/(0.50^2) = 1.90 exactly; 684.00/(2*1.90) = 180.00 exactly; 6000 s + 720 s = 6720 s = 12.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "ACCEPT",
+            "decision_window_ms": 40.0,
+            "decision_window_s": 0.040,
+            "code": "lh9.cassette_gate",
+            "note": "ACCEPT accumulator wins: ellipsometry evidence overpowers the Filmveil continue advocate",
+            "decode_rule": "accept if thick_estimator AND cauchy_norm AND cassette_margin fire inside the window; vendor_continue_advocate is necessary-but-not-sufficient and cannot release the tool dump",
+            "populations": [
+                gate_pop("thick_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("cauchy_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("cassette_margin", 40, 1.0, 50.0, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("accept_latch", 96, 1.8, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "lh9.opd_scorer", "neurons": 96, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "lh9.thick_scorer", "neurons": 40, "mean_rate_hz": 62.5, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r30-093",
+            clock_domain="lh9-ellips-sim-relative-ms-t0-2026-08-19T04:00:00Z",
+            tags=["ellipsometry-sin", "ACCEPT", "REJECT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+

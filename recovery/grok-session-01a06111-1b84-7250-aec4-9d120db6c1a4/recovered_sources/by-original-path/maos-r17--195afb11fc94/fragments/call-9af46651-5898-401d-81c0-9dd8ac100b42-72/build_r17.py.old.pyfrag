@@ -1,0 +1,3 @@
+    if rec["executed_action"]["executed_as_proposed"] is not False:
+        errs.append("executed_as_proposed")
+    return errs

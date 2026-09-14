@@ -1,0 +1,14 @@
+THIS_DOMAINS = {
+    "arsenic-trioxide-sublimer",
+    "cyclohexanone-oxime-rearranger",
+    "gadolinium-electrorefiner",
+    "tetrahydrofuran-dehydrator",
+    "indium-phosphide-mbe",
+}
+THIS_PLANTS = (
+    "Arsenolite-Gair",
+    "Ketoxime-Dene",
+    "Gadolinia-Voe",
+    "Oxolane-Reen",
+    "Phosphide-Cairn",
+)

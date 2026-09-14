@@ -1,0 +1,78 @@
+                [
+                    "Acheson-core IR, 24 us jitter, 2650 C trip",
+                    "kiloamp encoder, 30 us jitter",
+                    "hood O2 (context)",
+                    "pack RTD (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("core_trip_C", 2650.0),
+                        ("observed_core_C", 2840.0),
+                        ("current_cap_kA", 22.0),
+                        ("proposed_kA", 18.6),
+                    ]
+                ),
+            ),
+            (
+                "hil",
+                OrderedDict(
+                    [
+                        ("bench", "Petcoke-Rigg PR-HIL Acheson pad, Furnace F-6"),
+                        ("inject", "IR envelope delayed 90-130 us vs encoder; pyrometer lag, not a false IR"),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Furnace F-6 on Petcoke-Rigg HIL pad; pack in band; current armed at 18.6 kA.",
+                    "2. Core trip 2650 C; observed 2840 C flare on coke pack.",
+                    "3. Encoder precursor at 0.980 ms.",
+                    "4. Race window [3.840, 4.100] ms.",
+                    "5. IR 2840 C at 3.840 ms (winner).",
+                    "6. Kiloamp encoder 18.6 kA at 4.040 ms (loser by 200 us).",
+                    "7. Gate at 4.940 ms: REJECT hold 0 kA, do not ramp.",
+                    "8. Pad recycle 8 min; core IR decays under 2650 C after hold.",
+                    "9. Pack never ignited; encoder-as-clearance would have ramped into the flare.",
+                    "10. QA: correct gate was REJECT; leave 0 kA until core <= 2650 C.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "ramp_18p6ka"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("current_kA", 18.6),
+                        ("core_C", 2840.0),
+                        ("hold", False),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("core_C", 2840.0),
+                        ("core_trip_C", 2650.0),
+                        ("current_kA", 18.6),
+                        ("current_cap_kA", 22.0),
+                        ("race_margin_us", 200),
+                        ("combined_jitter_us", 54),
+                        ("t_gate_us", 4940),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 18.6 kA because current is under the 22.0 kA cap and treats "
+                "the encoder as pack clearance, ignoring the 2840 C core flare.",
+            ),
+        ]
+    )

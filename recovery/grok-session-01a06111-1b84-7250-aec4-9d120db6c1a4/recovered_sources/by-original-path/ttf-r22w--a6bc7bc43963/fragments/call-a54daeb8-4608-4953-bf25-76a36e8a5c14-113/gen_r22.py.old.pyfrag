@@ -1,0 +1,14 @@
+    dest_batch = FACTORY_DIR / "batch-r22.jsonl"
+    dest_notes = FACTORY_DIR / "NOTES-r22.md"
+    write_exclusive(dest_batch, "\n".join(lines) + "\n")
+    write_exclusive(dest_notes, notes)
+    print(f"copied exclusive {dest_batch}")
+    print(f"copied exclusive {dest_notes}")
+    if WINDOW_DIR.is_dir() and not (WINDOW_DIR / "batch-r22.jsonl").exists():
+        try:
+            write_exclusive(WINDOW_DIR / "batch-r22.jsonl", "\n".join(lines) + "\n")
+            write_exclusive(WINDOW_DIR / "NOTES-r22.md", notes)
+            print("also copied exclusive into /tmp/sf-window factory dir")
+        except FileExistsError:
+            print("window r22 already present; left untouched")
+    return 0

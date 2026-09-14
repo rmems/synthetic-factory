@@ -1,0 +1,949 @@
+# ---------------------------------------------------------------------------
+# Record 178 — UV-DOAS remaining SO2 of an SRU tail, designed, REJECT / MODIFY
+# ---------------------------------------------------------------------------
+def rec_178():
+    k_d = 5.00
+    i0 = 16.00
+    i_iso = 4.00
+    od = math.log2(i0 / i_iso)
+    _exact(od, 2.00)
+    t_k = 320.0
+    t0_k = 320.0
+    t_ratio = t_k / t0_k
+    _exact(t_ratio, 1.000)
+    p_ratio = 1.000
+    c_ppm = k_d * od * t_ratio * p_ratio
+    _exact(c_ppm, 10.00)
+    _exact(k_d * math.log2(i0 / 8.00), 5.00)
+    _exact(k_d * math.log2(i0 / 16.00), 0.00)
+    _exact(k_d * math.log2(i0 / 2.00), 15.00)
+    l_m = 1.00
+    od_per_m = od / l_m
+    _exact(od_per_m, 2.00)
+    c_id = k_d * od_per_m * l_m
+    _exact(c_id, 10.00)
+    _exact(6000.0 + 1080.0, 7080.0)
+
+    raster = make_raster(
+        neurons=20,
+        mean_rate_hz=50.0,
+        window_ms=40.0,
+        seed=202609178,
+        source="tn9.doas.path",
+        target="thornmere.tail_stop_core",
+        table=[
+            {"from": "doas_I", "to": "so2_estimator", "weight": 1.40},
+            {"from": "doas_snr", "to": "doas_lock_core", "weight": 1.15},
+            {"from": "doasveil_c", "to": "vendor_continue_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "da.doas_so2_conflict",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": "pre-post coincidence on continue-production synapses; the plant UV-DOAS modulator depresses continue-production links when transmitted intensity stays low inside tau_e of an SNR lock so a Doasveil last-good cannot hide a 10.00 ppm SO2 slip",
+        },
+        channel_prefix="doas.n",
+        anchor="TN-9 UV-DOAS 40 ms frame at I 4.00 / SNR 12.0 (t_s 3000) reconstructing 10.00 ppm SO2 over the 6.00 ppm isolate floor",
+    )
+    w_s = 0.040
+    events = [
+        ev(0.0, "doas.I", 16.00, code="I_AU", units="1", note="plant-owned UV-DOAS transmitted intensity on TN-9 SRU tail T-4; SO2 remaining-slip family, not CRDS HF, not TDLAS NH3, not QEPAS, not CLD NOx, not UV-fluorescence oil-in-water, not PID VOC"),
+        ev(300000.0, "doas.snr", 6.0, code="DOAS_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(600000.0, "recon.C", 0.00, code="C_PPM", units="ppm", note="5.00*log2(16.00/16.00)=0.00 exact; still under the 6.00 isolate floor"),
+        ev(900000.0, "path.T", 320.0, code="PATH_K", units="K", note="serial-only path thermocouple on copper DCS; independent witness; unread by Doasveil"),
+        ev(1200000.0, "doasveil.C", 1.80, code="VENDOR_PPM", units="ppm", note="Doasveil vendor DOAS-cloud; infra owner; patched intensity timestamps"),
+        ev(1800000.0, "doas.I", 8.00, code="I_AU", units="1"),
+        ev(2100000.0, "recon.C", 5.00, code="C_PPM", units="ppm", note="5.00*log2(16.00/8.00)=5.00; still under the 6.00 isolate floor"),
+        ev(2400000.0, "permit.slide", 40.00, code="PERM_S", units="s", note="permit clerk slid SRU-tail clock 40.00 s; collusion party"),
+        ev(2700000.0, "path.T", 320.0, code="PATH_K", units="K", note="T/T0=1.000; no thermal hop in this window"),
+        ev(3000000.0, "doas.I", 4.00, code="I_AU", units="1", note="isolate-floor frame; raster sidecar"),
+        ev(3000001.4, "doas.snr", 12.0, code="DOAS_SNR", units="1", note="1.4 ms SNR lock after I; 12.0 >= 8.0"),
+        ev(3300000.0, "recon.C", 10.00, code="C_PPM", units="ppm", note="5.00*log2(16.00/4.00)=10.00 exact; isolate 6.00, unit-kill 24.00"),
+        ev(3600000.0, "recon.od", 2.00, code="OD", units="1", note="log2(16.00/4.00)=2.00 exact optical-depth identity"),
+        ev(3900000.0, "path.T", 319.0, code="PATH_K", units="K", note="path TC tracks the plant DOAS head, not Doasveil 1.80 ppm"),
+        ev(4200000.0, "doasveil.drop", 1.0, code="DOAS_DROP", units="bool", note="vendor intensity packets dropped in Doasveil cloud for 40 s"),
+        ev(4800000.0, "ops.prop", 1.0, code="CONTINUE_PROD", units="bool", note="night operator Calder Wynn: Doasveil is clean 1.80 ppm; continue T-4 SRU tail"),
+        ev(5400000.0, "gate.stop", 1.0, code="REJECT", units="decision", note="refuse continue-production; 10.00 ppm and SNR 12.0; Doasveil not SoT"),
+        ev(6000000.0, "caustic.start", 1.0, code="CAUSTIC_START", units="bool", note="bookend 1 of the 18.0 min caustic-recycle floor"),
+        ev(7080000.0, "caustic.floor", 1.0, code="CAUSTIC_FLOOR", units="bool", note="6000 s + 1080 s = 7080 s = 18.0 min"),
+        ev(7800000.0, "ops.kill", 1.0, code="UNIT_ESD", units="bool", note="Wynn: ESD the whole Thornmere SRU until day-shift"),
+        ev(8400000.0, "gate.hold", 1.0, code="MODIFY", units="decision", note="companion t2: caustic hold on plant DOAS as live interlock; unit ESD refused"),
+        ev(9000000.0, "causticlock.set", 1.0, code="CAUSTIC_HELD", units="bool"),
+        ev(9600000.0, "doas.I", 2.00, code="I_AU", units="1"),
+        ev(10200000.0, "recon.C", 15.00, code="C_PPM", units="ppm", note="5.00*log2(16.00/2.00)=15.00; still over 6.00 so caustic holds"),
+        ev(10800000.0, "doasveil.C", 1.70, code="VENDOR_PPM", units="ppm"),
+        ev(11400000.0, "path.T", 318.0, code="PATH_K", units="K"),
+        ev(12000000.0, "caustic.held", 1.0, code="CAUSTIC_HELD", units="bool"),
+        ev(12600000.0, "unit.esd", 0.0, code="ESD_NOT_TAKEN", units="bool"),
+        ev(13200000.0, "permit.slide", 40.00, code="PERM_S", units="s"),
+        ev(13800000.0, "doasveil.drop", 1.0, code="DOAS_DROP", units="bool"),
+        ev(14400000.0, "causticlock.held", 1.0, code="CAUSTIC_HELD", units="bool"),
+        ev(15000000.0, "recon.od", 3.00, code="OD", units="1", note="log2(16.00/2.00)=3.00 on the post-stop frame"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r59-178-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "TN-DOAS-2026-0902",
+            "domain": "uv_doas_sru_tail_so2",
+            "setting": "Thornmere SRU TN-9 (invented), Brineholt Recovery, tail T-4. Plant-owned UV-DOAS transmitted intensity is the SO2-slip SoT. Doasveil vendor DOAS-cloud (infra owner) plus the SRU-tail permit clock are collusion parties, not witnesses. Invented plant; designed campaign. Not CRDS HF (r15), not TDLAS NH3 (r22), not the r15 Gorse-UV DOAS corridor witness, not QEPAS (r19), not CLD NOx (r52), not UV-fluorescence oil-in-water (r56), not PID VOC (r57).",
+            "observables_at_decision": {
+                "I": i_iso,
+                "I0": i0,
+                "k_d": k_d,
+                "C_ppm": c_ppm,
+                "OD": od,
+                "T_K": t_k,
+                "T0_K": t0_k,
+                "doas_snr": 12.0,
+                "doasveil_ppm": 1.80,
+                "permit_slide_s": 40.00,
+                "isolate_floor_ppm": 6.00,
+            },
+            "margin_authority": "TN-9 SRU SOP rev C: if reconstructed C_ppm >= 6.00 AND DOAS SNR >= 8.0, continue-production is forbidden even if Doasveil reports 1.80 ppm. Unit ESD is a different gate. Kill tripwire is 24.00 ppm.",
+        },
+        "proposed_action": {
+            "actor": "night SRU-tail operator Calder Wynn, citing Doasveil 1.80 ppm and a quiet intensity channel",
+            "summary": "continue T-4 SRU tail; 4.00 intensity is lamp noise on a healthy SO2 slip",
+            "basis_claimed": "Doasveil is the only OEM DOAS SoT and a night abort of T-4 is a sulfur-nomination miss",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Continue-production is refused. Serialized reconstruction: C_ppm = k_d * log2(I0/I) * (T/T0) * (P0/P) = 5.00 * log2(16.00/4.00) * 1.000 * 1.000 = 10.00, which is 4.00 ppm over the 6.00 isolate floor and 14.00 ppm under the 24.00 unit-kill tripwire, and DOAS SNR is 12.0 >= 8.0. Optical-depth identity OD = log2(I0/I) = 2.00; C = k_d * OD / L * L with L=1.00 m = 10.00. T/T0 = 1.000 so no thermal hop is available as an excuse. Permit clock was slid 40.00 s and vendor intensity packets were dropped, so Doasveil is a collusion party (DOAS vendor plus operator plus permit clerk Odel Varn). Ordered: refuse continue-production now. Scope: this REJECT does not ESD the SRU (that is the companion question) and does not isolate the path thermocouple.",
+            "threshold": "C_ppm>=6.00 AND doas_snr>=8.0 => refuse continue-production; Doasveil is not SoT; unit-kill if C_ppm>=24.00",
+            "stated_residuals": "caustic recycle still required to hold the 10.00 ppm; 10.00 vs a true 24.00 kill is a production cut; Doasveil remains the only OEM DOAS channel",
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 5400: continue-production refused; Doasveil not SoT; reconstruction locked",
+            "tool": "tn9-doas-tail-gate-cli",
+            "observation": "C 10.00 ppm recomputes from I 4.00; plant UV-DOAS hashed; Doasveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "doas I 4.00; raster frame; C 10.00 ppm"},
+                {"t_s": 4800.0, "event": "ops proposes continue-production"},
+                {"t_s": 5400.0, "event": "REJECT continue-production"},
+                {"t_s": 6000.0, "event": "18 min caustic bookend 1"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 8400.0, "event": "companion MODIFY caustic hold vs unit ESD"},
+            ],
+            "observed_effects": [
+                "SO2 slip recomputes from the serialized UV-DOAS model at every recon.C event",
+                "a Doasveil-only head would have continued SRU tail overnight",
+                "18 min caustic-recycle floor is in the stream (caustic.start, caustic.floor)",
+            ],
+            "surprises": [
+                "a clean vendor 1.80 ppm corridor and a 40 s permit slide co-existed with a 10.00 ppm plant reconstruction",
+            ],
+            "new_state": {
+                "t4": "continue-production blocked",
+                "doasveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("doas_reconstruction", 0.14),
+                ("conjunctive_isolate_floor", 0.12),
+                ("doasveil_nonsubstitution", 0.10),
+                ("three_party_collusion", 0.10),
+                ("caustic_time_cost", -0.03),
+            ],
+            "scored for a continue-production REJECT on a recomputable UV-DOAS SO2 slip while refusing a Doasveil last-good patch and a permit clock slide; 18 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "uv-doas-so2", "serialized-reconstruction", "operational-companion"],
+            distillation_note="UV-DOAS gate: serialized k_d*log2(I0/I) plus SNR lock beats a vendor last-good patch; companion t2 is the caustic hold, not a referral vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r59-178-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "TN-DOAS-2026-0902-exec",
+            "domain": "caustic_doas_interlock_execution",
+            "setting": "Same TN-9 after the REJECT. Operator proposes SRU-unit ESD. This companion is the operational caustic-recycle hold with the plant UV-DOAS as the live interlock, not a second SO2 vote.",
+            "observables_at_decision": {
+                "C_ppm": 15.00,
+                "caustic_floor_s": 1080.0,
+                "unit_esd_proposed": True,
+                "caustic_set": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night SRU-tail operator Calder Wynn",
+            "summary": "ESD the whole Thornmere SRU until day-shift; 18 min already paid and Doasveil still shows 1.70 ppm",
+            "basis_claimed": "the REJECT already stopped T-4, so a unit kill is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Caustic-recycle hold plus plant UV-DOAS as the live interlock. The 18 min caustic floor is complete and the isolate tripwire (C_ppm >= 6.00) is still armed on the plant DOAS head. MODIFY the default Doasveil-restore SOP into a plant-DOAS-only interlock. Do not ESD the SRU. Do not restore production on Doasveil. 15.00 ppm post-stop is still the plant SoT until a new frame clears 6.00.",
+            "threshold": "caustic_recycle AND caustic_floor_complete AND unit_esd_not_taken AND continue_not_restored",
+        },
+        "executed_action": {
+            "summary": "caustic held at t_s 8400; unit ESD not latched; Doasveil restore not taken",
+            "tool": "tn9-caustic-exec",
+            "observation": "recon.C 15.00 ppm after stop; caustic line-up complete; Doasveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "caustic clock started after REJECT"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 7800.0, "event": "unit ESD proposed"},
+                {"t_s": 8400.0, "event": "MODIFY caustic hold; unit ESD refused"},
+            ],
+            "observed_effects": [
+                "Doasveil restore did not reopen the SO2 call",
+                "unit ESD never fired; T-4 held caustic on the plant UV-DOAS",
+            ],
+            "new_state": {"caustic": "recycling", "unit": "in service", "t4": "held"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("caustic_hold", 0.12),
+                ("no_unit_esd", 0.10),
+                ("doasveil_nonsubstitution", 0.08),
+                ("caustic_floor_complete", 0.06),
+                ("held_production_cost", -0.02),
+            ],
+            "operational execution gate: caustic hold because Doasveil is not a restore license; not an SO2 re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "caustic-hold"]),
+    }
+    return {
+        "id": "nelb-r59-178",
+        "spike_events": events,
+        "language_view": {
+            "description": "Thornmere SRU TN-9. Plant-owned UV-DOAS reconstructs 10.00 ppm SO2 from log2(16.00/4.00)*5.00 while Doasveil still reports 1.80 ppm. The gate REJECTs continue-production. An 18 min caustic-recycle floor is serialized in the stream. Companion t2 MODIFYs an SRU ESD into a plant-DOAS caustic hold.",
+            "trajectory": traj,
+            "trajectory_caustic_hold": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "doas.I / doas.snr": "transmitted intensity and SNR; the physics channels the reconstruction consumes",
+                "recon.C / recon.od": "serialized SO2 ppm and optical-depth identity",
+                "path.T / doasveil.C / permit.slide / doasveil.drop": "path thermocouple, vendor SO2 cloud, permit clock slide, and dropped DOAS packets; the denial and collusion channels",
+                "ops.prop / gate.stop / ops.kill / gate.hold": "continue-production proposal, REJECT, unit-ESD proposal, companion MODIFY",
+                "caustic.start / caustic.floor / causticlock.set / caustic.held / unit.esd": "operational companion channels plus the 18 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: doasveil.C 1.80 next to recon.C 10.00",
+                "reconstruction as event: recon.C 10.00 equals 5.00*log2(16.00/4.00)",
+                "REJECT then operational MODIFY: gate.stop at 5400 s, gate.hold at 8400 s",
+                "slow floor in-stream: caustic.start 6000 s, caustic.floor 7080 s (18.0 min)",
+                "tight DOAS pair: doas.I then doas.snr +1.4 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Doasveil is 1.80 ppm' = doasveil.C 1.80; '10 ppm SO2' = recon.C 10.00; 'refuse continue-production' = gate.stop REJECT; 'caustic not unit ESD' = gate.hold MODIFY",
+            "why_high_value": "New UV-DOAS remaining-SO2 family on an SRU tail (not CRDS HF r15, not TDLAS NH3 r22, not r15 Gorse-UV DOAS as a corridor witness, not QEPAS r19, not CLD NOx r52, not UV-fluorescence oil-in-water r56, not PID VOC r57). Lead REJECT of continue-production on a recomputable SO2 slip that a vendor DOAS patch and a permit clock slide would have cleared. Three-party collusion includes the DOAS-cloud infra owner. Companion t2 is operational caustic hold. sim_or_real=designed.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609178, "stream_note": "stream amplitudes are authored constants (1, ppm, K, s, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "UV-DOAS spectrometer exists at ~10 Hz; stream keeps 4 I points; recon keeps 4 of ~40 solver ticks",
+                "refractory_floors_ms": {
+                    "doas.I": 1.4,
+                    "doas.snr": 1.4,
+                    "recon.C": 60000,
+                    "recon.od": 60000,
+                    "path.T": 60000,
+                    "doasveil.C": 60000,
+                    "permit.slide": 60000,
+                    "doasveil.drop": 60000,
+                    "ops.prop": 60000,
+                    "gate.stop": 60000,
+                    "caustic.start": 60000,
+                    "caustic.floor": 60000,
+                    "ops.kill": 60000,
+                    "gate.hold": 60000,
+                    "causticlock.set": 60000,
+                    "caustic.held": 60000,
+                    "unit.esd": 60000,
+                    "causticlock.held": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T01:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "UV-DOAS reconstruction head: C_ppm = k_d * log2(I0/I) * (T/T0) * (P0/P); OD = log2(I0/I); C = k_d * OD / L * L",
+                "conjunctive isolate floor vs continue-production vs unit ESD",
+                "vendor-DOAS nonsubstitution plus three-party collusion including the infra owner",
+                "operational companion: caustic hold without restoring on Doasveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "uv_doas_sru_so2",
+            "formula": "C_ppm = k_d * log2(I0/I) * (T/T0) * (P0/P); OD = log2(I0/I); C_ppm = k_d * OD / L_m * L_m",
+            "parameters": {
+                "k_d": 5.00,
+                "I0": 16.00,
+                "T0_K": 320.0,
+                "L_m": 1.00,
+                "isolate_floor_ppm": 6.00,
+                "kill_ppm": 24.00,
+                "snr_lock": 8.0,
+                "caustic_min": 18.0,
+            },
+            "worked_example": {"I": 4.00, "C_ppm": 10.00, "OD": 2.00, "T_ratio": 1.000},
+            "check": "5.00 * log2(16.00/4.00) = 10.00 exactly; log2(16.00/4.00) = 2.00 exactly; 6000 s + 1080 s = 7080 s = 18.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 40.0,
+            "decision_window_s": 0.040,
+            "code": "tn9.doas_tail_gate",
+            "note": "REJECT accumulator wins: plant UV-DOAS SO2 evidence overpowers the Doasveil continue advocate",
+            "decode_rule": "reject-continue if so2_estimator AND doas_lock fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("so2_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("doas_lock", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("reject_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "tn9.doas_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "tn9.caustic_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r59-178",
+            clock_domain="tn9-doas-campaign-relative-ms-t0-2026-09-02T01:00:00Z",
+            tags=["uv-doas-so2", "REJECT", "MODIFY", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 179 — aluminum-oxide remaining moisture of a chlorine dryer, hil,
+# MODIFY / ACCEPT
+# ---------------------------------------------------------------------------
+def rec_179():
+    k_x = 0.500
+    v_v = 4.00
+    x_ppmv = k_x * (2.0 ** v_v)
+    _exact(x_ppmv, 8.00)
+    _exact(k_x * (2.0 ** 2.00), 2.00)
+    _exact(k_x * (2.0 ** 3.00), 4.00)
+    _exact(k_x * (2.0 ** 5.00), 16.00)
+    k_z = 32.00
+    z_kohm = k_z / x_ppmv
+    _exact(z_kohm, 4.00)
+    _exact(k_z / 4.00, 8.00)
+    _exact(k_z / 16.00, 2.00)
+    x_id = k_z / z_kohm
+    _exact(x_id, 8.00)
+    _exact(2.0 ** v_v, 16.00)
+    _exact(2820.0 + 1440.0, 4260.0)
+
+    raster = make_raster(
+        neurons=25,
+        mean_rate_hz=50.0,
+        window_ms=32.0,
+        seed=202609179,
+        source="ma6.alox.cap",
+        target="marlfell.dryer_isolate_core",
+        table=[
+            {"from": "alox_V", "to": "moisture_estimator", "weight": 1.35},
+            {"from": "alox_snr", "to": "cap_norm_core", "weight": 1.20},
+            {"from": "oxveil_x", "to": "vendor_continue_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "ach.alox_bakeout_skip_salience",
+            "tau_e_s": 1.2,
+            "tau_e_ms": 1200.0,
+            "eligibility": "pre-post coincidence on keep-dryer synapses; the Al2O3 modulator depresses keep-dryer and referral links when probe voltage stays high inside tau_e of an SNR lock so an Oxveil last-good cannot hide 8.00 ppmv moisture or name Lise Quarn",
+        },
+        channel_prefix="alox.n",
+        anchor="MA-6 HIL coupon 32 ms frame at V 4.00 / SNR 14.0 (t_s 1560) reconstructing 8.00 ppmv over the 6.00 ppmv isolate floor",
+    )
+    w_s = 0.032
+    events = [
+        ev(0.0, "alox.V", 2.00, code="V_V", units="V", note="HIL aluminum-oxide capacitive probe on a dummy chlorine dryer in AL2O3-HIL-3; remaining-moisture family, not chilled-mirror dew-point, not MW-cavity moisture, not THz-TDS, not QCM-D, not FDS tanδ, not CRNS"),
+        ev(180000.0, "alox.snr", 9.0, code="ALOX_SNR", units="1", note="early probe SNR; isolate needs SNR>=12"),
+        ev(360000.0, "recon.x", 2.00, code="X_PPMV", units="ppmv", note="0.500*2**(2.00)=2.00 exact"),
+        ev(540000.0, "bake.out", 1.0, code="BAKE_AE", units="bool", note="plant bake-out AE present on the early frame"),
+        ev(720000.0, "oxveil.x", 1.20, code="VENDOR_PPMV", units="ppmv", note="Oxveil last-good Al2O3 cloud; not admissible SoT"),
+        ev(900000.0, "alox.V", 3.00, code="V_V", units="V"),
+        ev(1080000.0, "recon.x", 4.00, code="X_PPMV", units="ppmv", note="0.500*2**(3.00)=4.00; still under the 6.00 isolate floor"),
+        ev(1260000.0, "bake.out", 0.0, code="BAKE_AE", units="bool", note="missing bake-out AE burst; Oxveil UTC vs plant UTC+2 skipped the bake by 120 min"),
+        ev(1440000.0, "dryer.I", 48.0, code="DRYER_A", units="A", note="plant-owned dryer blower ammeter on copper fieldbus; independent of Oxveil"),
+        ev(1560000.0, "alox.V", 4.00, code="V_V", units="V", note="isolate-floor frame; raster sidecar"),
+        ev(1560001.2, "alox.snr", 14.0, code="ALOX_SNR", units="1", note="1.2 ms cap-norm after probe voltage"),
+        ev(1740000.0, "recon.x", 8.00, code="X_PPMV", units="ppmv", note="0.500*2**(4.00)=8.00 exact; isolate 6.00, dump 24.00"),
+        ev(1920000.0, "recon.Z", 4.00, code="Z_KOHM", units="kOhm", note="32.00/8.00=4.00 exact; impedance identity"),
+        ev(2100000.0, "oxveil.x", 1.20, code="VENDOR_PPMV", units="ppmv"),
+        ev(2280000.0, "ops.prop", 1.0, code="KEEP_DRYER_REFER", units="bool", note="night lead Nerin Quill: keep dryer D-2 and refer probe tech Lise Quarn"),
+        ev(2460000.0, "gate.isol", 1.0, code="MODIFY", units="decision", note="isolate this dryer; refuse the person-referral; Oxveil not SoT"),
+        ev(2640000.0, "dryer.lock", 1.0, code="DRYER_ISOL", units="bool"),
+        ev(2820000.0, "cool.start", 1.0, code="COOL_START", units="bool", note="bookend 1 of the 24.0 min bake-out plus recouplant floor"),
+        ev(4260000.0, "cool.floor", 1.0, code="COOL_FLOOR", units="bool", note="2820 s + 1440 s = 4260 s = 24.0 min"),
+        ev(4440000.0, "ops.refer", 1.0, code="REFER_QUARN", units="bool", note="Quill: Quarn badge was on the probe-logger log"),
+        ev(4620000.0, "gate.exec", 1.0, code="ACCEPT", units="decision", note="companion t2: new-probe restart; person-referral refused; Cl2 dump refused"),
+        ev(4800000.0, "probe.new", 1.0, code="NEW_PROBE", units="bool"),
+        ev(4980000.0, "alox.V", 5.00, code="V_V", units="V"),
+        ev(5160000.0, "recon.x", 16.00, code="X_PPMV", units="ppmv", note="0.500*2**(5.00)=16.00; HIL dummy still over 6.00 so the isolated dryer stays held"),
+        ev(5340000.0, "oxveil.x", 1.10, code="VENDOR_PPMV", units="ppmv"),
+        ev(5520000.0, "dryer.I", 46.0, code="DRYER_A", units="A"),
+        ev(5700000.0, "refer.hold", 0.0, code="REFER_NOT_TAKEN", units="bool", note="Quarn exonerated; missing bake-out AE precedes the high moisture, not the badge touch"),
+        ev(5880000.0, "dryer.held", 1.0, code="DRYER_HELD", units="bool"),
+        ev(6060000.0, "bake.out", 1.0, code="BAKE_AE", units="bool", note="bake-out restored on the new probe"),
+        ev(6240000.0, "recon.Z", 2.00, code="Z_KOHM", units="kOhm", note="32.00/16.00=2.00 identity holds on the post-isolate probe"),
+        ev(6420000.0, "cl2.dump", 0.0, code="DUMP_NOT_TAKEN", units="bool"),
+        ev(6600000.0, "cell.restart", 1.0, code="CELL_RESTART", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r59-179-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "MA-ALOX-2026-0718",
+            "domain": "al2o3_chlorine_dryer_moisture",
+            "setting": "Marlfell Chlor-Alkali MA-6 (invented), Saltwhin Cells, dryer D-2. Hardware-in-the-loop dummy coupon in AL2O3-HIL-3 supplies the probe voltage that times the in-service dryer isolate. Plant-owned aluminum-oxide reconstruction is the remaining-moisture SoT. Oxveil vendor Al2O3 scheduler is a corridor witness, not the dryer SoT. Not chilled-mirror dew-point (r51), not MW-cavity moisture (r26), not THz-TDS (r20/r21), not QCM-D (r14), not FDS tanδ (r48), not CRNS (r28).",
+            "observables_at_decision": {
+                "V": v_v,
+                "k_x": k_x,
+                "x_ppmv": x_ppmv,
+                "Z_kOhm": z_kohm,
+                "oxveil_ppmv": 1.20,
+                "bake_out": 0.0,
+                "isolate_floor_ppmv": 6.00,
+            },
+            "margin_authority": "MA-6 dryer SOP rev B: if reconstructed x_ppmv >= 6.00 AND Al2O3 SNR >= 12.0, isolate this dryer this night. An Oxveil last-good or a quiet bake-out residual cannot keep the dryer. Cl2-dump tripwire is 24.00 ppmv. Person-referral is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night lead Nerin Quill, citing Oxveil 1.20 ppmv and bake-out 1.00, and naming probe tech Lise Quarn as last-to-badge",
+            "summary": "keep dryer D-2 in service and refer Quarn; 4.00 V is probe noise on a healthy Al2O3 head",
+            "basis_claimed": "Oxveil last-good is 1.20 ppmv and a night isolate of the dryer is a cell-nomination miss",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Keep-dryer is refused; the person-referral is also refused. Serialized reconstruction: x_ppmv = k_x * 2**(V) = 0.500 * 2**(4.00) = 8.00, which is 2.00 ppmv over the 6.00 isolate floor and 16.00 ppmv under the 24.00 Cl2-dump tripwire. Impedance identity Z = k_z / x = 32.00 / 8.00 = 4.00 kOhm; inverse x = k_z / Z = 32.00 / 4.00 = 8.00. Oxveil 1.20 ppmv is a last-good Al2O3 stamp and is not an admissible keep-dryer witness. The missing bake-out AE burst sits on an Oxveil UTC-vs-UTC+2 skip (120 min), not on Quarn's badge, and the plant blower ammeter never shows a regen skip, so the easy referral fails command-custody. Ordered: isolate this dryer now. Scope: this MODIFY does not dump the chlorine header (that is the companion question) and does not name Quarn.",
+            "threshold": "x_ppmv>=6.00 AND alox_snr>=12.0 => isolate this dryer; Oxveil is not SoT; dump if x_ppmv>=24.00; referral requires badge-touch preceding the high moisture",
+            "stated_residuals": "8.00 vs 24.00 dump floor is 16.00 ppmv, not infinite; new-probe restart still required; Oxveil remains the only OEM Al2O3 channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 2460: dryer isolated; Quarn not named; Oxveil not SoT; reconstruction locked",
+            "tool": "ma6-alox-dryer-gate-cli",
+            "observation": "x 8.00 ppmv recomputes from V 4.00; HIL coupon hashed; Oxveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 1560.0, "event": "alox V 4.00; raster frame; x 8.00 ppmv"},
+                {"t_s": 2280.0, "event": "ops proposes keep-dryer plus Quarn referral"},
+                {"t_s": 2460.0, "event": "MODIFY isolate dryer; referral refused"},
+                {"t_s": 2820.0, "event": "24 min bake-out bookend 1"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4620.0, "event": "companion ACCEPT new-probe restart; referral still refused"},
+            ],
+            "observed_effects": [
+                "moisture recomputes from the serialized Al2O3 model at every recon.x event",
+                "an Oxveil-only head would have kept the dryer overnight",
+                "24 min bake-out plus recouplant floor is in the stream (cool.start, cool.floor)",
+            ],
+            "surprises": [
+                "a last-good 1.20 ppmv vendor corridor and a quiet bake-out residual co-existed with an 8.00 ppmv probe, and the obvious probe tech was not on the causal path",
+            ],
+            "new_state": {
+                "dryer_d2": "isolated",
+                "quarn": "exonerated",
+                "oxveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 1500000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("alox_reconstruction", 0.14),
+                ("isolate_floor_dryer", 0.12),
+                ("exoneration", 0.10),
+                ("oxveil_nonsubstitution", 0.08),
+                ("cool_time_cost", -0.04),
+            ],
+            "scored for a keep-dryer MODIFY on a recomputable high Al2O3 moisture while refusing an Oxveil 1.20 ppmv corridor and an easy person-referral; 24 min floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "al2o3-moisture", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Al2O3 gate: serialized k_x*2**V plus impedance identity beats a green moisture dashboard; companion t2 is the new-probe restart, not a governance vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r59-179-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "MA-ALOX-2026-0718-exec",
+            "domain": "new_probe_bakeout_execution",
+            "setting": "Same MA-6 after the MODIFY. Night lead proposes referring Quarn and dumping the chlorine header. This companion is the operational new-probe bake-out restart, not a second moisture vote.",
+            "observables_at_decision": {
+                "x_ppmv": 16.00,
+                "Z_kOhm": 2.00,
+                "cool_floor_s": 1440.0,
+                "refer_proposed": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night lead Nerin Quill",
+            "summary": "refer Quarn and dump the chlorine header; 24 min already paid and Oxveil is 1.10 ppmv",
+            "basis_claimed": "the MODIFY already cut the dryer, so a Cl2 dump plus a person file is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Restart the cell on a different probe after the bake-out floor. The 24 min recouplant is complete and the dump tripwire (x_ppmv >= 24.00) is still armed on the plant Al2O3 head. ACCEPT the new-probe restart. Do not refer Quarn. Do not dump the chlorine header. 16.00 ppmv post-isolate is still over the 6.00 isolate floor, so the isolated dryer stays held; the new probe may run.",
+            "threshold": "new_probe AND cool_floor_complete AND refer_not_taken AND cl2_not_dumped AND isolated_dryer_held",
+        },
+        "executed_action": {
+            "summary": "new-probe restart at t_s 4620; Quarn not referred; Cl2 not dumped; isolated dryer held",
+            "tool": "ma6-alox-cool-exec",
+            "observation": "recon.x 16.00 ppmv on the HIL dummy; bake-out AE present on the new probe; Oxveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 2820.0, "event": "bake-out clock started after MODIFY"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4440.0, "event": "Quarn referral re-proposed"},
+                {"t_s": 4620.0, "event": "ACCEPT new-probe restart; referral refused"},
+            ],
+            "observed_effects": [
+                "Oxveil restore did not reopen the moisture call",
+                "Cl2 dump never fired; 8.00 vs 24.00 ppmv floor",
+                "Quarn remains unnamed; missing bake-out AE is the causal object",
+            ],
+            "new_state": {"cell": "restarted on new probe", "quarn": "exonerated", "dryer": "held", "header": "in service"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("new_probe_restart", 0.12),
+                ("no_person_referral", 0.10),
+                ("no_cl2_dump", 0.09),
+                ("cool_floor_complete", 0.06),
+                ("held_dryer_takt_cost", -0.02),
+            ],
+            "operational execution gate: restart on a new probe because Oxveil is not a restore license and Quarn is not on the causal path; not a moisture re-vote",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "exoneration"]),
+    }
+    return {
+        "id": "nelb-r59-179",
+        "spike_events": events,
+        "language_view": {
+            "description": "Marlfell Chlor-Alkali MA-6. HIL aluminum-oxide probe reconstructs 8.00 ppmv from 0.500*2**(4.00) while Oxveil still shows 1.20 ppmv and the bake-out AE is missing. The gate MODIFYs dryer isolate and refuses the probe-tech referral. A 24 min bake-out floor is serialized in the stream. Companion t2 ACCEPTs a new-probe restart and still refuses the referral.",
+            "trajectory": traj,
+            "trajectory_new_probe": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "alox.V / alox.snr": "probe voltage and SNR; the physics channels the reconstruction consumes",
+                "recon.x / recon.Z": "serialized remaining moisture ppmv and impedance identity",
+                "bake.out / oxveil.x / dryer.I": "bake-out AE, vendor last-good, and blower ammeter; the denial and exoneration channels",
+                "ops.prop / gate.isol / ops.refer / gate.exec": "keep-dryer-plus-refer proposal, MODIFY isolate, referral re-proposal, companion ACCEPT",
+                "dryer.lock / cool.start / cool.floor / probe.new / refer.hold / cell.restart": "operational companion channels plus the 24 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-low while Al2O3-over: oxveil.x 1.20 next to recon.x 8.00",
+                "reconstruction as event: recon.x 8.00 equals 0.500*2**(4.00)",
+                "MODIFY then operational ACCEPT: gate.isol at 2460 s, gate.exec at 4620 s",
+                "slow floor in-stream: cool.start 2820 s, cool.floor 4260 s (24.0 min)",
+                "tight Al2O3 pair: alox.V then alox.snr +1.2 ms at the raster frame",
+                "exoneration motif: bake.out 0 at 1260 s precedes the high moisture; Quarn badge is not in the stream as a cause",
+            ],
+            "language_to_spike_mapping": "'Oxveil is 1.20 ppmv' = oxveil.x 1.20; '8 ppmv moisture' = recon.x 8.00; 'isolate this dryer not Quarn' = gate.isol MODIFY; 'new probe not referral' = gate.exec ACCEPT",
+            "why_high_value": "New aluminum-oxide remaining-moisture family on a chlorine dryer (not chilled-mirror r51, not MW-cavity r26, not THz-TDS r20/r21, not QCM-D r14, not FDS tanδ r48, not CRNS r28). Lead MODIFY of keep-dryer on a recomputable high moisture that a vendor last-good would have cleared, with a resolved-innocent probe tech. Companion t2 is operational new-probe restart. sim_or_real=hil.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609179, "stream_note": "stream amplitudes are authored constants (V, 1, ppmv, kOhm, A, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "Al2O3 probe exists at ~1 Hz; stream keeps 4 V points; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "alox.V": 1.2,
+                    "alox.snr": 1.2,
+                    "recon.x": 60000,
+                    "recon.Z": 60000,
+                    "bake.out": 60000,
+                    "oxveil.x": 60000,
+                    "dryer.I": 60000,
+                    "ops.prop": 60000,
+                    "gate.isol": 60000,
+                    "dryer.lock": 60000,
+                    "cool.start": 60000,
+                    "cool.floor": 60000,
+                    "ops.refer": 60000,
+                    "gate.exec": 60000,
+                    "probe.new": 60000,
+                    "refer.hold": 60000,
+                    "dryer.held": 60000,
+                    "cl2.dump": 60000,
+                    "cell.restart": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-07-18T02:30:00Z HIL night start",
+            },
+            "distillation_targets": [
+                "Al2O3 reconstruction head: x = k_x * 2**(V); Z = k_z / x; x = k_z / Z",
+                "isolate-floor dryer vs keep-whole vs Cl2 dump",
+                "exoneration head: missing bake-out AE plus timezone skip, not last-to-badge",
+                "operational companion: new-probe restart without referring the probe tech",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "al2o3_chlorine_dryer_moisture",
+            "formula": "x_ppmv = k_x * 2**(V); Z_kOhm = k_z / x_ppmv; x_ppmv = k_z / Z_kOhm",
+            "parameters": {
+                "k_x": 0.500,
+                "k_z": 32.00,
+                "isolate_floor_ppmv": 6.00,
+                "dump_ppmv": 24.00,
+                "snr_lock": 12.0,
+                "cool_min": 24.0,
+            },
+            "worked_example": {"V": 4.00, "x_ppmv": 8.00, "Z_kOhm": 4.00, "pow2": 16.00},
+            "check": "0.500 * 2**(4.00) = 8.00 exactly; 32.00 / 8.00 = 4.00 exactly; 32.00 / 4.00 = 8.00 exactly; 2820 s + 1440 s = 4260 s = 24.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 32.0,
+            "decision_window_s": 0.032,
+            "code": "ma6.alox_dryer_gate",
+            "note": "MODIFY accumulator wins: Al2O3 high-moisture evidence overpowers the Oxveil continue advocate",
+            "decode_rule": "modify-isolate if moisture_estimator AND cap_norm fire; vendor_continue_advocate is below threshold by design; referral_latch is not armed",
+            "populations": [
+                gate_pop("moisture_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("cap_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("modify_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "ma6.alox_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 32.0},
+                {"check": "ma6.isol_scorer", "neurons": 50, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r59-179",
+            clock_domain="ma6-alox-hil-relative-ms-t0-2026-07-18T02:30:00Z",
+            tags=["al2o3-moisture", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 180 — load-cell remaining hopper mass of an FCC catalyst hopper,
+# simulated, ACCEPT / REJECT
+# ---------------------------------------------------------------------------
+def rec_180():
+    k_m = 1.50
+    u_mv = 8.00
+    m_t = k_m * u_mv
+    _exact(m_t, 12.00)
+    _exact(k_m * 4.00, 6.00)
+    _exact(k_m * 6.00, 9.00)
+    _exact(k_m * 10.00, 15.00)
+    t_min = 4.00
+    du = 8.00 - 4.00
+    mdot = k_m * (du / t_min)
+    _exact(mdot, 1.50)
+    _exact((12.00 - 6.00) / 4.00, 1.50)
+    u_id = m_t / k_m
+    _exact(u_id, 8.00)
+    _exact(6000.0 + 720.0, 6720.0)
+
+    raster = make_raster(
+        neurons=16,
+        mean_rate_hz=62.5,
+        window_ms=36.0,
+        seed=202609180,
+        source="bf3.load.cell",
+        target="birchfen.hopper_accept_core",
+        table=[
+            {"from": "load_U", "to": "mass_estimator", "weight": 1.40},
+            {"from": "load_snr", "to": "cell_norm_core", "weight": 1.20},
+            {"from": "cellveil_m", "to": "vendor_skip_advocate", "weight": 0.50},
+        ],
+        third_factor={
+            "modulator": "na.hopper_scope_eligibility",
+            "tau_e_s": 2.0,
+            "tau_e_ms": 2000.0,
+            "eligibility": "pre-post coincidence on skip-weigh synapses; the load-cell modulator enables potentiation only while millivolt and SNR are co-active inside tau_e so a Cellveil last-good cannot skip hoppers H-1..H-3 on a 12.00 t remaining mass",
+        },
+        channel_prefix="load.n",
+        anchor="BF-3 LOAD-SIM-2 36 ms frame at U 8.00 mV / SNR 16.0 (t_s 3000) reconstructing 12.00 t on H-4 above the 8.00 t weigh floor",
+    )
+    w_s = 0.036
+    events = [
+        ev(0.0, "load.U", 4.00, code="U_MV", units="mV", note="simulated strain-gauge load-cell of BF-3 hopper H-4; remaining-mass family, not Coriolis, not Cs-137 densitometry, not TEOM, not SPND, not He-3, not inductive oil-debris"),
+        ev(300000.0, "load.snr", 10.0, code="LOAD_SNR", units="1", note="early cell SNR"),
+        ev(600000.0, "recon.M", 6.00, code="M_T", units="t", note="1.50*4.00=6.00 exact"),
+        ev(900000.0, "stand.dp", 8.0, code="DP_KPA", units="kPa", note="plant standpipe dP on a serial-only LAN; independent witness"),
+        ev(1200000.0, "cellveil.M", 1.20, code="VENDOR_T", units="t", note="Cellveil last-good hopper cloud; patched residual 0.00 t"),
+        ev(1800000.0, "load.U", 6.00, code="U_MV", units="mV"),
+        ev(2100000.0, "recon.M", 9.00, code="M_T", units="t", note="1.50*6.00=9.00; over the 8.00 weigh floor"),
+        ev(2400000.0, "recon.mdot", 1.50, code="MDOT_TMIN", units="t_min", note="1.50*((8.00-4.00)/4.00)=1.50 mass-flow identity at the isolate window"),
+        ev(2700000.0, "load.snr", 14.0, code="LOAD_SNR", units="1"),
+        ev(3000000.0, "load.U", 8.00, code="U_MV", units="mV", note="in-band frame; raster sidecar"),
+        ev(3000001.5, "load.snr", 16.0, code="LOAD_SNR", units="1", note="1.5 ms cell-norm after millivolt"),
+        ev(3300000.0, "recon.M", 12.00, code="M_T", units="t", note="1.50*8.00=12.00 exact; weigh 8.00, slide-kill 40.00"),
+        ev(3600000.0, "cellveil.M", 1.20, code="VENDOR_T", units="t"),
+        ev(3900000.0, "hop.id", 4.0, code="HOPPER", units="id"),
+        ev(4200000.0, "h13.present", 1.0, code="H13_PRESENT", units="bool", note="adjacent hoppers H-1..H-3 are the skip-weigh object, not this hopper"),
+        ev(4800000.0, "ops.prop", 1.0, code="ACCEPT_AND_SKIP", units="bool", note="catalyst lead Kell Brindle: H-4 is green on Cellveil 1.20; skip H-1..H-3 to save a morning weigh"),
+        ev(5400000.0, "gate.hop", 1.0, code="ACCEPT", units="decision", note="bounded ACCEPT of H-4 isolate only; 12.00 t above 8.00 floor; H-1..H-3 out of scope"),
+        ev(6000000.0, "surv.start", 1.0, code="SURV_START", units="bool", note="bookend 1 of the 12.0 min survey-complete floor"),
+        ev(6720000.0, "surv.floor", 1.0, code="SURV_FLOOR", units="bool", note="6000 s + 720 s = 6720 s = 12.0 min"),
+        ev(7200000.0, "ops.skip", 1.0, code="SKIP_H13", units="bool", note="Brindle: Cellveil 1.20, skip H-1..H-3"),
+        ev(7800000.0, "gate.hold", 1.0, code="REJECT", units="decision", note="companion t2: skip-weigh of H-1..H-3 refused; H-4 hold stands"),
+        ev(8400000.0, "h4.held", 1.0, code="H4_HELD", units="bool"),
+        ev(9000000.0, "load.U", 10.00, code="U_MV", units="mV"),
+        ev(9600000.0, "recon.M", 15.00, code="M_T", units="t", note="1.50*10.00=15.00; still at/over the 8.00 weigh floor"),
+        ev(10200000.0, "cellveil.M", 1.20, code="VENDOR_T", units="t"),
+        ev(10800000.0, "h13.skip", 0.0, code="H13_NOT_SKIPPED", units="bool"),
+        ev(11400000.0, "slide.kill", 0.0, code="SLIDE_NOT_KILLED", units="bool"),
+        ev(12000000.0, "load.snr", 15.0, code="LOAD_SNR", units="1"),
+        ev(12600000.0, "recon.mdot", 1.50, code="MDOT_TMIN", units="t_min", note="identity held on the post-accept frame"),
+        ev(13200000.0, "cat.held", 1.0, code="CAT_HELD", units="bool"),
+        ev(13800000.0, "takt.late", 1.0, code="SURVEY_COST", units="bool"),
+        ev(14400000.0, "h4.held", 1.0, code="H4_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r59-180-t1",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "BF-LOAD-2026-0819",
+            "domain": "load_cell_fcc_hopper_mass",
+            "setting": "Birchfen FCC BF-3 (invented), Gritspit Cracking catalyst cellar. Simulated load-cell coupon in LOAD-SIM-2 supplies the millivolt that times the in-band H-4 isolate. Plant-owned load-cell reconstruction is the remaining-mass SoT. Cellveil vendor last-good hopper cloud is a corridor witness, not the hopper SoT. Invented plant; simulated campaign. Not Coriolis (r29/r34), not Cs-137 densitometry (r27), not TEOM (r46), not SPND (r31), not He-3 (r40), not inductive oil-debris (r53).",
+            "observables_at_decision": {
+                "U_mV": u_mv,
+                "k_m": k_m,
+                "M_t": m_t,
+                "mdot_tmin": mdot,
+                "cellveil_t": 1.20,
+                "load_snr": 16.0,
+                "weigh_floor_t": 8.00,
+            },
+            "margin_authority": "BF-3 catalyst SOP rev A: if reconstructed M_t >= 8.00 AND load SNR >= 12.0, hopper H-4 may be isolated and weighed. Slide-kill if M_t >= 40.00. H-1..H-3 skip-weigh is a different gate. Cellveil last-good cannot skip an unmeasured hopper.",
+        },
+        "proposed_action": {
+            "actor": "catalyst lead Kell Brindle, citing Cellveil 1.20 t and a late morning weigh",
+            "summary": "stamp H-4 in band and skip H-1..H-3; 8.00 mV is a cell glitch on a healthy hopper cloud",
+            "basis_claimed": "Cellveil last-good is 1.20 t and a night survey of H-1..H-3 is a takt miss",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Hopper H-4 is accepted as in-band for a single isolate plus weigh. Serialized reconstruction: M_t = k_m * U = 1.50 * 8.00 = 12.00, which is 4.00 t above the 8.00 weigh floor and 28.00 t under the 40.00 slide-kill. Rate identity mdot = k_m * (U-U_early)/t_min = 1.50 * (8.00-4.00)/4.00 = 1.50 t/min; inverse U = M / k_m = 12.00 / 1.50 = 8.00. Cellveil 1.20 t is a patched 0.00 residual and is not an admissible skip-weigh witness. Ordered: ACCEPT this H-4 isolate only. Scope: this ACCEPT does not skip H-1..H-3 (that is the companion question) and does not stamp a slide kill.",
+            "threshold": "M_t>=8.00 AND load_snr>=12.0 => accept H-4 isolate; Cellveil is not SoT; slide-kill if M_t>=40.00; H-1..H-3 are out of scope",
+            "stated_residuals": "12.00 vs 8.00 weigh floor is 4.00 t, not infinite; H-1..H-3 remain unmeasured; Cellveil remains the only OEM hopper channel",
+        },
+        "executed_action": {
+            "summary": "ACCEPT at t_s 5400: H-4 in band; H-1..H-3 not skipped; Cellveil not SoT; reconstruction locked",
+            "tool": "bf3-load-hopper-gate-cli",
+            "observation": "M 12.00 t recomputes from U 8.00 mV; LOAD-SIM-2 hashed; Cellveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "load U 8.00 mV; raster frame; M 12.00 t"},
+                {"t_s": 4800.0, "event": "ops proposes accept H-4 and skip H-1..H-3"},
+                {"t_s": 5400.0, "event": "ACCEPT H-4 only; H-1..H-3 out of scope"},
+                {"t_s": 6000.0, "event": "12 min survey-complete bookend 1"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7800.0, "event": "companion REJECT skip-weigh of H-1..H-3"},
+            ],
+            "observed_effects": [
+                "hopper mass recomputes from the serialized load-cell model at every recon.M event",
+                "a Cellveil-only head would have skipped H-1..H-3 overnight",
+                "12 min survey-complete floor is in the stream (surv.start, surv.floor)",
+            ],
+            "surprises": [
+                "a last-good 1.20 t vendor corridor co-existed with a 12.00 t in-band reconstruction that still forbids skipping the unmeasured hoppers",
+            ],
+            "new_state": {
+                "h4": "accepted in band",
+                "h13": "not this gate",
+                "cellveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.41,
+            [
+                ("load_reconstruction", 0.14),
+                ("in_band_hopper_scope", 0.12),
+                ("cellveil_nonsubstitution", 0.09),
+                ("h13_out_of_scope", 0.08),
+                ("survey_cost", -0.02),
+            ],
+            "scored for a bounded ACCEPT of H-4 on a recomputable remaining mass while refusing a Cellveil skip of H-1..H-3; 12 min floor is priced as survey takt not as a reason to skip",
+        ),
+        "meta": meta_common(
+            tags=["ACCEPT", "load-cell-hopper", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Load-cell gate: serialized k_m*U plus mdot identity beats a green last-good dashboard; companion t2 is the skip-weigh refusal, not a mass re-vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r59-180-t2",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "BF-LOAD-2026-0819-exec",
+            "domain": "hopper_skip_weigh_refusal",
+            "setting": "Same BF-3 after the ACCEPT. Catalyst lead proposes skipping H-1..H-3 on Cellveil 1.20 t. This companion is the operational skip refusal, not a second mass vote.",
+            "observables_at_decision": {
+                "M_t": 15.00,
+                "cellveil_t": 1.20,
+                "surv_floor_s": 720.0,
+                "skip_proposed": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "catalyst lead Kell Brindle",
+            "summary": "skip H-1..H-3; 12 min already paid and Cellveil is 1.20 t",
+            "basis_claimed": "the ACCEPT already stamped H-4, so skipping the rest of the cellar is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Refuse skip-weigh of H-1..H-3. The 12 min survey-complete floor is done and the slide-kill (M_t >= 40.00) is still armed on the plant load-cell head. REJECT the skip. Do not kill the slide valve. Do not reopen H-4. 15.00 t post-accept is still in band for H-4 only; H-1..H-3 have no independent load cell.",
+            "threshold": "h4_held AND surv_floor_complete AND h13_not_skipped AND slide_not_killed",
+        },
+        "executed_action": {
+            "summary": "H-1..H-3 skip refused at t_s 7800; H-4 hold stands; slide not killed",
+            "tool": "bf3-load-skip-exec",
+            "observation": "recon.M 15.00 t on H-4; H-1..H-3 remain on the survey list; Cellveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "survey clock started after ACCEPT"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7200.0, "event": "skip H-1..H-3 proposed"},
+                {"t_s": 7800.0, "event": "REJECT skip-weigh of H-1..H-3"},
+            ],
+            "observed_effects": [
+                "Cellveil skip did not reopen the mass call",
+                "slide kill never fired; 12.00 vs 40.00 t floor",
+            ],
+            "new_state": {"h4": "held in band", "h13": "still to survey", "slide": "in service"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.36,
+            [
+                ("skip_refusal", 0.13),
+                ("cellveil_nonsubstitution", 0.11),
+                ("no_slide_kill", 0.09),
+                ("surv_floor_complete", 0.05),
+                ("held_survey_takt_cost", -0.02),
+            ],
+            "operational execution gate: refuse skip-weigh because last-good freeze is not load-cell mass; not a mass re-vote",
+        ),
+        "meta": meta_common(tags=["REJECT", "operational-execution", "skip-weigh"]),
+    }
+    return {
+        "id": "nelb-r59-180",
+        "spike_events": events,
+        "language_view": {
+            "description": "Birchfen FCC BF-3. Simulated load-cell reconstructs 12.00 t from 1.50*8.00 mV while Cellveil still shows 1.20 t. The gate ACCEPTs H-4 isolate only; a companion execution REJECT refuses skip-weigh of H-1..H-3. The millivolt-to-mass model is serialized so every recon event recomputes.",
+            "trajectory": traj,
+            "trajectory_skip_weigh_refusal": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "load.U / load.snr": "load-cell millivolt and SNR; the physics channels the reconstruction consumes",
+                "recon.M / recon.mdot": "serialized remaining mass t and mass-flow identity",
+                "stand.dp / cellveil.M / hop.id / h13.present": "standpipe dP, vendor last-good, hopper id, and adjacent-hopper presence; the denial and scope channels",
+                "ops.prop / gate.hop / ops.skip / gate.hold": "accept-and-skip proposal, bounded ACCEPT, skip proposal, companion REJECT",
+                "surv.start / surv.floor / h4.held / h13.skip / cat.held": "operational companion channels plus the 12 min floor",
+            },
+            "temporal_motifs": [
+                "last-good-low while load-over: cellveil.M 1.20 next to recon.M 12.00",
+                "reconstruction as event: recon.M 12.00 equals 1.50*8.00",
+                "ACCEPT then operational REJECT: gate.hop at 5400 s, gate.hold at 7800 s",
+                "slow floor in-stream: surv.start 6000 s, surv.floor 6720 s (12.0 min)",
+                "tight load pair: load.U then load.snr +1.5 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Cellveil is 1.20 t' = cellveil.M 1.20; '12 t remaining' = recon.M 12.00; 'this hopper not H-1..H-3' = gate.hop ACCEPT plus h13.skip 0; 'do not skip H-1..H-3' = gate.hold REJECT",
+            "why_high_value": "New strain-gauge load-cell remaining-mass family on an FCC catalyst hopper (not Coriolis r29/r34, not Cs-137 densitometry r27, not TEOM r46, not SPND r31, not He-3 r40, not inductive debris r53). First k_m*U mass reconstruction with mdot identity that can sit in band while a last-good corridor wants a hopper skip. Companion t2 is operational skip refusal. sim_or_real=simulated.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609180, "stream_note": "stream amplitudes are authored constants (mV, 1, t, t/min, kPa, id, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "load-cell exists at ~10 Hz; stream keeps 4 U points; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "load.U": 1.5,
+                    "load.snr": 1.5,
+                    "recon.M": 60000,
+                    "recon.mdot": 60000,
+                    "stand.dp": 60000,
+                    "cellveil.M": 60000,
+                    "hop.id": 60000,
+                    "h13.present": 60000,
+                    "ops.prop": 60000,
+                    "gate.hop": 60000,
+                    "surv.start": 60000,
+                    "surv.floor": 60000,
+                    "ops.skip": 60000,
+                    "gate.hold": 60000,
+                    "h4.held": 60000,
+                    "h13.skip": 60000,
+                    "slide.kill": 60000,
+                    "cat.held": 60000,
+                    "takt.late": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-08-19T03:00:00Z simulated night start",
+            },
+            "distillation_targets": [
+                "load-cell reconstruction head: M = k_m * U; mdot = k_m * (U - U_early) / t_min; U = M / k_m",
+                "bounded ACCEPT head: in-band remaining mass AND hopper scope AND h13-out-of-scope",
+                "operational companion: refuse skip-weigh without re-opening the mass call",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "load_cell_hopper_mass",
+            "formula": "M_t = k_m * U_mV; mdot_tmin = k_m * (U_mV - U_early_mV) / t_min; U_mV = M_t / k_m",
+            "parameters": {
+                "k_m": 1.50,
+                "t_min": 4.00,
+                "weigh_floor_t": 8.00,
+                "kill_t": 40.00,
+                "snr_lock": 12.0,
+                "surv_min": 12.0,
+            },
+            "worked_example": {"U_mV": 8.00, "M_t": 12.00, "mdot_tmin": 1.50, "U_early_mV": 4.00},
+            "check": "1.50 * 8.00 = 12.00 exactly; 1.50 * (8.00-4.00)/4.00 = 1.50 exactly; 12.00 / 1.50 = 8.00 exactly; 6000 s + 720 s = 6720 s = 12.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "ACCEPT",
+            "decision_window_ms": 36.0,
+            "decision_window_s": 0.036,
+            "code": "bf3.load_hopper_gate",
+            "note": "ACCEPT accumulator wins: load-cell remaining-mass evidence overpowers the Cellveil skip advocate",
+            "decode_rule": "accept if mass_estimator AND cell_norm AND hopper_margin fire inside the window; vendor_skip_advocate is necessary-but-not-sufficient and cannot release H-1..H-3",
+            "populations": [
+                gate_pop("mass_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("cell_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("hopper_margin", 40, 1.0, 50.0, w_s),
+                gate_pop("vendor_skip_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("accept_latch", 96, 1.8, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "bf3.load_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "bf3.mass_scorer", "neurons": 40, "mean_rate_hz": 62.5, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r59-180",
+            clock_domain="bf3-load-sim-relative-ms-t0-2026-08-19T03:00:00Z",
+            tags=["load-cell-hopper", "ACCEPT", "REJECT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }

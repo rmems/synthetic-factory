@@ -1,0 +1,61 @@
+{
+  "agent_ids": [
+    "01a06406-1393-73d3-9dd9-7c7da2b321a7",
+    "01a06408-8ccc-7891-b6cb-1116bef2da10",
+    "01a06409-0d90-7370-a8a0-136862347fcc"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "gen_r19.py",
+  "original_path": "/tmp/nelb-r19/gen_r19.py",
+  "path_key": "nelb-r19--8c8d00a7e787",
+  "terminal_event_ids": [
+    "01a06406-1393-73d3-9dd9-7c7da2b321a7:call-2a892297-9930-4a84-aeee-80db4cd42d6a-64",
+    "01a06408-8ccc-7891-b6cb-1116bef2da10:call-242f1d9b-8fa7-4bd3-ae27-886cab732c09-38",
+    "01a06409-0d90-7370-a8a0-136862347fcc:call-13aab50b-9edb-4845-847b-7d72ba3c8805-37",
+    "01a06409-0d90-7370-a8a0-136862347fcc:call-dae4cbfe-42a6-4743-ba2a-14582999f85c-22",
+    "01a06409-0d97-7132-b6e0-f4df4cb92e22:call-506f95f6-b1c0-4e8c-90d3-d934ec58ae2d-17",
+    "01a06409-0d97-7132-b6e0-f4df4cb92e22:call-6c05a480-1e98-4ca9-a335-f216fc1e49a5-13",
+    "01a06409-0d97-7132-b6e0-f4df4cb92e22:call-a27849ba-c939-403c-9b71-8b2b5bf09ee5-20",
+    "01a06409-0d97-7132-b6e0-f4df4cb92e22:call-e681a13f-7e53-4390-ab5c-fa10f284834e-27"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06406-1393-73d3-9dd9-7c7da2b321a7",
+      "basename_preserved": true,
+      "bytes": 68907,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 349,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06406-1393-73d3-9dd9-7c7da2b321a7/updates.jsonl",
+      "original_basename": "gen_r19.py",
+      "original_path": "/tmp/nelb-r19/gen_r19.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r19--8c8d00a7e787/versions/v0001/gen_r19.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/nelb-r19--8c8d00a7e787/versions/v0001/gen_r19.py",
+      "session_id": "01a06406-1393-73d3-9dd9-7c7da2b321a7",
+      "sha256": "023b2af693aa0508690f87b5bc62507d105e29bd4399264d2c56727cb650526e",
+      "source_channel": "structured",
+      "source_event_id": "01a06406-1393-73d3-9dd9-7c7da2b321a7:call-90b0f784-4002-4378-8960-72549cfcde98-63",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788385751110,
+      "timestamp_utc": "2026-09-02T21:49:11.110Z",
+      "tool_call_id": "call-90b0f784-4002-4378-8960-72549cfcde98-63",
+      "version": 1,
+      "version_id": "nelb-r19--8c8d00a7e787:v0001"
+    }
+  ]
+}

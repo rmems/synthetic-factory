@@ -1,0 +1,12 @@
+    if len(wrong) != 1 or wrong[0]["id"] != "ttf-r56-296":
+        issues.append(f"wrong-gate set {[w['id'] for w in wrong]}")
+    if wrong and wrong[0]["meta"].get("supervisor_error_type") != "wrong-reject":
+        issues.append("296 supervisor_error_type")
+    if any(r["state"]["sim_or_real"] == "real" for r in records):
+        issues.append("sim_or_real=real")
+    hil = [r["id"] for r in records if r["state"]["sim_or_real"] == "hil"]
+    sim = [r["id"] for r in records if r["state"]["sim_or_real"] == "simulated"]
+    if hil != ["ttf-r56-298"]:
+        issues.append(f"hil set {hil}")
+    if sim != ["ttf-r56-299"]:
+        issues.append(f"simulated set {sim}")

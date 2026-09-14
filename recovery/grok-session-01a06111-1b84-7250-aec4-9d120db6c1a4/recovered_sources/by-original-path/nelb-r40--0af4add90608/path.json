@@ -1,0 +1,108 @@
+{
+  "agent_ids": [
+    "01a0640b-476a-7553-85d1-024148e88fbe"
+  ],
+  "classification": "partial",
+  "classification_evidence": [
+    "at least one full version was recovered, but a later successful edit or terminal mutation could not be placed conclusively",
+    "a successful recorded terminal delete or move removed the final in-/tmp state",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 6,
+  "final_state": "deleted",
+  "hunk_evidence_count": 5,
+  "original_basename": "_front.py",
+  "original_path": "/tmp/nelb-r40/_front.py",
+  "path_key": "nelb-r40--0af4add90608",
+  "terminal_event_ids": [
+    "01a0640b-476a-7553-85d1-024148e88fbe:call-125f0cdb-11c3-468b-be29-c56638f52e3d-80",
+    "01a0640b-476a-7553-85d1-024148e88fbe:call-2593a123-ee31-438c-a4d7-06e97121a275-105",
+    "01a0640b-476a-7553-85d1-024148e88fbe:call-51fb9af8-de2c-46e4-8563-915ca64acf92-104",
+    "01a0640b-476a-7553-85d1-024148e88fbe:call-a787f913-d394-4980-b064-d0bd9f2218d5-96",
+    "01a0640d-430b-71c3-b2ca-c42abbb8cb48:call-f46d8ce0-c1b0-402c-89cb-4e2541c1812b-16",
+    "01a0640d-430c-7c12-b564-b4b98e3eb325:call-9201328b-b9bd-4b31-93f6-c7578a266356-18"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 2,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a0640b-476a-7553-85d1-024148e88fbe:call-6681209c-eff4-4145-b996-91bfde5c3f7e-99",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r40--0af4add90608/fragments/call-6681209c-eff4-4145-b996-91bfde5c3f7e-99/_front.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r40--0af4add90608/fragments/call-6681209c-eff4-4145-b996-91bfde5c3f7e-99/_front.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "recorded old_string occurrence count was 28, so placement is not provable"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0640b-476a-7553-85d1-024148e88fbe:call-6681209c-eff4-4145-b996-91bfde5c3f7e-100",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r40--0af4add90608/fragments/call-6681209c-eff4-4145-b996-91bfde5c3f7e-100/_front.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r40--0af4add90608/fragments/call-6681209c-eff4-4145-b996-91bfde5c3f7e-100/_front.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "recorded old_string occurrence count was 13, so placement is not provable"
+    }
+  ],
+  "version_count": 2,
+  "versions": [
+    {
+      "agent_id": "01a0640b-476a-7553-85d1-024148e88fbe",
+      "basename_preserved": true,
+      "bytes": 19963,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 393,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640b-476a-7553-85d1-024148e88fbe/updates.jsonl",
+      "original_basename": "_front.py",
+      "original_path": "/tmp/nelb-r40/_front.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r40--0af4add90608/versions/v0001/_front.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/nelb-r40--0af4add90608/versions/v0001/_front.py",
+      "session_id": "01a0640b-476a-7553-85d1-024148e88fbe",
+      "sha256": "f912ee5be08daf2cb6c63b2ed0e40049c1788d2b6bedb1268dcbb8573cc7f70f",
+      "source_channel": "structured",
+      "source_event_id": "01a0640b-476a-7553-85d1-024148e88fbe:call-111e5017-a9d4-4cd1-86a2-dc522de4c446-69",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788389276395,
+      "timestamp_utc": "2026-09-02T22:47:56.395Z",
+      "tool_call_id": "call-111e5017-a9d4-4cd1-86a2-dc522de4c446-69",
+      "version": 1,
+      "version_id": "nelb-r40--0af4add90608:v0001"
+    },
+    {
+      "agent_id": "01a0640b-476a-7553-85d1-024148e88fbe",
+      "basename_preserved": true,
+      "bytes": 19989,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 470,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640b-476a-7553-85d1-024148e88fbe/updates.jsonl",
+      "original_basename": "_front.py",
+      "original_path": "/tmp/nelb-r40/_front.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r40--0af4add90608/versions/v0002/_front.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/nelb-r40--0af4add90608/versions/v0002/_front.py",
+      "session_id": "01a0640b-476a-7553-85d1-024148e88fbe",
+      "sha256": "8f45ecfca2e1a9f38cc1141001ef9d9c2679463ed85f0c14250b99270a678499",
+      "source_channel": "structured",
+      "source_event_id": "01a0640b-476a-7553-85d1-024148e88fbe:call-7c5056b9-c319-4fa7-b74a-e4f6b654a0ba-83",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788389484201,
+      "timestamp_utc": "2026-09-02T22:51:24.201Z",
+      "tool_call_id": "call-7c5056b9-c319-4fa7-b74a-e4f6b654a0ba-83",
+      "version": 2,
+      "version_id": "nelb-r40--0af4add90608:v0002"
+    }
+  ]
+}

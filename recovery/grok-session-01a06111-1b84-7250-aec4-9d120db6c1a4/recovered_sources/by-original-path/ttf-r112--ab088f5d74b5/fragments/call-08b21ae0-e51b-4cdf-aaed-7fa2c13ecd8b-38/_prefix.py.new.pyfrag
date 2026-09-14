@@ -1,0 +1,1 @@
+IDS = [f"ttf-r112-{n}" for n in range(576, 581)]

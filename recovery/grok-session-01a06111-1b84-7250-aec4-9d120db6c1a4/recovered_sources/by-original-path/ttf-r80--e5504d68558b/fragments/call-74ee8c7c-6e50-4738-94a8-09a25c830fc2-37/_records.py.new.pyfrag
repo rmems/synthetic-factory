@@ -1,0 +1,5 @@
+                "Prill tower PT-6 at Nitram-Outgang is already pulling 22 t/h ammonium-nitrate melt when a "
+                "kettle-temperature pulse arrives 240 us before the melt-flow encoder that still "
+                "reads a legal shower. Temperature-first latches a process clamp under the "
+                "172 C cap; flow-first would keep cruise melt. Stored shower-head freeze-plug load is "
+                "not yet an observable of either race channel.",

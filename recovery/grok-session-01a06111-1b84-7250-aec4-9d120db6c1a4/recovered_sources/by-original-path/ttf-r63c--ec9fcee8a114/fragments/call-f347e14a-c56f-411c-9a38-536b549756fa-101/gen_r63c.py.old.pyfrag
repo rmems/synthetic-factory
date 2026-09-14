@@ -1,0 +1,5 @@
+    live_batch = FACTORY / BATCH_NAME
+    live_notes = FACTORY / NOTES_NAME
+    write_exclusive(live_batch, batch_text)
+    write_exclusive(live_notes, notes)
+    print("wrote", live_batch, live_notes, "n", len(records))

@@ -1,0 +1,21 @@
+                            [
+                                "ae.pitch.pps 36 over 10 cap",
+                                "enc.flue.o2 3.1 under 5.0 cap",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "AE-first latches hold; flue-first pushes the next green anode on a "
+                            "'header still legal' model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "320 us = one AE puck slot versus the flue-O2 publisher on this HIL "
+                            "bake-pit bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 180 us vs combined jitter 58 us (AE 26 + flue 32): 3.10x over "
+                            "a 2.0x trust floor. Reversing order by < 180 us inside the 320 us "
+                            "window would have pushed a pitch-fired pit.",
+                        ),

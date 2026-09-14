@@ -1,0 +1,14 @@
+THIS_DOMAINS = (
+    "niobium-oxide-aluminotherm",
+    "selenium-dioxide-sublimer",
+    "indium-phosphide-bridgman",
+    "cesium-formate-evaporator",
+    "iridium-chloride-precipitator",
+)
+THIS_PLANTS = (
+    "Alumino-Ness",
+    "Subli-Selen",
+    "Bridg-Phos",
+    "Formate-Cesi",
+    "Precip-Irid",
+)

@@ -1,0 +1,25 @@
+        if rec["id"] == "ttf-r65-342":
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["bed_C"] > ev["bed_cap_C"]):
+                issues.append("292 live bed not over cap")
+            if not (ev["lagged_C"] < ev["bed_cap_C"]):
+                issues.append("292 lagged not under cap")
+            if ev.get("lagged_quality") != "STALE":
+                issues.append("292 lagged quality not STALE")
+            if not (ev["t_exec_us"] > ev["latest_legal_clamp_us"]):
+                issues.append("292 t_exec not after latest_legal_clamp")
+            if rec["executed_action"]["parameters"].get("extra_lag_reconcile") is not True:
+                issues.append("292 extra_lag_reconcile not true")
+            if rec["executed_action"]["parameters"].get("t_exec_us") != 10880:
+                issues.append("292 expected t_exec_us=10880")
+            if rec["executed_action"]["parameters"].get("quench_tph") != 1.2:
+                issues.append("292 expected late-but-correct 1.2 t/h quench")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("292 missing recovery")
+            table_to = {row["to"] for row in rec["raster"]["routing"]["table"]}
+            if "policy.quench_now" in table_to:
+                issues.append("292 routing still has quench_now")
+            if "policy.wait_lag" not in table_to:
+                issues.append("292 routing missing wait_lag")
+            if "stale-sample" not in rec["meta"]["tags"] or "lagged-tag" not in rec["meta"]["tags"]:
+                issues.append("292 missing stale-sample/lagged-tag tags")

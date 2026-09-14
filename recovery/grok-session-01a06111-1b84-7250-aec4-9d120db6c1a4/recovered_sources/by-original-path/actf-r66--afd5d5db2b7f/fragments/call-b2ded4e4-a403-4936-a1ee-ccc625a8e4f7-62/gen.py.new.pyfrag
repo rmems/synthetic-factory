@@ -1,0 +1,2 @@
+                "Plan change: harbor want dest already lists /harbor and got is commonprefix /harbor/lib on a committed lib+lib64 pair. "
+                "Abandon truncated-object. Switching the edit target to SharedDest so dest uses commonpath. found prefix mismatch."

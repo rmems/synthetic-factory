@@ -1,0 +1,54 @@
+{
+  "agent_ids": [
+    "01a0640a-3686-7ea1-bd97-53a3420bf64b"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits",
+    "a successful recorded terminal delete or move removed the final in-/tmp state"
+  ],
+  "event_count": 2,
+  "final_state": "deleted",
+  "hunk_evidence_count": 2,
+  "original_basename": "_notes_helpers.py",
+  "original_path": "/tmp/nelb-r31/_notes_helpers.py",
+  "path_key": "nelb-r31--c0c7ba5310da",
+  "terminal_event_ids": [
+    "01a0640a-3686-7ea1-bd97-53a3420bf64b:call-1731217a-88d3-4dd9-b035-b4bf662f51cf-56",
+    "01a0640a-3686-7ea1-bd97-53a3420bf64b:call-1de1c281-4994-4bb7-9a31-be46f11e505f-80"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a0640a-3686-7ea1-bd97-53a3420bf64b",
+      "basename_preserved": true,
+      "bytes": 16063,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 313,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640a-3686-7ea1-bd97-53a3420bf64b/updates.jsonl",
+      "original_basename": "_notes_helpers.py",
+      "original_path": "/tmp/nelb-r31/_notes_helpers.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r31--c0c7ba5310da/versions/v0001/_notes_helpers.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/nelb-r31--c0c7ba5310da/versions/v0001/_notes_helpers.py",
+      "session_id": "01a0640a-3686-7ea1-bd97-53a3420bf64b",
+      "sha256": "daca069938607a188340ac0ae65a7c3e5c8ad88b363113efd2a1965ab9c44a45",
+      "source_channel": "structured",
+      "source_event_id": "01a0640a-3686-7ea1-bd97-53a3420bf64b:call-123ef5ec-3fcd-4fd4-8fdb-ed5319e84fa8-55",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788387757264,
+      "timestamp_utc": "2026-09-02T22:22:37.264Z",
+      "tool_call_id": "call-123ef5ec-3fcd-4fd4-8fdb-ed5319e84fa8-55",
+      "version": 1,
+      "version_id": "nelb-r31--c0c7ba5310da:v0001"
+    }
+  ]
+}

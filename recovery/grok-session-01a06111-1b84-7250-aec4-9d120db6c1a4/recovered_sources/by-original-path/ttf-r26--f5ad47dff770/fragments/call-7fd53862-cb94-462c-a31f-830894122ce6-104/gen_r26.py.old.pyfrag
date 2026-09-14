@@ -1,0 +1,13 @@
+                "Dee-Keeper DK-3 sits on the K-shell HIL cyclotron pad with a Faraday cup "
+                "reporting 14.2 uA against an 8.0 uA extraction cap. An RF directional coupler, "
+                "lit by the pad's dummy-load reflection, still reads VSWR 1.12 under a 1.50 trip. "
+                "Faraday-first latches REJECT hold; VSWR-first would commit a 40 nA extraction "
+                "ramp on an under-read beam.",
+            ),
+            ("domain", "isotope-cyclotron"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Do not ramp extraction unless Faraday-cup beam <= 8.0 uA; keep extract 0 nA "
+                "until the injected current drops.",
+            ),

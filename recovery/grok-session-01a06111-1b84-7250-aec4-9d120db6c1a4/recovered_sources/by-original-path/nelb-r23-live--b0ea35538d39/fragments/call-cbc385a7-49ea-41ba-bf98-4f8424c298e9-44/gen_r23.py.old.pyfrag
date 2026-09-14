@@ -1,0 +1,1 @@
+        ev(2160000.0, "recon.ne", 2.00, code="N_E", units="1", note="16.00/8.00 Faraday-electron lock at the isolate frame uses I=16; here 12.00/8.00=1.50 on the approach band"),

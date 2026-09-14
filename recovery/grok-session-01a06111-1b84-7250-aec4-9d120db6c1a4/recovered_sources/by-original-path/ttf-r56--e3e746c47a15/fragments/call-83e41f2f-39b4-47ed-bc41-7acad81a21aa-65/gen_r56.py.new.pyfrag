@@ -1,0 +1,35 @@
+    spikes = [
+        spike("enc.charge.ctx", 1.180, 0.44),
+        spike("ir.live.c", 2.320, 0.61),
+        spike("rtd.reset.band", 3.640, 0.52),
+        spike("bus.retort.ctx", 4.480, 0.47),
+        spike("ir.live.c", 5.160, 1.31),
+        spike("rtd.reset.band", 5.380, 1.18),
+        spike("ctrl.gate", 5.900, 0.99),
+        spike("ir.live.c", 7.180, 0.84),
+        spike("rtd.reset.band", 9.400, 0.66),
+        spike("ctrl.gate", 14.800, 0.88),
+        spike("enc.charge.ctx", 18.600, 0.41),
+        spike("ir.live.c", 24.800, 0.58),
+    ]
+    excerpt = independent_excerpt(56296, 72, 28000, 12, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Retort RT-4 at Dolime-Toft already holds a live wall IR of 1204 C when that "
+                "live sample races a hysteresis-reset tag that still prints 1190 C. Published trip "
+                "is 1220 C on the live wall; a weak supervisor treats the reset band as a latched "
+                "trip and zeros a legal 2.40 t/d FeSi charge.",
+            ),
+            ("domain", "pidgeon-magnesium-retort"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Hold 2.40 t/d FeSi on RT-4, keep live wall T < 1220 C trip, and finish the "
+                "14 min magnesium reduction window.",
+            ),
+            ("t0_us", 1762300000000296),
+            ("gate_latency_us", 740),
+            ("race_window_us", 360),
+            ("race_window_rel_ms", [5.160, 5.520]),

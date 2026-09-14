@@ -1,0 +1,36 @@
+                "Correct REJECT held Pin-Quill PQ-6 at 0.0 mm/s. Tool over cap this cycle; "
+                "stir cap held. Backing-bar IR apparent was not treated as a pin clearance.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("plunge", "held; speed 0.0 mm/s"),
+                        ("tool", "still over 380 C this cycle"),
+                        ("bar_ir", "298 C unused as clearance"),
+                        ("mission", "plunge deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Geometric lag: lamp was injected 110-150 us before the pin-root TC, yet root still won the 380 us race.",
+                    "Delayed (abort_s=600): pad policy update forbids treating backing-bar IR apparent as a pin-root substitute after a 10 min tool retune.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "tc.pin.root (5.760 ms, 412 C)"),
+                        ("loser", "ir.bar.glint (5.931 ms, 298 C apparent)"),
+                        ("margin_us", 171),
+                        (
+                            "counterfactual_if_reversed",
+                            "Bar-first by < 171 us inside the 380 us window would have committed "
+                            "1.8 mm/s with pin 412 > 380 cap. Order, not amplitude, selected the hold.",
+                        ),
+                    ]
+                ),
+            ),

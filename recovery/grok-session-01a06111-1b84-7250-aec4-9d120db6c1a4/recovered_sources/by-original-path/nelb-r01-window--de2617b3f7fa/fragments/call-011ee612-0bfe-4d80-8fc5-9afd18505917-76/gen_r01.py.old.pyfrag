@@ -1,0 +1,4 @@
+        "rights": dict(RIGHTS),
+    }
+    m.update(extra)
+    return m

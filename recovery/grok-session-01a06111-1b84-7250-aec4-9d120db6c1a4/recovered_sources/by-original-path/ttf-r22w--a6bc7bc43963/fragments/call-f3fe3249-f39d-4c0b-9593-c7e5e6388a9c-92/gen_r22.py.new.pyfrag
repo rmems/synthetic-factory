@@ -1,0 +1,12 @@
+            ("name", "clamped_gacl_feed"),
+            (
+                "parameters",
+                OrderedDict(
+                    [("gacl_slm", 0.26), ("sus_C", 1008.0), ("nh3_slm", 4.8)]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: GaCl 0.42 -> 0.26 slm. Process-correct vs the 1020 C GaN-growth cap. "
+                "Injector clog still dumps at 23.400 ms.",
+            ),

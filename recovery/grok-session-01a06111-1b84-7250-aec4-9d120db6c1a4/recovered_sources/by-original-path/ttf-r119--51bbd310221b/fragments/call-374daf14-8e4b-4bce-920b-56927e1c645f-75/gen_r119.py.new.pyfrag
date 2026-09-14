@@ -1,0 +1,5 @@
+                "Tetraf-Bainbridge TB-6 SF4 reactor R-4 is already over the published absolute-PT cap: "
+                "live PT 2.80 bar(a) versus 2.40. The live SF4 stem is 78.0 percent-open. A leftover "
+                "DCS tag still publishes gauge 1.787 bar(g) (2.80 minus 1.013 atm). Abs-PT-first must cut 78.0 "
+                "to 34.0; the weak supervisor binds leftover gauge as if it were absolute and opens "
+                "78.0 to 92.0.",

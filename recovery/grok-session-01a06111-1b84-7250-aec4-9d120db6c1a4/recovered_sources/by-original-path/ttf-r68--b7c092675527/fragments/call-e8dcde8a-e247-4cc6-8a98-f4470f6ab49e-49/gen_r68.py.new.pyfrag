@@ -1,0 +1,9 @@
+    skip_dir = OUT_DIR.resolve()
+    for p in sorted(Path("/tmp").glob("ttf-r*/*")):
+        if p.suffix not in {".jsonl", ".md", ".py"}:
+            continue
+        try:
+            if p.resolve().parent == skip_dir:
+                continue
+        except OSError:
+            continue

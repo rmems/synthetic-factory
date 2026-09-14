@@ -1,0 +1,1 @@
+Margin 190 us vs combined jitter 60 us (slip 35 + conv 25): 3.2x. The 190 us gap sits inside min(500, 500) us, so a sub-flip-bound perturbation reverses triage order. The gate rides the order-invariant floors r_s > 0.08 vol% and pack-A NH3-step |dT| < 2 K, not the alarm order.

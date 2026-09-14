@@ -1,0 +1,14 @@
+THIS_DOMAINS = [
+    "germanium-tetrachloride-rectifier",
+    "strontium-titanate-sputter",
+    "boron-carbide-hotpress",
+    "lithium-tantalate-czochralski",
+    "ruthenium-tetroxide-scrubber",
+]
+THIS_PLANTS = (
+    "Tetrach-Geave",
+    "Perov-Mire",
+    "Borocarb-Venn",
+    "Tantalate-Skel",
+    "Ruthenox-Wold",
+)

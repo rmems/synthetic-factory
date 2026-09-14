@@ -1,0 +1,31 @@
+            ("name", "rf_drive_18pct"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("rf_drive_pct", 18.0),
+                        ("hold", False),
+                        ("buncher", "B2"),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("bpm_mm", 2.40),
+                        ("bpm_cap_mm", 0.80),
+                        ("kly_kW", 18.0),
+                        ("kly_trip_kW", 24.0),
+                        ("proposed_rf_drive_pct", 18.0),
+                        ("race_margin_us", 182),
+                        ("combined_jitter_us", 64),
+                        ("reclear_s", 480),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes an 18 percent RF drive ramp because 18.0 kW looks like a matched "
+                "klystron; BPM 2.40 mm is treated as a pad-lamp orbit on the HIL stand.",
+            ),

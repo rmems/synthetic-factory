@@ -1,0 +1,6 @@
+        "rights": dict(RIGHTS),
+        "snn_tags": ["race", "refractory", "adaptation"],
+        "nelb": {"snn_tags": ["race", "refractory", "adaptation"]},
+    }
+    m.update(extra)
+    return m

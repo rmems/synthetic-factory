@@ -1,0 +1,5 @@
+                                    ("cap", 1020.0),
+                                    ("observed", 1048.0),
+                                    ("predicted_unclamped_next", 1056.0),
+                                    ("clamped_gacl_slm", 0.26),
+                                    ("observed_after_clamp", 1008.0),

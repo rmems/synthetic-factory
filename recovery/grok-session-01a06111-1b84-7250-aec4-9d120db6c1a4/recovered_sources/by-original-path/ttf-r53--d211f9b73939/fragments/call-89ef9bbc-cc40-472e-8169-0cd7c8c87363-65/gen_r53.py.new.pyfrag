@@ -1,0 +1,34 @@
+                [
+                    "unmelt AE puck, 50 kHz, 26 us jitter",
+                    "motor current CT, 1 kHz, 32 us jitter",
+                    "screw tach (context)",
+                    "melt IR (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("ae_cap_pps", 8.0),
+                        ("observed_ae_pps", 28.0),
+                        ("motor_A", 62.0),
+                        ("motor_cap_A", 95.0),
+                        ("proposed_rpm", 420.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. X-4 HIL indexed; 420 rpm armed.",
+                    "2. Motor 62 A under 95; AE 28 pps over 8.",
+                    "3. Motor precursor at 1.360 ms.",
+                    "4. Race window [6.840, 7.160] ms.",
+                    "5. ae.unmelt.pps 28 at 6.840 ms (winner).",
+                    "6. enc.motor.A 62 at 7.020 ms (loser by 180 us).",
+                    "7. Gate at 7.620 ms: REJECT hold, do not keep 420 rpm.",
+                    "8. Screws 0 rpm; motor left at 62 A.",
+                    "9. Unmelt slug inspected on the HIL bench.",
+                    "10. Delayed (abort_s=480): 8 min hopper refeed.",
+                ],
+            ),

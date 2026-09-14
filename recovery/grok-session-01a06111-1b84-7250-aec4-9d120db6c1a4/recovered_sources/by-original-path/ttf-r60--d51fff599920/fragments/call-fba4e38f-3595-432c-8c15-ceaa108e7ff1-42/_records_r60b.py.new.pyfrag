@@ -1,0 +1,949 @@
+def record_318():
+    ticks = [
+        tick(1568, 0.01, 0.04, 0.02, 0.01, 0.01),
+        tick(3920, 0.02, 0.08, 0.02, 0.02, 0.01),
+        tick(4110, 0.01, 0.06, 0.02, 0.01, 0.01),
+        tick(5100, 0.03, 0.12, 0.04, 0.04, 0.02),
+        tick(5380, 0.02, 0.07, 0.01, 0.01, 0.01),
+        tick(540000000, 0.01, 0.03, 0.01, 0.01, 0.00),
+    ]
+    spikes = [
+        spike("enc.flow.ctx", 1.040, 0.44),
+        spike("ae.short.pps", 2.180, 0.71),
+        spike("enc.elyte.m3h", 3.020, 0.52),
+        spike("ae.short.pps", 3.920, 1.36),
+        spike("enc.elyte.m3h", 4.110, 1.14),
+        spike("ctrl.gate", 5.100, 0.98),
+        spike("ae.short.pps", 7.400, 0.82),
+        spike("enc.elyte.m3h", 10.800, 0.61),
+        spike("ctrl.gate", 16.200, 0.86),
+        spike("ae.short.pps", 24.600, 0.70),
+        spike("enc.elyte.m3h", 33.400, 0.48),
+        spike("bus.cell.ctx", 41.200, 0.40),
+    ]
+    excerpt = independent_excerpt(60318, 112, 46000, 13, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Cellhouse CH-6 on the Electrowin-Holt HIL pad is pulling 1.84 m3/h electrolyte when an "
+                "AE burst at 52 pps on the cathode bus races the flow encoder that still looks "
+                "in-band for a current step. Ramp is legal only if AE <= 40 pps. AE-first latches "
+                "hold; encoder-first would treat in-band flow as cellhouse clearance.",
+            ),
+            ("domain", "zinc-electrowinning"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Do not ramp CH-6 unless AE <= 40 pps; keep current density 0 A/m2 until the "
+                "cathode bus is quiet.",
+            ),
+            ("t0_us", 1762300000000318),
+            ("gate_latency_us", 1180),
+            ("race_window_us", 280),
+            ("race_window_rel_ms", [3.920, 4.200]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "ae.short.pps 52 pps cathode short",
+                                "enc.elyte.m3h 1.84 m3/h still-in-band",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "AE-first latches REJECT hold 0 A/m2; encoder-first would ramp 420 A/m2 "
+                            "on an in-band-flow-as-clearance model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "280 us = one AE envelope slot versus the electrolyte-encoder publisher on this "
+                            "pad cycle.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 190 us vs combined jitter 54 us (AE 24 + encoder 30): 3.5x over a "
+                            "2.0x trust floor. Pad injects encoder 90-130 us before the AE envelope "
+                            "finishes (hydrophone lag, not a sensor fault); the encoder packet is still "
+                            "the loser in this 280 us window.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "cathode-bus AE, 24 us jitter, 40 pps trip",
+                    "electrolyte-flow encoder, 30 us jitter",
+                    "cell voltage (context)",
+                    "electrolyte RTD (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("ae_trip_pps", 40.0),
+                        ("observed_ae_pps", 52.0),
+                        ("current_cap_A_m2", 480.0),
+                        ("proposed_A_m2", 420.0),
+                    ]
+                ),
+            ),
+            (
+                "hil",
+                OrderedDict(
+                    [
+                        ("bench", "Electrowin-Holt EH-HIL cellhouse pad, CH-6"),
+                        ("inject", "AE envelope delayed 90-130 us vs encoder; hydrophone lag, not a false AE"),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. CH-6 on Electrowin-Holt HIL pad; cells in band; current armed at 420 A/m2.",
+                    "2. AE trip 40 pps; observed 52 pps burst on cathode bus.",
+                    "3. Encoder precursor at 1.040 ms.",
+                    "4. Race window [3.920, 4.200] ms.",
+                    "5. AE 52 pps at 3.920 ms (winner).",
+                    "6. Flow encoder 1.84 m3/h at 4.110 ms (loser by 190 us).",
+                    "7. Gate at 5.100 ms: REJECT hold 0 A/m2, do not ramp.",
+                    "8. Pad recycle 9 min; AE decays under 40 pps after hold.",
+                    "9. Cellhouse never shorted into a fire; encoder-as-clearance would have ramped into the burst.",
+                    "10. QA: correct gate was REJECT; leave 0 A/m2 until AE <= 40 pps.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "ramp_420Am2"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("current_A_m2", 420.0),
+                        ("ae_pps", 52.0),
+                        ("hold", False),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("ae_pps", 52.0),
+                        ("ae_trip_pps", 40.0),
+                        ("current_A_m2", 420.0),
+                        ("current_cap_A_m2", 480.0),
+                        ("race_margin_us", 190),
+                        ("combined_jitter_us", 54),
+                        ("t_gate_us", 5100),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 420 A/m2 because current is under the 480 A/m2 cap and treats "
+                "the electrolyte encoder as cellhouse clearance, ignoring the 52 pps AE burst.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "AE 52 pps won by 190 us and is over the 40 pps trip. Encoder 1.84 m3/h is under "
+                "a flow cap but is not clearance. REJECT: hold 0 A/m2 until AE <= 40 pps.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "cathode_ae_pps",
+                            OrderedDict(
+                                [
+                                    ("trip", 40.0),
+                                    ("observed", 52.0),
+                                    ("executed_A_m2", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 190),
+                                    ("combined_jitter_us", 54),
+                                    ("ratio", 3.52),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "cell_hold_ae"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("current_A_m2", 0.0),
+                        ("ae_pps", 52.0),
+                        ("hold", True),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: current 420 -> 0 A/m2. Routing relay.ae.short -> policy.hold_reject. "
+                "Do not ramp into the 52 pps cathode short.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct REJECT held CH-6 at 0 A/m2 while AE 52 pps decayed. Encoder-as-clearance "
+                "would have ramped 420 A/m2 into the short. Pad recycle 9 min.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("cellhouse", "held at 0 A/m2"),
+                        ("bus", "AE burst decaying under trip after hold"),
+                        ("electrolyte", "still circulating"),
+                        ("pad", "9 min recycle"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Pad injects encoder 90-130 us before AE envelope finish; that is hydrophone lag, not a false AE.",
+                    "Delayed (9 min): pad recycle restacks the bus after AE < 40 pps.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "ae.short.pps (3.920 ms, 52 pps)"),
+                        ("loser", "enc.elyte.m3h (4.110 ms, 1.84 m3/h)"),
+                        ("margin_us", 190),
+                        (
+                            "counterfactual_if_reversed",
+                            "Encoder-first by < 190 us would have treated 1.84 m3/h as clearance and "
+                            "ramped into the 52 pps short. The REJECT is still required; reversal "
+                            "only delays the AE bind.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 5100),
+            (
+                "reward_inflection_note",
+                "Safety credit lands at the correct REJECT (5.100 ms, tick 4). Pad recycle is delayed surprise.",
+            ),
+            ("delayed_surprise_s", 540.0),
+            ("pad_recycle_s", 540),
+        ]
+    )
+    ras = raster_core(
+        46,
+        112,
+        20,
+        103,
+        routing(
+            "relay.ae.short",
+            "policy.hold_reject",
+            [
+                ("relay.ae.short", "policy.hold_reject", 0.74),
+                ("relay.enc.elyte", "policy.ramp_go", 0.18),
+            ],
+            "dopamine",
+            0.06,
+            "ae_trip_stdp; DA tags the hold_reject bind at the AE win",
+        ),
+        excerpt,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.28),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("hold_reject", 64, 0.50, 180.0, 3),
+                    pop("ramp_go", 64, 0.80, 8.0, 0),
+                    pop("ae_trip_veto", 32, 0.70),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r60-318",
+        "Electrowin-Holt cellhouse HIL / CH-6: AE 52 pps beats electrolyte encoder 1.84 m3/h by 190 us; "
+        "correct REJECT holds the bus",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Correct REJECT. AE 52 > 40 trip beats in-band electrolyte flow. total +0.78 = "
+        "0.10 + 0.40 + 0.12 + 0.10 + 0.06.",
+        ras,
+        gate,
+        "zinc-electrowinning",
+        [
+            "reject",
+            "hil-pad",
+            "ae-vs-encoder",
+            "cathode-short-hold",
+            "sidecar-convictable",
+            "hil",
+        ],
+        "Teaches a probe that an in-band electrolyte encoder is not cellhouse clearance when "
+        "AE is over trip and routing.table[0].to is policy.hold_reject.",
+        3,
+    )
+
+
+def record_319():
+    ticks = [
+        tick(2496, 0.06, 0.04, 0.03, 0.02, 0.01),
+        tick(6240, 0.10, 0.06, 0.04, 0.02, 0.02),
+        tick(6470, 0.06, 0.04, 0.02, 0.01, 0.01),
+        tick(7140, 0.12, 0.08, 0.05, 0.03, 0.02),
+        tick(7500, 0.05, 0.04, 0.02, 0.01, 0.01),
+        tick(600000000, 0.03, 0.02, 0.02, 0.01, 0.01),
+    ]
+    params = OrderedDict(
+        [
+            ("air_vvm", 0.42),
+            ("broth_C", 32.4),
+            ("tank_id", 14),
+            ("hold", False),
+        ]
+    )
+    spikes = [
+        spike("ft.air.ctx", 1.480, 0.42),
+        spike("rtd.broth.c", 3.120, 0.58),
+        spike("co2.foam.smear", 4.660, 0.50),
+        spike("rtd.broth.c", 6.240, 1.28),
+        spike("co2.foam.smear", 6.470, 1.10),
+        spike("ctrl.gate", 7.140, 0.96),
+        spike("rtd.broth.c", 9.200, 0.74),
+        spike("co2.foam.smear", 12.800, 0.60),
+        spike("ctrl.gate", 18.400, 0.82),
+        spike("rtd.broth.c", 24.600, 0.55),
+        spike("ft.air.ctx", 29.800, 0.40),
+    ]
+    excerpt = independent_excerpt(60319, 56, 30000, 12, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Fermenter T-14 of the Cider-Fen beer-to-fuel train is sparging 0.42 vvm when a "
+                "broth RTD at 32.4 C races a CO2-foam smear that still claims over-foam. "
+                "Commanded 0.42 vvm and 32.4 C sit 0.12 vvm and 3.6 C inside the legal "
+                "envelopes. The RTD win only ratifies the sparge already in the tank.",
+            ),
+            ("domain", "ethanol-fermenter"),
+            ("sim_or_real", "simulated"),
+            (
+                "goal",
+                "Finish the chemostat pass on Cider-Fen, keep broth RTD <= 36.0 C and "
+                "air >= 0.30 vvm, and leave foam in spec.",
+            ),
+            ("t0_us", 1762300000000319),
+            ("gate_latency_us", 900),
+            ("race_window_us", 360),
+            ("race_window_rel_ms", [6.240, 6.600]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "rtd.broth.c 32.4 C fermenter broth",
+                                "co2.foam.smear over-foam claim",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "RTD-first confirms the already-legal 0.42 vvm / 32.4 C pass; "
+                            "smear-first would have treated the RTD as a smear echo and looked "
+                            "for an extra hold the tank does not need.",
+                        ),
+                        (
+                            "window_derivation",
+                            "360 us = one Monod-broth RTD kernel step versus the foam-probe publisher "
+                            "on this rigid chemostat train.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 230 us vs combined jitter 70 us (RTD 32 + foam 38): 3.3x over "
+                            "a 2.0x trust floor. Reversing order by < 230 us would not make the "
+                            "proposed pass illegal; it would only have delayed confirmation.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "broth RTD, 32 us jitter",
+                    "CO2 foam smear, 38 us jitter",
+                    "air-mass encoder (context)",
+                    "pH probe (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("broth_cap_C", 36.0),
+                        ("observed_broth_C", 32.4),
+                        ("air_floor_vvm", 0.30),
+                        ("proposed_air_vvm", 0.42),
+                    ]
+                ),
+            ),
+            (
+                "simulation",
+                OrderedDict(
+                    [
+                        (
+                            "solver",
+                            "Monod chemostat + CO2 foam kernel, seed 60; 12 axial nodes; NOT lumped tank, NOT a fluid-LES field",
+                        ),
+                        (
+                            "fidelity_limits",
+                            "No radial maldistribution or antifoam leak; broths are rigid temperature sources. Raster is kernelized events, not an independent LIF.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Cider-Fen fermenter indexed; T-14 sparging 0.42 vvm at 32.4 C broth.",
+                    "2. Caps: broth 36.0 C, air floor 0.30 vvm; both proposed values inside.",
+                    "3. Air precursor at 1.480 ms.",
+                    "4. Race window [6.240, 6.600] ms.",
+                    "5. Broth RTD 32.4 C at 6.240 ms (winner).",
+                    "6. CO2 foam smear at 6.470 ms (loser by 230 us).",
+                    "7. Gate at 7.140 ms: ACCEPT 0.42 vvm / 32.4 C already legal.",
+                    "8. Pass continues; no extra hold.",
+                    "9. 10 min survey confirms foam still in spec.",
+                    "10. QA: ACCEPT params identical to proposed.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "sparge_0p42_thold"),
+            ("parameters", params),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("broth_C", 32.4),
+                        ("broth_cap_C", 36.0),
+                        ("air_vvm", 0.42),
+                        ("air_floor_vvm", 0.30),
+                        ("race_margin_us", 230),
+                        ("combined_jitter_us", 70),
+                        ("t_gate_us", 7140),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 0.42 vvm because broth 32.4 C is 3.6 C under the 36.0 C cap "
+                "and air is 0.12 vvm over the 0.30 vvm floor.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Broth 32.4 C won by 230 us and is under 36.0 C. Air 0.42 vvm is over "
+                "0.30 vvm. ACCEPT the already-legal pass; CO2 foam smear is not a cap violation.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "broth_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 36.0),
+                                    ("observed", 32.4),
+                                    ("executed_air_vvm", 0.42),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 230),
+                                    ("combined_jitter_us", 70),
+                                    ("ratio", 3.29),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "sparge_0p42_thold"),
+            ("parameters", params),
+            (
+                "gate_effect",
+                "ACCEPT: air 0.42 vvm and broth 32.4 C unchanged. Routing relay.rtd.broth "
+                "-> policy.go_accept.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct ACCEPT left Fermenter T-14 at 0.42 vvm / 32.4 C. CO2 foam smear did not justify a "
+                "hold. 10 min survey confirmed foam in spec.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("tank", "still 0.42 vvm / 32.4 C"),
+                        ("foam", "in spec after survey"),
+                        ("train", "chemostat continues"),
+                        ("hold", "none applied"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "CO2 foam smear is a headspace optical claim, not a broth-temperature violation.",
+                    "Delayed (10 min): survey restacks T-14 without a recovery hold.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.broth.c (6.240 ms, 32.4 C)"),
+                        ("loser", "co2.foam.smear (6.470 ms, over-foam claim)"),
+                        ("margin_us", 230),
+                        (
+                            "counterfactual_if_reversed",
+                            "Smear-first by < 230 us would only delay confirmation. The pass stays "
+                            "legal either way; ACCEPT is still required.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 7140),
+            (
+                "reward_inflection_note",
+                "Task credit lands at the ACCEPT (7.140 ms, tick 4). Survey is delayed surprise.",
+            ),
+            ("delayed_surprise_s", 600.0),
+            ("survey_s", 600),
+        ]
+    )
+    ras = raster_core(
+        30,
+        56,
+        38,
+        64,
+        routing(
+            "relay.rtd.broth",
+            "policy.go_accept",
+            [
+                ("relay.rtd.broth", "policy.go_accept", 0.68),
+                ("relay.co2.foam", "policy.smear_hold", 0.21),
+            ],
+            "serotonin",
+            0.07,
+            "legal_sparge_stdp; 5-HT tags the go_accept bind at the broth-RTD win",
+        ),
+        excerpt,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.36),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("go_accept", 40, 0.50, 180.0, 3),
+                    pop("smear_hold", 40, 0.80, 10.0, 0),
+                    pop("broth_cap_veto", 20, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r60-319",
+        "Cider-Fen fermenter / T-14: broth RTD 32.4 C beats CO2 foam smear by 230 us; ACCEPT "
+        "already-legal 0.42 vvm pass",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Correct ACCEPT of an already-legal Monod chemostat pass. total +1.06 = "
+        "0.42 + 0.28 + 0.18 + 0.10 + 0.08.",
+        ras,
+        gate,
+        "ethanol-fermenter",
+        [
+            "accept",
+            "already-legal",
+            "simulated-chemostat",
+            "rtd-vs-foam",
+            "sidecar-convictable",
+            "simulated",
+        ],
+        "Teaches that a broth RTD under cap can confirm an already-legal sparge without "
+        "a foam smear becoming a hold.",
+        4,
+    )
+
+
+def record_320():
+    ticks = [
+        tick(1672, 0.06, 0.04, 0.03, 0.02, 0.01),
+        tick(4180, 0.10, 0.08, 0.04, 0.02, 0.02),
+        tick(4360, 0.06, 0.04, 0.02, 0.02, 0.01),
+        tick(4940, 0.12, 0.08, 0.05, 0.04, 0.02),
+        tick(5240, 0.06, 0.05, 0.02, 0.01, 0.01),
+        tick(420000000, 0.04, 0.03, 0.02, 0.01, 0.01),
+    ]
+    params = OrderedDict(
+        [
+            ("speed_m_h", 1.20),
+            ("setter_C", 1180.0),
+            ("zone_id", 7),
+            ("hold", False),
+        ]
+    )
+    spikes = [
+        spike("enc.gap.ctx", 0.920, 0.41),
+        spike("ir.setter.c", 2.140, 0.60),
+        spike("dp.roller.kpa", 3.080, 0.51),
+        spike("ir.setter.c", 4.180, 1.30),
+        spike("dp.roller.kpa", 4.360, 1.12),
+        spike("ctrl.gate", 4.940, 0.97),
+        spike("ir.setter.c", 6.800, 0.78),
+        spike("dp.roller.kpa", 9.200, 0.62),
+        spike("ctrl.gate", 13.600, 0.85),
+        spike("ir.setter.c", 18.400, 0.54),
+        spike("dp.roller.kpa", 21.200, 0.43),
+    ]
+    excerpt = independent_excerpt(60320, 48, 24000, 11, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Zone Z-7 at Faience-Wold roller kiln 3 is armed for a 1.20 m/h pass when a setter "
+                "IR at 1180 C races a roller Delta-P that still claims a hitch. Commanded 1.20 m/h "
+                "and 1180 C sit 0.30 m/h over the 0.90 m/h floor and 60 C under the 1240 C cap. The "
+                "IR win only ratifies the pass already on the rollers.",
+            ),
+            ("domain", "ceramic-roller-kiln"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Run Zone Z-7 at 1.20 m/h, keep setter IR <= 1240 C and roller DP <= 18 kPa, "
+                "and leave the kiln on schedule.",
+            ),
+            ("t0_us", 1762300000000320),
+            ("gate_latency_us", 760),
+            ("race_window_us", 300),
+            ("race_window_rel_ms", [4.180, 4.480]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "ir.setter.c 1180 C setter ware",
+                                "dp.roller.kpa 8 kPa hitch claim",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Setter-first confirms the already-legal 1.20 m/h / 1180 C pass; DP-first "
+                            "would have treated the IR as a hitch echo and looked for an extra hold "
+                            "the kiln does not need.",
+                        ),
+                        (
+                            "window_derivation",
+                            "300 us = one setter IR slot versus the roller-DP publisher on this "
+                            "kiln bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 180 us vs combined jitter 58 us (IR 28 + DP 30): 3.1x over "
+                            "a 2.0x trust floor. Reversing order by < 180 us would not make the "
+                            "proposed pass illegal; it would only have delayed confirmation.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "setter IR, 28 us jitter",
+                    "roller DP, 30 us jitter",
+                    "speed encoder (context)",
+                    "crown pyrometer (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("setter_cap_C", 1240.0),
+                        ("observed_setter_C", 1180.0),
+                        ("speed_floor_m_h", 0.90),
+                        ("proposed_speed_m_h", 1.20),
+                        ("dp_cap_kPa", 18.0),
+                        ("observed_dp_kPa", 8.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Zone Z-7 indexed on Faience-Wold kiln 3; speed armed 1.20 m/h pass.",
+                    "2. Caps: setter 1240 C, roller DP 18 kPa, speed floor 0.90 m/h.",
+                    "3. Encoder precursor at 0.920 ms.",
+                    "4. Race window [4.180, 4.480] ms.",
+                    "5. Setter IR 1180 C at 4.180 ms (winner).",
+                    "6. Roller DP 8 kPa at 4.360 ms (loser by 180 us).",
+                    "7. Gate at 4.940 ms: ACCEPT 1.20 m/h / 1180 C already legal.",
+                    "8. Pass continues; no extra hold.",
+                    "9. 7 min cooldown confirms roller DP still under 18 kPa.",
+                    "10. QA: ACCEPT params identical to proposed.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "pass_1p20mh"),
+            ("parameters", params),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("setter_C", 1180.0),
+                        ("setter_cap_C", 1240.0),
+                        ("speed_m_h", 1.20),
+                        ("speed_floor_m_h", 0.90),
+                        ("dp_kPa", 8.0),
+                        ("dp_cap_kPa", 18.0),
+                        ("race_margin_us", 180),
+                        ("combined_jitter_us", 58),
+                        ("t_gate_us", 4940),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes a 1.20 m/h pass because setter 1180 C is 60 C under the 1240 C "
+                "cap and roller DP 8 kPa is under 18 kPa.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Setter 1180 C won by 180 us and is under 1240 C. Roller DP 8 kPa is under "
+                "18 kPa. Speed 1.20 m/h is over the 0.90 m/h floor. ACCEPT the already-legal pass.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "setter_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 1240.0),
+                                    ("observed", 1180.0),
+                                    ("executed_speed_m_h", 1.20),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 180),
+                                    ("combined_jitter_us", 58),
+                                    ("ratio", 3.10),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "pass_1p20mh"),
+            ("parameters", params),
+            (
+                "gate_effect",
+                "ACCEPT: 1.20 m/h pass and 1180 C setter unchanged. Routing relay.ir.setter -> "
+                "policy.go_accept.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct ACCEPT left Zone Z-7 on a 1.20 m/h / 1180 C pass. Roller DP hitch did not "
+                "justify a hold. 7 min cooldown confirmed DP still under 18 kPa.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("zone", "still 1.20 m/h / 1180 C"),
+                        ("dp", "8 kPa under 18 cap"),
+                        ("kiln", "on schedule"),
+                        ("hold", "none applied"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Roller DP 8 kPa hitch is residual, not a ware-stick trip.",
+                    "Delayed (7 min): cooldown restacks Z-7 without a recovery hold.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "ir.setter.c (4.180 ms, 1180 C)"),
+                        ("loser", "dp.roller.kpa (4.360 ms, 8 kPa)"),
+                        ("margin_us", 180),
+                        (
+                            "counterfactual_if_reversed",
+                            "DP-first by < 180 us would only delay confirmation. The pass stays "
+                            "legal either way; ACCEPT is still required.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 4940),
+            (
+                "reward_inflection_note",
+                "Task credit lands at the ACCEPT (4.940 ms, tick 4). Cooldown is delayed surprise.",
+            ),
+            ("delayed_surprise_s", 420.0),
+            ("cooldown_s", 420),
+        ]
+    )
+    ras = raster_core(
+        24,
+        48,
+        42,
+        48,
+        routing(
+            "relay.ir.setter",
+            "policy.go_accept",
+            [
+                ("relay.ir.setter", "policy.go_accept", 0.66),
+                ("relay.dp.roller", "policy.hitch_hold", 0.20),
+            ],
+            "dopamine",
+            0.04,
+            "legal_pass_stdp; DA tags the go_accept bind at the setter-IR win",
+        ),
+        excerpt,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.30),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("go_accept", 40, 0.50, 160.0, 2),
+                    pop("hitch_hold", 40, 0.80, 10.0, 0),
+                    pop("setter_cap_veto", 20, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r60-320",
+        "Faience-Wold kiln 3 / Zone Z-7: setter IR 1180 C beats roller DP 8 kPa by 180 us; "
+        "ACCEPT already-legal 1.20 m/h pass",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Correct ACCEPT of an already-legal roller-kiln pass. total +1.14 = "
+        "0.44 + 0.32 + 0.18 + 0.12 + 0.08.",
+        ras,
+        gate,
+        "ceramic-roller-kiln",
+        [
+            "accept",
+            "already-legal",
+            "setter-vs-roller-dp",
+            "sidecar-convictable",
+            "designed",
+        ],
+        "Teaches that a setter IR under cap can confirm an already-legal pass without "
+        "a roller-DP hitch becoming a hold.",
+        5,
+    )

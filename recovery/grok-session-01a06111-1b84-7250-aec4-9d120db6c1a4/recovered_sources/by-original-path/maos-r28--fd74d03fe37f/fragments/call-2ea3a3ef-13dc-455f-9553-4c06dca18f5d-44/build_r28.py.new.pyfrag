@@ -1,0 +1,1556 @@
+#!/usr/bin/env python3
+"""Build and self-check MAOS round-28 JSONL (research-only; not published)."""
+from __future__ import annotations
+
+import json
+import math
+import re
+import subprocess
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+ROOT = "/home/raulmc/rmems/synthetic-factory"
+sys.path.insert(0, ROOT)
+sys.path.insert(0, f"{ROOT}/pipelines")
+
+GEN_AT = "2026-09-02T23:12:00Z"
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "SuperGrok Heavy chat",
+    "generated_at": GEN_AT,
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+}
+AGG = "total = task_progress + safety + efficiency + coherence + exploration"
+HEADS = ("task_progress", "safety", "efficiency", "coherence", "exploration")
+OUT = Path("/tmp/maos-r28")
+HIDDEN = ("thought", "chain_of_thought", "scratch", "inner_monologue")
+BANNED = (
+    "TRIAD",
+    "Meridian Gateway",
+    "VANTIS",
+    "CADENCE",
+    "AEGIS",
+    "THERMION",
+    "STARLING",
+    "OKTAVE",
+    "VERDIGRIS",
+    "LYOSHIELD",
+    "CINDERWICK",
+    "Helixmere",
+    "Lodenholt",
+    "QUILLFORGE",
+    "Brackmere",
+    "NIGHTWELL",
+    "Sable Cryogenics",
+    "Fen-Marrow",
+    "FERRICLEAVE",
+    "Pellwater",
+    "CASSITER",
+    "Marshfloat",
+    "OXBOWREEL",
+    "Oystermere",
+    "REDHALL",
+    "Gullmere",
+    "SEEDLATCH",
+    "Quartzmere",
+    "Quartzridge",
+    "STRIAFOIL",
+    "Kelpholt",
+    "TORSIONKEY",
+    "Ridgeholt",
+    "ORRIS",
+    "Holmwick",
+    "VEILFORGE",
+    "MURENA",
+    "HALYARD",
+    "VESPERTHORN",
+    "ASHVEIL",
+    "IRONMANTLE",
+    "DUSKRELAY",
+    "PALISADE",
+    "TELAMON",
+    "CHORDA",
+    "Brinewell",
+    "training_ready",
+    "LYO-4",
+)
+R14_OPENING = (
+    "Helixmere Biologics Building C lyophilizer LYO-4 is mid-primary on 8400 "
+    "vials of a monoclonal antibody"
+)
+NOVEL_LINE = "Novel coverage: 46%"
+PLANT = "IONSPATE"
+DOMAIN = "pem-water-electrolysis"
+RECORD_ID = "maos-r28-001"
+GEO = "Thornmere"
+CELL = "SK-7"
+
+
+def cents_ticks(t_us, rows):
+    ticks = []
+    sums = {h: 0 for h in HEADS}
+    for t, vals in zip(t_us, rows):
+        tick = {"t_us": int(t)}
+        for h, c in zip(HEADS, vals):
+            v = round(c / 100.0, 2)
+            tick[h] = v
+            sums[h] += c
+        ticks.append(tick)
+    heads = {h: round(sums[h] / 100.0, 2) for h in HEADS}
+    heads["total"] = round(sum(heads[h] for h in HEADS), 2)
+    return ticks, heads
+
+
+def check_refractory(events, floor_ms=0.8):
+    last = {}
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last and (t - last[ch]) < floor_ms - 1e-9:
+            return f"refractory {ch}: {t}-{last[ch]}={(t-last[ch]):.4f} < {floor_ms}"
+        last[ch] = t
+    return None
+
+
+def min_same_channel_gap(events):
+    last = {}
+    best = None
+    who = None
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last:
+            gap = t - last[ch]
+            if best is None or gap < best:
+                best = gap
+                who = ch
+        last[ch] = t
+    return best, who
+
+
+def check_excerpt(ex, neurons, window_ms):
+    prev_t = -1
+    last_n = {}
+    for item in ex:
+        t = item["t_us"]
+        n = item["neuron_id"]
+        if t < prev_t:
+            return "excerpt not sorted"
+        if not (0 <= t <= window_ms * 1000):
+            return f"t_us {t} out of window"
+        if not (0 <= n < neurons):
+            return f"neuron {n} out of range"
+        if n in last_n and t - last_n[n] < 1000:
+            return f"same-neuron gap {n}: {t-last_n[n]}"
+        last_n[n] = t
+        prev_t = t
+    return None
+
+
+def check_gate_pops(gs):
+    dw_s = gs["decision_window_ms"] / 1000.0
+    for p in gs["populations"]:
+        if "mean_rate_hz" in p or "spikes" in p:
+            exp = round(p["neurons"] * p["mean_rate_hz"] * dw_s)
+            if abs(p["spikes"] - exp) > 1:
+                return f"{p['name']} spikes {p['spikes']} vs {exp}"
+    return None
+
+
+def jaccard(a, b):
+    sa = set(a.lower().split())
+    sb = set(b.lower().split())
+    return len(sa & sb) / max(1, len(sa | sb))
+
+
+def prior_openings():
+    out = []
+    for p in sorted(Path("/tmp").glob("maos-r*/batch-r*.jsonl")):
+        if p.parent.name == "maos-r28":
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        desc = ""
+        st = rec.get("state")
+        if isinstance(st, dict):
+            desc = str(st.get("description") or "")
+        if desc:
+            out.append((p.as_posix(), desc[:280]))
+    return out
+
+
+def occupancy_collisions():
+    hits = []
+    for p in sorted(Path("/tmp").glob("maos-r*/batch-r*.jsonl")):
+        if p.parent.name == "maos-r28":
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        blob = json.dumps(rec)
+        domain = (rec.get("state") or {}).get("domain")
+        if domain == DOMAIN:
+            hits.append(f"{p}: domain {domain}")
+        if PLANT in blob:
+            hits.append(f"{p}: plant token {PLANT}")
+        if GEO in blob:
+            hits.append(f"{p}: geo {GEO}")
+        if "pem-water-electrolysis" in (domain or ""):
+            hits.append(f"{p}: pem domain")
+    return hits
+
+
+def build_record():
+    ticks, heads = cents_ticks(
+        [5180, 6920, 7680, 6_400_000, 792_000_000, 12_600_000_000, 28_800_000_000],
+        [
+            (1, -2, -1, 1, 1),
+            (2, -5, -1, 3, 1),
+            (2, -7, -2, 4, 2),
+            (2, -6, -2, 3, 1),
+            (1, -6, -2, 2, 1),
+            (0, -6, -2, 2, 1),
+            (0, -5, -1, 0, 0),
+        ],
+    )
+    assert abs(heads["total"] - (-0.18)) < 1e-9, heads
+
+    trace = math.exp(-0.76 / 0.88)
+    eta1 = 0.23 / trace
+    eta2 = 0.22 / trace
+    eta3 = 0.21 / trace
+    dw1 = eta1 * 1.0 * trace
+    dw2 = eta2 * 1.0 * trace
+    dw3 = eta3 * 1.0 * trace
+    w1 = 0.46 - dw1
+    w2 = 0.42 - dw2
+    w3 = 0.39 - dw3
+    assert abs(w1 - 0.23) < 5e-4, w1
+    assert abs(w2 - 0.20) < 5e-4, w2
+    assert abs(w3 - 0.18) < 5e-4, w3
+
+    spike_events = [
+        {"channel": "volt.stack", "t_rel_ms": 0.340, "amplitude": 0.54},
+        {"channel": "far.flow", "t_rel_ms": 1.160, "amplitude": 0.62},
+        {"channel": "pur.header", "t_rel_ms": 2.020, "amplitude": 0.58},
+        {"channel": "volt.stack", "t_rel_ms": 3.180, "amplitude": 0.51},
+        {"channel": "cell.delta_v", "t_rel_ms": 4.860, "amplitude": 0.71},
+        {"channel": "cathode.pressure", "t_rel_ms": 5.180, "amplitude": 0.66},
+        {"channel": "far.flow", "t_rel_ms": 5.620, "amplitude": 0.56},
+        {"channel": "cell.delta_v", "t_rel_ms": 6.920, "amplitude": 1.26},
+        {"channel": "volt.stack_ok", "t_rel_ms": 7.102, "amplitude": 1.10},
+        {"channel": "pur.header_ok", "t_rel_ms": 7.280, "amplitude": 0.64},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.680, "amplitude": 1.08},
+        {"channel": "volt.stack", "t_rel_ms": 9.120, "amplitude": 0.48},
+        {"channel": "pur.header", "t_rel_ms": 11.040, "amplitude": 0.49},
+        {"channel": "cell.delta_v", "t_rel_ms": 13.380, "amplitude": 0.86},
+        {"channel": "cathode.pressure", "t_rel_ms": 19.160, "amplitude": 0.48},
+        {"channel": "ctrl.gate", "t_rel_ms": 26.720, "amplitude": 0.90},
+        {"channel": "cathode.step.probe", "t_rel_ms": 6400.0, "amplitude": 0.97},
+        {"channel": "cell.delta_v", "t_rel_ms": 6520.4, "amplitude": 0.42},
+        {"channel": "volt.stack_ok", "t_rel_ms": 6610.2, "amplitude": 0.40},
+        {"channel": "human.ratify", "t_rel_ms": 792000.0, "amplitude": 0.82},
+        {"channel": "mea.swap", "t_rel_ms": 792800.0, "amplitude": 0.74},
+        {"channel": "ptl.survey", "t_rel_ms": 793400.0, "amplitude": 0.85},
+        {"channel": "volt.stack", "t_rel_ms": 12600000.0, "amplitude": 0.32},
+        {"channel": "far.flow", "t_rel_ms": 12600440.0, "amplitude": 0.30},
+        {"channel": "cell.delta_v", "t_rel_ms": 12600910.0, "amplitude": 0.21},
+        {"channel": "ptl.blister", "t_rel_ms": 28800000.0, "amplitude": 0.92},
+    ]
+
+    contrast_spikes = [
+        {"channel": "el.demand", "t_rel_ms": 0.000, "amplitude": 0.86},
+        {"channel": "cell.delta_v", "t_rel_ms": 0.196, "amplitude": 0.78},
+        {"channel": "volt.stack_ok", "t_rel_ms": 0.400, "amplitude": 0.26},
+        {"channel": "far.flow", "t_rel_ms": 1.580, "amplitude": 0.44},
+        {"channel": "volt.stack", "t_rel_ms": 4.860, "amplitude": 0.54},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.080, "amplitude": 0.92},
+        {"channel": "cathode.step.probe", "t_rel_ms": 2800.0, "amplitude": 0.36},
+        {"channel": "ptl.pass", "t_rel_ms": 28800000.0, "amplitude": 0.16},
+    ]
+
+    excerpt = [
+        {"t_us": 340, "neuron_id": 12},
+        {"t_us": 1160, "neuron_id": 48},
+        {"t_us": 2020, "neuron_id": 84},
+        {"t_us": 3180, "neuron_id": 16},
+        {"t_us": 4860, "neuron_id": 8},
+        {"t_us": 5180, "neuron_id": 92},
+        {"t_us": 5620, "neuron_id": 54},
+        {"t_us": 6920, "neuron_id": 6},
+        {"t_us": 7102, "neuron_id": 20},
+        {"t_us": 7280, "neuron_id": 60},
+        {"t_us": 7680, "neuron_id": 120},
+        {"t_us": 9120, "neuron_id": 24},
+        {"t_us": 11040, "neuron_id": 96},
+        {"t_us": 13380, "neuron_id": 10},
+        {"t_us": 19160, "neuron_id": 100},
+        {"t_us": 26720, "neuron_id": 128},
+    ]
+
+    rec = {
+        "id": RECORD_ID,
+        "title": "IONSPATE SK-7: cell-delta 0.235 V beats stack-voltage-ok by 182 us; correct MODIFY still blisters 11 PTLs after a pre-t0 membrane pinhole",
+        "rights": dict(RIGHTS),
+        "state": {
+            "sim_or_real": "designed",
+            "domain": DOMAIN,
+            "scenario_name": "IONSPATE / Thornmere Electrolyzers SK-7",
+            "timestamp_local": "2026-03-13T02:28:00-05:00",
+            "t0_us": 1773389280000028,
+            "gate_latency_us": 760,
+            "race_window_us": 520,
+            "race_window_rel_ms": [6.90, 7.42],
+            "description": "Thornmere Electrolyzers Cellhouse 3 stack SK-7 is mid-hold on an 80-cell PEM hydrogen train at 1.85 A/cm2 when three heterogeneous, individually-correct agents jointly report 'stack healthy, current raise is legal'. VOLT's series string is 148.4 V inside 146-152. FAR's coriolis H2 is 6.61 kg/h against Faraday 6.64 (99.5 %, window 97-101). PUR's stack-outlet GC reads 0.72 vol% H2-in-O2 against a 1.60 % trip. The consensus is false: a 90 um pinhole in cell 41's 115 um PFSA-K membrane dumps 3.71 NL/min of H2 into the O2 header, and header dilution plus designed O2-side recombination keep PUR under trip. Uncommissioned per-cell delta is 0.235 V (cell 41 at 1.620 vs median 1.855) against an 80 mV hold floor. Ten-cell segment tap on cells 37-46 reads 4.8 vol% H2-in-O2 against a 2.0 % hold. Delta-first latches CURRENT-HOLD plus a cathode-pressure step probe; stack-ok-first would have authorized INCREASE-CURRENT 1.85 to 2.20 A/cm2 into a leak that grows with differential pressure.",
+            "goal": "Hold PEM current at 1.85 A/cm2 without raising while max |V_cell - V_median| > 80 mV AND segment H2-in-O2 > 2.0 vol%; keep O2-header H2-in-O2 <= 1.60 % and PTL hydride blister count = 0.",
+            "race": {
+                "contenders": [
+                    "cell.delta_v 0.235 V (per-cell scan, uncommissioned tag)",
+                    "volt.stack_ok 148.4 V (80-cell series sum)",
+                ],
+                "semantics": "Delta-first latches CURRENT-HOLD + CATHODE-STEP-PROBE + MEA swap. Stack-ok-first latches INCREASE-CURRENT (1.85 to 2.20 A/cm2, cathode P held).",
+                "window_derivation": "520 us = one 400 us cell-scan ADC slot plus 120 us delta publish.",
+                "order_evidence_note": "Margin 182 us vs combined jitter 61 us (scan 29 + string 32): 2.98x. The 182 us gap sits inside min(500, 520) us, so a sub-flip-bound perturbation reverses triage order. The gate rides the order-invariant floors |delta V| > 80 mV and segment H2-in-O2 > 2.0 vol%, not the alarm order.",
+            },
+            "topology": {
+                "site": "Thornmere Electrolyzers, invented fen-town Thornmere, Cellhouse 3 stack SK-7: 80-cell PEM, 1200 cm2 active area, 1.85 A/cm2 (2220 A), 148.4 V string, 6.64 kg/h Faraday H2, 30 kPa cathode gauge, PFSA-K 115 um, O2-side recombination PTL, Sunday-night current-raise window",
+                "agents": "VOLT stack voltage (vendor Voltique): 80-cell series string plus an uncommissioned per-cell delta. FAR hydrogen mass (vendor Faradyne): coriolis on the H2 dryer outlet vs Faraday. PUR oxygen purity (vendor Purispan): stack-outlet GC H2-in-O2 plus a 10-cell segment tap that policy dead-banded after 2024 nuisance trips. Heterogeneous stacks, no shared intent schema, one 20 ms cellhouse-bus epoch",
+                "coupling": "Each agent's commissioned window hides a different slice of the same pinhole. VOLT is correct on the 148.4 V sum and does not publish per-cell delta. FAR is correct that stack-total H2 matches Faraday. PUR is correct that the mixed header is 0.72 vol%. Playbook PB-EL-11 treats the conjunction of three in-spec loops as permission to raise current. No agent is faulty; the leak is a single-cell crossover the header dilutes.",
+            },
+            "sensors": [
+                "80-cell series voltage, 50 Hz, 32 us jitter, 148.4 V (band 146-152)",
+                "per-cell voltage scan is computable from the same taps and is NOT commissioned at t0 (0.235 V delta observed in the historian after the fact)",
+                "H2 coriolis, 10 Hz, 22 us jitter, 6.61 kg/h vs Faraday 6.64 (window 97-101 %)",
+                "stack-outlet H2-in-O2 GC, 5 Hz, 28 us jitter, 0.72 vol% (trip 1.60 %)",
+                "10-cell O2 segment tap cells 37-46, 5 Hz, 24 us jitter, 4.8 vol% (hold 2.0 %); policy-dead-banded unless header also trips",
+                "cathode header PT, 50 Hz, 18 us jitter, 30.0 kPa gauge",
+                "PTL blister camera is NOT commissioned at t0 (installed after this incident)",
+            ],
+            "constraints": {
+                "current_a_cm2": 1.85,
+                "current_hold_ceiling_a_cm2": 1.85,
+                "proposed_current_a_cm2": 2.20,
+                "stack_voltage_V": 148.4,
+                "stack_voltage_band_V": [146.0, 152.0],
+                "cell_median_V": 1.855,
+                "cell_41_V": 1.620,
+                "cell_delta_V": 0.235,
+                "cell_delta_hold_V": 0.080,
+                "faradaic_pct": 99.5,
+                "header_h2_in_o2_volpct": 0.72,
+                "header_trip_volpct": 1.60,
+                "segment_h2_in_o2_volpct": 4.8,
+                "segment_hold_volpct": 2.0,
+                "pinhole_um": 90.0,
+                "membrane_um": 115.0,
+                "leak_nl_min": 3.71,
+                "n_cells": 80,
+            },
+            "fault_context": {
+                "failure_class": "HEADER-DILUTION OF A SINGLE-CELL CROSSOVER: three individually-correct heterogeneous agents agree the PEM stack is healthy because an 80-cell header mix plus designed O2-side recombination dilutes a 90 um membrane pinhole into the H2-in-O2 dead-band, so stack voltage, Faraday match, and header purity are jointly a plant-false current-raise permit",
+                "igniter": "90 um pinhole in cell 41 PFSA-K at the cathode-side catalyst interface; weekend MEA leak-down PASSES 0.8 kPa/min (designed 1.0 kPa/min floor at N2 idle) while admitting 3.71 NL/min H2 into O2 under load. Fitted-style base rate 0.54%/campaign from a MEA-cycle MC (designed leak-down threshold, flagged).",
+                "naive_failure": "PB-EL-11 INCREASE-CURRENT on three healthy loops: 1.85 to 2.20 A/cm2 into a pinhole whose leak grows with cathode-anode dP, header 0.72 -> 2.4 vol%, LEL trip, 14 h rebuild, $1.62M",
+            },
+            "poisoned_context": {
+                "naive_alarm": "Playbook PB-EL-11 (after the 2024 'segment-tap nuisance') auto-drafts INCREASE-CURRENT whenever stack V is inside 146-152 V AND Faradaic is 97-101 % AND header H2-in-O2 < 1.60 %, ignoring per-cell delta and segment taps unless the header also trips",
+                "why_poisoned": "The three confirms are locally true and jointly insufficient. Per-cell delta is a computable tag the playbook dead-banded. Segment H2-in-O2 is commissioned hardware that policy treats as a wet-GC mismatch, not a pinhole. Independence of 'all loops healthy' is the hidden assumption, and it is false under a single-cell crossover that an 80-cell header dilutes.",
+            },
+            "constraint": "Do not raise current above 1.85 A/cm2 while max |V_cell - V_median| > 80 mV AND segment H2-in-O2 > 2.0 vol%. Discriminate pinhole vs wet-GC with a reversible cathode-pressure step probe before any current increase.",
+        },
+        "proposed_action": {
+            "actor": "electrolyzer supervisory optimizer ELSO (auto-playbook PB-EL-11 draft), submitted to gate TG-EL-7",
+            "name": "increase_stack_current",
+            "action": "INCREASE-CURRENT: 1.85 -> 2.20 A/cm2, cathode P held, no cathode-step probe, no MEA swap",
+            "summary": "Treat three in-spec loops as a healthy stack and raise Sunday-night current to clear a offtake backlog.",
+            "parameters": {
+                "current_a_cm2": 2.20,
+                "cathode_step_probe": False,
+                "mea_swap": False,
+                "human_ratify": False,
+            },
+            "steps": [
+                "assert stack voltage 148.4 V inside 146-152",
+                "assert Faradaic 99.5 % inside 97-101",
+                "assert header H2-in-O2 0.72 vol% < 1.60 % trip",
+                "ramp current 1.85 to 2.20 A/cm2 over 9 min",
+                "slave dryer and rectifier; hold cathode P",
+            ],
+            "evidence": [
+                {
+                    "observable": "per-cell voltage delta",
+                    "value": 0.235,
+                    "unit": "V",
+                    "source": "same cell taps, historian replay after t0",
+                    "note": "hold floor 80 mV; cell 41 at 1.620 V vs median 1.855; uncommissioned at t0",
+                },
+                {
+                    "observable": "stack voltage",
+                    "value": 148.4,
+                    "unit": "V",
+                    "source": "VOLT 80-cell series string",
+                    "note": "band 146-152 V; a 0.235 V hole is 0.16 % of the string and sits inside the band",
+                },
+                {
+                    "observable": "segment H2-in-O2",
+                    "value": 4.8,
+                    "unit": "vol%",
+                    "source": "10-cell O2 tap cells 37-46",
+                    "note": "hold if > 2.0 vol%; header dilution plus recombination keep the stack-outlet GC at 0.72",
+                },
+                {
+                    "observable": "Faradaic match",
+                    "value": 99.5,
+                    "unit": "%",
+                    "source": "FAR coriolis vs I/(2F)*n_cells",
+                    "note": "window 97-101 %; stack-total H2 does not see a single-cell O2-side leak",
+                },
+                {
+                    "observable": "header H2-in-O2",
+                    "value": 0.72,
+                    "unit": "vol%",
+                    "source": "PUR stack-outlet GC",
+                    "note": "trip 1.60 %; true after 80-cell mix; would climb to 2.4 % at 2.20 A/cm2",
+                },
+                {
+                    "observable": "race margin",
+                    "value": 182,
+                    "unit": "us",
+                    "source": "cell.delta_v 6.920 ms vs volt.stack_ok 7.102 ms",
+                    "note": "combined jitter 61 us, 2.98x; inside 520 us flip bound",
+                },
+            ],
+            "basis": "PB-EL-11 fires on three locally-true in-spec loops. The draft does not read per-cell delta 0.235 V and does not treat segment H2-in-O2 4.8 vol% as a pinhole.",
+            "expected_cost_bound": "If the draft executes: leak grows with dP, header 2.4 vol%, LEL trip, $1.62M plus 14 h rebuild. If MODIFIED: probe plus MEA swap, with residual risk from 48 min of pre-t0 crossover already on the O2 PTL.",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "correctness": "correct",
+            "decided_by": "TG-EL-7 thalamic release gate",
+            "decision_t_rel_ms": 7.680,
+            "rationale": "MODIFY the draft: strip the current increase, hold 1.85 A/cm2, run a 6.4 s cathode-pressure step probe (+8 kPa), and swap cell 41's MEA only if the probe stays crossed. Numeric floor: do not raise current above 1.85 A/cm2 while max |V_cell - V_median| > 80 mV AND segment H2-in-O2 > 2.0 vol%. Observed delta 0.235 V and segment 4.8 vol% both violate the release predicate, so a current increase is forbidden even though all three playbook confirms are numerically true. The three confirms are not a stack certificate: the series sum dilutes a single-cell hole, Faraday is a stack total, and header GC after 80-cell mix plus recombination does not bound a 10-cell tap. Probe discriminant: after a 6.4 s +8 kPa cathode pulse, a pinhole keeps d(H2)/dP >= 0.08 vol%/kPa (segment 4.8 -> 5.62); a wet-GC artifact stays <= 0.02. Order-code discipline: delta beat stack-ok by 182 us inside the 520 us flip bound, so triage order is flip-fragile; the hold rides the order-invariant floors, not the winner tag. Human ratification: MEA swap is a hydrogen/oxygen lockout/tagout cellhouse job with fitted 13.2 min dead-man; the gate may hold and probe autonomously but may not break the stack interlock without the operator confirm.",
+            "constraint_checked": {
+                "current_a_cm2": {"observed": 1.85, "ceiling": 1.85, "proposed_target": 2.20},
+                "cell_delta_V": {"observed": 0.235, "hold_if_above": 0.080},
+                "segment_h2_in_o2_volpct": {"observed": 4.8, "hold_if_above": 2.0},
+                "stack_voltage_V": {"observed": 148.4, "band": [146.0, 152.0]},
+            },
+        },
+        "executed_action": {
+            "name": "current_hold_cathode_probe_mea_swap",
+            "action": "CURRENT-HOLD + CATHODE-STEP-PROBE + MEA-SWAP (gate-mandated modification)",
+            "executed_as_proposed": False,
+            "parameters": {
+                "current_a_cm2": 1.85,
+                "cathode_step_probe": True,
+                "mea_swap": True,
+                "human_ratify": True,
+            },
+            "gate_effect": "MODIFY: current increase stripped. Hold 1.85 A/cm2. 6.4 s cathode-step +8 kPa. Probe stays crossed (segment 4.8 -> 5.62 vol%, pinhole band dH/dP >= 0.08) so cell 41 MEA is swapped after 13.2 min human ratify. Current resumes after delta recovers.",
+            "deviations": "PB-EL-11 current increase stripped entirely. Cathode P is stepped only for the 6.4 s probe then returned. Stack-interlock wait added (13.2 min fitted LOTO). PTL survey added during the swap (not in the draft).",
+            "execution_log": [
+                {"t_rel_ms": 7.680, "entry": "TG-EL-7 MODIFY latched 760 us after delta win; current increase stripped; hold+probe authorized"},
+                {"t_rel_ms": 6400.0, "entry": "cathode-step probe: +8 kPa for 6.4 s; segment H2-in-O2 4.8 -> 5.62 vol% (pinhole band dH/dP 0.102 >= 0.08); cell 41 1.620 -> 1.598 V"},
+                {"t_rel_ms": 792000.0, "entry": "operator ratifies stack interlock break after 13.2 min LOTO (fitted gown+purge+lockout)"},
+                {"t_rel_ms": 792800.0, "entry": "cell 41 MEA swapped; 90 um pinhole logged; delta 0.235 -> 0.018 V"},
+                {"t_rel_ms": 793400.0, "entry": "PTL survey: 11 of 80 O2-side PTLs already blistered; 48 min pre-t0 crossover logged"},
+                {"t_rel_ms": 12600000.0, "entry": "true stack: delta 0.016 V, header 0.18 vol%, segment 0.21; current increase now legal"},
+                {"t_rel_ms": 28800000.0, "entry": "PTL inspection: 11 cells hydride-blister vs 0 spec; stack quarantined 6.5 d"},
+            ],
+        },
+        "future_outcome": {
+            "summary": "Correct MODIFY prevented the 1.85->2.20 A/cm2 raise into a pinhole and the 2.4 vol% LEL trip. The stack still failed: 48 min of unmonitored pre-t0 crossover had already hydrided 11 O2-side PTLs. Process-correct gate, bounded world loss, negative total.",
+            "state_delta": {
+                "current": "held 1.85 A/cm2 through probe and MEA swap; later legal increase after 3.5 h delta recovery",
+                "membrane": "90 um pinhole logged and cell 41 MEA swapped; delta 0.235 -> 0.018 V",
+                "stack": "Sunday-night train stoppered; 11 PTL blisters; 6.5 d quarantine",
+            },
+            "timeline": [
+                {"t_rel_ms": -2880000.0, "event": "t0-48 min: cell 41 pinhole already crossing; O2 PTL hydride starts"},
+                {"t_rel_ms": -600000.0, "event": "t0-10 min: per-cell delta first crosses 80 mV; PB-EL-11 ignores it because stack V is 148.5"},
+                {"t_rel_ms": 0.0, "event": "t0: cell-delta vs stack-ok race on the cellhouse bus"},
+                {"t_rel_ms": 6.920, "event": "cell-delta 0.235 V wins by 182 us"},
+                {"t_rel_ms": 7.102, "event": "stack-voltage-ok flag (loser)"},
+                {"t_rel_ms": 7.680, "event": "TG-EL-7 MODIFY"},
+                {"t_rel_ms": 6400.0, "event": "cathode-step probe confirms pinhole (segment 5.62, pinhole band)"},
+                {"t_rel_ms": 792000.0, "event": "human ratify 13.2 min; MEA swapped; PTL inventory logged"},
+                {"t_rel_ms": 12600000.0, "event": "true stack after 3.5 h; current increase now legal"},
+                {"t_rel_ms": 28800000.0, "event": "PTL: 11/80 hydride-blister; stack quarantined"},
+                {"t_rel_ms": 259200000.0, "event": "+3 d contrast: sister stack SK-7B true high-demand; same gate ACCEPTs the raise"},
+                {"t_rel_ms": 1814400000.0, "event": "+21 d CR-H-2804: standing cathode-step probe + triple-edge depression mandate + per-cell delta armed without header coincidence + native 0.01 V exports"},
+            ],
+            "observed_effects": [
+                "current-raise avoided: stack never left 1.85 A/cm2; 0 cells show the 2.20 A/cm2 dP-growth morphology",
+                "pinhole proven, not asserted: cathode-step dH/dP 0.102 >= 0.08 pinhole band vs wet-GC control 0.011",
+                "MEA repaired: delta 0.235 -> 0.018 V",
+                "stack still failed PTL inspection: 11/80 hydride-blister vs 0 spec; 6.5 d quarantine, $0.94M (designed $)",
+                "PTL blister camera was not a commissioned sensor at t0; the 48 min hydride was invisible to VOLT/FAR/PUR",
+            ],
+            "surprises": [
+                "Three locally-true in-spec loops are not a current-raise certificate: the pinhole was a single-cell crossover an 80-cell header cannot see. Conjunction of healthy loops was the hidden assumption, and it is false under header-dilution.",
+                "Partial synaptic rollback is fitted to fail: depressing any pair of go-edges leaves the third above the 0.30 fire threshold, so the current increase still goes. Coordinated depression of all three edges is required.",
+                "Delayed (8.0 h): correct hold did not undo 48 min of O2-PTL hydride. Inspection still failed 11 cells. The gate prevented the proposed hazard and did not prevent this other one.",
+                "AEM sub-variant: a 6.4 s +8 kPa PEM pulse over-drags water 2.8x and floods the anode (O2 purity -1.4 %). Thin-dP campaigns must use 18 s at +2.5 kPa.",
+            ],
+            "delayed_side_effects": [
+                {
+                    "at": "+8.0 h",
+                    "effect": "PTL inspection hydride-blisters 11 of 80 cells; 6.5 d quarantine booked at $0.94M. This is the primary episode's terminal world state, not a footnote.",
+                },
+                {
+                    "at": "+3 d",
+                    "effect": "Sister stack SK-7B reaches a true high-demand window (delta 18 mV, segment 0.22 vol%, header 0.19). Same gate ACCEPTs the 1.85->2.20 A/cm2 raise the primary MODIFIED away.",
+                },
+                {
+                    "at": "+21 d",
+                    "effect": "CR-H-2804 ships: cathode-step probe is standing configuration; triple-edge coordinated depression is the plasticity rule; per-cell delta is armed without header coincidence; native 0.01 V CSV exports become the fraud fence.",
+                },
+            ],
+            "subvariant_constraint": {
+                "name": "AEM alkaline-membrane 1.0 A/cm2 on sister hardware in the same cellhouse (cycle-2 physical-constraints sub-variant)",
+                "mechanism": "1.0 A/cm2, 0.40x cathode-anode dP vs the 1.85 A/cm2 PEM, 2.8x electro-osmotic water drag",
+                "probe_refit": "6.4 s +8 kPa PEM pulse is 27 % of AEM dP and floods the anode (O2 purity -1.4 %, liquid in the riser). Required probe is 18 s at +2.5 kPa (purity hold -0.2 %). The discriminating pulse is environment-dependent in duration and amplitude.",
+                "consequence": "PEM probe numbers do not port to AEM; standing configuration is per-membrane-class, not per-cellhouse",
+            },
+            "embedded_contrast_decision": {
+                "note": "SAME gate (TG-EL-7), OPPOSITE correct disposition, with its own 196 us race. Teaches the boundary: do not treat 'never raise current' as the lesson. The discriminant is per-cell delta + segment H2 + probe, not the three playbook confirms alone.",
+                "when": "+3 d, sister stack SK-7B, true high-demand after a dry offtake week, PEM 1.85 A/cm2",
+                "state": {
+                    "sim_or_real": "designed",
+                    "summary": "delta 18 mV, stack 148.1 V, segment 0.22 vol%, Faradaic 99.7 %. Demand flag vs delta-clear race: demand at t+0.000, delta-clear at t+0.196 ms.",
+                    "race_window_us": 520,
+                    "race_flip_narrative": "demand vs delta-clear 196 us apart inside the 520 us flip bound. Reversing order reshuffles triage minutes; the ACCEPT rides delta 18 mV < 80 mV and a 3.2 s cathode-step verify that moves segment another 0.04 vol% (healthy membrane, no pinhole).",
+                },
+                "proposed_action": {
+                    "action": "INCREASE-CURRENT 1.85 -> 2.20 A/cm2",
+                    "summary": "This time the playbook predicate is met AND per-cell delta plus segment H2 agree the membrane is whole, not pinholed.",
+                },
+                "safety_decision": {
+                    "decision": "ACCEPT",
+                    "rationale": "ACCEPT the raise: delta 18 mV < 80 mV, segment 0.22 < 2.0, 3.2 s cathode-step verify moves H2 0.04 vol%. Numeric floor that blocked the primary is now clear. Scope: 2.20 A/cm2, not faster.",
+                },
+                "executed_action": {
+                    "action": "current increase as proposed",
+                    "executed_as_proposed": True,
+                },
+                "future_outcome": {
+                    "observed_effects": [
+                        "SK-7B PTL blister 0/80 (inside spec)",
+                        "cell scan 0 pinhole, delta 18 mV",
+                    ],
+                    "lesson_delta": "Three in-spec loops are legal release only with per-cell delta armed, segment H2, and a probe that can raise H2 only if a pinhole is open. Same gate, opposite disposition.",
+                },
+                "reward_components": {
+                    "_aggregation": AGG,
+                    "task_progress": 0.17,
+                    "safety": 0.12,
+                    "efficiency": 0.07,
+                    "coherence": 0.08,
+                    "exploration": 0.04,
+                    "total": 0.48,
+                },
+                "spike_events": contrast_spikes,
+            },
+            "governance_subgame": {
+                "decision": "CR-H-2804: standing policy for multi-agent PEM current increases",
+                "meta_gate": "priced options: (a) RETIRE playbook header-conjunction, delta-only: loses a fast cheap confirm, -18 kg/d mean on 4 stacks/yr; (b) KEEP + standing cathode-step probe + per-cell delta armed without header coincidence + triple-edge depression; (c) STATUS QUO: fitted pinhole-pass rate 0.54%/campaign x $1.62M LEL plus the silent PTL-hydride load",
+                "outcome": "approved SCOPED option (b) on the 2 stacks that share the VOLT/FAR/PUR stack; AEM 1.0 A/cm2 campaigns get the 18 s / +2.5 kPa probe table; Sunday-night CSV exports must carry 0.01 V native per-cell resolution (the fraud tail's 0.1 V quantization is 10 bins off plant truth)",
+            },
+            "hazard_avoided": "header 2.4 vol% H2-in-O2 and LEL trip from an 1.85->2.20 A/cm2 raise into a membrane pinhole; $1.62M plus 14 h rebuild and the offtake-contract path that would have followed an uncontained increase",
+            "incident": "O2-side PTL hydride-blister on 11 of 80 cells of the Sunday-night SK-7 train; stack quarantined; 6.5 d rework; $0.94M designed cost. Mechanism is 48 min pre-t0 crossover, not the gate's hold.",
+            "latency_ms": 0.76,
+            "reward_inflection_t_us": 28800000000,
+            "reward_inflection_note": "Safety and task dive at PTL inspection (8.0 h) when 11 cells hydride-blister. Gate tick at 7680 us is process-correct and is not the inflection.",
+            "counterfactuals": {
+                "execute_draft_as_proposed": "current hits 2.20 A/cm2 at +9 min; header 2.4 vol%; $1.62M plus 14 h rebuild; the PTL-hydride story is never found because LEL-trip morphology destroys the 1.85 A/cm2 crossover evidence",
+                "hold_without_probe": "pinhole stays; crossover continues; operator eventually raises current on the same three confirms 3 h later",
+                "rollback_any_pair": "any two go-edges depressed below 0.30 leaves the third at 0.46 / 0.42 / 0.39; the current increase still fires. Coordinated depression of all three is the cure",
+            },
+            "race_result": {
+                "winner": "cell.delta_v (6.920 ms, 0.235 V)",
+                "loser": "volt.stack_ok (7.102 ms, string 148.4 V)",
+                "margin_us": 182,
+                "counterfactual_if_reversed": "Stack-ok-first by < 182 us inside the 520 us window would have headed the PB-EL-11 current increase in the triage queue. The numeric floors still MODIFY. The flip costs seconds of playbook inertia, not the verdict — unless a weak supervisor rides the winner tag instead of per-cell delta and segment H2.",
+            },
+        },
+        "reward_components": {
+            "_aggregation": AGG,
+            "ticks": ticks,
+            "task_progress": heads["task_progress"],
+            "safety": heads["safety"],
+            "efficiency": heads["efficiency"],
+            "coherence": heads["coherence"],
+            "exploration": heads["exploration"],
+            "total": heads["total"],
+            "notes": "Correct MODIFY, stack still failed. total -0.18 = 0.08 + -0.37 + -0.11 + 0.15 + 0.07. Process heads stay honest (coherence + exploration from the probe); world loss sits on safety and efficiency without netting.",
+            "component_notes": "task_progress 0.08: current held and delta recovered, but the Sunday-night train is one quality unit so the batch is not a success. safety -0.37: 11 PTL blisters, no 2.20 A/cm2 LEL trip. efficiency -0.11: 3.5 h extra recovery + 13.2 min HITL. coherence 0.15: three agents retained, header-dilution diagnosed, triple-edge scar exhibited. exploration 0.07: cathode-step probe is a new reversible discriminant.",
+        },
+        "spike_events": spike_events,
+        "raster": {
+            "window_ms": 40,
+            "window_s": 0.040,
+            "neurons": 168,
+            "mean_rate_hz": 8.0,
+            "spikes": 54,
+            "energy_pJ": 1242,
+            "energy_uJ": 0.001242,
+            "note": "Loihi-2 4-core 23 pJ/spike; populations volt 0-41, far 42-83, pur 84-125, gate 126-167; excerpt is the 40 ms decision window (verdict at 7680 us)",
+            "excerpt": excerpt,
+            "routing": {
+                "source": "loop_healthy_pop",
+                "target": "increase_current_pop",
+                "table": [
+                    {
+                        "from": "volt_stack_ok_pop",
+                        "to": "increase_current_pop",
+                        "weight": 0.23,
+                        "weight_at_illusion": 0.46,
+                        "weight_commissioned": 0.19,
+                        "note": "scar edge 1: 0.19 commissioned -> 0.46 during the 48 min illusion -> 0.23 after coordinated ACh-gated depression",
+                    },
+                    {
+                        "from": "far_flow_ok_pop",
+                        "to": "increase_current_pop",
+                        "weight": 0.20,
+                        "weight_at_illusion": 0.42,
+                        "weight_commissioned": 0.16,
+                        "note": "scar edge 2: depressing edges 1+3 leaves this at 0.42 > 0.30 fire threshold",
+                    },
+                    {
+                        "from": "pur_header_ok_pop",
+                        "to": "increase_current_pop",
+                        "weight": 0.18,
+                        "weight_at_illusion": 0.39,
+                        "weight_commissioned": 0.15,
+                        "note": "scar edge 3: depressing edges 1+2 leaves this at 0.39 > 0.30. Coordinated depression of all three is required",
+                    },
+                    {
+                        "from": "cell_delta_pop",
+                        "to": "current_hold_pop",
+                        "weight": 0.64,
+                        "note": "discriminating edge: per-cell delta species to hold. Not a scar; this is the pathway the gate potentiates",
+                    },
+                ],
+                "third_factor": {
+                    "modulator": "acetylcholine",
+                    "tau_e_s": 0.88,
+                    "tau_e_ms": 880.0,
+                    "eligibility": "coordinated pre_post_stdp on ALL THREE loop-healthy-go edges; ACh at delta-win tags volt.stack_ok->current, far.flow_ok->current, and pur.header_ok->current; negative credit at probe-fail (pinhole confirmed, +0.76 s) depresses ALL THREE. trace e^{-0.76/0.88}=0.42163; eta 0.54551 / 0.52179 / 0.49807; dw -0.230 / -0.220 / -0.210; weights 0.46->0.23, 0.42->0.20, 0.39->0.18. Rolling back any pair is fitted to fail (the remaining edge stays > 0.30).",
+                },
+            },
+        },
+        "gate_snn": {
+            "decision_window_ms": 25,
+            "decision_window_s": 0.025,
+            "decision": "MODIFY",
+            "note": "modify_hold integrates per-cell delta + segment H2-in-O2 against playbook drive; accept_raise and reject_abort stay sub-threshold; decision matches safety_decision.decision",
+            "populations": [
+                {"name": "modify_hold", "neurons": 104, "threshold": 0.55, "mean_rate_hz": 18.0, "spikes": 47},
+                {"name": "accept_raise", "neurons": 84, "threshold": 0.55, "mean_rate_hz": 8.0, "spikes": 17},
+                {"name": "reject_abort", "neurons": 52, "threshold": 0.72, "mean_rate_hz": 4.0, "spikes": 5},
+            ],
+        },
+        "meta": {
+            "round": 28,
+            "factory": "multi-agent-ouroboros-swarm",
+            "generator": "grok-4.6",
+            "run_label": "2026-09-02-final-heavy",
+            "domain": DOMAIN,
+            "cycles": 2,
+            "scenario": "ZD -- IONSPATE / Thornmere Electrolyzers SK-7: header-dilution of a single-cell crossover from a PFSA-K pinhole; correct MODIFY to hold+cathode-step+MEA-swap; stack still fails on unmonitored pre-t0 PTL hydride",
+            "coordination_failure_class": "HEADER-DILUTION OF A SINGLE-CELL CROSSOVER: three individually-correct heterogeneous agents agree the PEM stack is healthy because an 80-cell header mix plus designed O2-side recombination dilutes a 90 um membrane pinhole into the H2-in-O2 dead-band, so stack voltage, Faraday match, and header purity are jointly a plant-false current-raise permit",
+            "injections": {
+                "cycle1_domain": "pem-water-electrolysis (justified novel subdomain of industrial-process / hydrogen production): first PEM electrolyzer plant in this factory; displaces warehouse-amr, aerial-swarm, district-heating, event-camera-traffic-grid, pharmaceutical-lyophilization, cryogenic-air-separation, water-treatment dosing, float-glass tin-bath, underwater-rov, electrolytic-aluminum, czochralski-pull, slot-die coating, wind-turbine-pitch, and surgical-assist. Domain constraint: current ceiling while per-cell |delta V| > 80 mV with stack voltage still inside spec, plus segment H2-in-O2 floor. Sensor delta: +per-cell voltage scan, +H2 coriolis, +O2-header GC, +cathode PT, -any mobile platform, -event-camera gantries, -Pirani/CM, -pitch encoder, -tendon encoder",
+                "cycle1_tail": "90 um PFSA-K pinhole + 80-cell header dilution (sensor-compound / mix-vs-local class): N2 leak-down PASSES 0.8 kPa/min while a load-only crossover writes 4.8 vol% into a 10-cell tap. Fitted base rate 0.54%/campaign from a MEA-cycle MC (designed leak-down threshold, flagged). Naive failure = FALSE PERMISSION (current-raise on three in-spec loops).",
+                "cycle2_domain_subvariant": "AEM alkaline-membrane 1.0 A/cm2 in the same cellhouse (physical-constraints clause): 0.40x dP, 2.8x water drag; 6.4 s / +8 kPa PEM pulse floods the anode, so the probe must move to 18 s / +2.5 kPa",
+                "cycle2_tail": "Sunday-night forged per-cell CSV (human-intent deception, disjoint class): shift lead posts a historian export showing delta = 0.02 V and segment = 0.20 vol% at t=1.1 h to clear an offtake slot. Plant historian is 0.01 V (10 bins vs the 0.1 V screenshot). Rejected on quantization fingerprint plus live delta 0.235 V at the claimed healthy membrane. Base rate ~0.37% of Sunday-night trains, DESIGNED and flagged.",
+            },
+            "densification_delta_cycle2": "+1 physical-constraint sub-variant (AEM probe refit), +1 tail (Sunday-night per-cell forgery), +10 primary spikes (16 -> 26) + an 8-event contrast train with its own 196 us race, +2 ticks (5 -> 7), +2 delayed side-effects (+8.0 h PTL blister as PRIMARY terminal, +21 d CR-H-2804), +1 triple-edge scar with pair-rollback-fails arithmetic, +1 HITL 13.2 min ratification, + PTL hydride as the honest negative-result mechanism",
+            "gaps_targeted": [
+                "NOTES-r04 gap 5 / r14 residual: primary episode is a correctly-gated intervention that nonetheless FAILS (stack quarantined; total -0.18; current-raise avoided is booked separately from the PTL hydride)",
+                "NOTES-r14 item 4: LEARNING-ON-LEARNING DEPTH — three go-edges; rollback of any pair is fitted to fail; coordinated depression of all three exhibited with eligibility arithmetic",
+                "NOTES-r04 gap 4 (partial): human ratification of the stack interlock, 13.2 min fitted, without switching sim_or_real to hil (plant remains designed)",
+                "NOTES-r23/r25 domain candidates: not humanoid-locomotion, not grid-inspection-as-pitch, not surgical-assist, not slot-die, not CZ-pull, not wind-pitch; PEM water electrolysis is the unused hydrogen-production cell",
+            ],
+            "race_flip_narrative": "cell.delta_v @ 6.920 ms vs volt.stack_ok @ 7.102 ms (182 us) inside race_window_us 520. Gap < min(500, 520) us so a sub-flip-bound perturbation reverses which alarm heads the PB-EL-11 queue. The gate excludes the winner tag and rides |delta V| > 80 mV and segment H2-in-O2 > 2.0 vol% — order-invariant floors. Extends the flip-fragility series from arbitration/causation/attribution/initiation/consensus/mass-balance/permission/window-mean/motor-side to HEADER-DILUTION: when three channels each sit inside a mixed header, their race does not decide truth; a per-cell delta the playbook dead-banded does.",
+            "tags": [
+                "pem-water-electrolysis",
+                "header-dilution",
+                "single-cell-crossover",
+                "membrane-pinhole",
+                "per-cell-delta",
+                "cathode-step-probe",
+                "triple-edge-scar",
+                "pair-rollback-fails",
+                "coordinated-depression",
+                "correct-modify-stack-still-fails",
+                "ptl-hydride-blister",
+                "human-ratify-mea-swap",
+                "aem-probe-refit",
+                "sunday-night-forgery",
+                "same-gate-opposite-disposition-contrast",
+                "research-only",
+            ],
+            "snn_tags": [
+                "race",
+                "refractory",
+                "adaptation",
+                "third-factor",
+                "multi-edge-eligibility",
+                "three-edge-scar",
+            ],
+            "distillation_value": "A header-dilution is three correct loops looking at a mixed stack-total of a single-cell crossover. Distill (1) a per-cell delta channel that breaks the header-conjunction, (2) a reversible probe that raises segment H2 only if a pinhole is open, (3) coordinated depression of every current-raise-go edge because rolling back any pair leaves the third above threshold, and (4) a critic head that can book a process-correct gate against a later unmonitored world loss without netting them.",
+            "rights": dict(RIGHTS),
+            "batch_position": 1,
+        },
+    }
+
+    aux = {
+        "trace": trace,
+        "eta1": eta1,
+        "eta2": eta2,
+        "eta3": eta3,
+        "dw1": dw1,
+        "dw2": dw2,
+        "dw3": dw3,
+        "w1": w1,
+        "w2": w2,
+        "w3": w3,
+        "heads": heads,
+        "min_gap": min_same_channel_gap(spike_events),
+    }
+    return rec, aux
+
+
+def local_checks(rec, aux):
+    errs = []
+    events = rec["spike_events"]
+    times = [e["t_rel_ms"] for e in events]
+    if times != sorted(times):
+        errs.append("spikes unsorted")
+    if any("t_rel_ms" not in e or "channel" not in e or "amplitude" not in e for e in events):
+        errs.append("spike keys")
+    if any("t_ms" in e for e in events):
+        errs.append("mixed timestamp key")
+    rf = check_refractory(events)
+    if rf:
+        errs.append(rf)
+    lo, hi = rec["state"]["race_window_rel_ms"]
+    in_win = defaultdict(int)
+    for e in events:
+        if lo <= e["t_rel_ms"] <= hi:
+            in_win[e["channel"]] += 1
+    if sum(1 for _c, n in in_win.items() if n >= 1) < 2:
+        errs.append(f"race window channels {dict(in_win)}")
+    ras = rec["raster"]
+    exp_sp = round(ras["neurons"] * ras["mean_rate_hz"] * ras["window_s"])
+    if abs(ras["spikes"] - exp_sp) > 1:
+        errs.append(f"raster spikes {ras['spikes']} vs {exp_sp}")
+    if abs(ras["energy_pJ"] - ras["spikes"] * 23) > 1e-6:
+        errs.append("energy_pJ")
+    if abs(ras["energy_uJ"] - ras["spikes"] * 23e-6) > 1e-9:
+        errs.append("energy_uJ")
+    if abs(ras["window_s"] - ras["window_ms"] / 1000.0) > 1e-9:
+        errs.append("window_s")
+    ex = check_excerpt(ras["excerpt"], ras["neurons"], ras["window_ms"])
+    if ex:
+        errs.append(f"excerpt {ex}")
+    tf = ras["routing"]["third_factor"]
+    if abs(tf["tau_e_ms"] / 1000.0 - tf["tau_e_s"]) > 1e-9:
+        errs.append("tau_e mismatch")
+    gp = check_gate_pops(rec["gate_snn"])
+    if gp:
+        errs.append(f"gate {gp}")
+    if rec["gate_snn"]["decision"] != rec["safety_decision"]["decision"]:
+        errs.append("gate decision mismatch")
+    rc = rec["reward_components"]
+    for h in HEADS:
+        s = sum(t[h] for t in rc["ticks"])
+        if abs(s - rc[h]) > 1e-6:
+            errs.append(f"tick sum {h} {s} vs {rc[h]}")
+    tot = sum(rc[h] for h in HEADS)
+    if abs(tot - rc["total"]) > 1e-6:
+        errs.append(f"total {tot} vs {rc['total']}")
+    inf = rec["future_outcome"]["reward_inflection_t_us"]
+    if inf not in {t["t_us"] for t in rc["ticks"]}:
+        errs.append(f"inflection {inf} not a tick")
+    crc = rec["future_outcome"]["embedded_contrast_decision"]["reward_components"]
+    if abs(sum(crc[h] for h in HEADS) - crc["total"]) > 1e-6:
+        errs.append("contrast reward")
+    cs = rec["future_outcome"]["embedded_contrast_decision"]["spike_events"]
+    ct = [e["t_rel_ms"] for e in cs]
+    if ct != sorted(ct):
+        errs.append("contrast spikes unsorted")
+    crf = check_refractory(cs)
+    if crf:
+        errs.append(f"contrast {crf}")
+    blob = json.dumps(rec)
+    for k in HIDDEN:
+        if re.search(rf'"{k}"', blob, re.I):
+            errs.append(f"hidden key {k}")
+    for b in BANNED:
+        if b in blob:
+            errs.append(f"banned token {b}")
+    if rec["state"]["sim_or_real"] == "real":
+        errs.append("real")
+    if rec["meta"]["round"] != 28:
+        errs.append("round")
+    if rec["id"] != RECORD_ID:
+        errs.append("id")
+    if rec["rights"]["intended_use"] != "research_only":
+        errs.append("rights")
+    if rec["meta"]["rights"]["linear_issue"] != "RM-793":
+        errs.append("meta.rights")
+    if rec["rights"] != rec["meta"]["rights"]:
+        errs.append("rights stamp mismatch")
+    if not (3 <= len(rc["ticks"]) <= 8):
+        errs.append("tick count")
+    if not (5 <= len(events) <= 40):
+        errs.append("spike count")
+    if abs(aux["w1"] - 0.23) > 5e-4 or abs(aux["w2"] - 0.20) > 5e-4 or abs(aux["w3"] - 0.18) > 5e-4:
+        errs.append("scar weights")
+    if rec["safety_decision"]["decision"] != "MODIFY":
+        errs.append("decision")
+    if rec["executed_action"]["executed_as_proposed"] is not False:
+        errs.append("executed_as_proposed")
+    jac = jaccard(rec["state"]["description"][:280], R14_OPENING)
+    if jac >= 0.4:
+        errs.append(f"jaccard vs r14 opening {jac:.3f}")
+    for src, opening in prior_openings():
+        j = jaccard(rec["state"]["description"][:280], opening)
+        if j >= 0.4:
+            errs.append(f"jaccard vs {src} {j:.3f}")
+    if rec["state"]["domain"] != DOMAIN:
+        errs.append("domain")
+    if PLANT not in rec["state"]["scenario_name"]:
+        errs.append("plant")
+    if GEO not in rec["state"]["scenario_name"]:
+        errs.append("geo")
+    hits = occupancy_collisions()
+    if hits:
+        errs.extend(hits)
+    return errs
+
+
+def write_notes(rec, aux, pipeline_receipt):
+    gap, gap_ch = min_same_channel_gap(rec["spike_events"])
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 28
+
+Factory: multi-agent-ouroboros-swarm. One scenario (ZD), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r28.jsonl. Full labeled transcript:
+swarm-transcript-r28.md. Quota Q=1. Record id maos-r28-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Nothing under outputs/raw/ was touched.
+
+ORCHESTRATION NOTE: dispatched AS round 28 of the 2026-09-02-final-heavy
+window. Writes are create-only under /tmp/maos-r28/. Prior context read for
+gap targeting and de-collision: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, NOTES-r04.md of the 2026-08-30 window, and
+staged r14–r26 (LYOSHIELD, CINDERWICK, QUILLFORGE, NIGHTWELL, FERRICLEAVE,
+CASSITER, OXBOWREEL, REDHALL, SEEDLATCH, STRIAFOIL, TORSIONKEY, ORRIS).
+Explicitly avoided cloning TRIAD / Meridian Gateway Corridor /
+VANTIS-CADENCE-AEGIS / THERMION / STARLING / OKTAVE / VERDIGRIS. Plant is
+invented IONSPATE / Thornmere Electrolyzers SK-7.
+
+## What this round produced
+
+Scenario ZD — "IONSPATE / Thornmere Electrolyzers SK-7": an 80-cell PEM
+hydrogen stack mid-hold at 1.85 A/cm2, 148.4 V, 6.64 kg/h Faraday.
+Three heterogeneous, individually-correct agents — VOLT (series string),
+FAR (coriolis vs Faraday), PUR (stack-outlet H2-in-O2) — jointly report
+the stack is healthy so a current raise is legal. The consensus is false.
+A 90 um pinhole in cell 41's 115 um PFSA-K membrane dumps 3.71 NL/min of
+H2 into the O2 header. Header dilution plus designed O2-side recombination
+keep PUR at 0.72 vol% against a 1.60 % trip. VOLT 148.4 V inside 146-152.
+FAR 99.5 % inside 97-101. Uncommissioned per-cell delta is 0.235 V against
+an 80 mV hold floor. Ten-cell segment tap is 4.8 vol% against a 2.0 hold.
+The coordination-failure CLASS is new to this factory: HEADER-DILUTION OF
+A SINGLE-CELL CROSSOVER. Completes a different family than r01-r04 and
+staged r14-r26 (livelock / synchrony-storm / arms-race /
+ring-with-no-faulty-pair / false-consensus-endpoint / pairwise-Hurwitz /
+thermal-contact masquerade / mass-balance ghost / conservation-blind
+ratio-lock / stacked dead-bands / drum-blind tension snag /
+resistance-compensated starvation / multi-tau meniscus tilt / window-mean
+stripe / shared-actuator lag / motor-side spline certificate /
+tendon-compliance nullspace). Here every agent is correct, the cycle is
+not unstable, and the playbook's three confirms are one mixed header of a
+local leak.
+
+The gate is a correct MODIFY (numeric floor: do not raise current above
+1.85 A/cm2 while |delta V| > 80 mV AND segment H2-in-O2 > 2.0 vol%).
+TG-EL-7 strips PB-EL-11's current increase, holds 1.85 A/cm2, runs a
+6.4 s cathode-pressure step probe +8 kPa (pinhole keeps dH/dP 0.102
+>= 0.08; wet-GC would stay <= 0.02), and swaps the MEA after a 13.2 min
+cellhouse human ratify. The 2.20 A/cm2 LEL trip is avoided (0 vol%
+above 1.60). The PRIMARY episode nonetheless FAILS: 48 min of unmonitored
+pre-t0 crossover had already hydrided 11 O2-side PTLs. Inspection fails
+11/80; 6.5 d quarantine; $0.94M designed. Reward total -0.18 with
+process heads honest and world loss un-netted.
+
+Three-edge scar (NOTES-r14 item 4): volt.stack_ok -> increase_current
+(0.19 commissioned -> 0.46 at illusion -> 0.23 after ACh-gated
+depression) AND far.flow_ok -> increase_current (0.16 -> 0.42 -> 0.20)
+AND pur.header_ok -> increase_current (0.15 -> 0.39 -> 0.18). Eligibility
+trace e^{{-0.76/0.88}} = {aux['trace']:.5f}; eta {aux['eta1']:.5f} /
+{aux['eta2']:.5f} / {aux['eta3']:.5f}; dw -0.230 / -0.220 / -0.210.
+Rolling back any pair leaves the remaining edge above the 0.30 fire
+threshold — fitted to fail. Coordinated depression of all three is the
+cure.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **pem-water-electrolysis** — justified novel subdomain
+  of industrial-process / hydrogen production, unused across 2026-08-17,
+  2026-08-30, and staged r14-r26. Not warehouse-amr (r01), not
+  aerial-swarm (r02), not district-heating (r03), not event-camera grid
+  (r04), not lyophilization (r14), not stator-weld (r16), not
+  air-separation (r17), not water-treatment (r18), not float-glass (r19),
+  not underwater-rov (r20), not aluminum potline (r21), not CZ-pull
+  (r22/r24), not slot-die (r23), not wind-pitch (r25), not
+  surgical-assist (r26).
+- Cycle-1 tail: 90 um PFSA-K pinhole + 80-cell header dilution. N2
+  leak-down PASSES 0.8 kPa/min (load-only leak). Fitted-style base rate
+  0.54%/campaign (MEA-cycle MC; leak-down threshold designed, flagged).
+  Naive = FALSE PERMISSION.
+- Cycle-2 domain sub-variant: AEM 1.0 A/cm2, 0.40x dP, 2.8x water drag;
+  6.4 s / +8 kPa PEM pulse floods the anode; probe must move to 18 s /
+  +2.5 kPa.
+- Cycle-2 tail: Sunday-night forged per-cell CSV at 0.1 V quantization vs
+  plant 0.01 V (10 bins) plus live delta 0.235 V at the claimed healthy
+  membrane. Human-intent class, disjoint from cycle 1's accidental
+  pinhole. Base rate ~0.37% of Sunday-night trains, DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+3 d sister stack) with its own 196 us race
+  (demand vs delta-clear) and ACCEPT of the raise the primary MODIFIED away.
+- Learned-weight provenance on THREE edges with any-pair-rollback-fails.
+- HITL MEA-swap ratify 13.2 min (gap 4 partial; sim_or_real stays designed).
+- Governance CR-H-2804 prices retire-vs-probe-vs-status-quo and mandates
+  native 0.01 V CSV exports (the fraud fence).
+- Flip-fragility extended to HEADER-DILUTION: when three channels each sit
+  inside a mixed header, their race does not decide truth; a per-cell
+  delta the playbook dead-banded does.
+
+## Self-critique of this round's batch
+
+### Strengths
+- The headline class is mechanistically tight: an 80-cell mix of a
+  3.71 NL/min leak is the arithmetic that makes VOLT's success PUR's
+  blindness and FAR's on-spec Faraday match.
+- Negative-result honesty: the gate does the right thing and the PTL
+  still fails for a reason the commissioned sensors could not see. Total
+  -0.18.
+- Three-edge scar is load-bearing: the record states a counterfactual
+  where rolling back any pair fails, with the fire threshold 0.30
+  exhibited on the remaining edge.
+- Contrast ACCEPT on a true healthy membrane prevents "never raise
+  current" as the lesson.
+
+### Weaknesses (honest)
+- Probe error bands (pinhole dH/dP >= 0.08, healthy <= 0.02), the
+  0.54%/campaign pinhole rate, the $0.94M / $1.62M figures, the 13.2 min
+  LOTO latency, and the Sunday-night 0.37% base rate are DESIGNED
+  constants and are flagged. Closed-loop offsets (header 0.72 vol% from
+  leak plus recombination, AEM flood) are derived from those inputs, not
+  discovered by an unauthored process.
+- PTL-hydride model is a designed 48 min mapping; no full recombination
+  CFD shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil. The
+  NOTES-r14 HIL provenance cell remains open.
+- Cross-record arc is a hook (CR-H-2804 +21 d), not a serial igniter
+  into another round.
+
+### Realism of noise / latencies
+Ladder: 182 us race / 196 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap {gap:.3f} ms on {gap_ch}) / 520 us race
+window / 760 us gate latency / 20 ms bus epoch / 40 ms raster / 6.4 s
+probe / 13.2 min HITL / 9 min naive current-ramp counterfactual / 48 min
+pre-t0 hydride / 3.5 h delta-legal hold / 8.0 h PTL blister / +3 d
+contrast / +21 d governance. Adaptation decay on volt.stack
+(0.54->0.51->0.48->0.32), cell.delta_v (0.71->1.26->0.86->0.42->0.21),
+far.flow (0.62->0.56->0.30), pur.header (0.58->0.49).
+
+### Value for SNN distillation
+- HEADER-DILUTION = THREE CORRECT LOOPS, ONE LOCAL CROSSOVER.
+- PER-CELL DELTA + SEGMENT H2 as the tie-break that is not in the header.
+- REVERSIBLE PROBE that raises segment H2 iff a pinhole is open.
+- THREE-EDGE ELIGIBILITY: coordinated depression; any-pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum {rec['reward_components']['total']}
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.48 reconciles independently.
+- spike_events: primary {len(rec['spike_events'])} events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap {gap:.3f} ms >= 0.8 ms, 3
+  channels inside race_window_us 520 (delta 6.920, stack-ok 7.102, header-ok
+  7.280). Contrast 8 events, own race, min same-channel gap well above 0.8 ms.
+- Sidecars: raster spikes 54 == round(168 x 8.0 x 0.040); energy 1242 pJ /
+  0.001242 uJ at 23 pJ/spike; excerpt 16 events inside [0, 40000] us,
+  neuron_id < 168, same-neuron gap N/A (unique ids) / >=1000 us; routing 4
+  entries with three scar edges' before/after pair; third factor tau 0.88 s
+  == 880 ms; gate_snn pools 47/17/5 == round(n x rate x 0.025) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: {pipeline_receipt}
+
+## Novel coverage
+The coordination-failure CLASS (header-dilution of a single-cell
+crossover), the domain (PEM water electrolysis), the cathode-step
+probe discriminant, the three-edge scar with any-pair-rollback-fails, the
+primary negative-result (correct MODIFY, PTL still hydrides on unmonitored
+pre-t0 crossover), the HITL MEA-swap ratify, the AEM probe-duration
+refit, and the Sunday-night 10-bin quantization fence are absent from
+prior committed ouroboros rounds and from staged r14-r26. Repeated
+elements discounted: same-gate contrast (r02/r03/r04/r14),
+governance-pricing scaffold, flip-fragility series (extended to
+header-dilution, but the move rhymes), sequenced recovery shape, third-factor
+rollback form (here three edges rather than r14's two), negative-result
+primary (r14 viewport; r17 condenser ice; r18 GAC Mn; r19 SnO2; r23 loft
+stripe; r25 pitch-bearing spall; r26 adventitia hematoma). Weighing
+a new failure family + cure vocabulary + domain + three-edge against those
+reused scaffolds:
+
+{NOVEL_LINE}
+
+## What ROUND 29 should add
+1. FIT THE DESIGNED CONSTANTS: pinhole arrival, probe error bands,
+   PTL-hydride recombination CFD, Sunday-night claim process.
+2. HIL PROVENANCE CELL: put the MEA LOTO on a hardware-in-loop
+   cellhouse interlock with fitted latency as state.sim_or_real=hil.
+3. CROSS-RECORD ARC: let CR-H-2804's per-cell-delta alarm be the igniter
+   of the next round rather than a dangling +21 d leaf.
+4. Domain candidates (de-collided): humanoid-locomotion; kraft-recovery
+   boiler; continuous-slab-casting; hydro-kaplan. AVOID PEM electrolysis
+   (now used), surgical-assist, wind-pitch, slot-die coating, float-glass,
+   water-treatment, lyophilization, event-camera-traffic-grid,
+   district-heating, aerial-swarm, warehouse-amr, irrigation-canal,
+   air-separation, stator-weld, CZ-pull, aluminum potline, underwater-rov.
+"""
+    (OUT / "NOTES-r28.md").write_text(notes)
+    return notes
+
+
+def write_transcript(rec, line):
+    c1_spikes = [e for e in rec["spike_events"] if e["t_rel_ms"] <= 26.720]
+    text = """# Multi-Agent Ouroboros Swarm — Round 28 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r28-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Plant: invented IONSPATE / Thornmere Electrolyzers SK-7 (not LYOSHIELD / CINDERWICK / TRIAD / QUILLFORGE / NIGHTWELL / FERRICLEAVE / CASSITER / OXBOWREEL / REDHALL / SEEDLATCH / STRIAFOIL / TORSIONKEY / ORRIS)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r28.jsonl).
+
+---
+
+# Cycle 1 — Foundation + injections
+
+## Generator
+
+Design intent: an 80-cell PEM electrolyzer where three correct agents agree
+the stack is healthy because header mixing dilutes a single-cell membrane
+pinhole. The naive playbook raises current into a leak that grows with dP.
+The gate must MODIFY on a numeric current ceiling, not by killing an
+agent. sim_or_real=designed. Reward heads are
+task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Thornmere SK-7, 1.85 A/cm2 PEM,
+148.4 V, header 0.72 vol%, delta 0.235 V, segment 4.8 vol%, proposed
+INCREASE-CURRENT 2.20 A/cm2, safety MODIFY to CURRENT-HOLD, executed hold
+without the cathode-step numbers fully specified, outcome "pinhole found,
+stack saved" (this last claim is the defect the later cycles will refuse
+to keep). Sixteen spikes, five ticks, raster/gate_snn present but the
+scar is a single edge.
+
+```json
+{
+  "id": "maos-r28-001",
+  "state": {
+    "sim_or_real": "designed",
+    "domain": "industrial-process",
+    "description": "PEM stack SK-7 mid-hold; three loops in spec; supervisor proposes increase-current.",
+    "t0_us": 1773389280000028,
+    "gate_latency_us": 760,
+    "race_window_us": 520
+  },
+  "proposed_action": {"name": "increase_stack_current", "parameters": {"current_a_cm2": 2.20}},
+  "safety_decision": {"decision": "MODIFY", "rationale": "Hold; do not raise current while the pinhole is open."},
+  "executed_action": {"name": "current_hold", "executed_as_proposed": false},
+  "future_outcome": {"summary": "Pinhole found, stack saved."},
+  "reward_components": {"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"},
+  "meta": {"round": 28, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}
+}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "stack saved". If 11 PTLs later hydride-blister,
+   booking +0.40 is a lie. Fix: declare `_aggregation`, emit 3–8
+   ticks that sum to the five heads, and do not call a missed recovery a
+   save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote
+   current <= 1.85 A/cm2 while |delta V| > 80 mV AND segment H2-in-O2 > 2.0 vol%.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-process` collides with several staged plants and teaches
+   nothing. PEM crossover physics (per-cell delta, header mix, recombination)
+   is absent from prior ouroboros rounds and must be named.
+4. **major — race under-specified.** One string channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted
+   `t_rel_ms` and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated
+   weight repeats r14's two-edge form without the third. NOTES-r14 item 4
+   asked for three-edge where any-pair rollback fails.
+
+Critic does not rewrite the trajectory.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **pem-water-electrolysis**
+(justified novel subdomain of industrial-process / hydrogen production;
+explicit tag `pem-water-electrolysis`).
+
+Displaced: the Generator's generic `industrial-process` bucket, and any
+temptation to reuse warehouse-amr (r01), aerial-swarm (r02),
+district-heating (r03), event-camera grid (r04), lyophilization (r14),
+stator-weld (r16), air-separation (r17), water-treatment dosing (r18),
+float-glass tin-bath (r19), underwater-rov (r20), aluminum potline (r21),
+CZ-pull (r22/r24), slot-die coating (r23), wind-pitch (r25), or
+surgical-assist (r26). Not LYOSHIELD, not CINDERWICK, not TRIAD, not
+FERRICLEAVE, not CASSITER, not ORRIS.
+
+Domain-specific constraint: current must remain <= 1.85 A/cm2 while
+|delta V| > 80 mV; the series string is not a per-cell certificate.
+
+Sensor delta: +per-cell voltage scan, +H2 coriolis, +O2-header GC,
++cathode PT; -any mobile robot, -event-camera gantries, -DVS, -Pirani/CM,
+-pitch encoder, -tendon encoder.
+
+`state.domain` and `meta.domain` both become `pem-water-electrolysis`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Thornmere Cellhouse 3 PEM stack, not a corridor, not a freeze-dryer, not a
+tin bath, not a cold box, not a coater, not an OR).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **90 um PFSA-K pinhole
+diluted by an 80-cell O2 header**.
+
+- Trigger: weekend MEA leak-down PASSES 0.8 kPa/min at N2 idle; under load
+  the pinhole writes 3.71 NL/min H2 into O2; recombination plus mix keep
+  the stack-outlet GC at 0.72 vol%.
+- Base rate: <1% — 0.54%/campaign from a MEA-cycle MC (leak-down threshold
+  designed; pinhole fitted-style).
+- Naive failure: FALSE PERMISSION. PB-EL-11 sees 148.4 V, 99.5 % Faraday,
+  0.72 vol%, raises current, header 2.4 vol%, $1.62M.
+- Trajectory edit: put the pinhole in `state.fault_context`, make header
+  mix the mechanism that keeps all three confirms green, and force the
+  gate to refuse the raise on delta 0.235 V even though all three
+  playbook confirms are numerically true.
+
+Distinct from the domain injection: the domain is the PEM electrolyzer;
+the tail is the accidental mix-vs-local compound.
+
+## Neuromorphic Translator
+
+Race window [6.900, 7.420] ms = 520 us. Winner cell.delta_v @ 6.920 ms
+(amplitude 1.26, 0.235 V). Loser volt.stack_ok @ 7.102 ms (amplitude
+1.10, 148.4 V). Margin 182 us vs combined jitter 61 us (2.98x).
+pur.header_ok @ 7.280 ms is a third race-window channel. Gate @ 7.680 ms
+= winner + 760 us.
+
+Flip narrative: 182 us < min(500, 520) us, so order is flip-fragile. If
+stack-ok wins, PB-EL-11 heads the triage queue. The hold must ride
+order-invariant floors (per-cell delta, segment H2), not the winner tag.
+
+Cycle-1 spike patch (16 events, globally sorted, refractory >= 0.8 ms;
+tightest same-channel gap cell.delta_v 4.860 -> 6.920 = 2.060 ms):
+
+| t_rel_ms | channel | amplitude |
+|---------:|---------|----------:|
+| 0.340 | volt.stack | 0.54 |
+| 1.160 | far.flow | 0.62 |
+| 2.020 | pur.header | 0.58 |
+| 3.180 | volt.stack | 0.51 |
+| 4.860 | cell.delta_v | 0.71 |
+| 5.180 | cathode.pressure | 0.66 |
+| 5.620 | far.flow | 0.56 |
+| 6.920 | cell.delta_v | 1.26 |
+| 7.102 | volt.stack_ok | 1.10 |
+| 7.280 | pur.header_ok | 0.64 |
+| 7.680 | ctrl.gate | 1.08 |
+| 9.120 | volt.stack | 0.48 |
+| 11.040 | pur.header | 0.49 |
+| 13.380 | cell.delta_v | 0.86 |
+| 19.160 | cathode.pressure | 0.48 |
+| 26.720 | ctrl.gate | 0.90 |
+
+Ticks (5): t_us 5180, 6920, 7680, 6400000, 792000000. Distillation
+value: the stack-ok spike is not a per-cell-health spike; the delta spike
+is the one that licenses hold.
+
+Raster cycle-1 seed: 40 ms, 168 neurons, 8.0 Hz, 54 spikes, 1242 pJ,
+third factor acetylcholine tau_e 0.88 s. Single scar edge only — cycle 2
+must add the second and third edges.
+
+Cycle-1 spike count: __C1_SPIKES__.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain pem-water-electrolysis, tail
+membrane pinhole, 16 spikes, 5 ticks, MODIFY with numeric floor, raster+gate_snn
+present, sim_or_real=designed, rights stamp on record and meta, no thought
+keys. Still missing (and therefore not the publishable line): AEM
+sub-variant, Sunday-night per-cell tail, second and third scar edges, delayed
+PTL blister as PRIMARY terminal, contrast ACCEPT episode, ticks 6–7,
+spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 520 us window;
+  refractory 2.060 ms; rationale quotes 1.85 A/cm2 / 80 mV / 2.0 vol%;
+  domain named; gate_snn.decision MODIFY.
+- checks deferred to cycle 2: three-edge scar, second tail, second
+  domain constraint, negative-result booking, 7 ticks summing to heads.
+- densification vs Generator v1: +1 domain, +1 tail, +16 spikes, +5
+  ticks, +numeric floor.
+
+Cycle-1 JSON is retained as the base; it is NOT written to
+batch-r28.jsonl.
+
+---
+
+# Cycle 2 — Densification
+
+## Generator
+
+Cycle-1 output is the base. Additive expansion (nothing removed):
+
+1. Downstream side-effect (immediate): cathode-step probe at +6.4 s stays
+   crossed (segment 4.8 -> 5.62 vol%, pinhole band dH/dP >= 0.08) — leak,
+   not wet-GC. MEA swap delta 0.235 -> 0.018 V. PTL inventory 11/80
+   discovered during the swap.
+2. Delayed side-effect (PRIMARY terminal, not a footnote): at +8.0 h,
+   11 of 80 O2-side PTLs hydride-blister; $0.94M. The 48 min pre-t0
+   crossover is the mechanism. Correct gate, campaign still misses.
+3. Deepened `proposed_action.evidence` with units: stack 148.4 V,
+   delta 0.235 V, segment 4.8 vol%, Faraday 99.5 %, header 0.72 vol%,
+   race 182 us.
+4. Tightened rationale to the numeric floor current <= 1.85 A/cm2 while
+   |delta V| > 80 mV AND segment H2-in-O2 > 2.0 vol%, plus probe bands
+   >=0.08 vs <=0.02 vol%/kPa, plus HITL 13.2 min cellhouse LOTO rule.
+
+Reward retargeted to total -0.18 so the delayed miss is the inflection
+(t_us 28800000000), not the gate. Process heads remain non-zero.
+
+## Critic
+
+Re-audit of the expanded trajectory:
+
+1. **blocking if unfixed — missing second domain constraint.** PEM
+   probe 6.4 s / +8 kPa is not a universal number. An AEM 1.0 A/cm2
+   stack will flood. Diversity Enforcer must inject the physical-constraints
+   sub-variant this cycle.
+2. **major — only one tail class.** Membrane pinhole is accidental
+   infrastructure. A disjoint human-intent tail is still required
+   (Sunday-night per-cell forgery is the open cell).
+3. **major — scar is still one edge in the cycle-1 raster.** NOTES-r14
+   item 4 is not discharged until three current-raise-go edges exist and
+   any-pair rollback is shown to fail at threshold 0.30.
+4. **minor — contrast episode missing.** Without a same-gate ACCEPT on
+   a true healthy membrane the record teaches "never raise current". Add +3 d
+   sister-stack contrast with its own race.
+5. **minor — HITL latency mentioned in prose only.** Put 13.2 min in
+   executed_action.parameters.human_ratify and in a tick.
+
+No rewrite; directives only.
+
+## Diversity Enforcer
+
+Injected second novel domain / physical-constraint sub-variant (exactly 1
+this cycle): **AEM alkaline-membrane 1.0 A/cm2** in the same cellhouse.
+
+What it expands: PEM 1.85 A/cm2 (cycle 1) -> AEM 1.0 A/cm2, 0.40x dP,
+2.8x water drag. The 6.4 s +8 kPa pulse floods the anode (O2 purity
+-1.4 %). Required probe: 18 s at +2.5 kPa (purity hold -0.2 %).
+
+This is still one domain injection for the cycle (physical-constraints
+clause of the factory prompt). It does not displace
+pem-water-electrolysis; it changes which probe table is legal.
+`future_outcome.subvariant_constraint` carries the refit. Jaccard opening
+stays the Thornmere Cellhouse 3 sentence; AEM internals are additive, not
+a rewrite.
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**Sunday-night forged per-cell CSV**.
+
+- Trigger: shift lead, night offtake window, posts a historian export
+  showing delta = 0.02 V and segment = 0.20 vol% at the claimed healthy-membrane
+  instant.
+- Base rate: ~0.37% of Sunday-night trains (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the raise on the forged
+  confirm and ignores live delta. LEL trip plus a data-integrity 483.
+- Fence: forged log quantized at 0.1 V (screenshot rounding); plant
+  historian is 0.01 V (10 bins). Live delta is 0.235 V at the claimed
+  healthy membrane, which no true MEA produces.
+- Trajectory edit: governance CR-H-2804 mandates native 0.01 V
+  exports; the contrast ACCEPT still requires live delta, not a CSV.
+
+Distinct from cycle-1 pinhole (accidental geometry vs deliberate deception)
+and from the AEM sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 26.720 ms: cathode.step.probe 6400.0, delta 6520.4 (adapt
+  1.26->0.42), stack-ok 6610.2 (1.10->0.40), human.ratify 792000.0,
+  mea.swap 792800.0, ptl.survey 793400.0, volt.stack
+  12600000.0, far.flow 12600440.0, cell.delta_v 12600910.0,
+  ptl.blister 28800000.0. Primary train 16 -> 26. Still one key, still
+  sorted, refractory held (min 2.060 ms).
+- +2 ticks (5 -> 7) at 12_600_000_000 us (delta-legal hold) and
+  28_800_000_000 us (PTL blister). Heads now 0.08, -0.37, -0.11, 0.15,
+  0.07; total -0.18. Inflection is the last tick.
+- Contrast train 8 events, own race 196 us, ACCEPT.
+- Three-edge third factor: three current-raise-go edges, tau_e 0.88 s = 880 ms,
+  trace __AUX_TRACE__, eta __AUX_ETA1__ / __AUX_ETA2__ / __AUX_ETA3__,
+  weights 0.46->0.23, 0.42->0.20, 0.39->0.18. Raster excerpt unchanged
+  (decision window is still 40 ms) and remains sorted with unique
+  neuron_ids (same-neuron >=1000 us vacuously).
+
+Winner/loser flip (re-stated, not replaced): reversing 182 us would only
+reorder triage; delta and segment-H2 floors still MODIFY. Contrast flip of
+196 us similarly cannot turn a healthy membrane into a pinhole.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.18; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted, tau_e consistent; gate_snn.decision matches; meta.round=28,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive; plant is not
+LYOSHIELD, not CINDERWICK, not TRIAD, not FERRICLEAVE, not CASSITER,
+not ORRIS, not TORSIONKEY.
+
+Densification delta: +1 domain sub-variant (AEM), +1 tail
+(Sunday-night forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 three-edge scar with
+any-pair-rollback-fails, +1 HITL ratify, +1 surprise (PTL hydride is
+the campaign-miss mechanism).
+
+Publishable JSONL line (the only JSONL line; also at batch-r28.jsonl):
+
+```json
+__FINAL_JSONL__
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r28.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+    text = (
+        text.replace("__C1_SPIKES__", str(len(c1_spikes)))
+        .replace("__AUX_TRACE__", f"{math.exp(-0.76/0.88):.5f}")
+        .replace("__AUX_ETA1__", f"{0.23/math.exp(-0.76/0.88):.5f}")
+        .replace("__AUX_ETA2__", f"{0.22/math.exp(-0.76/0.88):.5f}")
+        .replace("__AUX_ETA3__", f"{0.21/math.exp(-0.76/0.88):.5f}")
+        .replace("__FINAL_JSONL__", line)
+    )
+    (OUT / "swarm-transcript-r28.md").write_text(text)
+    return text
+
+
+def heads_summary(rec):
+    rc = rec["reward_components"]
+    return {
+        "id": rec["id"],
+        "total": rc["total"],
+        "decision": rec["safety_decision"]["decision"],
+        "sim": rec["state"]["sim_or_real"],
+        "domain": rec["state"]["domain"],
+        "spikes": len(rec["spike_events"]),
+        "ticks": len(rc["ticks"]),
+        "plant": rec["state"]["scenario_name"],
+    }
+
+
+def main():
+    rec, aux = build_record()
+    errs = local_checks(rec, aux)
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(rec, ensure_ascii=False, separators=(",", ":"))
+    (OUT / "batch-r28.jsonl").write_text(line + "\n")
+
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import raster_status
+    from verify_execution import verify_record_execution
+
+    e, w, kinds, n = check_jsonl(
+        OUT / "batch-r28.jsonl",
+        "batch-r28.jsonl",
+        staging=FactoryStaging(enabled=True),
+    )
+    print("check_jsonl errors", e)
+    print("check_jsonl warnings", w)
+    print("kinds", kinds, "n", n)
+    errs.extend(e)
+
+    st = raster_status(rec)
+    print(
+        "raster_status",
+        {
+            k: st[k]
+            for k in (
+                "raster_present",
+                "raster_valid",
+                "gate_snn_present",
+                "gate_snn_valid",
+                "reason_codes",
+                "routing_table_entries",
+                "third_factor_present",
+                "spikes",
+            )
+            if k in st
+        },
+    )
+    if st.get("reason_codes"):
+        errs.append(f"raster {st['reason_codes']}")
+    if not st.get("raster_valid"):
+        errs.append("raster not valid")
+    if not st.get("gate_snn_valid"):
+        errs.append("gate_snn not valid")
+
+    status, reason = verify_record_execution(rec, RECORD_ID)
+    print("verify_record_execution", status, reason)
+    if status != "verified":
+        errs.append(f"verify {status}: {reason}")
+
+    probe = subprocess.run(
+        [
+            sys.executable,
+            f"{ROOT}/pipelines/spike_probe.py",
+            "--strict",
+            str(OUT / "batch-r28.jsonl"),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    print("spike_probe rc", probe.returncode)
+    print(probe.stdout)
+    if probe.stderr:
+        print("spike_probe stderr", probe.stderr)
+    if probe.returncode != 0:
+        errs.append(f"spike_probe rc {probe.returncode}")
+
+    receipt = (
+        f"check_jsonl errors={e} warnings={w} kinds={kinds} n={n}; "
+        f"raster_status valid={st.get('raster_valid')} gate={st.get('gate_snn_valid')} "
+        f"reasons={st.get('reason_codes')}; verify_record_execution={status} ({reason}); "
+        f"spike_probe --strict rc={probe.returncode}"
+    )
+    write_notes(rec, aux, receipt)
+    write_transcript(rec, line)
+
+    headings = re.findall(
+        r"^## .+$", (OUT / "swarm-transcript-r28.md").read_text(), re.M
+    )
+    print("headings", headings)
+    expected = [
+        "## Generator",
+        "## Critic",
+        "## Diversity Enforcer",
+        "## Edge-Case Hunter",
+        "## Neuromorphic Translator",
+        "## Trajectory Builder",
+        "## Generator",
+        "## Critic",
+        "## Diversity Enforcer",
+        "## Edge-Case Hunter",
+        "## Neuromorphic Translator",
+        "## Trajectory Builder",
+    ]
+    if headings != expected:
+        errs.append(f"heading sequence {headings}")
+
+    notes = (OUT / "NOTES-r28.md").read_text()
+    cov = re.findall(r"^Novel coverage: .+$", notes, re.M)
+    if cov != [NOVEL_LINE]:
+        errs.append(f"novel coverage lines {cov}")
+
+    hchk = subprocess.run(
+        [
+            sys.executable,
+            "/tmp/maos_heading_check.py",
+            str(OUT / "swarm-transcript-r28.md"),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    print(hchk.stdout)
+    if hchk.returncode != 0:
+        errs.append(f"heading_check rc {hchk.returncode}: {hchk.stdout}")
+
+    raw_guard = subprocess.run(
+        ["git", "-C", ROOT, "status", "--porcelain", "--", "outputs/raw"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if raw_guard.stdout.strip():
+        errs.append(f"outputs/raw dirty: {raw_guard.stdout.strip()}")
+
+    nlines = [ln for ln in (OUT / "batch-r28.jsonl").read_text().splitlines() if ln.strip()]
+    if len(nlines) != 1:
+        errs.append(f"Q!=1 lines={len(nlines)}")
+
+    print("bytes jsonl", (OUT / "batch-r28.jsonl").stat().st_size)
+    print("bytes notes", (OUT / "NOTES-r28.md").stat().st_size)
+    print("bytes transcript", (OUT / "swarm-transcript-r28.md").stat().st_size)
+    print("HEADS", heads_summary(rec))
+
+    if errs:
+        print("FAILED", errs)
+        sys.exit(1)
+    print("OK")
+
+
+if __name__ == "__main__":
+    main()

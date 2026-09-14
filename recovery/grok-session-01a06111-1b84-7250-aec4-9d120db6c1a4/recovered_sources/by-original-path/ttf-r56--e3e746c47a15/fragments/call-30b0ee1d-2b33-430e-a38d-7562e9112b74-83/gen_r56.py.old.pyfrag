@@ -1,0 +1,18 @@
+            (
+                "description",
+                "Grate G-4 of the Taconite-Sill induration train is traveling 2.40 m/min when a "
+                "bed IR at 1280 C races a hood-Delta-P smear that still claims over-draft. "
+                "Commanded 2.40 m/min and 1280 C sit 0.20 m/min and 70 C inside the legal "
+                "envelopes. The IR win only ratifies the grate already on the hearth.",
+            ),
+            ("domain", "pellet-induration-grate"),
+            ("sim_or_real", "simulated"),
+            (
+                "goal",
+                "Finish the traveling-grate pass on Taconite-Sill, keep bed IR <= 1350 C and "
+                "speed >= 2.20 m/min, and leave hood draft in spec.",
+            ),
+            ("t0_us", 1762300000000259),
+            ("gate_latency_us", 900),
+            ("race_window_us", 360),
+            ("race_window_rel_ms", [6.240, 6.600]),

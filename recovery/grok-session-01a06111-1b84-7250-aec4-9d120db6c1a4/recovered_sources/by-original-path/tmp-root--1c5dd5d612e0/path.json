@@ -1,0 +1,44 @@
+{
+  "agent_ids": [
+    "01a064a7-40d5-77c0-9015-3f9525a7604e"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations"
+  ],
+  "event_count": 2,
+  "final_state": "unknown",
+  "hunk_evidence_count": 2,
+  "original_basename": "ffpc_r03_session_a.py",
+  "original_path": "/tmp/ffpc_r03_session_a.py",
+  "path_key": "tmp-root--1c5dd5d612e0",
+  "terminal_event_ids": [
+    "01a064a7-40d5-77c0-9015-3f9525a7604e:call-8ea4ae14-700f-436c-b99d-12ddbbe13edd-46"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 2,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a064a7-40d5-77c0-9015-3f9525a7604e:call-2513b85e-e228-4112-8577-5d2e57ebb126-44",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--1c5dd5d612e0/fragments/call-2513b85e-e228-4112-8577-5d2e57ebb126-44/ffpc_r03_session_a.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--1c5dd5d612e0/fragments/call-2513b85e-e228-4112-8577-5d2e57ebb126-44/ffpc_r03_session_a.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a064a7-40d5-77c0-9015-3f9525a7604e:call-b92babbe-ba56-4ff1-82f9-e2bd41c529cc-45",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--1c5dd5d612e0/fragments/call-b92babbe-ba56-4ff1-82f9-e2bd41c529cc-45/ffpc_r03_session_a.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--1c5dd5d612e0/fragments/call-b92babbe-ba56-4ff1-82f9-e2bd41c529cc-45/ffpc_r03_session_a.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

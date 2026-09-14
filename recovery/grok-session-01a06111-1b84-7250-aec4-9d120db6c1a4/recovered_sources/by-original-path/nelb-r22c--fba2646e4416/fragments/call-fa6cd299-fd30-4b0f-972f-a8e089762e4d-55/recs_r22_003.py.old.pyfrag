@@ -1,0 +1,1 @@
+            ev(7380000.0, "recon.T", 50.00, code="T_KN", units="kN", note="0.125*(20.00**2)=50.00; at the 50.00 dump-trip so S-4 stays an isolate not a dump until the companion refuses dump"),

@@ -1,0 +1,4 @@
+    for path in sorted(Path("/tmp").glob("ttf-r*/batch-r*.jsonl")):
+        rnd = path_round(path)
+        if rnd == THIS_ROUND:
+            continue

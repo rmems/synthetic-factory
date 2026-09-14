@@ -1,0 +1,9 @@
+                        ("winner", "rtd.bath.C (4.860 ms, 452 C)"),
+                        ("loser", "ir.dross.C (5.080 ms, 438 C)"),
+                        ("margin_us", 220),
+                        (
+                            "counterfactual_if_reversed",
+                            "Dross-first by < 220 us inside the 420 us window would have extra-cut "
+                            "a legal 1.40 m/min dip on a 452 C bath that is still under the "
+                            "470 C cap.",
+                        ),

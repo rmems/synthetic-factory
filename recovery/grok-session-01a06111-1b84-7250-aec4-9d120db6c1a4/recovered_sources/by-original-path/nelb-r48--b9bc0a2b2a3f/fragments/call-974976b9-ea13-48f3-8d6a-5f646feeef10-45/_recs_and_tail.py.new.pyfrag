@@ -1,0 +1,2 @@
+        ev(3600000.0, "csam.t", 6.00, code="T_NS", units="ns", note="decision TOF; d=2.00*6.00"),
+        ev(3600001.2, "recon.d", 12.00, code="D_UM", units="um", note="2.00*6.00=12.00 exact remaining-solder identity"),

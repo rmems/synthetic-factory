@@ -1,0 +1,15 @@
+            ("name", "hold_screws"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("screw_rpm", 0.0),
+                        ("hold", True),
+                        ("motor_A", 62.0),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: screws 420 -> 0 rpm. Motor left at 62 A under its own cap.",
+            ),

@@ -1,0 +1,22 @@
+                    "old_string": (
+                        "def load_uuid(raw: bytes) -> str:\n"
+                        "    return str(uuid.UUID(bytes=raw[::-1]))\n"
+                        "\n"
+                        "def load_catalog() -> dict:\n"
+                        "    return {\n"
+                        "        \"radar.hex\": load_uuid(bytes.fromhex(PLC_HEX)),\n"
+                        "        \"berth.hex\": load_uuid(bytes.fromhex(RFC_HEX)),\n"
+                        "    }\n"
+                    ),
+                    "new_string": (
+                        "def load_uuid(raw: bytes, *, plc: bool = False) -> str:\n"
+                        "    if plc:\n"
+                        "        return str(uuid.UUID(bytes_le=raw))\n"
+                        "    return str(uuid.UUID(bytes=raw))\n"
+                        "\n"
+                        "def load_catalog() -> dict:\n"
+                        "    return {\n"
+                        "        \"radar.hex\": load_uuid(bytes.fromhex(PLC_HEX), plc=True),\n"
+                        "        \"berth.hex\": load_uuid(bytes.fromhex(RFC_HEX)),\n"
+                        "    }\n"
+                    ),

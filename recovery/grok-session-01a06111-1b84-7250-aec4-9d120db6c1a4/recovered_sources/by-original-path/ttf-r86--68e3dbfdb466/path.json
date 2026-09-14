@@ -1,0 +1,40 @@
+{
+  "agent_ids": [
+    "01a0640e-744b-7092-8f49-df016edd275c"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations"
+  ],
+  "event_count": 1,
+  "final_state": "unknown",
+  "hunk_evidence_count": 2,
+  "original_basename": "_records_r86.py",
+  "original_path": "/tmp/ttf-r86/_records_r86.py",
+  "path_key": "ttf-r86--68e3dbfdb466",
+  "terminal_event_ids": [
+    "01a0640e-744b-7092-8f49-df016edd275c:call-5b5e62f8-cada-445b-af48-b3ac6a827846-53",
+    "01a0640f-795d-74a2-a010-24a6d8c50330:call-29463bc4-a9de-46e1-adfb-2a68b73c643b-26",
+    "01a0640f-795d-74a2-a010-24a6d8c50330:call-3f0feee2-dbe7-478f-8b6d-62ec083c2041-35",
+    "01a0640f-795d-74a2-a010-24a6d8c50330:call-c38766e8-f5be-4206-824e-3d91c0532afa-43",
+    "01a0640f-795d-74a2-a010-24a6d8c50330:call-fac33476-b4fd-4d62-90a0-d3727dda8070-32",
+    "01a0640f-795e-7e83-b0c6-3cbad6fefa3e:call-c4ebbc15-c9a6-4e4b-ad82-ea2528a72ef1-17",
+    "01a0640f-795e-7e83-b0c6-3cbad6fefa3e:call-f9524d04-abd3-4948-86f2-40ed60e9d25c-22"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 1,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a0640e-744b-7092-8f49-df016edd275c:call-f2a646f2-54e5-4cb9-9fb0-61b8a2fd8b51-48",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r86--68e3dbfdb466/fragments/call-f2a646f2-54e5-4cb9-9fb0-61b8a2fd8b51-48/_records_r86.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r86--68e3dbfdb466/fragments/call-f2a646f2-54e5-4cb9-9fb0-61b8a2fd8b51-48/_records_r86.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

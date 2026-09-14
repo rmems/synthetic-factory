@@ -1,0 +1,138 @@
+{
+  "agent_ids": [
+    "01a06132-5431-75b2-8dab-33bb4be0b071"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 4,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 5,
+  "original_basename": "assemble.py",
+  "original_path": "/tmp/ffpc-r11/assemble.py",
+  "path_key": "ffpc-r11--3dd72ce266ef",
+  "terminal_event_ids": [
+    "01a06132-5431-75b2-8dab-33bb4be0b071:call-0c74f25f-5b0c-4037-b348-44281330c937-99",
+    "01a06132-5431-75b2-8dab-33bb4be0b071:call-b501ae2c-46a3-4891-9268-ddcb73d9f4a8-82",
+    "01a06132-5431-75b2-8dab-33bb4be0b071:call-b84f5494-910a-40a4-be4a-9de48c605693-108"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 4,
+  "versions": [
+    {
+      "agent_id": "01a06132-5431-75b2-8dab-33bb4be0b071",
+      "basename_preserved": true,
+      "bytes": 10366,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 422,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06132-5431-75b2-8dab-33bb4be0b071/updates.jsonl",
+      "original_basename": "assemble.py",
+      "original_path": "/tmp/ffpc-r11/assemble.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r11--3dd72ce266ef/versions/v0001/assemble.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r11--3dd72ce266ef/versions/v0001/assemble.py",
+      "session_id": "01a06132-5431-75b2-8dab-33bb4be0b071",
+      "sha256": "dd3c2f58a0251b64c1001d073c8832fd58ab54fc4965de7b51230987129154a1",
+      "source_channel": "structured",
+      "source_event_id": "01a06132-5431-75b2-8dab-33bb4be0b071:call-59a1a002-c3c4-4336-8883-4c54e78b862e-78",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788337616116,
+      "timestamp_utc": "2026-09-02T08:26:56.116Z",
+      "tool_call_id": "call-59a1a002-c3c4-4336-8883-4c54e78b862e-78",
+      "version": 1,
+      "version_id": "ffpc-r11--3dd72ce266ef:v0001"
+    },
+    {
+      "agent_id": "01a06132-5431-75b2-8dab-33bb4be0b071",
+      "basename_preserved": true,
+      "bytes": 10460,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 433,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06132-5431-75b2-8dab-33bb4be0b071/updates.jsonl",
+      "original_basename": "assemble.py",
+      "original_path": "/tmp/ffpc-r11/assemble.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r11--3dd72ce266ef/versions/v0002/assemble.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r11--3dd72ce266ef/versions/v0002/assemble.py",
+      "session_id": "01a06132-5431-75b2-8dab-33bb4be0b071",
+      "sha256": "73d28d501a3d81d4defd762d3939420611d40175e63fd6143f7cddf620797b08",
+      "source_channel": "structured",
+      "source_event_id": "01a06132-5431-75b2-8dab-33bb4be0b071:call-3e623edf-fdda-43f6-b3fe-99218a3a79ad-80",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788337626506,
+      "timestamp_utc": "2026-09-02T08:27:06.506Z",
+      "tool_call_id": "call-3e623edf-fdda-43f6-b3fe-99218a3a79ad-80",
+      "version": 2,
+      "version_id": "ffpc-r11--3dd72ce266ef:v0002"
+    },
+    {
+      "agent_id": "01a06132-5431-75b2-8dab-33bb4be0b071",
+      "basename_preserved": true,
+      "bytes": 10299,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 439,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06132-5431-75b2-8dab-33bb4be0b071/updates.jsonl",
+      "original_basename": "assemble.py",
+      "original_path": "/tmp/ffpc-r11/assemble.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r11--3dd72ce266ef/versions/v0003/assemble.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r11--3dd72ce266ef/versions/v0003/assemble.py",
+      "session_id": "01a06132-5431-75b2-8dab-33bb4be0b071",
+      "sha256": "85e1f322e6012279eb84e84b08e93d48b9a034aa19d7d77b1c1312f79a7a40d9",
+      "source_channel": "structured",
+      "source_event_id": "01a06132-5431-75b2-8dab-33bb4be0b071:call-c17346cb-b446-4cd0-8680-42aee64f0c6c-81",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788337635982,
+      "timestamp_utc": "2026-09-02T08:27:15.982Z",
+      "tool_call_id": "call-c17346cb-b446-4cd0-8680-42aee64f0c6c-81",
+      "version": 3,
+      "version_id": "ffpc-r11--3dd72ce266ef:v0003"
+    },
+    {
+      "agent_id": "01a06132-5431-75b2-8dab-33bb4be0b071",
+      "basename_preserved": true,
+      "bytes": 10319,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 524,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06132-5431-75b2-8dab-33bb4be0b071/updates.jsonl",
+      "original_basename": "assemble.py",
+      "original_path": "/tmp/ffpc-r11/assemble.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r11--3dd72ce266ef/versions/v0004/assemble.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r11--3dd72ce266ef/versions/v0004/assemble.py",
+      "session_id": "01a06132-5431-75b2-8dab-33bb4be0b071",
+      "sha256": "5028373193e70a463dc4909da68ad631cbb13992e4bc62cb08de559041448888",
+      "source_channel": "structured",
+      "source_event_id": "01a06132-5431-75b2-8dab-33bb4be0b071:call-69a09819-9ae4-4dfc-9816-1ee2819dcc87-96",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788337768740,
+      "timestamp_utc": "2026-09-02T08:29:28.740Z",
+      "tool_call_id": "call-69a09819-9ae4-4dfc-9816-1ee2819dcc87-96",
+      "version": 4,
+      "version_id": "ffpc-r11--3dd72ce266ef:v0004"
+    }
+  ]
+}

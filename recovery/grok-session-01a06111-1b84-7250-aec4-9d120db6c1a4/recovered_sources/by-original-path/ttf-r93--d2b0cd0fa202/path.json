@@ -1,0 +1,82 @@
+{
+  "agent_ids": [
+    "01a0640f-795e-7e83-b0c6-3ca23d536055"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 2,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "_records_r93.py",
+  "original_path": "/tmp/ttf-r93/_records_r93.py",
+  "path_key": "ttf-r93--d2b0cd0fa202",
+  "terminal_event_ids": [
+    "01a0640f-795e-7e83-b0c6-3ca23d536055:call-4355a834-1d2f-4649-9954-29b1d4abb070-52",
+    "01a06410-9659-7421-9892-99f446b04846:call-df75cb12-59a6-4e82-86db-b96459c485b2-21",
+    "01a06410-965a-73d1-9b62-ca6352b5a855:call-5f0bd64c-7191-468c-bed9-b4d3a6ee9d0d-17"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 2,
+  "versions": [
+    {
+      "agent_id": "01a0640f-795e-7e83-b0c6-3ca23d536055",
+      "basename_preserved": true,
+      "bytes": 32251,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 269,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640f-795e-7e83-b0c6-3ca23d536055/updates.jsonl",
+      "original_basename": "_records_r93.py",
+      "original_path": "/tmp/ttf-r93/_records_r93.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r93--d2b0cd0fa202/versions/v0001/_records_r93.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r93--d2b0cd0fa202/versions/v0001/_records_r93.py",
+      "session_id": "01a0640f-795e-7e83-b0c6-3ca23d536055",
+      "sha256": "42fbb3ece5d31fd9ce8c6ab3879ed630ccc18edc7ce565d687bf0714d2e71490",
+      "source_channel": "structured",
+      "source_event_id": "01a0640f-795e-7e83-b0c6-3ca23d536055:call-afdcc263-ba9b-4e62-bc03-a57b2742b5a0-47",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788391267075,
+      "timestamp_utc": "2026-09-02T23:21:07.075Z",
+      "tool_call_id": "call-afdcc263-ba9b-4e62-bc03-a57b2742b5a0-47",
+      "version": 1,
+      "version_id": "ttf-r93--d2b0cd0fa202:v0001"
+    },
+    {
+      "agent_id": "01a0640f-795e-7e83-b0c6-3ca23d536055",
+      "basename_preserved": true,
+      "bytes": 65114,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 283,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640f-795e-7e83-b0c6-3ca23d536055/updates.jsonl",
+      "original_basename": "_records_r93.py",
+      "original_path": "/tmp/ttf-r93/_records_r93.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r93--d2b0cd0fa202/versions/v0002/_records_r93.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r93--d2b0cd0fa202/versions/v0002/_records_r93.py",
+      "session_id": "01a0640f-795e-7e83-b0c6-3ca23d536055",
+      "sha256": "c8eb1eeacec798cc037028a0f2a0eb63b8f16a611ba342b1cf7e38bd21e2eb2e",
+      "source_channel": "structured",
+      "source_event_id": "01a0640f-795e-7e83-b0c6-3ca23d536055:call-3b4c8a2d-90e8-4421-a039-a61b441612f6-49",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788391379771,
+      "timestamp_utc": "2026-09-02T23:22:59.771Z",
+      "tool_call_id": "call-3b4c8a2d-90e8-4421-a039-a61b441612f6-49",
+      "version": 2,
+      "version_id": "ttf-r93--d2b0cd0fa202:v0002"
+    }
+  ]
+}

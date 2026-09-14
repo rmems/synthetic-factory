@@ -1,0 +1,44 @@
+{
+  "agent_ids": [
+    "01a0640c-18c8-7270-bc2f-624e8e029c93"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 1,
+  "final_state": "unknown",
+  "hunk_evidence_count": 6,
+  "original_basename": "_keep_head_occ.py",
+  "original_path": "/tmp/nelb-r45/_keep_head_occ.py",
+  "path_key": "nelb-r45--73ae006c1543",
+  "terminal_event_ids": [
+    "01a0640c-18c8-7270-bc2f-624e8e029c93:call-4153d479-3015-4bf6-b2ff-f2b912da386c-61"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 2,
+  "unresolved_events": [
+    {
+      "channel": "terminal",
+      "event_id": "01a0640c-18c8-7270-bc2f-624e8e029c93:call-4153d479-3015-4bf6-b2ff-f2b912da386c-61",
+      "journal_line": 357,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640c-18c8-7270-bc2f-624e8e029c93/updates.jsonl",
+      "operation": "inline_python_write_text",
+      "reason": "inline_python_write_text was recorded but is not conclusively reproducible without execution",
+      "timestamp_utc": "2026-09-02T23:03:23.953Z"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0640c-18c8-7270-bc2f-624e8e029c93:call-920ec067-2498-4dbc-b843-6f8b778ef958-62",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r45--73ae006c1543/fragments/call-920ec067-2498-4dbc-b843-6f8b778ef958-62/_keep_head_occ.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r45--73ae006c1543/fragments/call-920ec067-2498-4dbc-b843-6f8b778ef958-62/_keep_head_occ.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

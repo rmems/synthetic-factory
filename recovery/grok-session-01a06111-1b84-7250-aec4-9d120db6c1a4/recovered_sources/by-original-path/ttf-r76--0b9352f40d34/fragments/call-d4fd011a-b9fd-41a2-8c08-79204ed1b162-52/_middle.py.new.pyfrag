@@ -1,0 +1,872 @@
+def lif_396_excerpt():
+    n = 76
+    dt_us = 100
+    tau_m_ms = 18.5
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.90
+    i_stim_peak = 2.50
+    stim = (21400, 25600)
+    seed = 76396
+    window_us = 42000
+    i_clamp_extra = 0.64
+    clamp_n = 14
+    rng = random.Random(seed)
+    tau_s = tau_m_ms / 1000.0
+    dt_s = dt_us / 1e6
+    decay = math.exp(-dt_s / tau_s)
+    steps = window_us // dt_us
+    voltage = [rng.random() * v_th * 0.97 for _ in range(n)]
+    bias = [i_bias * (1.0 + 0.13 * (rng.random() * 2 - 1)) for _ in range(n)]
+    for i in range(clamp_n):
+        bias[i] += i_clamp_extra
+    ref = [0] * n
+    spikes = []
+    for step in range(steps):
+        t_us = step * dt_us
+        stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+        for i in range(n):
+            if ref[i] > 0:
+                ref[i] -= dt_us
+                voltage[i] = v_reset
+                continue
+            current = bias[i] + stim_i
+            voltage[i] = current + (voltage[i] - current) * decay
+            if voltage[i] >= v_th:
+                spikes.append((t_us, i))
+                voltage[i] = v_reset
+                ref[i] = refractory_us
+    early = [(t, nid) for t, nid in spikes if t < 21400]
+    burst = [(t, nid) for t, nid in spikes if 21400 <= t < 25600]
+    used = set()
+    last = {}
+    picked = []
+
+    def take(pool, want, label_times=None):
+        if not pool:
+            return
+        chosen_idx = set()
+        if label_times:
+            for target in label_times:
+                best = None
+                for idx, (t, nid) in enumerate(pool):
+                    if idx in chosen_idx or nid in used:
+                        continue
+                    if nid in last and t - last[nid] < 1000:
+                        continue
+                    if best is None or abs(t - target) < abs(best[0] - target):
+                        best = (t, nid, idx)
+                if best is not None:
+                    t, nid, idx = best
+                    picked.append((t, nid))
+                    used.add(nid)
+                    last[nid] = t
+                    chosen_idx.add(idx)
+        stride = max(1, len(pool) // max(want, 1))
+        for idx in range(0, len(pool), stride):
+            group = [1 for tt, _ in picked if (tt < 21400) == (pool[0][0] < 21400)]
+            if len(group) >= want:
+                break
+            t, nid = pool[idx]
+            if nid in used:
+                continue
+            if nid in last and t - last[nid] < 1000:
+                continue
+            picked.append((t, nid))
+            used.add(nid)
+            last[nid] = t
+
+    take(early, 7)
+    take(burst, 9, label_times=(22400, 23200, 24400))
+    clamp = [(t, nid) for t, nid in picked if t < 21400][:7]
+    tear = [(t, nid) for t, nid in picked if t >= 21400][:9]
+    picked = sorted(clamp + tear, key=lambda item: (item[0], item[1]))
+    if len(picked) < 8:
+        raise ValueError(
+            f"LIF excerpt too short {len(picked)} (early={len(early)} burst={len(burst)})"
+        )
+    channels = ["lif.clamp" if t < 21400 else "lif.tear" for t, _ in picked]
+    lif = OrderedDict(
+        [
+            ("model", "leaky_integrate_and_fire"),
+            ("n", 76),
+            ("dt_us", 100),
+            ("tau_m_ms", 18.5),
+            ("v_rest", 0.0),
+            ("v_reset", 0.0),
+            ("v_th", 1.0),
+            ("r_m", 1.0),
+            ("refractory_us", 1000),
+            ("i_bias", 0.90),
+            ("i_stim_peak", 2.50),
+            ("stim_t_us", [21400, 25600]),
+            ("i_clamp_extra", 0.64),
+            ("clamp_n", 14),
+            ("seed", 76396),
+            (
+                "note",
+                "Population sim scoped to this sidecar. Plant remains designed. "
+                "Neurons 0-13 carry +0.64 cathode-clamp bias; stim 21.4-25.6 ms is the "
+                "cation-exchange membrane tear.",
+            ),
+        ]
+    )
+    extra = OrderedDict(
+        [
+            ("excerpt_source", "independent_lif"),
+            ("sim_scope", "sidecar_only"),
+            ("lif", lif),
+            ("abort_s", 900),
+            ("delayed_surprise_s", 900),
+        ]
+    )
+    return excerpt_items(picked, channels), extra
+
+
+def record_396():
+    excerpt, extra = lif_396_excerpt()
+    ticks = [
+        tick(2520, 0.05, -0.02, -0.02, 0.01, 0.00),
+        tick(6280, 0.07, -0.04, -0.03, 0.01, -0.01),
+        tick(6496, 0.04, -0.03, -0.02, 0.00, 0.00),
+        tick(7160, 0.08, -0.06, -0.03, 0.02, -0.02),
+        tick(22400, 0.06, -0.38, -0.04, -0.02, -0.02),
+        tick(900000000, 0.02, -0.05, -0.02, 0.00, -0.01),
+    ]
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Lead-cadmium cathodes on Adipo-Mire AM-4 / EHD-Cell C-3 show a 78.4 C "
+                "hotspot over the 74.0 C trip even though the cathode bus still prints a legal "
+                "16.8 kA. Binding the sheath TC first cuts current; binding the bus first "
+                "would ride the cruise. Membrane strain stays invisible to both contenders "
+                "until the AE dump.",
+            ),
+            ("domain", "adiponitrile-ehd-cell"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Finish the AM-4 acrylonitrile pass, keep cell hotspot <= 74.0 C, and leave "
+                "the cation-exchange membrane unmarked.",
+            ),
+            ("t0_us", 1756850400000396),
+            ("gate_latency_us", 880),
+            ("race_window_us", 400),
+            ("race_window_rel_ms", [6.28, 6.68]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "tc.cell.C 78.4 C pulse",
+                                "ft.ka.cath 16.8 kA cruise",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Hotspot-first latches cathode 16.8 -> 11.4 kA; bus-first keeps "
+                            "cruise on a still-cooling cell model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "400 us = one 2 kHz cell-TC sample minus cathode-bus group delay on "
+                            "this adiponitrile EHD bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 216 us vs combined jitter ~66 us (cell 30 + bus 36): 3.3x over "
+                            "a 2.0x trust floor. Reversing order by < 216 us inside the 400 us "
+                            "window would have kept 16.8 kA; predicted next-sample 76.2 C > 74 cap.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "cell hotspot TC, 2 kHz, 30 us timestamp jitter",
+                    "cathode-bus FT, 1 kHz, 36 us jitter",
+                    "membrane AE puck (context until the tear)",
+                    "acrylonitrile-feed FT (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("hotspot_cap_C", 74.0),
+                        ("observed_cell_C", 78.4),
+                        ("proposed_ka", 16.8),
+                        ("an_tph", 5.4),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. EHD-Cell C-3 indexed on Adipo-Mire AM-4; cathode armed at 16.8 kA.",
+                    "2. Cruise 16.8 kA; hotspot 78.4 C against 74.0 C cap.",
+                    "3. Bus precursor at 1.260 ms; cell warm-start 78.4 C.",
+                    "4. Race window [6.280, 6.680] ms opens on the EHD bus.",
+                    "5. tc.cell.C 78.4 C at 6.280 ms (winner).",
+                    "6. ft.ka.cath 16.8 at 6.496 ms (loser by 216 us).",
+                    "7. Gate at 7.160 ms (winner + 880 us): MODIFY clamp 16.8 -> 11.4 kA.",
+                    "8. Clamp executes; next-sample hotspot 72.1 C < 74 cap.",
+                    "9. At 22.400 ms stored strain still tears an 18 mm membrane patch; AE burst.",
+                    "10. Cell isolate 15 min (abort_s=900); named un-netted loss, not folded into process heads.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_ka_168"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("cathode_kA", 16.8),
+                        ("an_tph", 5.4),
+                        ("catholyte_C", 42.0),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("cell_C", 78.4),
+                        ("hotspot_cap_C", 74.0),
+                        ("predicted_unclamped_next_C", 76.2),
+                        ("cathode_kA", 16.8),
+                        ("race_margin_us", 216),
+                        ("combined_jitter_us", 66),
+                        ("abort_s", 900),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 16.8 kA cruise: 78.4 C looks like a catholyte spike, not "
+                "a hotspot, and C-3 volume is treated as still open.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Hotspot 78.4 C won by 216 us, so the cell is loading heat, not still cooling. "
+                "Holding 16.8 kA predicts next-sample 76.2 C > 74 cap. MODIFY: cathode 16.8 -> "
+                "11.4 kA. Observed after clamp 72.1 C < 74. A full REJECT is not indicated: "
+                "a sound acrylonitrile pass accepts 11.4 kA.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "cell_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 74.0),
+                                    ("observed", 78.4),
+                                    ("predicted_unclamped_next", 76.2),
+                                    ("clamped_kA", 11.4),
+                                    ("observed_after_clamp", 72.1),
+                                ]
+                            ),
+                        ),
+                        (
+                            "cathode_kA",
+                            OrderedDict([("proposed", 16.8), ("clamped", 11.4)]),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 216),
+                                    ("combined_jitter_us", 66),
+                                    ("ratio", 3.27),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_ka_114"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("cathode_kA", 11.4),
+                        ("an_tph", 5.4),
+                        ("catholyte_C", 42.0),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: cathode 16.8 -> 11.4 kA. Process-correct vs the 74.0 C hotspot cap. "
+                "Cation-exchange membrane still tears at 22.400 ms.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Process-correct MODIFY held hotspot at 72.1 C. At 22.400 ms stored strain "
+                "in the cation-exchange membrane still tore an 18 mm patch. Clamp reduced dump "
+                "energy; it did not prevent the tear. Partnered negative: process heads stay "
+                "honest; world loss is named, not netted.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("cathode", "clamp executed; peak 72.1 C < 74"),
+                        ("membrane", "18 mm tear at 22.400 ms"),
+                        ("repair", "15 min cell isolate (abort_s=900)"),
+                        ("mission", "AM-4 acrylonitrile pass incomplete this circuit"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Neither cell TC nor cathode FT predicted the membrane charge; ae.memb.tear is a new channel at 22.400 ms, 15.240 ms after the gate, still inside the 42 ms raster.",
+                    "Delayed (abort_s=900): 15 min cell isolate. Named un-netted loss, not folded into task_progress.",
+                ],
+            ),
+            (
+                "un_netted_loss",
+                "15 min cell isolate after an 18 mm cation-exchange membrane tear. Safety head "
+                "-0.58 prices the split; task_progress stays +0.32 because the cathode clamp "
+                "completed under the 74.0 C cap. World loss is named here, not subtracted from "
+                "process heads.",
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "tc.cell.C (6.280 ms, 78.4 C)"),
+                        ("loser", "ft.ka.cath (6.496 ms, 16.8 kA)"),
+                        ("margin_us", 216),
+                        (
+                            "counterfactual_if_reversed",
+                            "Bus-first by < 216 us inside the 400 us window would have kept "
+                            "16.8 kA cruise; predicted next-sample 76.2 C would have exceeded "
+                            "the 74 cap even without the membrane charge. The MODIFY is still the "
+                            "correct process. The tear is a later world charge either way, "
+                            "cheaper with the clamp than without.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 22400),
+            (
+                "reward_inflection_note",
+                "Safety collapses at the 22.400 ms membrane tear (tick t_us=22400), inside "
+                "the 42 ms raster. The correct MODIFY at 7.160 ms is in the same excerpt. Do "
+                "not put inflection on the abort_s=900 isolate tick.",
+            ),
+            ("delayed_surprise_s", 900.0),
+            ("abort_s", 900),
+        ]
+    )
+    spikes = [
+        spike("enc.ka.ctx", 1.260, 0.42),
+        spike("tc.cell.C", 2.520, 0.61),
+        spike("ft.ka.cath", 3.840, 0.50),
+        spike("tc.cell.C", 6.280, 1.32),
+        spike("ft.ka.cath", 6.496, 1.14),
+        spike("ctrl.gate", 7.160, 0.98),
+        spike("tc.cell.C", 8.620, 0.80),
+        spike("ft.ka.cath", 11.400, 0.62),
+        spike("ctrl.gate", 15.080, 0.84),
+        spike("ae.memb.tear", 22.400, 1.46),
+        spike("ae.memb.tear", 24.210, 0.91),
+        spike("enc.ka.ctx", 31.400, 0.41),
+        spike("tc.cell.C", 38.200, 0.53),
+    ]
+    ras = raster_core(
+        42,
+        76,
+        26,
+        83,
+        routing(
+            "thalamic-relay.ehd-hotspot",
+            "spikenaut.policy.ka-clamp",
+            [
+                ("relay.tc.cell", "policy.ka_clamp", 0.66),
+                ("relay.ft.ka", "policy.ka_hold", 0.30),
+                ("relay.ae.memb", "policy.ka_clamp", -0.45),
+            ],
+            "noradrenaline",
+            0.05,
+            "surprise-gated pre_post_stdp; NA at hotspot win (6.280 ms) opens a 50 ms "
+            "eligibility trace that still covers the 22.400 ms membrane tear",
+        ),
+        excerpt,
+        extra=extra,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.40),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("ka_clamp", 40, 0.50, 250.0, 4),
+                    pop("ka_hold", 40, 0.50, 62.5, 1),
+                    pop("memb_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r76-396"),
+            (
+                "title",
+                "Adipo-Mire AM-4 / EHD-Cell C-3: hotspot 78.4 C beats cathode-bus by 216 us; "
+                "correct MODIFY still eats an in-window membrane tear (partnered negative "
+                "total -0.46)",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Partnered negative. Process-correct MODIFY; world still charges inside the "
+                    "42 ms raster. total -0.46 = 0.32 + -0.58 + -0.16 + 0.02 + -0.06. Named cell "
+                    "isolate (abort_s=900) is not netted into task_progress.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "adiponitrile-ehd-cell",
+                    [
+                        "modify",
+                        "partnered-negative-total",
+                        "independent-lif-raster",
+                        "sidecar-sim-only",
+                        "in-window-world-charge",
+                        "designed",
+                    ],
+                    "A critic can see the world-charge as a LIF burst inside the raster while "
+                    "process heads stay honest. Credit assignment is spikes, not prose across a "
+                    "15 min cell isolate.",
+                    1,
+                ),
+            ),
+        ]
+    )
+
+
+def record_397():
+    ticks = [
+        tick(1760, -0.02, -0.01, -0.02, -0.01, 0.01),
+        tick(4180, -0.04, -0.02, -0.04, -0.02, 0.01),
+        tick(4332, -0.03, -0.01, -0.03, -0.02, 0.01),
+        tick(4920, -0.07, -0.04, -0.09, -0.05, 0.02),
+        tick(6410, -0.02, -0.01, -0.02, -0.01, 0.01),
+        tick(1320000000, -0.02, -0.01, -0.02, -0.01, 0.00),
+    ]
+    spikes = [
+        spike("dp.feed.ctx", 0.880, 0.40),
+        spike("pt.live.bar", 1.760, 0.58),
+        spike("ma.namur.fh", 2.520, 0.51),
+        spike("pt.live.bar", 4.180, 1.32),
+        spike("ma.namur.fh", 4.332, 1.15),
+        spike("ctrl.gate", 4.920, 1.00),
+        spike("pt.live.bar", 6.410, 0.74),
+        spike("ma.namur.fh", 8.100, 0.61),
+        spike("ctrl.gate", 12.000, 0.82),
+        spike("dp.feed.ctx", 16.200, 0.42),
+        spike("pt.live.bar", 20.600, 0.53),
+        spike("ma.namur.fh", 23.200, 0.47),
+    ]
+    excerpt = independent_excerpt(76397, 92, 24000, 14, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Etherate-Foss EF-6 / Splitter SP-2 wants 3.1 t/h MTBE distillate. The live "
+                "kettle PT sits at 3.40 bar under a 6.20 bar cap on a valid 9.44 mA loop. The "
+                "same transmitter also shouts NAMUR NE43 fail-high at 21.6 mA. Binding the live "
+                "bar first should pass the feed; binding the fail-high milliamp first tempts a "
+                "hold of a legal splitter.",
+            ),
+            ("domain", "mtbe-reactive-splitter"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Execute the 3.1 t/h MTBE distillate while live kettle stays <= 6.20 bar; do "
+                "not spend a NAMUR NE43 fail-high diagnostic as if it were the live PV.",
+            ),
+            ("t0_us", 1756850400000397),
+            ("gate_latency_us", 740),
+            ("race_window_us", 320),
+            ("race_window_rel_ms", [4.12, 4.44]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "pt.live.bar 3.40 bar valid 9.44 mA",
+                                "ma.namur.fh 21.6 mA NE43 fail-high",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Live-first should ACCEPT 3.1 t/h (3.40 bar < 6.20 bar cap). "
+                            "Fail-high-first tempts a weak supervisor to treat 21.6 mA as a "
+                            "forward-scaled 11.00 bar live PV.",
+                        ),
+                        (
+                            "window_derivation",
+                            "320 us = one live-PT sample minus NAMUR diagnostic group delay on "
+                            "this reactive-splitter HART bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 152 us vs combined jitter ~54 us (live 24 + namur 30): 2.8x over "
+                            "a 2.0x trust floor. Order is correctly live-first. The error is which "
+                            "quantity the REJECT is bound to, not the race.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "kettle PT, 4 kHz, 24 us jitter, 4-20 mA 0-10 bar",
+                    "NAMUR NE43 diagnostic current, 4 kHz, 30 us jitter",
+                    "feed differential pressure (context)",
+                    "reflux flow (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("live_cap_bar", 6.20),
+                        ("live_bar", 3.40),
+                        ("live_mA", 9.44),
+                        ("namur_mA", 21.6),
+                        ("namur_fail_high_floor_mA", 21.0),
+                        ("namur_status", "NE43_FAIL_HIGH"),
+                        ("forward_shadow_bar", 11.00),
+                        ("proposed_feed_tph", 3.1),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. SP-2 reactive splitter latched; distillate 3.1 t/h armed on EF-6.",
+                    "2. Live kettle 3.40 bar on valid 9.44 mA; NAMUR NE43 fail-high 21.6 mA (>= 21.0 floor).",
+                    "3. Feed-dp precursor at 0.880 ms.",
+                    "4. Race window [4.120, 4.440] ms.",
+                    "5. pt.live.bar 3.40 bar at 4.180 ms (winner).",
+                    "6. ma.namur.fh 21.6 mA at 4.332 ms (loser by 152 us).",
+                    "7. Gate at 4.920 ms: REJECT hold 0.00 t/h (incorrect).",
+                    "8. Legal distillate cancelled; live kettle still 3.40 bar < 6.20 cap.",
+                    "9. 21.6 mA remains a NAMUR fail-high diagnostic, not a live PV.",
+                    "10. Delayed missed_window_s=1320 (22 min etherification window) while SP-2 waits.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "feed_31"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("feed_tph", 3.1),
+                        ("hold", False),
+                        ("namur_status", "NE43_FAIL_HIGH"),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("live_bar", 3.40),
+                        ("live_cap_bar", 6.20),
+                        ("live_mA", 9.44),
+                        ("namur_mA", 21.6),
+                        ("namur_status", "NE43_FAIL_HIGH"),
+                        ("namur_fail_high_floor_mA", 21.0),
+                        ("fail_high_is_pv", False),
+                        ("forward_shadow_bar", 11.00),
+                        ("proposed_feed_tph", 3.1),
+                        ("race_margin_us", 152),
+                        ("combined_jitter_us", 54),
+                        ("missed_window_s", 1320),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 3.1 t/h MTBE distillate because live kettle 3.40 bar on "
+                "valid 9.44 mA is under the 6.20 bar cap; 21.6 mA is a NAMUR NE43 fail-high "
+                "diagnostic, not the live PV.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "incorrect"),
+            (
+                "rationale",
+                "NAMUR fail-high 21.6 mA looks like 11.00 bar once the supervisor forward-scales "
+                "the diagnostic as a 4-20 mA PV over a 6.20 bar cap. Live-first 3.40 bar is "
+                "treated as a noisy echo of the same transmitter. Over-caution on a fail-high "
+                "flag is the stated doctrine.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "live_bar",
+                            OrderedDict(
+                                [
+                                    ("cap", 6.20),
+                                    ("observed", 3.40),
+                                    ("executed_feed_tph", 0.0),
+                                    ("live_mA", 9.44),
+                                ]
+                            ),
+                        ),
+                        (
+                            "namur_fail_high",
+                            OrderedDict(
+                                [
+                                    ("observed_mA", 21.6),
+                                    ("misbound_as", "live_pv"),
+                                    ("status", "NE43_FAIL_HIGH"),
+                                    ("forward_shadow_bar", 11.00),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 152),
+                                    ("combined_jitter_us", 54),
+                                    ("ratio", 2.81),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "mtbe_hold_wrong_namur"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("feed_tph", 0.0),
+                        ("hold", True),
+                        ("namur_status", "NE43_FAIL_HIGH"),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT (incorrect): feed 3.1 -> 0.00 t/h. Routing relay.namur.fh -> "
+                "policy.mtbe_hold; live 3.40 bar left unused as a go signal.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Wrong-REJECT held SP-2 at 0.00 t/h. Live kettle 3.40 bar on valid 9.44 mA was "
+                "under the 6.20 bar cap; 21.6 mA was a NAMUR NE43 fail-high diagnostic, not live. "
+                "22 min etherification window missed (missed_window_s=1320). Correct gate was "
+                "ACCEPT of the 3.1 t/h distillate.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("splitter", "held; feed 0.00 t/h; live kettle still 3.40 bar < 6.20"),
+                        ("namur", "21.6 mA unused, still NE43_FAIL_HIGH not a live PV"),
+                        ("deck", "22 min etherification window missed"),
+                        ("mission", "distillate deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Live-first was the correct order and the live number was legal; the REJECT spent that win on a NAMUR fail-high diagnostic.",
+                    "Delayed (missed_window_s=1320): EF-6 loses the 22 min etherification window; next window 6.1 h.",
+                ],
+            ),
+            (
+                "recovery",
+                OrderedDict(
+                    [
+                        (
+                            "correct_gate",
+                            "ACCEPT the 3.1 t/h MTBE distillate; leave 21.6 mA NAMUR NE43 fail-high as a diagnostic, not a PV.",
+                        ),
+                        ("correct_status", "NE43_FAIL_HIGH_not_pv"),
+                        ("wrong_status", "NE43_FAIL_HIGH_as_pv"),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict([("feed_tph", 0.0), ("hold", True)]),
+                        ),
+                        (
+                            "cost",
+                            "Missed 22 min etherification window (task/efficiency); live kettle never exceeded 3.40 bar (safety near-miss of a false hold).",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "pt.live.bar (4.180 ms, 3.40 bar valid 9.44 mA)"),
+                        ("loser", "ma.namur.fh (4.332 ms, 21.6 mA NE43 fail-high)"),
+                        ("margin_us", 152),
+                        (
+                            "counterfactual_if_reversed",
+                            "Fail-high-first by < 152 us would still be a NAMUR diagnostic, not "
+                            "live 11.00 bar; a correct gate binds pt.live.bar to mtbe_go either "
+                            "way. The wrong REJECT spent the live win on the fail-high current.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 4920),
+            (
+                "reward_inflection_note",
+                "Task, efficiency, and coherence drop at the wrong REJECT (4.920 ms, tick 4). "
+                "The 22 min missed window is delayed surprise, not the inflection.",
+            ),
+            ("delayed_surprise_s", 1320.0),
+            ("missed_window_s", 1320),
+        ]
+    )
+    ras = raster_core(
+        24,
+        92,
+        34,
+        75,
+        routing(
+            "relay.namur.fh",
+            "policy.mtbe_hold",
+            [
+                ("relay.namur.fh", "policy.mtbe_hold", 0.74),
+                ("relay.live.bar", "policy.mtbe_hold", 0.18),
+            ],
+            "acetylcholine",
+            0.06,
+            "namur_cap_stdp; ACh tags the (wrong) mtbe_hold bind at the NE43 fail-high current",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("missed_window_s", 1320),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.32),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("mtbe_hold", 48, 0.50, 260.4, 4),
+                    pop("mtbe_go", 48, 0.80, 6.5, 0),
+                    pop("namur_ctx", 32, 0.55, 97.7, 1),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r76-397"),
+            (
+                "title",
+                "WRONG-REJECT at Etherate-Foss EF-6 / Splitter SP-2: live kettle 3.40 bar on "
+                "valid 9.44 mA < 6.20 bar cap; supervisor treats NAMUR NE43 fail-high 21.6 mA "
+                "as live PV",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Wrong-reject. Sidecar arithmetic 3.40 < 6.20 on live valid mA is true; REJECT "
+                    "bound to NAMUR NE43 fail-high. total -0.58 = -0.20 + -0.10 + -0.22 + -0.12 + 0.06.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "mtbe-reactive-splitter",
+                    [
+                        "reject",
+                        "wrong-gate",
+                        "namur-ne43-fail-high-as-live",
+                        "sidecar-convictable",
+                        "designed",
+                    ],
+                    "Teaches a probe that a correct live-first race can still be a wrong gate "
+                    "when the REJECT binds a NAMUR NE43 fail-high diagnostic as if it were the "
+                    "live PV. Convictable from namur_status and caps without MTBE physics.",
+                    2,
+                    supervisor_error_type="wrong-reject",
+                ),
+            ),
+        ]
+    )

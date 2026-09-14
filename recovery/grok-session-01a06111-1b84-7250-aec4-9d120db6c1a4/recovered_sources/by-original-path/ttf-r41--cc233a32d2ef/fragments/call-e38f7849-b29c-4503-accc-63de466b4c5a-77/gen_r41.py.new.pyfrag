@@ -1,0 +1,32 @@
+    spikes = [
+        spike("pt.anvil.ctx", 1.380, 0.43),
+        spike("tc.pin.root", 2.680, 0.62),
+        spike("ir.bar.glint", 4.180, 0.49),
+        spike("tc.pin.root", 5.760, 1.35),
+        spike("ir.bar.glint", 5.931, 1.12),
+        spike("ctrl.gate", 6.860, 1.03),
+        spike("tc.pin.root", 9.020, 0.77),
+        spike("pt.anvil.ctx", 13.200, 0.44),
+        spike("ir.bar.glint", 17.100, 0.58),
+        spike("ctrl.gate", 23.400, 0.81),
+        spike("tc.pin.root", 30.000, 0.54),
+        spike("pt.anvil.ctx", 36.600, 0.38),
+        spike("ir.bar.glint", 39.100, 0.46),
+    ]
+    excerpt = independent_excerpt(41223, 104, 40000, 15, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Pin-Quill PQ-6 on the Stir-Horn SH-3 hardware-in-the-loop platen is mid-plunge "
+                "when tool-root TC prints 412 C over a 380 C stir cap. Backing-bar IR, washed by "
+                "the pad lamp, still claims 298 C. Root-first locks a hold; bar-first would keep "
+                "plunging into an over-hot tool.",
+            ),
+            ("domain", "friction-stir-weld"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Do not continue plunge unless pin-root TC stays <= 380 C; keep plunge 0.0 mm/s "
+                "until the injected hot-tool packet drops.",
+            ),

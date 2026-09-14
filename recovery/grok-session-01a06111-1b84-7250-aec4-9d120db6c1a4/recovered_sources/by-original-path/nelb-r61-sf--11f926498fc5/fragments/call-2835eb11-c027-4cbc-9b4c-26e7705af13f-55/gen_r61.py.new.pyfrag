@@ -1,0 +1,25 @@
+        ev(13800000.0, "takt.late", 1.0, code="SURVEY_COST", units="bool"),
+        ev(14400000.0, "s4.held", 1.0, code="S4_HELD", units="bool"),
+    ]
+    events.extend(
+        [
+            ev(1500000.0, "rad.df", 24.00, code="DF_KHZ", units="kHz", note="0.250*24.00=6.00 exact; still under the 10.00 isolate floor"),
+            ev(1500001.5, "rad.snr", 14.5, code="RAD_SNR", units="1", note="1.5 ms SNR after df 24.00 kHz"),
+            ev(1650000.0, "recon.L", 6.00, code="L_M", units="m", note="0.250*24.00=6.00 exact"),
+            ev(2250000.0, "rangveil.L", 4.80, code="VENDOR_M", units="m"),
+            ev(2550000.0, "recon.S", 4.00, code="S_KHZ_M", units="kHz_m", note="24.00/6.00=4.00 exact sweep identity"),
+            ev(3450000.0, "still.id", 4.0, code="STILL", units="id"),
+            ev(3750000.0, "rad.snr", 16.2, code="RAD_SNR", units="1"),
+            ev(4500000.0, "s13.present", 1.0, code="S13_PRESENT", units="bool"),
+            ev(5100000.0, "rad.df", 48.00, code="DF_KHZ", units="kHz", note="in-band confirm while ops argues skip"),
+            ev(5700000.0, "recon.L", 12.00, code="L_M", units="m", note="0.250*48.00=12.00 held at the ACCEPT"),
+            ev(6300000.0, "rangveil.L", 4.80, code="VENDOR_M", units="m"),
+            ev(7500000.0, "rad.snr", 16.0, code="RAD_SNR", units="1"),
+            ev(8100000.0, "surv.held", 1.0, code="SURV_HELD", units="bool", note="survey floor complete; skip still refused"),
+            ev(8700000.0, "still.id", 4.0, code="STILL", units="id"),
+            ev(9300000.0, "recon.S", 4.00, code="S_KHZ_M", units="kHz_m", note="40.00/10.00=4.00 identity on the post-accept frame"),
+            ev(11100000.0, "still.survey", 1.0, code="S13_IN_SURVEY", units="bool"),
+        ]
+    )
+    events.sort(key=lambda e: (e["t_rel_ms"], e["channel"]))
+    assert_stream(events)

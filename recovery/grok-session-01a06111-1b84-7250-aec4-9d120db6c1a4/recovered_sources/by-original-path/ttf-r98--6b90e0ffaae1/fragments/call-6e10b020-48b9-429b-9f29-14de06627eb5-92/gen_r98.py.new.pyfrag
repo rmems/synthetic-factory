@@ -1,0 +1,1 @@
+| ttf-r98-507 | methyl-isobutyl-ketone-still | REJECT | **incorrect (wrong-reject / watchdog-timeout-as-PV)** | designed | −0.58 | live kettle 2.80 bar valid 8.48 mA < 6.40 cap; supervisor treats PLC watchdog-timeout freeze 7.10 bar as PV |

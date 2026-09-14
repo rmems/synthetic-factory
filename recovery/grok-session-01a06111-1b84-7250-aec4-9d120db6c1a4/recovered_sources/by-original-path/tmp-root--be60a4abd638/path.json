@@ -1,0 +1,52 @@
+{
+  "agent_ids": [
+    "01a06408-8cc9-70f2-9a41-b1cb3fae18a4"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "ffpc-r15-build-session-a.py",
+  "original_path": "/tmp/ffpc-r15-build-session-a.py",
+  "path_key": "tmp-root--be60a4abd638",
+  "terminal_event_ids": [
+    "01a06408-8cc9-70f2-9a41-b1cb3fae18a4:call-77af0518-2991-4e38-8f03-a0f6a7d97962-48"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06408-8cc9-70f2-9a41-b1cb3fae18a4",
+      "basename_preserved": true,
+      "bytes": 46341,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 260,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06408-8cc9-70f2-9a41-b1cb3fae18a4/updates.jsonl",
+      "original_basename": "ffpc-r15-build-session-a.py",
+      "original_path": "/tmp/ffpc-r15-build-session-a.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--be60a4abd638/versions/v0001/ffpc-r15-build-session-a.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/tmp-root--be60a4abd638/versions/v0001/ffpc-r15-build-session-a.py",
+      "session_id": "01a06408-8cc9-70f2-9a41-b1cb3fae18a4",
+      "sha256": "781ef55fa3a408a7ead4ac0cdb583c43c06f7143a279ee569ab2ec17db828043",
+      "source_channel": "structured",
+      "source_event_id": "01a06408-8cc9-70f2-9a41-b1cb3fae18a4:call-e38a6aa8-a4ab-4cab-8a2c-bd2101b45caf-47",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788386267109,
+      "timestamp_utc": "2026-09-02T21:57:47.109Z",
+      "tool_call_id": "call-e38a6aa8-a4ab-4cab-8a2c-bd2101b45caf-47",
+      "version": 1,
+      "version_id": "tmp-root--be60a4abd638:v0001"
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+                [
+                    "nipping-zone specific-press PT, 32 us jitter",
+                    "gap DP smear, 36 us jitter",
+                    "roll-speed encoder (context)",
+                    "feed-rate FT (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("press_cap_N_mm2", 5.80),
+                        ("observed_press_N_mm2", 4.20),
+                        ("gap_floor_mm", 14.0),
+                        ("proposed_gap_mm", 18.0),
+                    ]
+                ),
+            ),
+            (
+                "simulation",
+                OrderedDict(
+                    [
+                        (
+                            "solver",
+                            "1D HPGR nipping-zone + particle-bed compression kernel, seed 56; 12 axial nodes; NOT lumped tank, NOT a fluid-LES field",
+                        ),
+                        (
+                            "fidelity_limits",
+                            "No roll-skew or cheek-plate leak; beds are rigid pressure sources. Raster is kernelized events, not an independent LIF.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Rollgap-Knap HPGR indexed; HP-5 nipping 620 t/h at 4.20 N/mm2 / 18.0 mm.",
+                    "2. Caps: press 5.80 N/mm2, gap floor 14.0 mm; both proposed values inside.",
+                    "3. Feed precursor at 1.360 ms.",
+                    "4. Race window [5.880, 6.220] ms.",
+                    "5. Specific-press PT 4.20 N/mm2 at 5.880 ms (winner).",
+                    "6. Gap DP smear at 6.090 ms (loser by 210 us).",
+                    "7. Gate at 6.740 ms: ACCEPT 18.0 mm / 4.20 N/mm2 already legal.",
+                    "8. Pass continues; no extra hold.",
+                    "9. 9 min survey confirms nipping-zone draft still in spec.",
+                    "10. QA: ACCEPT params identical to proposed.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "hpgr_18mm_thold"),
+            ("parameters", params),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("press_N_mm2", 4.20),
+                        ("press_cap_N_mm2", 5.80),
+                        ("gap_mm", 18.0),
+                        ("gap_floor_mm", 14.0),
+                        ("race_margin_us", 210),
+                        ("combined_jitter_us", 68),
+                        ("t_gate_us", 6740),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 18.0 mm because specific press 4.20 N/mm2 is 1.60 under the 5.80 cap "
+                "and gap is 4.0 mm over the 14.0 mm floor.",
+            ),
+        ]
+    )

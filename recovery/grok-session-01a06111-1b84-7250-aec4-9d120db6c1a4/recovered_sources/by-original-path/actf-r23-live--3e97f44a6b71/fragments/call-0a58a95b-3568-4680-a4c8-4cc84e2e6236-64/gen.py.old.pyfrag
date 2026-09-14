@@ -1,0 +1,3 @@
+ID1 = "act-r23-mail-addr-quote-gadwalladdr-c4e91a"
+ID2 = "act-r23-redirect-auth-header-willetauth-e6b204"
+PLANT_TOKENS = ("gadwalladdr", "gadwallfen", "willetauth", "willetfen")

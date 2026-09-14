@@ -1,0 +1,309 @@
+# Record 137 — ACFM crack depth of a jacket node coupon, hil,
+# REJECT / MODIFY
+# ---------------------------------------------------------------------------
+def rec_137():
+    k_ac = 8.00
+    bz_mt = 6.00
+    bx_mt = 4.00
+    a_mm = k_ac * bz_mt / bx_mt
+    _exact(a_mm, 12.00)
+    _exact(k_ac * 2.00 / bx_mt, 4.00)
+    _exact(k_ac * 4.00 / bx_mt, 8.00)
+    _exact(k_ac * 3.00 / bx_mt, 6.00)
+    r_bz = bz_mt / bx_mt
+    _exact(r_bz, 1.50)
+    _exact(k_ac * r_bz, 12.00)
+    _exact(1500.0 + 1440.0, 2940.0)
+
+    raster = make_raster(
+        neurons=25,
+        mean_rate_hz=50.0,
+        window_ms=28.0,
+        seed=202645137,
+        source="kj5.acfm.coupon",
+        target="kelpcrag.node_stop_core",
+        table=[
+            {"from": "acfm_Bz", "to": "depth_estimator", "weight": 1.35},
+            {"from": "acfm_Bx", "to": "field_norm_core", "weight": 1.25},
+            {"from": "crackveil_a", "to": "vendor_continue_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "da.crack_depth_error",
+            "tau_e_s": 1.1,
+            "tau_e_ms": 1100.0,
+            "eligibility": "pre-post coincidence on keep-production synapses; the ACFM modulator depresses keep-100 links when Bz stays high inside tau_e of a Bx-norm sample",
+        },
+        channel_prefix="acfm.n",
+        anchor="KJ-5 HIL coupon 28 ms frame at Bz 6.00 mT / Bx 4.00 mT (t_s 600) reconstructing 12.00 mm above the 9.00 mm stop floor",
+    )
+    w_s = 0.028
+    events = [
+        ev(0.0, "acfm.Bz", 2.00, code="BZ_MT", units="mT", note="HIL ACFM coupon in ACFM-HIL-4; plant-owned alternating-current field measurement, not DCPD, not ECA FSW, not EN CUI, not MFL, not PAUT TFM, not TOFD"),
+        ev(30000.0, "acfm.Bx", 4.00, code="BX_MT", units="mT", note="uniform-field Bx; a = k_ac Bz / Bx"),
+        ev(60000.0, "recon.a", 4.00, code="A_MM", units="mm", note="8.00*2.00/4.00=4.00 exact"),
+        ev(180000.0, "prod.P", 118.0, code="PROD_BAR", units="bar", note="export-riser pressure corridor"),
+        ev(240000.0, "crackveil.a", 2.40, code="VENDOR_MM", units="mm", note="Crackveil last-good MPI/UT cloud; the only OEM crack SoT"),
+        ev(360000.0, "acfm.Bz", 4.00, code="BZ_MT", units="mT"),
+        ev(420000.0, "recon.a", 8.00, code="A_MM", units="mm", note="8.00*4.00/4.00=8.00"),
+        ev(480000.0, "acfm.f", 5.00, code="F_KHZ", units="kHz", note="ACFM drive frequency; not a depth license"),
+        ev(600000.0, "acfm.Bz", 6.00, code="BZ_MT", units="mT", note="stop-floor frame; raster sidecar"),
+        ev(600001.2, "acfm.Bx", 4.00, code="BX_MT", units="mT", note="1.2 ms Bx-norm after Bz"),
+        ev(720000.0, "recon.a", 12.00, code="A_MM", units="mm", note="8.00*6.00/4.00=12.00 exact; stop floor 9.00"),
+        ev(780000.0, "node.T", 8.0, code="NODE_C", units="C"),
+        ev(840000.0, "crackveil.a", 3.20, code="VENDOR_MM", units="mm"),
+        ev(960000.0, "acfm.R", 1.50, code="R_BZ", units="1", note="6.00/4.00=1.50"),
+        ev(1020000.0, "recon.chk", 12.00, code="A_MM", units="mm", note="8.00*1.50=12.00 identity"),
+        ev(1080000.0, "ops.prop", 1.0, code="KEEP_100", units="bool", note="night inspector Lyle Harbin: keep-100 production; Crackveil 3.20 mm and node 8 C"),
+        ev(1140000.0, "gate.stop", 1.0, code="REJECT", units="decision", note="stop keep-100; 12.00 mm is above 9.00; Crackveil not SoT"),
+        ev(1200000.0, "prod.hold", 1.00, code="PROD_PU", units="pu", note="production still 1.00 pending companion 0.70"),
+        ev(1500000.0, "cool.start", 1.0, code="CLAMP_START", units="bool", note="bookend 1 of the 24.0 min clamp-hold floor"),
+        ev(1800000.0, "node.T", 7.0, code="NODE_C", units="C"),
+        ev(2940000.0, "cool.floor", 1.0, code="CLAMP_FLOOR", units="bool", note="1500 s + 1440 s = 2940 s = 24.0 min"),
+        ev(3600000.0, "ops.shut", 1.0, code="PLATFORM_SHUTIN", units="bool", note="Harbin: shut in the platform until day-shift"),
+        ev(4200000.0, "gate.hold", 1.0, code="MODIFY", units="decision", note="companion t2: isolate node N-7; production 0.70; platform shut-in refused"),
+        ev(4500000.0, "prod.set", 0.70, code="PROD_PU", units="pu"),
+        ev(4800000.0, "acfm.Bz", 3.00, code="BZ_MT", units="mT"),
+        ev(5100000.0, "recon.a", 6.00, code="A_MM", units="mm", note="8.00*3.00/4.00=6.00; below 9.00 after isolate arming but 0.70 still holds until a new frame"),
+        ev(5400000.0, "crackveil.a", 3.00, code="VENDOR_MM", units="mm"),
+        ev(5700000.0, "node.T", 6.0, code="NODE_C", units="C"),
+        ev(6000000.0, "prod.held", 0.70, code="PROD_HELD", units="pu"),
+        ev(6300000.0, "plat.esd", 0.0, code="SHUTIN_NOT_TAKEN", units="bool"),
+        ev(6600000.0, "recon.chk", 6.00, code="A_MM", units="mm", note="8.00*(3.00/4.00)=6.00"),
+        ev(6900000.0, "prod.held", 0.70, code="PROD_HELD", units="pu"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r45-137-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "KJ-ACFM-2026-0723",
+            "domain": "acfm_jacket_node_crack",
+            "setting": "Kelpcrag Jacket KJ-5 (invented), splash-zone node N-7. Hardware-in-the-loop ACFM coupon in ACFM-HIL-4 supplies the Bz/Bx ratio that times the in-service keep-100 stop. Plant-owned alternating-current field measurement. Crackveil vendor last-good MPI/UT cloud is the only OEM crack SoT. Not DCPD steam-drum girth (r38), not eddy-current array FSW lift-off (r21), not electrochemical-noise CUI (r23), not MFL (r27/r28), not PAUT TFM (r23), not TOFD girth (r44).",
+            "observables_at_decision": {
+                "Bz_mT": 6.00,
+                "Bx_mT": 4.00,
+                "a_mm": 12.00,
+                "k_ac": 8.00,
+                "crackveil_mm": 3.20,
+                "node_C": 8.0,
+                "stop_floor_mm": 9.00,
+                "R_Bz": 1.50,
+            },
+            "margin_authority": "KJ-5 ACFM SOP rev A: if reconstructed a_mm >= 9.00, refuse keep-100 production on this jacket. A vendor MPI last-good or a quiet node temperature cannot keep-100. Platform shut-in is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night inspector Lyle Harbin, citing Crackveil 3.20 mm and node 8 C under the 12 C alarm",
+            "summary": "keep-100 production through the night; 6.00 mT is lift-off noise on a healthy coupon",
+            "basis_claimed": "Crackveil is mid-range and a night shut-in of a jacket is a restart measured in hours",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Keep-100 production is refused. Serialized reconstruction: a_mm = k_ac * Bz_mT / Bx_mT = 8.00 * 6.00 / 4.00 = 12.00, above the 9.00 mm stop floor. Identity R = Bz/Bx = 1.50 and a_mm = k_ac * R = 8.00 * 1.50 = 12.00. Crackveil 3.20 mm is a different sensor with a frozen last-good and is not an admissible keep-100 witness. Ordered: refuse keep-100 now. Scope: this REJECT does not shut in the platform (that is the companion question) and does not isolate the export riser.",
+            "threshold": "a_mm>=9.00 => refuse keep-100; Crackveil is not SoT",
+            "stated_residuals": "production 0.70 still required to unload the node; 12.00 mm is a production cut; Crackveil remains the only OEM MPI/UT channel",
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 1140: keep-100 refused; Crackveil not SoT; reconstruction locked",
+            "tool": "kj5-acfm-stop-gate-cli",
+            "observation": "a 12.00 mm recomputes from Bz 6.00 mT and Bx 4.00 mT; HIL coupon hashed; Crackveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 600.0, "event": "ACFM Bz 6.00 mT; raster frame; a 12.00 mm"},
+                {"t_s": 1080.0, "event": "ops proposes keep-100 production"},
+                {"t_s": 1140.0, "event": "REJECT keep-100"},
+                {"t_s": 1500.0, "event": "24 min clamp-hold bookend 1"},
+                {"t_s": 2940.0, "event": "24.0 min floor"},
+                {"t_s": 4200.0, "event": "companion MODIFY isolate N-7 plus production 0.70 vs platform shut-in"},
+            ],
+            "observed_effects": [
+                "crack depth recomputes from the serialized ACFM model at every recon.a event",
+                "a Crackveil-only head would have kept-100 overnight",
+                "24 min clamp-hold floor is in the stream (cool.start, cool.floor)",
+            ],
+            "surprises": [
+                "a mid-range vendor MPI last-good and a quiet node temperature co-existed with a 12.00 mm ACFM reconstruction",
+            ],
+            "new_state": {
+                "kj5_prod_pu": 1.00,
+                "keep_100": "blocked",
+                "crackveil": "not SoT",
+            },
+            "latency_ms": 1860000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("acfm_reconstruction", 0.15),
+                ("stop_floor_refuse", 0.12),
+                ("vendor_mpi_nonsubstitution", 0.10),
+                ("clamp_floor_in_stream", 0.08),
+                ("prod_cut_cost", -0.02),
+            ],
+            "scored for a keep-100 REJECT on a recomputable ACFM crack depth while refusing a vendor MPI dashboard; 24 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "acfm-crack", "serialized-reconstruction", "hil", "operational-companion"],
+            distillation_note="ACFM stop gate: k*Bz/Bx reconstruction beats a green vendor MPI dashboard; companion t2 is isolate plus production 0.70, not a platform shut-in",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r45-137-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "KJ-ACFM-2026-0723-isolate",
+            "domain": "jacket_node_isolate_execution",
+            "setting": "Same KJ-5 after the keep-100 REJECT. Night inspector proposes a platform shut-in that would idle the jacket until day-shift. This companion is the operational N-7 isolate plus production 0.70 hold, not a second Bz vote.",
+            "observables_at_decision": {
+                "prod_pu": 0.70,
+                "a_mm": 6.00,
+                "node_C": 6.0,
+                "proposed": "platform_shutin",
+            },
+        },
+        "proposed_action": {
+            "actor": "night inspector Lyle Harbin",
+            "summary": "shut in the platform until day-shift; 24 min already paid",
+            "basis_claimed": "the REJECT already refused keep-100, so a full shut-in is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Hold production at 0.70 and isolate node N-7 only. Platform shut-in at night is a restart measured in hours and does not unload the node any faster than isolate plus 0.70. MODIFY the shut-in into a 0.70 hold. Do not restore 1.00. Do not convert the hold into a personnel action on Harbin. Post-hold 6.00 mm is under the 9.00 floor after isolate arming, but 0.70 holds until a new live frame clears 9.00 without the HIL coupon.",
+            "threshold": "prod_pu==0.70 AND keep_100_not_restored AND platform_shutin_not_taken AND isolate_N7_only",
+        },
+        "executed_action": {
+            "summary": "production 0.70 at t_s 4200; platform shut-in not latched; keep-100 not restored; N-7 isolate armed",
+            "tool": "kj5-node-isolate-exec",
+            "observation": "a 6.00 mm after hold; node 6 C; Crackveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 1500.0, "event": "clamp-hold clock started after REJECT"},
+                {"t_s": 2940.0, "event": "24.0 min floor; node 7 then 6 C"},
+                {"t_s": 3600.0, "event": "platform shut-in proposed"},
+                {"t_s": 4200.0, "event": "MODIFY isolate N-7 plus production 0.70"},
+            ],
+            "observed_effects": [
+                "platform-shutin restart cost is visible without waiting for a hung start",
+                "hold did not reopen the stop-floor call",
+            ],
+            "new_state": {"prod_pu": 0.70, "keep_100": "blocked", "platform_shutin": "not taken", "n7": "isolate armed"},
+            "latency_ms": 960000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("isolate_node_not_shutin", 0.12),
+                ("prod_0p70", 0.10),
+                ("no_personnel_action", 0.08),
+                ("hold_complete", 0.06),
+                ("held_prod_cost", -0.02),
+            ],
+            "operational execution gate: isolate N-7 plus production 0.70 because Crackveil is not a shut-in license; not a Bz re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "node-isolate"]),
+    }
+    return {
+        "id": "nelb-r45-137",
+        "spike_events": events,
+        "language_view": {
+            "description": "Kelpcrag Jacket KJ-5 HIL coupon. Plant-owned ACFM reconstructs 12.00 mm from 8.00*6.00/4.00 while Crackveil still shows 3.20 mm and node 8 C. The gate REJECTs keep-100. A 24 min clamp-hold floor is serialized in the stream. Companion t2 MODIFYs a platform shut-in into isolate N-7 plus production 0.70.",
+            "trajectory": traj,
+            "trajectory_node_isolate_execution": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "acfm.Bz / acfm.Bx": "ACFM vertical and uniform-field components; the physics channels the reconstruction consumes",
+                "recon.a / recon.chk / acfm.R": "serialized crack depth mm and Bz/Bx identity",
+                "crackveil.a / prod.P / node.T / acfm.f": "vendor last-good, export pressure, node temperature, drive frequency; the denial channels that look healthy",
+                "ops.prop / gate.stop / ops.shut / gate.hold": "keep-100 proposal, REJECT stop, shut-in proposal, companion MODIFY",
+                "prod.hold / cool.start / cool.floor / prod.set / prod.held": "operational companion channels plus the 24 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-shallow while ACFM-deep: crackveil.a 3.20 next to recon.a 12.00",
+                "reconstruction as event: recon.a 12.00 equals 8.00*6.00/4.00",
+                "REJECT then operational MODIFY: gate.stop at 1140 s, gate.hold at 4200 s",
+                "slow floor in-stream: cool.start 1500 s, cool.floor 2940 s (24.0 min)",
+                "tight ACFM pair: acfm.Bz then acfm.Bx +1.2 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Crackveil is 3.20 mm' = crackveil.a 3.20; '12.00 mm crack' = recon.a 12.00; 'refuse keep-100' = gate.stop REJECT; 'isolate N-7 plus 0.70' = gate.hold MODIFY",
+            "why_high_value": "New ACFM family on a splash-zone jacket node (not DCPD r38, not ECA r21, not EN CUI r23, not MFL r27/r28, not PAUT TFM r23, not TOFD r44). Lead REJECT of keep-100 on a recomputable crack depth that a last-good dashboard would have cleared. Companion t2 is operational isolate plus 0.70, not a platform shut-in. sim_or_real=hil.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202645137, "stream_note": "stream amplitudes are authored constants (mT, mm, bar, C, kHz, pu, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "ACFM scan exists at 40 Hz; stream keeps 4 Bz points; recon keeps 4 of ~40 solver ticks",
+                "refractory_floors_ms": {
+                    "acfm.Bz": 1.2,
+                    "acfm.Bx": 1.2,
+                    "recon.a": 60000,
+                    "prod.P": 60000,
+                    "crackveil.a": 60000,
+                    "acfm.f": 60000,
+                    "node.T": 60000,
+                    "acfm.R": 60000,
+                    "recon.chk": 60000,
+                    "ops.prop": 60000,
+                    "gate.stop": 60000,
+                    "prod.hold": 60000,
+                    "cool.start": 60000,
+                    "cool.floor": 60000,
+                    "ops.shut": 60000,
+                    "gate.hold": 60000,
+                    "prod.set": 60000,
+                    "prod.held": 60000,
+                    "plat.esd": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-07-23T21:50:00Z HIL campaign start",
+            },
+            "distillation_targets": [
+                "ACFM reconstruction head: a_mm = k_ac * Bz / Bx; R = Bz/Bx identity",
+                "stop-floor refuse vs keep-100 vs platform shut-in",
+                "vendor-MPI nonsubstitution: a frozen last-good is not a keep-100 witness",
+                "operational companion: isolate N-7 plus production 0.70 rather than a freeze-kill shut-in of the jacket",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "acfm_bz_bx_crack_depth",
+            "formula": "a_mm = k_ac * Bz_mT / Bx_mT; R_Bz = Bz_mT / Bx_mT; a_mm = k_ac * R_Bz",
+            "parameters": {
+                "k_ac": 8.00,
+                "Bx_mT": 4.00,
+                "stop_floor_mm": 9.00,
+                "hold_prod_pu": 0.70,
+                "clamp_min": 24.0,
+            },
+            "worked_example": {"Bz_mT": 6.00, "a_mm": 12.00, "R_Bz": 1.50},
+            "check": "8.00*6.00/4.00 = 12.00 exactly; 6.00/4.00 = 1.50; 8.00*1.50 = 12.00; 1500 s + 1440 s = 2940 s = 24.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 28.0,
+            "decision_window_s": 0.028,
+            "code": "kj5.acfm_stop_gate",
+            "note": "REJECT accumulator wins: ACFM crack-depth evidence overpowers the Crackveil continue advocate",
+            "decode_rule": "reject-stop if depth_estimator AND field_norm fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("depth_estimator", 100, 1.5, 50.0, w_s),
+                gate_pop("field_norm", 40, 1.2, 50.0, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("reject_latch", 80, 1.8, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "kj5.acfm_scorer", "neurons": 100, "mean_rate_hz": 50.0, "window_ms": 28.0},
+                {"check": "kj5.stop_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 40.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r45-137",
+            clock_domain="kj5-acfm-hil-relative-ms-t0-2026-07-23T21:50:00Z",
+            tags=["acfm-crack", "REJECT", "MODIFY", "hil", "operational-t2"],
+        ),
+    }
+
+
+# Record 138 — linear-polarization-resistance corrosion rate of a CW header

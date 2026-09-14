@@ -1,0 +1,56 @@
+            ("decision", "REJECT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Core 2840 C won by 200 us and is over the 2650 C trip. Encoder 18.6 kA is under "
+                "the 22.0 kA cap but is not clearance. REJECT: hold 0 kA until core <= 2650 C.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "pack_core_C",
+                            OrderedDict(
+                                [
+                                    ("trip", 2650.0),
+                                    ("observed", 2840.0),
+                                    ("executed_kA", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 200),
+                                    ("combined_jitter_us", 54),
+                                    ("ratio", 3.70),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "pack_hold_ir"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("current_kA", 0.0),
+                        ("core_C", 2840.0),
+                        ("hold", True),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: current 18.6 -> 0 kA. Routing relay.ir.core -> policy.hold_reject. "
+                "Do not ramp into the 2840 C flare.",
+            ),
+        ]
+    )

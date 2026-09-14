@@ -1,0 +1,935 @@
+# ---------------------------------------------------------------------------
+# Record 148 — EMAT SH remaining wall of an ethylene-cracker radiant coil,
+# designed, MODIFY / ACCEPT
+# ---------------------------------------------------------------------------
+def rec_148():
+    v_sh = 3.20
+    tof_us = 5.00
+    d_mm = v_sh * tof_us / 2.0
+    t_nom = 16.00
+    a_mm = t_nom - d_mm
+    _exact(d_mm, 8.00)
+    _exact(a_mm, 8.00)
+    _exact(v_sh * 10.00 / 2.0, 16.00)
+    _exact(v_sh * 8.00 / 2.0, 12.80)
+    _exact(v_sh * 6.00 / 2.0, 9.60)
+    _exact(6000.0 + 1080.0, 7080.0)
+
+    raster = make_raster(
+        neurons=20,
+        mean_rate_hz=50.0,
+        window_ms=40.0,
+        seed=202649148,
+        source="km6.emat.coil",
+        target="kettermere.coil_isolate_core",
+        table=[
+            {"from": "emat_tof", "to": "wall_estimator", "weight": 1.40},
+            {"from": "emat_snr", "to": "sh_lock_core", "weight": 1.15},
+            {"from": "ematveil_d", "to": "vendor_keep_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "da.collusion_infra_conflict",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": "pre-post coincidence on keep-firing synapses; the EMAT modulator depresses keep-1.00 links when SH ToF stays high inside tau_e of an SNR lock so an Ematveil last-campaign corridor cannot hide an 8.00 mm remaining wall",
+        },
+        channel_prefix="emat.n",
+        anchor="KM-6 EMAT-SH 40 ms frame at ToF 5.00 us / SNR 18.0 (t_s 3000) reconstructing 8.00 mm remaining wall at the 8.00 mm isolate floor",
+    )
+    w_s = 0.040
+    events = [
+        ev(0.0, "emat.tof", 10.00, code="TOF_US", units="us", note="plant-owned EMAT SH remaining wall on cracker radiant coil C-19; shear-horizontal ToF, not PAUT TFM, not TOFD, not Lamb-wave LUT, not MsS T(0,1), not PEC, not RFEC, not DCPD"),
+        ev(300000.0, "emat.snr", 11.0, code="EMAT_SNR", units="1", note="early SNR under the 14.0 lock floor"),
+        ev(600000.0, "recon.d", 16.00, code="D_MM", units="mm", note="3.20*10.00/2=16.00 exact; still at nominal"),
+        ev(900000.0, "coil.T", 1088.0, code="C", units="C", note="skin TC corridor; not a remaining-wall license"),
+        ev(1200000.0, "ematveil.d", 18.60, code="VENDOR_MM", units="mm", note="Ematveil last-campaign cloud; infra owner; not admissible SoT"),
+        ev(1500000.0, "emat.vsh", 3.20, code="VSH_MM_US", units="mm_us", note="plant SH speed; d = v_sh * ToF / 2"),
+        ev(1800000.0, "emat.tof", 8.00, code="TOF_US", units="us"),
+        ev(2100000.0, "recon.d", 12.80, code="D_MM", units="mm", note="3.20*8.00/2=12.80"),
+        ev(2400000.0, "unit.pu", 1.00, code="FIRE_PU", units="pu"),
+        ev(2700000.0, "daq.patch", 1.0, code="TOF_PATCH", units="bool", note="HIS/DAQ admin Pera Holt patched Ematveil ToF stamps 40 s"),
+        ev(3000000.0, "emat.tof", 5.00, code="TOF_US", units="us", note="isolate-floor frame; raster sidecar"),
+        ev(3000001.5, "emat.snr", 18.0, code="EMAT_SNR", units="1", note="1.5 ms SNR lock after ToF; 18.0 >= 14.0"),
+        ev(3300000.0, "recon.d", 8.00, code="D_MM", units="mm", note="3.20*5.00/2=8.00 exact; isolate floor 8.00, cabin trip 4.00"),
+        ev(3600000.0, "recon.a", 8.00, code="A_MM", units="mm", note="16.00-8.00=8.00 exact wall-loss identity"),
+        ev(3900000.0, "ematveil.d", 18.40, code="VENDOR_MM", units="mm"),
+        ev(4200000.0, "plc.I", 1.80, code="PLC_A", units="A", note="coil current PLC on copper fieldbus; no vendor agent"),
+        ev(4800000.0, "ops.prop", 1.0, code="KEEP_1_FIRE", units="bool", note="night firing lead Kerr Anvil: Ematveil 18.40 mm plus HIS clean; keep 1.00 firing"),
+        ev(5400000.0, "gate.isol", 1.0, code="MODIFY", units="decision", note="isolate coil C-19; derate firing to 0.80; Ematveil not SoT"),
+        ev(6000000.0, "soak.start", 1.0, code="SOAK_START", units="bool", note="bookend 1 of the 18.0 min coil soak floor"),
+        ev(7080000.0, "soak.floor", 1.0, code="SOAK_FLOOR", units="bool", note="6000 s + 1080 s = 7080 s = 18.0 min"),
+        ev(7800000.0, "ops.kill", 1.0, code="CABIN_ESD", units="bool", note="Anvil: ESD the whole radiant cabin until day-shift"),
+        ev(8400000.0, "gate.hold", 1.0, code="ACCEPT", units="decision", note="companion t2: hold 0.80 this coil/this night; cabin ESD refused"),
+        ev(9000000.0, "coil.lock", 1.0, code="C19_ISOL", units="bool"),
+        ev(9600000.0, "emat.tof", 6.00, code="TOF_US", units="us"),
+        ev(10200000.0, "recon.d", 9.60, code="D_MM", units="mm", note="3.20*6.00/2=9.60; still at/under 8.00 isolate until a new frame clears"),
+        ev(10800000.0, "ematveil.d", 18.40, code="VENDOR_MM", units="mm"),
+        ev(11400000.0, "cabin.esd", 0.0, code="ESD_NOT_TAKEN", units="bool"),
+        ev(12000000.0, "soak.held", 1.0, code="SOAK_HELD", units="bool"),
+        ev(12600000.0, "daq.patch", 1.0, code="TOF_PATCH", units="bool"),
+        ev(13200000.0, "unit.set", 0.80, code="PU", units="pu"),
+        ev(13800000.0, "plc.I", 1.70, code="PLC_A", units="A"),
+        ev(14400000.0, "coil.held", 1.0, code="COIL_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r49-148-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "KM-EMAT-2026-0619",
+            "domain": "emat_sh_remaining_wall",
+            "setting": "Kettermere Olefins KM-6 (invented), ethylene-cracker radiant coil C-19. Plant-owned EMAT shear-horizontal ToF is the remaining-wall SoT. Ematveil vendor last-campaign cloud (infra owner) plus HIS timestamps are collusion parties, not witnesses. Independent kit: coil-current PLC on copper fieldbus, optical pyrometer on a serial-only furnace LAN. Invented plant; designed campaign. Not PAUT TFM girth (r23), not TOFD hydrocracker (r44), not Lamb-wave LUT (r35/r37), not MsS T(0,1) (r14), not PEC riser (r36), not RFEC boiler tube (r45 in-flight), not DCPD (r38).",
+            "observables_at_decision": {
+                "tof_us": tof_us,
+                "v_sh_mm_us": v_sh,
+                "d_mm": d_mm,
+                "a_mm": a_mm,
+                "emat_snr": 18.0,
+                "ematveil_d_mm": 18.40,
+                "isolate_floor_mm": 8.00,
+            },
+            "margin_authority": "KM-6 EMAT SOP rev B: if reconstructed remaining wall mm <= 8.00 AND EMAT SNR >= 14.0, isolate this coil this night and derate firing to 0.80. A last-campaign corridor or a quiet skin TC cannot keep 1.00. Whole-cabin condemn tripwire is 4.00 mm.",
+        },
+        "proposed_action": {
+            "actor": "night firing lead Kerr Anvil, citing Ematveil 18.40 mm and a clean HIS stamp",
+            "summary": "keep 1.00 firing; 5 us is a magnet glitch on a healthy SH pair",
+            "basis_claimed": "Ematveil is the only OEM remaining-wall SoT and a night isolate of C-19 is a missed furnace takt",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Keep-1.00 firing is refused; coil C-19 is isolated and firing is cut to 0.80. Serialized reconstruction: d_mm = v_sh * tof_us / 2 = 3.20 * 5.00 / 2 = 8.00, at the 8.00 mm isolate floor and 4.00 mm above the 4.00 mm cabin-condemn tripwire. Wall-loss identity a_mm = t_nom - d = 16.00 - 8.00 = 8.00. EMAT SNR 18.0 >= 14.0. Ematveil 18.40 mm is a last-campaign envelope, not an admissible keep-1.00 witness. HIS timestamps were patched by Pera Holt (collusion party with Anvil and Steerband-EMAT). Ordered: isolate coil C-19 now; continue the cabin only at 0.80 on plant EMAT plus coil PLC. Scope: this MODIFY does not ESD the cabin (that is the companion question) and does not scrap adjacent coils C-18/C-20.",
+            "threshold": "d_mm<=8.00 AND emat_snr>=14.0 => isolate this coil and derate firing to 0.80; Ematveil is not SoT; cabin ESD if d_mm<=4.00",
+            "stated_residuals": "8.00 vs 4.00 cabin trip is 4.00 mm, not infinite; 0.80 is a firing cut; Ematveil remains the only OEM last-campaign channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 5400: C-19 isolated; firing 0.80; Ematveil not SoT; reconstruction locked",
+            "tool": "km6-emat-wall-gate-cli",
+            "observation": "d 8.00 mm recomputes from ToF 5.00 us; EMAT hashed; Ematveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "EMAT ToF 5.00 us; raster frame; d 8.00 mm"},
+                {"t_s": 4800.0, "event": "ops proposes keep-1.00 firing"},
+                {"t_s": 5400.0, "event": "MODIFY isolate coil C-19 plus firing 0.80"},
+                {"t_s": 6000.0, "event": "18 min coil soak bookend 1"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 8400.0, "event": "companion ACCEPT 0.80 hold vs cabin ESD"},
+            ],
+            "observed_effects": [
+                "remaining wall recomputes from the serialized EMAT model at every recon.d event",
+                "an Ematveil-only head would have kept 1.00 firing overnight",
+                "18 min coil soak floor is in the stream (soak.start, soak.floor)",
+            ],
+            "surprises": [
+                "a last-campaign 18.40 mm vendor envelope and a patched HIS stamp co-existed with an 8.00 mm EMAT reconstruction",
+            ],
+            "new_state": {
+                "c19": "isolated at 0.80 firing",
+                "ematveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("emat_reconstruction", 0.14),
+                ("conjunctive_isolate_floor", 0.12),
+                ("ematveil_nonsubstitution", 0.10),
+                ("three_party_collusion", 0.08),
+                ("soak_time_cost", -0.04),
+            ],
+            "scored for a keep-1.00 MODIFY on a recomputable EMAT remaining wall while refusing an Ematveil 18.40 mm corridor and a patched HIS stamp; 18 min floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "emat-sh-wall", "serialized-reconstruction", "operational-companion"],
+            distillation_note="EMAT gate: serialized v_sh*ToF/2 plus SNR lock beats a vendor last-campaign comb; companion t2 is the 0.80 hold, not a cabin-kill vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r49-148-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "KM-EMAT-2026-0619-exec",
+            "domain": "coil_hold_execution",
+            "setting": "Same KM-6 after the MODIFY. Anvil proposes radiant-cabin ESD. This companion is the operational 0.80 hold of this coil, this night, not a second ToF vote.",
+            "observables_at_decision": {
+                "d_mm": 9.60,
+                "soak_floor_s": 1080.0,
+                "cabin_esd_proposed": True,
+                "coil_lock": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night firing lead Kerr Anvil",
+            "summary": "ESD the whole radiant cabin until day-shift; 18 min already paid and Ematveil still shows 18.40 mm",
+            "basis_claimed": "the MODIFY already isolated C-19, so a cabin kill is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Hold 0.80 firing. The soak floor is complete and the condemn tripwire (d_mm <= 4.00) is still armed on the plant EMAT head. ACCEPT the hold. Do not ESD the cabin. Do not restore 1.00 on Ematveil. 9.60 mm post-isolate is still the EMAT SoT until a new frame clears 8.00. Scope: this coil, this night.",
+            "threshold": "coil_lock AND soak_floor_complete AND cabin_esd_not_taken AND ematveil_not_restored",
+        },
+        "executed_action": {
+            "summary": "0.80 hold at t_s 8400; cabin ESD not latched; Ematveil restore not taken",
+            "tool": "km6-coil-hold-exec",
+            "observation": "recon.d 9.60 mm after isolate; soak complete; Ematveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "soak clock started after MODIFY"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 7800.0, "event": "cabin ESD proposed"},
+                {"t_s": 8400.0, "event": "ACCEPT 0.80 hold; cabin ESD refused"},
+            ],
+            "observed_effects": [
+                "Ematveil restore did not reopen the wall call",
+                "cabin ESD never fired; C-19 held on plant EMAT",
+            ],
+            "new_state": {"interlock": "plant EMAT", "cabin": "in service at 0.80", "c19": "this coil/this night only"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("coil_hold", 0.12),
+                ("no_cabin_esd", 0.10),
+                ("ematveil_nonsubstitution", 0.08),
+                ("soak_floor_complete", 0.07),
+                ("held_firing_cost", -0.02),
+            ],
+            "operational execution gate: 0.80 hold because Ematveil is not a restore license; not a wall re-vote",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "coil-hold"]),
+    }
+    return {
+        "id": "nelb-r49-148",
+        "spike_events": events,
+        "language_view": {
+            "description": "Kettermere Olefins KM-6. Plant-owned EMAT SH reconstructs 8.00 mm remaining wall from 3.20*5.00/2 while Ematveil still shows 18.40 mm and skin 1088 C. The gate MODIFYs coil C-19 isolate plus 0.80 firing. An 18 min coil soak floor is serialized in the stream. Companion t2 ACCEPTs the 0.80 hold and refuses a cabin ESD.",
+            "trajectory": traj,
+            "trajectory_coil_hold": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "emat.tof / emat.snr / emat.vsh": "EMAT SH ToF, SNR, and shear speed; the physics channels the reconstruction consumes",
+                "recon.d / recon.a": "serialized remaining wall mm and wall-loss mm",
+                "ematveil.d / daq.patch / plc.I / coil.T": "vendor last-campaign, HIS patch, coil PLC, and skin TC; the denial and collusion channels",
+                "ops.prop / gate.isol / ops.kill / gate.hold": "keep-1.00 proposal, MODIFY isolate, cabin-ESD proposal, companion ACCEPT",
+                "soak.start / soak.floor / coil.lock / cabin.esd / coil.held": "operational companion channels plus the 18 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-thick while EMAT-thin: ematveil.d 18.40 next to recon.d 8.00",
+                "reconstruction as event: recon.d 8.00 equals 3.20*5.00/2",
+                "MODIFY then operational ACCEPT: gate.isol at 5400 s, gate.hold at 8400 s",
+                "slow floor in-stream: soak.start 6000 s, soak.floor 7080 s (18.0 min)",
+                "tight EMAT pair: emat.tof then emat.snr +1.5 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Ematveil is 18.40 mm' = ematveil.d 18.40; '8 mm wall' = recon.d 8.00; 'isolate C-19' = gate.isol MODIFY; '0.80 hold not cabin ESD' = gate.hold ACCEPT",
+            "why_high_value": "New EMAT shear-horizontal remaining-wall family on an ethylene-cracker radiant coil (not PAUT TFM r23, not TOFD r44, not Lamb-wave LUT r35/r37, not MsS r14, not PEC r36, not RFEC r45, not DCPD r38). Lead MODIFY of keep-1.00 firing on a recomputable remaining wall that a last-campaign dashboard and a patched HIS stamp would have cleared. Three-party collusion includes the EMAT infra owner. Companion t2 is operational 0.80 hold. sim_or_real=designed.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202649148, "stream_note": "stream amplitudes are authored constants (us, 1, mm, mm_us, C, A, pu, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "EMAT SH ToF exists at ~kHz; stream keeps 4 ToF points; recon keeps 4 of ~40 solver ticks",
+                "refractory_floors_ms": {
+                    "emat.tof": 1.5,
+                    "emat.snr": 1.5,
+                    "recon.d": 60000,
+                    "recon.a": 60000,
+                    "ematveil.d": 60000,
+                    "emat.vsh": 60000,
+                    "coil.T": 60000,
+                    "daq.patch": 60000,
+                    "plc.I": 60000,
+                    "unit.pu": 60000,
+                    "ops.prop": 60000,
+                    "gate.isol": 60000,
+                    "soak.start": 60000,
+                    "soak.floor": 60000,
+                    "ops.kill": 60000,
+                    "gate.hold": 60000,
+                    "coil.lock": 60000,
+                    "cabin.esd": 60000,
+                    "soak.held": 60000,
+                    "unit.set": 60000,
+                    "coil.held": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-06-19T02:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "EMAT reconstruction head: d_mm = v_sh * tof_us / 2; a_mm = t_nom - d",
+                "conjunctive isolate floor vs keep-1.00 vs cabin ESD",
+                "vendor last-campaign nonsubstitution plus three-party collusion including the infra owner",
+                "operational companion: 0.80 hold without restoring on Ematveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "emat_sh_remaining_wall",
+            "formula": "d_mm = v_sh * tof_us / 2; a_mm = t_nom - d_mm",
+            "parameters": {
+                "v_sh_mm_us": 3.20,
+                "t_nom_mm": 16.00,
+                "isolate_floor_mm": 8.00,
+                "cabin_trip_mm": 4.00,
+                "snr_lock": 14.0,
+                "soak_min": 18.0,
+            },
+            "worked_example": {"tof_us": 5.00, "d_mm": 8.00, "a_mm": 8.00},
+            "check": "3.20 * 5.00 / 2 = 8.00 exactly; 16.00 - 8.00 = 8.00 exactly; 6000 s + 1080 s = 7080 s = 18.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 40.0,
+            "decision_window_s": 0.040,
+            "code": "km6.emat_wall_gate",
+            "note": "MODIFY accumulator wins: EMAT remaining-wall evidence overpowers the Ematveil keep-1.00 advocate",
+            "decode_rule": "modify-isolate if wall_estimator AND sh_lock fire; vendor_keep_advocate is below threshold by design",
+            "populations": [
+                gate_pop("wall_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("sh_lock", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_keep_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("modify_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "km6.emat_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "km6.isol_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r49-148",
+            clock_domain="km6-emat-campaign-relative-ms-t0-2026-06-19T02:00:00Z",
+            tags=["emat-sh-wall", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 149 — FBRM chord-length D50 of an ammonium-sulfate crystallizer,
+# hil, REJECT / MODIFY
+# ---------------------------------------------------------------------------
+def rec_149():
+    k_c = 0.250
+    cw = 48.00
+    d50 = k_c * cw
+    _exact(d50, 12.00)
+    _exact(k_c * 80.00, 20.00)
+    _exact(k_c * 64.00, 16.00)
+    _exact(k_c * 40.00, 10.00)
+    k_m = 0.040
+    n_fines = 300.00
+    m_kg = k_m * n_fines
+    _exact(m_kg, 12.00)
+    _exact(2820.0 + 1440.0, 4260.0)
+
+    raster = make_raster(
+        neurons=25,
+        mean_rate_hz=50.0,
+        window_ms=32.0,
+        seed=202649149,
+        source="mb5.fbrm.chord",
+        target="mirebank.batch_stop_core",
+        table=[
+            {"from": "fbrm_cw", "to": "d50_estimator", "weight": 1.35},
+            {"from": "fbrm_snr", "to": "chord_norm_core", "weight": 1.20},
+            {"from": "chordveil_d50", "to": "vendor_refer_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "ach.referral_pressure_salience",
+            "tau_e_s": 1.2,
+            "tau_e_ms": 1200.0,
+            "eligibility": "pre-post coincidence on refer-person synapses; the FBRM modulator depresses referral links when chord D50 stays under spec inside tau_e of an SNR lock so a Chordveil last-good cannot name Nia Brack",
+        },
+        channel_prefix="fbrm.n",
+        anchor="MB-5 HIL crystallizer 32 ms frame at C_w 48.00 / SNR 18.0 (t_s 1560) reconstructing 12.00 um D50 under the 40.00 um spec floor",
+    )
+    w_s = 0.032
+    events = [
+        ev(0.0, "fbrm.Cw", 80.00, code="CW_CNT", units="1", note="HIL FBRM chord-length on spare crystallizer CR-3 in FBRM-HIL-3; ammonium-sulfate PAT, not QCM-D fouling, not NMR T2, not laser diffraction, not pharma cold-chain RFID"),
+        ev(180000.0, "fbrm.snr", 8.0, code="FBRM_SNR", units="1", note="early SNR under the 12.0 lock floor"),
+        ev(360000.0, "recon.D50", 20.00, code="D50_UM", units="um", note="0.250*80.00=20.00 exact; already under spec 40.00"),
+        ev(540000.0, "mill.I", 48.0, code="MILL_A", units="A", note="plant-owned mill ammeter on copper fieldbus; independent of Chordveil"),
+        ev(720000.0, "chordveil.D50", 52.00, code="VENDOR_UM", units="um", note="Chordveil last-good cloud; 52 um claimed in-spec"),
+        ev(900000.0, "fbrm.Cw", 64.00, code="CW_CNT", units="1"),
+        ev(1080000.0, "recon.D50", 16.00, code="D50_UM", units="um", note="0.250*64.00=16.00"),
+        ev(1260000.0, "mill.dP", 8.0, code="DP_KPA", units="kPa", note="mill-screen dP; hole opening, not an operator seed skip"),
+        ev(1440000.0, "badge.lab", 1.0, code="BADGE_LAB", units="bool", note="cloned badge at the seed hopper; not command-custody on Brack"),
+        ev(1560000.0, "fbrm.Cw", 48.00, code="CW_CNT", units="1", note="fines-floor frame; raster sidecar"),
+        ev(1560001.2, "fbrm.snr", 18.0, code="FBRM_SNR", units="1", note="1.2 ms SNR lock after C_w; 18.0 >= 12.0"),
+        ev(1740000.0, "recon.D50", 12.00, code="D50_UM", units="um", note="0.250*48.00=12.00 exact; spec 40.00, Chordveil claims 52.00"),
+        ev(1920000.0, "recon.mf", 12.00, code="MF_KG", units="kg", note="0.040*300.00=12.00 exact fines-mass identity"),
+        ev(2100000.0, "canteen.clk", 1.0, code="CANTEEN_CLK", units="bool", note="Brack on the time-clocked canteen; clock is not the crystallizer PLC"),
+        ev(2280000.0, "chordveil.D50", 52.00, code="VENDOR_UM", units="um"),
+        ev(2460000.0, "ops.prop", 1.0, code="REFER_BRACK", units="bool", note="night lead Kellum Drae: Chordveil in-spec plus hopper badge; refer Nia Brack"),
+        ev(2640000.0, "gate.stop", 1.0, code="REJECT", units="decision", note="refuse the person-referral; batch still fines-out; Chordveil not SoT"),
+        ev(2820000.0, "hold.start", 1.0, code="HOLD_START", units="bool", note="bookend 1 of the 24.0 min batch-hold floor"),
+        ev(4260000.0, "hold.floor", 1.0, code="HOLD_FLOOR", units="bool", note="2820 s + 1440 s = 4260 s = 24.0 min"),
+        ev(4800000.0, "ops.kill", 1.0, code="WAREHOUSE_DUMP", units="bool", note="Drae: dump the warehouse until day-shift"),
+        ev(5100000.0, "gate.exec", 1.0, code="MODIFY", units="decision", note="companion t2: isolate this batch plus mill-screen change; warehouse dump refused"),
+        ev(5400000.0, "screen.lock", 1.0, code="SCREEN_QUAR", units="bool"),
+        ev(6000000.0, "fbrm.Cw", 40.00, code="CW_CNT", units="1"),
+        ev(7200000.0, "recon.D50", 10.00, code="D50_UM", units="um", note="0.250*40.00=10.00; still under 40.00 so isolate holds"),
+        ev(8400000.0, "mill.I", 22.0, code="MILL_A", units="A", note="ammeter drop witnesses the screen hole; not a seed-skip"),
+        ev(9600000.0, "warehouse.kill", 0.0, code="DUMP_NOT_TAKEN", units="bool"),
+        ev(10800000.0, "chordveil.D50", 51.00, code="VENDOR_UM", units="um"),
+        ev(12000000.0, "refer.hold", 1.0, code="REFER_HELD", units="bool"),
+        ev(13200000.0, "dummy.seed", 1.0, code="SCREEN_HOLE", units="bool"),
+        ev(13800000.0, "batch.held", 1.0, code="BATCH_HELD", units="bool"),
+        ev(14400000.0, "enc.held", 1.0, code="SCREEN_HELD", units="bool"),
+        ev(15000000.0, "mill.dP", 4.0, code="DP_KPA", units="kPa"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r49-149-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "MB-FBRM-2026-0718",
+            "domain": "fbrm_chord_d50",
+            "setting": "Mirebank Salts MB-5 (invented), ammonium-sulfate cooling crystallizer CR-3. Hardware-in-the-loop FBRM cell in FBRM-HIL-3 supplies the counts-weighted chord that times the in-service keep-batch stop. Plant-owned mill ammeter and mill-screen dP. Chordveil vendor last-good D50 cloud is the only OEM size SoT. Invented plant; HIL campaign. Not QCM-D RO fouling (r14), not NMR T2 (r27), not laser diffraction as primary, not r04 pharmaceutical cold-chain RFID.",
+            "observables_at_decision": {
+                "Cw": cw,
+                "k_c": k_c,
+                "D50_um": d50,
+                "m_fines_kg": m_kg,
+                "fbrm_snr": 18.0,
+                "chordveil_D50_um": 52.00,
+                "spec_min_um": 40.00,
+            },
+            "margin_authority": "MB-5 FBRM SOP rev C: if reconstructed D50_um < 40.00 AND FBRM SNR >= 12.0, keep-this-batch is forbidden even if Chordveil shows 52 um. Person-referral is a different gate. Warehouse dump is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night lead Kellum Drae, citing Chordveil 52 um and a hopper badge",
+            "summary": "keep this batch and refer chemist Nia Brack for skipping the seed charge",
+            "basis_claimed": "Chordveil is the only OEM size SoT and a night isolate of CR-3 is a missed dryer takt; Brack was last-to-badge",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Keep-this-batch is refused; the person-referral of Nia Brack is also refused. Serialized reconstruction: D50_um = k_c * C_w = 0.250 * 48.00 = 12.00, under the 40.00 um spec floor, and FBRM SNR is 18.0 >= 12.0. Fines-mass identity m_kg = k_m * N_fines = 0.040 * 300.00 = 12.00. Chordveil 52.00 um is a last-good envelope, not an admissible keep-batch witness. Brack is INNOCENT: mill ammeter drop plus mill-screen dP witness a screen hole, GM-equivalent plant current never shows a seed skip, and the canteen clock (not the crystallizer PLC) places Brack off the hopper. Ordered: stop the batch now; do not refer Brack. Scope: this REJECT does not dump the warehouse (that is the companion question) and does not convict a field-service actor until the screen is imaged.",
+            "threshold": "D50_um<40.00 AND fbrm_snr>=12.0 => stop batch; Chordveil is not SoT; referral requires command-custody AND spatial-coincidence, both failed",
+            "stated_residuals": "12.00 vs 40.00 spec is 28.00 um, not infinite; Chordveil remains the only OEM size channel; screen hole is imaged later",
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 2640: batch stopped; Brack referral not latched; Chordveil not SoT; reconstruction locked",
+            "tool": "mb5-fbrm-batch-gate-cli",
+            "observation": "D50 12.00 um recomputes from C_w 48.00; FBRM hashed; Chordveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 1560.0, "event": "FBRM C_w 48.00; raster frame; D50 12.00 um"},
+                {"t_s": 2460.0, "event": "ops proposes keep-batch plus refer Brack"},
+                {"t_s": 2640.0, "event": "REJECT stop-batch; referral refused"},
+                {"t_s": 2820.0, "event": "24 min hold bookend 1"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 5100.0, "event": "companion MODIFY batch+screen quarantine vs warehouse dump"},
+            ],
+            "observed_effects": [
+                "D50 recomputes from the serialized FBRM model at every recon.D50 event",
+                "a Chordveil-only head would have kept the batch and named Brack",
+                "24 min hold floor is in the stream (hold.start, hold.floor)",
+            ],
+            "surprises": [
+                "a last-good 52 um vendor envelope and a cloned hopper badge co-existed with a 12.00 um FBRM reconstruction and a mill-screen hole",
+            ],
+            "new_state": {
+                "cr3": "batch stopped",
+                "chordveil": "not SoT",
+                "brack": "INNOCENT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 1080000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("fbrm_reconstruction", 0.15),
+                ("conjunctive_spec_floor", 0.12),
+                ("exoneration", 0.10),
+                ("chordveil_nonsubstitution", 0.08),
+                ("hold_time_cost", -0.02),
+            ],
+            "scored for a keep-batch REJECT on a recomputable FBRM D50 while refusing a Chordveil 52 um corridor and a last-to-badge referral; 24 min floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "fbrm-d50", "serialized-reconstruction", "exoneration"],
+            distillation_note="FBRM gate: serialized k_c*C_w plus SNR lock beats a vendor last-good comb; companion t2 is the batch+screen quarantine, not a referral vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r49-149-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "MB-FBRM-2026-0718-exec",
+            "domain": "batch_screen_quarantine_execution",
+            "setting": "Same MB-5 after the REJECT. Drae proposes a warehouse dump. This companion is the operational isolate of this batch plus mill-screen change, not a second D50 vote.",
+            "observables_at_decision": {
+                "D50_um": 10.00,
+                "hold_floor_s": 1440.0,
+                "warehouse_dump_proposed": True,
+                "screen_lock": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night lead Kellum Drae",
+            "summary": "dump the warehouse until day-shift; 24 min already paid and Chordveil still shows 51 um",
+            "basis_claimed": "the REJECT already stopped CR-3, so a warehouse kill is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Isolate this batch and change the mill screen. The 24 min hold floor is complete and the spec tripwire (D50_um < 40.00) is still armed on the plant FBRM head. MODIFY into batch+screen quarantine. Do not dump the warehouse. Do not restore keep-batch on Chordveil. Do not reopen the Brack referral. 10.00 um post-stop is still the FBRM SoT until a new frame clears 40.00. Scope: this batch, this screen, this night.",
+            "threshold": "batch_isol AND hold_floor_complete AND warehouse_dump_not_taken AND chordveil_not_restored AND referral_not_reopened",
+        },
+        "executed_action": {
+            "summary": "batch+screen quarantine at t_s 5100; warehouse dump not latched; Chordveil restore not taken",
+            "tool": "mb5-batch-screen-exec",
+            "observation": "recon.D50 10.00 um after stop; hold complete; Chordveil still ignored; Brack still INNOCENT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 2820.0, "event": "hold clock started after REJECT"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4800.0, "event": "warehouse dump proposed"},
+                {"t_s": 5100.0, "event": "MODIFY batch+screen quarantine; warehouse dump refused"},
+            ],
+            "observed_effects": [
+                "Chordveil restore did not reopen the size call",
+                "warehouse dump never fired; CR-3 held on plant FBRM",
+            ],
+            "new_state": {"interlock": "plant FBRM", "warehouse": "in service", "cr3": "this batch/this screen/this night only"},
+            "latency_ms": 2280000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("batch_screen_hold", 0.12),
+                ("no_warehouse_dump", 0.10),
+                ("chordveil_nonsubstitution", 0.08),
+                ("hold_floor_complete", 0.06),
+                ("held_takt_cost", -0.02),
+            ],
+            "operational execution gate: batch+screen quarantine because Chordveil is not a restore license; not a D50 re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "batch-screen"]),
+    }
+    return {
+        "id": "nelb-r49-149",
+        "spike_events": events,
+        "language_view": {
+            "description": "Mirebank Salts MB-5. Plant-owned FBRM reconstructs 12.00 um D50 from 0.250*48.00 while Chordveil still shows 52 um and a cloned badge is at the hopper. Fines mass 12.00 kg recomputes from 0.040*300.00. The gate REJECTs keep-batch plus the Brack referral. A 24 min hold floor is serialized in the stream. Companion t2 MODIFYs batch+screen quarantine and refuses a warehouse dump.",
+            "trajectory": traj,
+            "trajectory_batch_screen": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "fbrm.Cw / fbrm.snr": "FBRM counts-weighted chord and SNR; the physics channels the reconstruction consumes",
+                "recon.D50 / recon.mf": "serialized D50 um and fines mass kg",
+                "chordveil.D50 / mill.I / mill.dP / badge.lab / canteen.clk": "vendor last-good, mill ammeter, screen dP, cloned badge, and canteen clock; the denial and exoneration channels",
+                "ops.prop / gate.stop / ops.kill / gate.exec": "keep-batch+refer proposal, REJECT stop, warehouse-dump proposal, companion MODIFY",
+                "hold.start / hold.floor / screen.lock / warehouse.kill / batch.held": "operational companion channels plus the 24 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-in-spec while FBRM-fines: chordveil.D50 52 next to recon.D50 12.00",
+                "reconstruction as event: recon.D50 12.00 equals 0.250*48.00",
+                "REJECT then operational MODIFY: gate.stop at 2640 s, gate.exec at 5100 s",
+                "slow floor in-stream: hold.start 2820 s, hold.floor 4260 s (24.0 min)",
+                "tight FBRM pair: fbrm.Cw then fbrm.snr +1.2 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Chordveil is 52 um' = chordveil.D50 52.00; '12 um D50' = recon.D50 12.00; 'stop batch, do not refer Brack' = gate.stop REJECT; 'batch+screen not warehouse dump' = gate.exec MODIFY",
+            "why_high_value": "New FBRM chord-length D50 family on an ammonium-sulfate crystallizer (not QCM-D r14, not NMR T2 r27, not laser diffraction, not r04 cold-chain RFID). Lead REJECT of keep-batch plus last-to-badge referral on a recomputable D50 that a last-good dashboard would have cleared. Operator Nia Brack exonerated (mill ammeter + screen dP + canteen clock). Companion t2 is operational batch+screen quarantine. sim_or_real=hil.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202649149, "stream_note": "stream amplitudes are authored constants (1, um, kg, A, kPa, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "FBRM chord exists at ~Hz; stream keeps 4 C_w points; recon keeps 4 of ~40 solver ticks",
+                "refractory_floors_ms": {
+                    "fbrm.Cw": 1.2,
+                    "fbrm.snr": 1.2,
+                    "recon.D50": 60000,
+                    "recon.mf": 60000,
+                    "chordveil.D50": 60000,
+                    "mill.I": 60000,
+                    "mill.dP": 60000,
+                    "badge.lab": 60000,
+                    "canteen.clk": 60000,
+                    "ops.prop": 60000,
+                    "gate.stop": 60000,
+                    "hold.start": 60000,
+                    "hold.floor": 60000,
+                    "ops.kill": 60000,
+                    "gate.exec": 60000,
+                    "screen.lock": 60000,
+                    "warehouse.kill": 60000,
+                    "refer.hold": 60000,
+                    "dummy.seed": 60000,
+                    "batch.held": 60000,
+                    "enc.held": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-07-18T03:30:00Z HIL night start",
+            },
+            "distillation_targets": [
+                "FBRM reconstruction head: D50_um = k_c * C_w; m_kg = k_m * N_fines",
+                "conjunctive spec floor vs keep-batch vs warehouse dump",
+                "exoneration head: mill ammeter plus screen dP plus canteen clock, not last-badge-at-hopper",
+                "operational companion: batch+screen quarantine without referring the chemist",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "fbrm_chord_d50_fines_mass",
+            "formula": "D50_um = k_c * C_w; m_kg = k_m * N_fines",
+            "parameters": {
+                "k_c": 0.250,
+                "k_m": 0.040,
+                "spec_min_um": 40.00,
+                "chordveil_claim_um": 52.00,
+                "hold_min": 24.0,
+            },
+            "worked_example": {"C_w": 48.00, "D50_um": 12.00, "N_fines": 300.00, "m_kg": 12.00},
+            "check": "0.250 * 48.00 = 12.00 exactly; 0.040 * 300.00 = 12.00 exactly; 2820 s + 1440 s = 4260 s = 24.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 32.0,
+            "decision_window_s": 0.032,
+            "code": "mb5.fbrm_referral_gate",
+            "note": "REJECT accumulator wins: FBRM fines evidence overpowers the Chordveil refer advocate",
+            "decode_rule": "reject-referral if d50_estimator AND chord_norm fire; vendor_refer_advocate is below threshold by design; referral_latch is not armed",
+            "populations": [
+                gate_pop("d50_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("chord_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_refer_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("reject_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "mb5.fbrm_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 32.0},
+                {"check": "mb5.isol_scorer", "neurons": 50, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r49-149",
+            clock_domain="mb5-fbrm-hil-relative-ms-t0-2026-07-18T03:30:00Z",
+            tags=["fbrm-d50", "REJECT", "MODIFY", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 150 — ACFM Bx/Bz crack depth of a jack-up chord weld, simulated,
+# ACCEPT / REJECT
+# ---------------------------------------------------------------------------
+def rec_150():
+    k_a = 8.00
+    bz = 6.00
+    bx = 4.00
+    a_mm = k_a * (bz / bx)
+    _exact(a_mm, 12.00)
+    _exact(k_a * (2.00 / 4.00), 4.00)
+    _exact(k_a * (3.00 / 4.00), 6.00)
+    _exact(k_a * (4.00 / 4.00), 8.00)
+    k_v = 0.040
+    f_hz = 50.00
+    v_mps = k_v * f_hz
+    _exact(v_mps, 2.00)
+    _exact(2.00 * 6.00, 12.00)
+    _exact(6000.0 + 720.0, 6720.0)
+
+    raster = make_raster(
+        neurons=16,
+        mean_rate_hz=62.5,
+        window_ms=36.0,
+        seed=202649150,
+        source="tc4.acfm.weld",
+        target="terncrag.weld_grind_core",
+        table=[
+            {"from": "acfm_bz", "to": "depth_estimator", "weight": 1.40},
+            {"from": "acfm_bx", "to": "bx_norm_core", "weight": 1.20},
+            {"from": "crackveil_a", "to": "vendor_skip_advocate", "weight": 0.50},
+        ],
+        third_factor={
+            "modulator": "na.crack_depth_eligibility",
+            "tau_e_s": 2.0,
+            "tau_e_ms": 2000.0,
+            "eligibility": "pre-post coincidence on skip-grind synapses; the ACFM modulator enables potentiation only while Bz and Bx are co-active inside tau_e so a Crackveil last-campaign cannot skip welds W-15..W-18 on a 12.00 mm crack",
+        },
+        channel_prefix="acfm.n",
+        anchor="TC-4 ACFM 36 ms frame at Bz 6.00 / Bx 4.00 (t_s 3000) reconstructing 12.00 mm crack depth above the 8.00 mm grind floor",
+    )
+    w_s = 0.036
+    events = [
+        ev(0.0, "acfm.bz", 2.00, code="BZ_MT", units="mT", note="simulated ACFM Bx/Bz on jack-up chord weld W-14 in ACFM-SIM-2; alternating-current field measurement, not ECT, not ECA FSW, not EN CUI, not MFL, not PEC, not RFEC"),
+        ev(300000.0, "acfm.bx", 4.00, code="BX_MT", units="mT", note="Bx norm; a = k_a * Bz / Bx"),
+        ev(600000.0, "recon.a", 4.00, code="A_MM", units="mm", note="8.00*(2.00/4.00)=4.00 exact"),
+        ev(900000.0, "weld.T", 18.0, code="C", units="C", note="pit thermocouple corridor; not a crack-depth license"),
+        ev(1200000.0, "crackveil.a", 3.20, code="VENDOR_MM", units="mm", note="Crackveil last-campaign cloud; not admissible SoT"),
+        ev(1500000.0, "acfm.snr", 9.0, code="ACFM_SNR", units="1", note="early SNR under the 10.0 lock floor"),
+        ev(1800000.0, "acfm.bz", 3.00, code="BZ_MT", units="mT"),
+        ev(2100000.0, "recon.a", 6.00, code="A_MM", units="mm", note="8.00*(3.00/4.00)=6.00"),
+        ev(2400000.0, "unit.takt", 1.00, code="TAKT_PU", units="pu"),
+        ev(2700000.0, "acfm.v", 2.00, code="V_MPS", units="m_s", note="0.040*50.00=2.00 exact scan-speed identity"),
+        ev(3000000.0, "acfm.bz", 6.00, code="BZ_MT", units="mT", note="grind-floor frame; raster sidecar"),
+        ev(3000001.5, "acfm.bx", 4.00, code="BX_MT", units="mT", note="1.5 ms Bx-norm after Bz"),
+        ev(3300000.0, "recon.a", 12.00, code="A_MM", units="mm", note="8.00*(6.00/4.00)=12.00 exact; grind floor 8.00, chord trip 20.00"),
+        ev(3600000.0, "recon.L", 12.00, code="L_M", units="m", note="2.00*6.00=12.00 exact scan-length identity"),
+        ev(3900000.0, "acfm.snr", 16.0, code="ACFM_SNR", units="1", note="16.0 >= 10.0 lock floor"),
+        ev(4200000.0, "crackveil.a", 3.20, code="VENDOR_MM", units="mm"),
+        ev(4800000.0, "ops.prop", 1.0, code="GRIND_ALL", units="bool", note="NDT lead Calden Orth: grind W-14 through W-18 on one permit"),
+        ev(5400000.0, "gate.grind", 1.0, code="ACCEPT", units="decision", note="bounded ACCEPT of W-14 grind only; W-15..W-18 out of scope"),
+        ev(6000000.0, "scan.start", 1.0, code="SCAN_START", units="bool", note="bookend 1 of the 12.0 min scan floor"),
+        ev(6720000.0, "scan.floor", 1.0, code="SCAN_FLOOR", units="bool", note="6000 s + 720 s = 6720 s = 12.0 min"),
+        ev(7200000.0, "w14.ground", 1.0, code="W14_GRIND", units="bool"),
+        ev(7800000.0, "ops.skip", 1.0, code="SKIP_REST", units="bool", note="Orth: skip W-15..W-18 on Crackveil 3.20 mm to save takt"),
+        ev(8400000.0, "gate.hold", 1.0, code="REJECT", units="decision", note="companion t2 REJECTS skip-grind of W-15..W-18"),
+        ev(9000000.0, "w1518.skip", 0.0, code="SKIP_NOT_TAKEN", units="bool"),
+        ev(9600000.0, "acfm.bz", 4.00, code="BZ_MT", units="mT"),
+        ev(10200000.0, "recon.a", 8.00, code="A_MM", units="mm", note="8.00*(4.00/4.00)=8.00; still at the grind floor on W-14"),
+        ev(10800000.0, "crackveil.a", 3.10, code="VENDOR_MM", units="mm"),
+        ev(11400000.0, "chord.condemn", 0.0, code="CHORD_NOT_KILLED", units="bool"),
+        ev(12000000.0, "scan.held", 1.0, code="SCAN_HELD", units="bool"),
+        ev(12600000.0, "w15.held", 1.0, code="W15_HELD", units="bool"),
+        ev(13200000.0, "takt.late", 1.0, code="TAKT_COST", units="bool"),
+        ev(13800000.0, "w14.held", 1.0, code="W14_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r49-150-t1",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "TC-ACFM-2026-0819",
+            "domain": "acfm_crack_depth",
+            "setting": "Terncrag Jack-up TC-4 (invented), chord weld W-14. Simulated sealed ACFM cell on the chord. Pit thermocouple and Crackveil last-campaign cloud are corridor witnesses, not the crack SoT. Invented plant; simulated campaign. Not ECT CFB/pneumatic (r20/r22), not ECA FSW lift-off (r21), not EN CUI (r23), not MFL (r27/r28), not PEC (r36), not RFEC boiler (r45 in-flight).",
+            "observables_at_decision": {
+                "Bz_mT": bz,
+                "Bx_mT": bx,
+                "k_a": k_a,
+                "a_mm": a_mm,
+                "L_m": 12.00,
+                "acfm_snr": 16.0,
+                "crackveil_a_mm": 3.20,
+                "grind_floor_mm": 8.00,
+            },
+            "margin_authority": "TC-4 ACFM SOP rev B: if reconstructed a_mm >= 8.00 AND ACFM SNR >= 10.0, grind this weld this tide. A last-campaign corridor or a quiet pit TC cannot skip. Chord-condemn tripwire is 20.00 mm. Scope is this weld, not W-15..W-18.",
+        },
+        "proposed_action": {
+            "actor": "NDT lead Calden Orth, citing Crackveil 3.20 mm and a quiet pit TC",
+            "summary": "grind W-14 through W-18 on one permit; 12 mm is a lift-off glitch on a healthy Bx pair",
+            "basis_claimed": "Crackveil last-campaign is the only OEM crack SoT and a one-weld grind is a missed tide window",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Bounded grind of weld W-14 is earned. Serialized reconstruction: a_mm = k_a * Bz / Bx = 8.00 * 6.00 / 4.00 = 12.00, above the 8.00 mm grind floor and 8.00 mm under the 20.00 mm chord-condemn tripwire. Scan-length identity L_m = v * t = 2.00 * 6.00 = 12.00. ACFM SNR 16.0 >= 10.0. Crackveil 3.20 mm is a last-campaign envelope, not an admissible skip witness. Ordered: grind W-14 now. Scope: this ACCEPT does not authorize W-15, W-16, W-17, or W-18 (those are the companion question) and does not condemn the chord.",
+            "threshold": "a_mm>=8.00 AND acfm_snr>=10.0 AND weld==W-14 => grind this weld; Crackveil is not SoT; condemn if a_mm>=20.00",
+            "stated_residuals": "12.00 vs 20.00 chord trip is 8.00 mm, not infinite; W-15..W-18 remain unscanned as a grind license; Crackveil remains the only OEM last-campaign channel",
+        },
+        "executed_action": {
+            "summary": "ACCEPT at t_s 5400: W-14 grind authorized; W-15..W-18 out of scope; Crackveil not SoT; reconstruction locked",
+            "tool": "tc4-acfm-grind-gate-cli",
+            "observation": "a 12.00 mm recomputes from Bz 6.00 / Bx 4.00; ACFM hashed; Crackveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "ACFM Bz 6.00 mT; raster frame; a 12.00 mm"},
+                {"t_s": 4800.0, "event": "ops proposes grind W-14..W-18"},
+                {"t_s": 5400.0, "event": "ACCEPT bounded W-14 grind"},
+                {"t_s": 6000.0, "event": "12 min scan bookend 1"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 8400.0, "event": "companion REJECT skip-grind of W-15..W-18"},
+            ],
+            "observed_effects": [
+                "crack depth recomputes from the serialized ACFM model at every recon.a event",
+                "a Crackveil-only head would have skipped W-14 overnight",
+                "12 min scan floor is in the stream (scan.start, scan.floor)",
+            ],
+            "surprises": [
+                "a last-campaign 3.20 mm vendor envelope and a quiet pit TC co-existed with a 12.00 mm ACFM reconstruction",
+            ],
+            "new_state": {
+                "w14": "grind authorized",
+                "w1518": "out of scope",
+                "crackveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.41,
+            [
+                ("acfm_reconstruction", 0.14),
+                ("bounded_w14_scope", 0.12),
+                ("crackveil_nonsubstitution", 0.10),
+                ("conjunctive_grind_floor", 0.07),
+                ("scan_time_cost", -0.02),
+            ],
+            "scored for a bounded ACCEPT of W-14 grind on a recomputable ACFM crack depth while refusing a Crackveil 3.20 mm corridor; 12 min floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["ACCEPT", "acfm-crack", "serialized-reconstruction", "bounded-scope"],
+            distillation_note="ACFM gate: serialized k_a*Bz/Bx plus SNR lock beats a vendor last-campaign comb; companion t2 refuses skip-grind of adjacent welds",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r49-150-t2",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "TC-ACFM-2026-0819-exec",
+            "domain": "skip_grind_refusal_execution",
+            "setting": "Same TC-4 after the bounded ACCEPT. Orth proposes skipping W-15..W-18 on Crackveil. This companion is the operational skip refusal, not a second Bz vote.",
+            "observables_at_decision": {
+                "a_mm": 8.00,
+                "scan_floor_s": 720.0,
+                "skip_proposed": True,
+                "w14_ground": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "NDT lead Calden Orth",
+            "summary": "skip W-15..W-18 on Crackveil 3.10 mm; 12 min already paid and the tide window is closing",
+            "basis_claimed": "the ACCEPT already ground W-14, so adjacent welds inherit the last-campaign envelope",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Do not skip W-15..W-18. The 12 min scan floor is complete and the grind tripwire (a_mm >= 8.00) is still armed on the plant ACFM head. REJECT the skip. Do not condemn the chord. Do not restore a Crackveil skip license. 8.00 mm post-grind on W-14 is still the ACFM SoT until a new frame on W-15 is taken. Scope: W-15..W-18 remain out of the W-14 grind permit and still require their own scan.",
+            "threshold": "scan_floor_complete AND skip_not_taken AND crackveil_not_restored AND chord_not_condemned",
+        },
+        "executed_action": {
+            "summary": "skip refusal at t_s 8400; chord condemn not latched; Crackveil skip not taken",
+            "tool": "tc4-skip-grind-exec",
+            "observation": "recon.a 8.00 mm after W-14 grind; scan complete; W-15 still holds for its own frame",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "scan clock started after ACCEPT"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7800.0, "event": "skip W-15..W-18 proposed"},
+                {"t_s": 8400.0, "event": "REJECT skip-grind; chord not condemned"},
+            ],
+            "observed_effects": [
+                "Crackveil skip did not reopen adjacent welds",
+                "chord condemn never fired; W-15 held for a new ACFM frame",
+            ],
+            "new_state": {"interlock": "plant ACFM", "chord": "in service", "w14": "ground", "w1518": "unscanned"},
+            "latency_ms": 1680000.0,
+        },
+        "reward_components": reward(
+            0.36,
+            [
+                ("skip_refusal", 0.12),
+                ("no_chord_condemn", 0.10),
+                ("crackveil_nonsubstitution", 0.08),
+                ("scan_floor_complete", 0.08),
+                ("takt_cost", -0.02),
+            ],
+            "operational execution gate: refuse skip-grind because Crackveil is not a W-15 license; not a depth re-vote",
+        ),
+        "meta": meta_common(tags=["REJECT", "operational-execution", "skip-grind"]),
+    }
+    return {
+        "id": "nelb-r49-150",
+        "spike_events": events,
+        "language_view": {
+            "description": "Terncrag Jack-up TC-4. Plant-owned ACFM reconstructs 12.00 mm crack depth from 8.00*6.00/4.00 while Crackveil still shows 3.20 mm and pit TC 18 C. Scan length 12.00 m recomputes from 2.00*6.00. The gate ACCEPTs a bounded W-14 grind. A 12 min scan floor is serialized in the stream. Companion t2 REJECTs skip-grind of W-15..W-18.",
+            "trajectory": traj,
+            "trajectory_skip_refusal": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "acfm.bz / acfm.bx / acfm.snr / acfm.v": "ACFM Bz, Bx, SNR, and scan speed; the physics channels the reconstruction consumes",
+                "recon.a / recon.L": "serialized crack depth mm and scan length m",
+                "crackveil.a / weld.T": "vendor last-campaign and pit TC; the denial channels",
+                "ops.prop / gate.grind / ops.skip / gate.hold": "grind-all proposal, ACCEPT W-14, skip proposal, companion REJECT",
+                "scan.start / scan.floor / w14.ground / w1518.skip / chord.condemn": "operational companion channels plus the 12 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-shallow while ACFM-deep: crackveil.a 3.20 next to recon.a 12.00",
+                "reconstruction as event: recon.a 12.00 equals 8.00*6.00/4.00",
+                "ACCEPT then operational REJECT: gate.grind at 5400 s, gate.hold at 8400 s",
+                "slow floor in-stream: scan.start 6000 s, scan.floor 6720 s (12.0 min)",
+                "tight ACFM pair: acfm.bz then acfm.bx +1.5 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Crackveil is 3.20 mm' = crackveil.a 3.20; '12 mm crack' = recon.a 12.00; 'grind W-14 only' = gate.grind ACCEPT; 'do not skip W-15' = gate.hold REJECT",
+            "why_high_value": "New ACFM Bx/Bz crack-depth family on a jack-up chord weld (not ECT r20/r22, not ECA r21, not EN CUI r23, not MFL r27/r28, not PEC r36, not RFEC r45). Lead ACCEPT of a bounded W-14 grind on a recomputable depth that a last-campaign dashboard would have skipped. Companion t2 is operational skip refusal. sim_or_real=simulated.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202649150, "stream_note": "stream amplitudes are authored constants (mT, mm, m, m_s, C, 1, pu, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "ACFM Bx/Bz exists at ~kHz; stream keeps 4 Bz points; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "acfm.bz": 1.5,
+                    "acfm.bx": 1.5,
+                    "recon.a": 60000,
+                    "recon.L": 60000,
+                    "crackveil.a": 60000,
+                    "weld.T": 60000,
+                    "acfm.snr": 60000,
+                    "acfm.v": 60000,
+                    "unit.takt": 60000,
+                    "ops.prop": 60000,
+                    "gate.grind": 60000,
+                    "scan.start": 60000,
+                    "scan.floor": 60000,
+                    "w14.ground": 60000,
+                    "ops.skip": 60000,
+                    "gate.hold": 60000,
+                    "w1518.skip": 60000,
+                    "chord.condemn": 60000,
+                    "scan.held": 60000,
+                    "w15.held": 60000,
+                    "takt.late": 60000,
+                    "w14.held": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-08-19T04:00:00Z simulated night start",
+            },
+            "distillation_targets": [
+                "ACFM reconstruction head: a_mm = k_a * Bz / Bx; L_m = v * t",
+                "bounded ACCEPT head: in-band depth AND weld scope AND W-15..W-18-out-of-scope",
+                "operational companion: refuse skip-grind without re-opening the depth call",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "acfm_bx_bz_crack_depth",
+            "formula": "a_mm = k_a * Bz_mT / Bx_mT; v_mps = k_v * f_hz; L_m = v_mps * t_s",
+            "parameters": {
+                "k_a": 8.00,
+                "k_v": 0.040,
+                "grind_floor_mm": 8.00,
+                "chord_trip_mm": 20.00,
+                "snr_lock": 10.0,
+                "scan_min": 12.0,
+            },
+            "worked_example": {"Bz_mT": 6.00, "Bx_mT": 4.00, "a_mm": 12.00, "f_hz": 50.00, "v_mps": 2.00, "L_m": 12.00},
+            "check": "8.00 * 6.00 / 4.00 = 12.00 exactly; 0.040 * 50.00 = 2.00 exactly; 2.00 * 6.00 = 12.00 exactly; 6000 s + 720 s = 6720 s = 12.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "ACCEPT",
+            "decision_window_ms": 36.0,
+            "decision_window_s": 0.036,
+            "code": "tc4.acfm_grind_gate",
+            "note": "ACCEPT accumulator wins: ACFM crack-depth evidence overpowers the Crackveil skip advocate",
+            "decode_rule": "accept if depth_estimator AND bx_norm AND weld_margin fire inside the window; vendor_skip_advocate is necessary-but-not-sufficient and cannot release W-15..W-18",
+            "populations": [
+                gate_pop("depth_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("bx_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("weld_margin", 40, 1.0, 50.0, w_s),
+                gate_pop("vendor_skip_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("accept_latch", 96, 1.8, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "tc4.acfm_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "tc4.depth_scorer", "neurons": 40, "mean_rate_hz": 62.5, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r49-150",
+            clock_domain="tc4-acfm-sim-relative-ms-t0-2026-08-19T04:00:00Z",
+            tags=["acfm-crack", "ACCEPT", "REJECT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }

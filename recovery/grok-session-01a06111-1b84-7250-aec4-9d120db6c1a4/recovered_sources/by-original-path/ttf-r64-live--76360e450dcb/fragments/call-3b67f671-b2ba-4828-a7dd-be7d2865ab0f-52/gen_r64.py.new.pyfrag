@@ -1,0 +1,60 @@
+def assert_live_dir(path: Path) -> None:
+    resolved = path.resolve()
+    live = LIVE_DIR.resolve()
+    if live not in resolved.parents and resolved != live:
+        raise SystemExit(f"refusing non-live path {resolved}")
+    for part in resolved.parts:
+        if part.startswith("2026-08-17") or part.startswith("2026-08-30"):
+            raise SystemExit(f"refusing banned run dir {resolved}")
+
+
+def resolve_create_only(path: Path) -> Path:
+    assert_live_dir(path)
+    if not path.exists():
+        return path
+    stem, suf = path.stem, path.suffix
+    cand = path.with_name(stem + "c" + suf)
+    n = 2
+    while cand.exists():
+        cand = path.with_name(f"{stem}c{n}{suf}")
+        n += 1
+    return cand
+
+
+def write_create_only(path: Path, text: str) -> Path:
+    path = resolve_create_only(path)
+    assert_live_dir(path)
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return path
+
+
+def main() -> int:
+    global BATCH_PATH, NOTES_PATH
+    records = [record_316(), record_317(), record_318(), record_319(), record_320()]
+    descs = [r["state"]["description"] for r in records]
+    jmax = 0.0
+    for i in range(5):
+        for j in range(i + 1, 5):
+            jmax = max(jmax, jaccard(descs[i], descs[j]))
+    notes = notes_text(jmax)
+    issues, jmax2 = self_check(records, notes)
+    jmax = max(jmax, jmax2)
+    notes = notes_text(jmax)
+    issues, _ = self_check(records, notes)
+    if issues:
+        print("SELF_CHECK_ISSUES:")
+        for item in issues:
+            print(" -", item)
+        return 1
+    print("SELF_CHECK_OK")
+    lines = [
+        json.dumps(rec, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        for rec in records
+    ]
+    BATCH_PATH = write_create_only(BATCH_PATH, "\n".join(lines) + "\n")
+    NOTES_PATH = write_create_only(NOTES_PATH, notes)
+    print(f"wrote {BATCH_PATH} lines={len(lines)} jmax={jmax:.3f}")
+    print(f"wrote {NOTES_PATH}")
+    report = run_pipelines(records)

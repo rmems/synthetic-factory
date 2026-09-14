@@ -1,0 +1,54 @@
+{
+  "agent_ids": [
+    "01a064a9-45b6-7620-90c4-3b40c32d6791"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 1,
+  "final_state": "unknown",
+  "hunk_evidence_count": 1,
+  "original_basename": "build_r23.py",
+  "original_path": "/tmp/maos-r23-spitlock/build_r23.py",
+  "path_key": "maos-r23-spitlock--acdaa9b79a1f",
+  "terminal_event_ids": [
+    "01a064a9-45b6-7620-90c4-3b40c32d6791:call-78ecb307-f95b-4069-8b67-6cc1cb75c1c6-51",
+    "01a064a9-45b6-7620-90c4-3b40c32d6791:call-d77928c0-84db-4502-8333-18ef4f1afe61-52"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 3,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a064a9-45b6-7620-90c4-3b40c32d6791:call-e8093365-c3a9-4441-9d19-431b11f5342b-43",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r23-spitlock--acdaa9b79a1f/fragments/call-e8093365-c3a9-4441-9d19-431b11f5342b-43/build_r23.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r23-spitlock--acdaa9b79a1f/fragments/call-e8093365-c3a9-4441-9d19-431b11f5342b-43/build_r23.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "terminal",
+      "event_id": "01a064a9-45b6-7620-90c4-3b40c32d6791:call-78ecb307-f95b-4069-8b67-6cc1cb75c1c6-51",
+      "journal_line": 297,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a064a9-45b6-7620-90c4-3b40c32d6791/updates.jsonl",
+      "operation": "inline_python_possible_mutation",
+      "reason": "inline_python_possible_mutation was recorded but is not conclusively reproducible without execution",
+      "timestamp_utc": "2026-09-03T00:49:03.509Z"
+    },
+    {
+      "channel": "terminal",
+      "event_id": "01a064a9-45b6-7620-90c4-3b40c32d6791:call-78ecb307-f95b-4069-8b67-6cc1cb75c1c6-51",
+      "journal_line": 297,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a064a9-45b6-7620-90c4-3b40c32d6791/updates.jsonl",
+      "operation": "move",
+      "reason": "move source state was not reconstructable",
+      "timestamp_utc": "2026-09-03T00:49:03.509Z"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

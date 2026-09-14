@@ -1,0 +1,75 @@
+{
+  "agent_ids": [
+    "01a06411-a219-7690-98c1-ebaf5d660f40"
+  ],
+  "classification": "partial",
+  "classification_evidence": [
+    "at least one full version was recovered, but a later successful edit or terminal mutation could not be placed conclusively",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 1,
+  "original_basename": "_recs.py",
+  "original_path": "/tmp/nelb-r69/_recs.py",
+  "path_key": "nelb-r69--d51a4ae80de6",
+  "terminal_event_ids": [
+    "01a06411-a219-7690-98c1-ebaf5d660f40:call-3fa4f83d-57bb-45db-9ef4-4f91b6ef9aa4-42",
+    "01a06411-a219-7690-98c1-ebaf5d660f40:call-bd84877e-fe74-4fe5-8996-0b40e86d1d95-37",
+    "01a06412-d209-7b81-a569-fe2f2628de8c:call-3a8c4682-0d16-42ed-b89a-5e4338aba3f8-15",
+    "01a06412-d20a-7af2-b164-b0d7b5847771:call-3b782802-fb65-4a05-9aa9-0876468aa3f7-13",
+    "01a06412-d20a-7af2-b164-b0d7b5847771:call-8f782ef9-5074-4809-845d-f6fa7fca7283-26",
+    "01a06412-d20a-7af2-b164-b0d7b5847771:call-df16673e-a7f5-49fb-b9d8-20bfc76854a6-9",
+    "01a06412-d20b-75e0-aaba-ec2e8fc197d2:call-797d2599-a0af-42e0-b8d5-8a8554cfe358-17",
+    "01a06412-d20b-75e0-aaba-ec2e8fc197d2:call-cbee97b1-4740-49e9-bd58-c9079ee09f66-14",
+    "01a06412-d222-7791-9b36-d8725e072df6:call-51cdbc4e-92a4-40f0-b994-49466dddbcd5-10",
+    "01a06412-d222-7791-9b36-d8725e072df6:call-a90ccf18-62eb-44bc-9007-16054d97a2da-14",
+    "01a0649c-a50a-75b2-8135-8b0b2b7f9843:call-224064dc-f503-489b-9e8f-9dc798ee25bb-36",
+    "01a0649c-a519-7cc0-942c-10993d61f5fa:call-95fa0c42-17b4-4dc3-aec4-26f1792679b5-30",
+    "01a064a7-40d3-78c3-b65f-94c60d91a5ab:call-144fc67b-9bb7-4e24-bb41-8d9c34b52bcb-37"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 1,
+  "unresolved_events": [
+    {
+      "channel": "terminal",
+      "event_id": "01a06411-a219-7690-98c1-ebaf5d660f40:call-3fa4f83d-57bb-45db-9ef4-4f91b6ef9aa4-42",
+      "journal_line": 263,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06411-a219-7690-98c1-ebaf5d660f40/updates.jsonl",
+      "operation": "inline_python_write_text",
+      "reason": "inline_python_write_text was recorded but is not conclusively reproducible without execution",
+      "timestamp_utc": "2026-09-03T00:06:28.218Z"
+    }
+  ],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06411-a219-7690-98c1-ebaf5d660f40",
+      "basename_preserved": true,
+      "bytes": 62030,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 179,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06411-a219-7690-98c1-ebaf5d660f40/updates.jsonl",
+      "original_basename": "_recs.py",
+      "original_path": "/tmp/nelb-r69/_recs.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r69--d51a4ae80de6/versions/v0001/_recs.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/nelb-r69--d51a4ae80de6/versions/v0001/_recs.py",
+      "session_id": "01a06411-a219-7690-98c1-ebaf5d660f40",
+      "sha256": "b40c628fc50d00727dd4cc94d97992bdb31db28d65e69dc10e73c54119f5c785",
+      "source_channel": "structured",
+      "source_event_id": "01a06411-a219-7690-98c1-ebaf5d660f40:call-50ad232d-50aa-4587-9236-1d04c0dd2c8e-29",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788393614145,
+      "timestamp_utc": "2026-09-03T00:00:14.145Z",
+      "tool_call_id": "call-50ad232d-50aa-4587-9236-1d04c0dd2c8e-29",
+      "version": 1,
+      "version_id": "nelb-r69--d51a4ae80de6:v0001"
+    }
+  ]
+}

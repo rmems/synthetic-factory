@@ -1,0 +1,15 @@
+    for path in list(Path("/tmp").glob("ttf-r*-occ-*.txt")) + list(
+        Path("/tmp").glob("ttf-r*/occ-*.txt")
+    ):
+        # Global occ dumps from this round or later include in-flight r112
+        # THIS_/NOTES tokens and are not prior-round occupancy.
+        occ_round = None
+        for token in (path.name, path.parent.name):
+            match = re.search(r"ttf-r(\d+)", token)
+            if match:
+                occ_round = int(match.group(1))
+                break
+        if path.parent.name == "ttf-r112" or "r112" in path.name:
+            continue
+        if occ_round is not None and occ_round >= 112:
+            continue

@@ -1,0 +1,992 @@
+def occupancy_preflight():
+    banned = (
+        "yarrowfen",
+        "sorrelwick",
+        "tansyholt",
+        "nernstveil",
+        "lampveil",
+        "pingveil",
+        "rowan kest",
+        "sibley vane",
+        "calder wren",
+        "oren voss",
+        "photoionization detector",
+        "pid voc of a btx",
+        "contact pulse-echo remaining wall",
+        "yf-7 tank t-2",
+        "sw-5 stripper s-1",
+        "th-8 tube t-6",
+        "pid-hil-6",
+        "pe-sim-4",
+    )
+    hits = []
+    root = Path("/tmp")
+    for n in (
+        sorted(root.glob("nelb-r*/NOTES-r*.md"))
+        + sorted(root.glob("nelb-r*/gen_r*.py"))
+        + sorted(root.glob("nelb-r*/records_block.py"))
+        + sorted(root.glob("nelb-r*/*recs*.py"))
+    ):
+        if "nelb-r57" in str(n):
+            continue
+        text = n.read_text(encoding="utf-8", errors="replace").casefold()
+        for b in banned:
+            if b in text:
+                hits.append(f"{n}:{b}")
+    if hits:
+        raise RuntimeError(f"family/plant collision {hits}")
+
+
+# ---------------------------------------------------------------------------
+# Record 172 — zirconia Nernst in-situ O2 of a glass-furnace crown, designed,
+# REJECT / MODIFY
+# ---------------------------------------------------------------------------
+def rec_172():
+    k_e = 0.050
+    t_k = 1000.0
+    t0_k = 1000.0
+    e_mv = 50.00
+    e0_mv = 0.00
+    p_ref = 20.00
+    decade = e_mv / (k_e * t_k)
+    p_o2 = p_ref / (10.0 ** decade)
+    nernst_e = k_e * t_k * math.log10(p_ref / p_o2)
+    lam = p_ref / p_o2
+    _exact(t_k / t0_k, 1.000)
+    _exact(decade, 1.00)
+    _exact(p_o2, 2.00)
+    _exact(nernst_e, 50.00)
+    _exact(lam, 10.00)
+    _exact(p_ref / (10.0 ** (0.00 / (k_e * t_k))), 20.00)
+    _exact(p_ref / (10.0 ** (100.00 / (k_e * t_k))), 0.20)
+    _exact(k_e * t_k * math.log10(20.00 / 2.00), 50.00)
+    _exact(6000.0 + 1080.0, 7080.0)
+
+    raster = make_raster(
+        neurons=20,
+        mean_rate_hz=50.0,
+        window_ms=40.0,
+        seed=202609172,
+        source="yf7.zr.emf",
+        target="yarrowfen.crown_stop_core",
+        table=[
+            {"from": "zr_E", "to": "o2_estimator", "weight": 1.40},
+            {"from": "zr_snr", "to": "zr_lock_core", "weight": 1.15},
+            {"from": "nernstveil_p", "to": "vendor_continue_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "da.nernst_conflict",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": "pre-post coincidence on continue-firing synapses; the plant zirconia modulator depresses continue-firing links when Nernst emf stays high inside tau_e of an SNR lock so a Nernstveil last-good cannot hide a 2.00 volpct O2 collapse",
+        },
+        channel_prefix="zr.n",
+        anchor="YF-7 zirconia Nernst 40 ms frame at E 50.00 mV / SNR 12.0 (t_s 3000) reconstructing 2.00 volpct O2 below the 4.00 reducing floor",
+    )
+    w_s = 0.040
+    events = [
+        ev(0.0, "zr.E", 0.00, code="E_MV", units="mV", note="plant-owned zirconia Nernst cell on YF-7 tank T-2 crown; in-situ electrochemical O2 family, not paramagnetic dumbbell, not CEMS FTIR k-script, not TDLAS NH3, not CRDS HF, not QEPAS, not CLD NOx, not TEOM PM"),
+        ev(300000.0, "zr.snr", 6.0, code="ZR_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(600000.0, "recon.P", 20.00, code="P_VOLPCT", units="volpct", note="20.00/10**(0.00/(0.050*1000))=20.00 exact; above the 4.00 reducing floor"),
+        ev(900000.0, "air.Q", 80.0, code="AIR_KGH", units="kg_h", note="plant combustion-air PLC on copper fieldbus; independent witness; unread by Nernstveil"),
+        ev(1200000.0, "nernstveil.P", 8.40, code="VENDOR_VOLPCT", units="volpct", note="Nernstveil vendor ZrO2-9 cloud; infra owner; patched emf timestamps"),
+        ev(1800000.0, "zr.E", 100.00, code="E_MV", units="mV"),
+        ev(2100000.0, "recon.P", 0.20, code="P_VOLPCT", units="volpct", note="20.00/10**(100.00/(0.050*1000))=0.20"),
+        ev(2400000.0, "permit.slide", 40.00, code="PERM_S", units="s", note="hot-work clerk slid the reducing-permit clock 40.00 s; collusion party"),
+        ev(2700000.0, "furn.T", 1000.0, code="FURN_K", units="K", note="plant crown thermocouple on copper DCS; independent witness"),
+        ev(3000000.0, "zr.E", 50.00, code="E_MV", units="mV", note="reducing-floor frame; raster sidecar"),
+        ev(3000001.3, "zr.snr", 12.0, code="ZR_SNR", units="1", note="1.3 ms SNR lock after E; 12.0 >= 8.0"),
+        ev(3300000.0, "recon.P", 2.00, code="P_VOLPCT", units="volpct", note="20.00/10**(50.00/(0.050*1000))=2.00 exact; reducing floor 4.00"),
+        ev(3600000.0, "recon.n", 50.00, code="E_CHECK_MV", units="mV", note="0.050*1000*log10(20.00/2.00)=50.00 exact Nernst identity"),
+        ev(3900000.0, "air.Q", 82.0, code="AIR_KGH", units="kg_h", note="air PLC tracks the plant zirconia, not Nernstveil 8.40"),
+        ev(4200000.0, "zr.drop", 1.0, code="ZR_DROP", units="bool", note="vendor emf packets dropped in Nernstveil cloud for 40 s"),
+        ev(4800000.0, "ops.prop", 1.0, code="CONTINUE_FIRING", units="bool", note="night operator Rowan Kest: Nernstveil is clean 8.40 volpct; continue T-2 firing"),
+        ev(5400000.0, "gate.stop", 1.0, code="REJECT", units="decision", note="refuse continue-firing; 2.00 volpct and SNR 12.0; Nernstveil not SoT"),
+        ev(6000000.0, "air.start", 1.0, code="AIR_HOLD_START", units="bool", note="bookend 1 of the 18.0 min air-enrichment hold floor"),
+        ev(7080000.0, "air.floor", 1.0, code="AIR_HOLD_FLOOR", units="bool", note="6000 s + 1080 s = 7080 s = 18.0 min"),
+        ev(7800000.0, "ops.kill", 1.0, code="FURN_ESD", units="bool", note="Kest: ESD the whole Yarrowfen tank until day-shift"),
+        ev(8400000.0, "gate.hold", 1.0, code="MODIFY", units="decision", note="companion t2: air-enrichment hold on plant zirconia as live interlock; tank ESD refused"),
+        ev(9000000.0, "air.set", 1.0, code="AIR_HELD", units="bool"),
+        ev(9600000.0, "zr.E", 50.00, code="E_MV", units="mV"),
+        ev(10200000.0, "recon.P", 2.00, code="P_VOLPCT", units="volpct", note="20.00/10**(50.00/(0.050*1000))=2.00; still under 4.00 so air-enrichment holds"),
+        ev(10800000.0, "nernstveil.P", 8.32, code="VENDOR_VOLPCT", units="volpct"),
+        ev(11400000.0, "air.Q", 90.0, code="AIR_KGH", units="kg_h"),
+        ev(12000000.0, "air.held", 1.0, code="AIR_HELD", units="bool"),
+        ev(12600000.0, "unit.trip", 0.0, code="ESD_NOT_TAKEN", units="bool"),
+        ev(13200000.0, "permit.slide", 40.00, code="PERM_S", units="s"),
+        ev(13800000.0, "furn.T", 998.0, code="FURN_K", units="K"),
+        ev(14400000.0, "zr.drop", 1.0, code="ZR_DROP", units="bool"),
+        ev(15000000.0, "air.lock", 1.0, code="AIR_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r57-172-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "YF-ZR-2026-0902",
+            "domain": "zirconia_nernst_crown_o2",
+            "setting": "Yarrowfen Glass YF-7 (invented), Flintwick Cullet Yard, tank T-2 crown. Plant-owned zirconia Nernst cell is the in-situ O2 SoT. Nernstveil / ZrO2-9 vendor DAQ (infra owner) plus the reducing-permit clock are collusion parties, not witnesses. Invented plant; designed campaign. Not paramagnetic O2 (r46), not stack-gas CEMS k-script (r04), not TDLAS NH3 (r22), not CRDS HF (r15), not QEPAS (r19), not CLD NOx (r52), not TEOM PM (r46).",
+            "observables_at_decision": {
+                "E_mV": e_mv,
+                "E0_mV": e0_mv,
+                "T_K": t_k,
+                "T0_K": t0_k,
+                "k_e": k_e,
+                "P_ref_volpct": p_ref,
+                "P_volpct": p_o2,
+                "E_check_mV": nernst_e,
+                "lambda": lam,
+                "zr_snr": 12.0,
+                "nernstveil_volpct": 8.40,
+                "permit_slide_s": 40.00,
+                "reducing_floor_volpct": 4.00,
+            },
+            "margin_authority": "YF-7 crown SOP rev C: if reconstructed P_volpct <= 4.00 AND zirconia SNR >= 8.0, continue-firing is forbidden even if Nernstveil reports 8.40 volpct. Tank ESD is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night operator Rowan Kest, citing Nernstveil 8.40 volpct and a quiet ZrO2-9 emf",
+            "summary": "continue T-2 firing; 50.00 mV is cell noise on a healthy excess-air train",
+            "basis_claimed": "Nernstveil is the only OEM zirconia SoT and a night abort of T-2 is a turnaround miss",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Continue-firing is refused. Serialized reconstruction: P_volpct = P_ref / 10**(E_mV / (k_e * T_K)) = 20.00 / 10**(50.00 / (0.050 * 1000.0)) = 2.00, below the 4.00 volpct reducing floor, and zirconia SNR is 12.0 >= 8.0. Nernst identity E_check = 0.050 * 1000.0 * log10(20.00 / 2.00) = 50.00. Permit clock was slid 40.00 s and vendor emf packets were dropped, so Nernstveil is a collusion party (zirconia vendor plus operator plus hot-work clerk). Ordered: refuse continue-firing now. Scope: this REJECT does not ESD the tank (that is the companion question) and does not isolate the crown thermocouple.",
+            "threshold": "P_volpct<=4.00 AND zr_snr>=8.0 => refuse continue-firing; Nernstveil is not SoT",
+            "stated_residuals": "air-enrichment still required to hold the 2.00 volpct; 2.00 vs a true electrode-poison event is a production cut; Nernstveil remains the only OEM zirconia channel",
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 5400: continue-firing refused; Nernstveil not SoT; reconstruction locked",
+            "tool": "yf7-zr-crown-gate-cli",
+            "observation": "P 2.00 volpct recomputes from E 50.00 mV; plant zirconia hashed; Nernstveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "zr E 50.00 mV; raster frame; P 2.00 volpct"},
+                {"t_s": 4800.0, "event": "ops proposes continue-firing"},
+                {"t_s": 5400.0, "event": "REJECT continue-firing"},
+                {"t_s": 6000.0, "event": "18 min air-enrichment bookend 1"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 8400.0, "event": "companion MODIFY air-enrichment hold vs tank ESD"},
+            ],
+            "observed_effects": [
+                "crown O2 recomputes from the serialized Nernst model at every recon.P event",
+                "a Nernstveil-only head would have continued firing overnight",
+                "18 min air-enrichment floor is in the stream (air.start, air.floor)",
+            ],
+            "surprises": [
+                "a clean vendor zirconia corridor and a 40 s permit slide co-existed with a 2.00 volpct plant reconstruction",
+            ],
+            "new_state": {
+                "tank_t2": "continue-firing blocked",
+                "nernstveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("zr_reconstruction", 0.14),
+                ("conjunctive_reducing_floor", 0.12),
+                ("nernstveil_nonsubstitution", 0.10),
+                ("three_party_collusion", 0.10),
+                ("air_time_cost", -0.03),
+            ],
+            "scored for a continue-firing REJECT on a recomputable zirconia Nernst O2 while refusing a Nernstveil ZrO2 patch and a permit clock slide; 18 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "zirconia-nernst", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Zirconia Nernst gate: serialized P_ref/10**(E/(k_e*T)) plus E identity beats a vendor ZrO2 patch; companion t2 is the air-enrichment hold, not a referral vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r57-172-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "YF-ZR-2026-0902-exec",
+            "domain": "air_enrichment_zr_interlock_execution",
+            "setting": "Same YF-7 after the REJECT. Operator proposes a tank ESD. This companion is the operational air-enrichment hold with the plant zirconia as the live interlock, not a second O2 vote.",
+            "observables_at_decision": {
+                "P_volpct": 2.00,
+                "air_hold_floor_s": 1080.0,
+                "tank_esd_proposed": True,
+                "air_hold_set": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night operator Rowan Kest",
+            "summary": "ESD the whole Yarrowfen tank until day-shift; 18 min already paid and Nernstveil still shows 8.32 volpct",
+            "basis_claimed": "the REJECT already stopped firing, so a tank ESD is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Air-enrichment hold plus plant zirconia as the live interlock. The 18 min air-enrichment floor is complete and the reducing tripwire (P_volpct <= 4.00) is still armed on the plant Nernst head. MODIFY the default ZrO2-restore SOP into a plant-zirconia-only interlock. Do not ESD the tank. Do not restore firing on Nernstveil. 2.00 volpct post-stop is still the plant SoT until a new frame clears 4.00.",
+            "threshold": "air_hold AND air_floor_complete AND tank_esd_not_taken AND continue_not_restored",
+        },
+        "executed_action": {
+            "summary": "air-enrichment held at t_s 8400; tank ESD not latched; Nernstveil restore not taken",
+            "tool": "yf7-air-hold-exec",
+            "observation": "recon.P 2.00 volpct after stop; air-enrichment line-up complete; Nernstveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "air-enrichment clock started after REJECT"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 7800.0, "event": "tank ESD proposed"},
+                {"t_s": 8400.0, "event": "MODIFY air-enrichment hold; tank ESD refused"},
+            ],
+            "observed_effects": [
+                "Nernstveil restore did not reopen the O2 call",
+                "tank ESD never fired; T-2 held air-enrichment on the plant zirconia",
+            ],
+            "new_state": {"air": "enriching", "tank": "in service", "t2": "held"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("air_enrichment_hold", 0.12),
+                ("no_tank_esd", 0.10),
+                ("nernstveil_nonsubstitution", 0.08),
+                ("air_floor_complete", 0.06),
+                ("held_firing_cost", -0.02),
+            ],
+            "operational execution gate: air-enrichment hold because Nernstveil is not a restore license; not an O2 re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "air-enrichment-hold"]),
+    }
+    return {
+        "id": "nelb-r57-172",
+        "spike_events": events,
+        "language_view": {
+            "description": "Yarrowfen Glass YF-7. Plant-owned zirconia Nernst cell reconstructs 2.00 volpct O2 from 50.00 mV while Nernstveil still reports 8.40 volpct. The gate REJECTs continue-firing. An 18 min air-enrichment floor is serialized in the stream. Companion t2 MODIFYs a tank ESD into a plant-zirconia air-enrichment hold.",
+            "trajectory": traj,
+            "trajectory_air_enrichment_hold": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "zr.E / zr.snr": "zirconia Nernst emf and SNR; the physics channels the reconstruction consumes",
+                "recon.P / recon.n": "serialized O2 volpct and Nernst E identity",
+                "air.Q / nernstveil.P / permit.slide / furn.T / zr.drop": "air PLC, vendor O2 cloud, permit clock slide, crown thermocouple, and dropped ZrO2 packets; the denial and collusion channels",
+                "ops.prop / gate.stop / ops.kill / gate.hold": "continue-firing proposal, REJECT, tank-ESD proposal, companion MODIFY",
+                "air.start / air.floor / air.set / air.held / unit.trip / air.lock": "operational companion channels plus the 18 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-under: nernstveil.P 8.40 next to recon.P 2.00",
+                "reconstruction as event: recon.P 2.00 equals 20.00/10**(50.00/(0.050*1000))",
+                "REJECT then operational MODIFY: gate.stop at 5400 s, gate.hold at 8400 s",
+                "slow floor in-stream: air.start 6000 s, air.floor 7080 s (18.0 min)",
+                "tight zr pair: zr.E then zr.snr +1.3 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Nernstveil is 8.40 volpct' = nernstveil.P 8.40; '2 volpct O2' = recon.P 2.00; 'refuse continue-firing' = gate.stop REJECT; 'air-enrichment not tank ESD' = gate.hold MODIFY",
+            "why_high_value": "New zirconia-Nernst in-situ O2 family on a glass-furnace crown (not paramagnetic O2 r46, not CEMS r04, not TDLAS r22, not CRDS r15, not QEPAS r19, not CLD r52, not TEOM r46). Lead REJECT of continue-firing on a recomputable reducing O2 that a vendor ZrO2 patch and a permit clock slide would have cleared. Three-party collusion includes the zirconia infra owner. Companion t2 is operational air-enrichment hold. sim_or_real=designed.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609172, "stream_note": "stream amplitudes are authored constants (mV, 1, volpct, s, K, kg/h, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "zirconia emf exists at ~1 Hz; stream keeps 4 E points; recon keeps 4 of ~40 solver ticks",
+                "refractory_floors_ms": {
+                    "zr.E": 1.3,
+                    "zr.snr": 1.3,
+                    "recon.P": 60000,
+                    "recon.n": 60000,
+                    "air.Q": 60000,
+                    "nernstveil.P": 60000,
+                    "permit.slide": 60000,
+                    "furn.T": 60000,
+                    "zr.drop": 60000,
+                    "ops.prop": 60000,
+                    "gate.stop": 60000,
+                    "air.start": 60000,
+                    "air.floor": 60000,
+                    "ops.kill": 60000,
+                    "gate.hold": 60000,
+                    "air.set": 60000,
+                    "air.held": 60000,
+                    "unit.trip": 60000,
+                    "air.lock": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T01:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "zirconia Nernst reconstruction head: P_volpct = P_ref / 10**(E_mV / (k_e * T_K)); E_check = k_e * T_K * log10(P_ref / P)",
+                "conjunctive reducing floor vs continue-firing vs tank ESD",
+                "vendor-ZrO2 nonsubstitution plus three-party collusion including the infra owner",
+                "operational companion: air-enrichment hold without restoring on Nernstveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "zirconia_nernst_crown_o2",
+            "formula": "P_volpct = P_ref_volpct / 10**(E_mV / (k_e * T_K)); E_check_mV = k_e * T_K * log10(P_ref_volpct / P_volpct)",
+            "parameters": {
+                "k_e": 0.050,
+                "T0_K": 1000.0,
+                "P_ref_volpct": 20.00,
+                "reducing_floor_volpct": 4.00,
+                "snr_lock": 8.0,
+                "air_hold_min": 18.0,
+            },
+            "worked_example": {"E_mV": 50.00, "P_volpct": 2.00, "E_check_mV": 50.00},
+            "check": "20.00 / 10**(50.00 / (0.050 * 1000.0)) = 2.00 exactly; 0.050 * 1000.0 * log10(20.00 / 2.00) = 50.00 exactly; 6000 s + 1080 s = 7080 s = 18.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 40.0,
+            "decision_window_s": 0.040,
+            "code": "yf7.zr_crown_gate",
+            "note": "REJECT accumulator wins: plant zirconia Nernst O2 evidence overpowers the Nernstveil continue advocate",
+            "decode_rule": "reject-continue if o2_estimator AND zr_lock fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("o2_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("zr_lock", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("reject_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "yf7.zr_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "yf7.air_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r57-172",
+            clock_domain="yf7-zr-campaign-relative-ms-t0-2026-09-02T01:00:00Z",
+            tags=["zirconia-nernst", "REJECT", "MODIFY", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 173 — photoionization-detector VOC of a BTX stripper vent, hil,
+# MODIFY / ACCEPT
+# ---------------------------------------------------------------------------
+def rec_173():
+    k_i = 4.00
+    i_na = 16.00
+    i_dark = 3.50
+    di = i_na - i_dark
+    c_ppm = k_i * di
+    i_lamp = 12.00
+    i_lamp0 = 12.00
+    s_lamp = i_lamp / i_lamp0
+    c_corr = c_ppm / s_lamp
+    _exact(di, 12.50)
+    _exact(c_ppm, 50.00)
+    _exact(s_lamp, 1.00)
+    _exact(c_corr, 50.00)
+    _exact(k_i * (6.00 - i_dark), 10.00)
+    _exact(k_i * (11.00 - i_dark), 30.00)
+    _exact(k_i * (13.50 - i_dark), 40.00)
+    _exact(2820.0 + 1440.0, 4260.0)
+
+    raster = make_raster(
+        neurons=25,
+        mean_rate_hz=50.0,
+        window_ms=32.0,
+        seed=202609173,
+        source="sw5.pid.ion",
+        target="sorrelwick.strip_isolate_core",
+        table=[
+            {"from": "pid_I", "to": "voc_estimator", "weight": 1.35},
+            {"from": "pid_snr", "to": "lamp_norm_core", "weight": 1.20},
+            {"from": "lampveil_c", "to": "vendor_continue_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "ach.pid_lamp_skip_salience",
+            "tau_e_s": 1.2,
+            "tau_e_ms": 1200.0,
+            "eligibility": "pre-post coincidence on keep-stripper synapses; the PID modulator depresses keep-running and referral links when ion current stays high inside tau_e of an SNR lock so a Lampveil last-good cannot hide a 50.00 ppm VOC or name Calder Wren",
+        },
+        channel_prefix="pid.n",
+        anchor="SW-5 HIL coupon 32 ms frame at I 16.00 nA / SNR 14.0 (t_s 1560) reconstructing 50.00 ppm VOC above the 20.00 isolate floor",
+    )
+    w_s = 0.032
+    events = [
+        ev(0.0, "pid.I", 6.00, code="I_NA", units="nA", note="HIL photoionization detector on a dummy vent in PID-HIL-6; BTX-stripper VOC family, not QEPAS DGA, not CRDS HF, not TDLAS NH3, not e-nose VOD, not SPR cyanide, not CLD NOx, not paramagnetic O2"),
+        ev(180000.0, "pid.snr", 9.0, code="PID_SNR", units="1", note="early ion SNR; isolate needs SNR>=12"),
+        ev(360000.0, "recon.C", 10.00, code="C_PPM", units="ppm", note="4.00*(6.00-3.50)=10.00 exact"),
+        ev(540000.0, "lamp.cal", 12.00, code="LAMP_UA", units="uA", note="plant UV-lamp cal remaining; no lamp-scale hop in this window"),
+        ev(720000.0, "lampveil.C", 3.20, code="VENDOR_PPM", units="ppm", note="Lampveil last-good VOC cloud; not admissible SoT"),
+        ev(900000.0, "pid.I", 11.00, code="I_NA", units="nA"),
+        ev(1080000.0, "recon.C", 30.00, code="C_PPM", units="ppm", note="4.00*(11.00-3.50)=30.00; still over the 20.00 isolate floor"),
+        ev(1260000.0, "lamp.delay", 0.0, code="LAMP_AE", units="bool", note="missing lamp-cal AE burst; Lampveil UTC vs plant UTC+2 skipped the cal by 120 min"),
+        ev(1440000.0, "lamp.cal", 12.00, code="LAMP_UA", units="uA"),
+        ev(1560000.0, "pid.I", 16.00, code="I_NA", units="nA", note="isolate-floor frame; raster sidecar"),
+        ev(1560001.2, "pid.snr", 14.0, code="PID_SNR", units="1", note="1.2 ms SNR lock after I; 14.0 >= 12.0"),
+        ev(1740000.0, "recon.C", 50.00, code="C_PPM", units="ppm", note="4.00*(16.00-3.50)=50.00 exact; isolate 20.00, trip 80.00"),
+        ev(1920000.0, "recon.S", 1.00, code="S_LAMP", units="1", note="12.00/12.00=1.00 exact; lamp-ratio identity"),
+        ev(2100000.0, "lampveil.C", 3.20, code="VENDOR_PPM", units="ppm"),
+        ev(2280000.0, "ops.prop", 1.0, code="KEEP_RUN_REFER", units="bool", note="night lead Sibley Vane: keep S-1 running and refer lamp tech Calder Wren"),
+        ev(2460000.0, "gate.isol", 1.0, code="MODIFY", units="decision", note="isolate this stripper; refuse the person-referral; Lampveil not SoT"),
+        ev(2640000.0, "str.lock", 1.0, code="STR_ISOL", units="bool"),
+        ev(2820000.0, "cool.start", 1.0, code="COOL_START", units="bool", note="bookend 1 of the 24.0 min cooldown plus lamp-settle floor"),
+        ev(4260000.0, "cool.floor", 1.0, code="COOL_FLOOR", units="bool", note="2820 s + 1440 s = 4260 s = 24.0 min"),
+        ev(4440000.0, "ops.refer", 1.0, code="REFER_WREN", units="bool", note="Vane: Wren badge was on the lamp log"),
+        ev(4620000.0, "gate.exec", 1.0, code="ACCEPT", units="decision", note="companion t2: new-lamp restart; person-referral refused; column dump refused"),
+        ev(4800000.0, "lamp.new", 1.0, code="NEW_LAMP", units="bool"),
+        ev(4980000.0, "pid.I", 13.50, code="I_NA", units="nA"),
+        ev(5160000.0, "recon.C", 40.00, code="C_PPM", units="ppm", note="4.00*(13.50-3.50)=40.00; HIL dummy still over 20.00 so the isolated stripper stays held"),
+        ev(5340000.0, "lampveil.C", 3.12, code="VENDOR_PPM", units="ppm"),
+        ev(5520000.0, "lamp.cal", 12.00, code="LAMP_UA", units="uA"),
+        ev(5700000.0, "refer.hold", 0.0, code="REFER_NOT_TAKEN", units="bool", note="Wren exonerated; missing lamp-cal AE precedes the large ion current, not the badge touch"),
+        ev(5880000.0, "str.held", 1.0, code="STR_HELD", units="bool"),
+        ev(6060000.0, "lamp.delay", 1.0, code="LAMP_AE", units="bool", note="lamp-cal AE restored on the new lamp"),
+        ev(6240000.0, "recon.S", 1.00, code="S_LAMP", units="1", note="identity holds on the post-isolate lamp ratio"),
+        ev(6420000.0, "col.dump", 0.0, code="DUMP_NOT_TAKEN", units="bool"),
+        ev(6600000.0, "cell.restart", 1.0, code="CELL_RESTART", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r57-173-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "SW-PID-2026-0718",
+            "domain": "pid_voc_stripper_vent",
+            "setting": "Sorrelwick BTX SW-5 (invented), Cressyard Aromatics, stripper S-1 vent. Hardware-in-the-loop dummy vent in PID-HIL-6 supplies the ion current that times the in-service isolate. Plant-owned photoionization reconstruction is the VOC SoT. Lampveil vendor VOC scheduler is a corridor witness, not the stripper SoT. Not QEPAS DGA (r19), not CRDS HF (r15), not TDLAS NH3 (r22), not e-nose VOD (r02), not SPR cyanide (r26), not CLD NOx (r52), not paramagnetic O2 (r46).",
+            "observables_at_decision": {
+                "I_nA": i_na,
+                "I_dark_nA": i_dark,
+                "k_i": k_i,
+                "C_ppm": c_ppm,
+                "S_lamp": s_lamp,
+                "C_corr_ppm": c_corr,
+                "lampveil_ppm": 3.20,
+                "lamp_cal_uA": 12.00,
+                "lamp_delay": 0.0,
+                "isolate_floor_ppm": 20.00,
+            },
+            "margin_authority": "SW-5 stripper SOP rev B: if reconstructed C_ppm >= 20.00 AND PID SNR >= 12.0, isolate this stripper this night. A Lampveil last-good or a quiet lamp-cal residual cannot keep the column. Trip tripwire is 80.00 ppm. Person-referral is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night lead Sibley Vane, citing Lampveil 3.20 ppm and lamp-cal 12.00 uA, and naming lamp tech Calder Wren as last-to-badge",
+            "summary": "keep S-1 in service and refer Wren; 16.00 nA is lamp noise on a healthy vent",
+            "basis_claimed": "Lampveil last-good is 3.20 ppm and a night isolate of the BTX stripper is a turnaround miss",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Keep-running is refused; the person-referral is also refused. Serialized reconstruction: C_ppm = k_i * (I_nA - I_dark) = 4.00 * (16.00 - 3.50) = 50.00, which is 30.00 ppm over the 20.00 isolate floor and 30.00 ppm under the 80.00 dump tripwire. Lamp identity S = 12.00 / 12.00 = 1.00; C_corr = 50.00 / 1.00 = 50.00. Lampveil 3.20 ppm is a last-good skip stamp and is not an admissible keep-running witness. The missing lamp-cal AE burst sits on a Lampveil UTC-vs-UTC+2 skip (120 min), not on Wren's badge, and the plant lamp-cal stays 12.00 uA, so the easy referral fails command-custody. Ordered: isolate this stripper now. Scope: this MODIFY does not dump the column (that is the companion question) and does not name Wren.",
+            "threshold": "C_ppm>=20.00 AND pid_snr>=12.0 => isolate this stripper; Lampveil is not SoT; dump if C_ppm>=80.00; referral requires badge-touch preceding the large ion current",
+            "stated_residuals": "50.00 vs 80.00 dump floor is 30.00 ppm, not infinite; new-lamp restart still required; Lampveil remains the only OEM VOC channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 2460: stripper isolated; Wren not named; Lampveil not SoT; reconstruction locked",
+            "tool": "sw5-pid-strip-gate-cli",
+            "observation": "C 50.00 ppm recomputes from I 16.00 nA; HIL coupon hashed; Lampveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 1560.0, "event": "pid I 16.00 nA SNR 14.0; raster frame; C 50.00 ppm"},
+                {"t_s": 2280.0, "event": "ops proposes keep-running plus Wren referral"},
+                {"t_s": 2460.0, "event": "MODIFY isolate stripper; referral refused"},
+                {"t_s": 2820.0, "event": "24 min cooldown bookend 1"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4620.0, "event": "companion ACCEPT new-lamp restart; referral still refused"},
+            ],
+            "observed_effects": [
+                "VOC recomputes from the serialized PID model at every recon.C event",
+                "a Lampveil-only head would have kept the stripper overnight",
+                "24 min cooldown plus lamp-settle floor is in the stream (cool.start, cool.floor)",
+            ],
+            "surprises": [
+                "a last-good 3.20 ppm vendor corridor and a quiet lamp-cal residual co-existed with a 50.00 ppm ion current, and the obvious lamp tech was not on the causal path",
+            ],
+            "new_state": {
+                "stripper_s1": "isolated",
+                "wren": "exonerated",
+                "lampveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 1500000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("pid_reconstruction", 0.14),
+                ("isolate_floor_stripper", 0.12),
+                ("exoneration", 0.10),
+                ("lampveil_nonsubstitution", 0.08),
+                ("settle_time_cost", -0.04),
+            ],
+            "scored for a keep-running MODIFY on a recomputable high VOC while refusing a Lampveil 3.20 ppm corridor and an easy person-referral; 24 min floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "pid-voc", "serialized-reconstruction", "operational-companion"],
+            distillation_note="PID VOC gate: serialized k_i*(I-I_dark) plus lamp-ratio identity beats a green VOC dashboard; companion t2 is the new-lamp restart, not a governance vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r57-173-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "SW-PID-2026-0718-exec",
+            "domain": "new_lamp_cool_execution",
+            "setting": "Same SW-5 after the MODIFY. Night lead proposes referring Wren and dumping the BTX column. This companion is the operational new-lamp cooldown restart, not a second VOC vote.",
+            "observables_at_decision": {
+                "C_ppm": 40.00,
+                "S_lamp": 1.00,
+                "cool_floor_s": 1440.0,
+                "refer_proposed": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night lead Sibley Vane",
+            "summary": "refer Wren and dump the BTX column; 24 min already paid and Lampveil is 3.12 ppm",
+            "basis_claimed": "the MODIFY already cut the stripper, so a column dump plus a person file is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Restart the cell on a different lamp after the cooldown floor. The 24 min lamp-settle is complete and the dump tripwire (C_ppm >= 80.00) is still armed on the plant PID head. ACCEPT the new-lamp restart. Do not refer Wren. Do not dump the column. 40.00 ppm post-isolate is still over the 20.00 isolate floor, so the isolated stripper stays held; the new lamp may run.",
+            "threshold": "new_lamp AND cool_floor_complete AND refer_not_taken AND column_not_dumped AND isolated_stripper_held",
+        },
+        "executed_action": {
+            "summary": "new-lamp restart at t_s 4620; Wren not referred; column not dumped; isolated stripper held",
+            "tool": "sw5-pid-cool-exec",
+            "observation": "recon.C 40.00 ppm on the HIL dummy; lamp-cal AE present on the new lamp; Lampveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 2820.0, "event": "cooldown clock started after MODIFY"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4440.0, "event": "Wren referral re-proposed"},
+                {"t_s": 4620.0, "event": "ACCEPT new-lamp restart; referral refused"},
+            ],
+            "observed_effects": [
+                "Lampveil restore did not reopen the VOC call",
+                "column dump never fired; 50.00 vs 80.00 ppm floor",
+                "Wren remains unnamed; missing lamp-cal AE is the causal object",
+            ],
+            "new_state": {"cell": "restarted on new lamp", "wren": "exonerated", "stripper": "held", "column": "in service"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("new_lamp_restart", 0.12),
+                ("no_person_referral", 0.10),
+                ("no_column_dump", 0.09),
+                ("cool_floor_complete", 0.06),
+                ("held_stripper_takt_cost", -0.02),
+            ],
+            "operational execution gate: restart on a new lamp because Lampveil is not a restore license and Wren is not on the causal path; not a VOC re-vote",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "exoneration"]),
+    }
+    return {
+        "id": "nelb-r57-173",
+        "spike_events": events,
+        "language_view": {
+            "description": "Sorrelwick BTX SW-5. HIL photoionization detector reconstructs 50.00 ppm VOC from 16.00 nA while Lampveil still shows 3.20 ppm and the lamp-cal 12.00 uA. The gate MODIFYs stripper isolate and refuses the lamp-tech referral. A 24 min cooldown floor is serialized in the stream. Companion t2 ACCEPTs a new-lamp restart and still refuses the referral.",
+            "trajectory": traj,
+            "trajectory_new_lamp": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "pid.I / pid.snr": "photoionization ion current and SNR; the physics channels the reconstruction consumes",
+                "recon.C / recon.S": "serialized VOC ppm and lamp-ratio identity",
+                "lamp.cal / lampveil.C / lamp.delay": "plant UV-lamp cal, vendor last-good, and lamp-cal AE; the denial and exoneration channels",
+                "ops.prop / gate.isol / ops.refer / gate.exec": "keep-running proposal, MODIFY, referral proposal, companion ACCEPT",
+                "str.lock / cool.start / cool.floor / lamp.new / refer.hold / str.held / col.dump / cell.restart": "operational companion channels plus the 24 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: lampveil.C 3.20 next to recon.C 50.00",
+                "reconstruction as event: recon.C 50.00 equals 4.00*(16.00-3.50)",
+                "MODIFY then operational ACCEPT: gate.isol at 2460 s, gate.exec at 4620 s",
+                "slow floor in-stream: cool.start 2820 s, cool.floor 4260 s (24.0 min)",
+                "tight pid pair: pid.I then pid.snr +1.2 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Lampveil is 3.20 ppm' = lampveil.C 3.20; '50 ppm VOC' = recon.C 50.00; 'isolate this stripper not Wren' = gate.isol MODIFY; 'new lamp not referral' = gate.exec ACCEPT",
+            "why_high_value": "New photoionization-detector VOC family on a BTX stripper vent (not QEPAS r19, not CRDS r15, not TDLAS r22, not e-nose r02, not SPR r26, not CLD r52, not paramagnetic O2 r46). Lead MODIFY of keep-running on a recomputable high VOC that a vendor last-good would have cleared, with a resolved-innocent lamp tech. Companion t2 is operational new-lamp restart. sim_or_real=hil.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609173, "stream_note": "stream amplitudes are authored constants (nA, 1, ppm, uA, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "PID ion current exists at ~10 Hz; stream keeps 4 I points; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "pid.I": 1.2,
+                    "pid.snr": 1.2,
+                    "recon.C": 60000,
+                    "recon.S": 60000,
+                    "lamp.cal": 60000,
+                    "lampveil.C": 60000,
+                    "lamp.delay": 60000,
+                    "ops.prop": 60000,
+                    "gate.isol": 60000,
+                    "str.lock": 60000,
+                    "cool.start": 60000,
+                    "cool.floor": 60000,
+                    "ops.refer": 60000,
+                    "gate.exec": 60000,
+                    "lamp.new": 60000,
+                    "refer.hold": 60000,
+                    "str.held": 60000,
+                    "col.dump": 60000,
+                    "cell.restart": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-07-18T02:30:00Z HIL night start",
+            },
+            "distillation_targets": [
+                "PID reconstruction head: C_ppm = k_i * (I_nA - I_dark); S = I_lamp / I_lamp0",
+                "isolate-floor stripper vs keep-running vs column-dump",
+                "exoneration head: missing lamp-cal AE plus timezone skip, not last-to-badge",
+                "operational companion: new-lamp restart without referring the lamp tech",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "pid_voc_stripper_vent",
+            "formula": "C_ppm = k_i * (I_nA - I_dark_nA); S_lamp = I_lamp_uA / I_lamp0_uA; C_corr_ppm = C_ppm / S_lamp",
+            "parameters": {
+                "k_i": 4.00,
+                "I_dark_nA": 3.50,
+                "I_lamp0_uA": 12.00,
+                "isolate_floor_ppm": 20.00,
+                "dump_ppm": 80.00,
+                "snr_lock": 12.0,
+                "cool_min": 24.0,
+            },
+            "worked_example": {"I_nA": 16.00, "C_ppm": 50.00, "S_lamp": 1.00},
+            "check": "4.00 * (16.00 - 3.50) = 50.00 exactly; 12.00 / 12.00 = 1.00 exactly; 2820 s + 1440 s = 4260 s = 24.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 32.0,
+            "decision_window_s": 0.032,
+            "code": "sw5.pid_strip_gate",
+            "note": "MODIFY accumulator wins: PID high-VOC evidence overpowers the Lampveil continue advocate",
+            "decode_rule": "modify-isolate if voc_estimator AND lamp_norm fire; vendor_continue_advocate is below threshold by design; referral_latch is not armed",
+            "populations": [
+                gate_pop("voc_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("lamp_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("modify_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "sw5.pid_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 32.0},
+                {"check": "sw5.isol_scorer", "neurons": 50, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r57-173",
+            clock_domain="sw5-pid-hil-relative-ms-t0-2026-07-18T02:30:00Z",
+            tags=["pid-voc", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 174 — contact pulse-echo remaining wall of a fired-heater tube, simulated,
+# ACCEPT / REJECT
+# ---------------------------------------------------------------------------
+def rec_174():
+    c_mm_us = 6.00
+    tof_us = 4.00
+    d_mm = c_mm_us * tof_us / 2.0
+    t_nom = 20.00
+    loss_mm = t_nom - d_mm
+    rt_us = 2.0 * d_mm / c_mm_us
+    _exact(d_mm, 12.00)
+    _exact(loss_mm, 8.00)
+    _exact(rt_us, 4.00)
+    _exact(c_mm_us * 6.00 / 2.0, 18.00)
+    _exact(c_mm_us * 5.00 / 2.0, 15.00)
+    _exact(c_mm_us * 4.00 / 2.0, 12.00)
+    _exact(20.00 - 18.00, 2.00)
+    _exact(20.00 - 15.00, 5.00)
+    _exact(6000.0 + 720.0, 6720.0)
+
+    raster = make_raster(
+        neurons=16,
+        mean_rate_hz=62.5,
+        window_ms=36.0,
+        seed=202609174,
+        source="th8.pe.wall",
+        target="tansyholt.tube_accept_core",
+        table=[
+            {"from": "pe_tof", "to": "wall_estimator", "weight": 1.40},
+            {"from": "pe_c", "to": "vel_norm_core", "weight": 1.20},
+            {"from": "pingveil_d", "to": "vendor_skip_advocate", "weight": 0.50},
+        ],
+        third_factor={
+            "modulator": "na.tube_scope_eligibility",
+            "tau_e_s": 2.0,
+            "tau_e_ms": 2000.0,
+            "eligibility": "pre-post coincidence on skip-tube synapses; the pulse-echo modulator enables potentiation only while ToF and velocity are co-active inside tau_e so a Pingveil last-good cannot skip tubes T-5 and T-7 on a 12.00 mm remaining wall",
+        },
+        channel_prefix="pe.n",
+        anchor="TH-8 PE-SIM-4 36 ms frame at ToF 4.00 us / c 6.00 mm/us (t_s 3000) reconstructing 12.00 mm remaining wall on T-6 below the 14.00 isolate floor",
+    )
+    w_s = 0.036
+    events = [
+        ev(0.0, "pe.t", 6.00, code="TOF_US", units="us", note="simulated contact pulse-echo of TH-8 fired-heater tube T-6; remaining-wall family, not TOFD ligament, not PAUT TFM, not EMAT SH, not Lamb-wave, not impact-echo, not FSM, not ER probe, not DCPD, not RFEC, not PEC"),
+        ev(300000.0, "pe.c", 6.00, code="C_MM_US", units="mm_us", note="shear-longitudinal mix velocity; held at 6.00"),
+        ev(600000.0, "recon.d", 18.00, code="D_MM", units="mm", note="6.00*6.00/2=18.00 exact"),
+        ev(900000.0, "pe.snr", 14.0, code="PE_SNR", units="1"),
+        ev(1200000.0, "pingveil.d", 18.40, code="VENDOR_MM", units="mm", note="Pingveil last-campaign remaining-wall cloud; patched residual 18.00 mm"),
+        ev(1800000.0, "pe.t", 5.00, code="TOF_US", units="us"),
+        ev(2100000.0, "recon.d", 15.00, code="D_MM", units="mm", note="6.00*5.00/2=15.00; still above the 14.00 isolate floor"),
+        ev(2400000.0, "recon.loss", 5.00, code="LOSS_MM", units="mm", note="20.00-15.00=5.00; wall-loss identity at this frame"),
+        ev(2700000.0, "pe.snr", 16.0, code="PE_SNR", units="1"),
+        ev(3000000.0, "pe.t", 4.00, code="TOF_US", units="us", note="in-band frame; raster sidecar"),
+        ev(3000001.5, "pe.c", 6.00, code="C_MM_US", units="mm_us", note="1.5 ms velocity-norm after ToF"),
+        ev(3300000.0, "recon.d", 12.00, code="D_MM", units="mm", note="6.00*4.00/2=12.00 exact; isolate 14.00, heater-trip 8.00"),
+        ev(3600000.0, "pingveil.d", 18.40, code="VENDOR_MM", units="mm"),
+        ev(3900000.0, "tube.id", 6.0, code="TUBE", units="id"),
+        ev(4200000.0, "t57.present", 1.0, code="T57_PRESENT", units="bool", note="adjacent tubes T-5 and T-7 are the skip-isolate object, not this tube"),
+        ev(4800000.0, "ops.prop", 1.0, code="ACCEPT_AND_SKIP", units="bool", note="heater lead Oren Voss: T-6 is green on Pingveil 18.40; skip T-5 and T-7 to save a morning survey"),
+        ev(5400000.0, "gate.comp", 1.0, code="ACCEPT", units="decision", note="bounded ACCEPT of T-6 isolate only; 12.00 mm under 14.00 floor; T-5 and T-7 out of scope"),
+        ev(6000000.0, "surv.start", 1.0, code="SURV_START", units="bool", note="bookend 1 of the 12.0 min survey-complete floor"),
+        ev(6720000.0, "surv.floor", 1.0, code="SURV_FLOOR", units="bool", note="6000 s + 720 s = 6720 s = 12.0 min"),
+        ev(7200000.0, "ops.skip", 1.0, code="SKIP_T57", units="bool", note="Voss: Pingveil 18.40, skip T-5 and T-7"),
+        ev(7800000.0, "gate.hold", 1.0, code="REJECT", units="decision", note="companion t2: skip-isolate of T-5 and T-7 refused; T-6 hold stands"),
+        ev(8400000.0, "t6.held", 1.0, code="T6_HELD", units="bool"),
+        ev(9000000.0, "pe.t", 4.00, code="TOF_US", units="us"),
+        ev(9600000.0, "recon.d", 12.00, code="D_MM", units="mm", note="6.00*4.00/2=12.00; still under the 14.00 isolate floor"),
+        ev(10200000.0, "pingveil.d", 18.40, code="VENDOR_MM", units="mm"),
+        ev(10800000.0, "t57.skip", 0.0, code="T57_NOT_SKIPPED", units="bool"),
+        ev(11400000.0, "htr.trip", 0.0, code="HEATER_NOT_TRIPPED", units="bool"),
+        ev(12000000.0, "pe.snr", 15.0, code="PE_SNR", units="1"),
+        ev(12600000.0, "recon.loss", 8.00, code="LOSS_MM", units="mm", note="20.00-12.00=8.00 on the post-accept frame"),
+        ev(13200000.0, "tube.held", 1.0, code="TUBE_HELD", units="bool"),
+        ev(13800000.0, "takt.late", 1.0, code="SURVEY_COST", units="bool"),
+        ev(14400000.0, "t6.held", 1.0, code="T6_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r57-174-t1",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "TH-PE-2026-0819",
+            "domain": "pulse_echo_heater_tube",
+            "setting": "Tansyholt Heater TH-8 (invented), Bramblewick Crude unit fired heater. Simulated contact pulse-echo coupon in PE-SIM-4 supplies the ToF and velocity that time the in-band T-6 isolate. Plant-owned pulse-echo reconstruction is the remaining-wall SoT. Pingveil vendor last-campaign wall cloud is a corridor witness, not the tube SoT. Invented plant; simulated campaign. Not TOFD (r44/r46), not PAUT TFM (r23), not EMAT SH (r49), not Lamb-wave (r35/r37), not impact-echo (r38/r40), not FSM (r50), not ER probe (r53), not DCPD (r38), not RFEC (r45), not PEC (r36).",
+            "observables_at_decision": {
+                "ToF_us": tof_us,
+                "c_mm_us": c_mm_us,
+                "d_mm": d_mm,
+                "loss_mm": loss_mm,
+                "rt_us": rt_us,
+                "pingveil_mm": 18.40,
+                "pe_snr": 16.0,
+                "isolate_floor_mm": 14.00,
+            },
+            "margin_authority": "TH-8 heater SOP rev A: if reconstructed d_mm <= 14.00 AND PE SNR >= 12.0, tube T-6 may be isolated as a thinning pass. Heater-trip if d_mm <= 8.00. T-5 and T-7 skip-isolate is a different gate. Pingveil last-good cannot skip an unmeasured tube.",
+        },
+        "proposed_action": {
+            "actor": "heater lead Oren Voss, citing Pingveil 18.40 mm and a late morning survey",
+            "summary": "stamp T-6 in band and skip T-5 and T-7; 4.00 us is a couplant glitch on a healthy wall",
+            "basis_claimed": "Pingveil last-campaign is 18.40 mm and a night survey of T-5 and T-7 is a takt miss",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Tube T-6 is accepted as in-band for a single isolate. Serialized reconstruction: d = c * ToF / 2 = 6.00 * 4.00 / 2 = 12.00, which is 2.00 mm under the 14.00 isolate floor and 4.00 mm over the 8.00 heater-trip. Wall-loss identity loss = 20.00 - 12.00 = 8.00; round-trip 2*d/c = 4.00 us. Pingveil 18.40 mm is a patched 18.00 residual and is not an admissible skip-isolate witness. Ordered: ACCEPT this T-6 isolate only. Scope: this ACCEPT does not skip T-5 and T-7 (that is the companion question) and does not stamp a heater trip.",
+            "threshold": "d_mm<=14.00 AND pe_snr>=12.0 => accept T-6 isolate; Pingveil is not SoT; heater-trip if d_mm<=8.00; T-5 and T-7 are out of scope",
+            "stated_residuals": "12.00 vs 14.00 isolate floor is 2.00 mm, not infinite; T-5 and T-7 remain unmeasured; Pingveil remains the only OEM wall channel",
+        },
+        "executed_action": {
+            "summary": "ACCEPT at t_s 5400: T-6 in band; T-5 and T-7 not skipped; Pingveil not SoT; reconstruction locked",
+            "tool": "th8-pe-tube-gate-cli",
+            "observation": "d 12.00 mm recomputes from ToF 4.00 us and c 6.00 mm/us; PE-SIM-4 hashed; Pingveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "pe ToF 4.00 us; raster frame; d 12.00 mm"},
+                {"t_s": 4800.0, "event": "ops proposes accept T-6 and skip T-5/T-7"},
+                {"t_s": 5400.0, "event": "ACCEPT T-6 only; T-5 and T-7 out of scope"},
+                {"t_s": 6000.0, "event": "12 min survey-complete bookend 1"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7800.0, "event": "companion REJECT skip-isolate of T-5 and T-7"},
+            ],
+            "observed_effects": [
+                "remaining wall recomputes from the serialized pulse-echo model at every recon.d event",
+                "a Pingveil-only head would have skipped T-5 and T-7 overnight",
+                "12 min survey-complete floor is in the stream (surv.start, surv.floor)",
+            ],
+            "surprises": [
+                "a last-good 18.40 mm vendor wall corridor co-existed with a 12.00 mm plant reconstruction on T-6 only",
+            ],
+            "new_state": {
+                "t6": "isolated",
+                "t57": "in scope unskipped",
+                "pingveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.41,
+            [
+                ("pe_reconstruction", 0.14),
+                ("bounded_t6_isolate", 0.12),
+                ("pingveil_nonsubstitution", 0.10),
+                ("tube_scope_limit", 0.08),
+                ("survey_time_cost", -0.03),
+            ],
+            "scored for a bounded T-6 ACCEPT on a recomputable pulse-echo remaining wall while refusing a Pingveil 18.40 mm corridor as a skip license; 12 min floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["ACCEPT", "pulse-echo-wall", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Pulse-echo gate: serialized c*ToF/2 plus wall-loss identity beats a green last-campaign dashboard; companion t2 is the skip-tube refusal, not a second wall vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r57-174-t2",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "TH-PE-2026-0819-exec",
+            "domain": "skip_tube_refusal_execution",
+            "setting": "Same TH-8 after the ACCEPT. Heater lead proposes skipping T-5 and T-7 on Pingveil 18.40 mm. This companion is the operational skip refusal, not a second wall vote.",
+            "observables_at_decision": {
+                "d_mm": 12.00,
+                "surv_floor_s": 720.0,
+                "skip_proposed": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "heater lead Oren Voss",
+            "summary": "skip T-5 and T-7; 12 min already paid and Pingveil is 18.40 mm",
+            "basis_claimed": "the ACCEPT already isolated T-6, so skipping the adjacent tubes is the cheapest survey",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Skip-isolate of T-5 and T-7 is refused. The 12 min survey floor is complete and the isolate tripwire (d_mm <= 14.00) is still armed on the plant pulse-echo head. REJECT the skip. Do not trip the heater. T-6 hold stands. 12.00 mm post-accept is still under the 14.00 isolate floor, so T-6 stays held; T-5 and T-7 remain unmeasured and in scope.",
+            "threshold": "surv_floor_complete AND skip_not_taken AND heater_not_tripped AND t6_held AND t57_in_scope",
+        },
+        "executed_action": {
+            "summary": "skip refused at t_s 7800; T-5 and T-7 not skipped; heater not tripped; T-6 held",
+            "tool": "th8-pe-surv-exec",
+            "observation": "recon.d 12.00 mm on PE-SIM-4; Pingveil still ignored; T-5 and T-7 remain in the survey",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "survey clock started after ACCEPT"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7200.0, "event": "T-5/T-7 skip re-proposed"},
+                {"t_s": 7800.0, "event": "REJECT skip-isolate; T-6 hold stands"},
+            ],
+            "observed_effects": [
+                "Pingveil restore did not reopen the wall call",
+                "heater trip never fired; 12.00 vs 8.00 mm floor",
+                "T-5 and T-7 remain unskipped; T-6 is the only isolated tube",
+            ],
+            "new_state": {"t6": "held", "t57": "in survey", "heater": "in service"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.36,
+            [
+                ("skip_tube_refusal", 0.14),
+                ("t6_hold_stands", 0.10),
+                ("pingveil_nonsubstitution", 0.08),
+                ("survey_floor_complete", 0.06),
+                ("takt_cost", -0.02),
+            ],
+            "operational execution gate: refuse skip of unmeasured tubes because Pingveil is not a skip license; not a wall re-vote",
+        ),
+        "meta": meta_common(tags=["REJECT", "operational-execution", "skip-refusal"]),
+    }
+    return {
+        "id": "nelb-r57-174",
+        "spike_events": events,
+        "language_view": {
+            "description": "Tansyholt Heater TH-8. Simulated contact pulse-echo reconstructs 12.00 mm remaining wall from 4.00 us / 6.00 mm/us while Pingveil still reports 18.40 mm. The gate ACCEPTs a T-6 isolate only. A 12 min survey floor is serialized in the stream. Companion t2 REJECTs skipping T-5 and T-7.",
+            "trajectory": traj,
+            "trajectory_skip_tube_refusal": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "pe.t / pe.c / pe.snr": "contact pulse-echo ToF, velocity, and SNR; the physics channels the reconstruction consumes",
+                "recon.d / recon.loss": "serialized remaining-wall mm and wall-loss identity",
+                "pingveil.d / tube.id / t57.present": "vendor last-campaign wall, tube id, and adjacent-tube presence; the denial and scope channels",
+                "ops.prop / gate.comp / ops.skip / gate.hold": "accept-and-skip proposal, ACCEPT, skip proposal, companion REJECT",
+                "surv.start / surv.floor / t6.held / t57.skip / htr.trip / tube.held / takt.late": "operational companion channels plus the 12 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-thick while plant-thin: pingveil.d 18.40 next to recon.d 12.00",
+                "reconstruction as event: recon.d 12.00 equals 6.00*4.00/2",
+                "ACCEPT then operational REJECT: gate.comp at 5400 s, gate.hold at 7800 s",
+                "slow floor in-stream: surv.start 6000 s, surv.floor 6720 s (12.0 min)",
+                "tight pe pair: pe.t then pe.c +1.5 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Pingveil is 18.40 mm' = pingveil.d 18.40; '12 mm wall' = recon.d 12.00; 'accept T-6 only' = gate.comp ACCEPT; 'do not skip T-5/T-7' = gate.hold REJECT",
+            "why_high_value": "New contact pulse-echo remaining-wall family on a fired-heater tube (not TOFD r44/r46, not PAUT TFM r23, not EMAT SH r49, not Lamb-wave r35/r37, not impact-echo r38, not FSM r50, not ER probe r53, not DCPD r38, not RFEC r45, not PEC r36). Lead bounded ACCEPT of T-6 isolate on a recomputable remaining wall that a vendor last-campaign would have used to skip adjacent tubes. Companion t2 is operational skip refusal. sim_or_real=simulated.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609174, "stream_note": "stream amplitudes are authored constants (us, mm/us, mm, 1, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "pulse-echo A-scan exists at ~20 Hz; stream keeps 4 ToF points; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "pe.t": 1.5,
+                    "pe.c": 1.5,
+                    "pe.snr": 1.5,
+                    "recon.d": 60000,
+                    "recon.loss": 60000,
+                    "pingveil.d": 60000,
+                    "tube.id": 60000,
+                    "t57.present": 60000,
+                    "ops.prop": 60000,
+                    "gate.comp": 60000,
+                    "surv.start": 60000,
+                    "surv.floor": 60000,
+                    "ops.skip": 60000,
+                    "gate.hold": 60000,
+                    "t6.held": 60000,
+                    "t57.skip": 60000,
+                    "htr.trip": 60000,
+                    "tube.held": 60000,
+                    "takt.late": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-08-19T03:00:00Z simulated night start",
+            },
+            "distillation_targets": [
+                "pulse-echo reconstruction head: d = c * ToF / 2; loss = t_nom - d; rt = 2*d/c",
+                "bounded ACCEPT head: in-band remaining wall AND tube scope AND t57-out-of-scope",
+                "operational companion: refuse skip-isolate without re-opening the wall call",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "contact_pulse_echo_heater_tube",
+            "formula": "d_mm = c_mm_us * ToF_us / 2; loss_mm = t_nom_mm - d_mm; rt_us = 2 * d_mm / c_mm_us",
+            "parameters": {
+                "c_mm_us": 6.00,
+                "t_nom_mm": 20.00,
+                "isolate_floor_mm": 14.00,
+                "heater_trip_mm": 8.00,
+                "surv_min": 12.0,
+            },
+            "worked_example": {"ToF_us": 4.00, "d_mm": 12.00, "loss_mm": 8.00},
+            "check": "6.00 * 4.00 / 2 = 12.00 exactly; 20.00 - 12.00 = 8.00 exactly; 2 * 12.00 / 6.00 = 4.00 exactly; 6000 s + 720 s = 6720 s = 12.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "ACCEPT",
+            "decision_window_ms": 36.0,
+            "decision_window_s": 0.036,
+            "code": "th8.pe_tube_gate",
+            "note": "ACCEPT accumulator wins: pulse-echo remaining-wall evidence overpowers the Pingveil skip advocate",
+            "decode_rule": "accept if wall_estimator AND vel_norm AND tube_margin fire inside the window; vendor_skip_advocate is necessary-but-not-sufficient and cannot release T-5 and T-7",
+            "populations": [
+                gate_pop("wall_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("vel_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("tube_margin", 40, 1.0, 50.0, w_s),
+                gate_pop("vendor_skip_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("accept_latch", 96, 1.8, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "th8.pe_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "th8.wall_scorer", "neurons": 40, "mean_rate_hz": 62.5, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r57-174",
+            clock_domain="th8-pe-sim-relative-ms-t0-2026-08-19T03:00:00Z",
+            tags=["pulse-echo-wall", "ACCEPT", "REJECT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }

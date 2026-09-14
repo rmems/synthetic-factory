@@ -1,0 +1,952 @@
+# ---------------------------------------------------------------------------
+# Record 175 — zirconia wideband electrochemical O2 of a glass-furnace crown, designed,
+# REJECT / MODIFY
+# ---------------------------------------------------------------------------
+def rec_175():
+    k_z = 0.400
+    i_ma = 16.00
+    i0_ma = 1.00
+    q_pump = 1.00
+    di = i_ma - i0_ma
+    x_volpct = k_z * di
+    _exact(di, 15.00)
+    _exact(x_volpct, 6.00)
+    x_q = k_z * di / q_pump
+    _exact(x_q, 6.00)
+    _exact(k_z * (8.00 - i0_ma), 2.80)
+    _exact(k_z * (12.00 - i0_ma), 4.40)
+    _exact(k_z * (9.00 - i0_ma), 3.20)
+    _exact(0.400 * 15.00 / 1.00, 6.00)
+    _exact(6000.0 + 1080.0, 7080.0)
+
+    raster = make_raster(
+        neurons=20,
+        mean_rate_hz=50.0,
+        window_ms=40.0,
+        seed=202609175,
+        source="gh6.zro.pump",
+        target="glimmerholt.crown_stop_core",
+        table=[
+            {"from": "zro_I", "to": "o2_estimator", "weight": 1.40},
+            {"from": "zro_snr", "to": "zro_lock_core", "weight": 1.15},
+            {"from": "nernstveil_x", "to": "vendor_continue_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "da.cross_authority_conflict",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": "pre-post coincidence on continue-firing synapses; the plant zirconia modulator depresses continue-firing links when pump current stays high inside tau_e of an SNR lock so a Nernstveil last-good patch cannot hide a 6.00 volpct oxidizing slip",
+        },
+        channel_prefix="zro.n",
+        anchor="GH-6 zirconia pump-current 40 ms frame at I 16.00 mA / SNR 12.0 (t_s 3000) reconstructing 6.00 volpct O2 above the 2.50 oxidizing floor",
+    )
+    w_s = 0.040
+    events = [
+        ev(0.0, "zro.I", 8.00, code="I_MA", units="mA", note="plant-owned zirconia wideband pump cell on GH-6 crown C-4; electrochemical O2 family, not paramagnetic dumbbell O2, not CEMS FTIR k-script, not TDLAS NH3, not CRDS HF, not QEPAS, not CLD NOx, not TEOM PM"),
+        ev(300000.0, "zro.snr", 6.0, code="ZRO_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(600000.0, "recon.x", 2.80, code="X_VOLPCT", units="volpct", note="0.400*(8.00-1.00)=2.80 exact; at the 2.50 oxidizing floor"),
+        ev(900000.0, "air.Q", 80.0, code="AIR_KGH", units="kg_h", note="plant combustion-air PLC on copper fieldbus; independent witness; unread by Nernstveil"),
+        ev(1200000.0, "nernstveil.x", 0.80, code="VENDOR_VOLPCT", units="volpct", note="Nernstveil vendor ZRO-9 cloud; infra owner; patched pump-current timestamps"),
+        ev(1800000.0, "zro.I", 12.00, code="I_MA", units="mA"),
+        ev(2100000.0, "recon.x", 4.40, code="X_VOLPCT", units="volpct", note="0.400*(12.00-1.00)=4.40"),
+        ev(2400000.0, "permit.slide", 40.00, code="PERM_S", units="s", note="furnace clerk slid the oxidizing-permit clock 40.00 s; collusion party"),
+        ev(2700000.0, "crown.T", 1580.0, code="CROWN_K", units="K", note="plant crown thermocouple on copper DCS; independent witness"),
+        ev(3000000.0, "zro.I", 16.00, code="I_MA", units="mA", note="oxidizing-floor frame; raster sidecar"),
+        ev(3000001.3, "zro.snr", 12.0, code="ZRO_SNR", units="1", note="1.3 ms SNR lock after I; 12.0 >= 8.0"),
+        ev(3300000.0, "recon.x", 6.00, code="X_VOLPCT", units="volpct", note="0.400*(16.00-1.00)=6.00 exact; oxidizing floor 2.50"),
+        ev(3600000.0, "recon.q", 6.00, code="X_Q_VOLPCT", units="volpct", note="0.400*15.00/1.00=6.00 exact pump-flow identity"),
+        ev(3900000.0, "air.Q", 82.0, code="AIR_KGH", units="kg_h", note="air PLC tracks the plant zirconia, not Nernstveil 0.80"),
+        ev(4200000.0, "zro.drop", 1.0, code="ZRO_DROP", units="bool", note="vendor pump-current packets dropped in Nernstveil cloud for 40 s"),
+        ev(4800000.0, "ops.prop", 1.0, code="CONTINUE_FIRING", units="bool", note="night operator Olan Brigg: Nernstveil is clean 0.80 volpct; continue GH-6 firing"),
+        ev(5400000.0, "gate.stop", 1.0, code="REJECT", units="decision", note="refuse continue-firing; 6.00 volpct and SNR 12.0; Nernstveil not SoT"),
+        ev(6000000.0, "damp.start", 1.0, code="DAMP_HOLD_START", units="bool", note="bookend 1 of the 18.0 min damper-hold floor"),
+        ev(7080000.0, "damp.floor", 1.0, code="DAMP_HOLD_FLOOR", units="bool", note="6000 s + 1080 s = 7080 s = 18.0 min"),
+        ev(7800000.0, "ops.kill", 1.0, code="FURNACE_ESD", units="bool", note="Brigg: ESD the whole Glimmerholt tank until day-shift"),
+        ev(8400000.0, "gate.hold", 1.0, code="MODIFY", units="decision", note="companion t2: damper hold on plant zirconia as live interlock; furnace ESD refused"),
+        ev(9000000.0, "damp.set", 1.0, code="DAMP_HELD", units="bool"),
+        ev(9600000.0, "zro.I", 9.00, code="I_MA", units="mA"),
+        ev(10200000.0, "recon.x", 3.20, code="X_VOLPCT", units="volpct", note="0.400*(9.00-1.00)=3.20; still above 2.50 so damper holds"),
+        ev(10800000.0, "nernstveil.x", 0.72, code="VENDOR_VOLPCT", units="volpct"),
+        ev(11400000.0, "air.Q", 70.0, code="AIR_KGH", units="kg_h"),
+        ev(12000000.0, "damp.held", 1.0, code="DAMP_HELD", units="bool"),
+        ev(12600000.0, "furn.esd", 0.0, code="ESD_NOT_TAKEN", units="bool"),
+        ev(13200000.0, "permit.slide", 40.00, code="PERM_S", units="s"),
+        ev(13800000.0, "crown.T", 1572.0, code="CROWN_K", units="K"),
+        ev(14400000.0, "zro.drop", 1.0, code="ZRO_DROP", units="bool"),
+        ev(15000000.0, "damp.lock", 1.0, code="DAMP_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r58-175-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "GH-ZRO-2026-0902",
+            "domain": "zirconia_o2_glass_crown",
+            "setting": "Glimmerholt Glass GH-6 (invented), Brackenmere Furnace Yard, crown C-4. Plant-owned zirconia wideband pump cell is the O2 SoT. Nernstveil / ZRO-9 vendor DAQ (infra owner) plus the oxidizing-permit clock are collusion parties, not witnesses. Invented plant; designed campaign. Not magnetodynamic paramagnetic O2 (r46), not stack-gas CEMS k-script (r04), not TDLAS NH3 (r22), not CRDS HF (r15), not QEPAS (r19), not chemiluminescence NOx (r52), not TEOM PM (r46).",
+            "observables_at_decision": {
+                "I_mA": i_ma,
+                "I0_mA": i0_ma,
+                "k_z": k_z,
+                "Q_pump": q_pump,
+                "x_volpct": x_volpct,
+                "x_q_volpct": x_q,
+                "zro_snr": 12.0,
+                "nernstveil_volpct": 0.80,
+                "permit_slide_s": 40.00,
+                "ox_floor_volpct": 2.50,
+            },
+            "margin_authority": "GH-6 crown SOP rev C: if reconstructed x_volpct >= 2.50 AND zirconia SNR >= 8.0, continue-firing is forbidden even if Nernstveil reports 0.80 volpct. Furnace ESD is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night operator Olan Brigg, citing Nernstveil 0.80 volpct and a quiet ZRO-9 pump current",
+            "summary": "continue GH-6 firing; 16.00 mA is pump noise on a healthy reducing crown",
+            "basis_claimed": "Nernstveil is the only OEM zirconia SoT and a night abort of GH-6 is a tank-campaign miss",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Continue-firing is refused. Serialized reconstruction: x_volpct = k_z * (I_mA - I0) = 0.400 * (16.00 - 1.00) = 6.00, above the 2.50 volpct oxidizing floor, and zirconia SNR is 12.0 >= 8.0. Pump-flow identity x_q = 0.400 * 15.00 / 1.00 = 6.00. Permit clock was slid 40.00 s and vendor pump packets were dropped, so Nernstveil is a collusion party (zirconia vendor plus operator plus furnace clerk). Ordered: refuse continue-firing now. Scope: this REJECT does not ESD the glass tank (that is the companion question) and does not isolate the crown thermocouple.",
+            "threshold": "x_volpct>=2.50 AND zro_snr>=8.0 => refuse continue-firing; Nernstveil is not SoT",
+            "stated_residuals": "damper hold still required to hold the 6.00 volpct; 6.00 vs a true regenerator-leak event is a production cut; Nernstveil remains the only OEM zirconia channel",
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 5400: continue-firing refused; Nernstveil not SoT; reconstruction locked",
+            "tool": "gh6-zro-crown-gate-cli",
+            "observation": "x 6.00 volpct recomputes from I 16.00 mA; plant zirconia hashed; Nernstveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "zro I 16.00 mA; raster frame; x 6.00 volpct"},
+                {"t_s": 4800.0, "event": "ops proposes continue-firing"},
+                {"t_s": 5400.0, "event": "REJECT continue-firing"},
+                {"t_s": 6000.0, "event": "18 min damper-hold bookend 1"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 8400.0, "event": "companion MODIFY damper hold vs furnace ESD"},
+            ],
+            "observed_effects": [
+                "crown O2 recomputes from the serialized zirconia pump-current model at every recon.x event",
+                "a Nernstveil-only head would have continued firing overnight",
+                "18 min damper-hold floor is in the stream (damp.start, damp.floor)",
+            ],
+            "surprises": [
+                "a clean vendor zirconia corridor and a 40 s permit slide co-existed with a 6.00 volpct plant reconstruction",
+            ],
+            "new_state": {
+                "crown_c4": "continue-firing blocked",
+                "nernstveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("zro_reconstruction", 0.14),
+                ("conjunctive_ox_floor", 0.12),
+                ("nernstveil_nonsubstitution", 0.10),
+                ("three_party_collusion", 0.10),
+                ("damper_time_cost", -0.03),
+            ],
+            "scored for a continue-firing REJECT on a recomputable zirconia O2 while refusing a Nernstveil zirconia patch and a permit clock slide; 18 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "zirconia-o2", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Zirconia O2 gate: serialized k_z*(I-I0) plus SNR lock beats a vendor zirconia patch; companion t2 is the damper hold, not a referral vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r58-175-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "GH-ZRO-2026-0902-exec",
+            "domain": "damper_hold_zro_interlock_execution",
+            "setting": "Same GH-6 after the REJECT. Operator proposes a glass-tank ESD. This companion is the operational combustion-air damper hold with the plant zirconia as the live interlock, not a second O2 vote.",
+            "observables_at_decision": {
+                "x_volpct": 3.20,
+                "damp_hold_floor_s": 1080.0,
+                "furnace_esd_proposed": True,
+                "damp_hold_set": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night operator Olan Brigg",
+            "summary": "ESD the whole Glimmerholt tank until day-shift; 18 min already paid and Nernstveil still shows 0.72 volpct",
+            "basis_claimed": "the REJECT already stopped firing, so a tank ESD is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Damper hold plus plant zirconia as the live interlock. The 18 min damper floor is complete and the oxidizing tripwire (x_volpct >= 2.50) is still armed on the plant zirconia head. MODIFY the default zirconia-restore SOP into a plant-zirconia-only interlock. Do not ESD the glass tank. Do not restore firing on Nernstveil. 3.20 volpct post-stop is still the plant SoT until a new frame clears 2.50.",
+            "threshold": "damp_hold AND damp_floor_complete AND furnace_esd_not_taken AND continue_not_restored",
+        },
+        "executed_action": {
+            "summary": "damper held at t_s 8400; furnace ESD not latched; Nernstveil restore not taken",
+            "tool": "gh6-damp-hold-exec",
+            "observation": "recon.x 3.20 volpct after stop; damper line-up complete; Nernstveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "damper clock started after REJECT"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 7800.0, "event": "furnace ESD proposed"},
+                {"t_s": 8400.0, "event": "MODIFY damper hold; furnace ESD refused"},
+            ],
+            "observed_effects": [
+                "Nernstveil restore did not reopen the O2 call",
+                "furnace ESD never fired; GH-6 held damper on the plant zirconia",
+            ],
+            "new_state": {"damper": "held", "tank": "in service", "crown_c4": "held"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("damper_hold", 0.12),
+                ("no_furnace_esd", 0.10),
+                ("nernstveil_nonsubstitution", 0.08),
+                ("damp_floor_complete", 0.06),
+                ("held_firing_cost", -0.02),
+            ],
+            "operational execution gate: damper hold because Nernstveil is not a restore license; not an O2 re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "damper-hold"]),
+    }
+    return {
+        "id": "nelb-r58-175",
+        "spike_events": events,
+        "language_view": {
+            "description": "Glimmerholt Glass GH-6. Plant-owned zirconia wideband pump cell reconstructs 6.00 volpct O2 from 16.00 mA while Nernstveil still reports 0.80 volpct. The gate REJECTs continue-firing. An 18 min damper-hold floor is serialized in the stream. Companion t2 MODIFYs a tank ESD into a plant-zirconia damper hold.",
+            "trajectory": traj,
+            "trajectory_damper_hold": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "zro.I / zro.snr": "zirconia pump current and SNR; the physics channels the reconstruction consumes",
+                "recon.x / recon.q": "serialized O2 volpct and pump-flow identity",
+                "air.Q / nernstveil.x / permit.slide / crown.T / zro.drop": "combustion-air PLC, vendor O2 cloud, permit clock slide, crown thermocouple, and dropped zirconia packets; the denial and collusion channels",
+                "ops.prop / gate.stop / ops.kill / gate.hold": "continue-firing proposal, REJECT, furnace-ESD proposal, companion MODIFY",
+                "damp.start / damp.floor / damp.set / damp.held / furn.esd / damp.lock": "operational companion channels plus the 18 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: nernstveil.x 0.80 next to recon.x 6.00",
+                "reconstruction as event: recon.x 6.00 equals 0.400*(16.00-1.00)",
+                "REJECT then operational MODIFY: gate.stop at 5400 s, gate.hold at 8400 s",
+                "slow floor in-stream: damp.start 6000 s, damp.floor 7080 s (18.0 min)",
+                "tight zro pair: zro.I then zro.snr +1.3 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Nernstveil is 0.80 volpct' = nernstveil.x 0.80; '6 volpct O2' = recon.x 6.00; 'refuse continue-firing' = gate.stop REJECT; 'damper not tank ESD' = gate.hold MODIFY",
+            "why_high_value": "New zirconia-wideband-electrochemical-O2 family on a glass-furnace crown (not paramagnetic O2 r46, not CEMS r04, not TDLAS r22, not CRDS r15, not QEPAS r19, not CLD NOx r52, not TEOM r46). Lead REJECT of continue-firing on a recomputable oxidizing slip that a vendor zirconia patch and a permit clock slide would have cleared. Three-party collusion includes the zirconia infra owner. Companion t2 is operational damper hold. sim_or_real=designed.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609175, "stream_note": "stream amplitudes are authored constants (mA, 1, volpct, s, K, kg/h, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "zirconia pump current exists at ~10 Hz; stream keeps 4 I points; recon keeps 4 of ~40 solver ticks",
+                "refractory_floors_ms": {
+                    "zro.I": 1.3,
+                    "zro.snr": 1.3,
+                    "recon.x": 60000,
+                    "recon.q": 60000,
+                    "air.Q": 60000,
+                    "nernstveil.x": 60000,
+                    "permit.slide": 60000,
+                    "crown.T": 60000,
+                    "zro.drop": 60000,
+                    "ops.prop": 60000,
+                    "gate.stop": 60000,
+                    "damp.start": 60000,
+                    "damp.floor": 60000,
+                    "ops.kill": 60000,
+                    "gate.hold": 60000,
+                    "damp.set": 60000,
+                    "damp.held": 60000,
+                    "furn.esd": 60000,
+                    "damp.lock": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T01:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "zirconia reconstruction head: x_volpct = k_z * (I_mA - I0); x_q = k_z * (I-I0) / Q_pump",
+                "conjunctive oxidizing floor vs continue-firing vs furnace ESD",
+                "vendor-zirconia nonsubstitution plus three-party collusion including the infra owner",
+                "operational companion: damper hold without restoring on Nernstveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "zirconia_wideband_crown_o2",
+            "formula": "x_volpct = k_z * (I_mA - I0_mA); x_q_volpct = k_z * (I_mA - I0_mA) / Q_pump",
+            "parameters": {
+                "k_z": 0.400,
+                "I0_mA": 1.00,
+                "Q_pump": 1.00,
+                "ox_floor_volpct": 2.50,
+                "snr_lock": 8.0,
+                "damp_hold_min": 18.0,
+            },
+            "worked_example": {"I_mA": 16.00, "x_volpct": 6.00, "x_q_volpct": 6.00},
+            "check": "0.400 * (16.00 - 1.00) = 6.00 exactly; 0.400 * 15.00 / 1.00 = 6.00 exactly; 6000 s + 1080 s = 7080 s = 18.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 40.0,
+            "decision_window_s": 0.040,
+            "code": "gh6.zro_crown_gate",
+            "note": "REJECT accumulator wins: plant zirconia O2 evidence overpowers the Nernstveil continue advocate",
+            "decode_rule": "reject-continue if o2_estimator AND zro_lock fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("o2_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("zro_lock", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("reject_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "gh6.zro_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "gh6.damp_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r58-175",
+            clock_domain="gh6-zro-campaign-relative-ms-t0-2026-09-02T01:00:00Z",
+            tags=["zirconia-o2", "REJECT", "MODIFY", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 176 — Rogowski-coil current of an EAF bus, hil,
+# MODIFY / ACCEPT
+# ---------------------------------------------------------------------------
+def rec_176():
+    k_r = 400.0
+    v_rms = 2.50
+    f_hz = 50.00
+    i_ka = k_r * v_rms / f_hz
+    _exact(i_ka, 20.00)
+    _exact(k_r * 1.00 / f_hz, 8.00)
+    _exact(k_r * 1.75 / f_hz, 14.00)
+    _exact(k_r * 2.00 / f_hz, 16.00)
+    ident = i_ka * f_hz
+    _exact(ident, 1000.00)
+    _exact(20.00 * 50.00, 1000.00)
+    v_id = ident / k_r
+    _exact(v_id, 2.50)
+    _exact(2820.0 + 1440.0, 4260.0)
+
+    raster = make_raster(
+        neurons=25,
+        mean_rate_hz=50.0,
+        window_ms=32.0,
+        seed=202609176,
+        source="dh8.rog.coil",
+        target="dunlinholt.bus_isolate_core",
+        table=[
+            {"from": "rog_V", "to": "current_estimator", "weight": 1.35},
+            {"from": "rog_snr", "to": "int_norm_core", "weight": 1.20},
+            {"from": "coilveil_I", "to": "vendor_continue_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "ach.referral_pressure_salience",
+            "tau_e_s": 1.2,
+            "tau_e_ms": 1200.0,
+            "eligibility": "pre-post coincidence on keep-arcing synapses; the Rogowski modulator depresses keep-arcing and referral links when coil voltage stays large inside tau_e of an SNR lock so a Coilveil last-good cannot hide a 20.00 kA Irms or name Kessa Thorn",
+        },
+        channel_prefix="rog.n",
+        anchor="DH-8 HIL coupon 32 ms frame at V 2.50 V / f 50.00 Hz / SNR 14.0 (t_s 1560) reconstructing 20.00 kA above the 16.00 kA isolate floor",
+    )
+    w_s = 0.032
+    events = [
+        ev(0.0, "rog.V", 1.00, code="V_RMS", units="V", note="HIL Rogowski coil on a dummy EAF bus in ROG-HIL-3; bus-current family, not Faraday FOCT, not MCSA broken-bar, not API-670 proximity, not MEMS accel array, not blade tip-timing"),
+        ev(180000.0, "rog.snr", 9.0, code="ROG_SNR", units="1", note="early coil SNR; isolate needs SNR>=12"),
+        ev(360000.0, "recon.I", 8.00, code="I_KA", units="kA", note="400.0*1.00/50.00=8.00 exact"),
+        ev(540000.0, "int.zero", 0.00, code="ZERO_V", units="V", note="plant integrator-zero remaining; no coil-scale hop in this window"),
+        ev(720000.0, "coilveil.I", 4.80, code="VENDOR_KA", units="kA", note="Coilveil last-good current cloud; not admissible SoT"),
+        ev(900000.0, "rog.V", 1.75, code="V_RMS", units="V"),
+        ev(1080000.0, "recon.I", 14.00, code="I_KA", units="kA", note="400.0*1.75/50.00=14.00; still under the 16.00 isolate floor"),
+        ev(1260000.0, "int.delay", 0.0, code="ZERO_AE", units="bool", note="missing integrator-zero AE burst; Coilveil UTC vs plant UTC+2 skipped the cal by 120 min"),
+        ev(1440000.0, "int.zero", 0.00, code="ZERO_V", units="V"),
+        ev(1560000.0, "rog.V", 2.50, code="V_RMS", units="V", note="isolate-floor frame; raster sidecar"),
+        ev(1560001.2, "rog.f", 50.00, code="F_HZ", units="Hz", note="1.2 ms line-frequency after V; 50.00 Hz"),
+        ev(1740000.0, "recon.I", 20.00, code="I_KA", units="kA", note="400.0*2.50/50.00=20.00 exact; isolate 16.00, trip 32.00"),
+        ev(1920000.0, "recon.Vf", 1000.00, code="I_F", units="kA_Hz", note="20.00*50.00=1000.00 exact; amp-turn identity"),
+        ev(2100000.0, "coilveil.I", 4.80, code="VENDOR_KA", units="kA"),
+        ev(2280000.0, "ops.prop", 1.0, code="KEEP_ARC_REFER", units="bool", note="night lead Tavish Keld: keep F-2 arcing and refer coil tech Kessa Thorn"),
+        ev(2460000.0, "gate.isol", 1.0, code="MODIFY", units="decision", note="isolate this bus; refuse the person-referral; Coilveil not SoT"),
+        ev(2640000.0, "bus.lock", 1.0, code="BUS_ISOL", units="bool"),
+        ev(2820000.0, "cool.start", 1.0, code="COOL_START", units="bool", note="bookend 1 of the 24.0 min cooldown plus integrator-settle floor"),
+        ev(4260000.0, "cool.floor", 1.0, code="COOL_FLOOR", units="bool", note="2820 s + 1440 s = 4260 s = 24.0 min"),
+        ev(4440000.0, "ops.refer", 1.0, code="REFER_THORN", units="bool", note="Keld: Thorn badge was on the coil log"),
+        ev(4620000.0, "gate.exec", 1.0, code="ACCEPT", units="decision", note="companion t2: new-coil restart; person-referral refused; shop trip refused"),
+        ev(4800000.0, "coil.new", 1.0, code="NEW_COIL", units="bool"),
+        ev(4980000.0, "rog.V", 2.00, code="V_RMS", units="V"),
+        ev(5160000.0, "recon.I", 16.00, code="I_KA", units="kA", note="400.0*2.00/50.00=16.00; HIL dummy still at 16.00 so the isolated bus stays held"),
+        ev(5340000.0, "coilveil.I", 4.70, code="VENDOR_KA", units="kA"),
+        ev(5520000.0, "int.zero", 0.00, code="ZERO_V", units="V"),
+        ev(5700000.0, "refer.hold", 0.0, code="REFER_NOT_TAKEN", units="bool", note="Thorn exonerated; missing integrator-zero AE precedes the large current, not the badge touch"),
+        ev(5880000.0, "bus.held", 1.0, code="BUS_HELD", units="bool"),
+        ev(6060000.0, "int.delay", 1.0, code="ZERO_AE", units="bool", note="integrator-zero AE restored on the new coil"),
+        ev(6240000.0, "recon.Vf", 1000.00, code="I_F", units="kA_Hz", note="identity holds on the post-isolate I*f"),
+        ev(6420000.0, "shop.trip", 0.0, code="TRIP_NOT_TAKEN", units="bool"),
+        ev(6600000.0, "cell.restart", 1.0, code="CELL_RESTART", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r58-176-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "DH-ROG-2026-0718",
+            "domain": "rogowski_eaf_bus",
+            "setting": "Dunlinholt EAF DH-8 (invented), Gannetwick Melt Shop, furnace F-2 bus B-2. Hardware-in-the-loop dummy bus in ROG-HIL-3 supplies the coil voltage that times the in-service isolate. Plant-owned Rogowski reconstruction is the Irms SoT. Coilveil vendor current scheduler is a corridor witness, not the bus SoT. Not Faraday FOCT (r25), not MCSA broken-bar (r48), not API-670 proximity (r52), not MEMS accel array (r17), not blade tip-timing (r25).",
+            "observables_at_decision": {
+                "V_rms": v_rms,
+                "f_Hz": f_hz,
+                "k_r": k_r,
+                "I_kA": i_ka,
+                "I_f": ident,
+                "coilveil_kA": 4.80,
+                "int_zero_V": 0.00,
+                "int_delay": 0.0,
+                "isolate_floor_kA": 16.00,
+            },
+            "margin_authority": "DH-8 furnace SOP rev B: if reconstructed I_kA >= 16.00 AND Rogowski SNR >= 12.0, isolate this bus this night. A Coilveil last-good or a quiet integrator-zero residual cannot keep the arc. Trip tripwire is 32.00 kA. Person-referral is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night lead Tavish Keld, citing Coilveil 4.80 kA and integrator-zero 0.00 V, and naming coil tech Kessa Thorn as last-to-badge",
+            "summary": "keep F-2 arcing and refer Thorn; 2.50 V is coil noise on a healthy tap",
+            "basis_claimed": "Coilveil last-good is 4.80 kA and a night isolate of the EAF bus is a heat miss",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Keep-arcing is refused; the person-referral is also refused. Serialized reconstruction: I_kA = k_r * V_rms / f_Hz = 400.0 * 2.50 / 50.00 = 20.00, which is 4.00 kA over the 16.00 isolate floor and 12.00 kA under the 32.00 trip tripwire. Amp-turn identity I*f = 20.00 * 50.00 = 1000.00. Coilveil 4.80 kA is a last-good skip stamp and is not an admissible keep-arcing witness. The missing integrator-zero AE burst sits on a Coilveil UTC-vs-UTC+2 skip (120 min), not on Thorn's badge, and the plant integrator-zero stays 0.00 V, so the easy referral fails command-custody. Ordered: isolate this bus now. Scope: this MODIFY does not trip the melt shop (that is the companion question) and does not name Thorn.",
+            "threshold": "I_kA>=16.00 AND rog_snr>=12.0 => isolate this bus; Coilveil is not SoT; trip if I_kA>=32.00; referral requires badge-touch preceding the large current",
+            "stated_residuals": "20.00 vs 32.00 trip floor is 12.00 kA, not infinite; new-coil restart still required; Coilveil remains the only OEM current channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 2460: bus isolated; Thorn not named; Coilveil not SoT; reconstruction locked",
+            "tool": "dh8-rog-bus-gate-cli",
+            "observation": "I 20.00 kA recomputes from V 2.50 V and f 50.00 Hz; HIL coupon hashed; Coilveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 1560.0, "event": "rog V 2.50 V f 50.00 Hz; raster frame; I 20.00 kA"},
+                {"t_s": 2280.0, "event": "ops proposes keep-arcing plus Thorn referral"},
+                {"t_s": 2460.0, "event": "MODIFY isolate bus; referral refused"},
+                {"t_s": 2820.0, "event": "24 min cooldown bookend 1"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4620.0, "event": "companion ACCEPT new-coil restart; referral still refused"},
+            ],
+            "observed_effects": [
+                "Irms recomputes from the serialized Rogowski model at every recon.I event",
+                "a Coilveil-only head would have kept the arc overnight",
+                "24 min cooldown plus integrator-settle floor is in the stream (cool.start, cool.floor)",
+            ],
+            "surprises": [
+                "a last-good 4.80 kA vendor corridor and a quiet integrator-zero residual co-existed with a 20.00 kA bus current, and the obvious coil tech was not on the causal path",
+            ],
+            "new_state": {
+                "bus_b2": "isolated",
+                "thorn": "exonerated",
+                "coilveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 1500000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("rog_reconstruction", 0.14),
+                ("isolate_floor_bus", 0.12),
+                ("exoneration", 0.10),
+                ("coilveil_nonsubstitution", 0.08),
+                ("settle_time_cost", -0.04),
+            ],
+            "scored for a keep-arcing MODIFY on a recomputable large bus current while refusing a Coilveil 4.80 kA corridor and an easy person-referral; 24 min floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "rogowski-coil", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Rogowski gate: serialized k_r*V/f plus I*f identity beats a green current dashboard; companion t2 is the new-coil restart, not a governance vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r58-176-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "DH-ROG-2026-0718-exec",
+            "domain": "new_coil_cool_execution",
+            "setting": "Same DH-8 after the MODIFY. Night lead proposes referring Thorn and tripping the melt shop. This companion is the operational new-coil cooldown restart, not a second current vote.",
+            "observables_at_decision": {
+                "I_kA": 16.00,
+                "I_f": 1000.00,
+                "cool_floor_s": 1440.0,
+                "refer_proposed": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night lead Tavish Keld",
+            "summary": "refer Thorn and trip the melt shop; 24 min already paid and Coilveil is 4.70 kA",
+            "basis_claimed": "the MODIFY already cut the bus, so a shop kill plus a person file is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Restart the cell on a different coil after the cooldown floor. The 24 min integrator-settle is complete and the trip tripwire (I_kA >= 32.00) is still armed on the plant Rogowski head. ACCEPT the new-coil restart. Do not refer Thorn. Do not trip the melt shop. 16.00 kA post-isolate is still at the 16.00 isolate floor, so the isolated bus stays held; the new coil may run.",
+            "threshold": "new_coil AND cool_floor_complete AND refer_not_taken AND shop_not_tripped AND isolated_bus_held",
+        },
+        "executed_action": {
+            "summary": "new-coil restart at t_s 4620; Thorn not referred; shop not tripped; isolated bus held",
+            "tool": "dh8-rog-cool-exec",
+            "observation": "recon.I 16.00 kA on the HIL dummy; integrator-zero AE present on the new coil; Coilveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 2820.0, "event": "cooldown clock started after MODIFY"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4440.0, "event": "Thorn referral re-proposed"},
+                {"t_s": 4620.0, "event": "ACCEPT new-coil restart; referral refused"},
+            ],
+            "observed_effects": [
+                "Coilveil restore did not reopen the current call",
+                "shop trip never fired; 20.00 vs 32.00 kA floor",
+                "Thorn remains unnamed; missing integrator-zero AE is the causal object",
+            ],
+            "new_state": {"cell": "restarted on new coil", "thorn": "exonerated", "bus": "held", "shop": "in service"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("new_coil_restart", 0.12),
+                ("no_person_referral", 0.10),
+                ("no_shop_trip", 0.09),
+                ("cool_floor_complete", 0.06),
+                ("held_bus_takt_cost", -0.02),
+            ],
+            "operational execution gate: restart on a new coil because Coilveil is not a restore license and Thorn is not on the causal path; not a current re-vote",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "exoneration"]),
+    }
+    return {
+        "id": "nelb-r58-176",
+        "spike_events": events,
+        "language_view": {
+            "description": "Dunlinholt EAF DH-8. HIL Rogowski coil reconstructs 20.00 kA from 2.50 V / 50.00 Hz while Coilveil still shows 4.80 kA and the integrator-zero 0.00 V. The gate MODIFYs bus isolate and refuses the coil-tech referral. A 24 min cooldown floor is serialized in the stream. Companion t2 ACCEPTs a new-coil restart and still refuses the referral.",
+            "trajectory": traj,
+            "trajectory_new_coil": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "rog.V / rog.f / rog.snr": "Rogowski coil voltage, line frequency, and SNR; the physics channels the reconstruction consumes",
+                "recon.I / recon.Vf": "serialized Irms kA and I*f identity",
+                "int.zero / coilveil.I / int.delay": "plant integrator-zero, vendor last-good, and zero-cal AE; the denial and exoneration channels",
+                "ops.prop / gate.isol / ops.refer / gate.exec": "keep-arcing proposal, MODIFY, referral proposal, companion ACCEPT",
+                "bus.lock / cool.start / cool.floor / coil.new / refer.hold / bus.held / shop.trip / cell.restart": "operational companion channels plus the 24 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: coilveil.I 4.80 next to recon.I 20.00",
+                "reconstruction as event: recon.I 20.00 equals 400.0*2.50/50.00",
+                "MODIFY then operational ACCEPT: gate.isol at 2460 s, gate.exec at 4620 s",
+                "slow floor in-stream: cool.start 2820 s, cool.floor 4260 s (24.0 min)",
+                "tight rog pair: rog.V then rog.f +1.2 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Coilveil is 4.80 kA' = coilveil.I 4.80; '20 kA' = recon.I 20.00; 'isolate this bus not Thorn' = gate.isol MODIFY; 'new coil not referral' = gate.exec ACCEPT",
+            "why_high_value": "New Rogowski-coil family on an EAF bus (not Faraday FOCT r25, not MCSA r48, not API-670 proximity r52, not MEMS array r17, not blade tip-timing r25). Lead MODIFY of keep-arcing on a recomputable large current that a vendor last-good would have cleared, with a resolved-innocent coil tech. Companion t2 is operational new-coil restart. sim_or_real=hil.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609176, "stream_note": "stream amplitudes are authored constants (V, Hz, kA, 1, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "Rogowski coil exists at ~kHz; stream keeps 4 V points plus one f pair; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "rog.V": 1.2,
+                    "rog.f": 1.2,
+                    "rog.snr": 1.2,
+                    "recon.I": 60000,
+                    "recon.Vf": 60000,
+                    "int.zero": 60000,
+                    "coilveil.I": 60000,
+                    "int.delay": 60000,
+                    "ops.prop": 60000,
+                    "gate.isol": 60000,
+                    "bus.lock": 60000,
+                    "cool.start": 60000,
+                    "cool.floor": 60000,
+                    "ops.refer": 60000,
+                    "gate.exec": 60000,
+                    "coil.new": 60000,
+                    "refer.hold": 60000,
+                    "bus.held": 60000,
+                    "shop.trip": 60000,
+                    "cell.restart": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-07-18T02:30:00Z HIL night start",
+            },
+            "distillation_targets": [
+                "Rogowski reconstruction head: I_kA = k_r * V_rms / f_Hz; I_f = I_kA * f_Hz",
+                "isolate-floor bus vs keep-arcing vs shop-trip",
+                "exoneration head: missing integrator-zero AE plus timezone skip, not last-to-badge",
+                "operational companion: new-coil restart without referring the coil tech",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "rogowski_eaf_bus_current",
+            "formula": "I_kA = k_r * V_rms / f_Hz; I_f = I_kA * f_Hz",
+            "parameters": {
+                "k_r": 400.0,
+                "f_Hz": 50.00,
+                "isolate_floor_kA": 16.00,
+                "trip_kA": 32.00,
+                "snr_lock": 12.0,
+                "cool_min": 24.0,
+            },
+            "worked_example": {"V_rms": 2.50, "f_Hz": 50.00, "I_kA": 20.00, "I_f": 1000.00},
+            "check": "400.0 * 2.50 / 50.00 = 20.00 exactly; 20.00 * 50.00 = 1000.00 exactly; 2820 s + 1440 s = 4260 s = 24.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 32.0,
+            "decision_window_s": 0.032,
+            "code": "dh8.rog_bus_gate",
+            "note": "MODIFY accumulator wins: Rogowski large-current evidence overpowers the Coilveil continue advocate",
+            "decode_rule": "modify-isolate if current_estimator AND int_norm fire; vendor_continue_advocate is below threshold by design; referral_latch is not armed",
+            "populations": [
+                gate_pop("current_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("int_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("modify_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "dh8.rog_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 32.0},
+                {"check": "dh8.isol_scorer", "neurons": 50, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r58-176",
+            clock_domain="dh8-rog-hil-relative-ms-t0-2026-07-18T02:30:00Z",
+            tags=["rogowski-coil", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 177 — beta-attenuation BAM PM of a sinter-plant compartment, simulated,
+# ACCEPT / REJECT
+# ---------------------------------------------------------------------------
+def rec_177():
+    k_b = 2.00
+    i0 = 20.00
+    i_beta = 8.00
+    q_flow = 1.00
+    di = i0 - i_beta
+    c_mgm3 = k_b * di / q_flow
+    _exact(di, 12.00)
+    _exact(c_mgm3, 24.00)
+    _exact(k_b * (20.00 - 16.00) / q_flow, 8.00)
+    _exact(k_b * (20.00 - 12.00) / q_flow, 16.00)
+    _exact(k_b * (20.00 - 10.00) / q_flow, 20.00)
+    k_m = 4.00
+    m_ug = k_m * di
+    _exact(m_ug, 48.00)
+    q_std = 2.00
+    c_m = m_ug / q_std
+    _exact(c_m, 24.00)
+    _exact(48.00 / 2.00, 24.00)
+    _exact(6000.0 + 720.0, 6720.0)
+
+    raster = make_raster(
+        neurons=16,
+        mean_rate_hz=62.5,
+        window_ms=36.0,
+        seed=202609177,
+        source="oh6.bam.beta",
+        target="oreholt.comp_accept_core",
+        table=[
+            {"from": "bam_I", "to": "pm_estimator", "weight": 1.40},
+            {"from": "bam_snr", "to": "beta_norm_core", "weight": 1.20},
+            {"from": "betaveil_c", "to": "vendor_skip_advocate", "weight": 0.50},
+        ],
+        third_factor={
+            "modulator": "na.stage_rate_eligibility",
+            "tau_e_s": 2.0,
+            "tau_e_ms": 2000.0,
+            "eligibility": "pre-post coincidence on skip-compartment synapses; the BAM modulator enables potentiation only while beta current and SNR are co-active inside tau_e so a Betaveil last-good cannot skip compartments C-1..C-5 on a 24.00 mg/m3 load",
+        },
+        channel_prefix="bam.n",
+        anchor="OH-6 BAM-SIM-4 36 ms frame at I 8.00 nA / I0 20.00 nA (t_s 3000) reconstructing 24.00 mg/m3 on C-6 above the 20.00 isolate floor",
+    )
+    w_s = 0.036
+    events = [
+        ev(0.0, "bam.I", 16.00, code="I_NA", units="nA", note="simulated beta-attenuation BAM of OH-6 sinter compartment C-6; BAM PM family, not TEOM oscillating-mass, not Kr-85 beta coating, not LII soot, not opacity as SoT, not CLD NOx"),
+        ev(300000.0, "bam.snr", 14.0, code="BAM_SNR", units="1"),
+        ev(600000.0, "recon.C", 8.00, code="C_MGM3", units="mg_m3", note="2.00*(20.00-16.00)/1.00=8.00 exact"),
+        ev(900000.0, "bh.dp", 8.0, code="DP_KPA", units="kPa", note="plant baghouse dP on a serial-only LAN; independent witness"),
+        ev(1200000.0, "betaveil.C", 4.80, code="VENDOR_MGM3", units="mg_m3", note="Betaveil last-good opacity cloud; patched residual 8.00 mg/m3"),
+        ev(1800000.0, "bam.I", 12.00, code="I_NA", units="nA"),
+        ev(2100000.0, "recon.C", 16.00, code="C_MGM3", units="mg_m3", note="2.00*(20.00-12.00)/1.00=16.00"),
+        ev(2400000.0, "recon.m", 32.00, code="M_UG", units="ug", note="4.00*(20.00-12.00)=32.00; mass identity at this frame"),
+        ev(2700000.0, "bam.snr", 16.0, code="BAM_SNR", units="1"),
+        ev(3000000.0, "bam.I", 8.00, code="I_NA", units="nA", note="in-band frame; raster sidecar"),
+        ev(3000001.5, "bam.I0", 20.00, code="I0_NA", units="nA", note="1.5 ms I0-norm after attenuated current"),
+        ev(3300000.0, "recon.C", 24.00, code="C_MGM3", units="mg_m3", note="2.00*(20.00-8.00)/1.00=24.00 exact; isolate 20.00, stack-trip 80.00"),
+        ev(3600000.0, "recon.m", 48.00, code="M_UG", units="ug", note="4.00*12.00=48.00; 48.00/2.00=24.00 mass-flow identity"),
+        ev(3900000.0, "comp.id", 6.0, code="COMP", units="id"),
+        ev(4200000.0, "c15.present", 1.0, code="C15_PRESENT", units="bool", note="adjacent compartments C-1..C-5 are the skip-isolate object, not this compartment"),
+        ev(4800000.0, "ops.prop", 1.0, code="ACCEPT_AND_SKIP", units="bool", note="baghouse lead Willa Kest: C-6 is green on Betaveil 4.80; skip C-1..C-5 to save a morning survey"),
+        ev(5400000.0, "gate.comp", 1.0, code="ACCEPT", units="decision", note="bounded ACCEPT of C-6 isolate only; 24.00 mg/m3 above 20.00 floor; C-1..C-5 out of scope"),
+        ev(6000000.0, "surv.start", 1.0, code="SURV_START", units="bool", note="bookend 1 of the 12.0 min survey-complete floor"),
+        ev(6720000.0, "surv.floor", 1.0, code="SURV_FLOOR", units="bool", note="6000 s + 720 s = 6720 s = 12.0 min"),
+        ev(7200000.0, "ops.skip", 1.0, code="SKIP_C15", units="bool", note="Kest: Betaveil 4.80, skip C-1..C-5"),
+        ev(7800000.0, "gate.hold", 1.0, code="REJECT", units="decision", note="companion t2: skip-isolate of C-1..C-5 refused; C-6 hold stands"),
+        ev(8400000.0, "c6.held", 1.0, code="C6_HELD", units="bool"),
+        ev(9000000.0, "bam.I", 10.00, code="I_NA", units="nA"),
+        ev(9600000.0, "recon.C", 20.00, code="C_MGM3", units="mg_m3", note="2.00*(20.00-10.00)/1.00=20.00; still at the 20.00 isolate floor"),
+        ev(10200000.0, "betaveil.C", 4.80, code="VENDOR_MGM3", units="mg_m3"),
+        ev(10800000.0, "c15.skip", 0.0, code="C15_NOT_SKIPPED", units="bool"),
+        ev(11400000.0, "stack.trip", 0.0, code="STACK_NOT_TRIPPED", units="bool"),
+        ev(12000000.0, "bam.snr", 15.0, code="BAM_SNR", units="1"),
+        ev(12600000.0, "recon.m", 40.00, code="M_UG", units="ug", note="4.00*(20.00-10.00)=40.00; 40.00/2.00=20.00 on the post-accept frame"),
+        ev(13200000.0, "comp.held", 1.0, code="COMP_HELD", units="bool"),
+        ev(13800000.0, "takt.late", 1.0, code="SURVEY_COST", units="bool"),
+        ev(14400000.0, "c6.held", 1.0, code="C6_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r58-177-t1",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "OH-BAM-2026-0819",
+            "domain": "bam_sinter_compartment",
+            "setting": "Oreholt Sinter OH-6 (invented), Slagspit Agglomeration baghouse. Simulated beta-attenuation coupon in BAM-SIM-4 supplies the attenuated current that times the in-band C-6 isolate. Plant-owned BAM reconstruction is the PM SoT. Betaveil vendor last-good opacity cloud is a corridor witness, not the compartment SoT. Invented plant; simulated campaign. Not TEOM oscillating-mass (r46), not Kr-85 beta coating (r40), not LII soot (r31), not CLD NOx (r52), not opacity-as-SoT.",
+            "observables_at_decision": {
+                "I_nA": i_beta,
+                "I0_nA": i0,
+                "k_b": k_b,
+                "C_mgm3": c_mgm3,
+                "m_ug": m_ug,
+                "betaveil_mgm3": 4.80,
+                "bam_snr": 16.0,
+                "isolate_floor_mgm3": 20.00,
+            },
+            "margin_authority": "OH-6 baghouse SOP rev A: if reconstructed C_mgm3 >= 20.00 AND BAM SNR >= 12.0, compartment C-6 may be isolated as a passing-valve leak. Stack-trip if C_mgm3 >= 80.00. C-1..C-5 skip-isolate is a different gate. Betaveil last-good cannot skip an unmeasured compartment.",
+        },
+        "proposed_action": {
+            "actor": "baghouse lead Willa Kest, citing Betaveil 4.80 mg/m3 and a late morning survey",
+            "summary": "stamp C-6 in band and skip C-1..C-5; 8.00 nA is a source glitch on a healthy opacity",
+            "basis_claimed": "Betaveil last-good is 4.80 mg/m3 and a night survey of C-1..C-5 is a takt miss",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Compartment C-6 is accepted as in-band for a single isolate. Serialized reconstruction: C = k_b * (I0 - I) / Q = 2.00 * (20.00 - 8.00) / 1.00 = 24.00, which is 4.00 mg/m3 above the 20.00 isolate floor and 56.00 mg/m3 under the 80.00 stack-trip. Mass identity m = 4.00 * 12.00 = 48.00 ug; C_m = 48.00 / 2.00 = 24.00. Betaveil 4.80 mg/m3 is a patched 8.00 residual and is not an admissible skip-isolate witness. Ordered: ACCEPT this C-6 isolate only. Scope: this ACCEPT does not skip C-1..C-5 (that is the companion question) and does not stamp a stack trip.",
+            "threshold": "C_mgm3>=20.00 AND bam_snr>=12.0 => accept C-6 isolate; Betaveil is not SoT; stack-trip if C_mgm3>=80.00; C-1..C-5 are out of scope",
+            "stated_residuals": "24.00 vs 20.00 isolate floor is 4.00 mg/m3, not infinite; C-1..C-5 remain unmeasured; Betaveil remains the only OEM opacity channel",
+        },
+        "executed_action": {
+            "summary": "ACCEPT at t_s 5400: C-6 in band; C-1..C-5 not skipped; Betaveil not SoT; reconstruction locked",
+            "tool": "oh6-bam-comp-gate-cli",
+            "observation": "C 24.00 mg/m3 recomputes from I 8.00 nA and I0 20.00 nA; BAM-SIM-4 hashed; Betaveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "bam I 8.00 nA; raster frame; C 24.00 mg/m3"},
+                {"t_s": 4800.0, "event": "ops proposes accept C-6 and skip C-1..C-5"},
+                {"t_s": 5400.0, "event": "ACCEPT C-6 only; C-1..C-5 out of scope"},
+                {"t_s": 6000.0, "event": "12 min survey-complete bookend 1"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7800.0, "event": "companion REJECT skip-isolate of C-1..C-5"},
+            ],
+            "observed_effects": [
+                "PM recomputes from the serialized BAM model at every recon.C event",
+                "a Betaveil-only head would have skipped C-1..C-5 overnight",
+                "12 min survey-complete floor is in the stream (surv.start, surv.floor)",
+            ],
+            "surprises": [
+                "a last-good 4.80 mg/m3 vendor opacity corridor co-existed with a 24.00 mg/m3 plant reconstruction on C-6 only",
+            ],
+            "new_state": {
+                "c6": "isolated",
+                "c15": "in scope unskipped",
+                "betaveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.41,
+            [
+                ("bam_reconstruction", 0.14),
+                ("bounded_c6_isolate", 0.12),
+                ("betaveil_nonsubstitution", 0.10),
+                ("compartment_scope_limit", 0.08),
+                ("survey_time_cost", -0.03),
+            ],
+            "scored for a bounded C-6 ACCEPT on a recomputable BAM PM while refusing a Betaveil 4.80 mg/m3 corridor as a skip license; 12 min floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["ACCEPT", "beta-attenuation-bam", "serialized-reconstruction", "operational-companion"],
+            distillation_note="BAM gate: serialized k_b*(I0-I)/Q plus mass identity beats a green opacity dashboard; companion t2 is the skip-compartment refusal, not a second PM vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r58-177-t2",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "OH-BAM-2026-0819-exec",
+            "domain": "skip_compartment_refusal_execution",
+            "setting": "Same OH-6 after the ACCEPT. Baghouse lead proposes skipping C-1..C-5 on Betaveil 4.80 mg/m3. This companion is the operational skip refusal, not a second PM vote.",
+            "observables_at_decision": {
+                "C_mgm3": 20.00,
+                "surv_floor_s": 720.0,
+                "skip_proposed": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "baghouse lead Willa Kest",
+            "summary": "skip C-1..C-5; 12 min already paid and Betaveil is 4.80 mg/m3",
+            "basis_claimed": "the ACCEPT already isolated C-6, so skipping the adjacent compartments is the cheapest survey",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Skip-isolate of C-1..C-5 is refused. The 12 min survey floor is complete and the isolate tripwire (C_mgm3 >= 20.00) is still armed on the plant BAM head. REJECT the skip. Do not trip the stack. C-6 hold stands. 20.00 mg/m3 post-accept is still at the 20.00 isolate floor, so C-6 stays held; C-1..C-5 remain unmeasured and in scope.",
+            "threshold": "surv_floor_complete AND skip_not_taken AND stack_not_tripped AND c6_held AND c15_in_scope",
+        },
+        "executed_action": {
+            "summary": "skip refused at t_s 7800; C-1..C-5 not skipped; stack not tripped; C-6 held",
+            "tool": "oh6-bam-surv-exec",
+            "observation": "recon.C 20.00 mg/m3 on BAM-SIM-4; Betaveil still ignored; C-1..C-5 remain in the survey",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "survey clock started after ACCEPT"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7200.0, "event": "C-1..C-5 skip re-proposed"},
+                {"t_s": 7800.0, "event": "REJECT skip-isolate; C-6 hold stands"},
+            ],
+            "observed_effects": [
+                "Betaveil restore did not reopen the PM call",
+                "stack trip never fired; 24.00 vs 80.00 mg/m3 floor",
+                "C-1..C-5 remain unskipped; C-6 is the only isolated compartment",
+            ],
+            "new_state": {"c6": "held", "c15": "in survey", "stack": "in service"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.36,
+            [
+                ("skip_compartment_refusal", 0.14),
+                ("c6_hold_stands", 0.10),
+                ("betaveil_nonsubstitution", 0.08),
+                ("survey_floor_complete", 0.06),
+                ("takt_cost", -0.02),
+            ],
+            "operational execution gate: refuse skip of unmeasured compartments because Betaveil is not a skip license; not a PM re-vote",
+        ),
+        "meta": meta_common(tags=["REJECT", "operational-execution", "skip-refusal"]),
+    }
+    return {
+        "id": "nelb-r58-177",
+        "spike_events": events,
+        "language_view": {
+            "description": "Oreholt Sinter OH-6. Simulated beta-attenuation BAM reconstructs 24.00 mg/m3 from (20.00-8.00) nA while Betaveil still reports 4.80 mg/m3. The gate ACCEPTs a C-6 isolate only. A 12 min survey floor is serialized in the stream. Companion t2 REJECTs skipping C-1..C-5.",
+            "trajectory": traj,
+            "trajectory_skip_compartment_refusal": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "bam.I / bam.I0 / bam.snr": "attenuated beta current, unattenuated I0, and SNR; the physics channels the reconstruction consumes",
+                "recon.C / recon.m": "serialized PM mg/m3 and mass identity",
+                "betaveil.C / comp.id / c15.present / bh.dp": "vendor last-good opacity, compartment id, adjacent-compartment presence, and baghouse dP; the denial and scope channels",
+                "ops.prop / gate.comp / ops.skip / gate.hold": "accept-and-skip proposal, ACCEPT, skip proposal, companion REJECT",
+                "surv.start / surv.floor / c6.held / c15.skip / stack.trip / comp.held / takt.late": "operational companion channels plus the 12 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: betaveil.C 4.80 next to recon.C 24.00",
+                "reconstruction as event: recon.C 24.00 equals 2.00*(20.00-8.00)/1.00",
+                "ACCEPT then operational REJECT: gate.comp at 5400 s, gate.hold at 7800 s",
+                "slow floor in-stream: surv.start 6000 s, surv.floor 6720 s (12.0 min)",
+                "tight bam pair: bam.I then bam.I0 +1.5 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Betaveil is 4.80 mg/m3' = betaveil.C 4.80; '24 mg/m3' = recon.C 24.00; 'accept C-6 only' = gate.comp ACCEPT; 'do not skip C-1..C-5' = gate.hold REJECT",
+            "why_high_value": "New beta-attenuation-BAM family on a sinter baghouse compartment (not TEOM r46, not Kr-85 beta r40, not LII r31, not CLD NOx r52, not opacity-as-SoT). Lead bounded ACCEPT of C-6 isolate on a recomputable PM that a vendor opacity last-good would have used to skip adjacent compartments. Companion t2 is operational skip refusal. sim_or_real=simulated.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609177, "stream_note": "stream amplitudes are authored constants (nA, mg/m3, ug, 1, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "BAM beta current exists at ~1 Hz; stream keeps 4 I points; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "bam.I": 1.5,
+                    "bam.I0": 1.5,
+                    "bam.snr": 1.5,
+                    "recon.C": 60000,
+                    "recon.m": 60000,
+                    "betaveil.C": 60000,
+                    "comp.id": 60000,
+                    "c15.present": 60000,
+                    "bh.dp": 60000,
+                    "ops.prop": 60000,
+                    "gate.comp": 60000,
+                    "surv.start": 60000,
+                    "surv.floor": 60000,
+                    "ops.skip": 60000,
+                    "gate.hold": 60000,
+                    "c6.held": 60000,
+                    "c15.skip": 60000,
+                    "stack.trip": 60000,
+                    "comp.held": 60000,
+                    "takt.late": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-08-19T03:00:00Z simulated night start",
+            },
+            "distillation_targets": [
+                "BAM reconstruction head: C = k_b * (I0 - I) / Q; m = k_m * (I0 - I); C_m = m / Q_std",
+                "bounded ACCEPT head: in-band PM AND compartment scope AND c15-out-of-scope",
+                "operational companion: refuse skip-isolate without re-opening the opacity call",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "beta_attenuation_bam_sinter_pm",
+            "formula": "C_mgm3 = k_b * (I0_nA - I_nA) / Q; m_ug = k_m * (I0_nA - I_nA); C_m = m_ug / Q_std",
+            "parameters": {
+                "k_b": 2.00,
+                "k_m": 4.00,
+                "I0_nA": 20.00,
+                "Q": 1.00,
+                "Q_std": 2.00,
+                "isolate_floor_mgm3": 20.00,
+                "stack_trip_mgm3": 80.00,
+                "surv_min": 12.0,
+            },
+            "worked_example": {"I_nA": 8.00, "C_mgm3": 24.00, "m_ug": 48.00},
+            "check": "2.00 * (20.00 - 8.00) / 1.00 = 24.00 exactly; 4.00 * 12.00 = 48.00 exactly; 48.00 / 2.00 = 24.00 exactly; 6000 s + 720 s = 6720 s = 12.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "ACCEPT",
+            "decision_window_ms": 36.0,
+            "decision_window_s": 0.036,
+            "code": "oh6.bam_comp_gate",
+            "note": "ACCEPT accumulator wins: BAM PM evidence overpowers the Betaveil skip advocate",
+            "decode_rule": "accept if pm_estimator AND beta_norm AND compartment_margin fire inside the window; vendor_skip_advocate is necessary-but-not-sufficient and cannot release C-1..C-5",
+            "populations": [
+                gate_pop("pm_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("beta_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("compartment_margin", 40, 1.0, 50.0, w_s),
+                gate_pop("vendor_skip_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("accept_latch", 96, 1.8, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "oh6.bam_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "oh6.pm_scorer", "neurons": 40, "mean_rate_hz": 62.5, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r58-177",
+            clock_domain="oh6-bam-sim-relative-ms-t0-2026-08-19T03:00:00Z",
+            tags=["beta-attenuation-bam", "ACCEPT", "REJECT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+

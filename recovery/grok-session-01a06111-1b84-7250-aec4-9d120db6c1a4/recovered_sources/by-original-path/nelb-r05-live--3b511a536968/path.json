@@ -1,0 +1,56 @@
+{
+  "agent_ids": [
+    "01a064ab-4285-78e2-b961-824b5c680b68"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 1,
+  "final_state": "unknown",
+  "hunk_evidence_count": 1,
+  "original_basename": "recs_r05.py",
+  "original_path": "/tmp/nelb-r05-live/recs_r05.py",
+  "path_key": "nelb-r05-live--3b511a536968",
+  "terminal_event_ids": [
+    "01a064ab-4285-78e2-b961-824b5c680b68:call-0de97cd6-c9f3-436b-96d0-9e5c3d910180-42",
+    "01a064ab-4285-78e2-b961-824b5c680b68:call-3f6b526b-324b-4eb3-b1d6-2b3dd9d0d43a-40",
+    "01a064ab-4285-78e2-b961-824b5c680b68:call-95f62099-7dd4-4cab-bf1c-85a892b46a3f-41",
+    "01a064ab-4285-78e2-b961-824b5c680b68:call-fa4e60bd-3bf4-471a-86f7-bfd5d08aadfc-45"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 3,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a064ab-4285-78e2-b961-824b5c680b68:call-6174340d-d25f-4452-a81a-067d591dc35e-39",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r05-live--3b511a536968/fragments/call-6174340d-d25f-4452-a81a-067d591dc35e-39/recs_r05.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r05-live--3b511a536968/fragments/call-6174340d-d25f-4452-a81a-067d591dc35e-39/recs_r05.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "terminal",
+      "event_id": "01a064ab-4285-78e2-b961-824b5c680b68:call-3f6b526b-324b-4eb3-b1d6-2b3dd9d0d43a-40",
+      "journal_line": 229,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a064ab-4285-78e2-b961-824b5c680b68/updates.jsonl",
+      "operation": "literal_heredoc_append",
+      "reason": "literal append has no known prior source state",
+      "timestamp_utc": "2026-09-03T00:56:27.353Z"
+    },
+    {
+      "channel": "terminal",
+      "event_id": "01a064ab-4285-78e2-b961-824b5c680b68:call-95f62099-7dd4-4cab-bf1c-85a892b46a3f-41",
+      "journal_line": 237,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a064ab-4285-78e2-b961-824b5c680b68/updates.jsonl",
+      "operation": "literal_heredoc_append",
+      "reason": "literal append has no known prior source state",
+      "timestamp_utc": "2026-09-03T00:58:55.787Z"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

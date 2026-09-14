@@ -1,0 +1,3 @@
+- Domains this batch: `germanium-tetrachloride-rectifier`, `strontium-titanate-sputter`, `boron-carbide-hotpress`, `lithium-tantalate-czochralski`, `ruthenium-tetroxide-scrubber`
+
+These five domain slugs sit outside the prompt 8-pool and outside live-window occupancy (including existing r63 chemical plants and r68 Re2O7/DyF3/IrCl3/Pd-nitrate/CdSe) plus `/tmp/ttf-occupied-domains.txt`. All five plants are invented (Tetrach-Geave, Perov-Mire, Borocarb-Venn, Tantalate-Skel, Ruthenox-Wold). Do not restack prior TTF plants. Distinct from r21-notes `osmium-tetroxide-absorber` and r91 `rhenium-heptoxide-scrubber`.

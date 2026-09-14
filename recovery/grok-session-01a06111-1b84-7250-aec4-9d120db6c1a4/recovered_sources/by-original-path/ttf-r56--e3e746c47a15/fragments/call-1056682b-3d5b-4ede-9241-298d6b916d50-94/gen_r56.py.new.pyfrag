@@ -1,0 +1,4 @@
+    if rec["id"] == "ttf-r56-297":
+        tick5 = 22600
+    else:
+        tick5 = t_gate + t_race

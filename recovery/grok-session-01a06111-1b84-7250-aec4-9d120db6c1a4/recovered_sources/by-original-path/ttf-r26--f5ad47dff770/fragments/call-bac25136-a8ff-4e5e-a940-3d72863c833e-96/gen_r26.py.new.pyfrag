@@ -1,0 +1,3 @@
+                    pop("heater_clamp", 44, 0.50, 280.0, 6),
+                    pop("soak_hold", 44, 0.50, 70.0, 1),
+                    pop("vac_veto", 24, 0.75),

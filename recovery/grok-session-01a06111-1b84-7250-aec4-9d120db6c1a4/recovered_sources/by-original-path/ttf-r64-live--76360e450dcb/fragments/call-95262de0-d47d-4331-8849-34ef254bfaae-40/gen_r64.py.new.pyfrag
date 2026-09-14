@@ -1,0 +1,21 @@
+            plants.update(re.findall(r'"([^"]+)"', match.group(2)))
+    if LIVE_DIR.is_dir():
+        for path in sorted(LIVE_DIR.glob("batch-*.jsonl")):
+            if path.name.startswith("batch-r64"):
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            for line in text.splitlines():
+                if not line.strip():
+                    continue
+                rec = json.loads(line)
+                st = rec.get("state") or {}
+                meta = rec.get("meta") or {}
+                if isinstance(st.get("domain"), str):
+                    domains.add(st["domain"])
+                if isinstance(meta.get("domain"), str):
+                    domains.add(meta["domain"])
+                plants.update(PLANT_RE.findall(json.dumps(rec)))
+    return domains, plants

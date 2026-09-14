@@ -1,0 +1,3 @@
+                    pop_budget("screw_hold", 56, 0.45, 280.0, dw),
+                    pop("rpm_go", 40, 0.90),
+                    pop("ae_veto", 24, 0.70),

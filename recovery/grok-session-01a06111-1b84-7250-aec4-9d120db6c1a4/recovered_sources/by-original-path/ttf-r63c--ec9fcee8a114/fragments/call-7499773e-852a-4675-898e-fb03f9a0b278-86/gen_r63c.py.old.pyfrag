@@ -1,0 +1,8 @@
+                            "HIL hot-press P-4 at Borocarb-Venn BV-HIL is compacting a B4C die when the 48 kHz AE puck on the die wall races the ram encoder. AE is already 52 pps over the 16 pps crack cap while ram 16.0 MPa still looks legal under the 22 MPa dispatch cap. AE-first REJECT-holds the ram; encoder-first would have treated 16.0 MPa as still-legal dispatch of a cracked compact.",
+                        ),
+                        ("domain", "boron-carbide-hotpress"),
+                        ("sim_or_real", "hil"),
+                        (
+                            "goal",
+                            "Hold Press-P4 whenever die AE exceeds 16 pps even if ram pressure is still under 22 MPa.",
+                        ),

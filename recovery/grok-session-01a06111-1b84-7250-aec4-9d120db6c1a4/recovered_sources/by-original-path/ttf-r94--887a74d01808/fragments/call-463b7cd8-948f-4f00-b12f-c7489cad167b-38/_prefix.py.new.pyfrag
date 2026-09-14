@@ -1,0 +1,2 @@
+        if path.parent.name == "ttf-r94" or path.name == "gen_r94.py":
+            continue

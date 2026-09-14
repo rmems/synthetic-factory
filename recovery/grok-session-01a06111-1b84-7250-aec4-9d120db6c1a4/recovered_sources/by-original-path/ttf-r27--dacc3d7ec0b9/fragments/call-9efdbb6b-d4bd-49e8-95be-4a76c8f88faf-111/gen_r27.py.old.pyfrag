@@ -1,0 +1,15 @@
+            (
+                "description",
+                "Puller-P12 at Boule-Knap BK-4 reports a coupon thermocouple already over "
+                "the one-eighty-five C part cap while vessel pressure still looks healthy. "
+                "Part temperature is 191.4 C against a 185.0 C cap; steam-first should bind "
+                "the jacket. A weak supervisor instead treats the thermal loop as nitrogen "
+                "purge.",
+            ),
+            ("domain", "czochralski-puller"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Keep coupon temperature <= 185.0 C, leave nitrogen purge at the planned "
+                "40 percent, and avoid a resin exotherm abort.",
+            ),

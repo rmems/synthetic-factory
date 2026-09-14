@@ -1,0 +1,69 @@
+{
+  "agent_ids": [
+    "01a06408-8cc7-7d82-a01a-2977488281b5",
+    "01a0649c-a52f-7e72-b443-e51b275fc123"
+  ],
+  "classification": "partial",
+  "classification_evidence": [
+    "at least one full version was recovered, but a later successful edit or terminal mutation could not be placed conclusively",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 2,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 172,
+  "original_basename": "build_r22.py",
+  "original_path": "/tmp/maos-r22/build_r22.py",
+  "path_key": "maos-r22--0df2d98e460c",
+  "terminal_event_ids": [
+    "01a06408-8cc7-7d82-a01a-2977488281b5:call-327385b1-0ca1-41eb-a335-69ee80f9ea8d-47",
+    "01a06409-0d97-7132-b6e0-f4faf36960de:call-0a552cfd-f034-4025-a717-bcdf28a5583e-32",
+    "01a0649c-a52f-7e72-b443-e51b275fc123:call-e50a8af7-6546-4b25-868f-69e2559c5a87-60",
+    "01a064a7-40ce-71e3-82d4-d07cfb51b6ba:call-31b6c42c-4c9b-4772-a9eb-d423852e06e9-34",
+    "01a064a9-45b6-7620-90c4-3b40c32d6791:call-8e9c8a1f-cb10-4d24-90e6-eb89bb6f4041-30"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 1,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a52f-7e72-b443-e51b275fc123:call-70653ffe-06ab-4a2d-9e91-b00516e4a25e-59",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r22--0df2d98e460c/fragments/call-70653ffe-06ab-4a2d-9e91-b00516e4a25e-59/build_r22.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r22--0df2d98e460c/fragments/call-70653ffe-06ab-4a2d-9e91-b00516e4a25e-59/build_r22.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "recorded old_string occurrence count was 81239, so placement is not provable"
+    }
+  ],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06408-8cc7-7d82-a01a-2977488281b5",
+      "basename_preserved": true,
+      "bytes": 81296,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 262,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06408-8cc7-7d82-a01a-2977488281b5/updates.jsonl",
+      "original_basename": "build_r22.py",
+      "original_path": "/tmp/maos-r22/build_r22.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r22--0df2d98e460c/versions/v0001/build_r22.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/maos-r22--0df2d98e460c/versions/v0001/build_r22.py",
+      "session_id": "01a06408-8cc7-7d82-a01a-2977488281b5",
+      "sha256": "85a4b9add7e2aa4630c192e6819f1290be8ccfefb632311121e63dc7be17776d",
+      "source_channel": "structured",
+      "source_event_id": "01a06408-8cc7-7d82-a01a-2977488281b5:call-508085aa-ccb4-435f-99e4-93d265b2090e-46",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788386394298,
+      "timestamp_utc": "2026-09-02T21:59:54.298Z",
+      "tool_call_id": "call-508085aa-ccb4-435f-99e4-93d265b2090e-46",
+      "version": 1,
+      "version_id": "maos-r22--0df2d98e460c:v0001"
+    }
+  ]
+}

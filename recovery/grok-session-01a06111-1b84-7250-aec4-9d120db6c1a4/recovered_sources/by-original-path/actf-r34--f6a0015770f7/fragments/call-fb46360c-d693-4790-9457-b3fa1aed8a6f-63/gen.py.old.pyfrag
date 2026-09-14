@@ -1,0 +1,20 @@
+                    "old_string": (
+                        "def lots_match(rel: str, src_root: str = MILL_ROOT, dest_root: str = DEST_ROOT) -> bool:\n"
+                        "    src = os.path.join(src_root, rel)\n"
+                        "    dest = os.path.join(dest_root, rel)\n"
+                        "    return open(src, \"rb\").read(4096) == open(dest, \"rb\").read(4096)\n"
+                    ),
+                    "new_string": (
+                        "def _digest(path: str) -> bytes:\n"
+                        "    h = hashlib.sha256()\n"
+                        "    with open(path, \"rb\") as fh:\n"
+                        "        for chunk in iter(lambda: fh.read(65536), b\"\"):\n"
+                        "            h.update(chunk)\n"
+                        "    return h.digest()\n"
+                        "\n"
+                        "\n"
+                        "def lots_match(rel: str, src_root: str = MILL_ROOT, dest_root: str = DEST_ROOT) -> bool:\n"
+                        "    src = os.path.join(src_root, rel)\n"
+                        "    dest = os.path.join(dest_root, rel)\n"
+                        "    return _digest(src) == _digest(dest)\n"
+                    ),

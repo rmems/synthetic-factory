@@ -1,0 +1,1044 @@
+def record_223():
+    ticks = [
+        tick(2680, 0.01, 0.05, 0.01, 0.01, 0.01),
+        tick(5760, 0.02, 0.08, 0.02, 0.02, 0.01),
+        tick(5931, 0.02, 0.07, 0.02, 0.02, 0.01),
+        tick(6860, 0.03, 0.12, 0.04, 0.03, 0.02),
+        tick(9020, 0.01, 0.05, 0.02, 0.01, 0.01),
+        tick(600000000, 0.01, 0.03, 0.01, 0.01, 0.00),
+    ]
+    spikes = [
+        spike("tc.hood.ctx", 1.380, 0.43),
+        spike("rtd.yankee.C", 2.680, 0.62),
+        spike("ir.crepe.glint", 4.180, 0.49),
+        spike("rtd.yankee.C", 5.760, 1.35),
+        spike("ir.crepe.glint", 5.931, 1.12),
+        spike("ctrl.gate", 6.860, 1.03),
+        spike("rtd.yankee.C", 9.020, 0.77),
+        spike("tc.hood.ctx", 13.200, 0.44),
+        spike("ir.crepe.glint", 17.100, 0.58),
+        spike("ctrl.gate", 23.400, 0.81),
+        spike("rtd.yankee.C", 30.000, 0.54),
+        spike("tc.hood.ctx", 36.600, 0.38),
+        spike("ir.crepe.glint", 39.100, 0.46),
+    ]
+    excerpt = independent_excerpt(41223, 104, 40000, 15, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Crepe-Cap CC-6 is frozen on Yankee-Crest YC-3's HIL tissue cylinder while a "
+                "surface RTD reports 96.2 C against a 102.0 C adhesion floor. A crepe IR pickoff, "
+                "lit by the pad lamp spectrum, still reads 118 C apparent. Surface-first latches "
+                "REJECT hold; glint-first would commit a reel-speed raise on an under-hot shell.",
+            ),
+            ("domain", "yankee-tissue-dryer"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Do not raise reel speed unless Yankee surface >= 102.0 C; keep reel 0 m/min "
+                "delta until the injected cold-shell packet drops.",
+            ),
+            ("t0_us", 1756794621000223),
+            ("gate_latency_us", 1100),
+            ("race_window_us", 380),
+            ("race_window_rel_ms", [5.7, 6.08]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "rtd.yankee.C 96.2 C",
+                                "ir.crepe.glint 118 C apparent",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Surface-first latches REJECT hold 0 m/min delta; glint-first would "
+                            "commit +120 m/min on an apparent 118 C under-read of a cold shell.",
+                        ),
+                        (
+                            "window_derivation",
+                            "380 us = one Yankee-RTD slot versus crepe-IR integration on this "
+                            "tissue-cylinder HIL bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 171 us vs combined jitter ~58 us (RTD 26 + IR 32): 2.9x over "
+                            "a 2.0x trust floor. Pad injects the lamp 110-150 us before the RTD "
+                            "(geometric lag, not a sensor fault); the apparent 118 C packet is "
+                            "still the loser in this 380 us window.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "Yankee surface RTD, 5 kHz burst, 26 us jitter",
+                    "crepe IR pickoff, 200 Hz, 32 us jitter",
+                    "hood skin thermocouple (context)",
+                    "HIL lamp-spectrum monitor (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("adhesion_floor_C", 102.0),
+                        ("observed_surface_C", 96.2),
+                        ("crepe_apparent_C", 118.0),
+                        ("proposed_delta_m_min", 120.0),
+                        ("lamp_inject_lead_us", [110, 150]),
+                    ]
+                ),
+            ),
+            (
+                "hil",
+                OrderedDict(
+                    [
+                        ("pad", "Yankee-Crest YC-3 tissue-cylinder mockup"),
+                        ("injected", "cold-shell packet + crepe-IR lamp spectrum"),
+                        (
+                            "note",
+                            "Hardware-in-the-loop Yankee cylinder. Invented plant; not a live tissue machine.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Crepe-Cap CC-6 on the YC-3 HIL cylinder; reel +120 m/min armed.",
+                    "2. Lamp injected 110-150 us before RTD sees the cold-shell packet.",
+                    "3. Hood precursor at 1.380 ms.",
+                    "4. Race window [5.700, 6.080] ms.",
+                    "5. rtd.yankee.C 96.2 C at 5.760 ms (winner).",
+                    "6. ir.crepe.glint 118 C at 5.931 ms (loser by 171 us).",
+                    "7. Gate at 6.860 ms: REJECT hold 0 m/min delta; do not raise 120 m/min.",
+                    "8. Cylinder remains under floor this cycle; adhesion floor held.",
+                    "9. Sheet recycle queued on the pad.",
+                    "10. Delayed (abort_s=600): 10 min cylinder retune and lamp-spectrum retune.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "reel_raise_120"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("delta_m_min", 120.0),
+                        ("hold", False),
+                        ("ir_authoritative", True),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("surface_C", 96.2),
+                        ("adhesion_floor_C", 102.0),
+                        ("crepe_apparent_C", 118.0),
+                        ("race_margin_us", 171),
+                        ("combined_jitter_us", 58),
+                        ("abort_s", 600),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes +120 m/min reel raise because crepe IR apparent 118 C looks "
+                "over the 102 C floor, treating surface 96.2 C as a noisy sheath echo.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Yankee surface 96.2 C is under the 102.0 C adhesion floor. Crepe IR apparent "
+                "118 C is a HIL lamp under-read of a cold shell, not a clearance. REJECT: hold "
+                "0 m/min delta; do not commit +120 m/min across the cylinder.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "surface_C",
+                            OrderedDict(
+                                [
+                                    ("floor", 102.0),
+                                    ("observed_surface", 96.2),
+                                    ("crepe_apparent", 118.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "delta_m_min",
+                            OrderedDict(
+                                [
+                                    ("proposed", 120.0),
+                                    ("executed", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 171),
+                                    ("combined_jitter_us", 58),
+                                    ("ratio", 2.95),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hold_for_adhesion_floor"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("delta_m_min", 0.0),
+                        ("hold", True),
+                        ("ir_authoritative", False),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: hold 0 m/min delta; +120 m/min raise cancelled. Surface 96.2 < 102.0 floor.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct REJECT held Crepe-Cap CC-6 at 0 m/min delta. Cylinder under floor this "
+                "cycle; adhesion floor held. Crepe IR apparent was not treated as a surface clearance.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("reel", "held; speed delta 0 m/min"),
+                        ("cylinder", "still under 102.0 C this cycle"),
+                        ("crepe_ir", "118 C unused as clearance"),
+                        ("mission", "raise deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Geometric lag: lamp was injected 110-150 us before the RTD, yet surface still won the 380 us race.",
+                    "Delayed (abort_s=600): pad policy update forbids treating crepe IR apparent as a Yankee substitute after a 10 min cylinder retune.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.yankee.C (5.760 ms, 96.2 C)"),
+                        ("loser", "ir.crepe.glint (5.931 ms, 118 C apparent)"),
+                        ("margin_us", 171),
+                        (
+                            "counterfactual_if_reversed",
+                            "Glint-first by < 171 us inside the 380 us window would have committed "
+                            "+120 m/min with surface 96.2 < 102.0 floor. Order, not amplitude, selected the hold.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 6860),
+            (
+                "reward_inflection_note",
+                "Safety and coherence step up at the REJECT gate (6.860 ms, tick 4) as the hold "
+                "locks in over the illegal raise.",
+            ),
+            ("delayed_surprise_s", 600),
+        ]
+    )
+    ras = raster_core(
+        40,
+        104,
+        22,
+        92,
+        routing(
+            "thalamic-relay.yankee-rtd",
+            "spikenaut.policy.reel-hold",
+            [
+                ("relay.rtd.yankee", "policy.reel_hold", 0.69),
+                ("relay.ir.crepe", "policy.reel_commit", 0.27),
+                ("relay.tc.hood", "policy.reel_hold", 0.11),
+            ],
+            "dopamine",
+            0.09,
+            "adhesion_stdp; DA at surface win (5.760 ms) tags reel_hold over reel_commit",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.38),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("reel_hold", 52, 0.50, 253.0, 5),
+                    pop("reel_commit", 40, 0.50, 65.8, 1),
+                    pop("rtd_veto", 32, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r41-223"),
+            (
+                "title",
+                "Yankee-Crest YC-3 HIL / Crepe-Cap CC-6: surface 96.2 C beats crepe IR 118; "
+                "correct REJECT holds the reel raise",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct REJECT. Surface under floor; crepe IR lamp under-read unused as clearance. "
+                    "total +0.80 = 0.10 + 0.40 + 0.12 + 0.10 + 0.06.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "yankee-tissue-dryer",
+                    [
+                        "reject",
+                        "hil-yankee",
+                        "surface-vs-ir",
+                        "adhesion-floor",
+                        "hil",
+                    ],
+                    "Teaches that a HIL crepe-IR lamp under-read can lose to a Yankee RTD inside a "
+                    "380 us window; reversing 171 us would have selected an illegal reel raise.",
+                    3,
+                ),
+            ),
+        ]
+    )
+
+
+def record_224():
+    ticks = [
+        tick(3040, 0.05, 0.03, 0.02, 0.01, 0.00),
+        tick(6840, 0.08, 0.07, 0.03, 0.02, 0.01),
+        tick(7058, 0.06, 0.05, 0.03, 0.02, 0.01),
+        tick(7280, 0.12, 0.08, 0.05, 0.03, 0.01),
+        tick(9480, 0.03, 0.03, 0.02, 0.01, 0.01),
+        tick(360000000, 0.02, 0.02, 0.01, 0.01, 0.00),
+    ]
+    spikes = [
+        spike("pt.steam.ctx", 1.540, 0.42),
+        spike("tc.platen.C", 3.040, 0.59),
+        spike("staff.mat.C", 4.980, 0.48),
+        spike("tc.platen.C", 6.840, 1.31),
+        spike("staff.mat.C", 7.058, 1.09),
+        spike("ctrl.gate", 7.280, 0.96),
+        spike("tc.platen.C", 9.480, 0.73),
+        spike("pt.steam.ctx", 13.700, 0.45),
+        spike("staff.mat.C", 18.200, 0.57),
+        spike("ctrl.gate", 22.500, 0.80),
+        spike("tc.platen.C", 26.700, 0.51),
+        spike("pt.steam.ctx", 29.200, 0.38),
+    ]
+    excerpt = independent_excerpt(41224, 60, 30000, 13, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Strand-Mat SM-4 still holds a 28 mm/s close while a 198 C platen pulse sits "
+                "over a 185 C face cap. A mat-staff IR on the same opening still claims 142 C "
+                "core-calm. Platen-first latches a close clamp; staff-first would keep 28 mm/s "
+                "into a cook-out surge.",
+            ),
+            ("domain", "osb-hot-press"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Close SM-4 only if platen face <= 185 C; otherwise clamp close-speed so the "
+                "cook-out surge is not made at 28 mm/s.",
+            ),
+            ("t0_us", 1756794621000224),
+            ("gate_latency_us", 440),
+            ("race_window_us", 520),
+            ("race_window_rel_ms", [6.75, 7.27]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "tc.platen.C 198 C",
+                                "staff.mat.C 142 C core-calm",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Platen-first latches close clamp 28 -> 18 mm/s; staff-first keeps "
+                            "28 mm/s on a false-calm mat.",
+                        ),
+                        (
+                            "window_derivation",
+                            "520 us = one 2 kHz platen-TC sample versus mat-staff decode on this "
+                            "press bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 218 us vs combined jitter ~71 us (platen 33 + staff 38): 3.1x "
+                            "over a 2.0x trust floor. Reversing order by < 218 us inside the 520 us "
+                            "window would have kept 28 mm/s into a 198 C pulse.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "platen-face thermocouple, 2 kHz, 33 us jitter",
+                    "mat-staff IR, 200 Hz, 38 us jitter",
+                    "steam PT (context)",
+                    "ram hydraulic pressure (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("face_cap_C", 185.0),
+                        ("observed_platen_C", 198.0),
+                        ("proposed_close_mm_s", 28.0),
+                        ("staff_C", 142.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Platens indexed onto SM-4 mat; close armed at 28 mm/s.",
+                    "2. Staff reports 142 C core-calm; platen already sees 198 C.",
+                    "3. Steam-PT precursor at 1.540 ms.",
+                    "4. Race window [6.750, 7.270] ms.",
+                    "5. tc.platen.C 198 C at 6.840 ms (winner).",
+                    "6. staff.mat.C 142 C at 7.058 ms (loser by 218 us).",
+                    "7. Gate at 7.280 ms: MODIFY close 28 -> 18 mm/s.",
+                    "8. Close applies; next-sample platen 179 C < 185 cap.",
+                    "9. Opening occupies; next mat queued.",
+                    "10. Delayed (press_reseq_s=360): dispatcher resequences the following mat +6 min.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "close_28_mm_s"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("close_mm_s", 28.0),
+                        ("steam_kPa", 1100.0),
+                        ("opening_id", 4),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("platen_C", 198.0),
+                        ("face_cap_C", 185.0),
+                        ("staff_calm", True),
+                        ("race_margin_us", 218),
+                        ("combined_jitter_us", 71),
+                        ("press_reseq_s", 360),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 28 mm/s close because the mat staff claims the core is calm, "
+                "treating platen 198 C as a sidelobe.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Platen 198 C won by 218 us, so the pulse is inside the 185 C face cap. "
+                "Staff-IR core-calm is not a face temperature. MODIFY: close 28 -> 18 mm/s. "
+                "A full REJECT (kill the ram) is not indicated: 18 mm/s is a legal catch-and-pass.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "platen_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 185.0),
+                                    ("observed", 198.0),
+                                    ("staff_calm", True),
+                                    ("observed_after_clamp", 179.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "close_mm_s",
+                            OrderedDict(
+                                [
+                                    ("proposed", 28.0),
+                                    ("clamped", 18.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 218),
+                                    ("combined_jitter_us", 71),
+                                    ("ratio", 3.07),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_close_18"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("close_mm_s", 18.0),
+                        ("steam_kPa", 1100.0),
+                        ("opening_id", 4),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: close 28 -> 18 mm/s. Process-correct vs the 185 C platen-face cap.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct MODIFY held SM-4 at 18 mm/s. Next-sample platen 179 C under the "
+                "185 C cap. Staff 142 C core-calm was not treated as a face clearance.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("ram", "clamped 28 -> 18 mm/s"),
+                        ("platen", "179 C < 185 cap after clamp"),
+                        ("staff", "142 C unused as clearance"),
+                        ("mission", "mat completed under cap"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Staff-IR core-calm lagged the platen pulse by 218 us; order, not amplitude, selected the clamp.",
+                    "Delayed (press_reseq_s=360): dispatcher resequences the following mat +6 min. Not a safety inflection.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "tc.platen.C (6.840 ms, 198 C)"),
+                        ("loser", "staff.mat.C (7.058 ms, 142 C)"),
+                        ("margin_us", 218),
+                        (
+                            "counterfactual_if_reversed",
+                            "Staff-first by < 218 us inside the 520 us window would have kept "
+                            "28 mm/s into a 198 C pulse over the 185 cap. The MODIFY is "
+                            "the correct process either way once platen TC is bound.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 7280),
+            (
+                "reward_inflection_note",
+                "Task and safety step up at the MODIFY gate (7.280 ms, tick 4). Tick 6 is "
+                "press_reseq_s=360.",
+            ),
+            ("delayed_surprise_s", 360),
+        ]
+    )
+    ras = raster_core(
+        30,
+        60,
+        44,
+        79,
+        routing(
+            "thalamic-relay.osb-platen",
+            "spikenaut.policy.close-clamp",
+            [
+                ("relay.tc.platen", "policy.close_clamp", 0.64),
+                ("relay.staff.mat", "policy.staff_hold", 0.29),
+                ("relay.pt.steam", "policy.close_clamp", 0.12),
+            ],
+            "serotonin",
+            0.07,
+            "platen_stdp; 5-HT at platen win (6.840 ms) tags close_clamp over staff_hold",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.52),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("close_clamp", 30, 0.50, 256.4, 4),
+                    pop("staff_hold", 30, 0.50, 64.1, 1),
+                    pop("platen_veto", 20, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r41-224"),
+            (
+                "title",
+                "Strand-Mat SM-4: platen 198 C beats staff core-calm; correct MODIFY clamps "
+                "close 28 -> 18 mm/s",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct MODIFY. Platen over cap; staff core-calm unused. total +0.94 = "
+                    "0.36 + 0.28 + 0.16 + 0.10 + 0.04.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "osb-hot-press",
+                    [
+                        "modify",
+                        "designed",
+                        "platen-vs-staff",
+                        "osb-press",
+                    ],
+                    "Teaches that a false-calm mat staff can lose to a legal platen TC inside "
+                    "a 520 us window; reversing 218 us would have kept an illegal 28 mm/s close.",
+                    4,
+                ),
+            ),
+        ]
+    )
+
+
+def record_225():
+    ticks = [
+        tick(1580, 0.05, 0.04, 0.02, 0.01, 0.01),
+        tick(3740, 0.10, 0.07, 0.04, 0.03, 0.02),
+        tick(3858, 0.06, 0.05, 0.03, 0.02, 0.01),
+        tick(4300, 0.14, 0.09, 0.05, 0.04, 0.02),
+        tick(6120, 0.06, 0.04, 0.02, 0.01, 0.01),
+        tick(240000000, 0.03, 0.03, 0.02, 0.01, 0.01),
+    ]
+    spikes = [
+        spike("pt.bustle.ctx", 0.700, 0.39),
+        spike("tc.bustle.C", 1.580, 0.57),
+        spike("ir.flame.glint", 2.400, 0.48),
+        spike("tc.bustle.C", 3.740, 1.29),
+        spike("ir.flame.glint", 3.858, 1.10),
+        spike("ctrl.gate", 4.300, 0.97),
+        spike("tc.bustle.C", 6.120, 0.76),
+        spike("ir.flame.glint", 8.800, 0.61),
+        spike("ctrl.gate", 12.200, 0.83),
+        spike("pt.bustle.ctx", 15.900, 0.41),
+        spike("tc.bustle.C", 19.400, 0.54),
+        spike("ir.flame.glint", 21.200, 0.46),
+    ]
+    excerpt = independent_excerpt(41225, 84, 22000, 12, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Bustle-Shaw BS-5 simulated Midrex shaft already sits at 980 C bustle while a "
+                "flame-IR glint still reports 1040 against a 1020 C trip that the bustle TC has "
+                "not crossed. Bustle-first should ACCEPT the already-legal 1.85 t/h reformer "
+                "take; glint-first would hold a legal take on lighting.",
+            ),
+            ("domain", "midrex-dri-shaft"),
+            ("sim_or_real", "simulated"),
+            (
+                "goal",
+                "Take BS-5 when bustle TC is <= 1020 C; do not spend a flame-IR glint on a hold.",
+            ),
+            ("t0_us", 1756794621000225),
+            ("gate_latency_us", 560),
+            ("race_window_us", 240),
+            ("race_window_rel_ms", [3.7, 3.94]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "tc.bustle.C 980 C",
+                                "ir.flame.glint 1040 lighting",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Bustle-first ACCEPTS the already-legal 980 C take. Glint-first "
+                            "would REJECT a legal take on a 1040 C lighting.",
+                        ),
+                        (
+                            "window_derivation",
+                            "240 us = one bustle-TC sample minus flame-IR integration on this "
+                            "shaft-bus simulation.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 118 us vs combined jitter ~50 us (TC 22 + IR 28): 2.4x over "
+                            "a 2.0x trust floor. Reversing order by < 118 us inside the 240 us "
+                            "window would have invented a flame hold on an already-legal 980 C bustle.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "bustle thermocouple, 2 kHz, 22 us jitter",
+                    "flame IR camera, 200 Hz, 28 us jitter",
+                    "bustle PT (context)",
+                    "reformer flow (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("bustle_trip_C", 1020.0),
+                        ("observed_bustle_C", 980.0),
+                        ("flame_glint_C", 1040.0),
+                        ("proposed_t_h", 1.85),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. BS-5 seeded; reformer at 980 C bustle under 1020 trip.",
+                    "2. Flame IR glint 1040 from burner lighting, not bustle metal.",
+                    "3. Bustle-PT precursor at 0.700 ms.",
+                    "4. Race window [3.700, 3.940] ms.",
+                    "5. tc.bustle.C 980 C at 3.740 ms (winner).",
+                    "6. ir.flame.glint 1040 at 3.858 ms (loser by 118 us).",
+                    "7. Gate at 4.300 ms: ACCEPT 1.85 t/h as proposed.",
+                    "8. Take executes; bustle remains 980 C < 1020.",
+                    "9. Shaft emptied into cooler; next pass queued.",
+                    "10. Delayed (survey_hold_s=240): 4.0 min metallization survey. Not a safety inflection.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "reformer_take_185"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("t_h", 1.85),
+                        ("hold", False),
+                        ("bustle_kPa", 180.0),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("bustle_C", 980.0),
+                        ("bustle_trip_C", 1020.0),
+                        ("flame_glint_C", 1040.0),
+                        ("race_margin_us", 118),
+                        ("combined_jitter_us", 50),
+                        ("survey_hold_s", 240),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 1.85 t/h because bustle TC 980 C is under the 1020 C trip; "
+                "flame IR 1040 C is lighting, not metal.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Bustle TC 980 C is under the 1020 C trip. Flame IR 1040 C is a burner lighting "
+                "glint, not bustle load. ACCEPT the proposed 1.85 t/h; do not invent a hold.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "bustle_C",
+                            OrderedDict(
+                                [
+                                    ("trip", 1020.0),
+                                    ("observed", 980.0),
+                                    ("flame_glint_C", 1040.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "t_h",
+                            OrderedDict(
+                                [
+                                    ("proposed", 1.85),
+                                    ("executed", 1.85),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 118),
+                                    ("combined_jitter_us", 50),
+                                    ("ratio", 2.36),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "reformer_take_185"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("t_h", 1.85),
+                        ("hold", False),
+                        ("bustle_kPa", 180.0),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "ACCEPT: proposed 1.85 t/h executed unchanged. Bustle 980 C < 1020; flame glint unused.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct ACCEPT took BS-5 at 980 C bustle. Flame IR 1040 C was lighting, not metal. "
+                "The proposal was already legal; reversing 118 us would have invented a hold.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("shaft", "take executed; bustle 980 C < 1020"),
+                        ("flame_ir", "1040 C glint unused as metal"),
+                        ("bustle", "held 180 kPa through the pass"),
+                        ("mission", "reformer take committed"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Flame IR 1040 C is a legal lighting glint, not a high-bustle alarm; bustle-first discarded a false hold.",
+                    "Delayed (4.0 min / survey_hold_s=240): metallization survey. Not a safety inflection.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "tc.bustle.C (3.740 ms, 980 C)"),
+                        ("loser", "ir.flame.glint (3.858 ms, 1040 lighting)"),
+                        ("margin_us", 118),
+                        (
+                            "counterfactual_if_reversed",
+                            "Glint-first by < 118 us inside the 240 us window would have held "
+                            "the take on a false high-bustle story. The proposal was already "
+                            "under the 1020 trip, so the correct gate is still ACCEPT.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 4300),
+            (
+                "reward_inflection_note",
+                "Task and safety step up at the ACCEPT gate (4.300 ms, tick 4). Tick 6 is "
+                "survey_hold_s=240.",
+            ),
+            ("delayed_surprise_s", 240),
+        ]
+    )
+    ras = raster_core(
+        22,
+        84,
+        32,
+        59,
+        routing(
+            "thalamic-relay.midrex-bustle",
+            "spikenaut.policy.take-accept",
+            [
+                ("relay.tc.bustle", "policy.take_go", 0.62),
+                ("relay.ir.flame", "policy.glint_hold", 0.28),
+                ("relay.pt.bustle", "policy.take_go", 0.14),
+            ],
+            "adenosine",
+            0.16,
+            "pre_post_stdp; adenosine at bustle win (3.740 ms) opens 160 ms eligibility covering the 4.300 ms accept",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.24),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("take_go", 42, 0.50, 297.6, 3),
+                    pop("glint_hold", 42, 0.50, 19.8, 0),
+                    pop("bustle_veto", 20, 0.80),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r41-225"),
+            (
+                "title",
+                "Bustle-Shaw BS-5: bustle 980 C beats flame-IR glint; correct ACCEPT of an "
+                "already-legal 1.85 t/h (total +1.14)",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct ACCEPT. Bustle 980 C < 1020; flame glint is lighting, not metal. "
+                    "total +1.14 = 0.44 + 0.32 + 0.18 + 0.12 + 0.08.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "midrex-dri-shaft",
+                    [
+                        "accept",
+                        "simulated-lighting",
+                        "bustle-vs-ir",
+                        "reformer-take",
+                        "simulated",
+                    ],
+                    "Teaches that a flame-IR lighting glint can lose to a legal bustle TC "
+                    "inside a 240 us window; reversing 118 us would have invented a hold on an "
+                    "already-legal take.",
+                    5,
+                ),
+            ),
+        ]
+    )

@@ -1,0 +1,41 @@
+{
+  "agent_ids": [
+    "01a0640e-7444-7e80-b777-a7c7bc4acb2c"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations"
+  ],
+  "event_count": 1,
+  "final_state": "unknown",
+  "hunk_evidence_count": 2,
+  "original_basename": "_head.py",
+  "original_path": "/tmp/ttf-r84/_head.py",
+  "path_key": "ttf-r84--3b11c5113f63",
+  "terminal_event_ids": [
+    "01a0640e-7444-7e80-b777-a7c7bc4acb2c:call-359d3dcb-4ddf-44fc-aee1-90b2451ac836-31",
+    "01a0640e-7444-7e80-b777-a7c7bc4acb2c:call-898955de-cdaf-4c66-a0a0-fee96622e9e7-25",
+    "01a0640e-744c-7eb0-8a3c-19fc4da3ea53:call-26c953e5-3948-4a8a-8533-74306ad8440f-19",
+    "01a0640e-744d-7653-939d-9fcdf9a9130f:call-4754b0a0-46ae-4226-b4bc-b4a7b6d9fc61-18",
+    "01a0640e-7450-7eb0-9595-70ce3a1d7a1f:call-6dddfbe4-73fd-4bb7-8a71-25d25471962d-31",
+    "01a0640e-7450-7eb0-9595-70ce3a1d7a1f:call-ff5d4164-7dcf-4a22-a16c-eaf6155943c6-38",
+    "01a0640e-7450-7eb0-9595-70d065715808:call-8321ca32-c9aa-4b3e-8583-ff02c3885a5a-12",
+    "01a0640f-795d-74a2-a010-249e8da305f4:call-cf593554-01eb-403a-b64f-75aaed0a86e8-41"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 1,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a0640e-7444-7e80-b777-a7c7bc4acb2c:call-e201aa9e-d080-4a75-b671-c1a9660cef57-28",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r84--3b11c5113f63/fragments/call-e201aa9e-d080-4a75-b671-c1a9660cef57-28/_head.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r84--3b11c5113f63/fragments/call-e201aa9e-d080-4a75-b671-c1a9660cef57-28/_head.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

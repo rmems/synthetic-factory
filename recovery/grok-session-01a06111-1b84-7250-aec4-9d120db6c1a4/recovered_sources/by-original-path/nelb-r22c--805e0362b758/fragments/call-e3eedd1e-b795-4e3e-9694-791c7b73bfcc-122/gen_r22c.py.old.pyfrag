@@ -1,0 +1,2 @@
+"threshold": "T_K>=16.00 AND ntc_snr>=12.0 => isolate this oven; Ntcveil is not SoT; trip if T_K>=80.00",
+            "stated_residuals": "soak still required; 24.00 vs 80.00 trip is a production cut; Ntcveil remains the only OEM NTC channel",

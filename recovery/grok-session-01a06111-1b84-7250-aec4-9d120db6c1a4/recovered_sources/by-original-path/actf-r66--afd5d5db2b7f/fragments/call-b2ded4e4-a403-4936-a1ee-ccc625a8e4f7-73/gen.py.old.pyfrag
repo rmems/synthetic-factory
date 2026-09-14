@@ -1,0 +1,1 @@
+            "reflection": "Confirmed the ACL resource still sits beside Enforced ownership. Patch bucket.tf and drop aws_s3_bucket_acl.",

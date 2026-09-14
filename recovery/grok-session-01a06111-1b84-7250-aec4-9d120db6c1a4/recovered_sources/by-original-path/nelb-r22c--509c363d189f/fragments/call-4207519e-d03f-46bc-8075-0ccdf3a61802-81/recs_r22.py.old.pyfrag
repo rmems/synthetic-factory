@@ -1,0 +1,1 @@
+"threshold": "G_Wm2>=30.00 AND py_snr>=8.0 => refuse continue-track; Pyraveil is not SoT",

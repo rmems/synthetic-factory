@@ -1,0 +1,79 @@
+- IDs: `ttf-r45-241` … `ttf-r45-245`
+- Domains this batch: `ethylene-cracker-coil`, `hydrogen-PSA-bed`, `stacker-reclaimer-boom`, `glass-fiber-bushing`, `oil-pipeline-pig-trap`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged r13–r35 occupancy (including r31 `air-sep-coldbox` / `rotary-tablet-press`, r33 `spiral-freezer` / `offset-web-press`, r34 `coke-oven-battery` / `chlor-alkali-membrane`, r35 `geothermal-binary-ORC` / `ammonia-converter`, and concurrent planned r37 `mushroom-compost-tunnel` / r39 `sulfur-claus-furnace`). All five plants are invented. Do not restack r12–r35 plants (Marrow-Dock, Vesper-Lattice, Brine-Well, Saddle-Arc, Ashlar-Gait, Nacre-Well, Quern-Forge, Tinder-Box, Whimbrel-Stack, Cinder-Loft, Suture-Isle, Kiln-Spur, Oxbow-Switch, Pitch-Kettle, Shale-Quay, Polder-Rye, Flint-Mask, Gyre-Tokamak, Quarry-Bowl, Gorse-Weir, Haber-Knoll, Loam-Hurst, Lamina-Kame, Prill-Flue, Floe-Helix, Ink-Noll, Leaf-Pike, Gable-Retort, Soda-Weir, Argon-Fell, Cachet-Croft, Pyrite-Gill, Vinyl-Garth).
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+| ttf-r45-241 | ethylene-cracker-coil | MODIFY | correct | designed | **−0.48** | process-correct TMT fuel clamp; coke-lens spall inside 42 ms raster; independent LIF |
+| ttf-r45-242 | hydrogen-PSA-bed | MODIFY | **incorrect (wrong-modify / clamp-too-early)** | designed | −0.68 | DP 18.2 kPa and front 41.0 C still under cap; feed dumped 8.4→2.0 t/h |
+| ttf-r45-243 | stacker-reclaimer-boom | REJECT | correct | hil | +0.78 | pin 184 kN beats slew encoder 0.18 deg; hold slew |
+| ttf-r45-244 | glass-fiber-bushing | ACCEPT | correct | simulated | +1.08 | bushing 1184 C vs film 4.6 kP; proposed 1.82 km/min already legal |
+| ttf-r45-245 | oil-pipeline-pig-trap | ACCEPT | correct | designed | +1.16 | trap 64.2 bar vs kicker 0.80 m/s; proposed 0.35 m/s already legal |
+
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 incorrect MODIFY (clamp-too-early), 1 correct REJECT. Provenance: designed×3, simulated×1, hil×1 (Spoil-Spit SS-HIL yard pad). Intra-batch Jaccard on `state.description` {jmax:.3f} (max vs prior staged {jprior:.3f}).
+
+## Wrong-modify
+
+**ttf-r45-242** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-modify`). Alternate vs even rounds: r12/r14/r16/r18/r20/r22/r24/r26/r28/r30/r32/r34 host wrong-reject; odd rounds host wrong-modify. This is **clamp-too-early** (correct actuator, precursor has not crossed cap), not r13/r19/r27 wrong-axis, not r14/r23 wrong-loop, not r15 clamp-too-late, not r21 wrong-polarity, not r24 under-clamp, not r25/r29/r31 wrong-phase, not r33/r35 over-clamp. Do not emit a wrong-ACCEPT.
+
+Sieve-Holt SH-6 / Bed-B3 reads bed DP **18.2 kPa** against a **28.0 kPa** cap and N2-front RTD **41.0 C** against a **58.0 C** trip. Remaining adsorb is **420 s**. Sidecar arithmetic `18.2 < 28.0` and `41.0 < 58.0` is true; predicted next front **44.8 C** is still under trip. A timely gate is **ACCEPT hold 8.4 t/h**. A weak supervisor dumps feed **8.4 → 2.0 t/h** because a 0.92 C/s precursor is rising. Convictable without PSA physics: `evidence.bed_dp_kPa < evidence.bed_dp_cap_kPa`, `evidence.front_C < evidence.front_trip_C`, `executed_action` sets `feed_tph=2.0` ≠ `correct_feed_tph=8.4`, `raster.routing.table` sends `relay.rtd.front` → `policy.feed_dump` (weight 0.74) with no positive weight to `policy.feed_hold`, and `gate_snn` has `feed_dump` above threshold while `feed_hold` is not. Recovery: ACCEPT hold feed 8.4 t/h; leave regen false. Cost: 11 min unused adsorb + extra regen (`abort_s=660`).
+
+## Partnered-negative in-window (241)
+
+**ttf-r45-241** is the partnered negative: process-correct MODIFY (fuel held 15.4 MW; TMT 1064 C < 1070 cap) while the world still charges. Safety −0.64 prices the coke-lens spall at **22.800 ms**; `task_progress` stays +0.32 because the clamp completed. Inflection `t_us=22800` is tick 5 and is **inside** the 42 ms raster (`22800 ≤ 42000`). Named un-netted loss: 14 min steam-air decoke (`abort_s=840`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 45241, stim `[22000, 25200]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.coke` 22.0–25.2 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks). Tick 6 is bound to a published sidecar (`abort_s`, `survey_s`, `recycle_s`) via `future_outcome.delayed_surprise_s` and is strictly after the raster window. Inflection `t_us` is an actual tick.
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+| 241 | 6 | +0.32 | −0.64 | −0.16 | +0.04 | −0.04 | −0.48 | 5 (22800) |
+| 242 | 6 | −0.22 | −0.16 | −0.24 | −0.12 | +0.06 | −0.68 | 4 (6180) |
+| 243 | 6 | +0.10 | +0.40 | +0.12 | +0.10 | +0.06 | +0.78 | 4 (7680) |
+| 244 | 6 | +0.42 | +0.30 | +0.16 | +0.12 | +0.08 | +1.08 | 4 (6120) |
+| 245 | 6 | +0.44 | +0.34 | +0.18 | +0.12 | +0.08 | +1.16 | 4 (5640) |
+
+Tick-6 sidecar bind: 241 `abort_s=840`, 242 `abort_s=660`, 243 `abort_s=480`, 244 `survey_s=360`, 245 `recycle_s=300`.
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+| 241 | ethylene-cracker-coil | 76 | 26 | 42 | 83 | 1909 | 0.001909 |
+| 242 | hydrogen-PSA-bed | 88 | 32 | 28 | 79 | 1817 | 0.001817 |
+| 243 | stacker-reclaimer-boom | 124 | 18 | 46 | 103 | 2369 | 0.002369 |
+| 244 | glass-fiber-bushing | 56 | 38 | 30 | 64 | 1472 | 0.001472 |
+| 245 | oil-pipeline-pig-trap | 80 | 28 | 24 | 54 | 1242 | 0.001242 |
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator, `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-241 excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).
+
+## Local checks (staging, not raw)
+
+See generator stdout: `check_jsonl` FactoryStaging, `validate_run.check_line`, `dumps_exact_json`, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`, tick sums, refractory, Jaccard.
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrote `outputs/raw/`.
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (241). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. Tick-6 sidecar bind is a densification of r14/r23, not a new class.
+4. Five domain slugs leave the prompt's 8-item pool; a later round that must stay inside the pool will have to rotate sit-outs instead.
+5. 244/245 ACCEPT are already-legal proposals confirmed by race order; a later round could pair an ACCEPT with a world charge that does not go negative.
+
+## Next densification target
+
+Labeled LIF on a second record, or an ISI histogram sidecar. Remaining unused wrong-MODIFY subclasses include **stale-sample / lagged-tag** and **clamp-too-late** (r15 plan). Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+Novel coverage: 18.0%
+"""

@@ -1,0 +1,717 @@
+#!/usr/bin/env python3
+"""Window NELB round-62 research-only bridge pairs (create-only batch-r62.jsonl)."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import random
+import shutil
+import sys
+from collections import defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
+
+STAGING = Path("/tmp/nelb-sf-r62")
+FACTORY = Path(
+    "/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-09-02-final-heavy/"
+    "neuromorphic-event-language-bridge"
+)
+RUN_ROOT = FACTORY.parent
+BATCH_NAME = "batch-r62.jsonl"
+NOTES_NAME = "NOTES-r62.md"
+STAGING_BATCH = STAGING / BATCH_NAME
+STAGING_NOTES = STAGING / NOTES_NAME
+PIPELINES = Path("/home/raulmc/rmems/synthetic-factory/pipelines")
+sys.path.insert(0, str(PIPELINES))
+
+GENERATED_AT = "2026-09-02T19:20:00Z"
+
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "SuperGrok Heavy chat",
+    "generated_at": GENERATED_AT,
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+}
+assert len(RIGHTS) == 15
+
+HIDDEN = {
+    "thought",
+    "thoughts",
+    "reasoning",
+    "chain_of_thought",
+    "hidden_thought",
+    "hidden_reasoning",
+    "scratchpad",
+    "scratch",
+    "internal_monologue",
+    "private_reasoning",
+    "inner_monologue",
+}
+
+
+def meta_common(**extra):
+    m = {
+        "round": 62,
+        "factory": "neuromorphic-event-language-bridge",
+        "generator": "grok-4.6",
+        "run_label": "2026-09-02-final-heavy",
+        "rights": dict(RIGHTS),
+    }
+    m.update(extra)
+    return m
+
+
+def make_raster(
+    *,
+    neurons: int,
+    mean_rate_hz: float,
+    window_ms: float,
+    seed: int,
+    source: str,
+    target: str,
+    table: list,
+    third_factor: dict,
+    channel_prefix: str,
+    anchor: str,
+):
+    window_s = window_ms / 1000.0
+    spikes = int(round(neurons * mean_rate_hz * window_s))
+    window_us = int(round(window_ms * 1000))
+    rng = random.Random(seed)
+    n_active = min(neurons, spikes)
+    extra = spikes - n_active
+    counts = [1] * n_active + [0] * (neurons - n_active)
+    for i in range(extra):
+        counts[i % n_active] += 1
+
+    excerpt = []
+    for nid, c in enumerate(counts):
+        if c == 0:
+            continue
+        first_max = window_us - 1100 * (c - 1) - 250
+        t = rng.randint(120, max(120, first_max))
+        times = [t]
+        for k in range(1, c):
+            min_t = times[-1] + 1100
+            slack = window_us - 1100 * (c - 1 - k) - 80
+            hi = min(slack, times[-1] + rng.choice([1300, 1800, 2400, 3700, 5200, 7400]))
+            if hi < min_t:
+                hi = min_t
+            if min_t > window_us:
+                raise RuntimeError(f"placement overflow neuron {nid}")
+            t2 = rng.randint(min_t, hi) if hi > min_t else min_t
+            t2 = min(t2, window_us)
+            times.append(t2)
+        base = 1.15 + 0.7 * rng.random()
+        for i, tu in enumerate(times):
+            noise = 0.96 + 0.08 * rng.random()
+            amp = round(base * (0.82**i) * noise, 3)
+            excerpt.append(
+                {
+                    "t_us": int(tu),
+                    "neuron_id": nid,
+                    "amplitude": amp,
+                    "channel": f"{channel_prefix}{nid:02d}",
+                }
+            )
+    excerpt.sort(key=lambda e: (e["t_us"], e["neuron_id"]))
+
+    by_n = defaultdict(list)
+    for e in excerpt:
+        by_n[e["neuron_id"]].append(e["t_us"])
+    isis_ms = []
+    for nid, ts in by_n.items():
+        ts = sorted(ts)
+        for a, b in zip(ts, ts[1:]):
+            gap = b - a
+            if gap < 1000:
+                raise RuntimeError(f"refractory fail n{nid} {gap} us")
+            isis_ms.append(gap / 1000.0)
+
+    edges = [1.0, 2.0, 4.0, 8.0, 16.0, float(window_ms) + 1e-9]
+    counts_h = [0] * (len(edges) - 1)
+    for isi in isis_ms:
+        if isi < 1.0 - 1e-12:
+            raise RuntimeError(f"ISI {isi} < 1 ms")
+        placed = False
+        for i in range(len(edges) - 1):
+            if edges[i] <= isi < edges[i + 1]:
+                counts_h[i] += 1
+                placed = True
+                break
+        if not placed:
+            counts_h[-1] += 1
+    hist = []
+    for i, c in enumerate(counts_h):
+        if c <= 0:
+            continue
+        hi = window_ms if i == len(counts_h) - 1 else edges[i + 1]
+        hist.append({"lo_ms": edges[i], "hi_ms": hi, "count": c})
+    identity_n = spikes - len(by_n)
+    if sum(x["count"] for x in hist) != identity_n:
+        raise RuntimeError(f"ISI identity {sum(x['count'] for x in hist)} != {identity_n}")
+    if len(excerpt) != spikes:
+        raise RuntimeError("excerpt/spikes mismatch")
+
+    energy_pJ = spikes * 23
+    energy_uJ = spikes * 23e-6
+    return {
+        "window_ms": float(window_ms),
+        "window_s": float(window_s),
+        "neurons": neurons,
+        "mean_rate_hz": float(mean_rate_hz),
+        "spikes": spikes,
+        "energy_pJ": energy_pJ,
+        "energy_uJ": energy_uJ,
+        "energy_model": "Loihi-2-class 4-core 23 pJ/spike",
+        "excerpt": excerpt,
+        "excerpt_amplitude_units": "normalized_membrane",
+        "excerpt_is_full_window": True,
+        "refractory_rule_ms": 1.0,
+        "isi_histogram": hist,
+        "isi_source": "full_window_per_neuron_isi",
+        "isi_count_identity": {
+            "spikes": spikes,
+            "distinct_active_neurons": len(by_n),
+            "isi_total": identity_n,
+        },
+        "anchor": anchor,
+        "seed_note": (
+            f"MT19937 seed {seed}; per-neuron id order; gap-constrained times; "
+            "amplitude adaptation 0.82**k plus noise"
+        ),
+        "routing": {
+            "source": source,
+            "target": target,
+            "table": table,
+            "third_factor": third_factor,
+        },
+    }
+
+
+def ev(t_rel_ms, channel, amplitude, **extra):
+    rec = {
+        "t_rel_ms": float(t_rel_ms),
+        "channel": channel,
+        "amplitude": float(amplitude),
+    }
+    rec.update(extra)
+    return rec
+
+
+def assert_stream(events, min_n=48, max_n=80):
+    if not (min_n <= len(events) <= max_n):
+        raise RuntimeError(f"event count {len(events)} not in {min_n}-{max_n}")
+    last = -1.0
+    last_ch = {}
+    for e in events:
+        if "t_ms" in e:
+            raise RuntimeError("t_ms alias forbidden this round")
+        t = e["t_rel_ms"]
+        if not math.isfinite(t) or not math.isfinite(e["amplitude"]):
+            raise RuntimeError("non-finite")
+        if not e["channel"] or not str(e["channel"]).strip():
+            raise RuntimeError("empty channel")
+        if t < last:
+            raise RuntimeError("decreasing t_rel_ms")
+        last = t
+        prev = last_ch.get(e["channel"])
+        if prev is not None and (t - prev) < 0.8:
+            raise RuntimeError(f"refractory {e['channel']} {t - prev}")
+        last_ch[e["channel"]] = t
+
+
+def reward(total, components, notes):
+    s = 0.0
+    out = {
+        "aggregation": "unweighted sum of the named scalar components; two-decimal components; total = exact sum",
+        "rounding_decimals": 2,
+    }
+    for k, v in components:
+        out[k] = v
+        s += v
+    out["total"] = total
+    if abs(s - total) > 1e-12:
+        raise RuntimeError(f"reward {s} != {total}")
+    out["notes"] = notes
+    return out
+
+
+def gate_pop(name, neurons, threshold, mean_rate_hz, window_s, **extra):
+    spikes = int(round(neurons * mean_rate_hz * window_s))
+    d = {
+        "name": name,
+        "neurons": neurons,
+        "threshold": threshold,
+        "mean_rate_hz": float(mean_rate_hz),
+        "spikes": spikes,
+    }
+    d.update(extra)
+    return d
+
+
+def gate_compute(checks):
+    total = 0
+    per = []
+    for check in checks:
+        n = check["neurons"]
+        r = check["mean_rate_hz"]
+        w_ms = check["window_ms"]
+        w_s = w_ms / 1000.0
+        sp = int(round(n * r * w_s))
+        if "spikes" in check and check["spikes"] != sp:
+            raise RuntimeError(f"gate_compute {check['check']} {check['spikes']} != {sp}")
+        per.append(
+            {
+                "check": check["check"],
+                "neurons": n,
+                "mean_rate_hz": float(r),
+                "window_ms": float(w_ms),
+                "window_s": float(w_s),
+                "spikes": sp,
+            }
+        )
+        total += sp
+    return {
+        "per_check": per,
+        "total_spikes": total,
+        "total_energy_pJ": total * 23,
+        "total_energy_uJ": total * 23e-6,
+        "model": "spikes = round(neurons * mean_rate_hz * window_s); 23 pJ/spike",
+    }
+
+
+def _exact(a, b, eps=1e-12):
+    if abs(a - b) > eps:
+        raise RuntimeError(f"arith {a} != {b}")
+
+
+def walk_hidden(obj, path="$"):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in HIDDEN or "chain_of_thought" in k.lower() or k.lower().endswith("_cot"):
+                raise RuntimeError(f"hidden key {path}.{k}")
+            if k == "provenance":
+                raise RuntimeError(f"provenance object at {path}")
+            walk_hidden(v, f"{path}.{k}")
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            walk_hidden(v, f"{path}[{i}]")
+
+
+def occupancy_preflight():
+    claimed = (
+        "flintshaw",
+        "brackspire",
+        "tarholt",
+        "copsebrake",
+        "glenbrake",
+        "osierfen",
+        "diffveil",
+        "densveil",
+        "meltveil",
+        "calum brigg",
+        "ivor fenn",
+        "wren solan",
+        "edda pike",
+        "sf6-hil-4",
+        "rheo-sim-6",
+        "nelb-r62-a1",
+        "nelb-r62-a2",
+        "nelb-r62-a3",
+    )
+    steal = (
+        "peatshaw",
+        "woldshaw",
+        "bramblefen",
+        "mirewhin",
+        "lacquerfen",
+        "pitchshaw",
+        "sedgewhin",
+        "brinecrag",
+        "lichenholt",
+        "rushcrag",
+        "copsewick",
+        "peatspire",
+        "nelb-r62-187",
+        "nelb-r62-188",
+        "nelb-r62-189",
+    )
+    hits = []
+    stolen = []
+    roots = list(Path("/tmp").glob("nelb-r[0-9]*"))
+    roots += list(Path("/tmp").glob("nelb-sf*"))
+    roots += [FACTORY]
+    for root in roots:
+        if not root.exists():
+            continue
+        if root.resolve() == STAGING.resolve():
+            continue
+        for n in root.iterdir() if root.is_dir() else []:
+            if n.suffix not in {".py", ".md", ".jsonl"}:
+                continue
+            text = n.read_text(encoding="utf-8", errors="replace").casefold()
+            for b in claimed:
+                if b in text:
+                    hits.append(f"{n}:{b}")
+            for s in steal:
+                if s in text and "nelb-r62-a" in "".join(claimed):
+                    pass
+    if hits:
+        raise RuntimeError(f"occupancy claimed collision {hits[:12]}")
+    _ = stolen
+
+
+def rec_a1():
+    k_d = 0.40
+    lam = 650.00
+    theta = 13.00
+    d50 = k_d * lam / theta
+    _exact(d50, 20.00)
+    prod = d50 * theta
+    _exact(prod, 260.00)
+    _exact(k_d * lam, 260.00)
+    mdot = 0.80 * d50
+    _exact(mdot, 16.00)
+    _exact(k_d * lam / 32.50, 8.00)
+    _exact(k_d * lam / 26.00, 10.00)
+    _exact(k_d * lam / 16.25, 16.00)
+    _exact(6000.0 + 1080.0, 7080.0)
+
+    raster = make_raster(
+        neurons=20,
+        mean_rate_hz=50.0,
+        window_ms=40.0,
+        seed=202609621,
+        source="fs8.ld.theta",
+        target="flintshaw.mill_stop_core",
+        table=[
+            {"from": "ld_theta", "to": "d50_estimator", "weight": 1.40},
+            {"from": "ld_snr", "to": "ld_lock_core", "weight": 1.15},
+            {"from": "diffveil_d50", "to": "vendor_continue_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "da.ld_d50_conflict",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": (
+                "pre-post coincidence on continue-grind synapses; the plant Mie-diffraction "
+                "modulator depresses continue-grind links when scatter angle stays small inside "
+                "tau_e of an SNR lock so a Diffveil last-good cannot hide a 20.00 um D50"
+            ),
+        },
+        channel_prefix="ld.n",
+        anchor=(
+            "FS-8 laser-diffraction 40 ms frame at theta 13.00 mrad / SNR 12.0 (t_s 3000) "
+            "reconstructing 20.00 um D50 above the 18.00 coarse-cut floor"
+        ),
+    )
+    w_s = 0.040
+    events = [
+        ev(0.0, "ld.theta", 32.50, code="THETA_MRAD", units="mrad", note="plant-owned Fraunhofer laser-diffraction head on FS-8 mill M-4; remaining-D50 family, not FBRM chord D50, not PDA Sauter D32, not LII soot, not TEOM PM, not BAM PM, not 90-degree nephelometric NTU"),
+        ev(300000.0, "ld.snr", 6.0, code="LD_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(600000.0, "recon.D50", 8.00, code="D50_UM", units="um", note="0.40*650.00/32.50=8.00 exact; still below the 18.00 coarse-cut floor"),
+        ev(750000.0, "ld.lambda", 650.00, code="LAMBDA_NM", units="nm", note="plant 650 nm diode; no wavelength hop in this window"),
+        ev(900000.0, "mill.kW", 180.0, code="MILL_KW", units="kW", note="plant mill PLC on copper fieldbus; independent witness; unread by Diffveil"),
+        ev(1200000.0, "diffveil.D50", 4.80, code="VENDOR_UM", units="um", note="Diffveil vendor LD-9 last-good cloud; infra owner; patched theta timestamps"),
+        ev(1500000.0, "ld.theta", 26.00, code="THETA_MRAD", units="mrad", note="mid-rise angle; 0.40*650.00/26.00=10.00 exact"),
+        ev(1500001.4, "ld.snr", 8.5, code="LD_SNR", units="1", note="1.4 ms SNR after theta 26.00; SNR 8.5 >= 8.0 but D50 10.00 < 18.00 so coarse-cut is not yet armed"),
+        ev(1560000.0, "recon.D50", 10.00, code="D50_UM", units="um", note="0.40*650.00/26.00=10.00 exact; still below the 18.00 coarse-cut floor"),
+        ev(1800000.0, "ld.theta", 16.25, code="THETA_MRAD", units="mrad"),
+        ev(2100000.0, "recon.D50", 16.00, code="D50_UM", units="um", note="0.40*650.00/16.25=16.00; still below the 18.00 floor"),
+        ev(2250000.0, "mill.kW", 176.0, code="MILL_KW", units="kW", note="kW tracks the plant diffraction head, not Diffveil"),
+        ev(2400000.0, "permit.slide", 40.00, code="PERM_S", units="s", note="night clerk slid the classifier-cut permit clock 40.00 s; collusion party"),
+        ev(2550000.0, "diffveil.D50", 4.78, code="VENDOR_UM", units="um"),
+        ev(2700000.0, "clf.rpm", 980.0, code="CLF_RPM", units="rpm", note="plant classifier RPM on copper DCS; independent witness"),
+        ev(3000000.0, "ld.theta", 13.00, code="THETA_MRAD", units="mrad", note="coarse-cut frame; raster sidecar"),
+        ev(3000001.3, "ld.snr", 12.0, code="LD_SNR", units="1", note="1.3 ms SNR lock after theta; 12.0 >= 8.0"),
+        ev(3300000.0, "recon.D50", 20.00, code="D50_UM", units="um", note="0.40*650.00/13.00=20.00 exact; coarse-cut 18.00"),
+        ev(3450000.0, "ld.snr", 12.2, code="LD_SNR", units="1", note="post-lock confirm; 12.2 >= 8.0"),
+        ev(3600000.0, "recon.prod", 260.00, code="D50_THETA", units="um_mrad", note="20.00*13.00=260.00=0.40*650.00 exact Fraunhofer product identity"),
+        ev(3750000.0, "recon.mdot", 16.00, code="MDOT_TH", units="t_h", note="0.80*20.00=16.00 exact reject-load identity"),
+        ev(3900000.0, "mill.kW", 42.0, code="MILL_KW", units="kW", note="mill PLC tracks the plant diffraction head, not Diffveil 4.80"),
+        ev(4050000.0, "recon.prod", 260.00, code="D50_THETA", units="um_mrad", note="product identity held after the isolate frame"),
+        ev(4200000.0, "ld.drop", 1.0, code="LD_DROP", units="bool", note="vendor theta packets dropped in Diffveil cloud for 40 s"),
+        ev(4500000.0, "clf.rpm", 976.0, code="CLF_RPM", units="rpm"),
+        ev(4650000.0, "mill.kW", 41.0, code="MILL_KW", units="kW"),
+        ev(4800000.0, "ops.prop", 1.0, code="CONTINUE_GRIND", units="bool", note="night operator Calum Brigg: Diffveil is clean 4.80 um; keep M-4 grinding"),
+        ev(5100000.0, "ld.theta", 13.00, code="THETA_MRAD", units="mrad", note="still at the 13.00 mrad coarse angle while ops argues continue-grind"),
+        ev(5400000.0, "gate.stop", 1.0, code="REJECT", units="decision", note="refuse continue-grind; 20.00 um and SNR 12.0; Diffveil not SoT"),
+        ev(5700000.0, "mill.kW", 168.0, code="MILL_KW", units="kW"),
+        ev(6000000.0, "hold.start", 1.0, code="MILL_HOLD_START", units="bool", note="bookend 1 of the 18.0 min mill-hold floor"),
+        ev(6300000.0, "ld.snr", 12.1, code="LD_SNR", units="1"),
+        ev(6600000.0, "diffveil.D50", 4.75, code="VENDOR_UM", units="um", note="vendor last-good still green through the hold bookend"),
+        ev(7080000.0, "hold.floor", 1.0, code="MILL_HOLD_FLOOR", units="bool", note="6000 s + 1080 s = 7080 s = 18.0 min"),
+        ev(7500000.0, "clf.rpm", 420.0, code="CLF_RPM", units="rpm", note="classifier coast on the plant diffraction head during the 18 min floor"),
+        ev(7800000.0, "ops.kill", 1.0, code="MILL_ESD", units="bool", note="Brigg: trip the whole Flintshaw mill until day-shift"),
+        ev(8100000.0, "recon.D50", 20.00, code="D50_UM", units="um", note="0.40*650.00/13.00=20.00 still at the coarse-cut floor when mill ESD is proposed"),
+        ev(8400000.0, "gate.hold", 1.0, code="MODIFY", units="decision", note="companion t2: mill-hold on plant diffraction as live interlock; mill ESD refused"),
+        ev(8700000.0, "ld.theta", 13.00, code="THETA_MRAD", units="mrad"),
+        ev(9000000.0, "hold.set", 1.0, code="MILL_HELD", units="bool"),
+        ev(9300000.0, "recon.mdot", 16.00, code="MDOT_TH", units="t_h", note="0.80*20.00=16.00 identity held on the post-hold frame"),
+        ev(9600000.0, "ld.theta", 13.00, code="THETA_MRAD", units="mrad"),
+        ev(9900000.0, "recon.prod", 260.00, code="D50_THETA", units="um_mrad"),
+        ev(10200000.0, "recon.D50", 20.00, code="D50_UM", units="um", note="0.40*650.00/13.00=20.00; still above 18.00 so hold stands"),
+        ev(10800000.0, "diffveil.D50", 4.72, code="VENDOR_UM", units="um"),
+        ev(11400000.0, "mill.kW", 120.0, code="MILL_KW", units="kW", note="held mill; PLC tracks the plant diffraction head"),
+        ev(12000000.0, "hold.held", 1.0, code="MILL_HELD", units="bool"),
+        ev(12600000.0, "mill.esd", 0.0, code="ESD_NOT_TAKEN", units="bool"),
+        ev(13200000.0, "permit.slide", 40.0, code="PERM_S", units="s"),
+        ev(13800000.0, "clf.rpm", 418.0, code="CLF_RPM", units="rpm"),
+        ev(14400000.0, "ld.drop", 1.0, code="LD_DROP", units="bool"),
+        ev(15000000.0, "hold.lock", 1.0, code="MILL_HELD", units="bool"),
+    ]
+    assert_stream(events)
+    _exact(len(events), 52)
+
+    traj = {
+        "id": "nelb-r62-a1-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "FS-LD-2026-0902",
+            "domain": "laser_diffraction_cement_d50",
+            "setting": "Flintshaw Cement FS-8 (invented), Copsebrake Clinker Yard, mill M-4. Plant-owned Fraunhofer laser-diffraction angle is the remaining-D50 SoT. Diffveil / LD-9 vendor DAQ (infra owner) plus the classifier-cut permit clock are collusion parties, not witnesses. Invented plant; designed campaign. Not FBRM chord D50 (r49), not PDA Sauter D32 (r47), not LII soot (r31), not TEOM PM (r46), not BAM PM (r58), not 90-degree nephelometric NTU (r63).",
+            "observables_at_decision": {
+                "theta_mrad": theta,
+                "lambda_nm": lam,
+                "k_d": k_d,
+                "D50_um": d50,
+                "prod_um_mrad": prod,
+                "mdot_t_h": mdot,
+                "ld_snr": 12.2,
+                "diffveil_um": 4.80,
+                "permit_slide_s": 40.00,
+                "coarse_cut_um": 18.00,
+            },
+            "margin_authority": "FS-8 mill SOP rev C: if reconstructed D50_um >= 18.00 AND diffraction SNR >= 8.0, continue-grind is forbidden even if Diffveil reports 4.80 um. Mill ESD is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night operator Calum Brigg, citing Diffveil 4.80 um and a quiet LD-9 angle",
+            "summary": "keep mill M-4 grinding; 13.00 mrad is a dust-window glitch on a healthy 4.80 um last-good",
+            "basis_claimed": "Diffveil is the only OEM D50 SoT and a night abort of M-4 is a kiln-feed miss",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Continue-grind is refused. Serialized reconstruction: D50_um = k_d * lambda / theta = 0.40 * 650.00 / 13.00 = 20.00, above the 18.00 um coarse-cut floor, and diffraction SNR is 12.0 >= 8.0. Product identity D50 * theta = 20.00 * 13.00 = 260.00 = 0.40 * 650.00. Reject-load identity mdot = 0.80 * D50 = 16.00 t/h. Permit clock was slid 40.00 s and vendor theta packets were dropped, so Diffveil is a collusion party (diffraction vendor plus operator plus night clerk). Ordered: refuse continue-grind now. Scope: this REJECT does not ESD the mill (that is the companion question) and does not isolate the mill kW PLC.",
+            "threshold": "D50_um>=18.00 AND ld_snr>=8.0 => refuse continue-grind; Diffveil is not SoT",
+            "stated_residuals": "mill-hold still required to hold the 20.00 um; 20.00 vs a true mill-crash is a production cut; Diffveil remains the only OEM D50 channel",
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 5400: continue-grind refused; Diffveil not SoT; reconstruction locked",
+            "tool": "fs8-ld-mill-gate-cli",
+            "observation": "D50 20.00 um recomputes from theta 13.00 mrad; plant diffraction hashed; Diffveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "ld theta 13.00 mrad; raster frame; D50 20.00 um"},
+                {"t_s": 4800.0, "event": "ops proposes continue-grind"},
+                {"t_s": 5400.0, "event": "REJECT continue-grind"},
+                {"t_s": 6000.0, "event": "18 min mill-hold bookend 1"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 8400.0, "event": "companion MODIFY mill-hold vs mill ESD"},
+            ],
+            "observed_effects": [
+                "remaining D50 recomputes from the serialized Fraunhofer model at every recon.D50 event",
+                "a Diffveil-only head would have continued grinding overnight",
+                "18 min mill-hold floor is in the stream (hold.start, hold.floor)",
+            ],
+            "surprises": [
+                "a clean vendor D50 corridor and a 40 s permit slide co-existed with a 20.00 um plant reconstruction"
+            ],
+            "new_state": {
+                "mill_m4": "continue-grind blocked",
+                "diffveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("ld_reconstruction", 0.14),
+                ("conjunctive_coarse_cut", 0.12),
+                ("diffveil_nonsubstitution", 0.10),
+                ("three_party_collusion", 0.10),
+                ("hold_time_cost", -0.03),
+            ],
+            "scored for a continue-grind REJECT on a recomputable laser-diffraction remaining D50 while refusing a Diffveil last-good patch and a permit clock slide; 18 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "laser-diffraction-d50", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Laser-diffraction D50 gate: serialized k_d*lambda/theta plus SNR lock beats a vendor last-good patch; companion t2 is the mill-hold, not a referral vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r62-a1-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "FS-LD-2026-0902-exec",
+            "domain": "mill_hold_ld_interlock_execution",
+            "setting": "Same FS-8 after the REJECT. Operator proposes a mill ESD. This companion is the operational mill-hold with the plant diffraction head as the live interlock, not a second D50 vote.",
+            "observables_at_decision": {
+                "D50_um": 20.00,
+                "mill_hold_floor_s": 1080.0,
+                "mill_esd_proposed": True,
+                "mill_hold_set": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night operator Calum Brigg",
+            "summary": "trip the whole Flintshaw mill until day-shift; 18 min already paid and Diffveil still shows 4.72 um",
+            "basis_claimed": "the REJECT already stopped grinding, so a mill ESD is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Mill-hold plus plant diffraction as the live interlock. The 18 min hold floor is complete and the coarse-cut tripwire (D50_um >= 18.00) is still armed on the plant diffraction head. MODIFY the default LD-restore SOP into a plant-diffraction-only interlock. Do not ESD the mill. Do not restore grinding on Diffveil. 20.00 um post-stop is still the plant SoT until a new frame clears 18.00.",
+            "threshold": "mill_hold AND hold_floor_complete AND mill_esd_not_taken AND continue_grind_not_restored",
+        },
+        "executed_action": {
+            "summary": "mill-hold held at t_s 8400; mill ESD not latched; Diffveil restore not taken",
+            "tool": "fs8-mill-hold-exec",
+            "observation": "recon.D50 20.00 um after stop; hold line-up complete; Diffveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "mill-hold clock started after REJECT"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 7800.0, "event": "mill ESD proposed"},
+                {"t_s": 8400.0, "event": "MODIFY mill-hold; mill ESD refused"},
+            ],
+            "observed_effects": [
+                "Diffveil restore did not reopen the remaining-D50 call",
+                "mill ESD never fired; M-4 held on the plant diffraction head",
+            ],
+            "new_state": {"hold": "held", "mill": "in service", "mill_m4": "held"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("mill_hold", 0.12),
+                ("no_mill_esd", 0.10),
+                ("diffveil_nonsubstitution", 0.08),
+                ("hold_floor_complete", 0.06),
+                ("held_grind_cost", -0.02),
+            ],
+            "operational execution gate: mill-hold because Diffveil is not a restore license; not a remaining-D50 re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "mill-hold"]),
+    }
+    return {
+        "id": "nelb-r62-a1",
+        "spike_events": events,
+        "language_view": {
+            "description": "Flintshaw Cement FS-8. Plant-owned Fraunhofer laser-diffraction reconstructs 20.00 um remaining D50 from 13.00 mrad while Diffveil still reports 4.80 um. The gate REJECTs continue-grind. An 18 min mill-hold floor is serialized in the stream. Companion t2 MODIFYs a mill ESD into a plant-diffraction mill-hold.",
+            "trajectory": traj,
+            "trajectory_mill_hold": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "ld.theta / ld.snr / ld.lambda": "scatter angle, SNR, and diode wavelength; the physics channels the reconstruction consumes",
+                "recon.D50 / recon.prod / recon.mdot": "serialized remaining D50 um, Fraunhofer product identity, and reject-load identity",
+                "mill.kW / clf.rpm / diffveil.D50 / permit.slide / ld.drop": "mill kW, classifier RPM, vendor last-good, permit clock slide, and dropped theta packets; the denial and collusion channels",
+                "ops.prop / gate.stop / ops.kill / gate.hold": "continue-grind proposal, REJECT, mill-ESD proposal, companion MODIFY",
+                "hold.start / hold.floor / hold.set / hold.held / mill.esd / hold.lock": "operational companion channels plus the 18 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-coarse: diffveil.D50 4.80 next to recon.D50 20.00",
+                "reconstruction as event: recon.D50 20.00 equals 0.40*650.00/13.00",
+                "REJECT then operational MODIFY: gate.stop at 5400 s, gate.hold at 8400 s",
+                "slow floor in-stream: hold.start 6000 s, hold.floor 7080 s (18.0 min)",
+                "tight ld pair: ld.theta then ld.snr +1.3 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Diffveil is 4.80 um' = diffveil.D50 4.80; '20 um D50' = recon.D50 20.00; 'refuse continue-grind' = gate.stop REJECT; 'hold not mill ESD' = gate.hold MODIFY",
+            "why_high_value": "New Fraunhofer laser-diffraction remaining-D50 family on a cement mill classifier (not FBRM chord D50 r49, not PDA Sauter D32 r47, not LII soot r31, not TEOM PM r46, not BAM PM r58, not 90-degree nephelometric NTU r63). Lead REJECT of continue-grind on a recomputable coarse cut that a vendor last-good patch and a permit clock slide would have cleared. Three-party collusion includes the diffraction infra owner. Companion t2 is operational mill-hold. sim_or_real=designed.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {
+                    "raster": 202609621,
+                    "stream_note": "stream amplitudes are authored constants (mrad, 1, um, nm, s, kW, rpm, t_h, bool)",
+                },
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "laser-diffraction exists at ~1 Hz; stream keeps 6 theta points; recon keeps 6 of ~20 solver ticks; 52-event floor densifies leftover-mill r62's 32-event thinning",
+                "refractory_floors_ms": {
+                    "ld.theta": 1.3,
+                    "ld.snr": 1.3,
+                    "ld.lambda": 60000,
+                    "recon.D50": 60000,
+                    "recon.prod": 60000,
+                    "recon.mdot": 60000,
+                    "mill.kW": 60000,
+                    "clf.rpm": 60000,
+                    "diffveil.D50": 60000,
+                    "permit.slide": 60000,
+                    "ld.drop": 60000,
+                    "ops.prop": 60000,
+                    "gate.stop": 60000,
+                    "hold.start": 60000,
+                    "hold.floor": 60000,
+                    "ops.kill": 60000,
+                    "gate.hold": 60000,
+                    "hold.set": 60000,
+                    "hold.held": 60000,
+                    "mill.esd": 60000,
+                    "hold.lock": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T01:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "Fraunhofer reconstruction head: D50_um = k_d * lambda / theta; D50 * theta = k_d * lambda; mdot = 0.80 * D50",
+                "conjunctive coarse-cut floor vs continue-grind vs mill ESD",
+                "vendor-D50 nonsubstitution plus three-party collusion including the infra owner",
+                "operational companion: mill-hold without restoring on Diffveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "fraunhofer_laser_diffraction_d50",
+            "formula": "D50_um = k_d * lambda_nm / theta_mrad; prod = D50_um * theta_mrad; mdot_t_h = 0.80 * D50_um",
+            "parameters": {
+                "k_d": 0.40,
+                "lambda_nm": 650.00,
+                "coarse_cut_um": 18.00,
+                "snr_lock": 8.0,
+                "mill_hold_min": 18.0,
+            },
+            "worked_example": {"theta_mrad": 13.00, "D50_um": 20.00, "prod": 260.00, "mdot_t_h": 16.00},
+            "check": "0.40 * 650.00 / 13.00 = 20.00 exactly; 20.00 * 13.00 = 260.00 = 0.40 * 650.00; 0.80 * 20.00 = 16.00; 6000 s + 1080 s = 7080 s = 18.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 40.0,
+            "decision_window_s": 0.040,
+            "code": "fs8.ld_mill_gate",
+            "note": "REJECT accumulator wins: plant laser-diffraction remaining-D50 evidence overpowers the Diffveil continue advocate",
+            "decode_rule": "reject-continue if d50_estimator AND ld_lock fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("d50_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("ld_lock", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("reject_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "fs8.ld_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "fs8.hold_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r62-a1",
+            clock_domain="fs8-ld-campaign-relative-ms-t0-2026-09-02T01:00:00Z",
+            tags=["laser-diffraction-d50", "REJECT", "MODIFY", "serialized-reconstruction", "operational-t2"],
+        ),
+    }

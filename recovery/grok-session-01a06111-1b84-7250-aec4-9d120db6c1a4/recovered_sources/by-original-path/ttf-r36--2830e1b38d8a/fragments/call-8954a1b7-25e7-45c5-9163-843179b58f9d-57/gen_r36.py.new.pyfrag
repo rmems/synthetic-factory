@@ -1,0 +1,9 @@
+    "galvanize-kettle",
+)
+THIS_PLANTS = (
+    "Winze-Capstan",
+    "Fumarole-Dyke",
+    "Spray-Header",
+    "Flight-Furlong",
+    "Zinc-Cistern",
+)

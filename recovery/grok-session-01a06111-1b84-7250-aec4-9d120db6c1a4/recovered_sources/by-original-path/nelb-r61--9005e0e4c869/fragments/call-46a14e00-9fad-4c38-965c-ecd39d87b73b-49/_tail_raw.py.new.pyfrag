@@ -1,0 +1,8 @@
+not r59 UV-DOAS SO2 / aluminum-oxide moisture / load-cell hopper; not r60 laser-triangulation / FID VOC / dielectric water-cut; not r62 pellistor LEL / ultrasonic-Doppler; not r63 Wobbe / refractometer Brix / amperometric chlorine; not r64 venturi steam / katharometer H2 / Clark polarographic DO. Plants not reused: Nettlewake, Frostlip, Oxbow, Fernwick, Mossfell, Kelpfen, Brackholt, Dewholt, Pebblewick, Hawkmere, Embercrag, Reedwhin, Wexmere, Glaurfen, Rushfen, Thornmere, Marlfell, Birchfen, plus the r13–r60 plant list.
+
+This round introduces three unused industrial families (toroidal inductive conductivity, electrochemical H2S, free-space FMCW tank-radar remaining level) on new invented plants. r13-holes cyclotron/alanine/ADCP and r56 densification leftovers are not restaged.
+
+Adjacencies declared in-pair then kept physically distinct:
+- **184 toroidal conductivity** is an electrodeless drive-current remaining conductivity of a caustic evaporator, not r47 magmeter, not r29/r34 Coriolis, not r48 FDS tanδ, not r45 LPR, not r58 Rogowski, not r64 venturi dP.
+- **185 electrochemical H2S** is a cell-current remaining H2S of a sour-water stripper vent, not r26 SPR cyanide, not r19 QEPAS, not r22 TDLAS, not r15 CRDS, not r57 PID, not r55/r60 FID, not r62 pellistor, not r64 katharometer H2.
+- **186 FMCW tank-radar** is a free-space roof-nozzle beat-frequency remaining level of a crude atmospheric still, not r39 GWR foam, not r44 TDR remaining-length, not r55 magnetostrictive waveguide, not r34 GPR liner, not r33 FMCW BOF lining.

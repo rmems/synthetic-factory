@@ -1,0 +1,4 @@
+                "Catofin-Veld CV-8 reactor R-5 is already 2.0 t/h over its 22.0 t/h dilution-steam "
+                "ceiling on the live Coriolis (24.0 t/h). Historian tag ST_HIST.KLBH is 2840 us stale "
+                "and still prints 52.9 with EU=klb/h, which converts to the same 24.0 t/h. Binding "
+                "52.9 as metric tonnes/hour is a unit error, not a second over-cap.",

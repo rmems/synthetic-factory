@@ -1,0 +1,28 @@
+            ("name", "hold_adsorb_84"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("feed_tph", 8.4),
+                        ("hold", False),
+                        ("regen", False),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("bed_dp_kPa", 18.2),
+                        ("bed_dp_cap_kPa", 28.0),
+                        ("front_C", 41.0),
+                        ("front_trip_C", 58.0),
+                        ("predicted_next_front_C", 44.8),
+                        ("precursor_dT_dt_C_s", 0.92),
+                        ("correct_feed_tph", 8.4),
+                        ("race_margin_us", 160),
+                        ("combined_jitter_us", 62),
+                        ("abort_s", 660),
+                    ]
+                ),
+            ),

@@ -1,0 +1,1 @@
+    staging_notes = write_notes(records, lines, BATCH, STAGING / "NOTES-r03.md")

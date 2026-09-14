@@ -1,0 +1,19 @@
+        if match:
+            plants.update(re.findall(r'"([^"]+)"', match.group(2)))
+    for path in sorted(Path("/tmp").glob("ttf-r*/occ-*.txt")) + sorted(
+        Path("/tmp").glob("ttf-r*-occ-*.txt")
+    ):
+        if "ttf-r96" in path.name or path.parent.name == "ttf-r96":
+            continue
+        try:
+            txt = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for line in txt.splitlines():
+            s = line.strip().strip("`")
+            if not s or s.startswith("#"):
+                continue
+            if re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)+", s):
+                domains.add(s)
+            plants.update(PLANT_RE.findall(s))
+    return domains, plants

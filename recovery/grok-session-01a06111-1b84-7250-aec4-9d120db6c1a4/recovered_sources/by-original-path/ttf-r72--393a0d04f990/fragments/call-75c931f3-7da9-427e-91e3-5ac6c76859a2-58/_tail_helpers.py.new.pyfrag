@@ -1,0 +1,9 @@
+        if rec["id"] == "ttf-r72-377":
+            tot_s = f"**{tot:+.2f}**"
+        edge = {
+            "ttf-r72-376": "analog 1084 C < 1140 trip; NAMUR 21.5 mA fail-safe treated as 4-20 EU",
+            "ttf-r72-377": "process-correct steam/carbon clamp; reformer-tube hoop kick inside 40 ms raster; independent LIF",
+            "ttf-r72-378": "AE 52 pps beats tuyere encoder 8400 Nm3/h; hold, do not blow",
+            "ttf-r72-379": "bed 582 C vs coke IR smear; proposed 0.38 h-1 already legal",
+            "ttf-r72-380": "bath 1480 C vs roof IR glint; proposed 42 kA already legal",
+        }[rec["id"]]

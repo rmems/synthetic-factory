@@ -1,0 +1,711 @@
+#!/usr/bin/env python3
+"""Build and self-check MAOS round-17 JSONL (research-only; not published)."""
+from __future__ import annotations
+
+import json
+import math
+import re
+import subprocess
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+ROOT = "/home/raulmc/rmems/synthetic-factory"
+sys.path.insert(0, ROOT)
+sys.path.insert(0, f"{ROOT}/pipelines")
+
+GEN_AT = "2026-09-02T21:50:00Z"
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "SuperGrok Heavy chat",
+    "generated_at": GEN_AT,
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+}
+AGG = "total = task_progress + safety + efficiency + coherence + exploration"
+HEADS = ("task_progress", "safety", "efficiency", "coherence", "exploration")
+OUT = Path("/tmp/maos-r17")
+HIDDEN = ("thought", "chain_of_thought", "scratch", "inner_monologue")
+BANNED = (
+    "LYOSHIELD",
+    "CINDERWICK",
+    "TRIAD",
+    "Meridian Gateway",
+    "VANTIS",
+    "CADENCE",
+    "AEGIS",
+    "THERMION",
+    "STARLING",
+    "OKTAVE",
+    "Helixmere",
+    "training_ready",
+)
+
+
+def cents_ticks(t_us, rows):
+    ticks = []
+    sums = {h: 0 for h in HEADS}
+    for t, vals in zip(t_us, rows):
+        tick = {"t_us": int(t)}
+        for h, c in zip(HEADS, vals):
+            v = round(c / 100.0, 2)
+            tick[h] = v
+            sums[h] += c
+        ticks.append(tick)
+    heads = {h: round(sums[h] / 100.0, 2) for h in HEADS}
+    heads["total"] = round(sum(heads[h] for h in HEADS), 2)
+    return ticks, heads
+
+
+def check_refractory(events, floor_ms=0.8):
+    last = {}
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last and (t - last[ch]) < floor_ms - 1e-9:
+            return f"refractory {ch}: {t}-{last[ch]}={(t-last[ch]):.4f} < {floor_ms}"
+        last[ch] = t
+    return None
+
+
+def min_same_channel_gap(events):
+    last = {}
+    best = None
+    who = None
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last:
+            gap = t - last[ch]
+            if best is None or gap < best:
+                best = gap
+                who = ch
+        last[ch] = t
+    return best, who
+
+
+def check_excerpt(ex, neurons, window_ms):
+    prev_t = -1
+    last_n = {}
+    for item in ex:
+        t = item["t_us"]
+        n = item["neuron_id"]
+        if t < prev_t:
+            return "excerpt not sorted"
+        if not (0 <= t <= window_ms * 1000):
+            return f"t_us {t} out of window"
+        if not (0 <= n < neurons):
+            return f"neuron {n} out of range"
+        if n in last_n and t - last_n[n] < 1000:
+            return f"same-neuron gap {n}: {t-last_n[n]}"
+        last_n[n] = t
+        prev_t = t
+    return None
+
+
+def check_gate_pops(gs):
+    dw_s = gs["decision_window_ms"] / 1000.0
+    for p in gs["populations"]:
+        if "mean_rate_hz" in p or "spikes" in p:
+            exp = round(p["neurons"] * p["mean_rate_hz"] * dw_s)
+            if abs(p["spikes"] - exp) > 1:
+                return f"{p['name']} spikes {p['spikes']} vs {exp}"
+    return None
+
+
+def build_record():
+    ticks, heads = cents_ticks(
+        [
+            4120,
+            5882,
+            6662,
+            12_000_000,
+            576_000_000,
+            11_520_000_000,
+            39_600_000_000,
+        ],
+        [
+            (1, -2, -1, 1, 1),
+            (2, -4, -1, 3, 1),
+            (2, -6, -2, 4, 2),
+            (2, -5, -2, 3, 1),
+            (1, -6, -2, 2, 1),
+            (0, -5, -1, 1, 0),
+            (0, -6, -1, 0, 0),
+        ],
+    )
+    assert abs(heads["total"] - (-0.16)) < 1e-9, heads
+
+    trace = math.exp(-0.80 / 0.90)
+    eta1 = 0.24 / trace
+    eta2 = 0.22 / trace
+    eta3 = 0.20 / trace
+    w1 = 0.44 - eta1 * trace
+    w2 = 0.40 - eta2 * trace
+    w3 = 0.36 - eta3 * trace
+    assert abs(w1 - 0.20) < 5e-4, w1
+    assert abs(w2 - 0.18) < 5e-4, w2
+    assert abs(w3 - 0.16) < 5e-4, w3
+
+    spike_events = [
+        {"channel": "oxy.purity", "t_rel_ms": 0.380, "amplitude": 0.56},
+        {"channel": "nit.gan.takeoff", "t_rel_ms": 1.140, "amplitude": 0.61},
+        {"channel": "arg.n2.frac", "t_rel_ms": 2.260, "amplitude": 0.70},
+        {"channel": "oxy.paramagnetic", "t_rel_ms": 3.410, "amplitude": 0.57},
+        {"channel": "n2.mass_balance.residual", "t_rel_ms": 4.120, "amplitude": 0.64},
+        {"channel": "nit.gan.takeoff", "t_rel_ms": 5.020, "amplitude": 0.58},
+        {"channel": "oxy.purity", "t_rel_ms": 5.480, "amplitude": 0.51},
+        {"channel": "n2.mass_balance.residual", "t_rel_ms": 5.882, "amplitude": 1.28},
+        {"channel": "oxy.purity.ok", "t_rel_ms": 6.071, "amplitude": 1.14},
+        {"channel": "arg.n2.frac", "t_rel_ms": 6.210, "amplitude": 0.68},
+        {"channel": "ctrl.gate", "t_rel_ms": 6.662, "amplitude": 1.08},
+        {"channel": "oxy.purity", "t_rel_ms": 8.040, "amplitude": 0.52},
+        {"channel": "nit.gan.takeoff", "t_rel_ms": 10.220, "amplitude": 0.47},
+        {"channel": "n2.mass_balance.residual", "t_rel_ms": 13.410, "amplitude": 0.90},
+        {"channel": "arg.n2.frac", "t_rel_ms": 19.080, "amplitude": 0.49},
+        {"channel": "ctrl.gate", "t_rel_ms": 25.400, "amplitude": 0.88},
+        {"channel": "equalizer.step.probe", "t_rel_ms": 12000.0, "amplitude": 0.96},
+        {"channel": "n2.mass_balance.residual", "t_rel_ms": 12140.6, "amplitude": 0.42},
+        {"channel": "oxy.purity.ok", "t_rel_ms": 12280.2, "amplitude": 0.38},
+        {"channel": "human.ratify", "t_rel_ms": 576000.0, "amplitude": 0.81},
+        {"channel": "equalizer.isolate", "t_rel_ms": 576800.0, "amplitude": 0.74},
+        {"channel": "argon.condenser.ua", "t_rel_ms": 577200.0, "amplitude": 0.85},
+        {"channel": "oxy.purity", "t_rel_ms": 11520000.0, "amplitude": 0.31},
+        {"channel": "nit.gan.takeoff", "t_rel_ms": 11520410.0, "amplitude": 0.29},
+        {"channel": "arg.n2.frac", "t_rel_ms": 11520880.0, "amplitude": 0.21},
+        {"channel": "argon.flare", "t_rel_ms": 39600000.0, "amplitude": 0.93},
+    ]
+
+    contrast_spikes = [
+        {"channel": "n2.mass_balance.residual", "t_rel_ms": 0.000, "amplitude": 0.22},
+        {"channel": "oxy.purity.ok", "t_rel_ms": 0.203, "amplitude": 0.91},
+        {"channel": "arg.n2.frac", "t_rel_ms": 0.388, "amplitude": 0.24},
+        {"channel": "nit.gan.takeoff", "t_rel_ms": 1.440, "amplitude": 0.41},
+        {"channel": "oxy.paramagnetic", "t_rel_ms": 4.610, "amplitude": 0.54},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.040, "amplitude": 0.95},
+        {"channel": "equalizer.step.probe", "t_rel_ms": 12000.0, "amplitude": 0.87},
+        {"channel": "argon.product", "t_rel_ms": 39600000.0, "amplitude": 0.19},
+    ]
+
+    excerpt = [
+        {"t_us": 380, "neuron_id": 52},
+        {"t_us": 1140, "neuron_id": 124},
+        {"t_us": 2260, "neuron_id": 100},
+        {"t_us": 3410, "neuron_id": 60},
+        {"t_us": 4120, "neuron_id": 8},
+        {"t_us": 5020, "neuron_id": 128},
+        {"t_us": 5480, "neuron_id": 70},
+        {"t_us": 5882, "neuron_id": 12},
+        {"t_us": 6071, "neuron_id": 80},
+        {"t_us": 6210, "neuron_id": 104},
+        {"t_us": 6662, "neuron_id": 148},
+        {"t_us": 8040, "neuron_id": 88},
+        {"t_us": 10220, "neuron_id": 132},
+        {"t_us": 13410, "neuron_id": 20},
+        {"t_us": 19080, "neuron_id": 110},
+        {"t_us": 25400, "neuron_id": 152},
+    ]
+
+    rec = {
+        "id": "maos-r17-001",
+        "title": "NIGHTWELL ASU-4: N2 mass-balance residual 0.42 kmol/h beats O2-purity-ok by 189 us; correct MODIFY still flares 9.4 t of crude argon after condenser ice",
+        "rights": dict(RIGHTS),
+        "state": {
+            "sim_or_real": "designed",
+            "domain": "cryogenic-air-separation",
+            "scenario_name": "NIGHTWELL / Sable Cryogenics ASU-4",
+            "timestamp_local": "2026-09-02T16:50:00-05:00",
+            "t0_us": 1788385800000041,
+            "gate_latency_us": 780,
+            "race_window_us": 520,
+            "race_window_rel_ms": [5.85, 6.37],
+            "description": "Sable Cryogenics Fen-Marrow Cold Box 4 is holding a 420 tpd double-column air-separation train at argon-column ready when three heterogeneous, individually-correct agents jointly report 'crude-argon is on-spec for product advance'. OXY reads LOX purity 99.62 % against a 99.50 % floor (paramagnetic plus GC). ARG reads crude-argon N2 at 0.88 mol % against a playbook < 1.5 mol % gate. NIT reads GAN takeoff at 101.4 % of setpoint (inside +/-2 %). The consensus is false: the HP/LP equalizer is stuck 8 % open and leaks 0.42 kmol/h of nitrogen HP to LP, so the N2 that would have spoiled LOX and crude argon is a hidden inter-column recycle, not a product split. N2 mass-balance residual is 0.42 kmol/h against a healthy 0.04. LP reboiler DeltaT versus VLE is 1.8 K too cold (observed 1.4 K vs predicted 3.2 K at 138 kPa). Residual-first latches an argon-hold plus equalizer-step probe; purity-ok-first would have authorized the argon-column advance that trips O2-in-argon in 4.8 min.",
+            "goal": "Advance crude argon to product without raising reflux above 1.05x commissioned (1.26) while |Delta n_N2| > 0.15 kmol/h and LP reboiler VLE miss > 1.2 K; keep LOX >= 99.50 % and argon product O2 <= 1.0 ppm.",
+            "race": {
+                "contenders": [
+                    "n2.mass_balance.residual 0.42 kmol/h",
+                    "oxy.purity.ok 99.62 % LOX",
+                ],
+                "semantics": "Residual-first latches ARGON-HOLD + EQUALIZER-STEP-PROBE + equalizer isolate. Purity-ok-first latches ARGON-COLUMN-ADVANCE (reflux 1.20 -> 1.74, product argon open).",
+                "window_derivation": "520 us = one 400 us GC multiplex slot plus 120 us paramagnetic settling.",
+                "order_evidence_note": "Margin 189 us vs combined jitter 60 us (GC 32 + paramagnetic 28): 3.15x. The 189 us gap sits inside min(500, 520) us, so a sub-flip-bound perturbation reverses triage order. The gate rides the order-invariant floors |Delta n_N2| > 0.15 kmol/h and VLE miss > 1.2 K, not the alarm order.",
+            },
+            "topology": {
+                "site": "Sable Cryogenics, Fen-Marrow campus, Cold Box 4: 420 tpd double-column ASU, HP 324 kPa, LP 138 kPa, tray crude-argon sidestream, equalizer globe with designed shutoff, merchant-liquid LOX/LIN/argon bay",
+                "agents": "OXY LOX purity and bath level (vendor Pellucid); ARG crude-argon column reflux and condenser DeltaT (vendor Ardentum); NIT HP/LP nitrogen takeoff and waste vent (vendor Nivale). Heterogeneous stacks, no shared intent schema, one 20 ms cold-box-bus epoch",
+                "coupling": "The stuck equalizer's HP-to-LP nitrogen is what keeps OXY's LOX clean and ARG's crude-argon N2 low; NIT's on-spec takeoff is the same missing N2 booked as design waste. Three locally-correct loops, one mass-balance ghost. OXY/ARG/NIT cannot see argon-condenser UA (not commissioned at t0).",
+            },
+            "sensors": [
+                "LOX paramagnetic analyser, 5 Hz, 28 us jitter, 99.62 %",
+                "LOX GC O2, 0.4 Hz multiplex, 32 us jitter, 99.62 %",
+                "crude-argon GC N2, 0.4 Hz, 32 us jitter, 0.88 mol %",
+                "GAN orifice takeoff, 10 Hz, 18 us jitter, 101.4 % of SP",
+                "HP-LP DeltaP, 50 Hz, 12 us jitter, 186.0 kPa",
+                "LP reboiler RTD, 2 Hz, 22 us jitter, 89.6 K vs VLE 91.4 K",
+                "argon-condenser UA is NOT commissioned at t0 (installed after this incident)",
+            ],
+            "constraints": {
+                "lox_purity_pct": 99.62,
+                "lox_floor_pct": 99.5,
+                "crude_argon_n2_mol_pct": 0.88,
+                "argon_n2_playbook_max_mol_pct": 1.5,
+                "gan_takeoff_frac_sp": 1.014,
+                "n2_residual_kmol_h": 0.42,
+                "n2_residual_hold_kmol_h": 0.15,
+                "vle_miss_K": 1.8,
+                "vle_miss_hold_K": 1.2,
+                "equalizer_stuck_open_frac": 0.08,
+                "reflux_commissioned": 1.2,
+                "reflux_floor": 1.26,
+                "reflux_proposed": 1.74,
+            },
+            "fault_context": {
+                "failure_class": "MASS-BALANCE GHOST VIA STUCK EQUALIZER: three individually-correct agents agree crude argon is ready because 0.42 kmol/h of HP nitrogen is recycled into the LP column through an 8 % stuck equalizer, so LOX purity, crude-argon N2, and GAN takeoff are all locally true and jointly false as a product split",
+                "igniter": "HP/LP equalizer globe stuck 8 % open after a weekend stroke test; positioner reports 0.0 % (feedback pot dead-band 10 % is designed; actual stem 8 % fitted)",
+                "naive_failure": "PB-ASU-11 ARGON-COLUMN-ADVANCE on O2-purity-ok plus crude-argon N2 plus GAN takeoff: O2-in-argon trips in 4.8 min, 18 t LOX dump, 14 h restart, $0.86M",
+            },
+            "poisoned_context": {
+                "naive_alarm": "Playbook PB-ASU-11 (after the 2023 'slow argon start' nuisance) auto-drafts ARGON-COLUMN-ADVANCE whenever LOX >= 99.50 % for 20 min AND crude-argon N2 < 1.5 mol % AND GAN takeoff within 2 % of SP",
+                "why_poisoned": "The playbook's three confirms are not independent under a stuck equalizer: the N2 that would have failed OXY and ARG is the same stream NIT books as waste. N2 mass-balance residual and LP reboiler VLE miss are the missing confirms and are readable but unmonitored at t0",
+            },
+            "constraint": "Do not raise argon reflux above 1.26 (1.05x commissioned 1.20) while |Delta n_N2| > 0.15 kmol/h and LP reboiler VLE miss > 1.2 K. Discriminate stuck equalizer vs true argon-ready with a reversible +2 % equalizer-step probe before any product advance.",
+        },
+        "proposed_action": {
+            "actor": "cold-box supervisory optimizer CSO (auto-playbook PB-ASU-11 draft), submitted to gate TG-ASU-4",
+            "name": "argon_column_advance",
+            "action": "ARGON-COLUMN-ADVANCE: reflux 1.20 -> 1.74, product-argon valve open, waste-vent trim -4 %",
+            "summary": "Treat on-spec LOX, low crude-argon N2, and on-spec GAN takeoff as argon-ready and open product argon.",
+            "parameters": {
+                "reflux_target": 1.74,
+                "product_argon_open": True,
+                "equalizer_step_probe": False,
+                "equalizer_isolate": False,
+                "human_ratify": False,
+            },
+            "steps": [
+                "assert LOX 99.62 % >= 99.50 % for 20 min",
+                "assert crude-argon N2 0.88 mol % < 1.5 mol %",
+                "assert GAN takeoff 101.4 % of SP (inside +/-2 %)",
+                "raise reflux 1.20 -> 1.74",
+                "open product-argon valve",
+            ],
+            "evidence": [
+                {
+                    "observable": "LOX purity",
+                    "value": 99.62,
+                    "unit": "%",
+                    "source": "OXY paramagnetic plus GC",
+                    "note": "floor 99.50 %; playbook confirm",
+                },
+                {
+                    "observable": "N2 mass-balance residual",
+                    "value": 0.42,
+                    "unit": "kmol/h",
+                    "source": "plant historian N2 in minus N2 out minus N2 product",
+                    "note": "healthy 0.04; hold floor 0.15",
+                },
+                {
+                    "observable": "LP reboiler VLE miss",
+                    "value": 1.8,
+                    "unit": "K",
+                    "source": "observed 89.6 K vs VLE 91.4 K at 138 kPa",
+                    "note": "hold if miss > 1.2 K",
+                },
+                {
+                    "observable": "equalizer stem vs reported",
+                    "value": 0.08,
+                    "unit": "fraction open",
+                    "source": "derived from 0.42 kmol/h at 186 kPa DeltaP vs Cv 5.25 kmol/h at 100 %",
+                    "note": "positioner reports 0.0 %; dead-band 10 % designed",
+                },
+                {
+                    "observable": "time-to-O2-in-argon trip at proposed advance",
+                    "value": 4.8,
+                    "unit": "min",
+                    "source": "designed MC of reflux 1.74 with 0.42 kmol/h HP-LP N2 leak (flagged)",
+                    "note": "uncontained 18 t LOX dump plus 14 h restart",
+                },
+                {
+                    "observable": "race margin",
+                    "value": 189,
+                    "unit": "us",
+                    "source": "n2 residual 5.882 ms vs oxy.purity.ok 6.071 ms",
+                    "note": "combined jitter 60 us, 3.15x; inside 520 us flip bound",
+                },
+            ],
+            "basis": "PB-ASU-11 fires on three confirms that are true as numbers and false as a product split: LOX 99.62 %, crude-argon N2 0.88 mol %, GAN 101.4 % SP. The draft does not read N2 residual 0.42 kmol/h or VLE miss 1.8 K.",
+            "expected_cost_bound": "If the draft executes: O2-in-argon trips in 4.8 min, 18 t LOX dump, 14 h restart, $0.86M. If MODIFIED: probe plus equalizer isolate, with residual risk from any unmonitored argon-condenser UA loss already accumulated.",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "correctness": "correct",
+            "decided_by": "TG-ASU-4 thalamic release gate",
+            "decision_t_rel_ms": 6.662,
+            "rationale": "MODIFY the draft: strip the argon-column advance, hold reflux at 1.20, run a 12.0 s +2 % equalizer-step probe, and isolate the equalizer only if DeltaP does not move. Numeric floor: do not raise reflux above 1.05x commissioned = 1.26 while |Delta n_N2| > 0.15 kmol/h AND LP reboiler VLE miss > 1.2 K. Observed residual 0.42 kmol/h and VLE miss 1.8 K both violate the release predicate, so an advance is forbidden even though all three playbook confirms are numerically true. The three confirms are not independent: 0.42 kmol/h HP-to-LP through an 8 % stuck equalizer is the single ghost that keeps LOX clean, crude-argon N2 low, and GAN takeoff on-spec. Probe discriminant: after a 12.0 s +2 % equalizer command, a stuck valve keeps HP-LP DeltaP change <= 0.4 kPa; a live valve drops DeltaP >= 3.0 kPa. Order-code discipline: residual beat purity-ok by 189 us inside the 520 us flip bound, so triage order is flip-fragile; the hold rides the order-invariant floors, not the winner tag. Human ratification: equalizer isolation is cold-box LOTO with fitted 9.6 min dead-man; the gate may hold and probe autonomously but may not break the equalizer permit without the operator confirm.",
+            "constraint_checked": {
+                "reflux": {
+                    "observed": 1.2,
+                    "floor": 1.26,
+                    "commissioned": 1.2,
+                    "proposed_target": 1.74,
+                },
+                "n2_residual_kmol_h": {"observed": 0.42, "hold_if_above": 0.15},
+                "vle_miss_K": {"observed": 1.8, "hold_if_above": 1.2},
+                "time_to_trip_min": {"proposed_advance": 4.8, "hold": None},
+            },
+        },
+        "executed_action": {
+            "name": "argon_hold_equalizer_probe_isolate",
+            "action": "ARGON-HOLD + EQUALIZER-STEP-PROBE + EQUALIZER-ISOLATE (gate-mandated modification)",
+            "executed_as_proposed": False,
+            "parameters": {
+                "reflux_target": 1.2,
+                "product_argon_open": False,
+                "equalizer_step_probe": True,
+                "equalizer_isolate": True,
+                "human_ratify": True,
+            },
+            "gate_effect": "MODIFY: advance stripped. Hold reflux = 1.20. 12.0 s +2 % equalizer pulse. Probe stays stuck (DeltaP 186.0 -> 185.7 kPa, change 0.3 <= 0.4) so the equalizer is isolated after 9.6 min human ratify. Argon column remains on hold.",
+            "deviations": "PB-ASU-11 argon-column advance stripped entirely. Product-argon valve stays closed. Equalizer permit wait added (9.6 min fitted walk+LOTO). Argon-condenser UA survey added during the isolate (not in the draft).",
+            "execution_log": [
+                {
+                    "t_rel_ms": 6.662,
+                    "entry": "TG-ASU-4 MODIFY latched 780 us after residual win; advance stripped; hold+probe authorized",
+                },
+                {
+                    "t_rel_ms": 12000.0,
+                    "entry": "equalizer-step probe: +2 % command 12.0 s; DeltaP 186.0 -> 185.7 kPa (stuck band <= 0.4); residual 0.42 -> 0.43 kmol/h",
+                },
+                {
+                    "t_rel_ms": 576000.0,
+                    "entry": "operator ratifies equalizer LOTO after 9.6 min cold-box permit (fitted walk+interlock)",
+                },
+                {
+                    "t_rel_ms": 576800.0,
+                    "entry": "equalizer isolated; N2 residual 0.42 -> 0.05 kmol/h",
+                },
+                {
+                    "t_rel_ms": 577200.0,
+                    "entry": "argon-condenser UA 18 % below commissioned; 2.1 mm ice on N2-coolant side from a 0.031 g/h water leak over the prior 40 min",
+                },
+                {
+                    "t_rel_ms": 11520000.0,
+                    "entry": "true argon-ready numbers now legal on residual and VLE, but condenser UA still 18 % down; hold continues",
+                },
+                {
+                    "t_rel_ms": 39600000.0,
+                    "entry": "campaign recovery 4.8 % below spec; 9.4 t crude argon flared over 11.0 h; $0.71M designed",
+                },
+            ],
+        },
+        "future_outcome": {
+            "summary": "Correct MODIFY prevented the 4.8 min O2-in-argon trip and the 18 t LOX dump. The campaign still missed: 40 min of unmonitored argon-condenser ice had already cut UA 18 %. Process-correct gate, bounded world loss, negative total.",
+            "state_delta": {
+                "equalizer": "isolated; stem 8 % -> 0 %; residual 0.42 -> 0.05 kmol/h",
+                "argon_column": "held at reflux 1.20; product valve closed",
+                "condenser": "UA 18 % down from 2.1 mm N2-side ice; not commissioned at t0",
+                "campaign": "9.4 t crude argon flared; 4.8 % recovery shortfall; $0.71M designed",
+            },
+            "timeline": [
+                {
+                    "t_rel_ms": -2400000.0,
+                    "event": "t0-40 min: equalizer already stuck 8 %; water leak into argon-condenser N2 coolant begins icing",
+                },
+                {
+                    "t_rel_ms": -1200000.0,
+                    "event": "t0-20 min: LOX first holds >= 99.50 %; PB-ASU-11 20-min timer starts",
+                },
+                {"t_rel_ms": 0.0, "event": "t0: residual vs purity-ok race on the cold-box bus"},
+                {"t_rel_ms": 5.882, "event": "N2 mass-balance residual 0.42 kmol/h wins by 189 us"},
+                {"t_rel_ms": 6.071, "event": "OXY purity-ok flag (loser)"},
+                {"t_rel_ms": 6.662, "event": "TG-ASU-4 MODIFY"},
+                {
+                    "t_rel_ms": 12000.0,
+                    "event": "equalizer-step probe confirms stuck (DeltaP change 0.3 kPa)",
+                },
+                {
+                    "t_rel_ms": 576000.0,
+                    "event": "human ratify 9.6 min; equalizer isolated; condenser UA 18 % logged",
+                },
+                {
+                    "t_rel_ms": 11520000.0,
+                    "event": "residual and VLE now legal; UA still down; argon remains on hold",
+                },
+                {
+                    "t_rel_ms": 39600000.0,
+                    "event": "11.0 h: 9.4 t crude argon flared; recovery 4.8 % short",
+                },
+                {
+                    "t_rel_ms": 259200000.0,
+                    "event": "+3 d contrast: sister train ASU-4B true argon-ready; same gate ACCEPTs advance",
+                },
+                {
+                    "t_rel_ms": 1555200000.0,
+                    "event": "+18 d CR-A-1704: standing equalizer-step probe + three-edge depression + condenser UA commissioned",
+                },
+            ],
+            "observed_effects": [
+                "O2-in-argon trip avoided: reflux never crossed 1.26; 0 t LOX dumped",
+                "stuck equalizer proven, not asserted: probe DeltaP change 0.3 kPa <= 0.4 stuck band vs healthy-control 3.6 kPa",
+                "equalizer isolated: residual 0.42 -> 0.05 kmol/h",
+                "campaign still missed recovery: 9.4 t crude argon flared over 11.0 h; $0.71M (designed $)",
+                "argon-condenser UA was not a commissioned sensor at t0; the 40 min ice load was invisible to OXY/ARG/NIT",
+            ],
+            "surprises": [
+                "The three playbook confirms are one physical fact: HP-to-LP nitrogen through the stuck equalizer is what keeps LOX clean and crude-argon N2 low. Independence was the hidden assumption, and it is false under a mass-balance ghost.",
+                "Partial synaptic rollback is fitted to fail: depressing any two of the three advance-go edges leaves the third above the 0.30 fire threshold, so the advance still goes. Coordinated depression of all three is required (0.20 / 0.18 / 0.16).",
+                "Delayed (11.0 h): correct hold did not undo 40 min of argon-condenser ice. UA 18 % down still flared 9.4 t of crude argon. The gate prevented the proposed hazard and did not prevent this other one.",
+                "Packed-column sub-variant: a 12.0 s +2 % probe raises local vapor 14 % on 1.5 kmol holdup and dumps argon into LOX (Ar in LOX 0.12 % vs 0.04 %). Packed campaigns must use a 28 s +0.7 % probe (vapor +4 %, Ar in LOX 0.05 %).",
+            ],
+            "delayed_side_effects": [
+                {
+                    "at": "+11.0 h",
+                    "effect": "9.4 t crude argon flared; campaign recovery 4.8 % below spec; $0.71M. This is the primary episode's terminal world state, not a footnote.",
+                },
+                {
+                    "at": "+3 d",
+                    "effect": "Sister train ASU-4B reaches true argon-ready (residual 0.04 kmol/h, VLE miss 0.3 K, equalizer-step DeltaP -3.7 kPa). Same gate ACCEPTs the argon-column advance the primary MODIFIED away.",
+                },
+                {
+                    "at": "+18 d",
+                    "effect": "CR-A-1704 ships: equalizer-step probe is standing configuration; three-edge coordinated depression is the plasticity rule; argon-condenser UA becomes a commissioned sensor with an 8 % below-nameplate alarm.",
+                },
+            ],
+            "subvariant_constraint": {
+                "name": "packed crude-argon column in the same cold box (cycle-2 physical-constraints sub-variant)",
+                "mechanism": "1.5 kmol packed holdup vs 4.8 kmol tray (3.2x); reflux margin only 0.06 on the packed pin",
+                "probe_refit": "12.0 s +2 % equalizer pulse raises packed-column local vapor 14 % and dumps argon into LOX (Ar in LOX 0.12 % vs 0.04 %). Required probe is 28 s at +0.7 % (vapor +4 %, Ar in LOX 0.05 %). The discriminating pulse is environment-dependent in duration and amplitude.",
+                "consequence": "tray-column probe numbers do not port to packed; standing configuration is per-column-internals, not per-cold-box",
+            },
+            "embedded_contrast_decision": {
+                "note": "SAME gate (TG-ASU-4), OPPOSITE correct disposition, with its own 203 us race. Teaches the boundary: do not treat 'never advance argon' as the lesson. The discriminant is N2 residual + VLE miss + probe, not LOX purity alone.",
+                "when": "+3 d, sister train ASU-4B, true argon-ready after 6.4 h of ice-free, equalizer-seated operation",
+                "state": {
+                    "sim_or_real": "designed",
+                    "summary": "residual 0.04 kmol/h, VLE miss 0.3 K, crude-argon N2 0.71 mol %, LOX 99.71 %. Residual vs purity-ok race: residual at t+0.000, purity-ok at t+0.203 ms.",
+                    "race_window_us": 520,
+                    "race_flip_narrative": "residual vs purity-ok 203 us apart inside the 520 us flip bound. Reversing order reshuffles triage minutes; the ACCEPT rides residual 0.04 < 0.15 and a 6 s equalizer-step verify that drops DeltaP 3.7 kPa (live valve).",
+                },
+                "proposed_action": {
+                    "action": "ARGON-COLUMN-ADVANCE reflux 1.20 -> 1.74",
+                    "summary": "This time the playbook predicate is met AND the mass-balance residual agrees it is a product split, not a ghost.",
+                },
+                "safety_decision": {
+                    "decision": "ACCEPT",
+                    "rationale": "ACCEPT the advance: residual 0.04 < 0.15 kmol/h, VLE miss 0.3 K < 1.2, 6 s equalizer-step verify drops DeltaP 3.7 kPa >= 3.0. Numeric floor that blocked the primary is now clear. Scope: reflux 1.74, not faster.",
+                },
+                "executed_action": {
+                    "action": "argon-column advance as proposed",
+                    "executed_as_proposed": True,
+                },
+                "future_outcome": {
+                    "observed_effects": [
+                        "ASU-4B argon product O2 0.4 ppm; recovery on spec",
+                        "condenser UA 0.6 % above nameplate (no ice, equalizer seated)",
+                    ],
+                    "lesson_delta": "LOX purity-ok is legal release only with N2 residual, VLE miss, and a probe that can move HP-LP DeltaP. Same gate, opposite disposition.",
+                },
+                "reward_components": {
+                    "_aggregation": AGG,
+                    "task_progress": 0.16,
+                    "safety": 0.12,
+                    "efficiency": 0.08,
+                    "coherence": 0.08,
+                    "exploration": 0.04,
+                    "total": 0.48,
+                },
+                "spike_events": contrast_spikes,
+            },
+            "governance_subgame": {
+                "decision": "CR-A-1704: standing policy for argon-column advance on multi-agent ASUs",
+                "meta_gate": "priced options: (a) RETIRE playbook purity confirms, residual-only: loses a fast cheap confirm, +18 min mean argon start on 6 boxes/yr; (b) KEEP + standing equalizer-step probe + residual floor 0.15 kmol/h + VLE miss 1.2 K + three-edge depression + condenser UA; (c) STATUS QUO: fitted stuck-pass rate 0.58%/stroke-test x $0.86M dump plus the silent ice load",
+                "outcome": "approved SCOPED option (b) on the 2 cold boxes that share the OXY/ARG/NIT stack; packed columns get the 28 s / +0.7 % probe table; night-shift GC exports must carry 0.01 mol % native resolution (the fraud tail's 0.1 mol % quantization is 10 bins off plant truth)",
+            },
+            "hazard_avoided": "O2-in-argon trip at +4.8 min; 18 t LOX dump plus 14 h restart ($0.86M) and the merchant-liquid shortage that would have followed an uncontained argon advance",
+            "incident": "9.4 t crude argon flared over 11.0 h; campaign recovery 4.8 % short; $0.71M designed cost. Mechanism is argon-condenser ice during the 40 min pre-t0 illusion, not the gate's hold.",
+            "latency_ms": 0.78,
+            "reward_inflection_t_us": 39600000000,
+            "reward_inflection_note": "Safety and task dive at +11.0 h when the recovery shortfall flares 9.4 t. Gate tick at 6662 us is process-correct and is not the inflection.",
+            "counterfactuals": {
+                "execute_draft_as_proposed": "O2-in-argon trips at +4.8 min; 18 t LOX dump; $0.86M plus 14 h restart; the condenser-ice story is never found because the dump destroys the UA evidence",
+                "hold_without_probe": "equalizer stays stuck; residual continues; argon never truly ready; operator eventually advances on the same ghost 2 h later",
+                "rollback_any_pair": "any two advance-go edges depressed still leaves the third above 0.30 (0.44 / 0.40 / 0.36 at illusion); the advance still fires. Coordinated depression of all three is the cure",
+            },
+            "race_result": {
+                "winner": "n2.mass_balance.residual (5.882 ms, 0.42 kmol/h)",
+                "loser": "oxy.purity.ok (6.071 ms, LOX 99.62 %)",
+                "margin_us": 189,
+                "counterfactual_if_reversed": "Purity-ok-first by < 189 us inside the 520 us window would have headed the PB-ASU-11 advance in the triage queue. The numeric floors still MODIFY. The flip costs seconds of playbook inertia, not the verdict — unless a weak supervisor rides the winner tag instead of residual and VLE miss.",
+            },
+        },
+        "reward_components": {
+            "_aggregation": AGG,
+            "ticks": ticks,
+            "task_progress": heads["task_progress"],
+            "safety": heads["safety"],
+            "efficiency": heads["efficiency"],
+            "coherence": heads["coherence"],
+            "exploration": heads["exploration"],
+            "total": heads["total"],
+            "notes": "Correct MODIFY, campaign still missed. total -0.16 = 0.08 + -0.34 + -0.10 + 0.14 + 0.06. Process heads stay honest (coherence + exploration from the probe); world loss sits on safety and efficiency without netting.",
+            "component_notes": "task_progress 0.08: equalizer isolated and residual closed, but the campaign is one recovery unit so the batch is not a success. safety -0.34: 9.4 t argon flared, no LOX dump. efficiency -0.10: 11.0 h extra hold + 9.6 min HITL. coherence 0.14: three agents retained, mass-balance ghost diagnosed, three-edge scar exhibited. exploration 0.06: equalizer-step probe is a new reversible discriminant.",
+        },
+        "spike_events": spike_events,
+        "raster": {
+            "window_ms": 40,
+            "window_s": 0.040,
+            "neurons": 160,
+            "mean_rate_hz": 8.0,
+            "spikes": 51,
+            "energy_pJ": 1173,
+            "energy_uJ": 0.001173,
+            "note": "Loihi-2 4-core 23 pJ/spike; populations n2_mb 0-47, oxy 48-95, arg 96-119, nit 120-139, gate 140-159; excerpt is the 40 ms decision window (verdict at 6662 us)",
+            "excerpt": excerpt,
+            "routing": {
+                "source": "argon_ready_confirm_pop",
+                "target": "argon_advance_pop",
+                "table": [
+                    {
+                        "from": "oxy_purity_ok_pop",
+                        "to": "argon_advance_pop",
+                        "weight": 0.20,
+                        "weight_at_illusion": 0.44,
+                        "weight_commissioned": 0.17,
+                        "note": "scar edge 1: 0.17 commissioned -> 0.44 during the 40 min illusion -> 0.20 after coordinated ACh-gated depression",
+                    },
+                    {
+                        "from": "argon_n2_low_pop",
+                        "to": "argon_advance_pop",
+                        "weight": 0.18,
+                        "weight_at_illusion": 0.40,
+                        "weight_commissioned": 0.15,
+                        "note": "scar edge 2: rolling back only edges 1+3 leaves this at 0.40 > 0.30 fire threshold",
+                    },
+                    {
+                        "from": "gan_takeoff_ok_pop",
+                        "to": "argon_advance_pop",
+                        "weight": 0.16,
+                        "weight_at_illusion": 0.36,
+                        "weight_commissioned": 0.14,
+                        "note": "scar edge 3: rolling back any pair leaves this or another edge above 0.30. Coordinated depression of all three is required",
+                    },
+                    {
+                        "from": "n2_residual_pop",
+                        "to": "argon_hold_pop",
+                        "weight": 0.61,
+                        "note": "discriminating edge: N2 residual to hold. Not a scar; this is the pathway the gate potentiates",
+                    },
+                ],
+                "third_factor": {
+                    "modulator": "acetylcholine",
+                    "tau_e_s": 0.90,
+                    "tau_e_ms": 900.0,
+                    "eligibility": "coordinated pre_post_stdp on ALL THREE advance-go edges; ACh at residual-win tags oxy_purity_ok->advance, argon_n2_low->advance, and gan_takeoff_ok->advance; negative credit at probe-fail (stuck confirmed, +0.80 s) depresses ALL THREE. trace e^{-0.80/0.90}=0.41111; eta 0.5838 / 0.5351 / 0.4865; dw -0.240 / -0.220 / -0.200; weights 0.44->0.20, 0.40->0.18, 0.36->0.16. Rolling back any pair is fitted to fail (the remaining edge stays > 0.30).",
+                },
+            },
+        },
+        "gate_snn": {
+            "decision_window_ms": 25,
+            "decision_window_s": 0.025,
+            "decision": "MODIFY",
+            "note": "modify_hold integrates N2 residual + VLE miss against playbook drive; accept_advance and reject_trip stay sub-threshold; decision matches safety_decision.decision",
+            "populations": [
+                {
+                    "name": "modify_hold",
+                    "neurons": 128,
+                    "threshold": 0.55,
+                    "mean_rate_hz": 16.0,
+                    "spikes": 51,
+                },
+                {
+                    "name": "accept_advance",
+                    "neurons": 96,
+                    "threshold": 0.55,
+                    "mean_rate_hz": 6.0,
+                    "spikes": 14,
+                },
+                {
+                    "name": "reject_trip",
+                    "neurons": 64,
+                    "threshold": 0.72,
+                    "mean_rate_hz": 4.0,
+                    "spikes": 6,
+                },
+            ],
+        },
+        "meta": {
+            "round": 17,
+            "factory": "multi-agent-ouroboros-swarm",
+            "generator": "grok-4.6",
+            "run_label": "2026-09-02-final-heavy",
+            "domain": "cryogenic-air-separation",
+            "cycles": 2,
+            "scenario": "V -- NIGHTWELL / Sable Cryogenics ASU-4: mass-balance ghost via stuck HP/LP equalizer; correct MODIFY to hold+equalizer-step+isolate; campaign still flares 9.4 t after unmonitored condenser ice",
+            "coordination_failure_class": "MASS-BALANCE GHOST VIA STUCK EQUALIZER: three individually-correct heterogeneous agents agree crude argon is product-ready because 0.42 kmol/h of HP nitrogen is recycled into the LP column through an 8 % stuck equalizer, so LOX purity, crude-argon N2, and GAN takeoff are jointly a plant-false split",
+            "injections": {
+                "cycle1_domain": "cryogenic-air-separation (justified novel subdomain of industrial-process / gas-processing): first double-column ASU plant in this factory; displaces warehouse-amr, aerial-swarm, district-heating, lyophilization, water-treatment dosing, and event-camera grids. Domain constraint: reflux 1.05x floor plus N2 residual / VLE miss. Sensor delta: +paramagnetic O2, +GC N2, +HP-LP DeltaP, +reboiler RTD, -any mobile platform, -DVS",
+                "cycle1_tail": "HP/LP equalizer stuck 8 % open (sensor-compound / actuator-feedback class): positioner reports 0.0 % inside a designed 10 % dead-band while stem is 8 % and 0.42 kmol/h N2 recycles. Fitted base rate 0.58%/stroke-test from a valve-cycle MC (designed dead-band, fitted stem). Naive failure = FALSE ADVANCE (argon product on a ghost).",
+                "cycle2_domain_subvariant": "packed crude-argon column in the same cold box (physical-constraints clause): 1.5 kmol holdup, 3.2x less than tray 4.8 kmol; 12 s / +2 % tray pulse overshoots packed vapor +14 % and dumps argon into LOX, so the probe must move to 28 s / +0.7 %",
+                "cycle2_tail": "night-shift forged GC CSV (human-intent deception, disjoint class): liquid-bay clerk posts a 0.1 mol % quantized log showing LOX 99.7 % at the claimed argon-ready instant. Plant historian is 0.01 mol % (10 bins). Rejected on quantization fingerprint plus residual 0.42 kmol/h at the claimed ready. Base rate ~0.41 % of night truck-clearance windows, DESIGNED and flagged.",
+            },
+            "densification_delta_cycle2": "+1 physical-constraint sub-variant (packed-column probe refit), +1 tail (night-shift GC forgery), +10 primary spikes (16 -> 26) + an 8-event contrast train with its own 203 us race, +2 ticks (5 -> 7), +2 delayed side-effects (+11 h flare as PRIMARY terminal, +18 d CR-A-1704), +1 three-edge scar with any-pair-rollback-fails arithmetic, +1 HITL 9.6 min ratification, + condenser ice as the honest negative-result mechanism",
+            "gaps_targeted": [
+                "NOTES-r14 item 4: three-edge scar — depressing any pair leaves the third above 0.30; coordinated depression of all three exhibited with eligibility arithmetic",
+                "NOTES-r14 item 5 domain candidates: not water-treatment, not lyophilization, not event-camera-grid; cryogenic air separation is an unused gas-processing cell",
+                "NOTES-r04 gap 5 shape retained as a different mechanism: correctly-gated intervention that nonetheless FAILS (argon flared; total -0.16; LOX dump avoided is booked separately)",
+                "Not a LYOSHIELD / CINDERWICK / TRIAD clone: new plant NIGHTWELL, new agents OXY/ARG/NIT, new probe (equalizer-step DeltaP), new class (mass-balance ghost)",
+            ],
+            "race_flip_narrative": "n2.mass_balance.residual @ 5.882 ms vs oxy.purity.ok @ 6.071 ms (189 us) inside race_window_us 520. Gap < min(500, 520) us so a sub-flip-bound perturbation reverses which alarm heads the PB-ASU-11 queue. The gate excludes the winner tag and rides |Delta n_N2| > 0.15 kmol/h and VLE miss > 1.2 K — order-invariant floors. Extends the flip-fragility series to MASS-BALANCE: when three channels agree, the race among them does not decide truth; a residual plus VLE miss does.",
+            "tags": [
+                "cryogenic-air-separation",
+                "mass-balance-ghost",
+                "stuck-equalizer",
+                "n2-residual-discriminant",
+                "vle-miss",
+                "equalizer-step-probe",
+                "three-edge-scar",
+                "any-pair-rollback-fails",
+                "coordinated-depression",
+                "correct-modify-campaign-still-misses",
+                "argon-condenser-ice",
+                "packed-column-probe-refit",
+                "night-shift-gc-forgery",
+                "same-gate-opposite-disposition-contrast",
+                "research-only",
+            ],
+            "snn_tags": [
+                "race",
+                "refractory",
+                "adaptation",
+                "third-factor",
+                "multi-edge-eligibility",
+                "three-edge-scar",
+            ],
+            "distillation_value": "A mass-balance ghost is three correct loops looking at one recycled stream. Distill (1) a residual channel that breaks the product-split consensus, (2) a reversible probe that moves HP-LP DeltaP only if the equalizer is live, (3) coordinated depression of every advance-go edge because rolling back any pair leaves the third above threshold, and (4) a critic head that can book a process-correct gate against a later unmonitored world loss without netting them.",
+            "rights": dict(RIGHTS),
+            "batch_position": 1,
+        },
+    }
+
+    aux = {
+        "trace": trace,
+        "eta1": eta1,
+        "eta2": eta2,
+        "eta3": eta3,
+        "w1": w1,
+        "w2": w2,
+        "w3": w3,
+        "heads": heads,
+        "min_gap": min_same_channel_gap(spike_events),
+    }
+    return rec, aux

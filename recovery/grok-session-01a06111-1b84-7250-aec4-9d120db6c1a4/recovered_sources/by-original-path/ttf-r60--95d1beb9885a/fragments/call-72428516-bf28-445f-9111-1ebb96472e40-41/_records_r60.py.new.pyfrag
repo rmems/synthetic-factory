@@ -1,0 +1,807 @@
+def lif_317_excerpt():
+    """Independent CUBA LIF (seed 60317). Plant remains designed."""
+
+    n = 84
+    dt_us = 100
+    tau_m_ms = 20.0
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.92
+    i_stim_peak = 2.45
+    stim = (21000, 25000)
+    seed = 60317
+    window_us = 40000
+    i_clamp_extra = 0.68
+    clamp_n = 14
+    rng = random.Random(seed)
+    tau_s = tau_m_ms / 1000.0
+    dt_s = dt_us / 1e6
+    decay = math.exp(-dt_s / tau_s)
+    steps = window_us // dt_us
+    voltage = [rng.random() * v_th * 0.98 for _ in range(n)]
+    bias = [i_bias * (1.0 + 0.12 * (rng.random() * 2 - 1)) for _ in range(n)]
+    for i in range(clamp_n):
+        bias[i] += i_clamp_extra
+    ref = [0] * n
+    spikes = []
+    for step in range(steps):
+        t_us = step * dt_us
+        stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+        for i in range(n):
+            if ref[i] > 0:
+                ref[i] -= dt_us
+                voltage[i] = v_reset
+                continue
+            current = bias[i] + stim_i
+            voltage[i] = current + (voltage[i] - current) * decay
+            if voltage[i] >= v_th:
+                spikes.append((t_us, i))
+                voltage[i] = v_reset
+                ref[i] = refractory_us
+    early = [(t, nid) for t, nid in spikes if t < 21000]
+    burst = [(t, nid) for t, nid in spikes if 21000 <= t < 25000]
+    used = set()
+    last = {}
+    picked = []
+
+    def take(pool, want, label_times=None):
+        if not pool:
+            return
+        chosen_idx = set()
+        if label_times:
+            for target in label_times:
+                best = None
+                for idx, (t, nid) in enumerate(pool):
+                    if idx in chosen_idx or nid in used:
+                        continue
+                    if nid in last and t - last[nid] < 1000:
+                        continue
+                    if best is None or abs(t - target) < abs(best[0] - target):
+                        best = (t, nid, idx)
+                if best is not None:
+                    t, nid, idx = best
+                    picked.append((t, nid))
+                    used.add(nid)
+                    last[nid] = t
+                    chosen_idx.add(idx)
+        stride = max(1, len(pool) // max(want, 1))
+        for idx in range(0, len(pool), stride):
+            early_flag = pool[0][0] < 21000
+            have = len([1 for t, _ in picked if (t < 21000) == early_flag])
+            if have >= want:
+                break
+            t, nid = pool[idx]
+            if nid in used:
+                continue
+            if nid in last and t - last[nid] < 1000:
+                continue
+            picked.append((t, nid))
+            used.add(nid)
+            last[nid] = t
+
+    take(early, 7)
+    take(burst, 9, label_times=(22400, 23100, 23800))
+    clamp = [(t, nid) for t, nid in picked if t < 21000][:7]
+    kick = [(t, nid) for t, nid in picked if t >= 21000][:9]
+    picked = sorted(clamp + kick, key=lambda item: (item[0], item[1]))
+    if len(picked) < 8:
+        raise RuntimeError(f"LIF excerpt too short: {len(picked)}")
+    channels = ["lif.clamp" if t < 21000 else "lif.kick" for t, _ in picked]
+    lif = OrderedDict(
+        [
+            ("model", "leaky_integrate_and_fire"),
+            ("n", 84),
+            ("dt_us", 100),
+            ("tau_m_ms", 20.0),
+            ("v_rest", 0.0),
+            ("v_reset", 0.0),
+            ("v_th", 1.0),
+            ("r_m", 1.0),
+            ("refractory_us", 1000),
+            ("i_bias", 0.92),
+            ("i_stim_peak", 2.45),
+            ("stim_t_us", [21000, 25000]),
+            ("i_clamp_extra", 0.68),
+            ("clamp_n", 14),
+            ("seed", 60317),
+            (
+                "note",
+                "Population sim scoped to this sidecar. Plant remains designed. "
+                "Neurons 0-13 carry +0.68 jacket-coolant-clamp bias; stim 21-25 ms is the styrene-pocket lining kick.",
+            ),
+        ]
+    )
+    extra = OrderedDict(
+        [
+            ("excerpt_source", "independent_lif"),
+            ("sim_scope", "sidecar_only"),
+            ("lif", lif),
+            ("abort_s", 960),
+            ("delayed_surprise_s", 960),
+        ]
+    )
+    return excerpt_items(picked, channels), extra
+
+
+def record_316():
+    ticks = [
+        tick(2112, -0.02, 0.01, -0.02, -0.01, 0.01),
+        tick(5280, -0.04, 0.01, -0.04, -0.02, 0.01),
+        tick(5510, -0.03, 0.01, -0.03, -0.01, 0.01),
+        tick(6000, -0.06, 0.02, -0.08, -0.03, 0.02),
+        tick(6400, -0.02, 0.01, -0.03, -0.01, 0.01),
+        tick(780000000, -0.01, 0.00, -0.02, 0.00, 0.00),
+    ]
+    spikes = [
+        spike("enc.o2.ctx", 1.205, 0.44),
+        spike("pt.gauge.mpa", 2.410, 0.61),
+        spike("pt.abs.mpa", 3.880, 0.52),
+        spike("bus.oxid.ctx", 4.620, 0.47),
+        spike("pt.gauge.mpa", 5.280, 1.31),
+        spike("pt.abs.mpa", 5.510, 1.18),
+        spike("ctrl.gate", 6.000, 0.99),
+        spike("pt.gauge.mpa", 7.220, 0.84),
+        spike("pt.abs.mpa", 9.440, 0.66),
+        spike("ctrl.gate", 14.880, 0.88),
+        spike("enc.o2.ctx", 18.400, 0.41),
+        spike("pt.gauge.mpa", 24.200, 0.58),
+    ]
+    excerpt = independent_excerpt(60316, 80, 26000, 12, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Chloride oxidizer OX-4 at Pigment-Shaw already holds a live gauge of 0.88 MPa(g) "
+                "when that gauge sample races an absolute transmitter that still prints 0.981 MPa(a). "
+                "Published cap is 0.95 MPa(g) on the gauge; a weak supervisor treats the absolute "
+                "count as gauge and zeros a legal 18.0 kNm3/h oxygen lance.",
+            ),
+            ("domain", "tio2-chloride-oxidizer"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Hold 18.0 kNm3/h O2 on OX-4, keep live gauge P < 0.95 MPa(g), and finish the "
+                "13 min pigment-quality window.",
+            ),
+            ("t0_us", 1762300000000316),
+            ("gate_latency_us", 720),
+            ("race_window_us", 400),
+            ("race_window_rel_ms", [5.280, 5.680]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "pt.gauge.mpa 0.88 MPa(g) live gauge",
+                                "pt.abs.mpa 0.981 MPa(a) absolute shadow",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Gauge-first should ACCEPT 18.0 kNm3/h (0.88 MPa(g) < 0.95 MPa(g) cap). "
+                            "Absolute-first would only delay confirmation of the same legal gauge.",
+                        ),
+                        (
+                            "window_derivation",
+                            "400 us = one oxidizer gauge slot versus the absolute-transmitter publisher "
+                            "on this 2 kHz chloride-oxidizer bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 230 us vs combined jitter 76 us (gauge 34 + abs 42): 3.0x over "
+                            "a 2.0x trust floor. Order is correctly gauge-first. The error is binding "
+                            "MPa(a) as if it were MPa(g), not the race.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "oxidizer gauge PT, 2 kHz, 34 us jitter, axis oxid_p_g",
+                    "absolute PT shadow, 1 kHz, 42 us jitter, abs_as_gauge true",
+                    "oxygen-mass encoder (context)",
+                    "flame IR (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("live_g_MPa", 0.88),
+                        ("cap_g_MPa", 0.95),
+                        ("live_a_MPa", 0.981),
+                        ("atm_MPa", 0.101),
+                        ("abs_as_gauge", True),
+                        ("proposed_kNm3_h", 18.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Oxidizer OX-4 indexed on Pigment-Shaw; live gauge 0.88 MPa(g), 18.0 kNm3/h armed.",
+                    "2. Published gauge cap 0.95 MPa(g); absolute tag 0.981 MPa(a) = 0.88 + 0.101.",
+                    "3. Encoder precursor at 1.205 ms.",
+                    "4. Race window [5.280, 5.680] ms.",
+                    "5. Gauge 0.88 MPa(g) at 5.280 ms (winner).",
+                    "6. Absolute 0.981 MPa(a) at 5.510 ms (loser by 230 us).",
+                    "7. Gate at 6.000 ms: wrong REJECT holds 0 kNm3/h on the absolute-as-gauge bind.",
+                    "8. Lance idle; gauge never crossed 0.95 MPa(g).",
+                    "9. 13 min pigment-quality window missed.",
+                    "10. QA: correct gate was ACCEPT; leave 18.0 kNm3/h; bind gauge 0.88 vs 0.95 MPa(g).",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "oxid_18_hold"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("o2_kNm3_h", 18.0),
+                        ("live_g_MPa", 0.88),
+                        ("hold", False),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("live_g_MPa", 0.88),
+                        ("cap_g_MPa", 0.95),
+                        ("live_a_MPa", 0.981),
+                        ("atm_MPa", 0.101),
+                        ("abs_as_gauge", True),
+                        ("ft_axis", "oxid_p_g"),
+                        ("race_margin_us", 230),
+                        ("combined_jitter_us", 76),
+                        ("t_gate_us", 6000),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 18.0 kNm3/h because live gauge 0.88 MPa(g) is 0.07 MPa under the "
+                "published 0.95 MPa(g) cap and the 0.981 reading is MPa(a), not MPa(g).",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "incorrect"),
+            (
+                "rationale",
+                "Absolute 0.981 MPa treated as gauge is over the 0.95 MPa(g) cap (true vs that "
+                "wrong EU). REJECT: hold 0 kNm3/h until the absolute tag recovers under 0.95 so "
+                "the oxidizer does not see an over-pressure event.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "oxid_p_g_MPa",
+                            OrderedDict(
+                                [
+                                    ("published_gauge_cap", 0.95),
+                                    ("observed_gauge", 0.88),
+                                    ("absolute_applied_as_gauge", 0.981),
+                                    ("abs_as_gauge", True),
+                                    ("executed_kNm3_h", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 230),
+                                    ("combined_jitter_us", 76),
+                                    ("ratio", 3.03),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "oxid_hold_abs_as_gauge"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("o2_kNm3_h", 0.0),
+                        ("live_g_MPa", 0.88),
+                        ("hold", True),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT (incorrect): O2 18.0 -> 0 kNm3/h. Routing relay.pt.abs -> "
+                "policy.hold_reject; no positive weight to policy.go_accept. Gauge 0.88 MPa(g) never "
+                "violated the 0.95 MPa(g) cap.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Wrong-REJECT froze OX-4 at 0 kNm3/h while live gauge stayed 0.88 MPa(g) under the "
+                "0.95 MPa(g) cap. 13 min pigment window missed. Correct gate was ACCEPT of the "
+                "already-legal 18.0 kNm3/h command.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("oxidizer", "held at 0 kNm3/h; 18.0 kNm3/h abandoned"),
+                        ("live_g_MPa", "still 0.88 MPa(g), under 0.95 published cap"),
+                        ("pigment", "13 min quality window missed"),
+                        ("vote", "no over-pressure; absolute-as-gauge false positive"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "The 0.981 MPa reading is MPa(a) = gauge + atm, not a published gauge cap.",
+                    "Delayed (13 min): sister oxidizer OX-5 ran the same 18.0 kNm3/h pigment window after QA rebound the gauge cap; OX-4's slot was already gone.",
+                ],
+            ),
+            (
+                "recovery",
+                OrderedDict(
+                    [
+                        (
+                            "correct_gate",
+                            "ACCEPT: gauge 0.88 MPa(g) < published 0.95 MPa(g) cap; leave 18.0 kNm3/h.",
+                        ),
+                        ("correct_cap_g_MPa", 0.95),
+                        ("wrong_abs_MPa", 0.981),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict([("o2_kNm3_h", 0.0), ("hold", True)]),
+                        ),
+                        (
+                            "cost",
+                            "13 min missed pigment window (task/efficiency); gauge never over cap (safety false-positive).",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "pt.gauge.mpa (5.280 ms, 0.88 MPa(g))"),
+                        ("loser", "pt.abs.mpa (5.510 ms, 0.981 MPa(a))"),
+                        ("margin_us", 230),
+                        (
+                            "counterfactual_if_reversed",
+                            "Absolute-first by < 230 us would still show gauge 0.88 < 0.95 MPa(g). A "
+                            "correct gate ACCEPTs either way. The wrong REJECT spent the gauge win "
+                            "on an absolute-as-gauge bind.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 6000),
+            (
+                "reward_inflection_note",
+                "Task and efficiency drop at the wrong REJECT (6.000 ms, tick 4). The 13 min "
+                "missed window is delayed surprise, not the inflection.",
+            ),
+            ("delayed_surprise_s", 780.0),
+            ("missed_window_s", 780),
+        ]
+    )
+    ras = raster_core(
+        26,
+        80,
+        30,
+        62,
+        routing(
+            "relay.pt.abs",
+            "policy.hold_reject",
+            [
+                ("relay.pt.abs", "policy.hold_reject", 0.71),
+                ("relay.pt.gauge", "policy.hold_reject", 0.22),
+            ],
+            "acetylcholine",
+            0.08,
+            "abs_as_gauge_stdp; ACh tags the (wrong) hold_reject bind at the gauge win",
+        ),
+        excerpt,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.40),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("hold_reject", 48, 0.50, 200.0, 4),
+                    pop("go_accept", 48, 0.80, 10.0, 0),
+                    pop("gauge_cap_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r60-316",
+        "WRONG-REJECT at Pigment-Shaw / OX-4: live gauge 0.88 MPa(g) is legal vs "
+        "published 0.95 MPa(g) cap; supervisor bound absolute 0.981 MPa(a) as gauge",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Wrong-reject. Sidecar arithmetic 0.88 < 0.95 is true; clamp bound to an "
+        "absolute-as-gauge 0.981 MPa(a). total -0.36 = -0.18 + 0.06 + -0.22 + -0.08 + 0.06.",
+        ras,
+        gate,
+        "tio2-chloride-oxidizer",
+        [
+            "reject",
+            "wrong-gate",
+            "absolute-as-gauge",
+            "Pa-vs-Pg",
+            "sidecar-convictable",
+            "designed",
+        ],
+        "Teaches a probe that a correct gauge<cap read can still be a wrong gate when "
+        "routing.table[0].to is policy.hold_reject and executed O2 is zeroed.",
+        1,
+        supervisor_error_type="wrong-reject",
+    )
+
+
+def record_317():
+    excerpt, extra = lif_317_excerpt()
+    ticks = [
+        tick(1848, 0.05, -0.02, -0.02, 0.01, 0.00),
+        tick(4620, 0.08, -0.04, -0.03, 0.01, -0.01),
+        tick(4850, 0.04, -0.03, -0.02, 0.00, 0.00),
+        tick(5500, 0.10, -0.06, -0.03, 0.02, -0.01),
+        tick(22400, 0.05, -0.42, -0.04, 0.00, -0.02),
+        tick(960000000, 0.02, -0.05, -0.02, 0.00, 0.00),
+    ]
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Emulsion kettle K-9 at Butadiene-Noll is already pulling 36 t/h jacket coolant when a "
+                "jacket-outlet pulse arrives 230 us before the conversion probe that still reads a "
+                "legal recipe. Temperature-first latches a process clamp under the 88.0 C cap; "
+                "conversion-first would keep cruise coolant. Stored styrene-pocket lining load is not "
+                "yet an observable of either race channel.",
+            ),
+            ("domain", "sbr-emulsion-reactor"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Keep K-9 on 36 t/h jacket coolant only while jacket-outlet stays <= 88.0 C, and "
+                "leave the glass-lined pocket un-kicked.",
+            ),
+            ("t0_us", 1762300000000317),
+            ("gate_latency_us", 880),
+            ("race_window_us", 380),
+            ("race_window_rel_ms", [4.620, 5.000]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "jt.out.c 92.4 C jacket outlet",
+                                "conv.frac 0.62 still-legal conversion",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Temperature-first latches coolant clamp 36 -> 54 t/h; conversion-first keeps "
+                            "cruise coolant on a 'recipe still open' model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "380 us = one jacket-outlet RTD slot minus conversion-GC group delay on this "
+                            "1 kHz emulsion bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 230 us vs combined jitter 68 us (jacket 30 + conversion 38): 3.4x over "
+                            "a 2.0x trust floor. Reversing order by < 230 us inside the 380 us window "
+                            "would have kept 36 t/h cruise; predicted next-sample jacket 90.1 C > 88.0 cap.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "jacket-outlet RTD, 1 kHz, 30 us timestamp jitter",
+                    "conversion GC, 1 kHz, 38 us jitter",
+                    "coolant encoder (context)",
+                    "lining AE (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("jt_cap_C", 88.0),
+                        ("observed_jt_C", 92.4),
+                        ("proposed_coolant_t_h", 36.0),
+                        ("coolant_floor_t_h", 24.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Kettle K-9 indexed; 36 t/h coolant; jacket 92.4 C > 88.0 cap.",
+                    "2. Cruise coolant 36 t/h armed; jacket over the 88.0 C cap.",
+                    "3. Encoder precursor at 1.848 ms; jacket warm-start 92.4 C.",
+                    "4. Race window [4.620, 5.000] ms opens on the emulsion bus.",
+                    "5. Jacket 92.4 C at 4.620 ms (winner).",
+                    "6. Conversion 0.62 at 4.850 ms (loser by 230 us).",
+                    "7. Gate at 5.500 ms (winner + 880 us): MODIFY clamp 36 -> 54 t/h.",
+                    "8. Clamp executes; next-sample jacket 84.2 C < 88.0 cap.",
+                    "9. At 22.400 ms stored styrene-pocket load kicks a lining bay.",
+                    "10. Emergency isolate 16 min + lining pull; named un-netted loss, not folded into process heads.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_coolant"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("coolant_t_h", 36.0),
+                        ("jt_C", 92.4),
+                        ("hold", False),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("jt_C", 92.4),
+                        ("jt_cap_C", 88.0),
+                        ("predicted_unclamped_next_C", 90.1),
+                        ("coolant_t_h", 36.0),
+                        ("race_margin_us", 230),
+                        ("combined_jitter_us", 68),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 36 t/h cruise: conversion looks like an open recipe, not a "
+                "plugged lining, and the 88.0 C jacket cap is treated as still open.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Jacket 92.4 C won by 230 us, so the kettle is running packed, not still "
+                "free. Holding 36 t/h predicts next-sample 90.1 C > 88.0 C cap. MODIFY: coolant "
+                "36 -> 54 t/h. Observed after clamp 84.2 C < 88.0. A full REJECT is not "
+                "indicated: a sound kettle accepts 54 t/h coolant.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "jacket_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 88.0),
+                                    ("observed", 92.4),
+                                    ("predicted_unclamped_next", 90.1),
+                                    ("clamped_coolant_t_h", 54.0),
+                                    ("observed_after_clamp", 84.2),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 230),
+                                    ("combined_jitter_us", 68),
+                                    ("ratio", 3.38),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_coolant"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("coolant_t_h", 54.0),
+                        ("jt_C", 84.2),
+                        ("hold", False),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: coolant 36 -> 54 t/h. Process-correct vs the 88.0 C jacket cap. Styrene-pocket "
+                "lining kick still occurs at 22.400 ms.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Process-correct MODIFY held jacket at 84.2 C. At 22.400 ms stored pocket load kicked "
+                "a lining bay. Clamp raised coolant; it did not dump the lining charge. "
+                "Partnered negative: process heads stay honest; world loss is named, not netted.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("coolant", "clamp executed; jacket 84.2 C < 88.0"),
+                        ("lining", "styrene-pocket kick at 22.400 ms"),
+                        ("repair", "16 min emergency isolate + lining pull"),
+                        ("mission", "kettle still converting; pocket precursor controlled"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Neither jacket RTD nor conversion GC predicted the lining charge; ae.lining.kick is a new channel at 22.400 ms, 16.900 ms after the gate, still inside the 40 ms raster.",
+                    "Delayed (16 min): emergency isolate and lining pull close the kick. Named un-netted loss, not folded into task_progress.",
+                ],
+            ),
+            (
+                "un_netted_loss",
+                "16 min emergency isolate + lining pull after a styrene-pocket kick. Safety "
+                "head -0.62 prices the precursor; task_progress stays +0.34 because the coolant clamp "
+                "completed under the 88.0 C cap. World loss is named here, not subtracted from process heads.",
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "jt.out.c (4.620 ms, 92.4 C)"),
+                        ("loser", "conv.frac (4.850 ms, 0.62)"),
+                        ("margin_us", 230),
+                        (
+                            "counterfactual_if_reversed",
+                            "Conversion-first by < 230 us inside the 380 us window would have kept "
+                            "36 t/h cruise; predicted next-sample 90.1 C would have exceeded the "
+                            "88.0 C cap even without the lining charge. The MODIFY is still the "
+                            "correct process. The kick is a later world charge either way, cheaper "
+                            "with the clamp than without.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 22400),
+            (
+                "reward_inflection_note",
+                "Safety collapses at the 22.400 ms styrene-pocket lining kick (tick t_us=22400), inside the "
+                "40 ms raster. The correct MODIFY at 5.500 ms is in the same excerpt. Do not put "
+                "inflection on the +16 min isolate tick.",
+            ),
+            ("delayed_surprise_s", 960.0),
+            ("abort_s", 960),
+        ]
+    )
+    spikes = [
+        spike("enc.coolant.ctx", 1.120, 0.43),
+        spike("jt.out.c", 2.240, 0.62),
+        spike("conv.frac", 3.180, 0.55),
+        spike("jt.out.c", 4.620, 1.34),
+        spike("conv.frac", 4.850, 1.12),
+        spike("ctrl.gate", 5.500, 0.97),
+        spike("jt.out.c", 7.200, 0.81),
+        spike("conv.frac", 10.400, 0.66),
+        spike("ctrl.gate", 15.200, 0.84),
+        spike("ae.lining.kick", 22.400, 1.42),
+        spike("ae.lining.kick", 23.600, 0.91),
+        spike("enc.coolant.ctx", 29.800, 0.41),
+        spike("jt.out.c", 36.200, 0.58),
+    ]
+    ras = raster_core(
+        40,
+        84,
+        26,
+        87,
+        routing(
+            "thalamic-relay.jt-coolant",
+            "spikenaut.policy.coolant-clamp",
+            [
+                ("relay.jt.out", "policy.coolant_clamp", 0.64),
+                ("relay.conv.frac", "policy.recipe_hold", 0.29),
+                ("relay.ae.lining", "policy.coolant_clamp", -0.46),
+            ],
+            "noradrenaline",
+            0.05,
+            "surprise-gated pre_post_stdp; NA at jacket win (4.620 ms) opens a 50 ms eligibility "
+            "trace that still covers the 22.400 ms styrene-pocket lining kick",
+        ),
+        excerpt,
+        extra=extra,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.38),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("coolant_clamp", 48, 0.50, 220.0, 4),
+                    pop("recipe_hold", 48, 0.50, 50.0, 1),
+                    pop("jt_cap_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r60-317",
+        "Butadiene-Noll kettle / K-9: jacket RTD beats conversion GC by 230 us; correct "
+        "MODIFY still eats an in-window styrene-pocket lining kick (partnered negative total -0.44)",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Partnered negative. Process-correct MODIFY; world still charges inside the "
+        "40 ms raster. total -0.44 = 0.34 + -0.62 + -0.16 + 0.04 + -0.04. Named "
+        "isolate+lining-pull loss is not netted into task_progress.",
+        ras,
+        gate,
+        "sbr-emulsion-reactor",
+        [
+            "modify",
+            "partnered-negative-total",
+            "independent-lif-raster",
+            "sidecar-sim-only",
+            "in-window-world-charge",
+            "designed",
+        ],
+        "A critic can see the world-charge as a LIF burst inside the raster while "
+        "process heads stay honest. Credit assignment is spikes, not prose across a "
+        "16 min gap.",
+        2,
+    )

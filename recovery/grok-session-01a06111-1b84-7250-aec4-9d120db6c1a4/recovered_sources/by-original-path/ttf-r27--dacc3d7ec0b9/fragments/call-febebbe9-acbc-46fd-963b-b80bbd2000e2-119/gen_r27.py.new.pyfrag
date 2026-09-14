@@ -1,0 +1,9 @@
+                        ("winner", "dia.opt.mm (5.440 ms, 191.4 mm)"),
+                        ("loser", "pull.mm.h (5.780 ms, 48 mm/h)"),
+                        ("margin_us", 340),
+                        (
+                            "counterfactual_if_reversed",
+                            "Pull-first by < 340 us inside the 560 us window would have been a "
+                            "false healthy-speed story. The actual error is independent of order: "
+                            "diameter already won, and the clamp still bound seed instead of heater.",
+                        ),

@@ -1,0 +1,35 @@
+                            "sensors",
+                            [
+                                "WF6 MFC sccm, 2 kHz, 28 us jitter",
+                                "Profibus DP lagged slm holding register, 96 ms lag, 32 us jitter",
+                                "H2 MFC (context)",
+                                "in-situ particle counter (context)",
+                            ],
+                        ),
+                        (
+                            "constraints",
+                            OrderedDict(
+                                [
+                                    ("wf6_cap_sccm", 28.0),
+                                    ("observed_wf6_sccm", 42.0),
+                                    ("lagged_slm", 0.042),
+                                    ("lag_ms", 96),
+                                    ("sccm_to_slm", 0.001),
+                                    ("h2_sccm", 180.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "episode_steps",
+                            [
+                                "1. Bubbler U-4 already at 42.0 sccm WF6; H2 180 sccm; lagged slm 0.042.",
+                                "2. Leftover DP register still prints 0.042 slm; lag 96 ms; same MFC.",
+                                "3. WF6 precursor at 1.100 ms.",
+                                "4. Race window [5.400, 5.760] ms.",
+                                "5. ft.ar.sccm 42.0 at 5.400 ms (winner, live WF6 tag).",
+                                "6. mb.lag.slm 0.042 at 5.580 ms (loser by 180 us).",
+                                "7. Gate at 5.960 ms: WRONG-MODIFY binds lagged slm as sccm.",
+                                "8. WF6 only 42.0 -> 40.0 sccm; H2 stays 180; live stays 41.2 > 28.0.",
+                                "9. Nucleation overshoots; W film goes powdery.",
+                                "10. Delayed (abort_s=600): 10 min bubbler re-charge and line re-pump.",
+                            ],

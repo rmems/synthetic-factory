@@ -1,0 +1,15 @@
+            ("name", "hold_bake_ram"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("push", False),
+                        ("hold", True),
+                        ("flue_o2_pct", 3.1),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: ram held, no green-anode push. Flue left at 3.1 percent under its own cap.",
+            ),

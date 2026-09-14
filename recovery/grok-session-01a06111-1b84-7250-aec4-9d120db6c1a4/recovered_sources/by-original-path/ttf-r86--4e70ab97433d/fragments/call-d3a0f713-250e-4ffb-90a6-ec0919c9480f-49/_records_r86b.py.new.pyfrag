@@ -1,0 +1,1049 @@
+def record_448():
+    ticks = [
+        tick(2680, 0.01, 0.05, 0.01, 0.01, 0.01),
+        tick(5760, 0.02, 0.08, 0.02, 0.02, 0.01),
+        tick(5931, 0.02, 0.07, 0.02, 0.02, 0.01),
+        tick(6860, 0.03, 0.12, 0.04, 0.03, 0.02),
+        tick(9020, 0.01, 0.05, 0.02, 0.01, 0.01),
+        tick(480000000, 0.01, 0.03, 0.01, 0.01, 0.00),
+    ]
+    spikes = [
+        spike("tc.cell.ctx", 1.380, 0.43),
+        spike("rtd.elyte.C", 2.680, 0.62),
+        spike("ir.hood.glint", 4.180, 0.49),
+        spike("rtd.elyte.C", 5.760, 1.35),
+        spike("ir.hood.glint", 5.931, 1.12),
+        spike("ctrl.gate", 6.860, 1.03),
+        spike("rtd.elyte.C", 9.020, 0.77),
+        spike("tc.cell.ctx", 13.200, 0.44),
+        spike("ir.hood.glint", 17.100, 0.58),
+        spike("ctrl.gate", 23.400, 0.81),
+        spike("rtd.elyte.C", 30.000, 0.54),
+        spike("tc.cell.ctx", 36.600, 0.38),
+        spike("ir.hood.glint", 39.100, 0.46),
+    ]
+    excerpt = independent_excerpt(86448, 108, 40000, 15, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Perchlate-Meres PM-HIL pad has Cell CL-7 at 58 C electrolyte RTD, 14 K short of the "
+                "72 C perchlorate-start floor, while a pad lamp paints the hood pyrometer at 81 C. "
+                "RTD-first should freeze bus current; hood-first would push 18 kA onto a "
+                "cold cell.",
+            ),
+            ("domain", "sodium-perchlorate-cell"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Do not arm bus current unless electrolyte >= 72 C; keep 0.0 kA until the "
+                "injected cold-packet drops.",
+            ),
+            ("t0_us", 1756850400000448),
+            ("gate_latency_us", 1100),
+            ("race_window_us", 380),
+            ("race_window_rel_ms", [5.7, 6.08]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "rtd.elyte.C 58 C",
+                                "ir.hood.glint 81 C apparent",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Electrolyte-first latches REJECT hold 0.0 kA; glint-first would commit "
+                            "18 kA on an apparent 81 C under-read of a cold-packet.",
+                        ),
+                        (
+                            "window_derivation",
+                            "380 us = one electrolyte-RTD slot versus hood-IR integration on this "
+                            "sodium-perchlorate HIL bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 171 us vs combined jitter ~58 us (elyte 26 + IR 32): 2.9x "
+                            "over a 2.0x trust floor. Pad injects the hood 110-150 us before the "
+                            "electrolyte RTD (geometric lag, not a sensor fault); the apparent "
+                            "81 C packet is still the loser in this 380 us window.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "electrolyte RTD, 5 kHz burst, 26 us jitter",
+                    "hood pyrometer, 200 Hz, 32 us jitter",
+                    "NaClO3 thermocouple (context)",
+                    "HIL hood-spectrum monitor (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("start_floor_C", 72.0),
+                        ("observed_elyte_C", 58.0),
+                        ("hood_apparent_C", 81.0),
+                        ("proposed_kA", 18.0),
+                        ("hood_inject_lead_us", [110, 150]),
+                    ]
+                ),
+            ),
+            (
+                "hil",
+                OrderedDict(
+                    [
+                        ("pad", "Perchlate-Meres PM-HIL perchlorate-cell mockup"),
+                        ("injected", "cold-electrolyte packet + hood-spectrum"),
+                        (
+                            "note",
+                            "Hardware-in-the-loop sodium-perchlorate cell. Invented plant; not a live electrolyzer.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Cell CL-7 on the PM-HIL pad; bus 18 kA armed.",
+                    "2. Hood injected 110-150 us before electrolyte RTD sees the cold packet.",
+                    "3. Cell-TC precursor at 1.380 ms.",
+                    "4. Race window [5.700, 6.080] ms.",
+                    "5. rtd.elyte.C 58 C at 5.760 ms (winner).",
+                    "6. ir.hood.glint 81 C at 5.931 ms (loser by 171 us).",
+                    "7. Gate at 6.860 ms: REJECT hold 0.0 kA; do not walk 18 kA.",
+                    "8. Electrolyte remains under floor this cycle; start floor held.",
+                    "9. Seed recycle queued on the pad.",
+                    "10. Delayed (abort_s=480): 8 min pad retune and hood-spectrum retune.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "walk_ka_18"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("bus_kA", 18.0),
+                        ("hold", False),
+                        ("hood_authoritative", True),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("elyte_C", 58.0),
+                        ("start_floor_C", 72.0),
+                        ("hood_apparent_C", 81.0),
+                        ("race_margin_us", 171),
+                        ("combined_jitter_us", 58),
+                        ("abort_s", 480),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 18 kA bus because hood apparent 81 C looks "
+                "over the 72 C floor, treating electrolyte 58 C as a noisy sheath echo.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Electrolyte 58 C is under the 72 C perchlorate-start floor. Hood apparent 81 C is a HIL "
+                "hood under-read of a cold packet, not a clearance. REJECT: hold 0.0 kA; do "
+                "not commit 18 kA across the cell.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "elyte_C",
+                            OrderedDict(
+                                [
+                                    ("floor", 72.0),
+                                    ("observed_elyte", 58.0),
+                                    ("hood_apparent", 81.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "bus_kA",
+                            OrderedDict(
+                                [
+                                    ("proposed", 18.0),
+                                    ("executed", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 171),
+                                    ("combined_jitter_us", 58),
+                                    ("ratio", 2.95),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hold_for_start_floor"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("bus_kA", 0.0),
+                        ("hold", True),
+                        ("hood_authoritative", False),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: hold 0.0 kA; 18 kA bus cancelled. Electrolyte 58 < 72 floor.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct REJECT held Cell CL-7 at 0.0 kA. Electrolyte under floor this cycle; "
+                "start floor held. Hood apparent was not treated as an electrolyte clearance.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("cell", "held; bus 0.0 kA"),
+                        ("electrolyte", "still under 72 C this cycle"),
+                        ("hood_ir", "81 C unused as clearance"),
+                        ("mission", "bus walk deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Geometric lag: hood was injected 110-150 us before the electrolyte RTD, yet electrolyte still won the 380 us race.",
+                    "Delayed (abort_s=480): pad policy update forbids treating hood apparent as an electrolyte substitute after an 8 min retune.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.elyte.C (5.760 ms, 58 C)"),
+                        ("loser", "ir.hood.glint (5.931 ms, 81 C apparent)"),
+                        ("margin_us", 171),
+                        (
+                            "counterfactual_if_reversed",
+                            "Glint-first by < 171 us inside the 380 us window would have committed "
+                            "18 kA with electrolyte 58 < 72 floor. Order, not amplitude, selected the hold.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 6860),
+            (
+                "reward_inflection_note",
+                "Safety and coherence step up at the REJECT gate (6.860 ms, tick 4) as the hold "
+                "locks in over the illegal bus walk.",
+            ),
+            ("delayed_surprise_s", 480.0),
+            ("abort_s", 480),
+        ]
+    )
+    ras = raster_core(
+        40,
+        108,
+        21,
+        91,
+        routing(
+            "thalamic-relay.naclo4-elyte",
+            "spikenaut.policy.ka-hold",
+            [
+                ("relay.rtd.elyte", "policy.ka_hold", 0.69),
+                ("relay.ir.hood", "policy.ka_commit", 0.27),
+                ("relay.tc.cell", "policy.ka_hold", 0.11),
+            ],
+            "dopamine",
+            0.09,
+            "startfloor_stdp; DA at electrolyte win (5.760 ms) tags ka_hold over ka_commit",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("abort_s", 480),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.38),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("ka_hold", 52, 0.50, 253.0, 5),
+                    pop("ka_commit", 40, 0.50, 65.8, 1),
+                    pop("elyte_veto", 32, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r86-448"),
+            (
+                "title",
+                "Perchlate-Meres PM-HIL / Cell CL-7: electrolyte 58 C beats hood 81; "
+                "correct REJECT holds the sodium-perchlorate bus walk",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct REJECT. Electrolyte under floor; hood under-read unused as clearance. "
+                    "total +0.78 = 0.10 + 0.40 + 0.12 + 0.10 + 0.06.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "sodium-perchlorate-cell",
+                    [
+                        "reject",
+                        "hil-zone",
+                        "elyte-vs-hood",
+                        "start-floor",
+                        "hil",
+                    ],
+                    "Teaches that a HIL hood under-read can lose to electrolyte RTD inside a "
+                    "380 us window; reversing 171 us would have selected an illegal bus walk.",
+                    3,
+                ),
+            ),
+        ]
+    )
+
+
+def record_449():
+    ticks = [
+        tick(3040, 0.04, 0.03, 0.02, 0.01, 0.00),
+        tick(6840, 0.08, 0.07, 0.03, 0.02, 0.01),
+        tick(7058, 0.05, 0.05, 0.02, 0.02, 0.01),
+        tick(7280, 0.11, 0.09, 0.04, 0.03, 0.01),
+        tick(9480, 0.04, 0.04, 0.02, 0.01, 0.01),
+        tick(360000000, 0.02, 0.02, 0.01, 0.01, 0.00),
+    ]
+    spikes = [
+        spike("pt.kettle.ctx", 1.540, 0.42),
+        spike("an.hcho.wt", 3.040, 0.59),
+        spike("ir.canopy.glint", 4.980, 0.48),
+        spike("an.hcho.wt", 6.840, 1.31),
+        spike("ir.canopy.glint", 7.058, 1.09),
+        spike("ctrl.gate", 7.280, 0.96),
+        spike("an.hcho.wt", 9.480, 0.73),
+        spike("pt.kettle.ctx", 13.700, 0.45),
+        spike("ir.canopy.glint", 18.200, 0.57),
+        spike("ctrl.gate", 22.500, 0.80),
+        spike("an.hcho.wt", 26.700, 0.51),
+        spike("pt.kettle.ctx", 29.200, 0.38),
+    ]
+    excerpt = independent_excerpt(86449, 64, 30000, 13, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Pentaol-Croftle PC-6 aldol AD-1 is already dissolving 2.8 wt% formaldehyde against a "
+                "1.6 wt% acetaldehyde cap while canopy IR still claims 0.9 wt% as if the kettle were idle. "
+                "Analyzer-first should cut injection; IR-first would keep 2.8 wt% through close-out.",
+            ),
+            ("domain", "pentaerythritol-aldol"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Step AD-1 only if formaldehyde <= 1.6 wt%; otherwise clamp injection so the "
+                "pentaerythritol make is not run at 2.8 wt%.",
+            ),
+            ("t0_us", 1756850400000449),
+            ("gate_latency_us", 440),
+            ("race_window_us", 520),
+            ("race_window_rel_ms", [6.75, 7.27]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "an.hcho.wt 2.8 wt%",
+                                "ir.canopy.glint 0.9 wt% cool-glint",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Analyzer-first latches formaldehyde clamp 2.8 -> 1.2 wt%; glint-first keeps "
+                            "2.8 wt% on a false-cool canopy IR.",
+                        ),
+                        (
+                            "window_derivation",
+                            "520 us = one 2 kHz formaldehyde-analyzer sample versus canopy-IR decode on "
+                            "this pentaerythritol aldol bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 218 us vs combined jitter ~71 us (HCHO 33 + canopy 38): 3.1x over "
+                            "a 2.0x trust floor. Reversing order by < 218 us inside the 520 us "
+                            "window would have kept 2.8 wt% into a 1.6 wt% cap miss.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "kettle formaldehyde analyzer, 2 kHz, 33 us jitter",
+                    "canopy IR camera, 200 Hz, 38 us jitter",
+                    "acetaldehyde PT (context)",
+                    "lime load cell (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("hcho_cap_wt", 1.6),
+                        ("observed_hcho_wt", 2.8),
+                        ("proposed_hcho_wt", 2.8),
+                        ("canopy_glint_wt", 0.9),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Aldol indexed onto PC-6; AD-1 armed at 2.8 wt% formaldehyde.",
+                    "2. Canopy IR reports 0.9 wt% cool-glint; analyzer already sees 2.8 wt%.",
+                    "3. Kettle-PT precursor at 1.540 ms.",
+                    "4. Race window [6.750, 7.270] ms.",
+                    "5. an.hcho.wt 2.8 at 6.840 ms (winner).",
+                    "6. ir.canopy.glint 0.9 wt% at 7.058 ms (loser by 218 us).",
+                    "7. Gate at 7.280 ms: MODIFY formaldehyde 2.8 -> 1.2 wt%.",
+                    "8. Injection applies; next-sample HCHO 1.4 wt% < 1.6 cap.",
+                    "9. Acetaldehyde occupies; next kettle queued.",
+                    "10. Delayed (ald_reseq_s=360): dispatcher resequences the following kettle +6 min.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "hcho_28"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("hcho_wt", 2.8),
+                        ("acetald_tph", 5.4),
+                        ("kettle_id", 1),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("hcho_wt", 2.8),
+                        ("hcho_cap_wt", 1.6),
+                        ("canopy_cool", True),
+                        ("race_margin_us", 218),
+                        ("combined_jitter_us", 71),
+                        ("ald_reseq_s", 360),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 2.8 wt% formaldehyde because the canopy IR claims the kettle "
+                "is cool, treating analyzer 2.8 wt% as a sidelobe.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Formaldehyde 2.8 wt% won by 218 us, so the pulse is inside the 1.6 wt% acetaldehyde cap. "
+                "Canopy-IR cool-glint is not dissolved formaldehyde. MODIFY: HCHO 2.8 -> 1.2 wt%. "
+                "A full REJECT (kill the kettle) is not indicated: 1.2 wt% is a legal catch-and-pass.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "hcho_wt",
+                            OrderedDict(
+                                [
+                                    ("cap", 1.6),
+                                    ("observed", 2.8),
+                                    ("canopy_cool", True),
+                                    ("observed_after_clamp", 1.4),
+                                ]
+                            ),
+                        ),
+                        (
+                            "hcho_wt_set",
+                            OrderedDict(
+                                [
+                                    ("proposed", 2.8),
+                                    ("clamped", 1.2),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 218),
+                                    ("combined_jitter_us", 71),
+                                    ("ratio", 3.07),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_hcho_12"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("hcho_wt", 1.2),
+                        ("acetald_tph", 5.4),
+                        ("kettle_id", 1),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: formaldehyde 2.8 -> 1.2 wt%. Process-correct vs the 1.6 wt% acetaldehyde cap.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct MODIFY held AD-1 at 1.2 wt%. Next-sample formaldehyde 1.4 wt% under the "
+                "1.6 wt% cap. Canopy 0.9 wt% cool-glint was not treated as a dissolved-formaldehyde clearance.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("formaldehyde", "clamped 2.8 -> 1.2 wt%"),
+                        ("analyzer", "1.4 wt% < 1.6 cap after clamp"),
+                        ("ir", "0.9 wt% unused as clearance"),
+                        ("mission", "kettle completed under cap"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Canopy-IR cool-glint lagged the formaldehyde pulse by 218 us; order, not amplitude, selected the clamp.",
+                    "Delayed (ald_reseq_s=360): dispatcher resequences the following kettle +6 min. Not a safety inflection.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "an.hcho.wt (6.840 ms, 2.8 wt%)"),
+                        ("loser", "ir.canopy.glint (7.058 ms, 0.9 wt%)"),
+                        ("margin_us", 218),
+                        (
+                            "counterfactual_if_reversed",
+                            "Glint-first by < 218 us inside the 520 us window would have kept "
+                            "2.8 wt% into a 1.6 wt% cap miss. The MODIFY is the correct process "
+                            "either way once the analyzer is bound.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 7280),
+            (
+                "reward_inflection_note",
+                "Task and safety step up at the MODIFY gate (7.280 ms, tick 4). Tick 6 is "
+                "ald_reseq_s=360.",
+            ),
+            ("delayed_surprise_s", 360.0),
+            ("ald_reseq_s", 360),
+        ]
+    )
+    ras = raster_core(
+        30,
+        64,
+        42,
+        81,
+        routing(
+            "thalamic-relay.ald-hcho",
+            "spikenaut.policy.hcho-clamp",
+            [
+                ("relay.an.hcho", "policy.hcho_clamp", 0.64),
+                ("relay.ir.canopy", "policy.glint_hold", 0.29),
+                ("relay.pt.kettle", "policy.hcho_clamp", 0.12),
+            ],
+            "serotonin",
+            0.07,
+            "aldehyde_stdp; 5-HT at analyzer win (6.840 ms) tags hcho_clamp over glint_hold",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("ald_reseq_s", 360),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.52),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("hcho_clamp", 30, 0.50, 256.4, 4),
+                    pop("glint_hold", 30, 0.50, 64.1, 1),
+                    pop("hcho_veto", 20, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r86-449"),
+            (
+                "title",
+                "Pentaol-Croftle PC-6 / Aldol AD-1: formaldehyde 2.8 wt% beats canopy cool-glint; "
+                "correct MODIFY clamps HCHO 2.8 -> 1.2 wt%",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct MODIFY. Formaldehyde over cap; canopy cool-glint unused. total +0.92 = "
+                    "0.34 + 0.30 + 0.14 + 0.10 + 0.04.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "pentaerythritol-aldol",
+                    [
+                        "modify",
+                        "designed",
+                        "hcho-vs-canopy",
+                        "acetald-cap",
+                    ],
+                    "Teaches that a cool-glint canopy IR can lose to a legal formaldehyde analyzer "
+                    "inside a 520 us window; reversing 218 us would have kept an illegal 2.8 wt% injection.",
+                    4,
+                ),
+            ),
+        ]
+    )
+
+
+def record_450():
+    ticks = [
+        tick(1580, 0.05, 0.04, 0.02, 0.01, 0.01),
+        tick(3740, 0.10, 0.08, 0.04, 0.03, 0.02),
+        tick(3858, 0.06, 0.05, 0.03, 0.02, 0.01),
+        tick(4300, 0.14, 0.10, 0.05, 0.04, 0.02),
+        tick(6120, 0.06, 0.04, 0.02, 0.01, 0.01),
+        tick(300000000, 0.03, 0.03, 0.02, 0.01, 0.01),
+    ]
+    spikes = [
+        spike("pt.auto.ctx", 0.700, 0.39),
+        spike("pt.auto.bar", 1.580, 0.57),
+        spike("ir.shell.glint", 2.400, 0.48),
+        spike("pt.auto.bar", 3.740, 1.29),
+        spike("ir.shell.glint", 3.858, 1.10),
+        spike("ctrl.gate", 4.300, 0.97),
+        spike("pt.auto.bar", 6.120, 0.76),
+        spike("ir.shell.glint", 8.800, 0.61),
+        spike("ctrl.gate", 12.200, 0.83),
+        spike("pt.auto.ctx", 15.900, 0.41),
+        spike("pt.auto.bar", 19.400, 0.54),
+        spike("ir.shell.glint", 21.200, 0.46),
+    ]
+    excerpt = independent_excerpt(86450, 80, 22000, 12, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Fluoropl-Staithe FS-8 autoclave AC-3 holds 18.4 bar TFE, 3.6 bar under the "
+                "22.0 bar rupture-disc limit, but a crown lamp flashes 24.6 bar at the shell pyrometer. "
+                "Autoclave-first should keep 6.0 t/h; lamp-first would idle a legal PTFE dispersion.",
+            ),
+            ("domain", "ptfe-dispersion-autoclave"),
+            ("sim_or_real", "simulated"),
+            (
+                "goal",
+                "Run AC-3 when autoclave PT is <= 22.0 bar; do not spend a shell-pyrometer "
+                "glint on a hold.",
+            ),
+            ("t0_us", 1756850400000450),
+            ("gate_latency_us", 560),
+            ("race_window_us", 240),
+            ("race_window_rel_ms", [3.7, 3.94]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "pt.auto.bar 18.4 bar",
+                                "ir.shell.glint 24.6 lighting",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Autoclave-first ACCEPTS the already-legal 18.4 bar feed. Glint-first "
+                            "would REJECT a legal PTFE autoclave on a 24.6 bar lighting.",
+                        ),
+                        (
+                            "window_derivation",
+                            "240 us = one autoclave-PT sample minus shell-pyrometer integration on "
+                            "this PTFE dispersion simulation.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 118 us vs combined jitter ~50 us (PT 22 + IR 28): 2.4x over "
+                            "a 2.0x trust floor. Reversing order by < 118 us inside the 240 us "
+                            "window would have invented a rupture-disc hold on an already-legal 18.4 bar autoclave.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "autoclave PT, 2 kHz, 22 us jitter",
+                    "shell pyrometer, 200 Hz, 28 us jitter",
+                    "TFE orifice (context)",
+                    "initiator load cell (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("rupture_cap_bar", 22.0),
+                        ("observed_auto_bar", 18.4),
+                        ("shell_glint_bar", 24.6),
+                        ("proposed_feed_t_h", 6.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. AC-3 seeded; autoclave at 18.4 bar under 22.0 rupture-disc cap.",
+                    "2. Shell pyrometer glint 24.6 from lighting, not TFE pressure.",
+                    "3. Autoclave-PT precursor at 0.700 ms.",
+                    "4. Race window [3.700, 3.940] ms.",
+                    "5. pt.auto.bar 18.4 bar at 3.740 ms (winner).",
+                    "6. ir.shell.glint 24.6 at 3.858 ms (loser by 118 us).",
+                    "7. Gate at 4.300 ms: ACCEPT 6.0 t/h as proposed.",
+                    "8. Feed executes; autoclave remains 18.4 bar < 22.0.",
+                    "9. Charge emptied; next pass queued.",
+                    "10. Delayed (survey_hold_s=300): 5 min PTFE survey. Not a safety inflection.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "feed_60"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("feed_t_h", 6.0),
+                        ("hold", False),
+                        ("auto_C", 72.0),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("auto_bar", 18.4),
+                        ("rupture_cap_bar", 22.0),
+                        ("shell_glint_bar", 24.6),
+                        ("race_margin_us", 118),
+                        ("combined_jitter_us", 50),
+                        ("survey_hold_s", 300),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 6.0 t/h because autoclave PT 18.4 bar is under the 22.0 bar "
+                "rupture-disc cap; shell 24.6 bar is lighting, not TFE load.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Autoclave PT 18.4 bar is under the 22.0 bar rupture-disc cap. Shell 24.6 bar is a lighting "
+                "glint, not TFE load. ACCEPT the proposed 6.0 t/h; do not invent a hold.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "auto_bar",
+                            OrderedDict(
+                                [
+                                    ("cap", 22.0),
+                                    ("observed", 18.4),
+                                    ("shell_glint_bar", 24.6),
+                                ]
+                            ),
+                        ),
+                        (
+                            "feed_t_h",
+                            OrderedDict(
+                                [
+                                    ("proposed", 6.0),
+                                    ("executed", 6.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 118),
+                                    ("combined_jitter_us", 50),
+                                    ("ratio", 2.36),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "feed_60"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("feed_t_h", 6.0),
+                        ("hold", False),
+                        ("auto_C", 72.0),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "ACCEPT: proposed 6.0 t/h executed unchanged. Autoclave 18.4 bar < 22.0; shell glint unused.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct ACCEPT ran AC-3 at 18.4 bar autoclave. Shell 24.6 bar was lighting, not TFE load. "
+                "The proposal was already legal; reversing 118 us would have invented a hold.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("autoclave", "feed executed; 18.4 bar < 22.0"),
+                        ("shell_ir", "24.6 bar glint unused as rupture"),
+                        ("TFE", "held 72.0 C through the pass"),
+                        ("mission", "feed committed"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Shell 24.6 bar is a legal lighting glint, not a high-TFE alarm; autoclave-first discarded a false hold.",
+                    "Delayed (5 min / survey_hold_s=300): PTFE survey. Not a safety inflection.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "pt.auto.bar (3.740 ms, 18.4 bar)"),
+                        ("loser", "ir.shell.glint (3.858 ms, 24.6 lighting)"),
+                        ("margin_us", 118),
+                        (
+                            "counterfactual_if_reversed",
+                            "Glint-first by < 118 us inside the 240 us window would have held "
+                            "the PTFE autoclave on a false high-TFE story. The proposal was already "
+                            "under the 22.0 cap, so the correct gate is still ACCEPT.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 4300),
+            (
+                "reward_inflection_note",
+                "Task and safety step up at the ACCEPT gate (4.300 ms, tick 4). Tick 6 is "
+                "survey_hold_s=300.",
+            ),
+            ("delayed_surprise_s", 300.0),
+            ("survey_hold_s", 300),
+        ]
+    )
+    ras = raster_core(
+        22,
+        80,
+        34,
+        60,
+        routing(
+            "thalamic-relay.auto-pt",
+            "spikenaut.policy.feed-accept",
+            [
+                ("relay.pt.auto", "policy.feed_go", 0.62),
+                ("relay.ir.shell", "policy.glint_hold", 0.28),
+                ("relay.pt.ctx", "policy.feed_go", 0.14),
+            ],
+            "adenosine",
+            0.16,
+            "pre_post_stdp; adenosine at autoclave win (3.740 ms) opens 160 ms eligibility covering the 4.300 ms accept",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("survey_hold_s", 300),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.24),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("feed_go", 42, 0.50, 297.6, 3),
+                    pop("glint_hold", 42, 0.50, 19.8, 0),
+                    pop("rupture_veto", 20, 0.80),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r86-450"),
+            (
+                "title",
+                "Fluoropl-Staithe FS-8 / Autoclave AC-3: autoclave 18.4 bar beats shell glint; "
+                "correct ACCEPT of an already-legal 6.0 t/h (total +1.16)",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct ACCEPT. Autoclave 18.4 bar < 22.0; shell glint is lighting, not TFE. "
+                    "total +1.16 = 0.44 + 0.34 + 0.18 + 0.12 + 0.08.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "ptfe-dispersion-autoclave",
+                    [
+                        "accept",
+                        "simulated-lighting",
+                        "autoclave-vs-shell",
+                        "ptfe",
+                        "simulated",
+                    ],
+                    "Teaches that a shell lighting glint can lose to a legal autoclave PT "
+                    "inside a 240 us window; reversing 118 us would have invented a hold on an "
+                    "already-legal PTFE feed.",
+                    5,
+                ),
+            ),
+        ]
+    )

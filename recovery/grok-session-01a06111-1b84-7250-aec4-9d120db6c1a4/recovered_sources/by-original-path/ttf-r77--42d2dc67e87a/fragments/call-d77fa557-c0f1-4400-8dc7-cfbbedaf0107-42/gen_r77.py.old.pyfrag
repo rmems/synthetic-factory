@@ -1,0 +1,4 @@
+                "Catofin PDH reactor R-5 at Catofin-Veld CV-8 reads live dilution steam 24.0 t/h "
+                "over a 22.0 t/h cap; a lagged historian still republishes the same steam as "
+                "52.9 klb/h without an EU. Live-t/h-first should cut 24.0 -> 18.0 t/h; a weak "
+                "supervisor treats 52.9 as t/h and over-cuts to 8.0.",

@@ -1,0 +1,8 @@
+                        ("winner", "tc.chamber.t (4.220 ms, 1120 C)"),
+                        ("loser", "pt.can.kPa (4.400 ms, 4.8 kPa)"),
+                        ("margin_us", 180),
+                        (
+                            "counterfactual_if_reversed",
+                            "Can-first by < 180 us would still show chamber 1120 C < 1160 C. A "
+                            "correct gate ACCEPTs either way.",
+                        ),

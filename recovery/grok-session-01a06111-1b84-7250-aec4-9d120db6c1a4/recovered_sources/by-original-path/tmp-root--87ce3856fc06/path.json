@@ -1,0 +1,83 @@
+{
+  "agent_ids": [
+    "01a06404-1474-7233-8dd6-d1abe82e7a71"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 2,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 3,
+  "original_basename": "lif_raster_r14.py",
+  "original_path": "/tmp/lif_raster_r14.py",
+  "path_key": "tmp-root--87ce3856fc06",
+  "terminal_event_ids": [
+    "01a06404-1474-7233-8dd6-d1abe82e7a71:call-0d666892-2c56-4a50-ba54-19d2b1c95404-41",
+    "01a06404-1474-7233-8dd6-d1abe82e7a71:call-977eb089-78ea-41a4-8d60-b8d939097da9-38",
+    "01a06404-d40e-79f3-904e-1a172c5e80f6:call-5e3a57ff-e366-4f4f-9781-c2d7121e76ed-82",
+    "01a064a7-40cd-7881-84f4-9e480f03832e:call-18782ef2-af37-44db-85ff-423f4db1b09e-19"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 2,
+  "versions": [
+    {
+      "agent_id": "01a06404-1474-7233-8dd6-d1abe82e7a71",
+      "basename_preserved": true,
+      "bytes": 5682,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 208,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06404-1474-7233-8dd6-d1abe82e7a71/updates.jsonl",
+      "original_basename": "lif_raster_r14.py",
+      "original_path": "/tmp/lif_raster_r14.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--87ce3856fc06/versions/v0001/lif_raster_r14.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/tmp-root--87ce3856fc06/versions/v0001/lif_raster_r14.py",
+      "session_id": "01a06404-1474-7233-8dd6-d1abe82e7a71",
+      "sha256": "76521d6e76e290d2f278b255ec7632d8b168e39d5ea3832dd4c14d659a652e9f",
+      "source_channel": "structured",
+      "source_event_id": "01a06404-1474-7233-8dd6-d1abe82e7a71:call-0073fd9e-28c7-4adb-9878-3757328f48e2-37",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788384678951,
+      "timestamp_utc": "2026-09-02T21:31:18.951Z",
+      "tool_call_id": "call-0073fd9e-28c7-4adb-9878-3757328f48e2-37",
+      "version": 1,
+      "version_id": "tmp-root--87ce3856fc06:v0001"
+    },
+    {
+      "agent_id": "01a06404-1474-7233-8dd6-d1abe82e7a71",
+      "basename_preserved": true,
+      "bytes": 5670,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 221,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06404-1474-7233-8dd6-d1abe82e7a71/updates.jsonl",
+      "original_basename": "lif_raster_r14.py",
+      "original_path": "/tmp/lif_raster_r14.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--87ce3856fc06/versions/v0002/lif_raster_r14.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/tmp-root--87ce3856fc06/versions/v0002/lif_raster_r14.py",
+      "session_id": "01a06404-1474-7233-8dd6-d1abe82e7a71",
+      "sha256": "9c2ff13b9581e0e555f5214ab243f118d28a897634b97c3e263047b0d699a9da",
+      "source_channel": "structured",
+      "source_event_id": "01a06404-1474-7233-8dd6-d1abe82e7a71:call-17127d6f-a36f-4abc-bae5-5f0319053914-39",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788384698871,
+      "timestamp_utc": "2026-09-02T21:31:38.871Z",
+      "tool_call_id": "call-17127d6f-a36f-4abc-bae5-5f0319053914-39",
+      "version": 2,
+      "version_id": "tmp-root--87ce3856fc06:v0002"
+    }
+  ]
+}

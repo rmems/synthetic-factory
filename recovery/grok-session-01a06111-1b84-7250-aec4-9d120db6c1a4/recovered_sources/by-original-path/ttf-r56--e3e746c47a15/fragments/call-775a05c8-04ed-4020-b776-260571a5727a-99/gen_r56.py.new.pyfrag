@@ -1,0 +1,15 @@
+        if rid == "ttf-r56-296":
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["live_C"] < ev["trip_C"]):
+                issues.append("296 live not under trip")
+            if ev.get("trip_latched") is not False or ev.get("in_hysteresis_band") is not True:
+                issues.append("296 reset-band not tagged unlatched")
+            if rec["executed_action"]["parameters"]["feed_t_d"] != 0.0:
+                issues.append("296 executed feed not zero")
+            tos = {row["to"] for row in rec["raster"]["routing"]["table"]}
+            if "policy.go_accept" in tos:
+                issues.append("296 routing contains go_accept")
+            if "policy.hold_reject" not in tos:
+                issues.append("296 routing missing hold_reject")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("296 missing recovery")

@@ -1,0 +1,31 @@
+    spikes = [
+        spike("pt.tower.ctx", 0.980, 0.39),
+        spike("an.slip.ppm", 1.680, 0.57),
+        spike("load.rich.mol", 2.800, 0.51),
+        spike("an.slip.ppm", 5.480, 1.33),
+        spike("load.rich.mol", 5.640, 1.16),
+        spike("ctrl.gate", 6.180, 1.01),
+        spike("an.slip.ppm", 8.600, 0.74),
+        spike("load.rich.mol", 11.200, 0.62),
+        spike("ctrl.gate", 14.400, 0.83),
+        spike("pt.tower.ctx", 18.000, 0.41),
+        spike("an.slip.ppm", 22.400, 0.52),
+        spike("load.rich.mol", 26.200, 0.47),
+    ]
+    excerpt = independent_excerpt(45242, 88, 28000, 13, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Tower-T9 on Lean-Garth LG-4 is still absorbing sour gas: rich loading 0.28 mol/mol "
+                "under a 0.42 cap, H2S slip 8.4 ppm under a 25.0 ppm trip. Remaining cycle is 420 s. "
+                "A 0.18 ppm/s precursor on the overhead analyzer has not crossed either cap. A weak "
+                "supervisor dumps feed 8.4 -> 2.0 t/h anyway, an early clamp on a still-legal tower.",
+            ),
+            ("domain", "amine-contactor"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Finish the LG-4 absorb with rich loading <= 0.42 mol/mol and H2S slip <= 25.0 ppm; "
+                "do not dump feed while both remain under cap.",
+            ),

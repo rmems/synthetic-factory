@@ -1,0 +1,15 @@
+THIS_DOMAINS = (
+    "phosphoric-attack-tank",
+    "methanol-synthesis-loop",
+    "anode-baking-furnace",
+    "continuous-anneal-line",
+    "nitric-acid-absorber",
+)
+THIS_PLANTS = (
+    "Apatite-Vale",
+    "Syngas-Brae",
+    "Green-Anode-Naze",
+    "Recryst-Holt",
+    "Ostwald-Gill",
+)
+IDS = [f"ttf-r52-{n}" for n in range(276, 281)]

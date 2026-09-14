@@ -1,0 +1,9 @@
+            "thalamic-relay.prill-opt",
+            "spikenaut.policy.melt-accept",
+            [
+                ("relay_opt_prill", "policy_melt_go", 0.64),
+                ("relay_pt_tower", "policy_melt_cut", 0.26),
+            ],
+            "histamine",
+            0.18,
+            "prill_size_stdp; histamine tags the melt_go bind at the optic win",

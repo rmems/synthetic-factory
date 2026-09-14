@@ -1,0 +1,14 @@
+THIS_DOMAINS = {
+    "fluid-bed-roaster",
+    "alkylation-contactor",
+    "twin-screw-compounder",
+    "blown-film-tower",
+    "SX-mixer-settler",
+}
+THIS_PLANTS = (
+    "Gossan-Weald",
+    "Raffinate-Holt",
+    "Knead-Dene",
+    "Frostline-Kame",
+    "Pregnant-Lea",
+)

@@ -1,0 +1,7 @@
+        if rid == "ttf-r72-377":
+            if rec["raster"].get("excerpt_source") != "independent_lif":
+                issues.append("377 missing independent_lif")
+            if rec["future_outcome"]["reward_inflection_t_us"] > rec["raster"]["window_ms"] * 1000:
+                issues.append("377 inflection outside window")
+            if rec["reward_components"]["total"] >= 0:
+                issues.append("377 partnered-neg total not negative")

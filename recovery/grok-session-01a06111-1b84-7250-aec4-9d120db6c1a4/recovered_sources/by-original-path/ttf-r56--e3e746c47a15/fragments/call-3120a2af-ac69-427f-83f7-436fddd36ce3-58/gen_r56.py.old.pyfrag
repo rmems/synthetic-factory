@@ -1,0 +1,16 @@
+def lif_257_excerpt():
+    """Independent CUBA LIF (seed 48257). Plant remains designed."""
+
+    n = 84
+    dt_us = 100
+    tau_m_ms = 20.0
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.92
+    i_stim_peak = 2.45
+    stim = (21000, 25000)
+    seed = 48257
+    window_us = 40000
+    i_clamp_extra = 0.68
+    clamp_n = 14

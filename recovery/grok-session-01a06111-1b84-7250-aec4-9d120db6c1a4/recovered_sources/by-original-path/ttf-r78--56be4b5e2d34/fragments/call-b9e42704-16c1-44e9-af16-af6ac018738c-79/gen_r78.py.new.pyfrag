@@ -1,0 +1,8 @@
+                            "slaker_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 108.0),
+                                    ("observed", 98.0),
+                                    ("executed_lime_t_h", 8.4),
+                                ]
+                            ),

@@ -1,0 +1,4 @@
+                "APT autoclave string A at Chlorate-Heugh CH-5 reads live 18.4 bar against a 16.0 bar "
+                "cap while idle string B still prints 2.1 bar after a rinse. Live-first should cut "
+                "steam 4.8 -> 1.6 t/h on string A at t_gate; a weak supervisor writes the same 1.6 t/h "
+                "cut onto idle string B because STM.CUT.BANK still aliases the last-selected rinse bank.",

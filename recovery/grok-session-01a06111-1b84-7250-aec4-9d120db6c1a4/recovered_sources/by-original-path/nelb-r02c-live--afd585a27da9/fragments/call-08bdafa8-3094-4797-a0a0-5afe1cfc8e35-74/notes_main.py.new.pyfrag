@@ -1,0 +1,185 @@
+def write_exclusive(path: Path, text: str):
+    fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+
+
+def notes_text(records, batch_path: Path, sizes, file_sha, file_size) -> str:
+    isis = []
+    spikes = []
+    events = []
+    windows = []
+    energies = []
+    for rec in records:
+        ident = rec["raster"]["isi_count_identity"]
+        isis.append(ident["isi_total"])
+        spikes.append(rec["raster"]["spikes"])
+        events.append(len(rec["spike_events"]))
+        windows.append(int(rec["raster"]["window_ms"]))
+        energies.append(int(rec["raster"]["energy_pJ"]))
+    return f"""# Neuromorphic Event + Language Bridge — NOTES round 2c
+Run: 2026-09-02-final-heavy · Factory: neuromorphic-event-language-bridge · Generator: grok-4.6 · Output: `{batch_path.name}` (3 paired artifacts, 6 ThalamicTrajectories)
+Rights: RM-793 research-only (SpaceXAI/xAI grok-4.6, SuperGrok Heavy chat). Not training_ready. CREATE-ONLY write (c-suffix because `batch-r02.jsonl` already existed) at `/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-09-02-final-heavy/neuromorphic-event-language-bridge` (`{batch_path.name}`, `NOTES-r02c.md`). Did not overwrite live r01/r02/r03/r21/r22/r41/r42/r61/r62/r63/r64/r66. Leftover-mill `/tmp/nelb-r64/` (venturi / katharometer / Clark, ids `193`–`195`) was not restaged. `pipelines/next_round.py` refused r64 because `ROUND-r64.reserved.json` already exists and `batch-r64.jsonl` is occupied; assigned round 2 therefore used the create-only c-suffix.
+
+## Context / de-duplication
+Two newest NOTES (mtime): `NOTES-r66.md` (spark-OES C / Hall current / laser-diffraction D50) then `NOTES-r64.md` (laser-diffraction D50 / four-point Rs / streaming-current SCD). Assigned-previous `NOTES-r02.md` (CAPS NO2 / PTR-MS MDI / microwave PCD) was also read so this c-suffix does not restage those families or steal ids `nelb-r02-001`…`003`. Flagged gaps carried: lumped reconstruction gains; vendor-only lead REJECT still unwritten; no gate_snn input→output volley pair. IDs `nelb-r02c-001`…`003`. Envelope cloned from live r63 (`language_view.trajectory` + operational t2 + `spike_events` (48+; this round 52/52/52) + `raster` + `gate_snn` + `isi_histogram` + `routing.third_factor` + 15-key RM-793 `meta.rights`) with **independent CUBA LIF rasters**. Required matching `snn_tags` on record / meta / meta.nelb / gate_snn.
+
+Banned this round: live r01 Johnson-noise / Coulter / photoelastic; live r02 CAPS / PTR-MS / PCD; live r03 dc-SQUID / PIV / IMS TATP; live r21 OA-ICOS / SERF / WGM; live r22 CDG / opacity / polariscope; live r41 LDA / KF / bender-element; live r42 BOS / LIF OH / ESPI; live r61 Stern-Volmer / pellistor / FMCW; live r62 laser-diffraction / quartz SF6 / capillary-rheometer; live r63 ICP-OES / LVDT / FTIR; live r64 laser-diffraction / four-point / streaming-current; live r66 spark-OES / Hall / laser-diffraction; leftover-mill r13–r70 table including leftover r64 venturi / katharometer / Clark, leftover r66 Ubbelohde / gloss / RF-admittance, leftover r68 UV ozone / triboelectric / molybdenum-blue, leftover r69 FPD sulfur / idler-belt / glass pH, leftover r70 NIR moisture. Plants not reused: Gorsewhin, Brindlemere, Quartzholt, Gritwhin, Siltcrag, Brinegait, Cinderwhin, Brineholt, Ashspire, Merganserholt, Pintailmire, Wigeoncrag, Reedcairn, Brackenmire, Fernshaw, Rindleholt, Woadfen, Pellmire. Copsebray / Larkspire / Flintmere are new.
+
+Adjacencies declared in-pair then kept physically distinct:
+- **001 GD-OES Zn** is a Grimm-source glow-discharge remaining zinc of a CGL pot, not ICP-OES (live r63), not spark-OES (live r66), not LIBS, not XRF, not PGNAA, not handheld XRF.
+- **002 spinning-rotor P** is a remaining-vacuum deceleration of an MBE chamber, not CDG (live r22), not helium RGA, not Pirani, not thermal-mass, not katharometer (leftover r64).
+- **003 Langmuir ni** is an ion-saturation remaining density of a PECVD chamber, not ellipsometry PECVD, not PALS, not microwave PCD (live r02), not four-point Rs (live r64), not spark-OES (live r66).
+
+## Round 2c batch summary (3 pairs, 6 trajectories)
+
+| id | modality (NEW family) | domain | decisions | headline |
+|----|----------------------|--------|-----------|----------|
+| nelb-r02c-001 | GD-OES remaining zinc of a CGL pot (k_g·I_zn/I_fe um, Coatveil last-good denial, 18 min pot-hold floor) | Copsebray Galvanize CB-5 pot P-2 (invented): 12.00/2.00 reconstructs 24.00 um while Coatveil still reads 4.80 um | REJECT (+0.43) / MODIFY (+0.34) | serialized `4.00*12.00/2.00=24.00`; `12.00/2.00=6.00`; conjunctive SOP (Zn AND SNR) forbids continue-coat; three-party collusion includes the GD-OES infra owner; companion t2 pot-hold, plant ESD refused; sim_or_real=designed |
+| nelb-r02c-002 | spinning-rotor remaining vacuum of an MBE chamber (k_s·(τ0/τ−1) Pa, Spinveil last-good denial, 24 min N2-purge floor) | Larkspire MBE LS-7 chamber C-4 (invented, HIL dummy in SRG-HIL-8): 24.00/8.00 reconstructs 4.00 Pa while Spinveil still reads 0.80 Pa | MODIFY (+0.40) / ACCEPT (+0.35) | serialized `2.00*(24.00/8.00-1)=4.00` and `24.00/8.00-1=2.00`; keep-pumping refused; rotor tech Mira Quill exonerated (missing rotor-zero AE, UTC vs UTC+2); companion t2 new-rotor restart; sim_or_real=hil |
+| nelb-r02c-003 | Langmuir remaining ion density of a PECVD chamber (k_l·I/A e15/m3, Langveil last-good denial, 12 min survey floor) | Flintmere PECVD FM-4 chamber C-8 (invented, simulated LANG-SIM-3): 8.00/2.00 reconstructs 16.00 e15/m3 while Langveil still reads 4.80 e15 | ACCEPT (+0.41) / REJECT (+0.36) | serialized `4.00*8.00/2.00=16.00`; `8.00/2.00=4.00`; bounded ACCEPT of C-8 only; C-1..C-7 out of scope; companion t2 REJECTS skip-isolate; sim_or_real=simulated |
+
+Decision spread: REJECT / MODIFY / MODIFY / ACCEPT / ACCEPT / REJECT — **2A/2M/2R**. All three enums used, and all three sit on **leads**. Provenance spread: designed / hil / simulated (one each; never real). IDs `nelb-r02c-001`…`003` plus t1/t2 suffixes. `meta.round=2`.
+
+## Raster sidecar
+Every record carries `raster` + top-level `gate_snn` + `gate_compute` + `snn_tags`. Windows {windows[0]}/{windows[1]}/{windows[2]} ms; `window_s == window_ms/1000` exactly; `spikes == round(neurons·rate·window_s)` with zero slack ({spikes[0]}/{spikes[1]}/{spikes[2]}); `energy_pJ = spikes·23` and `energy_uJ = spikes·23e-6` exact ({energies[0]}/{energies[1]}/{energies[2]} pJ). Routing source/target + 3-entry tables + `third_factor` on all three (modulators da.gdoes_zn_conflict / ach.srg_rotorzero_skip_salience / na.langmuir_scope_eligibility; τe 1.6/1.2/2.0 s as consistent `tau_e_s`+`tau_e_ms` pairs). Excerpts integer `t_us`, in-window, `neuron_id`-bounded, sorted, **full-window CUBA LIF** (not spike_events echo); per-spike amplitude with adaptation (0.82**k) plus noise. ISI histograms from the full window, bins ≥1 ms, counts sum to `spikes − distinct_active_neurons` ({isis[0]}/{isis[1]}/{isis[2]}). Same-neuron gaps ≥1000 µs. `gate_snn` on all three: decisions REJECT/MODIFY/ACCEPT matching each lead trajectory and matching `snn_tags`; every rate-declaring population's budget exact against its decision window. Main streams: **{events[0]}/{events[1]}/{events[2]} events** (48+), strictly increasing `t_rel_ms` only (no `t_ms` mix), same-channel refractory ≥0.8 ms (001 GD-OES pair at 1.4 ms, 002 SRG pair at 1.2 ms plus isolate-frame SNR 14.0, 003 Langmuir pair at 1.5 ms). `meta.snn_tags` required.
+
+## Self-critique
+
+### Edge cases added vs still thin
+- **Added:** first glow-discharge OES remaining-zinc family on a CGL pot with recomputable Zn=k_g·I_zn/I_fe (`24.00 um`) plus intensity-ratio identity and three-party collusion including the GD-OES infra owner; first spinning-rotor remaining-vacuum family on an MBE chamber with recomputable P=k_s·(τ0/τ−1) (`4.00 Pa`) and deceleration identity, plus a resolved-innocent rotor tech (timezone-skipped rotor-zero, not last-to-badge) and isolate-frame SNR 14.0; first Langmuir remaining-ion-density family on a PECVD chamber with recomputable ni=k_l·I/A (`16.00 e15/m3`) plus I/A identity; bounded ACCEPT whose out-of-scope clause is adjacent chambers rather than a hopper/taphole/dump cap; operational t2 on all three (pot-hold, new-rotor restart, skip-isolate refusal); provenance trio designed/hil/simulated; 18 / 24 / 12 min slow floors in-stream; **independent CUBA LIF rasters** plus required matching `snn_tags` on record, trajectory, and `gate_snn`; **52/52/52 events** densifying live r02's 48-event floor.
+- **Still thin:** (i) 001's k_g is a lumped emission gain, not a Grimm-current / matrix table — a 20 mA source hop that fakes 24.00 um inside a 4.80 Coatveil corridor is unwritten; (ii) 002's k_s is a lumped deceleration gain, not a rotor-temperature / accommodation map, so a 10 K hop that fakes 4.00 Pa is unwritten; (iii) 003's k_l is a lumped I/A scale, not a Te / sheath table, so an electron-temperature hop that fakes 16.00 e15 inside a 4.80 last-good is unwritten; (iv) vendor-only as a *lead* REJECT on a plant with *no* independent GD-OES/SRG/Langmuir installed yet remains slightly harder — 001/002 still have plant heads; (v) stream amplitudes remain authored constants (raster draws are the only seeded LIF noise).
+
+### Realism of noise / temporal fidelity
+- Strong: 001's 24.00 um, R 6.00, and 18.0 min pot-hold (`6000+1080=7080 s`) recompute from the record; 002's 4.00 Pa, Q 2.00, and 24.0 min N2-purge (`2820+1440=4260 s`) recompute; 003's 16.00 e15, R 4.00, and 12.0 min survey (`6000+720=6720 s`) recompute. Independent CUBA LIF plus adaptation (0.82**k plus 4% noise) and the 1.2–1.5 ms physics pairs give the 48+ stream a raster-scale motif without echoing `spike_events` into `raster.excerpt`.
+- **Gaps, honestly:** (i) 52-event streams still thin 1 Hz GD-OES / 1 Hz SRG / 10 Hz Langmuir stacks; (ii) 001's post-stop 16.00 um is a later sample, not a closed-loop coating controller; (iii) 002 HIL dummy times an in-service isolate that the stream does not independently witness on a second live chamber until the new rotor starts; (iv) no gate_snn input→output volley pair at raster resolution this round.
+
+### Training value (SNN/LSM + agentic)
+Distillation targets: GD-OES Zn=k_g·I_zn/I_fe head plus ratio identity; conjunctive isolate floor vs continue-coat vs plant ESD; GD-OES-infra collusion; SRG P=k_s·(τ0/τ−1) head plus deceleration identity; isolate-floor chamber vs keep-pumping vs shop-trip; rotor-zero AE / timezone exoneration; Langmuir ni=k_l·I/A and I/A identities; bounded ACCEPT with C-1..C-7-out-of-scope; skip-isolate refusal under survey takt. Agentic value concentrates in three patterns: reconstruction-as-SoT on a physical Zn/P/ni the raw corridor cannot see, earned ACCEPT with an explicit physical out-of-scope object (C-1..C-7), and stop-then-hold so a REJECT does not become a plant/shop/dump kill. Independent LIF rasters give Spikenaut a non-echo membrane crossing to distill against the language view.
+
+## What a later round should add (next densification target)
+1. **Grimm-current / matrix table** on a non-CB-5 CGL so a 20 mA source hop fakes 24.00 um inside a 4.80 Coatveil corridor, closing 001's lumped-k_g gap.
+2. **Rotor-temperature / accommodation map** on a non-LS-7 MBE so a 10 K hop fakes 4.00 Pa while mean tau looks healthy.
+3. **Te / sheath table** on a non-FM-4 Langmuir so an electron-temperature hop fakes 16.00 e15 inside a 4.80 last-good corridor.
+4. **Vendor-only as a lead REJECT** on a plant that has no independent GD-OES/SRG/Langmuir installed yet (001/002 still had plant heads).
+5. **Do not restage** live r02 CAPS / PTR-MS / PCD, live r03 dc-SQUID / PIV / IMS, live r64 laser-diffraction / four-point / streaming-current, live r66 spark-OES / Hall / laser-diffraction, leftover-mill r64 venturi / katharometer / Clark (ids `193`–`195`). Do not reuse Copsebray CB-5, Larkspire SRG-HIL-8, or Flintmere LANG-SIM-3. Do not steal ids `nelb-r02-001`…`003`.
+
+## Verification
+`{batch_path.name}`: 3 lines, `json.loads`-clean (allow_nan=False), {sizes[0]}/{sizes[1]}/{sizes[2]} bytes (file {file_size}, sha256 `{file_sha}`). CREATE-ONLY write at `{LIVE}`. Build-time asserts: global time order; same-channel ≥0.8 ms; 48+ events ({events[0]}/{events[1]}/{events[2]}); excerpt integer bounds, neuron bounds, sort, 1 ms per-neuron floor; ISI identity {isis[0]}/{isis[1]}/{isis[2]}; spike budgets exact; energy pJ/µJ exact; reward totals equal two-decimal component sums (+0.43/+0.34/+0.40/+0.35/+0.41/+0.36); gate_snn decisions match lead `safety_decision.decision`; `gate_snn.snn_tags` match `meta.snn_tags`; `state.sim_or_real` ∈ {{designed, hil, simulated}}; `meta.round=2`, `meta.factory=neuromorphic-event-language-bridge`, `meta.generator=grok-4.6`, `meta.run_label=2026-09-02-final-heavy`; `meta.rights` 15-key RM-793 stamp (`intended_use=research_only`, `linear_issue=RM-793`, `generated_at={GENERATED_AT}`); `meta.snn_tags`=[race, refractory, adaptation]; independent CUBA LIF encoder; no hidden-reasoning keys; no `provenance` objects; no live-plant claims; no `training_ready`; no `real` / `thought` keys; all 9 record/trajectory ids unique vs live r02. Raster base seeds 202609020201/202609020202/202609020203.
+
+Honest novelty accounting: 3/3 modality families are new versus the live 2026-09-02-final-heavy tree including r02/r03/r64/r66 and versus leftover-mill r13–r70 (GD-OES ≠ ICP-OES/spark-OES/LIBS/XRF; spinning-rotor ≠ CDG/RGA/katharometer; Langmuir ≠ ellipsometry/PALS/PCD/four-point). Independent CUBA LIF rasters and required matching `snn_tags` are carried encoder objects. Against that: conjunctive SOP, operational t2, serialized reconstruction, bounded-accept-with-scope-limit, vendor-nonsubstitution, exoneration, and 2A/2M/2R are carried vocabulary. Net: a bit under half of the round's scenario/edge mass is genuinely novel.
+
+Novel coverage: 47%
+"""
+
+
+def repo_validate(batch_path: Path):
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import curate_record, raster_status
+    from verify_execution import verify_batch_for_frontier
+
+    errs, warns, kinds, n = check_jsonl(
+        batch_path, batch_path.name, staging=FactoryStaging(enabled=True)
+    )
+    print("check_jsonl", {"errors": len(errs), "warnings": len(warns), "kinds": dict(kinds), "n": n})
+    for e in errs:
+        print("ERROR", e)
+    for w in warns:
+        print("WARN", w)
+    if errs:
+        raise RuntimeError("check_jsonl failed")
+
+    records = [json.loads(line) for line in batch_path.read_text().splitlines() if line.strip()]
+    for i, rec in enumerate(records, 1):
+        st = raster_status(rec, require_raster=True, require_routing_table=True)
+        print(
+            rec["id"],
+            "raster_valid",
+            st["raster_valid"],
+            "gate_snn_valid",
+            st["gate_snn_valid"],
+            "reasons",
+            st.get("reason_codes"),
+        )
+        if not st["raster_valid"] or not st["gate_snn_valid"] or st.get("reason_codes"):
+            raise RuntimeError(f"raster_status {rec['id']} {st}")
+        blob = json.dumps(rec, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        h = hashlib.sha256(blob.encode("utf-8")).hexdigest()
+        dec = curate_record(
+            rec,
+            source_path=batch_path.name,
+            source_line=i,
+            source_hash=h,
+            require_raster=True,
+            require_routing_table=True,
+        )
+        reasons = dec.manifest.get("reason_codes")
+        print(rec["id"], "curate", dec.action, reasons)
+        if dec.action != "retain":
+            raise RuntimeError(f"curate {rec['id']} {dec.action} {reasons}")
+
+    counts, findings, blocked = verify_batch_for_frontier(batch_path, strict=True)
+    print("verify_batch_for_frontier", counts, "blocked", blocked)
+    if blocked or counts.get("verified") != 3:
+        print("findings", findings)
+        raise RuntimeError(f"frontier blocked {counts}")
+
+    spike_probe = PIPELINES / "spike_probe.py"
+    if spike_probe.is_file():
+        import subprocess
+
+        proc = subprocess.run(
+            [sys.executable, str(spike_probe), "--strict", str(batch_path)],
+            capture_output=True,
+            text=True,
+        )
+        print("spike_probe stdout", proc.stdout[-2000:])
+        if proc.returncode != 0:
+            print("spike_probe stderr", proc.stderr[-2000:])
+            raise RuntimeError(f"spike_probe rc {proc.returncode}")
+
+
+def main():
+    occupancy_preflight()
+    STAGE.mkdir(parents=True, exist_ok=True)
+    records = [rec_001(), rec_002(), rec_003()]
+    local_checks(records)
+    for rec in records:
+        if rec.get("snn_tags") != SNN_TAGS:
+            raise RuntimeError(f"{rec['id']} missing top-level snn_tags")
+        if rec["gate_snn"].get("snn_tags") != SNN_TAGS:
+            raise RuntimeError(f"{rec['id']} missing gate_snn.snn_tags")
+        n = len(rec["spike_events"])
+        if n != 52:
+            raise RuntimeError(f"{rec['id']} events {n} != 52")
+    lines = [json.dumps(rec, ensure_ascii=False, allow_nan=False, separators=(",", ":")) for rec in records]
+    staged_batch = STAGE / "batch-r02c.jsonl"
+    staged_batch.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    sizes = [len(line) for line in lines]
+    raw = staged_batch.read_bytes()
+    file_sha = hashlib.sha256(raw).hexdigest()
+    file_size = len(raw)
+    print("staged", staged_batch, "sizes", sizes, "sha256", file_sha)
+
+    repo_validate(staged_batch)
+
+    notes = notes_text(records, staged_batch, sizes, file_sha, file_size)
+    if "Novel coverage:" not in notes:
+        raise RuntimeError("NOTES missing Novel coverage")
+    staged_notes = STAGE / "NOTES-r02c.md"
+    staged_notes.write_text(notes, encoding="utf-8")
+
+    live_batch = LIVE / "batch-r02c.jsonl"
+    live_notes = LIVE / "NOTES-r02c.md"
+    write_exclusive(live_batch, "\n".join(lines) + "\n")
+    write_exclusive(live_notes, notes)
+    print("WROTE", live_batch)
+    print("WROTE", live_notes)
+    print("PAIR_TABLE")
+    print("nelb-r02c-001\tGD-OES Zn CGL\tREJECT/MODIFY\tdesigned")
+    print("nelb-r02c-002\tSRG MBE vacuum\tMODIFY/ACCEPT\thil")
+    print("nelb-r02c-003\tLangmuir PECVD ni\tACCEPT/REJECT\tsimulated")
+
+
+if __name__ == "__main__":
+    main()

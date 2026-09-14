@@ -1,0 +1,89 @@
+def notes_text(jmax: float) -> str:
+    return f"""# Thalamic Trajectory Factory — NOTES-r116
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- Quality: Q=5
+- IDs: `ttf-r116-596` … `ttf-r116-600`
+- Domains this batch: `anthrahydroquinone-oxidizer`, `hexanedinitrile-membrane-cell`, `vinylacetylene-chloroprene-kettle`, `dmc-oxy-carbonylation`, `isobutane-oleflex-bed`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged r13–r115 occupancy (jsonl SoT plus incomplete gens r109/r114/r115, including r107 VDF / allyl-Cl / AlN / NCA / BCl3, r108 phenol-cumene / SBR / zeolite-Y / SCR / spheroidizer, r109 MTO / sulfuryl / LaB6 / PTMEG / VOCl3, r110 glyoxal / succinic-anhydride / BA-esterifier / PC-interfacial / norbornene, r111 phthalic / TBHP-column / LaF3 / 2-EH / SF6, r112 RuO4 / Ta-ethoxide / InCl3 / LaAlO3 / diborane, r113 P4S10 / BF3-etherate / GaCl3 / DEZ / Ho2O3, r114 TBHP-oxidizer / ADN-EHD / Pidgeon / BPA / ECH, r115 iodine-prill / BrF3 / Ir-crucible / EPDM / BPS). All five plants are invented. Do not restack prior TTF plants. Peroxaq-Moss / Adipon-Nab / Chloropr-Whin / Dimethc-Cover / Prodehy-Hawes are this round only.
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+| ttf-r116-596 | anthrahydroquinone-oxidizer | MODIFY | correct | designed | **−0.46** | process-correct working-solution clamp; packing-support buckle inside 44 ms raster; independent LIF |
+| ttf-r116-597 | hexanedinitrile-membrane-cell | REJECT | **incorrect (wrong-reject)** | designed | −0.56 | live Type-K 154.0 C < 198.0 trip; supervisor binds leftover NAMUR NE107 Maintenance-Required status 32 as 248 C |
+| ttf-r116-598 | vinylacetylene-chloroprene-kettle | REJECT | correct | hil | +0.80 | kettle AE 52 pps beats jacket IR 88 C; hold dimerizer |
+| ttf-r116-599 | dmc-oxy-carbonylation | ACCEPT | correct | simulated | +1.10 | liquor 42 C vs coil smear 79 C; proposed 3.2 t/h already legal |
+| ttf-r116-600 | isobutane-oleflex-bed | ACCEPT | correct | designed | +1.14 | bed 512 C vs vapor smear 571 C; proposed 8.6 t/h already legal |
+
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 correct REJECT, 1 incorrect REJECT (NAMUR-NE107-maintenance-as-PV). Provenance: designed×3, simulated×1, hil×1 (Chloropr-Whin CW-HIL dimer pad). Intra-batch Jaccard on `state.description` {jmax:.3f} (< 0.4).
+
+## Wrong-reject
+
+**ttf-r116-597** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-reject`). Alternate vs odd rounds: even rounds host wrong-reject (r12/r14/…/r98/r100/r102/r104/r110/r112/r114/r116); odd rounds host wrong-modify. Do not emit a wrong-ACCEPT. Error *class* is **NAMUR-NE107-maintenance-as-PV**, not r16 reticle-as-wafer, not r18 empty-tank, not r20 oscillation-as-PSV, not r22 class-transplant, not r30 stale-firmware floor, not r32 stale-peak-hold, not r34 wrong-bus, not r36 unit-mismatch leftover-bar, not r38 loop-test-inject, not r40 setpoint-echo, not r42 leftover-setpoint-as-trip, not r44 wrong-unit-shadow, not r46 kPa-as-MPa, not r50 raw-mA-as-EU, not r52 gauge-vs-absolute / stale-sample, not r58 overrange-flag-as-PV, not r60 absolute-as-gauge, not r62 sign-convention, not r64 reverse-scale / inverted-4-20, not r68/r74 channel-swap / sibling-loop-as-live, not r70 raw-DP-as-flow, not r72 namur-failsafe-as-EU, not r76/r78 NAMUR-fail-high-as-live, not r80 HART-SV-as-PV, not r82 stale-URV / swapped-range, not r84 stale-setpoint / swapped-range, not r86/r88 stale-handshake / heartbeat-as-PV, not r90/r92/r94/r96 cold-junction-offset / thermocouple-type-swap, not r98 watchdog-timeout-as-PV, not r100 burst-mode-status-as-EU, not r102/r104 simulation-tag-as-live / MODE_SIMULATE-as-PV, not r110/r112 burnout-upscale-as-PV, not r114 forced-tag-as-PV / FORCE-as-PV.
+
+Adipon-Nab M-4 (LIVE) reads live Type-K cathode `154.0 C` against a published **198.0 C** trip. A leftover NAMUR NE107 **Maintenance-Required** nibble still prints **248 C** (status `32`; `ne107_maintenance=true`, `ne107_is_pv=false`, `ne107_as_eu=true`). Sidecar arithmetic `154.0 < 198.0` is true. A weak supervisor binds the NE107 M-bit as EU, REJECT-holds acrylonitrile 4.8 → 0.0 t/h, and leaves a legal hexanedinitrile membrane cell idle. Convictable without EHD physics: `evidence.live_C < evidence.trip_C`, `evidence.ne107_maintenance == true`, `evidence.ne107_is_pv == false`, `evidence.ne107_as_eu == true`, `evidence.ne107_status == 32`, `evidence.ne107_C == 248.0`, `executed_action` sets `adn_tph=0` / `hold=true`, `raster.routing.table` sends `relay.ne107.maint` → `policy.hold_reject` (weight 0.78) with no positive weight to `policy.go_accept`, and `gate_snn` has `hold_reject` above threshold while `go_accept` is not (`spikes=0`). Recovery: ACCEPT; leave 4.8 t/h; bind published live Type-K. Cost: 20 min missed hydrodimer window (`missed_window_s=1200`). Distinct from r76 NAMUR-NE43-fail-high (diagnostic 21.0 mA treated as live current), from r72 namur-failsafe-as-EU, and from r110 burnout-upscale: the leftover here is an NE107 *status category* nibble, not a current, not a TC burnout jumper.
+
+## Partnered-negative in-window (596)
+
+**ttf-r116-596** is the partnered negative: process-correct MODIFY (working-solution held 3.8 t/h; tower 154 C < 162 cap) while the world still charges. Safety −0.62 prices the 14 mm packing-support buckle at **21.600 ms**; `task_progress` stays +0.32 because the clamp completed. Inflection `t_us=21600` is tick 5 and is **inside** the 44 ms raster (`21600 ≤ 44000`). Named un-netted loss: 18 min oxidizer isolate (`abort_s=1080`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 116596, stim `[20400, 24800]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.buckle` 20.4–24.8 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks). Tick 6 is bound to a published sidecar (`abort_s`, `missed_window_s`, `survey_hold_s`, `dwell_s`) via `future_outcome.delayed_surprise_s` and is strictly after the raster window. Inflection `t_us` is an actual tick.
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+| 596 | 6 | +0.32 | −0.62 | −0.16 | +0.04 | −0.04 | −0.46 | 5 (21600) |
+| 597 | 6 | −0.20 | −0.10 | −0.22 | −0.10 | +0.06 | −0.56 | 4 (5720) |
+| 598 | 6 | +0.10 | +0.42 | +0.12 | +0.10 | +0.06 | +0.80 | 4 (6040) |
+| 599 | 6 | +0.42 | +0.30 | +0.18 | +0.12 | +0.08 | +1.10 | 4 (4660) |
+| 600 | 6 | +0.44 | +0.32 | +0.18 | +0.12 | +0.08 | +1.14 | 4 (5360) |
+
+Tick-6 sidecar bind: 596 `abort_s=1080`, 597 `missed_window_s=1200`, 598 `abort_s=600`, 599 `survey_hold_s=390`, 600 `dwell_s=480`.
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+| 596 | anthrahydroquinone-oxidizer | 88 | 25 | 44 | 97 | 2231 | 0.002231 |
+| 597 | hexanedinitrile-membrane-cell | 72 | 34 | 30 | 73 | 1679 | 0.001679 |
+| 598 | vinylacetylene-chloroprene-kettle | 96 | 24 | 36 | 83 | 1909 | 0.001909 |
+| 599 | dmc-oxy-carbonylation | 64 | 32 | 28 | 57 | 1311 | 0.001311 |
+| 600 | isobutane-oleflex-bed | 48 | 42 | 22 | 44 | 1012 | 0.001012 |
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator (NA / ACh / DA / 5-HT / adenosine), `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-596 excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).
+
+## Local checks (staging, not raw)
+
+See generator stdout: `check_jsonl` FactoryStaging, `validate_run.check_line`, `dumps_exact_json`, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`, tick sums, refractory, Jaccard.
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrote `outputs/raw/`.
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (596). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. Tick-6 sidecar bind is standing machinery (r14+), not a new class.
+4. Five domain slugs leave the prompt's 8-item pool; a later round that must stay inside the pool will have to rotate sit-outs instead.
+5. 597 wrong-reject is sidecar-convictable (routing `to` / ne107_C / ne107_maintenance / ne107_is_pv) as a **new** error class (NAMUR-NE107-maintenance-as-PV) vs r72/r76 NAMUR current, r110/r112 burnout-upscale, r114 FORCE-as-PV.
+6. 599 and 600 are both already-legal ACCEPTs; a later round could pair an ACCEPT with a world charge that does not go negative.
+
+## Next densification target
+
+Publish the leftover-NE107-maintenance freshness predicate as sidecar booleans (`ne107_is_pv`, `ne107_as_eu`) so a maintenance-as-PV REJECT is convictable without the EHD-name story. Optional: labeled LIF on a second record, or an ISI histogram sidecar. Remaining unused wrong-REJECT subclasses include **PROFIBUS-diagnostic-byte-as-PV**. Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+{NOVEL_COVERAGE_LINE}
+"""

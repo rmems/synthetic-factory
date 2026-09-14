@@ -1,0 +1,24 @@
+                        (
+                            "contenders",
+                            [
+                                "ir.acid.pct 88.2 percent acid strength",
+                                "dp.contactor.smear hitch claim",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Acid-first confirms the already-legal 22.0 m3/h / 88.2 percent pass; DP-first "
+                            "would have treated the IR as a hitch echo and looked for an extra hold "
+                            "the contactor does not need.",
+                        ),
+                        (
+                            "window_derivation",
+                            "280 us = one acid-strength IR slot versus the contactor-DP publisher on this "
+                            "alkylation bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 190 us vs combined jitter 58 us (IR 28 + DP 30): 3.3x over "
+                            "a 2.0x trust floor. Reversing order by < 190 us would not make the "
+                            "proposed pass illegal; it would only have delayed confirmation.",
+                        ),

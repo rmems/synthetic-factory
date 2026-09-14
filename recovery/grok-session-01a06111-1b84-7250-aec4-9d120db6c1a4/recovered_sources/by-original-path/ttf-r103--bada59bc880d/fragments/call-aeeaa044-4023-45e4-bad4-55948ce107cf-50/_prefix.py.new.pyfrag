@@ -1,0 +1,14 @@
+THIS_DOMAINS = {
+    "selenium-dioxide-scrubber",
+    "nickel-carbonyl-decomposer",
+    "yttrium-fluoride-electrolyzer",
+    "germanium-tetrachloride-rectifier",
+    "cerium-oxalate-calciner",
+}
+THIS_PLANTS = (
+    "Selenite-Hawes",
+    "Nickcarb-Linnick",
+    "Yttria-Scarth",
+    "Germanyl-Tofts",
+    "Ceriax-Howk",
+)

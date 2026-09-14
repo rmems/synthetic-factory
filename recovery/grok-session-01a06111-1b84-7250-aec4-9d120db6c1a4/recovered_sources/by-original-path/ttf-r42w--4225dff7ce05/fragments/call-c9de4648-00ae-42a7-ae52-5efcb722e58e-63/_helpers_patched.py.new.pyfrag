@@ -1,0 +1,7 @@
+    extra_batches = []
+    window = Path("/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-09-02-final-heavy/thalamic-trajectory-factory")
+    if window.is_dir():
+        extra_batches.extend(sorted(window.glob("batch-r*.jsonl")))
+    for path in list(sorted(Path("/tmp").glob("ttf-r*/batch-r*.jsonl"))) + extra_batches:
+        if path.parent.name == "ttf-r42w":
+            continue

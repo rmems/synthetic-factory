@@ -1,0 +1,40 @@
+{
+  "agent_ids": [
+    "01a0640b-4745-75c3-adbb-06621ba9f5de"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations",
+    "a successful recorded terminal delete or move removed the final in-/tmp state"
+  ],
+  "event_count": 2,
+  "final_state": "deleted",
+  "hunk_evidence_count": 2,
+  "original_basename": "_checks.py",
+  "original_path": "/tmp/ttf-r54/_checks.py",
+  "path_key": "ttf-r54--b78da637e1e5",
+  "terminal_event_ids": [
+    "01a0640b-4745-75c3-adbb-06621ba9f5de:call-23733cb4-31e1-4913-9119-cd9e7076accc-47",
+    "01a0640b-4745-75c3-adbb-06621ba9f5de:call-2ec0e929-1ff2-4b5d-bddf-8f5def830fc4-71",
+    "01a0640b-4745-75c3-adbb-06621ba9f5de:call-746e8727-adac-4f69-b93f-ca1b7aec4e1e-63",
+    "01a0640b-4745-75c3-adbb-06621ba9f5de:call-a3ac80fb-a598-42c8-b82a-8308efa2c623-66",
+    "01a0640b-4745-75c3-adbb-06621ba9f5de:call-bc73416f-9540-4523-914a-3e05681497a9-57",
+    "01a0640c-18bc-7b83-bc01-0dcbb52bc407:call-bd8b8d63-7d71-4e22-b83a-412a13037b1f-15"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 1,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a0640b-4745-75c3-adbb-06621ba9f5de:call-0bc4aa16-ed01-46a1-be35-0613178d319d-52",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r54--b78da637e1e5/fragments/call-0bc4aa16-ed01-46a1-be35-0613178d319d-52/_checks.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r54--b78da637e1e5/fragments/call-0bc4aa16-ed01-46a1-be35-0613178d319d-52/_checks.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

@@ -1,0 +1,21 @@
+            ("name", "hold_melt_28"),
+            ("parameters", params),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("prill_mm", 1.80),
+                        ("prill_cap_mm", 2.40),
+                        ("draft_kPa", 1.80),
+                        ("draft_cap_kPa", 2.40),
+                        ("race_margin_us", 220),
+                        ("combined_jitter_us", 70),
+                        ("reseq_s", 240),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Prill 1.80 mm is under the 2.40 mm cap and draft 1.80 kPa is under "
+                "the 2.40 kPa cap; 28 t/h hold is already legal.",
+            ),

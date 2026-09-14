@@ -1,0 +1,1 @@
+    channels = ["lif.clamp" if t < stim[0] else "lif.liner" for t, _ in picked]

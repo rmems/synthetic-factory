@@ -1,0 +1,3 @@
+                    "Teaches a probe that a correct live-sccm-first race can still be a wrong gate when the MODIFY binds a lagged slm publisher of the same MFC. Convictable from live_sccm vs cap_sccm, lag_ms, and routing to without sputter kinetics.",
+                    2,
+                    supervisor_error_type="wrong-modify",

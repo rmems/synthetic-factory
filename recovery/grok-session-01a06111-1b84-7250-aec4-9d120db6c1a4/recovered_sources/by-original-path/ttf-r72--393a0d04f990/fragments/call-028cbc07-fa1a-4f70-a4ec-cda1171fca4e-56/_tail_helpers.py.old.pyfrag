@@ -1,0 +1,17 @@
+        if rid == "ttf-r60-316":
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["live_g_MPa"] < ev["cap_g_MPa"]):
+                issues.append("316 gauge not under cap")
+            if ev.get("abs_as_gauge") is not True:
+                issues.append("316 abs_as_gauge not tagged")
+            if not (ev["live_a_MPa"] > ev["cap_g_MPa"]):
+                issues.append("316 absolute not over gauge cap")
+            if rec["executed_action"]["parameters"]["o2_kNm3_h"] != 0.0:
+                issues.append("316 executed O2 not zero")
+            tos = {row["to"] for row in rec["raster"]["routing"]["table"]}
+            if "policy.go_accept" in tos:
+                issues.append("316 routing contains go_accept")
+            if "policy.hold_reject" not in tos:
+                issues.append("316 routing missing hold_reject")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("316 missing recovery")

@@ -1,0 +1,1226 @@
+def _exact(a, b, eps=1e-12):
+    if abs(a - b) > eps:
+        raise RuntimeError(f"arith {a} != {b}")
+
+
+# ---------------------------------------------------------------------------
+# Record 100 — digital shearography of a composite pressure-hull panel
+# designed, MODIFY / ACCEPT
+# ---------------------------------------------------------------------------
+def rec_100():
+    lam_m = 5.00e-7
+    s_m = 5.00e-3
+    n_fringe = 8.00
+    gamma_urad = 1e6 * lam_m * n_fringe / (2.0 * s_m)
+    _exact(gamma_urad, 400.0)
+    _exact(1e6 * lam_m * 4.00 / (2.0 * s_m), 200.0)
+    _exact(1e6 * lam_m * 6.00 / (2.0 * s_m), 300.0)
+    _exact(1e6 * lam_m * 5.60 / (2.0 * s_m), 280.0)
+    _exact(7200.0 + 1200.0, 8400.0)
+
+    raster = make_raster(
+        neurons=20,
+        mean_rate_hz=50.0,
+        window_ms=36.0,
+        seed=20260933,
+        source="wm9.shear.panel",
+        target="woadmere.panel_isolate_core",
+        table=[
+            {"from": "shear_N", "to": "slope_estimator", "weight": 1.40},
+            {"from": "shear_S", "to": "shear_norm_core", "weight": 1.20},
+            {"from": "shearveil_g", "to": "vendor_continue_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "na.disbond_slope_salience",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": "pre-post coincidence on panel-isolate synapses; the shearography modulator enables potentiation only while shear distance is co-active inside tau_e so a Shearveil unwrap corridor cannot hide a 400 urad disbond slope",
+        },
+        channel_prefix="shear.n",
+        anchor="WM-9 shearography 36 ms frame at N 8.00 / S 5.00 mm (t_s 3000) reconstructing 400.0 urad above the 250 urad isolate floor",
+    )
+    w_s = 0.036
+    events = [
+        ev(0.0, "shear.N", 4.00, code="FRINGE_N", units="fringe", note="plant-owned digital shearography on hull panel HP-14; not LIT, not PAUT TFM, not FBG strain"),
+        ev(300000.0, "shear.S", 5.00, code="SHEAR_MM", units="mm", note="image-shear distance; gamma = 1e6*lambda*N/(2S)"),
+        ev(600000.0, "recon.gamma", 200.0, code="GAMMA_URAD", units="urad", note="1e6*5.00e-7*4.00/(2*5.00e-3)=200.0 exact"),
+        ev(900000.0, "cam.rms", 0.40, code="CAM_PX", units="px", note="camera vibration corridor"),
+        ev(1200000.0, "shearveil.g", 80.0, code="VENDOR_URAD", units="urad", note="Shearveil unwrap cloud; not admissible SoT"),
+        ev(1800000.0, "shear.N", 6.00, code="FRINGE_N", units="fringe"),
+        ev(2100000.0, "recon.gamma", 300.0, code="GAMMA_URAD", units="urad", note="1e6*5.00e-7*6.00/(2*5.00e-3)=300.0"),
+        ev(2400000.0, "hull.P", 18.0, code="HULL_BAR", units="bar"),
+        ev(2700000.0, "dive.m", 90.0, code="DIVE_M", units="m", note="design depth 100 m; 90 m is not a slope license"),
+        ev(3000000.0, "shear.N", 8.00, code="FRINGE_N", units="fringe", note="isolate-floor frame; raster sidecar"),
+        ev(3000001.4, "shear.S", 5.00, code="SHEAR_MM", units="mm", note="1.4 ms shear-norm after fringe count"),
+        ev(3300000.0, "recon.gamma", 400.0, code="GAMMA_URAD", units="urad", note="1e6*5.00e-7*8.00/(2*5.00e-3)=400.0 exact; isolate floor 250"),
+        ev(3600000.0, "cam.rms", 0.42, code="CAM_PX", units="px"),
+        ev(3900000.0, "shearveil.g", 120.0, code="VENDOR_URAD", units="urad", note="Shearveil 8.00 fringes through a patched unwrap still 120 urad"),
+        ev(4200000.0, "vac.mbar", 80.0, code="VAC_MBAR", units="mbar"),
+        ev(4800000.0, "ops.prop", 1.0, code="KEEP_1_DIVE", units="bool", note="hull surveyor Tess Quill: keep 1.00 dive-rating; 8 fringes are camera shake"),
+        ev(5400000.0, "gate.isol", 1.0, code="MODIFY", units="decision", note="isolate panel HP-14; derate dive to 0.80; 400 urad is above 250"),
+        ev(6000000.0, "dive.set", 0.80, code="PU", units="pu"),
+        ev(6600000.0, "panel.lock", 1.0, code="HP14_ISOL", units="bool"),
+        ev(7200000.0, "dwell.start", 1.0, code="DWELL_START", units="bool", note="bookend 1 of the 20.0 min vacuum-dwell floor"),
+        ev(7800000.0, "vac.mbar", 78.0, code="VAC_MBAR", units="mbar"),
+        ev(8400000.0, "dwell.floor", 1.0, code="DWELL_FLOOR", units="bool", note="7200 s + 1200 s = 8400 s = 20.0 min"),
+        ev(9000000.0, "ops.restore", 1.0, code="RESTORE_1_DIVE", units="bool", note="Quill: Shearveil 110 urad, restore 1.00 dive-rating"),
+        ev(9600000.0, "gate.exec", 1.0, code="ACCEPT", units="decision", note="companion t2: hold 0.80; Shearveil restore refused; hull condemn refused"),
+        ev(10200000.0, "dive.held", 0.80, code="PU_HELD", units="pu"),
+        ev(10800000.0, "shearveil.g", 110.0, code="VENDOR_URAD", units="urad"),
+        ev(11400000.0, "recon.gamma", 280.0, code="GAMMA_URAD", units="urad", note="post-isolate 5.60 fringes; 1e6*5.00e-7*5.60/(2*5.00e-3)=280.0; still above 250"),
+        ev(12000000.0, "cam.rms", 0.30, code="CAM_PX", units="px"),
+        ev(12600000.0, "hull.P", 14.4, code="HULL_BAR", units="bar"),
+        ev(13200000.0, "panel.held", 1.0, code="HP14_HELD", units="bool"),
+        ev(13800000.0, "condemn.hold", 0.0, code="HULL_CONDEMN", units="bool", note="whole-hull condemn not taken; 400 vs 800 urad tripwire"),
+        ev(14400000.0, "dive.held", 0.80, code="PU_HELD", units="pu"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r33-100-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "WM-SHEAR-2026-0614",
+            "domain": "digital_shearography_pressure_hull",
+            "setting": "Woadmere Submersibles WM-9 (invented), composite pressure-hull panel HP-14. Plant-owned digital shearography (500 nm, 5.00 mm image shear) on the vacuum-dwell stand. Shearveil vendor unwrap cloud is a corridor witness, not the panel SoT. Invented plant; designed campaign. Not lock-in thermography (r23), not PAUT TFM (r23), not FBG ice-load strain (r13), not RUS porcelain (r24).",
+            "observables_at_decision": {
+                "N_fringe": 8.00,
+                "S_mm": 5.00,
+                "lambda_nm": 500.0,
+                "gamma_urad": 400.0,
+                "shearveil_urad": 120.0,
+                "cam_rms_px": 0.42,
+                "isolate_floor_urad": 250.0,
+            },
+            "margin_authority": "WM-9 shearography SOP rev B: if reconstructed gamma_urad >= 250, isolate this panel this night and derate dive-rating to 0.80. A camera-RMS corridor or Shearveil unwrap patch cannot keep 1.00. Whole-hull condemn tripwire is 800 urad.",
+        },
+        "proposed_action": {
+            "actor": "hull surveyor Tess Quill, citing Shearveil 120 urad and camera RMS 0.42 px",
+            "summary": "keep 1.00 dive-rating through the night; 8 fringes are camera shake on a healthy bondline",
+            "basis_claimed": "Shearveil unwrap and camera RMS are both under the 250 urad isolate floor and hull pressure is in band",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Keep-1.00 dive-rating is refused. Serialized reconstruction: gamma_urad = 1e6 * lambda_m * N / (2 * S_m) = 1e6 * 5.00e-7 * 8.00 / (2 * 5.00e-3) = 400.0, which is 150 urad above the 250 isolate floor and 400 urad under the 800 whole-hull condemn tripwire. Shearveil 120 urad is the same 8.00 fringes through a patched unwrap and is not an admissible keep-1.00 witness. Ordered: isolate panel HP-14 and derate dive-rating to 0.80 now. Scope: this MODIFY does not condemn the hull (that is the companion question) and does not scrap the bow dome.",
+            "threshold": "gamma_urad>=250 => isolate this panel and derate dive to 0.80; Shearveil is not SoT; condemn if gamma_urad>=800",
+            "stated_residuals": "400 vs 800 condemn floor is 400 urad, not infinite; 0.80 is a depth cut; Shearveil remains the only OEM unwrap channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 5400: HP-14 isolated; dive-rating 0.80; Shearveil not SoT; reconstruction locked",
+            "tool": "wm9-shear-panel-gate-cli",
+            "observation": "gamma 400.0 urad recomputes from N 8.00 and S 5.00 mm; shear head remains live as the condemn interlock",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "shear N 8.00; raster frame; gamma 400.0 urad"},
+                {"t_s": 4800.0, "event": "ops proposes keep 1.00 dive-rating"},
+                {"t_s": 5400.0, "event": "MODIFY isolate HP-14; derate dive to 0.80"},
+                {"t_s": 7200.0, "event": "20 min vacuum-dwell bookend 1"},
+                {"t_s": 8400.0, "event": "20.0 min floor"},
+                {"t_s": 9600.0, "event": "companion ACCEPT hold 0.80; restore refused"},
+            ],
+            "observed_effects": [
+                "slope recomputes from the serialized shearography model at every recon.gamma event",
+                "a Shearveil-only head would have kept 1.00 dive-rating overnight",
+                "20 min vacuum-dwell floor is in the stream (dwell.start, dwell.floor)",
+            ],
+            "surprises": [
+                "a mid-range vendor unwrap and a quiet camera RMS co-existed with a 400 urad shearography reconstruction",
+            ],
+            "new_state": {
+                "wm9_dive_pu": 0.80,
+                "hp14": "isolated",
+                "shearveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("shearography_reconstruction", 0.14),
+                ("isolate_floor_derate", 0.12),
+                ("vendor_unwrap_nonsubstitution", 0.10),
+                ("dwell_floor_in_stream", 0.08),
+                ("derate_depth_cost", -0.04),
+            ],
+            "scored for a keep-1.00 MODIFY on a recomputable shearography slope while refusing a Shearveil 120 urad corridor; 20 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "digital-shearography", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Shearography hull gate: lambda*N/(2S) reconstruction beats a green vendor unwrap dashboard; companion t2 holds 0.80 rather than restoring on Shearveil",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r33-100-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "WM-SHEAR-2026-0614-exec",
+            "domain": "hull_dive_derate_execution",
+            "setting": "Same WM-9 after the MODIFY. Hull surveyor proposes restoring 1.00 dive-rating on Shearveil 110 urad. This companion is the operational 0.80 hold, not a second fringe vote.",
+            "observables_at_decision": {
+                "dive_pu": 0.80,
+                "gamma_urad": 280.0,
+                "shearveil_urad": 110.0,
+                "dwell_floor_s": 1200.0,
+            },
+        },
+        "proposed_action": {
+            "actor": "hull surveyor Tess Quill",
+            "summary": "restore 1.00 dive-rating; 20 min already paid and Shearveil is 110 urad",
+            "basis_claimed": "the MODIFY already cut depth, so restoring on the OEM unwrap is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Hold 0.80 dive-rating. The vacuum-dwell floor is complete and the condemn tripwire (gamma_urad >= 800) is still armed on the plant shear head. ACCEPT the hold. Do not restore 1.00 on Shearveil. Do not condemn the hull. 280 urad post-isolate is still the shearography SoT until a new frame clears 250.",
+            "threshold": "dive_pu==0.80 AND dwell_floor_complete AND condemn_tripwire_armed AND restore_1pu_not_taken AND hull_not_condemned",
+        },
+        "executed_action": {
+            "summary": "0.80 dive-rating held at t_s 9600; Shearveil restore not latched; hull not condemned",
+            "tool": "wm9-dive-derate-exec",
+            "observation": "recon.gamma 280.0 urad after isolate; vacuum 78 mbar; Shearveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 7200.0, "event": "dwell clock started after MODIFY"},
+                {"t_s": 8400.0, "event": "20.0 min floor"},
+                {"t_s": 9000.0, "event": "restore 1.00 dive-rating proposed"},
+                {"t_s": 9600.0, "event": "ACCEPT hold 0.80 dive-rating"},
+            ],
+            "observed_effects": [
+                "Shearveil restore did not reopen the slope call",
+                "condemn tripwire never fired; 400 vs 800 urad floor",
+            ],
+            "new_state": {"dive_pu": 0.80, "restore_1pu": "blocked", "hull": "in service", "hp14": "isolated"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("hold_0p80", 0.12),
+                ("no_shearveil_restore", 0.10),
+                ("no_hull_condemn", 0.09),
+                ("dwell_complete", 0.06),
+                ("held_depth_cost", -0.02),
+            ],
+            "operational execution gate: hold 0.80 because Shearveil is not a restore license; not a fringe re-vote",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "hull-derate"]),
+    }
+    return {
+        "id": "nelb-r33-100",
+        "spike_events": events,
+        "language_view": {
+            "description": "Woadmere Submersibles WM-9. Plant-owned digital shearography reconstructs 400.0 urad from 8.00 fringes / 5.00 mm shear while Shearveil still shows 120 urad and camera RMS 0.42 px. The gate MODIFYs panel HP-14 isolate plus 0.80 dive-rating. A 20 min vacuum-dwell floor is serialized in the stream. Companion t2 ACCEPTs the 0.80 hold and refuses a Shearveil restore.",
+            "trajectory": traj,
+            "trajectory_dive_hold": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "shear.N / shear.S": "fringe order and image-shear distance; the physics channels the reconstruction consumes",
+                "recon.gamma / recon.lock": "serialized out-of-plane slope urad",
+                "cam.rms / shearveil.g / hull.P / dive.m": "camera vibration, vendor unwrap cloud, hull pressure, and depth corridor; the denial channels that look healthy",
+                "ops.prop / gate.isol / ops.restore / gate.exec": "keep-1.00 proposal, MODIFY isolate, restore proposal, companion ACCEPT",
+                "dive.set / dwell.start / dwell.floor / dive.held / panel.held": "operational companion channels plus the 20 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while shear-over: shearveil.g 120 next to recon.gamma 400",
+                "reconstruction as event: recon.gamma 400.0 equals 1e6*5.00e-7*8.00/(2*5.00e-3)",
+                "MODIFY then operational ACCEPT: gate.isol at 5400 s, gate.exec at 9600 s",
+                "slow floor in-stream: dwell.start 7200 s, dwell.floor 8400 s (20.0 min)",
+                "tight shear pair: shear.N then shear.S +1.4 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Shearveil is 120 urad' = shearveil.g 120.0; '400 urad disbond' = recon.gamma 400.0; 'isolate this panel' = gate.isol MODIFY; 'hold 0.80 not restore' = gate.exec ACCEPT",
+            "why_high_value": "New digital-shearography family on a composite pressure-hull panel (not lock-in thermography r23, not PAUT TFM r23, not FBG strain r13, not RUS r24). Lead MODIFY of keep-1.00 dive-rating on a recomputable slope that a vendor unwrap dashboard would have cleared. Companion t2 is operational 0.80 hold. sim_or_real=designed.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 20260933, "stream_note": "stream amplitudes are authored constants (fringe, mm, urad, px, bar, m, mbar, pu, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "shear camera exists at 30 Hz; stream keeps 3 N points; recon keeps 4 of ~40 solver ticks",
+                "refractory_floors_ms": {
+                    "shear.N": 1.4,
+                    "shear.S": 1.4,
+                    "recon.gamma": 60000,
+                    "cam.rms": 60000,
+                    "shearveil.g": 60000,
+                    "hull.P": 60000,
+                    "dive.m": 60000,
+                    "vac.mbar": 60000,
+                    "ops.prop": 60000,
+                    "gate.isol": 60000,
+                    "dive.set": 60000,
+                    "panel.lock": 60000,
+                    "dwell.start": 60000,
+                    "dwell.floor": 60000,
+                    "ops.restore": 60000,
+                    "gate.exec": 60000,
+                    "dive.held": 60000,
+                    "panel.held": 60000,
+                    "condemn.hold": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-06-14T03:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "shearography reconstruction head: gamma_urad = 1e6 * lambda_m * N / (2 * S_m)",
+                "isolate-floor derate vs keep-whole vs hull-condemn",
+                "vendor-unwrap nonsubstitution: patched fringe unwrap is not a keep-1.00 witness",
+                "operational companion: hold 0.80 without restoring on Shearveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "digital_shearography_out_of_plane_slope",
+            "formula": "gamma_urad = 1e6 * lambda_m * N_fringe / (2 * S_m)",
+            "parameters": {
+                "lambda_m": 5.00e-7,
+                "S_m": 5.00e-3,
+                "isolate_floor_urad": 250.0,
+                "condemn_urad": 800.0,
+                "derate_pu": 0.80,
+                "dwell_min": 20.0,
+            },
+            "worked_example": {"N_fringe": 8.00, "gamma_urad": 400.0},
+            "check": "1e6 * 5.00e-7 * 8.00 / (2 * 5.00e-3) = 400.0 exactly; 7200 s + 1200 s = 8400 s = 20.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 36.0,
+            "decision_window_s": 0.036,
+            "code": "wm9.shear_panel_gate",
+            "note": "MODIFY accumulator wins: shearography slope evidence overpowers the Shearveil continue advocate",
+            "decode_rule": "modify-isolate if slope_estimator AND shear_norm fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("slope_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("shear_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("modify_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "wm9.shear_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "wm9.isolate_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r33-100",
+            clock_domain="wm9-shear-campaign-relative-ms-t0-2026-06-14T03:00:00Z",
+            tags=["digital-shearography", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 101 — hydrogen permeation probe of a hydrotreater effluent, hil,
+# REJECT / MODIFY
+# ---------------------------------------------------------------------------
+def rec_101():
+    k_ppm = 0.500
+    i_ua = 48.00
+    a_cm2 = 2.00
+    c_ppm = k_ppm * i_ua / a_cm2
+    _exact(c_ppm, 12.00)
+    _exact(k_ppm * 16.00 / a_cm2, 4.00)
+    _exact(k_ppm * 32.00 / a_cm2, 8.00)
+    _exact(k_ppm * 20.00 / a_cm2, 5.00)
+    l_cm = 0.600
+    t_lag_s = 600.0
+    d_cm2_s = (l_cm ** 2) / (6.0 * t_lag_s)
+    _exact(d_cm2_s, 1.00e-4)
+    _exact(1500.0 + 2700.0, 4200.0)
+
+    raster = make_raster(
+        neurons=25,
+        mean_rate_hz=50.0,
+        window_ms=28.0,
+        seed=20260934,
+        source="bh11.perm.coupon",
+        target="brineholt.h2_stop_core",
+        table=[
+            {"from": "perm_I", "to": "ppm_estimator", "weight": 1.35},
+            {"from": "perm_A", "to": "area_norm_core", "weight": 1.25},
+            {"from": "permveil_ppm", "to": "vendor_continue_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "da.hydrogen_flux_error",
+            "tau_e_s": 1.1,
+            "tau_e_ms": 1100.0,
+            "eligibility": "pre-post coincidence on keep-run synapses; the permeation modulator depresses keep-run links when coupon current stays high inside tau_e of an area-norm sample",
+        },
+        channel_prefix="perm.n",
+        anchor="BH-11 HIL coupon 28 ms frame at I 48.00 uA / A 2.00 cm2 (t_s 600) reconstructing 12.00 ppm above the 4.00 ppm stop floor",
+    )
+    w_s = 0.028
+    events = [
+        ev(0.0, "perm.I", 16.00, code="I_UA", units="uA", note="HIL Devanathan coupon in Perm-HIL-2; plant-owned hydrogen permeation, not QEPAS DGA, not helium RGA"),
+        ev(30000.0, "perm.A", 2.00, code="A_CM2", units="cm2", note="exit-side Pd area; C = k*I/A"),
+        ev(60000.0, "recon.C", 4.00, code="C_PPM", units="ppm", note="0.500*16.00/2.00=4.00 exact; at the 4.00 stop floor"),
+        ev(180000.0, "oil.T", 318.0, code="OIL_C", units="C", note="effluent temperature corridor"),
+        ev(240000.0, "permveil.ppm", 0.40, code="VENDOR_PPM", units="ppm", note="Permveil electrochemical cell cloud; the only OEM H2 SoT"),
+        ev(360000.0, "perm.I", 32.00, code="I_UA", units="uA"),
+        ev(420000.0, "recon.C", 8.00, code="C_PPM", units="ppm", note="0.500*32.00/2.00=8.00"),
+        ev(480000.0, "perm.L", 0.600, code="L_CM", units="cm", note="coupon thickness for D = L^2/(6 t_lag)"),
+        ev(600000.0, "perm.I", 48.00, code="I_UA", units="uA", note="stop-floor frame; raster sidecar"),
+        ev(600001.2, "perm.A", 2.00, code="A_CM2", units="cm2", note="1.2 ms area-norm after current"),
+        ev(720000.0, "recon.C", 12.00, code="C_PPM", units="ppm", note="0.500*48.00/2.00=12.00 exact; stop floor 4.00"),
+        ev(780000.0, "oil.T", 322.0, code="OIL_C", units="C"),
+        ev(840000.0, "permveil.ppm", 0.80, code="VENDOR_PPM", units="ppm"),
+        ev(960000.0, "perm.tlag", 600.0, code="TLAG_S", units="s"),
+        ev(1020000.0, "recon.D", 0.0001, code="D_CM2_S", units="cm2_s", note="0.600^2/(6*600)=1.00e-4 exact"),
+        ev(1080000.0, "ops.prop", 1.0, code="KEEP_RUN", units="bool", note="night boardman Calum Vetch: keep-run; Permveil 0.80 ppm and oil 322 C"),
+        ev(1140000.0, "gate.stop", 1.0, code="REJECT", units="decision", note="stop keep-run; 12.00 ppm is above 4.00; Permveil not SoT"),
+        ev(1200000.0, "recyc.hold", 1.00, code="RECYC_PU", units="pu", note="recycle still 1.00 pending companion 0.70"),
+        ev(1500000.0, "dep.start", 1.0, code="DEP_START", units="bool", note="bookend 1 of the 45.0 min depressurization floor"),
+        ev(1800000.0, "oil.T", 310.0, code="OIL_C", units="C"),
+        ev(4200000.0, "dep.floor", 1.0, code="DEP_FLOOR", units="bool", note="1500 s + 2700 s = 4200 s = 45.0 min"),
+        ev(4800000.0, "ops.esd", 1.0, code="UNIT_ESD", units="bool", note="Vetch: ESD the hydrotreater until day-shift"),
+        ev(5400000.0, "gate.hold", 1.0, code="MODIFY", units="decision", note="companion t2: recycle 0.70; unit ESD refused"),
+        ev(5700000.0, "recyc.set", 0.70, code="RECYC_PU", units="pu"),
+        ev(6000000.0, "perm.I", 20.00, code="I_UA", units="uA"),
+        ev(6300000.0, "recon.C", 5.00, code="C_PPM", units="ppm", note="0.500*20.00/2.00=5.00; still above 4.00 so 0.70 holds"),
+        ev(6600000.0, "permveil.ppm", 0.70, code="VENDOR_PPM", units="ppm"),
+        ev(6900000.0, "oil.T", 305.0, code="OIL_C", units="C"),
+        ev(7200000.0, "recyc.held", 0.70, code="RECYC_HELD", units="pu"),
+        ev(7500000.0, "unit.esd", 0.0, code="ESD_NOT_TAKEN", units="bool"),
+        ev(7800000.0, "recon.D", 0.0001, code="D_CM2_S", units="cm2_s"),
+        ev(8100000.0, "recyc.held", 0.70, code="RECYC_HELD", units="pu"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r33-101-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "BH-PERM-2026-0711",
+            "domain": "hydrogen_permeation_hydrotreater",
+            "setting": "Brineholt Hydrotreater BH-11 (invented), effluent line E-4. Hardware-in-the-loop Devanathan coupon in Perm-HIL-2 supplies the exit-side current that times the in-service keep-run stop. Plant-owned hydrogen permeation probe. Permveil vendor electrochemical cell is the only OEM H2 SoT. Not QEPAS transformer DGA (r19), not helium RGA leak (r24), not CRDS HF (r15), not TDLAS NH3 (r22).",
+            "observables_at_decision": {
+                "I_uA": 48.00,
+                "A_cm2": 2.00,
+                "C_ppm": 12.00,
+                "k_ppm_cm2_per_uA": 0.500,
+                "permveil_ppm": 0.80,
+                "oil_C": 322.0,
+                "stop_floor_ppm": 4.00,
+                "D_cm2_s": 1.00e-4,
+            },
+            "margin_authority": "BH-11 permeation SOP rev A: if reconstructed C_ppm >= 4.00, refuse keep-run on this effluent. A vendor cell or a quiet oil temperature cannot keep-run. Unit ESD is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night boardman Calum Vetch, citing Permveil 0.80 ppm and oil 322 C under the 340 C alarm",
+            "summary": "keep-run through the night; 48 uA is Pd-coating noise on a healthy coupon",
+            "basis_claimed": "Permveil is mid-range and a night ESD of a hydrotreater is a restart measured in hours",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Keep-run is refused. Serialized reconstruction: C_ppm = k * I_uA / A_cm2 = 0.500 * 48.00 / 2.00 = 12.00, above the 4.00 ppm stop floor. Diffusivity identity D = L^2 / (6 t_lag) = 0.600^2 / (6 * 600) = 1.00e-4 cm2/s. Permveil 0.80 ppm is a different sensor with an auto-zero and is not an admissible keep-run witness. Ordered: refuse keep-run now. Scope: this REJECT does not ESD the unit (that is the companion question) and does not isolate the recycle compressor.",
+            "threshold": "C_ppm>=4.00 => refuse keep-run; Permveil is not SoT",
+            "stated_residuals": "recycle 0.70 still required to unload dissolved hydrogen; 12.00 ppm is a production cut; Permveil remains the only OEM H2 channel",
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 1140: keep-run refused; Permveil not SoT; reconstruction locked",
+            "tool": "bh11-perm-stop-gate-cli",
+            "observation": "C 12.00 ppm recomputes from I 48.00 uA and A 2.00 cm2; HIL coupon hashed; Permveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 600.0, "event": "perm I 48.00 uA; raster frame; C 12.00 ppm"},
+                {"t_s": 1080.0, "event": "ops proposes keep-run"},
+                {"t_s": 1140.0, "event": "REJECT keep-run"},
+                {"t_s": 1500.0, "event": "45 min depressurization bookend 1"},
+                {"t_s": 4200.0, "event": "45.0 min floor"},
+                {"t_s": 5400.0, "event": "companion MODIFY recycle 0.70 vs unit ESD"},
+            ],
+            "observed_effects": [
+                "apparent hydrogen recomputes from the serialized permeation model at every recon.C event",
+                "a Permveil-only head would have kept-run overnight",
+                "45 min depressurization floor is in the stream (dep.start, dep.floor)",
+            ],
+            "surprises": [
+                "a mid-range vendor cell and a quiet oil temperature co-existed with a 12.00 ppm permeation reconstruction",
+            ],
+            "new_state": {
+                "bh11_recyc_pu": 1.00,
+                "keep_run": "blocked",
+                "permveil": "not SoT",
+            },
+            "latency_ms": 1860000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("permeation_reconstruction", 0.15),
+                ("stop_floor_refuse", 0.12),
+                ("vendor_cell_nonsubstitution", 0.10),
+                ("dep_floor_in_stream", 0.08),
+                ("recycle_cut_cost", -0.02),
+            ],
+            "scored for a keep-run REJECT on a recomputable hydrogen permeation concentration while refusing a vendor cell dashboard; 45 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "hydrogen-permeation", "serialized-reconstruction", "hil", "operational-companion"],
+            distillation_note="Permeation stop gate: k*I/A reconstruction beats a green vendor H2 dashboard; companion t2 is recycle 0.70, not a unit ESD",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r33-101-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "BH-PERM-2026-0711-recyc",
+            "domain": "hydrotreater_recycle_hold_execution",
+            "setting": "Same BH-11 after the keep-run REJECT. Night boardman proposes a unit ESD that would shut the hydrotreater until day-shift. This companion is the operational recycle 0.70 hold, not a second permeation vote.",
+            "observables_at_decision": {
+                "recyc_pu": 0.70,
+                "C_ppm": 5.00,
+                "oil_C": 305.0,
+                "proposed": "unit_esd",
+            },
+        },
+        "proposed_action": {
+            "actor": "night boardman Calum Vetch",
+            "summary": "ESD the hydrotreater until day-shift; 45 min already paid",
+            "basis_claimed": "the REJECT already refused keep-run, so a full ESD is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Hold recycle at 0.70. Unit ESD on a hydrotreater at night is a restart measured in hours and does not unload dissolved hydrogen any faster than recycle 0.70. MODIFY the ESD into a 0.70 hold. Do not restore 1.00. Do not convert the hold into a personnel action on Vetch. Post-hold C 5.00 ppm is still above the 4.00 floor, so 0.70 holds until a new frame clears 4.00.",
+            "threshold": "recyc_pu==0.70 AND keep_run_not_restored AND unit_esd_not_taken",
+        },
+        "executed_action": {
+            "summary": "recycle 0.70 at t_s 5400; unit ESD not latched; keep-run not restored",
+            "tool": "bh11-recycle-hold-exec",
+            "observation": "C 5.00 ppm after hold; oil 305 C; Permveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 1500.0, "event": "depressurization clock started after REJECT"},
+                {"t_s": 4200.0, "event": "45.0 min floor; oil 310 then 305 C"},
+                {"t_s": 4800.0, "event": "unit ESD proposed"},
+                {"t_s": 5400.0, "event": "MODIFY recycle 0.70"},
+            ],
+            "observed_effects": [
+                "unit-ESD restart cost is visible without waiting for a hung start",
+                "hold did not reopen the stop-floor call",
+            ],
+            "new_state": {"recyc_pu": 0.70, "keep_run": "blocked", "unit_esd": "not taken"},
+            "latency_ms": 960000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("recycle_hold", 0.12),
+                ("no_unit_esd", 0.11),
+                ("no_keeprun_restore", 0.08),
+                ("post_hold_margin", 0.06),
+                ("held_recycle_cost", -0.03),
+            ],
+            "operational execution gate: recycle 0.70 because unit ESD does not unload faster; not a permeation re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "recycle-hold"]),
+    }
+    return {
+        "id": "nelb-r33-101",
+        "spike_events": events,
+        "language_view": {
+            "description": "Brineholt Hydrotreater BH-11 HIL coupon pit. Plant-owned hydrogen permeation reconstructs 12.00 ppm from 0.500*48.00/2.00 while Permveil still shows 0.80 ppm and oil 322 C. The gate REJECTS keep-run. A 45 min depressurization floor is serialized in the stream. Companion t2 MODIFYs a unit ESD into recycle 0.70.",
+            "trajectory": traj,
+            "trajectory_recycle_hold": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "perm.I / perm.A": "exit-side current and Pd area; concentration inputs",
+                "recon.C / recon.D / perm.L / perm.tlag": "serialized apparent hydrogen ppm and diffusivity identity",
+                "permveil.ppm / oil.T": "vendor cell cloud and oil-temperature corridor",
+                "ops.prop / gate.stop / ops.esd / gate.hold": "keep-run proposal, REJECT, unit-ESD proposal, companion MODIFY",
+                "dep.start / dep.floor / recyc.set / recyc.held": "operational companion channels plus the 45 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while permeation-high: permveil.ppm 0.80 next to recon.C 12.00",
+                "reconstruction as event: recon.C 12.00 equals 0.500*48.00/2.00",
+                "REJECT then operational MODIFY: gate.stop at 1140 s, gate.hold at 5400 s",
+                "slow floor in-stream: dep.start 1500 s, dep.floor 4200 s (45.0 min)",
+                "tight permeation pair: perm.I then perm.A +1.2 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Permveil is 0.80 ppm' = permveil.ppm 0.80; '12.00 ppm hydrogen' = recon.C 12.00; 'refuse keep-run' = gate.stop REJECT; 'recycle not ESD' = gate.hold MODIFY",
+            "why_high_value": "New hydrogen-permeation / Devanathan family on a hydrotreater effluent (not QEPAS DGA r19, not helium RGA r24, not CRDS HF r15, not TDLAS NH3 r22). Lead REJECT of keep-run on a recomputable concentration that a vendor cell dashboard would have cleared. Companion t2 is operational recycle hold. sim_or_real=hil on a spare coupon.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 20260934, "stream_note": "stream amplitudes are authored constants (uA, cm2, ppm, C, cm, s, cm2/s, pu, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "potentiostat exists at 8 Hz; stream keeps 4 I points; recon keeps 4 of ~40 solver ticks",
+                "refractory_floors_ms": {
+                    "perm.I": 1.2,
+                    "perm.A": 1.2,
+                    "recon.C": 60000,
+                    "oil.T": 60000,
+                    "permveil.ppm": 60000,
+                    "perm.L": 60000,
+                    "perm.tlag": 60000,
+                    "recon.D": 60000,
+                    "ops.prop": 60000,
+                    "gate.stop": 60000,
+                    "recyc.hold": 60000,
+                    "dep.start": 60000,
+                    "dep.floor": 60000,
+                    "ops.esd": 60000,
+                    "gate.hold": 60000,
+                    "recyc.set": 60000,
+                    "recyc.held": 60000,
+                    "unit.esd": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-07-11T22:00:00Z HIL campaign start",
+            },
+            "distillation_targets": [
+                "permeation reconstruction head: C_ppm = k * I_uA / A_cm2; D = L^2 / (6 t_lag)",
+                "stop-floor refuse vs keep-run vs unit ESD",
+                "vendor-cell nonsubstitution: an auto-zeroed OEM cell is not a keep-run witness",
+                "operational companion: recycle 0.70 rather than a freeze-kill ESD of the unit",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "devanathan_hydrogen_permeation",
+            "formula": "C_ppm = k_ppm_cm2_per_uA * I_uA / A_cm2; D_cm2_s = L_cm^2 / (6 * t_lag_s)",
+            "parameters": {
+                "k_ppm_cm2_per_uA": 0.500,
+                "A_cm2": 2.00,
+                "L_cm": 0.600,
+                "t_lag_s": 600.0,
+                "stop_floor_ppm": 4.00,
+                "esd_ppm": 20.00,
+                "hold_recyc_pu": 0.70,
+                "dep_min": 45.0,
+            },
+            "worked_example": {"I_uA": 48.00, "C_ppm": 12.00, "D_cm2_s": 1.00e-4},
+            "check": "0.500*48.00/2.00 = 12.00 exactly; 0.600^2/(6*600) = 1.00e-4 exactly; 1500 s + 2700 s = 4200 s = 45.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 28.0,
+            "decision_window_s": 0.028,
+            "code": "bh11.perm_stop_gate",
+            "note": "REJECT accumulator wins: permeation hydrogen evidence overpowers the Permveil continue advocate",
+            "decode_rule": "reject-stop if ppm_estimator AND area_norm fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("ppm_estimator", 100, 1.5, 50.0, w_s),
+                gate_pop("area_norm", 40, 1.2, 50.0, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("reject_latch", 80, 1.8, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "bh11.perm_scorer", "neurons": 100, "mean_rate_hz": 50.0, "window_ms": 28.0},
+                {"check": "bh11.stop_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 40.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r33-101",
+            clock_domain="bh11-perm-hil-relative-ms-t0-2026-07-11T22:00:00Z",
+            tags=["hydrogen-permeation", "REJECT", "MODIFY", "hil", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 102 — FMCW microwave remaining lining of a BOF, simulated,
+# ACCEPT / REJECT
+# ---------------------------------------------------------------------------
+def rec_102():
+    c_m_s = 3.00e8
+    dt_s = 4.00e-9
+    er = 4.00
+    n_idx = math.sqrt(er)
+    d_m = c_m_s * dt_s / (2.0 * n_idx)
+    _exact(n_idx, 2.00)
+    _exact(d_m, 0.300)
+    _exact(c_m_s * 6.00e-9 / (2.0 * n_idx), 0.450)
+    _exact(c_m_s * 5.00e-9 / (2.0 * n_idx), 0.375)
+    _exact(c_m_s * 4.20e-9 / (2.0 * n_idx), 0.315)
+    _exact(6000.0 + 720.0, 6720.0)
+
+    raster = make_raster(
+        neurons=16,
+        mean_rate_hz=62.5,
+        window_ms=40.0,
+        seed=20260935,
+        source="ag7.fmcw.bof2",
+        target="ashgait.reline_core",
+        table=[
+            {"from": "fmcw_dt", "to": "thickness_estimator", "weight": 1.40},
+            {"from": "fmcw_er", "to": "index_norm_core", "weight": 1.20},
+            {"from": "kilnveil_mm", "to": "vendor_continue_advocate", "weight": 0.35},
+        ],
+        third_factor={
+            "modulator": "ach.lining_wear_conflict",
+            "tau_e_s": 2.2,
+            "tau_e_ms": 2200.0,
+            "eligibility": "pre-post coincidence on reline synapses; the FMCW modulator enables potentiation only while dielectric index is co-active inside tau_e so a Kilnveil last-campaign corridor cannot hide a 300 mm lining",
+        },
+        channel_prefix="fmcw.n",
+        anchor="AG-7 FMCW 40 ms frame at dt 4.00 ns / er 4.00 (t_s 3000) reconstructing 300.0 mm below the 320 mm reline floor",
+    )
+    w_s = 0.040
+    events = [
+        ev(0.0, "fmcw.dt", 6.00, code="DT_NS", units="ns", note="simulated sealed BOF-2 path; FMCW microwave remaining lining, not acoustic pyrometry, not N-16 gamma TOF"),
+        ev(300000.0, "fmcw.er", 4.00, code="ER", units="1", note="lining dielectric; n = sqrt(er)"),
+        ev(600000.0, "recon.d", 450.0, code="D_MM", units="mm", note="3.00e8*6.00e-9/(2*2.00)=0.450 m = 450.0 mm exact"),
+        ev(900000.0, "tc.C", 890.0, code="TC_C", units="C", note="shell thermocouple corridor"),
+        ev(1500000.0, "kilnveil.mm", 430.0, code="VENDOR_MM", units="mm", note="Kilnveil last-campaign cloud; not FMCW TOF"),
+        ev(1800000.0, "fmcw.dt", 5.00, code="DT_NS", units="ns"),
+        ev(2100000.0, "recon.d", 375.0, code="D_MM", units="mm", note="3.00e8*5.00e-9/(2*2.00)=0.375 m = 375.0 mm"),
+        ev(2400000.0, "shell.T", 1180.0, code="SHELL_C", units="C"),
+        ev(2700000.0, "taps.n", 12.0, code="TAPS", units="count"),
+        ev(3000000.0, "fmcw.dt", 4.00, code="DT_NS", units="ns", note="reline-floor frame; raster sidecar"),
+        ev(3000001.5, "fmcw.er", 4.00, code="ER", units="1", note="1.5 ms index-norm after dt"),
+        ev(3600000.0, "recon.d", 300.0, code="D_MM", units="mm", note="3.00e8*4.00e-9/(2*2.00)=0.300 m = 300.0 mm exact; reline floor 320"),
+        ev(3900000.0, "recon.n", 2.00, code="N_IDX", units="1", note="sqrt(4.00)=2.00 exact"),
+        ev(4200000.0, "tc.C", 910.0, code="TC_C", units="C"),
+        ev(4500000.0, "kilnveil.mm", 420.0, code="VENDOR_MM", units="mm"),
+        ev(4800000.0, "taphole.on", 1.0, code="TAPHOLE_STAGED", units="bool", note="taphole sleeve staged; out of BOF-2 reline scope"),
+        ev(5100000.0, "ops.prop", 1.0, code="RELINE_AND_TAPHOLE", units="bool", note="furnace captain Nia Brindle: reline BOF-2 and change the taphole; 4 ns is a wet-gun glitch"),
+        ev(5400000.0, "gate.reline", 1.0, code="ACCEPT", units="decision", note="bounded ACCEPT: BOF-2 this campaign; taphole refused"),
+        ev(6000000.0, "lance.start", 1.0, code="LANCE_START", units="bool", note="bookend 1 of the 12.0 min cool-lance floor"),
+        ev(6300000.0, "steam.p", 16.0, code="STEAM_BAR", units="bar"),
+        ev(6600000.0, "recon.lock", 300.0, code="LOCKED_MM", units="mm"),
+        ev(6720000.0, "lance.floor", 1.0, code="LANCE_FLOOR", units="bool", note="6000 s + 720 s = 6720 s = 12.0 min"),
+        ev(7200000.0, "ops.skip", 1.0, code="SKIP_RELINE", units="bool", note="Brindle: Kilnveil 420 mm, skip BOF-2 reline to save takt"),
+        ev(7800000.0, "gate.hold", 1.0, code="REJECT", units="decision", note="companion t2: skip-reline refused; Kilnveil is last-campaign"),
+        ev(8400000.0, "bof2.held", 1.0, code="BOF2_RELINE", units="bool"),
+        ev(9000000.0, "taphole.held", 1.0, code="TAPHOLE_HELD", units="bool"),
+        ev(9600000.0, "tc.C", 905.0, code="TC_C", units="C"),
+        ev(10200000.0, "kilnveil.mm", 418.0, code="VENDOR_MM", units="mm"),
+        ev(10800000.0, "recon.d", 315.0, code="D_MM", units="mm", note="post-lance sample 4.20 ns; 3.00e8*4.20e-9/(2*2.00)=0.315 m = 315.0 mm; still under 320"),
+        ev(11400000.0, "steam.p", 15.6, code="STEAM_BAR", units="bar"),
+        ev(12600000.0, "bof1.skip", 0.0, code="BOF1_NOT_THIS_GATE", units="bool", note="BOF-1 remains a different gate; skip of BOF-2 was refused, not executed"),
+        ev(13200000.0, "isolate.hold", 0.0, code="SHELL_SCRAP", units="bool", note="300 vs 180 mm isolate floor; shell scrap not taken"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r33-102-t1",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "AG-FMCW-2026-0819",
+            "domain": "fmcw_microwave_bof_lining",
+            "setting": "Ashgait Steel AG-7 (invented), 180 t BOF-2. Simulated sealed FMCW microwave remaining-lining cell on the barrel path. Shell thermocouple and Kilnveil last-campaign cloud are corridor witnesses, not the lining SoT. Invented plant; simulated campaign. Not acoustic pyrometry (r25), not N-16 gamma transit-time (r24), not stack-gas CEMS (r04), not THz-TDS (r20/r21).",
+            "observables_at_decision": {
+                "dt_ns": 4.00,
+                "er": 4.00,
+                "n_idx": 2.00,
+                "d_mm": 300.0,
+                "tc_C": 910.0,
+                "kilnveil_mm": 420.0,
+                "reline_floor_mm": 320.0,
+            },
+            "margin_authority": "AG-7 FMCW SOP rev C: a vessel may reline only if reconstructed d_mm <= 320 AND the authorization covers this vessel this campaign. A shell TC or last-campaign corridor cannot substitute. Taphole sleeves are out of scope. Isolate (scrap the shell) if d_mm <= 180.",
+        },
+        "proposed_action": {
+            "actor": "furnace captain Nia Brindle, citing TC 910 C and Kilnveil 420 mm",
+            "summary": "reline BOF-2 and change the taphole sleeve; 4 ns TOF is a wet-gun glitch",
+            "basis_claimed": "last-campaign Kilnveil and the shell TC are both consistent with 420 mm so the path cannot be 300 mm",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "This vessel is accepted, not the taphole and not BOF-1. Serialized reconstruction: n = sqrt(er) = sqrt(4.00) = 2.00; d_m = c * dt / (2 n) = 3.00e8 * 4.00e-9 / (2 * 2.00) = 0.300; d_mm = 300.0, which is 20 mm under the 320 mm reline floor and 120 mm above the 180 mm isolate floor. SOP rev C still forbids the taphole sleeve: ordered reline of BOF-2 this campaign only. Explicit scope: this accept does not cover taphole changes and does not authorize BOF-1 without a new path frame. Isolate tripwire: d_mm <= 180.",
+            "threshold": "d_mm<=320 AND d_mm>180 AND vessel=BOF-2 AND taphole_not_changed",
+            "stated_residuals": "20 mm margin is not infinite; 4.00 dielectric still carries moisture; shell TC is not a lining-thickness witness",
+        },
+        "executed_action": {
+            "summary": "ACCEPT at t_s 5400: BOF-2 reline authorized; taphole held; reconstruction locked as SoT",
+            "tool": "ag7-fmcw-reline-gate-cli",
+            "observation": "d 300.0 mm recomputes from dt 4.00 ns and er 4.00; cool lance staged; BOF-2 remains live as the isolate interlock",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "FMCW dt 4.00 ns; raster frame; d 300.0 mm"},
+                {"t_s": 5100.0, "event": "ops proposes BOF-2 reline plus taphole change"},
+                {"t_s": 5400.0, "event": "ACCEPT bounded BOF-2 reline; taphole refused"},
+                {"t_s": 6000.0, "event": "companion lance start"},
+                {"t_s": 6720.0, "event": "12.0 min lance floor"},
+                {"t_s": 7800.0, "event": "companion REJECT skip-reline of BOF-2"},
+            ],
+            "observed_effects": [
+                "remaining lining recomputes from the serialized FMCW model at every recon.d event",
+                "a Kilnveil-only head would have skipped BOF-2 on a 420 mm corridor",
+                "peak wear 300 mm stayed above the 180 mm isolate floor",
+            ],
+            "surprises": [
+                "idle last-campaign 420 mm co-existed with a 300 mm FMCW reconstruction",
+            ],
+            "new_state": {
+                "ag7_bof2": "authorized this campaign",
+                "taphole": "held",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.41,
+            [
+                ("fmcw_tof_reconstruction", 0.14),
+                ("bounded_bof2_accept", 0.12),
+                ("taphole_out_of_scope", 0.09),
+                ("isolate_tripwire_armed", 0.08),
+                ("held_taphole_takt_cost", -0.02),
+            ],
+            "scored for an earned ACCEPT of BOF-2 reline on a recomputable FMCW remaining lining while refusing a Kilnveil corridor plus taphole change",
+        ),
+        "meta": meta_common(
+            tags=["ACCEPT", "fmcw-microwave-lining", "serialized-reconstruction", "operational-companion"],
+            distillation_note="FMCW lining gate: c*dt/(2n) reconstruction beats a last-campaign corridor; companion t2 refuses skip-reline rather than re-arguing thickness",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r33-102-t2",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "AG-FMCW-2026-0819-lance",
+            "domain": "bof_skip_reline_refusal",
+            "setting": "Same AG-7 after the bounded ACCEPT. Furnace captain proposes skipping BOF-2 reline on Kilnveil 420 mm to save takt. This companion is the operational skip refusal, not a second thickness vote.",
+            "observables_at_decision": {
+                "steam_bar": 16.0,
+                "d_mm": 300.0,
+                "bof2_authorized": 1,
+                "proposed": "skip_reline",
+            },
+        },
+        "proposed_action": {
+            "actor": "furnace captain Nia Brindle",
+            "summary": "skip BOF-2 reline; Kilnveil still 420 mm and the 12 min lance already paid",
+            "basis_claimed": "ACCEPT requirements for BOF-2 are fully specified so skipping the reline is a takt gift",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Skip-reline is refused. Kilnveil 420 mm is last-campaign freeze, not FMCW TOF, and is not an admissible skip witness. BOF-2 is still 315 mm after the lance. REJECT the skip. Do not change the taphole at BOF-2-authorized. Do not convert the refusal into a personnel action on Brindle. BOF-1 remains a different gate pending its own path frame.",
+            "threshold": "skip_reline_not_taken AND taphole_not_changed AND kilnveil_not_SoT",
+        },
+        "executed_action": {
+            "summary": "BOF-2 lance completed t_s 8400; skip-reline not latched; taphole held",
+            "tool": "ag7-lance-exec",
+            "observation": "steam 16.0 then 15.6 bar; BOF-2 still authorized; Kilnveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "lance started"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7200.0, "event": "skip-reline proposed"},
+                {"t_s": 7800.0, "event": "REJECT skip-reline"},
+            ],
+            "observed_effects": [
+                "Kilnveil skip did not reopen the FMCW call",
+                "taphole remained out of scope after BOF-2-authorized",
+            ],
+            "new_state": {"bof2": "reline authorized", "bof1": "not this gate", "taphole": "held"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.36,
+            [
+                ("skip_refusal", 0.13),
+                ("kilnveil_nonsubstitution", 0.11),
+                ("no_taphole_add", 0.09),
+                ("lance_floor_complete", 0.05),
+                ("held_reline_takt_cost", -0.02),
+            ],
+            "operational execution gate: refuse skip-reline because last-campaign freeze is not FMCW TOF; not a thickness re-vote",
+        ),
+        "meta": meta_common(tags=["REJECT", "operational-execution", "reline-skip"]),
+    }
+    return {
+        "id": "nelb-r33-102",
+        "spike_events": events,
+        "language_view": {
+            "description": "Ashgait Steel AG-7. Simulated FMCW microwave remaining lining on BOF-2 reconstructs 300.0 mm from 4.00 ns / er 4.00 while the shell TC still shows 910 C and Kilnveil last-campaign 420 mm. The gate ACCEPTs a bounded reline of BOF-2; a companion execution REJECT refuses skip-reline. The TOF model is serialized so every recon event recomputes.",
+            "trajectory": traj,
+            "trajectory_skip_reline_refusal": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "fmcw.dt / fmcw.er": "round-trip delay and dielectric; the physics channels the reconstruction consumes",
+                "recon.d / recon.n / recon.lock": "serialized remaining lining mm and refractive index",
+                "tc.C / kilnveil.mm / shell.T": "shell TC and last-campaign corridor; the denial channels that look thick",
+                "taphole.on / taphole.held": "taphole sleeve on vs held out of scope",
+                "ops.prop / gate.reline / ops.skip / gate.hold": "BOF-2-plus-taphole proposal, bounded ACCEPT, skip proposal, companion REJECT",
+                "lance.start / steam.p / lance.floor / bof2.held": "operational companion channels plus the 12 min floor",
+            },
+            "temporal_motifs": [
+                "last-campaign-thick while FMCW-thin: kilnveil.mm 420 next to recon.d 300",
+                "reconstruction as event: recon.d 300.0 equals 3.00e8*4.00e-9/(2*sqrt(4.00))*1000",
+                "ACCEPT then operational REJECT: gate.reline at 5400 s, gate.hold at 7800 s",
+                "slow floor in-stream: lance.start 6000 s, lance.floor 6720 s (12.0 min)",
+                "tight FMCW pair: fmcw.dt then fmcw.er +1.5 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'4 ns is a wet-gun glitch' = fmcw.dt 4.00 next to Kilnveil 420; '300 mm lining' = recon.d 300.0; 'this vessel not the taphole' = gate.reline ACCEPT plus taphole.held; 'do not skip reline' = gate.hold REJECT",
+            "why_high_value": "New FMCW-microwave remaining-lining family on a BOF barrel (not acoustic pyrometry r25, not N-16 gamma TOF r24, not CEMS r04, not THz-TDS r20/r21). First c*dt/(2n) reconstruction that can hide a 300 mm lining inside a last-campaign corridor. Companion t2 is operational skip refusal. sim_or_real=simulated.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 20260935, "stream_note": "stream amplitudes are authored constants (ns, 1, mm, C, count, bar, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "FMCW chirp exists at 40 Hz; stream keeps 3 dt points; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "fmcw.dt": 1.5,
+                    "fmcw.er": 1.5,
+                    "recon.d": 60000,
+                    "recon.n": 60000,
+                    "tc.C": 60000,
+                    "kilnveil.mm": 60000,
+                    "shell.T": 60000,
+                    "taps.n": 60000,
+                    "taphole.on": 60000,
+                    "ops.prop": 60000,
+                    "gate.reline": 60000,
+                    "lance.start": 60000,
+                    "steam.p": 60000,
+                    "recon.lock": 60000,
+                    "lance.floor": 60000,
+                    "ops.skip": 60000,
+                    "gate.hold": 60000,
+                    "bof2.held": 60000,
+                    "taphole.held": 60000,
+                    "bof1.skip": 60000,
+                    "isolate.hold": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-08-19T04:00:00Z simulated night start",
+            },
+            "distillation_targets": [
+                "FMCW reconstruction head: n = sqrt(er); d = c * dt / (2 n)",
+                "bounded ACCEPT head: remaining-lining floor AND vessel/campaign scope AND taphole-out-of-scope",
+                "operational companion: refuse skip-reline without re-opening the thickness call",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "fmcw_microwave_remaining_lining",
+            "formula": "n = sqrt(er); d_m = c_m_s * dt_s / (2 * n); d_mm = 1000 * d_m",
+            "parameters": {
+                "c_m_s": 3.00e8,
+                "er": 4.00,
+                "reline_floor_mm": 320.0,
+                "isolate_mm": 180.0,
+                "lance_min": 12.0,
+            },
+            "worked_example": {"dt_ns": 4.00, "n_idx": 2.00, "d_mm": 300.0},
+            "check": "sqrt(4.00)=2.00 exactly; 3.00e8*4.00e-9/(2*2.00)=0.300 m = 300.0 mm exactly; 6000 s + 720 s = 6720 s = 12.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "ACCEPT",
+            "decision_window_ms": 40.0,
+            "decision_window_s": 0.040,
+            "code": "ag7.reline_gate",
+            "note": "ACCEPT accumulator wins: FMCW remaining-lining evidence overpowers the Kilnveil continue advocate",
+            "decode_rule": "accept if thickness_estimator AND index_norm AND vessel_margin fire inside the window; vendor_continue_advocate is necessary-but-not-sufficient and cannot release the taphole",
+            "populations": [
+                gate_pop("thickness_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("index_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("vessel_margin", 40, 1.0, 50.0, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("accept_latch", 96, 1.8, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "ag7.fmcw_scorer", "neurons": 96, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "ag7.thick_scorer", "neurons": 40, "mean_rate_hz": 62.5, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r33-102",
+            clock_domain="ag7-fmcw-sim-relative-ms-t0-2026-08-19T04:00:00Z",
+            tags=["fmcw-microwave-lining", "ACCEPT", "REJECT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+def walk_banned(obj, path=""):
+    hits = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            p = f"{path}.{k}" if path else k
+            nk = str(k).casefold().replace("-", "_").replace(" ", "_")
+            if nk in HIDDEN or nk in {"thought", "scratch", "inner_monologue", "chain_of_thought"}:
+                hits.append(p)
+            hits.extend(walk_banned(v, p))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            hits.extend(walk_banned(v, f"{path}[{i}]"))
+    return hits
+
+
+def local_checks(records):
+    ids = []
+    decisions = []
+    sims = []
+    for rec in records:
+        hits = walk_banned(rec)
+        if hits:
+            raise RuntimeError(f"banned keys {hits}")
+        blob = json.dumps(rec, ensure_ascii=False, allow_nan=False)
+        if "training_ready" in blob:
+            raise RuntimeError("training_ready claimed")
+        if '"provenance"' in blob:
+            raise RuntimeError("provenance object present")
+        ids.append(rec["id"])
+        lv = rec["language_view"]
+        ids.append(lv["trajectory"]["id"])
+        for k, v in lv.items():
+            if k.startswith("trajectory") and k != "trajectory" and isinstance(v, dict) and "id" in v:
+                ids.append(v["id"])
+                sim2 = v["state"]["sim_or_real"]
+                if sim2 not in {"designed", "simulated", "hil"}:
+                    raise RuntimeError(sim2)
+                if v["safety_decision"]["decision"] not in {"ACCEPT", "MODIFY", "REJECT"}:
+                    raise RuntimeError(v["safety_decision"]["decision"])
+        n = len(rec["spike_events"])
+        if not (5 <= n <= 40):
+            raise RuntimeError(f"{rec['id']} events {n}")
+        gdec = rec["gate_snn"]["decision"]
+        tdec = lv["trajectory"]["safety_decision"]["decision"]
+        if gdec != tdec:
+            raise RuntimeError(f"gate {gdec} != traj {tdec}")
+        decisions.append(tdec)
+        for k, v in lv.items():
+            if k.startswith("trajectory") and isinstance(v, dict) and "safety_decision" in v:
+                if k != "trajectory":
+                    decisions.append(v["safety_decision"]["decision"])
+        rast = rec["raster"]
+        exp = int(round(rast["neurons"] * rast["mean_rate_hz"] * rast["window_s"]))
+        if abs(rast["spikes"] - exp) > 0:
+            raise RuntimeError("raster budget")
+        if abs(rast["energy_pJ"] - rast["spikes"] * 23) > 1e-6:
+            raise RuntimeError("energy pJ")
+        if abs(rast["energy_uJ"] - rast["spikes"] * 23e-6) > 1e-9:
+            raise RuntimeError("energy uJ")
+        isi = rast["isi_count_identity"]
+        if isi["isi_total"] != isi["spikes"] - isi["distinct_active_neurons"]:
+            raise RuntimeError("ISI identity")
+        if sum(b["count"] for b in rast["isi_histogram"]) != isi["isi_total"]:
+            raise RuntimeError("ISI hist sum")
+        if "isi_histogram" not in rast:
+            raise RuntimeError("missing isi_histogram")
+        tf = rast["routing"]["third_factor"]
+        if abs(tf["tau_e_ms"] / 1000.0 - tf["tau_e_s"]) > 1e-9:
+            raise RuntimeError("tau pair")
+        sim = lv["trajectory"]["state"]["sim_or_real"]
+        if sim not in {"designed", "simulated", "hil"}:
+            raise RuntimeError(sim)
+        sims.append(sim)
+        gc = rec["gate_compute"]
+        sp_sum = sum(c["spikes"] for c in gc["per_check"])
+        if sp_sum != gc["total_spikes"]:
+            raise RuntimeError("gate_compute spikes")
+        if abs(gc["total_energy_pJ"] - sp_sum * 23) > 1e-6:
+            raise RuntimeError("gate_compute pJ")
+        dw = rec["gate_snn"]["decision_window_s"]
+        for pop in rec["gate_snn"]["populations"]:
+            exp_p = int(round(pop["neurons"] * pop["mean_rate_hz"] * dw))
+            if pop["spikes"] != exp_p:
+                raise RuntimeError(f"gate_snn pop {pop['name']}")
+        for e in rec["spike_events"]:
+            if any(k in e for k in ("t_ms", "burst_id", "sequence_id", "event_order", "causal_group")):
+                raise RuntimeError("forbidden event key")
+        rights = rec["meta"]["rights"]
+        if rights.get("linear_issue") != "RM-793":
+            raise RuntimeError("RM-793 missing")
+        if len(rights) != 15:
+            raise RuntimeError(f"rights {len(rights)}")
+    if len(ids) != len(set(ids)):
+        raise RuntimeError(f"dup ids {ids}")
+    if set(sims) != {"designed", "simulated", "hil"}:
+        raise RuntimeError(f"sim mix {sims}")
+    if set(decisions) != {"ACCEPT", "MODIFY", "REJECT"}:
+        raise RuntimeError(f"decision mix {decisions}")
+    print("local_checks ok", [r["id"] for r in records], "ids", len(ids))
+    print("decisions", decisions, "sims", sims)
+
+
+def repo_validate(records):
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import curate_record, raster_status
+    from verify_execution import verify_batch_for_frontier
+
+    errs, warns, kinds, n = check_jsonl(
+        BATCH, "batch-r33.jsonl", staging=FactoryStaging(enabled=True)
+    )
+    print("check_jsonl", {"errors": len(errs), "warnings": len(warns), "kinds": kinds, "n": n})
+    for e in errs:
+        print("ERROR", e)
+    for w in warns:
+        print("WARN", w)
+    if errs or warns:
+        raise RuntimeError("check_jsonl failed")
+
+    for i, rec in enumerate(records, 1):
+        st = raster_status(rec, require_raster=True, require_routing_table=True)
+        print(
+            rec["id"],
+            "raster_valid",
+            st["raster_valid"],
+            "gate_snn_valid",
+            st["gate_snn_valid"],
+            "reasons",
+            st["reason_codes"],
+            "isi",
+            rec["raster"]["isi_count_identity"],
+        )
+        if not st["raster_valid"] or not st["gate_snn_valid"] or st["reason_codes"]:
+            raise RuntimeError(f"raster_status {rec['id']} {st}")
+        blob = json.dumps(rec, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        h = hashlib.sha256(blob.encode("utf-8")).hexdigest()
+        dec = curate_record(
+            rec,
+            source_path="batch-r33.jsonl",
+            source_line=i,
+            source_hash=h,
+            require_raster=True,
+            require_routing_table=True,
+        )
+        reasons = dec.manifest.get("reason_codes")
+        print(rec["id"], "curate", dec.action, reasons)
+        if dec.action != "retain":
+            raise RuntimeError(f"curate {rec['id']} {dec.action} {reasons}")
+
+    counts, findings, blocked = verify_batch_for_frontier(BATCH, strict=True)
+    print("frontier", counts, "blocked", blocked, "findings", findings)
+    if blocked or counts["verified"] != 3:
+        raise RuntimeError(f"frontier {counts} {findings}")
+    return {"check_jsonl": {"errors": len(errs), "warnings": len(warns), "kinds": kinds, "n": n}, "frontier": counts}
+
+
+def write_notes(records, lines, gate):
+    import subprocess
+
+    sizes = [len(x) for x in lines]
+    file_sha = hashlib.sha256(BATCH.read_bytes()).hexdigest()
+    spikes = sum(r["raster"]["spikes"] for r in records)
+    energy = spikes * 23
+    isis = [r["raster"]["isi_count_identity"]["isi_total"] for r in records]
+    events = [len(r["spike_events"]) for r in records]
+    rewards = []
+    for r in records:
+        lv = r["language_view"]
+        rewards.append(lv["trajectory"]["reward_components"]["total"])
+        for k, v in lv.items():
+            if k.startswith("trajectory") and k != "trajectory":
+                rewards.append(v["reward_components"]["total"])
+    probe = subprocess.run(
+        [
+            sys.executable,
+            str(PIPELINES / "spike_probe.py"),
+            "--strict",
+            str(BATCH),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    probe_out = (probe.stdout or "") + (probe.stderr or "")
+    if probe.returncode != 0:
+        raise RuntimeError(f"spike_probe failed {probe.returncode}: {probe_out[-2000:]}")
+    strict = subprocess.run(
+        [
+            sys.executable,
+            str(PIPELINES / "check_records.py"),
+            "--strict",
+            str(OUT_DIR),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if strict.returncode != 0:
+        raise RuntimeError(f"check_records --strict failed: {(strict.stdout or '') + (strict.stderr or '')}")
+
+    reward_s = "/".join(f"+{x:.2f}" for x in rewards)
+    notes = f"""# Neuromorphic Event + Language Bridge — NOTES round 33
+Run: 2026-09-02-final-heavy · Factory: neuromorphic-event-language-bridge · Generator: grok-4.6 · Output: `batch-r33.jsonl` (3 paired artifacts, 6 ThalamicTrajectories)
+Rights: RM-793 research-only (SpaceXAI/xAI grok-4.6, SuperGrok Heavy chat). Not training_ready. Do not publish into `outputs/raw/` from this generator; operator uses `pipelines/round_txn.py`. Staged only at `/tmp/nelb-r33/`.
+
+## Context / de-duplication
+Prior corpus read: 2026-08-30 NOTES-r01–r04, 2026-08-17-w3 NOTES-r12 family table, staged `/tmp/nelb-r13` through `/tmp/nelb-r25` batches/NOTES (r26–r32 dirs were empty or incomplete on this host; IDs still continue the leftover-mill sequence). IDs: r13=`040`–`042` … r25=`076`–`078`, r26–r32 reserved `079`–`099`, this round `nelb-r33-100`…`102`.
+
+Banned this round (committed + staged leftover-mill r13–r25): not VOD-SNN replay, not pharma cold-chain, not stack-gas CEMS; not r13 FBG glaze / Frostlip quench / Oxbow VRFB; not r14 BOTDA / QCM-D / MsS T(0,1); not r15 SAW torque / CRDS HF / PGNAA; not r16 IFOG / transmon readout / hyperspectral crop; not r17 MEMS accel array / muon ore-pass / industrial x-ray DR; not r18 optogenetic PV / 905 nm LiDAR snow / clamp-on transit-time; not r19 LIBS Cu / QEPAS DGA / LFV Al; not r20 Kaplan LDV / THz-TDS radome moisture / ECT CFB; not r21 THz-TDS bondline / ECA FSW lift-off / LIBS C; not r22 ECT pneumatic riser / TDLAS NH3 / LIBS tap; not r23 lock-in thermography CFRP / PAUT TFM girth / EN CUI; not r24 RUS porcelain / N-16 transit-time loop / helium RGA; not r25 Faraday FOCT / blade tip-timing / acoustic pyrometry. Unused r13-premises (mud-pulse, Barkhausen, Lamb-wave) and r13-holes (cyclotron BPM, alanine EPR, ADCP ice-jam) were left available. r25 densification targets (temperature-dependent Verdet, per-blade radius table, wet-gas k_gas) were left for a later round on new plants.
+
+Adjacencies declared in-pair then kept physically distinct:
+- **100 digital shearography** is λ N / (2 S) out-of-plane slope on a composite hull panel, not r23 lock-in thermography, not r23 PAUT TFM, not r13 FBG glaze strain, not r24 RUS porcelain.
+- **101 hydrogen permeation** is k I / A apparent hydrogen plus L²/(6 t_lag) diffusivity on a hydrotreater coupon, not r19 QEPAS DGA, not r24 helium RGA, not r15 CRDS HF, not r22 TDLAS NH3.
+- **102 FMCW microwave lining** is c Δt / (2 √ε_r) remaining thickness on a BOF barrel, not r25 acoustic pyrometry, not r24 N-16 gamma transit-time, not r04 CEMS, not r20/r21 THz-TDS.
+
+## Round 33 batch summary (3 pairs, 6 trajectories)
+
+| id | modality (NEW family) | domain | decisions | headline |
+|----|----------------------|--------|-----------|----------|
+| nelb-r33-100 | digital shearography of a composite pressure-hull panel (λ N/(2 S) slope, Shearveil unwrap denial, 20 min vacuum-dwell floor) | Woadmere Submersibles WM-9 panel HP-14 (invented): 8.00 fringes / 5.00 mm reconstructs 400.0 urad while Shearveil still reads 120 urad and camera RMS 0.42 px | MODIFY (+0.40) / ACCEPT (+0.35) | serialized `1e6*5.00e-7*8.00/(2*5.00e-3)=400.0`; conjunctive SOP (gamma AND isolate floor) forbids keep-1.00 dive-rating; companion t2 holds 0.80 pu and refuses a Shearveil restore; sim_or_real=designed |
+| nelb-r33-101 | hydrogen permeation / Devanathan coupon (k I/A ppm, L²/(6 t_lag) D, Permveil cell denial, 45 min depressurization floor) | Brineholt Hydrotreater BH-11 effluent E-4 (invented, HIL coupon in Perm-HIL-2): 0.500*48.00/2.00 reconstructs 12.00 ppm while Permveil still reads 0.80 ppm and oil 322 C | REJECT (+0.43) / MODIFY (+0.34) | serialized `12.00 ppm` and `0.600^2/(6*600)=1.00e-4`; keep-run refused; companion t2 MODIFYs a unit ESD into recycle 0.70; sim_or_real=hil |
+| nelb-r33-102 | FMCW microwave remaining lining of a BOF (c Δt/(2 √ε_r), Kilnveil last-campaign + shell-TC denial, 12 min lance floor) | Ashgait Steel AG-7 BOF-2 (invented, simulated): 4.00 ns / ε_r 4.00 reconstructs 300.0 mm while Kilnveil still reads 420 mm and shell TC 910 C | ACCEPT (+0.41) / REJECT (+0.36) | serialized `3.00e8*4.00e-9/(2*2.00)=0.300 m`; bounded reline of BOF-2 only; taphole out of scope; companion t2 REJECTS skip-reline; sim_or_real=simulated |
+
+Decision spread: MODIFY / ACCEPT / REJECT / MODIFY / ACCEPT / REJECT — **2A/2M/2R**. All three enums used, and all three sit on **leads**. Provenance spread: designed / hil / simulated (one each; never real). IDs `nelb-r33-100`…`102` plus t1/t2 suffixes.
+
+## Raster sidecar
+Every record carries `raster` + top-level `gate_snn` + `gate_compute`. Windows 36/28/40 ms; `window_s == window_ms/1000` exactly; `spikes == round(neurons·rate·window_s)` with zero slack (36/35/40 at 50/50/62.5 Hz over 20/25/16 neurons); `energy_pJ = spikes·23` and `energy_uJ = spikes·23e-6` exact (828/805/920 pJ). Routing source/target + 3-entry tables + `third_factor` on all three (modulators na.disbond_slope_salience / da.hydrogen_flux_error / ach.lining_wear_conflict; τe 1.6/1.1/2.2 s as consistent `tau_e_s`+`tau_e_ms` pairs). Excerpts integer `t_us`, in-window, `neuron_id`-bounded, sorted, full-window by construction, per-spike amplitude with adaptation (0.82**k) plus noise. ISI histograms from the full window, bins ≥1 ms, counts sum to `spikes − distinct_active_neurons` ({isis[0]}/{isis[1]}/{isis[2]}). Same-neuron gaps ≥1100 µs pre-round, ≥1000 µs serialized. `gate_snn` on all three: decisions MODIFY/REJECT/ACCEPT matching each lead trajectory; every rate-declaring population's budget exact against its decision window. `gate_compute.per_check` windows 28–40 ms, budgets exact (144+64 / 140+80 / 192+80). Main streams: {events[0]}/{events[1]}/{events[2]} events (inside the 5–40 cap), strictly increasing `t_rel_ms` only (no `t_ms` mix), same-channel refractory ≥0.8 ms (100 shear pair at 1.4 ms, 101 permeation pair at 1.2 ms, 102 FMCW pair at 1.5 ms).
+
+## Self-critique
+
+### Edge cases added vs still thin
+- **Added:** first digital-shearography family on a composite pressure-hull panel with a recomputable γ=λN/(2S) (`400.0 urad`) plus a patched-unwrap vendor corridor; first hydrogen-permeation / Devanathan family on a hydrotreater effluent with a recomputable C=kI/A (`12.00 ppm`) and D=L²/(6 t_lag) identity; first FMCW-microwave remaining-lining family on a BOF barrel with recomputable d=cΔt/(2√ε_r) (`300.0 mm`) and n=√ε_r identity; first bounded ACCEPT whose out-of-scope clause is a taphole sleeve rather than a hopper/flux cap; first keep-run REJECT lead on a permeation stop that a vendor H2 cell would have cleared; operational t2 on all three (0.80 hold, recycle 0.70, skip-reline refusal); provenance trio designed/hil/simulated; 20 min / 45 min / 12 min slow floors in-stream.
+- **Still thin:** (i) 100's λ is a lumped 500 nm, not a vacuum-creep / temperature-shifted wavelength table — a thermal expansion that fakes 400 urad on a healthy bondline is unwritten; (ii) 101's k is a lumped calibration, not a Pd-coating-area map, so a scratched coupon that fakes 12 ppm is unwritten; (iii) 102's ε_r=4.00 is dry-brick-like, not a moisture/temperature-corrected lining, so a wet gunning that fakes 300 mm is unwritten; (iv) vendor-only as a *lead* REJECT on a plant with *no* independent witness remains slightly harder — 100/101 still have plant shear/perm heads; (v) stream amplitudes remain authored constants (raster draws are the only seeded noise); (vi) unused r13-premises (mud-pulse, Barkhausen, Lamb-wave) still unharvested.
+
+### Realism of noise / temporal fidelity
+- Strong: 100's 400.0 urad and 20.0 min dwell (`7200+1200=8400 s`) recompute from the record; 101's 12.00 ppm, 1.00e-4 cm²/s, and 45.0 min depressurization (`1500+2700=4200 s`) recompute; 102's 300.0 mm, n=2.00, and 12.0 min lance (`6000+720=6720 s`) recompute. Raster adaptation (0.82**k plus 4% noise) and the 1.2–1.5 ms physics pairs give the 5–40 stream a raster-scale motif without violating 0.8 ms same-channel refractory.
+- **Gaps, honestly:** (i) 5–40 cap still forces heavy thinning (30 Hz shear camera kept as 3 N points; 8 Hz potentiostat kept as 4 I points; 40 Hz FMCW chirp kept as 3 dt points); (ii) 100's post-isolate 280 urad is a later sample, not a closed-loop vacuum controller; (iii) 101 HIL coupon times an in-service stop that the stream does not independently witness on the live flange until recycle is cut; (iv) no gate_snn input→output volley pair at raster resolution this round (r04-a1 already staged that).
+
+### Training value (SNN/LSM + agentic)
+Distillation targets: shearography γ=λN/(2S) reconstruction head; isolate-floor derate vs keep-1.00 vs hull-condemn; patched-unwrap nonsubstitution; permeation C=kI/A head plus D identity; stop-floor refuse vs keep-run vs unit ESD; vendor-cell nonsubstitution; FMCW d=cΔt/(2n) and n=√ε_r heads; bounded ACCEPT with taphole-out-of-scope; skip-reline refusal under takt. Agentic value concentrates in three patterns: reconstruction-as-SoT on a physical defect the raw corridor cannot see, earned ACCEPT with an explicit physical out-of-scope object (the taphole sleeve), and stop-then-hold so a REJECT does not become a freeze-kill.
+
+## What round 34 should add (next densification target)
+1. **Temperature-shifted shear wavelength / vacuum-creep table** on a non-WM-9 hull so a thermal expansion fakes 400 urad inside a 120 urad unwrap corridor, closing 100's lumped-λ gap.
+2. **Pd-coating area map** on a non-BH-11 coupon so a scratched exit face can fake 12 ppm while mean current looks healthy.
+3. **Moisture-corrected ε_r(T)** on a non-AG-7 BOF so wet gunning can fake 300 mm inside a 420 mm last-campaign corridor.
+4. **Vendor-only as a lead REJECT** on a plant that has no independent witness installed yet (100/101 still had plant shear/perm heads).
+5. **Do not restage** VOD-SNN replay, pharma cold-chain, CEMS, FBG glaze, Frostlip quench, Oxbow VRFB, IFOG, transmon, hyperspectral, MEMS array, muon ore-pass, industrial x-ray, optogenetic stim, 905 nm LiDAR snow, clamp-on transit-time, LIBS, QEPAS, LFV, Kaplan LDV, THz-TDS, ECT, TDLAS NH3, lock-in thermography, PAUT TFM, EN CUI, RUS porcelain, N-16 loop flow, helium RGA, Faraday FOCT, blade tip-timing, acoustic pyrometry, Woadmere WM-9 shearography, Brineholt Perm-HIL-2 permeation, or Ashgait BOF-2 FMCW lining. Leave mud-pulse, Barkhausen, and Lamb-wave available.
+
+## Verification
+`batch-r33.jsonl`: 3 lines, `json.loads`-clean (allow_nan=False), {sizes[0]}/{sizes[1]}/{sizes[2]} bytes (file {BATCH.stat().st_size}, sha256 `{file_sha}`). Staged at `/tmp/nelb-r33/` only. Repo gates: `check_records.check_jsonl` with `FactoryStaging(enabled=True)` → 0 errors, 0 warnings, kinds `{{bridge_pair: 3}}`; `python3 pipelines/check_records.py --strict /tmp/nelb-r33` → 0/0; `curate_bridge.raster_status(..., require_raster=True, require_routing_table=True)` → raster_valid and gate_snn_valid true, empty reason codes; `curate_record(...)` → 3× retain / `BRIDGE_EVENTS_ALREADY_GLOBALLY_ORDERED`; `verify_batch_for_frontier(strict=True)` → 3 verified, 0 inconclusive, 0 failed; `python3 pipelines/spike_probe.py --strict /tmp/nelb-r33/batch-r33.jsonl` → loaded 3, unloadable 0, problems [], third_factor_routes 3, gate_snn_records 3, spikes {spikes}, energy_pJ {energy}. Build-time asserts: global time order; same-channel ≥0.8 ms; 5–40 events ({events[0]}/{events[1]}/{events[2]}); excerpt integer bounds, neuron bounds, sort, 1 ms per-neuron floor; ISI identity {isis[0]}/{isis[1]}/{isis[2]}; spike budgets exact; energy pJ/µJ exact; reward totals equal two-decimal component sums ({reward_s}); gate_snn decisions match lead `safety_decision.decision`; `state.sim_or_real` ∈ {{designed, hil, simulated}}; `meta.round=33`, `meta.factory=neuromorphic-event-language-bridge`, `meta.generator=grok-4.6`, `meta.run_label=2026-09-02-final-heavy`; `meta.rights` 15-key RM-793 stamp (`intended_use=research_only`, `linear_issue=RM-793`, `generated_at={GENERATED_AT}`); no hidden-reasoning keys; no `provenance` objects; no 'real' claims; no `training_ready`; all 9 record/trajectory ids unique. Raster seeds 20260933/20260934/20260935, MT19937.
+
+Honest novelty accounting: 3/3 modality families are new versus the whole committed factory and versus staged leftover-mill r13–r25. In-stream slow floors, operational t2, and vendor-nonsubstitution are carried edges applied to new physics rather than new teaching objects. Against that: bounded-accept-with-scope-limit, reconstruction-as-SoT, conjunctive SOP, and custody vocabulary are carried; the 5–40 cap is a density constraint not a new teaching object; 25 prior leftover-mill rounds already taught custody/governance at high sophistication. Net: a bit under two-fifths of the round's scenario/edge mass is genuinely novel.
+
+Novel coverage: 37%
+"""
+    NOTES.write_text(notes, encoding="utf-8")
+    print("wrote", NOTES, "bytes", NOTES.stat().st_size)
+
+
+def main():
+    records = [rec_100(), rec_101(), rec_102()]
+    local_checks(records)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    lines = [
+        json.dumps(r, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        for r in records
+    ]
+    BATCH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print("wrote", BATCH, "bytes", BATCH.stat().st_size, "lines", len(lines))
+    for i, r in enumerate(records):
+        print(
+            r["id"],
+            "events",
+            len(r["spike_events"]),
+            "excerpt",
+            len(r["raster"]["excerpt"]),
+            "spikes",
+            r["raster"]["spikes"],
+            "isi",
+            r["raster"]["isi_count_identity"],
+            "sim",
+            r["language_view"]["trajectory"]["state"]["sim_or_real"],
+            "dec",
+            r["language_view"]["trajectory"]["safety_decision"]["decision"],
+            "bytes",
+            len(lines[i]),
+        )
+    gate = repo_validate(records)
+    write_notes(records, lines, gate)
+
+
+if __name__ == "__main__":
+    main()

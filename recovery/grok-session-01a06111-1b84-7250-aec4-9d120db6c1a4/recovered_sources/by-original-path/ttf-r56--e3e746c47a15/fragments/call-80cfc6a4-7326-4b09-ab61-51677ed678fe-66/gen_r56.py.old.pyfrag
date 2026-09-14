@@ -1,0 +1,23 @@
+                        (
+                            "contenders",
+                            [
+                                "rtd.median.c 412 C live 2oo3 median",
+                                "rtd.failed.c 448 C RTD-B stuck-high",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Median-first should ACCEPT 18.0 t/h (412 C < 430 C trip). "
+                            "Failed-channel-first would only delay confirmation of the same legal median.",
+                        ),
+                        (
+                            "window_derivation",
+                            "400 us = one soaker 2oo3 median slot versus the failed-channel publisher "
+                            "on this 2 kHz visbreaker bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 230 us vs combined jitter 76 us (median 34 + failed 42): 3.0x over "
+                            "a 2.0x trust floor. Order is correctly median-first. The error is binding "
+                            "a stuck-high RTD-B as if it were the 2oo3 vote, not the race.",
+                        ),

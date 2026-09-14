@@ -1,0 +1,12 @@
+    notes = f"""# Thalamic Trajectory Factory — NOTES-r56
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- Quality: Q=5
+- IDs: `ttf-r56-296` … `ttf-r56-300`
+- Domains this batch: `pidgeon-magnesium-retort`, `pta-crystallizer`, `acheson-graphite-furnace`, `hpgr-ore-press`, `hf-alkylation-contactor`
+
+These five domain slugs sit outside staged r13–r55 occupancy (jsonl SoT plus incomplete gens: r45 ethylene/amine/stacker/bushing/pig-trap, r48 visbreaker/FGD/oxidation/induration/cracker, r49 methanol/RH/Siemens/IS-glass, r50 kamyr/SCR/walking-beam/LDPE/quench-car, r51 anode-bake/methanol/styrene/FT/viscose, r55 kamyr/oleum/IS-glass/RH/oxi-oven). All five plants are invented (Dolime-Toft, Tereph-Vale, Petcoke-Rigg, Rollgap-Knap, Alkylate-Merse). Do not restack prior TTF plants.

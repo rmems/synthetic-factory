@@ -1,0 +1,4 @@
+                "LD-HIL rotary kiln RK-1 at Laterite-Dumble is already at 64 AE pulses/s against an 18 pps "
+                "interlock even though rotation remains a lawful 0.72 rpm under 1.20. The 38 t/h laterite "
+                "charge is armed; shell AE, not the encoder, is the veto. Speed-led dispatch would dump ore "
+                "into a growling RKEF.",

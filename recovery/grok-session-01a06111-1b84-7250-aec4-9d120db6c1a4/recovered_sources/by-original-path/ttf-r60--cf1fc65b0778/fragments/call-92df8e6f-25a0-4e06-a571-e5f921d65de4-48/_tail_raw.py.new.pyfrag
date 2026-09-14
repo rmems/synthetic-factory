@@ -1,0 +1,4 @@
+- IDs: `ttf-r60-316` … `ttf-r60-320`
+- Domains this batch: `tio2-chloride-oxidizer`, `sbr-emulsion-reactor`, `zinc-electrowinning`, `ethanol-fermenter`, `ceramic-roller-kiln`
+
+These five domain slugs sit outside staged r13–r55 occupancy (jsonl SoT plus generator claims through r56 `pidgeon-magnesium-retort` / `pta-crystallizer` / `acheson-graphite-furnace` / `hpgr-ore-press` / `hf-alkylation-contactor`, r55 `kamyr-chip-digester` / `sulfuric-contact-bed`, r53 `fluid-bed-roaster` / `alkylation-contactor`, r52 `phosphoric-attack-tank` / `nitric-acid-absorber`). All five plants are invented (Pigment-Shaw, Butadiene-Noll, Electrowin-Holt, Cider-Fen, Faience-Wold). Do not restack prior TTF plants.

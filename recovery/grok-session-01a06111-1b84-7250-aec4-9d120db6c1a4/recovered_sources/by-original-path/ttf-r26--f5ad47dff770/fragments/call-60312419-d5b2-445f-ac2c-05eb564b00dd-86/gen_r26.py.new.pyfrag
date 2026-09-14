@@ -1,0 +1,21 @@
+                            [
+                                "vac.bag.kPa 18.4 kPa abs",
+                                "tc.part.C 178 C residual",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Vacuum-first latches heater clamp 2.00 -> 1.15 kW; soak-first keeps "
+                            "2.00 kW cruise on a 'bag still sealed' model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "450 us = one 2 kHz bag-transducer slot minus part-TC group delay on "
+                            "this autoclave bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 212 us vs combined jitter ~70 us (vac 32 + TC 38): 3.0x over "
+                            "a 2.0x trust floor. Reversing order by < 212 us inside the 450 us window "
+                            "would have kept 2.00 kW; predicted next-sample 20.1 kPa > 8.0 cap.",
+                        ),

@@ -1,0 +1,20 @@
+def occupancy_preflight():
+    banned = (
+        "nelb-r68-001",
+        "nelb-r68-002",
+        "nelb-r68-003",
+        "ospreyfen",
+        "curlewcrag",
+        "bitternshaw",
+        "calveil",
+        "fluveil",
+        "pistveil",
+        "keir mallow",
+        "sable quill",
+        "ivo kest",
+        "fise-hil-6",
+        "int-sim-7",
+        "isoperibol remaining",
+        "fluoride-ise remaining",
+        "heterodyne remaining piston",
+    )

@@ -1,0 +1,69 @@
+{
+  "agent_ids": [
+    "01a0640d-430b-71c3-b2ca-c42abbb8cb48"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 1,
+  "final_state": "unknown",
+  "hunk_evidence_count": 2,
+  "original_basename": "gen_r46.py",
+  "original_path": "/tmp/nelb-r46/gen_r46.py",
+  "path_key": "nelb-r46--358966af1a45",
+  "terminal_event_ids": [
+    "01a0640d-430b-71c3-b2ca-c42abbb8cb48:call-01270ccb-1342-4824-9405-71ac71c77b12-33",
+    "01a0640d-430b-71c3-b2ca-c42abbb8cb48:call-164ab937-82ab-4941-ab17-a0145b693e70-42",
+    "01a0640d-430b-71c3-b2ca-c42abbb8cb48:call-5ac8e9f2-2161-487b-9358-0a04fe674fbb-39",
+    "01a0640d-4311-7663-b761-b95c6b513a88:call-5fd9134c-1415-4fb5-adeb-eecfdcc752e6-10",
+    "01a0640d-4311-7663-b761-b95c6b513a88:call-96c6cad6-6e87-41f0-abee-3e85bc9c05fe-23",
+    "01a0640d-4311-7663-b761-b95c6b513a88:call-c084d604-bb28-475a-8504-70d1bf02d322-16",
+    "01a0640d-4322-72e3-beed-79eb980a94bb:call-14cba50e-2540-433c-8f35-59a84671e51a-18",
+    "01a0640e-7446-7c42-8dc2-1b2312159189:call-a9116949-ba6c-4d00-926e-007edec0d235-10",
+    "01a0640e-7446-7c42-8dc2-1b2312159189:call-c11c8931-5026-43aa-856a-c9ba9f9c7df7-24",
+    "01a0640e-7446-7c42-8dc2-1b2312159189:call-e9d1842c-dc2f-41b5-98c6-72a185c4a05b-16",
+    "01a0640e-7447-7613-b3d2-f474c76195d2:call-e3defc8c-b931-4e01-8847-e88e5f20baf7-46",
+    "01a0640e-7448-75c1-b6d7-ea4568833bd6:call-64a739ec-623c-454e-ae64-aa282a784ade-31",
+    "01a0640e-7451-7b70-9160-020192625da6:call-b899dd8c-6ec5-44b7-90fb-5a0f9a7b5e57-22",
+    "01a0640f-7970-7122-ba9d-140af51beace:call-47258962-1605-4e2b-83e1-778468259fe1-22",
+    "01a0640f-7970-7122-ba9d-140af51beace:call-b1de7e11-3a88-4b65-b843-0a2ae25057b6-15",
+    "01a0640f-7971-7952-9222-e0707911a201:call-288713d9-3f80-4d83-be57-e6541b63fe20-21",
+    "01a0640f-7971-7952-9222-e0707911a201:call-f63e1aee-0916-43a1-8743-74cfcdf3f9ce-18"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 3,
+  "unresolved_events": [
+    {
+      "channel": "terminal",
+      "event_id": "01a0640d-430b-71c3-b2ca-c42abbb8cb48:call-01270ccb-1342-4824-9405-71ac71c77b12-33",
+      "journal_line": 186,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640d-430b-71c3-b2ca-c42abbb8cb48/updates.jsonl",
+      "operation": "unparsed_redirect_write",
+      "reason": "unparsed_redirect_write was recorded but is not conclusively reproducible without execution",
+      "timestamp_utc": "2026-09-02T22:52:16.112Z"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0640d-430b-71c3-b2ca-c42abbb8cb48:call-6f56be8a-bc56-4b31-b8d7-884939436612-34",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r46--358966af1a45/fragments/call-6f56be8a-bc56-4b31-b8d7-884939436612-34/gen_r46.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r46--358966af1a45/fragments/call-6f56be8a-bc56-4b31-b8d7-884939436612-34/gen_r46.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "terminal",
+      "event_id": "01a0640d-430b-71c3-b2ca-c42abbb8cb48:call-5ac8e9f2-2161-487b-9358-0a04fe674fbb-39",
+      "journal_line": 224,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640d-430b-71c3-b2ca-c42abbb8cb48/updates.jsonl",
+      "operation": "concat_append",
+      "reason": "one or more concatenation source states were not reconstructable",
+      "timestamp_utc": "2026-09-02T22:58:38.806Z"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

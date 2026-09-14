@@ -1,0 +1,55 @@
+{
+  "agent_ids": [
+    "01a0640a-368a-7671-93ca-a60968dfd04d"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "build_r30.py",
+  "original_path": "/tmp/maos-r30/build_r30.py",
+  "path_key": "maos-r30--82477a955d00",
+  "terminal_event_ids": [
+    "01a0640a-368a-7671-93ca-a60968dfd04d:call-e7f179d2-b202-4800-9411-922efbf964b9-37",
+    "01a0640a-368e-7fb1-ac2b-f5d9731fd471:call-bfe45f0f-aa77-4378-b7bc-37b265c681d9-27",
+    "01a0640b-474a-7da1-9cee-3dfcde02b7dc:call-6a1c8655-2cfb-4183-99c7-ca7b92692944-18",
+    "01a0640b-4766-7972-8e6a-cac5dd25b371:call-86b7e59a-5fac-4a84-9e24-52300d664154-22"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a0640a-368a-7671-93ca-a60968dfd04d",
+      "basename_preserved": true,
+      "bytes": 83025,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 210,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640a-368a-7671-93ca-a60968dfd04d/updates.jsonl",
+      "original_basename": "build_r30.py",
+      "original_path": "/tmp/maos-r30/build_r30.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r30--82477a955d00/versions/v0001/build_r30.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/maos-r30--82477a955d00/versions/v0001/build_r30.py",
+      "session_id": "01a0640a-368a-7671-93ca-a60968dfd04d",
+      "sha256": "9342866848e89b58c88edf75344d65a0b767cdcdc0f9b17ff33046986033ce88",
+      "source_channel": "structured",
+      "source_event_id": "01a0640a-368a-7671-93ca-a60968dfd04d:call-e211aced-3a63-48e2-b804-e6a4f384f1cc-36",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788387786377,
+      "timestamp_utc": "2026-09-02T22:23:06.377Z",
+      "tool_call_id": "call-e211aced-3a63-48e2-b804-e6a4f384f1cc-36",
+      "version": 1,
+      "version_id": "maos-r30--82477a955d00:v0001"
+    }
+  ]
+}

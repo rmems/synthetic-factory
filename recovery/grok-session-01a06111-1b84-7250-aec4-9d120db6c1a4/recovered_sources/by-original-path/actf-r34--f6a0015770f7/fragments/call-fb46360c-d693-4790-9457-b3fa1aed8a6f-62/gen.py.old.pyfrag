@@ -1,0 +1,1 @@
+                "tests/test_install.py:14:    assert lots_match(\"week36/lot.ndjson\") is True\n"

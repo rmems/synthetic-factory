@@ -1,0 +1,3 @@
+        n = len(rec["spike_events"])
+        if not (48 <= n <= 80):
+            raise RuntimeError(f"{rec['id']} events {n}")

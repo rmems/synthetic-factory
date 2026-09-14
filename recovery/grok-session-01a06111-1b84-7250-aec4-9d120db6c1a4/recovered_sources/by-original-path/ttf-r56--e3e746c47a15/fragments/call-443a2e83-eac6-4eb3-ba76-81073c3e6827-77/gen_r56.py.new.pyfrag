@@ -1,0 +1,18 @@
+            (
+                "description",
+                "Furnace F-6 on the Petcoke-Rigg Acheson HIL pad is pulling 18.6 kA when a "
+                "core IR burst at 2840 C races the kiloamp encoder that still looks "
+                "in-band for a current step. Ramp is legal only if core <= 2650 C. IR-first latches "
+                "hold; encoder-first would treat in-band current as pack clearance.",
+            ),
+            ("domain", "acheson-graphite-furnace"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Do not ramp Furnace F-6 unless core <= 2650 C; keep current 0 kA until the "
+                "pack is quiet.",
+            ),
+            ("t0_us", 1762300000000298),
+            ("gate_latency_us", 1100),
+            ("race_window_us", 260),
+            ("race_window_rel_ms", [3.840, 4.100]),

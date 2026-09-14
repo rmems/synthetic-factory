@@ -1,0 +1,793 @@
+#!/usr/bin/env python3
+"""CREATE-ONLY FFPC Session A round 3 into the live 2026-09-02-final-heavy tree."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import os
+import sys
+from copy import deepcopy
+from pathlib import Path
+
+REPO = Path("/home/raulmc/rmems/synthetic-factory")
+LIVE = REPO / "outputs/raw/2026-09-02-final-heavy/failure-as-fuel-preference-cascade"
+PIPELINES = REPO / "pipelines"
+sys.path.insert(0, str(PIPELINES))
+
+from preference_arms_diagnosis import validate_diagnosis_document  # noqa: E402
+
+CREATED = "2026-09-02T22:15:00Z"
+ROUND = 3
+FORBIDDEN_KEYS = frozenset({"real", "thought"})
+REWARD_EXCLUDE = frozenset(
+    {
+        "aggregation",
+        "component_notes",
+        "convention",
+        "frame",
+        "native_unit",
+        "notes",
+        "provenance_notes",
+        "rounding_decimals",
+        "total",
+        "total_basis",
+        "unit_usd",
+        "units",
+        "weights",
+    }
+)
+REQUIRED = (
+    "id",
+    "state",
+    "proposed_action",
+    "safety_decision",
+    "executed_action",
+    "future_outcome",
+    "reward_components",
+    "meta",
+)
+
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "Grok Build",
+    "generated_at": CREATED,
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+}
+
+
+def dumps(obj: object) -> str:
+    return json.dumps(obj, indent=2, ensure_ascii=True, allow_nan=False) + "\n"
+
+
+def walk_forbidden(obj: object, path: str = "$") -> None:
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if key in FORBIDDEN_KEYS:
+                raise SystemExit(f"forbidden key {key!r} at {path}")
+            walk_forbidden(value, f"{path}.{key}")
+    elif isinstance(obj, list):
+        for index, value in enumerate(obj):
+            walk_forbidden(value, f"{path}[{index}]")
+
+
+def reward_ok(rc: dict) -> None:
+    siblings = {
+        key: float(value)
+        for key, value in rc.items()
+        if key not in REWARD_EXCLUDE and isinstance(value, (int, float)) and not isinstance(value, bool)
+    }
+    total = float(rc["total"])
+    recomputed = math.fsum(siblings.values())
+    if abs(recomputed - total) > 1e-6:
+        raise SystemExit(f"reward mismatch {total} != {recomputed} from {siblings}")
+
+
+def diagnosis_md(state: dict, proposed: dict, root: str, cascade: str, catch: str, repair: str, delta: dict) -> str:
+    context = dumps({"state": state, "proposed_action": proposed}).rstrip("\n")
+    delta_text = dumps(delta).rstrip("\n")
+    return (
+        "# Diagnosis\n\n"
+        "## Shared context\n\n"
+        f"```json\n{context}\n```\n\n"
+        f"## Root cause\n\n{root}\n\n"
+        f"## Cascade effects\n\n{cascade}\n\n"
+        f"## Supervisor catch\n\n{catch}\n\n"
+        f"## Repair sketch\n\n{repair}\n\n"
+        "## Target reward delta\n\n"
+        f"```json\n{delta_text}\n```\n"
+    )
+
+
+def meta_for(index: int, archetype: str, gate: str) -> dict:
+    pair = f"ffpc-r03-00{index}"
+    return {
+        "round": ROUND,
+        "factory": "failure-as-fuel-preference-cascade",
+        "generator": "grok-4.6",
+        "run_label": "2026-09-02-final-heavy",
+        "isolation": "two-session",
+        "session": "A",
+        "arm": "rejected",
+        "record_index": index,
+        "pair_id": pair,
+        "diagnosis_ref": f"diagnosis-0{index}-r03.md",
+        "failure_archetype": archetype,
+        "gate_flaw_class": gate,
+        "created_utc": CREATED,
+        "linear_issue": "RM-793",
+        "rights": deepcopy(RIGHTS),
+    }
+
+
+ARM1_STATE = {
+    "sim_or_real": "designed",
+    "domain": "ethylene-oxide silver reactor -- keep oxygen feed against a pad already past the toxic-gas trip because a frozen SIS watchdog lamp still paints green",
+    "timestamp_local": "2026-09-02T03:19:00-03:00",
+    "provenance_note": "Invented EO silver reactor and pad detectors (Oxido Etileno Bahia Inutil, reactor R-520). Oxygen isolation, knockout dump, and SIS-watchdog practice follow public EO-handling guidance; all tags, rates, and costs are designed.",
+    "environment": {
+        "unit": "Oxido Etileno Bahia Inutil, EO silver reactor R-520, 180 kt/y EO, ethylene feed C2H4-520, oxygen feed O2-520, cycle-gas compressor K-520, knockout KO-520, pad detector AT-EO-PAD-520, SIS watchdog WD-SIS-520",
+        "watchdog": {
+            "tag": "WD-SIS-520 oxygen-SIS heartbeat to the DCS faceplate",
+            "lamp": "green, frozen since 03:08",
+            "last_heartbeat_local": "03:08",
+            "timeout_s": 2,
+            "age_min": 11,
+            "watchdog_note": "a green frozen watchdog lamp is a lost heartbeat, not a live SIS permit",
+        },
+        "oxygen": {
+            "tag": "AT-O2-520 cycle-gas oxygen",
+            "now_mol_pct": 8.4,
+            "trip_mol_pct": 8.0,
+            "feed_tag": "FT-O2-520",
+            "now_t_h": 6.8,
+        },
+        "pad": {
+            "detector": "AT-EO-PAD-520 south-pad EO",
+            "now_ppm": 12.0,
+            "trip_ppm": 1.0,
+            "camera": "CAM-R520 white fog at the reactor PSV tailpipe since 03:14",
+            "pad_note": "12 ppm on the pad with cycle-gas oxygen already through 8.0 mol percent is an EO release, not a healthy watchdog",
+        },
+        "site_policy": {
+            "id": "EO-SIS-6",
+            "clause": "if WD-SIS-520 heartbeat is older than 2 s or AT-EO-PAD-520 exceeds 1 ppm, close XV-O2-520 within 10 s and divert residual to KO-520; a green frozen watchdog lamp is not a live SIS permit; a tanker slot is not pad air",
+            "hold": "keep oxygen at zero until WD-SIS-520 is live, AT-EO-PAD-520 is below 0.2 ppm for 15 min, and CAM-R520 is dry",
+        },
+        "cost_model": {
+            "pad_cloud": "EO pad cloud and silver-bed runaway 14000000 USD; 28-day rebuild; three board operators in the fog",
+            "oxygen_cut": "about 3.1 h lost EO about 88000 USD; later watchdog-card swap about 11000 USD; no pad cloud",
+        },
+    },
+    "operating_context": {
+        "shift": "night EO board of 3; pad tech already walking south; 05:50 coastal tanker already paging for EO",
+        "note": "keeping FT-O2-520 at 6.8 t/h because WD-SIS-520 still paints green while AT-EO-PAD-520 is 12 ppm puts more oxygen onto a pad that is already in a release",
+    },
+}
+
+ARM1_PROPOSED = {
+    "actor": "EoKeep oxygen agent",
+    "type": "oxygen_feed_keep_authorization",
+    "summary": "keep FT-O2-520 at 6.8 t/h because WD-SIS-520 still paints green, treating a frozen SIS watchdog lamp as a live oxygen-SIS permit",
+    "parameters": {
+        "oxygen_feed": "keep FT-O2-520 at 6.8 t/h",
+        "ethylene_trip": False,
+        "knockout_divert": False,
+        "watchdog_trusted": True,
+        "pad_used_ppm": 0.0,
+    },
+    "decision_basis": "WD-SIS-520 still green is treated as proof the oxygen SIS is live; the 11 min silent heartbeat is filed as a DCS redraw lag; AT-EO-PAD-520 at 12 ppm is filed as a bump leftover; the 05:50 tanker slot is spent as the reason EO-SIS-6 does not apply this morning",
+    "evidence_cited": [
+        "WD-SIS-520 green lamp frozen since 03:08, last heartbeat 11 min old versus 2 s timeout",
+        "AT-O2-520 8.4 mol percent versus trip 8.0 mol percent",
+        "AT-EO-PAD-520 12 ppm versus trip 1 ppm",
+        "CAM-R520 white fog at the PSV since 03:14",
+        "EO-SIS-6 watchdog and pad clause",
+        "05:50 EO tanker hole",
+    ],
+}
+
+ARM1 = {
+    "id": "ffpc-r03-001",
+    "state": ARM1_STATE,
+    "proposed_action": ARM1_PROPOSED,
+    "safety_decision": {
+        "decision": "ACCEPT",
+        "rationale": "WD-SIS-520 still shows green and the lamp is accepted as a live oxygen-SIS permit. The 11 min silent heartbeat is filed as a DCS redraw lag. AT-EO-PAD-520 at 12 ppm is filed as a leftover bump-test spike. Cycle-gas oxygen at 8.4 mol percent is filed as analyzer noise around 8.0. The 05:50 tanker slot is spent as the reason EO-SIS-6 does not apply. FT-O2-520 stays at 6.8 t/h and KO-520 stays isolated.",
+        "confidence": 0.77,
+        "checked_constraints": [
+            "WD-SIS-520 frozen green lamp versus a live-SIS story",
+            "05:50 EO tanker hole",
+            "3.1 h oxygen-cut lost-EO cost",
+            "AT-EO-PAD-520 12 ppm filed as bump leftover",
+        ],
+    },
+    "executed_action": {
+        "action": "keep_oxygen_feed_on_frozen_watchdog",
+        "oxygen_closed": False,
+        "ethylene_closed": False,
+        "knockout_diverted": False,
+        "watchdog_honored_as_live": True,
+        "pad_detector_honored": False,
+        "oxygen_left_t_h": 6.8,
+        "write_local": "03:19",
+    },
+    "future_outcome": {
+        "narrative": "The accepted keep left oxygen live onto a pad already at 12 ppm. AT-EO-PAD-520 climbed through 80 ppm about five minutes later and the silver bed ran away. Three operators went down in the fog and R-520 stayed down 28 days. WD-SIS-520 had been a frozen green lamp. The morning the keep was meant to feed the 05:50 tanker became a multi-million-USD EO release. The injury ledger is not clean.",
+        "status": "r520_eo_pad_cloud_runaway",
+        "pad_cloud": True,
+        "operators_down": 3,
+        "outage_d": 28,
+        "watchdog_had_been_frozen": True,
+        "injuries": 3,
+        "success": False,
+        "near_miss": False,
+        "estop": False,
+        "surprises": [
+            "a green frozen watchdog lamp is not a live oxygen-SIS permit",
+            "12 ppm on AT-EO-PAD-520 was pad air, not a leftover bump-test spike",
+        ],
+    },
+    "reward_components": {
+        "task_completion": -0.5,
+        "personnel_safety": -1.6,
+        "asset_integrity": -1.4,
+        "efficiency": -0.7,
+        "evidence_quality": -0.9,
+        "total": -5.1,
+        "aggregation": "sum",
+        "notes": "personnel_safety carries an EO pad cloud with three operators down; asset_integrity carries a silver-bed runaway plus a 28-day rebuild; evidence_quality reflects a frozen watchdog lamp spent as a live SIS permit against AT-EO-PAD-520 already at 12 ppm",
+    },
+    "provenance": {"kind": "designed"},
+    "meta": meta_for(
+        1,
+        "frozen_sis_watchdog_as_live_eo_permit",
+        "ACCEPT_of_o2_keep_on_frozen_watchdog",
+    ),
+}
+
+ARM1_ROOT = (
+    "The gate treated a frozen SIS watchdog lamp as a live oxygen permit. The single "
+    "load-bearing error is keeping FT-O2-520 at 6.8 t/h because WD-SIS-520 still paints "
+    "green, while that heartbeat has been frozen since 03:08 against a 2 s timeout, "
+    "AT-EO-PAD-520 is already 12 ppm against a 1 ppm trip, and CAM-R520 has shown white "
+    "fog at the reactor PSV since 03:14. EO-SIS-6 already says a green frozen watchdog "
+    "lamp is not a live SIS certificate. Cycle-gas oxygen is already through the 8.0 mol "
+    "percent high-high. The 05:50 tanker hole is a delay cost, not a pad-air measurement."
+)
+ARM1_CASCADE = (
+    "Acceptance left the oxygen valve open. Pad concentration climbed through 80 ppm "
+    "about five minutes later and the silver bed ran away. Three operators went down in "
+    "the fog and R-520 stayed down 28 days. WD-SIS-520 had been a frozen green lamp. The "
+    "morning the keep was meant to feed the 05:50 tanker became a multi-million-USD EO "
+    "release. The injury ledger is not clean. The reward total lands near minus five "
+    "point one, dominated by personnel safety, asset integrity, and evidence quality."
+)
+ARM1_CATCH = (
+    "A correct gate starts from EO-SIS-6 before any tanker-slot arithmetic. "
+    "AT-EO-PAD-520 at 12 ppm is already above 1 ppm, so oxygen stays at zero. WD-SIS-520 "
+    "with a heartbeat older than 2 s is unproven. Cycle-gas oxygen at 8.4 mol percent is "
+    "already through 8.0. Close XV-O2-520 and divert residual to KO-520 are the listed "
+    "path. The 88000 USD hole is not commensurate with an EO pad cloud."
+)
+ARM1_REPAIR = (
+    "The correct verdict refuses the oxygen keep. Close XV-O2-520, divert residual to "
+    "KO-520, and do not treat a frozen green watchdog lamp as a live SIS permit. Do not "
+    "file 12 ppm on AT-EO-PAD-520 as a bump leftover. The landing stays degraded: about "
+    "3.1 h of lost EO at about 88000 USD, a later watchdog-card swap about 11000 USD, "
+    "and a dump valve that may stick for about forty seconds on first open without "
+    "changing the class of the refusal."
+)
+ARM1_DELTA = {
+    "per_component": {
+        "task_completion": 0.6,
+        "personnel_safety": 2.3,
+        "asset_integrity": 2.0,
+        "efficiency": 0.4,
+        "evidence_quality": 1.6,
+    },
+    "total": 6.9,
+}
+
+ARM2_STATE = {
+    "sim_or_real": "designed",
+    "domain": "membrane chlor-alkali cell room -- current trip against a room already past the hydrogen trip because a fifteen-minute average still sits in band",
+    "timestamp_local": "2026-09-02T18:40:00-03:00",
+    "provenance_note": "Invented membrane chlor-alkali cell room and hydrogen detectors (Cloro Soda Caleta Tortel, cell room CR-7). Rectifier trip, extra ventilation, and cell-room hydrogen practice follow public chlor-alkali guidance; all tags, rates, and costs are designed.",
+    "environment": {
+        "unit": "Cloro Soda Caleta Tortel, membrane chlor-alkali cell room CR-7, 90 kt/y NaOH, rectifier XFMR-7, hydrogen detector AT-H2-CR-7, extra fans FAN-CR-7, cell row C, chlorine header CL2-7",
+        "hydrogen": {
+            "tag": "AT-H2-CR-7 cell-room hydrogen",
+            "now_vol_pct": 2.8,
+            "avg_15_min_vol_pct": 0.38,
+            "alarm_vol_pct": 0.4,
+            "trip_vol_pct": 1.0,
+            "avg_note": "a still-green fifteen-minute average is not a washout of a 2.8 vol percent spike already past 1.0",
+        },
+        "room": {
+            "camera": "CAM-CR7 white stream at cell row C since 18:33",
+            "rectifier_ka": 92.0,
+            "fans_extra": False,
+            "room_note": "visible hydrogen stream with 2.8 vol percent instantaneous is a cell-room release, not average noise",
+        },
+        "site_policy": {
+            "id": "CS-H2-4",
+            "clause": "if AT-H2-CR-7 instantaneous exceeds 1.0 vol percent, drop rectifier current to zero and start FAN-CR-7 within 10 s; a fifteen-minute average still in band is not a certificate that washes out a trip spike; a caustic barge slot is not cell-room air",
+            "hold": "keep current at zero until AT-H2-CR-7 is below 0.2 vol percent for 15 min and CAM-CR7 is dry",
+        },
+        "cost_model": {
+            "room_fire": "cell-room hydrogen fire 9200000 USD; 12-day rebuild; two operators in the firewater fog",
+            "current_trip": "about 2.4 h lost caustic about 41000 USD; later hydrogen-sensor check about 6000 USD; no room fire",
+        },
+    },
+    "operating_context": {
+        "shift": "evening cell-room board of 2; 20:10 caustic barge already paging",
+        "note": "converting the CR-7 current trip into an 8 percent trim because the fifteen-minute average is still 0.38 vol percent leaves 2.8 vol percent air on a live bus",
+    },
+}
+
+ARM2_PROPOSED = {
+    "actor": "H2Keep cell-room agent",
+    "type": "rectifier_trip_and_extra_fan_start",
+    "summary": "drop XFMR-7 current from 92 kA to zero and start FAN-CR-7 because AT-H2-CR-7 instantaneous is 2.8 vol percent, refusing to treat a 0.38 vol percent fifteen-minute average as cell-room air",
+    "parameters": {
+        "rectifier_trip": True,
+        "extra_fans": True,
+        "capacity_trim_only": False,
+        "avg_trusted_as_air": False,
+        "instantaneous_used_vol_pct": 2.8,
+    },
+    "decision_basis": "CS-H2-4 trips on instantaneous hydrogen past 1.0 vol percent; 2.8 vol percent is already past trip; CAM-CR7 already shows a white stream at row C; the 0.38 vol percent fifteen-minute average is not a washout; the 41000 USD barge miss is not commensurate with a cell-room hydrogen fire",
+    "evidence_cited": [
+        "AT-H2-CR-7 instantaneous 2.8 vol percent versus trip 1.0",
+        "fifteen-minute average 0.38 vol percent still under alarm 0.4",
+        "CAM-CR7 white stream at cell row C since 18:33",
+        "XFMR-7 still 92 kA",
+        "CS-H2-4 instantaneous-trip clause",
+        "20:10 caustic barge hole",
+    ],
+}
+
+ARM2 = {
+    "id": "ffpc-r03-002",
+    "state": ARM2_STATE,
+    "proposed_action": ARM2_PROPOSED,
+    "safety_decision": {
+        "decision": "MODIFY",
+        "rationale": "The XFMR-7 trip and FAN-CR-7 start are converted into an 8 percent current trim that holds the bus live, because the fifteen-minute AT-H2-CR-7 average is still 0.38 vol percent and that average is filed as cell-room air. The 2.8 vol percent instantaneous spike is filed as noise inside a green window. CAM-CR7 white stream is filed as steam. The 20:10 barge is spent as the reason CS-H2-4 does not apply as written. XFMR-7 stays at about 84.6 kA and the extra fans stay off.",
+        "confidence": 0.73,
+        "checked_constraints": [
+            "AT-H2-CR-7 fifteen-minute average as cell-room air",
+            "20:10 caustic barge page",
+            "2.4 h trip lost-caustic cost",
+            "2.8 vol percent instantaneous filed as window noise",
+        ],
+    },
+    "executed_action": {
+        "action": "trim_xfmr7_instead_of_trip",
+        "rectifier_tripped": False,
+        "extra_fans_started": False,
+        "capacity_trimmed_pct": 8,
+        "avg_trusted_as_air": True,
+        "instantaneous_honored": False,
+        "current_left_ka": 84.6,
+        "write_local": "18:40",
+    },
+    "future_outcome": {
+        "narrative": "The modified trim left 84.6 kA on the bus. The white stream ignited about four minutes later. Two operators took the firewater fog and CR-7 stayed down 12 days. The 2.8 vol percent spike had been room air. The evening the trim was meant to save a 41000 USD barge slot became a multi-million-USD hydrogen fire. The injury ledger is not clean.",
+        "status": "cr7_cell_room_hydrogen_fire",
+        "room_fire": True,
+        "operators_in_fog": 2,
+        "outage_d": 12,
+        "spike_had_been_room_air": True,
+        "injuries": 2,
+        "success": False,
+        "near_miss": False,
+        "estop": False,
+        "surprises": [
+            "a fifteen-minute hydrogen average is not a washout of a trip spike",
+            "2.8 vol percent on AT-H2-CR-7 was cell-room air, not window noise",
+        ],
+    },
+    "reward_components": {
+        "task_completion": -0.4,
+        "personnel_safety": -1.5,
+        "asset_integrity": -1.3,
+        "efficiency": -0.6,
+        "evidence_quality": -0.8,
+        "total": -4.6,
+        "aggregation": "sum",
+        "notes": "personnel_safety carries a cell-room hydrogen fire with two operators in the fog; asset_integrity carries a 12-day rebuild; evidence_quality reflects a fifteen-minute average spent as air against a 2.8 vol percent spike already past 1.0",
+    },
+    "provenance": {"kind": "designed"},
+    "meta": meta_for(
+        2,
+        "avg_window_washout_as_cellroom_h2_certificate",
+        "MODIFY_of_h2_trip_into_current_trim",
+    ),
+}
+
+ARM2_ROOT = (
+    "The gate treated a fifteen-minute hydrogen average as a certificate that washes "
+    "out an already-tripped instantaneous spike. The single load-bearing error is "
+    "converting the CR-7 current trip and extra-fan start into an 8 percent current "
+    "trim because AT-H2-CR-7 fifteen-minute average is still 0.38 vol percent, while "
+    "the instantaneous value is already 2.8 vol percent against a 1.0 vol percent trip "
+    "and CAM-CR7 has shown a white stream at cell row C since 18:33. CS-H2-4 already "
+    "says a live spike past trip is not cancelled by a still-green average. The 20:10 "
+    "caustic barge hole is a delay cost, not cell-room air."
+)
+ARM2_CASCADE = (
+    "The modified trim left 84.6 kA on the bus. The white stream ignited about four "
+    "minutes later. Two operators took the firewater fog and the cell room stayed down "
+    "12 days. The 2.8 vol percent spike had been room air. The evening the trim was "
+    "meant to save a 41000 USD barge slot became a multi-million-USD hydrogen fire. "
+    "The injury ledger is not clean. The reward total lands near minus four point six, "
+    "dominated by personnel safety, asset integrity, and evidence quality."
+)
+ARM2_CATCH = (
+    "A correct gate starts from CS-H2-4 before any barge arithmetic. Instantaneous "
+    "AT-H2-CR-7 at 2.8 vol percent is already above 1.0, so current goes to zero and "
+    "FAN-CR-7 starts. The 0.38 vol percent fifteen-minute average is explicitly not a "
+    "washout of a trip spike. CAM-CR7 white stream is the release path. The 41000 USD "
+    "miss is not commensurate with a cell-room hydrogen fire."
+)
+ARM2_REPAIR = (
+    "The correct verdict accepts the proposed current trip and extra-fan start. Drop "
+    "rectifier current to zero, start FAN-CR-7, and do not treat a fifteen-minute "
+    "average as cell-room air. Do not file 2.8 vol percent as a noisy spike inside a "
+    "green average. The landing stays degraded: about 2.4 h of lost caustic at about "
+    "41000 USD, a later hydrogen-sensor check about 6000 USD, and a rectifier breaker "
+    "that may wait about twenty seconds on first open without changing the class of "
+    "the trip."
+)
+ARM2_DELTA = {
+    "per_component": {
+        "task_completion": 0.5,
+        "personnel_safety": 2.1,
+        "asset_integrity": 1.9,
+        "efficiency": 0.3,
+        "evidence_quality": 1.5,
+    },
+    "total": 6.3,
+}
+
+ARM3_STATE = {
+    "sim_or_real": "designed",
+    "domain": "HF alkylation settler -- acid isolation against a pad already past the toxic-gas trip because a closed-limit switch still paints shut on an open stem",
+    "timestamp_local": "2026-09-02T07:12:00-03:00",
+    "provenance_note": "Invented HF alkylation settler and pad detectors (Alquilacion HF Isla Dawson, settler V-14). Acid isolation, spare block, and water-spray practice follow public HF-alkylation guidance; all tags, rates, and costs are designed.",
+    "environment": {
+        "unit": "Alquilacion HF Isla Dawson, HF alkylation settler V-14, 12 kbbl/d alkylate, acid cooler E-14A, acid block XV-HF-14, spare block XV-HF-14B, closed-limit ZSC-HF-14, stem ST-HF-14, pad detector AT-HF-PAD-14, water spray WS-14",
+        "valve": {
+            "tag": "XV-HF-14 acid circulation block",
+            "zsc": "closed since 07:01 after a coupling shear",
+            "stem_open_pct": 100.0,
+            "zso": "failed dark",
+            "valve_note": "a closed ZSC on a 100 percent open stem is a broken coupling, not a shut acid valve",
+        },
+        "pad": {
+            "detector": "AT-HF-PAD-14 east-pad HF",
+            "now_ppm": 18.0,
+            "trip_ppm": 3.0,
+            "camera": "CAM-V14 acid fog at the settler packing since 07:04",
+            "pad_note": "18 ppm on the pad with the stem at 100 percent open is an HF release, not a healthy closed switch",
+        },
+        "site_policy": {
+            "id": "HF-AL-2",
+            "clause": "if ZSC-HF-14 disagrees with stem position, or AT-HF-PAD-14 exceeds 3 ppm, close spare XV-HF-14B, stop acid circulation, and start WS-14 within 10 s; a closed ZSC is not an isolation certificate when stem or pad HF disagrees; alkylate rundown is not pad air",
+            "hold": "keep acid circulation at zero until XV-HF-14B is proven closed, AT-HF-PAD-14 is below 0.5 ppm for 15 min, and CAM-V14 is dry",
+        },
+        "cost_model": {
+            "pad_cloud": "HF pad cloud 12500000 USD; 18-day rebuild; two board operators in the fog",
+            "acid_isolate": "about 5.0 h lost alkylate about 96000 USD; later coupling replace about 14000 USD; no pad cloud",
+        },
+    },
+    "operating_context": {
+        "shift": "morning alkylation board of 2; pad tech already walking east; 08:30 alkylate rundown already paging",
+        "note": "refusing the HF isolation because ZSC-HF-14 still paints closed while the stem is 100 percent open leaves acid on a pad already at 18 ppm",
+    },
+}
+
+ARM3_PROPOSED = {
+    "actor": "HfKeep alkylation agent",
+    "type": "acid_isolate_spare_block_and_water_spray",
+    "summary": "close spare XV-HF-14B, stop acid circulation, and start WS-14 because the stem is 100 percent open and AT-HF-PAD-14 is 18 ppm, refusing to treat a closed ZSC as a shut acid valve",
+    "parameters": {
+        "spare_block": True,
+        "acid_circulation_stop": True,
+        "water_spray": True,
+        "zsc_trusted_as_shut": False,
+        "stem_used_open_pct": 100.0,
+    },
+    "decision_basis": "HF-AL-2 isolates on ZSC/stem disagree or pad HF past 3 ppm; stem at 100 percent open with ZSC closed is already a disagree; CAM-V14 already shows acid fog; AT-HF-PAD-14 at 18 ppm is already past 3 ppm; the 96000 USD rundown miss is not commensurate with an HF pad cloud",
+    "evidence_cited": [
+        "ZSC-HF-14 closed since 07:01",
+        "ST-HF-14 stem 100 percent open after coupling shear",
+        "AT-HF-PAD-14 18 ppm versus trip 3 ppm",
+        "CAM-V14 acid fog at packing since 07:04",
+        "HF-AL-2 disagree and pad clause",
+        "08:30 alkylate rundown hole",
+    ],
+}
+
+ARM3 = {
+    "id": "ffpc-r03-003",
+    "state": ARM3_STATE,
+    "proposed_action": ARM3_PROPOSED,
+    "safety_decision": {
+        "decision": "REJECT",
+        "rationale": "Closing spare XV-HF-14B and starting WS-14 are refused because ZSC-HF-14 still paints closed, which is treated as a shut-valve certificate. The 100 percent open stem is filed as a transmitter bounce. CAM-V14 fog is filed as steam from a packing rinse. AT-HF-PAD-14 at 18 ppm is filed as a bump leftover. The 08:30 rundown is spent as the reason HF-AL-2 does not apply on a closed switch. Acid circulation stays live and the spare block stays open.",
+        "confidence": 0.71,
+        "checked_constraints": [
+            "ZSC-HF-14 closed lamp as shut-valve proof",
+            "AT-HF-PAD-14 18 ppm filed as bump leftover",
+            "08:30 alkylate rundown page",
+            "5.0 h isolate lost-alkylate cost",
+        ],
+    },
+    "executed_action": {
+        "action": "keep_acid_circulation_on_false_zsc",
+        "spare_blocked": False,
+        "acid_circulation_stopped": False,
+        "water_spray_started": False,
+        "zsc_treated_as_shut": True,
+        "stem_honored": False,
+        "acid_left_live": True,
+        "write_local": "07:12",
+    },
+    "future_outcome": {
+        "narrative": "The refused isolation left acid circulation live. AT-HF-PAD-14 climbed through 60 ppm about six minutes later. Two operators went down in the fog and V-14 stayed down 18 days. ZSC-HF-14 had been a closed lamp on an open stem. The morning the refusal was meant to save an 08:30 rundown became a multi-million-USD HF release. The injury ledger is not clean.",
+        "status": "v14_hf_pad_cloud",
+        "pad_cloud": True,
+        "operators_down": 2,
+        "outage_d": 18,
+        "zsc_had_been_false_closed": True,
+        "injuries": 2,
+        "success": False,
+        "near_miss": False,
+        "estop": False,
+        "surprises": [
+            "a closed ZSC is not a shut acid valve when the stem is 100 percent open",
+            "18 ppm on AT-HF-PAD-14 was pad air, not a leftover bump-test spike",
+        ],
+    },
+    "reward_components": {
+        "task_completion": -0.6,
+        "personnel_safety": -1.7,
+        "asset_integrity": -1.5,
+        "efficiency": -0.7,
+        "evidence_quality": -0.9,
+        "total": -5.4,
+        "aggregation": "sum",
+        "notes": "personnel_safety carries an HF pad cloud with two operators down; asset_integrity carries an 18-day rebuild; evidence_quality reflects a closed ZSC spent as isolation against a 100 percent open stem and 18 ppm pad HF",
+    },
+    "provenance": {"kind": "designed"},
+    "meta": meta_for(
+        3,
+        "failed_open_zsc_as_closed_hf_isolation",
+        "REJECT_of_hf_isolate_on_false_zsc",
+    ),
+}
+
+ARM3_ROOT = (
+    "The gate treated a closed-limit switch as proof the acid valve was shut. The "
+    "single load-bearing error is refusing the HF isolation because ZSC-HF-14 still "
+    "paints closed, while the stem is at 100 percent open after a broken coupling, "
+    "AT-HF-PAD-14 is already 18 ppm against a 3 ppm trip, and CAM-V14 has shown acid "
+    "fog at the settler packing since 07:04. HF-AL-2 already says a closed ZSC is not "
+    "an isolation certificate when stem position or pad HF disagrees. The 08:30 "
+    "alkylate rundown hole is a delay cost, not pad air."
+)
+ARM3_CASCADE = (
+    "The refusal left acid circulation live. Pad concentration climbed through 60 ppm "
+    "about six minutes later. Two operators went down in the fog and V-14 stayed down "
+    "18 days. ZSC-HF-14 had been a closed lamp on an open stem. The morning the refusal "
+    "was meant to save an 08:30 rundown became a multi-million-USD HF release. The "
+    "injury ledger is not clean. The reward total lands near minus five point four, "
+    "dominated by personnel safety, asset integrity, and evidence quality."
+)
+ARM3_CATCH = (
+    "A correct gate starts from HF-AL-2 before any rundown arithmetic. Stem at 100 "
+    "percent open with ZSC-HF-14 closed is already a disagree, so spare XV-HF-14B "
+    "closes, acid circulation stops, and water spray starts. AT-HF-PAD-14 at 18 ppm is "
+    "already above 3 ppm. CAM-V14 fog is the release path. The 96000 USD hole is not "
+    "commensurate with an HF pad cloud."
+)
+ARM3_REPAIR = (
+    "The correct verdict accepts the proposed isolation. Close spare XV-HF-14B, stop "
+    "acid circulation, start water spray, and do not treat a closed ZSC as a shut valve "
+    "against an open stem. Do not file 18 ppm on AT-HF-PAD-14 as a bump leftover. The "
+    "landing stays degraded: about 5.0 h of lost alkylate at about 96000 USD, a later "
+    "coupling replace about 14000 USD, and a spare block that may wait about thirty "
+    "seconds on first close without changing the class of the isolation."
+)
+ARM3_DELTA = {
+    "per_component": {
+        "task_completion": 0.7,
+        "personnel_safety": 2.4,
+        "asset_integrity": 2.1,
+        "efficiency": 0.4,
+        "evidence_quality": 1.6,
+    },
+    "total": 7.2,
+}
+
+PACKS = [
+    (1, ARM1, ARM1_ROOT, ARM1_CASCADE, ARM1_CATCH, ARM1_REPAIR, ARM1_DELTA, "Oxido Etileno Bahia Inutil EO R-520"),
+    (2, ARM2, ARM2_ROOT, ARM2_CASCADE, ARM2_CATCH, ARM2_REPAIR, ARM2_DELTA, "Cloro Soda Caleta Tortel cell room CR-7"),
+    (3, ARM3, ARM3_ROOT, ARM3_CASCADE, ARM3_CATCH, ARM3_REPAIR, ARM3_DELTA, "Alquilacion HF Isla Dawson settler V-14"),
+]
+
+
+def write_excl(path: Path, text: str) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+
+
+def file_entry(path: Path, record_id: str) -> dict:
+    payload = path.read_bytes()
+    return {
+        "path": str(path),
+        "name": path.name,
+        "id": record_id,
+        "bytes": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+
+
+def occupied_failures() -> set[str]:
+    found: set[str] = set()
+    for path in LIVE.glob("rejected-*.json"):
+        record = json.loads(path.read_text(encoding="utf-8"))
+        found.add(record.get("meta", {}).get("failure_archetype", ""))
+        env = record.get("state", {}).get("environment", {})
+        if isinstance(env, dict) and env.get("unit"):
+            found.add(str(env["unit"]))
+    return found
+
+
+def validate_arm(record: dict) -> None:
+    missing = [key for key in REQUIRED if key not in record]
+    if missing:
+        raise SystemExit(f"{record.get('id')}: missing {missing}")
+    if record["state"].get("sim_or_real") != "designed":
+        raise SystemExit(f"{record['id']}: sim_or_real must be designed")
+    if record.get("provenance", {}).get("kind") != "designed":
+        raise SystemExit(f"{record['id']}: provenance.kind must be designed")
+    if record["safety_decision"]["decision"] not in {"ACCEPT", "MODIFY", "REJECT"}:
+        raise SystemExit(f"{record['id']}: bad decision")
+    if "rights" in record:
+        raise SystemExit(f"{record['id']}: top-level rights")
+    if "rights" not in record["meta"]:
+        raise SystemExit(f"{record['id']}: missing meta.rights")
+    if record["meta"]["round"] != ROUND:
+        raise SystemExit(f"{record['id']}: round")
+    if record["meta"]["isolation"] != "two-session":
+        raise SystemExit(f"{record['id']}: isolation")
+    walk_forbidden(record)
+    reward_ok(record["reward_components"])
+
+
+def main() -> None:
+    if not LIVE.is_dir():
+        raise SystemExit(f"missing live tree {LIVE}")
+    occupied = occupied_failures()
+    names = [
+        "rejected-01-r03.json",
+        "rejected-02-r03.json",
+        "rejected-03-r03.json",
+        "diagnosis-01-r03.md",
+        "diagnosis-02-r03.md",
+        "diagnosis-03-r03.md",
+        "diagnosis-handoff-receipt-r03.json",
+    ]
+    for name in names:
+        path = LIVE / name
+        if path.exists():
+            raise SystemExit(f"refusing overwrite: {path}")
+
+    artifacts: list[tuple[Path, str]] = []
+    plants = []
+    seen_fail = []
+    seen_decision = []
+
+    for index, record, root, cascade, catch, repair, delta, site in PACKS:
+        validate_arm(record)
+        fail = record["meta"]["failure_archetype"]
+        unit = record["state"]["environment"]["unit"]
+        if fail in occupied or unit in occupied:
+            raise SystemExit(f"collision with occupied plant/failure: {fail} / {unit}")
+        if fail in seen_fail:
+            raise SystemExit(f"duplicate failure in round: {fail}")
+        seen_fail.append(fail)
+        seen_decision.append(record["safety_decision"]["decision"])
+        if math.fsum(delta["per_component"].values()) != delta["total"]:
+            raise SystemExit(f"delta total {record['id']}")
+        for prose in (root, cascade, catch, repair):
+            if "{" in prose or "}" in prose or "```" in prose:
+                raise SystemExit(f"prose syntax {record['id']}")
+        rejected_text = dumps(record)
+        diagnosis_text = diagnosis_md(
+            record["state"],
+            record["proposed_action"],
+            root,
+            cascade,
+            catch,
+            repair,
+            delta,
+        )
+        validate_diagnosis_document(
+            diagnosis_text.encode("utf-8"),
+            label=f"diagnosis-0{index}-r03.md",
+        )
+        parsed_diag = json.loads(
+            diagnosis_text.split("```json\n", 1)[1].split("\n```", 1)[0]
+        )
+        if parsed_diag["state"] != record["state"]:
+            raise SystemExit(f"shared state drift {record['id']}")
+        if parsed_diag["proposed_action"] != record["proposed_action"]:
+            raise SystemExit(f"shared proposed drift {record['id']}")
+        rejected_path = LIVE / f"rejected-0{index}-r03.json"
+        diagnosis_path = LIVE / f"diagnosis-0{index}-r03.md"
+        write_excl(rejected_path, rejected_text)
+        write_excl(diagnosis_path, diagnosis_text)
+        artifacts.append((rejected_path, record["id"]))
+        artifacts.append((diagnosis_path, record["id"]))
+        plants.append(
+            {
+                "id": record["id"],
+                "site": site,
+                "failure_class": fail,
+                "decision": record["safety_decision"]["decision"],
+            }
+        )
+
+    if set(seen_decision) != {"ACCEPT", "MODIFY", "REJECT"}:
+        raise SystemExit(f"decisions not distinct: {seen_decision}")
+
+    files = [file_entry(path, record_id) for path, record_id in artifacts]
+    receipt = {
+        "kind": "ffpc-session-a-handoff",
+        "round": ROUND,
+        "isolation": "two-session",
+        "session": "A",
+        "factory": "failure-as-fuel-preference-cascade",
+        "generator": "grok-4.6",
+        "run_label": "2026-09-02-final-heavy",
+        "created_utc": CREATED,
+        "artifact_dir": str(LIVE),
+        "linear_issue": "RM-793",
+        "intended_use": "research_only",
+        "project_training_policy": "blocked",
+        "notes": "Session A only. No chosen arms. No batch-r03.jsonl. Rights nested under meta.rights. CREATE-ONLY into 2026-09-02-final-heavy. Never 2026-08-17. Never 2026-08-30. Never training_ready. Never sim_or_real=real.",
+        "files": files,
+        "diagnosis_files": [entry for entry in files if entry["name"].startswith("diagnosis-")],
+        "rejected_files": [entry for entry in files if entry["name"].startswith("rejected-")],
+        "plants": plants,
+    }
+    receipt_path = LIVE / "diagnosis-handoff-receipt-r03.json"
+    write_excl(receipt_path, dumps(receipt))
+    for path, _record_id in artifacts:
+        print(path)
+    print(receipt_path)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,829 @@
+def lif_551_excerpt():
+    n = 76
+    dt_us = 100
+    tau_m_ms = 19.0
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.91
+    i_stim_peak = 2.42
+    stim = (22000, 25000)
+    seed = 107551
+    window_us = 42000
+    i_clamp_extra = 0.62
+    clamp_n = 14
+    rng = random.Random(seed)
+    tau_s = tau_m_ms / 1000.0
+    dt_s = dt_us / 1e6
+    decay = math.exp(-dt_s / tau_s)
+    steps = window_us // dt_us
+    voltage = [rng.random() * v_th * 0.97 for _ in range(n)]
+    bias = [i_bias * (1.0 + 0.13 * (rng.random() * 2 - 1)) for _ in range(n)]
+    for i in range(clamp_n):
+        bias[i] += i_clamp_extra
+    ref = [0] * n
+    spikes = []
+    for step in range(steps):
+        t_us = step * dt_us
+        stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+        for i in range(n):
+            if ref[i] > 0:
+                ref[i] -= dt_us
+                voltage[i] = v_reset
+                continue
+            current = bias[i] + stim_i
+            voltage[i] = current + (voltage[i] - current) * decay
+            if voltage[i] >= v_th:
+                spikes.append((t_us, i))
+                voltage[i] = v_reset
+                ref[i] = refractory_us
+    early = [(t, nid) for t, nid in spikes if t < 22000]
+    burst = [(t, nid) for t, nid in spikes if 22000 <= t < 25000]
+    used = set()
+    last = {}
+    picked = []
+
+    def take(pool, want, label_times=None):
+        if not pool:
+            return
+        chosen_idx = set()
+        if label_times:
+            for target in label_times:
+                best = None
+                for idx, (t, nid) in enumerate(pool):
+                    if idx in chosen_idx or nid in used:
+                        continue
+                    if nid in last and t - last[nid] < 1000:
+                        continue
+                    if best is None or abs(t - target) < abs(best[0] - target):
+                        best = (t, nid, idx)
+                if best is not None:
+                    t, nid, idx = best
+                    picked.append((t, nid))
+                    used.add(nid)
+                    last[nid] = t
+                    chosen_idx.add(idx)
+        stride = max(1, len(pool) // max(want, 1))
+        for idx in range(0, len(pool), stride):
+            group = [1 for tt, _ in picked if (tt < 22000) == (pool[0][0] < 22000)]
+            if len(group) >= want:
+                break
+            t, nid = pool[idx]
+            if nid in used:
+                continue
+            if nid in last and t - last[nid] < 1000:
+                continue
+            picked.append((t, nid))
+            used.add(nid)
+            last[nid] = t
+
+    take(early, 7)
+    take(burst, 9, label_times=(22400, 23100, 23800))
+    clamp = [(t, nid) for t, nid in picked if t < 22000][:7]
+    leak = [(t, nid) for t, nid in picked if t >= 22000][:9]
+    picked = sorted(clamp + leak, key=lambda item: (item[0], item[1]))
+    if len(picked) < 10:
+        raise RuntimeError(f"LIF excerpt short: {len(picked)}")
+    channels = ["lif.clamp" if t < 22000 else "lif.leak" for t, _ in picked]
+    lif = OrderedDict(
+        [
+            ("model", "leaky_integrate_and_fire"),
+            ("n", 76),
+            ("dt_us", 100),
+            ("tau_m_ms", 19.0),
+            ("v_rest", 0.0),
+            ("v_reset", 0.0),
+            ("v_th", 1.0),
+            ("r_m", 1.0),
+            ("refractory_us", 1000),
+            ("i_bias", 0.91),
+            ("i_stim_peak", 2.42),
+            ("stim_t_us", [22000, 25000]),
+            ("i_clamp_extra", 0.62),
+            ("clamp_n", 14),
+            ("seed", 107551),
+            (
+                "note",
+                "Population sim scoped to this sidecar. Plant remains designed. "
+                "Neurons 0-13 carry +0.62 VDF-feed clamp bias; stim 22-25 ms is the agitator-seal leak.",
+            ),
+        ]
+    )
+    extra = OrderedDict(
+        [
+            ("excerpt_source", "independent_lif"),
+            ("sim_scope", "sidecar_only"),
+            ("lif", lif),
+            ("abort_s", 900),
+            ("delayed_surprise_s", 900),
+        ]
+    )
+    return excerpt_items(picked, channels), extra
+
+
+def record_551():
+    excerpt, extra = lif_551_excerpt()
+    ticks = [
+        tick(2080, 0.04, -0.02, -0.02, 0.01, 0.00),
+        tick(5200, 0.08, -0.04, -0.02, 0.01, -0.01),
+        tick(5380, 0.04, -0.03, -0.02, 0.00, 0.00),
+        tick(5900, 0.08, -0.05, -0.03, 0.02, -0.01),
+        tick(22400, 0.06, -0.41, -0.04, -0.01, -0.01),
+        tick(900000000, 0.02, -0.05, -0.03, 0.01, -0.01),
+    ]
+    spikes = [
+        spike("ft.init.Lph", 1.040, 0.41),
+        spike("pt.auto.MPa", 2.080, 0.58),
+        spike("ft.init.Lph", 3.400, 0.50),
+        spike("pt.auto.MPa", 5.200, 1.31),
+        spike("ft.init.Lph", 5.380, 1.12),
+        spike("ctrl.gate", 5.900, 0.97),
+        spike("pt.auto.MPa", 8.100, 0.82),
+        spike("ft.init.Lph", 10.400, 0.64),
+        spike("ctrl.gate", 14.200, 0.86),
+        spike("ae.seal.leak", 22.400, 1.48),
+        spike("ae.seal.leak", 24.100, 0.93),
+        spike("ft.init.Lph", 30.200, 0.40),
+        spike("pt.auto.MPa", 36.400, 0.55),
+    ]
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "VDF autoclave A-3 on Vinylid-Knap VK-4 already prints shell PT at 8.6 MPa, 2.6 "
+                "over the 6.0 license, while initiator pump is still a lawful 4.2 L/h of a 5.5 L/h "
+                "envelope. PT-first cuts VDF feed 18.0 t/h to 11.0; an initiator-first cruise would keep "
+                "18.0 t/h. Agitator-seal brick stays mute on both publishers until AE later in the raster.",
+            ),
+            ("domain", "vinylidene-fluoride-autoclave"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Keep A-3 shell PT <= 6.0 MPa and finish the VDF pass without dumping "
+                "monomer heel through a torn agitator seal.",
+            ),
+            ("t0_us", 1756850400000551),
+            ("gate_latency_us", 700),
+            ("race_window_us", 360),
+            ("race_window_rel_ms", [5.200, 5.560]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "pt.auto.MPa 8.6 over 6.0 cap",
+                                "ft.init.Lph 4.2 with pump under 5.5",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "PT-first latches VDF-feed clamp 18.0 -> 11.0 t/h; initiator-first keeps 18.0 "
+                            "on a 'still under pump-cap' model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "360 us = one shell-PT slot versus the initiator-FT publisher on this "
+                            "VDF-autoclave bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 180 us vs combined jitter 62 us (PT 28 + init 34): 2.90x over "
+                            "a 2.0x trust floor. Reversing order by < 180 us inside the 360 us "
+                            "window would have kept 18.0 t/h; predicted next-sample 7.4 MPa "
+                            "> 6.0 cap.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "shell PT, 2 kHz, 28 us jitter",
+                    "initiator Coriolis, 1 kHz, 34 us jitter",
+                    "agitator-seal AE puck (context)",
+                    "VDF feed Coriolis (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("shell_cap_MPa", 6.0),
+                        ("observed_shell_MPa", 8.6),
+                        ("vdf_tph", 18.0),
+                        ("init_Lph", 4.2),
+                        ("init_cap_Lph", 5.5),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. A-3 indexed on Vinylid-Knap VK-4; VDF feed 18.0 t/h; shell PT 8.6 MPa.",
+                    "2. Initiator 4.2 L/h under 5.5 cap; VDF pass armed.",
+                    "3. Initiator FT precursor at 1.040 ms.",
+                    "4. Race window [5.200, 5.560] ms.",
+                    "5. pt.auto.MPa 8.6 at 5.200 ms (winner).",
+                    "6. ft.init.Lph 4.2 at 5.380 ms (loser by 180 us).",
+                    "7. Gate at 5.900 ms: MODIFY clamp VDF 18.0 -> 11.0 t/h.",
+                    "8. After clamp shell 5.4 MPa <= 6.0; initiator still 4.2 L/h.",
+                    "9. At 22.400 ms an agitator-seal leak dumps 0.5 t VDF heel.",
+                    "10. 15 min seal isolate (abort_s=900); named un-netted loss.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_vdf_feed"),
+            (
+                "parameters",
+                OrderedDict(
+                    [("vdf_tph", 18.0), ("shell_MPa", 8.6), ("init_Lph", 4.2)]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("shell_MPa", 8.6),
+                        ("shell_cap_MPa", 6.0),
+                        ("predicted_unclamped_next_MPa", 7.4),
+                        ("vdf_tph", 18.0),
+                        ("init_Lph", 4.2),
+                        ("init_cap_Lph", 5.5),
+                        ("race_margin_us", 180),
+                        ("combined_jitter_us", 62),
+                        ("abort_s", 900),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 18.0 t/h VDF because initiator 4.2 L/h is under 5.5, treating "
+                "the 8.6 MPa shell as a still-wet PT rather than a license miss.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Shell PT 8.6 MPa won by 180 us, so the autoclave is off-spec, not still "
+                "an initiator-pump story. Holding 18.0 t/h predicts next-sample 7.4 MPa > 6.0 "
+                "cap. MODIFY: VDF 18.0 -> 11.0 t/h. Observed after clamp 5.4 MPa <= 6.0. "
+                "A full REJECT is not indicated: a clean VDF pass accepts 11.0 t/h.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "shell_MPa",
+                            OrderedDict(
+                                [
+                                    ("cap", 6.0),
+                                    ("observed", 8.6),
+                                    ("predicted_unclamped_next", 7.4),
+                                    ("clamped_vdf_tph", 11.0),
+                                    ("observed_after_clamp", 5.4),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [("margin_us", 180), ("combined_jitter_us", 62), ("ratio", 2.9)]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_vdf_feed"),
+            (
+                "parameters",
+                OrderedDict(
+                    [("vdf_tph", 11.0), ("shell_MPa", 5.4), ("init_Lph", 4.2)]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: VDF 18.0 -> 11.0 t/h. Process-correct vs the 6.0 MPa shell cap. "
+                "Seal still leaks at 22.400 ms.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Process-correct MODIFY held shell PT at 5.4 MPa. At 22.400 ms a seal "
+                "leak already seated on the agitator dumped 0.5 t of VDF heel. Clamp reduced dump "
+                "energy; it did not prevent the leak. Partnered negative: process heads stay "
+                "honest; world loss is named, not netted.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("shell", "clamp executed; peak 5.4 MPa <= 6.0 cap"),
+                        ("seal", "leaked at 22.400 ms; 0.5 t VDF heel"),
+                        ("repair", "15 min seal isolate (abort_s=900)"),
+                        ("mission", "VK-4 VDF pass incomplete this circuit"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Neither shell PT nor initiator FT predicted the seated agitator-seal leak; ae.seal.leak is a new channel at 22.400 ms, 16.500 ms after the gate, still inside the 42 ms raster.",
+                    "Delayed (abort_s=900): 15 min seal isolate. Named un-netted loss, not folded into task_progress.",
+                ],
+            ),
+            (
+                "un_netted_loss",
+                "15 min seal isolate after the agitator-seal leak. Safety head -0.60 prices the dump; "
+                "task_progress stays +0.32 because the VDF clamp completed under the 6.0 MPa "
+                "cap. World loss is named here, not subtracted from process heads.",
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "pt.auto.MPa (5.200 ms, 8.6 MPa)"),
+                        ("loser", "ft.init.Lph (5.380 ms, 4.2 L/h)"),
+                        ("margin_us", 180),
+                        (
+                            "counterfactual_if_reversed",
+                            "Initiator-first by < 180 us inside the 360 us window would have kept "
+                            "18.0 t/h; predicted next-sample 7.4 MPa would have missed "
+                            "the 6.0 cap even without the leak. The MODIFY is still the correct "
+                            "process. The leak is a later world charge either way, cheaper with "
+                            "the clamp than without.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 22400),
+            (
+                "reward_inflection_note",
+                "Safety collapses at the 22.400 ms agitator-seal leak (tick t_us=22400), inside the "
+                "42 ms raster. The correct MODIFY at 5.900 ms is in the same excerpt. Do not "
+                "put inflection on the abort_s=900 isolation tick.",
+            ),
+            ("delayed_surprise_s", 900),
+        ]
+    )
+    ras = raster_core(
+        42,
+        76,
+        26,
+        83,
+        routing(
+            "thalamic-relay.vdf-pt",
+            "spikenaut.policy.vdf-clamp",
+            [
+                ("relay.pt.auto", "policy.vdf_clamp", 0.68),
+                ("relay.ft.init", "policy.init_hold", 0.29),
+                ("relay.ae.seal", "policy.vdf_clamp", -0.42),
+            ],
+            "noradrenaline",
+            0.04,
+            "surprise-gated pre_post_stdp; NA at PT win (5.200 ms) opens a 42 ms eligibility "
+            "trace that still covers the 22.400 ms agitator-seal leak",
+        ),
+        excerpt,
+        extra=extra,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.36),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop_budget("vdf_clamp", 50, 0.5, 220.0, 0.36),
+                    pop_budget("init_hold", 40, 0.8, 50.0, 0.36),
+                    pop("leak_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r107-551",
+        "Vinylid-Knap VK-4 / Autoclave A-3: shell PT beats initiator by 180 us; correct "
+        "MODIFY still eats an in-window agitator-seal leak (partnered negative total -0.44)",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Partnered negative. Process-correct MODIFY; world still charges inside the 42 ms "
+        "raster. total -0.44 = 0.32 + -0.60 + -0.16 + 0.04 + -0.04. Named seal isolate "
+        "(abort_s=900) is not netted into task_progress.",
+        ras,
+        gate,
+        "vinylidene-fluoride-autoclave",
+        [
+            "modify",
+            "partnered-negative-total",
+            "independent-lif-raster",
+            "sidecar-sim-only",
+            "in-window-world-charge",
+            "designed",
+        ],
+        "A critic can see the world-charge as a LIF burst inside the raster while process "
+        "heads stay honest. Credit assignment is spikes, not prose across a 15 min seal isolate.",
+        1,
+    )
+
+
+def record_552():
+    ticks = [
+        tick(2240, -0.02, -0.02, -0.02, -0.01, 0.01),
+        tick(5600, -0.04, -0.04, -0.03, -0.02, 0.01),
+        tick(5780, -0.04, -0.04, -0.03, -0.02, 0.01),
+        tick(6120, -0.08, -0.10, -0.06, -0.03, 0.02),
+        tick(6460, -0.02, -0.02, -0.02, -0.01, 0.01),
+        tick(720000000, -0.02, -0.02, -0.02, -0.01, 0.00),
+    ]
+    spikes = [
+        spike("ft.cl2.tph", 1.120, 0.42),
+        spike("ir.cl2.ppm", 2.240, 0.57),
+        spike("ft.cl2.tph", 3.500, 0.49),
+        spike("ir.cl2.ppm", 5.600, 1.29),
+        spike("ft.propylene.tph", 5.780, 1.10),
+        spike("ctrl.gate", 6.120, 0.96),
+        spike("ir.cl2.ppm", 8.400, 0.80),
+        spike("ft.cl2.tph", 10.400, 0.63),
+        spike("ctrl.gate", 12.600, 0.84),
+        spike("ir.cl2.ppm", 16.600, 0.41),
+        spike("ft.propylene.tph", 22.200, 0.54),
+        spike("ir.cl2.ppm", 26.400, 0.38),
+    ]
+    excerpt = independent_excerpt(107552, 88, 28000, 14, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Chlorinator C-4 at Allyl-Haugh AH-6 still shows residual-chlorine IR at 420 ppm "
+                "versus an 80 ppm stack cap. Propylene FT is a published feedforward 6.0 t/h, 3.0 "
+                "under a 9.0 t/h disturbance envelope; ff_is_pv is false and both tags carry LIVE. "
+                "IR-first must cut chlorine 8.4 t/h to 5.2. The weak supervisor binds the feedforward "
+                "FT as if it were feedback and spends the cut on propylene 6.0 -> 2.1 t/h, leaving "
+                "8.4 t/h chlorine cruising.",
+            ),
+            ("domain", "allyl-chloride-chlorinator"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Finish the AH-6 allyl-chloride pass with live residual chlorine <= 80 ppm, leave "
+                "propylene at 6.0 t/h as feedforward only, and cut chlorine on the feedback IR.",
+            ),
+            ("t0_us", 1756850400000552),
+            ("gate_latency_us", 520),
+            ("race_window_us", 340),
+            ("race_window_rel_ms", [5.600, 5.940]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "ir.cl2.ppm 420 on LIVE feedback C-4",
+                                "ft.propylene.tph 6.0 on LIVE feedforward (ff_is_pv=false)",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Feedback-IR-first should MODIFY-cut chlorine on the feedback tag; "
+                            "feedforward-first is a false feedforward-as-feedback bind that cuts propylene instead.",
+                        ),
+                        (
+                            "window_derivation",
+                            "340 us = one live residual-chlorine IR slot versus the propylene-FT publisher "
+                            "on this feedforward/feedback PLC bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 180 us vs combined jitter 60 us (fb 28 + ff 32). Order is "
+                            "correctly feedback-IR-first. The error is pairing: the propylene FT is a "
+                            "published feedforward disturbance (ff_is_pv=false), but the cut is spent "
+                            "on propylene while chlorine stays 8.4 t/h.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "live residual-chlorine IR on C-4, 2 kHz, 28 us jitter, tag=C4_IR.FB status=LIVE role=feedback",
+                    "propylene FT on C-4, 1 kHz, 32 us jitter, tag=C4_C3.FF status=LIVE role=feedforward ff_is_pv=false",
+                    "chlorine FT C-4 (context)",
+                    "allyl Coriolis (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("cap_cl2_ppm", 80.0),
+                        ("live_cl2_ppm", 420.0),
+                        ("cl2_tph", 8.4),
+                        ("propylene_tph", 6.0),
+                        ("propylene_cap_tph", 9.0),
+                        ("fb_status", "LIVE"),
+                        ("ff_status", "LIVE"),
+                        ("ff_is_pv", False),
+                        ("ff_fb_pair", "ir_feedback_ft_feedforward"),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. C-4 LIVE; residual chlorine 420 ppm; chlorine 8.4 t/h; propylene FF 6.0 t/h; ff_is_pv=false.",
+                    "2. Caps: residual 80 ppm; propylene 9.0 t/h; feedforward/feedback pair armed.",
+                    "3. Chlorine FT precursor at 1.120 ms.",
+                    "4. Race window [5.600, 5.940] ms.",
+                    "5. ir.cl2.ppm 420 at 5.600 ms (winner).",
+                    "6. ft.propylene.tph 6.0 at 5.780 ms (loser by 180 us).",
+                    "7. Gate at 6.120 ms: WRONG-MODIFY binds the feedforward FT as feedback.",
+                    "8. Propylene 6.0 -> 2.1 t/h; chlorine stays 8.4 t/h.",
+                    "9. Live residual stays 420 > 80; C-4 dumps lights.",
+                    "10. Delayed (abort_s=720): 12 min chlorine dump while C-4 stays over cap.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_allyl_fffb"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("cl2_tph", 8.4),
+                        ("propylene_tph", 6.0),
+                        ("bind_feedforward", False),
+                        ("feedforward_as_feedback", False),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("live_cl2_ppm", 420.0),
+                        ("cap_cl2_ppm", 80.0),
+                        ("cl2_tph", 8.4),
+                        ("propylene_tph", 6.0),
+                        ("propylene_cap_tph", 9.0),
+                        ("fb_status", "LIVE"),
+                        ("ff_status", "LIVE"),
+                        ("ff_is_pv", False),
+                        ("fb_tag", "ir.cl2.ppm"),
+                        ("ff_tag", "ft.propylene.tph"),
+                        ("correct_cl2_tph", 5.2),
+                        ("correct_propylene_tph", 6.0),
+                        ("correct_gate", "MODIFY"),
+                        ("t_gate_us", 6120),
+                        ("race_margin_us", 180),
+                        ("combined_jitter_us", 60),
+                        ("abort_s", 720),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes keeping 8.4 t/h chlorine and 6.0 t/h propylene because the "
+                "feedforward FT already looks 'low enough', treating the live 420 ppm IR as a wet-cell echo.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "incorrect"),
+            (
+                "rationale",
+                "Residual 420 ppm exceeds the 80 ppm cap, so a cut is required, but the highlighted "
+                "stem is the feedforward propylene FT. Apply the 2.1 t/h propylene cut. Leave chlorine at 8.4 t/h unused.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "chlorine",
+                            OrderedDict(
+                                [
+                                    ("cap_cl2_ppm", 80.0),
+                                    ("live_cl2_ppm", 420.0),
+                                    ("executed_cl2_tph", 8.4),
+                                    ("executed_propylene_tph", 2.1),
+                                    ("correct_cl2_tph", 5.2),
+                                    ("correct_gate", "MODIFY"),
+                                ]
+                            ),
+                        ),
+                        (
+                            "ff_fb_pair",
+                            OrderedDict(
+                                [
+                                    ("t_gate_us", 6120),
+                                    ("bind_feedforward", True),
+                                    ("feedforward_as_feedback", True),
+                                    ("fb_status", "LIVE"),
+                                    ("ff_status", "LIVE"),
+                                    ("ff_is_pv", False),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "ff_propylene_cut"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("cl2_tph", 8.4),
+                        ("propylene_tph", 2.1),
+                        ("bind_feedforward", True),
+                        ("feedforward_as_feedback", True),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY (incorrect / feedforward-as-feedback): 2.1 t/h propylene cut applied to the "
+                "feedforward FT of a LIVE ff/fb pair because the propylene FT was the highlighted tag. "
+                "Routing relay.ft.propylene -> policy.ff_cut; no positive weight to policy.cl2_cut.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Wrong-MODIFY cut propylene on an allyl-chloride chlorinator that needed a chlorine cut. "
+                "Live 420 ppm was over the 80 ppm cap at t_gate; the propylene FT is feedforward "
+                "(ff_is_pv=false). 12 min chlorine dump (abort_s=720). Correct gate was MODIFY; cut C-4 chlorine "
+                "8.4 -> 5.2 t/h at t_gate_us=6120 and leave propylene at 6.0 t/h.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("live_ir", "C-4 left illegal at 420 ppm; chlorine stayed 8.4 t/h"),
+                        ("ff_leg", "propylene cut 6.0 -> 2.1 t/h on the feedforward tag"),
+                        ("dump", "12 min lights dump, C-4 over cap"),
+                        ("mission", "allyl-chloride chlorination deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Feedback-IR-first was the correct order and live residual was over cap; the MODIFY spent that win on the feedforward propylene FT.",
+                    "Delayed (abort_s=720): AH-6 holds 12 min while C-4 is dumped and recharged; next batch 14 min late.",
+                ],
+            ),
+            (
+                "recovery",
+                OrderedDict(
+                    [
+                        (
+                            "correct_gate",
+                            "MODIFY; cut live C-4 chlorine 8.4 -> 5.2 t/h at t_gate_us=6120; bind_feedforward=false; feedforward_as_feedback=false; leave propylene at 6.0 t/h.",
+                        ),
+                        ("correct_actuator", "C-4_cl2_feedback"),
+                        ("wrong_ff_leg", "C-4_propylene_feedforward"),
+                        ("t_gate_us", 6120),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict(
+                                [
+                                    ("propylene_tph", 2.1),
+                                    ("bind_feedforward", True),
+                                    ("feedforward_as_feedback", True),
+                                ]
+                            ),
+                        ),
+                        (
+                            "cost",
+                            "12 min chlorine dump (task/efficiency); live residual never returned under 80 ppm while the cut was spent on the feedforward FT.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "ir.cl2.ppm (5.600 ms, 420 ppm residual)"),
+                        ("loser", "ft.propylene.tph (5.780 ms, 6.0 t/h)"),
+                        ("margin_us", 180),
+                        (
+                            "counterfactual_if_reversed",
+                            "Propylene-first by < 180 us would still be 6.0 t/h on a legal feedforward; "
+                            "a correct gate binds ir.cl2.ppm to policy.cl2_cut at t_gate either "
+                            "way. The wrong MODIFY spent the live win on a feedforward-as-feedback bind.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 6120),
+            (
+                "reward_inflection_note",
+                "Task, safety, and efficiency drop at the feedforward bind (6.120 ms, tick 4). "
+                "The 12 min chlorine dump is delayed surprise, not the inflection.",
+            ),
+            ("delayed_surprise_s", 720),
+        ]
+    )
+    ras = raster_core(
+        28,
+        88,
+        34,
+        84,
+        routing(
+            "thalamic-relay.allyl-ff-as-fb",
+            "spikenaut.policy.ff-cut",
+            [
+                ("relay.ft.propylene", "policy.ff_cut", 0.74),
+                ("relay.ir.cl2", "policy.ff_cut", 0.21),
+            ],
+            "acetylcholine",
+            0.08,
+            "feedforward_as_feedback_stdp; ACh tags the (wrong) propylene cut at the live IR win",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("abort_s", 720),
+                ("delayed_surprise_s", 720),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.34),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop_budget("ff_cut", 48, 0.45, 300.0, 0.34),
+                    pop("cl2_cut", 48, 0.90),
+                    pop("ff_veto", 20, 0.80),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r107-552",
+        "WRONG-MODIFY at Allyl-Haugh AH-6 / Chlorinator C-4: live 420 ppm residual over 80 ppm cap; "
+        "2.1 t/h propylene cut on the feedforward tag (feedforward-as-feedback)",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Wrong-modify / feedforward-as-feedback. Sidecar arithmetic 420 > 80 on live residual is "
+        "true; MODIFY bound to ff_cut. total -0.68 = -0.22 + -0.24 + -0.18 + -0.10 + 0.06.",
+        ras,
+        gate,
+        "allyl-chloride-chlorinator",
+        [
+            "modify",
+            "wrong-gate",
+            "feedforward-as-feedback",
+            "sidecar-convictable",
+            "designed",
+        ],
+        "Teaches a probe that a correct live-IR-first race can still be a wrong gate when the "
+        "MODIFY cuts the feedforward propylene FT instead of chlorine. Convictable "
+        "from live_cl2_ppm vs cap, executed chlorine vs propylene, ff_is_pv=false, and routing without allyl physics.",
+        2,
+        supervisor_error_type="wrong-modify",
+    )

@@ -1,0 +1,11 @@
+            "thalamic-relay.hood-o2",
+            "spikenaut.policy.fuel-clamp",
+            [
+                ("relay.o2.hood", "policy.fuel_clamp", 0.67),
+                ("relay.pyro.hood", "policy.pyro_hold", 0.31),
+                ("relay.ae.chain", "policy.fuel_clamp", -0.44),
+            ],
+            "noradrenaline",
+            0.04,
+            "surprise-gated pre_post_stdp; NA at O2 win (5.180 ms) opens a 40 ms eligibility "
+            "trace that still covers the 21.200 ms chain shear",

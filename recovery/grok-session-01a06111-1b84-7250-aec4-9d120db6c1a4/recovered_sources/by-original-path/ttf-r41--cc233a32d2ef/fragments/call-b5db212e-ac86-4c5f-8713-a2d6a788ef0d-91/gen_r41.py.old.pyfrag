@@ -1,0 +1,1 @@
+Gate mix: 1 ACCEPT, 2 MODIFY, 1 correct REJECT, 1 incorrect REJECT (voter-bypass / singleton-as-trip). Provenance: designed×3, simulated×1, hil×1 (Yankee-Crest YC-3 tissue-cylinder mockup). Intra-batch plus vs-prior Jaccard on `state.description` all ≤ {jmax:.3f} (< 0.4).

@@ -1,0 +1,5 @@
+    domains: set[str] = set(PROMPT_POOL)
+    plants: set[str] = set()
+    for path in sorted(Path("/tmp").glob("ttf-r*/batch-r*.jsonl")):
+        if path.parent.name == "ttf-r84":
+            continue

@@ -1,0 +1,4 @@
+                "Lithcox-Beck LB-HIL kiln KN-7 has a 58 C bed, 14 K below the 72 C light-off "
+                "floor, while a lamp paints the hood pyrometer at 81 C. Binding the bed RTD "
+                "keeps precursor at 0 t/h; treating the lamp as bed temperature would walk "
+                "18 t/h onto a cold LCO charge.",

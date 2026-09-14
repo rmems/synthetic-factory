@@ -1,0 +1,5 @@
+    for path in list(Path("/tmp").glob("ttf-r*-occ-*.txt")) + list(
+        Path("/tmp").glob("ttf-r*/occ-*.txt")
+    ):
+        if path.parent.name == "ttf-r112" or "r112" in path.name:
+            continue

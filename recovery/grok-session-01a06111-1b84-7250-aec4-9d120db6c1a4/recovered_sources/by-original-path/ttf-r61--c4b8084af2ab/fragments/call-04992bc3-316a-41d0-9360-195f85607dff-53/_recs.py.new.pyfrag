@@ -1,0 +1,4 @@
+                "Chlorate cell-room bank 4 at Chlorate-Heugh CH-5 reads live header 4.62 kA against a "
+                "4.20 kA cap. Live-first should write 3.40 kA onto SP.LIVE at t_gate; a weak supervisor "
+                "writes the same 3.40 kA cut onto SP.SHADOW because the last recipe download parked the "
+                "legal setpoint on the non-live tag. SP.LIVE stays 4.62 kA.",

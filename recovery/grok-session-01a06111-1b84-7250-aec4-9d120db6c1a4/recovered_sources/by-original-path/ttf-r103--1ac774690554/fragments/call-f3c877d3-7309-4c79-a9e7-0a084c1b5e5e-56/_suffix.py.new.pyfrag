@@ -1,0 +1,25 @@
+        if rec["id"] == "ttf-r103-532":
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["live_pv_ppm"] > ev["cap_ppm"]):
+                issues.append("532 live PV not over cap")
+            if not (ev["shadow_sp_ppm"] < ev["cap_ppm"]):
+                issues.append("532 shadow SP not under cap")
+            if ev.get("faceplate_status") != "LEFTOVER":
+                issues.append("532 faceplate not LEFTOVER")
+            if rec["executed_action"]["parameters"].get("bind_shadow_sp") is not True:
+                issues.append("532 bind_shadow_sp not true")
+            if rec["executed_action"]["parameters"].get("shadow_as_live_sp") is not True:
+                issues.append("532 shadow_as_live_sp not true")
+            if rec["executed_action"]["parameters"].get("co_nm3h") != 12.8:
+                issues.append("532 CO should open to 12.8")
+            if rec["executed_action"]["parameters"].get("live_pv_ppm") != 184.0:
+                issues.append("532 live PV should stay 184")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("532 missing recovery")
+            table_to = {row["to"] for row in rec["raster"]["routing"]["table"]}
+            if "policy.live_cut" in table_to:
+                issues.append("532 routing still has live_cut")
+            if "policy.shadow_open" not in table_to:
+                issues.append("532 routing missing shadow_open")
+            if "shadow-setpoint" not in rec["meta"]["tags"] or "leftover-faceplate" not in rec["meta"]["tags"]:
+                issues.append("532 missing shadow-setpoint/leftover-faceplate tags")

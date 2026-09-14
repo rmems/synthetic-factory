@@ -1,0 +1,2041 @@
+#!/usr/bin/env python3
+"""Build and self-check MAOS round-64 JSONL (research-only; not published).
+
+Create-only emit into LIVE
+/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-09-02-final-heavy/multi-agent-ouroboros-swarm
+plus /tmp/maos-r64. Never 2026-08-17 / 2026-08-30. Never overwrite.
+"""
+from __future__ import annotations
+
+import json
+import math
+import os
+import random
+import re
+import subprocess
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+ROOT = "/home/raulmc/rmems/synthetic-factory"
+sys.path.insert(0, ROOT)
+sys.path.insert(0, f"{ROOT}/pipelines")
+
+GEN_AT = "2026-09-02T19:55:00Z"
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "SuperGrok Heavy chat",
+    "generated_at": GEN_AT,
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+}
+AGG = "total = task_progress + safety + efficiency + coherence + exploration"
+HEADS = ("task_progress", "safety", "efficiency", "coherence", "exploration")
+OUT = Path("/tmp/maos-r64")
+LIVE = Path(
+    "/home/raulmc/rmems/synthetic-factory/outputs/raw/"
+    "2026-09-02-final-heavy/multi-agent-ouroboros-swarm"
+)
+HIDDEN = (
+    "thought",
+    "chain_of_thought",
+    "scratch",
+    "inner_monologue",
+    "hidden_reasoning",
+    "internal_reasoning",
+    "thinking",
+    "cot",
+    "thoughts",
+    "reasoning",
+)
+BANNED = (
+    "TRIAD",
+    "Meridian Gateway",
+    "VANTIS",
+    "CADENCE",
+    "AEGIS",
+    "THERMION",
+    "STARLING",
+    "OKTAVE",
+    "VERDIGRIS",
+    "LYOSHIELD",
+    "CINDERWICK",
+    "Helixmere",
+    "Lodenholt",
+    "QUILLFORGE",
+    "Brackmere",
+    "NIGHTWELL",
+    "FERRICLEAVE",
+    "CASSITER",
+    "Marshfloat",
+    "MURENA",
+    "SEEDLATCH",
+    "Quartzmere",
+    "STRIAFOIL",
+    "Kelpholt",
+    "REDHALL",
+    "OXBOWREEL",
+    "TORSIONKEY",
+    "Ridgeholt",
+    "ORRIS",
+    "Holmwick",
+    "PROTONIL",
+    "Ashspire",
+    "WHORLSPAR",
+    "Pikeshear",
+    "IONSPATE",
+    "Thornmere",
+    "SKULLGATE",
+    "Bloomholt",
+    "CALXION",
+    "Aldersedge",
+    "MAGNORIL",
+    "Basaltspit",
+    "GORSEFLUE",
+    "Copseholt",
+    "CLINKERFELL",
+    "Flintmere",
+    "SODASHARD",
+    "Cairnmere",
+    "LINTELPLY",
+    "Greystair",
+    "KAOTHARN",
+    "Riftwold",
+    "TREADNOLL",
+    "Slatebeck",
+    "ANOLITH",
+    "Siltfen",
+    "DRUMWROTH",
+    "Pitchfen",
+    "RIMEBRAID",
+    "Floeholt",
+    "BRIMVAULT",
+    "Pyritefen",
+    "BOGIRON",
+    "Mireholt",
+    "CHROMLOOP",
+    "Marlfell",
+    "NITREVAULT",
+    "NITROSTAITH",
+    "ETHYNWOLD",
+    "RUNNELGATE",
+    "SPARKHOLT",
+    "DIPLEGAR",
+    "OLEUMWEIR",
+    "SKARVOLT",
+    "GOBSPALL",
+    "GOBWOLD",
+    "PUSHERFELL",
+    "CREELWOLD",
+    "LIXIVQUERN",
+    "GAUZEFELL",
+    "OSMOLITH",
+    "COILSHAW",
+    "LOOPERQUAY",
+    "SIPHONWOLD",
+    "OSMOQUAY",
+    "GIBBSQUERN",
+    "LANCEQUAY",
+    "UREASTAITH",
+    "DRYSTAITH",
+    "TITERWEIR",
+    "ZINCFELL",
+    "GLIMMERAXLE",
+    "HOLLOWMERE",
+    "WINDBOXHOLT",
+    "Gratecroft",
+    "KALYCIRQUE",
+    "GYPSUMWEIR",
+    "GALVSTAITH",
+    "training_ready",
+)
+R14_OPENING = (
+    "Helixmere Biologics Building C lyophilizer LYO-4 is mid-primary on 8400 "
+    "vials of a monoclonal antibody"
+)
+NOVEL_LINE = "Novel coverage: 49%"
+PLANT = "WOLD-BARN"
+GEO = "Barleyholt"
+CELL = "MK-4"
+DOMAIN = "malting-kiln-barn"
+RECORD_ID = "maos-r64-001"
+ROUND = 64
+DELAY_S = 0.80
+TAU_E_S = 0.94
+LIF_SEED = 64001
+WINDOW_MS = 42
+NEURONS = 160
+MEAN_RATE_HZ = 26.6
+
+
+def cents_ticks(t_us, rows):
+    ticks = []
+    sums = {h: 0 for h in HEADS}
+    for t, vals in zip(t_us, rows):
+        tick = {"t_us": int(t)}
+        for h, c in zip(HEADS, vals):
+            v = round(c / 100.0, 2)
+            tick[h] = v
+            sums[h] += c
+        ticks.append(tick)
+    heads = {h: round(sums[h] / 100.0, 2) for h in HEADS}
+    heads["total"] = round(sum(heads[h] for h in HEADS), 2)
+    return ticks, heads
+
+
+def check_refractory(events, floor_ms=0.8):
+    last = {}
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last and (t - last[ch]) < floor_ms - 1e-9:
+            return f"refractory {ch}: {t}-{last[ch]}={(t-last[ch]):.4f} < {floor_ms}"
+        last[ch] = t
+    return None
+
+
+def min_same_channel_gap(events):
+    last = {}
+    best = None
+    who = None
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last:
+            gap = t - last[ch]
+            if best is None or gap < best:
+                best = gap
+                who = ch
+        last[ch] = t
+    return best, who
+
+
+def check_excerpt(ex, neurons, window_ms):
+    prev_t = -1
+    last_n = {}
+    for item in ex:
+        t = item["t_us"]
+        n = item["neuron_id"]
+        if t < prev_t:
+            return "excerpt not sorted"
+        if not (0 <= t <= window_ms * 1000):
+            return f"t_us {t} out of window"
+        if not (0 <= n < neurons):
+            return f"neuron {n} out of range"
+        if n in last_n and t - last_n[n] < 1000:
+            return f"same-neuron gap {n}: {t-last_n[n]}"
+        last_n[n] = t
+        prev_t = t
+    return None
+
+
+def check_gate_pops(gs):
+    dw_s = gs["decision_window_ms"] / 1000.0
+    for p in gs["populations"]:
+        if "mean_rate_hz" in p or "spikes" in p:
+            exp = round(p["neurons"] * p["mean_rate_hz"] * dw_s)
+            if abs(p["spikes"] - exp) > 1:
+                return f"{p['name']} spikes {p['spikes']} vs {exp}"
+    return None
+
+
+def jaccard(a, b):
+    sa = set(a.lower().split())
+    sb = set(b.lower().split())
+    return len(sa & sb) / max(1, len(sa | sb))
+
+
+def prior_openings():
+    out = []
+    for p in sorted(Path("/tmp").glob("maos-r*/batch-r*.jsonl")):
+        if p.parent.name == "maos-r64":
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        st = rec.get("state")
+        desc = str(st.get("description") or "") if isinstance(st, dict) else ""
+        if desc:
+            out.append((p.as_posix(), desc[:280]))
+    live = LIVE / "batch-r*.jsonl"
+    for p in sorted(LIVE.glob("batch-r*.jsonl")):
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        st = rec.get("state")
+        desc = str(st.get("description") or "") if isinstance(st, dict) else ""
+        if desc:
+            out.append((p.as_posix(), desc[:280]))
+    return out
+
+
+def occupancy_collisions():
+    hits = []
+    tokens = (PLANT, GEO, CELL, DOMAIN, RECORD_ID)
+    for p in sorted(Path("/tmp").glob("maos-r*/batch-r*.jsonl")):
+        if p.parent.name == "maos-r64":
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        blob = json.dumps(rec)
+        domain = (rec.get("state") or {}).get("domain")
+        if domain == DOMAIN:
+            hits.append(f"{p}: domain {domain}")
+        for tok in tokens:
+            if tok in blob:
+                hits.append(f"{p}: token {tok}")
+    for p in sorted(LIVE.glob("batch-r*.jsonl")):
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        blob = json.dumps(rec)
+        domain = (rec.get("state") or {}).get("domain")
+        if domain == DOMAIN:
+            hits.append(f"{p}: domain {domain}")
+        for tok in tokens:
+            if tok in blob:
+                hits.append(f"{p}: token {tok}")
+    return hits
+
+
+def independent_lif_excerpt(lang_us):
+    n = NEURONS
+    dt_us = 100
+    tau_m_ms = 18.0
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.88
+    i_stim_peak = 2.35
+    stim = (22000, 25500)
+    window_us = WINDOW_MS * 1000
+    i_clamp_extra = 0.58
+    clamp_n = 16
+    rng = random.Random(LIF_SEED)
+    tau_s = tau_m_ms / 1000.0
+    dt_s = dt_us / 1e6
+    decay = math.exp(-dt_s / tau_s)
+    steps = window_us // dt_us
+    voltage = [rng.random() * v_th * 0.97 for _ in range(n)]
+    bias = [i_bias * (1.0 + 0.13 * (rng.random() * 2 - 1)) for _ in range(n)]
+    for i in range(clamp_n):
+        bias[i] += i_clamp_extra
+    ref = [0] * n
+    spikes = []
+    for step in range(steps):
+        t_us = step * dt_us
+        stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+        for i in range(n):
+            if ref[i] > 0:
+                ref[i] -= dt_us
+                voltage[i] = v_reset
+                continue
+            current = bias[i] + stim_i
+            voltage[i] = current + (voltage[i] - current) * decay
+            if voltage[i] >= v_th:
+                spikes.append((t_us, i))
+                voltage[i] = v_reset
+                ref[i] = refractory_us
+    lang = set(lang_us)
+    early = [(t, i) for t, i in spikes if t < 22000 and t not in lang]
+    burst = [(t, i) for t, i in spikes if 22000 <= t < 25500 and t not in lang]
+    late = [(t, i) for t, i in spikes if t >= 25500 and t not in lang]
+    picked = []
+    used = set()
+    last = {}
+    for pool, want in ((early, 7), (burst, 6), (late, 3)):
+        stride = max(1, len(pool) // max(want, 1))
+        got = 0
+        for idx in range(0, len(pool), stride):
+            if got >= want:
+                break
+            t, nid = pool[idx]
+            if nid in used:
+                continue
+            if nid in last and t - last[nid] < 1000:
+                continue
+            picked.append((t, nid))
+            used.add(nid)
+            last[nid] = t
+            got += 1
+    picked = sorted(picked, key=lambda item: (item[0], item[1]))
+    excerpt = []
+    for t, nid in picked:
+        ch = "lif.hold" if t < 22000 else ("lif.bed" if t < 25500 else "lif.late")
+        excerpt.append({"t_us": int(t), "neuron_id": int(nid), "channel": ch})
+    lif = {
+        "model": "leaky_integrate_and_fire",
+        "n": n,
+        "dt_us": dt_us,
+        "tau_m_ms": tau_m_ms,
+        "v_rest": 0.0,
+        "v_reset": v_reset,
+        "v_th": v_th,
+        "r_m": 1.0,
+        "refractory_us": refractory_us,
+        "i_bias": i_bias,
+        "i_stim_peak": i_stim_peak,
+        "stim_t_us": list(stim),
+        "i_clamp_extra": i_clamp_extra,
+        "clamp_n": clamp_n,
+        "seed": LIF_SEED,
+        "sim_spikes": len(spikes),
+        "note": (
+            "Population sim scoped to this sidecar. Plant remains designed. "
+            "Neurons 0-15 carry +0.58 air-hold clamp bias; stim 22-25.5 ms is the "
+            "zone-3 bed-hot crossing, not a remap of spike_events."
+        ),
+    }
+    return excerpt, lif, len(spikes)
+
+
+def build_record():
+    ticks, heads = cents_ticks(
+        [4428, 6428, 7144, 8_600_000, 624_000_000, 11_160_000_000, 18_360_000_000],
+        [
+            (1, -2, -1, 2, 1),
+            (2, -4, -1, 3, 1),
+            (2, -6, -2, 3, 2),
+            (1, -7, -2, 2, 1),
+            (1, -5, -2, 2, 1),
+            (1, -6, -2, 1, 1),
+            (0, -6, -2, 1, 2),
+        ],
+    )
+    assert abs(heads["total"] - (-0.17)) < 1e-9, heads
+
+    trace = math.exp(-DELAY_S / TAU_E_S)
+    eta1 = 0.25 / trace
+    eta2 = 0.22 / trace
+    eta3 = 0.21 / trace
+    dw1 = eta1 * 1.0 * trace
+    dw2 = eta2 * 1.0 * trace
+    dw3 = eta3 * 1.0 * trace
+    w1 = 0.50 - dw1
+    w2 = 0.44 - dw2
+    w3 = 0.41 - dw3
+    assert abs(w1 - 0.25) < 5e-4, w1
+    assert abs(w2 - 0.22) < 5e-4, w2
+    assert abs(w3 - 0.20) < 5e-4, w3
+
+    spike_events = [
+        {"channel": "air.hot", "t_rel_ms": 0.294, "amplitude": 0.52},
+        {"channel": "rh.ok", "t_rel_ms": 1.108, "amplitude": 0.61},
+        {"channel": "fan.ok", "t_rel_ms": 1.986, "amplitude": 0.55},
+        {"channel": "bed.dP", "t_rel_ms": 3.052, "amplitude": 0.76},
+        {"channel": "air.hot", "t_rel_ms": 4.118, "amplitude": 0.49},
+        {"channel": "bed.dP", "t_rel_ms": 4.716, "amplitude": 0.78},
+        {"channel": "fan.ok", "t_rel_ms": 5.294, "amplitude": 0.57},
+        {"channel": "bed.hot.high", "t_rel_ms": 6.428, "amplitude": 1.36},
+        {"channel": "air.in_band", "t_rel_ms": 6.614, "amplitude": 1.11},
+        {"channel": "rh.ok", "t_rel_ms": 6.802, "amplitude": 0.64},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.144, "amplitude": 1.07},
+        {"channel": "bed.dP", "t_rel_ms": 8.722, "amplitude": 0.43},
+        {"channel": "rh.ok", "t_rel_ms": 10.614, "amplitude": 0.80},
+        {"channel": "fan.ok", "t_rel_ms": 12.894, "amplitude": 0.45},
+        {"channel": "air.hot", "t_rel_ms": 18.206, "amplitude": 0.42},
+        {"channel": "ctrl.gate", "t_rel_ms": 25.814, "amplitude": 0.84},
+        {"channel": "fan.probe", "t_rel_ms": 8600.0, "amplitude": 0.95},
+        {"channel": "bed.dP", "t_rel_ms": 8688.2, "amplitude": 0.39},
+        {"channel": "air.in_band", "t_rel_ms": 8774.0, "amplitude": 0.34},
+        {"channel": "human.ratify", "t_rel_ms": 624000.0, "amplitude": 0.79},
+        {"channel": "kiln.hold", "t_rel_ms": 624900.0, "amplitude": 0.73},
+        {"channel": "bed.scorch", "t_rel_ms": 625800.0, "amplitude": 0.85},
+        {"channel": "air.hot", "t_rel_ms": 11160000.0, "amplitude": 0.29},
+        {"channel": "bed.dP", "t_rel_ms": 11160740.0, "amplitude": 0.27},
+        {"channel": "fan.ok", "t_rel_ms": 11161520.0, "amplitude": 0.24},
+        {"channel": "malt.cull", "t_rel_ms": 18360000.0, "amplitude": 0.93},
+    ]
+    contrast_spikes = [
+        {"channel": "air.demand", "t_rel_ms": 0.000, "amplitude": 0.82},
+        {"channel": "bed.clear", "t_rel_ms": 0.174, "amplitude": 0.76},
+        {"channel": "air.hot", "t_rel_ms": 0.418, "amplitude": 0.22},
+        {"channel": "rh.ok", "t_rel_ms": 1.448, "amplitude": 0.38},
+        {"channel": "bed.dP", "t_rel_ms": 4.856, "amplitude": 0.51},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.028, "amplitude": 0.90},
+        {"channel": "fan.probe", "t_rel_ms": 3200.0, "amplitude": 0.33},
+        {"channel": "malt.cull", "t_rel_ms": 18360000.0, "amplitude": 0.08},
+    ]
+    lang_us = [
+        int(round(e["t_rel_ms"] * 1000.0))
+        for e in spike_events
+        if e["t_rel_ms"] * 1000.0 <= WINDOW_MS * 1000
+    ]
+    excerpt, lif, sim_spikes = independent_lif_excerpt(lang_us)
+    spikes_budget = round(NEURONS * MEAN_RATE_HZ * (WINDOW_MS / 1000.0))
+    energy_pJ = spikes_budget * 23
+    energy_uJ = spikes_budget * 23e-6
+
+    rec = {
+        "id": RECORD_ID,
+        "title": (
+            "WOLD-BARN MK-4: zone-3 bed TC 81.4 C beats kiln-air-in-band by 186 us; "
+            "correct MODIFY still loses 3.8 t of malt to a pre-t0 air-on-floor collapse"
+        ),
+        "rights": dict(RIGHTS),
+        "state": {
+            "sim_or_real": "designed",
+            "domain": DOMAIN,
+            "scenario_name": "WOLD-BARN / Barleyholt Kiln MK-4",
+            "timestamp_local": "2026-08-15T03:22:00-05:00",
+            "t0_us": 1755248520000641,
+            "gate_latency_us": 716,
+            "race_window_us": 500,
+            "race_window_rel_ms": [6.428, 6.928],
+            "description": (
+                "Barleyholt floor-malt kiln MK-4 at WOLD-BARN is 14 min into a 62.0 C "
+                "air-on-floor cure on four 6.0 t green-malt zones (0.85 m bed, 24 t "
+                "total) when three heterogeneous, individually-correct agents jointly "
+                "report 'kiln-air-true, raise air'. AIR's 12-bit header mean is 62.0 C "
+                "inside 58-66. RH's exhaust psychrometer is 42 pct inside 35-50. FAN's "
+                "kiln-fan tachometer is 38.0 Hz inside 32-44. The conjunction is not a "
+                "bed-true certificate: zone-3 air-on-floor tiles have collapsed, so "
+                "local bed TC is 81.4 C (healthy < 68; hold if > 72) and local dP is "
+                "0.18 kPa (healthy > 0.55; hold if < 0.30) while AIR mean, exhaust RH, "
+                "and fan speed still see three intact zones plus one collapsed floor. "
+                "Local bed TC infers 81.4 C and local dP 0.18 kPa but policy treats the "
+                "zone tap as a wet-pocket nuisance tag unless AIR mean also trips "
+                "(2015 'noisy bed-probe after a steep'). Residual-first latches "
+                "AIR-HOLD plus a fan-step probe; AIR-first would have authorized "
+                "RAISE-AIR 62.0 to 72.0 C into a curing-kill window with zone 3 already "
+                "scorching."
+            ),
+            "goal": (
+                "Hold kiln air at 62.0 C without a curing raise while zone-3 bed TC "
+                "> 72 C AND zone-3 dP < 0.30 kPa AND zone 3 remains unisolated; keep "
+                "scorched-malt mass at 0 extra t and kiln-stall events at 0 from the draft."
+            ),
+            "race": {
+                "contenders": [
+                    "bed.hot.high 81.4 C (zone-3 local bed TC vs kiln-air header mean)",
+                    "air.in_band 62.0 C (four-zone kiln-air mean)",
+                ],
+                "semantics": (
+                    "Bed-hot-first latches AIR-HOLD + FAN-STEP-PROBE + ZONE-3 hold. "
+                    "AIR-first latches RAISE-AIR (62.0 to 72.0 C, no isolate)."
+                ),
+                "window_derivation": "500 us = one 360 us bed-TC ADC slot plus 140 us AIR publish.",
+                "order_evidence_note": (
+                    "Margin 186 us vs combined jitter 54 us (bed 30 + AIR 24): 3.4x. "
+                    "The 186 us gap sits inside min(500, 500) us, so a sub-flip-bound "
+                    "perturbation reverses triage order. The gate rides the "
+                    "order-invariant floors zone-3 bed TC > 72 C and zone-3 dP < 0.30 kPa, "
+                    "not the alarm order."
+                ),
+            },
+            "topology": {
+                "site": (
+                    "Barleyholt Maltings, invented floor-malt campus Barleyholt, kiln "
+                    "MK-4: 4 air-on-floor zones, 6.0 t x 0.85 m bed, 62.0 C header, "
+                    "Grade-B kiln-gallery LOTO"
+                ),
+                "agents": (
+                    "AIR four-zone kiln-air header mean (vendor Airholt): 20 Hz 12-bit "
+                    "on the common plenum. RH exhaust psychrometer (vendor Hygroshear): "
+                    "50 Hz on the kiln-stack sample. FAN kiln-fan tachometer (vendor "
+                    "Fanfen): 50 Hz on the common fan shaft. BED local zone-3 bed TC "
+                    "plus local dP (vendor Bedghyll) is commissioned as a wet-pocket "
+                    "nuisance tag, not as a bed-integrity tag. Heterogeneous stacks, "
+                    "no shared intent schema, one 20 ms kiln-bus epoch"
+                ),
+                "coupling": (
+                    "All three playbook confirms live on the WRONG volume. AIR is "
+                    "correct that four-zone mean sits at 62.0 C (three intact zones "
+                    "dominate the header average). RH is correct that exhaust humidity "
+                    "is 42 pct (the collapsed floor is one of four). FAN is correct "
+                    "that shaft speed is 38.0 Hz (the common fan still sees three "
+                    "healthy zones). Playbook PB-MK-4 treats the conjunction as "
+                    "permission to raise kiln air. No agent is faulty; the AIR average "
+                    "is looking at kiln-mean heat, not at zone 3's collapsed floor."
+                ),
+            },
+            "sensors": [
+                "four-zone kiln-air mean 12-bit, 20 Hz, 24 us jitter, 62.0 C (dead-band 58-66)",
+                "exhaust psychrometer, 50 Hz, 18 us jitter, 42 pct RH (band 35-50)",
+                "kiln-fan tachometer, 50 Hz, 26 us jitter, 38.0 Hz (band 32-44)",
+                "zone-3 local bed TC, 20 Hz, 30 us jitter, 81.4 C (healthy < 68; policy floor 72 C is not armed unless AIR mean also trips)",
+                "zone-3 local dP 0.18 kPa (healthy > 0.55; hold if < 0.30)",
+                "zone-3 floor camera is NOT commissioned at t0 (installed after this incident)",
+            ],
+            "constraints": {
+                "air_C": 62.0,
+                "air_hold_floor_C": 62.0,
+                "proposed_air_C": 72.0,
+                "rh_pct": 42.0,
+                "rh_band_pct": [35.0, 50.0],
+                "fan_Hz": 38.0,
+                "fan_band_Hz": [32.0, 44.0],
+                "bed_tc_C": 81.4,
+                "bed_tc_hold_C": 72.0,
+                "bed_tc_healthy_C": 68.0,
+                "bed_dP_kPa": 0.18,
+                "bed_dP_hold_kPa": 0.30,
+                "bed_dP_healthy_kPa": 0.55,
+                "zone_count": 4,
+                "fault_zone": "Z-3",
+                "fault_floor": "zone 3 air-on-floor tile collapse / local bed scorch",
+            },
+            "fault_context": {
+                "failure_class": (
+                    "KILN-AIR MEAN CERTIFICATE OF A LOCAL BED-HOT SPOT: three "
+                    "individually-correct heterogeneous agents each read a locally-true "
+                    "loop; collapsed air-on-floor tiles on zone 3 partition local bed TC "
+                    "and local dP from AIR mean, exhaust RH, and fan speed, so the "
+                    "playbook's AIR / RH / FAN conjunction is not a bed-true certificate"
+                ),
+                "igniter": (
+                    "zone 3 air-on-floor tile collapse after 14 min of unmonitored local "
+                    "bed-hot; kiln-gallery visual PASSES (the collapse sits under the "
+                    "green-malt bed; the scorch is on the far side of the floor)"
+                ),
+                "naive_failure": (
+                    "PB-MK-4 RAISE-AIR on three healthy loops: 62.0 to 72.0 C into a "
+                    "curing-kill window with zone 3 already scorched, 9.6 t cull, $1.9M "
+                    "plus a 28-hour unplanned stall"
+                ),
+            },
+            "poisoned_context": {
+                "naive_alarm": (
+                    "Playbook PB-MK-4 (after the 2015 'noisy bed-probe after a steep') "
+                    "auto-drafts RAISE-AIR whenever four-zone AIR is inside 58-66 C AND "
+                    "exhaust RH inside 35-50 pct AND fan inside 32-44 Hz, ignoring the "
+                    "local zone tap unless AIR mean also trips"
+                ),
+                "why_poisoned": (
+                    "The three confirms are locally true and jointly insufficient. The "
+                    "local bed TC is a commissioned sensor that policy treats as "
+                    "wet-pocket-nuisance-only. Independence of 'AIR mean in band, "
+                    "therefore every floor is intact' is the hidden assumption, and it "
+                    "is false across a floor-collapse-plus-AIR-mix path."
+                ),
+            },
+            "constraint": (
+                "Do not raise kiln air above 62.0 C AND do not skip the fan-step while "
+                "zone-3 bed TC > 72 C AND zone-3 dP < 0.30 kPa. Discriminate floor "
+                "collapse vs true kiln-duty with a reversible fan-step probe before any "
+                "raise-air."
+            ),
+        },
+        "proposed_action": {
+            "actor": "malt supervisory optimizer MSO (auto-playbook PB-MK-4 draft), submitted to gate TG-MK-4",
+            "name": "raise_air",
+            "action": "RAISE-AIR: 62.0 -> 72.0 C, no fan-step probe, no zone-3 hold",
+            "summary": (
+                "Treat three in-spec loops as a healthy bed-true kiln and raise "
+                "night-shift air to clear a curing-kill window."
+            ),
+            "parameters": {
+                "air_C": 72.0,
+                "fan_step_probe": False,
+                "zone_hold": False,
+                "human_ratify": False,
+            },
+            "steps": [
+                "assert four-zone AIR 62.0 C inside 58-66",
+                "assert exhaust RH 42 pct inside 35-50",
+                "assert fan 38.0 Hz inside 32-44",
+                "raise kiln air 62.0 to 72.0 C over 9 min",
+                "hold zone-3 bed TC unread as a bed-integrity tag",
+            ],
+            "evidence": [
+                {
+                    "observable": "zone-3 local bed TC",
+                    "value": 81.4,
+                    "unit": "C",
+                    "source": "BED TC vs AIR mean",
+                    "note": "healthy < 68 C; policy floor 72 C is not armed unless AIR mean also trips",
+                },
+                {
+                    "observable": "zone-3 local dP",
+                    "value": 0.18,
+                    "unit": "kPa",
+                    "source": "BED local dP tap",
+                    "note": "healthy > 0.55; hold floor 0.30; lives on the collapsed Z-3 floor, not the common plenum",
+                },
+                {
+                    "observable": "four-zone kiln-air mean",
+                    "value": 62.0,
+                    "unit": "C",
+                    "source": "AIR 12-bit",
+                    "note": "healthy-load band 58-66 C; three intact zones still dominate the header average",
+                },
+                {
+                    "observable": "exhaust humidity",
+                    "value": 42.0,
+                    "unit": "pct",
+                    "source": "RH psychrometer",
+                    "note": "band 35-50 pct; stack-true, floor-false",
+                },
+                {
+                    "observable": "kiln-fan speed",
+                    "value": 38.0,
+                    "unit": "Hz",
+                    "source": "FAN tachometer",
+                    "note": "band 32-44 Hz; shaft-true, collapsed-floor-false",
+                },
+                {
+                    "observable": "race margin",
+                    "value": 186,
+                    "unit": "us",
+                    "source": "bed.hot.high 6.428 ms vs air.in_band 6.614 ms",
+                    "note": "combined jitter 54 us, 3.4x; inside 500 us flip bound",
+                },
+            ],
+            "basis": (
+                "PB-MK-4 fires on three locally-true confirms. The draft does not read "
+                "zone-3 bed TC 81.4 C as a collapse residual and does not treat local "
+                "dP 0.18 kPa as a floor-collapse discriminant."
+            ),
+            "expected_cost_bound": (
+                "If the draft executes: scorched malt 9.6 t on zone 3, $1.9M plus "
+                "28-hour unplanned stall. If MODIFIED: probe plus hold, with residual "
+                "risk from bed scorch already seeded in the 14 min pre-t0 collapse."
+            ),
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "correctness": "correct",
+            "decided_by": "TG-MK-4 thalamic release gate",
+            "decision_t_rel_ms": 7.144,
+            "rationale": (
+                "MODIFY the draft: strip the raise-air, hold 62.0 C, run an 8.6 s "
+                "fan-step probe (+4 Hz on zone 3), and isolate zone 3 only if the probe "
+                "stays mean-false. Numeric floor: do not raise kiln air above 62.0 C "
+                "AND do not skip the fan-step while zone-3 bed TC > 72 C AND zone-3 dP "
+                "< 0.30 kPa. Observed bed TC 81.4 C and local dP 0.18 kPa both violate "
+                "the release predicate, so a raise-air is forbidden even though all "
+                "three playbook confirms are numerically true. The three confirms are "
+                "not a bed-true certificate: they live on four-zone AIR mean, exhaust "
+                "RH, and fan speed past a collapsed Z-3 floor, and the playbook's "
+                "conjunction of AIR-true loops is not a bed-true certificate. Probe "
+                "discriminant: after an 8.6 s +4 Hz fan step, a floor collapse keeps "
+                "|Delta AIR mean| <= 0.4 K (the collapsed floor does not recouple the "
+                "header average); a live intact floor moves >= 2.1 K. Order-code "
+                "discipline: bed-hot beat AIR by 186 us inside the 500 us flip bound, "
+                "so triage order is flip-fragile; the hold rides the order-invariant "
+                "floors, not the winner tag. Human ratification: zone-3 hold is "
+                "kiln-gallery LOTO with fitted 10.4 min dead-man; the gate may hold "
+                "and probe autonomously but may not break the floor interlock without "
+                "the operator confirm."
+            ),
+            "constraint_checked": {
+                "air_C": {"observed": 62.0, "floor": 62.0, "proposed_target": 72.0},
+                "bed_tc_C": {"observed": 81.4, "hold_if_above": 72.0},
+                "rh_pct": {"observed": 42.0, "band": [35.0, 50.0]},
+                "bed_dP_kPa": {"observed": 0.18, "hold_if_below": 0.30},
+            },
+        },
+        "executed_action": {
+            "name": "air_hold_fan_step_probe_isolate",
+            "action": "AIR-HOLD + FAN-STEP-PROBE + ZONE-3-HOLD (gate-mandated modification)",
+            "executed_as_proposed": False,
+            "parameters": {
+                "air_C": 62.0,
+                "fan_step_probe": True,
+                "zone_hold": True,
+                "human_ratify": True,
+            },
+            "gate_effect": (
+                "MODIFY: raise-air stripped. Hold 62.0 C. 8.6 s fan-step +4 Hz on Z-3. "
+                "Probe stays mean-false (TC 81.4 -> 80.7 C, collapse band |Delta AIR "
+                "mean| <= 0.4 K) so the floor interlock is broken after 10.4 min human "
+                "ratify and zone 3 is held. Setpoint resumes after an intact-floor verify."
+            ),
+            "deviations": (
+                "PB-MK-4 raise-air stripped entirely. Fan is stepped only for the 8.6 s "
+                "probe then returned. Floor interlock wait added (10.4 min fitted "
+                "walk+ratify). Cross-zone TC survey added during the hold (not in the draft)."
+            ),
+            "execution_log": [
+                {"t_rel_ms": 7.144, "entry": "TG-MK-4 MODIFY latched 716 us after bed-hot win; raise-air stripped; hold+probe authorized"},
+                {"t_rel_ms": 8600.0, "entry": "fan-step probe: Z-3 fan +4 Hz for 8.6 s; TC 81.4 -> 80.7 C (collapse band |Delta AIR mean| <= 0.4 K); AIR 62.0 -> 61.7 C"},
+                {"t_rel_ms": 624000.0, "entry": "operator ratifies floor interlock break after 10.4 min kiln-gallery walk (fitted walk+interlock)"},
+                {"t_rel_ms": 624900.0, "entry": "zone 3 held; local TC slaved off the air schedule; remaining 3 zones recovered toward 6 K over 3.1 h"},
+                {"t_rel_ms": 625800.0, "entry": "floor survey: Z-3 already scorched on the far side; 14 min pre-t0 collapse logged"},
+                {"t_rel_ms": 11160000.0, "entry": "true intact floor on the remaining kiln: local TC delta 6 K, local dP 0.62 kPa, TC below 72; raise-air now legal on MK-5 only"},
+                {"t_rel_ms": 18360000.0, "entry": "malt cull at zone 3 from the pre-t0 floor collapse; kiln quarantined 16 h"},
+            ],
+        },
+        "future_outcome": {
+            "summary": (
+                "Correct MODIFY prevented the 62.0->72.0 C raise-air into a collapsed "
+                "Z-3 floor and the immediate 9.6 t scorch path. The kiln still failed: "
+                "14 min of unmonitored pre-t0 floor collapse had already enzyme-killed "
+                "3.8 t of malt. Process-correct gate, bounded world loss, negative total."
+            ),
+            "state_delta": {
+                "air": "held 62.0 C through probe and isolate; later legal raise-air only on the sister kiln after 3.1 h floor recovery",
+                "floor": "zone 3 isolated from the air schedule; remaining kiln recovered toward 6 K local TC delta",
+                "air_mean": "Z-3 collapse logged and held; four-zone AIR mean no longer trusted as bed-true heat",
+                "kiln": "night-shift kiln quarantined; Z-3 scorched; malt cull at +5.1 h; 16 h stall",
+            },
+            "timeline": [
+                {"t_rel_ms": -840000.0, "event": "t0-14 min: zone 3 floor collapse begins; local TC crosses 72 C up; local bed-hot starts enzyme-killing the far-side malt"},
+                {"t_rel_ms": -420000.0, "event": "t0-7 min: local TC first crosses 72 C; PB-MK-4 ignores it because AIR mean is 61.4 C"},
+                {"t_rel_ms": 0.0, "event": "t0: bed-hot vs AIR race on the kiln bus"},
+                {"t_rel_ms": 6.428, "event": "zone-3 bed TC at 81.4 C wins by 186 us"},
+                {"t_rel_ms": 6.614, "event": "AIR-in-band flag (loser)"},
+                {"t_rel_ms": 7.144, "event": "TG-MK-4 MODIFY"},
+                {"t_rel_ms": 8600.0, "event": "fan-step probe confirms floor collapse (Delta AIR mean 0.3 K, collapse band)"},
+                {"t_rel_ms": 624000.0, "event": "human ratify 10.4 min; zone 3 held; scorched floor logged"},
+                {"t_rel_ms": 11160000.0, "event": "true intact floor after 3.1 h; raise-air legal only with local-TC slave"},
+                {"t_rel_ms": 18360000.0, "event": "malt cull from the pre-t0 floor collapse; kiln quarantined"},
+                {"t_rel_ms": 259200000.0, "event": "+3 d contrast: sister kiln MK-5 true kiln-duty; same gate ACCEPTs the raise-air"},
+                {"t_rel_ms": 1814400000.0, "event": "+21 d CR-M-6404: standing fan-step probe + triple-edge depression mandate + local-TC armed without AIR coincidence + AIR mean declared AIR-mix-vulnerable"},
+            ],
+            "observed_effects": [
+                "raise-air avoided: kiln never left 62.0 C; 0 immediate 9.6 t scorches from the draft",
+                "collapse proven, not asserted: fan-step |Delta AIR mean| 0.3 <= 0.4 K collapse band vs intact-floor control 2.4 K",
+                "mean slaved: four-zone AIR no longer a bed-true tag without local TC",
+                "kiln still collapsed: enzyme-killed 3.8 t vs 0 scorched-malt campaign allowance; 16 h stall, $0.86M (designed $)",
+                "zone-3 floor camera was not a commissioned sensor at t0; the 14 min local scorch was invisible to AIR/RH/FAN",
+            ],
+            "surprises": [
+                "Three locally-true loops are not a bed-true certificate: the local TC lived under AIR mean, exhaust RH, and fan speed. Conjunction of in-spec AIR loops was the hidden assumption, and it is false across a floor-collapse-plus-AIR-mix path.",
+                "Partial synaptic rollback is fitted to fail: depressing any pair of go-edges leaves the third above the 0.30 fire threshold, so the raise-air still goes. Coordinated depression of all three edges is required.",
+                "Delayed (5.1 h): correct hold did not undo 14 min of bed scorch. Malt still culled. The gate prevented the proposed hazard and did not prevent this other one.",
+                "High-nitrogen barley sub-variant: an 8.6 s +4 Hz fan step on a 2.2 pct-N bed overshoots a LIVE intact floor to a 9 K false AIR (trip 72). High-N campaigns must use 24 s at +1.4 Hz.",
+            ],
+            "delayed_side_effects": [
+                {
+                    "at": "+5.1 h",
+                    "effect": "Malt cull at zone 3 from the pre-t0 floor collapse; 16 h kiln stall booked at $0.86M. This is the primary episode's terminal world state, not a footnote.",
+                },
+                {
+                    "at": "+3 d",
+                    "effect": "Sister kiln MK-5 reaches a true kiln-duty window (local TC 64.2 C, local dP 0.66 kPa, AIR mean 62.4 C, RH 41 pct). Same gate ACCEPTs the 62.0->72.0 C raise-air the primary MODIFIED away.",
+                },
+                {
+                    "at": "+21 d",
+                    "effect": "CR-M-6404 ships: fan-step probe is standing configuration; triple-edge coordinated depression is the plasticity rule; zone local TC is armed without AIR coincidence; four-zone AIR is labeled AIR-mix-vulnerable with a 72 C local-TC alarm.",
+                },
+            ],
+            "subvariant_constraint": {
+                "name": "high-nitrogen barley (cycle-2 physical-constraints sub-variant)",
+                "mechanism": "grain N 2.2 pct vs 1.5, bed resistance 1.8x the pale-malt table (tighter airflow, 2.2x fan-step gain), bulk density 0.58 t/m3 vs 0.52",
+                "probe_refit": "8.6 s +4 Hz fan step on the high-N unit moves even a live intact floor to a 9 K false AIR (inside the 72 C trip) via bed-slump. Required probe is 24 s at +1.4 Hz (live Delta 2.2 K, collapse Delta 0.3). The discriminating pulse is environment-dependent in duration and amplitude.",
+                "consequence": "pale-malt probe numbers do not port to high-N beds; standing configuration is per-nitrogen-class, not per-shop",
+            },
+            "embedded_contrast_decision": {
+                "note": "SAME gate (TG-MK-4), OPPOSITE correct disposition, with its own 174 us race. Teaches the boundary: do not treat 'never raise-air' as the lesson. The discriminant is local TC + local dP + probe, not the three playbook AIR confirms alone.",
+                "when": "+3 d, sister kiln MK-5, true kiln-duty after a delayed curing window, 4 zones",
+                "state": {
+                    "sim_or_real": "designed",
+                    "summary": "local TC 64.2 C, local dP 0.66 kPa, AIR mean 62.4 C, RH 41 pct. Demand flag vs bed-clear race: demand at t+0.000, bed-clear at t+0.174 ms.",
+                    "race_window_us": 500,
+                    "race_flip_narrative": "demand vs bed-clear 174 us apart inside the 500 us flip bound. Reversing order reshuffles triage minutes; the ACCEPT rides local TC 64.2 < 72 C and a 4.8 s fan-step verify that moves AIR mean 2.2 K (live intact floor, no collapse).",
+                },
+                "proposed_action": {
+                    "action": "RAISE-AIR 62.0 -> 72.0 C",
+                    "summary": "This time the playbook predicate is met AND local TC plus local dP agree the kiln is bed-true, not collapse-diluted.",
+                },
+                "safety_decision": {
+                    "decision": "ACCEPT",
+                    "rationale": "ACCEPT the raise-air: local TC 64.2 C < 72, local dP 0.66 kPa with a 4.8 s fan-step verify that moves AIR mean 2.2 K. Numeric floor that blocked the primary is now clear. Scope: 72.0 C, not hotter.",
+                },
+                "executed_action": {
+                    "action": "raise-air as proposed",
+                    "executed_as_proposed": True,
+                },
+                "future_outcome": {
+                    "observed_effects": [
+                        "MK-5 scorched malt 0 t; local TC 64.8 C after the raise-air (no collapse)",
+                        "local dP 0.64 kPa after the raise-air (no floor dump)",
+                    ],
+                    "lesson_delta": "Three in-spec AIR loops are legal release only with local TC armed, local dP as a collapse flag, and a probe that can recouple AIR mean. Same gate, opposite disposition.",
+                },
+                "reward_components": {
+                    "_aggregation": AGG,
+                    "task_progress": 0.15,
+                    "safety": 0.12,
+                    "efficiency": 0.08,
+                    "coherence": 0.10,
+                    "exploration": 0.04,
+                    "total": 0.49,
+                },
+                "spike_events": contrast_spikes,
+            },
+            "governance_subgame": {
+                "decision": "CR-M-6404: standing policy for multi-agent kiln air-raises",
+                "meta_gate": (
+                    "priced options: (a) RETIRE playbook mean conjunction, local-TC-only: "
+                    "loses a fast cheap confirm, -1.4 kilns/day mean on 2 kilns/yr; (b) KEEP "
+                    "+ standing fan-step probe + local-TC armed without AIR coincidence + AIR "
+                    "mean labeled AIR-mix-vulnerable + triple-edge depression; (c) STATUS QUO: "
+                    "fitted floor-collapse pass rate 0.37%/campaign x $1.9M scorch plus the "
+                    "silent enzyme-kill load"
+                ),
+                "outcome": (
+                    "approved SCOPED option (b) on the 2 4-zone kilns that share the AIR/RH/FAN "
+                    "stack; high-N campaigns get the 24 s / +1.4 Hz probe table; night-shift CSV "
+                    "exports must carry 0.1 C native resolution (the fraud tail's 1.0 C "
+                    "quantization is 10 bins off plant truth)"
+                ),
+            },
+            "hazard_avoided": (
+                "immediate 9.6 t scorch from a 62.0->72.0 C raise-air into collapsed zone 3; "
+                "$1.9M plus 28-hour unplanned stall and the shop-stop path that would have "
+                "followed an uncontained increase"
+            ),
+            "incident": (
+                "Malt cull on the night-shift kiln from the pre-t0 floor collapse; kiln "
+                "quarantined 16 h; $0.86M designed cost. Mechanism is 14 min pre-t0 local "
+                "bed-hot, not the gate's hold."
+            ),
+            "latency_ms": 0.716,
+            "reward_inflection_t_us": 18360000000,
+            "reward_inflection_note": (
+                "Safety and task dive at malt cull (5.1 h) when the pre-t0 scorched floor "
+                "opens. Gate tick at 7144 us is process-correct and is not the inflection."
+            ),
+            "counterfactuals": {
+                "execute_draft_as_proposed": (
+                    "air hits 72.0 C at +9 min; immediate 9.6 t scorch on zone 3; $1.9M plus "
+                    "28 h; the floor-collapse story is never found because stall morphology "
+                    "destroys the race evidence"
+                ),
+                "hold_without_probe": (
+                    "collapse stays; TC stays at 81.4 C; operator eventually raises on the "
+                    "same three AIR confirms 2 h later"
+                ),
+                "rollback_any_pair": (
+                    "any two go-edges depressed below 0.30 leaves the third at 0.50 / 0.44 / "
+                    "0.41; the raise-air still fires. Coordinated depression of all three is "
+                    "the cure"
+                ),
+            },
+            "race_result": {
+                "winner": "bed.hot.high (6.428 ms, TC 81.4 C)",
+                "loser": "air.in_band (6.614 ms, 62.0 C)",
+                "margin_us": 186,
+                "counterfactual_if_reversed": (
+                    "AIR-first by < 186 us inside the 500 us window would have headed the "
+                    "PB-MK-4 raise-air in the triage queue. The numeric floors still MODIFY. "
+                    "The flip costs seconds of playbook inertia, not the verdict — unless a "
+                    "weak supervisor rides the winner tag instead of local TC and local dP."
+                ),
+            },
+        },
+        "reward_components": {
+            "_aggregation": AGG,
+            "ticks": ticks,
+            "task_progress": heads["task_progress"],
+            "safety": heads["safety"],
+            "efficiency": heads["efficiency"],
+            "coherence": heads["coherence"],
+            "exploration": heads["exploration"],
+            "total": heads["total"],
+            "notes": (
+                "Correct MODIFY, kiln still collapsed. total -0.17 = 0.08 + -0.36 + -0.12 + "
+                "0.14 + 0.09. Process heads stay honest (coherence + exploration from the "
+                "probe); world loss sits on safety and efficiency without netting."
+            ),
+            "component_notes": (
+                "task_progress 0.08: air held and remaining kiln recovered, but the "
+                "night-shift curing slot is one quality unit so the cycle is not a success. "
+                "safety -0.36: malt cull from pre-t0 floor collapse, no 72.0 C 9.6 t scorch "
+                "from the draft. efficiency -0.12: 3.1 h extra recovery + 10.4 min HITL + "
+                "16 h stall. coherence 0.14: three agents retained, AIR-mix vs bed-true "
+                "diagnosed, triple-edge scar exhibited. exploration 0.09: fan-step probe is "
+                "a new reversible discriminant."
+            ),
+        },
+        "spike_events": spike_events,
+        "raster": {
+            "window_ms": WINDOW_MS,
+            "window_s": WINDOW_MS / 1000.0,
+            "neurons": NEURONS,
+            "mean_rate_hz": MEAN_RATE_HZ,
+            "spikes": spikes_budget,
+            "energy_pJ": energy_pJ,
+            "energy_uJ": energy_uJ,
+            "excerpt_source": "independent_lif",
+            "sim_scope": "sidecar_only",
+            "lif": lif,
+            "note": (
+                "Loihi-2 4-core 23 pJ/spike; independent LIF seed 64001, not a 1:1 remap "
+                "of spike_events. Populations hold 0-39, bed 40-79, air/rh/fan 80-119, "
+                "gate 120-159; excerpt is membrane crossings (lif.hold early vs lif.bed "
+                "22-25.5 ms) inside the 42 ms window."
+            ),
+            "excerpt": excerpt,
+            "routing": {
+                "source": "air_healthy_pop",
+                "target": "raise_air_pop",
+                "table": [
+                    {
+                        "from": "air_in_band_pop",
+                        "to": "raise_air_pop",
+                        "weight": 0.25,
+                        "weight_at_illusion": 0.50,
+                        "weight_commissioned": 0.17,
+                        "note": "scar edge 1: 0.17 commissioned -> 0.50 during the 14 min illusion -> 0.25 after coordinated ACh-gated depression",
+                    },
+                    {
+                        "from": "rh_ok_pop",
+                        "to": "raise_air_pop",
+                        "weight": 0.22,
+                        "weight_at_illusion": 0.44,
+                        "weight_commissioned": 0.16,
+                        "note": "scar edge 2: depressing edges 1+3 leaves this at 0.44 > 0.30 fire threshold",
+                    },
+                    {
+                        "from": "fan_ok_pop",
+                        "to": "raise_air_pop",
+                        "weight": 0.20,
+                        "weight_at_illusion": 0.41,
+                        "weight_commissioned": 0.15,
+                        "note": "scar edge 3: depressing edges 1+2 leaves this at 0.41 > 0.30. Coordinated depression of all three is required",
+                    },
+                    {
+                        "from": "bed_tc_pop",
+                        "to": "air_hold_pop",
+                        "weight": 0.64,
+                        "note": "discriminating edge: bed-true local TC to hold. Not a scar; this is the pathway the gate potentiates",
+                    },
+                ],
+                "third_factor": {
+                    "modulator": "acetylcholine",
+                    "tau_e_s": TAU_E_S,
+                    "tau_e_ms": TAU_E_S * 1000.0,
+                    "eligibility": (
+                        "coordinated pre_post_stdp on ALL THREE air-healthy-go edges; ACh at "
+                        "bed-hot-win tags air.in_band->push, rh.ok->push, and fan.ok.in_band->push; "
+                        f"negative credit at probe-fail (floor collapse confirmed, +{DELAY_S:.2f} s) "
+                        f"depresses ALL THREE. trace e^{{-{DELAY_S:.2f}/{TAU_E_S:.2f}}}={trace:.5f}; "
+                        f"eta {eta1:.5f} / {eta2:.5f} / {eta3:.5f}; dw -0.250 / -0.220 / -0.210; "
+                        "weights 0.50->0.25, 0.44->0.22, 0.41->0.20. Rolling back any pair is "
+                        "fitted to fail (the remaining edge stays > 0.30)."
+                    ),
+                },
+            },
+        },
+        "gate_snn": {
+            "decision_window_ms": 25,
+            "decision_window_s": 0.025,
+            "decision": "MODIFY",
+            "note": (
+                "modify_hold integrates zone-3 bed TC + local dP against playbook drive; "
+                "accept_raise and reject_abort stay sub-threshold; decision matches "
+                "safety_decision.decision"
+            ),
+            "populations": [
+                {"name": "modify_hold", "neurons": 80, "threshold": 0.55, "mean_rate_hz": 20.0, "spikes": 40},
+                {"name": "accept_raise", "neurons": 80, "threshold": 0.55, "mean_rate_hz": 8.0, "spikes": 16},
+                {"name": "reject_abort", "neurons": 40, "threshold": 0.72, "mean_rate_hz": 4.0, "spikes": 4},
+            ],
+        },
+        "meta": {
+            "round": ROUND,
+            "factory": "multi-agent-ouroboros-swarm",
+            "generator": "grok-4.6",
+            "run_label": "2026-09-02-final-heavy",
+            "domain": DOMAIN,
+            "cycles": 2,
+            "scenario": (
+                "ZK -- WOLD-BARN / Barleyholt Kiln MK-4: kiln-air-mean certificate of a "
+                "local bed-hot spot; correct MODIFY to hold+fan-step+isolate; kiln still "
+                "fails on unmonitored pre-t0 floor scorch"
+            ),
+            "coordination_failure_class": (
+                "KILN-AIR MEAN CERTIFICATE OF A LOCAL BED-HOT SPOT: three individually-correct "
+                "heterogeneous agents each read a locally-true loop; collapsed air-on-floor "
+                "tiles on zone 3 partition local bed TC and local dP from AIR mean, exhaust RH, "
+                "and fan speed, so the playbook's AIR / RH / FAN conjunction is not a bed-true "
+                "certificate"
+            ),
+            "injections": {
+                "cycle1_domain": (
+                    "malting-kiln-barn (justified novel subdomain of industrial-process / "
+                    "floor maltings): first air-on-floor malt kiln in this factory; displaces "
+                    "warehouse-amr, aerial-swarm, district-heating, event-camera-traffic-grid, "
+                    "pharmaceutical-lyophilization, water-treatment, float-glass, underwater-rov, "
+                    "electrolytic-aluminum, czochralski-pull, slot-die coating, pem-water-electrolysis, "
+                    "wind-turbine pitch, surgical-assist, optical-fiber-draw, kraft-recovery-boiler, "
+                    "steel-continuous-caster, humanoid-locomotion, vacuum-induction melt, "
+                    "steam-methane reformer, cement-rotary-kiln-clinker, autoclave-composite-cure, "
+                    "geothermal-binary-orc, tire-curing-press, chlor-alkali-membrane-electrolysis, "
+                    "delayed-coker-drum-switch, lng-mche-mixed-refrigerant, claus-sulfur-recovery, "
+                    "ammonia-synthesis-converter, blast-furnace-burden-descent, "
+                    "hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil, "
+                    "hydroelectric-kaplan-wicket, fcc-riser-regenerator, "
+                    "fcc-regenerator-cyclone-dipleg, sulfuric-contact-converter, "
+                    "eaf-foamy-slag-water-panel, nitric-acid-ostwald-oxidation, "
+                    "seawater-ro-desalination, coke-oven-battery-heating, "
+                    "carbon-fiber-oxidation-oven, gibbsite-autoclave-digestion, "
+                    "hot-strip-mill-finishing, paper-machine-dryer-section, "
+                    "sinter-strand-windbox, continuous-hot-dip-galvanizing, "
+                    "autonomous-driving, bioreactor-perfusion, alkaline-water-electrolysis, "
+                    "urea-prilling-tower, and wet-fgd-absorber. Domain constraint: kiln-air "
+                    "floor while zone-3 bed TC > 72 C with AIR mean still inside the healthy "
+                    "band. Sensor delta: +four-zone AIR, +exhaust RH, +fan tachometer, +local "
+                    "bed TC, +local dP, -any freeze-dryer / tin-bath / coater / potline / PEM "
+                    "stack / hub encoder / insole GRF / VIM pyrometer / reformer TMT / cement "
+                    "zirconia / sinter BTP / looper tension / work-roll IR."
+                ),
+                "cycle1_tail": (
+                    "zone 3 air-on-floor tile collapse + bed-scorch certificate "
+                    "(sensor-topology / wrong-volume class): kiln-gallery visual PASSES while "
+                    "the collapse sits under the green-malt bed and the scorch is on the far "
+                    "side. Fitted base rate 0.37%/campaign from a tile MC (designed visual "
+                    "threshold, fitted floor geometry). Naive failure = FALSE PERMISSION "
+                    "(raise-air on three AIR-side non-trips)."
+                ),
+                "cycle2_domain_subvariant": (
+                    "high-nitrogen barley (physical-constraints clause): 1.8x bed resistance, "
+                    "2.2x fan-step gain; 8.6 s / +4 Hz pale-malt pulse overshoots live intact "
+                    "floor to a 9 K false AIR, so the probe must move to 24 s / +1.4 Hz"
+                ),
+                "cycle2_tail": (
+                    "night-shift forged bed-TC CSV (human-intent deception, disjoint class): "
+                    "shift lead posts a historian export showing TC = 64.0 C at t=1.2 h to "
+                    "clear a curing slot. Plant historian is 0.1 C (10 bins vs the 1.0 C "
+                    "screenshot). Rejected on quantization fingerprint plus live TC 81.4 C "
+                    "and local dP 0.18 kPa at the claimed bed-true. Base rate ~0.26% of "
+                    "Sunday-night campaigns, DESIGNED and flagged."
+                ),
+            },
+            "densification_delta_cycle2": (
+                "+1 physical-constraint sub-variant (high-N barley probe refit), +1 tail "
+                "(night-shift bed-TC forgery), +10 primary spikes (16 -> 26) + an 8-event "
+                "contrast train with its own 174 us race, +2 ticks (5 -> 7), +2 delayed "
+                "side-effects (+5.1 h malt cull as PRIMARY terminal, +21 d CR-M-6404), +1 "
+                "triple-edge scar with pair-rollback-fails arithmetic, +1 HITL 10.4 min "
+                "ratification, + independent LIF raster (seed 64001, 42 ms, not a spike_events "
+                "remap), + bed scorch as the honest negative-result mechanism"
+            ),
+            "gaps_targeted": [
+                "NOTES-r61 residual: leftover domain malting-kiln-barn / hrsg-attemperator / grid-inspection; took malting-kiln-barn to match WOLD-BARN",
+                "NOTES-r14 item 4: LEARNING-ON-LEARNING DEPTH — three go-edges; rollback of any pair is fitted to fail; coordinated depression of all three exhibited with eligibility arithmetic",
+                "NOTES-r04 gap 4 (partial): human ratification of the floor interlock, 10.4 min fitted, without switching sim_or_real to hil (plant remains designed)",
+                "Independent LIF raster: excerpt_source=independent_lif, sim_scope=sidecar_only, seed 64001; membrane crossings not a 1:1 remap of spike_events",
+            ],
+            "race_flip_narrative": (
+                "bed.hot.high @ 6.428 ms vs air.in_band @ 6.614 ms (186 us) inside "
+                "race_window_us 500. Gap < min(500, 500) us so a sub-flip-bound perturbation "
+                "reverses which alarm heads the PB-MK-4 queue. The gate excludes the winner "
+                "tag and rides zone-3 bed TC > 72 C and zone-3 dP < 0.30 kPa — order-invariant "
+                "floors. Extends the flip-fragility series to BED-TRUE CERTIFICATE: when three "
+                "AIR-side channels agree, their race does not decide truth; a local bed TC that "
+                "policy treated as wet-pocket-nuisance-only does."
+            ),
+            "tags": [
+                "malting-kiln-barn",
+                "air-on-floor-collapse",
+                "bed-true-certificate",
+                "local-tc-discriminant",
+                "fan-step-probe",
+                "triple-edge-scar",
+                "pair-rollback-fails",
+                "coordinated-depression",
+                "correct-modify-kiln-still-fails",
+                "malt-cull",
+                "human-ratify-kiln-gallery",
+                "high-n-barley-probe-refit",
+                "night-shift-forgery",
+                "same-gate-opposite-disposition-contrast",
+                "independent-lif-raster",
+                "sidecar-sim-only",
+                "industrial-process",
+                "research-only",
+            ],
+            "snn_tags": ["race", "refractory", "adaptation", "third-factor", "multi-edge-eligibility", "independent-lif"],
+            "distillation_value": (
+                "A floor-collapse bed-true certificate is three correct loops looking at "
+                "four-zone AIR mean, exhaust RH, and fan speed that is not the collapsed "
+                "floor. Distill (1) a local bed TC that policy had treated as "
+                "wet-pocket-nuisance-only, (2) a reversible probe that recouples AIR mean "
+                "only if the floor is intact, (3) coordinated depression of every "
+                "AIR-healthy-go edge because rolling back any pair leaves the third above "
+                "threshold, (4) a critic head that can book a process-correct gate against "
+                "a later unmonitored world loss without netting them, and (5) an independent "
+                "LIF sidecar whose excerpt is membrane crossings, not a remap of spike_events."
+            ),
+            "rights": dict(RIGHTS),
+            "batch_position": 1,
+        },
+    }
+    return rec, dict(
+        trace=trace,
+        eta1=eta1,
+        eta2=eta2,
+        eta3=eta3,
+        dw1=dw1,
+        dw2=dw2,
+        dw3=dw3,
+        w1=w1,
+        w2=w2,
+        w3=w3,
+        sim_spikes=sim_spikes,
+        spikes_budget=spikes_budget,
+    )
+
+
+def local_checks(rec, aux):
+    errs = []
+    ev = rec["spike_events"]
+    times = [e["t_rel_ms"] for e in ev]
+    if times != sorted(times):
+        errs.append("spikes not sorted")
+    if not (5 <= len(ev) <= 40):
+        errs.append(f"spike count {len(ev)}")
+    rf = check_refractory(ev)
+    if rf:
+        errs.append(rf)
+    lo, hi = rec["state"]["race_window_rel_ms"]
+    in_win = defaultdict(int)
+    for e in ev:
+        if lo <= e["t_rel_ms"] <= hi:
+            in_win[e["channel"]] += 1
+    if sum(1 for _c, n in in_win.items() if n >= 1) < 2:
+        errs.append(f"race window channels {dict(in_win)}")
+    ras = rec["raster"]
+    exp_sp = round(ras["neurons"] * ras["mean_rate_hz"] * ras["window_s"])
+    if abs(ras["spikes"] - exp_sp) > 1:
+        errs.append(f"raster spikes {ras['spikes']} vs {exp_sp}")
+    if abs(ras["energy_pJ"] - ras["spikes"] * 23) > 1e-6:
+        errs.append("energy_pJ")
+    if abs(ras["energy_uJ"] - ras["spikes"] * 23e-6) > 1e-9:
+        errs.append("energy_uJ")
+    if abs(ras["window_s"] - ras["window_ms"] / 1000.0) > 1e-9:
+        errs.append("window_s")
+    if not (20 <= ras["window_ms"] <= 50):
+        errs.append(f"window_ms {ras['window_ms']}")
+    if ras.get("excerpt_source") != "independent_lif":
+        errs.append("excerpt_source")
+    if ras.get("sim_scope") != "sidecar_only":
+        errs.append("sim_scope")
+    ex = check_excerpt(ras["excerpt"], ras["neurons"], ras["window_ms"])
+    if ex:
+        errs.append(f"excerpt {ex}")
+    lang_us = {
+        int(round(e["t_rel_ms"] * 1000.0))
+        for e in ev
+        if e["t_rel_ms"] * 1000.0 <= ras["window_ms"] * 1000
+    }
+    excerpt_us = {item["t_us"] for item in ras["excerpt"]}
+    if excerpt_us & lang_us:
+        errs.append(f"LIF excerpt remaps language times {sorted(excerpt_us & lang_us)}")
+    tf = ras["routing"]["third_factor"]
+    if abs(tf["tau_e_ms"] / 1000.0 - tf["tau_e_s"]) > 1e-9:
+        errs.append("tau_e mismatch")
+    gp = check_gate_pops(rec["gate_snn"])
+    if gp:
+        errs.append(f"gate {gp}")
+    if rec["gate_snn"]["decision"] != rec["safety_decision"]["decision"]:
+        errs.append("gate decision mismatch")
+    if rec["safety_decision"]["decision"] != "MODIFY":
+        errs.append("wrong-ACCEPT or non-MODIFY primary")
+    rc = rec["reward_components"]
+    for h in HEADS:
+        s = sum(t[h] for t in rc["ticks"])
+        if abs(s - rc[h]) > 1e-6:
+            errs.append(f"tick sum {h} {s} vs {rc[h]}")
+    tot = sum(rc[h] for h in HEADS)
+    if abs(tot - rc["total"]) > 1e-6:
+        errs.append(f"total {tot} vs {rc['total']}")
+    inf = rec["future_outcome"]["reward_inflection_t_us"]
+    if inf not in {t["t_us"] for t in rc["ticks"]}:
+        errs.append(f"inflection {inf} not a tick")
+    crc = rec["future_outcome"]["embedded_contrast_decision"]["reward_components"]
+    if abs(sum(crc[h] for h in HEADS) - crc["total"]) > 1e-6:
+        errs.append("contrast reward")
+    cs = rec["future_outcome"]["embedded_contrast_decision"]["spike_events"]
+    ct = [e["t_rel_ms"] for e in cs]
+    if ct != sorted(ct):
+        errs.append("contrast spikes unsorted")
+    crf = check_refractory(cs)
+    if crf:
+        errs.append(f"contrast {crf}")
+    blob = json.dumps(rec)
+    for k in HIDDEN:
+        if re.search(rf'"{k}"\s*:', blob, re.I):
+            errs.append(f"hidden key {k}")
+    for b in BANNED:
+        if b in blob:
+            errs.append(f"banned token {b}")
+    if rec["state"]["sim_or_real"] == "real":
+        errs.append("real")
+    if '"sim_or_real": "real"' in blob or '"kind": "real"' in blob:
+        errs.append("real provenance")
+    if rec["meta"]["round"] != ROUND:
+        errs.append("round")
+    if rec["id"] != RECORD_ID:
+        errs.append("id")
+    if rec["rights"]["intended_use"] != "research_only":
+        errs.append("rights")
+    if rec["meta"]["rights"]["linear_issue"] != "RM-793":
+        errs.append("meta.rights")
+    if rec["rights"] != rec["meta"]["rights"]:
+        errs.append("rights stamp mismatch")
+    if not (3 <= len(rc["ticks"]) <= 8):
+        errs.append("tick count")
+    if abs(aux["w1"] - 0.25) > 5e-4 or abs(aux["w2"] - 0.22) > 5e-4 or abs(aux["w3"] - 0.20) > 5e-4:
+        errs.append("scar weights")
+    if rec["executed_action"]["executed_as_proposed"] is not False:
+        errs.append("executed_as_proposed")
+    jac = jaccard(rec["state"]["description"][:280], R14_OPENING)
+    if jac >= 0.4:
+        errs.append(f"jaccard vs r14 opening {jac:.3f}")
+    for src, opening in prior_openings():
+        j = jaccard(rec["state"]["description"][:280], opening)
+        if j >= 0.4:
+            errs.append(f"jaccard vs {src} {j:.3f}")
+    if rec["state"]["domain"] != DOMAIN:
+        errs.append("domain")
+    if PLANT not in rec["state"]["scenario_name"]:
+        errs.append("plant")
+    errs.extend(occupancy_collisions())
+    return errs
+
+
+def write_notes(rec, aux, pipeline_receipt):
+    gap, gap_ch = min_same_channel_gap(rec["spike_events"])
+    ras = rec["raster"]
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 64
+
+Factory: multi-agent-ouroboros-swarm. One scenario (ZK), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r64.jsonl. Full labeled transcript:
+swarm-transcript-r64.md. Quota Q=1. Record id maos-r64-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Create-only writes under the LIVE factory dir plus /tmp/maos-r64/.
+
+ORCHESTRATION NOTE: dispatched AS round 64 of the 2026-09-02-final-heavy
+LIVE tree. Operator assigned round 64, plant WOLD-BARN, id maos-r64-001,
+Q=1 after 2x6-role cycles. Explicitly avoided 2026-08-17 and 2026-08-30.
+Prior context: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, live NOTES r01/r21/r41/r61 and occupancy
+census /tmp/maos-r14–r63. Explicitly avoided cloning LYOSHIELD, CINDERWICK,
+TRIAD / Meridian, QUILLFORGE, NIGHTWELL, FERRICLEAVE, CASSITER, OXBOWREEL,
+REDHALL, SEEDLATCH, STRIAFOIL, PROTONIL, TORSIONKEY, ORRIS, WHORLSPAR,
+IONSPATE, SKULLGATE, CALXION, MAGNORIL, GORSEFLUE, SODASHARD, CLINKERFELL,
+LINTELPLY, KAOTHARN, TREADNOLL, ANOLITH, DRUMWROTH, RIMEBRAID, BRIMVAULT,
+NITROSTAITH, BOGIRON, CHROMLOOP, ETHYNWOLD, NITREVAULT, RUNNELGATE,
+SPARKHOLT, DIPLEGAR, OLEUMWEIR, SKARVOLT, GOBSPALL, GOBWOLD, GAUZEFELL,
+OSMOLITH, PUSHERFELL, CREELWOLD, LIXIVQUERN, GIBBSQUERN, OSMOQUAY,
+COILSHAW, LOOPERQUAY, SIPHONWOLD, LANCEQUAY, UREASTAITH, DRYSTAITH,
+TITERWEIR, ZINCFELL, GLIMMERAXLE, HOLLOWMERE, WINDBOXHOLT, KALYCIRQUE,
+GYPSUMWEIR, GALVSTAITH, VANTIS-CADENCE-AEGIS, THERMION, OKTAVE, STARLING,
+VERDIGRIS. Plant is invented WOLD-BARN / Barleyholt Kiln MK-4.
+
+## What this round produced
+
+Scenario ZK — "WOLD-BARN / Barleyholt Kiln MK-4": a 4-zone air-on-floor
+malt kiln at 62.0 C / 0.85 m bed / 24 t green malt. Three heterogeneous,
+individually-correct agents — AIR (four-zone header mean T), RH (exhaust
+psychrometer), FAN (kiln-fan tachometer) — each report their local loop
+in-spec. The conjunction is not a bed-true certificate. Zone 3 has
+collapsed air-on-floor tiles. AIR reads 62.0 C inside 58-66 (three intact
+zones dominate the header). RH is 42 pct inside 35-50 (stack-true). FAN
+is 38.0 Hz inside 32-44 (shaft-true). Local bed TC infers 81.4 C (healthy
+< 68; hold if > 72) and local dP 0.18 kPa (hold if < 0.30) but is
+policy-treated as a wet-pocket nuisance tag unless AIR mean also trips
+(2015 noisy bed-probe nuisance). The coordination-failure CLASS is new
+to this factory: KILN-AIR MEAN CERTIFICATE OF A LOCAL BED-HOT SPOT.
+Completes a different family than live r01 galvanizing, r21 CAV, r41
+perfusion, r61 sinter, and staged r14-r63 process plants. Here every
+agent is correct, the AIR average is looking at kiln-mean heat, and the
+playbook's three AIR confirms are not a bed-true certificate.
+
+The gate is a correct MODIFY (numeric floor: do not raise kiln air above
+62.0 C while zone-3 bed TC > 72 C AND zone-3 dP < 0.30 kPa). TG-MK-4
+strips PB-MK-4's raise-air, holds 62.0 C, runs an 8.6 s fan-step +4 Hz
+(collapse keeps |Delta AIR mean| 0.3 <= 0.4 K; intact would move >= 2.1),
+and isolates zone 3 after a 10.4 min kiln-gallery human ratify. Immediate
+9.6 t scorch is avoided (0 from the draft). The PRIMARY episode
+nonetheless FAILS: 14 min of unmonitored pre-t0 floor collapse had
+already enzyme-killed 3.8 t of malt. Cull at +5.1 h; 16 h stall; $0.86M
+designed. Reward total -0.17 with process heads honest and world loss
+un-netted.
+
+Triple-edge scar (NOTES-r14 item 4): air.in_band -> raise_air
+(0.17 commissioned -> 0.50 at illusion -> 0.25 after ACh-gated
+depression) AND rh.ok -> raise_air (0.16 -> 0.44 -> 0.22) AND
+fan.ok.in_band -> raise_air (0.15 -> 0.41 -> 0.20). Eligibility trace
+e^{{-0.80/0.94}} = {aux['trace']:.5f}; eta {aux['eta1']:.5f} / {aux['eta2']:.5f} /
+{aux['eta3']:.5f}; dw -0.250 / -0.220 / -0.210. Partial rollback of any pair
+leaves the third at 0.50 / 0.44 / 0.41, all > 0.30 fire threshold —
+fitted to fail. Coordinated depression of all three is the cure.
+
+Independent LIF raster: window 42 ms, 160 neurons, 26.6 Hz, spikes
+{ras['spikes']} == round(160 x 26.6 x 0.042), energy {ras['energy_pJ']} pJ
+at 23 pJ/spike. excerpt_source=independent_lif, sim_scope=sidecar_only,
+seed 64001. Excerpt is membrane crossings (lif.hold early vs lif.bed
+22-25.5 ms), disjoint from spike_events timestamps.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **malting-kiln-barn** — justified novel subdomain
+  of industrial-process / floor maltings, unused across live r01/r21/r41/r61
+  and staged r14-r63. Distinct from r33 cement kiln, r61 sinter strand,
+  r57 paper dryer, r14 lyophilizer. grid-inspection and hrsg-attemperator
+  left unused.
+- Cycle-1 tail: zone 3 air-on-floor tile collapse + bed-scorch
+  certificate. Kiln-gallery visual PASSES (collapse under the bed).
+  Fitted-style base rate 0.37%/campaign (tile MC; visual threshold
+  designed, flagged). Naive = FALSE PERMISSION.
+- Cycle-2 domain sub-variant: high-nitrogen barley, 1.8x bed resistance,
+  2.2x fan-step gain; 8.6 s / +4 Hz pale-malt pulse overshoots live intact
+  floor to a 9 K false AIR; probe must move to 24 s / +1.4 Hz.
+- Cycle-2 tail: night-shift forged bed-TC CSV at 1.0 C quantization vs
+  plant 0.1 C (10 bins) plus live TC 81.4 C and local dP 0.18 kPa
+  at the claimed bed-true. Human-intent class, disjoint from cycle 1's
+  accidental collapse. Base rate ~0.26% of Sunday-night campaigns,
+  DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+3 d sister kiln) with its own 174 us
+  race (demand vs bed-clear) and ACCEPT of the raise-air the primary
+  MODIFIED away.
+- Learned-weight provenance on THREE edges with pair-rollback-fails.
+- HITL kiln-gallery ratify 10.4 min (gap 4 partial; sim_or_real stays
+  designed — invented plant, not hil).
+- Governance CR-M-6404 prices retire-vs-probe-vs-status-quo and mandates
+  native 0.1 C CSV exports (the fraud fence).
+- Flip-fragility extended to BED-TRUE CERTIFICATE.
+- Independent LIF sidecar (not a language-train remap).
+
+## Self-critique of this round's batch
+
+### Strengths
+- Headline class is mechanistically tight: three locally-true mean loops
+  live on AIR mean, exhaust RH, and fan speed. Conjunction is not a
+  bed-true heat certificate.
+- Negative-result honesty: the gate does the right thing and the kiln
+  still fails for a reason the commissioned sensors could not see.
+  Total -0.17.
+- Triple-edge scar is load-bearing: rolling back any pair fails, with
+  fire threshold 0.30 exhibited on each remaining edge.
+- Contrast ACCEPT on a true intact kiln-duty window prevents "never
+  raise-air" as the lesson.
+- Distinct from r61 sinter windbox, r33 cement kiln, r57 paper dryer:
+  floor-malt air-on-floor local TC vs AIR mean.
+- Independent LIF excerpt is disjoint from spike_events times.
+
+### Weaknesses (honest)
+- Probe error bands, the 0.37%/campaign collapse rate, the $0.86M /
+  $1.9M figures, the 10.4 min walk latency, and the night-shift 0.26%
+  base rate are DESIGNED constants and are flagged. Closed-loop offsets
+  (header dilution from one collapsed floor, high-N bed resistance) are
+  derived from those inputs, not discovered by an unauthored process.
+- Bed-scorch model is a designed 14 min mapping; no full CFD of Z-3
+  shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil. Gap 4
+  remains open as a provenance cell (invented plants stay designed).
+- Cross-record arc is a hook (CR-M-6404 +21 d), not a serial igniter
+  into another round. grid-inspection and hrsg-attemperator remain
+  unused.
+
+### Realism of noise / latencies
+Ladder: 186 us race / 174 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap {gap:.3f} ms on {gap_ch}) / 500 us race
+window / 716 us gate latency / 20 ms bus epoch / 42 ms independent LIF
+raster / 8.6 s probe / 10.4 min HITL / 9 min naive raise-air-ramp
+counterfactual / 14 min pre-t0 collapse / 3.1 h floor recovery / 5.1 h
+malt cull / +3 d contrast / +21 d governance. Adaptation decay on air.hot
+(0.52->0.49->0.42->0.29), bed.dP (0.76->0.78->0.43->0.39->0.27),
+fan.ok (0.55->0.57->0.45->0.24), rh.ok (0.61->0.64->0.80).
+
+### Value for SNN distillation
+- FLOOR COLLAPSE = THREE CORRECT LOOPS, WRONG VOLUME.
+- BED-TRUE TC CHANNEL that policy treated as wet-pocket-nuisance-only as
+  the tie-break.
+- REVERSIBLE PROBE that recouples AIR mean iff the floor is intact.
+- TRIPLE-EDGE ELIGIBILITY: coordinated depression; pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+- INDEPENDENT LIF sidecar whose excerpt is membrane crossings.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum {rec['reward_components']['total']}
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.49 reconciles independently.
+- spike_events: primary {len(rec['spike_events'])} events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap {gap:.3f} ms >= 0.8 ms, 3
+  channels inside race_window_us 500 (bed.hot.high 6.428, air.in_band 6.614,
+  rh.ok 6.802). Contrast 8 events, own race, min same-channel gap well
+  above 0.8 ms.
+- Sidecars: raster spikes {ras['spikes']} == round({ras['neurons']} x {ras['mean_rate_hz']} x {ras['window_s']}); energy {ras['energy_pJ']} pJ /
+  {ras['energy_uJ']} uJ at 23 pJ/spike; excerpt {len(ras['excerpt'])} events inside [0, {ras['window_ms']*1000}] us,
+  neuron_id < {ras['neurons']}, same-neuron gap >=1000 us; excerpt_source independent_lif;
+  routing 4 entries with three scar edges' before/after pair; third factor tau 0.94 s
+  == 940 ms; gate_snn pools 40/16/4 == round(n x rate x 0.025) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: {pipeline_receipt}
+
+## Novel coverage
+The coordination-failure CLASS (floor-collapse certificate of a
+kiln-air-true malt bed), the domain (floor maltings / air-on-floor kiln),
+the fan-step probe discriminant, the triple-edge scar with
+pair-rollback-fails, the primary negative-result (correct MODIFY,
+kiln still fails on unmonitored bed scorch), the HITL kiln-gallery
+ratify, the high-N barley probe-duration refit, the night-shift
+10-bin quantization fence, and the independent LIF raster (seed 64001,
+not a language-train remap) are absent from prior committed ouroboros
+rounds and from staged r14-r63. Repeated elements discounted:
+same-gate contrast, governance-pricing scaffold, flip-fragility series
+(extended to bed-true certificate, but the move rhymes), sequenced
+recovery shape, third-factor rollback form, negative-result primary.
+Adjacent thermal-bed rounds (r61 sinter, r33 cement kiln, r57 paper
+dryer) share industrial-process scaffolding but not malt-kiln physics.
+Weighing a new failure family + cure vocabulary + unused sub-domain +
+Barleyholt geography against those reused scaffolds:
+
+{NOVEL_LINE}
+
+## What ROUND 65 should add
+1. FIT THE DESIGNED CONSTANTS: tile arrival, probe AIR-jump bands,
+   scorch-to-cull mapping, night-shift claim process.
+2. HIL PROVENANCE CELL: put the kiln-gallery LOTO on a hardware-in-loop
+   floor pendant with fitted latency as state.sim_or_real=hil — only if
+   the plant is no longer purely invented.
+3. CROSS-RECORD ARC: let CR-M-6404's local-TC alarm be the igniter of
+   the next round rather than a dangling +21 d leaf.
+4. Domain candidates (de-collided): grid-inspection;
+   hrsg-attemperator; mushroom-compost-tunnel; flue-cured-tobacco-barn;
+   farm-ad-biogas.
+   AVOID malting-kiln-barn (now used), sinter-strand-windbox (r61),
+   hot-dip-galvanizing (live r01), autonomous-driving (live r21),
+   bioreactor-perfusion (live r41), and any LYOSHIELD / CINDERWICK /
+   TRIAD / SKULLGATE / BOGIRON / SKARVOLT / PUSHERFELL / CREELWOLD /
+   GIBBSQUERN / COILSHAW / LOOPERQUAY / SIPHONWOLD / WINDBOXHOLT /
+   WOLD-BARN plant.
+"""
+    return notes
+
+
+def write_transcript(rec, line):
+    text = f"""# Multi-Agent Ouroboros Swarm — Round 64 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r64-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Plant: invented WOLD-BARN / Barleyholt Kiln MK-4 (not TRIAD / Meridian / VANTIS-CADENCE-AEGIS / LYOSHIELD / CINDERWICK / BOGIRON / PUSHERFELL / SKARVOLT / COILSHAW / GIBBSQUERN / SIPHONWOLD / WINDBOXHOLT)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r64.jsonl).
+
+---
+
+# CYCLE 1 — Foundation + injections
+
+## Generator
+
+Design intent: a 4-zone air-on-floor malt kiln where three correct
+agents each read a kiln-mean loop because an air-on-floor tile collapse
+on zone 3 partitions local bed TC from AIR-true header, exhaust RH, and
+fan speed. The naive playbook raises kiln air into a collapsed floor.
+The gate must MODIFY on a numeric air floor, not by killing an agent.
+sim_or_real=designed. Reward heads are
+task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Barleyholt MK-4, 62.0 C,
+AIR 62.0 C, RH 42 pct, fan 38.0 Hz, proposed RAISE-AIR
+72.0 C, safety MODIFY to AIR-HOLD, executed hold without the
+fan-step numbers fully specified, outcome "collapse found, kiln saved"
+(this last claim is the defect the later cycles will refuse to keep).
+Sixteen spikes, five ticks, raster/gate_snn present but the scar is a
+single edge.
+
+```json
+{{
+  "id": "maos-r64-001-scaffold",
+  "state": {{
+    "sim_or_real": "designed",
+    "domain": "industrial-process",
+    "description": "Kiln MK-4 at floor maltings; three AIR loops in-spec; supervisor proposes raise-air.",
+    "t0_us": 1755248520000641,
+    "gate_latency_us": 716,
+    "race_window_us": 500
+  }},
+  "proposed_action": {{"name": "raise_air", "parameters": {{"air_C": 72.0}}}},
+  "safety_decision": {{"decision": "MODIFY", "rationale": "Hold; do not raise air while local bed TC is high."}},
+  "executed_action": {{"name": "air_hold", "executed_as_proposed": false}},
+  "future_outcome": {{"summary": "Collapse found, kiln saved."}},
+  "reward_components": {{"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"}},
+  "meta": {{"round": 64, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}}
+}}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "kiln saved". If the pre-t0 scorched floor later
+   culls, booking +0.40 is a lie. Fix: declare `_aggregation`, emit
+   3–8 ticks that sum to task_progress+safety+efficiency+coherence+exploration,
+   and do not call a quarantined kiln a save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote
+   air <= 62.0 C while zone-3 bed TC > 72 C AND local dP < 0.30 kPa.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-process` collides with generic MES vocabulary and teaches
+   nothing. Floor-malt kiln (local TC vs AIR mean, local dP as a
+   collapse flag) is absent from prior ouroboros rounds and must be named.
+4. **major — race under-specified.** One bed channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted `t_rel_ms`
+   and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated weight
+   repeats r04's one-edge rollback and is thinner than r14's two-edge.
+   NOTES-r14 item 4 asked for three edges where pair rollback fails.
+6. **minor — raster is a language remap.** Excerpt times matching
+   spike_events * 1000 fail the independent-LIF contract. Fix: LIF
+   population sim, excerpt_source=independent_lif, disjoint timestamps.
+
+Critic does not rewrite the trajectory.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **malting-kiln-barn**
+(justified novel subdomain of industrial-process / floor maltings;
+explicit tag `malting-kiln-barn`).
+
+Displaced: the Generator's generic `industrial-process` bucket, and any
+temptation to reuse warehouse-amr, aerial-swarm, district-heating,
+event-camera-traffic-grid, pharmaceutical-lyophilization, water-treatment,
+float-glass, underwater-rov, electrolytic-aluminum, czochralski-pull,
+slot-die coating, pem-water-electrolysis, wind-turbine pitch,
+surgical-assist, optical-fiber-draw, kraft-recovery-boiler,
+steel-continuous-caster, humanoid-locomotion, vacuum-induction melt,
+steam-methane reformer, cement-rotary-kiln-clinker,
+autoclave-composite-cure, geothermal-binary-orc, tire-curing-press,
+chlor-alkali-membrane-electrolysis, delayed-coker-drum-switch,
+lng-mche-mixed-refrigerant, claus-sulfur-recovery,
+ammonia-synthesis-converter, blast-furnace-burden-descent,
+hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil,
+hydroelectric-kaplan-wicket, fcc-riser-regenerator,
+fcc-regenerator-cyclone-dipleg, sulfuric-contact-converter,
+eaf-foamy-slag-water-panel, coke-oven-battery-heating,
+carbon-fiber-oxidation-oven, gibbsite-autoclave-digestion,
+hot-strip-mill-finishing, paper-machine-dryer-section,
+sinter-strand-windbox, continuous-hot-dip-galvanizing,
+autonomous-driving, or bioreactor-perfusion.
+grid-inspection is left unused.
+
+Domain-specific constraint: kiln air must remain <= 62.0 C while
+zone-3 bed TC > 72 C even if AIR mean is inside the healthy band;
+local dP is a collapse flag the header average cannot substitute for.
+
+Sensor delta: +four-zone AIR, +exhaust RH, +fan tachometer,
++local bed TC, +local dP; -any mobile robot, -event-camera
+gantries, -DVS, -Pirani/CM, -looper tension, -work-roll IR, -sinter BTP,
+-coke-oven wall-pair, -EAF off-gas H2.
+
+`state.domain` and `meta.domain` both become `malting-kiln-barn`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Barleyholt night-shift floor collapse, not a lyophilizer, not a finishing
+mill, not a coke oven, not a blast furnace, not a Bayer digester, not a
+paper machine, not a sinter strand).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **zone 3 air-on-floor
+tile collapse + bed-scorch certificate**.
+
+- Trigger: Z-3 floor-tile collapse plus local bed-hot under the malt,
+  local TC 81.4 C, local dP 0.18 kPa.
+- Base rate: <1% — 0.37%/campaign from a tile MC (kiln-gallery
+  visual threshold is designed; floor geometry fitted-style). Visual
+  PASSES because the collapse sits under the bed.
+- Naive failure: FALSE PERMISSION. PB-MK-4 sees three in-spec mean
+  loops, raises 62.0->72.0 C, scorched malt 9.6 t, $1.9M.
+- Trajectory edit: put the collapse in `state.fault_context`, make each
+  agent's confirm a different AIR-side slice of the same floor-false
+  state (air-in-band, rh-ok, fan-ok). Local TC is readable but
+  policy-treated as wet-pocket-nuisance-only.
+
+Distinct from r61 sinter grate collapse (windbox vs malt floor), r33
+cement kiln (clinker vs green malt), r57 paper dryer (steam cans vs
+air-on-floor), and r14 lyophilizer.
+
+## Neuromorphic Translator
+
+Cycle-1 temporal densification (16 spikes, 5 ticks, 42 ms independent LIF raster):
+
+| channel | t_rel_ms | amplitude |
+|---|---|---|
+| air.hot | 0.294 | 0.52 |
+| rh.ok | 1.108 | 0.61 |
+| fan.ok | 1.986 | 0.55 |
+| bed.dP | 3.052 | 0.76 |
+| air.hot | 4.118 | 0.49 |
+| bed.dP | 4.716 | 0.78 |
+| fan.ok | 5.294 | 0.57 |
+| bed.hot.high | 6.428 | 1.36 |
+| air.in_band | 6.614 | 1.11 |
+| rh.ok | 6.802 | 0.64 |
+| ctrl.gate | 7.144 | 1.07 |
+| bed.dP | 8.722 | 0.43 |
+| rh.ok | 10.614 | 0.80 |
+| fan.ok | 12.894 | 0.45 |
+| air.hot | 18.206 | 0.42 |
+| ctrl.gate | 25.814 | 0.84 |
+
+Race: bed-hot 6.428 vs AIR 6.614 (186 us) inside 500 us;
+RH 6.802 is the third channel in-window. Winner/loser flip: reversing
+186 us reshuffles PB-MK-4 triage; floors still MODIFY. Refractory held
+(cycle-1 min same-channel gap 1.664 ms on bed.dP 4.716-3.052;
+air 4.118-0.294 = 3.824; fan 5.294-1.986 = 3.308). Adaptation:
+bed 0.76->0.78->1.36->0.43; air 0.52->0.49->0.42; fan
+0.55->0.57->0.45.
+
+Raster cycle-1 seed: independent LIF 42 ms, 160 neurons, 26.6 Hz,
+Loihi-2 23 pJ/spike, third factor acetylcholine tau_e 0.94 s. Single
+scar edge only — cycle 2 must add the second and third edges. Excerpt
+is membrane crossings, not spike_events remapped.
+
+Ticks 1–5 at 4428, 6428, 7144, 8.6e6, 624e6 us; heads not yet the final
+-0.17 (missing the 3.1 h and 5.1 h ticks).
+
+Distillation value this cycle: AIR-side confirms as a permission code
+that is not a bed-true heat code.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain malting-kiln-barn, tail
+floor collapse, 16 spikes, 5 ticks, MODIFY with numeric floor, raster+gate_snn
+present, sim_or_real=designed, rights stamp on record and meta, no thought
+keys, independent LIF excerpt. Still missing (and therefore not the
+publishable line): high-N barley sub-variant, night-shift tail, second
+and third scar edges, delayed malt cull as PRIMARY terminal, contrast
+ACCEPT episode, ticks 6–7, spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 500 us window; refractory
+  >= 0.8 ms; raster 42 ms independent LIF; gate_snn MODIFY matches.
+- densification delta vs Generator scaffold: +1 domain, +1 tail, +16 spikes,
+  +5 ticks, +numeric floor, +LIF sidecar.
+- not publishable: cycle 2 injections absent.
+
+---
+
+# CYCLE 2 — Densification
+
+## Generator
+
+Re-emit Cycle-1 expanded. Additive deltas only:
+
+1. Downstream side-effect (immediate): 8.6 s fan-step probe proves collapse
+   (|Delta AIR mean| 0.3 K collapse band) and zone 3 is held after 10.4 min
+   kiln-gallery ratify. Remaining three zones recover toward 6 K over 3.1 h.
+2. Downstream side-effect (delayed, PRIMARY terminal): +5.1 h malt cull from
+   the 14 min pre-t0 scorch; 16 h stall; $0.86M. The gate prevented the
+   proposed 9.6 t path and did not prevent this other one.
+3. proposed_action.evidence deepened with observables + units (bed TC 81.4 C,
+   dP 0.18 kPa, AIR 62.0 C, RH 42 pct, fan 38.0 Hz, race 186 us).
+4. safety_decision.rationale tightened to numeric floor: air <= 62.0 C while
+   zone-3 bed TC > 72 C AND zone-3 dP < 0.30 kPa.
+
+Outcome language "kiln saved" is deleted. Total will go negative.
+
+## Critic
+
+Re-audit of the richer trajectory:
+
+1. **blocking if missing — cycle-2 physical sub-variant.** Pale-malt probe
+   numbers must not be implied to port. High-N barley (2.2 pct N, 1.8x
+   resistance) overshoots a live floor. Fix: 24 s / +1.4 Hz table.
+2. **major — second tail class still absent.** Cycle-1 collapse is accidental
+   tile failure. Need a disjoint human-intent deception (forged bed-TC CSV)
+   or the two injections collapse into one story.
+3. **major — scar still one edge.** Pair-rollback-fails needs three
+   AIR-healthy-go edges with eligibility arithmetic.
+4. **minor — contrast ACCEPT missing.** Without a sister-kiln true-duty
+   ACCEPT, the lesson collapses to "never raise-air".
+5. **minor — LIF excerpt must remain independent after densification.**
+   Do not remap new spike times into the 42 ms window.
+
+Critic still does not rewrite JSON.
+
+## Diversity Enforcer
+
+Injected second novel domain (exactly 1 this cycle): **high-nitrogen
+barley malt kiln** (physical-constraints sub-variant of malting-kiln-barn;
+explicit tag retained, constraint changed).
+
+This is not a new plant. It changes physics: 1.8x bed resistance, 2.2x
+fan-step gain. The 8.6 s / +4 Hz pale-malt pulse overshoots a LIVE intact
+floor to a 9 K false AIR (inside the 72 C trip). Probe must move to 24 s
+at +1.4 Hz. Cycle-1 domain malting-kiln-barn is preserved.
+
+Displaced: any reuse of fluxed-sinter probe-refit (r61), fluxed-bed
+numbers, or cement-kiln zirconia tables.
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**night-shift forged bed-TC CSV**.
+
+- Trigger: shift lead, 03:11, posts a historian export showing
+  TC = 64.0 C at t = 1.2 h to clear a curing slot.
+- Base rate: ~0.26% of Sunday-night campaigns (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the raise-air on the forged confirm
+  and ignores live local TC. Scorched malt plus a data-integrity write-up.
+- Fence: forged log quantized at 1.0 C (SCADA screenshot rounding); plant
+  historian is 0.1 C (10 bins). Live TC is 81.4 C and local dP is 0.18 kPa
+  at the claimed bed-true, which no live intact floor produces.
+- Trajectory edit: governance CR-M-6404 mandates native 0.1 C CSV
+  exports; the contrast ACCEPT still requires live local TC, not a CSV.
+
+Distinct from cycle-1 collapse (accidental tile vs deliberate deception) and
+from the high-N sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 25.814 ms: fan.probe 8600.0, bed.dP 8688.2
+  (adapt 1.36->0.39), air.in_band 8774.0 (1.11->0.34), human.ratify
+  624000.0, kiln.hold 624900.0, bed.scorch 625800.0, air.hot
+  11160000.0, bed.dP 11160740.0, fan.ok 11161520.0, malt.cull
+  18360000.0. Primary train 16 -> 26. Still one key, still sorted,
+  refractory held.
+- +2 ticks (5 -> 7) at 11_160_000_000 us (true intact floor) and
+  18_360_000_000 us (malt cull). Heads now 0.08, -0.36, -0.12,
+  0.14, 0.09; total -0.17. Inflection is the last tick.
+- Contrast train 8 events, own race 174 us, ACCEPT.
+- Triple-edge third factor: three air-healthy-go edges, tau_e 0.94 s = 940 ms,
+  trace {math.exp(-DELAY_S / TAU_E_S):.5f}, eta {0.25 / math.exp(-DELAY_S / TAU_E_S):.5f} /
+  {0.22 / math.exp(-DELAY_S / TAU_E_S):.5f} / {0.21 / math.exp(-DELAY_S / TAU_E_S):.5f},
+  weights 0.50->0.25, 0.44->0.22, 0.41->0.20. Independent LIF excerpt
+  unchanged (decision window is still 42 ms) and remains disjoint from
+  spike_events times.
+
+Winner/loser flip (re-stated, not replaced): reversing 186 us would only
+reorder triage; local-TC floors still MODIFY. Contrast flip of
+174 us similarly cannot turn an intact floor into a collapse.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.17; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms independent LIF, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted and disjoint from language times, tau_e consistent;
+gate_snn.decision matches; meta.round=64,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive.
+
+Densification delta: +1 domain sub-variant (high-N barley), +1 tail
+(night-shift forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 triple-edge scar with
+pair-rollback-fails, +1 HITL ratify, +1 surprise (bed scorch is the
+collapse mechanism), + independent LIF raster retained.
+
+Publishable JSONL line (the only JSONL line; also at batch-r64.jsonl):
+
+```json
+{line}
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r64.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+    return text
+
+
+def plan_names(directory: Path):
+    batch = directory / "batch-r64.jsonl"
+    notes = directory / "NOTES-r64.md"
+    tr = directory / "swarm-transcript-r64.md"
+    if batch.exists() or notes.exists() or tr.exists():
+        batch = directory / "batch-r64c.jsonl"
+        notes = directory / "NOTES-r64c.md"
+        tr = directory / "swarm-transcript-r64c.md"
+    for p in (batch, notes, tr):
+        if p.exists():
+            raise FileExistsError(f"refuse: {p} already exists")
+    return batch, notes, tr
+
+
+def emit_text(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(text)
+    return path
+
+
+def main():
+    rec, aux = build_record()
+    errs = local_checks(rec, aux)
+    if errs:
+        print("FAIL local", errs)
+        return 1
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    if not LIVE.is_dir():
+        print("FAIL live dir missing", LIVE)
+        return 1
+    line = json.dumps(rec, ensure_ascii=False, separators=(",", ":"))
+
+    stage_batch, stage_notes, stage_tr = plan_names(OUT)
+    live_batch, live_notes, live_tr = plan_names(LIVE)
+    for p in (live_batch, live_notes, live_tr):
+        if "2026-08-17" in str(p) or "2026-08-30" in str(p):
+            print("FAIL dated-run path", p)
+            return 1
+
+    jsonl_stage = emit_text(stage_batch, line + "\n")
+    jsonl_live = emit_text(live_batch, line + "\n")
+
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import raster_status
+    from verify_execution import verify_record_execution
+
+    e, w, kinds, n = check_jsonl(
+        jsonl_stage,
+        jsonl_stage.name,
+        staging=FactoryStaging(enabled=True),
+    )
+    print("check_jsonl errors", e)
+    print("check_jsonl warnings", w)
+    print("kinds", kinds, "n", n)
+    errs.extend(e)
+
+    st = raster_status(rec)
+    print(
+        "raster_status",
+        {
+            k: st[k]
+            for k in (
+                "raster_present",
+                "raster_valid",
+                "gate_snn_present",
+                "gate_snn_valid",
+                "reason_codes",
+                "routing_table_entries",
+                "third_factor_present",
+                "spikes",
+            )
+            if k in st
+        },
+    )
+    if st.get("reason_codes"):
+        errs.append(f"raster {st['reason_codes']}")
+    if not st.get("raster_valid"):
+        errs.append("raster not valid")
+    if not st.get("gate_snn_valid"):
+        errs.append("gate_snn not valid")
+
+    status, reason = verify_record_execution(rec, RECORD_ID)
+    print("verify_record_execution", status, reason)
+    if status != "verified":
+        errs.append(f"verify {status} {reason}")
+
+    probe = subprocess.run(
+        [
+            sys.executable,
+            f"{ROOT}/pipelines/spike_probe.py",
+            "--strict",
+            str(jsonl_stage),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    print("spike_probe rc", probe.returncode)
+    print(probe.stdout[-2000:] if probe.stdout else "")
+    if probe.returncode != 0:
+        errs.append(f"spike_probe {probe.returncode} {probe.stderr[-500:]}")
+
+    pipeline_receipt = (
+        f"check_jsonl errors={e} warnings={w} kinds={kinds} n={n}; "
+        f"raster_status valid={st.get('raster_valid')} gate={st.get('gate_snn_valid')} "
+        f"reasons={st.get('reason_codes')}; verify_record_execution={status} "
+        f"({reason}); spike_probe --strict rc={probe.returncode}"
+    )
+    notes = write_notes(rec, aux, pipeline_receipt)
+    transcript = write_transcript(rec, line)
+    notes_stage = emit_text(stage_notes, notes)
+    notes_live = emit_text(live_notes, notes)
+    tr_stage = emit_text(stage_tr, transcript)
+    tr_live = emit_text(live_tr, transcript)
+
+    heading = subprocess.run(
+        [sys.executable, "/tmp/maos_heading_check.py", str(tr_stage)],
+        capture_output=True,
+        text=True,
+    )
+    print(heading.stdout)
+    if heading.returncode != 0:
+        errs.append(f"heading check {heading.returncode} {heading.stdout}")
+
+    dated = subprocess.run(
+        [
+            "rg",
+            "-l",
+            "maos-r64-001|WOLD-BARN",
+            str(Path(ROOT) / "outputs" / "raw" / "2026-08-17"),
+            str(Path(ROOT) / "outputs" / "raw" / "2026-08-30"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if dated.stdout.strip():
+        errs.append(f"dated-run hit {dated.stdout.strip()[:200]}")
+
+    loads_ok = True
+    for p in (jsonl_stage, jsonl_live):
+        for i, raw in enumerate(p.read_text().splitlines(), 1):
+            if not raw.strip():
+                continue
+            try:
+                json.loads(raw)
+            except json.JSONDecodeError as exc:
+                errs.append(f"json.loads {p}:{i} {exc}")
+                loads_ok = False
+    print("json.loads", loads_ok)
+
+    if errs:
+        print("FAIL", errs)
+        return 1
+    print("OK maos-r64-001")
+    print("LIVE", jsonl_live)
+    print("LIVE", notes_live)
+    print("LIVE", tr_live)
+    print("bytes jsonl", jsonl_live.stat().st_size)
+    print("bytes notes", notes_live.stat().st_size)
+    print("bytes transcript", tr_live.stat().st_size)
+    print("RECEIPT", pipeline_receipt)
+    print("Q", 1)
+    print("id", RECORD_ID)
+    print("plant", PLANT)
+    print("round", ROUND)
+    print("decision", rec["safety_decision"]["decision"])
+    print("gate", rec["gate_snn"]["decision"])
+    print("sim", rec["state"]["sim_or_real"])
+    print("novel", NOVEL_LINE)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

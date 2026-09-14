@@ -1,0 +1,3 @@
+    for path in sorted(gens):
+        if path.parent.name in {"ttf-r64", "ttf-r64-live"} or path.name == "gen_r64.py":
+            continue

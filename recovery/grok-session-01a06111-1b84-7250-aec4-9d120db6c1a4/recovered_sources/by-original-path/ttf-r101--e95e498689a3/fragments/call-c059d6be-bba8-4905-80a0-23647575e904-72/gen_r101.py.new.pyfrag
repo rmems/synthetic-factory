@@ -1,0 +1,14 @@
+THIS_DOMAINS = {
+    "scandium-chloride-electrolyzer",
+    "cesium-alum-crystallizer",
+    "yttrium-oxalate-precipitator",
+    "piperazine-crystallizer",
+    "decene-pao-oligomer",
+}
+THIS_PLANTS = (
+    "Scandyl-Cleugh",
+    "Cesial-Swang",
+    "Yttriox-Laggan",
+    "Piperaz-Lyth",
+    "Decene-Fold",
+)

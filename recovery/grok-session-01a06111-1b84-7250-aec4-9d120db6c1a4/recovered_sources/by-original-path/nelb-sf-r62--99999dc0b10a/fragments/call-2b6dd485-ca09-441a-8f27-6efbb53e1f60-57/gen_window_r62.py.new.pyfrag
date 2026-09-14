@@ -1,0 +1,1 @@
+window r01 Johnson-noise / Coulter / photoelastic, r02 CAPS / PTR-MS / PCD, r21 OA-ICOS / SERF / WGM, r22 CDG / opacity / polariscope, r41 LDA / KF / bender-element, r42 BOS / LIF OH / ESPI, r61 Stern-Volmer / pellistor / FMCW radar, r63 ICP-OES / LVDT / FTIR, Gritshaw GS-8 LD

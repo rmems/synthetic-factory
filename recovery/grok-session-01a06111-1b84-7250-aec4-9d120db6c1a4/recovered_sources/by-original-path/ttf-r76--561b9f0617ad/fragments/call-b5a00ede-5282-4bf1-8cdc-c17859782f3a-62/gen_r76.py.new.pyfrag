@@ -1,0 +1,4 @@
+                "Ethercut-Ingle EI-6 splitter SP-2 asks for 3.1 t/h MTBE. Valid kettle 9.44 mA "
+                "maps to 3.40 bar under a 6.20 bar cap, yet that transmitter also reports 21.6 mA "
+                "NAMUR NE43 fail-high. Bar-first should pass feed; fail-high-first would invent "
+                "an 11.00 bar hold on a legal column.",

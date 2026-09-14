@@ -1,0 +1,30 @@
+            ("name", "hold_screw_rpm"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("screw_rpm", 420.0),
+                        ("hold", False),
+                        ("motor_A", 62.0),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("ae_pps", 28.0),
+                        ("ae_cap_pps", 8.0),
+                        ("motor_A", 62.0),
+                        ("motor_cap_A", 95.0),
+                        ("race_margin_us", 180),
+                        ("combined_jitter_us", 58),
+                        ("abort_s", 480),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 420 rpm because motor 62 A is under 95, treating the 28 pps AE "
+                "as hopper noise rather than an unmelted slug.",
+            ),

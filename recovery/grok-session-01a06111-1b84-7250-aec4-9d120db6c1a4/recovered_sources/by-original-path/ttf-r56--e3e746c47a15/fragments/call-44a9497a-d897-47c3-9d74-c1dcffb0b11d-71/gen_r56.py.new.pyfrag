@@ -1,0 +1,19 @@
+            (
+                "description",
+                "Crystallizer CX-3 at Tereph-Vale is already pulling 42 m3/h recycle when a "
+                "mother-liquor density pulse arrives 220 us before the agitator encoder that still "
+                "reads a legal slurry. Density-first latches a process clamp under the 1.220 SG "
+                "cap; agitator-first would keep cruise recycle. Stored crystal-bridge load is not "
+                "yet an observable of either race channel.",
+            ),
+            ("domain", "pta-crystallizer"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Keep CX-3 on 42 m3/h recycle only while mother-liquor SG stays <= 1.220, and "
+                "leave the crystal bridge un-collapsed.",
+            ),
+            ("t0_us", 1762300000000297),
+            ("gate_latency_us", 900),
+            ("race_window_us", 380),
+            ("race_window_rel_ms", [4.480, 4.860]),

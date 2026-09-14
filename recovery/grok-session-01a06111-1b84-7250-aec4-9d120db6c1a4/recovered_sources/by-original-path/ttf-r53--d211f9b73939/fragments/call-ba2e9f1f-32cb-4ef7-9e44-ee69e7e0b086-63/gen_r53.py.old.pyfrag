@@ -1,0 +1,30 @@
+    spikes = [
+        spike("enc.flue.o2", 1.360, 0.40),
+        spike("ae.pitch.pps", 2.680, 0.56),
+        spike("enc.flue.o2", 4.100, 0.48),
+        spike("ae.pitch.pps", 6.840, 1.34),
+        spike("enc.flue.o2", 7.020, 1.11),
+        spike("ctrl.gate", 7.620, 0.98),
+        spike("ae.pitch.pps", 10.200, 0.81),
+        spike("enc.flue.o2", 14.600, 0.62),
+        spike("ctrl.gate", 18.000, 0.84),
+        spike("ae.pitch.pps", 28.200, 0.52),
+        spike("enc.flue.o2", 35.800, 0.39),
+        spike("ae.pitch.pps", 38.400, 0.44),
+    ]
+    excerpt = independent_excerpt(53283, 104, 40000, 15, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Furnace F-11 on the Butts-Howe BH-HIL pit sees pitch-fire AE at 36 pps while "
+                "flue oxygen sits at 3.1 percent under a 5.0 percent cap. AE-first holds the ram; "
+                "flue-first would push the next green anode because the O2 header looks legal. "
+                "The HIL bake-pit mockup is the authority, not the carbon plant floor.",
+            ),
+            ("domain", "anode-bake-furnace"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Keep F-11 from pushing a pitch-fired pit while flue oxygen remains under its own cap.",
+            ),

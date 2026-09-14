@@ -1,0 +1,15 @@
+THIS_DOMAINS = (
+    "ldpe-autoclave",
+    "ethylene-oxide-tubular",
+    "float-glass-tin-bath",
+    "polybutadiene-solution-kettle",
+    "cobalt-electrowin-cell",
+)
+THIS_PLANTS = (
+    "Ldpe-Grain",
+    "Oxirane-Clough",
+    "Tinbath-Howe",
+    "Diene-Riggs",
+    "Cobalt-Wyke",
+)
+IDS = [f"ttf-r96-{n}" for n in range(496, 501)]

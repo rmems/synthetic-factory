@@ -1,0 +1,11 @@
+    for path in sorted(Path("/tmp").glob("ttf-r*-occ-*.txt")):
+        try:
+            lines = [ln.strip() for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        except OSError:
+            continue
+        if "domain" in path.name:
+            domains.update(lines)
+        else:
+            plants.update(lines)
+            plants.update(PLANT_RE.findall("\n".join(lines)))
+    return domains, plants

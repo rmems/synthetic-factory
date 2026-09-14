@@ -1,0 +1,68 @@
+{
+  "agent_ids": [
+    "01a06409-6c6d-7541-956d-1072e8e52313",
+    "01a0640a-368c-7f41-8593-296166a8d8fd"
+  ],
+  "classification": "partial",
+  "classification_evidence": [
+    "at least one full version was recovered, but a later successful edit or terminal mutation could not be placed conclusively",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "gen_r28.py",
+  "original_path": "/tmp/nelb-r28/gen_r28.py",
+  "path_key": "nelb-r28--4677528065c7",
+  "terminal_event_ids": [
+    "01a06409-6c6d-7541-956d-1072e8e52313:call-d3d3bbc0-f8ec-4abb-90d8-efde0ba9a26e-67",
+    "01a0640a-368c-7f41-8593-296166a8d8fd:call-32903b4d-474f-4600-bec1-b2a570d5145c-12",
+    "01a0640a-368c-7f41-8593-296166a8d8fd:call-fda5a941-3df7-45d1-a4eb-83e8cebec5e3-23",
+    "01a0640a-368c-7f41-8593-296166a8d8fd:call-fea3bd5c-32a9-44f2-8b38-bb37eebe9481-19",
+    "01a0640a-368e-7fb1-ac2b-f5b9e6448478:call-8566a5f9-3082-4371-85d2-e4c2c53e2139-8"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 1,
+  "unresolved_events": [
+    {
+      "channel": "terminal",
+      "event_id": "01a0640a-368c-7f41-8593-296166a8d8fd:call-fea3bd5c-32a9-44f2-8b38-bb37eebe9481-19",
+      "journal_line": 104,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640a-368c-7f41-8593-296166a8d8fd/updates.jsonl",
+      "operation": "inline_python_possible_mutation",
+      "reason": "inline_python_possible_mutation was recorded but is not conclusively reproducible without execution",
+      "timestamp_utc": "2026-09-02T22:14:30.539Z"
+    }
+  ],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06409-6c6d-7541-956d-1072e8e52313",
+      "basename_preserved": true,
+      "bytes": 69367,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 364,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06409-6c6d-7541-956d-1072e8e52313/updates.jsonl",
+      "original_basename": "gen_r28.py",
+      "original_path": "/tmp/nelb-r28/gen_r28.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r28--4677528065c7/versions/v0001/gen_r28.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/nelb-r28--4677528065c7/versions/v0001/gen_r28.py",
+      "session_id": "01a06409-6c6d-7541-956d-1072e8e52313",
+      "sha256": "6cd69c7427f2dd21be6cefbd6199ea8f51fb6fc62ef501b6b4f63738e3845736",
+      "source_channel": "structured",
+      "source_event_id": "01a06409-6c6d-7541-956d-1072e8e52313:call-b66857bc-2963-4177-880e-1d1cecb52c20-66",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788387186421,
+      "timestamp_utc": "2026-09-02T22:13:06.421Z",
+      "tool_call_id": "call-b66857bc-2963-4177-880e-1d1cecb52c20-66",
+      "version": 1,
+      "version_id": "nelb-r28--4677528065c7:v0001"
+    }
+  ]
+}

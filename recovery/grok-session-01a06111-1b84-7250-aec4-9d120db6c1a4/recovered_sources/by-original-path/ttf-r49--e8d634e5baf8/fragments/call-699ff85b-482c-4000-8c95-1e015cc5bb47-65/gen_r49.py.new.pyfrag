@@ -1,0 +1,7 @@
+| ttf-r49-261 | needle-coke-calciner | MODIFY | correct | designed | **−0.48** | process-correct kiln clamp; brick fall inside 42 ms raster; independent LIF |
+| ttf-r49-262 | ferrosilicon-submerged-arc | MODIFY | **incorrect (wrong-modify / stale-sample)** | designed | −0.68 | live hearth 1684 C > 1620 cap; power trimmed from 36 s lagged CO |
+| ttf-r49-263 | laser-cladding-cell | REJECT | correct | hil | +0.80 | AE 52 pps beats powder 1.80 kg/h; hold traverse |
+| ttf-r49-264 | siemens-polysilicon-rod | ACCEPT | correct | simulated | +1.06 | rod 1124 C vs H2 42.0 Nm3/h; proposed 4.80 kW already legal |
+| ttf-r49-265 | open-end-rotor-spin | ACCEPT | correct | designed | +1.14 | yarn 86 C vs rotor 98.0 krpm; proposed 98.0 krpm already legal |
+
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 incorrect MODIFY (stale-sample / lagged-tag), 1 correct REJECT. Provenance: designed×3, simulated×1, hil×1 (Clad-Lynchet CL-HIL cladding cell). Intra-batch Jaccard on `state.description` {jmax:.3f} (max vs prior staged {jprior:.3f}).

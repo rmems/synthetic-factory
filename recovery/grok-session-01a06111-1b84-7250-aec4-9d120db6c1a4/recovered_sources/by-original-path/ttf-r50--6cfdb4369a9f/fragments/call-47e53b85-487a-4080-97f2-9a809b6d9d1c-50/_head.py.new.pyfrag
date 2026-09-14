@@ -1,0 +1,2 @@
+    early = [(t, nid) for t, nid in spikes if t < 21100]
+    burst = [(t, nid) for t, nid in spikes if 21100 <= t < 24800]

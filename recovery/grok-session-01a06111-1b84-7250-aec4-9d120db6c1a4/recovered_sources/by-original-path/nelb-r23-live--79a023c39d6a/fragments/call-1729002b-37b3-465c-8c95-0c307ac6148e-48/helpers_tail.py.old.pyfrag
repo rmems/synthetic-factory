@@ -1,0 +1,3 @@
+    notes = f"""# Neuromorphic Event + Language Bridge — NOTES round 3
+Run: 2026-09-02-final-heavy · Factory: neuromorphic-event-language-bridge · Generator: grok-4.6 · Output: `{batch_path.name}` (3 paired artifacts, 6 ThalamicTrajectories)
+Rights: RM-793 research-only (SpaceXAI/xAI grok-4.6, SuperGrok Heavy chat). Not training_ready. CREATE-ONLY write at `{LIVE}` (`{batch_path.name}`, `{notes_path.name}`). Did not write 2026-08-17 or 2026-08-30. Did not overwrite existing live r01/r02/r21/r22/r41/r42/r61/r63.

@@ -1,0 +1,663 @@
+#!/usr/bin/env python3
+"""Independent NELB r14 fail-closed audit runner. Does not write outputs/raw/."""
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import os
+import re
+import subprocess
+import sys
+import traceback
+from collections import Counter, defaultdict
+from pathlib import Path
+
+REPO = Path("/home/raulmc/rmems/synthetic-factory")
+PIPELINES = REPO / "pipelines"
+sys.path.insert(0, str(PIPELINES))
+
+from check_records import (  # noqa: E402
+    TOL,
+    FactoryStaging,
+    check_jsonl,
+    claims_real,
+    walk_key,
+)
+from curate_bridge import curate_jsonl, is_bridge_record, raster_status  # noqa: E402
+from exact_json import dumps_exact_json  # noqa: E402
+from round_txn import (  # noqa: E402
+    NOVEL_COVERAGE_LABEL_RE,
+    NOVEL_COVERAGE_RE,
+    validate_novel_coverage,
+)
+from validate_run import (  # noqa: E402
+    REWARD_NON_COMPONENT_KEYS,
+    check_line,
+)
+from verify_execution import verify_batch_for_frontier  # noqa: E402
+from verify_execution_shapes import verify_record_execution  # noqa: E402
+
+BATCH = Path("/tmp/nelb-r14/batch-r14.jsonl")
+NOTES = Path("/tmp/nelb-r14/NOTES-r14.md")
+DIR = Path("/tmp/nelb-r14")
+RAW = REPO / "outputs" / "raw"
+
+HIDDEN = {
+    "thought",
+    "thoughts",
+    "chain_of_thought",
+    "scratch",
+    "reasoning",
+    "inner_monologue",
+    "hidden_reasoning",
+    "thinking",
+    "cot",
+    "hidden_thought",
+    "scratchpad",
+    "internal_monologue",
+    "private_reasoning",
+}
+RIGHTS_KEYS = [
+    "provider",
+    "model",
+    "channel",
+    "subscription_plan",
+    "generation_surface",
+    "generated_at",
+    "intended_use",
+    "project_training_policy",
+    "research_retention_status",
+    "research_evaluation_status",
+    "redistribution_status",
+    "provider_training_status",
+    "weight_publication_status",
+    "status_basis",
+    "linear_issue",
+]
+
+
+def jaccard(a: str, b: str) -> float:
+    ta = set(re.findall(r"[a-z0-9]+", a.lower()))
+    tb = set(re.findall(r"[a-z0-9]+", b.lower()))
+    if not ta and not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def walk_keys(obj, path=""):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            p = f"{path}.{k}" if path else str(k)
+            yield p, k, v
+            yield from walk_keys(v, p)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            yield from walk_keys(v, f"{path}[{i}]")
+
+
+def main():
+    out = {}
+    raw = BATCH.read_bytes()
+    out["file"] = {
+        "bytes": len(raw),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "crlf": raw.count(b"\r\n"),
+        "lf": raw.count(b"\n"),
+        "trailing_lf": raw.endswith(b"\n"),
+        "bare_cr": raw.count(b"\r") - raw.count(b"\r\n"),
+    }
+    lines = [ln for ln in raw.split(b"\n") if ln]
+    out["n_nonempty"] = len(lines)
+    out["physical_split"] = raw.count(b"\n") + (0 if raw.endswith(b"\n") else 1)
+    out["line_utf8_sizes"] = [len(ln) for ln in lines]
+    records = [json.loads(ln) for ln in lines]
+    out["ids"] = [r.get("id") for r in records]
+
+    # 1 check_jsonl
+    errs, warns, kinds, n = check_jsonl(
+        BATCH, "batch-r14.jsonl", staging=FactoryStaging(enabled=True)
+    )
+    out["check_jsonl"] = {
+        "errors": errs,
+        "warnings": warns,
+        "kinds": dict(kinds) if not isinstance(kinds, dict) else {str(k): v for k, v in kinds.items()},
+        "n": n,
+    }
+    try:
+        out["check_jsonl"]["kinds"] = {str(k): int(v) for k, v in kinds.items()}
+    except Exception:
+        out["check_jsonl"]["kinds_repr"] = repr(kinds)
+
+    # 2 check_records CLI
+    r = subprocess.run(
+        [sys.executable, str(PIPELINES / "check_records.py"), "--strict", str(DIR)],
+        cwd=str(REPO),
+        capture_output=True,
+        text=True,
+    )
+    out["check_records_cli"] = {
+        "exit": r.returncode,
+        "stdout": r.stdout.strip(),
+        "stderr": r.stderr.strip()[:4000],
+    }
+
+    # 3 check_line
+    check_line_rows = []
+    for rec in records:
+        errors, kind = check_line(rec, rec.get("id", "?"), factory_staging=True)
+        check_line_rows.append({"id": rec.get("id"), "kind": kind, "errors": errors})
+    out["check_line"] = check_line_rows
+
+    # 4 exact_json
+    exact_rows = []
+    for rec in records:
+        row = {"id": rec.get("id"), "ok": True, "error": None}
+        try:
+            dumps_exact_json(rec)
+            json.loads(json.dumps(rec, allow_nan=False))
+        except Exception as exc:
+            row["ok"] = False
+            row["error"] = f"{type(exc).__name__}: {exc}"
+        exact_rows.append(row)
+    out["exact_json"] = exact_rows
+
+    # 5 raster_status
+    raster_rows = []
+    for rec in records:
+        st = raster_status(rec, require_raster=True, require_routing_table=True)
+        rast = rec.get("raster") or {}
+        tf = ((rast.get("routing") or {}).get("third_factor")) or {}
+        raster_rows.append(
+            {
+                "id": rec.get("id"),
+                "reason_codes": st.get("reason_codes"),
+                "gate_snn_present": st.get("gate_snn_present"),
+                "gate_snn_valid": st.get("gate_snn_valid"),
+                "routing_table_entries": st.get("routing_table_entries"),
+                "third_factor_present": st.get("third_factor_present"),
+                "third_factor": tf,
+                "raster_valid": st.get("raster_valid"),
+                "raster_location": st.get("raster_location"),
+                "spikes": st.get("spikes"),
+                "bridge_record": st.get("bridge_record"),
+            }
+        )
+    out["raster_status"] = raster_rows
+
+    # 6 curate_jsonl
+    decisions = curate_jsonl(
+        BATCH, require_raster=True, require_routing_table=True
+    )
+    out["curate_jsonl"] = [
+        {
+            "id": getattr(d, "record", None).get("id") if isinstance(getattr(d, "record", None), dict) else None,
+            "action": getattr(d, "action", None) or (d.manifest.get("action") if hasattr(d, "manifest") else None),
+            "reason_codes": (d.manifest.get("reason_codes") if hasattr(d, "manifest") else None),
+            "manifest_keys": sorted((d.manifest or {}).keys()) if hasattr(d, "manifest") else None,
+        }
+        for d in decisions
+    ]
+    # also dump action/reasons more carefully
+    curate_detail = []
+    for d in decisions:
+        m = d.manifest if hasattr(d, "manifest") else {}
+        rec = getattr(d, "record", None)
+        curate_detail.append(
+            {
+                "action": getattr(d, "action", m.get("action")),
+                "reason_codes": m.get("reason_codes"),
+                "id": rec.get("id") if isinstance(rec, dict) else m.get("output_id"),
+            }
+        )
+    out["curate_jsonl_detail"] = curate_detail
+
+    # 7 frontier
+    counts, findings, blocked = verify_batch_for_frontier(BATCH, strict=True)
+    per_exec = []
+    for rec in records:
+        status, reason = verify_record_execution(rec, rec.get("id", "?"))
+        per_exec.append({"id": rec.get("id"), "status": status, "reason": reason})
+    out["frontier"] = {
+        "counts": counts,
+        "findings": findings,
+        "blocked": blocked,
+        "per_record": per_exec,
+    }
+
+    # 8 spike_probe CLI
+    r = subprocess.run(
+        [sys.executable, str(PIPELINES / "spike_probe.py"), "--strict", str(BATCH)],
+        cwd=str(REPO),
+        capture_output=True,
+        text=True,
+    )
+    out["spike_probe"] = {
+        "exit": r.returncode,
+        "stdout": r.stdout.strip(),
+        "stderr": r.stderr.strip()[:4000],
+    }
+
+    # 9-11 ids / meta / bridge
+    id_rows = []
+    all_ids = []
+    meta_rows = []
+    for rec in records:
+        lv = rec.get("language_view") or {}
+        trajs = []
+        if isinstance(lv.get("trajectory"), dict):
+            trajs.append(("trajectory", lv["trajectory"]))
+        for k, v in lv.items():
+            if k != "trajectory" and k.startswith("trajectory") and isinstance(v, dict):
+                trajs.append((k, v))
+        rec_ids = [rec.get("id")]
+        for name, t in trajs:
+            rec_ids.append(t.get("id"))
+        all_ids.extend(rec_ids)
+        id_rows.append({"top": rec.get("id"), "ids": rec_ids, "traj_keys": [n for n, _ in trajs]})
+        metas = [("top", rec.get("meta") or {})]
+        for name, t in trajs:
+            metas.append((name, t.get("meta") or {}))
+        meta_rows.append(
+            {
+                "id": rec.get("id"),
+                "is_bridge": is_bridge_record(rec),
+                "metas": [
+                    {
+                        "where": w,
+                        "round": m.get("round"),
+                        "factory": m.get("factory"),
+                        "generator": m.get("generator"),
+                        "run_label": m.get("run_label"),
+                    }
+                    for w, m in metas
+                ],
+            }
+        )
+    out["ids_detail"] = id_rows
+    out["dup_ids"] = [i for i, c in Counter(all_ids).items() if c > 1]
+    out["all_ids"] = all_ids
+    out["meta"] = meta_rows
+
+    # 12-13 raster budgets / isi
+    isi_rows = []
+    budget_rows = []
+    for rec in records:
+        rast = rec["raster"]
+        hist = rast.get("isi_histogram") or []
+        ident = rast.get("isi_count_identity") or {}
+        by_n = defaultdict(int)
+        for e in rast.get("excerpt") or []:
+            by_n[e.get("neuron_id")] += 1
+        active = sum(1 for c in by_n.values() if c > 0)
+        isi_sum = sum(b.get("count", 0) for b in hist)
+        floors_ok = all(float(b.get("lo_ms", 0)) >= 1.0 - 1e-12 for b in hist)
+        isi_rows.append(
+            {
+                "id": rec["id"],
+                "hist": hist,
+                "identity": ident,
+                "sum_counts": isi_sum,
+                "active_from_excerpt": active,
+                "floors_ok": floors_ok,
+                "identity_ok": ident.get("isi_total") == ident.get("spikes", 0) - ident.get("distinct_active_neurons", 0)
+                and isi_sum == ident.get("isi_total"),
+            }
+        )
+        n = rast["neurons"]
+        rate = rast["mean_rate_hz"]
+        wms = rast["window_ms"]
+        ws = rast["window_s"]
+        spikes = rast["spikes"]
+        expected = int(round(n * rate * ws))
+        budget_rows.append(
+            {
+                "id": rec["id"],
+                "n": n,
+                "rate": rate,
+                "window_ms": wms,
+                "window_s": ws,
+                "window_s_exact": ws == wms / 1000.0,
+                "spikes": spikes,
+                "expected": expected,
+                "energy_pJ": rast["energy_pJ"],
+                "energy_uJ": rast["energy_uJ"],
+                "energy_pJ_ok": abs(rast["energy_pJ"] - spikes * 23) < 1e-9,
+                "energy_uJ_ok": abs(rast["energy_uJ"] - spikes * 23e-6) < 1e-15,
+                "excerpt_len": len(rast.get("excerpt") or []),
+                "window_in_20_50": 20 <= wms <= 50,
+            }
+        )
+    out["isi"] = isi_rows
+    out["raster_budget"] = budget_rows
+
+    # 14-15 gate_snn / gate_compute
+    gate_rows = []
+    gc_rows = []
+    for rec in records:
+        gs = rec["gate_snn"]
+        lead = rec["language_view"]["trajectory"]["safety_decision"]["decision"]
+        dw = gs["decision_window_s"]
+        pops = []
+        for pop in gs.get("populations") or []:
+            exp = int(round(pop["neurons"] * pop["mean_rate_hz"] * dw))
+            pops.append(
+                {
+                    "name": pop.get("name"),
+                    "neurons": pop.get("neurons"),
+                    "rate": pop.get("mean_rate_hz"),
+                    "spikes": pop.get("spikes"),
+                    "expected": exp,
+                    "delta": pop.get("spikes") - exp,
+                }
+            )
+        comps = []
+        lv = rec["language_view"]
+        for k, v in lv.items():
+            if k.startswith("trajectory") and isinstance(v, dict) and "safety_decision" in v:
+                comps.append({"key": k, "id": v.get("id"), "decision": v["safety_decision"]["decision"]})
+        gate_rows.append(
+            {
+                "id": rec["id"],
+                "gate_snn": gs.get("decision"),
+                "lead": lead,
+                "match": gs.get("decision") == lead,
+                "window_ms": gs.get("decision_window_ms"),
+                "window_s": dw,
+                "pops": pops,
+                "traj_decisions": comps,
+            }
+        )
+        gc = rec.get("gate_compute") or {}
+        checks = []
+        for c in gc.get("per_check") or []:
+            exp = int(round(c["neurons"] * c["mean_rate_hz"] * (c["window_ms"] / 1000.0)))
+            checks.append(
+                {
+                    "check": c.get("check"),
+                    "neurons": c.get("neurons"),
+                    "rate": c.get("mean_rate_hz"),
+                    "window_ms": c.get("window_ms"),
+                    "spikes": c.get("spikes"),
+                    "expected": exp,
+                    "window_24_40": 24 <= c["window_ms"] <= 40,
+                }
+            )
+        gc_rows.append(
+            {
+                "id": rec["id"],
+                "per_check": checks,
+                "total_spikes": gc.get("total_spikes"),
+                "sum_spikes": sum(c["spikes"] for c in gc.get("per_check") or []),
+                "total_energy_pJ": gc.get("total_energy_pJ"),
+            }
+        )
+    out["gate_snn"] = gate_rows
+    out["gate_compute"] = gc_rows
+
+    # 16 spike trains
+    spike_rows = []
+    for rec in records:
+        evs = rec.get("spike_events") or []
+        keys = set()
+        last = None
+        nd = True
+        last_ch = {}
+        min_gap = None
+        min_gap_ch = None
+        channels = set()
+        amps_ok = True
+        nonempty_ch = True
+        for e in evs:
+            keys |= set(e.keys())
+            t = e.get("t_rel_ms")
+            if last is not None and t < last:
+                nd = False
+            last = t
+            ch = e.get("channel")
+            channels.add(ch)
+            if not ch:
+                nonempty_ch = False
+            if not math.isfinite(e.get("amplitude", float("nan"))):
+                amps_ok = False
+            if ch in last_ch:
+                gap = t - last_ch[ch]
+                if min_gap is None or gap < min_gap:
+                    min_gap = gap
+                    min_gap_ch = ch
+            last_ch[ch] = t
+        ts_keys = {k for k in keys if k.startswith("t_") or k in {"t", "time", "timestamp"}}
+        spike_rows.append(
+            {
+                "id": rec["id"],
+                "n": len(evs),
+                "in_5_40": 5 <= len(evs) <= 40,
+                "all_keys": sorted(keys),
+                "timestamp_keys": sorted(ts_keys),
+                "non_decreasing": nd,
+                "min_same_ch_gap": min_gap,
+                "min_gap_ch": min_gap_ch,
+                "n_channels": len(channels),
+                "channels": sorted(str(c) for c in channels),
+                "amps_finite": amps_ok,
+                "nonempty_ch": nonempty_ch,
+                "has_t_ms": any("t_ms" in e for e in evs),
+            }
+        )
+    out["spike_trains"] = spike_rows
+
+    # 17 rewards
+    reward_rows = []
+    for rec in records:
+        lv = rec["language_view"]
+        for k, v in lv.items():
+            if not (k.startswith("trajectory") and isinstance(v, dict) and "reward_components" in v):
+                continue
+            rc = v["reward_components"]
+            comps = {
+                ck: cv
+                for ck, cv in rc.items()
+                if ck not in REWARD_NON_COMPONENT_KEYS
+                and isinstance(cv, (int, float))
+                and not isinstance(cv, bool)
+            }
+            s = sum(comps.values())
+            tot = rc.get("total")
+            reward_rows.append(
+                {
+                    "id": v.get("id"),
+                    "key": k,
+                    "decision": (v.get("safety_decision") or {}).get("decision"),
+                    "components": comps,
+                    "sum": s,
+                    "total": tot,
+                    "abs_delta": abs(s - tot) if tot is not None else None,
+                    "ok": tot is not None and abs(s - tot) < TOL,
+                    "skip_present": sorted(set(rc) & set(REWARD_NON_COMPONENT_KEYS)),
+                }
+            )
+    out["rewards"] = reward_rows
+
+    # 18 sim_or_real / claims_real
+    sim_rows = []
+    real_hits = []
+    for rec in records:
+        lv = rec["language_view"]
+        pair = {"id": rec["id"]}
+        for k, v in lv.items():
+            if k.startswith("trajectory") and isinstance(v, dict):
+                pair[k] = (v.get("state") or {}).get("sim_or_real")
+        sim_rows.append(pair)
+    def walk_claims(obj, path=""):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                p = f"{path}.{k}" if path else k
+                if k == "sim_or_real" or isinstance(v, str):
+                    if claims_real(v):
+                        real_hits.append({"path": p, "value": v})
+                walk_claims(v, p)
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj):
+                walk_claims(v, f"{path}[{i}]")
+        elif isinstance(obj, str) and claims_real(obj):
+            real_hits.append({"path": path, "value": obj})
+    for rec in records:
+        walk_claims(rec, rec["id"])
+    blob = raw.decode("utf-8")
+    out["sim_or_real"] = sim_rows
+    out["claims_real"] = real_hits
+    out["training_ready_in_bytes"] = "training_ready" in blob
+    out["provenance_object"] = '"provenance"' in blob or any(
+        k == "provenance" for _, k, _ in walk_keys(records)
+    )
+
+    # 19 rights
+    rights_rows = []
+    for rec in records:
+        lv = rec["language_view"]
+        places = [("top", rec.get("meta", {}).get("rights"))]
+        for k, v in lv.items():
+            if k.startswith("trajectory") and isinstance(v, dict):
+                places.append((k, (v.get("meta") or {}).get("rights")))
+        for where, rights in places:
+            keys = sorted((rights or {}).keys())
+            rights_rows.append(
+                {
+                    "id": rec["id"],
+                    "where": where,
+                    "keys": keys,
+                    "keyset_ok": keys == sorted(RIGHTS_KEYS),
+                    "intended_use": (rights or {}).get("intended_use"),
+                    "linear_issue": (rights or {}).get("linear_issue"),
+                    "status_basis": (rights or {}).get("status_basis"),
+                    "generated_at": (rights or {}).get("generated_at"),
+                    "provider": (rights or {}).get("provider"),
+                    "model": (rights or {}).get("model"),
+                    "channel": (rights or {}).get("channel"),
+                    "subscription_plan": (rights or {}).get("subscription_plan"),
+                    "generation_surface": (rights or {}).get("generation_surface"),
+                    "project_training_policy": (rights or {}).get("project_training_policy"),
+                    "research_retention_status": (rights or {}).get("research_retention_status"),
+                    "research_evaluation_status": (rights or {}).get("research_evaluation_status"),
+                    "redistribution_status": (rights or {}).get("redistribution_status"),
+                    "provider_training_status": (rights or {}).get("provider_training_status"),
+                    "weight_publication_status": (rights or {}).get("weight_publication_status"),
+                    "identical_to_top": rights == rec.get("meta", {}).get("rights"),
+                }
+            )
+    out["rights"] = rights_rows
+
+    # 20 hidden keys
+    hidden_hits = []
+    for rec in records:
+        for path, k, v in walk_keys(rec):
+            nk = str(k).casefold().replace("-", "_").replace(" ", "_")
+            if nk in HIDDEN:
+                hidden_hits.append({"id": rec["id"], "path": path, "key": k})
+    out["hidden_hits"] = hidden_hits
+
+    # 21 NOTES
+    notes_info = {
+        "exists": NOTES.exists(),
+        "bytes": NOTES.stat().st_size if NOTES.exists() else 0,
+    }
+    if NOTES.exists():
+        text = NOTES.read_text(encoding="utf-8")
+        notes_info["text_head"] = text[:2000]
+        notes_info["validate"] = validate_novel_coverage(
+            NOTES, Path("neuromorphic-event-language-bridge"), required=True, notes_text=text
+        )
+        labeled = [
+            line
+            for line in re.split(r"\r\n|\n|\r", text)
+            if NOVEL_COVERAGE_LABEL_RE.search(line)
+        ]
+        notes_info["labeled_lines"] = labeled
+        notes_info["fullmatch"] = [bool(NOVEL_COVERAGE_RE.fullmatch(x)) for x in labeled]
+    else:
+        notes_info["validate"] = (
+            f"cannot read notes as UTF-8: {NOTES}: "
+            + (
+                FileNotFoundError(NOTES).__class__.__name__
+            )
+        )
+        try:
+            notes_info["validate_fn"] = validate_novel_coverage(
+                NOTES, Path("neuromorphic-event-language-bridge"), required=True
+            )
+        except Exception as exc:
+            notes_info["validate_fn"] = f"{type(exc).__name__}: {exc}"
+    out["notes"] = notes_info
+
+    # 22 Jaccard
+    descs = [r["language_view"]["description"] for r in records]
+    settings = []
+    for r in records:
+        st = r["language_view"]["trajectory"]["state"]
+        settings.append(st.get("setting") or st.get("description") or json.dumps(st, sort_keys=True)[:500])
+    pairs = []
+    for i in range(len(records)):
+        for j in range(i + 1, len(records)):
+            pairs.append(
+                {
+                    "pair": f"{records[i]['id']}-{records[j]['id']}",
+                    "desc_jaccard": jaccard(descs[i], descs[j]),
+                    "setting_jaccard": jaccard(str(settings[i]), str(settings[j])),
+                }
+            )
+    out["jaccard"] = pairs
+    out["descriptions"] = descs
+    out["settings"] = settings
+
+    # batch map extras
+    maps = []
+    for rec in records:
+        lv = rec["language_view"]
+        t1 = lv["trajectory"]
+        t2_key = [k for k in lv if k.startswith("trajectory") and k != "trajectory"]
+        t2 = lv[t2_key[0]] if t2_key else {}
+        maps.append(
+            {
+                "id": rec["id"],
+                "desc": lv.get("description"),
+                "t2_key": t2_key,
+                "t1_id": t1.get("id"),
+                "t2_id": t2.get("id"),
+                "t1_dec": t1["safety_decision"]["decision"],
+                "t2_dec": (t2.get("safety_decision") or {}).get("decision"),
+                "t1_sim": t1["state"]["sim_or_real"],
+                "t2_sim": (t2.get("state") or {}).get("sim_or_real"),
+                "t1_total": t1["reward_components"]["total"],
+                "t2_total": (t2.get("reward_components") or {}).get("total"),
+                "t1_tags": (t1.get("meta") or {}).get("tags"),
+                "top_tags": (rec.get("meta") or {}).get("tags"),
+                "gate_code": rec["gate_snn"].get("code"),
+                "tf_mod": ((rec["raster"].get("routing") or {}).get("third_factor") or {}).get("modulator")
+                or ((rec["raster"].get("routing") or {}).get("third_factor") or {}),
+                "recon": rec.get("reconstruction_model", {}).get("name"),
+                "bridge_why": (rec.get("bridge_notes") or {}).get("why_high_value"),
+            }
+        )
+    out["batch_map"] = maps
+
+    # outputs/raw
+    raw_hits = []
+    if RAW.exists():
+        r = subprocess.run(
+            ["rg", "-l", "nelb-r14", str(RAW)],
+            capture_output=True,
+            text=True,
+        )
+        raw_hits = [ln for ln in r.stdout.splitlines() if ln][:20]
+    out["outputs_raw_hits"] = raw_hits
+    out["dir_listing"] = sorted(os.listdir(DIR))
+
+    print(json.dumps(out, indent=2, default=str, allow_nan=False))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        traceback.print_exc()
+        sys.exit(2)

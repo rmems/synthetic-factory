@@ -1,0 +1,46 @@
+                [
+                    "pin-root thermocouple, 5 kHz burst, 26 us jitter",
+                    "backing-bar IR pickoff, 200 Hz, 32 us jitter",
+                    "anvil PT (context)",
+                    "HIL lamp-spectrum monitor (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("stir_cap_C", 380.0),
+                        ("observed_pin_C", 412.0),
+                        ("bar_apparent_C", 298.0),
+                        ("proposed_plunge_mm_s", 1.8),
+                        ("lamp_inject_lead_us", [110, 150]),
+                    ]
+                ),
+            ),
+            (
+                "hil",
+                OrderedDict(
+                    [
+                        ("pad", "Stir-Horn SH-3 FSW platen mockup"),
+                        ("injected", "hot-tool packet + backing-bar IR lamp spectrum"),
+                        (
+                            "note",
+                            "Hardware-in-the-loop FSW platen. Invented plant; not a live weld cell.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Pin-Quill PQ-6 on the SH-3 HIL platen; plunge 1.8 mm/s armed.",
+                    "2. Lamp injected 110-150 us before pin-root TC sees the hot-tool packet.",
+                    "3. Anvil precursor at 1.380 ms.",
+                    "4. Race window [5.700, 6.080] ms.",
+                    "5. tc.pin.root 412 C at 5.760 ms (winner).",
+                    "6. ir.bar.glint 298 C at 5.931 ms (loser by 171 us).",
+                    "7. Gate at 6.860 ms: REJECT hold 0.0 mm/s; do not continue 1.8 mm/s.",
+                    "8. Tool remains over cap this cycle; stir cap held.",
+                    "9. Coupon recycle queued on the pad.",
+                    "10. Delayed (abort_s=600): 10 min tool retune and lamp-spectrum retune.",
+                ],

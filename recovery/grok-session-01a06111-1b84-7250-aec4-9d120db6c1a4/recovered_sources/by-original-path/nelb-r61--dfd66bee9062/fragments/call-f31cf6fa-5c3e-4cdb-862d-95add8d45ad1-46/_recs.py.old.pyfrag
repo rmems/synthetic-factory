@@ -1,0 +1,2 @@
+        ev(1440000.0, "cell.zero", 0.00, code="ZERO_NA", units="nA"),
+        ev(1560000.0, "h2s.I", 5.00, code="I_NA", units="nA", note="isolate-floor frame; raster sidecar"),

@@ -1,0 +1,2 @@
+    if heading.returncode != 0:
+        errs.append(f"heading check {heading.returncode} {heading.stdout}")

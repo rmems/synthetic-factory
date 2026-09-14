@@ -1,0 +1,39 @@
+    "WOLD-BARN",
+    "Barleyholt",
+    "Spelterholt",
+    "Brambleford",
+    "Marrowfen",
+    "PACKFLUE",
+    "QUAY-FEN",
+    "Sedgewharf",
+    "LOCKFEN",
+    "LOCK-FEN",
+    "Carrdyke",
+    "FEN-SPIT",
+    "Reedholt",
+    "BARN-SPIT",
+    "Spitcroft",
+    "SPUR-HEARTH",
+    "Rookspur",
+    "SPIT-LOCK",
+    "training_ready",
+)
+R14_OPENING = (
+    "Helixmere Biologics Building C lyophilizer LYO-4 is mid-primary on 8400 "
+    "vials of a monoclonal antibody"
+)
+NOVEL_LINE = "Novel coverage: 50%"
+PLANT = "BARN-FEN"
+GEO = "Mirelatch"
+CELL = "CT-5"
+DOMAIN = "mushroom-compost-tunnel"
+RECORD_ID = "maos-r05-001"
+ROUND = 5
+SWARM = "BARN-FEN"
+DELAY_S = 0.82
+TAU_E_S = 0.88
+LIF_SEED = 50051
+WINDOW_MS = 44
+NEURONS = 144
+MEAN_RATE_HZ = 24.5
+STIM = (21000, 25400)

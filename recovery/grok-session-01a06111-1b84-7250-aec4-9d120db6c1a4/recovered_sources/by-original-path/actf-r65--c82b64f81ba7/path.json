@@ -1,0 +1,64 @@
+{
+  "agent_ids": [
+    "01a064a7-40cf-7083-bca5-b385b9e7f7ba"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations"
+  ],
+  "event_count": 4,
+  "final_state": "unknown",
+  "hunk_evidence_count": 4,
+  "original_basename": "gen.py",
+  "original_path": "/tmp/actf-r65/gen.py",
+  "path_key": "actf-r65--c82b64f81ba7",
+  "terminal_event_ids": [
+    "01a064a7-40cf-7083-bca5-b385b9e7f7ba:call-877f3b6e-1e94-4b54-ade0-b1f56af9b090-61"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 4,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a064a7-40cf-7083-bca5-b385b9e7f7ba:call-6e058ccf-c882-418e-b68a-7808798e69ca-57",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r65--c82b64f81ba7/fragments/call-6e058ccf-c882-418e-b68a-7808798e69ca-57/gen.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r65--c82b64f81ba7/fragments/call-6e058ccf-c882-418e-b68a-7808798e69ca-57/gen.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a064a7-40cf-7083-bca5-b385b9e7f7ba:call-4c51fb58-a772-41a5-94ad-bf4f2af107ea-58",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r65--c82b64f81ba7/fragments/call-4c51fb58-a772-41a5-94ad-bf4f2af107ea-58/gen.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r65--c82b64f81ba7/fragments/call-4c51fb58-a772-41a5-94ad-bf4f2af107ea-58/gen.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a064a7-40cf-7083-bca5-b385b9e7f7ba:call-53b9b0ff-eea5-4d3d-9b31-908958b6c88a-59",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r65--c82b64f81ba7/fragments/call-53b9b0ff-eea5-4d3d-9b31-908958b6c88a-59/gen.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r65--c82b64f81ba7/fragments/call-53b9b0ff-eea5-4d3d-9b31-908958b6c88a-59/gen.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a064a7-40cf-7083-bca5-b385b9e7f7ba:call-c3e0b335-04f4-4a64-90e9-39ac61b97b60-60",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r65--c82b64f81ba7/fragments/call-c3e0b335-04f4-4a64-90e9-39ac61b97b60-60/gen.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r65--c82b64f81ba7/fragments/call-c3e0b335-04f4-4a64-90e9-39ac61b97b60-60/gen.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

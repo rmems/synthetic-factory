@@ -1,0 +1,41 @@
+def occupancy_preflight():
+    banned = (
+        "wrenholt",
+        "larkfen",
+        "gannetshaw",
+        "labveil",
+        "dryveil",
+        "leapveil",
+        "nia veld",
+        "bram seton",
+        "kira voss",
+        "soren pike",
+        "edrik holm",
+        "keidel-hil-4",
+        "leeb-sim-7",
+        "nelb-r01-a1",
+        "nelb-r01-a2",
+        "nelb-r01-a3",
+    )
+    hits = []
+    roots = [
+        Path("/tmp"),
+        Path("/home/raulmc/rmems/synthetic-factory/outputs/raw"),
+    ]
+    for root in roots:
+        if not root.exists():
+            continue
+        for n in sorted(root.glob("**/nelb-r*")) + sorted(root.glob("**/*.jsonl")):
+            if n.is_dir() or n.suffix not in {".py", ".md", ".jsonl"}:
+                continue
+            if "nelb-r01-window" in str(n):
+                continue
+            try:
+                text = n.read_text(encoding="utf-8", errors="replace").casefold()
+            except OSError:
+                continue
+            for b in banned:
+                if b in text:
+                    hits.append(f"{n}:{b}")
+    if hits:
+        raise RuntimeError(f"family/plant/id collision {hits[:12]}")

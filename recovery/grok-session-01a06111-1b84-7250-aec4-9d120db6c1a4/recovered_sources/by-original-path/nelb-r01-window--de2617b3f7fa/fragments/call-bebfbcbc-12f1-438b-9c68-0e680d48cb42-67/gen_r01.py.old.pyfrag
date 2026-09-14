@@ -1,0 +1,10 @@
+    for rec in records:
+        st = raster_status(rec, require_raster=True, require_routing_table=True)
+        if not st.get("raster_valid") or not st.get("gate_snn_valid"):
+            raise RuntimeError(f"raster_status {rec['id']} {st}")
+        if st.get("reason_codes"):
+            raise RuntimeError(f"reason_codes {rec['id']} {st['reason_codes']}")
+        decision, reasons = curate_record(rec)
+        print("curate_record", rec["id"], decision, reasons)
+        if decision != "retain":
+            raise RuntimeError(f"curate {rec['id']} {decision} {reasons}")

@@ -1,0 +1,4 @@
+                "Etherbut-Lynns EL-3 column EC-4 asks for 4.2 t/h ETBE. Valid kettle 8.48 mA "
+                "maps to 2.80 bar under a 6.40 bar cap, yet a leftover HART keep-alive still "
+                "echoes 7.10 bar with handshake_age_ms=8400. Bar-first should pass feed; "
+                "stale-handshake-first would invent a hold on a legal etherifier.",

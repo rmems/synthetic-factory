@@ -1,0 +1,11 @@
+            "thalamic-relay.bag-vac",
+            "spikenaut.policy.heater-clamp",
+            [
+                ("relay.vac.bag", "policy.heater_clamp", 0.67),
+                ("relay.tc.part", "policy.soak_hold", 0.31),
+                ("relay.ae.wrinkle", "policy.heater_clamp", -0.44),
+            ],
+            "noradrenaline",
+            0.04,
+            "surprise-gated pre_post_stdp; NA at vacuum win (5.180 ms) opens a 40 ms eligibility "
+            "trace that still covers the 21.200 ms bag wrinkle",

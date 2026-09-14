@@ -1,0 +1,49 @@
+def prior_occupancy():
+    domains = set()
+    plants = set()
+    plant_re = re.compile(r"\b([A-Z][A-Za-z]+(?:-[A-Z][A-Za-z0-9]+)+)\b")
+    skip_plants = {"RM-793", "Loihi-2"}
+    for n in range(12, 60):
+        if n == 50:
+            continue
+        d = Path(f"/tmp/ttf-r{n}")
+        if not d.is_dir():
+            continue
+        for path in d.iterdir():
+            if path.suffix not in {".jsonl", ".md", ".py"}:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if path.suffix == ".jsonl":
+                for rec_line in text.splitlines():
+                    line = rec_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(rec, dict):
+                        continue
+                    dom = (rec.get("state") or {}).get("domain") or (rec.get("meta") or {}).get(
+                        "domain"
+                    )
+                    if dom:
+                        domains.add(str(dom))
+                    blob = json.dumps(rec)
+                    for plant in plant_re.findall(blob):
+                        if plant not in skip_plants:
+                            plants.add(plant)
+            for m in re.finditer(r'\("domain", "([^"]+)"\)', text):
+                domains.add(m.group(1))
+            m = re.search(r"(?:THIS_DOMAINS|MY_DOMAINS)\s*=\s*\((.*?)\)", text, re.S)
+            if m:
+                domains.update(re.findall(r'"([^"]+)"', m.group(1)))
+            m = re.search(r"(?:THIS_PLANTS|MY_PLANTS)\s*=\s*\((.*?)\)", text, re.S)
+            if m:
+                for plant in re.findall(r'"([^"]+)"', m.group(1)):
+                    if plant not in skip_plants:
+                        plants.add(plant)
+    return domains, plants

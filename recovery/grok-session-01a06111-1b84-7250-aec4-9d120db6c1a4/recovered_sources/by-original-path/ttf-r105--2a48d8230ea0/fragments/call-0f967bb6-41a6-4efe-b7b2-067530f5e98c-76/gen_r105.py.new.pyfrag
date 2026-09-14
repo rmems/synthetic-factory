@@ -1,0 +1,43 @@
+    for npath in sorted(Path("/tmp").glob("ttf-r*/NOTES-r*.md")):
+        if npath.parent.name in skip:
+            continue
+        for line in npath.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if "Domains this batch" in line:
+                for tok in re.findall(r"`([^`]+)`", line):
+                    if not tok.startswith("ttf-"):
+                        domains.add(tok)
+    for opath in sorted(Path("/tmp").glob("ttf-r*-occ-*.txt")):
+        if "ttf-r105" in opath.name:
+            continue
+        try:
+            txt = opath.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for line in txt.splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if re.match(r"^[A-Z][A-Za-z]+(?:-[A-Z][A-Za-z0-9]+)+$", s):
+                plants.add(s)
+            elif re.match(r"^[a-z][a-z0-9]+(?:-[a-z0-9]+)+$", s):
+                domains.add(s)
+    for opath in sorted(Path("/tmp").glob("ttf-r*/occ-*.txt")):
+        if opath.parent.name in skip:
+            continue
+        try:
+            txt = opath.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for line in txt.splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if re.match(r"^[A-Z][A-Za-z]+(?:-[A-Z][A-Za-z0-9]+)+$", s):
+                plants.add(s)
+            elif re.match(r"^[a-z][a-z0-9]+(?:-[a-z0-9]+)+$", s):
+                domains.add(s)
+    domains -= THIS_DOMAINS
+    plants -= set(THIS_PLANTS)
+    domains.discard("")
+    plants.discard("")
+    return domains, plants

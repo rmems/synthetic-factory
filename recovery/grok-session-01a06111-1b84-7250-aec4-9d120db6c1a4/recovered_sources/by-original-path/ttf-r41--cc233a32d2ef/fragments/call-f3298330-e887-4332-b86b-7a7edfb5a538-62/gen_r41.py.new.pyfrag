@@ -1,0 +1,9 @@
+    for frag in THIS_PLANTS:
+        if frag in prior_plants:
+            issues.append(f"live occupancy plant hit {frag}")
+    our_plants = set(PLANT_PAT.findall(blob_all))
+    plant_overlap = our_plants & prior_plants
+    # HIL pad suffixes like YC-3 are unique; skip 2-char class tokens.
+    plant_overlap = {p for p in plant_overlap if "-" in p and p not in {"WRONG-MODIFY", "WRONG-REJECT"}}
+    if plant_overlap:
+        issues.append(f"live occupancy plant overlap {sorted(plant_overlap)}")

@@ -1,0 +1,16 @@
+                "WRONG-MODIFY at Hexafluor-Lynchet HL-7 / Bubbler-U4: live WF6 42.0 sccm read correctly; lagged 0.042 slm bound as sccm (wrong-unit on lagged bus)",
+            ),
+            (
+                "state",
+                OrderedDict(
+                    [
+                        (
+                            "description",
+                            "WF6 bubbler U-4 at Hexafluor-Lynchet HL-7 reports live tungsten hexafluoride 42.0 sccm against a 28.0 sccm particle-cap, while a lagged Profibus DP holding register still prints 0.042 slm leftover from the same MFC (42.0 sccm = 0.042 slm) delayed 96 ms. Cutting WF6 42.0 -> 18.0 sccm is the legal edit. Instead the supervisor binds 0.042 as sccm, treats live 42.0 as a unit ghost, and only trims 42.0 -> 40.0 sccm while H2 stays 180 sccm.",
+                        ),
+                        ("domain", "tungsten-hexafluoride-bubbler"),
+                        ("sim_or_real", "designed"),
+                        (
+                            "goal",
+                            "Keep U-4 WF6 <= 28.0 sccm without binding a lagged slm register as if it were the live sccm tag.",
+                        ),

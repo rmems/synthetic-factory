@@ -1,0 +1,44 @@
+def occupancy_preflight():
+    banned = (
+        "wrenholt",
+        "larkfen",
+        "gannetshaw",
+        "labveil",
+        "dryveil",
+        "leapveil",
+        "nia veld",
+        "bram seton",
+        "kira voss",
+        "soren pike",
+        "edrik holm",
+        "keidel-hil-4",
+        "leeb-sim-7",
+        "nelb-r01-a1",
+        "nelb-r01-a2",
+        "nelb-r01-a3",
+    )
+    hits = []
+    files = []
+    for p in Path("/tmp").glob("nelb-r*"):
+        if p.is_dir():
+            files.extend(
+                f for f in p.iterdir() if f.is_file() and f.suffix in {".py", ".md", ".jsonl"}
+            )
+    factory = Path(
+        "/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-09-02-final-heavy/"
+        "neuromorphic-event-language-bridge"
+    )
+    if factory.is_dir():
+        files.extend(f for f in factory.iterdir() if f.is_file() and f.suffix in {".md", ".jsonl"})
+    for n in files:
+        if "nelb-r01-window" in str(n):
+            continue
+        try:
+            text = n.read_text(encoding="utf-8", errors="replace").casefold()
+        except OSError:
+            continue
+        for b in banned:
+            if b in text:
+                hits.append(f"{n}:{b}")
+    if hits:
+        raise RuntimeError(f"family/plant/id collision {hits[:12]}")

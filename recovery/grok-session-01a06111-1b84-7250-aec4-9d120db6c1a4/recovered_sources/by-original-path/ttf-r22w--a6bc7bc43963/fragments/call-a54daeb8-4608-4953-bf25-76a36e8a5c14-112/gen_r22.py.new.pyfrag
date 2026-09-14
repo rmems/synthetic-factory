@@ -1,0 +1,1 @@
+        errs, kind = check_line(rec, f"batch-r22c.jsonl:{i}", factory_staging=True)

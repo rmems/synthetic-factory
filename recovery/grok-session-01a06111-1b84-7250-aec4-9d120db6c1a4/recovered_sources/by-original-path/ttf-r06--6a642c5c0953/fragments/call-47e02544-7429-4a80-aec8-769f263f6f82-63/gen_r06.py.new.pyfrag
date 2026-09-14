@@ -1,0 +1,42 @@
+def main():
+    records = [rec_026(), rec_027(), rec_028(), rec_029(), rec_030()]
+    errors, max_intra, max_prior, worst_prior, intra = validate_records(records)
+    if errors:
+        print("SELF-CHECK FAIL", file=sys.stderr)
+        for e in errors:
+            print(" ", e, file=sys.stderr)
+        sys.exit(1)
+
+    staging = Path("/tmp/ttf-r06")
+    staging.mkdir(parents=True, exist_ok=True)
+    jsonl = "\n".join(json.dumps(r, ensure_ascii=False, separators=(",", ":")) for r in records) + "\n"
+    notes = notes_text(records, max_intra, max_prior, worst_prior, intra)
+    (staging / "batch-r06.jsonl").write_text(jsonl, encoding="utf-8")
+    (staging / "NOTES-r06.md").write_text(notes, encoding="utf-8")
+
+    counts, findings, blocked = verify_batch_for_frontier(staging / "batch-r06.jsonl", strict=True)
+    print("verify_batch", counts, "blocked", blocked)
+    if findings:
+        print("findings", findings)
+    if blocked:
+        sys.exit(2)
+
+    # spike_probe --strict
+    from spike_probe import load_rasters
+
+    rasters, problems = load_rasters([staging / "batch-r06.jsonl"])
+    print("spike_probe rasters", len(rasters), "problems", problems)
+    if problems:
+        sys.exit(3)
+    if len(rasters) != 5:
+        print("expected 5 rasters", len(rasters))
+        sys.exit(3)
+
+    live_batch = LIVE / "batch-r06.jsonl"
+    live_notes = LIVE / "NOTES-r06.md"
+    if live_batch.exists() or live_notes.exists():
+        live_batch = LIVE / "batch-r06c.jsonl"
+        live_notes = LIVE / "NOTES-r06c.md"
+        if live_batch.exists() or live_notes.exists():
+            print("collision: r06 and r06c exist", file=sys.stderr)
+            sys.exit(4)

@@ -1,0 +1,5 @@
+                "Ethercut-Ingle EI-6 / Splitter SP-2 wants 3.1 t/h MTBE distillate. The live "
+                "kettle PT sits at 3.40 bar under a 6.20 bar cap on a valid 9.44 mA loop. The "
+                "same transmitter also shouts NAMUR NE43 fail-high at 21.6 mA. Binding the live "
+                "bar first should pass the feed; binding the fail-high milliamp first tempts a "
+                "hold of a legal splitter.",

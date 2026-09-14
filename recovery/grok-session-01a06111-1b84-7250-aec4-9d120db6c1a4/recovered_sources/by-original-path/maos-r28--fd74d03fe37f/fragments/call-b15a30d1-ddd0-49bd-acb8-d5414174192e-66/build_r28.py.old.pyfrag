@@ -1,0 +1,5 @@
+PLANT = "BRACEGILT"
+DOMAIN = "humanoid-locomotion"
+RECORD_ID = "maos-r28-001"
+GEO = "Yarrowmere"
+CELL = "HL-5"

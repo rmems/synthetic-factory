@@ -1,0 +1,15 @@
+THIS_DOMAINS = (
+    "acrylonitrile-sohio",
+    "vacuum-wash-grid",
+    "aod-argon-converter",
+    "opp-biax-tenter",
+    "formaldehyde-silver-ox",
+)
+THIS_PLANTS = (
+    "Acrylo-Whin",
+    "Wash-Holm",
+    "Aod-Tor",
+    "Opp-Scarp",
+    "Formox-Lade",
+)
+IDS = [f"ttf-r62-{n}" for n in range(326, 331)]

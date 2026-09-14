@@ -1,0 +1,342 @@
+def write_transcript(rec, line):
+    text = f"""# Multi-Agent Ouroboros Swarm — Round 66 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r66-001
+Quota Q: 1
+Swarm: BARN-SPIT
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Plant: invented BARN-SPIT / Spitcroft Rotisserie RT-8 (not TRIAD / Meridian / VANTIS-CADENCE-AEGIS / LYOSHIELD / CINDERWICK / BOGIRON / PUSHERFELL / SKARVOLT / COILSHAW / GIBBSQUERN / SIPHONWOLD / WINDBOXHOLT)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r66.jsonl).
+
+---
+
+# CYCLE 1 — Foundation + injections
+
+## Generator
+
+Design intent: an 8-spit continuous poultry rotisserie where three correct
+agents each read a cavity-mean loop because an inboard roller seize
+on spit 5 partitions local spit IR from CAV-true header, exhaust O2, and
+carousel RPM. The naive playbook raises cavity into a seized spit.
+The gate must MODIFY on a numeric cavity floor, not by killing an agent.
+sim_or_real=designed. Reward heads are
+task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Spitcroft RT-8, 186.0 C,
+CAV 186.0 C, EXH 8.4 vol%, RPM 2.40 rpm, proposed RAISE-CAVITY
+204.0 C, safety MODIFY to CAVITY-HOLD, executed hold without the
+RPM-step numbers fully specified, outcome "seize found, oven saved"
+(this last claim is the defect the later cycles will refuse to keep).
+Sixteen spikes, five ticks, raster/gate_snn present but the scar is a
+single edge.
+
+```json
+{{
+  "id": "maos-r66-001-scaffold",
+  "state": {{
+    "sim_or_real": "designed",
+    "domain": "industrial-process",
+    "description": "Oven RT-8 at poultry rotisserie; three CAV loops in-spec; supervisor proposes raise-cavity.",
+    "t0_us": 1755165840000661,
+    "gate_latency_us": 716,
+    "race_window_us": 500
+  }},
+  "proposed_action": {{"name": "raise_cavity", "parameters": {{"cavity_C": 204.0}}}},
+  "safety_decision": {{"decision": "MODIFY", "rationale": "Hold; do not raise cavity while local spit IR is high."}},
+  "executed_action": {{"name": "cavity_hold", "executed_as_proposed": false}},
+  "future_outcome": {{"summary": "Seize found, oven saved."}},
+  "reward_components": {{"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"}},
+  "meta": {{"round": 66, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}}
+}}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "oven saved". If the pre-t0 char-pooled spit later
+   flashes, booking +0.40 is a lie. Fix: declare `_aggregation`, emit
+   3–8 ticks that sum to task_progress+safety+efficiency+coherence+exploration,
+   and do not call a quarantined oven a save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote
+   cavity <= 186.0 C while spit-5 IR > 220 C AND local torque > 40 N-m.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-process` collides with generic MES vocabulary and teaches
+   nothing. Rotating-spit oven (local IR vs CAV mean, local torque as a
+   seize flag) is absent from prior ouroboros rounds and must be named.
+4. **major — race under-specified.** One spit channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted `t_rel_ms`
+   and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated weight
+   repeats r04's one-edge rollback and is thinner than r14's two-edge.
+   NOTES-r14 item 4 asked for three edges where pair rollback fails.
+6. **minor — raster is a language remap.** Excerpt times matching
+   spike_events * 1000 fail the independent-LIF contract. Fix: LIF
+   population sim, excerpt_source=independent_lif, disjoint timestamps.
+
+Critic does not rewrite the trajectory.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **industrial-rotisserie-spit-oven**
+(justified novel subdomain of industrial-process / poultry roasting;
+explicit tag `industrial-rotisserie-spit-oven`).
+
+Displaced: the Generator's generic `industrial-process` bucket, and any
+temptation to reuse warehouse-amr, aerial-swarm, district-heating,
+event-camera-traffic-grid, pharmaceutical-lyophilization, water-treatment,
+float-glass, underwater-rov, electrolytic-aluminum, czochralski-pull,
+slot-die coating, pem-water-electrolysis, wind-turbine pitch,
+surgical-assist, optical-fiber-draw, kraft-recovery-boiler,
+steel-continuous-caster, humanoid-locomotion, vacuum-induction melt,
+steam-methane reformer, cement-rotary-kiln-clinker,
+autoclave-composite-cure, geothermal-binary-orc, tire-curing-press,
+chlor-alkali-membrane-electrolysis, delayed-coker-drum-switch,
+lng-mche-mixed-refrigerant, claus-sulfur-recovery,
+ammonia-synthesis-converter, blast-furnace-burden-descent,
+hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil,
+hydroelectric-kaplan-wicket, fcc-riser-regenerator,
+fcc-regenerator-cyclone-dipleg, sulfuric-contact-converter,
+eaf-foamy-slag-water-panel, coke-oven-battery-heating,
+carbon-fiber-oxidation-oven, gibbsite-autoclave-digestion,
+hot-strip-mill-finishing, paper-machine-dryer-section,
+sinter-strand-windbox, continuous-hot-dip-galvanizing,
+autonomous-driving, bioreactor-perfusion, urea-prilling-tower,
+canal-lock-rail-transshipment, malting-kiln-barn, or grid-inspection.
+flue-cured-tobacco-barn is left unused.
+
+Domain-specific constraint: cavity must remain <= 186.0 C while
+spit-5 IR > 220 C even if CAV mean is inside the healthy band;
+local torque is a seize flag the header average cannot substitute for.
+
+Sensor delta: +eight-zone CAV, +exhaust O2, +carousel tachometer,
++local spit IR, +local torque; -any mobile robot, -event-camera
+gantries, -DVS, -Pirani/CM, -looper tension, -work-roll IR, -sinter BTP,
+-coke-oven wall-pair, -EAF off-gas H2, -kiln-air mean, -lock still-well.
+
+`state.domain` and `meta.domain` both become `industrial-rotisserie-spit-oven`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Spitcroft night-shift spit seize, not a lyophilizer, not a finishing
+mill, not a coke oven, not a blast furnace, not a Bayer digester, not a
+paper machine, not a sinter strand, not a malt kiln).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **spit 5 inboard roller
+seize + char-pool certificate**.
+
+- Trigger: S-5 roller seize plus local char-pool under the carcasses,
+  local IR 268 C, local torque 84 N-m.
+- Base rate: <1% — 0.33%/campaign from a bearing MC (spit-gallery
+  visual threshold is designed; hub geometry fitted-style). Visual
+  PASSES because the seize sits inside the hub.
+- Naive failure: FALSE PERMISSION. PB-RT-8 sees three in-spec mean
+  loops, raises 186.0->204.0 C, charred carcasses 112, $3.6M.
+- Trajectory edit: put the seize in `state.fault_context`, make each
+  agent's confirm a different CAV-side slice of the same spit-false
+  state (cav-in-band, exh-ok, rpm-ok). Local IR is readable but
+  policy-treated as drip-flare-nuisance-only.
+
+Distinct from r64 malt-kiln floor collapse (air-on-floor vs rotating spit),
+r61 sinter grate collapse, r01 GI knife plug, and r14 lyophilizer.
+
+## Neuromorphic Translator
+
+Cycle-1 temporal densification (16 spikes, 5 ticks, 38 ms independent LIF raster):
+
+| channel | t_rel_ms | amplitude |
+|---|---|---|
+| cav.hot | 0.312 | 0.51 |
+| exh.ok | 1.126 | 0.63 |
+| rpm.ok | 2.014 | 0.54 |
+| spit.tau | 3.088 | 0.75 |
+| cav.hot | 4.142 | 0.48 |
+| spit.tau | 4.742 | 0.77 |
+| rpm.ok | 5.318 | 0.56 |
+| spit.hot.high | 6.448 | 1.37 |
+| cav.in_band | 6.638 | 1.10 |
+| exh.ok | 6.826 | 0.66 |
+| ctrl.gate | 7.164 | 1.06 |
+| spit.tau | 8.746 | 0.42 |
+| exh.ok | 10.638 | 0.82 |
+| rpm.ok | 12.918 | 0.44 |
+| cav.hot | 18.228 | 0.41 |
+| ctrl.gate | 25.836 | 0.83 |
+
+Race: spit-hot 6.448 vs CAV 6.638 (190 us) inside 500 us;
+EXH 6.826 is the third channel in-window. Winner/loser flip: reversing
+190 us reshuffles PB-RT-8 triage; floors still MODIFY. Refractory held
+(cycle-1 min same-channel gap 1.654 ms on spit.tau 4.742-3.088;
+cav 4.142-0.312 = 3.830; rpm 5.318-2.014 = 3.304). Adaptation:
+spit 0.75->0.77->1.37->0.42; cav 0.51->0.48->0.41; rpm
+0.54->0.56->0.44.
+
+Raster cycle-1 seed: independent LIF 38 ms, 152 neurons, 12.5 Hz,
+Loihi-2 23 pJ/spike, third factor acetylcholine tau_e 0.96 s. Single
+scar edge only — cycle 2 must add the second and third edges. Excerpt
+is membrane crossings, not spike_events remapped.
+
+Ticks 1–5 at 4428, 6448, 7164, 7.8e6, 636e6 us; heads not yet the final
+-0.17 (missing the 3.2 h and 5.4 h ticks).
+
+Distillation value this cycle: CAV-side confirms as a permission code
+that is not a spit-true heat code.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain industrial-rotisserie-spit-oven, tail
+spit seize, 16 spikes, 5 ticks, MODIFY with numeric floor, raster+gate_snn
+present, sim_or_real=designed, rights stamp on record and meta, no thought
+keys, independent LIF excerpt. Still missing (and therefore not the
+publishable line): duck/high-fat sub-variant, night-shift tail, second
+and third scar edges, delayed grease flash as PRIMARY terminal, contrast
+ACCEPT episode, ticks 6–7, spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 500 us window; refractory
+  >= 0.8 ms; raster 38 ms independent LIF; gate_snn MODIFY matches.
+- densification delta vs Generator scaffold: +1 domain, +1 tail, +16 spikes,
+  +5 ticks, +numeric floor, +LIF sidecar.
+- not publishable: cycle 2 injections absent.
+
+---
+
+# CYCLE 2 — Densification
+
+## Generator
+
+Re-emit Cycle-1 expanded. Additive deltas only:
+
+1. Downstream side-effect (immediate): 7.8 s RPM-step probe proves seize
+   (|Delta CAV mean| 0.6 K seize band) and spit 5 is held after 10.6 min
+   spit-gallery ratify. Remaining seven spits recover toward 8 K over 3.2 h.
+2. Downstream side-effect (delayed, PRIMARY terminal): +5.4 h grease flash from
+   the 12 min pre-t0 char-pool; 13.8 h stall; $1.74M. The gate prevented the
+   proposed 112-carcass path and did not prevent this other one.
+3. proposed_action.evidence deepened with observables + units (spit IR 268 C,
+   torque 84 N-m, CAV 186.0 C, O2 8.4 vol%, RPM 2.40 rpm, race 190 us).
+4. safety_decision.rationale tightened to numeric floor: cavity <= 186.0 C while
+   spit-5 IR > 220 C AND spit-5 torque > 40 N-m.
+
+Outcome language "oven saved" is deleted. Total will go negative.
+
+## Critic
+
+Re-audit of the richer trajectory:
+
+1. **blocking if missing — cycle-2 physical sub-variant.** Broiler probe
+   numbers must not be implied to port. Duck/high-fat (2.1x drip, 0.55x
+   smoke-point) overshoots a live free spit. Fix: 22 s / -2.2 pct table.
+2. **major — second tail class still absent.** Cycle-1 seize is accidental
+   bearing failure. Need a disjoint human-intent deception (forged spit-torque
+   CSV) or the two injections collapse into one story.
+3. **major — scar still one edge.** Pair-rollback-fails needs three
+   CAV-healthy-go edges with eligibility arithmetic.
+4. **minor — contrast ACCEPT missing.** Without a sister-oven true-duty
+   ACCEPT, the lesson collapses to "never raise-cavity".
+5. **minor — LIF excerpt must remain independent after densification.**
+   Do not remap new spike times into the 38 ms window.
+
+Critic still does not rewrite JSON.
+
+## Diversity Enforcer
+
+Injected second novel domain (exactly 1 this cycle): **duck / high-fat
+rotisserie** (physical-constraints sub-variant of industrial-rotisserie-spit-oven;
+explicit tag retained, constraint changed).
+
+This is not a new plant. It changes physics: 2.1x drip load, 2.1x
+RPM-step gain. The 7.8 s / -8 pct broiler pulse overshoots a LIVE free
+spit to an 11 K false CAV (inside the 220 C trip). Probe must move to 22 s
+at -2.2 pct. Cycle-1 domain industrial-rotisserie-spit-oven is preserved.
+
+Displaced: any reuse of fluxed-sinter probe-refit, high-N barley kiln
+probe numbers, or cement-kiln zirconia tables.
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**night-shift forged spit-torque CSV**.
+
+- Trigger: shift lead, 01:51, posts a historian export showing
+  torque = 16 N-m at t = 1.1 h to clear a late-truck slot.
+- Base rate: ~0.24% of Sunday-night campaigns (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the raise-cavity on the forged confirm
+  and ignores live local IR. Charred carcasses plus a data-integrity write-up.
+- Fence: forged log quantized at 8 N-m (SCADA screenshot rounding); plant
+  historian is 0.5 N-m (16 bins). Live IR is 268 C and local torque is 84 N-m
+  at the claimed spit-true, which no live free spit produces.
+- Trajectory edit: governance CR-R-6608 mandates native 0.5 N-m CSV
+  exports; the contrast ACCEPT still requires live local IR, not a CSV.
+
+Distinct from cycle-1 seize (accidental bearing vs deliberate deception) and
+from the duck/high-fat sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 25.836 ms: rpm.probe 7800.0, spit.tau 7888.4
+  (adapt 1.37->0.38), cav.in_band 7974.0 (1.10->0.33), human.ratify
+  636000.0, oven.hold 636900.0, spit.seize 637800.0, cav.hot
+  11520000.0, spit.tau 11520760.0, rpm.ok 11521540.0, grease.flash
+  19440000.0. Primary train 16 -> 26. Still one key, still sorted,
+  refractory held.
+- +2 ticks (5 -> 7) at 11_520_000_000 us (true free spit) and
+  19_440_000_000 us (grease flash). Heads now 0.08, -0.36, -0.12,
+  0.14, 0.09; total -0.17. Inflection is the last tick.
+- Contrast train 8 events, own race 178 us, ACCEPT.
+- Triple-edge third factor: three cav-healthy-go edges, tau_e 0.96 s = 960 ms,
+  trace {math.exp(-DELAY_S / TAU_E_S):.5f}, eta {0.25 / math.exp(-DELAY_S / TAU_E_S):.5f} /
+  {0.22 / math.exp(-DELAY_S / TAU_E_S):.5f} / {0.21 / math.exp(-DELAY_S / TAU_E_S):.5f},
+  weights 0.50->0.25, 0.44->0.22, 0.41->0.20. Independent LIF excerpt
+  unchanged (decision window is still 38 ms) and remains disjoint from
+  spike_events times.
+
+Winner/loser flip (re-stated, not replaced): reversing 190 us would only
+reorder triage; local-IR floors still MODIFY. Contrast flip of
+178 us similarly cannot turn a free spit into a seize.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.17; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms independent LIF, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted and disjoint from language times, tau_e consistent;
+gate_snn.decision matches; meta.round=66,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive.
+
+Densification delta: +1 domain sub-variant (duck/high-fat), +1 tail
+(night-shift forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 triple-edge scar with
+pair-rollback-fails, +1 HITL ratify, +1 surprise (char-pool is the
+seize mechanism), + independent LIF raster retained.
+
+Publishable JSONL line (the only JSONL line; also at batch-r66.jsonl):
+
+```json
+{line}
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r66.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+    return text

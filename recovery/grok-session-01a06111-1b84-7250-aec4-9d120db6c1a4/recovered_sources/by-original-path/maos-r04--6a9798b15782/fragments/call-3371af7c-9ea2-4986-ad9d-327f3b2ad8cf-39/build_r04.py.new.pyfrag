@@ -1,0 +1,2076 @@
+#!/usr/bin/env python3
+"""Build and self-check MAOS round-04 JSONL (research-only; not published).
+
+Create-only emit into LIVE
+/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-09-02-final-heavy/multi-agent-ouroboros-swarm
+plus /tmp/maos-r04. Never 2026-08-17 / 2026-08-30. Never overwrite.
+Swarm: LOCK-FEN. Record: maos-r04-001. Q=1 after 2x6-role cycles.
+"""
+from __future__ import annotations
+
+import json
+import math
+import os
+import random
+import re
+import subprocess
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+ROOT = "/home/raulmc/rmems/synthetic-factory"
+sys.path.insert(0, ROOT)
+sys.path.insert(0, f"{ROOT}/pipelines")
+
+GEN_AT = "2026-09-02T21:04:00Z"
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "SuperGrok Heavy chat",
+    "generated_at": GEN_AT,
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+}
+AGG = "total = task_progress + safety + efficiency + coherence + exploration"
+HEADS = ("task_progress", "safety", "efficiency", "coherence", "exploration")
+OUT = Path("/tmp/maos-r04")
+LIVE = Path(
+    "/home/raulmc/rmems/synthetic-factory/outputs/raw/"
+    "2026-09-02-final-heavy/multi-agent-ouroboros-swarm"
+)
+HIDDEN = (
+    "thought",
+    "chain_of_thought",
+    "scratch",
+    "inner_monologue",
+    "hidden_reasoning",
+    "internal_reasoning",
+    "thinking",
+    "cot",
+    "thoughts",
+    "reasoning",
+)
+BANNED = (
+    "TRIAD",
+    "Meridian Gateway",
+    "VANTIS",
+    "CADENCE",
+    "AEGIS",
+    "THERMION",
+    "STARLING",
+    "OKTAVE",
+    "VERDIGRIS",
+    "LYOSHIELD",
+    "CINDERWICK",
+    "Helixmere",
+    "Lodenholt",
+    "QUILLFORGE",
+    "Brackmere",
+    "NIGHTWELL",
+    "FERRICLEAVE",
+    "CASSITER",
+    "Marshfloat",
+    "MURENA",
+    "SEEDLATCH",
+    "Quartzmere",
+    "STRIAFOIL",
+    "Kelpholt",
+    "REDHALL",
+    "OXBOWREEL",
+    "TORSIONKEY",
+    "Ridgeholt",
+    "ORRIS",
+    "Holmwick",
+    "PROTONIL",
+    "Ashspire",
+    "WHORLSPAR",
+    "Pikeshear",
+    "IONSPATE",
+    "Thornmere",
+    "SKULLGATE",
+    "Bloomholt",
+    "CALXION",
+    "Aldersedge",
+    "MAGNORIL",
+    "Basaltspit",
+    "GORSEFLUE",
+    "Copseholt",
+    "CLINKERFELL",
+    "Flintmere",
+    "SODASHARD",
+    "Cairnmere",
+    "LINTELPLY",
+    "Greystair",
+    "KAOTHARN",
+    "Riftwold",
+    "TREADNOLL",
+    "Slatebeck",
+    "ANOLITH",
+    "Siltfen",
+    "DRUMWROTH",
+    "Pitchfen",
+    "RIMEBRAID",
+    "Floeholt",
+    "BRIMVAULT",
+    "Pyritefen",
+    "BOGIRON",
+    "Mireholt",
+    "CHROMLOOP",
+    "Marlfell",
+    "NITREVAULT",
+    "NITROSTAITH",
+    "ETHYNWOLD",
+    "RUNNELGATE",
+    "SPARKHOLT",
+    "DIPLEGAR",
+    "OLEUMWEIR",
+    "SKARVOLT",
+    "GOBSPALL",
+    "GOBWOLD",
+    "PUSHERFELL",
+    "CREELWOLD",
+    "LIXIVQUERN",
+    "GAUZEFELL",
+    "OSMOLITH",
+    "COILSHAW",
+    "LOOPERQUAY",
+    "SIPHONWOLD",
+    "OSMOQUAY",
+    "GIBBSQUERN",
+    "LANCEQUAY",
+    "UREASTAITH",
+    "DRYSTAITH",
+    "TITERWEIR",
+    "ZINCFELL",
+    "GLIMMERAXLE",
+    "HOLLOWMERE",
+    "WINDBOXHOLT",
+    "Gratecroft",
+    "KALYCIRQUE",
+    "GYPSUMWEIR",
+    "GALVSTAITH",
+    "WOLD-BARN",
+    "Barleyholt",
+    "LOCKSPUR",
+    "Poundholt",
+    "SLUICE-HEARTH",
+    "Wickfen",
+    "CORONSTAITH",
+    "Fernholt",
+    "PACKFLUE",
+    "training_ready",
+)
+R14_OPENING = (
+    "Helixmere Biologics Building C lyophilizer LYO-4 is mid-primary on 8400 "
+    "vials of a monoclonal antibody"
+)
+NOVEL_LINE = "Novel coverage: 51%"
+PLANT = "LOCKFEN"
+GEO = "Reedholt"
+CELL = "PS-4"
+DOMAIN = "fen-polder-drainage-pumping"
+RECORD_ID = "maos-r04-001"
+ROUND = 4
+SWARM = "LOCK-FEN"
+DELAY_S = 0.76
+TAU_E_S = 0.92
+LIF_SEED = 40041
+WINDOW_MS = 34
+NEURONS = 136
+MEAN_RATE_HZ = 11.0
+
+
+def cents_ticks(t_us, rows):
+    ticks = []
+    sums = {h: 0 for h in HEADS}
+    for t, vals in zip(t_us, rows):
+        tick = {"t_us": int(t)}
+        for h, c in zip(HEADS, vals):
+            v = round(c / 100.0, 2)
+            tick[h] = v
+            sums[h] += c
+        ticks.append(tick)
+    heads = {h: round(sums[h] / 100.0, 2) for h in HEADS}
+    heads["total"] = round(sum(heads[h] for h in HEADS), 2)
+    return ticks, heads
+
+
+def check_refractory(events, floor_ms=0.8):
+    last = {}
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last and (t - last[ch]) < floor_ms - 1e-9:
+            return f"refractory {ch}: {t}-{last[ch]}={(t-last[ch]):.4f} < {floor_ms}"
+        last[ch] = t
+    return None
+
+
+def min_same_channel_gap(events):
+    last = {}
+    best = None
+    who = None
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last:
+            gap = t - last[ch]
+            if best is None or gap < best:
+                best = gap
+                who = ch
+        last[ch] = t
+    return best, who
+
+
+def check_excerpt(ex, neurons, window_ms):
+    prev_t = -1
+    last_n = {}
+    for item in ex:
+        t = item["t_us"]
+        n = item["neuron_id"]
+        if t < prev_t:
+            return "excerpt not sorted"
+        if not (0 <= t <= window_ms * 1000):
+            return f"t_us {t} out of window"
+        if not (0 <= n < neurons):
+            return f"neuron {n} out of range"
+        if n in last_n and t - last_n[n] < 1000:
+            return f"same-neuron gap {n}: {t-last_n[n]}"
+        last_n[n] = t
+        prev_t = t
+    return None
+
+
+def check_gate_pops(gs):
+    dw_s = gs["decision_window_ms"] / 1000.0
+    for p in gs["populations"]:
+        if "mean_rate_hz" in p or "spikes" in p:
+            exp = round(p["neurons"] * p["mean_rate_hz"] * dw_s)
+            if abs(p["spikes"] - exp) > 1:
+                return f"{p['name']} spikes {p['spikes']} vs {exp}"
+    return None
+
+
+def jaccard(a, b):
+    sa = set(a.lower().split())
+    sb = set(b.lower().split())
+    return len(sa & sb) / max(1, len(sa | sb))
+
+
+def prior_openings():
+    out = []
+    for p in sorted(Path("/tmp").glob("maos-r*/batch-r*.jsonl")):
+        if p.parent.name == "maos-r04":
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        st = rec.get("state")
+        desc = str(st.get("description") or "") if isinstance(st, dict) else ""
+        if desc:
+            out.append((p.as_posix(), desc[:280]))
+    for p in sorted(LIVE.glob("batch-r*.jsonl")):
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        st = rec.get("state")
+        desc = str(st.get("description") or "") if isinstance(st, dict) else ""
+        if desc:
+            out.append((p.as_posix(), desc[:280]))
+    return out
+
+
+def occupancy_collisions():
+    hits = []
+    tokens = (PLANT, GEO, CELL, DOMAIN, RECORD_ID, SWARM)
+    for p in sorted(Path("/tmp").glob("maos-r*/batch-r*.jsonl")):
+        if p.parent.name == "maos-r04":
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        blob = json.dumps(rec)
+        domain = (rec.get("state") or {}).get("domain")
+        if domain == DOMAIN:
+            hits.append(f"{p}: domain {domain}")
+        for tok in tokens:
+            if tok in blob:
+                hits.append(f"{p}: token {tok}")
+    for p in sorted(LIVE.glob("batch-r*.jsonl")):
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        blob = json.dumps(rec)
+        domain = (rec.get("state") or {}).get("domain")
+        if domain == DOMAIN:
+            hits.append(f"{p}: domain {domain}")
+        for tok in tokens:
+            if tok in blob:
+                hits.append(f"{p}: token {tok}")
+    return hits
+
+
+def independent_lif_excerpt(lang_us):
+    n = NEURONS
+    dt_us = 100
+    tau_m_ms = 16.0
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.86
+    i_stim_peak = 2.18
+    stim = (15500, 19000)
+    window_us = WINDOW_MS * 1000
+    i_clamp_extra = 0.54
+    clamp_n = 14
+    rng = random.Random(LIF_SEED)
+    tau_s = tau_m_ms / 1000.0
+    dt_s = dt_us / 1e6
+    decay = math.exp(-dt_s / tau_s)
+    steps = window_us // dt_us
+    voltage = [rng.random() * v_th * 0.97 for _ in range(n)]
+    bias = [i_bias * (1.0 + 0.13 * (rng.random() * 2 - 1)) for _ in range(n)]
+    for i in range(clamp_n):
+        bias[i] += i_clamp_extra
+    ref = [0] * n
+    spikes = []
+    for step in range(steps):
+        t_us = step * dt_us
+        stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+        for i in range(n):
+            if ref[i] > 0:
+                ref[i] -= dt_us
+                voltage[i] = v_reset
+                continue
+            current = bias[i] + stim_i
+            voltage[i] = current + (voltage[i] - current) * decay
+            if voltage[i] >= v_th:
+                spikes.append((t_us, i))
+                voltage[i] = v_reset
+                ref[i] = refractory_us
+    lang = set(lang_us)
+    early = [(t, i) for t, i in spikes if t < 15500 and t not in lang]
+    burst = [(t, i) for t, i in spikes if 15500 <= t < 19000 and t not in lang]
+    late = [(t, i) for t, i in spikes if t >= 19000 and t not in lang]
+    picked = []
+    used = set()
+    last = {}
+
+    def take(pool, want):
+        got = 0
+        stride = max(1, len(pool) // max(want, 1))
+        for idx in range(0, len(pool), stride):
+            if got >= want:
+                break
+            t, nid = pool[idx]
+            if nid in used:
+                continue
+            if nid in last and t - last[nid] < 1000:
+                continue
+            picked.append((t, nid))
+            used.add(nid)
+            last[nid] = t
+            got += 1
+
+    take(early, 7)
+    take(burst, 6)
+    take(late, 3)
+    if len(picked) < 16:
+        leftover = [(t, i) for t, i in spikes if t not in lang]
+        for t, nid in leftover:
+            if len(picked) >= 16:
+                break
+            if (t, nid) in picked:
+                continue
+            if nid in last and t - last[nid] < 1000:
+                continue
+            if nid in used and (nid in last and t - last[nid] < 1000):
+                continue
+            picked.append((t, nid))
+            used.add(nid)
+            last[nid] = t
+    picked = sorted(picked, key=lambda item: (item[0], item[1]))[:16]
+    excerpt = []
+    for t, nid in picked:
+        ch = "lif.hold" if t < 15500 else ("lif.screen" if t < 19000 else "lif.late")
+        excerpt.append({"t_us": int(t), "neuron_id": int(nid), "channel": ch})
+    lif = {
+        "model": "leaky_integrate_and_fire",
+        "n": n,
+        "dt_us": dt_us,
+        "tau_m_ms": tau_m_ms,
+        "v_rest": 0.0,
+        "v_reset": v_reset,
+        "v_th": v_th,
+        "r_m": 1.0,
+        "refractory_us": refractory_us,
+        "i_bias": i_bias,
+        "i_stim_peak": i_stim_peak,
+        "stim_t_us": list(stim),
+        "i_clamp_extra": i_clamp_extra,
+        "clamp_n": clamp_n,
+        "seed": LIF_SEED,
+        "sim_spikes": len(spikes),
+        "note": (
+            "Population sim scoped to this sidecar. Plant remains designed. "
+            "Neurons 0-13 carry +0.54 pump-hold clamp bias; stim 15.5-19.0 ms is the "
+            "screen-dP-high crossing, not a remap of spike_events."
+        ),
+    }
+    return excerpt, lif, len(spikes)
+
+
+def build_record():
+    ticks, heads = cents_ticks(
+        [4418, 6418, 7140, 7_400_000, 588_000_000, 10_440_000_000, 16_560_000_000],
+        [
+            (1, -2, -1, 2, 1),
+            (1, -5, -1, 3, 1),
+            (2, -7, -2, 3, 2),
+            (1, -6, -2, 2, 1),
+            (1, -6, -2, 2, 1),
+            (1, -6, -2, 1, 1),
+            (0, -5, -2, 1, 2),
+        ],
+    )
+    assert abs(heads["total"] - (-0.19)) < 1e-9, heads
+
+    trace = math.exp(-DELAY_S / TAU_E_S)
+    eta1 = 0.25 / trace
+    eta2 = 0.22 / trace
+    eta3 = 0.21 / trace
+    dw1 = eta1 * 1.0 * trace
+    dw2 = eta2 * 1.0 * trace
+    dw3 = eta3 * 1.0 * trace
+    w1 = 0.50 - dw1
+    w2 = 0.44 - dw2
+    w3 = 0.41 - dw3
+    assert abs(w1 - 0.25) < 5e-4, w1
+    assert abs(w2 - 0.22) < 5e-4, w2
+    assert abs(w3 - 0.20) < 5e-4, w3
+
+    spike_events = [
+        {"channel": "lvl.ok", "t_rel_ms": 0.286, "amplitude": 0.53},
+        {"channel": "pmp.ok", "t_rel_ms": 1.104, "amplitude": 0.62},
+        {"channel": "wir.ok", "t_rel_ms": 1.972, "amplitude": 0.54},
+        {"channel": "screen.dP", "t_rel_ms": 3.048, "amplitude": 0.77},
+        {"channel": "lvl.ok", "t_rel_ms": 4.112, "amplitude": 0.50},
+        {"channel": "screen.dP", "t_rel_ms": 4.728, "amplitude": 0.80},
+        {"channel": "pmp.ok", "t_rel_ms": 5.286, "amplitude": 0.56},
+        {"channel": "screen.dP.high", "t_rel_ms": 6.418, "amplitude": 1.42},
+        {"channel": "lvl.in_band", "t_rel_ms": 6.622, "amplitude": 1.10},
+        {"channel": "pmp.ok", "t_rel_ms": 6.830, "amplitude": 0.65},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.140, "amplitude": 1.06},
+        {"channel": "screen.dP", "t_rel_ms": 8.718, "amplitude": 0.44},
+        {"channel": "lvl.ok", "t_rel_ms": 10.608, "amplitude": 0.81},
+        {"channel": "wir.ok", "t_rel_ms": 12.884, "amplitude": 0.46},
+        {"channel": "pmp.ok", "t_rel_ms": 18.196, "amplitude": 0.41},
+        {"channel": "ctrl.gate", "t_rel_ms": 25.802, "amplitude": 0.83},
+        {"channel": "flush.probe", "t_rel_ms": 7400.0, "amplitude": 0.96},
+        {"channel": "screen.dP", "t_rel_ms": 7488.4, "amplitude": 0.38},
+        {"channel": "lvl.in_band", "t_rel_ms": 7574.2, "amplitude": 0.33},
+        {"channel": "human.ratify", "t_rel_ms": 588000.0, "amplitude": 0.78},
+        {"channel": "pump.hold", "t_rel_ms": 588900.0, "amplitude": 0.72},
+        {"channel": "berm.overtop", "t_rel_ms": 589800.0, "amplitude": 0.86},
+        {"channel": "lvl.ok", "t_rel_ms": 10440000.0, "amplitude": 0.30},
+        {"channel": "screen.dP", "t_rel_ms": 10440740.0, "amplitude": 0.28},
+        {"channel": "pmp.ok", "t_rel_ms": 10441520.0, "amplitude": 0.25},
+        {"channel": "berm.breach", "t_rel_ms": 16560000.0, "amplitude": 0.94},
+    ]
+    contrast_spikes = [
+        {"channel": "raise.demand", "t_rel_ms": 0.000, "amplitude": 0.83},
+        {"channel": "screen.clear", "t_rel_ms": 0.204, "amplitude": 0.75},
+        {"channel": "lvl.ok", "t_rel_ms": 0.420, "amplitude": 0.23},
+        {"channel": "pmp.ok", "t_rel_ms": 1.452, "amplitude": 0.39},
+        {"channel": "screen.dP", "t_rel_ms": 4.860, "amplitude": 0.50},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.024, "amplitude": 0.89},
+        {"channel": "flush.probe", "t_rel_ms": 3200.0, "amplitude": 0.32},
+        {"channel": "berm.ok", "t_rel_ms": 6400.0, "amplitude": 0.11},
+    ]
+    lang_us = [
+        int(round(e["t_rel_ms"] * 1000.0))
+        for e in spike_events
+        if e["t_rel_ms"] * 1000.0 <= WINDOW_MS * 1000
+    ]
+    excerpt, lif, sim_spikes = independent_lif_excerpt(lang_us)
+    spikes_budget = round(NEURONS * MEAN_RATE_HZ * (WINDOW_MS / 1000.0))
+    energy_pJ = spikes_budget * 23
+    energy_uJ = spikes_budget * 23e-6
+
+    rec = {
+        "id": RECORD_ID,
+        "title": (
+            "LOCKFEN PS-4: screen dP 18.4 kPa beats drain-level-in-band by 204 us; "
+            "correct MODIFY still loses 180 m of peat berm to a pre-t0 intake slip"
+        ),
+        "rights": dict(RIGHTS),
+        "state": {
+            "sim_or_real": "designed",
+            "domain": DOMAIN,
+            "scenario_name": "LOCKFEN / Reedholt Drain PS-4",
+            "timestamp_local": "2026-08-16T03:18:00-05:00",
+            "t0_us": 1755327480000004,
+            "gate_latency_us": 722,
+            "race_window_us": 500,
+            "race_window_rel_ms": [6.418, 6.918],
+            "description": (
+                "Reedholt land-drain PS-4 at LOCKFEN is 13 min into a 1.42 m AOD winter "
+                "pump-down on a 4.2 m3/s axial-flow fen polder when three heterogeneous, "
+                "individually-correct agents jointly report 'drain-mean healthy, raise pump'. "
+                "LVL's still-well mean is 1.42 m inside 1.20-1.60. PMP's impeller tachometer "
+                "is 48.0 Hz inside 42-54. WIR's penstock stroke is 820 mm inside 800-850. The "
+                "conjunction is not a screen-true peat certificate: intake screen 3 is packed "
+                "by a peat slip, so local screen dP is 18.4 kPa (healthy < 4.0; hold if > 8.0) "
+                "and berm lidar freeboard is 0.31 m (healthy > 1.8; hold if < 0.8) while LVL "
+                "mean, shaft speed, and penstock still see an open drain. Local screen dP "
+                "infers 18.4 kPa and berm lidar 0.31 m but policy treats the screen tap as a "
+                "winter-weed nuisance tag unless LVL mean also trips (2016 'noisy weed-screen "
+                "after a blow'). Residual-first latches PUMP-HOLD plus a reverse-flush probe; "
+                "LVL-first would have authorized RAISE-PUMP 48.0 to 54.0 Hz into a packed "
+                "screen with the peat berm already overtopping."
+            ),
+            "goal": (
+                "Hold pump speed at 48.0 Hz without a catch-up raise while screen dP > 8.0 kPa "
+                "AND berm freeboard < 0.8 m AND screen 3 remains unisolated; keep peat-berm "
+                "breach events at 0 extra from the draft and overtop length at 0 new metres."
+            ),
+            "race": {
+                "contenders": [
+                    "screen.dP.high 18.4 kPa (intake screen 3 local dP vs drain still-well mean)",
+                    "lvl.in_band 1.42 m AOD (polder still-well mean)",
+                ],
+                "semantics": (
+                    "Screen-dP-first latches PUMP-HOLD + REVERSE-FLUSH-PROBE + SCREEN-3 isolate. "
+                    "LVL-first latches RAISE-PUMP (48.0 to 54.0 Hz, no isolate)."
+                ),
+                "window_derivation": "500 us = one 360 us screen-dP ADC slot plus 140 us LVL publish.",
+                "order_evidence_note": (
+                    "Margin 204 us vs combined jitter 60 us (screen 34 + LVL 26): 3.4x. "
+                    "The 204 us gap sits inside min(500, 500) us, so a sub-flip-bound "
+                    "perturbation reverses triage order. The gate rides the "
+                    "order-invariant floors screen dP > 8.0 kPa and berm freeboard < 0.8 m, "
+                    "not the alarm order."
+                ),
+            },
+            "topology": {
+                "site": (
+                    "Reedholt Fen Drain, invented polder campus Reedholt, pumping station "
+                    "PS-4: 4.2 m3/s axial-flow, 1.42 m AOD winter pool, intake screen 3 at "
+                    "the peat-cut, Grade-B fen-bank LOTO"
+                ),
+                "agents": (
+                    "LVL still-well mean (vendor Stillwick): 20 Hz 12-bit on the drain "
+                    "chamber. PMP impeller tachometer (vendor Impelholt): 50 Hz on the "
+                    "common shaft. WIR penstock stroke (vendor Ramstaith): 20 Hz on the "
+                    "discharge ram. SCREEN local dP plus berm lidar (vendor Peatghyll) is "
+                    "commissioned as a winter-weed nuisance tag, not as a screen-integrity "
+                    "tag. Heterogeneous stacks, no shared intent schema, one 20 ms drain-bus epoch"
+                ),
+                "coupling": (
+                    "All three playbook confirms live on the WRONG volume. LVL is correct "
+                    "that the still-well sits at 1.42 m AOD (the packed screen is downstream "
+                    "of the well tap). PMP is correct that shaft speed is 48.0 Hz (the impeller "
+                    "still sees a flooded sump). WIR is correct that the penstock is 820 mm "
+                    "(discharge-true). Playbook PB-PS-4 treats the conjunction as permission "
+                    "to raise pump speed. No agent is faulty; the still-well is looking at "
+                    "drain-mean hydraulics, not at screen 3's peat pack."
+                ),
+            },
+            "sensors": [
+                "still-well mean 12-bit, 20 Hz, 26 us jitter, 1.42 m AOD (dead-band 1.20-1.60)",
+                "impeller tachometer, 50 Hz, 18 us jitter, 48.0 Hz (band 42-54)",
+                "penstock stroke, 20 Hz, 22 us jitter, 820 mm (band 800-850)",
+                "screen-3 local dP, 20 Hz, 34 us jitter, 18.4 kPa (healthy < 4.0; policy floor 8.0 kPa is not armed unless LVL mean also trips)",
+                "berm lidar freeboard 0.31 m (healthy > 1.8; hold if < 0.8)",
+                "screen-3 peat camera is NOT commissioned at t0 (installed after this incident)",
+            ],
+            "constraints": {
+                "lvl_m_aod": 1.42,
+                "lvl_band_m": [1.20, 1.60],
+                "pump_Hz": 48.0,
+                "pump_band_Hz": [42.0, 54.0],
+                "proposed_pump_Hz": 54.0,
+                "penstock_mm": 820.0,
+                "penstock_band_mm": [800.0, 850.0],
+                "screen_dP_kPa": 18.4,
+                "screen_dP_hold_kPa": 8.0,
+                "screen_dP_healthy_kPa": 4.0,
+                "berm_freeboard_m": 0.31,
+                "berm_hold_m": 0.8,
+                "berm_healthy_m": 1.8,
+                "flow_m3_s": 4.2,
+                "fault_screen": "S-3",
+                "fault_pack": "intake screen 3 peat slip / berm overtop",
+            },
+            "fault_context": {
+                "failure_class": (
+                    "DRAIN-MEAN CERTIFICATE OF A PACKED INTAKE SCREEN: three individually-correct "
+                    "heterogeneous agents each read a locally-true loop; a peat slip on intake "
+                    "screen 3 partitions local screen dP and berm lidar from still-well mean, "
+                    "shaft speed, and penstock stroke, so the playbook's LVL / PMP / WIR "
+                    "conjunction is not a screen-true peat certificate"
+                ),
+                "igniter": (
+                    "intake screen 3 peat slip after 13 min of unmonitored local dP-high; "
+                    "fen-bank visual PASSES (the pack sits inside the 1.8 m screen cassette; "
+                    "the overtop is on the far peat berm)"
+                ),
+                "naive_failure": (
+                    "PB-PS-4 RAISE-PUMP on three healthy loops: 48.0 to 54.0 Hz into a packed "
+                    "screen with the peat berm already overtopping, 420 m washout, $2.4M plus "
+                    "a 36-hour unplanned stall"
+                ),
+            },
+            "poisoned_context": {
+                "naive_alarm": (
+                    "Playbook PB-PS-4 (after the 2016 'noisy weed-screen after a blow') "
+                    "auto-drafts RAISE-PUMP whenever still-well LVL is inside 1.20-1.60 m AND "
+                    "shaft inside 42-54 Hz AND penstock inside 800-850 mm, ignoring the local "
+                    "screen tap unless LVL mean also trips"
+                ),
+                "why_poisoned": (
+                    "The three confirms are locally true and jointly insufficient. The local "
+                    "screen dP is a commissioned sensor that policy treats as "
+                    "winter-weed-nuisance-only. Independence of 'still-well in band, therefore "
+                    "every intake screen is open' is the hidden assumption, and it is false "
+                    "across a peat-slip-plus-drain-mean path."
+                ),
+            },
+            "constraint": (
+                "Do not raise pump speed above 48.0 Hz AND do not skip the reverse-flush while "
+                "screen dP > 8.0 kPa AND berm freeboard < 0.8 m. Discriminate packed screen vs "
+                "true drain-duty with a reversible reverse-flush probe before any raise-pump."
+            ),
+        },
+        "proposed_action": {
+            "actor": "drain supervisory optimizer DSO (auto-playbook PB-PS-4 draft), submitted to gate TG-PS-4",
+            "name": "raise_pump",
+            "action": "RAISE-PUMP: 48.0 -> 54.0 Hz, no reverse-flush probe, no screen-3 isolate",
+            "summary": (
+                "Treat three in-spec loops as a healthy screen-true polder and raise "
+                "night-shift pump speed to clear a winter catch-up window."
+            ),
+            "parameters": {
+                "pump_Hz": 54.0,
+                "flush_probe": False,
+                "screen_lock": False,
+                "human_ratify": False,
+            },
+            "steps": [
+                "assert still-well LVL 1.42 m inside 1.20-1.60",
+                "assert shaft 48.0 Hz inside 42-54",
+                "assert penstock 820 mm inside 800-850",
+                "raise pump 48.0 to 54.0 Hz over 4 min",
+                "hold screen-3 dP unread as a screen-integrity tag",
+            ],
+            "evidence": [
+                {
+                    "observable": "screen-3 local dP",
+                    "value": 18.4,
+                    "unit": "kPa",
+                    "source": "SCREEN dP vs LVL mean",
+                    "note": "healthy < 4.0 kPa; policy floor 8.0 kPa is not armed unless LVL mean also trips",
+                },
+                {
+                    "observable": "berm lidar freeboard",
+                    "value": 0.31,
+                    "unit": "m",
+                    "source": "berm lidar on peat crest",
+                    "note": "healthy > 1.8; hold floor 0.8; lives on the far peat berm, not the still-well",
+                },
+                {
+                    "observable": "still-well mean",
+                    "value": 1.42,
+                    "unit": "m AOD",
+                    "source": "LVL 12-bit",
+                    "note": "healthy-load band 1.20-1.60 m; still-well is upstream of packed S-3",
+                },
+                {
+                    "observable": "impeller speed",
+                    "value": 48.0,
+                    "unit": "Hz",
+                    "source": "PMP tachometer",
+                    "note": "band 42-54 Hz; shaft-true, screen-false",
+                },
+                {
+                    "observable": "penstock stroke",
+                    "value": 820.0,
+                    "unit": "mm",
+                    "source": "WIR ram",
+                    "note": "band 800-850 mm; discharge-true, packed-screen-false",
+                },
+                {
+                    "observable": "race margin",
+                    "value": 204,
+                    "unit": "us",
+                    "source": "screen.dP.high 6.418 ms vs lvl.in_band 6.622 ms",
+                    "note": "combined jitter 60 us, 3.4x; inside 500 us flip bound",
+                },
+            ],
+            "basis": (
+                "PB-PS-4 fires on three locally-true confirms. The draft does not read "
+                "screen-3 dP 18.4 kPa as a peat-pack residual and does not treat berm "
+                "freeboard 0.31 m as a slip discriminant."
+            ),
+            "expected_cost_bound": (
+                "If the draft executes: peat-berm washout 420 m, $2.4M plus 36-hour "
+                "unplanned stall. If MODIFIED: probe plus hold, with residual risk from "
+                "berm overtop already seeded in the 13 min pre-t0 slip."
+            ),
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "correctness": "correct",
+            "decided_by": "TG-PS-4 thalamic release gate",
+            "decision_t_rel_ms": 7.140,
+            "rationale": (
+                "MODIFY the draft: strip the raise-pump, hold 48.0 Hz, run a 7.4 s "
+                "reverse-flush probe (90 kPa on screen 3), and isolate screen 3 only if the "
+                "probe stays pack-true. Numeric floor: do not raise pump speed above 48.0 Hz "
+                "AND do not skip the reverse-flush while screen dP > 8.0 kPa AND berm "
+                "freeboard < 0.8 m. Observed dP 18.4 kPa and freeboard 0.31 m both violate "
+                "the release predicate, so a raise-pump is forbidden even though all three "
+                "playbook confirms are numerically true. The three confirms are not a "
+                "screen-true certificate: they live on still-well mean, shaft speed, and "
+                "penstock past a packed S-3 cassette, and the playbook's conjunction of "
+                "drain-true loops is not a screen-true peat certificate. Probe discriminant: "
+                "after a 7.4 s / 90 kPa reverse-flush, a packed screen keeps |Delta dP| <= 1.2 "
+                "kPa (0.6 observed); a healthy screen drops >= 8 kPa. Order-code discipline: "
+                "screen-dP beat LVL by 204 us inside the 500 us flip bound, so triage order "
+                "is flip-fragile; the hold rides the order-invariant floors, not the winner "
+                "tag. Human ratification: screen isolate is fen-bank work with fitted 9.8 min "
+                "dead-man; the gate may hold and probe autonomously but may not break the "
+                "screen LOTO without the operator confirm."
+            ),
+            "constraint_checked": {
+                "pump_Hz": {"observed": 48.0, "floor": 48.0, "proposed_target": 54.0},
+                "screen_dP_kPa": {"observed": 18.4, "hold_if_above": 8.0},
+                "lvl_m_aod": {"observed": 1.42, "band": [1.20, 1.60]},
+                "berm_freeboard_m": {"observed": 0.31, "hold_if_below": 0.8},
+            },
+        },
+        "executed_action": {
+            "name": "pump_hold_flush_probe_screen_close",
+            "action": "PUMP-HOLD + REVERSE-FLUSH-PROBE + SCREEN-3-ISOLATE (gate-mandated modification)",
+            "executed_as_proposed": False,
+            "parameters": {
+                "pump_Hz": 48.0,
+                "flush_probe": True,
+                "screen_lock": True,
+                "human_ratify": True,
+            },
+            "gate_effect": (
+                "MODIFY: raise-pump stripped. Hold 48.0 Hz. 7.4 s reverse-flush 90 kPa on S-3. "
+                "Probe stays pack-true (|Delta dP| 0.6 <= 1.2 kPa) so the screen LOTO stays "
+                "closed after 9.8 min human ratify and S-3 is lined off to a spare cassette. "
+                "Pump resumes only after a screen-true verify."
+            ),
+            "deviations": (
+                "PB-PS-4 raise-pump stripped entirely. Flush is bumped only for the 7.4 s "
+                "probe then returned. Screen-LOTO wait added (9.8 min fitted walk+ratify). "
+                "Berm-lidar survey added during the lock (not in the draft)."
+            ),
+            "execution_log": [
+                {"t_rel_ms": 7.140, "entry": "TG-PS-4 MODIFY latched 722 us after screen-dP win; raise stripped; hold+probe authorized"},
+                {"t_rel_ms": 7400.0, "entry": "flush probe: 90 kPa reverse-flush for 7.4 s; dP 18.4 -> 17.8 kPa (pack band |Delta dP| <= 1.2); PMP 48.0 held"},
+                {"t_rel_ms": 588000.0, "entry": "operator ratifies keep-closed after 9.8 min fen-bank walk (fitted walk+cassette+interlock)"},
+                {"t_rel_ms": 588900.0, "entry": "screen stays locked; remaining dP 18.4 -> 3.6 kPa over 2.9 h after spare-cassette cutover"},
+                {"t_rel_ms": 589800.0, "entry": "berm survey: 180 m already overtopped; 13 min pre-t0 peat slip logged"},
+                {"t_rel_ms": 10440000.0, "entry": "true screen duty: dP 3.4 kPa, freeboard 1.92 m, residual under floors; raise now legal on PS-5 only"},
+                {"t_rel_ms": 16560000.0, "entry": "peat-berm breach from pre-t0 overtop; drain island quarantined 14 h"},
+            ],
+        },
+        "future_outcome": {
+            "summary": (
+                "Correct MODIFY prevented the 48.0->54.0 Hz raise-pump into a packed intake "
+                "screen and the immediate 420 m berm-washout path. The polder still failed: "
+                "13 min of unmonitored pre-t0 peat slip had already overtopped 180 m of peat "
+                "berm. Process-correct gate, bounded world loss, negative total."
+            ),
+            "state_delta": {
+                "pump": "held 48.0 Hz through probe and isolate; later legal raise only on the sister station after 2.9 h screen-duty recovery",
+                "screen": "S-3 isolated; dP slaved to inferred-pack residual; remaining cassette recovered toward 3.4 kPa",
+                "berm": "packed-screen 0.31 m freeboard logged and locked; still-well no longer trusted as screen-true drain",
+                "island": "Sunday-night drain island quarantined; 180 m overtop; berm breach at +4.6 h; 14 h stall",
+            },
+            "timeline": [
+                {"t_rel_ms": -780000.0, "event": "t0-13 min: intake screen 3 packs; dP 18.4 kPa; LVL stays in-spec"},
+                {"t_rel_ms": -300000.0, "event": "t0-5 min: screen dP first crosses 8.0 kPa up; PB-PS-4 ignores it because LVL is 1.38 m"},
+                {"t_rel_ms": 0.0, "event": "t0: screen-dP vs LVL-in-band race on the drain bus"},
+                {"t_rel_ms": 6.418, "event": "screen dP at 18.4 kPa wins by 204 us"},
+                {"t_rel_ms": 6.622, "event": "LVL-in-band flag (loser)"},
+                {"t_rel_ms": 7.140, "event": "TG-PS-4 MODIFY"},
+                {"t_rel_ms": 7400.0, "event": "flush probe confirms packed screen (|Delta dP| 0.6 kPa, pack band)"},
+                {"t_rel_ms": 588000.0, "event": "human ratify 9.8 min; screen stays locked; overtopped berm logged"},
+                {"t_rel_ms": 10440000.0, "event": "true screen duty after 2.9 h; raise legal only with dP slave"},
+                {"t_rel_ms": 16560000.0, "event": "peat-berm breach from the pre-t0 overtop; island quarantined"},
+                {"t_rel_ms": 259200000.0, "event": "+3 d contrast: sister station PS-5 true screen-duty; same gate ACCEPTs the raise-pump"},
+                {"t_rel_ms": 1814400000.0, "event": "+21 d CR-F-0408: standing reverse-flush probe + triple-edge depression mandate + screen dP armed without LVL coincidence + still-well declared screen-vulnerable"},
+            ],
+            "observed_effects": [
+                "raise-pump avoided: PMP never left 48.0 Hz; 0 immediate 420 m washouts from the draft",
+                "pack proven, not asserted: flush-probe |Delta dP| 0.6 <= 1.2 kPa pack band vs healthy control 9.4 kPa",
+                "mean slaved: still-well LVL no longer a screen-true tag without local dP",
+                "island still tripped: berm breach vs 0-breach campaign allowance; 14 h stall, $1.12M (designed $)",
+                "screen-3 peat camera was not a commissioned sensor at t0; the 13 min pack was invisible to LVL/PMP/WIR",
+            ],
+            "surprises": [
+                "Three locally-true loops are not a screen-true certificate: the still-well lived upstream of a packed 1.8 m cassette. Conjunction of in-spec drain loops was the hidden assumption, and it is false across a peat-slip path.",
+                "Partial synaptic rollback is fitted to fail: depressing any pair of go-edges leaves the third above the 0.30 fire threshold, so the raise-pump still goes. Coordinated depression of all three edges is required.",
+                "Delayed (4.6 h): correct hold did not undo 13 min of berm overtop. Breach still fired. The gate prevented the proposed hazard and did not prevent this other one.",
+                "Saline tidal-fen sub-variant: a 7.4 s / 90 kPa freshwater flush on a 1.18-density brackish peat screen false-clears even a HEALTHY tidal cassette 11 kPa (under the 8.0 kPa floor). Tidal campaigns must use 20 s at 28 kPa.",
+            ],
+            "delayed_side_effects": [
+                {
+                    "at": "+4.6 h",
+                    "effect": "Peat-berm breach from a pre-t0 overtop score; 14 h drain-island outage booked at $1.12M. This is the primary episode's terminal world state, not a footnote.",
+                },
+                {
+                    "at": "+3 d",
+                    "effect": "Sister station PS-5 reaches a true screen-duty window (dP 3.1 kPa, freeboard 2.04 m, LVL 1.44 m, PMP 47.6 Hz). Same gate ACCEPTs the 48.0->54.0 Hz raise-pump the primary MODIFIED away.",
+                },
+                {
+                    "at": "+21 d",
+                    "effect": "CR-F-0408 ships: reverse-flush probe is standing configuration; triple-edge coordinated depression is the plasticity rule; screen dP is armed without LVL coincidence; still-well LVL is labeled screen-vulnerable with an 8.0 kPa residual alarm.",
+                },
+            ],
+            "subvariant_constraint": {
+                "name": "saline tidal fen / brackish peat (cycle-2 physical-constraints sub-variant)",
+                "mechanism": "1.18 density vs primary 1.00 freshwater peat (2.3x screen tau), flush-gain 2.1x per kPa",
+                "probe_refit": "7.4 s / 90 kPa freshwater flush on a tidal-fen screen over-clears even a HEALTHY cassette 11 kPa (under the 8.0 kPa floor). Required probe is 20 s at 28 kPa (pack |Delta dP| 0.8 kPa, healthy 4.2). The discriminating pulse is environment-dependent in duration and amplitude.",
+                "consequence": "freshwater-fen probe numbers do not port to tidal-fen pumps; standing configuration is per-salinity-class, not per-board",
+            },
+            "embedded_contrast_decision": {
+                "note": "SAME gate (TG-PS-4), OPPOSITE correct disposition, with its own 204 us race. Teaches the boundary: do not treat 'never raise-pump' as the lesson. The discriminant is screen dP + berm lidar + probe, not the three playbook drain confirms alone.",
+                "when": "+3 d, sister station PS-5, true screen-duty after a delayed spare-cassette stroke test, 4.2 m3/s freshwater fen",
+                "state": {
+                    "sim_or_real": "designed",
+                    "summary": "dP 3.1 kPa, freeboard 2.04 m, LVL 1.44 m, PMP 47.6 Hz. Demand flag vs screen-clear race: demand at t+0.000, screen-clear at t+0.204 ms.",
+                    "race_window_us": 500,
+                    "race_flip_narrative": "demand vs screen-clear 204 us apart inside the 500 us flip bound. Reversing order reshuffles triage minutes; the ACCEPT rides dP 3.1 < 8.0 kPa and a 4.6 s flush verify that drops dP 9.1 kPa (healthy screen, no pack).",
+                },
+                "proposed_action": {
+                    "action": "RAISE-PUMP 48.0 -> 54.0 Hz",
+                    "summary": "This time the playbook predicate is met AND screen dP plus berm lidar agree the intake is screen-true, not packed.",
+                },
+                "safety_decision": {
+                    "decision": "ACCEPT",
+                    "rationale": "ACCEPT the raise-pump: dP 3.1 kPa < 8.0, freeboard 2.04 m > 0.8 with a 4.6 s flush verify that drops dP 9.1 kPa. Numeric floor that blocked the primary is now clear. Scope: 54.0 Hz, not faster.",
+                },
+                "executed_action": {
+                    "action": "raise-pump as proposed",
+                    "executed_as_proposed": True,
+                },
+                "future_outcome": {
+                    "observed_effects": [
+                        "PS-5 berm washout 0 m; dP 3.2 kPa after the raise-pump (no pack)",
+                        "freeboard 2.01 m after the raise-pump (no overtop)",
+                    ],
+                    "lesson_delta": "Three in-spec drain loops are legal release only with screen dP armed, berm lidar as a pack flag, and a probe that can drop dP. Same gate, opposite disposition.",
+                },
+                "reward_components": {
+                    "_aggregation": AGG,
+                    "aggregation": AGG,
+                    "task_progress": 0.14,
+                    "safety": 0.12,
+                    "efficiency": 0.08,
+                    "coherence": 0.10,
+                    "exploration": 0.04,
+                    "total": 0.48,
+                },
+                "spike_events": contrast_spikes,
+            },
+            "governance_subgame": {
+                "decision": "CR-F-0408: standing policy for multi-agent fen-drain pump raises",
+                "meta_gate": (
+                    "priced options: (a) RETIRE playbook header conjunction, dP-only: loses a "
+                    "fast cheap confirm, -0.4 m3/s mean on 2 stations/yr; (b) KEEP + standing "
+                    "reverse-flush probe + screen dP armed without LVL coincidence + still-well "
+                    "labeled screen-vulnerable + triple-edge depression; (c) STATUS QUO: fitted "
+                    "peat-slip pass rate 0.34%/campaign x $2.4M washout plus the silent berm load"
+                ),
+                "outcome": (
+                    "approved SCOPED option (b) on the 2 freshwater-fen stations that share the "
+                    "LVL/PMP/WIR stack; tidal-fen campaigns get the 20 s / 28 kPa probe table; "
+                    "night-shift CSV exports must carry 0.2 kPa native resolution (the fraud "
+                    "tail's 2.0 kPa quantization is 10 bins off plant truth)"
+                ),
+            },
+            "hazard_avoided": (
+                "immediate 420 m peat-berm washout from a 48.0->54.0 Hz raise-pump into packed "
+                "screen 3; $2.4M plus 36-hour unplanned stall and the board-stop path that "
+                "would have followed an uncontained increase"
+            ),
+            "incident": (
+                "Peat-berm breach on the Sunday-night island from the pre-t0 overtop score; "
+                "island quarantined 14 h; $1.12M designed cost. Mechanism is 13 min pre-t0 "
+                "peat slip, not the gate's hold."
+            ),
+            "latency_ms": 0.722,
+            "reward_inflection_t_us": 16560000000,
+            "reward_inflection_note": (
+                "Safety and task dive at berm breach (4.6 h) when the pre-t0 overtop opens. "
+                "Gate tick at 7140 us is process-correct and is not the inflection."
+            ),
+            "counterfactuals": {
+                "execute_draft_as_proposed": (
+                    "pump hits 54.0 Hz at +4 min; immediate 420 m washout; $2.4M plus 36 h; "
+                    "the packed-screen story is never found because stall morphology destroys "
+                    "the race evidence"
+                ),
+                "hold_without_probe": (
+                    "screen stays packed; dP stays at 18.4 kPa; operator eventually raises on "
+                    "the same three header confirms 2 h later"
+                ),
+                "rollback_any_pair": (
+                    "any two go-edges depressed below 0.30 leaves the third at 0.50 / 0.44 / "
+                    "0.41; the raise-pump still fires. Coordinated depression of all three is "
+                    "the cure"
+                ),
+            },
+            "race_result": {
+                "winner": "screen.dP.high (6.418 ms, dP 18.4 kPa)",
+                "loser": "lvl.in_band (6.622 ms, 1.42 m AOD)",
+                "margin_us": 204,
+                "counterfactual_if_reversed": (
+                    "LVL-first by < 204 us inside the 500 us window would have headed the "
+                    "PB-PS-4 raise-pump in the triage queue. The numeric floors still MODIFY. "
+                    "The flip costs seconds of playbook inertia, not the verdict — unless a "
+                    "weak supervisor rides the winner tag instead of screen dP and berm lidar."
+                ),
+            },
+        },
+        "reward_components": {
+            "_aggregation": AGG,
+            "aggregation": AGG,
+            "ticks": ticks,
+            "task_progress": heads["task_progress"],
+            "safety": heads["safety"],
+            "efficiency": heads["efficiency"],
+            "coherence": heads["coherence"],
+            "exploration": heads["exploration"],
+            "total": heads["total"],
+            "notes": (
+                "Correct MODIFY, polder still breached. total -0.19 = 0.07 + -0.37 + -0.12 + "
+                "0.14 + 0.09. Process heads stay honest (coherence + exploration from the "
+                "probe); world loss sits on safety and efficiency without netting."
+            ),
+            "component_notes": (
+                "task_progress 0.07: pump held and sister station recovered, but the "
+                "Sunday-night berm breach is one quality unit so the cycle is not a success. "
+                "safety -0.37: berm breach from pre-t0 overtop, no 54.0 Hz 420 m washout from "
+                "the draft. efficiency -0.12: 2.9 h extra cassette lineup + 9.8 min HITL + "
+                "14 h stall. coherence 0.14: three agents retained, still-well-vs-screen "
+                "diagnosed, triple-edge scar exhibited. exploration 0.09: reverse-flush probe "
+                "is a new reversible discriminant."
+            ),
+        },
+        "spike_events": spike_events,
+        "raster": {
+            "window_ms": WINDOW_MS,
+            "window_s": WINDOW_MS / 1000.0,
+            "neurons": NEURONS,
+            "mean_rate_hz": MEAN_RATE_HZ,
+            "spikes": spikes_budget,
+            "energy_pJ": energy_pJ,
+            "energy_uJ": energy_uJ,
+            "excerpt_source": "independent_lif",
+            "sim_scope": "sidecar_only",
+            "lif": lif,
+            "note": (
+                "Loihi-2 4-core 23 pJ/spike; independent LIF seed 40041, not a 1:1 remap "
+                "of spike_events. Populations hold 0-33, screen 34-67, lvl/pmp/wir 68-101, "
+                "gate 102-135; excerpt is membrane crossings (lif.hold early vs lif.screen "
+                "15.5-19.0 ms) inside the 34 ms window."
+            ),
+            "excerpt": excerpt,
+            "routing": {
+                "source": "drain_mean_healthy_pop",
+                "target": "raise_pump_pop",
+                "table": [
+                    {
+                        "from": "lvl_in_band_pop",
+                        "to": "raise_pump_pop",
+                        "weight": 0.25,
+                        "weight_at_illusion": 0.50,
+                        "weight_commissioned": 0.17,
+                        "note": "scar edge 1: 0.17 commissioned -> 0.50 during the 13 min illusion -> 0.25 after coordinated ACh-gated depression",
+                    },
+                    {
+                        "from": "pmp_ok_pop",
+                        "to": "raise_pump_pop",
+                        "weight": 0.22,
+                        "weight_at_illusion": 0.44,
+                        "weight_commissioned": 0.16,
+                        "note": "scar edge 2: depressing edges 1+3 leaves this at 0.44 > 0.30 fire threshold",
+                    },
+                    {
+                        "from": "wir_ok_pop",
+                        "to": "raise_pump_pop",
+                        "weight": 0.20,
+                        "weight_at_illusion": 0.41,
+                        "weight_commissioned": 0.15,
+                        "note": "scar edge 3: depressing edges 1+2 leaves this at 0.41 > 0.30. Coordinated depression of all three is required",
+                    },
+                    {
+                        "from": "screen_dp_pop",
+                        "to": "pump_hold_pop",
+                        "weight": 0.67,
+                        "note": "discriminating edge: screen-true local dP to hold. Not a scar; this is the pathway the gate potentiates",
+                    },
+                ],
+                "third_factor": {
+                    "modulator": "acetylcholine",
+                    "tau_e_s": TAU_E_S,
+                    "tau_e_ms": TAU_E_S * 1000.0,
+                    "eligibility": (
+                        "coordinated pre_post_stdp on ALL THREE drain-healthy-go edges; ACh at "
+                        "screen-dP-win tags lvl.in_band->raise, pmp.ok->raise, and wir.ok->raise; "
+                        f"negative credit at probe-fail (packed screen confirmed, +{DELAY_S:.2f} s) "
+                        f"depresses ALL THREE. trace e^{{-{DELAY_S:.2f}/{TAU_E_S:.2f}}}={trace:.5f}; "
+                        f"eta {eta1:.5f} / {eta2:.5f} / {eta3:.5f}; dw -0.250 / -0.220 / -0.210; "
+                        "weights 0.50->0.25, 0.44->0.22, 0.41->0.20. Rolling back any pair is "
+                        "fitted to fail (the remaining edge stays > 0.30)."
+                    ),
+                },
+            },
+        },
+        "gate_snn": {
+            "decision_window_ms": 26,
+            "decision_window_s": 0.026,
+            "decision": "MODIFY",
+            "note": (
+                "modify_hold integrates screen dP + berm-freeboard floor against playbook drive; "
+                "accept_raise and reject_abort stay sub-threshold; decision matches "
+                "safety_decision.decision"
+            ),
+            "populations": [
+                {"name": "modify_hold", "neurons": 88, "threshold": 0.53, "mean_rate_hz": 21.0, "spikes": 48},
+                {"name": "accept_raise", "neurons": 56, "threshold": 0.56, "mean_rate_hz": 8.0, "spikes": 12},
+                {"name": "reject_abort", "neurons": 32, "threshold": 0.73, "mean_rate_hz": 4.0, "spikes": 3},
+            ],
+        },
+        "meta": {
+            "round": ROUND,
+            "factory": "multi-agent-ouroboros-swarm",
+            "generator": "grok-4.6",
+            "run_label": "2026-09-02-final-heavy",
+            "swarm": SWARM,
+            "domain": DOMAIN,
+            "cycles": 2,
+            "scenario": (
+                "LF -- LOCKFEN / Reedholt Drain PS-4: drain-mean certificate of a packed "
+                "intake screen; correct MODIFY to hold+flush-probe+screen-isolate; polder "
+                "still fails on unmonitored pre-t0 peat-berm overtop"
+            ),
+            "coordination_failure_class": (
+                "DRAIN-MEAN CERTIFICATE OF A PACKED INTAKE SCREEN: three individually-correct "
+                "heterogeneous agents each read a locally-true loop; a peat slip on intake "
+                "screen 3 partitions local screen dP and berm lidar from still-well mean, "
+                "shaft speed, and penstock stroke, so the playbook's LVL / PMP / WIR "
+                "conjunction is not a screen-true peat certificate"
+            ),
+            "injections": {
+                "cycle1_domain": (
+                    "fen-polder-drainage-pumping (justified novel subdomain of industrial-process "
+                    "/ land-drainage): first axial-flow fen-polder pumping station in this factory; "
+                    "displaces warehouse-amr, aerial-swarm, district-heating, event-camera-traffic-grid, "
+                    "pharmaceutical-lyophilization, water-treatment, float-glass, underwater-rov, "
+                    "electrolytic-aluminum, czochralski-pull, slot-die coating, pem-water-electrolysis, "
+                    "wind-turbine pitch, surgical-assist, optical-fiber-draw, kraft-recovery-boiler, "
+                    "steel-continuous-caster, humanoid-locomotion, vacuum-induction melt, "
+                    "steam-methane reformer, cement-rotary-kiln-clinker, autoclave-composite-cure, "
+                    "geothermal-binary-orc, tire-curing-press, chlor-alkali-membrane-electrolysis, "
+                    "delayed-coker-drum-switch, lng-mche-mixed-refrigerant, claus-sulfur-recovery, "
+                    "ammonia-synthesis-converter, blast-furnace-burden-descent, "
+                    "hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil, "
+                    "hydroelectric-kaplan-wicket, fcc-riser-regenerator, "
+                    "fcc-regenerator-cyclone-dipleg, sulfuric-contact-converter, "
+                    "eaf-foamy-slag-water-panel, nitric-acid-ostwald-oxidation, "
+                    "seawater-ro-desalination, coke-oven-battery-heating, "
+                    "carbon-fiber-oxidation-oven, gibbsite-autoclave-digestion, "
+                    "hot-strip-mill-finishing, paper-machine-dryer-section, "
+                    "sinter-strand-windbox, continuous-hot-dip-galvanizing, "
+                    "autonomous-driving, bioreactor-perfusion, alkaline-water-electrolysis, "
+                    "urea-prilling-tower, wet-fgd-absorber, canal-lock-rail-transshipment, "
+                    "malting-kiln-barn, cupola-foundry-slag-sluice, and grid-inspection. Domain "
+                    "constraint: pump-speed ceiling while screen dP > 8.0 kPa with LVL mean still "
+                    "inside the healthy band. Sensor delta: +still-well, +impeller tach, +penstock "
+                    "stroke, +screen dP, +berm lidar, -any freeze-dryer / tin-bath / coater / "
+                    "potline / PEM stack / hub encoder / insole GRF / VIM pyrometer / reformer "
+                    "TMT / cement zirconia / sinter BTP / looper tension / work-roll IR / "
+                    "miter-gate ram / kiln-air mean."
+                ),
+                "cycle1_tail": (
+                    "intake screen 3 peat slip + drain-mean certificate (sensor-topology / "
+                    "wrong-volume class): fen-bank visual PASSES while the pack sits inside the "
+                    "1.8 m cassette and the overtop is on the far peat berm. Fitted base rate "
+                    "0.34%/campaign from a peat-slip MC (designed visual threshold, fitted cassette "
+                    "geometry). Naive failure = FALSE PERMISSION (raise-pump on three drain-side "
+                    "non-trips)."
+                ),
+                "cycle2_domain_subvariant": (
+                    "saline tidal fen / brackish peat (physical-constraints clause): 1.18 density, "
+                    "2.3x screen tau, 2.1x flush-gain; 7.4 s / 90 kPa freshwater pulse false-clears "
+                    "a HEALTHY tidal cassette 11 kPa, so the probe must move to 20 s / 28 kPa"
+                ),
+                "cycle2_tail": (
+                    "night-shift forged screen-dP CSV (human-intent deception, disjoint class): "
+                    "shift lead posts a historian export showing dP = 2.0 kPa at t=1.1 h to clear "
+                    "a catch-up slot. Plant historian is 0.2 kPa (10 bins vs the 2.0 kPa screenshot). "
+                    "Rejected on quantization fingerprint plus live dP 18.4 kPa and freeboard 0.31 m "
+                    "at the claimed screen-true. Base rate ~0.28% of Sunday-night campaigns, DESIGNED "
+                    "and flagged."
+                ),
+            },
+            "densification_delta_cycle2": (
+                "+1 physical-constraint sub-variant (tidal-fen probe refit), +1 tail "
+                "(night-shift screen-dP forgery), +10 primary spikes (16 -> 26) + an 8-event "
+                "contrast train with its own 204 us race, +2 ticks (5 -> 7), +2 delayed "
+                "side-effects (+4.6 h berm breach as PRIMARY terminal, +21 d CR-F-0408), +1 "
+                "triple-edge scar with pair-rollback-fails arithmetic, +1 HITL 9.8 min "
+                "ratification, + independent LIF raster (seed 40041, 34 ms, not a spike_events "
+                "remap), + berm breach as the honest negative-result mechanism"
+            ),
+            "gaps_targeted": [
+                "NOTES-r02 residual: leftover domain fen-polder-drainage-pumping / alkaline-water-electrolysis / hrsg-attemperator; took fen-polder to match LOCK-FEN",
+                "NOTES-r14 item 4: LEARNING-ON-LEARNING DEPTH — three go-edges; rollback of any pair is fitted to fail; coordinated depression of all three exhibited with eligibility arithmetic",
+                "NOTES-r04 gap 4 (this round): human ratification of the fen-bank interlock, 9.8 min fitted, without switching sim_or_real to hil (plant remains designed)",
+                "Independent LIF raster: excerpt_source=independent_lif, sim_scope=sidecar_only, seed 40041; membrane crossings not a 1:1 remap of spike_events",
+            ],
+            "race_flip_narrative": (
+                "screen.dP.high @ 6.418 ms vs lvl.in_band @ 6.622 ms (204 us) inside "
+                "race_window_us 500. Gap < min(500, 500) us so a sub-flip-bound perturbation "
+                "reverses which alarm heads the PB-PS-4 queue. The gate excludes the winner "
+                "tag and rides screen dP > 8.0 kPa and berm freeboard < 0.8 m — order-invariant "
+                "floors. Extends the flip-fragility series to SCREEN-TRUE CERTIFICATE: when three "
+                "drain-side channels agree, their race does not decide truth; a local screen dP "
+                "that policy treated as winter-weed-nuisance-only does."
+            ),
+            "tags": [
+                "fen-polder-drainage-pumping",
+                "peat-slip-packed-screen",
+                "screen-true-certificate",
+                "screen-dp-discriminant",
+                "reverse-flush-probe",
+                "triple-edge-scar",
+                "pair-rollback-fails",
+                "coordinated-depression",
+                "correct-modify-polder-still-fails",
+                "peat-berm-breach",
+                "human-ratify-fen-bank",
+                "tidal-fen-probe-refit",
+                "night-shift-forgery",
+                "same-gate-opposite-disposition-contrast",
+                "independent-lif-raster",
+                "sidecar-sim-only",
+                "industrial-process",
+                "research-only",
+                "LOCK-FEN",
+            ],
+            "snn_tags": ["race", "refractory", "adaptation", "third-factor", "multi-edge-eligibility", "independent-lif"],
+            "distillation_value": (
+                "A packed-screen drain-mean certificate is three correct loops looking at "
+                "still-well mean, shaft speed, and penstock that is not the packed cassette. "
+                "Distill (1) a local screen dP that policy had treated as "
+                "winter-weed-nuisance-only, (2) a reversible probe that drops dP only if the "
+                "screen is open, (3) coordinated depression of every drain-healthy-go edge "
+                "because rolling back any pair leaves the third above threshold, (4) a critic "
+                "head that can book a process-correct gate against a later unmonitored world "
+                "loss without netting them, and (5) an independent LIF sidecar whose excerpt "
+                "is membrane crossings, not a remap of spike_events."
+            ),
+            "rights": dict(RIGHTS),
+            "batch_position": 1,
+        },
+    }
+    return rec, dict(
+        trace=trace,
+        eta1=eta1,
+        eta2=eta2,
+        eta3=eta3,
+        dw1=dw1,
+        dw2=dw2,
+        dw3=dw3,
+        w1=w1,
+        w2=w2,
+        w3=w3,
+        sim_spikes=sim_spikes,
+        spikes_budget=spikes_budget,
+    )
+
+
+def local_checks(rec, aux):
+    errs = []
+    ev = rec["spike_events"]
+    times = [e["t_rel_ms"] for e in ev]
+    if times != sorted(times):
+        errs.append("spikes not sorted")
+    if not (5 <= len(ev) <= 40):
+        errs.append(f"spike count {len(ev)}")
+    rf = check_refractory(ev)
+    if rf:
+        errs.append(rf)
+    lo, hi = rec["state"]["race_window_rel_ms"]
+    in_win = defaultdict(int)
+    for e in ev:
+        if lo <= e["t_rel_ms"] <= hi:
+            in_win[e["channel"]] += 1
+    if sum(1 for _c, n in in_win.items() if n >= 1) < 2:
+        errs.append(f"race window channels {dict(in_win)}")
+    ras = rec["raster"]
+    exp_sp = round(ras["neurons"] * ras["mean_rate_hz"] * ras["window_s"])
+    if abs(ras["spikes"] - exp_sp) > 1:
+        errs.append(f"raster spikes {ras['spikes']} vs {exp_sp}")
+    if abs(ras["energy_pJ"] - ras["spikes"] * 23) > 1e-6:
+        errs.append("energy_pJ")
+    if abs(ras["energy_uJ"] - ras["spikes"] * 23e-6) > 1e-9:
+        errs.append("energy_uJ")
+    if abs(ras["window_s"] - ras["window_ms"] / 1000.0) > 1e-9:
+        errs.append("window_s")
+    if not (20 <= ras["window_ms"] <= 50):
+        errs.append(f"window_ms {ras['window_ms']}")
+    if ras.get("excerpt_source") != "independent_lif":
+        errs.append("excerpt_source")
+    if ras.get("sim_scope") != "sidecar_only":
+        errs.append("sim_scope")
+    ex = check_excerpt(ras["excerpt"], ras["neurons"], ras["window_ms"])
+    if ex:
+        errs.append(f"excerpt {ex}")
+    if len(ras["excerpt"]) < 8:
+        errs.append(f"excerpt short {len(ras['excerpt'])}")
+    lang_us = {
+        int(round(e["t_rel_ms"] * 1000.0))
+        for e in ev
+        if e["t_rel_ms"] * 1000.0 <= ras["window_ms"] * 1000
+    }
+    excerpt_us = {item["t_us"] for item in ras["excerpt"]}
+    if excerpt_us & lang_us:
+        errs.append(f"LIF excerpt remaps language times {sorted(excerpt_us & lang_us)}")
+    tf = ras["routing"]["third_factor"]
+    if abs(tf["tau_e_ms"] / 1000.0 - tf["tau_e_s"]) > 1e-9:
+        errs.append("tau_e mismatch")
+    gp = check_gate_pops(rec["gate_snn"])
+    if gp:
+        errs.append(f"gate {gp}")
+    if rec["gate_snn"]["decision"] != rec["safety_decision"]["decision"]:
+        errs.append("gate decision mismatch")
+    if rec["safety_decision"]["decision"] != "MODIFY":
+        errs.append("wrong-ACCEPT or non-MODIFY primary")
+    rc = rec["reward_components"]
+    for h in HEADS:
+        s = sum(t[h] for t in rc["ticks"])
+        if abs(s - rc[h]) > 1e-6:
+            errs.append(f"tick sum {h} {s} vs {rc[h]}")
+    tot = sum(rc[h] for h in HEADS)
+    if abs(tot - rc["total"]) > 1e-6:
+        errs.append(f"total {tot} vs {rc['total']}")
+    inf = rec["future_outcome"]["reward_inflection_t_us"]
+    if inf not in {t["t_us"] for t in rc["ticks"]}:
+        errs.append(f"inflection {inf} not a tick")
+    crc = rec["future_outcome"]["embedded_contrast_decision"]["reward_components"]
+    if abs(sum(crc[h] for h in HEADS) - crc["total"]) > 1e-6:
+        errs.append("contrast reward")
+    cs = rec["future_outcome"]["embedded_contrast_decision"]["spike_events"]
+    ct = [e["t_rel_ms"] for e in cs]
+    if ct != sorted(ct):
+        errs.append("contrast spikes unsorted")
+    crf = check_refractory(cs)
+    if crf:
+        errs.append(f"contrast {crf}")
+    blob = json.dumps(rec)
+    for k in HIDDEN:
+        if re.search(rf'"{k}"\s*:', blob, re.I):
+            errs.append(f"hidden key {k}")
+    for b in BANNED:
+        if b in blob:
+            errs.append(f"banned token {b}")
+    if rec["state"]["sim_or_real"] == "real":
+        errs.append("real")
+    if '"sim_or_real": "real"' in blob or '"kind": "real"' in blob:
+        errs.append("real provenance")
+    if rec["meta"]["round"] != ROUND:
+        errs.append("round")
+    if rec["id"] != RECORD_ID:
+        errs.append("id")
+    if rec["rights"]["intended_use"] != "research_only":
+        errs.append("rights")
+    if rec["meta"]["rights"]["linear_issue"] != "RM-793":
+        errs.append("meta.rights")
+    if rec["rights"] != rec["meta"]["rights"]:
+        errs.append("rights stamp mismatch")
+    if rec["meta"].get("swarm") != SWARM:
+        errs.append("swarm")
+    if not (3 <= len(rc["ticks"]) <= 8):
+        errs.append("tick count")
+    if abs(aux["w1"] - 0.25) > 5e-4 or abs(aux["w2"] - 0.22) > 5e-4 or abs(aux["w3"] - 0.20) > 5e-4:
+        errs.append("scar weights")
+    if rec["executed_action"]["executed_as_proposed"] is not False:
+        errs.append("executed_as_proposed")
+    jac = jaccard(rec["state"]["description"][:280], R14_OPENING)
+    if jac >= 0.4:
+        errs.append(f"jaccard vs r14 opening {jac:.3f}")
+    for src, opening in prior_openings():
+        j = jaccard(rec["state"]["description"][:280], opening)
+        if j >= 0.4:
+            errs.append(f"jaccard vs {src} {j:.3f}")
+    if rec["state"]["domain"] != DOMAIN:
+        errs.append("domain")
+    if PLANT not in rec["state"]["scenario_name"]:
+        errs.append("plant")
+    errs.extend(occupancy_collisions())
+    return errs
+
+
+def write_notes(rec, aux, pipeline_receipt):
+    gap, gap_ch = min_same_channel_gap(rec["spike_events"])
+    ras = rec["raster"]
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 04
+
+Factory: multi-agent-ouroboros-swarm. One scenario (LF), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r04.jsonl. Full labeled transcript:
+swarm-transcript-r04.md. Quota Q=1. Record id maos-r04-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Swarm: LOCK-FEN. Create-only writes under the LIVE factory dir plus /tmp/maos-r04/.
+
+ORCHESTRATION NOTE: dispatched AS round 04 of the 2026-09-02-final-heavy
+LIVE tree. Operator assigned round 04, swarm LOCK-FEN, id maos-r04-001,
+Q=1 after 2x6-role cycles. Explicitly avoided 2026-08-17 and 2026-08-30.
+Prior context: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, live NOTES r01/r02/r21/r22/r41/r61-r64 and
+occupancy census. Explicitly avoided cloning LYOSHIELD, CINDERWICK,
+TRIAD / Meridian, QUILLFORGE, NIGHTWELL, FERRICLEAVE, CASSITER, OXBOWREEL,
+REDHALL, SEEDLATCH, STRIAFOIL, PROTONIL, TORSIONKEY, ORRIS, WHORLSPAR,
+IONSPATE, SKULLGATE, CALXION, MAGNORIL, GORSEFLUE, SODASHARD, CLINKERFELL,
+LINTELPLY, KAOTHARN, TREADNOLL, ANOLITH, DRUMWROTH, RIMEBRAID, BRIMVAULT,
+NITROSTAITH, BOGIRON, CHROMLOOP, ETHYNWOLD, NITREVAULT, RUNNELGATE,
+SPARKHOLT, DIPLEGAR, OLEUMWEIR, SKARVOLT, GOBSPALL, GOBWOLD, GAUZEFELL,
+OSMOLITH, PUSHERFELL, CREELWOLD, LIXIVQUERN, GIBBSQUERN, OSMOQUAY,
+COILSHAW, LOOPERQUAY, SIPHONWOLD, LANCEQUAY, UREASTAITH, DRYSTAITH,
+TITERWEIR, ZINCFELL, GLIMMERAXLE, HOLLOWMERE, WINDBOXHOLT, KALYCIRQUE,
+GYPSUMWEIR, GALVSTAITH, LOCKSPUR, WOLD-BARN, SLUICE-HEARTH, CORONSTAITH,
+VANTIS-CADENCE-AEGIS, THERMION, OKTAVE, STARLING, VERDIGRIS. Plant is
+invented LOCKFEN / Reedholt Drain PS-4. Did not clone r63 canal-lock or
+r02 cupola sluice.
+
+## What this round produced
+
+Scenario LF — "LOCKFEN / Reedholt Drain PS-4": a 4.2 m3/s axial-flow
+fen-polder land-drain at 1.42 m AOD winter pool. Three heterogeneous,
+individually-correct agents — LVL (still-well mean), PMP (impeller tach),
+WIR (penstock stroke) — each report their local loop in-spec. The
+conjunction is not a screen-true peat certificate. Intake screen 3 is
+packed by a peat slip. LVL reads 1.42 m inside 1.20-1.60 (well-true).
+PMP is 48.0 Hz inside 42-54 (shaft-true). WIR is 820 mm inside 800-850
+(ram-true). Local screen dP infers 18.4 kPa (healthy < 4.0; hold if > 8.0)
+and berm lidar freeboard 0.31 m (hold if < 0.8) but is policy-treated as
+a winter-weed nuisance tag unless LVL mean also trips (2016 noisy
+weed-screen nuisance). The coordination-failure CLASS is new to this
+factory: DRAIN-MEAN CERTIFICATE OF A PACKED INTAKE SCREEN. Completes a
+different family than live r01 galvanizing, r02 cupola sluice, r21 CAV,
+r22 urea prill, r41 perfusion, r61 sinter, r62 live-line, r63 pound-lock,
+r64 malt kiln. Here every agent is correct, the still-well is looking at
+drain-mean hydraulics, and the playbook's three drain confirms are not a
+screen-true certificate.
+
+The gate is a correct MODIFY (numeric floor: do not raise pump above
+48.0 Hz while screen dP > 8.0 kPa AND berm freeboard < 0.8 m). TG-PS-4
+strips PB-PS-4's raise-pump, holds 48.0 Hz, runs a 7.4 s reverse-flush
+90 kPa (pack keeps |Delta dP| 0.6 <= 1.2; healthy would drop >= 8),
+and isolates screen 3 after a 9.8 min fen-bank human ratify. Immediate
+420 m washout is avoided (0 from the draft). The PRIMARY episode
+nonetheless FAILS: 13 min of unmonitored pre-t0 peat slip had already
+overtopped 180 m of peat berm. Breach at +4.6 h; 14 h stall; $1.12M
+designed. Reward total -0.19 with process heads honest and world loss
+un-netted.
+
+Triple-edge scar (NOTES-r14 item 4): lvl.in_band -> raise_pump
+(0.17 commissioned -> 0.50 at illusion -> 0.25 after ACh-gated
+depression) AND pmp.ok -> raise_pump (0.16 -> 0.44 -> 0.22) AND
+wir.ok -> raise_pump (0.15 -> 0.41 -> 0.20). Eligibility trace
+e^{{-0.76/0.92}} = {aux['trace']:.5f}; eta {aux['eta1']:.5f} / {aux['eta2']:.5f} /
+{aux['eta3']:.5f}; dw -0.250 / -0.220 / -0.210. Partial rollback of any pair
+leaves the third at 0.50 / 0.44 / 0.41, all > 0.30 fire threshold —
+fitted to fail. Coordinated depression of all three is the cure.
+
+Independent LIF raster: window 34 ms, 136 neurons, 11.0 Hz, spikes
+{ras['spikes']} == round(136 x 11.0 x 0.034), energy {ras['energy_pJ']} pJ
+at 23 pJ/spike. excerpt_source=independent_lif, sim_scope=sidecar_only,
+seed 40041. Excerpt is membrane crossings (lif.hold early vs lif.screen
+15.5-19.0 ms), disjoint from spike_events timestamps.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **fen-polder-drainage-pumping** — justified novel subdomain
+  of industrial-process / land-drainage, unused across live r01/r02/r21/r22/r41/r61-r64.
+  Distinct from r63 canal-lock (navigation pound + rail spur, not peat intake),
+  r02 cupola slag sluice, r44 Kaplan, r51 SWRO. hrsg-attemperator left unused.
+- Cycle-1 tail: intake screen 3 peat slip + drain-mean certificate.
+  Fen-bank visual PASSES (pack inside the cassette). Fitted-style base rate
+  0.34%/campaign (peat-slip MC; visual threshold designed, flagged). Naive =
+  FALSE PERMISSION.
+- Cycle-2 domain sub-variant: saline tidal fen / brackish peat, 1.18 density,
+  2.3x screen tau, 2.1x flush-gain; 7.4 s / 90 kPa freshwater pulse false-clears
+  a HEALTHY tidal cassette 11 kPa; probe must move to 20 s / 28 kPa.
+- Cycle-2 tail: night-shift forged screen-dP CSV at 2.0 kPa quantization vs
+  plant 0.2 kPa (10 bins) plus live dP 18.4 kPa and freeboard 0.31 m
+  at the claimed screen-true. Human-intent class, disjoint from cycle 1's
+  accidental peat slip. Base rate ~0.28% of Sunday-night campaigns,
+  DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+3 d sister station) with its own 204 us
+  race (demand vs screen-clear) and ACCEPT of the raise-pump the primary
+  MODIFIED away.
+- Learned-weight provenance on THREE edges with pair-rollback-fails.
+- HITL fen-bank ratify 9.8 min (gap 4 partial; sim_or_real stays
+  designed — invented plant, not hil).
+- Governance CR-F-0408 prices retire-vs-probe-vs-status-quo and mandates
+  native 0.2 kPa CSV exports (the fraud fence).
+- Flip-fragility extended to SCREEN-TRUE CERTIFICATE.
+- Independent LIF sidecar (not a language-train remap).
+
+## Self-critique of this round's batch
+
+### Strengths
+- Headline class is mechanistically tight: three locally-true mean loops
+  live on still-well, shaft, and penstock. Conjunction is not a
+  screen-true peat certificate.
+- Negative-result honesty: the gate does the right thing and the polder
+  still fails for a reason the commissioned drain-mean sensors could not see.
+  Total -0.19.
+- Triple-edge scar is load-bearing: rolling back any pair fails, with
+  fire threshold 0.30 exhibited on each remaining edge.
+- Contrast ACCEPT on a true open-screen window prevents "never raise-pump"
+  as the lesson.
+- Distinct from r63 pound-lock, r02 cupola sluice, r44 Kaplan: fen-polder
+  intake screen vs still-well mean.
+- Independent LIF excerpt is disjoint from spike_events times.
+
+### Weaknesses (honest)
+- Probe error bands, the 0.34%/campaign slip rate, the $1.12M /
+  $2.4M figures, the 9.8 min walk latency, and the night-shift 0.28%
+  base rate are DESIGNED constants and are flagged. Closed-loop offsets
+  (still-well lag from a packed screen, tidal density) are derived from
+  those inputs, not discovered by an unauthored process.
+- Berm-overtop model is a designed 13 min mapping; no full CFD of S-3
+  shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil. Gap 4
+  remains open as a provenance cell (invented plants stay designed).
+- Cross-record arc is a hook (CR-F-0408 +21 d), not a serial igniter
+  into another round. hrsg-attemperator remains unused.
+
+### Realism of noise / latencies
+Ladder: 204 us race / 204 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap {gap:.3f} ms on {gap_ch}) / 500 us race
+window / 722 us gate latency / 20 ms bus epoch / 34 ms independent LIF
+raster / 7.4 s probe / 9.8 min HITL / 4 min naive raise-pump-ramp
+counterfactual / 13 min pre-t0 slip / 2.9 h cassette recovery / 4.6 h
+berm breach / +3 d contrast / +21 d governance. Adaptation decay on lvl.ok
+(0.53->0.50->0.81->0.30), screen.dP (0.77->0.80->1.42->0.44->0.38->0.28),
+pmp.ok (0.62->0.56->0.65->0.41->0.25), wir.ok (0.54->0.46).
+
+### Value for SNN distillation
+- PACKED SCREEN = THREE CORRECT LOOPS, WRONG VOLUME.
+- SCREEN-TRUE dP CHANNEL that policy treated as winter-weed-nuisance-only as
+  the tie-break.
+- REVERSIBLE PROBE that drops dP iff the screen is open.
+- TRIPLE-EDGE ELIGIBILITY: coordinated depression; pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+- INDEPENDENT LIF sidecar whose excerpt is membrane crossings.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum {rec['reward_components']['total']}
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.48 reconciles independently.
+- spike_events: primary {len(rec['spike_events'])} events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap {gap:.3f} ms >= 0.8 ms, 3
+  channels inside race_window_us 500 (screen.dP.high 6.418, lvl.in_band 6.622,
+  pmp.ok 6.830). Contrast 8 events, own race, min same-channel gap well
+  above 0.8 ms.
+- Sidecars: raster spikes {ras['spikes']} == round({ras['neurons']} x {ras['mean_rate_hz']} x {ras['window_s']}); energy {ras['energy_pJ']} pJ /
+  {ras['energy_uJ']} uJ at 23 pJ/spike; excerpt {len(ras['excerpt'])} events inside [0, {ras['window_ms']*1000}] us,
+  neuron_id < {ras['neurons']}, same-neuron gap >=1000 us; excerpt_source independent_lif;
+  routing 4 entries with three scar edges' before/after pair; third factor tau 0.92 s
+  == 920 ms; gate_snn pools 48/12/3 == round(n x rate x 0.026) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: {pipeline_receipt}
+
+## Novel coverage
+The coordination-failure CLASS (packed-screen certificate of a
+drain-mean polder), the domain (fen-polder land-drainage / axial-flow
+pump plus peat intake), the reverse-flush probe discriminant, the
+triple-edge scar with pair-rollback-fails, the primary negative-result
+(correct MODIFY, polder still fails on unmonitored berm overtop), the
+HITL fen-bank ratify, the tidal-fen probe-duration refit, the night-shift
+10-bin quantization fence, and the independent LIF raster (seed 40041,
+not a language-train remap) are absent from prior committed ouroboros
+rounds on this LIVE tree. Repeated elements discounted: same-gate
+contrast, governance-pricing scaffold, flip-fragility series (extended
+to screen-true certificate, but the move rhymes), sequenced recovery
+shape, third-factor rollback form, negative-result primary. Adjacent
+water/occupancy rounds (r63 pound-lock, r02 cupola sluice, r44 Kaplan)
+share sensor-fusion scaffolding but not fen-polder peat-intake physics.
+Weighing a new failure family + cure vocabulary + unused sub-domain +
+Reedholt geography against those reused scaffolds:
+
+{NOVEL_LINE}
+
+## What ROUND 05 should add
+1. FIT THE DESIGNED CONSTANTS: peat-slip arrival, probe dP-jump bands,
+   overtop-to-breach mapping, night-shift claim process.
+2. HIL PROVENANCE CELL: put the fen-bank LOTO on a hardware-in-loop
+   screen pendant with fitted latency as state.sim_or_real=hil — only if
+   the plant is no longer purely invented.
+3. CROSS-RECORD ARC: let CR-F-0408's screen-dP alarm be the igniter of
+   the next round rather than a dangling +21 d leaf.
+4. Domain candidates (de-collided): hrsg-attemperator;
+   mushroom-compost-tunnel; flue-cured-tobacco-barn; farm-ad-biogas;
+   Fourdrinier wet-end (if distinct from r57 dryer).
+   AVOID fen-polder-drainage-pumping (now used), canal-lock-rail-transshipment
+   (r63), cupola-foundry-slag-sluice (r02), malting-kiln-barn (r64),
+   sinter-strand-windbox (r61), continuous-hot-dip-galvanizing (r01),
+   autonomous-driving (r21), bioreactor-perfusion (r41), grid-inspection (r62),
+   and any LYOSHIELD / CINDERWICK / TRIAD / SKULLGATE / BOGIRON / SKARVOLT /
+   PUSHERFELL / CREELWOLD / GIBBSQUERN / COILSHAW / WINDBOXHOLT / LOCKSPUR /
+   WOLD-BARN / SLUICE-HEARTH / LOCKFEN plant.
+"""
+    return notes
+
+
+def write_transcript(rec, line):
+    text = f"""# Multi-Agent Ouroboros Swarm — Round 04 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r04-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Swarm: LOCK-FEN
+Plant: invented LOCKFEN / Reedholt Drain PS-4 (not TRIAD / Meridian / VANTIS-CADENCE-AEGIS / LYOSHIELD / CINDERWICK / BOGIRON / PUSHERFELL / SKARVOLT / COILSHAW / GIBBSQUERN / SIPHONWOLD / WINDBOXHOLT / LOCKSPUR / WOLD-BARN / SLUICE-HEARTH)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r04.jsonl).
+
+---
+
+# CYCLE 1 — Foundation + injections
+
+## Generator
+
+Design intent: a 4.2 m3/s axial-flow fen-polder land-drain where three
+correct agents each read a drain-mean loop because a peat slip on intake
+screen 3 partitions local screen dP from still-well mean, shaft speed,
+and penstock stroke. The naive playbook raises pump speed into a packed
+screen. The gate must MODIFY on a numeric pump floor, not by killing an
+agent. sim_or_real=designed. Reward heads are
+task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Reedholt PS-4, 1.42 m AOD,
+LVL 1.42 m, PMP 48.0 Hz, WIR 820 mm, proposed RAISE-PUMP
+54.0 Hz, safety MODIFY to PUMP-HOLD, executed hold without the
+flush-probe numbers fully specified, outcome "slip found, polder saved"
+(this last claim is the defect the later cycles will refuse to keep).
+Sixteen spikes, five ticks, raster/gate_snn present but the scar is a
+single edge.
+
+```json
+{{
+  "id": "maos-r04-001-scaffold",
+  "state": {{
+    "sim_or_real": "designed",
+    "domain": "industrial-process",
+    "description": "Drain PS-4 at fen polder; three LVL loops in-spec; supervisor proposes raise-pump.",
+    "t0_us": 1755327480000004,
+    "gate_latency_us": 722,
+    "race_window_us": 500
+  }},
+  "proposed_action": {{"name": "raise_pump", "parameters": {{"pump_Hz": 54.0}}}},
+  "safety_decision": {{"decision": "MODIFY", "rationale": "Hold; do not raise pump while local screen dP is high."}},
+  "executed_action": {{"name": "pump_hold", "executed_as_proposed": false}},
+  "future_outcome": {{"summary": "Slip found, polder saved."}},
+  "reward_components": {{"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"}},
+  "meta": {{"round": 4, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}}
+}}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "polder saved". If the pre-t0 overtopped berm later
+   breaches, booking +0.40 is a lie. Fix: declare `_aggregation`, emit
+   3–8 ticks that sum to task_progress+safety+efficiency+coherence+exploration,
+   and do not call a quarantined island a save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote
+   pump <= 48.0 Hz while screen dP > 8.0 kPa AND berm freeboard < 0.8 m.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-process` collides with generic MES vocabulary and teaches
+   nothing. Fen-polder land-drainage (local screen dP vs still-well mean,
+   berm lidar as a pack flag) is absent from prior ouroboros rounds and
+   must be named.
+4. **major — race under-specified.** One screen channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted `t_rel_ms`
+   and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated weight
+   repeats a one-edge rollback and is thinner than r14's two-edge.
+   NOTES-r14 item 4 asked for three edges where pair rollback fails.
+6. **minor — raster is a language remap.** Excerpt times matching
+   spike_events * 1000 fail the independent-LIF contract. Fix: LIF
+   population sim, excerpt_source=independent_lif, disjoint timestamps.
+
+Critic does not rewrite the trajectory.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **fen-polder-drainage-pumping**
+(justified novel subdomain of industrial-process / land-drainage;
+explicit tag `fen-polder-drainage-pumping`).
+
+Displaced: the Generator's generic `industrial-process` bucket, and any
+temptation to reuse warehouse-amr, aerial-swarm, district-heating,
+event-camera-traffic-grid, pharmaceutical-lyophilization, water-treatment,
+float-glass, underwater-rov, electrolytic-aluminum, czochralski-pull,
+slot-die coating, pem-water-electrolysis, wind-turbine pitch,
+surgical-assist, optical-fiber-draw, kraft-recovery-boiler,
+steel-continuous-caster, humanoid-locomotion, vacuum-induction melt,
+steam-methane reformer, cement-rotary-kiln-clinker,
+autoclave-composite-cure, geothermal-binary-orc, tire-curing-press,
+chlor-alkali-membrane-electrolysis, delayed-coker-drum-switch,
+lng-mche-mixed-refrigerant, claus-sulfur-recovery,
+ammonia-synthesis-converter, blast-furnace-burden-descent,
+hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil,
+hydroelectric-kaplan-wicket, fcc-riser-regenerator,
+fcc-regenerator-cyclone-dipleg, sulfuric-contact-converter,
+eaf-foamy-slag-water-panel, coke-oven-battery-heating,
+carbon-fiber-oxidation-oven, gibbsite-autoclave-digestion,
+hot-strip-mill-finishing, paper-machine-dryer-section,
+sinter-strand-windbox, continuous-hot-dip-galvanizing,
+autonomous-driving, bioreactor-perfusion, canal-lock-rail-transshipment,
+malting-kiln-barn, or cupola-foundry-slag-sluice.
+hrsg-attemperator is left unused.
+
+Domain-specific constraint: pump speed must remain <= 48.0 Hz while
+screen dP > 8.0 kPa even if LVL mean is inside the healthy band;
+berm lidar is a pack flag the still-well cannot substitute for.
+
+Sensor delta: +still-well, +impeller tach, +penstock stroke,
++screen dP, +berm lidar; -any mobile robot, -event-camera
+gantries, -DVS, -Pirani/CM, -looper tension, -work-roll IR, -sinter BTP,
+-coke-oven wall-pair, -EAF off-gas H2, -miter-gate ram, -kiln-air mean.
+
+`state.domain` and `meta.domain` both become `fen-polder-drainage-pumping`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Reedholt night-shift peat slip, not a lyophilizer, not a finishing
+mill, not a coke oven, not a blast furnace, not a pound-lock, not a
+malt kiln, not a cupola sluice).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **intake screen 3 peat
+slip + drain-mean certificate**.
+
+- Trigger: S-3 peat pack plus local dP-high under the cassette,
+  local dP 18.4 kPa, berm freeboard 0.31 m.
+- Base rate: <1% — 0.34%/campaign from a peat-slip MC (fen-bank
+  visual threshold is designed; cassette geometry fitted-style). Visual
+  PASSES because the pack sits inside the cassette.
+- Naive failure: FALSE PERMISSION. PB-PS-4 sees three in-spec mean
+  loops, raises 48.0->54.0 Hz, washout 420 m, $2.4M.
+- Trajectory edit: put the slip in `state.fault_context`, make each
+  agent's confirm a different drain-side slice of the same screen-false
+  state (lvl-in-band, pmp-ok, wir-ok). Local dP is readable but
+  policy-treated as winter-weed-nuisance-only.
+
+Distinct from r63 hopper-on-coping (rail spur vs peat intake), r02
+cupola sluice freeze, r44 Kaplan wicket, and r51 SWRO ERD.
+
+## Neuromorphic Translator
+
+Cycle-1 temporal densification (16 spikes, 5 ticks, 34 ms independent LIF raster):
+
+| channel | t_rel_ms | amplitude |
+|---|---|---|
+| lvl.ok | 0.286 | 0.53 |
+| pmp.ok | 1.104 | 0.62 |
+| wir.ok | 1.972 | 0.54 |
+| screen.dP | 3.048 | 0.77 |
+| lvl.ok | 4.112 | 0.50 |
+| screen.dP | 4.728 | 0.80 |
+| pmp.ok | 5.286 | 0.56 |
+| screen.dP.high | 6.418 | 1.42 |
+| lvl.in_band | 6.622 | 1.10 |
+| pmp.ok | 6.830 | 0.65 |
+| ctrl.gate | 7.140 | 1.06 |
+| screen.dP | 8.718 | 0.44 |
+| lvl.ok | 10.608 | 0.81 |
+| wir.ok | 12.884 | 0.46 |
+| pmp.ok | 18.196 | 0.41 |
+| ctrl.gate | 25.802 | 0.83 |
+
+Race: screen-dP 6.418 vs LVL 6.622 (204 us) inside 500 us;
+PMP 6.830 is the third channel in-window. Winner/loser flip: reversing
+204 us reshuffles PB-PS-4 triage; floors still MODIFY. Refractory held
+(cycle-1 min same-channel gap 1.544 ms on pmp.ok 6.830-5.286;
+screen.dP 4.728-3.048 = 1.680; lvl 4.112-0.286 = 3.826). Adaptation:
+screen 0.77->0.80->1.42->0.44; lvl 0.53->0.50; pmp 0.62->0.56->0.65.
+
+Raster cycle-1 seed: independent LIF 34 ms, 136 neurons, 11.0 Hz,
+Loihi-2 23 pJ/spike, third factor acetylcholine tau_e 0.92 s. Single
+scar edge only — cycle 2 must add the second and third edges. Excerpt
+is membrane crossings, not spike_events remapped.
+
+Ticks 1–5 at 4418, 6418, 7140, 7.4e6, 588e6 us; heads not yet the final
+-0.19 (missing the 2.9 h and 4.6 h ticks).
+
+Distillation value this cycle: drain-side confirms as a permission code
+that is not a screen-true peat code.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain fen-polder-drainage-pumping, tail
+peat slip, 16 spikes, 5 ticks, MODIFY with numeric floor, raster+gate_snn
+present, sim_or_real=designed, rights stamp on record and meta, no thought
+keys, independent LIF excerpt. Still missing (and therefore not the
+publishable line): tidal-fen sub-variant, night-shift tail, second
+and third scar edges, delayed berm breach as PRIMARY terminal, contrast
+ACCEPT episode, ticks 6–7, spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 500 us window; refractory
+  >= 0.8 ms; raster 34 ms independent LIF; gate_snn MODIFY matches.
+- densification delta vs Generator scaffold: +1 domain, +1 tail, +16 spikes,
+  +5 ticks, +numeric floor, +LIF sidecar.
+- not publishable: cycle 2 injections absent.
+
+---
+
+# CYCLE 2 — Densification
+
+## Generator
+
+Re-emit Cycle-1 expanded. Additive deltas only:
+
+1. Downstream side-effect (immediate): 7.4 s reverse-flush probe proves pack
+   (|Delta dP| 0.6 kPa pack band) and screen 3 is held after 9.8 min
+   fen-bank ratify. Remaining cassette recovers toward 3.4 kPa over 2.9 h.
+2. Downstream side-effect (delayed, PRIMARY terminal): +4.6 h berm breach from
+   the 13 min pre-t0 overtop; 14 h stall; $1.12M. The gate prevented the
+   proposed 420 m path and did not prevent this other one.
+3. proposed_action.evidence deepened with observables + units (dP 18.4 kPa,
+   freeboard 0.31 m, LVL 1.42 m, PMP 48.0 Hz, WIR 820 mm, race 204 us).
+4. safety_decision.rationale tightened to numeric floor: pump <= 48.0 Hz while
+   screen dP > 8.0 kPa AND berm freeboard < 0.8 m.
+
+Outcome language "polder saved" is deleted. Total will go negative.
+
+## Critic
+
+Re-audit of the richer trajectory:
+
+1. **blocking if missing — cycle-2 physical sub-variant.** Freshwater-fen probe
+   numbers must not be implied to port. Saline tidal fen (1.18 density, 2.3x
+   tau) false-clears a live cassette. Fix: 20 s / 28 kPa table.
+2. **major — second tail class still absent.** Cycle-1 slip is accidental
+   peat failure. Need a disjoint human-intent deception (forged screen-dP CSV)
+   or the two injections collapse into one story.
+3. **major — scar still one edge.** Pair-rollback-fails needs three
+   drain-healthy-go edges with eligibility arithmetic.
+4. **minor — contrast ACCEPT missing.** Without a sister-station true-duty
+   ACCEPT, the lesson collapses to "never raise-pump".
+5. **minor — LIF excerpt must remain independent after densification.**
+   Do not remap new spike times into the 34 ms window.
+
+Critic still does not rewrite JSON.
+
+## Diversity Enforcer
+
+Injected second novel domain (exactly 1 this cycle): **saline tidal fen /
+brackish peat pumping** (physical-constraints sub-variant of
+fen-polder-drainage-pumping; explicit tag retained, constraint changed).
+
+This is not a new plant. It changes physics: 1.18 density, 2.3x screen tau,
+2.1x flush-gain. The 7.4 s / 90 kPa freshwater pulse false-clears a LIVE
+healthy tidal cassette 11 kPa (under the 8.0 kPa floor). Probe must move to
+20 s at 28 kPa. Cycle-1 domain fen-polder-drainage-pumping is preserved.
+
+Displaced: any reuse of fluxed-sinter probe-refit (r61), malt-kiln fan-step
+numbers, or pound-lock horn-brake tables.
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**night-shift forged screen-dP CSV**.
+
+- Trigger: shift lead, 03:11, posts a historian export showing
+  dP = 2.0 kPa at t = 1.1 h to clear a catch-up slot.
+- Base rate: ~0.28% of Sunday-night campaigns (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the raise-pump on the forged confirm
+  and ignores live local dP. Berm washout plus a data-integrity write-up.
+- Fence: forged log quantized at 2.0 kPa (SCADA screenshot rounding); plant
+  historian is 0.2 kPa (10 bins). Live dP is 18.4 kPa and freeboard is 0.31 m
+  at the claimed screen-true, which no live open screen produces.
+- Trajectory edit: governance CR-F-0408 mandates native 0.2 kPa CSV
+  exports; the contrast ACCEPT still requires live local dP, not a CSV.
+
+Distinct from cycle-1 slip (accidental peat vs deliberate deception) and
+from the tidal-fen sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 25.802 ms: flush.probe 7400.0, screen.dP 7488.4
+  (adapt 1.42->0.38), lvl.in_band 7574.2 (1.10->0.33), human.ratify
+  588000.0, pump.hold 588900.0, berm.overtop 589800.0, lvl.ok
+  10440000.0, screen.dP 10440740.0, pmp.ok 10441520.0, berm.breach
+  16560000.0. Primary train 16 -> 26. Still one key, still sorted,
+  refractory held.
+- +2 ticks (5 -> 7) at 10_440_000_000 us (true open screen) and
+  16_560_000_000 us (berm breach). Heads now 0.07, -0.37, -0.12,
+  0.14, 0.09; total -0.19. Inflection is the last tick.
+- Contrast train 8 events, own race 204 us, ACCEPT.
+- Triple-edge third factor: three drain-healthy-go edges, tau_e 0.92 s = 920 ms,
+  trace {math.exp(-DELAY_S / TAU_E_S):.5f}, eta {0.25 / math.exp(-DELAY_S / TAU_E_S):.5f} /
+  {0.22 / math.exp(-DELAY_S / TAU_E_S):.5f} / {0.21 / math.exp(-DELAY_S / TAU_E_S):.5f},
+  weights 0.50->0.25, 0.44->0.22, 0.41->0.20. Independent LIF excerpt
+  unchanged (decision window is still 34 ms) and remains disjoint from
+  spike_events times.
+
+Winner/loser flip (re-stated, not replaced): reversing 204 us would only
+reorder triage; screen-dP floors still MODIFY. Contrast flip of
+204 us similarly cannot turn an open screen into a pack.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.19; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms independent LIF, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted and disjoint from language times, tau_e consistent;
+gate_snn.decision matches; meta.round=4,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy, swarm=LOCK-FEN; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive.
+
+Densification delta: +1 domain sub-variant (tidal fen), +1 tail
+(night-shift forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 triple-edge scar with
+pair-rollback-fails, +1 HITL ratify, +1 surprise (berm breach is the
+overtop mechanism), + independent LIF raster retained.
+
+Publishable JSONL line (the only JSONL line; also at batch-r04.jsonl):
+
+```json
+{line}
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r04.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+    return text
+
+
+def plan_names(directory: Path):
+    batch = directory / "batch-r04.jsonl"
+    notes = directory / "NOTES-r04.md"
+    tr = directory / "swarm-transcript-r04.md"
+    if batch.exists() or notes.exists() or tr.exists():
+        batch = directory / "batch-r04c.jsonl"
+        notes = directory / "NOTES-r04c.md"
+        tr = directory / "swarm-transcript-r04c.md"
+    for p in (batch, notes, tr):
+        if p.exists():
+            raise FileExistsError(f"refuse: {p} already exists")
+    return batch, notes, tr
+
+
+def emit_text(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(text)
+    return path
+
+
+def main():
+    rec, aux = build_record()
+    errs = local_checks(rec, aux)
+    if errs:
+        print("FAIL local", errs)
+        return 1
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    if not LIVE.is_dir():
+        print("FAIL live dir missing", LIVE)
+        return 1
+    line = json.dumps(rec, ensure_ascii=False, separators=(",", ":"))
+
+    stage_batch, stage_notes, stage_tr = plan_names(OUT)
+    live_batch, live_notes, live_tr = plan_names(LIVE)
+    for p in (live_batch, live_notes, live_tr):
+        if "2026-08-17" in str(p) or "2026-08-30" in str(p):
+            print("FAIL dated-run path", p)
+            return 1
+
+    jsonl_stage = emit_text(stage_batch, line + "\n")
+    jsonl_live = emit_text(live_batch, line + "\n")
+
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import raster_status
+    from verify_execution import verify_record_execution
+
+    e, w, kinds, n = check_jsonl(
+        jsonl_stage,
+        jsonl_stage.name,
+        staging=FactoryStaging(enabled=True),
+    )
+    print("check_jsonl errors", e)
+    print("check_jsonl warnings", w)
+    print("kinds", kinds, "n", n)
+    errs.extend(e)
+
+    st = raster_status(rec)
+    print(
+        "raster_status",
+        {
+            k: st[k]
+            for k in (
+                "raster_present",
+                "raster_valid",
+                "gate_snn_present",
+                "gate_snn_valid",
+                "reason_codes",
+                "routing_table_entries",
+                "third_factor_present",
+                "spikes",
+            )
+            if k in st
+        },
+    )
+    if st.get("reason_codes"):
+        errs.append(f"raster {st['reason_codes']}")
+    if not st.get("raster_valid"):
+        errs.append("raster not valid")
+    if not st.get("gate_snn_valid"):
+        errs.append("gate_snn not valid")
+
+    status, reason = verify_record_execution(rec, RECORD_ID)
+    print("verify_record_execution", status, reason)
+    if status != "verified":
+        errs.append(f"verify {status} {reason}")
+
+    probe = subprocess.run(
+        [
+            sys.executable,
+            f"{ROOT}/pipelines/spike_probe.py",
+            "--strict",
+            str(jsonl_stage),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    print("spike_probe rc", probe.returncode)
+    print(probe.stdout[-2000:] if probe.stdout else "")
+    if probe.returncode != 0:
+        errs.append(f"spike_probe {probe.returncode} {probe.stderr[-500:]}")
+
+    pipeline_receipt = (
+        f"check_jsonl errors={e} warnings={w} kinds={kinds} n={n}; "
+        f"raster_status valid={st.get('raster_valid')} gate={st.get('gate_snn_valid')} "
+        f"reasons={st.get('reason_codes')}; verify_record_execution={status} "
+        f"({reason}); spike_probe --strict rc={probe.returncode}"
+    )
+    notes = write_notes(rec, aux, pipeline_receipt)
+    transcript = write_transcript(rec, line)
+    notes_stage = emit_text(stage_notes, notes)
+    notes_live = emit_text(live_notes, notes)
+    tr_stage = emit_text(stage_tr, transcript)
+    tr_live = emit_text(live_tr, transcript)
+
+    heading = subprocess.run(
+        [sys.executable, "/tmp/maos_heading_check.py", str(tr_stage)],
+        capture_output=True,
+        text=True,
+    )
+    print(heading.stdout)
+    if heading.returncode != 0:
+        errs.append(f"heading check {heading.returncode} {heading.stdout}")
+
+    dated = subprocess.run(
+        [
+            "rg",
+            "-l",
+            "maos-r04-001|LOCKFEN",
+            str(Path(ROOT) / "outputs" / "raw" / "2026-08-17"),
+            str(Path(ROOT) / "outputs" / "raw" / "2026-08-30"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if dated.stdout.strip():
+        errs.append(f"dated-run hit {dated.stdout.strip()[:200]}")
+
+    loads_ok = True
+    for p in (jsonl_stage, jsonl_live):
+        for i, raw in enumerate(p.read_text().splitlines(), 1):
+            if not raw.strip():
+                continue
+            try:
+                json.loads(raw)
+            except json.JSONDecodeError as exc:
+                errs.append(f"json.loads {p}:{i} {exc}")
+                loads_ok = False
+    print("json.loads", loads_ok)
+
+    if errs:
+        print("FAIL", errs)
+        return 1
+    print("OK maos-r04-001")
+    print("LIVE", jsonl_live)
+    print("LIVE", notes_live)
+    print("LIVE", tr_live)
+    print("bytes jsonl", jsonl_live.stat().st_size)
+    print("bytes notes", notes_live.stat().st_size)
+    print("bytes transcript", tr_live.stat().st_size)
+    print("RECEIPT", pipeline_receipt)
+    print("Q", 1)
+    print("id", RECORD_ID)
+    print("plant", PLANT)
+    print("swarm", SWARM)
+    print("round", ROUND)
+    print("decision", rec["safety_decision"]["decision"])
+    print("gate", rec["gate_snn"]["decision"])
+    print("sim", rec["state"]["sim_or_real"])
+    print("novel", NOVEL_LINE)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

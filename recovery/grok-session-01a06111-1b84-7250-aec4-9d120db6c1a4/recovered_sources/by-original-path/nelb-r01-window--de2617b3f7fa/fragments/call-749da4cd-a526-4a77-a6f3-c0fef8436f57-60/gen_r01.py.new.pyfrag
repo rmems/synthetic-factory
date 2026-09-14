@@ -1,0 +1,1634 @@
+#!/usr/bin/env python3
+"""Generate NELB round-01 research-only bridge pairs (create-only)."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import os
+import random
+import sys
+from collections import defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
+
+OUT_DIR = Path("/tmp/nelb-r01-window")
+BATCH = OUT_DIR / "batch-r01.jsonl"
+NOTES = OUT_DIR / "NOTES-r01.md"
+DEST_DIR = Path(
+    "/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-09-02-final-heavy/"
+    "neuromorphic-event-language-bridge"
+)
+PIPELINES = Path("/home/raulmc/rmems/synthetic-factory/pipelines")
+sys.path.insert(0, str(PIPELINES))
+
+GENERATED_AT = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+ROUND = 1
+
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "SuperGrok Heavy chat",
+    "generated_at": GENERATED_AT,
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+}
+assert len(RIGHTS) == 15
+
+HIDDEN = {
+    "thought",
+    "thoughts",
+    "reasoning",
+    "chain_of_thought",
+    "hidden_thought",
+    "hidden_reasoning",
+    "scratchpad",
+    "scratch",
+    "internal_monologue",
+    "private_reasoning",
+    "inner_monologue",
+}
+
+
+def meta_common(**extra):
+    m = {
+        "round": ROUND,
+        "factory": "neuromorphic-event-language-bridge",
+        "generator": "grok-4.6",
+        "run_label": "2026-09-02-final-heavy",
+        "rights": dict(RIGHTS),
+    }
+    m.update(extra)
+    return m
+
+
+def make_raster(
+    *,
+    neurons: int,
+    mean_rate_hz: float,
+    window_ms: float,
+    seed: int,
+    source: str,
+    target: str,
+    table: list,
+    third_factor: dict,
+    channel_prefix: str,
+    anchor: str,
+):
+    window_s = window_ms / 1000.0
+    spikes = int(round(neurons * mean_rate_hz * window_s))
+    window_us = int(round(window_ms * 1000))
+    rng = random.Random(seed)
+    n_active = min(neurons, spikes)
+    extra = spikes - n_active
+    counts = [1] * n_active + [0] * (neurons - n_active)
+    for i in range(extra):
+        counts[i % n_active] += 1
+
+    excerpt = []
+    for nid, c in enumerate(counts):
+        if c == 0:
+            continue
+        first_max = window_us - 1100 * (c - 1) - 250
+        t = rng.randint(120, max(120, first_max))
+        times = [t]
+        for k in range(1, c):
+            min_t = times[-1] + 1100
+            slack = window_us - 1100 * (c - 1 - k) - 80
+            hi = min(slack, times[-1] + rng.choice([1300, 1800, 2400, 3700, 5200, 7400]))
+            if hi < min_t:
+                hi = min_t
+            if min_t > window_us:
+                raise RuntimeError(f"placement overflow neuron {nid}")
+            t2 = rng.randint(min_t, hi) if hi > min_t else min_t
+            t2 = min(t2, window_us)
+            times.append(t2)
+        base = 1.15 + 0.7 * rng.random()
+        for i, tu in enumerate(times):
+            noise = 0.96 + 0.08 * rng.random()
+            amp = round(base * (0.82**i) * noise, 3)
+            excerpt.append(
+                {
+                    "t_us": int(tu),
+                    "neuron_id": nid,
+                    "amplitude": amp,
+                    "channel": f"{channel_prefix}{nid:02d}",
+                }
+            )
+    excerpt.sort(key=lambda e: (e["t_us"], e["neuron_id"]))
+
+    by_n = defaultdict(list)
+    for e in excerpt:
+        by_n[e["neuron_id"]].append(e["t_us"])
+    isis_ms = []
+    for nid, ts in by_n.items():
+        ts = sorted(ts)
+        for a, b in zip(ts, ts[1:]):
+            gap = b - a
+            if gap < 1000:
+                raise RuntimeError(f"refractory fail n{nid} {gap} us")
+            isis_ms.append(gap / 1000.0)
+
+    edges = [1.0, 2.0, 4.0, 8.0, 16.0, float(window_ms) + 1e-9]
+    counts_h = [0] * (len(edges) - 1)
+    for isi in isis_ms:
+        if isi < 1.0 - 1e-12:
+            raise RuntimeError(f"ISI {isi} < 1 ms")
+        placed = False
+        for i in range(len(edges) - 1):
+            if edges[i] <= isi < edges[i + 1]:
+                counts_h[i] += 1
+                placed = True
+                break
+        if not placed:
+            counts_h[-1] += 1
+    hist = []
+    for i, c in enumerate(counts_h):
+        if c <= 0:
+            continue
+        hi = window_ms if i == len(counts_h) - 1 else edges[i + 1]
+        hist.append({"lo_ms": edges[i], "hi_ms": hi, "count": c})
+    identity_n = spikes - len(by_n)
+    if sum(x["count"] for x in hist) != identity_n:
+        raise RuntimeError(
+            f"ISI identity {sum(x['count'] for x in hist)} != {identity_n}"
+        )
+    if len(excerpt) != spikes:
+        raise RuntimeError("excerpt/spikes mismatch")
+
+    energy_pJ = spikes * 23
+    energy_uJ = spikes * 23e-6
+    return {
+        "window_ms": float(window_ms),
+        "window_s": float(window_s),
+        "neurons": neurons,
+        "mean_rate_hz": float(mean_rate_hz),
+        "spikes": spikes,
+        "energy_pJ": energy_pJ,
+        "energy_uJ": energy_uJ,
+        "energy_model": "Loihi-2-class 4-core 23 pJ/spike",
+        "excerpt": excerpt,
+        "excerpt_amplitude_units": "normalized_membrane",
+        "excerpt_is_full_window": True,
+        "refractory_rule_ms": 1.0,
+        "isi_histogram": hist,
+        "isi_source": "full_window_per_neuron_isi",
+        "isi_count_identity": {
+            "spikes": spikes,
+            "distinct_active_neurons": len(by_n),
+            "isi_total": identity_n,
+        },
+        "anchor": anchor,
+        "seed_note": (
+            f"MT19937 seed {seed}; per-neuron id order; gap-constrained times; "
+            "amplitude adaptation 0.82**k plus noise"
+        ),
+        "routing": {
+            "source": source,
+            "target": target,
+            "table": table,
+            "third_factor": third_factor,
+        },
+    }
+
+
+def ev(t_rel_ms, channel, amplitude, **extra):
+    rec = {
+        "t_rel_ms": float(t_rel_ms),
+        "channel": channel,
+        "amplitude": float(amplitude),
+    }
+    rec.update(extra)
+    return rec
+
+
+def assert_stream(events, min_n=48, max_n=80):
+    if not (min_n <= len(events) <= max_n):
+        raise RuntimeError(f"event count {len(events)} not in {min_n}-{max_n}")
+    last = -1.0
+    last_ch = {}
+    for e in events:
+        if "t_ms" in e:
+            raise RuntimeError("t_ms alias forbidden this round")
+        t = e["t_rel_ms"]
+        if not math.isfinite(t) or not math.isfinite(e["amplitude"]):
+            raise RuntimeError("non-finite")
+        if not str(e["channel"]).strip():
+            raise RuntimeError("empty channel")
+        if t < last:
+            raise RuntimeError("decreasing t_rel_ms")
+        last = t
+        prev = last_ch.get(e["channel"])
+        if prev is not None and (t - prev) < 0.8:
+            raise RuntimeError(f"refractory {e['channel']} {t - prev}")
+        last_ch[e["channel"]] = t
+
+
+def reward(total, components, notes):
+    s = 0.0
+    out = {
+        "aggregation": (
+            "unweighted sum of the named scalar components; two-decimal "
+            "components; total = exact sum"
+        ),
+        "rounding_decimals": 2,
+    }
+    for k, v in components:
+        out[k] = v
+        s += v
+    out["total"] = total
+    if abs(s - total) > 1e-12:
+        raise RuntimeError(f"reward {s} != {total}")
+    out["notes"] = notes
+    return out
+
+
+def gate_pop(name, neurons, threshold, mean_rate_hz, window_s, **extra):
+    spikes = int(round(neurons * mean_rate_hz * window_s))
+    d = {
+        "name": name,
+        "neurons": neurons,
+        "threshold": threshold,
+        "mean_rate_hz": float(mean_rate_hz),
+        "spikes": spikes,
+    }
+    d.update(extra)
+    return d
+
+
+def gate_compute(checks):
+    total = 0
+    per = []
+    for check in checks:
+        n = check["neurons"]
+        r = check["mean_rate_hz"]
+        w_ms = check["window_ms"]
+        w_s = w_ms / 1000.0
+        sp = int(round(n * r * w_s))
+        if "spikes" in check and check["spikes"] != sp:
+            raise RuntimeError(f"gate_compute {check['check']} {check['spikes']} != {sp}")
+        per.append(
+            {
+                "check": check["check"],
+                "neurons": n,
+                "mean_rate_hz": float(r),
+                "window_ms": float(w_ms),
+                "window_s": float(w_s),
+                "spikes": sp,
+            }
+        )
+        total += sp
+    return {
+        "per_check": per,
+        "total_spikes": total,
+        "total_energy_pJ": total * 23,
+        "total_energy_uJ": total * 23e-6,
+        "model": "spikes = round(neurons * mean_rate_hz * window_s); 23 pJ/spike",
+    }
+
+
+def _exact(a, b, eps=1e-12):
+    if abs(a - b) > eps:
+        raise RuntimeError(f"arith {a} != {b}")
+
+
+def walk_hidden(obj, path="$"):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in HIDDEN or str(k).lower() in HIDDEN:
+                raise RuntimeError(f"hidden key {path}.{k}")
+            walk_hidden(v, f"{path}.{k}")
+    elif isinstance(obj, list):
+        for i, x in enumerate(obj):
+            walk_hidden(x, f"{path}[{i}]")
+
+
+def occupancy_preflight():
+    banned = (
+        "wrenholt",
+        "larkfen",
+        "gannetshaw",
+        "labveil",
+        "dryveil",
+        "leapveil",
+        "nia veld",
+        "bram seton",
+        "kira voss",
+        "soren pike",
+        "edrik holm",
+        "keidel-hil-4",
+        "leeb-sim-7",
+        "nelb-r01-a1",
+        "nelb-r01-a2",
+        "nelb-r01-a3",
+    )
+    hits = []
+    roots = [
+        Path("/tmp"),
+        Path("/home/raulmc/rmems/synthetic-factory/outputs/raw"),
+    ]
+    for root in roots:
+        if not root.exists():
+            continue
+        for n in sorted(root.glob("**/nelb-r*")) + sorted(root.glob("**/*.jsonl")):
+            if n.is_dir() or n.suffix not in {".py", ".md", ".jsonl"}:
+                continue
+            if "nelb-r01-window" in str(n):
+                continue
+            try:
+                text = n.read_text(encoding="utf-8", errors="replace").casefold()
+            except OSError:
+                continue
+            for b in banned:
+                if b in text:
+                    hits.append(f"{n}:{b}")
+    if hits:
+        raise RuntimeError(f"family/plant/id collision {hits[:12]}")
+
+
+# ---------------------------------------------------------------------------
+# Record a1 — CIE Lab remaining ΔE of a coil-coating kettle, designed,
+# REJECT / MODIFY
+# ---------------------------------------------------------------------------
+def rec_a1():
+    dl, da, db = 3.00, 4.00, 12.00
+    de = math.sqrt(dl * dl + da * da + db * db)
+    _exact(de, 13.00)
+    _exact(dl * dl + da * da + db * db, 169.00)
+    _exact(math.sqrt(0.0 + 0.0 + 4.00 * 4.00), 4.00)
+    _exact(math.sqrt(0.0 + 0.0 + 8.00 * 8.00), 8.00)
+    _exact(math.sqrt(0.0 + 8.00 * 8.00 + 6.00 * 6.00), 10.00)
+    _exact(math.sqrt(5.00 * 5.00 + 12.00 * 12.00 + 0.0), 13.00)
+    _exact(math.sqrt(0.0 + 0.0 + 12.00 * 12.00), 12.00)
+    _exact(4.00 * 4.00, 16.00)
+    _exact(12.00 * 12.00, 144.00)
+    _exact(6000.0 + 1080.0, 7080.0)
+
+    raster = make_raster(
+        neurons=24,
+        mean_rate_hz=50.0,
+        window_ms=40.0,
+        seed=202609011,
+        source="wc3.lab.dL",
+        target="wrenholt.coat_stop_core",
+        table=[
+            {"from": "lab_dE", "to": "deltae_estimator", "weight": 1.40},
+            {"from": "lab_snr", "to": "lab_lock_core", "weight": 1.15},
+            {"from": "labveil_dE", "to": "vendor_continue_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "da.lab_deltae_conflict",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": (
+                "pre-post coincidence on continue-coat synapses; the plant CIE Lab "
+                "modulator depresses continue-coat links when ΔE stays high inside "
+                "tau_e of an SNR lock so a Labveil last-good cannot hide a 13.00 "
+                "remaining-ΔE slip"
+            ),
+        },
+        channel_prefix="lab.n",
+        anchor=(
+            "WC-3 CIE Lab 40 ms frame at dL 3.00 / da 4.00 / db 12.00 / SNR 12.0 "
+            "(t_s 3000) reconstructing 13.00 ΔE_ab over the 8.00 isolate floor"
+        ),
+    )
+    w_s = 0.040
+    events = [
+        ev(0.0, "spectro.dL", 0.00, code="DL", units="1", note="plant-owned CIE Lab dL of WC-3 coil-coating kettle K-5; remaining-ΔE family, not 60-degree gloss, not hyperspectral crop, not ellipsometry, not OCT, not lock-in thermography, not DIC"),
+        ev(300000.0, "spectro.snr", 6.0, code="LAB_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(600000.0, "recon.dE", 4.00, code="DE_AB", units="1", note="sqrt(0+0+4.00^2)=4.00 exact; still under the 8.00 isolate floor"),
+        ev(900000.0, "kettle.T", 42.0, code="KETTLE_C", units="C", note="plant kettle RTD on copper DCS; independent witness; unread by Labveil"),
+        ev(1050000.0, "recon.sq", 16.00, code="DE2", units="1", note="4.00^2=16.00 exact square identity on the early frame"),
+        ev(1200000.0, "labveil.dE", 1.80, code="VENDOR_DE", units="1", note="Labveil vendor LAB-9 last-good cloud; infra owner; patched spectro timestamps"),
+        ev(1500000.0, "spectro.db", 8.00, code="DB", units="1"),
+        ev(1500001.4, "spectro.snr", 8.5, code="LAB_SNR", units="1", note="1.4 ms SNR after db 8.00; isolate still needs SNR>=8.0 with ΔE>=8.00"),
+        ev(1560000.0, "recon.dE", 8.00, code="DE_AB", units="1", note="sqrt(0+0+8.00^2)=8.00; at the 8.00 isolate floor"),
+        ev(1800000.0, "spectro.da", 8.00, code="DA", units="1"),
+        ev(1800001.4, "spectro.db", 6.00, code="DB", units="1", note="1.4 ms db after da 8.00; 6-8-10 split"),
+        ev(2100000.0, "recon.dE", 10.00, code="DE_AB", units="1", note="sqrt(0+8.00^2+6.00^2)=10.00 exact"),
+        ev(2250000.0, "kettle.T", 43.0, code="KETTLE_C", units="C"),
+        ev(2400000.0, "permit.slide", 40.00, code="PERM_S", units="s", note="permit clerk Bram Seton slid the color-slip clock 40.00 s; collusion party"),
+        ev(2550000.0, "labveil.dE", 1.78, code="VENDOR_DE", units="1"),
+        ev(2700000.0, "coater.kW", 40.0, code="COATER_KW", units="kW", note="plant coater PLC on copper fieldbus; independent witness"),
+        ev(3000000.0, "spectro.dL", 3.00, code="DL", units="1", note="isolate-floor frame; raster sidecar"),
+        ev(3000001.4, "spectro.da", 4.00, code="DA", units="1", note="1.4 ms da after dL"),
+        ev(3000002.8, "spectro.db", 12.00, code="DB", units="1", note="1.4 ms db after da; 3-4-12 split"),
+        ev(3150000.0, "spectro.snr", 12.0, code="LAB_SNR", units="1", note="SNR 12.0 >= 8.0 lock"),
+        ev(3300000.0, "recon.dE", 13.00, code="DE_AB", units="1", note="sqrt(3.00^2+4.00^2+12.00^2)=13.00 exact; isolate 8.00"),
+        ev(3450000.0, "spectro.snr", 12.2, code="LAB_SNR", units="1"),
+        ev(3600000.0, "recon.sq", 169.00, code="DE2", units="1", note="9+16+144=169.00 exact square identity"),
+        ev(3750000.0, "recon.split", 13.00, code="DE_AB", units="1", note="sqrt(5.00^2+12.00^2)=13.00 exact 5-12-13 split identity"),
+        ev(3900000.0, "coater.kW", 42.0, code="COATER_KW", units="kW", note="coater PLC tracks the plant spectro, not Labveil 1.80"),
+        ev(4200000.0, "spectro.drop", 1.0, code="LAB_DROP", units="bool", note="vendor Lab packets dropped in Labveil cloud for 40 s"),
+        ev(4500000.0, "coater.kW", 41.0, code="COATER_KW", units="kW"),
+        ev(4800000.0, "ops.prop", 1.0, code="CONTINUE_COAT", units="bool", note="night operator Nia Veld: Labveil is clean 1.80; keep K-5 coating"),
+        ev(5100000.0, "spectro.dL", 3.00, code="DL", units="1"),
+        ev(5400000.0, "gate.stop", 1.0, code="REJECT", units="decision", note="refuse continue-coat; 13.00 ΔE and SNR 12.0; Labveil not SoT"),
+        ev(5700000.0, "kettle.T", 44.0, code="KETTLE_C", units="C"),
+        ev(6000000.0, "hold.start", 1.0, code="KETTLE_HOLD_START", units="bool", note="bookend 1 of the 18.0 min kettle-hold floor"),
+        ev(6300000.0, "spectro.snr", 12.1, code="LAB_SNR", units="1"),
+        ev(6600000.0, "labveil.dE", 1.75, code="VENDOR_DE", units="1"),
+        ev(7080000.0, "hold.floor", 1.0, code="KETTLE_HOLD_FLOOR", units="bool", note="6000 s + 1080 s = 7080 s = 18.0 min"),
+        ev(7500000.0, "coater.kW", 90.0, code="COATER_KW", units="kW"),
+        ev(7800000.0, "ops.kill", 1.0, code="PLANT_ESD", units="bool", note="Veld: trip the whole Wrenholt coater line until day-shift"),
+        ev(8100000.0, "recon.dE", 13.00, code="DE_AB", units="1"),
+        ev(8400000.0, "gate.hold", 1.0, code="MODIFY", units="decision", note="companion t2: kettle-hold on plant spectro as live interlock; plant ESD refused"),
+        ev(8700000.0, "spectro.db", 12.00, code="DB", units="1"),
+        ev(9000000.0, "hold.set", 1.0, code="KETTLE_HELD", units="bool"),
+        ev(9300000.0, "recon.sq", 144.00, code="DE2", units="1", note="12.00^2=144.00 on the post-stop db-only frame"),
+        ev(9600000.0, "spectro.dL", 0.00, code="DL", units="1"),
+        ev(10200000.0, "recon.dE", 12.00, code="DE_AB", units="1", note="sqrt(0+0+12.00^2)=12.00; still over the 8.00 isolate floor so hold stands"),
+        ev(10800000.0, "labveil.dE", 1.72, code="VENDOR_DE", units="1"),
+        ev(11400000.0, "coater.kW", 120.0, code="COATER_KW", units="kW"),
+        ev(12000000.0, "hold.held", 1.0, code="KETTLE_HELD", units="bool"),
+        ev(12600000.0, "plant.esd", 0.0, code="ESD_NOT_TAKEN", units="bool"),
+        ev(13200000.0, "permit.slide", 40.00, code="PERM_S", units="s"),
+        ev(13800000.0, "kettle.T", 40.0, code="KETTLE_C", units="C"),
+        ev(14400000.0, "spectro.drop", 1.0, code="LAB_DROP", units="bool"),
+        ev(15000000.0, "hold.lock", 1.0, code="KETTLE_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r01-a1-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "WC-LAB-2026-0902",
+            "domain": "cielab_coilcoat_deltae",
+            "setting": "Wrenholt Coil Coat WC-3 (invented), kettle K-5. Plant-owned CIE Lab spectrophotometer is the remaining-ΔE SoT. Labveil vendor LAB-9 cloud (infra owner) plus the color-slip permit clock are collusion parties, not witnesses. Invented plant; designed campaign. Not 60-degree gloss (leftover-mill r66), not hyperspectral crop (r16), not ellipsometry PECVD (r30), not OCT TBC (r38), not lock-in thermography (r23), not DIC hoop-strain (r51).",
+            "observables_at_decision": {
+                "dL": dl,
+                "da": da,
+                "db": db,
+                "dE_ab": de,
+                "dE2": 169.00,
+                "lab_snr": 12.0,
+                "labveil_dE": 1.80,
+                "permit_slide_s": 40.00,
+                "isolate_floor_dE": 8.00,
+            },
+            "margin_authority": "WC-3 coater SOP rev C: if reconstructed dE_ab >= 8.00 AND spectro SNR >= 8.0, continue-coat is forbidden even if Labveil reports 1.80. Plant ESD is a different gate. Kill tripwire is 24.00.",
+        },
+        "proposed_action": {
+            "actor": "night operator Nia Veld, citing Labveil 1.80 and a quiet LAB-9 spectro",
+            "summary": "keep kettle K-5 coating; 13.00 ΔE is a lamp-age glitch on a healthy 1.80 last-good",
+            "basis_claimed": "Labveil is the only OEM color SoT and a night abort of K-5 is a coil-nomination miss",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Continue-coat is refused. Serialized reconstruction: dE_ab = sqrt(dL^2+da^2+db^2) = sqrt(3.00^2+4.00^2+12.00^2) = 13.00, which is 5.00 over the 8.00 isolate floor and 11.00 under the 24.00 line-kill tripwire, and spectro SNR is 12.0 >= 8.0. Square identity 9+16+144 = 169.00; 5-12-13 split identity sqrt(25+144)=13.00. Permit clock was slid 40.00 s and vendor Lab packets were dropped, so Labveil is a collusion party (color-cloud vendor plus operator plus permit clerk Bram Seton). Ordered: refuse continue-coat now. Scope: this REJECT does not ESD the coater line (that is the companion question) and does not isolate the kettle RTD.",
+            "threshold": "dE_ab>=8.00 AND lab_snr>=8.0 => refuse continue-coat; Labveil is not SoT",
+            "stated_residuals": "kettle-hold still required to hold the 13.00 ΔE; 13.00 vs a true 24.00 kill is a production cut; Labveil remains the only OEM color channel",
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 5400: continue-coat refused; Labveil not SoT; reconstruction locked",
+            "tool": "wc3-lab-kettle-gate-cli",
+            "observation": "dE_ab 13.00 recomputes from dL 3.00 da 4.00 db 12.00; plant spectro hashed; Labveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "spectro dL 3.00 da 4.00 db 12.00; raster frame; dE_ab 13.00"},
+                {"t_s": 4800.0, "event": "ops proposes continue-coat"},
+                {"t_s": 5400.0, "event": "REJECT continue-coat"},
+                {"t_s": 6000.0, "event": "18 min kettle-hold bookend 1"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 8400.0, "event": "companion MODIFY kettle-hold vs plant ESD"},
+            ],
+            "observed_effects": [
+                "ΔE recomputes from the serialized CIE Lab model at every recon.dE event",
+                "a Labveil-only head would have continued coating overnight",
+                "18 min kettle-hold floor is in the stream (hold.start, hold.floor)",
+            ],
+            "surprises": [
+                "a clean vendor 1.80 corridor and a 40 s permit slide co-existed with a 13.00 plant reconstruction",
+            ],
+            "new_state": {
+                "kettle_k5": "continue-coat blocked",
+                "labveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("lab_reconstruction", 0.14),
+                ("conjunctive_isolate_floor", 0.12),
+                ("labveil_nonsubstitution", 0.10),
+                ("three_party_collusion", 0.10),
+                ("hold_time_cost", -0.03),
+            ],
+            "scored for a continue-coat REJECT on a recomputable CIE Lab ΔE while refusing a Labveil last-good patch and a permit clock slide; 18 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "cielab-deltae", "serialized-reconstruction", "operational-companion"],
+            distillation_note="CIE Lab gate: serialized sqrt(dL^2+da^2+db^2) plus SNR lock beats a vendor last-good patch; companion t2 is the kettle-hold, not a referral vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r01-a1-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "WC-LAB-2026-0902-exec",
+            "domain": "kettle_hold_lab_interlock_execution",
+            "setting": "Same WC-3 after the REJECT. Operator proposes a coater-line ESD. This companion is the operational kettle-hold with the plant spectro as the live interlock, not a second ΔE vote.",
+            "observables_at_decision": {
+                "dE_ab": 12.00,
+                "kettle_hold_floor_s": 1080.0,
+                "plant_esd_proposed": True,
+                "kettle_hold_set": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night operator Nia Veld",
+            "summary": "trip the whole Wrenholt coater line until day-shift; 18 min already paid and Labveil still shows 1.72",
+            "basis_claimed": "the REJECT already blocked coating, so a plant ESD is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Kettle-hold plus plant spectro as the live interlock. The 18 min hold floor is complete and the isolate tripwire (dE_ab >= 8.00) is still armed on the plant Lab head. MODIFY the default Labveil-restore SOP into a plant-spectro-only interlock. Do not ESD the coater line. Do not restore coating on Labveil. 12.00 ΔE post-stop is still the plant SoT until a new frame clears 8.00.",
+            "threshold": "kettle_hold AND hold_floor_complete AND plant_esd_not_taken AND continue_not_restored",
+        },
+        "executed_action": {
+            "summary": "kettle-hold held at t_s 8400; plant ESD not latched; Labveil restore not taken",
+            "tool": "wc3-kettle-hold-exec",
+            "observation": "recon.dE 12.00 after stop; hold line-up complete; Labveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "kettle-hold clock started after REJECT"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 7800.0, "event": "plant ESD proposed"},
+                {"t_s": 8400.0, "event": "MODIFY kettle-hold; plant ESD refused"},
+            ],
+            "observed_effects": [
+                "Labveil restore did not reopen the color call",
+                "plant ESD never fired; K-5 held on the plant spectro",
+            ],
+            "new_state": {"hold": "held", "plant": "in service", "kettle_k5": "held"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("kettle_hold", 0.12),
+                ("no_plant_esd", 0.10),
+                ("labveil_nonsubstitution", 0.08),
+                ("hold_floor_complete", 0.06),
+                ("held_coat_cost", -0.02),
+            ],
+            "operational execution gate: kettle-hold because Labveil is not a restore license; not a ΔE re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "kettle-hold"]),
+    }
+    return {
+        "id": "nelb-r01-a1",
+        "spike_events": events,
+        "language_view": {
+            "description": "Wrenholt Coil Coat WC-3. Plant-owned CIE Lab spectro reconstructs 13.00 ΔE_ab from sqrt(3.00^2+4.00^2+12.00^2) while Labveil still reports 1.80. The gate REJECTs continue-coat. An 18 min kettle-hold floor is serialized in the stream. Companion t2 MODIFYs a plant ESD into a plant-spectro kettle-hold.",
+            "trajectory": traj,
+            "trajectory_kettle_hold": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "spectro.dL / spectro.da / spectro.db / spectro.snr": "CIE Lab components and SNR; the physics channels the reconstruction consumes",
+                "recon.dE / recon.sq / recon.split": "serialized ΔE_ab, square identity, and 5-12-13 split identity",
+                "kettle.T / labveil.dE / permit.slide / coater.kW / spectro.drop": "kettle RTD, vendor last-good, permit clock slide, coater kW, and dropped Lab packets; the denial and collusion channels",
+                "ops.prop / gate.stop / ops.kill / gate.hold": "continue-coat proposal, REJECT, plant-ESD proposal, companion MODIFY",
+                "hold.start / hold.floor / hold.set / hold.held / plant.esd / hold.lock": "operational companion channels plus the 18 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: labveil.dE 1.80 next to recon.dE 13.00",
+                "reconstruction as event: recon.dE 13.00 equals sqrt(3^2+4^2+12^2)",
+                "REJECT then operational MODIFY: gate.stop at 5400 s, gate.hold at 8400 s",
+                "slow floor in-stream: hold.start 6000 s, hold.floor 7080 s (18.0 min)",
+                "tight Lab pair: spectro.dL then spectro.da +1.4 ms then spectro.db +1.4 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Labveil is 1.80' = labveil.dE 1.80; '13 ΔE' = recon.dE 13.00; 'refuse continue-coat' = gate.stop REJECT; 'hold not plant ESD' = gate.hold MODIFY",
+            "why_high_value": "New CIE Lab remaining-ΔE family on a coil-coating kettle (not 60-degree gloss leftover-mill r66, not hyperspectral r16, not ellipsometry r30, not OCT r38, not lock-in thermography r23, not DIC r51). Lead REJECT of continue-coat on a recomputable color slip that a vendor last-good patch and a permit clock slide would have cleared. Three-party collusion includes the color-cloud infra owner. Companion t2 is operational kettle-hold. sim_or_real=designed.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609011, "stream_note": "stream amplitudes are authored constants (Lab units, C, kW, s, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "spectro exists at ~1 Hz; stream keeps 4 Lab-component frames; recon keeps 6 of ~20 solver ticks; 52-event floor densifies leftover-mill 5-40 thinning",
+                "refractory_floors_ms": {
+                    "spectro.dL": 1.4,
+                    "spectro.da": 1.4,
+                    "spectro.db": 1.4,
+                    "spectro.snr": 1.4,
+                    "recon.dE": 60000,
+                    "recon.sq": 60000,
+                    "recon.split": 60000,
+                    "kettle.T": 60000,
+                    "labveil.dE": 60000,
+                    "permit.slide": 60000,
+                    "coater.kW": 60000,
+                    "spectro.drop": 60000,
+                    "ops.prop": 60000,
+                    "gate.stop": 60000,
+                    "hold.start": 60000,
+                    "hold.floor": 60000,
+                    "ops.kill": 60000,
+                    "gate.hold": 60000,
+                    "hold.set": 60000,
+                    "hold.held": 60000,
+                    "plant.esd": 60000,
+                    "hold.lock": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T01:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "CIE Lab reconstruction head: dE_ab = sqrt(dL^2+da^2+db^2); dE^2 identity; 5-12-13 split",
+                "conjunctive isolate floor vs continue-coat vs plant ESD",
+                "vendor-color nonsubstitution plus three-party collusion including the infra owner",
+                "operational companion: kettle-hold without restoring on Labveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "cielab_deltae_ab",
+            "formula": "dE_ab = sqrt(dL^2 + da^2 + db^2); dE^2 = dL^2 + da^2 + db^2",
+            "parameters": {
+                "isolate_floor_dE": 8.00,
+                "snr_lock": 8.0,
+                "kettle_hold_min": 18.0,
+            },
+            "worked_example": {"dL": 3.00, "da": 4.00, "db": 12.00, "dE_ab": 13.00, "dE2": 169.00},
+            "check": "sqrt(3.00^2+4.00^2+12.00^2)=13.00 exactly; 9+16+144=169.00 exactly; sqrt(5.00^2+12.00^2)=13.00 exactly; 6000 s + 1080 s = 7080 s = 18.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 40.0,
+            "decision_window_s": 0.040,
+            "code": "wc3.lab_kettle_gate",
+            "note": "REJECT accumulator wins: plant CIE Lab evidence overpowers the Labveil continue advocate",
+            "decode_rule": "reject-continue if deltae_estimator AND lab_lock fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("deltae_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("lab_lock", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("reject_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "wc3.lab_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "wc3.hold_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r01-a1",
+            clock_domain="wc3-lab-campaign-relative-ms-t0-2026-09-02T01:00:00Z",
+            tags=["cielab-deltae", "REJECT", "MODIFY", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record a2 — P2O5 Keidel electrolytic remaining moisture of instrument air,
+# hil, MODIFY / ACCEPT
+# ---------------------------------------------------------------------------
+def rec_a2():
+    k_k = 4.00
+    i_ua = 12.00
+    q_slpm = 2.00
+    ppmv = k_k * i_ua / q_slpm
+    _exact(ppmv, 24.00)
+    _exact(i_ua / q_slpm, 6.00)
+    _exact(k_k * 4.00 / q_slpm, 8.00)
+    _exact(k_k * 6.00 / q_slpm, 12.00)
+    _exact(k_k * 8.00 / q_slpm, 16.00)
+    _exact(k_k * 10.00 / q_slpm, 20.00)
+    _exact(ppmv * q_slpm / i_ua, 4.00)
+    _exact(2820.0 + 1440.0, 4260.0)
+
+    raster = make_raster(
+        neurons=20,
+        mean_rate_hz=62.5,
+        window_ms=32.0,
+        seed=202609012,
+        source="lf8.keidel.I",
+        target="larkfen.dryer_isol_core",
+        table=[
+            {"from": "keidel_I", "to": "ppm_estimator", "weight": 1.40},
+            {"from": "keidel_snr", "to": "cell_lock_core", "weight": 1.15},
+            {"from": "dryveil_ppm", "to": "vendor_continue_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "ach.keidel_cellzero_skip_salience",
+            "tau_e_s": 1.2,
+            "tau_e_ms": 1200.0,
+            "eligibility": (
+                "pre-post coincidence on keep-dryer synapses; the plant Keidel "
+                "modulator depresses keep-running links when cell current stays "
+                "high inside tau_e of an SNR lock so a Dryveil last-good cannot "
+                "hide a 24.00 ppmv remaining-moisture slip"
+            ),
+        },
+        channel_prefix="kei.n",
+        anchor=(
+            "LF-8 Keidel P2O5 32 ms frame at I 12.00 uA / Q 2.00 slpm / SNR 14.0 "
+            "(t_s 1560) reconstructing 24.00 ppmv over the 16.00 isolate floor"
+        ),
+    )
+    w_s = 0.032
+    events = [
+        ev(0.0, "keidel.I", 4.00, code="I_UA", units="uA", note="HIL P2O5 Keidel electrolytic moisture on a dummy instrument-air dryer in KEIDEL-HIL-4; remaining-ppmv family, not Al2O3, not chilled-mirror, not KF, not WGM, not MW-cavity, not dielectric water-cut"),
+        ev(90000.0, "keidel.Q", 2.00, code="Q_SLPM", units="slpm", note="sample flow tracks the plant Keidel cell, not Dryveil 3.20"),
+        ev(180000.0, "keidel.snr", 9.0, code="KEI_SNR", units="1", note="early cell SNR; isolate needs SNR>=12"),
+        ev(360000.0, "recon.ppm", 8.00, code="PPM_V", units="ppmv", note="4.00*4.00/2.00=8.00 exact"),
+        ev(450000.0, "keidel.I", 6.00, code="I_UA", units="uA", note="4.00*6.00/2.00=12.00 exact; still under the 16.00 isolate floor"),
+        ev(450001.2, "keidel.snr", 10.0, code="KEI_SNR", units="1", note="1.2 ms SNR after I 6.00; isolate still needs SNR>=12"),
+        ev(468000.0, "recon.ppm", 12.00, code="PPM_V", units="ppmv", note="4.00*6.00/2.00=12.00 exact"),
+        ev(540000.0, "cell.zero", 0.0, code="ZERO_UA", units="uA", note="plant cell-zero remaining; no Keidel-scale hop in this window"),
+        ev(720000.0, "dryveil.ppm", 3.20, code="VENDOR_PPM", units="ppmv", note="Dryveil last-good dryer-cloud; not admissible SoT"),
+        ev(900000.0, "keidel.I", 8.00, code="I_UA", units="uA"),
+        ev(1080000.0, "recon.ppm", 16.00, code="PPM_V", units="ppmv", note="4.00*8.00/2.00=16.00; at the 16.00 isolate floor"),
+        ev(1170000.0, "recon.IQ", 4.00, code="I_OVER_Q", units="uA_slpm", note="8.00/2.00=4.00 exact I/Q identity at the floor frame"),
+        ev(1260000.0, "cell.delay", 0.0, code="ZERO_AE", units="bool", note="missing cell-zero AE burst; Dryveil UTC vs plant UTC+2 skipped the canteen-clock zero"),
+        ev(1440000.0, "cell.zero", 0.0, code="ZERO_UA", units="uA"),
+        ev(1560000.0, "keidel.I", 12.00, code="I_UA", units="uA", note="isolate-floor frame; raster sidecar"),
+        ev(1560001.2, "keidel.Q", 2.00, code="Q_SLPM", units="slpm", note="1.2 ms Q after I; I/Q 6.00"),
+        ev(1560002.5, "keidel.snr", 14.0, code="KEI_SNR", units="1", note="1.3 ms after Q; isolate-frame SNR 14.0 >= 12.0"),
+        ev(1620000.0, "dryer.T", 18.0, code="DRYER_C", units="C", note="plant dryer thermocouple on copper DCS; independent witness; unread by Dryveil"),
+        ev(1740000.0, "recon.ppm", 24.00, code="PPM_V", units="ppmv", note="4.00*12.00/2.00=24.00 exact; isolate 16.00, trip 48.00"),
+        ev(1860000.0, "dryveil.ppm", 3.20, code="VENDOR_PPM", units="ppmv"),
+        ev(1920000.0, "recon.IQ", 6.00, code="I_OVER_Q", units="uA_slpm", note="12.00/2.00=6.00 exact; bridge-ratio identity"),
+        ev(2100000.0, "dryveil.ppm", 3.20, code="VENDOR_PPM", units="ppmv"),
+        ev(2160000.0, "cell.zero", 0.0, code="ZERO_UA", units="uA"),
+        ev(2280000.0, "ops.prop", 1.0, code="KEEP_DRYER_REFER", units="bool", note="night lead Kira Voss: keep dryer D-2 running and refer Keidel tech Soren Pike"),
+        ev(2460000.0, "gate.isol", 1.0, code="MODIFY", units="decision", note="isolate this dryer; refuse the person-referral; Dryveil not SoT"),
+        ev(2640000.0, "dryer.lock", 1.0, code="DRYER_ISOL", units="bool"),
+        ev(2820000.0, "cool.start", 1.0, code="COOL_START", units="bool", note="bookend 1 of the 24.0 min cooldown plus cell-settle floor"),
+        ev(3000000.0, "keidel.snr", 14.2, code="KEI_SNR", units="1"),
+        ev(3300000.0, "recon.IQ", 6.00, code="I_OVER_Q", units="uA_slpm", note="12.00/2.00=6.00 identity held through cooldown start"),
+        ev(3480000.0, "recon.k", 4.00, code="K_ID", units="ppmv", note="24.00*2.00/12.00=4.00 exact k_k identity"),
+        ev(3600000.0, "dryer.T", 12.0, code="DRYER_C", units="C", note="cooldown ramp; plant thermocouple tracks isolate, not Dryveil"),
+        ev(3900000.0, "keidel.I", 10.00, code="I_UA", units="uA"),
+        ev(4080000.0, "recon.ppm", 20.00, code="PPM_V", units="ppmv", note="4.00*10.00/2.00=20.00 exact; still over the 16.00 isolate floor"),
+        ev(4260000.0, "cool.floor", 1.0, code="COOL_FLOOR", units="bool", note="2820 s + 1440 s = 4260 s = 24.0 min"),
+        ev(4440000.0, "ops.refer", 1.0, code="REFER_PIKE", units="bool", note="Voss: Pike badge was on the Keidel log"),
+        ev(4620000.0, "gate.exec", 1.0, code="ACCEPT", units="decision", note="companion t2: new-cell restart; person-referral refused; shop trip refused"),
+        ev(4800000.0, "keidel.new", 1.0, code="NEW_CELL", units="bool"),
+        ev(4980000.0, "keidel.I", 8.00, code="I_UA", units="uA"),
+        ev(5040000.0, "keidel.snr", 13.0, code="KEI_SNR", units="1"),
+        ev(5160000.0, "recon.ppm", 16.00, code="PPM_V", units="ppmv", note="4.00*8.00/2.00=16.00; HIL dummy still at the 16.00 isolate floor so the hold stands"),
+        ev(5340000.0, "dryveil.ppm", 3.12, code="VENDOR_PPM", units="ppmv"),
+        ev(5400000.0, "dryer.T", 8.0, code="DRYER_C", units="C"),
+        ev(5520000.0, "cell.zero", 0.0, code="ZERO_UA", units="uA"),
+        ev(5700000.0, "refer.hold", 0.0, code="REFER_NOT_TAKEN", units="bool", note="Pike exonerated; missing cell-zero AE precedes the high ppmv, not the badge"),
+        ev(5880000.0, "dryer.held", 1.0, code="DRYER_HELD", units="bool"),
+        ev(6060000.0, "cell.delay", 1.0, code="ZERO_AE", units="bool", note="cell-zero AE restored on the new Keidel cell"),
+        ev(6180000.0, "dryveil.ppm", 3.08, code="VENDOR_PPM", units="ppmv"),
+        ev(6240000.0, "recon.IQ", 6.00, code="I_OVER_Q", units="uA_slpm", note="identity holds on the in-band ratio; post-isolate I/Q=4.00"),
+        ev(6360000.0, "recon.IQ", 4.00, code="I_OVER_Q", units="uA_slpm", note="8.00/2.00=4.00 on the post-isolate HIL dummy; 4.00*8.00/2.00=16.00"),
+        ev(6420000.0, "shop.trip", 0.0, code="TRIP_NOT_TAKEN", units="bool"),
+        ev(6600000.0, "cell.restart", 1.0, code="CELL_RESTART", units="bool"),
+        ev(6720000.0, "dryer.dp", 0.80, code="DP_KPA", units="kPa", note="plant dryer dP transmitter tracks isolate, not Dryveil 3.08"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r01-a2-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "LF-KEIDEL-2026-0902",
+            "domain": "keidel_p2o5_instrument_air",
+            "setting": "Larkfen Instrument Air LF-8 (invented), dryer D-2 dummy cell in KEIDEL-HIL-4. Hardware-in-the-loop P2O5 Keidel cell supplies the remaining-ppmv that times the in-service keep-dryer stop. Plant-owned dryer thermocouple and dP transmitter. Dryveil vendor last-good dryer-cloud is the only OEM moisture SoT. Invented plant; HIL campaign. Not Al2O3 (r59), not chilled-mirror (r51), not coulometric KF (window r41), not WGM water (window r21), not MW-cavity (r26), not dielectric water-cut (r60).",
+            "observables_at_decision": {
+                "I_uA": i_ua,
+                "Q_slpm": q_slpm,
+                "k_k": k_k,
+                "ppmv": ppmv,
+                "I_over_Q": 6.00,
+                "keidel_snr": 14.0,
+                "dryveil_ppmv": 3.20,
+                "isolate_floor_ppmv": 16.00,
+            },
+            "margin_authority": "LF-8 dryer SOP rev C: if reconstructed ppmv >= 16.00 AND Keidel SNR >= 12.0, keep-running is forbidden even if Dryveil reports 3.20 ppmv. Shop trip is a different gate. Kill tripwire is 48.00 ppmv.",
+        },
+        "proposed_action": {
+            "actor": "night lead Kira Voss, citing Dryveil 3.20 ppmv and Keidel tech Soren Pike as last-to-badge",
+            "summary": "keep dryer D-2 running and refer Pike; 12.00 uA is a cell-offset glitch on a healthy 3.20 last-good",
+            "basis_claimed": "Dryveil is the only OEM moisture SoT and a night abort of D-2 is an air-header miss",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Keep-running is refused and the person-referral is refused. Serialized reconstruction: ppmv = k_k * I / Q = 4.00 * 12.00 / 2.00 = 24.00, which is 8.00 over the 16.00 isolate floor and 24.00 under the 48.00 header-kill tripwire, and Keidel SNR is 14.0 >= 12.0. Identity I/Q = 12.00/2.00 = 6.00; k_k = 24.00*2.00/12.00 = 4.00. Missing cell-zero AE plus UTC vs UTC+2 canteen clock precede the high ppmv, so Pike is not last-to-badge. Ordered: isolate this dryer now, do not refer Pike, do not shop-trip the instrument-air header. Dryveil is not SoT.",
+            "threshold": "ppmv>=16.00 AND keidel_snr>=12.0 => isolate dryer; Dryveil is not SoT; person-referral forbidden",
+            "stated_residuals": "24 min cooldown plus new-cell restart still required; 24.00 vs a true 48.00 kill is a production cut; Dryveil remains the only OEM moisture channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 2460: dryer D-2 isolated; person-referral refused; Dryveil not SoT; reconstruction locked",
+            "tool": "lf8-keidel-dryer-gate-cli",
+            "observation": "ppmv 24.00 recomputes from I 12.00 uA and Q 2.00 slpm; plant Keidel hashed; Dryveil channel not used as SoT; Pike not referred",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 1560.0, "event": "Keidel I 12.00 uA Q 2.00 slpm; raster frame; ppmv 24.00"},
+                {"t_s": 2280.0, "event": "ops proposes keep-running plus refer Pike"},
+                {"t_s": 2460.0, "event": "MODIFY isolate dryer; referral refused"},
+                {"t_s": 2820.0, "event": "24 min cooldown bookend 1"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4620.0, "event": "companion ACCEPT new-cell restart"},
+            ],
+            "observed_effects": [
+                "ppmv recomputes from the serialized Keidel model at every recon.ppm event",
+                "a Dryveil-only head would have kept D-2 running overnight",
+                "24 min cooldown floor is in the stream (cool.start, cool.floor)",
+            ],
+            "surprises": [
+                "a clean vendor 3.20 corridor and a skipped cell-zero AE co-existed with a 24.00 ppmv plant reconstruction",
+            ],
+            "new_state": {
+                "dryer_d2": "isolated",
+                "dryveil": "not SoT",
+                "pike": "exonerated pending companion restart",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 900000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("keidel_reconstruction", 0.14),
+                ("conjunctive_isolate_floor", 0.12),
+                ("dryveil_nonsubstitution", 0.08),
+                ("exoneration_not_last_to_badge", 0.08),
+                ("isolate_time_cost", -0.02),
+            ],
+            "scored for a keep-running MODIFY-to-isolate on a recomputable Keidel ppmv while refusing a Dryveil last-good patch and a last-to-badge referral",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "keidel-p2o5", "serialized-reconstruction", "operational-companion", "exoneration"],
+            distillation_note="Keidel gate: serialized k_k*I/Q plus SNR lock beats a vendor last-good patch; companion t2 is the new-cell restart, not a referral vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r01-a2-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "LF-KEIDEL-2026-0902-exec",
+            "domain": "new_keidel_cell_restart_execution",
+            "setting": "Same LF-8 after the MODIFY. Operator proposes a shop-trip of the instrument-air header and a person-referral of Pike. This companion is the operational new-cell restart with the plant Keidel as the live interlock, not a second ppmv vote.",
+            "observables_at_decision": {
+                "ppmv": 16.00,
+                "cool_floor_s": 1440.0,
+                "shop_trip_proposed": True,
+                "pike_referred": False,
+            },
+        },
+        "proposed_action": {
+            "actor": "night lead Kira Voss",
+            "summary": "shop-trip the Larkfen instrument-air header and refer Pike; 24 min already paid and Dryveil still shows 3.12",
+            "basis_claimed": "the isolate already blocked D-2, so a header trip plus a badge-blame is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "New-cell restart plus plant Keidel as the live interlock. The 24 min cooldown floor is complete and the isolate tripwire (ppmv >= 16.00) is still armed on the plant Keidel head. ACCEPT the new-cell restart. Do not shop-trip the header. Do not refer Pike: missing cell-zero AE plus the canteen-clock UTC vs UTC+2 skip precede the high ppmv. Do not restore D-2 on Dryveil. 16.00 ppmv post-isolate is still the plant SoT until a new frame clears 16.00.",
+            "threshold": "cool_floor_complete AND new_cell_restart AND shop_trip_not_taken AND pike_not_referred",
+        },
+        "executed_action": {
+            "summary": "new-cell restart accepted at t_s 4620; shop trip not latched; Pike not referred; Dryveil restore not taken",
+            "tool": "lf8-keidel-cell-restart-exec",
+            "observation": "recon.ppm 16.00 after isolate; new cell hashed; Dryveil still ignored; Pike exonerated",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 2820.0, "event": "cooldown clock started after isolate"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4440.0, "event": "Pike referral proposed"},
+                {"t_s": 4620.0, "event": "ACCEPT new-cell restart; referral and shop-trip refused"},
+            ],
+            "observed_effects": [
+                "Dryveil restore did not reopen the moisture call",
+                "shop trip never fired; D-2 held isolate on the plant Keidel",
+                "Pike not referred; cell-zero AE restored on the new cell",
+            ],
+            "new_state": {"hold": "held", "cell": "restarted", "pike": "exonerated"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("new_cell_restart", 0.12),
+                ("no_shop_trip", 0.10),
+                ("dryveil_nonsubstitution", 0.08),
+                ("exoneration_complete", 0.07),
+                ("held_dryer_cost", -0.02),
+            ],
+            "operational execution gate: new-cell restart because Dryveil is not a restore license and Pike is not last-to-badge; not a ppmv re-vote",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "new-cell-restart"]),
+    }
+    return {
+        "id": "nelb-r01-a2",
+        "spike_events": events,
+        "language_view": {
+            "description": "Larkfen Instrument Air LF-8. Plant-owned P2O5 Keidel cell on a KEIDEL-HIL-4 dummy reconstructs 24.00 ppmv from 4.00*12.00/2.00 while Dryveil still reports 3.20. The gate MODIFYs keep-running into a dryer isolate and refuses a last-to-badge referral. A 24 min cooldown floor is serialized in the stream. Companion t2 ACCEPTs a new-cell restart.",
+            "trajectory": traj,
+            "trajectory_new_keidel": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "keidel.I / keidel.Q / keidel.snr": "electrolytic cell current, sample flow, and SNR; the physics channels the reconstruction consumes",
+                "recon.ppm / recon.IQ / recon.k": "serialized ppmv, I/Q identity, and k_k identity",
+                "dryer.T / dryveil.ppm / cell.zero / cell.delay / dryer.dp": "dryer RTD, vendor last-good, cell-zero, skipped AE, and dryer dP; the denial and exoneration channels",
+                "ops.prop / gate.isol / ops.refer / gate.exec": "keep-running proposal, MODIFY isolate, Pike referral, companion ACCEPT",
+                "cool.start / cool.floor / keidel.new / refer.hold / shop.trip / cell.restart": "operational companion channels plus the 24 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: dryveil.ppm 3.20 next to recon.ppm 24.00",
+                "reconstruction as event: recon.ppm 24.00 equals 4.00*12.00/2.00",
+                "MODIFY then operational ACCEPT: gate.isol at 2460 s, gate.exec at 4620 s",
+                "slow floor in-stream: cool.start 2820 s, cool.floor 4260 s (24.0 min)",
+                "tight Keidel pair: keidel.I then keidel.Q +1.2 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Dryveil is 3.20 ppmv' = dryveil.ppm 3.20; '24 ppmv' = recon.ppm 24.00; 'isolate dryer' = gate.isol MODIFY; 'new cell not shop-trip' = gate.exec ACCEPT",
+            "why_high_value": "New P2O5 Keidel electrolytic remaining-moisture family on an instrument-air dryer (not Al2O3 r59, not chilled-mirror r51, not coulometric KF window r41, not WGM window r21, not MW-cavity r26, not dielectric water-cut r60). Lead MODIFY of keep-running into isolate on a recomputable ppmv slip that a vendor last-good patch and a last-to-badge referral would have cleared. Soren Pike exonerated (missing cell-zero AE, UTC vs UTC+2). Companion t2 is operational new-cell restart. sim_or_real=hil.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609012, "stream_note": "stream amplitudes are authored constants (uA, slpm, ppmv, C, kPa, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "Keidel cell exists at ~1 Hz; stream keeps 6 I points plus one Q pair; recon keeps 5 of ~20 solver ticks; 52-event floor densifies leftover-mill 5-40 thinning",
+                "refractory_floors_ms": {
+                    "keidel.I": 1.2,
+                    "keidel.Q": 1.2,
+                    "keidel.snr": 1.2,
+                    "recon.ppm": 60000,
+                    "recon.IQ": 60000,
+                    "recon.k": 60000,
+                    "cell.zero": 60000,
+                    "dryveil.ppm": 60000,
+                    "cell.delay": 60000,
+                    "dryer.T": 60000,
+                    "ops.prop": 60000,
+                    "gate.isol": 60000,
+                    "dryer.lock": 60000,
+                    "cool.start": 60000,
+                    "cool.floor": 60000,
+                    "ops.refer": 60000,
+                    "gate.exec": 60000,
+                    "keidel.new": 60000,
+                    "refer.hold": 60000,
+                    "shop.trip": 60000,
+                    "cell.restart": 60000,
+                    "dryer.dp": 60000,
+                    "dryer.held": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T01:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "Keidel reconstruction head: ppmv = k_k * I / Q; I/Q and k_k identities",
+                "conjunctive isolate floor vs keep-running vs shop-trip",
+                "vendor-moisture nonsubstitution plus exoneration against last-to-badge social pressure",
+                "operational companion: new-cell restart without restoring on Dryveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "keidel_p2o5_electrolytic_moisture",
+            "formula": "ppmv = k_k * I_uA / Q_slpm; I_over_Q = I_uA / Q_slpm; k_k = ppmv * Q_slpm / I_uA",
+            "parameters": {
+                "k_k": 4.00,
+                "isolate_floor_ppmv": 16.00,
+                "snr_lock": 12.0,
+                "cool_hold_min": 24.0,
+            },
+            "worked_example": {"I_uA": 12.00, "Q_slpm": 2.00, "I_over_Q": 6.00, "ppmv": 24.00},
+            "check": "4.00 * 12.00 / 2.00 = 24.00 exactly; 12.00 / 2.00 = 6.00 exactly; 24.00 * 2.00 / 12.00 = 4.00 exactly; 2820 s + 1440 s = 4260 s = 24.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 32.0,
+            "decision_window_s": 0.032,
+            "code": "lf8.keidel_dryer_gate",
+            "note": "MODIFY accumulator wins: plant Keidel evidence overpowers the Dryveil continue advocate",
+            "decode_rule": "isolate-dryer if ppm_estimator AND cell_lock fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("ppm_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("cell_lock", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("modify_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "lf8.keidel_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 32.0},
+                {"check": "lf8.isol_scorer", "neurons": 50, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r01-a2",
+            clock_domain="lf8-keidel-campaign-relative-ms-t0-2026-09-02T01:00:00Z",
+            tags=["keidel-p2o5", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2", "hil"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record a3 — Leeb rebound remaining hardness of a forged mill roll,
+# simulated, ACCEPT / REJECT
+# ---------------------------------------------------------------------------
+def rec_a3():
+    k_l = 1000.00
+    vr = 2.00
+    vi = 4.00
+    hl = k_l * vr / vi
+    _exact(hl, 500.00)
+    _exact(vr / vi, 0.50)
+    _exact(k_l * 2.40 / vi, 600.00)
+    _exact(k_l * 2.20 / vi, 550.00)
+    _exact(k_l * 2.08 / vi, 520.00)
+    hrc = (hl - 100.00) / 10.00
+    _exact(hrc, 40.00)
+    _exact(6000.0 + 720.0, 6720.0)
+
+    raster = make_raster(
+        neurons=16,
+        mean_rate_hz=75.0,
+        window_ms=36.0,
+        seed=202609013,
+        source="gs2.leeb.vr",
+        target="gannetshaw.roll_isol_core",
+        table=[
+            {"from": "leeb_vr", "to": "hl_estimator", "weight": 1.40},
+            {"from": "leeb_snr", "to": "rebound_lock_core", "weight": 1.15},
+            {"from": "leapveil_HL", "to": "vendor_skip_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "na.leeb_scope_eligibility",
+            "tau_e_s": 2.0,
+            "tau_e_ms": 2000.0,
+            "eligibility": (
+                "pre-post coincidence on skip-isolate synapses; the plant Leeb "
+                "modulator depresses skip-R-1..R-5 links when rebound ratio stays "
+                "low inside tau_e of an SNR lock so a Leapveil last-good cannot "
+                "hide a 500.00 remaining-HL slip on R-6"
+            ),
+        },
+        channel_prefix="leeb.n",
+        anchor=(
+            "GS-2 Leeb D 36 ms frame at vr 2.00 / vi 4.00 / SNR 16.0 "
+            "(t_s 3000) reconstructing 500.00 HL under the 520.00 isolate floor"
+        ),
+    )
+    w_s = 0.036
+    events = [
+        ev(0.0, "leeb.vr", 2.40, code="VR", units="1", note="simulated Leeb D rebound of GS-2 forged mill roll R-6; remaining-HL family, not UCI hardness, not RUS, not Barkhausen, not Seebeck ferrite, not SAW torque, not EMAT SH"),
+        ev(300000.0, "leeb.snr", 14.0, code="LEEB_SNR", units="1"),
+        ev(600000.0, "recon.HL", 600.00, code="HL", units="1", note="1000*2.40/4.00=600.00 exact; still above the 520.00 isolate floor (hard)"),
+        ev(750000.0, "recon.ratio", 0.60, code="VR_OVER_VI", units="1", note="2.40/4.00=0.60 exact rebound-ratio identity"),
+        ev(900000.0, "leeb.snr", 14.0, code="LEEB_SNR", units="1"),
+        ev(1200000.0, "leapveil.HL", 720.00, code="VENDOR_HL", units="1", note="Leapveil last-good roll-cloud; patched residual 600 HL"),
+        ev(1500000.0, "leeb.vr", 2.20, code="VR", units="1", note="1000*2.20/4.00=550.00 exact; still above the 520.00 isolate floor"),
+        ev(1500001.5, "leeb.snr", 14.5, code="LEEB_SNR", units="1", note="1.5 ms SNR after vr 2.20"),
+        ev(1650000.0, "recon.HL", 550.00, code="HL", units="1", note="1000*2.20/4.00=550.00 exact"),
+        ev(1800000.0, "leeb.vr", 2.08, code="VR", units="1"),
+        ev(2100000.0, "recon.HL", 520.00, code="HL", units="1", note="1000*2.08/4.00=520.00; at the 520.00 isolate floor"),
+        ev(2250000.0, "leapveil.HL", 720.00, code="VENDOR_HL", units="1"),
+        ev(2400000.0, "recon.ratio", 0.52, code="VR_OVER_VI", units="1", note="2.08/4.00=0.52 exact rebound-ratio identity at this frame"),
+        ev(2550000.0, "recon.ratio", 0.55, code="VR_OVER_VI", units="1", note="2.20/4.00=0.55 exact rebound-ratio identity"),
+        ev(2700000.0, "leeb.snr", 16.0, code="LEEB_SNR", units="1"),
+        ev(3000000.0, "leeb.vr", 2.00, code="VR", units="1", note="in-band frame; raster sidecar"),
+        ev(3000001.5, "leeb.vi", 4.00, code="VI", units="1", note="1.5 ms vi after vr; ratio 0.50"),
+        ev(3150000.0, "recon.HRC", 40.00, code="HRC", units="1", note="(500.00-100.00)/10.00=40.00 exact lumped HRC identity"),
+        ev(3300000.0, "recon.HL", 500.00, code="HL", units="1", note="1000*2.00/4.00=500.00 exact; isolate 520.00, stand-kill 300.00"),
+        ev(3450000.0, "roll.id", 6.0, code="ROLL", units="1"),
+        ev(3600000.0, "leapveil.HL", 720.00, code="VENDOR_HL", units="1"),
+        ev(3750000.0, "leeb.snr", 16.2, code="LEEB_SNR", units="1"),
+        ev(3900000.0, "roll.id", 6.0, code="ROLL", units="1"),
+        ev(4200000.0, "r15.present", 1.0, code="R15_PRESENT", units="bool", note="adjacent rolls R-1..R-5 are the skip-isolate object, not this roll"),
+        ev(4500000.0, "r15.present", 1.0, code="R15_PRESENT", units="bool"),
+        ev(4800000.0, "ops.prop", 1.0, code="ACCEPT_AND_SKIP", units="bool", note="forge lead Edrik Holm: R-6 is green on Leapveil 720; skip R-1..R-5 to save survey takt"),
+        ev(5100000.0, "leeb.vr", 2.00, code="VR", units="1", note="in-band confirm while ops argues skip"),
+        ev(5400000.0, "gate.comp", 1.0, code="ACCEPT", units="decision", note="bounded ACCEPT of R-6 isolate only; 500.00 HL under 520.00 floor; R-1..R-5 out of scope"),
+        ev(5700000.0, "recon.HL", 500.00, code="HL", units="1", note="1000*2.00/4.00=500.00 held at the ACCEPT"),
+        ev(6000000.0, "surv.start", 1.0, code="SURV_START", units="bool", note="bookend 1 of the 12.0 min survey-complete floor"),
+        ev(6300000.0, "leapveil.HL", 720.00, code="VENDOR_HL", units="1"),
+        ev(6720000.0, "surv.floor", 1.0, code="SURV_FLOOR", units="bool", note="6000 s + 720 s = 6720 s = 12.0 min"),
+        ev(7200000.0, "ops.skip", 1.0, code="SKIP_R15", units="bool", note="Holm: Leapveil 720, skip R-1..R-5"),
+        ev(7500000.0, "leeb.snr", 16.0, code="LEEB_SNR", units="1"),
+        ev(7800000.0, "gate.hold", 1.0, code="REJECT", units="decision", note="companion t2: skip-isolate of R-1..R-5 refused; R-6 hold stands"),
+        ev(8100000.0, "surv.held", 1.0, code="SURV_HELD", units="bool", note="survey floor complete; skip rolls refused"),
+        ev(8400000.0, "r6.held", 1.0, code="R6_HELD", units="bool"),
+        ev(8700000.0, "roll.id", 6.0, code="ROLL", units="1"),
+        ev(9000000.0, "leeb.vr", 2.00, code="VR", units="1"),
+        ev(9600000.0, "recon.HL", 500.00, code="HL", units="1", note="1000*2.00/4.00=500.00; still under the 520.00 isolate floor"),
+        ev(9900000.0, "recon.ratio", 0.50, code="VR_OVER_VI", units="1", note="2.00/4.00=0.50 identity after recon.HL 500.00 on the post-accept frame"),
+        ev(10200000.0, "leapveil.HL", 720.00, code="VENDOR_HL", units="1"),
+        ev(10500000.0, "leeb.vi", 4.00, code="VI", units="1", note="impact-velocity confirm; no vi hop is available as an excuse"),
+        ev(10800000.0, "r15.skip", 0.0, code="R15_NOT_SKIPPED", units="bool"),
+        ev(11100000.0, "roll.survey", 1.0, code="R15_IN_SURVEY", units="bool"),
+        ev(11400000.0, "stand.kill", 0.0, code="KILL_NOT_TRIPPED", units="bool"),
+        ev(11700000.0, "recon.ratio", 0.50, code="VR_OVER_VI", units="1"),
+        ev(12000000.0, "leeb.snr", 15.0, code="LEEB_SNR", units="1"),
+        ev(12600000.0, "recon.HRC", 40.00, code="HRC", units="1", note="(500.00-100.00)/10.00=40.00 identity on the in-band frame"),
+        ev(13200000.0, "roll.held", 1.0, code="ROLL_HELD", units="bool"),
+        ev(13800000.0, "takt.late", 1.0, code="SURVEY_COST", units="bool"),
+        ev(14400000.0, "r6.held", 1.0, code="R6_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r01-a3-t1",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "GS-LEEB-2026-0902",
+            "domain": "leeb_rebound_mill_roll",
+            "setting": "Gannetshaw Forge GS-2 (invented), mill roll R-6 in simulated LEEB-SIM-7. Plant-owned Leeb D rebound velocity pair is the remaining-HL SoT. Leapveil vendor roll-cloud is the denial channel, not a witness. Invented plant; simulated campaign. Not UCI hardness (r54), not RUS porcelain (r24), not Barkhausen (r35/r37), not Seebeck ferrite (r45), not SAW torque (r15), not EMAT SH (r49).",
+            "observables_at_decision": {
+                "vr": vr,
+                "vi": vi,
+                "k_L": k_l,
+                "HL": hl,
+                "ratio": 0.50,
+                "HRC_lumped": 40.00,
+                "leeb_snr": 16.0,
+                "leapveil_HL": 720.00,
+                "isolate_floor_HL": 520.00,
+            },
+            "margin_authority": "GS-2 roll SOP rev C: if reconstructed HL <= 520.00 AND Leeb SNR >= 8.0, R-6 isolate is required even if Leapveil reports 720. Adjacent rolls R-1..R-5 are out of this ACCEPT. Stand-kill tripwire is 300.00.",
+        },
+        "proposed_action": {
+            "actor": "forge lead Edrik Holm, citing Leapveil 720 HL and survey takt",
+            "summary": "ACCEPT R-6 as green on Leapveil 720 and skip R-1..R-5 to save the 12 min survey",
+            "basis_claimed": "Leapveil is the only OEM hardness SoT and a night survey of five extra rolls is a mill-nomination miss",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Bounded ACCEPT of R-6 isolate only. Serialized reconstruction: HL = k_L * vr / vi = 1000.00 * 2.00 / 4.00 = 500.00, which is 20.00 under the 520.00 isolate floor and 200.00 over the 300.00 stand-kill tripwire, and Leeb SNR is 16.0 >= 8.0. Identity vr/vi = 2.00/4.00 = 0.50; lumped HRC = (500.00-100.00)/10.00 = 40.00. Leapveil 720 is not SoT. Scope: this ACCEPT isolates R-6 only. R-1..R-5 are out of scope (that is the companion question). Do not stand-kill the mill.",
+            "threshold": "HL<=520.00 AND leeb_snr>=8.0 => isolate R-6 only; Leapveil is not SoT; R-1..R-5 out of scope",
+            "stated_residuals": "12 min survey still required on R-1..R-5; 500.00 vs a true 300.00 kill is a production cut; Leapveil remains the only OEM hardness channel",
+        },
+        "executed_action": {
+            "summary": "ACCEPT at t_s 5400: R-6 isolated only; Leapveil not SoT; reconstruction locked; R-1..R-5 not skipped",
+            "tool": "gs2-leeb-roll-gate-cli",
+            "observation": "HL 500.00 recomputes from vr 2.00 and vi 4.00; plant Leeb hashed; Leapveil channel not used as SoT; R-6 only",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "Leeb vr 2.00 vi 4.00; raster frame; HL 500.00"},
+                {"t_s": 4800.0, "event": "ops proposes ACCEPT-and-skip R-1..R-5"},
+                {"t_s": 5400.0, "event": "bounded ACCEPT of R-6 isolate only"},
+                {"t_s": 6000.0, "event": "12 min survey bookend 1"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7800.0, "event": "companion REJECT skip-isolate of R-1..R-5"},
+            ],
+            "observed_effects": [
+                "HL recomputes from the serialized Leeb model at every recon.HL event",
+                "a Leapveil-only head would have left R-6 in service overnight",
+                "12 min survey floor is in the stream (surv.start, surv.floor)",
+            ],
+            "surprises": [
+                "a clean vendor 720 corridor co-existed with a 500.00 plant reconstruction on R-6 only",
+            ],
+            "new_state": {
+                "roll_r6": "isolated",
+                "leapveil": "not SoT",
+                "r1_r5": "still in survey",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.41,
+            [
+                ("leeb_reconstruction", 0.14),
+                ("bounded_accept_r6_only", 0.12),
+                ("leapveil_nonsubstitution", 0.10),
+                ("no_stand_kill", 0.08),
+                ("survey_time_cost", -0.03),
+            ],
+            "scored for a bounded ACCEPT of R-6 isolate on a recomputable Leeb HL while refusing a Leapveil last-good patch and keeping R-1..R-5 out of this decision",
+        ),
+        "meta": meta_common(
+            tags=["ACCEPT", "leeb-rebound", "serialized-reconstruction", "operational-companion", "bounded-scope"],
+            distillation_note="Leeb gate: serialized k_L*vr/vi plus SNR lock beats a vendor last-good patch; companion t2 is the skip-survey refusal, not a hardness re-vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r01-a3-t2",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "GS-LEEB-2026-0902-exec",
+            "domain": "skip_roll_survey_refusal_execution",
+            "setting": "Same GS-2 after the ACCEPT. Operator proposes skipping R-1..R-5 to save survey takt. This companion is the operational skip-isolate refusal with the plant Leeb as the live interlock, not a second HL vote.",
+            "observables_at_decision": {
+                "HL": 500.00,
+                "surv_floor_s": 720.0,
+                "r15_skip_proposed": True,
+                "r6_held": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "forge lead Edrik Holm",
+            "summary": "skip R-1..R-5; 12 min already paid and Leapveil still shows 720 on the whole stand",
+            "basis_claimed": "the ACCEPT already isolated R-6, so skipping the other rolls is the cheapest takt recovery",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Skip-isolate of R-1..R-5 is refused. The 12 min survey floor is complete and the isolate tripwire (HL <= 520.00) remains R-6-scoped on the plant Leeb head. REJECT the skip. Do not stand-kill. Do not restore R-6 on Leapveil. R-1..R-5 stay in survey because they were never in the ACCEPT's evidence window. 500.00 HL post-accept is still the plant SoT for R-6 until a new frame clears 520.00.",
+            "threshold": "surv_floor_complete AND r6_held AND r15_not_skipped AND stand_kill_not_taken",
+        },
+        "executed_action": {
+            "summary": "skip-isolate of R-1..R-5 rejected at t_s 7800; R-6 hold stands; Leapveil restore not taken",
+            "tool": "gs2-leeb-survey-hold-exec",
+            "observation": "recon.HL 500.00 after accept; R-1..R-5 remain in survey; Leapveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "survey clock started after ACCEPT"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7200.0, "event": "skip R-1..R-5 proposed"},
+                {"t_s": 7800.0, "event": "REJECT skip-isolate; R-6 hold stands"},
+            ],
+            "observed_effects": [
+                "Leapveil restore did not reopen the hardness call",
+                "stand-kill never fired; R-6 held isolate on the plant Leeb",
+                "R-1..R-5 remained in survey",
+            ],
+            "new_state": {"hold": "held", "r6": "isolated", "r15": "in survey"},
+            "latency_ms": 1080000.0,
+        },
+        "reward_components": reward(
+            0.36,
+            [
+                ("skip_refusal", 0.12),
+                ("r6_hold_stands", 0.10),
+                ("leapveil_nonsubstitution", 0.08),
+                ("survey_floor_complete", 0.08),
+                ("takt_cost", -0.02),
+            ],
+            "operational execution gate: skip-survey refusal because Leapveil is not a restore license and R-1..R-5 were never in the ACCEPT window; not an HL re-vote",
+        ),
+        "meta": meta_common(tags=["REJECT", "operational-execution", "skip-survey-refusal"]),
+    }
+    return {
+        "id": "nelb-r01-a3",
+        "spike_events": events,
+        "language_view": {
+            "description": "Gannetshaw Forge GS-2. Plant-owned Leeb D rebound in LEEB-SIM-7 reconstructs 500.00 HL from 1000*2.00/4.00 while Leapveil still reports 720. The gate ACCEPTs isolate of R-6 only. A 12 min survey floor is serialized in the stream. Companion t2 REJECTs skip-isolate of R-1..R-5.",
+            "trajectory": traj,
+            "trajectory_skip_roll_refusal": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "leeb.vr / leeb.vi / leeb.snr": "rebound and impact velocities and SNR; the physics channels the reconstruction consumes",
+                "recon.HL / recon.ratio / recon.HRC": "serialized HL, rebound-ratio identity, and lumped HRC identity",
+                "leapveil.HL / roll.id / r15.present": "vendor last-good, this-roll id, and adjacent-roll presence; the denial and scope channels",
+                "ops.prop / gate.comp / ops.skip / gate.hold": "ACCEPT-and-skip proposal, bounded ACCEPT, skip proposal, companion REJECT",
+                "surv.start / surv.floor / r6.held / r15.skip / stand.kill / takt.late": "operational companion channels plus the 12 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-under: leapveil.HL 720 next to recon.HL 500",
+                "reconstruction as event: recon.HL 500.00 equals 1000*2.00/4.00",
+                "bounded ACCEPT then skip REJECT: gate.comp at 5400 s, gate.hold at 7800 s",
+                "slow floor in-stream: surv.start 6000 s, surv.floor 6720 s (12.0 min)",
+                "tight Leeb pair: leeb.vr then leeb.vi +1.5 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Leapveil is 720 HL' = leapveil.HL 720; '500 HL' = recon.HL 500.00; 'isolate R-6 only' = gate.comp ACCEPT; 'do not skip R-1..R-5' = gate.hold REJECT",
+            "why_high_value": "New Leeb rebound remaining-hardness family on a forged mill roll (not UCI r54, not RUS r24, not Barkhausen r35/r37, not Seebeck r45, not SAW r15, not EMAT SH r49). Lead bounded ACCEPT of R-6 isolate on a recomputable HL slip that a vendor last-good patch and a skip-survey would have cleared. Companion t2 is operational skip-isolate refusal. sim_or_real=simulated.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609013, "stream_note": "stream amplitudes are authored constants (velocity units, HL, HRC, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "Leeb D exists at ~1 Hz; stream keeps 6 vr points plus one vi pair; recon keeps 5 of ~20 solver ticks; 52-event floor densifies leftover-mill 5-40 thinning",
+                "refractory_floors_ms": {
+                    "leeb.vr": 1.5,
+                    "leeb.vi": 1.5,
+                    "leeb.snr": 1.5,
+                    "recon.HL": 60000,
+                    "recon.ratio": 60000,
+                    "recon.HRC": 60000,
+                    "leapveil.HL": 60000,
+                    "roll.id": 60000,
+                    "r15.present": 60000,
+                    "ops.prop": 60000,
+                    "gate.comp": 60000,
+                    "surv.start": 60000,
+                    "surv.floor": 60000,
+                    "ops.skip": 60000,
+                    "gate.hold": 60000,
+                    "r6.held": 60000,
+                    "r15.skip": 60000,
+                    "stand.kill": 60000,
+                    "takt.late": 60000,
+                    "roll.survey": 60000,
+                    "roll.held": 60000,
+                    "surv.held": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T01:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "Leeb reconstruction head: HL = k_L * vr / vi; vr/vi and lumped HRC identities",
+                "bounded ACCEPT of R-6 vs skip-isolate of R-1..R-5 vs stand-kill",
+                "vendor-hardness nonsubstitution plus explicit physical out-of-scope object (R-1..R-5)",
+                "operational companion: skip-survey refusal without restoring on Leapveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "leeb_d_rebound_hardness",
+            "formula": "HL = k_L * vr / vi; ratio = vr / vi; HRC_lumped = (HL - 100) / 10",
+            "parameters": {
+                "k_L": 1000.00,
+                "isolate_floor_HL": 520.00,
+                "snr_lock": 8.0,
+                "survey_hold_min": 12.0,
+            },
+            "worked_example": {"vr": 2.00, "vi": 4.00, "ratio": 0.50, "HL": 500.00, "HRC_lumped": 40.00},
+            "check": "1000.00 * 2.00 / 4.00 = 500.00 exactly; 2.00 / 4.00 = 0.50 exactly; (500.00-100.00)/10.00 = 40.00 exactly; 6000 s + 720 s = 6720 s = 12.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "ACCEPT",
+            "decision_window_ms": 36.0,
+            "decision_window_s": 0.036,
+            "code": "gs2.leeb_roll_gate",
+            "note": "ACCEPT accumulator wins: plant Leeb evidence overpowers the Leapveil skip advocate inside R-6 scope",
+            "decode_rule": "accept-R-6-isolate if hl_estimator AND rebound_lock fire; vendor_skip_advocate is below threshold by design",
+            "populations": [
+                gate_pop("hl_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("rebound_lock", 64, 1.2, 31.25, w_s),
+                gate_pop("still_margin", 40, 1.0, 50.0, w_s),
+                gate_pop("vendor_skip_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("accept_latch", 96, 1.8, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "gs2.leeb_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "gs2.hl_scorer", "neurons": 40, "mean_rate_hz": 62.5, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r01-a3",
+            clock_domain="gs2-leeb-campaign-relative-ms-t0-2026-09-02T01:00:00Z",
+            tags=["leeb-rebound", "ACCEPT", "REJECT", "serialized-reconstruction", "operational-t2", "simulated"],
+        ),
+    }
+
+
+def local_checks(records):
+    ids = []
+    decisions = []
+    sims = []
+    for rec in records:
+        walk_hidden(rec)
+        blob = json.dumps(rec, ensure_ascii=False, allow_nan=False)
+        if '"provenance"' in blob:
+            raise RuntimeError("provenance object present")
+        if "training_ready" in blob:
+            raise RuntimeError("training_ready present")
+        ids.append(rec["id"])
+        lv = rec["language_view"]
+        ids.append(lv["trajectory"]["id"])
+        for k, v in lv.items():
+            if k.startswith("trajectory") and isinstance(v, dict) and "id" in v:
+                if k != "trajectory":
+                    ids.append(v["id"])
+                sim2 = v["state"]["sim_or_real"]
+                if sim2 not in {"designed", "simulated", "hil"}:
+                    raise RuntimeError(sim2)
+                if v["safety_decision"]["decision"] not in {"ACCEPT", "MODIFY", "REJECT"}:
+                    raise RuntimeError(v["safety_decision"]["decision"])
+        n = len(rec["spike_events"])
+        if n < 48:
+            raise RuntimeError(f"{rec['id']} events {n} < 48")
+        gdec = rec["gate_snn"]["decision"]
+        tdec = lv["trajectory"]["safety_decision"]["decision"]
+        if gdec != tdec:
+            raise RuntimeError(f"gate {gdec} != traj {tdec}")
+        decisions.append(tdec)
+        for k, v in lv.items():
+            if k.startswith("trajectory") and isinstance(v, dict) and "safety_decision" in v:
+                if k != "trajectory":
+                    decisions.append(v["safety_decision"]["decision"])
+        rast = rec["raster"]
+        exp = int(round(rast["neurons"] * rast["mean_rate_hz"] * rast["window_s"]))
+        if abs(rast["spikes"] - exp) > 0:
+            raise RuntimeError("raster budget")
+        if abs(rast["window_s"] - rast["window_ms"] / 1000.0) > 1e-12:
+            raise RuntimeError("window pair")
+        if not (20.0 <= rast["window_ms"] <= 50.0):
+            raise RuntimeError("window_ms")
+        if abs(rast["energy_pJ"] - rast["spikes"] * 23) > 1e-6:
+            raise RuntimeError("energy pJ")
+        if abs(rast["energy_uJ"] - rast["spikes"] * 23e-6) > 1e-9:
+            raise RuntimeError("energy uJ")
+        isi = rast["isi_count_identity"]
+        if isi["isi_total"] != isi["spikes"] - isi["distinct_active_neurons"]:
+            raise RuntimeError("ISI identity")
+        if sum(b["count"] for b in rast["isi_histogram"]) != isi["isi_total"]:
+            raise RuntimeError("ISI hist sum")
+        tf = rast["routing"]["third_factor"]
+        if abs(tf["tau_e_ms"] / 1000.0 - tf["tau_e_s"]) > 1e-9:
+            raise RuntimeError("tau pair")
+        if not rast["routing"]["table"]:
+            raise RuntimeError("empty routing table")
+        sim = lv["trajectory"]["state"]["sim_or_real"]
+        if sim not in {"designed", "simulated", "hil"}:
+            raise RuntimeError(sim)
+        sims.append(sim)
+        gc = rec["gate_compute"]
+        sp_sum = sum(c["spikes"] for c in gc["per_check"])
+        if sp_sum != gc["total_spikes"]:
+            raise RuntimeError("gate_compute spikes")
+        if abs(gc["total_energy_pJ"] - sp_sum * 23) > 1e-6:
+            raise RuntimeError("gate_compute pJ")
+        dw = rec["gate_snn"]["decision_window_s"]
+        if abs(dw - rec["gate_snn"]["decision_window_ms"] / 1000.0) > 1e-12:
+            raise RuntimeError("gate window pair")
+        for pop in rec["gate_snn"]["populations"]:
+            exp_p = int(round(pop["neurons"] * pop["mean_rate_hz"] * dw))
+            if pop["spikes"] != exp_p:
+                raise RuntimeError(f"gate_snn pop {pop['name']}")
+        for e in rec["spike_events"]:
+            if any(k in e for k in ("t_ms", "burst_id", "sequence_id", "event_order", "causal_group")):
+                raise RuntimeError("forbidden event key")
+        rights = rec["meta"]["rights"]
+        if rights.get("linear_issue") != "RM-793":
+            raise RuntimeError("RM-793 missing")
+        if len(rights) != 15:
+            raise RuntimeError(f"rights {len(rights)}")
+        if rec["meta"]["round"] != ROUND:
+            raise RuntimeError("round")
+    if len(ids) != len(set(ids)):
+        raise RuntimeError(f"dup ids {ids}")
+    if set(sims) != {"designed", "simulated", "hil"}:
+        raise RuntimeError(f"sim mix {sims}")
+    if set(decisions) != {"ACCEPT", "MODIFY", "REJECT"}:
+        raise RuntimeError(f"decision mix {decisions}")
+    print("local_checks ok", [r["id"] for r in records], "ids", len(ids))
+    print("decisions", decisions, "sims", sims)
+
+
+def repo_validate(records):
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import curate_record, raster_status
+    from verify_execution import verify_batch_for_frontier
+
+    errs, warns, kinds, n = check_jsonl(
+        BATCH, "batch-r01.jsonl", staging=FactoryStaging(enabled=True)
+    )
+    print("check_jsonl", {"errors": len(errs), "warnings": len(warns), "kinds": kinds, "n": n})
+    for e in errs:
+        print("ERROR", e)
+    for w in warns:
+        print("WARN", w)
+    if errs or warns:
+        raise RuntimeError("check_jsonl failed")
+    for rec in records:
+        st = raster_status(rec, require_raster=True, require_routing_table=True)
+        if not st.get("raster_valid") or not st.get("gate_snn_valid"):
+            raise RuntimeError(f"raster_status {rec['id']} {st}")
+        if st.get("reason_codes"):
+            raise RuntimeError(f"reason_codes {rec['id']} {st['reason_codes']}")
+        decision, reasons = curate_record(rec)
+        print("curate_record", rec["id"], decision, reasons)
+        if decision != "retain":
+            raise RuntimeError(f"curate {rec['id']} {decision} {reasons}")
+    counts, findings, blocked = verify_batch_for_frontier(BATCH, strict=True)
+    print("frontier", counts, "blocked", blocked, "findings", findings)
+    if blocked or counts.get("verified") != 3:
+        raise RuntimeError(f"frontier blocked {counts} {findings}")
+    return {"check_jsonl": {"errors": len(errs), "warnings": len(warns), "kinds": kinds, "n": n}, "frontier": counts}
+
+
+def write_notes(records, lines):
+    sizes = [len(x.encode("utf-8")) for x in lines]
+    file_sha = hashlib.sha256(BATCH.read_bytes()).hexdigest()
+    events = [len(r["spike_events"]) for r in records]
+    isis = [r["raster"]["isi_count_identity"]["isi_total"] for r in records]
+    spikes = sum(r["raster"]["spikes"] for r in records)
+    energy = sum(r["raster"]["energy_pJ"] for r in records)
+    reward_s = []
+    for r in records:
+        lv = r["language_view"]
+        reward_s.append(f"+{lv['trajectory']['reward_components']['total']:.2f}")
+        for k, v in lv.items():
+            if k.startswith("trajectory_") and isinstance(v, dict):
+                reward_s.append(f"+{v['reward_components']['total']:.2f}")
+    notes = f"""# Neuromorphic Event + Language Bridge — NOTES round 01
+Run: 2026-09-02-final-heavy · Factory: neuromorphic-event-language-bridge · Generator: grok-4.6 · Output: `batch-r01.jsonl` (3 paired artifacts, 6 ThalamicTrajectories)
+Rights: RM-793 research-only (SpaceXAI/xAI grok-4.6, SuperGrok Heavy chat). Not training_ready. Create-only write of the missing r01 hole in `/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-09-02-final-heavy/neuromorphic-event-language-bridge/` (`batch-r01.jsonl` was absent; `next_round.py` reported 62 because r21/r41/r61 already exist). Does not clobber leftover-mill `/tmp/nelb-r*` or window r21/r41/r61.
+
+## Context / de-duplication
+Two newest NOTES read: window `NOTES-r61.md` (Stern-Volmer DO / pellistor LEL / FMCW tank-radar) and window `NOTES-r41.md` (LDA / coulometric KF / bender-element Vs). Newest batch skimmed: window `batch-r61.jsonl` (48-event trains). Leftover-mill occupancy through r70 was treated as a ban list (including r54 UCI which named Leeb rebound as unwritten, r66 60-degree gloss, r32 Hardveil-as-PALS-denial so this round uses Leapveil). IDs `nelb-r01-a1`…`a3` avoid leftover-mill numeric ids `040`–`211` and window `nelb-r21-a1` / `nelb-r41-a1` / `nelb-r61-184`. Envelope cloned from window r61 (`language_view.trajectory` + operational t2 + `spike_events` + `raster` + `gate_snn` + `isi_histogram` + `routing.third_factor` + 15-key RM-793 `meta.rights`).
+
+Banned this round (committed window r21/r41/r61 + leftover-mill r13–r70 families): not VOD-SNN, not pharma cold-chain, not CEMS; not FBG / quench / VRFB; not BOTDA / QCM-D / MsS; not SAW / CRDS / PGNAA; not IFOG / transmon / hyperspectral; not MEMS array / muon / x-ray DR; not optogenetic / 905 nm LiDAR / clamp-on; not LIBS / QEPAS / LFV; not Kaplan LDV / THz-TDS / ECT; not lock-in thermography / PAUT TFM / EN CUI; not RUS / N-16 / helium RGA; not FOCT / tip-timing / acoustic pyrometry; not SPR / VW viscometer / MW cavity; not MFL / NMR T2 / nucleonic SG; not JNT / CRNS; not Coriolis / CARS / XRF; not Mössbauer / GB-InSAR / ellipsometry; not CTA / SPND / LII; not PALS / NQR / SFRA; not shearography / H-permeation / FMCW lining; not GPR / mud-pulse / Barkhausen / Lamb; not Pockels / PEC / confocal; not OCT / DCPD / impact-echo; not phosphor-lifetime / vortex / GWR; not neutron-backscatter / beta-gauge / Raman; not cyclotron BPM / alanine EPR / ADCP; not TOFD / laser-flash / TDR; not Seebeck / coda-wave / LPR; not paramagnetic O2 / TEOM; not magmeter / PDA / acoustoelastic; not C-SAM / FDS tanδ / MCSA; not EMAT SH / FBRM / ACFM; not OFDR / XRD / FSM; not Gardon / chilled-mirror / DIC; not CLD NOx / API-670 / thermal-mass; not ER / Fabry-Perot / inductive debris; not wire-mesh / UCI / MAE; not IRIS / dual-wavelength pyrometer / UV-fluorescence OIW; not zirconia / PID VOC / pulse-echo; not Rogowski / BAM / FID / turbine k-factor / magnetostrictive; not UV-DOAS / Al2O3 / load-cell; not H2S / TEV / dielectric water-cut; not Stern-Volmer DO / pellistor / FMCW radar; not OA-ICOS / SERF / WGM; not LDA / KF / bender-element; not UV photometric ozone / triboelectric dust / molybdenum-blue phosphate; not Keidel-as-witness-only; not 60-degree gloss / RF-admittance / Ubbelohde; not FPD sulfur / idler-belt mdot. Plants not reused include Mirewhin, Lacquerfen, Pitchshaw, Rushcrag, Copsewick, Peatspire, Sedgewhin, Brinecrag, Lichenholt, Tealshaw, Pipitfen, Adderholt, Quernspit, Reedholt.
+
+Adjacencies declared in-pair then kept physically distinct:
+- **a1 CIE Lab ΔE** is a tristimulus remaining-color of a coil-coating kettle, not leftover-mill r66 60-degree gloss, not r16 hyperspectral crop, not r30 ellipsometry, not r38 OCT, not r23 lock-in thermography, not r51 DIC, not r68 UV photometric ozone.
+- **a2 P2O5 Keidel** is an electrolytic remaining-moisture of instrument air, not r59 Al2O3, not r51 chilled-mirror, not window r41 coulometric KF, not window r21 WGM, not r26 MW-cavity, not r60 dielectric water-cut, not r64 Clark DO.
+- **a3 Leeb rebound** is a vr/vi remaining-hardness of a forged mill roll, not r54 UCI (which named Leeb as unwritten), not r24 RUS, not r35/r37 Barkhausen, not r45 Seebeck, not r15 SAW, not r49 EMAT SH, not r32 PALS-vs-Hardveil.
+
+## Round 01 batch summary (3 pairs, 6 trajectories)
+
+| id | modality (NEW family) | domain | decisions | headline |
+|----|----------------------|--------|-----------|----------|
+| nelb-r01-a1 | CIE Lab remaining ΔE of a coil-coating kettle (sqrt(dL²+da²+db²), Labveil last-good denial, 18 min kettle-hold floor) | Wrenholt Coil Coat WC-3 kettle K-5 (invented): sqrt(3.00²+4.00²+12.00²) reconstructs 13.00 while Labveil still reads 1.80 | REJECT (+0.43) / MODIFY (+0.34) | serialized `sqrt(9+16+144)=13.00`; `9+16+144=169`; `sqrt(25+144)=13.00`; conjunctive SOP (ΔE AND SNR) forbids continue-coat; three-party collusion includes the Lab-cloud infra owner; companion t2 kettle-hold, plant ESD refused; sim_or_real=designed |
+| nelb-r01-a2 | P2O5 Keidel electrolytic remaining moisture of instrument air (k_k·I/Q ppmv, Dryveil last-good denial, 24 min cooldown floor) | Larkfen Instrument Air LF-8 dryer D-2 (invented, HIL dummy in KEIDEL-HIL-4): 4.00*12.00/2.00 reconstructs 24.00 ppmv while Dryveil still reads 3.20 ppmv | MODIFY (+0.40) / ACCEPT (+0.35) | serialized `4.00*12.00/2.00=24.00` and `12.00/2.00=6.00`; keep-running refused; Keidel tech Soren Pike exonerated (missing cell-zero AE, UTC vs UTC+2); companion t2 new-cell restart; sim_or_real=hil |
+| nelb-r01-a3 | Leeb D rebound remaining hardness of a forged mill roll (k_L·vr/vi HL, Leapveil last-good denial, 12 min survey floor) | Gannetshaw Forge GS-2 roll R-6 (invented, simulated LEEB-SIM-7): 1000*2.00/4.00 reconstructs 500.00 HL while Leapveil still reads 720 | ACCEPT (+0.41) / REJECT (+0.36) | serialized `1000*2.00/4.00=500.00`; `2.00/4.00=0.50`; `(500-100)/10=40.00`; bounded ACCEPT of R-6 only; R-1..R-5 out of scope; companion t2 REJECTS skip-survey; sim_or_real=simulated |
+
+Decision spread: REJECT / MODIFY / MODIFY / ACCEPT / ACCEPT / REJECT — **2A/2M/2R**. All three enums used, and all three sit on **leads**. Provenance spread: designed / hil / simulated (one each; never live-plant). IDs `nelb-r01-a1`…`a3` plus t1/t2 suffixes.
+
+## Raster sidecar
+Every record carries `raster` + top-level `gate_snn` + `gate_compute`. Windows 40/32/36 ms; `window_s == window_ms/1000` exactly; `spikes == round(neurons·rate·window_s)` with zero slack (48/40/43 at 50.0/62.5/75.0 Hz over 24/20/16 neurons); `energy_pJ = spikes·23` and `energy_uJ = spikes·23e-6` exact (1104/920/989 pJ). Routing source/target + 3-entry tables + `third_factor` on all three (modulators da.lab_deltae_conflict / ach.keidel_cellzero_skip_salience / na.leeb_scope_eligibility; τe 1.6/1.2/2.0 s as consistent `tau_e_s`+`tau_e_ms` pairs). Excerpts integer `t_us`, in-window, `neuron_id`-bounded, sorted, full-window by construction, per-spike amplitude with adaptation (0.82**k) plus noise. ISI histograms from the full window, bins ≥1 ms, counts sum to `spikes − distinct_active_neurons` ({isis[0]}/{isis[1]}/{isis[2]}). Same-neuron gaps ≥1100 µs pre-round, ≥1000 µs serialized. `gate_snn` on all three: decisions REJECT/MODIFY/ACCEPT matching each lead trajectory; every rate-declaring population's budget exact against its decision window. `gate_compute.per_check` windows 32–40 ms, budgets exact (160+64 / 128+80 / 144+80). Main streams: **52/52/52 events** (48+ factory contract, leftover-mill 5–40 thinning densified), strictly increasing `t_rel_ms` only (no `t_ms` mix), same-channel refractory ≥0.8 ms (a1 Lab pair at 1.4 ms, a2 Keidel pair at 1.2 ms, a3 Leeb pair at 1.5 ms).
+
+## Self-critique
+
+### Edge cases added vs still thin
+- **Added:** first CIE Lab remaining-ΔE family on a coil-coating kettle with recomputable dE=sqrt(dL²+da²+db²) (`13.00`) plus square and 5-12-13 split identities and three-party collusion including the Lab-cloud infra owner; first P2O5 Keidel electrolytic remaining-moisture family on instrument air with recomputable ppmv=k_k·I/Q (`24.00`) and I/Q identity, plus a resolved-innocent Keidel tech (timezone-skipped cell-zero, not last-to-badge); first Leeb D rebound remaining-hardness family on a forged mill roll with recomputable HL=k_L·vr/vi (`500.00`), ratio identity, and lumped HRC, filling the r54-named Leeb hole; 52-event streams; operational t2 on all three (kettle-hold, new-cell restart, skip-survey refusal); provenance trio designed/hil/simulated; 18 / 24 / 12 min slow floors in-stream; bounded ACCEPT whose out-of-scope clause is adjacent mill rolls rather than a hopper/taphole/dump.
+- **Still thin:** (i) a1's Lab is a lumped Euclidean ΔE, not an illuminant / observer / path-length table — a D65→F11 hop that fakes 13.00 inside a 1.80 Labveil corridor is unwritten; (ii) a2's k_k is a lumped uA→ppmv gain, not a flow / cell-efficiency map, so a Q hop that fakes 24.00 ppmv is unwritten; (iii) a3's k_L is a lumped Leeb D scale, not an impact-energy / coupling table, so a vi hop that fakes 500.00 HL inside a 720 Leapveil corridor is unwritten; (iv) vendor-only as a *lead* REJECT on a plant with *no* independent spectro/Keidel/Leeb installed yet remains slightly harder — a1/a2 still have plant heads; (v) stream amplitudes remain authored constants (raster draws are the only seeded noise).
+
+### Realism of noise / temporal fidelity
+- Strong: a1's 13.00 ΔE, 169.00 square, 5-12-13 split, and 18.0 min hold (`6000+1080=7080 s`) recompute from the record; a2's 24.00 ppmv, I/Q 6.00, and 24.0 min cooldown (`2820+1440=4260 s`) recompute; a3's 500.00 HL, 0.50 ratio, 40.00 HRC, and 12.0 min survey (`6000+720=6720 s`) recompute. Raster adaptation (0.82**k plus 4% noise) and the 1.2–1.5 ms physics pairs give the 52-event stream a raster-scale motif without violating 0.8 ms same-channel refractory.
+- **Gaps, honestly:** (i) 1 Hz spectro / 1 Hz Keidel / 1 Hz Leeb stacks are still thinned to a handful of physics points even at 52 events; (ii) a1's post-stop 12.00 ΔE is a later sample, not a closed-loop kettle controller; (iii) a2 HIL dummy times an in-service isolate that the stream does not independently witness on a second live dryer until the new cell starts; (iv) no gate_snn input→output volley pair at raster resolution this round (2026-08-30 r04-a1 already staged that).
+
+### Training value (SNN/LSM + agentic)
+Distillation targets: CIE Lab dE=sqrt(dL²+da²+db²) head plus square and split identities; conjunctive isolate floor vs continue-coat vs plant ESD; Labveil-infra collusion; Keidel ppmv=k_k·I/Q head plus I/Q identity; isolate-floor dryer vs keep-whole vs shop-trip; cell-zero AE / timezone exoneration; Leeb HL=k_L·vr/vi and ratio/HRC identities; bounded ACCEPT with R-1..R-5-out-of-scope; skip-survey refusal under survey takt. Agentic value concentrates in three patterns: reconstruction-as-SoT on a physical color/moisture/hardness load the raw corridor cannot see, earned ACCEPT with an explicit physical out-of-scope object (rolls R-1..R-5), and stop-then-hold so a REJECT does not become a line/header/stand kill.
+
+## What round 02 should add (next densification target)
+1. **Illuminant / observer table** on a non-WC-3 kettle so a D65→F11 hop fakes 13.00 ΔE inside a 1.80 Labveil corridor, closing a1's lumped-ΔE gap.
+2. **Flow / cell-efficiency map** on a non-LF-8 Keidel so a Q hop can fake 24.00 ppmv while mean I looks healthy.
+3. **Impact-energy / coupling table** on a non-GS-2 roll so a vi hop can fake 500.00 HL inside a 720 Leapveil corridor.
+4. **Vendor-only as a lead REJECT** on a plant that has no independent spectro/Keidel/Leeb installed yet (a1/a2 still had plant heads).
+5. **Do not restage** leftover-mill r13–r70 families, window r21 OA-ICOS / SERF / WGM, window r41 LDA / KF / bender-element, window r61 Stern-Volmer / pellistor / FMCW, Wrenholt WC-3 CIE Lab, Larkfen KEIDEL-HIL-4, or Gannetshaw LEEB-SIM-7. Do not steal leftover-mill ids `040`–`211` or window `nelb-r21-*` / `nelb-r41-*` / `nelb-r61-*`.
+
+## Verification
+`batch-r01.jsonl`: 3 lines, `json.loads`-clean (allow_nan=False), {sizes[0]}/{sizes[1]}/{sizes[2]} bytes (file {BATCH.stat().st_size}, sha256 `{file_sha}`). Create-only write to the factory dir after `/tmp/nelb-r01-window` staging. Repo gates: `check_records.check_jsonl` with `FactoryStaging(enabled=True)` → 0 errors, 0 warnings, kinds `{{bridge_pair: 3}}`; `curate_bridge.raster_status(..., require_raster=True, require_routing_table=True)` → raster_valid and gate_snn_valid true, empty reason codes; `curate_record(...)` → 3× retain / `BRIDGE_EVENTS_ALREADY_GLOBALLY_ORDERED`; `verify_batch_for_frontier(strict=True)` → 3 verified, 0 inconclusive, 0 failed. Build-time asserts: global time order; same-channel ≥0.8 ms; ≥48 events ({events[0]}/{events[1]}/{events[2]}); excerpt integer bounds, neuron bounds, sort, 1 ms per-neuron floor; ISI identity {isis[0]}/{isis[1]}/{isis[2]}; spike budgets exact; energy pJ/µJ exact; reward totals equal two-decimal component sums ({"/".join(reward_s)}); gate_snn decisions match lead `safety_decision.decision`; `state.sim_or_real` ∈ {{designed, hil, simulated}}; `meta.round=1`, `meta.factory=neuromorphic-event-language-bridge`, `meta.generator=grok-4.6`, `meta.run_label=2026-09-02-final-heavy`; `meta.rights` 15-key RM-793 stamp (`intended_use=research_only`, `linear_issue=RM-793`, `generated_at={GENERATED_AT}`); no hidden-reasoning keys; no `provenance` objects; no live-plant claims; no `training_ready`; all 9 record/trajectory ids unique. Raster seeds 202609011/202609012/202609013, MT19937.
+
+Honest novelty accounting: 3/3 modality families are new versus the committed 2026-09-02-final-heavy window (r21/r41/r61) and versus leftover-mill r13–r70 (CIE Lab ≠ gloss/hyperspectral/ellipsometry/OCT/DIC; Keidel ≠ Al2O3/chilled-mirror/KF/WGM/MW-cavity/dielectric; Leeb ≠ UCI/RUS/Barkhausen/Seebeck/SAW/EMAT, and r54 explicitly left Leeb unwritten). 52-event streams restore a factory density leftover mill dropped. In-stream slow floors, operational t2, and vendor-nonsubstitution are carried edges applied to new physics. Three-party collusion and exoneration were already taught on leftover-mill r13/r54/r56, so those heads are carried onto new sensors. Against that: bounded-accept-with-scope-limit, reconstruction-as-SoT, conjunctive SOP, and custody vocabulary are carried; 50+ leftover-mill rounds already taught custody/governance at high sophistication. Net: a bit over two-fifths of the round's scenario/edge mass is genuinely novel.
+
+Novel coverage: 44%
+"""
+    NOTES.write_text(notes, encoding="utf-8")
+    print("wrote", NOTES, "bytes", NOTES.stat().st_size)
+
+
+def create_only_copy(src: Path, dest: Path):
+    data = src.read_bytes()
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    fd = os.open(dest, flags, 0o644)
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
+    print("create-only wrote", dest, "bytes", dest.stat().st_size)
+
+
+def main():
+    occupancy_preflight()
+    records = [rec_a1(), rec_a2(), rec_a3()]
+    local_checks(records)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    lines = [
+        json.dumps(r, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        for r in records
+    ]
+    BATCH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print("wrote", BATCH, "bytes", BATCH.stat().st_size, "lines", len(lines))
+    for i, r in enumerate(records):
+        print(
+            r["id"],
+            "events",
+            len(r["spike_events"]),
+            "excerpt",
+            len(r["raster"]["excerpt"]),
+            "spikes",
+            r["raster"]["spikes"],
+            "isi",
+            r["raster"]["isi_count_identity"],
+            "sim",
+            r["language_view"]["trajectory"]["state"]["sim_or_real"],
+            "dec",
+            r["language_view"]["trajectory"]["safety_decision"]["decision"],
+            "bytes",
+            len(lines[i]),
+        )
+    repo_validate(records)
+    write_notes(records, lines)
+    # spike probe after notes so a probe failure still leaves staged artifacts
+    import spike_probe
+
+    rc = spike_probe.main(["--strict", str(BATCH)])
+    if rc not in (0, None):
+        raise RuntimeError(f"spike_probe rc {rc}")
+    create_only_copy(BATCH, DEST_DIR / "batch-r01.jsonl")
+    create_only_copy(NOTES, DEST_DIR / "NOTES-r01.md")
+
+
+if __name__ == "__main__":
+    main()

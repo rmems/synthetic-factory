@@ -1,0 +1,14 @@
+        if rec["id"] == "ttf-r116-597":
+            if "policy.go_accept" in table_tos:
+                issues.append("567 routing has go_accept")
+            if "policy.hold_reject" not in table_tos:
+                issues.append("567 missing hold_reject routing")
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["live_C"] < ev["trip_C"]):
+                issues.append("567 live not under trip")
+            if ev.get("burnout_upscale") is not True or ev.get("burnout_is_pv") is not False:
+                issues.append("567 leftover burnout-upscale not tagged")
+            if rec["executed_action"]["parameters"]["maleic_tph"] != 0.0:
+                issues.append("567 executed feed not zero")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("567 missing recovery")

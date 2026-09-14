@@ -1,0 +1,1 @@
+            "reflection": "Fetch failed: GitHub returned 429 with retry-after 7 while fetching ACL docs. Wait, then use the vendored docs/s3-acl-enforced.md fixture.",

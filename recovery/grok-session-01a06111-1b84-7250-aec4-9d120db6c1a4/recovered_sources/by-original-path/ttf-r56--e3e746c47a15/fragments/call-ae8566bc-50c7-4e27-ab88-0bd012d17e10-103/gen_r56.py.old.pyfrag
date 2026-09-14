@@ -1,0 +1,12 @@
+    notes = f"""# Thalamic Trajectory Factory — NOTES-r48
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- Quality: Q=5
+- IDs: `ttf-r48-256` … `ttf-r48-260`
+- Domains this batch: `visbreaker-soaker`, `wet-FGD-absorber`, `carbon-fiber-oxidation`, `pellet-induration-grate`, `steam-cracker-coil`
+
+These five domain slugs sit outside staged r13–r38 occupancy (including r32 `trona-calciner` / `hot-strip-mill`, r34 eaf / spray-dryer, r35 geothermal-ORC / urea-prill, r36 mine-skip-winder / HRSG-attemperator, r37 mushroom-compost / fcc-riser-regenerator, r38 ore-sinter-strand / fcc-riser / hydrogen-PSA-bed). All five plants are invented (Soaker-Naze, Limestone-Linn, Precursor-Oxle, Taconite-Sill, Ethene-Veld). Do not restack prior TTF plants.

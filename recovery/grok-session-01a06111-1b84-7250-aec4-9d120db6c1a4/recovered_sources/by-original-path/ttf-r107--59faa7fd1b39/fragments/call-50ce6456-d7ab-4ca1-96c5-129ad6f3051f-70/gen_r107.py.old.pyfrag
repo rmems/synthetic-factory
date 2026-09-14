@@ -1,0 +1,6 @@
+                "Chlorinator C-4 at Allyl-Haugh AH-6 still shows residual-chlorine IR at 420 ppm "
+                "versus an 80 ppm stack cap. Propylene FT is a published feedforward 6.0 t/h, 3.0 "
+                "under a 9.0 t/h disturbance envelope; ff_is_pv is false and both tags carry LIVE. "
+                "IR-first must cut chlorine 8.4 t/h to 5.2. The weak supervisor binds the feedforward "
+                "FT as if it were feedback and spends the cut on propylene 6.0 -> 2.1 t/h, leaving "
+                "8.4 t/h chlorine cruising.",

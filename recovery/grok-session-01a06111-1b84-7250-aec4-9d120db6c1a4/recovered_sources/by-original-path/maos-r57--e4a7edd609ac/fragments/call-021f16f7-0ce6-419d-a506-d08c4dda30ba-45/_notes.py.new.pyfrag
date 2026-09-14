@@ -1,0 +1,275 @@
+def write_notes(rec, aux, pipeline_receipt):
+    gap, gap_ch = min_same_channel_gap(rec["spike_events"])
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 57
+
+Factory: multi-agent-ouroboros-swarm. One scenario (ZD), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r57.jsonl. Full labeled transcript:
+swarm-transcript-r57.md. Quota Q=1. Record id maos-r57-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Nothing under outputs/raw/ was touched.
+
+ORCHESTRATION NOTE: dispatched AS round 57 of the 2026-09-02-final-heavy
+window. Writes are create-only under /tmp/maos-r57/. Prior context read for
+gap targeting and de-collision: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, and staged r14–r54 plus in-flight r55 (re-censused
+immediately before emit; r50 GAUZEFELL nitric OA-4, r51 OSMOLITH SWRO RO-8,
+r52 PUSHERFELL coke CB-6, r53 CREELWOLD oxidation OX-6, r54 LIXIVQUERN Bayer
+BD-6 complete; r55 OSMOQUAY / Tidecairn RO-7 swro-high-pressure-train
+builder-only at lock). Explicitly avoided cloning
+LYOSHIELD, CINDERWICK, TRIAD / Meridian, QUILLFORGE, NIGHTWELL, FERRICLEAVE,
+CASSITER, OXBOWREEL / MURENA, REDHALL, SEEDLATCH / Quartzmere / Quartzridge,
+STRIAFOIL / Kelpholt, PROTONIL / Ashspire, TORSIONKEY / Ridgeholt, ORRIS /
+Holmwick, WHORLSPAR / Pikeshear, IONSPATE / Thornmere, SKULLGATE / Bloomholt,
+CALXION / Aldersedge, MAGNORIL / Basaltspit, GORSEFLUE / Copseholt,
+SODASHARD / Cairnmere, CLINKERFELL / Flintmere, LINTELPLY / Greystair,
+KAOTHARN / Riftwold, TREADNOLL / Slatebeck, ANOLITH / Siltfen,
+DRUMWROTH / Pitchfen, RIMEBRAID / Floeholt, BRIMVAULT / Pyritefen,
+NITROSTAITH / Chalkfen, BOGIRON / Mireholt, CHROMLOOP / Marlfell,
+NITREVAULT / Glaucove, ETHYNWOLD / Woadfen, RUNNELGATE / Ghyllmere,
+SPARKHOLT / Scoriafen, DIPLEGAR / Gritfen, OLEUMWEIR / Brindlefell,
+SKARVOLT, GOBSPALL / Culletfen, GOBWOLD / Culletwick, GAUZEFELL / Ammoxwick,
+OSMOLITH / Spumeholt, PUSHERFELL / Sootmere, CREELWOLD / Rovingholt,
+LIXIVQUERN / Bauxfen, OSMOQUAY / Tidecairn,
+VANTIS-CADENCE-AEGIS, THERMION, OKTAVE, STARLING, VERDIGRIS. Plant is
+invented SIPHONWOLD / Reedfen Paper PM-6.
+
+## What this round produced
+
+Scenario ZD — "SIPHONWOLD / Reedfen Paper PM-6": a 48-can steam dryer
+at 982 m/min / 8.5 m sheet. Three heterogeneous, individually-correct
+agents — STEAM (header pressure), SPEED (section encoder), MOIST
+(scanner CD-mean) — each report their local loop in-spec. The
+conjunction is not a can-true certificate. Rotary siphons on cans 18-22
+have failed. STEAM reads 3.82 bar inside 3.40-4.20 (43 live siphons
+dominate the common header). SPEED is 982 m/min inside 960-1010
+(drive-true). MOIST is 7.4 pct inside 6.8-8.2 (mean-true of a 400 mm
+wet streak drowned in 8.5 m). Can-surface IR infers 84 C (healthy
+118-128; hold if < 105) and condensate dP 0.18 bar (hold if < 0.35)
+but is policy-treated as a sticky-probe tag unless steam-header also
+trips (2016 noisy can-TC after a felt change). The coordination-failure
+CLASS is new to this factory: SIPHON BLOW-THROUGH CERTIFICATE OF A
+HEADER-TRUE DRYER. Completes a different family than r01-r04 and staged
+r14-r55 (livelock / synchrony-storm / arms-race / ring-with-no-faulty-pair
+/ false-consensus-endpoint / pairwise-Hurwitz / thermal-contact masquerade
+/ mass-balance ghost / conservation-blind ratio-lock / stacked-dead-bands
+/ drum-blind tension snag / resistance-compensated starvation / multi-tau
+meniscus tilt / window-mean stripe / polarization-lookup drying cell /
+motor-side certificate / tendon-compliance nullspace / FFT-deadbanded
+airline / wall-reflection frozen spout / slag-skull bridge /
+ghost-contact nullspace / crucible-weep pyrometer / TMT-spatial-mean
+tube / kiln-inlet false-air / vacuum-bag pinhole nullspace / NCG-blanket
+shell-pressure / bladder-pinhole mold-TC / catholyte-back-migration /
+delayed-coker wet-foam / MCHE warm-end ice / incinerator-masked furnace
+bypass / basket-bypass hotspot / burden-hang scaffold / HDPE loop wall-dT
+/ Haber loop-exit nullspace / Kaplan wicket / ethylene-coil TMT /
+FCC cyclone dipleg / contact-bed conversion / EAF water-panel /
+IS-machine gob residual / Ostwald NH3-slip / ERD seal / through-wall
+crack / tow-overlap exotherm / Bayer shell-jacket / SWRO HP train).
+Here every agent is correct, the steam average is looking at header-true
+pressure, and the playbook's three header confirms are not a can-true
+certificate. Distinct from r28 kraft-recovery (smelt-spout IR vs drum,
+not dryer siphons) and from r19 float-glass (tin-bath dew-point, not
+steam cans).
+
+The gate is a correct MODIFY (numeric floor: do not raise speed above
+982 m/min while can-IR < 105 C AND condensate dP < 0.35 bar). TG-PM-6
+strips PB-PM-6's speed-raise, holds 982 m/min, runs a 6.8 s steam-header
+step -0.15 bar (blow-through keeps |Delta moisture-mean| 0.05 <= 0.08
+pct; live would move >= 0.28), and isolates cans 18-22 after an 11.4 min
+dryer-hood human ratify. Immediate wet-streak sheet break is avoided
+(0 from the draft). The PRIMARY episode nonetheless FAILS: 19 min of
+unmonitored pre-t0 blow-through had already glazed the pickup felt.
+Sheet break at +5.1 h; 18 h outage; $0.94M designed. Reward total -0.16
+with process heads honest and world loss un-netted.
+
+Triple-edge scar (NOTES-r14 item 4): steam.in_band -> speed_raise
+(0.17 commissioned -> 0.50 at illusion -> 0.25 after ACh-gated
+depression) AND speed.ok -> speed_raise (0.16 -> 0.44 -> 0.22) AND
+moist.mean.in_band -> speed_raise (0.15 -> 0.41 -> 0.20). Eligibility
+trace e^{{-0.80/0.92}} = {aux['trace']:.5f}; eta {aux['eta1']:.5f} / {aux['eta2']:.5f} /
+{aux['eta3']:.5f}; dw -0.250 / -0.220 / -0.210. Partial rollback of any pair
+leaves the third at 0.50 / 0.44 / 0.41, all > 0.30 fire threshold —
+fitted to fail. Coordinated depression of all three is the cure.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **paper-machine-dryer-section** — justified novel
+  subdomain of industrial-process / pulp-and-paper drying, unused across
+  2026-08-17, 2026-08-30, and staged r14-r55. Not warehouse-amr (r01),
+  not aerial-swarm (r02), not district-heating (r03), not
+  event-camera-traffic-grid (r04), not lyophilization (r14), not
+  water-treatment (r18), not float-glass (r19), not underwater-rov
+  (r20), not electrolytic-aluminum (r21), not czochralski-pull (r22),
+  not slot-die coating (r23), not pem-electrolysis (r24), not
+  wind-turbine pitch (r25), not surgical-assist (r26), not
+  optical-fiber-draw (r27), not kraft-recovery (r28), not steel-caster
+  (r29), not humanoid-locomotion (r30), not vacuum-induction melt
+  (r31), not steam-methane reformer (r32), not cement-rotary-kiln
+  (r33), not autoclave-composite-cure (r34), not geothermal-binary-orc
+  (r35), not tire-curing-press (r36), not chlor-alkali (r37), not
+  delayed-coker (r38), not LNG MCHE (r39), not Claus (r40), not
+  ammonia-converter (r41), not blast-furnace (r42), not HDPE loop
+  (r43), not Kaplan (r44), not ethylene cracker (r45), not FCC riser
+  (r46), not FCC dipleg (r47), not sulfuric-contact (r48), not
+  EAF foamy-slag (r49), not nitric Ostwald (r50), not seawater RO
+  (r51), not coke-oven (r52), not carbon-fiber oxidation (r53), not
+  Bayer digestion (r54), not SWRO HP train (r55 in-flight).
+  autonomous-driving, grid-inspection, bioreactor-perfusion,
+  alkaline-water-electrolysis, and hot-strip-mill left unused.
+  Distinct from kraft recovery: this is a paper-machine steam dryer,
+  not a recovery-boiler smelt spout.
+- Cycle-1 tail: cans 18-22 rotary-siphon blow-through + felt-glaze
+  certificate. Dryer-hood visual PASSES (siphon elbows inside the can
+  journals). Fitted-style base rate 0.44%/campaign (siphon-wear MC;
+  visual threshold designed, flagged). Naive = FALSE PERMISSION.
+- Cycle-2 domain sub-variant: tissue yankee / single-can, 0.22x thermal
+  mass, 3.1x steam-step gain; 6.8 s / -0.15 bar multi-can pulse overshoots
+  live siphon to a 0.41 pct false moisture move; probe must move to
+  19 s / -0.05 bar.
+- Cycle-2 tail: night-shift forged can-IR CSV at 5 C quantization vs
+  plant 0.5 C (10 bins) plus live IR 84 C and condensate dP 0.18 bar
+  at the claimed can-true. Human-intent class, disjoint from cycle 1's
+  accidental siphon failure. Base rate ~0.31% of Sunday-night campaigns,
+  DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+4 d sister machine) with its own 182 us
+  race (demand vs siphon-clear) and ACCEPT of the speed-raise the primary
+  MODIFIED away.
+- Learned-weight provenance on THREE edges with pair-rollback-fails.
+- HITL dryer-hood ratify 11.4 min (gap 4 partial; sim_or_real stays
+  designed).
+- Governance CR-P-5706 prices retire-vs-probe-vs-status-quo and mandates
+  native 0.5 C CSV exports (the fraud fence).
+- Flip-fragility extended to CAN-TRUE CERTIFICATE: when three
+  header-side channels agree, their race does not decide truth; a
+  can-IR tap that policy treated as sticky-probe-only does.
+
+## Self-critique of this round's batch
+
+### Strengths
+- The headline class is mechanistically tight: three locally-true header
+  loops live on steam-header pressure, machine speed, and CD-mean moisture.
+  Conjunction is not a can-true heat certificate.
+- Negative-result honesty: the gate does the right thing and the
+  machine still fails for a reason the commissioned sensors could
+  not see. Total -0.16.
+- Triple-edge scar is load-bearing: the record states a counterfactual
+  where rolling back any pair fails, with the fire threshold 0.30
+  exhibited on each remaining edge.
+- Contrast ACCEPT on a true dry-sheet window prevents "never
+  raise speed" as the lesson.
+- Distinct from r28 kraft-recovery spout, r19 float-glass tin-bath,
+  r52 coke-oven wall crack, r53 carbon-fiber zone-mean, r54 Bayer
+  shell-jacket, and r51/r55 SWRO: multi-can dryer siphon blow-through
+  with can-IR vs steam-header, not smelt IR, not dew-point, not wall-dT,
+  not fiber IR, not autoclave jacket, not ERD dP.
+
+### Weaknesses (honest)
+- Probe error bands, the 0.44%/campaign siphon rate, the $0.94M / $1.82M
+  figures, the 11.4 min climb latency, and the night-shift 0.31% base
+  rate are DESIGNED constants and are flagged. Closed-loop offsets
+  (header dilution from five leaking cans, yankee d-moist)
+  are derived from those inputs, not discovered by an unauthored process.
+- Felt-glaze model is a designed 19 min mapping; no full CFD of the
+  18-22 condensate header shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil. Gap 4
+  remains open as a provenance cell.
+- Cross-record arc is not discharged; +21 d CR-P-5706 is a hook, not a
+  serial igniter into another round. autonomous-driving,
+  grid-inspection, bioreactor-perfusion, alkaline-water-electrolysis,
+  and hot-strip-mill remain unused.
+
+### Realism of noise / latencies
+Ladder: 192 us race / 182 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap {gap:.3f} ms on {gap_ch}) / 500 us race
+window / 714 us gate latency / 20 ms bus epoch / 40 ms raster / 6.8 s
+probe / 11.4 min HITL / 8 min naive speed-raise-ramp counterfactual / 19 min
+pre-t0 blow-through / 3.8 h siphon recovery / 5.1 h sheet break /
++4 d contrast / +21 d governance. Adaptation decay on steam.hdr
+(0.54->0.51->0.44->0.31), can.ir (0.76->0.78->1.36->0.45->0.41->0.29),
+speed.ok (0.55->0.57->0.47->0.26), moist.mean (0.61->0.64->0.82).
+
+### Value for SNN distillation
+- SIPHON BLOW-THROUGH = THREE CORRECT LOOPS, WRONG VOLUME.
+- CAN-TRUE IR CHANNEL that policy treated as sticky-probe-only as
+  the tie-break.
+- REVERSIBLE PROBE that recouples moisture mean iff the siphons are live.
+- TRIPLE-EDGE ELIGIBILITY: coordinated depression; pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum {rec['reward_components']['total']}
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.49 reconciles independently.
+- spike_events: primary {len(rec['spike_events'])} events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap {gap:.3f} ms >= 0.8 ms, 3
+  channels inside race_window_us 500 (can.ir.low 6.514, steam.in_band 6.706,
+  moist.mean 6.894). Contrast 8 events, own race, min same-channel gap well
+  above 0.8 ms.
+- Sidecars: raster spikes 51 == round(160 x 8.0 x 0.040); energy 1173 pJ /
+  0.001173 uJ at 23 pJ/spike; excerpt 16 events inside [0, 40000] us,
+  neuron_id < 160, same-neuron gap N/A (unique ids) / >=1000 us; routing 4
+  entries with three scar edges' before/after pair; third factor tau 0.92 s
+  == 920 ms; gate_snn pools 40/16/4 == round(n x rate x 0.025) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: {pipeline_receipt}
+
+## Novel coverage
+The coordination-failure CLASS (siphon-blow-through certificate of a
+header-true dryer), the domain (paper-machine dryer section / pulp-and-paper
+drying), the steam-step probe discriminant, the triple-edge scar with
+pair-rollback-fails, the primary negative-result (correct MODIFY,
+machine still fails on unmonitored felt glaze), the HITL dryer-hood
+ratify, the tissue-yankee probe-duration refit, and the night-shift
+10-bin quantization fence are absent from prior committed ouroboros
+rounds and from staged r14-r55. Repeated elements discounted:
+same-gate contrast (r02/r03/r04/r14), governance-pricing scaffold,
+flip-fragility series (extended to can-true certificate, but the
+move rhymes), sequenced recovery shape, third-factor rollback form (here
+three edges rather than r14's two), negative-result primary (r14 staged).
+Adjacent heavy-industry rounds (r28 kraft recovery, r19 float-glass,
+r52 coke-oven, r53 carbon-fiber, r54 Bayer) share industrial-process
+scaffolding but not dryer-siphon physics. Weighing a new failure family
++ cure vocabulary + domain against those reused scaffolds:
+
+{NOVEL_LINE}
+
+## What ROUND 58 should add
+1. FIT THE DESIGNED CONSTANTS: siphon-wear arrival, probe error bands,
+   felt-glaze kinetics, night-shift claim process.
+2. HIL PROVENANCE CELL: put the dryer-hood ratify on a
+   hardware-in-loop dryer interlock with fitted latency as
+   state.sim_or_real=hil.
+3. CROSS-RECORD ARC: let CR-P-5706's residual alarm be the igniter of
+   the next round rather than a dangling +21 d leaf.
+4. Domain candidates (de-collided): autonomous-driving; grid-inspection
+   (if distinct from STARLING aerial-swarm and TORSIONKEY pitch);
+   bioreactor-perfusion; alkaline-water-electrolysis; hot-strip-mill.
+   AVOID paper-machine-dryer-section (now used), kraft-recovery,
+   coke-oven-battery-heating, carbon-fiber-oxidation-oven,
+   bayer-alumina-digestion, seawater-ro-desalination,
+   swro-high-pressure-train, sulfuric-contact, eaf-foamy-slag,
+   glass-container-is-machine, fcc-regenerator, blast-furnace burden
+   descent, delayed-coker, LNG MCHE, chlor-alkali membrane,
+   cement-rotary-kiln clinker, pem-electrolysis, electrolytic-aluminum,
+   humanoid-locomotion, steel-caster mold-level, surgical-assist,
+   wind-turbine pitch, float-glass, lyophilization,
+   event-camera-traffic-grid, district-heating, aerial-swarm,
+   warehouse-amr, underwater-rov, czochralski-pull, slot-die coating,
+   optical-fiber-draw, vacuum-induction melt, steam-methane reformer,
+   irrigation-canal, autoclave-composite-cure, geothermal-binary-orc,
+   tire-curing-press, Claus sulfur recovery, ammonia converter,
+   HDPE slurry loop, ethylene-steam-cracker coil, Kaplan wicket, nitric
+   Ostwald, and any LYOSHIELD / CINDERWICK / TRIAD / SKULLGATE / CALXION
+   / MAGNORIL / GORSEFLUE / CLINKERFELL / SODASHARD / LINTELPLY /
+   KAOTHARN / TREADNOLL / ANOLITH / DRUMWROTH / RIMEBRAID / BOGIRON /
+   CHROMLOOP / NITREVAULT / ETHYNWOLD / RUNNELGATE / SPARKHOLT /
+   DIPLEGAR / OLEUMWEIR / SKARVOLT / GOBSPALL / GOBWOLD / GAUZEFELL /
+   OSMOLITH / PUSHERFELL / CREELWOLD / LIXIVQUERN / OSMOQUAY /
+   SIPHONWOLD plant.
+"""
+    (OUT / "NOTES-r57.md").write_text(notes)
+    return notes

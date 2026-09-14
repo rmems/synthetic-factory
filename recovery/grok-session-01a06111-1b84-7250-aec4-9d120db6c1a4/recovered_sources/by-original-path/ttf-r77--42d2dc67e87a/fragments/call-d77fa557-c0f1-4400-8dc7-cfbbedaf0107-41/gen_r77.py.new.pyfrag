@@ -1,0 +1,5 @@
+                "Steamchar-Riggs SR-3 / SK-7 steam-activation retort publishes NDIR CO at 194 ppm "
+                "against a 95 ppm stack limit while the encoder is still a lawful 1.7 rpm (2.5 rpm "
+                "ceiling). The CO publisher arriving first is the only legal reason to drop RPM to "
+                "1.05; brick 718 C never licensed a hold. The AE dump from a torn retort tube is "
+                "invisible to both race channels until 22.6 ms.",

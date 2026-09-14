@@ -1,0 +1,1 @@
+    channels = ["lif.clamp" if t < 22000 else "lif.leak" for t, _ in picked]

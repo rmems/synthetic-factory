@@ -1,0 +1,2 @@
+        if abs(math.fsum(delta["per_component"].values()) - delta["total"]) > 1e-6:
+            raise SystemExit(f"delta total {record['id']}")

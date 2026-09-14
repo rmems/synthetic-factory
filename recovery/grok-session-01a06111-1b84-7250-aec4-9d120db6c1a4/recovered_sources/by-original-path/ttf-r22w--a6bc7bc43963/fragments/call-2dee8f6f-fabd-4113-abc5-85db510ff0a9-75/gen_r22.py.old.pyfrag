@@ -1,0 +1,2 @@
+BATCH_PATH = OUT_DIR / "batch-r22.jsonl"
+NOTES_PATH = OUT_DIR / "NOTES-r22.md"

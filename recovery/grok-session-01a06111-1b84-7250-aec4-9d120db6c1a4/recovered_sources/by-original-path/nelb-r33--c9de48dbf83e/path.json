@@ -1,0 +1,66 @@
+{
+  "agent_ids": [
+    "01a0640a-3687-7173-9835-5d41c7f97869"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 2,
+  "final_state": "unknown",
+  "hunk_evidence_count": 10,
+  "original_basename": "gen_r33.py",
+  "original_path": "/tmp/nelb-r33/gen_r33.py",
+  "path_key": "nelb-r33--c9de48dbf83e",
+  "terminal_event_ids": [
+    "01a0640a-3686-7ea1-bd97-53bd0249e591:call-447d02a3-78df-481e-8660-da989b136ccc-39",
+    "01a0640a-3687-7173-9835-5d41c7f97869:call-5037e1da-3c60-4956-86ed-b303b4e69272-29",
+    "01a0640a-3687-7173-9835-5d41c7f97869:call-5984724a-bf59-4b41-ae88-5651fd1776cf-35",
+    "01a0640a-368c-7f41-8593-296166a8d8fd:call-833f8d46-6590-4a9c-a17f-96f6980880e7-31",
+    "01a0640a-368e-7fb1-ac2b-f5b9e6448478:call-1fb05d6f-0996-4662-ae00-17fe39c41ea6-35",
+    "01a0640a-368e-7fb1-ac2b-f5b9e6448478:call-8566a5f9-3082-4371-85d2-e4c2c53e2139-8",
+    "01a0640b-4746-7ef2-bfce-44b5ffcffc6b:call-49bd5aee-3b10-4316-814e-fba52d92e97d-36",
+    "01a0640b-4746-7ef2-bfce-44b5ffcffc6b:call-ceb732fb-14de-46ab-8017-24a9f2d0656e-39",
+    "01a0640b-4746-7ef2-bfce-44cfc480a474:call-3d62240f-0eab-4bc9-86a7-73803475c2d8-42",
+    "01a0640b-4746-7ef2-bfce-44cfc480a474:call-5d6358e9-7f6d-4160-9c24-a372c983c8f0-37",
+    "01a0640b-4747-72f2-a0e8-e80d84712595:call-9caf47ce-3cbb-401f-a989-1d66eff2c716-38",
+    "01a0640c-18bf-7fa1-84e1-3406acf8b886:call-cc99b9c7-1b1c-477f-835e-61500a6718bc-16",
+    "01a0640c-18c5-7442-806a-afa805abfeba:call-968e5980-420c-4930-9869-ca0d5857dd58-10"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 3,
+  "unresolved_events": [
+    {
+      "channel": "terminal",
+      "event_id": "01a0640a-3687-7173-9835-5d41c7f97869:call-5037e1da-3c60-4956-86ed-b303b4e69272-29",
+      "journal_line": 169,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640a-3687-7173-9835-5d41c7f97869/updates.jsonl",
+      "operation": "unparsed_redirect_write",
+      "reason": "unparsed_redirect_write was recorded but is not conclusively reproducible without execution",
+      "timestamp_utc": "2026-09-02T22:16:27.205Z"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0640a-3687-7173-9835-5d41c7f97869:call-136e3614-1658-40f6-8a77-ce4f1770ce33-32",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r33--c9de48dbf83e/fragments/call-136e3614-1658-40f6-8a77-ce4f1770ce33-32/gen_r33.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r33--c9de48dbf83e/fragments/call-136e3614-1658-40f6-8a77-ce4f1770ce33-32/gen_r33.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0640a-3687-7173-9835-5d41c7f97869:call-235ad9de-78db-4141-ad98-0ea23420390e-33",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r33--c9de48dbf83e/fragments/call-235ad9de-78db-4141-ad98-0ea23420390e-33/gen_r33.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r33--c9de48dbf83e/fragments/call-235ad9de-78db-4141-ad98-0ea23420390e-33/gen_r33.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

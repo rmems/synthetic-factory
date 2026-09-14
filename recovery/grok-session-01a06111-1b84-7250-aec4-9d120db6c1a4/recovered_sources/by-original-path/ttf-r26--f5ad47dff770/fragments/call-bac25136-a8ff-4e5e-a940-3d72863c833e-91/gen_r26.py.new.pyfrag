@@ -1,0 +1,28 @@
+                "Process-correct MODIFY held bag at 7.2 kPa abs. At 21.200 ms a wrinkle already "
+                "seeded in ply 4 opened. Clamp reduced dump energy; it did not prevent the wrinkle. "
+                "Partnered negative: process heads stay honest; world loss is named, not netted.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("bag", "clamp executed; peak 7.2 kPa abs < 8.0 cap"),
+                        ("ply_4", "wrinkled at 21.200 ms"),
+                        ("repair", "15 min bag swap (abort_s=900)"),
+                        ("mission", "TN-5 cure incomplete this circuit"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Neither bag vacuum nor part TC predicted the seeded wrinkle; ae.bag.wrinkle is a new channel at 21.200 ms, 15.340 ms after the gate, still inside the 42 ms raster.",
+                    "Delayed (abort_s=900): 15 min bag swap. Named un-netted loss, not folded into task_progress.",
+                ],
+            ),
+            (
+                "un_netted_loss",
+                "15 min bag swap after ply-4 wrinkle. Safety head -0.56 prices the wrinkle; "
+                "task_progress stays +0.34 because the heater clamp completed under the 8.0 kPa "
+                "cap. World loss is named here, not subtracted from process heads.",
+            ),

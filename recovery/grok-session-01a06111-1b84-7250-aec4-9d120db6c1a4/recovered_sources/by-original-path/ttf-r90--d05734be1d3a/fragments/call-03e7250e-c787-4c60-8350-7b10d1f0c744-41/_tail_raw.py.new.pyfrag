@@ -1,0 +1,4 @@
+- IDs: `ttf-r90-466` … `ttf-r90-470`
+- Domains this batch: `silicone-d4-equilibrator`, `polyether-polyol-alkoxylator`, `pmma-bulk-reactor`, `h2o2-ao-hydrogenator`, `optical-fiber-mcvd`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged r13–r89 occupancy (jsonl SoT plus incomplete gens r78/r81–r89, including r80 Cativa/Nitram/Quartzite/Acryl/Lithia, r82 MTO-SAPO/HDPE-slurry/sapphire/neoprene/LNG-MR, r84 nylon-66/MTO-riser/acrylic-ox/Penex/KF2HF, r86 DMC/ETBE/perchlorate/pentaerythritol-aldol/PTFE-autoclave, r87 CS2/Lurgi-MeOH/RKEF/Wacker/TiCl4-chlorinator, r88 pentaerythritol-condenser/V2O5-flaker/TiCl4-still/NPG-aldol/isoprene-ACN, r89 GaAs-CZ/cyanuric/ZrCl4-still/xanthan/In-cementation). All five plants are invented (Silox-Frith, Alkox-Grove, Pmma-Chine, Hydranth-Ley, McVd-Hanger). Do not restack prior TTF plants.

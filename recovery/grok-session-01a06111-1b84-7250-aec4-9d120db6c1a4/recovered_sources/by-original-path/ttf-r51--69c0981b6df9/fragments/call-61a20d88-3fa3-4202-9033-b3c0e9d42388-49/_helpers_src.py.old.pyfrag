@@ -1,0 +1,14 @@
+THIS_DOMAINS = {
+    "anode-bake-furnace",
+    "methanol-converter",
+    "styrene-dehydro-reactor",
+    "fischer-tropsch-slurry",
+    "viscose-spin-bath",
+}
+THIS_PLANTS = (
+    "Rammer-Clough",
+    "Syngas-Haugh",
+    "Ethyl-Lynchet",
+    "Wax-Carr",
+    "Xanthate-Toft",
+)

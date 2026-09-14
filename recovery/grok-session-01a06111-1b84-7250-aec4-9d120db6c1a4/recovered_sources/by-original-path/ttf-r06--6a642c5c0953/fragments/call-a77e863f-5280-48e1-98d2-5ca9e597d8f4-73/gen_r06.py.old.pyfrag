@@ -1,0 +1,63 @@
+            "name": "cruise_pickface_index",
+            "parameters": {
+                "speed_mps": 0.42,
+                "yaw_rps": 0.08,
+                "bumper_force_N": 14.8,
+            },
+            "evidence": {
+                "bumper_N": 14.8,
+                "bumper_cap_N": 12.0,
+                "predicted_unclamped_next_N": 13.6,
+                "torso_lidar_m": 1.18,
+                "torso_floor_m": 0.90,
+                "race_margin_us": 260,
+                "combined_jitter_us": 80,
+            },
+            "basis": "Planner proposes 0.42 m/s pick-face index: torso lidar 1.18 m looks like a clear aisle, not contact, and the 0.90 m floor is treated as still satisfied.",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "correctness": "correct",
+            "rationale": "Bumper FT 14.8 N won by 260 us, so the tote is loading the pallet lip, not still ranging a clear aisle. Holding 0.42 m/s predicts next-sample 13.6 N > 12.0 N cap. MODIFY: speed 0.42 -> 0.18 m/s. Observed after clamp 11.1 N < 12.0. A full REJECT is not indicated: a seated pick face accepts 0.18 m/s. Yaw stays 0.08 rad/s.",
+            "constraint_checked": {
+                "bumper_N": {
+                    "cap": 12.0,
+                    "observed": 14.8,
+                    "predicted_unclamped_next": 13.6,
+                    "observed_after_clamp": 11.1,
+                },
+                "speed_mps": {"proposed": 0.42, "clamped": 0.18},
+                "yaw_rps": {"held": 0.08},
+                "order_evidence": {"margin_us": 260, "combined_jitter_us": 80, "ratio": 3.25},
+            },
+        },
+        "executed_action": {
+            "name": "clamped_pickface_index",
+            "parameters": {
+                "speed_mps": 0.18,
+                "yaw_rps": 0.08,
+                "bumper_force_N": 11.1,
+            },
+            "gate_effect": "MODIFY: speed 0.42 -> 0.18 m/s. Process-correct vs the 12.0 N cap. Pallet-stringer split still occurs at 23.800 ms.",
+        },
+        "future_outcome": {
+            "summary": "Process-correct MODIFY held bumper force at 11.1 N. At 23.800 ms a pallet stringer split under the right tine. Clamp reduced impact energy; it did not prevent the split. Partnered negative: process heads stay honest; world loss is named, not netted.",
+            "state_delta": {
+                "tote": "clamp executed; peak 11.1 N < 12.0",
+                "pallet": "stringer split at 23.800 ms",
+                "repair": "9 min aisle isolate + stringer swap",
+                "mission": "pick face still seated; stringer isolated",
+            },
+            "surprises": [
+                "Neither bumper FT nor torso lidar predicted the split; pallet.stringer.split is a new channel at 23.800 ms, 16.100 ms after the gate, still inside the 42 ms raster.",
+                "Delayed (9 min / delayed_surprise_s=540): aisle isolate and stringer swap. Named un-netted loss, not folded into task_progress.",
+            ],
+            "un_netted_loss": "9 min aisle isolate + pallet-stringer swap after a tine split. Safety head -0.58 prices the split; task_progress stays +0.30 because the force clamp completed under the 12.0 N cap. World loss is named here, not subtracted from process heads.",
+            "race_result": {
+                "winner": "ft.bumper.n (6.980 ms, 14.8 N)",
+                "loser": "lidar.torso.m (7.240 ms, 1.18 m)",
+                "margin_us": 260,
+                "counterfactual_if_reversed": "Lidar-first by < 260 us inside the 480 us window would have kept 0.42 m/s; predicted next-sample 13.6 N would have exceeded the 12.0 N cap even without the stringer split. The MODIFY is still the correct process. The split is a later world charge either way, cheaper with the clamp than without.",
+            },
+            "reward_inflection_t_us": 23800,
+            "reward_inflection_note": "Safety collapses at the 23.800 ms pallet-stringer split (tick t_us=23800), inside the 42 ms raster. The correct MODIFY at 7.700 ms is in the same excerpt. Do not put inflection on the +9 min aisle-isolate tick.",

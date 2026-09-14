@@ -1,0 +1,21 @@
+            ("name", "hold_dip_1p40"),
+            ("parameters", params),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("bath_C", 452.0),
+                        ("bath_cap_C", 470.0),
+                        ("dross_C", 438.0),
+                        ("dross_cap_C", 455.0),
+                        ("race_margin_us", 220),
+                        ("combined_jitter_us", 70),
+                        ("reseq_s", 240),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Bath 452 C is under the 470 C cap and dross IR 438 C is under "
+                "the 455 C cap; 1.40 m/min hold is already legal.",
+            ),

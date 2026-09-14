@@ -1,0 +1,25 @@
+    channels = ["lif.clamp" if t < 21100 else "lif.rupture" for t, _ in picked]
+    lif = OrderedDict(
+        [
+            ("model", "leaky_integrate_and_fire"),
+            ("n", 76),
+            ("dt_us", 100),
+            ("tau_m_ms", 17.5),
+            ("v_rest", 0.0),
+            ("v_reset", 0.0),
+            ("v_th", 1.0),
+            ("r_m", 1.0),
+            ("refractory_us", 1000),
+            ("i_bias", 0.88),
+            ("i_stim_peak", 2.45),
+            ("stim_t_us", [21100, 24800]),
+            ("i_clamp_extra", 0.62),
+            ("clamp_n", 16),
+            ("seed", 50266),
+            (
+                "note",
+                "Population sim scoped to this sidecar. Plant remains designed. "
+                "Neurons 0-15 carry +0.62 steam-clamp bias; stim 21.1-24.8 ms is the heater-tube rupture.",
+            ),
+        ]
+    )

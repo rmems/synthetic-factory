@@ -1,0 +1,2 @@
+        if p.parent.name == "maos-r67":
+            continue

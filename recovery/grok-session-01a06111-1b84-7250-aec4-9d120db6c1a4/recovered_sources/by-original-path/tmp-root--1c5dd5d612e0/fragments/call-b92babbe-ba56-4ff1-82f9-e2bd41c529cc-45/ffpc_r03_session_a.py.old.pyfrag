@@ -1,0 +1,2 @@
+        if math.fsum(delta["per_component"].values()) != delta["total"]:
+            raise SystemExit(f"delta total {record['id']}")

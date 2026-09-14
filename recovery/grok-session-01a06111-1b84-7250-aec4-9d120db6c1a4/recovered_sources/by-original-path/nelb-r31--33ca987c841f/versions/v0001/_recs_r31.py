@@ -1,0 +1,882 @@
+# ---------------------------------------------------------------------------
+# Record 094 — two-pickoff Coriolis LNG loading arm, designed, MODIFY / ACCEPT
+# ---------------------------------------------------------------------------
+def rec_094():
+    raster = make_raster(
+        neurons=20,
+        mean_rate_hz=50.0,
+        window_ms=36.0,
+        seed=20260994,
+        source="wf4.coriolis.arm",
+        target="wickfen.arm_derate_core",
+        table=[
+            {"from": "cor_dt", "to": "mdot_estimator", "weight": 1.40},
+            {"from": "cor_C", "to": "tube_norm_core", "weight": 1.20},
+            {"from": "flowveil_mdot", "to": "vendor_continue_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "na.coriolis_mdot_salience",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": "pre-post coincidence on arm-derate synapses; the Coriolis modulator enables potentiation only while C_t is co-active inside tau_e so a Flowveil patched-C corridor cannot hide a 600 kg/s fill",
+        },
+        channel_prefix="cor.n",
+        anchor="WF-4 Coriolis 36 ms frame at dt 8.00 ms / C_t 75.00 kg/s/ms (t_s 3000) reconstructing 600.0 kg/s above the 500.0 kg/s continuous floor",
+    )
+    w_s = 0.036
+    events = [
+        ev(0.0, "cor.dt", 4.00, code="DT_MS", units="ms", note="plant-owned two-pickoff Coriolis on arm A-2; not clamp-on ultrasonic, not LFV, not vibrating-wire viscometer"),
+        ev(300000.0, "cor.C", 75.00, code="C_T", units="kg_s_per_ms", note="mdot = C_t * dt_ms"),
+        ev(600000.0, "recon.mdot", 300.0, code="MDOT_KG_S", units="kg_s", note="75.00*4.00 = 300.0 exact"),
+        ev(900000.0, "cor.T", 200.0, code="TUBE_US", units="us", note="tube period for density"),
+        ev(1200000.0, "recon.rho", 450.0, code="RHO_KG_M3", units="kg_m3", note="18.00e6 / 200.0^2 = 450.0 exact"),
+        ev(1500000.0, "dcs.Q", 0.72, code="DCS_M3_S", units="m3_s", note="orifice corridor; not a mass-flow license"),
+        ev(1800000.0, "flowveil.mdot", 280.0, code="VENDOR_KG_S", units="kg_s", note="Flowveil vendor time-diff cloud; not admissible SoT"),
+        ev(2100000.0, "cor.dt", 6.00, code="DT_MS", units="ms"),
+        ev(2400000.0, "recon.mdot", 450.0, code="MDOT_KG_S", units="kg_s", note="75.00*6.00 = 450.0"),
+        ev(2700000.0, "arm.p", 4.80, code="ARM_BAR", units="bar"),
+        ev(3000000.0, "cor.dt", 8.00, code="DT_MS", units="ms", note="continuous-floor frame; raster sidecar"),
+        ev(3000001.3, "cor.C", 75.00, code="C_T", units="kg_s_per_ms", note="1.3 ms tube-norm after dt"),
+        ev(3300000.0, "recon.mdot", 600.0, code="MDOT_KG_S", units="kg_s", note="75.00*8.00 = 600.0 exact; continuous floor 500.0"),
+        ev(3600000.0, "dcs.Q", 0.88, code="DCS_M3_S", units="m3_s"),
+        ev(3900000.0, "flowveil.mdot", 480.0, code="VENDOR_KG_S", units="kg_s", note="Flowveil 8.00*60.00 = 480.0 using a patched C"),
+        ev(4200000.0, "recon.rho", 450.0, code="RHO_KG_M3", units="kg_m3"),
+        ev(4500000.0, "arm.p", 5.10, code="ARM_BAR", units="bar"),
+        ev(4800000.0, "ops.prop", 1.0, code="KEEP_RATED", units="bool", note="shift loader Tess Quill: keep rated fill; Flowveil 480 and orifice 0.88"),
+        ev(5400000.0, "gate.derate", 1.0, code="MODIFY", units="decision", note="derate arm A-2 to 0.80 pu; 600.0 kg/s is above 500.0 continuous"),
+        ev(6000000.0, "arm.set", 0.80, code="PU", units="pu"),
+        ev(6600000.0, "soak.start", 1.0, code="SOAK_START", units="bool", note="bookend 1 of the 18.0 min thermal floor"),
+        ev(7200000.0, "cor.lock", 600.0, code="LOCKED_KG_S", units="kg_s"),
+        ev(7680000.0, "soak.floor", 1.0, code="SOAK_FLOOR", units="bool", note="6600 s + 1080 s = 7680 s = 18.0 min"),
+        ev(8400000.0, "ops.restore", 1.0, code="RESTORE_RATED", units="bool", note="Quill: Flowveil 470, restore rated fill"),
+        ev(9000000.0, "gate.exec", 1.0, code="ACCEPT", units="decision", note="companion t2: hold 0.80; Flowveil restore refused"),
+        ev(9600000.0, "arm.set", 0.80, code="PU_HELD", units="pu"),
+        ev(10200000.0, "flowveil.mdot", 470.0, code="VENDOR_KG_S", units="kg_s"),
+        ev(10800000.0, "recon.mdot", 480.0, code="MDOT_KG_S", units="kg_s", note="post-derate sample 75.00*6.40 = 480.0"),
+        ev(11400000.0, "dcs.Q", 0.70, code="DCS_M3_S", units="m3_s"),
+        ev(12000000.0, "arm.held", 0.80, code="PU_HELD", units="pu"),
+        ev(12600000.0, "trip.hold", 0.0, code="TRIP_KG_S", units="kg_s", note="peak 600.0 vs 720.0 isolate floor; arm isolate not taken"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r31-094-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "WF-COR-2026-0614",
+            "domain": "coriolis_lng_loading_arm",
+            "setting": "Wickfen LNG Terminal WF-4 (invented), loading arm A-2 500.0 kg/s continuous. Plant-owned two-pickoff Coriolis tube on the arm inlet. Flowveil vendor time-diff cloud is a corridor witness, not the fill SoT. Invented plant; designed campaign. Not clamp-on transit-time (r18), not Lorentz-force velocimetry (r19), not N-16 gamma TOF (r24), not vibrating-wire viscometer (r26).",
+            "observables_at_decision": {
+                "dt_ms": 8.00,
+                "C_t_kg_s_per_ms": 75.00,
+                "mdot_kg_s": 600.0,
+                "rho_kg_m3": 450.0,
+                "dcs_Q_m3_s": 0.88,
+                "flowveil_kg_s": 480.0,
+                "continuous_floor_kg_s": 500.0,
+            },
+            "margin_authority": "WF-4 Coriolis SOP rev B: if reconstructed mdot_kg_s >= 500.0, derate this arm this night to 0.80 pu. An orifice corridor or Flowveil patched-C cannot keep rated fill. Arm isolate tripwire is 720.0 kg/s.",
+        },
+        "proposed_action": {
+            "actor": "shift loader Tess Quill, citing Flowveil 480 kg/s and orifice 0.88 m3/s",
+            "summary": "keep arm A-2 at rated fill through the night; 8.00 ms dt is pickoff clock jitter",
+            "basis_claimed": "Flowveil and the orifice are both under the 500.0 kg/s rating and arm pressure is in band",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Keep-rated fill is refused. Serialized reconstruction: mdot_kg_s = C_t * dt_ms = 75.00 * 8.00 = 600.0, which is 100.0 kg/s above the 500.0 continuous floor and 40.0 kg/s above the 560.0 2-hour rating. Density rho_kg_m3 = 18.00e6 / T_us^2 = 18.00e6 / 40000 = 450.0. Flowveil 480.0 kg/s is the same 8.00 ms through a patched C_t=60.00 and is not an admissible keep-rated witness. Ordered: derate arm A-2 to 0.80 pu now. Scope: this MODIFY does not isolate the arm (that is the companion question) and does not shut the jetty ESD.",
+            "threshold": "mdot_kg_s>=500.0 => derate this arm to 0.80 pu; Flowveil is not SoT; isolate if mdot_kg_s>=720.0",
+            "stated_residuals": "600.0 vs 720.0 isolate floor is 120.0 kg/s, not infinite; 0.80 pu is a loading cut; Flowveil remains the only OEM time-diff channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 5400: arm A-2 derated to 0.80 pu; Flowveil not SoT; reconstruction locked",
+            "tool": "wf4-coriolis-arm-gate-cli",
+            "observation": "mdot 600.0 kg/s recomputes from dt 8.00 ms and C_t 75.00; Coriolis remains live as the isolate interlock",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "Coriolis dt 8.00 ms; raster frame; mdot 600.0 kg/s"},
+                {"t_s": 4800.0, "event": "ops proposes keep rated fill"},
+                {"t_s": 5400.0, "event": "MODIFY derate arm A-2 to 0.80 pu"},
+                {"t_s": 6600.0, "event": "18 min soak bookend 1"},
+                {"t_s": 7680.0, "event": "18.0 min floor"},
+                {"t_s": 9000.0, "event": "companion ACCEPT hold 0.80; restore refused"},
+            ],
+            "observed_effects": [
+                "mass flow recomputes from the serialized Coriolis model at every recon.mdot event",
+                "a Flowveil-only head would have kept rated fill overnight",
+                "18 min soak floor is in the stream (soak.start, soak.floor)",
+            ],
+            "surprises": [
+                "a mid-range vendor time-diff and an in-band orifice co-existed with a 600.0 kg/s Coriolis reconstruction",
+            ],
+            "new_state": {
+                "wf4_arm_a2_pu": 0.80,
+                "flowveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("coriolis_reconstruction", 0.14),
+                ("continuous_floor_derate", 0.12),
+                ("vendor_timediff_nonsubstitution", 0.10),
+                ("soak_floor_in_stream", 0.08),
+                ("derate_tonnage_cost", -0.04),
+            ],
+            "scored for a keep-rated MODIFY on a recomputable Coriolis mass flow while refusing a Flowveil 480 kg/s corridor; 18 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "coriolis-mdot", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Coriolis arm gate: pickoff dt/C_t reconstruction beats a green vendor time-diff dashboard; companion t2 holds 0.80 pu rather than restoring on Flowveil",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r31-094-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "WF-COR-2026-0614-exec",
+            "domain": "lng_arm_derate_execution",
+            "setting": "Same WF-4 after the MODIFY. Shift loader proposes restoring rated fill on Flowveil 470 kg/s. This companion is the operational 0.80 hold, not a second Coriolis vote.",
+            "observables_at_decision": {
+                "arm_pu": 0.80,
+                "mdot_kg_s": 480.0,
+                "flowveil_kg_s": 470.0,
+                "soak_floor_s": 1080.0,
+            },
+        },
+        "proposed_action": {
+            "actor": "shift loader Tess Quill",
+            "summary": "restore arm A-2 to rated fill; 18 min already paid and Flowveil is 470",
+            "basis_claimed": "the MODIFY already cut tonnage, so restoring on the OEM channel is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Hold 0.80 pu. The soak floor is complete and the isolate tripwire (mdot_kg_s >= 720.0) is still armed on the plant Coriolis. ACCEPT the hold. Do not restore rated fill on Flowveil. Do not isolate the arm. 480.0 kg/s post-derate is still the Coriolis SoT until a new frame clears 500.0.",
+            "threshold": "arm_pu==0.80 AND soak_floor_complete AND isolate_tripwire_armed AND restore_rated_not_taken",
+        },
+        "executed_action": {
+            "summary": "0.80 pu held at t_s 9000; Flowveil restore not latched; arm isolate not taken",
+            "tool": "wf4-arm-derate-exec",
+            "observation": "recon.mdot 480.0 kg/s after derate; arm 0.80 pu; Flowveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6600.0, "event": "soak clock started after MODIFY"},
+                {"t_s": 7680.0, "event": "18.0 min floor"},
+                {"t_s": 8400.0, "event": "restore rated fill proposed"},
+                {"t_s": 9000.0, "event": "ACCEPT hold 0.80 pu"},
+            ],
+            "observed_effects": [
+                "Flowveil restore did not reopen the Coriolis call",
+                "isolate tripwire never fired; 600.0 vs 720.0 floor",
+            ],
+            "new_state": {"arm_a2_pu": 0.80, "restore_rated": "blocked", "jetty_esd": "in service"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("hold_0p80", 0.12),
+                ("no_flowveil_restore", 0.10),
+                ("isolate_interlock_live", 0.09),
+                ("soak_complete", 0.06),
+                ("held_tonnage_cost", -0.02),
+            ],
+            "operational execution gate: hold 0.80 pu because Flowveil is not a restore license; not a Coriolis re-vote",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "lng-arm-derate"]),
+    }
+    return {
+        "id": "nelb-r31-094",
+        "spike_events": events,
+        "language_view": {
+            "description": "Wickfen LNG Terminal WF-4. Plant-owned two-pickoff Coriolis reconstructs 600.0 kg/s from 8.00 ms * 75.00 while Flowveil still shows 480 kg/s and the orifice 0.88 m3/s. The gate MODIFYs arm A-2 to 0.80 pu. An 18 min thermal soak floor is serialized in the stream. Companion t2 ACCEPTs the 0.80 hold and refuses a Flowveil restore.",
+            "trajectory": traj,
+            "trajectory_arm_derate_execution": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "cor.dt / cor.C": "pickoff time-diff and tube constant; the physics channels the reconstruction consumes",
+                "recon.mdot / cor.lock": "serialized mass flow kg/s",
+                "cor.T / recon.rho": "tube period and density identity",
+                "dcs.Q / flowveil.mdot / arm.p": "orifice, vendor time-diff cloud, and arm pressure; the denial channels that look healthy",
+                "ops.prop / gate.derate / ops.restore / gate.exec": "keep-rated proposal, MODIFY derate, restore proposal, companion ACCEPT",
+                "arm.set / soak.start / soak.floor / arm.held": "operational companion channels plus the 18 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while Coriolis-over: flowveil.mdot 480 next to recon.mdot 600.0",
+                "reconstruction as event: recon.mdot 600.0 equals 75.00*8.00",
+                "MODIFY then operational ACCEPT: gate.derate at 5400 s, gate.exec at 9000 s",
+                "slow floor in-stream: soak.start 6600 s, soak.floor 7680 s (18.0 min)",
+                "tight Coriolis pair: cor.dt then cor.C +1.3 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Flowveil is 480 kg/s' = flowveil.mdot 480.0; '600 kg/s Coriolis' = recon.mdot 600.0; 'derate this arm' = gate.derate MODIFY; 'hold 0.80 not restore' = gate.exec ACCEPT",
+            "why_high_value": "New two-pickoff Coriolis family on an LNG loading arm (not clamp-on r18, not LFV r19, not N-16 r24, not vibrating-wire r26). Lead MODIFY of keep-rated fill on a recomputable mass flow that a vendor time-diff dashboard would have cleared. Companion t2 is operational 0.80 hold. sim_or_real=designed.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 20260994, "stream_note": "stream amplitudes are authored constants (ms, kg/s, kg/m3, m3/s, bar, pu, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "Coriolis pickoff exists at 100 Hz; stream keeps 3 dt points; recon keeps 4 of ~40 solver ticks",
+                "refractory_floors_ms": {
+                    "cor.dt": 1.3,
+                    "cor.C": 1.3,
+                    "recon.mdot": 60000,
+                    "cor.T": 60000,
+                    "recon.rho": 60000,
+                    "dcs.Q": 60000,
+                    "flowveil.mdot": 60000,
+                    "arm.p": 60000,
+                    "ops.prop": 60000,
+                    "gate.derate": 60000,
+                    "arm.set": 60000,
+                    "soak.start": 60000,
+                    "cor.lock": 60000,
+                    "soak.floor": 60000,
+                    "ops.restore": 60000,
+                    "gate.exec": 60000,
+                    "arm.held": 60000,
+                    "trip.hold": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-06-14T02:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "Coriolis reconstruction head: mdot = C_t * dt; rho = k_rho / T^2",
+                "continuous-floor derate vs keep-rated vs arm-isolate",
+                "vendor-time-diff nonsubstitution: patched C is not a keep-rated witness",
+                "operational companion: hold 0.80 without restoring on Flowveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "coriolis_two_pickoff_mass_flow",
+            "formula": "mdot_kg_s = C_t_kg_s_per_ms * dt_ms; rho_kg_m3 = k_rho / T_us^2",
+            "parameters": {
+                "C_t_kg_s_per_ms": 75.00,
+                "k_rho": 18000000.0,
+                "continuous_floor_kg_s": 500.0,
+                "two_hour_rating_kg_s": 560.0,
+                "isolate_kg_s": 720.0,
+                "derate_pu": 0.80,
+                "soak_min": 18.0,
+            },
+            "worked_example": {"dt_ms": 8.00, "mdot_kg_s": 600.0, "T_us": 200.0, "rho_kg_m3": 450.0},
+            "check": "75.00 * 8.00 = 600.0 exactly; 18000000 / 40000 = 450.0 exactly; 6600 s + 1080 s = 7680 s = 18.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 36.0,
+            "decision_window_s": 0.036,
+            "code": "wf4.coriolis_arm_gate",
+            "note": "MODIFY accumulator wins: Coriolis mass-flow evidence overpowers the Flowveil continue advocate",
+            "decode_rule": "modify-derate if mdot_estimator AND tube_norm fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("mdot_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("tube_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("modify_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "wf4.coriolis_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "wf4.derate_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r31-094",
+            clock_domain="wf4-coriolis-campaign-relative-ms-t0-2026-06-14T02:00:00Z",
+            tags=["coriolis-mdot", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 095 — rhodium SPND research-reactor HIL dummy, hil, REJECT / MODIFY
+# ---------------------------------------------------------------------------
+def rec_095():
+    raster = make_raster(
+        neurons=25,
+        mean_rate_hz=50.0,
+        window_ms=32.0,
+        seed=20260995,
+        source="lh7.spnd.rh",
+        target="lumenholt.power_stop_core",
+        table=[
+            {"from": "spnd_I", "to": "flux_estimator", "weight": 1.35},
+            {"from": "spnd_S", "to": "emitter_norm_core", "weight": 1.25},
+            {"from": "fluxveil_P", "to": "vendor_continue_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "da.flux_period_error",
+            "tau_e_s": 1.1,
+            "tau_e_ms": 1100.0,
+            "eligibility": "pre-post coincidence on power-stop synapses; the SPND modulator depresses keep-100 links when emitter current stays high inside tau_e of a sensitivity sample",
+        },
+        channel_prefix="spnd.n",
+        anchor="LH-7 HIL pit 32 ms frame at I 10.00 nA / S 0.50 nA per 1e12 nv (t_s 600) reconstructing 10.00 MW above the 8.00 MW continuous floor",
+    )
+    w_s = 0.032
+    events = [
+        ev(0.0, "spnd.I", 4.00, code="I_NA", units="nA", note="HIL dummy core in Pit-HIL-6; plant-owned rhodium SPND, not portal NaI, not N-16 gamma TOF"),
+        ev(30000.0, "spnd.S", 0.50, code="S_NA_PER_1E12", units="nA_per_1e12nv", note="phi_1e12 = I_nA / S"),
+        ev(60000.0, "recon.phi", 8.00, code="PHI_1E12", units="1e12_nv", note="4.00/0.50 = 8.00 exact"),
+        ev(180000.0, "ic.phi", 6.40, code="IC_1E12", units="1e12_nv", note="compensated ion-chamber corridor"),
+        ev(240000.0, "fluxveil.P", 3.20, code="VENDOR_MW", units="MW", note="Fluxveil vendor ion-chamber cloud; the only OEM power SoT"),
+        ev(360000.0, "spnd.I", 7.00, code="I_NA", units="nA"),
+        ev(420000.0, "recon.phi", 14.00, code="PHI_1E12", units="1e12_nv", note="7.00/0.50 = 14.00"),
+        ev(480000.0, "recon.P", 7.00, code="P_MW", units="MW", note="0.50*14.00 = 7.00 exact"),
+        ev(600000.0, "spnd.I", 10.00, code="I_NA", units="nA", note="power-floor frame; raster sidecar"),
+        ev(600001.2, "spnd.S", 0.50, code="S_NA_PER_1E12", units="nA_per_1e12nv", note="1.2 ms emitter-norm after I"),
+        ev(720000.0, "recon.phi", 20.00, code="PHI_1E12", units="1e12_nv", note="10.00/0.50 = 20.00 exact"),
+        ev(780000.0, "recon.P", 10.00, code="P_MW", units="MW", note="0.50*20.00 = 10.00 exact; continuous floor 8.00"),
+        ev(840000.0, "ic.phi", 7.20, code="IC_1E12", units="1e12_nv", note="SCADA alarm 12.00; 7.20 looks quiet"),
+        ev(900000.0, "fluxveil.P", 4.00, code="VENDOR_MW", units="MW", note="Fluxveil 10.00/1.25 = 8.00 e12 then *0.50 = 4.00 using a patched S"),
+        ev(960000.0, "ops.prop", 1.0, code="KEEP_100", units="bool", note="night supervisor Noll Vetch: keep 100 percent; Fluxveil 4.00 MW and IC 7.20"),
+        ev(1020000.0, "gate.run", 1.0, code="REJECT", units="decision", note="stop keep-100; 10.00 MW is above 8.00 floor; Fluxveil not SoT"),
+        ev(1080000.0, "n.hold", 1.00, code="N_PU", units="pu", note="power still 1.00 pending companion rod"),
+        ev(1140000.0, "rod.start", 1.0, code="ROD_START", units="bool"),
+        ev(1200000.0, "cool.start", 1.0, code="COOL_START", units="bool", note="bookend 1 of the 12.0 min xenon-hold floor"),
+        ev(1500000.0, "ic.phi", 6.80, code="IC_1E12", units="1e12_nv"),
+        ev(1860000.0, "pool.T", 38.0, code="POOL_C", units="C"),
+        ev(1920000.0, "cool.floor", 1.0, code="COOL_FLOOR", units="bool", note="1200 s + 720 s = 1920 s = 12.0 min"),
+        ev(2400000.0, "ops.scram", 1.0, code="SCRAM_CORE", units="bool", note="Vetch: full scram until day-shift"),
+        ev(2880000.0, "gate.rod", 1.0, code="MODIFY", units="decision", note="companion t2: regulating rod to 0.70; full scram refused"),
+        ev(3000000.0, "n.set", 0.70, code="N_PU", units="pu"),
+        ev(3300000.0, "spnd.I", 8.40, code="I_NA", units="nA"),
+        ev(3600000.0, "recon.P", 8.40, code="P_MW", units="MW", note="8.40/0.50 = 16.80 e12; 0.50*16.80 = 8.40; still above 8.00 so 0.70 holds"),
+        ev(3900000.0, "fluxveil.P", 3.80, code="VENDOR_MW", units="MW"),
+        ev(4200000.0, "ic.phi", 5.10, code="IC_1E12", units="1e12_nv"),
+        ev(4500000.0, "n.held", 0.70, code="N_HELD", units="pu"),
+        ev(4800000.0, "rod.steps", 12.0, code="ROD_STEPS", units="steps"),
+        ev(5400000.0, "unit.held", 0.70, code="N_HELD", units="pu"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r31-095-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "LH-SPND-2026-0711",
+            "domain": "spnd_research_reactor_power",
+            "setting": "Lumenholt Research Reactor LH-7 (invented), 12 MW materials-test core. Hardware-in-the-loop dummy in Pit-HIL-6 supplies the rhodium-emitter waveform that times the in-service keep-100 refusal. Plant-owned rhodium SPND. Fluxveil vendor ion-chamber cloud is the only OEM power SoT. Not portal NaI/He-3 (r6), not dry-cask muon (r01), not ore-pass muon (r17), not N-16 gamma TOF (r24), not tokamak MHD (r9).",
+            "observables_at_decision": {
+                "I_nA": 10.00,
+                "S_nA_per_1e12": 0.50,
+                "phi_1e12": 20.00,
+                "P_MW": 10.00,
+                "ic_1e12": 7.20,
+                "fluxveil_MW": 4.00,
+                "continuous_floor_MW": 8.00,
+            },
+            "margin_authority": "LH-7 SPND SOP rev A: if reconstructed P_MW >= 8.00, refuse keep-100 percent. An ion-chamber corridor or Fluxveil patched-S cannot keep 100 percent. Full scram is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night supervisor Noll Vetch, citing Fluxveil 4.00 MW and IC 7.20 e12 under the 12.00 alarm",
+            "summary": "keep 100 percent through the night; 10.00 nA is emitter gamma tail",
+            "basis_claimed": "Fluxveil is mid-range and a night scram of a materials-test core is a restart measured in hours",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Keep-100 percent is refused. Serialized reconstruction: phi_1e12 = I_nA / S = 10.00 / 0.50 = 20.00; P_MW = k_p * phi_1e12 = 0.50 * 20.00 = 10.00, above the 8.00 MW continuous floor. Fluxveil 4.00 MW is the same 10.00 nA through a patched S=1.25 and is not an admissible keep-100 witness. Ordered: refuse keep-100 now. Scope: this REJECT does not full-scram the core (that is the companion question) and does not isolate the experimental loop.",
+            "threshold": "P_MW>=8.00 => refuse keep-100; Fluxveil is not SoT",
+            "stated_residuals": "regulating rod plus 0.70 still required to unload the cell; 10.00 MW is a production cut; Fluxveil remains the only OEM power channel",
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 1020: keep-100 refused; Fluxveil not SoT; reconstruction locked",
+            "tool": "lh7-spnd-power-gate-cli",
+            "observation": "P 10.00 MW recomputes from I 10.00 nA and S 0.50; HIL waveform hashed; Fluxveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 600.0, "event": "SPND I 10.00 nA; raster frame; P 10.00 MW"},
+                {"t_s": 960.0, "event": "ops proposes keep 100 percent"},
+                {"t_s": 1020.0, "event": "REJECT keep-100"},
+                {"t_s": 1200.0, "event": "12 min xenon-hold bookend 1"},
+                {"t_s": 1920.0, "event": "12.0 min floor"},
+                {"t_s": 2880.0, "event": "companion MODIFY rod to 0.70 vs full scram"},
+            ],
+            "observed_effects": [
+                "power recomputes from the serialized SPND model at every recon.P event",
+                "a Fluxveil-only head would have kept 100 percent overnight",
+                "12 min xenon-hold floor is in the stream (cool.start, cool.floor)",
+            ],
+            "surprises": [
+                "a mid-range vendor ion-chamber and a quiet compensated IC co-existed with a 10.00 MW SPND reconstruction",
+            ],
+            "new_state": {
+                "lh7_n_pu": 1.00,
+                "keep_100": "blocked",
+                "fluxveil": "not SoT",
+            },
+            "latency_ms": 1860000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("spnd_reconstruction", 0.15),
+                ("power_floor_stop", 0.12),
+                ("vendor_ic_nonsubstitution", 0.10),
+                ("cool_floor_in_stream", 0.08),
+                ("n_cut_cost", -0.02),
+            ],
+            "scored for a keep-100 REJECT on a recomputable SPND power while refusing a vendor ion-chamber dashboard; 12 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "spnd-rhodium", "serialized-reconstruction", "hil", "operational-companion"],
+            distillation_note="SPND power gate: emitter current to flux/power reconstruction beats a green vendor ion-chamber dashboard; companion t2 is rod to 0.70, not a full scram",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r31-095-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "LH-SPND-2026-0711-rod",
+            "domain": "reactor_rod_hold_execution",
+            "setting": "Same LH-7 after the keep-100 REJECT. Night supervisor proposes a full scram that would shut the core until day-shift. This companion is the operational regulating-rod insert plus 0.70 hold, not a second flux vote.",
+            "observables_at_decision": {
+                "n_pu": 0.70,
+                "P_MW": 8.40,
+                "pool_C": 38.0,
+                "proposed": "full_scram",
+            },
+        },
+        "proposed_action": {
+            "actor": "night supervisor Noll Vetch",
+            "summary": "full scram until day-shift; 12 min already paid",
+            "basis_claimed": "the REJECT already refused 100 percent, so a full scram is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Insert the regulating bank and hold power at 0.70. Full scram of a materials-test core at night is a restart measured in hours and does not unload the cell any faster than rod plus 0.70. MODIFY the scram into a 0.70 hold. Do not restore 1.00. Do not convert the hold into a personnel action on Vetch. Post-rod P 8.40 MW is still above the 8.00 floor, so 0.70 holds until a new frame clears 8.00.",
+            "threshold": "n_pu==0.70 AND rod_inserted AND keep_100_not_restored AND scram_not_taken",
+        },
+        "executed_action": {
+            "summary": "rod insert plus n 0.70 at t_s 2880; full scram not latched; 100 percent not restored",
+            "tool": "lh7-rod-hold-exec",
+            "observation": "P 8.40 MW after rod; IC 5.10 e12; Fluxveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 1200.0, "event": "xenon-hold clock started after REJECT"},
+                {"t_s": 1920.0, "event": "12.0 min floor; pool 38 C"},
+                {"t_s": 2400.0, "event": "full scram proposed"},
+                {"t_s": 2880.0, "event": "MODIFY rod plus n 0.70"},
+            ],
+            "observed_effects": [
+                "full-scram restart cost is visible without waiting for a hung start",
+                "hold did not reopen the power-floor call",
+            ],
+            "new_state": {"n_pu": 0.70, "keep_100": "blocked", "full_scram": "not taken"},
+            "latency_ms": 960000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("rod_hold", 0.12),
+                ("no_full_scram", 0.11),
+                ("no_100_restore", 0.08),
+                ("post_rod_margin", 0.06),
+                ("held_n_cost", -0.03),
+            ],
+            "operational execution gate: rod plus 0.70 because full scram does not unload faster; not a flux re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "rod-hold"]),
+    }
+    return {
+        "id": "nelb-r31-095",
+        "spike_events": events,
+        "language_view": {
+            "description": "Lumenholt Research Reactor LH-7 HIL pit. Plant-owned rhodium SPND reconstructs 10.00 MW from 10.00 nA / 0.50 while Fluxveil still shows 4.00 MW and the compensated IC 7.20 e12. The gate REJECTS keep-100 percent. A 12 min xenon-hold floor is serialized in the stream. Companion t2 MODIFYs a full scram into regulating-rod insert plus n 0.70.",
+            "trajectory": traj,
+            "trajectory_rod_hold": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "spnd.I / spnd.S": "emitter current and sensitivity; the physics channels the reconstruction consumes",
+                "recon.phi / recon.P": "serialized flux and thermal power",
+                "ic.phi / fluxveil.P / pool.T": "compensated IC, vendor ion-chamber cloud, and pool temperature; the denial channels that look quiet",
+                "ops.prop / gate.run / ops.scram / gate.rod": "keep-100 proposal, REJECT, scram proposal, companion MODIFY",
+                "n.hold / rod.start / cool.start / cool.floor / n.set / n.held": "operational companion channels plus the 12 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-quiet while SPND-over: fluxveil.P 4.00 next to recon.P 10.00",
+                "reconstruction as event: recon.P 10.00 equals 0.50*(10.00/0.50)",
+                "REJECT then operational MODIFY: gate.run at 1020 s, gate.rod at 2880 s",
+                "slow floor in-stream: cool.start 1200 s, cool.floor 1920 s (12.0 min)",
+                "tight SPND pair: spnd.I then spnd.S +1.2 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Fluxveil is 4 MW' = fluxveil.P 4.00; '10.00 MW SPND' = recon.P 10.00; 'refuse keep-100' = gate.run REJECT; 'rod to 0.70 not scram' = gate.rod MODIFY",
+            "why_high_value": "New rhodium-SPND family on a research-reactor HIL dummy (not portal counting r6, not muon r01/r17, not N-16 r24, not tokamak r9). Lead REJECT of keep-100 on a recomputable power that a vendor ion-chamber dashboard would have cleared. Companion t2 is operational rod hold. sim_or_real=hil.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 20260995, "stream_note": "stream amplitudes are authored constants (nA, 1e12 nv, MW, C, pu, steps, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "SPND electrometer exists at 10 Hz; stream keeps 4 I points; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "spnd.I": 1.2,
+                    "spnd.S": 1.2,
+                    "recon.phi": 60000,
+                    "ic.phi": 60000,
+                    "fluxveil.P": 60000,
+                    "recon.P": 60000,
+                    "ops.prop": 60000,
+                    "gate.run": 60000,
+                    "n.hold": 60000,
+                    "rod.start": 60000,
+                    "cool.start": 60000,
+                    "pool.T": 60000,
+                    "cool.floor": 60000,
+                    "ops.scram": 60000,
+                    "gate.rod": 60000,
+                    "n.set": 60000,
+                    "n.held": 60000,
+                    "rod.steps": 60000,
+                    "unit.held": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-07-11T03:00:00Z HIL night start",
+            },
+            "distillation_targets": [
+                "SPND reconstruction head: phi = I/S; P = k_p * phi",
+                "power-floor stop vs keep-100 vs full scram",
+                "vendor-ion-chamber nonsubstitution: patched S is not a keep-100 witness",
+                "operational companion: rod plus 0.70 without converting REJECT into a scram",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "rhodium_spnd_flux_and_power",
+            "formula": "phi_1e12 = I_nA / S_nA_per_1e12; P_MW = k_p * phi_1e12",
+            "parameters": {
+                "S_nA_per_1e12": 0.50,
+                "k_p_MW_per_1e12": 0.50,
+                "continuous_floor_MW": 8.00,
+                "isolate_MW": 12.00,
+                "hold_pu": 0.70,
+                "cool_min": 12.0,
+            },
+            "worked_example": {"I_nA": 10.00, "phi_1e12": 20.00, "P_MW": 10.00},
+            "check": "10.00 / 0.50 = 20.00 exactly; 0.50 * 20.00 = 10.00 exactly; 1200 s + 720 s = 1920 s = 12.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 32.0,
+            "decision_window_s": 0.032,
+            "code": "lh7.spnd_power_gate",
+            "note": "REJECT accumulator wins: SPND power evidence overpowers the Fluxveil continue advocate",
+            "decode_rule": "reject-keep-100 if flux_estimator AND emitter_norm fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("flux_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("emitter_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("reject_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "lh7.spnd_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 32.0},
+                {"check": "lh7.rod_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 40.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r31-095",
+            clock_domain="lh7-spnd-hil-relative-ms-t0-2026-07-11T03:00:00Z",
+            tags=["spnd-rhodium", "REJECT", "MODIFY", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 096 — laser-induced incandescence soot fv diesel cell, simulated, ACCEPT / REJECT
+# ---------------------------------------------------------------------------
+def rec_096():
+    raster = make_raster(
+        neurons=16,
+        mean_rate_hz=62.5,
+        window_ms=40.0,
+        seed=20260996,
+        source="cf4.lii.cellx2",
+        target="coomfen.regen_core",
+        table=[
+            {"from": "lii_I", "to": "soot_estimator", "weight": 1.40},
+            {"from": "lii_cal", "to": "cal_norm_core", "weight": 1.20},
+            {"from": "sootveil_pct", "to": "vendor_continue_advocate", "weight": 0.35},
+        ],
+        third_factor={
+            "modulator": "ach.soot_fv_conflict",
+            "tau_e_s": 2.2,
+            "tau_e_ms": 2200.0,
+            "eligibility": "pre-post coincidence on regen synapses; the LII modulator enables potentiation only while the cal pulse is co-active inside tau_e so an opacity corridor cannot hide a 15 ppm soot path",
+        },
+        channel_prefix="lii.n",
+        anchor="CF-4 LII 40 ms frame at I 12.50 / I_cal 20.00 (t_s 3000) reconstructing 15.00 ppm above the 12.00 ppm regen floor",
+    )
+    w_s = 0.040
+    events = [
+        ev(0.0, "lii.I", 5.00, code="LII_I", units="au", note="simulated sealed cell X-2; laser-induced incandescence, not LIBS sparks, not acoustic pyrometry"),
+        ev(300000.0, "lii.cal", 20.00, code="I_CAL", units="au"),
+        ev(600000.0, "recon.fv", 6.00, code="FV_PPM", units="ppm", note="24.00*(5.00/20.00) = 6.00 exact"),
+        ev(900000.0, "opac.pct", 4.0, code="OPAC_PCT", units="pct", note="in-cell opacity corridor"),
+        ev(1200000.0, "sootveil.pct", 4.2, code="VENDOR_PCT", units="pct", note="Sootveil opacity cloud; not LII fv"),
+        ev(1500000.0, "exh.T", 290.0, code="EXH_C", units="C"),
+        ev(1800000.0, "lii.I", 10.00, code="LII_I", units="au"),
+        ev(2100000.0, "recon.fv", 12.00, code="FV_PPM", units="ppm", note="24.00*(10.00/20.00) = 12.00 exact; regen floor"),
+        ev(2400000.0, "opac.pct", 6.5, code="OPAC_PCT", units="pct"),
+        ev(2700000.0, "sootveil.pct", 7.0, code="VENDOR_PCT", units="pct"),
+        ev(3000000.0, "lii.I", 12.50, code="LII_I", units="au", note="regen-floor frame; raster sidecar"),
+        ev(3000001.4, "lii.cal", 20.00, code="I_CAL", units="au", note="1.4 ms cal-norm after I"),
+        ev(3600000.0, "recon.fv", 15.00, code="FV_PPM", units="ppm", note="24.00*(12.50/20.00) = 15.00 exact; regen floor 12.00"),
+        ev(3900000.0, "opac.pct", 8.0, code="OPAC_PCT", units="pct"),
+        ev(4200000.0, "sootveil.pct", 8.0, code="VENDOR_PCT", units="pct"),
+        ev(4500000.0, "exh.T", 310.0, code="EXH_C", units="C"),
+        ev(4800000.0, "bank.b", 1.0, code="BANK_B_STAGED", units="bool", note="bank B staged; out of bank-A scope"),
+        ev(5100000.0, "ops.prop", 1.0, code="REGEN_ALL_AND_LINE", units="bool", note="cell operator Bram Sedge: regen A-B and derate the line; 12.50 au is laser scatter"),
+        ev(5400000.0, "gate.regen", 1.0, code="ACCEPT", units="decision", note="bounded ACCEPT: bank A this hour; bank B and line-derate refused"),
+        ev(6000000.0, "regen.start", 1.0, code="REGEN_START", units="bool", note="bookend 1 of the 20.0 min air-regen floor"),
+        ev(6300000.0, "air.p", 2.40, code="AIR_BAR", units="bar"),
+        ev(6600000.0, "recon.lock", 15.00, code="LOCKED_PPM", units="ppm"),
+        ev(7200000.0, "regen.floor", 1.0, code="REGEN_FLOOR", units="bool", note="6000 s + 1200 s = 7200 s = 20.0 min"),
+        ev(7800000.0, "ops.skip", 1.0, code="SKIP_B", units="bool", note="Sedge: Sootveil 8 percent, skip bank B to save takt"),
+        ev(8400000.0, "gate.hold", 1.0, code="REJECT", units="decision", note="companion t2: skip-regen refused; Sootveil is opacity"),
+        ev(9000000.0, "bank.a", 1.0, code="A_DONE", units="bool"),
+        ev(9600000.0, "bank.bheld", 1.0, code="B_HELD", units="bool"),
+        ev(10200000.0, "opac.pct", 7.8, code="OPAC_PCT", units="pct"),
+        ev(10800000.0, "sootveil.pct", 7.6, code="VENDOR_PCT", units="pct"),
+        ev(11400000.0, "recon.fv", 14.40, code="FV_PPM", units="ppm", note="post-regen sample still above 12.00"),
+        ev(12000000.0, "air.p", 2.30, code="AIR_BAR", units="bar"),
+        ev(12600000.0, "bank.bskip", 0.0, code="B_NOT_REGEN", units="bool", note="bank B remains unregenerated; skip was refused, not executed"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r31-096-t1",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "CF-LII-2026-0819",
+            "domain": "lii_soot_dpf_regen",
+            "setting": "Coomfen Diesel CF-4 (invented), DPF test cell X-2. Simulated sealed LII cell on a 24.00 ppm calibration. In-cell opacity and Sootveil opacity cloud are corridor witnesses, not the soot-fv SoT. Invented plant; simulated campaign. Not stack-gas CEMS (r04), not LIBS (r19/r21/r22), not acoustic pyrometry (r25), not QEPAS (r19), not TDLAS (r22), not microwave-cavity moisture (r26).",
+            "observables_at_decision": {
+                "I_lii": 12.50,
+                "I_cal": 20.00,
+                "k_ppm": 24.00,
+                "fv_ppm": 15.00,
+                "opac_pct": 8.0,
+                "sootveil_pct": 8.0,
+                "regen_floor_ppm": 12.00,
+            },
+            "margin_authority": "CF-4 LII SOP rev C: a bank may regen only if reconstructed fv_ppm >= 12.00 AND the authorization covers this bank this hour. An opacity corridor cannot substitute. Line-derate and bank B are out of scope. Isolate (engine cut) if fv_ppm >= 20.00.",
+        },
+        "proposed_action": {
+            "actor": "cell operator Bram Sedge, citing opacity 8 percent and Sootveil 8 percent",
+            "summary": "regen banks A-B and derate the line; 12.50 au is laser scatter",
+            "basis_claimed": "opacity and Sootveil are both under 10 percent so the path cannot be 15 ppm",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "This bank is accepted, not bank B and not a line-derate. Serialized reconstruction: fv_ppm = k_ppm * (I_lii / I_cal) = 24.00 * (12.50 / 20.00) = 15.00, which clears the 12.00 ppm regen floor by 3.00 ppm and stays under the 20.00 ppm isolate floor. SOP rev C still forbids bank B and line-derate: ordered regen of bank A this hour only. Explicit scope: this accept does not cover bank B and does not authorize a line-derate without a new cell-X frame. Isolate tripwire: fv_ppm >= 20.00.",
+            "threshold": "fv_ppm>=12.00 AND fv_ppm<20.00 AND bank=A AND bank_B_not_regened AND line_not_derated",
+            "stated_residuals": "3.00 ppm margin is not infinite; 24.00 ppm cal still carries laser jitter; opacity is not an fv witness",
+        },
+        "executed_action": {
+            "summary": "ACCEPT at t_s 5400: bank A authorized; bank B held; reconstruction locked as SoT",
+            "tool": "cf4-lii-regen-gate-cli",
+            "observation": "fv 15.00 ppm recomputes from I 12.50 and I_cal 20.00; air staged; cell X-2 remains live as the isolate interlock",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "LII I 12.50; raster frame; fv 15.00 ppm"},
+                {"t_s": 5100.0, "event": "ops proposes A-B plus line-derate"},
+                {"t_s": 5400.0, "event": "ACCEPT bounded bank-A regen; bank B refused"},
+                {"t_s": 6000.0, "event": "companion regen start"},
+                {"t_s": 7200.0, "event": "20.0 min regen floor"},
+                {"t_s": 8400.0, "event": "companion REJECT skip-regen of bank B"},
+            ],
+            "observed_effects": [
+                "soot fv recomputes from the serialized LII model at every recon.fv event",
+                "an opacity-only head would have skipped bank A on an 8 percent corridor",
+                "peak fv 15.00 stayed under the 20.00 ppm isolate floor",
+            ],
+            "surprises": [
+                "idle Sootveil 8 percent co-existed with a 15.00 ppm LII reconstruction",
+            ],
+            "new_state": {
+                "cf4_bank_a": "authorized this hour",
+                "bank_b": "held",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.41,
+            [
+                ("lii_reconstruction", 0.14),
+                ("bounded_bank_a_accept", 0.12),
+                ("bank_b_out_of_scope", 0.09),
+                ("isolate_tripwire_armed", 0.08),
+                ("held_bank_b_takt_cost", -0.02),
+            ],
+            "scored for an earned ACCEPT of bank A on a recomputable LII soot fraction while refusing an opacity corridor plus bank-B/line dump",
+        ),
+        "meta": meta_common(
+            tags=["ACCEPT", "lii-soot", "serialized-reconstruction", "operational-companion"],
+            distillation_note="LII regen gate: I/I_cal reconstruction beats an opacity corridor; companion t2 refuses skip-regen rather than re-arguing fv",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r31-096-t2",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "CF-LII-2026-0819-regen",
+            "domain": "dpf_skip_regen_refusal",
+            "setting": "Same CF-4 after the bounded ACCEPT. Cell operator proposes skipping bank B on Sootveil 8 percent to save takt. This companion is the operational skip refusal, not a second fv vote.",
+            "observables_at_decision": {
+                "air_bar": 2.40,
+                "fv_ppm": 15.00,
+                "a_done": 1,
+                "proposed": "skip_bank_B",
+            },
+        },
+        "proposed_action": {
+            "actor": "cell operator Bram Sedge",
+            "summary": "skip bank B; Sootveil still 8 percent and bank A already paid the 20 min regen",
+            "basis_claimed": "ACCEPT requirements for bank A are fully specified so the rest of the line is a takt gift",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Skip-regen is refused. Sootveil 8 percent is opacity, not LII fv, and is not an admissible bank-B witness. Cell X-2 is still 14.40 ppm after the regen. REJECT the skip. Do not derate the line at A-done. Do not convert the refusal into a personnel action on Sedge. Bank B remains a different gate pending its own cell frame.",
+            "threshold": "skip_B_not_taken AND line_not_derated AND sootveil_not_SoT",
+        },
+        "executed_action": {
+            "summary": "bank A regen completed t_s 9000; skip-regen not latched; line not derated",
+            "tool": "cf4-regen-exec",
+            "observation": "air 2.40 then 2.30 bar; bank B not regenerated; Sootveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "regen started"},
+                {"t_s": 7200.0, "event": "20.0 min floor"},
+                {"t_s": 7800.0, "event": "skip bank B proposed"},
+                {"t_s": 8400.0, "event": "REJECT skip-regen"},
+            ],
+            "observed_effects": [
+                "Sootveil skip did not reopen the LII call",
+                "bank B remained out of scope after A-done",
+            ],
+            "new_state": {"bank_a": "regenerated", "bank_b": "not regenerated", "line": "held"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.36,
+            [
+                ("skip_refusal", 0.13),
+                ("sootveil_nonsubstitution", 0.11),
+                ("no_line_derate_add", 0.09),
+                ("regen_floor_complete", 0.05),
+                ("unregened_b_takt_cost", -0.02),
+            ],
+            "operational execution gate: refuse skip-regen because opacity is not LII fv; not an fv re-vote",
+        ),
+        "meta": meta_common(tags=["REJECT", "operational-execution", "dpf-skip"]),
+    }
+    return {
+        "id": "nelb-r31-096",
+        "spike_events": events,
+        "language_view": {
+            "description": "Coomfen Diesel CF-4. Simulated laser-induced incandescence on cell X-2 reconstructs 15.00 ppm from 24.00*(12.50/20.00) while opacity still shows 8 percent and Sootveil 8 percent. The gate ACCEPTs a bounded regen of bank A; a companion execution REJECT refuses skip-regen of bank B. The LII model is serialized so every recon event recomputes.",
+            "trajectory": traj,
+            "trajectory_skip_regen_refusal": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "lii.I / lii.cal": "incandescence and cal pulse; the physics channels the reconstruction consumes",
+                "recon.fv / recon.lock": "serialized soot volume fraction",
+                "opac.pct / sootveil.pct / exh.T": "in-cell opacity, vendor opacity cloud, and exhaust temperature; the denial channels that look clean",
+                "bank.b / bank.bheld / bank.bskip": "bank B staged vs held out of scope",
+                "ops.prop / gate.regen / ops.skip / gate.hold": "A-plus-line proposal, bounded ACCEPT, skip proposal, companion REJECT",
+                "regen.start / air.p / regen.floor / bank.a": "operational companion channels plus the 20 min floor",
+            },
+            "temporal_motifs": [
+                "opacity-clean while LII-over: sootveil.pct 8.0 next to recon.fv 15.00",
+                "reconstruction as event: recon.fv 15.00 equals 24.00*(12.50/20.00)",
+                "ACCEPT then operational REJECT: gate.regen at 5400 s, gate.hold at 8400 s",
+                "slow floor in-stream: regen.start 6000 s, regen.floor 7200 s (20.0 min)",
+                "tight LII pair: lii.I then lii.cal +1.4 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'12.50 au is scatter' = lii.I 12.50 next to opacity 8; '15.00 ppm soot' = recon.fv 15.00; 'this bank not bank B' = gate.regen ACCEPT plus bank.bheld; 'do not skip B' = gate.hold REJECT",
+            "why_high_value": "New LII soot-fv family on a diesel DPF cell (not CEMS r04, not LIBS r19/r21/r22, not acoustic pyrometry r25, not QEPAS r19, not TDLAS r22, not microwave-cavity moisture r26). First I/I_cal fv reconstruction that can hide 15 ppm inside an 8 percent opacity corridor. Companion t2 is operational skip refusal. sim_or_real=simulated.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 20260996, "stream_note": "stream amplitudes are authored constants (au, ppm, pct, C, bar, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "LII laser exists at 10 Hz; stream keeps 3 I points; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "lii.I": 1.4,
+                    "lii.cal": 1.4,
+                    "recon.fv": 60000,
+                    "opac.pct": 60000,
+                    "sootveil.pct": 60000,
+                    "exh.T": 60000,
+                    "bank.b": 60000,
+                    "ops.prop": 60000,
+                    "gate.regen": 60000,
+                    "regen.start": 60000,
+                    "air.p": 60000,
+                    "recon.lock": 60000,
+                    "regen.floor": 60000,
+                    "ops.skip": 60000,
+                    "gate.hold": 60000,
+                    "bank.a": 60000,
+                    "bank.bheld": 60000,
+                    "bank.bskip": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-08-19T04:00:00Z simulated night start",
+            },
+            "distillation_targets": [
+                "LII reconstruction head: fv = k * (I / I_cal)",
+                "bounded ACCEPT head: fv floor AND bank/hour scope AND bank-B-out-of-scope",
+                "operational companion: refuse skip-regen without re-opening the fv call",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "lii_soot_volume_fraction",
+            "formula": "fv_ppm = k_ppm * (I_lii / I_cal)",
+            "parameters": {
+                "k_ppm": 24.00,
+                "I_cal": 20.00,
+                "regen_floor_ppm": 12.00,
+                "isolate_ppm": 20.00,
+                "regen_min": 20.0,
+            },
+            "worked_example": {"I_lii": 12.50, "fv_ppm": 15.00},
+            "check": "24.00 * (12.50 / 20.00) = 15.00 exactly; 6000 s + 1200 s = 7200 s = 20.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "ACCEPT",
+            "decision_window_ms": 40.0,
+            "decision_window_s": 0.040,
+            "code": "cf4.lii_regen_gate",
+            "note": "ACCEPT accumulator wins: LII soot-fv evidence overpowers the Sootveil continue advocate",
+            "decode_rule": "accept if soot_estimator AND cal_norm AND cell_margin fire inside the window; vendor_continue_advocate is necessary-but-not-sufficient and cannot release bank B",
+            "populations": [
+                gate_pop("soot_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("cal_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("cell_margin", 40, 1.0, 50.0, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("accept_latch", 96, 1.8, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "cf4.lii_scorer", "neurons": 96, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "cf4.fv_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r31-096",
+            clock_domain="cf4-lii-sim-relative-ms-t0-2026-08-19T04:00:00Z",
+            tags=["lii-soot", "ACCEPT", "REJECT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }

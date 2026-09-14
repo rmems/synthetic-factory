@@ -1,0 +1,4 @@
+                "Catholyte-Ingle CI-9 tankhouse keeps LIVE EW-A at 14.2 kA cathode-negative, "
+                "which is inside the 16.0 kA envelope, but parked EW-B still publishes a "
+                "leftover minus 14.2 kA on a reversed CT. Binding the live bus is the ACCEPT; "
+                "inverting the idle rectifier treats a mimic as reverse over-current.",

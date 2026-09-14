@@ -1,0 +1,78 @@
+                [
+                    "PAN-tow skin IR, 24 us jitter, 240 C trip",
+                    "line-speed encoder, 30 us jitter",
+                    "oven O2 (context)",
+                    "zone RTD (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("skin_trip_C", 240.0),
+                        ("observed_skin_C", 268.0),
+                        ("line_cap_m_min", 22.0),
+                        ("proposed_m_min", 18.4),
+                    ]
+                ),
+            ),
+            (
+                "hil",
+                OrderedDict(
+                    [
+                        ("bench", "Precursor-Oxle PO-HIL oxidation pad, Tow T-8"),
+                        ("inject", "IR envelope delayed 90-130 us vs encoder; pyrometer lag, not a false IR"),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Tow T-8 on Precursor-Oxle HIL pad; oven in band; line armed at 18.4 m/min.",
+                    "2. Skin trip 240 C; observed 268 C flare on PAN tow.",
+                    "3. Encoder precursor at 1.040 ms.",
+                    "4. Race window [3.920, 4.200] ms.",
+                    "5. IR 268 C at 3.920 ms (winner).",
+                    "6. Line encoder 18.4 m/min at 4.110 ms (loser by 190 us).",
+                    "7. Gate at 5.100 ms: REJECT hold 0 m/min, do not ramp.",
+                    "8. Pad recycle 9 min; skin IR decays under 240 C after hold.",
+                    "9. Oven never ignited; encoder-as-clearance would have ramped into the flare.",
+                    "10. QA: correct gate was REJECT; leave 0 m/min until skin <= 240 C.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "ramp_18p4mpm"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("line_m_min", 18.4),
+                        ("skin_C", 268.0),
+                        ("hold", False),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("skin_C", 268.0),
+                        ("skin_trip_C", 240.0),
+                        ("line_m_min", 18.4),
+                        ("line_cap_m_min", 22.0),
+                        ("race_margin_us", 190),
+                        ("combined_jitter_us", 54),
+                        ("t_gate_us", 5100),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 18.4 m/min because line speed is under the 22.0 m/min cap and treats "
+                "the encoder as oven clearance, ignoring the 268 C skin flare.",
+            ),
+        ]
+    )

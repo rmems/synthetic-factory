@@ -1,0 +1,54 @@
+{
+  "agent_ids": [
+    "01a0640e-744d-7653-939d-9fcdf9a9130f",
+    "01a0640f-797c-7783-b107-c1a20afa23b2"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 1,
+  "final_state": "unknown",
+  "hunk_evidence_count": 1,
+  "original_basename": "gen_r88.py",
+  "original_path": "/tmp/ttf-r88/gen_r88.py",
+  "path_key": "ttf-r88--4164ef102c12",
+  "terminal_event_ids": [
+    "01a0640e-744d-7653-939d-9fcdf9a9130f:call-3ae20fa4-ff13-48a7-8c16-61d3ec7d094c-43",
+    "01a0640e-744d-7653-939d-9fcdf9a9130f:call-cc96e6a6-8746-49f3-a171-291870ee2c38-40",
+    "01a0640e-744d-7653-939d-9fcdf9a9130f:call-e11150fb-76ae-4466-8ea1-67b723e8ef23-35",
+    "01a0640f-795e-7e83-b0c6-3ca23d536055:call-3e4c2e02-975c-41be-b92b-53dc151a17a7-41",
+    "01a0640f-7975-7192-8e7b-b03e7931f56c:call-994b6bd5-36f9-406c-846a-210aedcd108d-17",
+    "01a0640f-7976-7443-9e3f-ab39ad3b526f:call-711b033b-0795-4c23-9f56-dade9ab12fd9-14",
+    "01a0640f-797c-7783-b107-c1a20afa23b2:call-626a2ecb-c51b-4109-a0b3-9a6467878279-39",
+    "01a0640f-797c-7783-b107-c1a20afa23b2:call-9a12eb06-fe79-4ccd-b4a0-09c378dc1b5f-30",
+    "01a06410-9658-7be1-bfc3-caedfacbaf11:call-a96dc82e-769b-460b-a000-65634588380b-17",
+    "01a06410-9659-7421-9892-9a012a4106fb:call-bb94a935-b165-4bcf-a5af-bb80f03ab967-15"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 2,
+  "unresolved_events": [
+    {
+      "channel": "terminal",
+      "event_id": "01a0640e-744d-7653-939d-9fcdf9a9130f:call-e11150fb-76ae-4466-8ea1-67b723e8ef23-35",
+      "journal_line": 203,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640e-744d-7653-939d-9fcdf9a9130f/updates.jsonl",
+      "operation": "inline_python_write_text",
+      "reason": "inline_python_write_text was recorded but is not conclusively reproducible without execution",
+      "timestamp_utc": "2026-09-02T23:16:03.324Z"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0640e-744d-7653-939d-9fcdf9a9130f:call-11f0dc5b-4fa6-40d5-9476-a672fc9fe2a6-42",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r88--4164ef102c12/fragments/call-11f0dc5b-4fa6-40d5-9476-a672fc9fe2a6-42/gen_r88.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r88--4164ef102c12/fragments/call-11f0dc5b-4fa6-40d5-9476-a672fc9fe2a6-42/gen_r88.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

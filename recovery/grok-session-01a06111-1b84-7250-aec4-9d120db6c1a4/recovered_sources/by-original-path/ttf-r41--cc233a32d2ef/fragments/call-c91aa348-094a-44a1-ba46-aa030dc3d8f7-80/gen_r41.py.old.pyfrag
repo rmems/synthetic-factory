@@ -1,0 +1,29 @@
+            ("name", "reel_raise_120"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("delta_m_min", 120.0),
+                        ("hold", False),
+                        ("ir_authoritative", True),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("surface_C", 96.2),
+                        ("adhesion_floor_C", 102.0),
+                        ("crepe_apparent_C", 118.0),
+                        ("race_margin_us", 171),
+                        ("combined_jitter_us", 58),
+                        ("abort_s", 600),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes +120 m/min reel raise because crepe IR apparent 118 C looks "
+                "over the 102 C floor, treating surface 96.2 C as a noisy sheath echo.",
+            ),

@@ -1,0 +1,44 @@
+{
+  "agent_ids": [
+    "01a064ab-428a-7783-91a7-01bb5dc65789"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations"
+  ],
+  "event_count": 2,
+  "final_state": "unknown",
+  "hunk_evidence_count": 2,
+  "original_basename": "build_r24.py",
+  "original_path": "/tmp/maos-r24-hearthfen/build_r24.py",
+  "path_key": "maos-r24-hearthfen--73105e15b6a2",
+  "terminal_event_ids": [
+    "01a064ab-428a-7783-91a7-01bb5dc65789:call-8925a128-6457-452f-9cf2-5ec572459556-55"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 2,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a064ab-428a-7783-91a7-01bb5dc65789:call-e5e10b00-4db4-4a42-aef6-317caa8f126e-52",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r24-hearthfen--73105e15b6a2/fragments/call-e5e10b00-4db4-4a42-aef6-317caa8f126e-52/build_r24.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r24-hearthfen--73105e15b6a2/fragments/call-e5e10b00-4db4-4a42-aef6-317caa8f126e-52/build_r24.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a064ab-428a-7783-91a7-01bb5dc65789:call-f72ab807-bf87-427e-b272-d0adde27469c-54",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r24-hearthfen--73105e15b6a2/fragments/call-f72ab807-bf87-427e-b272-d0adde27469c-54/build_r24.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r24-hearthfen--73105e15b6a2/fragments/call-f72ab807-bf87-427e-b272-d0adde27469c-54/build_r24.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

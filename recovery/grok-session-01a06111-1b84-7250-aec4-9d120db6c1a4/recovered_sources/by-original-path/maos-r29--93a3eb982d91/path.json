@@ -1,0 +1,56 @@
+{
+  "agent_ids": [
+    "01a06409-6c72-7fe1-8968-2c2429b1abb2"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "build_r29.py",
+  "original_path": "/tmp/maos-r29/build_r29.py",
+  "path_key": "maos-r29--93a3eb982d91",
+  "terminal_event_ids": [
+    "01a06409-6c72-7fe1-8968-2c2429b1abb2:call-c4d6365c-b723-442e-9aee-bd45b682190e-46",
+    "01a0640a-368e-7fb1-ac2b-f5d9731fd471:call-6a235b8a-78c7-4adf-8fa6-5746c073369c-20",
+    "01a0640a-368e-7fb1-ac2b-f5d9731fd471:call-f879f8c2-708e-42ef-851f-b50bc58b83e6-35",
+    "01a0640b-474a-7da1-9cee-3dfcde02b7dc:call-6a1c8655-2cfb-4183-99c7-ca7b92692944-18",
+    "01a0640b-4766-7972-8e6a-cac5dd25b371:call-86b7e59a-5fac-4a84-9e24-52300d664154-22"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06409-6c72-7fe1-8968-2c2429b1abb2",
+      "basename_preserved": true,
+      "bytes": 80876,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 257,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06409-6c72-7fe1-8968-2c2429b1abb2/updates.jsonl",
+      "original_basename": "build_r29.py",
+      "original_path": "/tmp/maos-r29/build_r29.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r29--93a3eb982d91/versions/v0001/build_r29.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/maos-r29--93a3eb982d91/versions/v0001/build_r29.py",
+      "session_id": "01a06409-6c72-7fe1-8968-2c2429b1abb2",
+      "sha256": "274cf4e1c761c7a9281621b27ad48761b4ba8d5fd477d218020153059e6afcc9",
+      "source_channel": "structured",
+      "source_event_id": "01a06409-6c72-7fe1-8968-2c2429b1abb2:call-66ad9588-e548-4c36-8318-24c41e456f1b-45",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788387557711,
+      "timestamp_utc": "2026-09-02T22:19:17.711Z",
+      "tool_call_id": "call-66ad9588-e548-4c36-8318-24c41e456f1b-45",
+      "version": 1,
+      "version_id": "maos-r29--93a3eb982d91:v0001"
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+"formula": "T_K = k_n * (R_kOhm - R0_kOhm); log2_ratio = R_kOhm - R0_kOhm",

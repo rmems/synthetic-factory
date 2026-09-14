@@ -1,0 +1,4 @@
+                "Exhaust IR 198 C won by 218 us, so the bed product is loading heat, not "
+                "still cooling. Holding 18.0 kg/h predicts next-sample 128 C > 125 cap. "
+                "MODIFY: spray 18.0 -> 12.4 kg/h. Observed after clamp 118 C < 125. A full "
+                "REJECT is not indicated: a sound granulation pass accepts 12.4 kg/h.",

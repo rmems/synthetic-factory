@@ -1,0 +1,21 @@
+                            [
+                                "o2.hood.pct 4.8 percent",
+                                "pyro.hood.C 978 C residual",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "O2-first latches fuel clamp 1.80 -> 1.35 t/h; pyrometer-first keeps "
+                            "1.80 t/h cruise on a 'hood still oxidizing' model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "450 us = one 2 kHz zirconia slot minus hood-pyrometer group delay on "
+                            "this burner bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 212 us vs combined jitter ~70 us (O2 32 + pyro 38): 3.0x over "
+                            "a 2.0x trust floor. Reversing order by < 212 us inside the 450 us window "
+                            "would have kept 1.80 t/h; predicted next-sample 4.6 percent < 5.5 floor.",
+                        ),

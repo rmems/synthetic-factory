@@ -1,0 +1,12 @@
+    aux = {
+        "trace": trace,
+        "eta1": eta1,
+        "eta2": eta2,
+        "eta3": eta3,
+        "w1": w1,
+        "w2": w2,
+        "w3": w3,
+        "heads": heads,
+        "min_gap": min_same_channel_gap(spike_events),
+    }
+    return rec, aux

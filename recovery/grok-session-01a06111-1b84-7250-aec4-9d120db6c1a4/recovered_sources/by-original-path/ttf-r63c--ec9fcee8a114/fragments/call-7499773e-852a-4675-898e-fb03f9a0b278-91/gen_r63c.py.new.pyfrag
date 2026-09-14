@@ -1,0 +1,2 @@
+| ttf-r63c-932 | tungsten-hexafluoride-bubbler | MODIFY | **incorrect (wrong-modify / wrong-unit on lagged bus slm-vs-sccm)** | designed | −0.68 | live WF6 42.0 sccm > 28.0 cap; lagged 0.042 slm bound as sccm; under-trim 42.0 -> 40.0 |
+| ttf-r63c-933 | magnesium-diboride-sinter | REJECT | correct | hil | +0.80 | AE 52 pps beats ram 16.0 MPa; hold press |

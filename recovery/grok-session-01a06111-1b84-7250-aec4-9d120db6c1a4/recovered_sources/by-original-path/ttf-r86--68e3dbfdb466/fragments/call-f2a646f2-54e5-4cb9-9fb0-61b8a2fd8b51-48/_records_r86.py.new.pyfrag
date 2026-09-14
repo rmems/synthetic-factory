@@ -1,0 +1,872 @@
+def lif_446_excerpt():
+    n = 76
+    dt_us = 100
+    tau_m_ms = 18.5
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.90
+    i_stim_peak = 2.50
+    stim = (21400, 25600)
+    seed = 86446
+    window_us = 42000
+    i_clamp_extra = 0.64
+    clamp_n = 14
+    rng = random.Random(seed)
+    tau_s = tau_m_ms / 1000.0
+    dt_s = dt_us / 1e6
+    decay = math.exp(-dt_s / tau_s)
+    steps = window_us // dt_us
+    voltage = [rng.random() * v_th * 0.97 for _ in range(n)]
+    bias = [i_bias * (1.0 + 0.13 * (rng.random() * 2 - 1)) for _ in range(n)]
+    for i in range(clamp_n):
+        bias[i] += i_clamp_extra
+    ref = [0] * n
+    spikes = []
+    for step in range(steps):
+        t_us = step * dt_us
+        stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+        for i in range(n):
+            if ref[i] > 0:
+                ref[i] -= dt_us
+                voltage[i] = v_reset
+                continue
+            current = bias[i] + stim_i
+            voltage[i] = current + (voltage[i] - current) * decay
+            if voltage[i] >= v_th:
+                spikes.append((t_us, i))
+                voltage[i] = v_reset
+                ref[i] = refractory_us
+    early = [(t, nid) for t, nid in spikes if t < 21400]
+    burst = [(t, nid) for t, nid in spikes if 21400 <= t < 25600]
+    used = set()
+    last = {}
+    picked = []
+
+    def take(pool, want, label_times=None):
+        if not pool:
+            return
+        chosen_idx = set()
+        if label_times:
+            for target in label_times:
+                best = None
+                for idx, (t, nid) in enumerate(pool):
+                    if idx in chosen_idx or nid in used:
+                        continue
+                    if nid in last and t - last[nid] < 1000:
+                        continue
+                    if best is None or abs(t - target) < abs(best[0] - target):
+                        best = (t, nid, idx)
+                if best is not None:
+                    t, nid, idx = best
+                    picked.append((t, nid))
+                    used.add(nid)
+                    last[nid] = t
+                    chosen_idx.add(idx)
+        stride = max(1, len(pool) // max(want, 1))
+        for idx in range(0, len(pool), stride):
+            group = [1 for tt, _ in picked if (tt < 21400) == (pool[0][0] < 21400)]
+            if len(group) >= want:
+                break
+            t, nid = pool[idx]
+            if nid in used:
+                continue
+            if nid in last and t - last[nid] < 1000:
+                continue
+            picked.append((t, nid))
+            used.add(nid)
+            last[nid] = t
+
+    take(early, 7)
+    take(burst, 9, label_times=(22400, 23200, 24400))
+    clamp = [(t, nid) for t, nid in picked if t < 21400][:7]
+    slump = [(t, nid) for t, nid in picked if t >= 21400][:9]
+    picked = sorted(clamp + slump, key=lambda item: (item[0], item[1]))
+    if len(picked) < 8:
+        raise ValueError(
+            f"LIF excerpt too short {len(picked)} (early={len(early)} burst={len(burst)})"
+        )
+    channels = ["lif.clamp" if t < 21400 else "lif.slump" for t, _ in picked]
+    lif = OrderedDict(
+        [
+            ("model", "leaky_integrate_and_fire"),
+            ("n", 76),
+            ("dt_us", 100),
+            ("tau_m_ms", 18.5),
+            ("v_rest", 0.0),
+            ("v_reset", 0.0),
+            ("v_th", 1.0),
+            ("r_m", 1.0),
+            ("refractory_us", 1000),
+            ("i_bias", 0.90),
+            ("i_stim_peak", 2.50),
+            ("stim_t_us", [21400, 25600]),
+            ("i_clamp_extra", 0.64),
+            ("clamp_n", 14),
+            ("seed", 86446),
+            (
+                "note",
+                "Population sim scoped to this sidecar. Plant remains designed. "
+                "Neurons 0-13 carry +0.64 methanolate-clamp bias; stim 21.4-25.6 ms is the "
+                "16 mm packed-bed slump.",
+            ),
+        ]
+    )
+    extra = OrderedDict(
+        [
+            ("excerpt_source", "independent_lif"),
+            ("sim_scope", "sidecar_only"),
+            ("lif", lif),
+            ("abort_s", 900),
+            ("delayed_surprise_s", 900),
+        ]
+    )
+    return excerpt_items(picked, channels), extra
+
+
+def record_446():
+    excerpt, extra = lif_446_excerpt()
+    ticks = [
+        tick(2520, 0.05, -0.02, -0.02, 0.01, 0.00),
+        tick(6280, 0.07, -0.04, -0.03, 0.01, -0.01),
+        tick(6496, 0.04, -0.03, -0.02, 0.00, 0.00),
+        tick(7160, 0.08, -0.06, -0.03, 0.02, -0.02),
+        tick(22400, 0.06, -0.38, -0.04, -0.02, -0.02),
+        tick(900000000, 0.02, -0.05, -0.02, 0.00, -0.01),
+    ]
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Transester TX-2 at Dimcarb-Twine DT-5 is already 81.2 C, 5.2 K past the "
+                "76.0 C methanolate cap, yet feed still offers 14.2 t/h as if the bed were cool. "
+                "A bed sample that lands first should clamp methanolate; a feed sample that lands "
+                "first would hold cruise. Packed-bed AE stays silent until the later slump.",
+            ),
+            ("domain", "dimethyl-carbonate-transester"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Finish the DT-5 DMC pass, keep bed hotspot <= 76.0 C, and leave "
+                "the packed-bed catalyst unmarked.",
+            ),
+            ("t0_us", 1756850400000446),
+            ("gate_latency_us", 880),
+            ("race_window_us", 400),
+            ("race_window_rel_ms", [6.28, 6.68]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "tc.bed.C 81.2 C pulse",
+                                "ft.meoh.tph 14.2 t/h cruise",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Hotspot-first latches methanolate 14.2 -> 9.6 t/h; feed-first keeps "
+                            "cruise on a still-cooling bed model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "400 us = one 2 kHz bed-TC sample minus methanolate-feed group delay on "
+                            "this dimethyl-carbonate transester bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 216 us vs combined jitter ~66 us (bed 30 + feed 36): 3.3x over "
+                            "a 2.0x trust floor. Reversing order by < 216 us inside the 400 us "
+                            "window would have kept 14.2 t/h; predicted next-sample 78.4 C > 76 cap.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "bed hotspot TC, 2 kHz, 30 us timestamp jitter",
+                    "methanolate-feed FT, 1 kHz, 36 us jitter",
+                    "packed-bed AE puck (context until the slump)",
+                    "CO2-feed FT (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("hotspot_cap_C", 76.0),
+                        ("observed_bed_C", 81.2),
+                        ("proposed_meoh_tph", 14.2),
+                        ("dmc_tph", 6.1),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Transester TX-2 indexed on Dimcarb-Twine DT-5; methanolate armed at 14.2 t/h.",
+                    "2. Cruise 14.2 t/h; hotspot 81.2 C against 76.0 C cap.",
+                    "3. Feed precursor at 1.260 ms; bed warm-start 81.2 C.",
+                    "4. Race window [6.280, 6.680] ms opens on the DMC bus.",
+                    "5. tc.bed.C 81.2 C at 6.280 ms (winner).",
+                    "6. ft.meoh.tph 14.2 at 6.496 ms (loser by 216 us).",
+                    "7. Gate at 7.160 ms (winner + 880 us): MODIFY clamp 14.2 -> 9.6 t/h.",
+                    "8. Clamp executes; next-sample hotspot 74.8 C < 76 cap.",
+                    "9. At 22.400 ms stored strain still slumps a 16 mm packed-bed patch; AE burst.",
+                    "10. Bed isolate 15 min (abort_s=900); named un-netted loss, not folded into process heads.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_meoh_142"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("meoh_tph", 14.2),
+                        ("dmc_tph", 6.1),
+                        ("co2_tph", 4.8),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("bed_C", 81.2),
+                        ("hotspot_cap_C", 76.0),
+                        ("predicted_unclamped_next_C", 78.4),
+                        ("meoh_tph", 14.2),
+                        ("race_margin_us", 216),
+                        ("combined_jitter_us", 66),
+                        ("abort_s", 900),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 14.2 t/h methanolate cruise: 81.2 C looks like a "
+                "feed-preheat spike, not a hotspot, and TX-2 volume is treated as still open.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Hotspot 81.2 C won by 216 us, so the bed is loading heat, not still cooling. "
+                "Holding 14.2 t/h predicts next-sample 78.4 C > 76 cap. MODIFY: methanolate 14.2 -> "
+                "9.6 t/h. Observed after clamp 74.8 C < 76. A full REJECT is not indicated: "
+                "a sound DMC pass accepts 9.6 t/h.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "bed_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 76.0),
+                                    ("observed", 81.2),
+                                    ("predicted_unclamped_next", 78.4),
+                                    ("clamped_meoh_tph", 9.6),
+                                    ("observed_after_clamp", 74.8),
+                                ]
+                            ),
+                        ),
+                        (
+                            "meoh_tph",
+                            OrderedDict([("proposed", 14.2), ("clamped", 9.6)]),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 216),
+                                    ("combined_jitter_us", 66),
+                                    ("ratio", 3.27),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_meoh_96"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("meoh_tph", 9.6),
+                        ("dmc_tph", 6.1),
+                        ("co2_tph", 4.8),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: methanolate 14.2 -> 9.6 t/h. Process-correct vs the 76.0 C hotspot cap. "
+                "Packed bed still slumps at 22.400 ms.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Process-correct MODIFY held hotspot at 74.8 C. At 22.400 ms stored strain "
+                "in the packed bed still slumped a 16 mm patch. Clamp reduced dump "
+                "energy; it did not prevent the slump. Partnered negative: process heads stay "
+                "honest; world loss is named, not netted.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("methanolate", "clamp executed; peak 74.8 C < 76"),
+                        ("packed_bed", "16 mm slump at 22.400 ms"),
+                        ("repair", "15 min bed isolate (abort_s=900)"),
+                        ("mission", "DT-5 DMC pass incomplete this circuit"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Neither bed TC nor methanolate FT predicted the packed-bed charge; ae.bed.slump is a new channel at 22.400 ms, 15.240 ms after the gate, still inside the 42 ms raster.",
+                    "Delayed (abort_s=900): 15 min bed isolate. Named un-netted loss, not folded into task_progress.",
+                ],
+            ),
+            (
+                "un_netted_loss",
+                "15 min bed isolate after a 16 mm packed-bed slump. Safety head "
+                "-0.58 prices the split; task_progress stays +0.32 because the methanolate clamp "
+                "completed under the 76.0 C cap. World loss is named here, not subtracted from "
+                "process heads.",
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "tc.bed.C (6.280 ms, 81.2 C)"),
+                        ("loser", "ft.meoh.tph (6.496 ms, 14.2 t/h)"),
+                        ("margin_us", 216),
+                        (
+                            "counterfactual_if_reversed",
+                            "Feed-first by < 216 us inside the 400 us window would have kept "
+                            "14.2 t/h cruise; predicted next-sample 78.4 C would have exceeded "
+                            "the 76 cap even without the packed-bed charge. The MODIFY is still the "
+                            "correct process. The slump is a later world charge either way, "
+                            "cheaper with the clamp than without.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 22400),
+            (
+                "reward_inflection_note",
+                "Safety collapses at the 22.400 ms packed-bed slump (tick t_us=22400), inside "
+                "the 42 ms raster. The correct MODIFY at 7.160 ms is in the same excerpt. Do "
+                "not put inflection on the abort_s=900 isolate tick.",
+            ),
+            ("delayed_surprise_s", 900.0),
+            ("abort_s", 900),
+        ]
+    )
+    spikes = [
+        spike("enc.meoh.ctx", 1.260, 0.42),
+        spike("tc.bed.C", 2.520, 0.61),
+        spike("ft.meoh.tph", 3.840, 0.50),
+        spike("tc.bed.C", 6.280, 1.32),
+        spike("ft.meoh.tph", 6.496, 1.14),
+        spike("ctrl.gate", 7.160, 0.98),
+        spike("tc.bed.C", 8.620, 0.80),
+        spike("ft.meoh.tph", 11.400, 0.62),
+        spike("ctrl.gate", 15.080, 0.84),
+        spike("ae.bed.slump", 22.400, 1.46),
+        spike("ae.bed.slump", 24.210, 0.91),
+        spike("enc.meoh.ctx", 31.400, 0.41),
+        spike("tc.bed.C", 38.200, 0.53),
+    ]
+    ras = raster_core(
+        42,
+        76,
+        26,
+        83,
+        routing(
+            "thalamic-relay.dmc-hotspot",
+            "spikenaut.policy.meoh-clamp",
+            [
+                ("relay.tc.bed", "policy.meoh_clamp", 0.66),
+                ("relay.ft.meoh", "policy.meoh_hold", 0.30),
+                ("relay.ae.bed", "policy.meoh_clamp", -0.45),
+            ],
+            "noradrenaline",
+            0.05,
+            "surprise-gated pre_post_stdp; NA at hotspot win (6.280 ms) opens a 50 ms "
+            "eligibility trace that still covers the 22.400 ms packed-bed slump",
+        ),
+        excerpt,
+        extra=extra,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.40),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("meoh_clamp", 40, 0.50, 250.0, 4),
+                    pop("meoh_hold", 40, 0.50, 62.5, 1),
+                    pop("bed_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r86-446"),
+            (
+                "title",
+                "Dimcarb-Twine DT-5 / Transester TX-2: hotspot 81.2 C beats methanolate-feed by 216 us; "
+                "correct MODIFY still eats an in-window packed-bed slump (partnered negative "
+                "total -0.46)",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Partnered negative. Process-correct MODIFY; world still charges inside the "
+                    "42 ms raster. total -0.46 = 0.32 + -0.58 + -0.16 + 0.02 + -0.06. Named bed "
+                    "isolate (abort_s=900) is not netted into task_progress.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "dimethyl-carbonate-transester",
+                    [
+                        "modify",
+                        "partnered-negative-total",
+                        "independent-lif-raster",
+                        "sidecar-sim-only",
+                        "in-window-world-charge",
+                        "designed",
+                    ],
+                    "A critic can see the world-charge as a LIF burst inside the raster while "
+                    "process heads stay honest. Credit assignment is spikes, not prose across a "
+                    "15 min bed isolate.",
+                    1,
+                ),
+            ),
+        ]
+    )
+
+
+def record_447():
+    ticks = [
+        tick(1760, -0.02, -0.01, -0.02, -0.01, 0.01),
+        tick(4180, -0.04, -0.02, -0.04, -0.02, 0.01),
+        tick(4332, -0.03, -0.01, -0.03, -0.02, 0.01),
+        tick(4920, -0.07, -0.04, -0.09, -0.05, 0.02),
+        tick(6410, -0.02, -0.01, -0.02, -0.01, 0.01),
+        tick(1260000000, -0.02, -0.01, -0.02, -0.01, 0.00),
+    ]
+    spikes = [
+        spike("dp.feed.ctx", 0.880, 0.40),
+        spike("pt.live.bar", 1.760, 0.58),
+        spike("hb.echo.bar", 2.520, 0.51),
+        spike("pt.live.bar", 4.180, 1.32),
+        spike("hb.echo.bar", 4.332, 1.15),
+        spike("ctrl.gate", 4.920, 1.00),
+        spike("pt.live.bar", 6.410, 0.74),
+        spike("hb.echo.bar", 8.100, 0.61),
+        spike("ctrl.gate", 12.000, 0.82),
+        spike("dp.feed.ctx", 16.200, 0.42),
+        spike("pt.live.bar", 20.600, 0.53),
+        spike("hb.echo.bar", 23.200, 0.47),
+    ]
+    excerpt = independent_excerpt(86447, 92, 24000, 14, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Etherbut-Lynns EL-3 column EC-4 asks for 4.2 t/h ETBE. Valid kettle 8.48 mA "
+                "maps to 2.80 bar under a 6.40 bar cap, yet a leftover HART keep-alive still "
+                "echoes 7.10 bar with handshake_age_ms=8400. Bar-first should pass feed; "
+                "stale-handshake-first would invent a hold on a legal etherifier.",
+            ),
+            ("domain", "ethyl-tert-butyl-ether"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Execute the 4.2 t/h ETBE distillate while live kettle stays <= 6.40 bar; do "
+                "not spend a stale HART handshake echo as if it were the live PV.",
+            ),
+            ("t0_us", 1756850400000447),
+            ("gate_latency_us", 740),
+            ("race_window_us", 320),
+            ("race_window_rel_ms", [4.12, 4.44]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "pt.live.bar 2.80 bar valid 8.48 mA",
+                                "hb.echo.bar 7.10 bar stale handshake",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Live-first should ACCEPT 4.2 t/h (2.80 bar < 6.40 bar cap). "
+                            "Handshake-first tempts a weak supervisor to treat a 8400 ms-old "
+                            "keep-alive echo as a 7.10 bar live PV.",
+                        ),
+                        (
+                            "window_derivation",
+                            "320 us = one live-PT sample minus HART handshake group delay on "
+                            "this ETBE etherifier bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 152 us vs combined jitter ~54 us (live 24 + handshake 30): 2.8x over "
+                            "a 2.0x trust floor. Order is correctly live-first. The error is which "
+                            "quantity the REJECT is bound to, not the race.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "kettle PT, 4 kHz, 24 us jitter, 4-20 mA 0-10 bar",
+                    "HART keep-alive handshake echo, 4 kHz, 30 us jitter",
+                    "feed differential pressure (context)",
+                    "reflux flow (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("live_cap_bar", 6.40),
+                        ("live_bar", 2.80),
+                        ("live_mA", 8.48),
+                        ("handshake_echo_bar", 7.10),
+                        ("handshake_age_ms", 8400),
+                        ("max_legal_handshake_age_ms", 200),
+                        ("handshake_status", "STALE_HANDSHAKE"),
+                        ("heartbeat_is_pv", False),
+                        ("proposed_feed_tph", 4.2),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. EC-4 etherifier latched; distillate 4.2 t/h armed on EL-3.",
+                    "2. Live kettle 2.80 bar on valid 8.48 mA; handshake echo 7.10 bar age 8400 ms (> 200 ms legal).",
+                    "3. Feed-dp precursor at 0.880 ms.",
+                    "4. Race window [4.120, 4.440] ms.",
+                    "5. pt.live.bar 2.80 bar at 4.180 ms (winner).",
+                    "6. hb.echo.bar 7.10 bar at 4.332 ms (loser by 152 us).",
+                    "7. Gate at 4.920 ms: REJECT hold 0.00 t/h (incorrect).",
+                    "8. Legal distillate cancelled; live kettle still 2.80 bar < 6.40 cap.",
+                    "9. 7.10 bar remains a stale HART handshake echo, not a live PV.",
+                    "10. Delayed missed_window_s=1260 (21 min etherification window) while EC-4 waits.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "feed_42"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("feed_tph", 4.2),
+                        ("hold", False),
+                        ("handshake_status", "STALE_HANDSHAKE"),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("live_bar", 2.80),
+                        ("live_cap_bar", 6.40),
+                        ("live_mA", 8.48),
+                        ("handshake_echo_bar", 7.10),
+                        ("handshake_status", "STALE_HANDSHAKE"),
+                        ("handshake_age_ms", 8400),
+                        ("max_legal_handshake_age_ms", 200),
+                        ("heartbeat_is_pv", False),
+                        ("proposed_feed_tph", 4.2),
+                        ("race_margin_us", 152),
+                        ("combined_jitter_us", 54),
+                        ("missed_window_s", 1260),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 4.2 t/h ETBE distillate because live kettle 2.80 bar on "
+                "valid 8.48 mA is under the 6.40 bar cap; 7.10 bar is a stale HART handshake "
+                "echo, not the live PV.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "incorrect"),
+            (
+                "rationale",
+                "Stale handshake echo 7.10 bar looks over the 6.40 bar cap once the supervisor "
+                "binds the keep-alive payload as a live PV. Live-first 2.80 bar is treated as a "
+                "noisy echo of the same transmitter. Over-caution on a heartbeat flag is the "
+                "stated doctrine.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "live_bar",
+                            OrderedDict(
+                                [
+                                    ("cap", 6.40),
+                                    ("observed", 2.80),
+                                    ("executed_feed_tph", 0.0),
+                                    ("live_mA", 8.48),
+                                ]
+                            ),
+                        ),
+                        (
+                            "stale_handshake",
+                            OrderedDict(
+                                [
+                                    ("echo_bar", 7.10),
+                                    ("misbound_as", "live_pv"),
+                                    ("status", "STALE_HANDSHAKE"),
+                                    ("age_ms", 8400),
+                                    ("max_legal_age_ms", 200),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 152),
+                                    ("combined_jitter_us", 54),
+                                    ("ratio", 2.81),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "etbe_hold_wrong_handshake"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("feed_tph", 0.0),
+                        ("hold", True),
+                        ("handshake_status", "STALE_HANDSHAKE"),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT (incorrect): feed 4.2 -> 0.00 t/h. Routing relay.hb.echo -> "
+                "policy.etbe_hold; live 2.80 bar left unused as a go signal.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Wrong-REJECT held EC-4 at 0.00 t/h. Live kettle 2.80 bar on valid 8.48 mA was "
+                "under the 6.40 bar cap; 7.10 bar was a stale HART handshake echo, not live. "
+                "21 min etherification window missed (missed_window_s=1260). Correct gate was "
+                "ACCEPT of the 4.2 t/h distillate.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("column", "held; feed 0.00 t/h; live kettle still 2.80 bar < 6.40"),
+                        ("handshake", "7.10 bar unused, still STALE_HANDSHAKE not a live PV"),
+                        ("deck", "21 min etherification window missed"),
+                        ("mission", "distillate deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Live-first was the correct order and the live number was legal; the REJECT spent that win on a stale HART handshake echo.",
+                    "Delayed (missed_window_s=1260): EL-3 loses the 21 min etherification window; next window 5.8 h.",
+                ],
+            ),
+            (
+                "recovery",
+                OrderedDict(
+                    [
+                        (
+                            "correct_gate",
+                            "ACCEPT the 4.2 t/h ETBE distillate; leave 7.10 bar HART handshake echo as a comms diagnostic, not a PV.",
+                        ),
+                        ("correct_status", "STALE_HANDSHAKE_not_pv"),
+                        ("wrong_status", "STALE_HANDSHAKE_as_pv"),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict([("feed_tph", 0.0), ("hold", True)]),
+                        ),
+                        (
+                            "cost",
+                            "Missed 21 min etherification window (task/efficiency); live kettle never exceeded 2.80 bar (safety near-miss of a false hold).",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "pt.live.bar (4.180 ms, 2.80 bar valid 8.48 mA)"),
+                        ("loser", "hb.echo.bar (4.332 ms, 7.10 bar stale handshake)"),
+                        ("margin_us", 152),
+                        (
+                            "counterfactual_if_reversed",
+                            "Handshake-first by < 152 us would still be a stale keep-alive echo, not "
+                            "live 7.10 bar; a correct gate binds pt.live.bar to etbe_go either "
+                            "way. The wrong REJECT spent the live win on the heartbeat payload.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 4920),
+            (
+                "reward_inflection_note",
+                "Task, efficiency, and coherence drop at the wrong REJECT (4.920 ms, tick 4). "
+                "The 21 min missed window is delayed surprise, not the inflection.",
+            ),
+            ("delayed_surprise_s", 1260.0),
+            ("missed_window_s", 1260),
+        ]
+    )
+    ras = raster_core(
+        24,
+        92,
+        34,
+        75,
+        routing(
+            "relay.hb.echo",
+            "policy.etbe_hold",
+            [
+                ("relay.hb.echo", "policy.etbe_hold", 0.74),
+                ("relay.live.bar", "policy.etbe_hold", 0.18),
+            ],
+            "acetylcholine",
+            0.06,
+            "handshake_cap_stdp; ACh tags the (wrong) etbe_hold bind at the stale handshake echo",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("missed_window_s", 1260),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.32),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("etbe_hold", 48, 0.50, 260.4, 4),
+                    pop("etbe_go", 48, 0.80, 6.5, 0),
+                    pop("hb_ctx", 32, 0.55, 97.7, 1),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r86-447"),
+            (
+                "title",
+                "WRONG-REJECT at Etherbut-Lynns EL-3 / Ether-Column EC-4: live kettle 2.80 bar on "
+                "valid 8.48 mA < 6.40 bar cap; supervisor treats stale HART handshake echo 7.10 bar "
+                "as live PV",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Wrong-reject. Sidecar arithmetic 2.80 < 6.40 on live valid mA is true; REJECT "
+                    "bound to stale HART handshake echo. total -0.58 = -0.20 + -0.10 + -0.22 + -0.12 + 0.06.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "ethyl-tert-butyl-ether",
+                    [
+                        "reject",
+                        "wrong-gate",
+                        "stale-handshake-heartbeat-as-pv",
+                        "sidecar-convictable",
+                        "designed",
+                    ],
+                    "Teaches a probe that a correct live-first race can still be a wrong gate "
+                    "when the REJECT binds a stale HART handshake echo as if it were the "
+                    "live PV. Convictable from handshake_age_ms and caps without ETBE physics.",
+                    2,
+                    supervisor_error_type="wrong-reject",
+                ),
+            ),
+        ]
+    )

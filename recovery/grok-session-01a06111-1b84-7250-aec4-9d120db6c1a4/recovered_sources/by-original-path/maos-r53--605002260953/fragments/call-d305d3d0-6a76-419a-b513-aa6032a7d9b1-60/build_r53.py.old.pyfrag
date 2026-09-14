@@ -1,0 +1,34 @@
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 49
+
+Factory: multi-agent-ouroboros-swarm. One scenario (ZS), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r53.jsonl. Full labeled transcript:
+swarm-transcript-r53.md. Quota Q=1. Record id maos-r53-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Nothing under outputs/raw/ was touched.
+
+ORCHESTRATION NOTE: dispatched AS round 49 of the 2026-09-02-final-heavy
+window. Writes are create-only under /tmp/maos-r49/. Prior context read for
+gap targeting and de-collision: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, and staged r14–r48 (re-censused immediately
+before emit; r44 landed as RUNNELGATE / Ghyllmere Hydro KT-5
+hydroelectric-kaplan-wicket; r45 landed as ETHYNWOLD / Woadfen EC-7
+ethylene-steam-cracker-coil; r46 landed as SPARKHOLT / Scoriafen RC-5
+fcc-riser-regenerator; r47 landed as DIPLEGAR / Gritfen FCC-4
+fcc-regenerator-cyclone-dipleg so the first r49 Gritfen geo lock was
+abandoned; r48 in-flight OLEUMWEIR / Brindlefell CT-5
+sulfuric-contact-converter). Explicitly avoided
+cloning LYOSHIELD, CINDERWICK, TRIAD / Meridian, QUILLFORGE, NIGHTWELL,
+FERRICLEAVE, CASSITER, OXBOWREEL / MURENA, REDHALL, SEEDLATCH, STRIAFOIL,
+PROTONIL, TORSIONKEY, ORRIS, WHORLSPAR, IONSPATE, SKULLGATE, CALXION,
+BRACEGILT, MAGNORIL, GORSEFLUE, SODASHARD, CLINKERFELL, LINTELPLY,
+KAOTHARN, TREADNOLL, ANOLITH, DRUMWROTH, RIMEBRAID, PITCHSTAITH,
+BRIMVAULT, NITROSTAITH, BOGIRON, CHROMLOOP, ETHYNWOLD, NITREVAULT,
+RUNNELGATE, SPARKHOLT, DIPLEGAR, OLEUMWEIR, VANTIS-CADENCE-AEGIS,
+THERMION, OKTAVE, STARLING, VERDIGRIS.
+Plant is invented SKARVOLT / Emberbarrow Meltshop EAF-7 (slag-tip steel campus,
+not a mill-town, highland-ghyll, fertilizer cove, blast-furnace bog,
+slurry loop, cracker coil, or FCC pad). Leftover candidates
+bioreactor-perfusion / autonomous-driving / grid-inspection were
+left unused so concurrent empty slots can take them.

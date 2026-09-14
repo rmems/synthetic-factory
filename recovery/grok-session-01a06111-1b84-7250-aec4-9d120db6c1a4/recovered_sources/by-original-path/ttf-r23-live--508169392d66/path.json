@@ -1,0 +1,55 @@
+{
+  "agent_ids": [
+    "01a064a9-45b3-7ae0-b234-bd88381b06ed",
+    "01a064ac-ed8e-75e2-955a-0445f8c40c97"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 1,
+  "original_basename": "gen_r23.py",
+  "original_path": "/tmp/ttf-r23-live/gen_r23.py",
+  "path_key": "ttf-r23-live--508169392d66",
+  "terminal_event_ids": [
+    "01a064a9-45b3-7ae0-b234-bd88381b06ed:call-2efea9a3-e865-40f5-9c93-34806439f00d-46",
+    "01a064ac-ed8e-75e2-955a-0445f8c40c97:call-608b1321-f19b-4684-bed0-5fab1f6b005a-37",
+    "01a064ac-ed8e-75e2-955a-0445f8c40c97:call-d1a2655b-259a-4da6-bef0-029c9573b699-23"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a064a9-45b3-7ae0-b234-bd88381b06ed",
+      "basename_preserved": true,
+      "bytes": 107230,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 255,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a064a9-45b3-7ae0-b234-bd88381b06ed/updates.jsonl",
+      "original_basename": "gen_r23.py",
+      "original_path": "/tmp/ttf-r23-live/gen_r23.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r23-live--508169392d66/versions/v0001/gen_r23.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r23-live--508169392d66/versions/v0001/gen_r23.py",
+      "session_id": "01a064a9-45b3-7ae0-b234-bd88381b06ed",
+      "sha256": "5f9e4e5a8125748873ce24d215d27cd25ef575b4edcd0b7b0b2a3735c9704375",
+      "source_channel": "structured",
+      "source_event_id": "01a064a9-45b3-7ae0-b234-bd88381b06ed:call-e8142f5d-380d-4a46-8898-87292770307e-45",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788396213273,
+      "timestamp_utc": "2026-09-03T00:43:33.273Z",
+      "tool_call_id": "call-e8142f5d-380d-4a46-8898-87292770307e-45",
+      "version": 1,
+      "version_id": "ttf-r23-live--508169392d66:v0001"
+    }
+  ]
+}

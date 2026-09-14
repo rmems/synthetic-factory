@@ -1,0 +1,5 @@
+                "Meohbed-Twistle MT-7 converter C-3 is already 2.6 bar over its 52.0 bar shell cap on the "
+                "live high-range PT (54.6 bar). The dual-range transmitter keeps high-range 0-80 bar "
+                "selected; the idle low-range leftover still prints 22.4 bar around a 25.0 bar switch "
+                "with a 2.0 bar deadband. Inverting that deadband polarity is a range-drop fiction, "
+                "not a second over-cap.",

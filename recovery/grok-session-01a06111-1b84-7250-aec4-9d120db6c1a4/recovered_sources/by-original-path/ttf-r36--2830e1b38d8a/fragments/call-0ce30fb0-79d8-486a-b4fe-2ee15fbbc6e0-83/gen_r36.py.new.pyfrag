@@ -1,0 +1,9 @@
+            "thalamic-relay.bath-rtd",
+            "spikenaut.policy.dip-accept",
+            [
+                ("relay_rtd_bath", "policy_dip_go", 0.64),
+                ("relay_ir_dross", "policy_dip_cut", 0.26),
+            ],
+            "histamine",
+            0.18,
+            "bath_temp_stdp; histamine tags the dip_go bind at the RTD win",

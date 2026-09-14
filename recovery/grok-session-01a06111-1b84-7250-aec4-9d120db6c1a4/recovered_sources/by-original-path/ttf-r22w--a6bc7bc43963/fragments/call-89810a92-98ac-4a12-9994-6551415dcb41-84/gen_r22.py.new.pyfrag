@@ -1,0 +1,14 @@
+                "Boat B-4 at Hydride-Wick HW-6 is already metering 0.42 slm of GaCl while "
+                "the GaN susceptor sits at 1048 C against a 1020 C HVPE growth cap. "
+                "Temperature-first cuts GaCl to 0.26 slm; chloride-first would keep 0.42 slm because "
+                "the GaCl FT still looks like a wet-boat smear under 0.55 slm. An injector "
+                "nozzle clog already seated in the showerhead does not appear on susceptor T or "
+                "GaCl FT until the AE dump.",
+            ),
+            ("domain", "gallium-nitride-hvpe"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Keep Boat B-4 susceptor <= 1020 C and finish the GaN epilayer without dumping "
+                "gallium chloride condensate onto the showerhead floor.",
+            ),

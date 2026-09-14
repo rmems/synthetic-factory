@@ -1,0 +1,75 @@
+                [
+                    "pellet-bed IR, 32 us jitter",
+                    "hood DP smear, 38 us jitter",
+                    "grate-speed encoder (context)",
+                    "windbox PT (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("bed_cap_C", 1350.0),
+                        ("observed_bed_C", 1280.0),
+                        ("speed_floor_m_min", 2.20),
+                        ("proposed_speed_m_min", 2.40),
+                    ]
+                ),
+            ),
+            (
+                "simulation",
+                OrderedDict(
+                    [
+                        (
+                            "solver",
+                            "1D traveling-grate induration + shrinking-core pellet kernel, seed 48; 12 axial nodes; NOT lumped tank, NOT a fluid-LES field",
+                        ),
+                        (
+                            "fidelity_limits",
+                            "No radial maldistribution or grate-bar leak; beds are rigid temperature sources. Raster is kernelized events, not an independent LIF.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Taconite-Sill grate indexed; G-4 traveling 2.40 m/min at 1280 C bed.",
+                    "2. Caps: bed 1350 C, speed floor 2.20 m/min; both proposed values inside.",
+                    "3. Feed precursor at 1.480 ms.",
+                    "4. Race window [6.240, 6.600] ms.",
+                    "5. Bed IR 1280 C at 6.240 ms (winner).",
+                    "6. Hood DP smear at 6.470 ms (loser by 230 us).",
+                    "7. Gate at 7.140 ms: ACCEPT 2.40 m/min / 1280 C already legal.",
+                    "8. Pass continues; no extra hold.",
+                    "9. 10 min survey confirms hood draft still in spec.",
+                    "10. QA: ACCEPT params identical to proposed.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "grate_2p40_thold"),
+            ("parameters", params),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("bed_C", 1280.0),
+                        ("bed_cap_C", 1350.0),
+                        ("speed_m_min", 2.40),
+                        ("speed_floor_m_min", 2.20),
+                        ("race_margin_us", 230),
+                        ("combined_jitter_us", 70),
+                        ("t_gate_us", 7140),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 2.40 m/min because bed 1280 C is 70 C under the 1350 C cap "
+                "and speed is 0.20 m/min over the 2.20 m/min floor.",
+            ),
+        ]
+    )

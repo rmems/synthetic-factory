@@ -1,0 +1,3 @@
+    jsonl_stage = emit_text(stage_batch, line + "\n")
+
+    from check_records import FactoryStaging, check_jsonl

@@ -1,0 +1,4 @@
+OUT = Path("/tmp/maos-r61")
+OUT_WINDOW = Path(
+    "/tmp/sf-window/outputs/raw/2026-09-02-final-heavy/multi-agent-ouroboros-swarm"
+)

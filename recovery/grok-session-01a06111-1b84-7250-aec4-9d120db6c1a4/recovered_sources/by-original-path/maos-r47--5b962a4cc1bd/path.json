@@ -1,0 +1,55 @@
+{
+  "agent_ids": [
+    "01a0640e-744a-72b2-ad09-0ef778f2ab3b"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 1,
+  "original_basename": "build_r47.py",
+  "original_path": "/tmp/maos-r47/build_r47.py",
+  "path_key": "maos-r47--5b962a4cc1bd",
+  "terminal_event_ids": [
+    "01a0640e-744a-72b2-ad09-0ef778f2ab3b:call-04c2a0a8-b30e-40d5-99a9-80c79f2739e1-38",
+    "01a0640f-7972-73a0-9c5c-75e90a9894f0:call-925ae450-cd13-44c5-8bc6-ef6147f2f521-23",
+    "01a0640f-7972-73a0-9c5c-75fef12337a8:call-5bce3c22-0386-46f3-8c04-5baa29f59ef4-26",
+    "01a0640f-797a-7cd1-a87b-a6f8f9cec20b:call-9e118026-0ef0-42b0-9f17-a2a3f6b67831-19"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a0640e-744a-72b2-ad09-0ef778f2ab3b",
+      "basename_preserved": true,
+      "bytes": 88824,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 215,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640e-744a-72b2-ad09-0ef778f2ab3b/updates.jsonl",
+      "original_basename": "build_r47.py",
+      "original_path": "/tmp/maos-r47/build_r47.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r47--5b962a4cc1bd/versions/v0001/build_r47.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/maos-r47--5b962a4cc1bd/versions/v0001/build_r47.py",
+      "session_id": "01a0640e-744a-72b2-ad09-0ef778f2ab3b",
+      "sha256": "f73ed447bc6864d959f4f5003bfe55a986b32116bd77e0543f5f6dcbf179f935",
+      "source_channel": "structured",
+      "source_event_id": "01a0640e-744a-72b2-ad09-0ef778f2ab3b:call-300786a4-49d6-42d9-af39-9af53adee400-37",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788390863949,
+      "timestamp_utc": "2026-09-02T23:14:23.949Z",
+      "tool_call_id": "call-300786a4-49d6-42d9-af39-9af53adee400-37",
+      "version": 1,
+      "version_id": "maos-r47--5b962a4cc1bd:v0001"
+    }
+  ]
+}

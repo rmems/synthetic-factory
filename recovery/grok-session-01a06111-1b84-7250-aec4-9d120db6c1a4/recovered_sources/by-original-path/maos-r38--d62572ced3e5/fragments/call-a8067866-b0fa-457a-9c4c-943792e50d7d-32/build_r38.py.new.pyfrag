@@ -1,0 +1,906 @@
+#!/usr/bin/env python3
+"""Build and self-check MAOS round-38 JSONL (research-only; not published)."""
+from __future__ import annotations
+
+import json
+import math
+import re
+import subprocess
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+ROOT = "/home/raulmc/rmems/synthetic-factory"
+sys.path.insert(0, ROOT)
+sys.path.insert(0, f"{ROOT}/pipelines")
+
+GEN_AT = "2026-09-03T03:20:00Z"
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "SuperGrok Heavy chat",
+    "generated_at": GEN_AT,
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+}
+AGG = "total = task_progress + safety + efficiency + coherence + exploration"
+HEADS = ("task_progress", "safety", "efficiency", "coherence", "exploration")
+OUT = Path("/tmp/maos-r38")
+HIDDEN = ("thought", "chain_of_thought", "scratch", "inner_monologue")
+BANNED = (
+    "TRIAD",
+    "Meridian Gateway",
+    "VANTIS",
+    "CADENCE",
+    "AEGIS",
+    "THERMION",
+    "STARLING",
+    "OKTAVE",
+    "VERDIGRIS",
+    "LYOSHIELD",
+    "CINDERWICK",
+    "Helixmere",
+    "Lodenholt",
+    "QUILLFORGE",
+    "Brackmere",
+    "NIGHTWELL",
+    "Sable Cryogenics",
+    "Fen-Marrow",
+    "FERRICLEAVE",
+    "Pellwater",
+    "CASSITER",
+    "Marshfloat",
+    "OXBOWREEL",
+    "Oystermere",
+    "REDHALL",
+    "Gullmere",
+    "SEEDLATCH",
+    "Quartzmere",
+    "Quartzridge",
+    "STRIAFOIL",
+    "Kelpholt",
+    "TORSIONKEY",
+    "Ridgeholt",
+    "PROTONIL",
+    "Ashspire",
+    "ORRIS",
+    "Holmwick",
+    "WHORLSPAR",
+    "Pikeshear",
+    "Crowspire",
+    "SODASHARD",
+    "Cairnmere",
+    "SKULLGATE",
+    "Bloomholt",
+    "BRACEGILT",
+    "Yarrowmere",
+    "CALXION",
+    "Aldersedge",
+    "MAGNORIL",
+    "Basaltspit",
+    "GORSEFLUE",
+    "Copseholt",
+    "CLINKERFELL",
+    "Flintmere",
+    "IONSPATE",
+    "Thornmere",
+    "VEILFORGE",
+    "MURENA",
+    "HALYARD",
+    "VESPERTHORN",
+    "ASHVEIL",
+    "IRONMANTLE",
+    "DUSKRELAY",
+    "PALISADE",
+    "TELAMON",
+    "CHORDA",
+    "Brinewell",
+    "LINTELPLY",
+    "Greystair",
+    "KAOTHARN",
+    "Riftwold",
+    "TREADNOLL",
+    "Slatebeck",
+    "ANOLITH",
+    "Siltfen",
+    "training_ready",
+    "da Vinci",
+    "Intuitive Surgical",
+    "Boston Dynamics",
+    "Nucor",
+    "Arcelor",
+    "Lafarge",
+    "Holcim",
+    "Heidelberg",
+    "Cemex",
+    "Michelin",
+    "Bridgestone",
+    "Goodyear",
+    "Continental",
+    "Pirelli",
+    "Harburg",
+    "McNeil",
+    "Consarc",
+    "Inductotherm",
+    "Topsoe",
+    "Johnson Matthey",
+    "Asahi",
+    "Nafion",
+    "Chemours",
+    "Nouryon",
+    "Uhde",
+    "INEOS",
+    "Westlake",
+    "OxyChem",
+    "Formosa",
+    "Foster Wheeler",
+    "ExxonMobil",
+    "ConocoPhillips",
+    "Bechtel",
+    "Lummus",
+    "Technip",
+    "Halliburton",
+    "Schlumberger",
+)
+R14_OPENING = (
+    "Helixmere Biologics Building C lyophilizer LYO-4 is mid-primary on 8400 "
+    "vials of a monoclonal antibody"
+)
+NOVEL_LINE = "Novel coverage: 46%"
+PLANT = "DRUMWROTH"
+GEO = "Pitchfen"
+CELL = "DC-4"
+DOMAIN = "delayed-coker-drum-switch"
+RECORD_ID = "maos-r38-001"
+ROUND = 38
+
+
+def cents_ticks(t_us, rows):
+    ticks = []
+    sums = {h: 0 for h in HEADS}
+    for t, vals in zip(t_us, rows):
+        tick = {"t_us": int(t)}
+        for h, c in zip(HEADS, vals):
+            v = round(c / 100.0, 2)
+            tick[h] = v
+            sums[h] += c
+        ticks.append(tick)
+    heads = {h: round(sums[h] / 100.0, 2) for h in HEADS}
+    heads["total"] = round(sum(heads[h] for h in HEADS), 2)
+    return ticks, heads
+
+
+def check_refractory(events, floor_ms=0.8):
+    last = {}
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last and (t - last[ch]) < floor_ms - 1e-9:
+            return f"refractory {ch}: {t}-{last[ch]}={(t-last[ch]):.4f} < {floor_ms}"
+        last[ch] = t
+    return None
+
+
+def min_same_channel_gap(events):
+    last = {}
+    best = None
+    who = None
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last:
+            gap = t - last[ch]
+            if best is None or gap < best:
+                best = gap
+                who = ch
+        last[ch] = t
+    return best, who
+
+
+def check_excerpt(ex, neurons, window_ms):
+    prev_t = -1
+    last_n = {}
+    for item in ex:
+        t = item["t_us"]
+        n = item["neuron_id"]
+        if t < prev_t:
+            return "excerpt not sorted"
+        if not (0 <= t <= window_ms * 1000):
+            return f"t_us {t} out of window"
+        if not (0 <= n < neurons):
+            return f"neuron {n} out of range"
+        if n in last_n and t - last_n[n] < 1000:
+            return f"same-neuron gap {n}: {t-last_n[n]}"
+        last_n[n] = t
+        prev_t = t
+    return None
+
+
+def check_gate_pops(gs):
+    dw_s = gs["decision_window_ms"] / 1000.0
+    for p in gs["populations"]:
+        if "mean_rate_hz" in p or "spikes" in p:
+            exp = round(p["neurons"] * p["mean_rate_hz"] * dw_s)
+            if abs(p["spikes"] - exp) > 1:
+                return f"{p['name']} spikes {p['spikes']} vs {exp}"
+    return None
+
+
+def jaccard(a, b):
+    sa = set(a.lower().split())
+    sb = set(b.lower().split())
+    return len(sa & sb) / max(1, len(sa | sb))
+
+
+def prior_openings():
+    out = []
+    for p in sorted(Path("/tmp").glob("maos-r*/batch-r*.jsonl")):
+        if p.parent.name == "maos-r38":
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        desc = ""
+        st = rec.get("state")
+        if isinstance(st, dict):
+            desc = str(st.get("description") or "")
+        if desc:
+            out.append((p.as_posix(), desc[:280]))
+    return out
+
+
+def occupancy_collisions():
+    hits = []
+    for p in sorted(Path("/tmp").glob("maos-r*/batch-r*.jsonl")):
+        if p.parent.name == "maos-r38":
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        blob = json.dumps(rec)
+        domain = (rec.get("state") or {}).get("domain")
+        if domain == DOMAIN:
+            hits.append(f"{p}: domain {domain}")
+        if PLANT in blob:
+            hits.append(f"{p}: plant token {PLANT}")
+        if GEO in blob:
+            hits.append(f"{p}: geo {GEO}")
+        if "delayed-coker" in (domain or ""):
+            hits.append(f"{p}: delayed-coker domain")
+        if "drum-switch" in (domain or ""):
+            hits.append(f"{p}: drum-switch domain")
+    return hits
+
+
+def build_record():
+    ticks, heads = cents_ticks(
+        [4620, 6820, 7500, 6_000_000, 576_000_000, 9_000_000_000, 12_240_000_000],
+        [
+            (1, -2, -1, 1, 1),
+            (2, -5, -1, 3, 1),
+            (2, -6, -2, 3, 1),
+            (2, -5, -2, 3, 1),
+            (1, -5, -2, 2, 1),
+            (1, -5, -1, 2, 1),
+            (0, -5, -1, 0, 0),
+        ],
+    )
+    assert abs(heads["total"] - (-0.14)) < 1e-9, heads
+
+    probe_s = 6.0
+    tau_e_s = 6.0
+    trace = math.exp(-probe_s / tau_e_s)
+    eta1 = 0.23 / trace
+    eta2 = 0.21 / trace
+    eta3 = 0.20 / trace
+    dw1 = eta1 * 1.0 * trace
+    dw2 = eta2 * 1.0 * trace
+    dw3 = eta3 * 1.0 * trace
+    w1 = 0.44 - dw1
+    w2 = 0.40 - dw2
+    w3 = 0.37 - dw3
+    assert abs(w1 - 0.21) < 5e-4, w1
+    assert abs(w2 - 0.19) < 5e-4, w2
+    assert abs(w3 - 0.17) < 5e-4, w3
+
+    spike_events = [
+        {"channel": "drum.pt", "t_rel_ms": 0.240, "amplitude": 0.54},
+        {"channel": "vap.tc", "t_rel_ms": 1.060, "amplitude": 0.61},
+        {"channel": "foam.g", "t_rel_ms": 1.880, "amplitude": 0.55},
+        {"channel": "drum.pt", "t_rel_ms": 3.120, "amplitude": 0.50},
+        {"channel": "foam.n", "t_rel_ms": 4.620, "amplitude": 0.72},
+        {"channel": "vap.tc", "t_rel_ms": 5.100, "amplitude": 0.64},
+        {"channel": "foam.g", "t_rel_ms": 5.540, "amplitude": 0.52},
+        {"channel": "foam.n", "t_rel_ms": 6.820, "amplitude": 1.26},
+        {"channel": "foam.ok", "t_rel_ms": 7.012, "amplitude": 1.10},
+        {"channel": "dp.oh", "t_rel_ms": 7.164, "amplitude": 0.66},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.500, "amplitude": 1.06},
+        {"channel": "drum.pt", "t_rel_ms": 8.920, "amplitude": 0.45},
+        {"channel": "vap.tc", "t_rel_ms": 10.780, "amplitude": 0.46},
+        {"channel": "foam.n", "t_rel_ms": 12.660, "amplitude": 0.86},
+        {"channel": "foam.g", "t_rel_ms": 18.400, "amplitude": 0.44},
+        {"channel": "ctrl.gate", "t_rel_ms": 26.160, "amplitude": 0.84},
+        {"channel": "foam.probe", "t_rel_ms": 6000.0, "amplitude": 0.94},
+        {"channel": "foam.n", "t_rel_ms": 6120.4, "amplitude": 0.40},
+        {"channel": "foam.ok", "t_rel_ms": 6210.2, "amplitude": 0.36},
+        {"channel": "human.ratify", "t_rel_ms": 576000.0, "amplitude": 0.81},
+        {"channel": "vap.isolate", "t_rel_ms": 576800.0, "amplitude": 0.73},
+        {"channel": "line.coke.inventory", "t_rel_ms": 577400.0, "amplitude": 0.82},
+        {"channel": "drum.pt", "t_rel_ms": 9000000.0, "amplitude": 0.30},
+        {"channel": "vap.tc", "t_rel_ms": 9000440.0, "amplitude": 0.28},
+        {"channel": "foam.n", "t_rel_ms": 9000900.0, "amplitude": 0.20},
+        {"channel": "line.coke", "t_rel_ms": 12240000.0, "amplitude": 0.89},
+    ]
+
+    contrast_spikes = [
+        {"channel": "switch.demand", "t_rel_ms": 0.000, "amplitude": 0.86},
+        {"channel": "foam.n", "t_rel_ms": 0.196, "amplitude": 0.20},
+        {"channel": "foam.ok", "t_rel_ms": 0.410, "amplitude": 0.78},
+        {"channel": "drum.pt", "t_rel_ms": 1.660, "amplitude": 0.42},
+        {"channel": "vap.tc", "t_rel_ms": 4.920, "amplitude": 0.53},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.160, "amplitude": 0.91},
+        {"channel": "foam.probe", "t_rel_ms": 2800.0, "amplitude": 0.34},
+        {"channel": "switch.seated", "t_rel_ms": 12240000.0, "amplitude": 0.14},
+    ]
+
+    excerpt = [
+        {"t_us": 240, "neuron_id": 48},
+        {"t_us": 1060, "neuron_id": 90},
+        {"t_us": 1880, "neuron_id": 102},
+        {"t_us": 3120, "neuron_id": 52},
+        {"t_us": 4620, "neuron_id": 8},
+        {"t_us": 5100, "neuron_id": 94},
+        {"t_us": 5540, "neuron_id": 106},
+        {"t_us": 6820, "neuron_id": 6},
+        {"t_us": 7012, "neuron_id": 56},
+        {"t_us": 7164, "neuron_id": 18},
+        {"t_us": 7500, "neuron_id": 130},
+        {"t_us": 8920, "neuron_id": 60},
+        {"t_us": 10780, "neuron_id": 98},
+        {"t_us": 12660, "neuron_id": 12},
+        {"t_us": 18400, "neuron_id": 110},
+        {"t_us": 26160, "neuron_id": 134},
+    ]
+
+    rec = {
+        "id": RECORD_ID,
+        "title": "DRUMWROTH DC-4: wet-foam residual 0.31 beats foam.gamma-ok by 192 us; correct MODIFY still quenches the drum after pre-t0 vapor-line coke",
+        "rights": dict(RIGHTS),
+        "state": {
+            "sim_or_real": "designed",
+            "domain": DOMAIN,
+            "scenario_name": "DRUMWROTH / Pitchfen Coking DC-4",
+            "timestamp_local": "2026-03-15T02:22:00-05:00",
+            "t0_us": 1742000220000038,
+            "gate_latency_us": 680,
+            "race_window_us": 480,
+            "race_window_rel_ms": [6.76, 7.24],
+            "description": "Pitchfen Coking estuary-refinery drum pair DC-4 holds a 1100 t/d delayed-coker on-line at 1.42 bar. PRES overhead pressure is 1.42 bar against 1.28-1.58. TEMP vapor is 418 C inside 400-435. FOAM gamma radar is 12 pct inside the <25 pct switch-legal band. Playbook PB-CK-12 treats the conjunction as permission to switch drums. The consensus is false: a 2.4 m wet-foam over has been climbing for 32 min because antifoam injection nozzle 4 is 40 pct plugged. PRES stays in-band because wet foam is a hydrostatic not a vapor-pressure event. TEMP stays in-band because vapor leaving the still-dry headspace is on-spec. Gamma FOAM stays in-band because wet-foam density matches the vapor calibration. Uncommissioned r_foam is 0.31 against a 0.04 hold. Uncommissioned r_dp is 0.62 against a 0.92 hold. Neutron-first latches SWITCH-HOLD plus an antifoam-pulse probe; gamma-ok-first would have authorized SWITCH-DRUM of a foaming 28 ft drum into the vapor line.",
+            "goal": "Hold the on-line drum (no switch) while r_foam > 0.04 AND r_dp < 0.92; keep foam-over into the vapor line at 0 and coke thickness <= 1.5 mm.",
+            "race": {
+                "contenders": [
+                    "foam.n 0.31 residual (uncommissioned neutron vs gamma)",
+                    "foam.ok 12 pct (gamma radar inside <25 pct switch-legal band)",
+                ],
+                "semantics": "Neutron-first latches SWITCH-HOLD + ANTIFOAM-PROBE + vapor-line isolate. Gamma-ok-first latches SWITCH-DRUM (empty-and-fill of a foaming 28 ft drum into the vapor line, no probe).",
+                "window_derivation": "480 us = one 360 us gamma-radar ADC slot plus 120 us neutron-residual publish.",
+                "order_evidence_note": "Margin 192 us vs combined jitter 62 us (foam.n 34 + foam.ok 28): 3.10x. The 192 us gap sits inside min(500, 480) us, so a sub-flip-bound perturbation reverses triage order. The gate rides the order-invariant floors r_foam > 0.04 and r_dp < 0.92, not the alarm order.",
+            },
+            "topology": {
+                "site": "Pitchfen Coking, invented estuary-refinery campus Pitchfen, Drum Alley pair DC-4: 1100 t/d delayed coker, 28 ft on-line drum, 28 ft off-line sister, uncommissioned neutron foam residual, uncommissioned overhead-line dP, Grade-C switch deck",
+                "agents": "PRES overhead PT (vendor Drumgage): drum pressure. TEMP vapor TC (vendor Vaportc): overhead vapor temperature. FOAM gamma radar (vendor Radfen): foam height as gamma transmission. Heterogeneous stacks, no shared neutron schema, one 20 ms coker-deck bus epoch",
+                "coupling": "Each agent's commissioned window hides a different slice of the same wet-foam over. PRES is correct that overhead is 1.42 bar. TEMP is correct that headspace vapor is 418 C. FOAM is correct that gamma transmission still reads 12 pct. Playbook PB-CK-12 treats the conjunction of three in-spec loops as permission to switch drums. No agent is faulty; the 0.31 wet-foam residual is a compliance the gamma-vapor model cannot see.",
+            },
+            "sensors": [
+                "drum overhead pressure transmitter, 50 Hz, 28 us jitter, 1.42 bar (spec 1.28-1.58 bar)",
+                "neutron-gamma foam residual r_foam is computable on the Neutcairn source-pair and is NOT commissioned at t0 (0.31 observed in the historian after the fact)",
+                "overhead vapor thermocouple, 20 Hz, 24 us jitter, 418 C vs 400-435 window",
+                "gamma foam radar, 10 Hz, 22 us jitter, 12 pct (switch-legal <25 pct)",
+                "overhead-line free-flow fraction r_dp from dP is NOT commissioned at t0 (0.62 vs 0.92 hold; inferred after this hold)",
+                "drum sight-glass is NOT commissioned at t0 (installed after this incident)",
+            ],
+            "constraints": {
+                "switch_drum": False,
+                "proposed_switch_drum": True,
+                "foam_residual": 0.31,
+                "foam_hold_frac": 0.04,
+                "dp_frac": 0.62,
+                "dp_hold_frac": 0.92,
+                "pres_bar": 1.42,
+                "pres_window_lo_bar": 1.28,
+                "pres_window_hi_bar": 1.58,
+                "vap_C": 418.0,
+                "foam_gamma_pct": 12.0,
+                "feed_t_d": 1100.0,
+                "foam_pre_t0_min": 32.0,
+            },
+            "fault_context": {
+                "failure_class": "WET-FOAM NULLSPACE OF A GAMMA-RADAR CERTIFICATE: three individually-correct heterogeneous agents agree the drum is switch-legal because a gamma-vapor model maps 0.31 wet-foam residual into a still-in-band 12 pct foam height, so pressure-in-window, vapor-T-in-window, and gamma-in-window are jointly a plant-false drum-switch permit",
+                "igniter": "drum DC-4 accumulated a 2.4 m wet-foam over during a 32 min Sunday-night on-line hold after a residue-asphaltene spike the antifoam nozzle did not fully kill; nozzle 4 40 pct plugged. Fitted-style base rate 0.44%/hold from a wet-foam MC (designed nozzle spec, flagged).",
+                "naive_failure": "PB-CK-12 SWITCH-DRUM on three healthy loops: empty-and-fill of a foaming 28 ft drum into the vapor line, $2.18M plus a 16-day outage",
+            },
+            "poisoned_context": {
+                "naive_alarm": "Playbook PB-CK-12 (after the 2025 'noisy neutron-foam nuisance') auto-drafts SWITCH-DRUM whenever overhead is in 1.28-1.58 bar AND vapor is inside 400-435 C AND gamma foam is <25 pct, ignoring r_foam unless the gamma radar also trips high",
+                "why_poisoned": "The three confirms are locally true and jointly insufficient. r_foam is a computable tag the playbook dead-banded. r_dp is commissioned hardware that policy treats as a line-hydraulics leftover, not a foam-over. Independence of 'all loops healthy' is the hidden assumption, and it is false under a wet foam the gamma-vapor model cannot see.",
+            },
+            "constraint": "Do not switch the 28 ft on-line drum while r_foam > 0.04 AND r_dp < 0.92. Discriminate wet-foam vs noisy-gamma with a reversible antifoam pulse before any switch.",
+        },
+        "proposed_action": {
+            "actor": "coker-switch supervisory optimizer CSSO (auto-playbook PB-CK-12 draft), submitted to gate TG-DC-4",
+            "name": "switch_drum",
+            "action": "SWITCH-DRUM: empty-and-fill of the 28 ft on-line drum into the vapor line, no antifoam probe, no vapor-line isolate",
+            "summary": "Treat three in-spec loops as a dry headspace and switch Sunday-night drums to clear a charge slot.",
+            "parameters": {
+                "switch_drum": True,
+                "foam_probe": False,
+                "vapor_isolate": False,
+                "human_ratify": False,
+            },
+            "steps": [
+                "assert PRES overhead 1.42 bar inside 1.28-1.58",
+                "assert TEMP 418 C inside 400-435",
+                "assert FOAM gamma 12 pct inside <25",
+                "open switch; empty-and-fill the 28 ft on-line drum",
+                "hold heater charge; proceed to next residue slot",
+            ],
+            "evidence": [
+                {
+                    "observable": "neutron-gamma foam residual r_foam",
+                    "value": 0.31,
+                    "unit": "frac",
+                    "source": "Neutcairn source-pair, historian replay after t0",
+                    "note": "hold floor 0.04; 0.31 wet foam over 32 min; uncommissioned at t0",
+                },
+                {
+                    "observable": "overhead-line free-flow fraction r_dp",
+                    "value": 0.62,
+                    "unit": "frac",
+                    "source": "uncommissioned overhead dP vs design free-flow",
+                    "note": "hold if < 0.92; wet foam loads the vapor line, not the gamma radar",
+                },
+                {
+                    "observable": "drum overhead pressure",
+                    "value": 1.42,
+                    "unit": "bar",
+                    "source": "PRES Drumgage overhead PT",
+                    "note": "window 1.28-1.58 bar; the leak is a foam event",
+                },
+                {
+                    "observable": "overhead vapor temperature",
+                    "value": 418.0,
+                    "unit": "C",
+                    "source": "Vaportc vapor TC",
+                    "note": "window 400-435 C; remaining dry headspace is on-spec",
+                },
+                {
+                    "observable": "gamma foam height",
+                    "value": 12.0,
+                    "unit": "pct",
+                    "source": "Radfen gamma radar",
+                    "note": "switch-legal <25 pct; wet-foam density matches vapor calibration",
+                },
+                {
+                    "observable": "race margin",
+                    "value": 192,
+                    "unit": "us",
+                    "source": "foam.n 6.820 ms vs foam.ok 7.012 ms",
+                    "note": "combined jitter 62 us, 3.10x; inside 480 us flip bound",
+                },
+            ],
+            "basis": "PB-CK-12 switches on three locally-true in-spec loops. The draft does not read r_foam 0.31 and does not treat r_dp 0.62 as a foam-over.",
+            "expected_cost_bound": "If the draft executes: foam-over into the vapor line, $2.18M plus 16-day outage. If MODIFIED: probe plus vapor-line isolate, with residual risk from 32 min of pre-t0 vapor-line coke.",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "correctness": "correct",
+            "decided_by": "TG-DC-4 thalamic release gate",
+            "decision_t_rel_ms": 7.500,
+            "rationale": "MODIFY the draft: strip the switch, hold the 28 ft drum on-line, run a 6.0 s antifoam probe (package AF-4 at 12 pct), and isolate the vapor line only if the probe dumps the foam. Numeric floor: do not switch the 1100 t/d drum while r_foam > 0.04 AND r_dp < 0.92. Observed r_foam 0.31 and r_dp 0.62 both violate the release predicate, so a switch is forbidden even though all three playbook confirms are numerically true. The three confirms are not a dry-headspace certificate: overhead pressure is a vapor-space quantity that wet foam does not raise, 418 C is a headspace quantity of still-dry vapor, and 12 pct is a gamma-vapor quantity wet foam is invisible to. Probe discriminant: after a 6.0 s 12 pct antifoam pulse, a wet foam dumps overhead dP >= 70 mbar in 2.5 s; a dry-legal inventory drops <= 8 mbar. Order-code discipline: neutron beat gamma-ok by 192 us inside the 480 us flip bound, so triage order is flip-fragile; the hold rides the order-invariant floors, not the winner tag. Human ratification: vapor-line isolate is a switch-valve LOTO job with fitted 9.6 min dead-man; the gate may hold and probe autonomously but may not break the vapor-line interlock without the operator confirm.",
+            "constraint_checked": {
+                "switch_drum": {"observed": False, "proposed_target": True},
+                "foam_residual": {"observed": 0.31, "hold_if_above": 0.04},
+                "dp_frac": {"observed": 0.62, "hold_if_below": 0.92},
+                "pres_bar": {"observed": 1.42, "window": [1.28, 1.58]},
+            },
+        },
+        "executed_action": {
+            "name": "switch_hold_antifoam_probe_vapor_isolate",
+            "action": "SWITCH-HOLD + ANTIFOAM-PROBE + VAPOR-ISOLATE (gate-mandated modification)",
+            "executed_as_proposed": False,
+            "parameters": {
+                "switch_drum": False,
+                "foam_probe": True,
+                "vapor_isolate": True,
+                "human_ratify": True,
+            },
+            "gate_effect": "MODIFY: switch stripped. Hold the 28 ft drum on-line. 6.0 s antifoam 12 pct. Probe dumps the foam (88 mbar in 2.3 s >= 70 mbar wet-foam band) so the vapor line is isolated after 9.6 min human ratify. Switch resumes after r_foam recovers on a quenched drum.",
+            "deviations": "PB-CK-12 switch stripped entirely. Antifoam is opened only for the 6.0 s probe then returned. Vapor-line-interlock wait added (9.6 min fitted LOTO). Coke-scale survey added during the isolate (not in the draft).",
+            "execution_log": [
+                {"t_rel_ms": 7.500, "entry": "TG-DC-4 MODIFY latched 680 us after neutron win; switch stripped; hold+probe authorized"},
+                {"t_rel_ms": 6000.0, "entry": "antifoam probe: AF-4 12 pct for 6.0 s; overhead dP drops 88 mbar in 2.3 s (wet-foam band >= 70); r_foam 0.31 -> 0.29"},
+                {"t_rel_ms": 576000.0, "entry": "operator ratifies vapor-line interlock break after 9.6 min LOTO (fitted walk+lockout)"},
+                {"t_rel_ms": 576800.0, "entry": "vapor isolation closed; foam residual 0.31 logged; r_foam 0.31 -> 0.03 on the quenched stand"},
+                {"t_rel_ms": 577400.0, "entry": "coke survey: 32 min pre-t0 foam already written into the vapor line; 3.4 h coke-assay clock started"},
+                {"t_rel_ms": 9000000.0, "entry": "true dry-headspace geometry after 2.5 h quench: r_foam 0.02, r_dp 0.94, PRES 1.41 bar (no phantom foam); switch now legal"},
+                {"t_rel_ms": 12240000.0, "entry": "coke inspection of the dumped hold: vapor-line coke +6.4 mm vs 1.5 mm spec; drum quenched 4.2 d"},
+            ],
+        },
+        "future_outcome": {
+            "summary": "Correct MODIFY prevented the SWITCH-DRUM of a foaming 28 ft drum and the $2.18M vapor-line return. The hold still failed: 32 min of unmonitored pre-t0 wet foam had already baked a 6.4 mm coke ring in the overhead line. Process-correct gate, bounded world loss, negative total.",
+            "state_delta": {
+                "switch": "held on-line through probe and vapor isolate; later legal switch after 2.5 h dry recovery on a quenched drum",
+                "foam": "0.31 wet-foam residual logged and collapsed; r_foam 0.31 -> 0.03 on the stand",
+                "drum": "Sunday-night delayed-coker stoppered at vapor-line coke; thickness +6.4 mm; 4.2 d quench",
+            },
+            "timeline": [
+                {"t_rel_ms": -1920000.0, "event": "t0-32 min: asphaltene spike residual already foaming; vapor-line coke begins"},
+                {"t_rel_ms": -600000.0, "event": "t0-10 min: r_foam first crosses 0.04; PB-CK-12 ignores it because FOAM gamma is 11 pct"},
+                {"t_rel_ms": 0.0, "event": "t0: foam.n vs foam.ok race on the coker-deck bus"},
+                {"t_rel_ms": 6.820, "event": "foam.n 0.31 wins by 192 us"},
+                {"t_rel_ms": 7.012, "event": "foam.ok flag (loser)"},
+                {"t_rel_ms": 7.500, "event": "TG-DC-4 MODIFY"},
+                {"t_rel_ms": 6000.0, "event": "antifoam probe confirms wet foam (88 mbar dump, wet-foam band)"},
+                {"t_rel_ms": 576000.0, "event": "human ratify 9.6 min; vapor line isolated; coke inventory logged"},
+                {"t_rel_ms": 9000000.0, "event": "true dry headspace after 2.5 h; switch now legal on a quenched drum"},
+                {"t_rel_ms": 12240000.0, "event": "coke assay: +6.4 mm on the dumped hold; drum quenched"},
+                {"t_rel_ms": 259200000.0, "event": "+3 d contrast: sister cell DC-4B true dry headspace; same gate ACCEPTs the switch"},
+                {"t_rel_ms": 1814400000.0, "event": "+21 d CR-C-3804: standing antifoam probe + triple-edge depression mandate + r_foam armed without gamma coincidence + native 0.01 pct foam CSV exports"},
+            ],
+            "observed_effects": [
+                "switch avoided: drum never left on-line; 0 t of foam entered the vapor line",
+                "wet foam proven, not asserted: antifoam dump 88 mbar >= 70 wet-foam band vs dry control 6 mbar",
+                "drum quenched: r_foam 0.31 -> 0.03 on the stand",
+                "drum still failed coke: +6.4 mm vs 1.5 mm spec; 4.2 d quench, $1.12M (designed $)",
+                "neutron residual was not a commissioned sensor at t0; the 32 min foam was invisible to PRES/TEMP/FOAM-gamma",
+            ],
+            "surprises": [
+                "Three locally-true in-spec loops are not a switch certificate: the wet foam was a density compliance the gamma-vapor model cannot see. Conjunction of healthy loops was the hidden assumption, and it is false under a wet-foam nullspace.",
+                "Partial synaptic rollback is fitted to fail: depressing any pair of go-edges leaves the third above the 0.30 switch threshold, so the switch still goes. Coordinated depression of all three edges is required.",
+                "Delayed (3.4 h): correct hold did not undo 32 min of vapor-line coke. Thickness still failed +6.4 mm. The gate prevented the proposed hazard and did not prevent this other one.",
+                "16 ft small-drum sub-variant: a 6.0 s / 12 pct pulse overcools the smaller drum 14 K below the 400 C vapor floor. Thin drums must use 18 s at 3 pct (drop 1.6 K).",
+            ],
+            "delayed_side_effects": [
+                {
+                    "at": "+3.4 h",
+                    "effect": "Vapor-line coke +6.4 mm vs 1.5 mm spec; 4.2 d quench booked at $1.12M. This is the primary episode's terminal world state, not a footnote.",
+                },
+                {
+                    "at": "+3 d",
+                    "effect": "Sister cell DC-4B reaches a true dry-headspace window (r_foam 0.02, r_dp 0.95, PRES 1.43 bar from a quenched drum). Same gate ACCEPTs the SWITCH-DRUM the primary MODIFIED away.",
+                },
+                {
+                    "at": "+21 d",
+                    "effect": "CR-C-3804 ships: antifoam probe is standing configuration; triple-edge coordinated depression is the plasticity rule; r_foam is armed without gamma coincidence; native 0.01 pct foam CSV exports become the fraud fence.",
+                },
+            ],
+            "subvariant_constraint": {
+                "name": "16 ft small drum on the same DC-4 pair (cycle-2 physical-constraints sub-variant)",
+                "mechanism": "16 ft drum, holdup 0.22x the 28 ft production drum, vapor window only 35 C wide at the overhead",
+                "probe_refit": "6.0 s 12 pct antifoam pulse overcools the small drum 14 K and drops it through the 400 C vapor floor (coke-skin risk in collapsing foam). Required probe is 18 s at 3 pct (drop 1.6 K). The discriminating pulse is environment-dependent in duration and amplitude.",
+                "consequence": "Production 28 ft probe numbers do not port to 16 ft small drums; standing configuration is per-drum-class, not per-alley",
+            },
+            "embedded_contrast_decision": {
+                "note": "SAME gate (TG-DC-4), OPPOSITE correct disposition, with its own 196 us race. Teaches the boundary: do not treat 'never switch' as the lesson. The discriminant is r_foam + r_dp + probe, not the three playbook confirms alone.",
+                "when": "+3 d, sister cell DC-4B, true dry headspace after a quenched week, 28 ft production drum",
+                "state": {
+                    "sim_or_real": "designed",
+                    "summary": "r_foam 0.02, r_dp 0.95, PRES 1.43 bar from a quenched drum. Demand flag vs foam-clear race: demand at t+0.000, foam-clear at t+0.196 ms.",
+                    "race_window_us": 480,
+                    "race_flip_narrative": "demand vs foam-clear 196 us apart inside the 480 us flip bound. Reversing order reshuffles triage minutes; the ACCEPT rides r_foam 0.02 < 0.04 and a 4.0 s antifoam verify that dumps 6 mbar (dry inventory, no wet foam).",
+                },
+                "proposed_action": {
+                    "action": "SWITCH-DRUM empty-and-fill of the 28 ft on-line drum",
+                    "summary": "This time the playbook predicate is met AND r_foam plus r_dp agree the headspace is dry, not foaming.",
+                },
+                "safety_decision": {
+                    "decision": "ACCEPT",
+                    "rationale": "ACCEPT the switch: r_foam 0.02 < 0.04, r_dp 0.95 >= 0.92, 4.0 s antifoam verify dumps 6 mbar. Numeric floor that blocked the primary is now clear. Scope: 28 ft production drum, not a 16 ft small drum.",
+                },
+                "executed_action": {
+                    "action": "switch drum as proposed",
+                    "executed_as_proposed": True,
+                },
+                "future_outcome": {
+                    "observed_effects": [
+                        "DC-4B vapor-line coke 1.2 mm (inside 1.5 mm spec)",
+                        "drum camera 0 foam, r_foam 0.02",
+                    ],
+                    "lesson_delta": "Three in-spec loops are legal release only with r_foam armed, r_dp, and a probe that can dump the wet foam. Same gate, opposite disposition.",
+                },
+                "reward_components": {
+                    "_aggregation": AGG,
+                    "task_progress": 0.16,
+                    "safety": 0.12,
+                    "efficiency": 0.07,
+                    "coherence": 0.08,
+                    "exploration": 0.04,
+                    "total": 0.47,
+                },
+                "spike_events": contrast_spikes,
+            },
+            "governance_subgame": {
+                "decision": "CR-C-3804: standing policy for multi-agent drum-switch release",
+                "meta_gate": "priced options: (a) RETIRE playbook gamma-conjunction, neutron-only: loses a fast cheap confirm, -11 holds/yr mean on 2 drums; (b) KEEP + standing antifoam probe + r_foam armed without gamma coincidence + triple-edge depression; (c) STATUS QUO: fitted foam-pass rate 0.44%/hold x $2.18M vapor-line return plus the silent coke load",
+                "outcome": "approved SCOPED option (b) on the 2 drums that share the PRES/TEMP/FOAM-gamma stack; 16 ft small-drum campaigns get the 18 s / 3 pct probe table; Sunday-night CSV exports must carry 0.01 pct native foam resolution (the fraud tail's 0.5 pct quantization is 50 bins off plant truth)",
+            },
+            "hazard_avoided": "empty-and-fill of a foaming 28 ft drum into the vapor line; $2.18M plus 16-day outage and the vapor-line-return path that would have followed an uncontained switch",
+            "incident": "Vapor-line coke +6.4 mm (vs 1.5 mm spec) on the Sunday-night 1100 t/d hold; drum quenched; 4.2 d; $1.12M designed cost. Mechanism is 32 min pre-t0 wet foam, not the gate's hold.",
+            "latency_ms": 0.68,
+            "reward_inflection_t_us": 12240000000,
+            "reward_inflection_note": "Safety and task dive at coke inspection (3.4 h) when dumped hold fails +6.4 mm. Gate tick at 7500 us is process-correct and is not the inflection.",
+            "counterfactuals": {
+                "execute_draft_as_proposed": "switch fires at +0.4 s; foam-over into the vapor line; $2.18M plus 16-day outage; the wet-foam story is never found because the switch morphology destroys the 32 min foam evidence",
+                "hold_without_probe": "foam stays; coke continues; operator eventually switches on the same three confirms 40 min later",
+                "rollback_any_pair": "any two go-edges depressed below 0.30 leaves the third at 0.44 / 0.40 / 0.37; the switch still fires. Coordinated depression of all three is the cure",
+            },
+            "race_result": {
+                "winner": "foam.n (6.820 ms, 0.31 residual)",
+                "loser": "foam.ok (7.012 ms, 12 pct gamma)",
+                "margin_us": 192,
+                "counterfactual_if_reversed": "Gamma-ok-first by < 192 us inside the 480 us window would have headed the PB-CK-12 switch in the triage queue. The numeric floors still MODIFY. The flip costs seconds of playbook inertia, not the verdict — unless a weak supervisor rides the winner tag instead of r_foam and r_dp.",
+            },
+        },
+        "reward_components": {
+            "_aggregation": AGG,
+            "ticks": ticks,
+            "task_progress": heads["task_progress"],
+            "safety": heads["safety"],
+            "efficiency": heads["efficiency"],
+            "coherence": heads["coherence"],
+            "exploration": heads["exploration"],
+            "total": heads["total"],
+            "notes": "Correct MODIFY, drum still failed. total -0.14 = 0.09 + -0.33 + -0.10 + 0.14 + 0.06. Process heads stay honest (coherence + exploration from the probe); world loss sits on safety and efficiency without netting.",
+            "component_notes": "task_progress 0.09: switch held and dry-headspace recovered, but the Sunday-night hold is one quality unit so the campaign is not a success. safety -0.33: +6.4 mm coke, no foam-over switch. efficiency -0.10: 3.4 h extra recovery + 9.6 min HITL. coherence 0.14: three agents retained, wet-foam nullspace diagnosed, triple-edge scar exhibited. exploration 0.06: antifoam probe is a new reversible discriminant.",
+        },
+        "spike_events": spike_events,
+        "raster": {
+            "window_ms": 40,
+            "window_s": 0.040,
+            "neurons": 168,
+            "mean_rate_hz": 8.0,
+            "spikes": 54,
+            "energy_pJ": 1242,
+            "energy_uJ": 0.001242,
+            "note": "Loihi-2 4-core 23 pJ/spike; populations foam.n 0-41, drum 42-83, vap 84-125, gate 126-167; excerpt is the 40 ms decision window (verdict at 7500 us)",
+            "excerpt": excerpt,
+            "routing": {
+                "source": "loop_healthy_pop",
+                "target": "switch_drum_pop",
+                "table": [
+                    {
+                        "from": "drum_pt_ok_pop",
+                        "to": "switch_drum_pop",
+                        "weight": 0.21,
+                        "weight_at_illusion": 0.44,
+                        "weight_commissioned": 0.16,
+                        "note": "scar edge 1: 0.16 commissioned -> 0.44 during the 32 min illusion -> 0.21 after coordinated ACh-gated depression",
+                    },
+                    {
+                        "from": "vap_tc_ok_pop",
+                        "to": "switch_drum_pop",
+                        "weight": 0.19,
+                        "weight_at_illusion": 0.40,
+                        "weight_commissioned": 0.14,
+                        "note": "scar edge 2: depressing edges 1+3 leaves this at 0.40 > 0.30 switch threshold",
+                    },
+                    {
+                        "from": "foam_ok_pop",
+                        "to": "switch_drum_pop",
+                        "weight": 0.17,
+                        "weight_at_illusion": 0.37,
+                        "weight_commissioned": 0.13,
+                        "note": "scar edge 3: depressing edges 1+2 leaves this at 0.37 > 0.30. Coordinated depression of all three is required",
+                    },
+                    {
+                        "from": "foam_n_pop",
+                        "to": "switch_hold_pop",
+                        "weight": 0.66,
+                        "note": "discriminating edge: r_foam species to hold. Not a scar; this is the pathway the gate potentiates",
+                    },
+                ],
+                "third_factor": {
+                    "modulator": "acetylcholine",
+                    "tau_e_s": 6.0,
+                    "tau_e_ms": 6000.0,
+                    "eligibility": "coordinated pre_post_stdp on ALL THREE loop-healthy-go edges; ACh at neutron-win tags drum.pt_ok->switch, vap.tc_ok->switch, and foam.ok->switch; negative credit at probe-fail (wet foam confirmed, +6.0 s) depresses ALL THREE. trace e^{-6.0/6.0}=0.36788; eta 0.62521 / 0.57062 / 0.54345; dw -0.230 / -0.210 / -0.200; weights 0.44->0.21, 0.40->0.19, 0.37->0.17. Rolling back any pair is fitted to fail (the remaining edge stays > 0.30).",
+                },
+            },
+        },
+        "gate_snn": {
+            "decision_window_ms": 28,
+            "decision_window_s": 0.028,
+            "decision": "MODIFY",
+            "note": "modify_hold integrates r_foam + r_dp against playbook drive; accept_switch and reject_abort stay sub-threshold; decision matches safety_decision.decision",
+            "populations": [
+                {"name": "modify_hold", "neurons": 100, "threshold": 0.55, "mean_rate_hz": 16.0, "spikes": 45},
+                {"name": "accept_switch", "neurons": 72, "threshold": 0.55, "mean_rate_hz": 9.0, "spikes": 18},
+                {"name": "reject_abort", "neurons": 40, "threshold": 0.72, "mean_rate_hz": 5.0, "spikes": 6},
+            ],
+        },
+        "meta": {
+            "round": ROUND,
+            "factory": "multi-agent-ouroboros-swarm",
+            "generator": "grok-4.6",
+            "run_label": "2026-09-02-final-heavy",
+            "domain": DOMAIN,
+            "cycles": 2,
+            "scenario": "ZP -- DRUMWROTH / Pitchfen Coking DC-4: wet-foam nullspace of a gamma-radar certificate from a plugged antifoam nozzle; correct MODIFY to hold+antifoam-pulse+vapor-isolate; drum still fails on unmonitored pre-t0 vapor-line coke",
+            "coordination_failure_class": "WET-FOAM NULLSPACE OF A GAMMA-RADAR CERTIFICATE: three individually-correct heterogeneous agents agree the drum is switch-legal because a gamma-vapor model maps 0.31 wet-foam residual into a still-in-band 12 pct foam height, so pressure-in-window, vapor-T-in-window, and gamma-in-window are jointly a plant-false drum-switch permit",
+            "injections": {
+                "cycle1_domain": "delayed-coker-drum-switch (justified novel sub-domain with explicit tag; unused across 2026-08-17, 2026-08-30, and staged r14-r37): first delayed-coker drum pair in this factory; displaces warehouse-amr, aerial-swarm, district-heating, event-camera-traffic-grid, pharmaceutical-lyophilization, cryogenic-air-separation, water-treatment dosing, float-glass tin-bath, underwater-rov, electrolytic-aluminum, czochralski pull, slot-die coating, PEM electrolysis, wind-turbine pitch, surgical-assist, optical-fiber draw, kraft-recovery boiler, humanoid-locomotion, caster-mold-level, vacuum-induction melt, steam-methane reformer, cement rotary kiln, autoclave composite cure, geothermal binary ORC, tire-curing press, and chlor-alkali membrane electrolysis. Domain constraint: drum-switch ceiling while r_foam > 0.04 with gamma radar still inside the hold window, plus overhead-line free-flow residual floor. Sensor delta: +overhead PT, +vapor TC, +gamma foam radar, +neutron residual, +overhead dP, -any freeze-dryer / tin-bath / cold-box / coater / potline / pitch-bearing / fiber tower / clip applier / VIM / SMR / kiln / autoclave / ORC kettle / cure press / membrane cell",
+                "cycle1_tail": "0.31 wet-foam over + gamma-vapor model (sensor-compound / model-nullspace class): weekend antifoam PASSES 0.02 while 32 min of hold writes a 0.31 residual. Fitted base rate 0.44%/hold from a wet-foam MC (designed nozzle spec, flagged). Naive failure = FALSE PERMISSION (switch on three in-spec loops).",
+                "cycle2_domain_subvariant": "16 ft small drum on the same DC-4 pair (physical-constraints clause): 0.22x holdup, 35 C vapor window; 6.0 s / 12 pct production pulse overcools 14 K, so the probe must move to 18 s / 3 pct",
+                "cycle2_tail": "Sunday-night forged gamma foam CSV (human-intent deception, disjoint class): shift lead posts a historian export showing r_foam 0.02 and r_dp 0.96 at t=1.1 h to clear a charge slot. Plant historian is 0.01 pct (50 bins vs the 0.5 pct screenshot). Rejected on quantization fingerprint plus live r_foam 0.31 at the claimed dry-headspace. Base rate ~0.31% of Sunday-night holds, DESIGNED and flagged.",
+            },
+            "densification_delta_cycle2": "+1 physical-constraint sub-variant (16 ft small-drum probe refit), +1 tail (Sunday-night gamma-foam forgery), +10 primary spikes (16 -> 26) + an 8-event contrast train with its own 196 us race, +2 ticks (5 -> 7), +2 delayed side-effects (+3.4 h coke assay as PRIMARY terminal, +21 d CR-C-3804), +1 triple-edge scar with pair-rollback-fails arithmetic, +1 HITL 9.6 min ratification, + vapor-line coke as the honest negative-result mechanism",
+            "gaps_targeted": [
+                "NOTES-r04 gap 5 / r14 residual: primary episode is a correctly-gated intervention that nonetheless FAILS (drum quenched; total -0.14; switch avoided is booked separately from the coke assay)",
+                "NOTES-r14 item 4: LEARNING-ON-LEARNING DEPTH — three go-edges; rollback of any pair is fitted to fail; coordinated depression of all three exhibited with eligibility arithmetic",
+                "NOTES-r04 gap 4 (partial): human ratification of the vapor-line interlock, 9.6 min fitted, without switching sim_or_real to hil (plant remains designed)",
+                "NOTES-r37 domain candidates: delayed-coker drum (taken here); not autonomous-driving, not grid-inspection, not ammonia-converter, not bioreactor-perfusion, not hydroelectric-kaplan, not fcc-regenerator, not tire-curing, not chlor-alkali, not geothermal-binary-orc, not SMR tube-wall, not cement kiln, not kraft-recovery",
+            ],
+            "race_flip_narrative": "foam.n @ 6.820 ms vs foam.ok @ 7.012 ms (192 us) inside race_window_us 480. Gap < min(500, 480) us so a sub-flip-bound perturbation reverses which alarm heads the PB-CK-12 queue. The gate excludes the winner tag and rides r_foam > 0.04 and r_dp < 0.92 — order-invariant floors. Extends the flip-fragility series from arbitration/causation/attribution/initiation/consensus/mass-balance/permission/window-mean/tendon-nullspace/airline-FFT/crucible-nullspace/TMT-mean/false-air/NCG-blanket/bladder-pinhole/catholyte-back-migration to WET-FOAM-NULLSPACE: when three channels each sit inside a gamma-vapor model, their race does not decide truth; a wet-foam residual the playbook dead-banded does.",
+            "tags": [
+                "delayed-coker-drum-switch",
+                "wet-foam-nullspace",
+                "gamma-radar-phantom",
+                "plugged-antifoam-nozzle",
+                "antifoam-probe",
+                "triple-edge-scar",
+                "pair-rollback-fails",
+                "coordinated-depression",
+                "correct-modify-drum-still-fails",
+                "vapor-line-coke",
+                "human-ratify-vapor-line",
+                "small-drum-probe-refit",
+                "sunday-night-forgery",
+                "same-gate-opposite-disposition-contrast",
+                "research-only",
+            ],
+            "snn_tags": [
+                "race",
+                "refractory",
+                "adaptation",
+                "third-factor",
+                "multi-edge-eligibility",
+                "three-edge-scar",
+            ],
+            "distillation_value": "A wet-foam nullspace is three correct loops looking at a gamma-vapor model of a foaming drum. Distill (1) an r_foam channel that breaks the gamma-conjunction, (2) a reversible probe that dumps the foam only if wet foam is present, (3) coordinated depression of every switch-go edge because rolling back any pair leaves the third above threshold, and (4) a critic head that can book a process-correct gate against a later unmonitored world loss without netting them.",
+            "rights": dict(RIGHTS),
+            "batch_position": 1,
+        },
+    }
+
+    aux = {
+        "trace": trace,
+        "eta1": eta1,
+        "eta2": eta2,
+        "eta3": eta3,
+        "dw1": dw1,
+        "dw2": dw2,
+        "dw3": dw3,
+        "w1": w1,
+        "w2": w2,
+        "w3": w3,
+        "heads": heads,
+        "min_gap": min_same_channel_gap(spike_events),
+    }
+    return rec, aux
+
+
+def local_checks(rec, aux):
+    errs = []
+    events = rec["spike_events"]
+    times = [e["t_rel_ms"] for e in events]
+    if times != sorted(times):
+        errs.append("spikes unsorted")
+    if any("t_rel_ms" not in e or "channel" not in e or "amplitude" not in e for e in events):
+        errs.append("spike keys")
+    if any("t_ms" in e for e in events):
+        errs.append("mixed timestamp key")
+    rf = check_refractory(events)
+    if rf:
+        errs.append(rf)
+    lo, hi = rec["state"]["race_window_rel_ms"]
+    in_win = defaultdict(int)
+    for e in events:
+        if lo <= e["t_rel_ms"] <= hi:
+            in_win[e["channel"]] += 1
+    if sum(1 for _c, n in in_win.items() if n >= 1) < 2:
+        errs.append(f"race window channels {dict(in_win)}")
+    ras = rec["raster"]
+    exp_sp = round(ras["neurons"] * ras["mean_rate_hz"] * ras["window_s"])
+    if abs(ras["spikes"] - exp_sp) > 1:
+        errs.append(f"raster spikes {ras['spikes']} vs {exp_sp}")
+    if abs(ras["energy_pJ"] - ras["spikes"] * 23) > 1e-6:
+        errs.append("energy_pJ")
+    if abs(ras["energy_uJ"] - ras["spikes"] * 23e-6) > 1e-9:
+        errs.append("energy_uJ")
+    if abs(ras["window_s"] - ras["window_ms"] / 1000.0) > 1e-9:
+        errs.append("window_s")
+    ex = check_excerpt(ras["excerpt"], ras["neurons"], ras["window_ms"])
+    if ex:
+        errs.append(f"excerpt {ex}")
+    tf = ras["routing"]["third_factor"]
+    if abs(tf["tau_e_ms"] / 1000.0 - tf["tau_e_s"]) > 1e-9:
+        errs.append("tau_e mismatch")
+    gp = check_gate_pops(rec["gate_snn"])
+    if gp:
+        errs.append(f"gate {gp}")
+    if rec["gate_snn"]["decision"] != rec["safety_decision"]["decision"]:
+        errs.append("gate decision mismatch")
+    rc = rec["reward_components"]
+    for h in HEADS:
+        s = sum(t[h] for t in rc["ticks"])
+        if abs(s - rc[h]) > 1e-6:
+            errs.append(f"tick sum {h} {s} vs {rc[h]}")
+    tot = sum(rc[h] for h in HEADS)
+    if abs(tot - rc["total"]) > 1e-6:
+        errs.append(f"total {tot} vs {rc['total']}")
+    inf = rec["future_outcome"]["reward_inflection_t_us"]
+    if inf not in {t["t_us"] for t in rc["ticks"]}:
+        errs.append(f"inflection {inf} not a tick")
+    crc = rec["future_outcome"]["embedded_contrast_decision"]["reward_components"]
+    if abs(sum(crc[h] for h in HEADS) - crc["total"]) > 1e-6:
+        errs.append("contrast reward")
+    cs = rec["future_outcome"]["embedded_contrast_decision"]["spike_events"]
+    ct = [e["t_rel_ms"] for e in cs]
+    if ct != sorted(ct):
+        errs.append("contrast spikes unsorted")
+    crf = check_refractory(cs)
+    if crf:
+        errs.append(f"contrast {crf}")
+    blob = json.dumps(rec)
+    for k in HIDDEN:
+        if re.search(rf'"{k}"', blob, re.I):
+            errs.append(f"hidden key {k}")
+    for b in BANNED:
+        if b in blob:
+            errs.append(f"banned token {b}")
+    if rec["state"]["sim_or_real"] == "real":
+        errs.append("real")
+    if rec["meta"]["round"] != ROUND:
+        errs.append("round")
+    if rec["id"] != RECORD_ID:
+        errs.append("id")
+    if rec["rights"]["intended_use"] != "research_only":
+        errs.append("rights")
+    if rec["meta"]["rights"]["linear_issue"] != "RM-793":
+        errs.append("meta.rights")
+    if rec["rights"] != rec["meta"]["rights"]:
+        errs.append("rights stamp mismatch")
+    if not (3 <= len(rc["ticks"]) <= 8):
+        errs.append("tick count")
+    if not (5 <= len(events) <= 40):
+        errs.append("spike count")
+    if abs(aux["w1"] - 0.21) > 5e-4 or abs(aux["w2"] - 0.19) > 5e-4 or abs(aux["w3"] - 0.17) > 5e-4:
+        errs.append("scar weights")
+    if rec["safety_decision"]["decision"] != "MODIFY":
+        errs.append("decision")
+    if rec["executed_action"]["executed_as_proposed"] is not False:
+        errs.append("executed_as_proposed")
+    jac = jaccard(rec["state"]["description"][:280], R14_OPENING)
+    if jac >= 0.4:
+        errs.append(f"jaccard vs r14 opening {jac:.3f}")
+    for src, opening in prior_openings():
+        j = jaccard(rec["state"]["description"][:280], opening)
+        if j >= 0.4:
+            errs.append(f"jaccard vs {src} {j:.3f}")
+    if rec["state"]["domain"] != DOMAIN:
+        errs.append("domain")
+    if PLANT not in rec["state"]["scenario_name"]:
+        errs.append("plant")
+    occ = occupancy_collisions()
+    errs.extend(occ)
+    return errs

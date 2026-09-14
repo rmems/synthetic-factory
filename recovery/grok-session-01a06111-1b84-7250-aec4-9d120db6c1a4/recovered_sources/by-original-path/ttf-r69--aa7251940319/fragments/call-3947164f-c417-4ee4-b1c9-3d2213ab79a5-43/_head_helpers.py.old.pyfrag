@@ -1,0 +1,14 @@
+THIS_DOMAINS = {
+    "cross-bar-cooler",
+    "parex-xylene-adsorber",
+    "fiber-cement-hatschek",
+    "depyrogenation-tunnel",
+    "ngl-turboexpander",
+}
+THIS_PLANTS = (
+    "Deck-Howe",
+    "Aromatics-Knap",
+    "Board-Lynchet",
+    "Ampoule-Kame",
+    "Turbo-Haugh",
+)

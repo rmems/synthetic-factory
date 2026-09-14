@@ -1,0 +1,15 @@
+            ("name", "hold_for_adhesion_floor"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("delta_m_min", 0.0),
+                        ("hold", True),
+                        ("ir_authoritative", False),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: hold 0 m/min delta; +120 m/min raise cancelled. Surface 96.2 < 102.0 floor.",
+            ),

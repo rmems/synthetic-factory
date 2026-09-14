@@ -1,0 +1,8 @@
+                        ("lean_flash", True),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY (incorrect): feed 8.4 -> 2.0 t/h. Routing relay.an.slip -> "
+                "policy.feed_dump; no positive weight to policy.feed_hold (8.4 t/h).",

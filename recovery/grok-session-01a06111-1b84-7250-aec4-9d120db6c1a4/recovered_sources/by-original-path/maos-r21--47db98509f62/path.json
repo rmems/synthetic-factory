@@ -1,0 +1,53 @@
+{
+  "agent_ids": [
+    "01a06406-1396-7cd0-9f37-9723ef64b729"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "build_r21.py",
+  "original_path": "/tmp/maos-r21/build_r21.py",
+  "path_key": "maos-r21--47db98509f62",
+  "terminal_event_ids": [
+    "01a06406-1396-7cd0-9f37-9723ef64b729:call-cc9aefb2-0195-41ef-bffe-bb9c87ec9935-40",
+    "01a06409-6c6f-7940-9614-a0e0598e9ab7:call-524dfd78-2abc-46a3-8df8-15b231705cce-27"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06406-1396-7cd0-9f37-9723ef64b729",
+      "basename_preserved": true,
+      "bytes": 81811,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 229,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06406-1396-7cd0-9f37-9723ef64b729/updates.jsonl",
+      "original_basename": "build_r21.py",
+      "original_path": "/tmp/maos-r21/build_r21.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r21--47db98509f62/versions/v0001/build_r21.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/maos-r21--47db98509f62/versions/v0001/build_r21.py",
+      "session_id": "01a06406-1396-7cd0-9f37-9723ef64b729",
+      "sha256": "d0bd6a6393f9a82463ed5bc9f0da11e1ad0425c7a0bd84b22556ba5f66f1f4be",
+      "source_channel": "structured",
+      "source_event_id": "01a06406-1396-7cd0-9f37-9723ef64b729:call-b6e9dcdd-7047-4cda-abfe-243accbc4dce-39",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788386240502,
+      "timestamp_utc": "2026-09-02T21:57:20.502Z",
+      "tool_call_id": "call-b6e9dcdd-7047-4cda-abfe-243accbc4dce-39",
+      "version": 1,
+      "version_id": "maos-r21--47db98509f62:v0001"
+    }
+  ]
+}

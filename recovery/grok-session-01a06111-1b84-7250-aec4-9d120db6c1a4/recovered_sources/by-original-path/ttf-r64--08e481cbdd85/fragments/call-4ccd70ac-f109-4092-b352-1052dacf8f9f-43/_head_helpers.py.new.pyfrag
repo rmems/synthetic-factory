@@ -1,0 +1,7 @@
+    splash = [(t, nid) for t, nid in picked if t >= 21400][:9]
+    picked = sorted(clamp + splash, key=lambda item: (item[0], item[1]))
+    if len(picked) < 8:
+        raise ValueError(
+            f"LIF excerpt too short {len(picked)} (early={len(early)} burst={len(burst)})"
+        )
+    channels = ["lif.clamp" if t < 21400 else "lif.splash" for t, _ in picked]

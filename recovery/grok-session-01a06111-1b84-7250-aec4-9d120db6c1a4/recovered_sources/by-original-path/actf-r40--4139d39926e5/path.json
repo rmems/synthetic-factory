@@ -1,0 +1,85 @@
+{
+  "agent_ids": [
+    "01a0640d-4311-7663-b761-b967677a08c9",
+    "01a0640e-7448-75c1-b6d7-ea6560da7abe"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 2,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 3,
+  "original_basename": "gen.py",
+  "original_path": "/tmp/actf-r40/gen.py",
+  "path_key": "actf-r40--4139d39926e5",
+  "terminal_event_ids": [
+    "01a0640d-4311-7663-b761-b967677a08c9:call-0cdf812a-319d-43ee-b17d-d14374d44d70-50",
+    "01a0640d-4311-7663-b761-b967677a08c9:call-42bab6d5-3958-494a-8b28-6b2b99531f6b-46",
+    "01a0640e-7448-75c1-b6d7-ea6560da7abe:call-630b83d2-01cd-4660-9a38-a31dfd9318e3-45",
+    "01a0640e-7448-75c1-b6d7-ea6560da7abe:call-c9cc8fb4-e64e-4a57-9c88-a99ef2a6d3e4-3",
+    "01a0640e-7448-75c1-b6d7-ea6560da7abe:call-cdbf3d3e-ec53-4454-87df-042038700216-12"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 2,
+  "versions": [
+    {
+      "agent_id": "01a0640d-4311-7663-b761-b967677a08c9",
+      "basename_preserved": true,
+      "bytes": 57320,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 253,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640d-4311-7663-b761-b967677a08c9/updates.jsonl",
+      "original_basename": "gen.py",
+      "original_path": "/tmp/actf-r40/gen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r40--4139d39926e5/versions/v0001/gen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/actf-r40--4139d39926e5/versions/v0001/gen.py",
+      "session_id": "01a0640d-4311-7663-b761-b967677a08c9",
+      "sha256": "eae7253806812cce202cafb61594e6d17ad55a12327b54e68413e58e4713c71e",
+      "source_channel": "structured",
+      "source_event_id": "01a0640d-4311-7663-b761-b967677a08c9:call-8eedd626-9190-4d23-b629-ab2f34e5194f-45",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788390155185,
+      "timestamp_utc": "2026-09-02T23:02:35.185Z",
+      "tool_call_id": "call-8eedd626-9190-4d23-b629-ab2f34e5194f-45",
+      "version": 1,
+      "version_id": "actf-r40--4139d39926e5:v0001"
+    },
+    {
+      "agent_id": "01a0640d-4311-7663-b761-b967677a08c9",
+      "basename_preserved": true,
+      "bytes": 57437,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 279,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640d-4311-7663-b761-b967677a08c9/updates.jsonl",
+      "original_basename": "gen.py",
+      "original_path": "/tmp/actf-r40/gen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r40--4139d39926e5/versions/v0002/gen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/actf-r40--4139d39926e5/versions/v0002/gen.py",
+      "session_id": "01a0640d-4311-7663-b761-b967677a08c9",
+      "sha256": "7834d5e318247bc8e2844ee376c2f573b575f929f4d6e9aff6c5455075eb5ddf",
+      "source_channel": "structured",
+      "source_event_id": "01a0640d-4311-7663-b761-b967677a08c9:call-3425055d-9fc6-4ec5-a81c-abab633c5da0-49",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788390211067,
+      "timestamp_utc": "2026-09-02T23:03:31.067Z",
+      "tool_call_id": "call-3425055d-9fc6-4ec5-a81c-abab633c5da0-49",
+      "version": 2,
+      "version_id": "actf-r40--4139d39926e5:v0002"
+    }
+  ]
+}

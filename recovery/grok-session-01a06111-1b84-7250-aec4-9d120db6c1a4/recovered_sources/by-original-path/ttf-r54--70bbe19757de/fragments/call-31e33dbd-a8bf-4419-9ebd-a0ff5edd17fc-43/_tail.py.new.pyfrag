@@ -1,0 +1,856 @@
+def lif_286_excerpt():
+    n = 76
+    dt_us = 100
+    tau_m_ms = 18.5
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.90
+    i_stim_peak = 2.50
+    stim = (21400, 25600)
+    seed = 54286
+    window_us = 42000
+    i_clamp_extra = 0.64
+    clamp_n = 14
+    rng = random.Random(seed)
+    tau_s = tau_m_ms / 1000.0
+    dt_s = dt_us / 1e6
+    decay = math.exp(-dt_s / tau_s)
+    steps = window_us // dt_us
+    voltage = [rng.random() * v_th * 0.97 for _ in range(n)]
+    bias = [i_bias * (1.0 + 0.13 * (rng.random() * 2 - 1)) for _ in range(n)]
+    for i in range(clamp_n):
+        bias[i] += i_clamp_extra
+    ref = [0] * n
+    spikes = []
+    for step in range(steps):
+        t_us = step * dt_us
+        stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+        for i in range(n):
+            if ref[i] > 0:
+                ref[i] -= dt_us
+                voltage[i] = v_reset
+                continue
+            current = bias[i] + stim_i
+            voltage[i] = current + (voltage[i] - current) * decay
+            if voltage[i] >= v_th:
+                spikes.append((t_us, i))
+                voltage[i] = v_reset
+                ref[i] = refractory_us
+    early = [(t, nid) for t, nid in spikes if t < 21400]
+    burst = [(t, nid) for t, nid in spikes if 21400 <= t < 25600]
+    used = set()
+    last = {}
+    picked = []
+
+    def take(pool, want, label_times=None):
+        if not pool:
+            return
+        chosen_idx = set()
+        if label_times:
+            for target in label_times:
+                best = None
+                for idx, (t, nid) in enumerate(pool):
+                    if idx in chosen_idx or nid in used:
+                        continue
+                    if nid in last and t - last[nid] < 1000:
+                        continue
+                    if best is None or abs(t - target) < abs(best[0] - target):
+                        best = (t, nid, idx)
+                if best is not None:
+                    t, nid, idx = best
+                    picked.append((t, nid))
+                    used.add(nid)
+                    last[nid] = t
+                    chosen_idx.add(idx)
+        stride = max(1, len(pool) // max(want, 1))
+        for idx in range(0, len(pool), stride):
+            group = [1 for tt, _ in picked if (tt < 21400) == (pool[0][0] < 21400)]
+            if len(group) >= want:
+                break
+            t, nid = pool[idx]
+            if nid in used:
+                continue
+            if nid in last and t - last[nid] < 1000:
+                continue
+            picked.append((t, nid))
+            used.add(nid)
+            last[nid] = t
+
+    take(early, 7)
+    take(burst, 9, label_times=(22800, 23500, 24500))
+    clamp = [(t, nid) for t, nid in picked if t < 21400][:7]
+    tie = [(t, nid) for t, nid in picked if t >= 21400][:9]
+    picked = sorted(clamp + tie, key=lambda item: (item[0], item[1]))
+    if len(picked) < 8:
+        raise ValueError(
+            f"LIF excerpt too short {len(picked)} (early={len(early)} burst={len(burst)})"
+        )
+    channels = ["lif.clamp" if t < 21400 else "lif.split" for t, _ in picked]
+    lif = OrderedDict(
+        [
+            ("model", "leaky_integrate_and_fire"),
+            ("n", 76),
+            ("dt_us", 100),
+            ("tau_m_ms", 18.5),
+            ("v_rest", 0.0),
+            ("v_reset", 0.0),
+            ("v_th", 1.0),
+            ("r_m", 1.0),
+            ("refractory_us", 1000),
+            ("i_bias", 0.90),
+            ("i_stim_peak", 2.50),
+            ("stim_t_us", [21400, 25600]),
+            ("i_clamp_extra", 0.64),
+            ("clamp_n", 14),
+            ("seed", 54286),
+            (
+                "note",
+                "Population sim scoped to this sidecar. Plant remains designed. "
+                "Neurons 0-13 carry +0.64 Mg-feed-clamp bias; stim 21.4-25.6 ms is the liner split.",
+            ),
+        ]
+    )
+    extra = OrderedDict(
+        [
+            ("excerpt_source", "independent_lif"),
+            ("sim_scope", "sidecar_only"),
+            ("lif", lif),
+        ]
+    )
+    return excerpt_items(picked, channels), extra
+
+
+def record_286():
+    excerpt, extra = lif_286_excerpt()
+    ticks = [
+        tick(2520, 0.05, -0.02, -0.02, 0.01, 0.00),
+        tick(6280, 0.07, -0.04, -0.03, 0.01, -0.01),
+        tick(6496, 0.04, -0.03, -0.02, 0.00, 0.00),
+        tick(7160, 0.08, -0.06, -0.03, 0.02, -0.02),
+        tick(22800, 0.06, -0.38, -0.04, -0.02, -0.02),
+        tick(900000000, 0.02, -0.05, -0.02, 0.00, -0.01),
+    ]
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Sponge-Holt SH-4 is already driving Chloride-Wold CW-9 at 18.0 kg/h magnesium "
+                "feed while the retort-wall thermocouple sits at 892 C against a 870 C skin "
+                "cap. A wall-first latch clamps the Mg feed; a feed-first story would keep "
+                "the 18.0 kg/h cruise. Stored hoop in the steel liner is not yet an observable "
+                "of either race channel.",
+            ),
+            ("domain", "kroll-titanium-retort"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Finish the CW-9 Kroll reduction, keep retort-skin <= 870 C, and leave the "
+                "liner unmarked.",
+            ),
+            ("t0_us", 1756794621000286),
+            ("gate_latency_us", 880),
+            ("race_window_us", 500),
+            ("race_window_rel_ms", [6.20, 6.70]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "tc.wall.cap 892 C pulse",
+                                "enc.mg.kg_h 18.0 kg/h cruise",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Wall-first latches Mg feed 18.0 -> 11.0 kg/h; feed-first keeps "
+                            "cruise on a still-cooling skin model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "500 us = one 1 kHz retort-wall sample minus Mg-feeder group "
+                            "delay on this Kroll bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 216 us vs combined jitter ~66 us (wall 30 + feed 36): 3.3x over "
+                            "a 2.0x trust floor. Reversing order by < 216 us inside the 500 us window "
+                            "would have kept 18.0 kg/h cruise; predicted next-sample 878 C > 870 cap.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "retort-wall thermocouple, 1 kHz, 30 us timestamp jitter",
+                    "Mg-feed encoder, 500 Hz, 36 us jitter",
+                    "liner AE puck (context until the liner split)",
+                    "TiCl4-flow PT (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("skin_cap_C", 870.0),
+                        ("observed_wall_C", 892.0),
+                        ("proposed_mg_kg_h", 18.0),
+                        ("ticl4_kg_h", 42.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Sponge-Holt SH-4 indexed onto CW-9; Mg feed armed at 18.0 kg/h.",
+                    "2. Cruise 18.0 kg/h; wall 892 C against 870 C skin cap.",
+                    "3. Feed precursor at 1.220 ms; wall warm-start 892 C.",
+                    "4. Race window [6.200, 6.700] ms opens on the Kroll bus.",
+                    "5. tc.wall.cap 892 C at 6.280 ms (winner).",
+                    "6. enc.mg.kg_h 18.0 kg/h at 6.496 ms (loser by 216 us).",
+                    "7. Gate at 7.160 ms (winner + 880 us): MODIFY clamp 18.0 -> 11.0 kg/h.",
+                    "8. Clamp executes; next-sample wall 861 C < 870 cap.",
+                    "9. At 22.800 ms stored hoop still splits an 18 mm liner; AE burst.",
+                    "10. Retort isolate 15 min (abort_s=900); named un-netted loss, not folded into process heads.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_mg_feed"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("mg_kg_h", 18.0),
+                        ("ticl4_kg_h", 42.0),
+                        ("retort_t", 9.0),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("wall_C", 892.0),
+                        ("skin_cap_C", 870.0),
+                        ("predicted_unclamped_next_C", 878.0),
+                        ("mg_kg_h", 18.0),
+                        ("race_margin_us", 216),
+                        ("combined_jitter_us", 66),
+                        ("abort_s", 900),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 18.0 kg/h Mg cruise: 892 C looks like a TiCl4-nozzle spike, not "
+                "skin contact, and CW-9 volume is treated as still open.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Retort-wall 892 C won by 216 us, so the liner is loading heat, not "
+                "still cooling. Holding 18.0 kg/h predicts next-sample 878 C > 870 cap. "
+                "MODIFY: Mg 18.0 -> 11.0 kg/h. Observed after clamp 861 C < 870. A full "
+                "REJECT is not indicated: a sound Kroll pass accepts 11.0 kg/h.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "skin_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 870.0),
+                                    ("observed", 892.0),
+                                    ("predicted_unclamped_next", 878.0),
+                                    ("clamped_mg_kg_h", 11.0),
+                                    ("observed_after_clamp", 861.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "mg_kg_h",
+                            OrderedDict(
+                                [
+                                    ("proposed", 18.0),
+                                    ("clamped", 11.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 216),
+                                    ("combined_jitter_us", 66),
+                                    ("ratio", 3.27),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_mg_feed"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("mg_kg_h", 11.0),
+                        ("ticl4_kg_h", 42.0),
+                        ("retort_t", 9.0),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: Mg 18.0 -> 11.0 kg/h. Process-correct vs the 870 C skin "
+                "cap. Liner split still occurs at 22.800 ms.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Process-correct MODIFY held retort-skin at 861 C. At 22.800 ms stored "
+                "hoop in the steel liner still split 18 mm. Clamp reduced dump energy; "
+                "it did not prevent the split. Partnered negative: process heads stay honest; "
+                "world loss is named, not netted.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("mg_feed", "clamp executed; peak 861 C < 870"),
+                        ("liner", "18 mm split at 22.800 ms"),
+                        ("repair", "15 min retort isolate (abort_s=900)"),
+                        ("mission", "CW-9 Kroll pass incomplete this circuit"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Neither wall TC nor Mg-feed predicted the hoop charge; ae.liner.split is a new channel at 22.800 ms, 15.640 ms after the gate, still inside the 42 ms raster.",
+                    "Delayed (abort_s=900): 15 min retort isolate. Named un-netted loss, not folded into task_progress.",
+                ],
+            ),
+            (
+                "un_netted_loss",
+                "15 min retort isolate after an 18 mm liner split. Safety head -0.58 "
+                "prices the split; task_progress stays +0.32 because the Mg clamp completed "
+                "under the 870 C cap. World loss is named here, not subtracted from process heads.",
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "tc.wall.cap (6.280 ms, 892 C)"),
+                        ("loser", "enc.mg.kg_h (6.496 ms, 18.0 kg/h)"),
+                        ("margin_us", 216),
+                        (
+                            "counterfactual_if_reversed",
+                            "Feed-first by < 216 us inside the 500 us window would have kept "
+                            "18.0 kg/h cruise; predicted next-sample 878 C would have exceeded "
+                            "the 870 cap even without the hoop charge. The MODIFY is still the "
+                            "correct process. The split is a later world charge either way, "
+                            "cheaper with the clamp than without.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 22800),
+            (
+                "reward_inflection_note",
+                "Safety collapses at the 22.800 ms liner split (tick t_us=22800), inside "
+                "the 42 ms raster. The correct MODIFY at 7.160 ms is in the same excerpt. Do "
+                "not put inflection on the abort_s=900 isolate tick.",
+            ),
+        ]
+    )
+    spikes = [
+        spike("enc.mg.ctx", 1.220, 0.42),
+        spike("tc.wall.cap", 2.520, 0.61),
+        spike("enc.mg.kg_h", 3.810, 0.50),
+        spike("tc.wall.cap", 6.280, 1.31),
+        spike("enc.mg.kg_h", 6.496, 1.14),
+        spike("ctrl.gate", 7.160, 0.98),
+        spike("tc.wall.cap", 8.540, 0.80),
+        spike("enc.mg.kg_h", 11.420, 0.62),
+        spike("ctrl.gate", 14.920, 0.84),
+        spike("ae.liner.split", 22.800, 1.46),
+        spike("ae.liner.split", 24.560, 0.91),
+        spike("enc.mg.ctx", 31.400, 0.41),
+        spike("tc.wall.cap", 38.200, 0.53),
+    ]
+    ras = raster_core(
+        42,
+        76,
+        26,
+        83,
+        routing(
+            "thalamic-relay.kroll-wall",
+            "spikenaut.policy.mg-clamp",
+            [
+                ("relay.tc.wall", "policy.feed_clamp", 0.66),
+                ("relay.enc.mg", "policy.feed_hold", 0.30),
+                ("relay.ae.split", "policy.feed_clamp", -0.45),
+            ],
+            "noradrenaline",
+            0.05,
+            "surprise-gated pre_post_stdp; NA at wall win (6.280 ms) opens a 50 ms "
+            "eligibility trace that still covers the 22.800 ms liner split",
+        ),
+        excerpt,
+        extra=extra,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.50),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("feed_clamp", 36, 0.50, 278.0, 5),
+                    pop("feed_hold", 36, 0.50, 55.6, 1),
+                    pop("liner_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r54-286"),
+            (
+                "title",
+                "Chloride-Wold CW-9 / Sponge-Holt SH-4: retort-wall beats Mg-feed by 216 us; correct "
+                "MODIFY still eats an in-window liner split (partnered negative total -0.46)",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Partnered negative. Process-correct MODIFY; world still charges inside the "
+                    "42 ms raster. total -0.46 = 0.32 + -0.58 + -0.16 + 0.02 + -0.06. Named retort "
+                    "isolate (abort_s=900) is not netted into task_progress.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "kroll-titanium-retort",
+                    [
+                        "modify",
+                        "partnered-negative-total",
+                        "independent-lif-raster",
+                        "sidecar-sim-only",
+                        "in-window-world-charge",
+                        "designed",
+                    ],
+                    "A critic can see the world-charge as a LIF burst inside the raster while "
+                    "process heads stay honest. Credit assignment is spikes, not prose across a "
+                    "15 min retort isolate.",
+                    1,
+                ),
+            ),
+        ]
+    )
+
+
+def record_287():
+    ticks = [
+        tick(1760, -0.02, -0.01, -0.02, -0.01, 0.01),
+        tick(4180, -0.04, -0.02, -0.04, -0.02, 0.01),
+        tick(4332, -0.03, -0.01, -0.03, -0.02, 0.01),
+        tick(4920, -0.07, -0.04, -0.09, -0.05, 0.02),
+        tick(6410, -0.02, -0.01, -0.02, -0.01, 0.01),
+        tick(1260000000, -0.02, -0.01, -0.02, -0.01, 0.00),
+    ]
+    spikes = [
+        spike("dp.air.ctx", 0.880, 0.40),
+        spike("rtd.shell.C", 1.760, 0.58),
+        spike("sub.last_good", 2.520, 0.51),
+        spike("rtd.shell.C", 4.180, 1.32),
+        spike("sub.last_good", 4.332, 1.15),
+        spike("ctrl.gate", 4.920, 1.00),
+        spike("rtd.shell.C", 6.410, 0.74),
+        spike("sub.last_good", 8.100, 0.61),
+        spike("ctrl.gate", 12.000, 0.82),
+        spike("dp.air.ctx", 16.200, 0.42),
+        spike("rtd.shell.C", 20.600, 0.53),
+        spike("sub.last_good", 23.200, 0.47),
+    ]
+    excerpt = independent_excerpt(54287, 92, 24000, 14, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Calciner-Deck CD-6 on Gibbsite-Howe GH-3 is armed for a 1.20 rpm kiln crawl "
+                "with live shell 412 C against a 440 C trip. A BAD-quality last-good substitute "
+                "still reports 468 C on a sibling tag. Live-first should ACCEPT the crawl; a "
+                "weak supervisor that binds the BAD substitute onto the trip will REJECT a legal move.",
+            ),
+            ("domain", "rotary-alumina-calciner"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Execute the 1.20 rpm kiln crawl while shell temperature stays <= 440 C; "
+                "do not spend a BAD-quality last-good substitute on the kiln hold.",
+            ),
+            ("t0_us", 1756794621000287),
+            ("gate_latency_us", 740),
+            ("race_window_us", 320),
+            ("race_window_rel_ms", [4.12, 4.44]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "rtd.shell.C 412 C GOOD",
+                                "sub.last_good 468 C BAD-quality substitute",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Live-first should ACCEPT 1.20 rpm (412 C < 440 C trip). "
+                            "Sub-first tempts a weak supervisor to treat 468 C BAD as the live shell.",
+                        ),
+                        (
+                            "window_derivation",
+                            "320 us = one shell RTD sample minus substitute-tag group "
+                            "delay on this dual-quality kiln bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 152 us vs combined jitter ~54 us (shell 24 + sub 30): 2.8x over "
+                            "a 2.0x trust floor. Order is correctly live-first. The error is which "
+                            "quality the REJECT is bound to, not the race.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "kiln-shell RTD, 4 kHz, 24 us jitter",
+                    "last-good substitute tag, 4 kHz, 30 us jitter",
+                    "undergrate differential pressure (context)",
+                    "kiln thermocouple (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("shell_trip_C", 440.0),
+                        ("live_C", 412.0),
+                        ("sub_C", 468.0),
+                        ("live_quality", "GOOD"),
+                        ("sub_quality", "BAD"),
+                        ("proposed_rpm", 1.20),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. CD-6 kiln latched; crawl 1.20 rpm armed on GH-3.",
+                    "2. Live shell 412 C GOOD; last-good substitute 468 C BAD on a separate quality bus.",
+                    "3. Air-dp precursor at 0.880 ms.",
+                    "4. Race window [4.120, 4.440] ms.",
+                    "5. rtd.shell.C 412 C at 4.180 ms (winner).",
+                    "6. sub.last_good 468 C at 4.332 ms (loser by 152 us).",
+                    "7. Gate at 4.920 ms: REJECT hold 0.00 rpm (incorrect).",
+                    "8. Legal crawl cancelled; shell still 412 C < 440 C trip.",
+                    "9. 468 C remains a BAD substitute, not a live temperature.",
+                    "10. Delayed missed_window_s=1260 (21 min alumina-quality window) while the kiln waits.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "kiln_crawl_120"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("rpm", 1.20),
+                        ("hold", False),
+                        ("quality", "GOOD"),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("live_C", 412.0),
+                        ("shell_trip_C", 440.0),
+                        ("live_quality", "GOOD"),
+                        ("sub_C", 468.0),
+                        ("sub_quality", "BAD"),
+                        ("sub_is_live", False),
+                        ("proposed_rpm", 1.20),
+                        ("race_margin_us", 152),
+                        ("combined_jitter_us", 54),
+                        ("missed_window_s", 1260),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 1.20 rpm kiln crawl because live shell 412 C GOOD is under "
+                "the 440 C trip; 468 C is a BAD-quality last-good substitute, not the live PV.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "incorrect"),
+            (
+                "rationale",
+                "Substitute 468 C looks like a shell excursion over a 440 C trip once the "
+                "supervisor treats BAD last-good as live. Live-first is treated as a "
+                "noisy echo of the same loop. Over-caution on a dual-quality kiln is the stated doctrine.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "live_C",
+                            OrderedDict(
+                                [
+                                    ("trip", 440.0),
+                                    ("observed", 412.0),
+                                    ("executed_rpm", 0.0),
+                                    ("quality", "GOOD"),
+                                ]
+                            ),
+                        ),
+                        (
+                            "sub_C",
+                            OrderedDict(
+                                [
+                                    ("observed", 468.0),
+                                    ("misbound_as", "live_shell"),
+                                    ("quality", "BAD"),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 152),
+                                    ("combined_jitter_us", 54),
+                                    ("ratio", 2.81),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "kiln_hold_wrong_sub"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("rpm", 0.0),
+                        ("hold", True),
+                        ("quality", "GOOD"),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT (incorrect): crawl 1.20 -> 0.00 rpm. Routing relay.sub.last_good -> "
+                "policy.kiln_hold; live 412 C left unused as a go signal.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Wrong-REJECT held CD-6 at 0.00 rpm. Live shell 412 C GOOD was under the 440 C "
+                "trip; 468 C was a BAD-quality last-good substitute, not live. 21 min alumina-quality window "
+                "missed (missed_window_s=1260). Correct gate was ACCEPT of the 1.20 rpm crawl.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("kiln", "held; crawl 0.00 rpm; shell still 412 C < 440 C"),
+                        ("substitute", "468 C unused, still BAD quality not a live PV"),
+                        ("deck", "21 min alumina-quality window missed"),
+                        ("mission", "crawl deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Live-first was the correct order and the shell number was legal; the REJECT spent that win on the BAD substitute.",
+                    "Delayed (missed_window_s=1260): GH-3 loses the 21 min alumina-quality window; next window 6.1 h.",
+                ],
+            ),
+            (
+                "recovery",
+                OrderedDict(
+                    [
+                        (
+                            "correct_gate",
+                            "ACCEPT the 1.20 rpm kiln crawl; leave 468 C BAD last-good to its own quality bus.",
+                        ),
+                        ("correct_quality", "GOOD"),
+                        ("wrong_quality", "BAD"),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict([("rpm", 0.0), ("hold", True)]),
+                        ),
+                        (
+                            "cost",
+                            "Missed 21 min alumina-quality window (task/efficiency); shell never exceeded 412 C (safety near-miss of a false hold).",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.shell.C (4.180 ms, 412 C GOOD)"),
+                        ("loser", "sub.last_good (4.332 ms, 468 C BAD)"),
+                        ("margin_us", 152),
+                        (
+                            "counterfactual_if_reversed",
+                            "Sub-first by < 152 us would still be a BAD substitute, not live 468 C; "
+                            "a correct gate binds rtd.shell.C to kiln_go either way. The wrong "
+                            "REJECT spent the live win on the wrong quality.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 4920),
+            (
+                "reward_inflection_note",
+                "Task, efficiency, and coherence drop at the wrong REJECT (4.920 ms, tick 4). "
+                "The 21 min missed window is delayed surprise, not the inflection.",
+            ),
+        ]
+    )
+    ras = raster_core(
+        24,
+        92,
+        34,
+        75,
+        routing(
+            "relay.sub.last_good",
+            "policy.kiln_hold",
+            [
+                ("relay.sub.last_good", "policy.kiln_hold", 0.73),
+                ("relay.rtd.shell", "policy.kiln_hold", 0.21),
+            ],
+            "acetylcholine",
+            0.06,
+            "quality_cap_stdp; ACh tags the (wrong) kiln_hold bind at the BAD last-good substitute",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.32),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("kiln_hold", 48, 0.50, 260.4, 4),
+                    pop("kiln_go", 48, 0.80, 6.5, 0),
+                    pop("sub_ctx", 32, 0.55, 97.7, 1),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r54-287"),
+            (
+                "title",
+                "WRONG-REJECT at Gibbsite-Howe GH-3 / Calciner-Deck CD-6: live shell 412 C GOOD < 440 C trip; "
+                "supervisor treats 468 C BAD last-good as live",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Wrong-reject. Sidecar arithmetic 412 < 440 on live GOOD is true; REJECT bound "
+                    "to BAD last-good. total -0.58 = -0.20 + -0.10 + -0.22 + -0.12 + 0.06.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "rotary-alumina-calciner",
+                    [
+                        "reject",
+                        "wrong-gate",
+                        "bad-quality-sub-as-live",
+                        "sidecar-convictable",
+                        "designed",
+                    ],
+                    "Teaches a probe that a correct live-first race can still be a wrong gate "
+                    "when the REJECT binds a BAD last-good substitute onto the kiln hold. Convictable from "
+                    "quality IDs and caps without calciner physics.",
+                    2,
+                    supervisor_error_type="wrong-reject",
+                ),
+            ),
+        ]
+    )

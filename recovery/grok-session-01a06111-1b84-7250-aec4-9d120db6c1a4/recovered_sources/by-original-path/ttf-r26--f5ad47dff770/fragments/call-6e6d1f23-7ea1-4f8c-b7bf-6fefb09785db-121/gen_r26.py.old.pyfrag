@@ -1,0 +1,7 @@
+| ttf-r26-146 | lime-rotary-kiln | MODIFY | correct | designed | **−0.44** | process-correct fuel clamp; hanging-chain shear inside 42 ms raster; independent LIF |
+| ttf-r26-147 | ferry-linkspan | REJECT | **incorrect (wrong-reject)** | designed | −0.58 | apron 8.2 MPa < 11.0 cap; supervisor treats tide 2.40 m as apron over-travel |
+| ttf-r26-148 | isotope-cyclotron | REJECT | correct | hil | +0.76 | Faraday 14.2 uA beats VSWR 1.12; hold extraction |
+| ttf-r26-149 | die-cast-cell | MODIFY | correct | designed | +0.88 | cavity 92 MPa vs die 210 C; clamp shot 2.4 → 1.5 m/s |
+| ttf-r26-150 | desal-RO-train | ACCEPT | correct | simulated | +1.12 | permeate 280 uS/cm vs HP vibration 4.1 mm/s; proposed 65 bar already legal |
+
+Gate mix: 1 ACCEPT, 2 MODIFY, 1 correct REJECT, 1 incorrect REJECT (wrong-reject). Provenance: designed×3, simulated×1, hil×1 (K-shell cyclotron pad). Even-round alternate vs r19 wrong-modify.

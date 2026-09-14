@@ -1,0 +1,77 @@
+## What this round produced
+
+Scenario ZS — "SKARVOLT / Emberbarrow Meltshop EAF-7": a 180 t AC
+eccentric-bottom-tap furnace mid-hold at 78 MW under foamy-slag
+practice. Three heterogeneous, individually-correct agents — ARC
+(secondary VT), ROOF (delta TC), OG (CO/CO2) — jointly report the
+furnace raise-legal. The consensus is false. Sidewall panel P-14 dumps
+18 L/min of cooling water into the bath over 16 min. ARC stays in-band
+because transformer secondary voltage is upstream of the bath. ROOF
+1480 C sits inside 1420-1550 because carbon-injection foam blankets
+roof radiation. OG 1.42 sits inside 1.20-1.70 because the analyzer is
+CO/CO2 only. Uncommissioned r_h2 is 8.6 vol% against a 1.2 hold.
+Uncommissioned r_leak is 18 L/min against a 2.0 hold. The
+coordination-failure CLASS is new to this factory: WATER-PANEL LEAK
+NULLSPACE OF A FOAMY-SLAG CERTIFICATE. Completes a different family
+than r01-r04 and staged r14-r45. Distinct from r42 blast-furnace
+(shaft burden), r31 VIM (crucible), and r29 caster (mold level). Here
+every agent is correct, the furnace is not unstable, and the
+playbook's three confirms are one foamy-slag model of a leaking panel.
+
+The gate is a correct MODIFY (numeric floor: do not raise tap power on
+the 180 t EAF while r_h2 > 1.2 vol% AND r_leak > 2.0 L/min). TG-EAF-7
+strips PB-EAF-11's raise, holds power at 78 MW, runs a 7.0 s power-cut
+probe 12% (leak jumps H2 3.1 vol% >= 2.4; sealed would stay <= 0.4),
+and isolates the panel after a 9.6 min roof-bay human ratify. The
+wet-bath raise is avoided (0 extra MW). The PRIMARY episode
+nonetheless FAILS: 16 min of unmonitored pre-t0 water had already
+hydrogen-charged the heat. Dissolved H 4.8 ppm vs 1.5 spec; 5.6 d
+dump; $1.94M designed. Reward total -0.15 with process heads honest
+and world loss un-netted.
+
+Three-edge scar (NOTES-r14 item 4): arc.ok -> raise_power
+(0.16 commissioned -> 0.46 at illusion -> 0.22 after ACh-gated
+depression) AND roof.ok -> raise_power (0.14 -> 0.41 -> 0.20)
+AND og.ok -> raise_power (0.13 -> 0.38 -> 0.19). Eligibility
+trace e^{{-7.0/7.0}} = {aux['trace']:.5f}; eta {aux['eta1']:.5f} /
+{aux['eta2']:.5f} / {aux['eta3']:.5f}; dw -0.240 / -0.210 / -0.190.
+Rolling back any pair leaves the remaining edge above the 0.30 raise
+threshold — fitted to fail. Coordinated depression of all three is the
+cure.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **eaf-foamy-slag-water-panel** — justified novel
+  sub-domain, unused across 2026-08-17, 2026-08-30, and staged r14-r45.
+  Not warehouse-amr, aerial-swarm, district-heating, event-camera grid,
+  lyophilization, stator-weld, air-separation, water-treatment,
+  float-glass, underwater-rov, potline, czochralski, slot-die, PEM,
+  wind-turbine-pitch, surgical-assist, optical-fiber-draw,
+  kraft-recovery, caster-mold-level, humanoid-locomotion, VIM, SMR,
+  cement kiln, autoclave, geothermal-ORC, tire-curing, chlor-alkali,
+  delayed-coker, lng-mche, claus, ammonia-synthesis (r41), blast-furnace
+  (r42), hdpe-slurry-loop (r43), hydroelectric-kaplan (r44),
+  ethylene-cracker (r45), fcc-riser-regenerator (r46),
+  fcc-regenerator-cyclone-dipleg (r47), sulfuric-contact (r48 in flight).
+- Cycle-1 tail: 8.6 vol% H2 panel-gasket leak + foamy-slag model.
+  Weekend carbon-lance stroke PASSES 0.4 vol%. Fitted-style base rate
+  0.34%/hold (panel-gasket MC; liner-gap spec designed, flagged).
+  Naive = FALSE PERMISSION.
+- Cycle-2 domain sub-variant: 35 t scrap EAF, 0.19x thermal mass;
+  7.0 s / 12% production pulse overcools 41 K; probe must move to
+  22 s / 4%.
+- Cycle-2 tail: Sunday-night forged off-gas H2 TCD CSV at 0.5 vol%
+  quantization vs plant 0.02 vol% (25 bins) plus live r_h2 8.6 vol%
+  at the claimed sealed-panel. Human-intent class, disjoint from
+  cycle 1's accidental leak. Base rate ~0.25% of Sunday-night holds,
+  DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+3 d sister furnace) with its own 192 us
+  race (demand vs leak-clear) and ACCEPT of the raise the primary
+  MODIFIED away.
+- Learned-weight provenance on THREE edges with any-pair-rollback-fails.
+- HITL roof-bay-interlock ratify 9.6 min (gap 4 partial; sim_or_real
+  stays designed).
+- Governance CR-E-4904 prices retire-vs-probe-vs-status-quo and mandates
+  native 0.02 vol% CSV exports (the fraud fence).
+- Flip-fragility extended to WATER-PANEL-LEAK-NULLSPACE.

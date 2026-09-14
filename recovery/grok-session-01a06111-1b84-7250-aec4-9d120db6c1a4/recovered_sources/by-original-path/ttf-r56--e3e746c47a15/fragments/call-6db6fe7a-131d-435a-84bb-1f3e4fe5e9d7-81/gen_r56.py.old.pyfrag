@@ -1,0 +1,108 @@
+            (
+                "summary",
+                "Correct REJECT held Tow T-8 at 0 m/min while skin 268 C decayed. Encoder-as-clearance "
+                "would have ramped 18.4 m/min into the flare. Pad recycle 9 min.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("tow", "held at 0 m/min"),
+                        ("oven", "IR flare decaying under trip after hold"),
+                        ("atmosphere", "unignited"),
+                        ("pad", "9 min recycle"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Pad injects encoder 90-130 us before IR envelope finish; that is pyrometer lag, not a false IR.",
+                    "Delayed (9 min): pad recycle restacks the line after skin < 240 C.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "ir.skin.c (3.920 ms, 268 C)"),
+                        ("loser", "enc.line.mpm (4.110 ms, 18.4 m/min)"),
+                        ("margin_us", 190),
+                        (
+                            "counterfactual_if_reversed",
+                            "Encoder-first by < 190 us would have treated 18.4 m/min as clearance and "
+                            "ramped into the 268 C flare. The REJECT is still required; reversal "
+                            "only delays the IR bind.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 5100),
+            (
+                "reward_inflection_note",
+                "Safety credit lands at the correct REJECT (5.100 ms, tick 4). Pad recycle is delayed surprise.",
+            ),
+            ("delayed_surprise_s", 540.0),
+            ("pad_recycle_s", 540),
+        ]
+    )
+    ras = raster_core(
+        46,
+        112,
+        20,
+        103,
+        routing(
+            "relay.ir.skin",
+            "policy.hold_reject",
+            [
+                ("relay.ir.skin", "policy.hold_reject", 0.74),
+                ("relay.enc.line", "policy.ramp_go", 0.18),
+            ],
+            "dopamine",
+            0.06,
+            "ir_trip_stdp; DA tags the hold_reject bind at the IR win",
+        ),
+        excerpt,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.28),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("hold_reject", 64, 0.50, 180.0, 3),
+                    pop("ramp_go", 64, 0.80, 8.0, 0),
+                    pop("skin_trip_veto", 32, 0.70),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r48-258",
+        "Precursor-Oxle oxidation HIL / Tow T-8: IR 268 C beats line encoder 18.4 m/min by 190 us; "
+        "correct REJECT holds the tow",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Correct REJECT. Skin 268 > 240 trip beats in-band line speed. total +0.78 = "
+        "0.10 + 0.40 + 0.12 + 0.10 + 0.06.",
+        ras,
+        gate,
+        "carbon-fiber-oxidation",
+        [
+            "reject",
+            "hil-pad",
+            "ir-vs-encoder",
+            "tow-flare-hold",
+            "sidecar-convictable",
+            "hil",
+        ],
+        "Teaches a probe that an in-band line encoder is not oven clearance when "
+        "IR is over trip and routing.table[0].to is policy.hold_reject.",
+        3,
+    )

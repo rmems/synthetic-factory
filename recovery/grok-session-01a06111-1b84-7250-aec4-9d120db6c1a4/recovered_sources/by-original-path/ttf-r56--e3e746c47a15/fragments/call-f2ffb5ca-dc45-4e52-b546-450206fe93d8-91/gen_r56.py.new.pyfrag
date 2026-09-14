@@ -1,0 +1,64 @@
+                [
+                    "acid-strength IR, 28 us jitter",
+                    "contactor DP smear, 30 us jitter",
+                    "I/O encoder (context)",
+                    "olefin FT (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("acid_cap_pct", 95.0),
+                        ("observed_acid_pct", 88.2),
+                        ("io_floor", 6.0),
+                        ("observed_io", 8.4),
+                        ("feed_floor_m3_h", 18.0),
+                        ("proposed_feed_m3_h", 22.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Contactor AC-7 indexed on Alkylate-Merse; feed armed 22.0 m3/h pass.",
+                    "2. Caps: acid 95.0 percent, I/O floor 6.0, feed floor 18.0 m3/h.",
+                    "3. Encoder precursor at 0.880 ms.",
+                    "4. Race window [4.020, 4.300] ms.",
+                    "5. Acid IR 88.2 percent at 4.020 ms (winner).",
+                    "6. Contactor DP smear at 4.210 ms (loser by 190 us).",
+                    "7. Gate at 4.800 ms: ACCEPT 22.0 m3/h / 88.2 percent already legal.",
+                    "8. Pass continues; no extra hold.",
+                    "9. 6 min cooldown confirms I/O still over 6.0.",
+                    "10. QA: ACCEPT params identical to proposed.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "pass_22m3"),
+            ("parameters", params),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("acid_pct", 88.2),
+                        ("acid_cap_pct", 95.0),
+                        ("feed_m3_h", 22.0),
+                        ("feed_floor_m3_h", 18.0),
+                        ("io_ratio", 8.4),
+                        ("io_floor", 6.0),
+                        ("race_margin_us", 190),
+                        ("combined_jitter_us", 58),
+                        ("t_gate_us", 4800),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes a 22.0 m3/h pass because acid 88.2 percent is 6.8 points under the 95.0 "
+                "cap and I/O 8.4 is over the 6.0 floor.",
+            ),
+        ]
+    )

@@ -1,0 +1,80 @@
+{
+  "agent_ids": [
+    "01a064ac-ed8c-7113-888b-3f4bade46195"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 2,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "build_chosen.py",
+  "original_path": "/tmp/ffpc-r02-session-b/build_chosen.py",
+  "path_key": "ffpc-r02-session-b--17550ae30d6e",
+  "terminal_event_ids": [
+    "01a064ac-ed8c-7113-888b-3f4bade46195:call-e53d80a7-5ecf-47ed-813d-9f44d9e63f96-52"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 2,
+  "versions": [
+    {
+      "agent_id": "01a064ac-ed8c-7113-888b-3f4bade46195",
+      "basename_preserved": true,
+      "bytes": 39593,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 279,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a064ac-ed8c-7113-888b-3f4bade46195/updates.jsonl",
+      "original_basename": "build_chosen.py",
+      "original_path": "/tmp/ffpc-r02-session-b/build_chosen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r02-session-b--17550ae30d6e/versions/v0001/build_chosen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r02-session-b--17550ae30d6e/versions/v0001/build_chosen.py",
+      "session_id": "01a064ac-ed8c-7113-888b-3f4bade46195",
+      "sha256": "0b02f7cf26b48ace6d6229c2b2d5431b8814048d413487fcecc8f674b5d5e68b",
+      "source_channel": "structured",
+      "source_event_id": "01a064ac-ed8c-7113-888b-3f4bade46195:call-305b2550-8ebe-46fc-a3b9-b1a1a164a817-50",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788397208476,
+      "timestamp_utc": "2026-09-03T01:00:08.476Z",
+      "tool_call_id": "call-305b2550-8ebe-46fc-a3b9-b1a1a164a817-50",
+      "version": 1,
+      "version_id": "ffpc-r02-session-b--17550ae30d6e:v0001"
+    },
+    {
+      "agent_id": "01a064ac-ed8c-7113-888b-3f4bade46195",
+      "basename_preserved": true,
+      "bytes": 39593,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 287,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a064ac-ed8c-7113-888b-3f4bade46195/updates.jsonl",
+      "original_basename": "build_chosen.py",
+      "original_path": "/tmp/ffpc-r02-session-b/build_chosen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r02-session-b--17550ae30d6e/versions/v0002/build_chosen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r02-session-b--17550ae30d6e/versions/v0002/build_chosen.py",
+      "session_id": "01a064ac-ed8c-7113-888b-3f4bade46195",
+      "sha256": "437c47cc3e6aff8b7c041cf1b1e7cb0343dbff21ff51439a10bc3a0b5dc581d0",
+      "source_channel": "structured",
+      "source_event_id": "01a064ac-ed8c-7113-888b-3f4bade46195:call-08d19f7f-bdd3-4cc4-bd04-60c3f93cfb35-51",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788397231620,
+      "timestamp_utc": "2026-09-03T01:00:31.620Z",
+      "tool_call_id": "call-08d19f7f-bdd3-4cc4-bd04-60c3f93cfb35-51",
+      "version": 2,
+      "version_id": "ffpc-r02-session-b--17550ae30d6e:v0002"
+    }
+  ]
+}

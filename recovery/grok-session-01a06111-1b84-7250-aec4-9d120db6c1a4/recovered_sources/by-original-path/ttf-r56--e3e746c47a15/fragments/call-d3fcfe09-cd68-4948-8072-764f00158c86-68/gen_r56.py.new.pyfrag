@@ -1,0 +1,61 @@
+            ("decision", "REJECT"),
+            ("correctness", "incorrect"),
+            (
+                "rationale",
+                "Reset tag 1190 C sits under live 1204 C, so the loop is treated as still "
+                "tripped. REJECT: hold 0 t/d until the wall recovers under the 1190 C reset so "
+                "the retort does not see an over-temperature event.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "retort_t_C",
+                            OrderedDict(
+                                [
+                                    ("published_trip", 1220.0),
+                                    ("observed_live", 1204.0),
+                                    ("reset_applied", 1190.0),
+                                    ("prior_peak_C", 1212.0),
+                                    ("trip_latched", False),
+                                    ("executed_t_d", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 220),
+                                    ("combined_jitter_us", 72),
+                                    ("ratio", 3.06),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "retort_hold_reset_band"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("feed_t_d", 0.0),
+                        ("live_C", 1204.0),
+                        ("hold", True),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT (incorrect): feed 2.40 -> 0 t/d. Routing relay.reset.band -> "
+                "policy.hold_reject; no positive weight to policy.go_accept. Live 1204 C never "
+                "violated the 1220 C trip.",
+            ),
+        ]
+    )

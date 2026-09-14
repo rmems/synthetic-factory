@@ -1,0 +1,14 @@
+            (
+                "description",
+                "Puller-P12 at Boule-Knap BK-4 reports an optical diameter already over the "
+                "one-eighty-five millimetre boule cap while pull speed still looks healthy. "
+                "Diameter is 191.4 mm against a 185.0 mm cap; heater-first should bind the "
+                "melt power. A weak supervisor instead treats the diameter loop as seed rpm.",
+            ),
+            ("domain", "czochralski-puller"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Keep boule diameter <= 185.0 mm, leave seed rpm at the planned 12 rpm, and "
+                "avoid a freeze-off abort.",
+            ),

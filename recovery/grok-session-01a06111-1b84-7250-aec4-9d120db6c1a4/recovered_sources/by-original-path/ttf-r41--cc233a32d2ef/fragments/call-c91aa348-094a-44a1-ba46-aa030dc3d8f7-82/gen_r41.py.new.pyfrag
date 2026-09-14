@@ -1,0 +1,15 @@
+            ("name", "hold_for_stir_cap"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("plunge_mm_s", 0.0),
+                        ("hold", True),
+                        ("ir_authoritative", False),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: hold 0.0 mm/s; 1.8 mm/s plunge cancelled. Pin 412 > 380 cap.",
+            ),

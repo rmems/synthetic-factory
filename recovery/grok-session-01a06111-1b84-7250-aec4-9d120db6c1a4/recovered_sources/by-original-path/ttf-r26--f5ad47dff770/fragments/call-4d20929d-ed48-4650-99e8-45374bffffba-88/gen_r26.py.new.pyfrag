@@ -1,0 +1,31 @@
+            ("name", "cruise_heater_2kW"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("heater_kW", 2.00),
+                        ("set_C", 180.0),
+                        ("n2_purge_slpm", 12.0),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("bag_kPa_abs", 18.4),
+                        ("bag_cap_kPa_abs", 8.0),
+                        ("predicted_unclamped_next_kPa", 20.1),
+                        ("part_C", 178.0),
+                        ("soak_C", 190.0),
+                        ("race_margin_us", 212),
+                        ("combined_jitter_us", 70),
+                        ("abort_s", 900),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 2.00 kW heater cruise at 180 C set: 178 C part looks like a still-"
+                "sealed soak, not a leaking bag, and ply 4 is treated as still flat.",
+            ),

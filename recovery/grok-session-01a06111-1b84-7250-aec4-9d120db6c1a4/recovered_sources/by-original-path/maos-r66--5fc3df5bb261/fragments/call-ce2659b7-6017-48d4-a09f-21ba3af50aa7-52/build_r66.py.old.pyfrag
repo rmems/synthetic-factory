@@ -1,0 +1,11 @@
+        if p.parent.name == "maos-r64":
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        st = rec.get("state")
+        desc = str(st.get("description") or "") if isinstance(st, dict) else ""
+        if desc:
+            out.append((p.as_posix(), desc[:280]))
+    live = LIVE / "batch-r*.jsonl"

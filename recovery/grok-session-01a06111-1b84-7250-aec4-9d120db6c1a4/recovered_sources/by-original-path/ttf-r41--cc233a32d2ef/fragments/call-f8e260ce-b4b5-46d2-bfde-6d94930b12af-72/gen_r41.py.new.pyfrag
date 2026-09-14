@@ -1,0 +1,6 @@
+                "Pin-Quill PQ-6 on the Stir-Horn SH-3 hardware-in-the-loop platen is mid-plunge "
+                "when tool-root TC prints 412 C over a 380 C stir cap. Backing-bar IR, washed by "
+                "the pad lamp, still claims 298 C. Root-first locks a hold; bar-first would keep "
+                "plunging into an over-hot tool.",
+            ),
+            ("domain", "friction-stir-weld"),

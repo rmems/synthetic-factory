@@ -1,0 +1,10 @@
+            "thalamic-relay.bpm-offset",
+            "spikenaut.policy.steer-hold",
+            [
+                ("relay.bpm.offset", "policy.steer_hold", 0.71),
+                ("relay.kly.fwd", "policy.rf_go", 0.24),
+                ("relay.tc.wg", "policy.steer_hold", 0.09),
+            ],
+            "dopamine",
+            0.05,
+            "steer_cap_stdp; DA at BPM win (6.140 ms) tags steer_hold over rf_go",

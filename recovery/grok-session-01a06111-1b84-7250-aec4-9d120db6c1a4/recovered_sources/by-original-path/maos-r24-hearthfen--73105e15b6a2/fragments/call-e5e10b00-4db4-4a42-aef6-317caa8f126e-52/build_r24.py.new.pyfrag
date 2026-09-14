@@ -1,0 +1,1198 @@
+#!/usr/bin/env python3
+"""Build create-only MAOS round-24 artifacts for swarm HEARTH-FEN.
+
+Live tree:
+/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-09-02-final-heavy/multi-agent-ouroboros-swarm
+Never overwrite. Never 2026-08-17 / 2026-08-30. c-suffix if the target exists.
+Validate staging first; emit LIVE only if checks pass.
+/tmp/maos-r24 is a prior PROTONIL claim — do not reuse that plant.
+"""
+from __future__ import annotations
+
+import json
+import math
+import os
+import random
+import re
+import subprocess
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+ROOT = "/home/raulmc/rmems/synthetic-factory"
+sys.path.insert(0, ROOT)
+sys.path.insert(0, f"{ROOT}/pipelines")
+
+GEN_AT = "2026-09-02T21:24:00Z"
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "SuperGrok Heavy chat",
+    "generated_at": GEN_AT,
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+}
+AGG = "total = task_progress + safety + efficiency + coherence + exploration"
+HEADS = ("task_progress", "safety", "efficiency", "coherence", "exploration")
+OUT = Path("/tmp/maos-r24-hearthfen")
+LIVE = Path(
+    "/home/raulmc/rmems/synthetic-factory/outputs/raw/"
+    "2026-09-02-final-heavy/multi-agent-ouroboros-swarm"
+)
+HIDDEN = (
+    "thought",
+    "chain_of_thought",
+    "scratch",
+    "inner_monologue",
+    "hidden_reasoning",
+    "internal_reasoning",
+    "thinking",
+    "cot",
+    "thoughts",
+    "reasoning",
+)
+BANNED = (
+    "TRIAD",
+    "Meridian Gateway",
+    "VANTIS",
+    "CADENCE",
+    "AEGIS",
+    "THERMION",
+    "STARLING",
+    "OKTAVE",
+    "VERDIGRIS",
+    "LYOSHIELD",
+    "CINDERWICK",
+    "Helixmere",
+    "Lodenholt",
+    "QUILLFORGE",
+    "Brackmere",
+    "NIGHTWELL",
+    "FERRICLEAVE",
+    "CASSITER",
+    "Marshfloat",
+    "MURENA",
+    "SEEDLATCH",
+    "Quartzmere",
+    "STRIAFOIL",
+    "Kelpholt",
+    "REDHALL",
+    "OXBOWREEL",
+    "TORSIONKEY",
+    "Ridgeholt",
+    "ORRIS",
+    "Holmwick",
+    "PROTONIL",
+    "Ashspire",
+    "WHORLSPAR",
+    "Pikeshear",
+    "IONSPATE",
+    "Thornmere",
+    "SKULLGATE",
+    "Bloomholt",
+    "CALXION",
+    "Aldersedge",
+    "MAGNORIL",
+    "Basaltspit",
+    "GORSEFLUE",
+    "Copseholt",
+    "CLINKERFELL",
+    "Flintmere",
+    "SODASHARD",
+    "Cairnmere",
+    "LINTELPLY",
+    "Greystair",
+    "KAOTHARN",
+    "Riftwold",
+    "TREADNOLL",
+    "Slatebeck",
+    "ANOLITH",
+    "Siltfen",
+    "DRUMWROTH",
+    "Pitchfen",
+    "RIMEBRAID",
+    "Floeholt",
+    "BRIMVAULT",
+    "Pyritefen",
+    "BOGIRON",
+    "Mireholt",
+    "CHROMLOOP",
+    "Marlfell",
+    "NITREVAULT",
+    "NITROSTAITH",
+    "ETHYNWOLD",
+    "RUNNELGATE",
+    "SPARKHOLT",
+    "DIPLEGAR",
+    "OLEUMWEIR",
+    "SKARVOLT",
+    "GOBSPALL",
+    "GOBWOLD",
+    "PUSHERFELL",
+    "CREELWOLD",
+    "LIXIVQUERN",
+    "GAUZEFELL",
+    "OSMOLITH",
+    "COILSHAW",
+    "LOOPERQUAY",
+    "SIPHONWOLD",
+    "OSMOQUAY",
+    "GIBBSQUERN",
+    "LANCEQUAY",
+    "UREASTAITH",
+    "DRYSTAITH",
+    "TITERWEIR",
+    "ZINCFELL",
+    "GLIMMERAXLE",
+    "HOLLOWMERE",
+    "WINDBOXHOLT",
+    "Gratecroft",
+    "KALYCIRQUE",
+    "GYPSUMWEIR",
+    "GALVSTAITH",
+    "SLUICE-HEARTH",
+    "Wickfen",
+    "PRILLGHYLL",
+    "Ureafen",
+    "SHEDWOLD",
+    "Wickspan",
+    "CORONSTAITH",
+    "Fernholt",
+    "LOCKSPUR",
+    "Poundholt",
+    "WOLD-BARN",
+    "Barleyholt",
+    "Spelterholt",
+    "Brambleford",
+    "Marrowfen",
+    "PACKFLUE",
+    "Rookspur",
+    "Spitcroft",
+    "Reedholt",
+    "Sedgewharf",
+    "Carrdyke",
+    "LOCKFEN",
+    "training_ready",
+)
+R14_OPENING = (
+    "Helixmere Biologics Building C lyophilizer LYO-4 is mid-primary on 8400 "
+    "vials of a monoclonal antibody"
+)
+NOVEL_LINE = "Novel coverage: 52%"
+PLANT = "HEARTH-FEN"
+GEO = "Mosshearth"
+CELL = "CT-6"
+DOMAIN = "mushroom-compost-tunnel"
+RECORD_ID = "maos-r24-001"
+ROUND = 24
+DELAY_S = 0.74
+TAU_E_S = 0.88
+LIF_SEED = 24001
+WINDOW_MS = 36
+NEURONS = 140
+MEAN_RATE_HZ = 19.5
+STIM = (16800, 20400)
+SKIP_OCC_DIRS = {"maos-r24-hearthfen", "maos-r24"}
+
+
+def cents_ticks(t_us, rows):
+    ticks = []
+    sums = {h: 0 for h in HEADS}
+    for t, vals in zip(t_us, rows):
+        tick = {"t_us": int(t)}
+        for h, c in zip(HEADS, vals):
+            v = round(c / 100.0, 2)
+            tick[h] = v
+            sums[h] += c
+        ticks.append(tick)
+    heads = {h: round(sums[h] / 100.0, 2) for h in HEADS}
+    heads["total"] = round(sum(heads[h] for h in HEADS), 2)
+    return ticks, heads
+
+
+def check_refractory(events, floor_ms=0.8):
+    last = {}
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last and (t - last[ch]) < floor_ms - 1e-9:
+            return f"refractory {ch}: {t}-{last[ch]}={(t-last[ch]):.4f} < {floor_ms}"
+        last[ch] = t
+    return None
+
+
+def min_same_channel_gap(events):
+    last = {}
+    best = None
+    who = None
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last:
+            gap = t - last[ch]
+            if best is None or gap < best:
+                best = gap
+                who = ch
+        last[ch] = t
+    return best, who
+
+
+def check_excerpt(ex, neurons, window_ms):
+    prev_t = -1
+    last_n = {}
+    for item in ex:
+        t = item["t_us"]
+        n = item["neuron_id"]
+        if t < prev_t:
+            return "excerpt not sorted"
+        if not (0 <= t <= window_ms * 1000):
+            return f"t_us {t} out of window"
+        if not (0 <= n < neurons):
+            return f"neuron {n} out of range"
+        if n in last_n and t - last_n[n] < 1000:
+            return f"same-neuron gap {n}: {t-last_n[n]}"
+        last_n[n] = t
+        prev_t = t
+    return None
+
+
+def check_gate_pops(gs):
+    dw_s = gs["decision_window_ms"] / 1000.0
+    for p in gs["populations"]:
+        if "mean_rate_hz" in p or "spikes" in p:
+            exp = round(p["neurons"] * p["mean_rate_hz"] * dw_s)
+            if abs(p["spikes"] - exp) > 1:
+                return f"{p['name']} spikes {p['spikes']} vs {exp}"
+    return None
+
+
+def jaccard(a, b):
+    sa = set(a.lower().split())
+    sb = set(b.lower().split())
+    return len(sa & sb) / max(1, len(sa | sb))
+
+
+def prior_openings():
+    out = []
+    for p in sorted(Path("/tmp").glob("maos-r*/batch-r*.jsonl")):
+        if p.parent.name in SKIP_OCC_DIRS:
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        st = rec.get("state")
+        desc = str(st.get("description") or "") if isinstance(st, dict) else ""
+        if desc:
+            out.append((p.as_posix(), desc[:280]))
+    for p in sorted(LIVE.glob("batch-r*.jsonl")):
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        st = rec.get("state")
+        desc = str(st.get("description") or "") if isinstance(st, dict) else ""
+        if desc:
+            out.append((p.as_posix(), desc[:280]))
+    return out
+
+
+def occupancy_collisions():
+    hits = []
+    tokens = (PLANT, GEO, CELL, DOMAIN)
+    for p in sorted(Path("/tmp").glob("maos-r*/batch-r*.jsonl")):
+        if p.parent.name in SKIP_OCC_DIRS:
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        blob = json.dumps(rec)
+        domain = (rec.get("state") or {}).get("domain")
+        if domain == DOMAIN:
+            hits.append(f"{p}: domain {domain}")
+        for tok in tokens:
+            if tok in blob:
+                hits.append(f"{p}: token {tok}")
+    for p in sorted(LIVE.glob("batch-r*.jsonl")):
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        blob = json.dumps(rec)
+        domain = (rec.get("state") or {}).get("domain")
+        if domain == DOMAIN:
+            hits.append(f"{p}: domain {domain}")
+        for tok in tokens:
+            if tok in blob:
+                hits.append(f"{p}: token {tok}")
+    return hits
+
+
+def independent_lif_excerpt(lang_us):
+    n = NEURONS
+    dt_us = 100
+    tau_m_ms = 15.5
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.89
+    i_stim_peak = 2.14
+    stim = STIM
+    window_us = WINDOW_MS * 1000
+    i_clamp_extra = 0.56
+    clamp_n = 16
+    lang = set(lang_us)
+    chosen_seed = LIF_SEED
+    excerpt = []
+    sim_spikes = 0
+    for seed in range(LIF_SEED, LIF_SEED + 40):
+        rng = random.Random(seed)
+        tau_s = tau_m_ms / 1000.0
+        dt_s = dt_us / 1e6
+        decay = math.exp(-dt_s / tau_s)
+        steps = window_us // dt_us
+        voltage = [rng.random() * v_th * 0.97 for _ in range(n)]
+        bias = [i_bias * (1.0 + 0.13 * (rng.random() * 2 - 1)) for _ in range(n)]
+        for i in range(clamp_n):
+            bias[i] += i_clamp_extra
+        ref = [0] * n
+        spikes = []
+        for step in range(steps):
+            t_us = step * dt_us
+            stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+            for i in range(n):
+                if ref[i] > 0:
+                    ref[i] -= dt_us
+                    voltage[i] = v_reset
+                    continue
+                current = bias[i] + stim_i
+                voltage[i] = current + (voltage[i] - current) * decay
+                if voltage[i] >= v_th:
+                    spikes.append((t_us, i))
+                    voltage[i] = v_reset
+                    ref[i] = refractory_us
+        early = [(t, i) for t, i in spikes if t < stim[0] and t not in lang]
+        burst = [(t, i) for t, i in spikes if stim[0] <= t < stim[1] and t not in lang]
+        late = [(t, i) for t, i in spikes if t >= stim[1] and t not in lang]
+        picked = []
+        used = set()
+        last = {}
+        for pool, want in ((early, 7), (burst, 6), (late, 3)):
+            stride = max(1, len(pool) // max(want, 1))
+            got = 0
+            for idx in range(0, len(pool), stride):
+                if got >= want:
+                    break
+                t, nid = pool[idx]
+                if nid in used:
+                    continue
+                if nid in last and t - last[nid] < 1000:
+                    continue
+                picked.append((t, nid))
+                used.add(nid)
+                last[nid] = t
+                got += 1
+        picked = sorted(picked, key=lambda item: (item[0], item[1]))
+        if len(picked) < 16:
+            continue
+        excerpt = []
+        for t, nid in picked[:16]:
+            if t < stim[0]:
+                ch = "lif.hold"
+            elif t < stim[1]:
+                ch = "lif.core"
+            else:
+                ch = "lif.late"
+            excerpt.append({"t_us": int(t), "neuron_id": int(nid), "channel": ch})
+        chosen_seed = seed
+        sim_spikes = len(spikes)
+        break
+    if len(excerpt) < 16:
+        raise SystemExit(f"LIF excerpt too short: {len(excerpt)}")
+    lif = {
+        "model": "leaky_integrate_and_fire",
+        "n": n,
+        "dt_us": dt_us,
+        "tau_m_ms": tau_m_ms,
+        "v_rest": 0.0,
+        "v_reset": v_reset,
+        "v_th": v_th,
+        "r_m": 1.0,
+        "refractory_us": refractory_us,
+        "i_bias": i_bias,
+        "i_stim_peak": i_stim_peak,
+        "stim_t_us": list(stim),
+        "i_clamp_extra": i_clamp_extra,
+        "clamp_n": clamp_n,
+        "seed": chosen_seed,
+        "sim_spikes": sim_spikes,
+        "note": (
+            "Population sim scoped to this sidecar. Plant remains designed. "
+            "Neurons 0-15 carry +0.56 steam-hold clamp bias; stim 16.8-20.4 ms is the "
+            "T-5 core-TC-high crossing, not a remap of spike_events."
+        ),
+    }
+    return excerpt, lif, sim_spikes
+
+
+def build_record():
+    ticks, heads = cents_ticks(
+        [4180, 6418, 7132, 7_400_000, 576_000_000, 11_520_000_000, 17_280_000_000],
+        [
+            (1, -2, -1, 2, 1),
+            (1, -5, -1, 3, 2),
+            (2, -6, -1, 2, 2),
+            (1, -6, -2, 2, 2),
+            (1, -5, -2, 2, 1),
+            (1, -5, -3, 2, 1),
+            (0, -5, -3, 1, 1),
+        ],
+    )
+    if abs(heads["total"] - (-0.16)) > 1e-9:
+        raise SystemExit(f"bad total {heads}")
+
+    trace = math.exp(-DELAY_S / TAU_E_S)
+    dws = (0.25, 0.22, 0.21)
+    etas = tuple(abs(dw) / trace for dw in dws)
+    w1, w2, w3 = 0.50 - dws[0], 0.44 - dws[1], 0.41 - dws[2]
+
+    spike_events = [
+        {"channel": "core.hot", "t_rel_ms": 0.294, "amplitude": 0.51},
+        {"channel": "nh3.ok", "t_rel_ms": 1.118, "amplitude": 0.61},
+        {"channel": "fan.ok", "t_rel_ms": 1.986, "amplitude": 0.55},
+        {"channel": "core.o2", "t_rel_ms": 3.142, "amplitude": 0.76},
+        {"channel": "core.hot", "t_rel_ms": 4.156, "amplitude": 0.48},
+        {"channel": "core.o2", "t_rel_ms": 4.816, "amplitude": 0.78},
+        {"channel": "nh3.ok", "t_rel_ms": 5.328, "amplitude": 0.57},
+        {"channel": "core.hot.high", "t_rel_ms": 6.418, "amplitude": 1.36},
+        {"channel": "pln.in_band", "t_rel_ms": 6.632, "amplitude": 1.10},
+        {"channel": "fan.ok", "t_rel_ms": 6.804, "amplitude": 0.64},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.132, "amplitude": 1.07},
+        {"channel": "core.o2", "t_rel_ms": 8.876, "amplitude": 0.43},
+        {"channel": "fan.ok", "t_rel_ms": 10.654, "amplitude": 0.80},
+        {"channel": "nh3.ok", "t_rel_ms": 12.992, "amplitude": 0.45},
+        {"channel": "core.hot", "t_rel_ms": 18.388, "amplitude": 0.42},
+        {"channel": "ctrl.gate", "t_rel_ms": 25.864, "amplitude": 0.84},
+        {"channel": "tunnel.probe", "t_rel_ms": 7400.0, "amplitude": 0.93},
+        {"channel": "core.o2", "t_rel_ms": 7486.2, "amplitude": 0.39},
+        {"channel": "pln.in_band", "t_rel_ms": 7568.0, "amplitude": 0.34},
+        {"channel": "human.ratify", "t_rel_ms": 576000.0, "amplitude": 0.80},
+        {"channel": "tunnel.hold", "t_rel_ms": 576800.0, "amplitude": 0.73},
+        {"channel": "co.mix", "t_rel_ms": 577600.0, "amplitude": 0.85},
+        {"channel": "core.hot", "t_rel_ms": 11520000.0, "amplitude": 0.29},
+        {"channel": "core.o2", "t_rel_ms": 11520720.0, "amplitude": 0.27},
+        {"channel": "nh3.ok", "t_rel_ms": 11521480.0, "amplitude": 0.24},
+        {"channel": "tunnel.fire", "t_rel_ms": 17280000.0, "amplitude": 0.94},
+    ]
+    contrast_spikes = [
+        {"channel": "steam.demand", "t_rel_ms": 0.000, "amplitude": 0.81},
+        {"channel": "core.clear", "t_rel_ms": 0.206, "amplitude": 0.75},
+        {"channel": "core.hot", "t_rel_ms": 0.418, "amplitude": 0.22},
+        {"channel": "nh3.ok", "t_rel_ms": 1.446, "amplitude": 0.38},
+        {"channel": "core.o2", "t_rel_ms": 4.864, "amplitude": 0.51},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.048, "amplitude": 0.90},
+        {"channel": "tunnel.probe", "t_rel_ms": 3200.0, "amplitude": 0.33},
+        {"channel": "steam.raise", "t_rel_ms": 7400.0, "amplitude": 0.12},
+    ]
+    lang_us = [
+        int(round(e["t_rel_ms"] * 1000.0))
+        for e in spike_events
+        if e["t_rel_ms"] * 1000.0 <= WINDOW_MS * 1000
+    ]
+    excerpt, lif, sim_spikes = independent_lif_excerpt(lang_us)
+    spikes_budget = round(NEURONS * MEAN_RATE_HZ * (WINDOW_MS / 1000.0))
+    energy_pJ = spikes_budget * 23
+    energy_uJ = spikes_budget * 23e-6
+
+    rec = {
+        "id": RECORD_ID,
+        "title": (
+            "HEARTH-FEN CT-6: T-5 core TC 78.4 C beats plenum-mean-in-band by 214 us; "
+            "correct MODIFY still loses a compost-core fire to a pre-t0 collapsed air-spigot"
+        ),
+        "rights": dict(RIGHTS),
+        "state": {
+            "sim_or_real": "designed",
+            "domain": DOMAIN,
+            "scenario_name": "HEARTH-FEN / Mosshearth Compost Tunnel CT-6",
+            "timestamp_local": "2026-08-23T02:24:00-05:00",
+            "t0_us": 1755588120000024,
+            "gate_latency_us": 714,
+            "race_window_us": 500,
+            "race_window_rel_ms": [6.418, 6.918],
+            "description": (
+                "Mosshearth Phase-II compost tunnel CT-6 at HEARTH-FEN is 12 min into a 58.0 C "
+                "pasteurization hold on an 8-tunnel peat-straw block (42 t class, 16 pct moisture) "
+                "when three heterogeneous, individually-correct agents jointly report "
+                "'plenum-true, raise steam'. PLN's 12-bit 8-tunnel plenum-mean is 58.0 C inside "
+                "54-62. NH3's header ammonia is 180 ppm inside 80-350. FAN's recirculation tach "
+                "is 41.0 Hz inside 34-48. The conjunction is not a core-true certificate: tunnel "
+                "T-5 has a collapsed air-spigot packed by peat-gypsum sludge, so local core TC is "
+                "78.4 C (healthy < 62; hold if > 66) and local O2 is 8.2 vol% (healthy 16; hold if "
+                "< 12) while plenum mean, header ammonia, and fan tach still see seven mixed tunnels "
+                "plus one smoldering core. Local core TC infers 78.4 C and local O2 8.2 vol% but "
+                "policy treats the core tap as a probe-nuisance tag unless PLN mean also trips "
+                "(2014 'noisy core-probe after a fill'). Residual-first latches STEAM-HOLD plus a "
+                "reverse-air pulse probe; PLN-first would have authorized RAISE-STEAM 58.0 to 64.0 C "
+                "into a Sunday-night spawn-fill window with T-5 already carbonizing compost."
+            ),
+            "goal": (
+                "Hold steam/hearth at 58.0 C without a pasteurization raise while T-5 core TC "
+                "> 66 C AND T-5 O2 < 12 vol% AND tunnel T-5 remains unisolated; keep extra compost "
+                "mass lost at 0 t and tunnel-fire events at 0 from the draft."
+            ),
+            "race": {
+                "contenders": [
+                    "core.hot.high 78.4 C (T-5 local core TC vs 8-tunnel plenum mean)",
+                    "pln.in_band 58.0 C (plenum-mean air-on compost)",
+                ],
+                "semantics": (
+                    "Core-hot-first latches STEAM-HOLD + REVERSE-AIR-PULSE-PROBE + T-5 hold. "
+                    "PLN-first latches RAISE-STEAM (58.0 to 64.0 C, no isolate)."
+                ),
+                "window_derivation": "500 us = one 360 us core-TC ADC slot plus 140 us PLN publish.",
+                "order_evidence_note": (
+                    "Margin 214 us vs combined jitter 56 us (core 34 + PLN 22): 3.8x. "
+                    "The 214 us gap sits inside min(500, 500) us, so a sub-flip-bound "
+                    "perturbation reverses triage order. The gate rides the "
+                    "order-invariant floors T-5 core TC > 66 C and T-5 O2 < 12 vol%, "
+                    "not the alarm order."
+                ),
+            },
+            "topology": {
+                "site": (
+                    "Mosshearth Compost Campus, invented fen-side Phase-II block Mosshearth, tunnel "
+                    "CT-6: 8-tunnel pasteurization, peat-straw-gypsum fill, 58.0 C, 16 pct moisture, "
+                    "42 t, Grade-B tunnel-gallery LOTO"
+                ),
+                "agents": (
+                    "PLN 8-tunnel plenum-mean RTD (vendor Plenumholt): 20 Hz 12-bit on the "
+                    "header bus. NH3 header ammonia (vendor Ammonreed): 50 Hz on the exhaust "
+                    "sample. FAN recirculation tach (vendor Fanwharf): 10 Hz on the shaft encoder. "
+                    "LOCAL T-5 core TC plus local O2 (vendor Coreghyll) is commissioned as a "
+                    "probe-nuisance tag, not as a compost-core integrity tag. Heterogeneous stacks, "
+                    "no shared intent schema, one 20 ms hearth-bus epoch"
+                ),
+                "coupling": (
+                    "All three playbook confirms live on the WRONG volume. PLN is correct that "
+                    "plenum mean sits at 58.0 C (seven mixed tunnels dominate the average). NH3 is "
+                    "correct that header ammonia is 180 ppm (one collapsed spigot is one of eight). "
+                    "FAN is correct that shaft tach is 41.0 Hz (recirc is loop-true). Playbook "
+                    "PB-CT-6 treats the conjunction as permission to raise steam. No agent is faulty; "
+                    "the PLN average is looking at plenum-mean air, not at T-5's smoldering core."
+                ),
+            },
+            "sensors": [
+                "8-tunnel plenum-mean RTD 12-bit, 20 Hz, 22 us jitter, 58.0 C (dead-band 54-62)",
+                "header ammonia, 50 Hz, 20 us jitter, 180 ppm (band 80-350)",
+                "recirculation tach, 10 Hz, 28 us jitter, 41.0 Hz (band 34-48)",
+                "T-5 local core TC, 20 Hz, 34 us jitter, 78.4 C (healthy < 62; policy floor 66 C is not armed unless PLN mean also trips)",
+                "T-5 local O2 8.2 vol% (healthy 16; hold if < 12)",
+                "T-5 core camera is NOT commissioned at t0 (installed after this incident)",
+            ],
+            "constraints": {
+                "steam_C": 58.0,
+                "steam_hold_floor_C": 58.0,
+                "proposed_steam_C": 64.0,
+                "plenum_C": 58.0,
+                "plenum_deadband_C": [54.0, 62.0],
+                "nh3_ppm": 180,
+                "nh3_band_ppm": [80, 350],
+                "fan_Hz": 41.0,
+                "fan_band_Hz": [34.0, 48.0],
+                "core_tc_C": 78.4,
+                "core_tc_hold_C": 66.0,
+                "core_tc_healthy_C": 62.0,
+                "core_o2_volpct": 8.2,
+                "core_o2_hold_volpct": 12.0,
+                "core_o2_healthy_volpct": 16.0,
+                "tunnel_count": 8,
+                "fault_tunnel": "T-5",
+                "fault_mode": "T-5 collapsed air-spigot / compost-core smolder",
+            },
+            "fault_context": {
+                "failure_class": (
+                    "PLENUM-MEAN CERTIFICATE OF A LOCAL COMPOST-CORE SMOLDER: three individually-correct "
+                    "heterogeneous agents each read a locally-true loop; a collapsed air-spigot on "
+                    "tunnel T-5 partitions local core TC and local O2 from plenum-mean air, header "
+                    "ammonia, and fan tach, so the playbook's PLN / NH3 / FAN conjunction is not a "
+                    "core-true certificate"
+                ),
+                "igniter": (
+                    "T-5 air-spigot collapse after 12 min of unmonitored compost-core smolder; "
+                    "tunnel-gallery visual PASSES (the sludge sits under the floor grating; the CO "
+                    "plume is downstream of the walkway)"
+                ),
+                "naive_failure": (
+                    "PB-CT-6 RAISE-STEAM on three healthy loops: 58.0 to 64.0 C into a spawn-fill "
+                    "window with T-5 already carbonizing 9.4 t of compost, 1800 ppm CO, "
+                    "$2.6M plus a 36-hour unplanned stall"
+                ),
+            },
+            "poisoned_context": {
+                "naive_alarm": (
+                    "Playbook PB-CT-6 (after the 2014 'noisy core-probe after a fill') auto-drafts "
+                    "RAISE-STEAM whenever plenum mean is inside 54-62 C AND nh3 inside "
+                    "80-350 ppm AND fan inside 34-48 Hz, ignoring the local core tap unless "
+                    "PLN mean also trips"
+                ),
+                "why_poisoned": (
+                    "The three confirms are locally true and jointly insufficient. The local core TC "
+                    "is a commissioned sensor that policy treats as probe-nuisance-only. Independence "
+                    "of 'plenum mean in band, therefore every tunnel core is mixed' is the hidden "
+                    "assumption, and it is false across a collapsed-spigot-plus-plenum-mix path."
+                ),
+            },
+            "constraint": (
+                "Do not raise steam/hearth above 58.0 C AND do not skip the reverse-air pulse "
+                "while T-5 core TC > 66 C AND T-5 O2 < 12 vol%. Discriminate compost-core smolder "
+                "vs true mixed-duty with a reversible reverse-air pulse probe before any raise-steam."
+            ),
+        },
+        "proposed_action": {
+            "actor": "hearth supervisory optimizer HSO (auto-playbook PB-CT-6 draft), submitted to gate TG-CT-6",
+            "name": "raise_steam",
+            "action": "RAISE-STEAM: 58.0 -> 64.0 C, no reverse-air pulse probe, no T-5 hold",
+            "summary": (
+                "Treat three in-spec loops as a healthy core-true tunnel and raise Sunday-night steam "
+                "to clear a spawn-fill window."
+            ),
+            "parameters": {
+                "steam_C": 64.0,
+                "reverse_air_probe": False,
+                "tunnel_hold": False,
+                "human_ratify": False,
+            },
+            "steps": [
+                "assert 8-tunnel plenum mean 58.0 C inside 54-62",
+                "assert header ammonia 180 ppm inside 80-350",
+                "assert recirculation 41.0 Hz inside 34-48",
+                "raise steam/hearth 58.0 to 64.0 C over 8 min",
+                "hold T-5 core TC unread as a compost-core integrity tag",
+            ],
+            "evidence": [
+                {
+                    "observable": "T-5 local core TC",
+                    "value": 78.4,
+                    "unit": "C",
+                    "source": "LOCAL core TC vs PLN mean",
+                    "note": "healthy < 62 C; policy floor 66 C is not armed unless PLN mean also trips",
+                },
+                {
+                    "observable": "T-5 local O2",
+                    "value": 8.2,
+                    "unit": "vol%",
+                    "source": "LOCAL core O2 tap",
+                    "note": "healthy 16; hold floor 12; lives on the collapsed T-5 spigot, not the plenum bus",
+                },
+                {
+                    "observable": "8-tunnel plenum mean",
+                    "value": 58.0,
+                    "unit": "C",
+                    "source": "PLN 12-bit",
+                    "note": "healthy-load band 54-62 C; seven mixed tunnels still dominate the average",
+                },
+                {
+                    "observable": "header ammonia",
+                    "value": 180,
+                    "unit": "ppm",
+                    "source": "NH3 exhaust sample",
+                    "note": "band 80-350 ppm; header-true, core-false",
+                },
+                {
+                    "observable": "recirculation tach",
+                    "value": 41.0,
+                    "unit": "Hz",
+                    "source": "FAN shaft encoder",
+                    "note": "band 34-48 Hz; shaft-true, collapsed-spigot-false",
+                },
+                {
+                    "observable": "race margin",
+                    "value": 214,
+                    "unit": "us",
+                    "source": "core.hot.high 6.418 ms vs pln.in_band 6.632 ms",
+                    "note": "combined jitter 56 us, 3.8x; inside 500 us flip bound",
+                },
+            ],
+            "basis": (
+                "PB-CT-6 fires on three locally-true confirms. The draft does not read T-5 core TC "
+                "78.4 C as a smolder residual and does not treat local O2 8.2 vol% as a compost-core discriminant."
+            ),
+            "expected_cost_bound": (
+                "If the draft executes: 9.4 t carbonized compost on T-5, $2.6M plus 36-hour unplanned stall. "
+                "If MODIFIED: probe plus hold, with residual risk from compost-core carbonization already seeded in "
+                "the 12 min pre-t0 smolder."
+            ),
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "correctness": "correct",
+            "decided_by": "TG-CT-6 thalamic release gate",
+            "decision_t_rel_ms": 7.132,
+            "rationale": (
+                "MODIFY the draft: strip the raise-steam, hold 58.0 C, run a 7.4 s "
+                "reverse-air pulse probe (+4 Pa on the T-5 floor header), and isolate tunnel T-5 only if the "
+                "probe stays mean-false. Numeric floor: do not raise steam/hearth above 58.0 C "
+                "AND do not skip the reverse-air pulse while T-5 core TC > 66 C AND T-5 O2 "
+                "< 12 vol%. Observed core TC 78.4 C and local O2 8.2 vol% both violate the release predicate, "
+                "so a raise-steam is forbidden even though all three playbook confirms are numerically "
+                "true. The three confirms are not a core-true certificate: they live on 8-tunnel plenum "
+                "mean, header ammonia, and fan tach past a collapsed T-5 air-spigot, and the playbook's "
+                "conjunction of plenum-true loops is not a core-true certificate. Probe discriminant: after "
+                "a 7.4 s +4 Pa reverse-air pulse, a compost-core smolder keeps |Delta PLN| <= 0.6 K (the collapsed "
+                "spigot does not recouple mean air); a live mixed tunnel moves >= 2.4 K. Order-code "
+                "discipline: core-hot beat PLN by 214 us inside the 500 us flip bound, so triage order is "
+                "flip-fragile; the hold rides the order-invariant floors, not the winner tag. Human "
+                "ratification: T-5 hold is tunnel-gallery LOTO with fitted 9.6 min dead-man; the gate may "
+                "hold and probe autonomously but may not break the tunnel interlock without the operator confirm."
+            ),
+            "constraint_checked": {
+                "steam_C": {"observed": 58.0, "floor": 58.0, "proposed_target": 64.0},
+                "core_tc_C": {"observed": 78.4, "hold_if_above": 66.0},
+                "plenum_C": {"observed": 58.0, "band": [54.0, 62.0]},
+                "core_o2_volpct": {"observed": 8.2, "hold_if_below": 12.0},
+            },
+        },
+        "executed_action": {
+            "name": "steam_hold_air_probe_isolate",
+            "action": "STEAM-HOLD + REVERSE-AIR-PULSE-PROBE + T-5-HOLD (gate-mandated modification)",
+            "executed_as_proposed": False,
+            "parameters": {
+                "steam_C": 58.0,
+                "reverse_air_probe": True,
+                "tunnel_hold": True,
+                "human_ratify": True,
+                "human_ratify_min": 9.6,
+            },
+            "gate_effect": (
+                "MODIFY: raise-steam stripped. Hold 58.0 C. 7.4 s reverse-air pulse +4 Pa on "
+                "T-5. Probe stays mean-false (core TC 78.4 -> 77.1 C, smolder band |Delta PLN| 0.3 <= 0.6 K) "
+                "so the tunnel interlock is broken after 9.6 min human ratify and T-5 is held. "
+                "Setpoint resumes after a mixed-core verify."
+            ),
+            "deviations": (
+                "PB-CT-6 raise-steam stripped entirely. Reverse-air is pulsed only for the 7.4 s "
+                "probe then returned. Tunnel-interlock wait added (9.6 min fitted walk+ratify). "
+                "Cross-tunnel core-TC survey added during the hold (not in the draft)."
+            ),
+            "execution_log": [
+                {"t_rel_ms": 7.132, "entry": "TG-CT-6 MODIFY latched 714 us after core-hot win; raise-steam stripped; hold+probe authorized"},
+                {"t_rel_ms": 7400.0, "entry": "reverse-air pulse probe: +4 Pa for 7.4 s; core TC 78.4 -> 77.1 C (smolder band |Delta PLN| 0.3 <= 0.6 K); NH3 180 -> 176 ppm; plenum 58.0 -> 58.3 C"},
+                {"t_rel_ms": 576000.0, "entry": "operator ratifies tunnel interlock break after 9.6 min gallery walk (fitted walk+interlock)"},
+                {"t_rel_ms": 576800.0, "entry": "T-5 held; local core TC slaved off the steam schedule; remaining 7 tunnels recovered toward 4 K over 3.1 h"},
+                {"t_rel_ms": 577600.0, "entry": "gallery survey: T-5 already carbonized 9.4 t; 12 min pre-t0 smolder logged"},
+                {"t_rel_ms": 11520000.0, "entry": "true mixed core on the remaining tunnels: local TC delta 4 K, local O2 15.6 vol%, TC below 66; raise-steam now legal on CT-7 only"},
+                {"t_rel_ms": 17280000.0, "entry": "compost-core fire at T-5 from the pre-t0 carbonization; tunnel quarantined 14 h"},
+            ],
+        },
+        "future_outcome": {
+            "summary": (
+                "Correct MODIFY prevented the 58.0->64.0 C raise-steam into a collapsed T-5 air-spigot "
+                "and the immediate 9.4 t extra-carbonization path. The tunnel still failed: 12 min of unmonitored "
+                "pre-t0 smolder had already carbonized 9.4 t of compost. Process-correct gate, "
+                "bounded world loss, negative total."
+            ),
+            "state_delta": {
+                "steam": "held 58.0 C through probe and isolate; later legal raise-steam only on the sister tunnel after 3.1 h mixed-core recovery",
+                "tunnel": "T-5 isolated from the steam schedule; remaining block recovered toward 4 K local TC delta",
+                "plenum": "T-5 smolder logged and held; 8-tunnel plenum mean no longer trusted as core-true air",
+                "block": "Sunday-night block quarantined; T-5 carbonized; tunnel fire at +4.8 h; 14 h stall",
+            },
+            "timeline": [
+                {"t_rel_ms": -720000.0, "event": "t0-12 min: T-5 air-spigot collapse begins; local core TC crosses 66 C up; compost starts carbonizing"},
+                {"t_rel_ms": -360000.0, "event": "t0-6 min: local core TC first crosses 66 C; PB-CT-6 ignores it because plenum mean is 57.6 C"},
+                {"t_rel_ms": 0.0, "event": "t0: core-hot vs PLN race on the hearth bus"},
+                {"t_rel_ms": 6.418, "event": "T-5 core TC at 78.4 C wins by 214 us"},
+                {"t_rel_ms": 6.632, "event": "PLN-in-band flag (loser)"},
+                {"t_rel_ms": 7.132, "event": "TG-CT-6 MODIFY"},
+                {"t_rel_ms": 7400.0, "event": "reverse-air pulse probe confirms compost-core smolder (Delta PLN 0.3 K, smolder band)"},
+                {"t_rel_ms": 576000.0, "event": "human ratify 9.6 min; T-5 held; carbonized mass logged"},
+                {"t_rel_ms": 11520000.0, "event": "true mixed core after 3.1 h; raise-steam legal only with local-TC slave"},
+                {"t_rel_ms": 17280000.0, "event": "compost-core fire from the pre-t0 carbonization; tunnel quarantined"},
+                {"t_rel_ms": 259200000.0, "event": "+3 d contrast: sister tunnel CT-7 true mixed-duty; same gate ACCEPTs the raise-steam"},
+                {"t_rel_ms": 1814400000.0, "event": "+21 d CR-C-2406: standing reverse-air pulse probe + triple-edge depression mandate + local-TC armed without PLN coincidence + plenum mean declared plenum-mix-vulnerable"},
+            ],
+            "observed_effects": [
+                "raise-steam avoided: hearth never left 58.0 C; 0 immediate extra 9.4 t carbonization from the draft",
+                "smolder proven, not asserted: reverse-air |Delta PLN| 0.3 <= 0.6 K smolder band vs mixed-tunnel control 2.5 K",
+                "mean slaved: 8-tunnel plenum no longer a core-true tag without local TC",
+                "tunnel still failed: carbonized 9.4 t vs 0 t campaign allowance; 14 h stall, $0.86M (designed $)",
+                "T-5 core camera was not a commissioned sensor at t0; the 12 min local smolder was invisible to PLN/NH3/FAN",
+            ],
+            "surprises": [
+                "Three locally-true loops are not a core-true certificate: the local core TC lived under plenum mean, header ammonia, and fan tach. Conjunction of in-spec plenum loops was the hidden assumption, and it is false across a collapsed-spigot-plus-plenum-mix path.",
+                "Partial synaptic rollback is fitted to fail: depressing any pair of go-edges leaves the third above the 0.30 fire threshold, so the raise-steam still goes. Coordinated depression of all three edges is required.",
+                "Delayed (4.8 h): correct hold did not undo 12 min of compost-core carbonization. Tunnel fire still ignited. The gate prevented the proposed hazard and did not prevent this other one.",
+                "High-moisture fen-peat amendment sub-variant: a 7.4 s +4 Pa reverse-air pulse on a 1.35x thermal-mass peat-wet fill overshoots a LIVE mixed tunnel to a 5.1 K false PLN jump (inside the over-temp trip). High-peat campaigns must use 22 s at +1.2 Pa.",
+            ],
+            "delayed_side_effects": [
+                {
+                    "at": "+4.8 h",
+                    "effect": "Compost-core fire at T-5 from the pre-t0 collapsed air-spigot; 14 h tunnel stall booked at $0.86M. This is the primary episode's terminal world state, not a footnote.",
+                },
+                {
+                    "at": "+3 d",
+                    "effect": "Sister tunnel CT-7 reaches a true mixed-duty window (local core TC 60.4 C, local O2 15.8 vol%, plenum mean 58.2 C, NH3 172 ppm). Same gate ACCEPTs the 58.0->64.0 C raise-steam the primary MODIFIED away.",
+                },
+                {
+                    "at": "+21 d",
+                    "effect": "CR-C-2406 ships: reverse-air pulse probe is standing configuration; triple-edge coordinated depression is the plasticity rule; tunnel local core TC is armed without PLN coincidence; 8-tunnel plenum is labeled plenum-mix-vulnerable with a 66 C local-TC alarm.",
+                },
+            ],
+            "subvariant_constraint": {
+                "name": "high-moisture fen-peat amendment (cycle-2 physical-constraints sub-variant)",
+                "mechanism": "38 pct moisture vs spec 16, peat mass 1.35x the spec-straw table (higher thermal mass, 2.2x reverse-air gain), viscosity of the floor sludge 1.6x",
+                "probe_refit": "7.4 s +4 Pa reverse-air pulse on the peat-wet unit moves even a live mixed tunnel to a 5.1 K false PLN jump (inside the over-temp trip) via delayed air recouple. Required probe is 22 s at +1.2 Pa (live Delta 2.5 K, smolder Delta 0.3). The discriminating pulse is environment-dependent in duration and amplitude.",
+                "consequence": "spec-straw probe numbers do not port to fen-peat fills; standing configuration is per-amendment-class, not per-hearth",
+            },
+            "embedded_contrast_decision": {
+                "note": "SAME gate (TG-CT-6), OPPOSITE correct disposition, with its own 206 us race. Teaches the boundary: do not treat 'never raise-steam' as the lesson. The discriminant is local core TC + local O2 + probe, not the three playbook plenum confirms alone.",
+                "when": "+3 d, sister tunnel CT-7, true mixed-duty after a delayed spawn-fill window, 8 tunnels",
+                "state": {
+                    "sim_or_real": "designed",
+                    "summary": "local core TC 60.4 C, local O2 15.8 vol%, plenum mean 58.2 C, NH3 172 ppm. Demand flag vs core-clear race: demand at t+0.000, core-clear at t+0.206 ms.",
+                    "race_window_us": 500,
+                    "race_flip_narrative": "demand vs core-clear 206 us apart inside the 500 us flip bound. Reversing order reshuffles triage minutes; the ACCEPT rides local core TC 60.4 < 66 C and a 4.4 s reverse-air verify that moves PLN 2.5 K (live mixed tunnel, no smolder).",
+                },
+                "proposed_action": {
+                    "action": "RAISE-STEAM 58.0 -> 64.0 C",
+                    "summary": "This time the playbook predicate is met AND local core TC plus local O2 agree the tunnel is core-true, not smolder-diluted.",
+                },
+                "safety_decision": {
+                    "decision": "ACCEPT",
+                    "rationale": "ACCEPT the raise-steam: local core TC 60.4 C < 66, local O2 15.8 vol% with a 4.4 s reverse-air verify that moves PLN 2.5 K. Numeric floor that blocked the primary is now clear. Scope: 64.0 C, not higher.",
+                },
+                "executed_action": {
+                    "action": "raise-steam as proposed",
+                    "executed_as_proposed": True,
+                },
+                "future_outcome": {
+                    "observed_effects": [
+                        "CT-7 extra carbonized mass 0 t; local core TC 60.8 C after the raise-steam (no smolder)",
+                        "local O2 15.7 vol% after the raise-steam (no core dump)",
+                    ],
+                    "lesson_delta": "Three in-spec plenum loops are legal release only with local core TC armed, local O2 as a smolder flag, and a probe that can recouple plenum mean. Same gate, opposite disposition.",
+                },
+                "reward_components": {
+                    "_aggregation": AGG,
+                    "task_progress": 0.16,
+                    "safety": 0.12,
+                    "efficiency": 0.07,
+                    "coherence": 0.08,
+                    "exploration": 0.05,
+                    "total": 0.48,
+                },
+                "spike_events": contrast_spikes,
+            },
+            "governance_subgame": {
+                "decision": "CR-C-2406: standing policy for multi-agent compost-tunnel steam raises",
+                "meta_gate": (
+                    "priced options: (a) RETIRE playbook mean conjunction, local-TC-only: loses a fast cheap "
+                    "confirm, -1.4 tunnels/day mean on 8 tunnels/yr; (b) KEEP + standing reverse-air pulse "
+                    "probe + local-TC armed without PLN coincidence + plenum mean labeled plenum-mix-vulnerable "
+                    "+ triple-edge depression; (c) STATUS QUO: fitted collapsed-spigot pass rate 0.31%/campaign x "
+                    "$2.6M compost-core fire plus the silent carbonization"
+                ),
+                "outcome": (
+                    "approved SCOPED option (b) on the 8 Phase-II tunnels that share the PLN/NH3/FAN stack; "
+                    "high-peat campaigns get the 22 s / +1.2 Pa probe table; night-shift CSV exports must carry "
+                    "0.1 C native resolution (the fraud tail's 1.0 C quantization is 10 bins off plant truth)"
+                ),
+            },
+            "hazard_avoided": (
+                "immediate extra 9.4 t carbonization from a 58.0->64.0 C raise-steam into collapsed T-5; "
+                "$2.6M plus 36-hour unplanned stall and the campus-stop path that would have followed an "
+                "uncontained increase"
+            ),
+            "incident": (
+                "Compost-core fire on the Sunday-night tunnel from the pre-t0 collapsed air-spigot; tunnel "
+                "quarantined 14 h; $0.86M designed cost. Mechanism is 12 min pre-t0 carbonization, not "
+                "the gate's hold."
+            ),
+            "latency_ms": 0.714,
+            "reward_inflection_t_us": 17280000000,
+            "reward_inflection_note": (
+                "Safety and task dive at tunnel fire (4.8 h) when the pre-t0 carbonized core opens. Gate "
+                "tick at 7132 us is process-correct and is not the inflection."
+            ),
+            "counterfactuals": {
+                "execute_draft_as_proposed": (
+                    "steam hits 64.0 C at +8 min; immediate extra 9.4 t carbonization on T-5; $2.6M plus "
+                    "36 h; the collapsed-spigot story is never found because stall morphology destroys the race evidence"
+                ),
+                "hold_without_probe": (
+                    "smolder stays; core TC stays at 78.4 C; operator eventually raises on the same three plenum confirms 2 h later"
+                ),
+                "rollback_any_pair": (
+                    "any two go-edges depressed below 0.30 leaves the third at 0.50 / 0.44 / 0.41; the "
+                    "raise-steam still fires. Coordinated depression of all three is the cure"
+                ),
+            },
+            "race_result": {
+                "winner": "core.hot.high (6.418 ms, TC 78.4 C)",
+                "loser": "pln.in_band (6.632 ms, 58.0 C)",
+                "margin_us": 214,
+                "counterfactual_if_reversed": (
+                    "PLN-first by < 214 us inside the 500 us window would have headed the PB-CT-6 "
+                    "raise-steam in the triage queue. The numeric floors still MODIFY. The flip costs "
+                    "seconds of playbook inertia, not the verdict — unless a weak supervisor rides the "
+                    "winner tag instead of local core TC and local O2."
+                ),
+            },
+        },
+        "reward_components": {
+            "_aggregation": AGG,
+            "ticks": ticks,
+            "task_progress": heads["task_progress"],
+            "safety": heads["safety"],
+            "efficiency": heads["efficiency"],
+            "coherence": heads["coherence"],
+            "exploration": heads["exploration"],
+            "total": heads["total"],
+            "notes": (
+                "Correct MODIFY, tunnel still failed. total -0.16 = 0.07 + -0.34 + -0.13 + 0.14 + 0.10. "
+                "Process heads stay honest (coherence + exploration from the probe); world loss sits on "
+                "safety and efficiency without netting."
+            ),
+            "component_notes": (
+                "task_progress 0.07: steam held and remaining tunnels recovered, but the Sunday-night spawn-fill "
+                "is one quality unit so the cycle is not a success. safety -0.34: tunnel fire from pre-t0 "
+                "collapsed spigot, no 64.0 C extra 9.4 t carbonization from the draft. efficiency -0.13: 3.1 h extra "
+                "recovery + 9.6 min HITL + 14 h stall. coherence 0.14: three agents retained, plenum-mix "
+                "vs core-true diagnosed, triple-edge scar exhibited. exploration 0.10: reverse-air pulse "
+                "probe is a new reversible discriminant."
+            ),
+        },
+        "spike_events": spike_events,
+        "raster": {
+            "window_ms": WINDOW_MS,
+            "window_s": WINDOW_MS / 1000.0,
+            "neurons": NEURONS,
+            "mean_rate_hz": MEAN_RATE_HZ,
+            "spikes": spikes_budget,
+            "energy_pJ": energy_pJ,
+            "energy_uJ": energy_uJ,
+            "excerpt_source": "independent_lif",
+            "sim_scope": "sidecar_only",
+            "lif": lif,
+            "note": (
+                f"Loihi-2 4-core 23 pJ/spike; independent LIF seed {lif['seed']}, not a 1:1 remap "
+                "of spike_events. Populations hold 0-34, core 35-69, nh3/fan 70-104, gate 105-139; "
+                "excerpt is membrane crossings (lif.hold early vs lif.core 16.8-20.4 ms) inside the 36 ms window."
+            ),
+            "excerpt": excerpt,
+            "routing": {
+                "source": "plenum_healthy_pop",
+                "target": "raise_steam_pop",
+                "table": [
+                    {
+                        "from": "pln_in_band_pop",
+                        "to": "raise_steam_pop",
+                        "weight": w1,
+                        "weight_at_illusion": 0.50,
+                        "weight_commissioned": 0.17,
+                        "note": "scar edge 1: 0.17 commissioned -> 0.50 during the 12 min illusion -> 0.25 after coordinated ACh-gated depression",
+                    },
+                    {
+                        "from": "nh3_ok_pop",
+                        "to": "raise_steam_pop",
+                        "weight": w2,
+                        "weight_at_illusion": 0.44,
+                        "weight_commissioned": 0.16,
+                        "note": "scar edge 2: depressing edges 1+3 leaves this at 0.44 > 0.30 fire threshold",
+                    },
+                    {
+                        "from": "fan_ok_pop",
+                        "to": "raise_steam_pop",
+                        "weight": w3,
+                        "weight_at_illusion": 0.41,
+                        "weight_commissioned": 0.15,
+                        "note": "scar edge 3: depressing edges 1+2 leaves this at 0.41 > 0.30. Coordinated depression of all three is required",
+                    },
+                    {
+                        "from": "core_tc_pop",
+                        "to": "steam_hold_pop",
+                        "weight": 0.67,
+                        "note": "discriminating edge: core-true local TC to hold. Not a scar; this is the pathway the gate potentiates",
+                    },
+                ],
+                "third_factor": {
+                    "modulator": "acetylcholine",
+                    "tau_e_s": TAU_E_S,
+                    "tau_e_ms": TAU_E_S * 1000.0,
+                    "eligibility": (
+                        "coordinated pre_post_stdp on ALL THREE plenum-healthy-go edges; ACh at "
+                        "core-hot-win tags pln.in_band->push, nh3.ok->push, and fan.ok->push; "
+                        f"negative credit at probe-fail (compost-core smolder confirmed, +{DELAY_S:.2f} s) "
+                        f"depresses ALL THREE. trace e^{{-{DELAY_S:.2f}/{TAU_E_S:.2f}}}={trace:.5f}; "
+                        f"eta {etas[0]:.5f} / {etas[1]:.5f} / {etas[2]:.5f}; dw -0.250 / -0.220 / -0.210; "
+                        "weights 0.50->0.25, 0.44->0.22, 0.41->0.20. Rolling back any pair is "
+                        "fitted to fail (the remaining edge stays > 0.30)."
+                    ),
+                },
+            },
+        },
+        "gate_snn": {
+            "decision_window_ms": 27,
+            "decision_window_s": 0.027,
+            "decision": "MODIFY",
+            "note": (
+                "modify_hold integrates T-5 core TC + local O2 against playbook drive; "
+                "accept_raise and reject_abort stay sub-threshold; decision matches "
+                "safety_decision.decision"
+            ),
+            "populations": [
+                {"name": "modify_hold", "neurons": 64, "threshold": 0.54, "mean_rate_hz": 22.0, "spikes": 38},
+                {"name": "accept_raise", "neurons": 64, "threshold": 0.56, "mean_rate_hz": 8.0, "spikes": 14},
+                {"name": "reject_abort", "neurons": 32, "threshold": 0.73, "mean_rate_hz": 5.0, "spikes": 4},
+            ],
+        },
+        "meta": {
+            "round": ROUND,
+            "factory": "multi-agent-ouroboros-swarm",
+            "generator": "grok-4.6",
+            "run_label": "2026-09-02-final-heavy",
+            "swarm": PLANT,
+            "domain": DOMAIN,
+            "cycles": 2,
+            "scenario": (
+                "HF -- HEARTH-FEN / Mosshearth Compost Tunnel CT-6: plenum-mean certificate of a "
+                "local compost-core smolder; correct MODIFY to hold+reverse-air-pulse+isolate; tunnel still "
+                "fails on unmonitored pre-t0 carbonization"
+            ),
+            "coordination_failure_class": (
+                "PLENUM-MEAN CERTIFICATE OF A LOCAL COMPOST-CORE SMOLDER: three individually-correct "
+                "heterogeneous agents each read a locally-true loop; a collapsed air-spigot on tunnel T-5 "
+                "partitions local core TC and local O2 from plenum-mean air, header ammonia, and fan tach, "
+                "so the playbook's PLN / NH3 / FAN conjunction is not a core-true certificate"
+            ),
+            "injections": {
+                "cycle1_domain": (
+                    "mushroom-compost-tunnel (justified novel subdomain of industrial-process / "
+                    "fenland Phase-II pasteurization): first fen-side mushroom compost tunnel in this factory; "
+                    "displaces warehouse-amr, aerial-swarm, district-heating, event-camera-traffic-grid, "
+                    "pharmaceutical-lyophilization, water-treatment, float-glass, underwater-rov, "
+                    "electrolytic-aluminum, czochralski-pull, slot-die coating, pem-water-electrolysis, "
+                    "wind-turbine pitch, surgical-assist, optical-fiber-draw, kraft-recovery-boiler, "
+                    "steel-continuous-caster, humanoid-locomotion, vacuum-induction melt, "
+                    "steam-methane reformer, cement-rotary-kiln-clinker, autoclave-composite-cure, "
+                    "geothermal-binary-orc, tire-curing-press, chlor-alkali-membrane-electrolysis, "
+                    "delayed-coker-drum-switch, lng-mche-mixed-refrigerant, claus-sulfur-recovery, "
+                    "ammonia-synthesis-converter, blast-furnace-burden-descent, "
+                    "hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil, "
+                    "hydroelectric-kaplan-wicket, fcc-riser-regenerator, sulfuric-contact-converter, "
+                    "eaf-foamy-slag-water-panel, nitric-acid-ostwald-oxidation, seawater-ro-desalination, "
+                    "coke-oven-battery-heating, carbon-fiber-oxidation-oven, gibbsite-autoclave-digestion, "
+                    "hot-strip-mill-finishing, paper-machine-dryer-section, sinter-strand-windbox, "
+                    "continuous-hot-dip-galvanizing, autonomous-driving, bioreactor-perfusion, "
+                    "urea-prilling-tower, cupola-foundry-slag-sluice, canal-lock-rail-transshipment, "
+                    "malting-kiln-barn, flue-cured-tobacco-barn, farm-ad-biogas, industrial-rotisserie-spit-oven, "
+                    "alkaline-stack-hydrogen-quay, fen-polder-land-drain, and grid-inspection. Domain constraint: steam-hold floor "
+                    "while T-5 core TC > 66 C with plenum mean still inside the healthy band. Sensor delta: "
+                    "+8-tunnel plenum mean, +header ammonia, +recirc tach, +local core TC, +local core O2, "
+                    "-any freeze-dryer / tin-bath / CAV fusion / harvest-bag / grate-strand / air-knife / "
+                    "PEM stack / cupola blast / lock chamber / kiln AIR / live-line crawler / farm CSTR."
+                ),
+                "cycle1_tail": (
+                    "T-5 collapsed air-spigot + compost-core smolder certificate (sensor-topology / wrong-volume class): "
+                    "tunnel-gallery visual PASSES while the peat-gypsum sludge sits under the floor grating and the CO "
+                    "is on the exhaust. Fitted base rate 0.31%/campaign from a collapsed-spigot MC (designed visual "
+                    "threshold, fitted floor geometry). Naive failure = FALSE PERMISSION (raise-steam on "
+                    "three plenum-side non-trips)."
+                ),
+                "cycle2_domain_subvariant": (
+                    "high-moisture fen-peat amendment (physical-constraints clause): 1.35x thermal mass, "
+                    "2.2x reverse-air gain; 7.4 s / +4 Pa spec-straw pulse overshoots live mixed tunnel to a "
+                    "5.1 K false PLN jump, so the probe must move to 22 s / +1.2 Pa"
+                ),
+                "cycle2_tail": (
+                    "night-shift forged local-TC CSV (human-intent deception, disjoint class): shift lead posts "
+                    "a historian export showing TC = 60.0 C at t=1.1 h to clear a spawn-fill slot. Plant historian "
+                    "is 0.1 C (10 bins vs the 1.0 C screenshot). Rejected on quantization fingerprint plus live "
+                    "TC 78.4 C and local O2 8.2 vol% at the claimed core-true. Base rate ~0.27% of Sunday-night "
+                    "campaigns, DESIGNED and flagged."
+                ),
+            },
+            "densification_delta_cycle2": (
+                "+1 physical-constraint sub-variant (high-peat probe refit), +1 tail (night-shift local-TC forgery), "
+                "+10 primary spikes (16 -> 26) + an 8-event contrast train with its own 206 us race, +2 ticks "
+                "(5 -> 7), +2 delayed side-effects (+4.8 h tunnel fire as PRIMARY terminal, +21 d CR-C-2406), "
+                "+1 triple-edge scar with pair-rollback-fails arithmetic, +1 HITL 9.6 min ratification, "
+                "+ independent LIF raster (seed sidecar-only, 36 ms, not a spike_events remap), + compost-core carbonization "
+                "as the honest negative-result mechanism"
+            ),
+            "gaps_targeted": [
+                "NOTES leftover domain family: mushroom-compost-tunnel (unused across live r01 galvanizing, r02 cupola, r03 alkaline quay, r04 fen-polder, r21 autonomous-driving, r22 urea-prill, r41 bioreactor-perfusion, r42/r62 grid-inspection, r61 sinter, r63 canal-lock, r64 malt kiln, r65 tobacco barn, r66 rotisserie, r67 farm AD)",
+                "NOTES-r14 item 4: LEARNING-ON-LEARNING DEPTH — three go-edges; rollback of any pair is fitted to fail; coordinated depression of all three exhibited with eligibility arithmetic",
+                "NOTES-r04 gap 4 (partial): human ratification of the tunnel interlock, 9.6 min fitted, without switching sim_or_real to hil (plant remains designed)",
+                "Independent LIF raster: excerpt_source=independent_lif, sim_scope=sidecar_only, seed 24001-family; membrane crossings not a 1:1 remap of spike_events",
+            ],
+            "race_flip_narrative": (
+                "core.hot.high @ 6.418 ms vs pln.in_band @ 6.632 ms (214 us) inside "
+                "race_window_us 500. Gap < min(500, 500) us so a sub-flip-bound perturbation "
+                "reverses which alarm heads the PB-CT-6 queue. The gate excludes the winner "
+                "tag and rides T-5 core TC > 66 C and T-5 O2 < 12 vol% — order-invariant "
+                "floors. Extends the flip-fragility series to CORE-TRUE CERTIFICATE: when three "
+                "plenum-side channels agree, their race does not decide truth; a local core TC that "
+                "policy treated as probe-nuisance-only does."
+            ),
+            "tags": [
+                "mushroom-compost-tunnel",
+                "collapsed-air-spigot",
+                "core-true-certificate",
+                "local-core-tc-discriminant",
+                "reverse-air-pulse-probe",
+                "triple-edge-scar",
+                "pair-rollback-fails",
+                "coordinated-depression",
+                "correct-modify-tunnel-still-fails",
+                "compost-core-fire",
+                "human-ratify-tunnel-gallery",
+                "high-peat-probe-refit",
+                "night-shift-forgery",
+                "same-gate-opposite-disposition-contrast",
+                "independent-lif-raster",
+                "sidecar-sim-only",
+                "industrial-process",
+                "research-only",
+            ],
+            "snn_tags": ["race", "refractory", "adaptation", "third-factor", "multi-edge-eligibility", "independent-lif"],
+            "distillation_value": (
+                "A compost-core smolder core-true certificate is three correct loops looking at 8-tunnel "
+                "plenum mean, header ammonia, and fan tach that is not the collapsed T-5 spigot. "
+                "Distill (1) a local core TC that policy had treated as probe-nuisance-only, (2) a "
+                "reversible probe that recouples plenum mean only if the tunnel is mixed, (3) coordinated "
+                "depression of every plenum-healthy-go edge because rolling back any pair leaves the third "
+                "above threshold, (4) a critic head that can book a process-correct gate against a later "
+                "unmonitored world loss without netting them, and (5) an independent LIF sidecar whose "
+                "excerpt is membrane crossings, not a remap of spike_events."
+            ),
+            "rights": dict(RIGHTS),
+            "batch_position": 1,
+        },
+    }
+    return rec, dict(
+        trace=trace,
+        eta1=etas[0],
+        eta2=etas[1],
+        eta3=etas[2],
+        dw1=dws[0],
+        dw2=dws[1],
+        dw3=dws[2],
+        w1=w1,
+        w2=w2,
+        w3=w3,
+        sim_spikes=sim_spikes,
+        spikes_budget=spikes_budget,
+        lif_seed=lif["seed"],
+    )

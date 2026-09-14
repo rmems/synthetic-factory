@@ -1,0 +1,6 @@
+- IDs: `ttf-r22-801` … `ttf-r22-805` (126–130 already occupy `/tmp/ttf-r22`; this window uses 801–805)
+- Domains this batch: `indium-phosphide-movpe`, `lutetium-oxyorthosilicate-czochralski`, `erbium-doped-fiber-preform`, `potassium-titanyl-phosphate-flux`, `triso-particle-coater`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged occupancy harvested from window jsonl plus `/tmp/ttf-occupied-domains.txt` / r125 census. Distinct from original r22 (`maglev-guideway-gap` / `grain-elevator-leg` / `hyperbaric-weld-habitat` / `tunnel-oven-bakery` / `rotary-lime-kiln`) and from window r21/r41/r61 process plants. All five plants are invented (Phosphid-Wick, Lutetia-Quay, Erbia-Skel, Ktpflux-Mire, Triso-Venn). Do not restack prior TTF plants. Original r22 wrong-reject class-transplant is not restacked.
+
+`pipelines/next_round.py` advertised `batch-r62.jsonl` because this sparse window already holds r01/r21/r41/r61 (max+1=62). Operator assigned round 22; `batch-r22.jsonl` was unoccupied, so this write honors the assigned round rather than racing `/tmp/ttf-r62`.

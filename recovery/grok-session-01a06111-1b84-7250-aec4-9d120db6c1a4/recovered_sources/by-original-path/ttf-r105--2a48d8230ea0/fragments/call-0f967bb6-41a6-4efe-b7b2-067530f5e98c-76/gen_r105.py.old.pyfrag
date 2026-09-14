@@ -1,0 +1,11 @@
+    for npath in sorted(Path("/tmp").glob("ttf-r*/NOTES-r*.md")):
+        if npath.parent.name in skip:
+            continue
+        for line in npath.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if "Domains this batch" in line:
+                for tok in re.findall(r"`([^`]+)`", line):
+                    if not tok.startswith("ttf-"):
+                        domains.add(tok)
+    domains.discard("")
+    plants.discard("")
+    return domains, plants

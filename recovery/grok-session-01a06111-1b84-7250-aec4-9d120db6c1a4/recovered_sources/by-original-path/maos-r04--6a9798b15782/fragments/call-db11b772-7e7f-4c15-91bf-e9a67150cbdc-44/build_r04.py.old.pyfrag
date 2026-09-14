@@ -1,0 +1,7 @@
+    if errs:
+        print("FAIL", errs)
+        return 1
+    print("OK maos-r04-001")
+    print("LIVE", jsonl_live)
+    print("LIVE", notes_live)
+    print("LIVE", tr_live)

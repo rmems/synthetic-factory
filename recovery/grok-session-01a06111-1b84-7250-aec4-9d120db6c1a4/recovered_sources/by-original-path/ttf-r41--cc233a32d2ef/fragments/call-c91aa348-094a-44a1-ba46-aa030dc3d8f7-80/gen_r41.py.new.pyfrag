@@ -1,0 +1,29 @@
+            ("name", "plunge_18"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("plunge_mm_s", 1.8),
+                        ("hold", False),
+                        ("ir_authoritative", True),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("pin_C", 412.0),
+                        ("stir_cap_C", 380.0),
+                        ("bar_apparent_C", 298.0),
+                        ("race_margin_us", 171),
+                        ("combined_jitter_us", 58),
+                        ("abort_s", 600),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 1.8 mm/s plunge because backing-bar IR apparent 298 C looks "
+                "under the 380 C cap, treating pin-root 412 C as a noisy sheath echo.",
+            ),

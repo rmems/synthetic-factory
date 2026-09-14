@@ -1,0 +1,14 @@
+    banned = (
+        "merganserholt",
+        "pintailmire",
+        "wigeoncrag",
+        "squidveil",
+        "pivveil",
+        "imsveil",
+        "nelb-r03-001",
+        "nelb-r03-002",
+        "nelb-r03-003",
+        "dc-squid remaining",
+        "particle-image-velocimetry remaining",
+        "ion-mobility remaining tatp",
+    )

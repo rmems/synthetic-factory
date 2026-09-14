@@ -1,0 +1,1 @@
+            "reflection": "Found the stack still emits aws_s3_bucket_acl under Enforced ownership. First plan: remote state is stale so ownership still looks ObjectWriter. Next measure live state.",

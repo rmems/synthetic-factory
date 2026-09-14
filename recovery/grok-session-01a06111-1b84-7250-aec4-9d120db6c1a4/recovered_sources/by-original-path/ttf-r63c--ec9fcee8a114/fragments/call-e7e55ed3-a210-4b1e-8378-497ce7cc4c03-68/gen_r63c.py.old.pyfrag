@@ -1,0 +1,35 @@
+                            "sensors",
+                            [
+                                "Ar MFC sccm, 2 kHz, 28 us jitter",
+                                "Profibus DP lagged slm holding register, 96 ms lag, 32 us jitter",
+                                "RF forward-power coupler (context)",
+                                "optical-emission intensity (context)",
+                            ],
+                        ),
+                        (
+                            "constraints",
+                            OrderedDict(
+                                [
+                                    ("ar_cap_sccm", 28.0),
+                                    ("observed_ar_sccm", 42.0),
+                                    ("lagged_slm", 0.042),
+                                    ("lag_ms", 96),
+                                    ("sccm_to_slm", 0.001),
+                                    ("rf_W", 180.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "episode_steps",
+                            [
+                                "1. Chamber C-3 already at 42.0 sccm Ar; RF 180 W; lagged slm 0.042.",
+                                "2. Leftover DP register still prints 0.042 slm; lag 96 ms; same MFC.",
+                                "3. Ar precursor at 1.100 ms.",
+                                "4. Race window [5.400, 5.760] ms.",
+                                "5. ft.ar.sccm 42.0 at 5.400 ms (winner).",
+                                "6. mb.lag.slm 0.042 at 5.580 ms (loser by 180 us).",
+                                "7. Gate at 5.960 ms: WRONG-MODIFY binds lagged slm as sccm.",
+                                "8. Ar only 42.0 -> 40.0 sccm; RF stays 180 W; live stays 41.2 > 28.0.",
+                                "9. Target over-resputters; SrTiO3 film goes metallic.",
+                                "10. Delayed (abort_s=600): 10 min target re-sputter and chamber re-pump.",
+                            ],

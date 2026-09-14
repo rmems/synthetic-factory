@@ -1,0 +1,3 @@
+    occ = occupancy_collisions()
+    errs.extend(occ)
+    return errs

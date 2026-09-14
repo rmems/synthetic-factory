@@ -1,0 +1,51 @@
+{
+  "all_tool_counts": {
+    "get_command_or_subagent_output": 140,
+    "grep": 5714,
+    "kill_command_or_subagent": 5,
+    "list_dir": 1969,
+    "memory_get": 118,
+    "memory_search": 1028,
+    "monitor": 14,
+    "read_file": 14113,
+    "run_terminal_command": 6693,
+    "scheduler_list": 1,
+    "search_replace": 3165,
+    "search_tool": 289,
+    "spawn_subagent": 2638,
+    "todo_write": 1368,
+    "use_tool": 323,
+    "workflow": 10,
+    "write": 605
+  },
+  "child_session_count": 919,
+  "constraints": {
+    "active_checkout_written": false,
+    "dataset_paths_written": false,
+    "journals_read_only": true,
+    "recovered_programs_executed": false
+  },
+  "hunk_evidence_record_count": 16508,
+  "journal_files_hashed": 21532,
+  "missing_updates_session_ids": [
+    "01a06412-d223-76e0-b33c-aa7a11d40533"
+  ],
+  "schema_version": "grok-temp-python-recovery-v1",
+  "session_count": 920,
+  "structured_outcome_counts": {
+    "full_write:Completed": 493,
+    "search_replace:Completed": 3057,
+    "search_replace:Failed": 47
+  },
+  "structured_temp_python_event_count": 3597,
+  "structured_temp_python_unique_paths": 714,
+  "terminal_ambiguous_mutation_candidates": 777,
+  "terminal_calls_referencing_temp_python": 2798,
+  "terminal_classification_counts": {
+    "ambiguous_or_mixed_source_mutation": 777,
+    "deterministic_source_mutation": 128,
+    "source_reference_without_detected_mutation": 1893
+  },
+  "terminal_source_mutation_candidates": 905,
+  "top_level_session_id": "01a06111-1b84-7250-aec4-9d120db6c1a4"
+}

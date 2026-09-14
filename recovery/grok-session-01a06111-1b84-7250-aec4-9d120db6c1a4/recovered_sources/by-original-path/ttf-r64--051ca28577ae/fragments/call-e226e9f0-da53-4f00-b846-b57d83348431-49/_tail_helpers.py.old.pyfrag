@@ -1,0 +1,6 @@
+    if len(wrong) != 1 or wrong[0]["id"] != "ttf-r52-277":
+        issues.append(f"wrong-gate set {[w['id'] for w in wrong]}")
+    if any(r["state"]["sim_or_real"] == "real" for r in records):
+        issues.append("sim_or_real=real")
+    hil = [r["id"] for r in records if r["state"]["sim_or_real"] == "hil"]
+    if hil != ["ttf-r52-278"]:

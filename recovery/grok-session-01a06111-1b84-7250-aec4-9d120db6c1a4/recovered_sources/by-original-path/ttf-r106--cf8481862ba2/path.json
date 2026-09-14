@@ -1,0 +1,50 @@
+{
+  "agent_ids": [
+    "01a06410-9663-7361-b585-b95c1651421c"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 1,
+  "original_basename": "_tail.py",
+  "original_path": "/tmp/ttf-r106/_tail.py",
+  "path_key": "ttf-r106--cf8481862ba2",
+  "terminal_event_ids": [],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06410-9663-7361-b585-b95c1651421c",
+      "basename_preserved": true,
+      "bytes": 24485,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 238,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06410-9663-7361-b585-b95c1651421c/updates.jsonl",
+      "original_basename": "_tail.py",
+      "original_path": "/tmp/ttf-r106/_tail.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r106--cf8481862ba2/versions/v0001/_tail.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r106--cf8481862ba2/versions/v0001/_tail.py",
+      "session_id": "01a06410-9663-7361-b585-b95c1651421c",
+      "sha256": "888b47f466fbea768c4cd3f2ce2d67b3b8a87cc8801561de21e33ee30c56fa93",
+      "source_channel": "structured",
+      "source_event_id": "01a06410-9663-7361-b585-b95c1651421c:call-482c1a13-bf15-47ec-9ab2-cbc740b473a3-41",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788392385073,
+      "timestamp_utc": "2026-09-02T23:39:45.073Z",
+      "tool_call_id": "call-482c1a13-bf15-47ec-9ab2-cbc740b473a3-41",
+      "version": 1,
+      "version_id": "ttf-r106--cf8481862ba2:v0001"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+                        (
+                            "contenders",
+                            [
+                                "ir.skin.c 268 C flare",
+                                "enc.line.mpm 18.4 m/min still-in-band",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "IR-first latches REJECT hold 0 m/min; encoder-first would ramp 18.4 m/min "
+                            "on an in-band-speed-as-clearance model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "280 us = one IR envelope slot versus the line-encoder publisher on this "
+                            "pad cycle.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 190 us vs combined jitter 54 us (IR 24 + encoder 30): 3.5x over a "
+                            "2.0x trust floor. Pad injects encoder 90-130 us before the IR envelope "
+                            "finishes (pyrometer lag, not a sensor fault); the encoder packet is still "
+                            "the loser in this 280 us window.",
+                        ),

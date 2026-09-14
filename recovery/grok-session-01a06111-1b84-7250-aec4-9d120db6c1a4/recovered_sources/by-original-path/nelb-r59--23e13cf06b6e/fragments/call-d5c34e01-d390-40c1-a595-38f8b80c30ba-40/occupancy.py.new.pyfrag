@@ -1,0 +1,60 @@
+def occupancy_preflight():
+    claimed = (
+        "doasveil",
+        "thornmere sru",
+        "uv-doas remaining",
+        "marlfell chlor",
+        "oxveil",
+        "aluminum-oxide remaining-moisture",
+        "birchfen fcc",
+        "cellveil",
+        "load-cell remaining-mass",
+        "al2o3-hil-3",
+        "load-sim-2",
+        "calder wynn",
+        "lise quarn",
+        "kell brindle",
+        "odel varn",
+        "nerin quill",
+    )
+    steal = (
+        "irisveil",
+        "wexmere hydrotreater",
+        "glaurfen converter",
+        "pyroveil",
+        "nernstveil",
+        "glimmerholt",
+        "rogowski coil",
+        "coilveil",
+        "beta-attenuation",
+        "betaveil",
+        "photoionization-detector",
+        "contact pulse-echo remaining-wall",
+        "wire-mesh remaining void",
+        "uci remaining hardness",
+        "magnetoacoustic-emission remaining case",
+    )
+    hits = []
+    root = Path("/tmp")
+    scan = (
+        sorted(root.glob("nelb-r*/NOTES-r*.md"))
+        + sorted(root.glob("nelb-r*/gen_r*.py"))
+        + sorted(root.glob("nelb-r*/records_block.py"))
+        + sorted(root.glob("nelb-r*/_recs.py"))
+        + sorted(root.glob("nelb-r*/recs.py"))
+    )
+    for n in scan:
+        if "nelb-r59" in str(n):
+            continue
+        text = n.read_text(encoding="utf-8", errors="replace").casefold()
+        for b in claimed:
+            if b in text:
+                hits.append(f"{n}:{b}")
+    if hits:
+        raise RuntimeError(f"r59 family/plant collision {hits}")
+    blob = json.dumps([rec_178(), rec_179(), rec_180()], ensure_ascii=False).casefold()
+    for s in steal:
+        if s in blob:
+            raise RuntimeError(f"r59 stole occupied family {s}")
+
+

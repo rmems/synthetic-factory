@@ -1,0 +1,55 @@
+{
+  "agent_ids": [
+    "01a06404-1479-7dd2-b91c-11555d49259c"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "assemble.py",
+  "original_path": "/tmp/ffpc-r12/assemble.py",
+  "path_key": "ffpc-r12--3cd0ef70496f",
+  "terminal_event_ids": [
+    "01a06404-1472-79e0-93ac-7b113c531afc:call-407db716-fe86-41c2-8786-8624dcef67fe-74",
+    "01a06404-1479-7dd2-b91c-11555d49259c:call-60c1a695-4a87-4c2b-bf05-8ea75c70e9e0-57",
+    "01a06406-1395-7103-ac34-c393a3612129:call-c58aa8b8-26b4-4f67-b81c-7e35dd2b981e-68",
+    "01a06408-8cca-79d1-88ac-6a38f402f8e5:call-c497de58-270c-4d4e-bdeb-b47cec707d7e-82"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06404-1479-7dd2-b91c-11555d49259c",
+      "basename_preserved": true,
+      "bytes": 19997,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 295,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06404-1479-7dd2-b91c-11555d49259c/updates.jsonl",
+      "original_basename": "assemble.py",
+      "original_path": "/tmp/ffpc-r12/assemble.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r12--3cd0ef70496f/versions/v0001/assemble.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r12--3cd0ef70496f/versions/v0001/assemble.py",
+      "session_id": "01a06404-1479-7dd2-b91c-11555d49259c",
+      "sha256": "e225d7c11616d342f620e5b3c942fcc58ebfd3223eca528a8abc2dc521bbbb18",
+      "source_channel": "structured",
+      "source_event_id": "01a06404-1479-7dd2-b91c-11555d49259c:call-c4fc5550-0342-441f-9c8c-8aafed940538-54",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788384688597,
+      "timestamp_utc": "2026-09-02T21:31:28.597Z",
+      "tool_call_id": "call-c4fc5550-0342-441f-9c8c-8aafed940538-54",
+      "version": 1,
+      "version_id": "ffpc-r12--3cd0ef70496f:v0001"
+    }
+  ]
+}

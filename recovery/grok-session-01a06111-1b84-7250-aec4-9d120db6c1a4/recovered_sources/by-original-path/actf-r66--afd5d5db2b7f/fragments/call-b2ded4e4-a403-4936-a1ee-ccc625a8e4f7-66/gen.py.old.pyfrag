@@ -1,0 +1,1 @@
+            "reflection": "Confirmed line 7 still rstrip-trims the string prefix. Patch commonpath and keep dest /harbor.",

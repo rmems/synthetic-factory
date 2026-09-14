@@ -1,0 +1,3 @@
+    for frag in THIS_PLANTS:
+        if frag in prior_plants:
+            issues.append(f"live occupancy plant hit {frag}")

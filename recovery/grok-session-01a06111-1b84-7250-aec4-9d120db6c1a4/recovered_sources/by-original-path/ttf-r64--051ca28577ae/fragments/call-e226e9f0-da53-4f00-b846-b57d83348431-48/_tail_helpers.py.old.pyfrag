@@ -1,0 +1,89 @@
+def notes_text(jmax: float) -> str:
+    return f"""# Thalamic Trajectory Factory — NOTES-r52
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- Quality: Q=5
+- IDs: `ttf-r52-276` … `ttf-r52-280`
+- Domains this batch: `phosphoric-attack-tank`, `hydrocracker-reactor`, `green-anode-press`, `continuous-anneal-line`, `nitric-acid-absorber`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged r13–r55 occupancy (jsonl SoT, including r49 methanol-synthesis-loop / RH-degasser, r51 anode-bake-furnace / methanol-converter, r53 alkylation-contactor / anode-bake, r55 sulfuric-contact-bed / kamyr). All five plants are invented. Do not restack prior TTF plants. Apatite-Vale / Gasoil-Brae / Green-Anode-Naze / Recryst-Holt / Ostwald-Gill are this round only.
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+| ttf-r52-276 | phosphoric-attack-tank | MODIFY | correct | designed | **−0.47** | process-correct steam clamp; rubber-lining blister inside 42 ms raster; independent LIF |
+| ttf-r52-277 | hydrocracker-reactor | REJECT | **incorrect (wrong-reject)** | designed | −0.58 | live drum 8.40 bar(g) < 9.00 cap; supervisor treats 9.41 bar(a) as bar(g) |
+| ttf-r52-278 | green-anode-press | REJECT | correct | hil | +0.78 | mold AE 46 pps beats platen 118 C; hold ram |
+| ttf-r52-279 | continuous-anneal-line | ACCEPT | correct | simulated | +1.16 | strip 718 C vs pyro glint 762; proposed 180 m/min already legal |
+| ttf-r52-280 | nitric-acid-absorber | ACCEPT | correct | designed | +1.14 | tail NOx 0.18 pct vs cooler 18 C; proposed 1.85 bar already legal |
+
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 correct REJECT, 1 incorrect REJECT (gauge-vs-absolute). Provenance: designed×3, simulated×1, hil×1 (Green-Anode-Naze GAN-HIL press pad). Intra-batch Jaccard on `state.description` {jmax:.3f} (< 0.4).
+
+## Wrong-reject
+
+**ttf-r52-277** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-reject`). Alternate vs odd rounds: even rounds host wrong-reject (r12/r14/…/r38/r44/r52); odd rounds host wrong-modify. Do not emit a wrong-ACCEPT. Error *class* is **gauge-vs-absolute / atm-offset-as-over-cap**, not r16 reticle-as-wafer, not r18 empty-tank, not r20 oscillation-as-PSV, not r22 class-transplant, not r30 stale-firmware floor, not r32 stale-peak-hold, not r34 wrong-bus, not r36 unit-mismatch leftover-bar, not r38 loop-test-inject, not r40 setpoint-echo, not r44 wrong-unit-shadow, not r46 kPa-as-MPa.
+
+Gasoil-Brae GB-4 / Recycle-R7 reads live quench-drum `8.40 bar(g)` against a published **9.00 bar(g)** cap. A sibling absolute transmitter still prints **9.41 bar(a)** (`atm_offset_bar=1.01`). Sidecar arithmetic `8.40 < 9.00` is true. A weak supervisor binds 9.41 bar(a) as if it were bar(g), REJECT-holds recycle 38.0 → 0.0 t/h, and leaves a legal loop idle. Convictable without hydrocracker physics: `evidence.live_barg < evidence.drum_cap_barg`, `evidence.unit_live == barg`, `evidence.unit_shadow == bara`, `executed_action` sets `recycle_tph=0` / `hold=true`, `raster.routing.table` sends `relay.abs.pt` → `policy.hold_reject` (weight 0.74) with no positive weight to `policy.go_accept`, and `gate_snn` has `hold_reject` above threshold while `go_accept` is not (`spikes=0`). Recovery: ACCEPT; leave 38.0 t/h; bind the published live 9.00 bar(g) cap. Cost: 18 min missed hydrocracker-quality window (`missed_window_s=1080`).
+
+## Partnered-negative in-window (276)
+
+**ttf-r52-276** is the partnered negative: process-correct MODIFY (steam held 3.1 t/h; lining 83.6 C < 85.0 cap) while the world still charges. Safety −0.60 prices the 18 mm rubber-lining blister at **22.600 ms**; `task_progress` stays +0.30 because the clamp completed. Inflection `t_us=22600` is tick 5 and is **inside** the 42 ms raster (`22600 ≤ 42000`). Named un-netted loss: 14 min tank isolate (`abort_s=840`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 52276, stim `[21400, 24800]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.blister` 21.4–24.8 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks). Tick 6 is bound to a published sidecar (`abort_s`, `missed_window_s`, `survey_hold_s`, `dwell_s`) via `future_outcome.delayed_surprise_s` and is strictly after the raster window. Inflection `t_us` is an actual tick.
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+| 276 | 6 | +0.30 | −0.60 | −0.16 | +0.04 | −0.05 | −0.47 | 5 (22600) |
+| 277 | 6 | −0.20 | −0.10 | −0.22 | −0.12 | +0.06 | −0.58 | 4 (4960) |
+| 278 | 6 | +0.10 | +0.40 | +0.12 | +0.10 | +0.06 | +0.78 | 4 (6560) |
+| 279 | 6 | +0.44 | +0.34 | +0.18 | +0.12 | +0.08 | +1.16 | 4 (4380) |
+| 280 | 6 | +0.44 | +0.30 | +0.20 | +0.12 | +0.08 | +1.14 | 4 (5740) |
+
+Tick-6 sidecar bind: 276 `abort_s=840`, 277 `missed_window_s=1080`, 278 `abort_s=540`, 279 `survey_hold_s=300`, 280 `dwell_s=360`.
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+| 276 | phosphoric-attack-tank | 76 | 26 | 42 | 83 | 1909 | 0.001909 |
+| 277 | hydrocracker-reactor | 92 | 34 | 24 | 75 | 1725 | 0.001725 |
+| 278 | green-anode-press | 108 | 21 | 40 | 91 | 2093 | 0.002093 |
+| 279 | continuous-anneal-line | 80 | 34 | 22 | 60 | 1380 | 0.001380 |
+| 280 | nitric-acid-absorber | 56 | 40 | 24 | 54 | 1242 | 0.001242 |
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator (NA / ACh / DA / 5-HT / adenosine), `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-276 excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).
+
+## Local checks (staging, not raw)
+
+See generator stdout: `check_jsonl` FactoryStaging, `validate_run.check_line`, `dumps_exact_json`, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`, tick sums, refractory, Jaccard.
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrote `outputs/raw/`.
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (276). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. Tick-6 sidecar bind is standing machinery (r14+), not a new class.
+4. Five domain slugs leave the prompt's 8-item pool; a later round that must stay inside the pool will have to rotate sit-outs instead.
+5. 277 wrong-reject is sidecar-convictable (routing `to` / unit_live / unit_shadow) as a **new** error class (gauge-vs-absolute) vs r36 leftover-bar, r44 unit-shadow, r46 kPa-as-MPa.
+6. 279 and 280 are both already-legal ACCEPTs; a later round could pair an ACCEPT with a world charge that does not go negative.
+
+## Next densification target
+
+Labeled LIF on a second record, or an ISI histogram sidecar. Remaining unused wrong-REJECT subclasses include **channel-swap / sibling-loop-as-live**. Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+{NOVEL_COVERAGE_LINE}
+"""

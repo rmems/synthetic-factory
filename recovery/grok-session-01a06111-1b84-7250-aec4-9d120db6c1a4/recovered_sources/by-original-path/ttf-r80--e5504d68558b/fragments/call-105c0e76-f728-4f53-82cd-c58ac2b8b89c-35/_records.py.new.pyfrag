@@ -1,0 +1,1755 @@
+def lif_417_excerpt():
+    """Independent CUBA LIF (seed 80417). Plant remains designed."""
+
+    n = 84
+    dt_us = 100
+    tau_m_ms = 19.8
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.91
+    i_stim_peak = 2.48
+    stim = (21000, 25000)
+    seed = 80417
+    window_us = 42000
+    i_clamp_extra = 0.67
+    clamp_n = 14
+    rng = random.Random(seed)
+    tau_s = tau_m_ms / 1000.0
+    dt_s = dt_us / 1e6
+    decay = math.exp(-dt_s / tau_s)
+    steps = window_us // dt_us
+    voltage = [rng.random() * v_th * 0.98 for _ in range(n)]
+    bias = [i_bias * (1.0 + 0.12 * (rng.random() * 2 - 1)) for _ in range(n)]
+    for i in range(clamp_n):
+        bias[i] += i_clamp_extra
+    ref = [0] * n
+    spikes = []
+    for step in range(steps):
+        t_us = step * dt_us
+        stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+        for i in range(n):
+            if ref[i] > 0:
+                ref[i] -= dt_us
+                voltage[i] = v_reset
+                continue
+            current = bias[i] + stim_i
+            voltage[i] = current + (voltage[i] - current) * decay
+            if voltage[i] >= v_th:
+                spikes.append((t_us, i))
+                voltage[i] = v_reset
+                ref[i] = refractory_us
+    early = [(t, nid) for t, nid in spikes if t < 21000]
+    burst = [(t, nid) for t, nid in spikes if 21000 <= t < 25000]
+    used = set()
+    last = {}
+    picked = []
+
+    def take(pool, want, label_times=None):
+        if not pool:
+            return
+        chosen_idx = set()
+        if label_times:
+            for target in label_times:
+                best = None
+                for idx, (t, nid) in enumerate(pool):
+                    if idx in chosen_idx or nid in used:
+                        continue
+                    if nid in last and t - last[nid] < 1000:
+                        continue
+                    if best is None or abs(t - target) < abs(best[0] - target):
+                        best = (t, nid, idx)
+                if best is not None:
+                    t, nid, idx = best
+                    picked.append((t, nid))
+                    used.add(nid)
+                    last[nid] = t
+                    chosen_idx.add(idx)
+        stride = max(1, len(pool) // max(want, 1))
+        for idx in range(0, len(pool), stride):
+            early_flag = pool[0][0] < 21000
+            have = len([1 for t, _ in picked if (t < 21000) == early_flag])
+            if have >= want:
+                break
+            t, nid = pool[idx]
+            if nid in used:
+                continue
+            if nid in last and t - last[nid] < 1000:
+                continue
+            picked.append((t, nid))
+            used.add(nid)
+            last[nid] = t
+
+    take(early, 7)
+    take(burst, 9, label_times=(22400, 23200, 24100))
+    clamp = [(t, nid) for t, nid in picked if t < 21000][:7]
+    tile = [(t, nid) for t, nid in picked if t >= 21000][:9]
+    picked = sorted(clamp + tile, key=lambda item: (item[0], item[1]))
+    if len(picked) < 8:
+        raise RuntimeError(f"LIF excerpt too short: {len(picked)}")
+    channels = ["lif.clamp" if t < 21000 else "lif.shower" for t, _ in picked]
+    lif = OrderedDict(
+        [
+            ("model", "leaky_integrate_and_fire"),
+            ("n", 84),
+            ("dt_us", 100),
+            ("tau_m_ms", 19.8),
+            ("v_rest", 0.0),
+            ("v_reset", 0.0),
+            ("v_th", 1.0),
+            ("r_m", 1.0),
+            ("refractory_us", 1000),
+            ("i_bias", 0.91),
+            ("i_stim_peak", 2.48),
+            ("stim_t_us", [21000, 25000]),
+            ("i_clamp_extra", 0.67),
+            ("clamp_n", 14),
+            ("seed", 80417),
+            (
+                "note",
+                "Population sim scoped to this sidecar. Plant remains designed. "
+                "Neurons 0-13 carry +0.67 melt-clamp bias; stim 21-25 ms is the shower-head freeze-plug rupture.",
+            ),
+        ]
+    )
+    extra = OrderedDict(
+        [
+            ("excerpt_source", "independent_lif"),
+            ("sim_scope", "sidecar_only"),
+            ("lif", lif),
+            ("abort_s", 1080),
+            ("delayed_surprise_s", 1080),
+        ]
+    )
+    return excerpt_items(picked, channels), extra
+
+
+def record_416():
+    ticks = [
+        tick(2160, -0.02, 0.01, -0.02, -0.01, 0.01),
+        tick(5400, -0.04, 0.01, -0.04, -0.02, 0.01),
+        tick(5620, -0.03, 0.01, -0.03, -0.01, 0.01),
+        tick(6200, -0.06, 0.02, -0.08, -0.03, 0.02),
+        tick(6600, -0.02, 0.01, -0.03, -0.01, 0.01),
+        tick(900000000, -0.01, 0.00, -0.02, 0.00, 0.00),
+    ]
+    spikes = [
+        spike("enc.meoh.ctx", 1.180, 0.44),
+        spike("rtd.hart.pv", 2.360, 0.61),
+        spike("rtd.hart.sv", 3.720, 0.52),
+        spike("bus.cr.ctx", 4.440, 0.47),
+        spike("rtd.hart.pv", 5.400, 1.31),
+        spike("rtd.hart.sv", 5.620, 1.18),
+        spike("ctrl.gate", 6.200, 0.99),
+        spike("rtd.hart.pv", 7.280, 0.84),
+        spike("rtd.hart.sv", 9.440, 0.66),
+        spike("ctrl.gate", 14.880, 0.88),
+        spike("enc.meoh.ctx", 18.200, 0.41),
+        spike("rtd.hart.pv", 23.400, 0.58),
+    ]
+    excerpt = independent_excerpt(80416, 80, 26000, 12, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Cativa carbonylation CR-3 at Cativa-Pightle already holds a HART primary-variable "
+                "reactor temperature of 184.0 C when that analog sample races a HART secondary-variable "
+                "sensor-head temperature still published on the same transmitter",
+            ),
+            ("domain", "acetic-acid-carbonylation"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Hold 18.0 t/h methanol on CR-3, keep HART PV reactor T < 198.0 C trip, and finish the "
+                "15 min acetic-quality window.",
+            ),
+            ("t0_us", 1762300000000416),
+            ("gate_latency_us", 800),
+            ("race_window_us", 400),
+            ("race_window_rel_ms", [5.400, 5.800]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "rtd.hart.pv 184.0 C HART slot-0 process T",
+                                "rtd.hart.sv 212.0 C HART slot-1 sensor-head T",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "PV-first should ACCEPT 18.0 t/h (184.0 C < 198.0 C trip). "
+                            "SV-first would only delay confirmation of the same legal kettle.",
+                        ),
+                        (
+                            "window_derivation",
+                            "400 us = one HART PV analog slot versus the HART SV publisher "
+                            "on this 2 kHz carbonylation bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 220 us vs combined jitter 72 us (PV 32 + SV 40): 3.1x over "
+                            "a 2.0x trust floor. Order is correctly PV-first. The error is binding "
+                            "HART SV as if it were the live process PV, not the race.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "HART PV slot 0 reactor RTD, 2 kHz, 32 us jitter, axis cr3_proc_t, hart_sv_is_pv false",
+                    "HART SV slot 1 sensor-head T, 1 kHz, 40 us jitter, electronics not process",
+                    "methanol-feed encoder (context)",
+                    "CO header PT (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("live_C", 184.0),
+                        ("trip_C", 198.0),
+                        ("hart_sv_C", 212.0),
+                        ("hart_pv_slot", 0),
+                        ("hart_sv_slot", 1),
+                        ("hart_sv_is_pv", False),
+                        ("hart_sv_as_pv", True),
+                        ("analog_fresh", True),
+                        ("proposed_t_h", 18.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Carbonylation CR-3 indexed on Cativa-Pightle; HART PV 184.0 C, methanol 18.0 t/h armed.",
+                    "2. Published live trip 198.0 C; HART SV tagged slot-1 sensor-head, not process PV.",
+                    "3. Encoder precursor at 1.180 ms.",
+                    "4. Race window [5.400, 5.800] ms.",
+                    "5. HART PV 184.0 C at 5.400 ms (winner).",
+                    "6. HART SV sensor-head 212.0 C at 5.620 ms (loser by 220 us).",
+                    "7. Gate at 6.200 ms: wrong REJECT holds 0 t/h on SV-as-PV.",
+                    "8. Feed idle; HART PV never crossed 198.0 C.",
+                    "9. 15 min acetic window missed.",
+                    "10. QA: correct gate was ACCEPT; leave 18.0 t/h; bind HART PV 184.0 vs 198.0 C trip.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cativa_18_hold"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("feed_t_h", 18.0),
+                        ("proc_C", 184.0),
+                        ("hold", False),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("live_C", 184.0),
+                        ("trip_C", 198.0),
+                        ("hart_sv_C", 212.0),
+                        ("hart_pv_slot", 0),
+                        ("hart_sv_slot", 1),
+                        ("hart_sv_is_pv", False),
+                        ("hart_sv_as_pv", True),
+                        ("analog_fresh", True),
+                        ("ft_axis", "cr3_proc_t"),
+                        ("race_margin_us", 220),
+                        ("combined_jitter_us", 72),
+                        ("t_gate_us", 6200),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 18.0 t/h because HART PV 184.0 C is 14.0 C under the "
+                "published 198.0 C trip and HART SV 212.0 C is sensor-head electronics, not process T.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "incorrect"),
+            (
+                "rationale",
+                "HART SV prints 212.0 C, so the kettle is treated as 212.0 C over the 198.0 C "
+                "trip (true vs that leftover secondary slot). REJECT: hold 0 t/h until the SV "
+                "falls so the carbonylation does not see an over-temp event.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "cr3_proc_t",
+                            OrderedDict(
+                                [
+                                    ("published_trip_C", 198.0),
+                                    ("observed_hart_pv_C", 184.0),
+                                    ("hart_sv_as_pv_applied", True),
+                                    ("hart_sv_C", 212.0),
+                                    ("executed_t_h", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 220),
+                                    ("combined_jitter_us", 72),
+                                    ("ratio", 3.06),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "cativa_hold_sv"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("feed_t_h", 0.0),
+                        ("proc_C", 184.0),
+                        ("hold", True),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT (incorrect): feed 18.0 -> 0 t/h. Routing relay.hart.sv -> "
+                "policy.hold_reject; no positive weight to policy.go_accept. HART PV 184.0 C never "
+                "violated the 198.0 C trip.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Wrong-REJECT froze CR-3 at 0 t/h while HART PV stayed 184.0 C under the "
+                "198.0 C trip. 15 min acetic window missed. Correct gate was ACCEPT of the "
+                "already-legal 18.0 t/h command.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("carbonylation", "held at 0 t/h; 18.0 t/h abandoned"),
+                        ("proc_C", "still 184.0 C, under 198.0 C published trip"),
+                        ("acetic", "15 min carbonylation window missed"),
+                        ("flag", "no over-temp; HART SV-as-PV false positive"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "The 212.0 C tag is HART slot-1 sensor-head T, not a live process PV.",
+                    "Delayed (15 min): sister kettle CR-4 ran the same 18.0 t/h acetic window after QA rebound the HART PV trip; CR-3's slot was already gone.",
+                ],
+            ),
+            (
+                "recovery",
+                OrderedDict(
+                    [
+                        (
+                            "correct_gate",
+                            "ACCEPT: HART PV 184.0 C < published 198.0 C trip; leave 18.0 t/h; ignore HART SV.",
+                        ),
+                        ("correct_trip_C", 198.0),
+                        ("wrong_flag", True),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict([("feed_t_h", 0.0), ("hold", True)]),
+                        ),
+                        (
+                            "cost",
+                            "15 min missed acetic window (task/efficiency); HART PV never over trip (safety false-positive).",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.hart.pv (5.400 ms, 184.0 C)"),
+                        ("loser", "rtd.hart.sv (5.620 ms, leftover HART slot-1 212.0 C)"),
+                        ("margin_us", 220),
+                        (
+                            "counterfactual_if_reversed",
+                            "SV-first by < 220 us would still show HART PV 184.0 C < 198.0. A "
+                            "correct gate ACCEPTs either way. The wrong REJECT spent the PV win "
+                            "on leftover HART SV.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 6200),
+            (
+                "reward_inflection_note",
+                "Task and efficiency drop at the wrong REJECT (6.200 ms, tick 4). The 15 min "
+                "missed window is delayed surprise, not the inflection.",
+            ),
+            ("delayed_surprise_s", 900.0),
+            ("missed_window_s", 900),
+        ]
+    )
+    ras = raster_core(
+        26,
+        80,
+        30,
+        62,
+        routing(
+            "relay.hart.sv",
+            "policy.hold_reject",
+            [
+                ("relay.hart.sv", "policy.hold_reject", 0.73),
+                ("relay.hart.pv", "policy.hold_reject", 0.20),
+            ],
+            "acetylcholine",
+            0.08,
+            "hart_sv_as_pv_stdp; ACh tags the (wrong) hold_reject bind at the HART PV win",
+        ),
+        excerpt,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.40),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("hold_reject", 48, 0.50, 210.0, 4),
+                    pop("go_accept", 48, 0.80, 8.0, 0),
+                    pop("temp_trip_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r80-416",
+        "WRONG-REJECT at Cativa-Pightle / CR-3: HART PV 184.0 C is legal vs "
+        "published 198.0 C trip; supervisor bound leftover HART SV sensor-head T as the process PV",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Wrong-reject. Sidecar arithmetic 184.0 < 198.0 is true; clamp bound to leftover "
+        "HART SV. total -0.36 = -0.18 + 0.06 + -0.22 + -0.08 + 0.06.",
+        ras,
+        gate,
+        "acetic-acid-carbonylation",
+        [
+            "reject",
+            "wrong-gate",
+            "hart-sv-as-pv",
+            "secondary-variable-bind",
+            "sidecar-convictable",
+            "designed",
+        ],
+        "Teaches a probe that a correct HART-PV<trip read can still be a wrong gate when "
+        "routing.table[0].to is policy.hold_reject and executed feed is zeroed.",
+        1,
+        supervisor_error_type="wrong-reject",
+    )
+
+
+def record_417():
+    excerpt, extra = lif_417_excerpt()
+    ticks = [
+        tick(1912, 0.05, -0.02, -0.02, 0.01, 0.00),
+        tick(4780, 0.08, -0.04, -0.03, 0.01, -0.01),
+        tick(5020, 0.04, -0.03, -0.02, 0.00, 0.00),
+        tick(5700, 0.10, -0.06, -0.03, 0.02, -0.01),
+        tick(22400, 0.05, -0.42, -0.04, 0.00, -0.02),
+        tick(1080000000, 0.02, -0.05, -0.02, 0.00, 0.00),
+    ]
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Prill tower PT-6 at Nitram-Outgang is already pulling 22 t/h ammonium-nitrate melt when a "
+                "kettle-temperature pulse arrives 240 us before the melt-flow encoder that still "
+                "reads a legal shower",
+            ),
+            ("domain", "ammonium-nitrate-prill"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Keep PT-6 on 22 t/h melt only while kettle temperature stays <= 172 C, and "
+                "leave the shower-head freeze plug un-ruptured.",
+            ),
+            ("t0_us", 1762300000000417),
+            ("gate_latency_us", 920),
+            ("race_window_us", 400),
+            ("race_window_rel_ms", [4.780, 5.180]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "rtd.melt.c 178 C ammonium-nitrate kettle",
+                                "ft.melt.t_h 22 t/h still-legal shower flow",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Temperature-first latches melt clamp 22 -> 14 t/h; flow-first keeps "
+                            "cruise melt on a 'shower still open' model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "400 us = one kettle RTD slot minus flow-encoder group delay on this "
+                            "1 kHz prill-tower bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 240 us vs combined jitter 70 us (RTD 32 + flow 38): 3.4x over "
+                            "a 2.0x trust floor. Reversing order by < 240 us inside the 400 us window "
+                            "would have kept 22 t/h cruise; predicted next-sample kettle 174 C > 172 cap.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "AN kettle RTD, 1 kHz, 32 us timestamp jitter",
+                    "melt-flow encoder, 1 kHz, 38 us jitter",
+                    "prill-valve encoder (context)",
+                    "shower-plug AE (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("melt_cap_C", 172.0),
+                        ("observed_melt_C", 178.0),
+                        ("proposed_melt_t_h", 22.0),
+                        ("melt_floor_t_h", 10.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Prill tower PT-6 indexed; 22 t/h melt; kettle 178 C > 172 cap.",
+                    "2. Cruise melt 22 t/h armed; kettle over the 172 C cap.",
+                    "3. Encoder precursor at 1.120 ms; kettle-side warm-start 178 C.",
+                    "4. Race window [4.780, 5.180] ms opens on the prill bus.",
+                    "5. Kettle RTD 178 C at 4.780 ms (winner).",
+                    "6. Melt flow 22 t/h at 5.020 ms (loser by 240 us).",
+                    "7. Gate at 5.700 ms (winner + 920 us): MODIFY clamp 22 -> 14 t/h.",
+                    "8. Clamp executes; next-sample kettle 169 C < 172 cap.",
+                    "9. At 22.400 ms stored freeze-plug load ruptures a shower head.",
+                    "10. Emergency isolate 18 min + head pull; named un-netted loss, not folded into process heads.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_melt_prill"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("melt_t_h", 22.0),
+                        ("melt_C", 178.0),
+                        ("hold", False),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("melt_C", 178.0),
+                        ("melt_cap_C", 172.0),
+                        ("predicted_unclamped_next_C", 174.0),
+                        ("melt_t_h", 22.0),
+                        ("race_margin_us", 240),
+                        ("combined_jitter_us", 70),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 22 t/h cruise: melt flow looks like an open shower, not a "
+                "frozen plug, and the 172 C kettle cap is treated as still open.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Kettle 178 C won by 240 us, so the shower is running packed, not still "
+                "free. Holding 22 t/h predicts next-sample 174 C > 172 C cap. MODIFY: melt "
+                "22 -> 14 t/h. Observed after clamp 169 C < 172. A full REJECT is not "
+                "indicated: a sound prill tower accepts 14 t/h.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "melt_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 172.0),
+                                    ("observed", 178.0),
+                                    ("predicted_unclamped_next", 174.0),
+                                    ("clamped_melt_t_h", 14.0),
+                                    ("observed_after_clamp", 169.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 240),
+                                    ("combined_jitter_us", 70),
+                                    ("ratio", 3.43),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_melt_prill"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("melt_t_h", 14.0),
+                        ("melt_C", 169.0),
+                        ("hold", False),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: melt 22 -> 14 t/h. Process-correct vs the 172 C kettle cap. Shower-head "
+                "freeze-plug rupture still occurs at 22.400 ms.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Process-correct MODIFY held kettle at 169 C. At 22.400 ms stored freeze-plug load "
+                "ruptured a shower head. Clamp reduced melt energy; it did not dump the plug charge. "
+                "Partnered negative: process heads stay honest; world loss is named, not netted.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("melt", "clamp executed; kettle 169 C < 172"),
+                        ("shower_head", "freeze-plug rupture at 22.400 ms"),
+                        ("repair", "18 min emergency isolate + head pull"),
+                        ("mission", "tower still prilling; plug precursor controlled"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Neither kettle RTD nor melt flow predicted the plug charge; ae.shower.plug is a new channel at 22.400 ms, 16.700 ms after the gate, still inside the 42 ms raster.",
+                    "Delayed (18 min): emergency isolate and head pull close the rupture. Named un-netted loss, not folded into task_progress.",
+                ],
+            ),
+            (
+                "un_netted_loss",
+                "18 min emergency isolate + head pull after a shower-head freeze-plug rupture. Safety "
+                "head -0.62 prices the precursor; task_progress stays +0.34 because the melt clamp "
+                "completed under the 172 C cap. World loss is named here, not subtracted from process heads.",
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.melt.c (4.780 ms, 178 C)"),
+                        ("loser", "ft.melt.t_h (5.020 ms, 22 t/h)"),
+                        ("margin_us", 240),
+                        (
+                            "counterfactual_if_reversed",
+                            "Flow-first by < 240 us inside the 400 us window would have kept "
+                            "22 t/h cruise; predicted next-sample 174 C would have exceeded the "
+                            "172 C cap even without the plug charge. The MODIFY is still the "
+                            "correct process. The rupture is a later world charge either way, cheaper "
+                            "with the clamp than without.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 22400),
+            (
+                "reward_inflection_note",
+                "Safety collapses at the 22.400 ms shower-head freeze-plug rupture (tick t_us=22400), inside the "
+                "42 ms raster. The correct MODIFY at 5.700 ms is in the same excerpt. Do not put "
+                "inflection on the +18 min isolate tick.",
+            ),
+            ("delayed_surprise_s", 1080.0),
+            ("abort_s", 1080),
+        ]
+    )
+    spikes = [
+        spike("enc.melt.ctx", 1.120, 0.43),
+        spike("rtd.melt.c", 2.360, 0.62),
+        spike("ft.melt.t_h", 3.280, 0.55),
+        spike("rtd.melt.c", 4.780, 1.34),
+        spike("ft.melt.t_h", 5.020, 1.12),
+        spike("ctrl.gate", 5.700, 0.97),
+        spike("rtd.melt.c", 7.400, 0.81),
+        spike("ft.melt.t_h", 10.600, 0.66),
+        spike("ctrl.gate", 15.400, 0.84),
+        spike("ae.shower.plug", 22.400, 1.42),
+        spike("ae.shower.plug", 23.800, 0.91),
+        spike("enc.melt.ctx", 30.200, 0.41),
+        spike("rtd.melt.c", 37.100, 0.58),
+    ]
+    ras = raster_core(
+        42,
+        84,
+        24,
+        85,
+        routing(
+            "thalamic-relay.rtd-melt",
+            "spikenaut.policy.melt-clamp",
+            [
+                ("relay.rtd.melt", "policy.melt_clamp", 0.64),
+                ("relay.ft.melt", "policy.shower_hold", 0.29),
+                ("relay.ae.shower", "policy.melt_clamp", -0.46),
+            ],
+            "noradrenaline",
+            0.05,
+            "surprise-gated pre_post_stdp; NA at RTD win (4.780 ms) opens a 50 ms eligibility "
+            "trace that still covers the 22.400 ms shower-head freeze-plug rupture",
+        ),
+        excerpt,
+        extra=extra,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.40),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("melt_clamp", 48, 0.50, 220.0, 4),
+                    pop("shower_hold", 48, 0.50, 50.0, 1),
+                    pop("melt_cap_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r80-417",
+        "Nitram-Outgang prill / PT-6: kettle RTD beats melt encoder by 240 us; correct "
+        "MODIFY still eats an in-window shower-head freeze-plug rupture (partnered negative total -0.44)",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Partnered negative. Process-correct MODIFY; world still charges inside the "
+        "42 ms raster. total -0.44 = 0.34 + -0.62 + -0.16 + 0.04 + -0.04. Named "
+        "isolate+head-pull loss is not netted into task_progress.",
+        ras,
+        gate,
+        "ammonium-nitrate-prill",
+        [
+            "modify",
+            "partnered-negative-total",
+            "independent-lif-raster",
+            "sidecar-sim-only",
+            "in-window-world-charge",
+            "designed",
+        ],
+        "A critic can see the world-charge as a LIF burst inside the raster while "
+        "process heads stay honest. Credit assignment is spikes, not prose across an "
+        "18 min gap.",
+        2,
+    )
+
+
+def record_418():
+    ticks = [
+        tick(1664, 0.01, 0.04, 0.02, 0.01, 0.01),
+        tick(4160, 0.02, 0.08, 0.02, 0.02, 0.01),
+        tick(4370, 0.01, 0.06, 0.02, 0.01, 0.01),
+        tick(5400, 0.03, 0.12, 0.04, 0.04, 0.02),
+        tick(5720, 0.02, 0.07, 0.01, 0.01, 0.01),
+        tick(480000000, 0.01, 0.03, 0.01, 0.01, 0.00),
+    ]
+    spikes = [
+        spike("enc.quartz.ctx", 1.080, 0.44),
+        spike("ae.crust.pps", 2.260, 0.71),
+        spike("enc.slip.mh", 3.140, 0.52),
+        spike("ae.crust.pps", 4.160, 1.36),
+        spike("enc.slip.mh", 4.370, 1.14),
+        spike("ctrl.gate", 5.400, 0.98),
+        spike("ae.crust.pps", 7.600, 0.82),
+        spike("enc.slip.mh", 11.200, 0.61),
+        spike("ctrl.gate", 16.800, 0.86),
+        spike("ae.crust.pps", 25.400, 0.70),
+        spike("enc.slip.mh", 34.200, 0.48),
+        spike("t.hearth.ctx", 43.100, 0.40),
+    ]
+    excerpt = independent_excerpt(80418, 112, 46000, 13, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Silicon-metal HIL furnace SM-2 at Quartzite-Ing already shows crust acoustic emission at "
+                "52 pps when that burst races an electrode-slip encoder still printing 4.8 m/h",
+            ),
+            ("domain", "silicon-metal-furnace"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Do not slip SM-2 unless crust AE <= 40 pps; keep quartz feed 0 t/h until the "
+                "hearth is quiet.",
+            ),
+            ("t0_us", 1762300000000418),
+            ("gate_latency_us", 1240),
+            ("race_window_us", 320),
+            ("race_window_rel_ms", [4.160, 4.480]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "ae.crust.pps 52 pps crust-break flare",
+                                "enc.slip.mh 4.8 m/h still-in-band electrode slip",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "AE-first latches REJECT hold 0 t/h; encoder-first would slip 4.8 m/h "
+                            "on an in-band-rate-as-clearance model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "320 us = one AE envelope slot versus the slip-encoder publisher "
+                            "on this pad cycle.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 210 us vs combined jitter 58 us (AE 26 + encoder 32): 3.6x over a "
+                            "2.0x trust floor. Pad injects encoder 90-130 us before the AE envelope "
+                            "finishes (loop lag, not a sensor fault); the encoder packet is still "
+                            "the loser in this 320 us window.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "crust AE analyzer, 26 us jitter, 40 pps trip",
+                    "electrode-slip encoder, 32 us jitter",
+                    "hearth RTD (context)",
+                    "off-gas CO (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("ae_trip_pps", 40.0),
+                        ("observed_ae_pps", 52.0),
+                        ("slip_cap_mh", 6.0),
+                        ("proposed_slip_mh", 4.8),
+                    ]
+                ),
+            ),
+            (
+                "hil",
+                OrderedDict(
+                    [
+                        ("bench", "Quartzite-Ing QI-HIL silicon-metal pad, SM-2"),
+                        ("inject", "AE envelope delayed 90-130 us vs encoder; loop lag, not a false AE pickup"),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. SM-2 on Quartzite-Ing HIL pad; quartz armed; electrode slip 4.8 m/h.",
+                    "2. AE trip 40 pps; observed 52 pps crust-break flare.",
+                    "3. Encoder precursor at 1.080 ms.",
+                    "4. Race window [4.160, 4.480] ms.",
+                    "5. AE 52 pps at 4.160 ms (winner).",
+                    "6. Slip encoder 4.8 m/h at 4.370 ms (loser by 210 us).",
+                    "7. Gate at 5.400 ms: REJECT hold 0 t/h, do not slip.",
+                    "8. Pad recycle 8 min; AE decays under 40 pps after hold.",
+                    "9. Hearth never ran a crust-break dump; encoder-as-clearance would have slipped into the flare.",
+                    "10. QA: correct gate was REJECT; leave 0 t/h until AE <= 40 pps.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "slip_4p8"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("slip_mh", 4.8),
+                        ("ae_pps", 52.0),
+                        ("hold", False),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("ae_pps", 52.0),
+                        ("ae_trip_pps", 40.0),
+                        ("slip_mh", 4.8),
+                        ("slip_cap_mh", 6.0),
+                        ("race_margin_us", 210),
+                        ("combined_jitter_us", 58),
+                        ("t_gate_us", 5400),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 4.8 m/h because slip is under the 6.0 m/h cap and treats "
+                "the encoder as crust clearance, ignoring the 52 pps AE flare.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "AE 52 pps won by 210 us and is over the 40 pps trip. Encoder 4.8 m/h is under "
+                "the 6.0 m/h cap but is not clearance. REJECT: hold 0 t/h until AE <= 40 pps.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "crust_ae_pps",
+                            OrderedDict(
+                                [
+                                    ("trip", 40.0),
+                                    ("observed", 52.0),
+                                    ("executed_slip_mh", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 210),
+                                    ("combined_jitter_us", 58),
+                                    ("ratio", 3.62),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "slip_hold_ae"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("slip_mh", 0.0),
+                        ("ae_pps", 52.0),
+                        ("hold", True),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: slip 4.8 -> 0 m/h. Routing relay.ae.crust -> policy.hold_reject. "
+                "Do not slip into the 52 pps flare.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct REJECT held SM-2 at 0 m/h while AE 52 pps decayed. Encoder-as-clearance "
+                "would have slipped 4.8 m/h into the flare. Pad recycle 8 min.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("slip", "held at 0 m/h"),
+                        ("crust", "AE flare decaying under trip after hold"),
+                        ("hearth", "no crust-break dump"),
+                        ("pad", "8 min recycle"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Pad injects encoder 90-130 us before AE envelope finish; that is loop lag, not a false AE pickup.",
+                    "Delayed (8 min): pad recycle restacks the silicon hearth after AE < 40 pps.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "ae.crust.pps (4.160 ms, 52 pps)"),
+                        ("loser", "enc.slip.mh (4.370 ms, 4.8 m/h)"),
+                        ("margin_us", 210),
+                        (
+                            "counterfactual_if_reversed",
+                            "Encoder-first by < 210 us would have treated 4.8 m/h as clearance and "
+                            "slipped into the 52 pps flare. The REJECT is still required; reversal "
+                            "only delays the AE bind.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 5400),
+            (
+                "reward_inflection_note",
+                "Safety credit lands at the correct REJECT (5.400 ms, tick 4). Pad recycle is delayed surprise.",
+            ),
+            ("delayed_surprise_s", 480.0),
+            ("pad_recycle_s", 480),
+        ]
+    )
+    ras = raster_core(
+        46,
+        112,
+        20,
+        103,
+        routing(
+            "relay.ae.crust",
+            "policy.hold_reject",
+            [
+                ("relay.ae.crust", "policy.hold_reject", 0.74),
+                ("relay.enc.slip", "policy.slip_go", 0.18),
+            ],
+            "dopamine",
+            0.06,
+            "ae_trip_stdp; DA tags the hold_reject bind at the AE win",
+        ),
+        excerpt,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.32),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("hold_reject", 64, 0.50, 200.0, 4),
+                    pop("slip_go", 64, 0.80, 8.0, 0),
+                    pop("ae_trip_veto", 32, 0.70),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r80-418",
+        "Quartzite-Ing Si-metal HIL / SM-2: crust AE 52 pps beats slip encoder 4.8 m/h by 210 us; "
+        "correct REJECT holds the quartz hearth",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Correct REJECT. AE 52 > 40 trip beats in-band slip speed. total +0.78 = "
+        "0.10 + 0.40 + 0.12 + 0.10 + 0.06.",
+        ras,
+        gate,
+        "silicon-metal-furnace",
+        [
+            "reject",
+            "hil-pad",
+            "ae-vs-encoder",
+            "crust-hold",
+            "sidecar-convictable",
+            "hil",
+        ],
+        "Teaches a probe that an in-band slip encoder is not crust clearance when "
+        "AE is over trip and routing.table[0].to is policy.hold_reject.",
+        3,
+    )
+
+
+def record_419():
+    ticks = [
+        tick(2344, 0.06, 0.04, 0.03, 0.02, 0.01),
+        tick(5860, 0.10, 0.06, 0.04, 0.02, 0.02),
+        tick(6110, 0.06, 0.04, 0.02, 0.01, 0.01),
+        tick(6700, 0.12, 0.08, 0.05, 0.03, 0.02),
+        tick(7080, 0.05, 0.04, 0.02, 0.01, 0.01),
+        tick(540000000, 0.03, 0.02, 0.02, 0.01, 0.01),
+    ]
+    params = OrderedDict(
+        [
+            ("air_nm3h", 18500.0),
+            ("bath_C", 318.0),
+            ("bed_id", 5),
+            ("hold", False),
+        ]
+    )
+    spikes = [
+        spike("ft.air.ctx", 1.360, 0.42),
+        spike("rtd.bath.c", 2.980, 0.58),
+        spike("ir.tube.smear", 4.420, 0.50),
+        spike("rtd.bath.c", 5.860, 1.28),
+        spike("ir.tube.smear", 6.110, 1.10),
+        spike("ctrl.gate", 6.700, 0.96),
+        spike("rtd.bath.c", 8.900, 0.74),
+        spike("ir.tube.smear", 12.400, 0.60),
+        spike("ctrl.gate", 17.800, 0.82),
+        spike("rtd.bath.c", 24.200, 0.55),
+        spike("ft.air.ctx", 29.400, 0.40),
+    ]
+    excerpt = independent_excerpt(80419, 64, 30000, 12, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Acrylic-acid oxidizer OX-5 at Acryl-Sough already holds a salt-bath RTD of 318 C when that "
+                "analog sample races a tube-skin IR smear still printing 346 C",
+            ),
+            ("domain", "acrylic-acid-oxidizer"),
+            ("sim_or_real", "simulated"),
+            (
+                "goal",
+                "Finish the propylene-oxidation pass on Acryl-Sough, keep salt bath <= 330 C and "
+                "air >= 16000 Nm3/h, and leave tube draft in spec.",
+            ),
+            ("t0_us", 1762300000000419),
+            ("gate_latency_us", 840),
+            ("race_window_us", 380),
+            ("race_window_rel_ms", [5.860, 6.240]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "rtd.bath.c 318 C salt bath",
+                                "ir.tube.smear 346 C over-temp claim",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Bath-first confirms the already-legal 18500 Nm3/h / 318 C pass; "
+                            "smear-first would have treated the bath RTD as a smear echo and looked "
+                            "for an extra hold the bed does not need.",
+                        ),
+                        (
+                            "window_derivation",
+                            "380 us = one 1D-hotspot kernel step versus the tube-IR publisher "
+                            "on this rigid oxidation train.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 250 us vs combined jitter 74 us (bath 34 + tube 40): 3.4x over "
+                            "a 2.0x trust floor. Reversing order by < 250 us would not make the "
+                            "proposed pass illegal; it would only have delayed confirmation.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "salt-bath RTD, 34 us jitter",
+                    "tube-skin IR smear, 40 us jitter",
+                    "air-flow encoder (context)",
+                    "acrolein GC (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("bath_cap_C", 330.0),
+                        ("observed_bath_C", 318.0),
+                        ("air_floor_nm3h", 16000.0),
+                        ("proposed_air_nm3h", 18500.0),
+                    ]
+                ),
+            ),
+            (
+                "simulation",
+                OrderedDict(
+                    [
+                        (
+                            "solver",
+                            "1D acrylic-acid salt-bath hotspot kernel + shrinking-core propylene feed, seed 80; 12 axial nodes; NOT lumped tank, NOT a fluid-LES field",
+                        ),
+                        (
+                            "fidelity_limits",
+                            "No radial maldistribution or tube-side coke; baths are rigid temperature sources. Raster is kernelized events, not an independent LIF.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Acryl-Sough oxidizer indexed; OX-5 holding 18500 Nm3/h at 318 C bath.",
+                    "2. Caps: bath 330 C, air floor 16000 Nm3/h; both proposed values inside.",
+                    "3. Air precursor at 1.360 ms.",
+                    "4. Race window [5.860, 6.240] ms.",
+                    "5. Bath RTD 318 C at 5.860 ms (winner).",
+                    "6. Tube IR smear 346 C at 6.110 ms (loser by 250 us).",
+                    "7. Gate at 6.700 ms: ACCEPT 18500 Nm3/h / 318 C already legal.",
+                    "8. Pass continues; no extra hold.",
+                    "9. 9 min survey confirms tube draft still in spec.",
+                    "10. QA: ACCEPT params identical to proposed.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "ox_18500_thold"),
+            ("parameters", params),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("bath_C", 318.0),
+                        ("bath_cap_C", 330.0),
+                        ("air_nm3h", 18500.0),
+                        ("air_floor_nm3h", 16000.0),
+                        ("race_margin_us", 250),
+                        ("combined_jitter_us", 74),
+                        ("t_gate_us", 6700),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 18500 Nm3/h because bath 318 C is 12 C under the 330 C cap "
+                "and air is 2500 Nm3/h over the 16000 Nm3/h floor.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Bath 318 C won by 250 us and is under 330 C. Air 18500 Nm3/h is over "
+                "16000 Nm3/h. ACCEPT the already-legal pass; tube IR smear is not a cap violation.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "bath_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 330.0),
+                                    ("observed", 318.0),
+                                    ("executed_air_nm3h", 18500.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 250),
+                                    ("combined_jitter_us", 74),
+                                    ("ratio", 3.38),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "ox_18500_thold"),
+            ("parameters", params),
+            (
+                "gate_effect",
+                "ACCEPT: air 18500 Nm3/h and bath 318 C unchanged. Routing relay.rtd.bath "
+                "-> policy.go_accept.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct ACCEPT left OX-5 at 18500 Nm3/h / 318 C. Tube IR smear did not justify a "
+                "hold. 9 min survey confirmed draft in spec.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("oxidizer", "still 18500 Nm3/h / 318 C"),
+                        ("tubes", "in spec after survey"),
+                        ("train", "acrylic acid continues"),
+                        ("hold", "none applied"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Tube IR smear is an off-gas optical claim, not a salt-bath temperature violation.",
+                    "Delayed (9 min): survey restacks OX-5 without a recovery hold.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.bath.c (5.860 ms, 318 C)"),
+                        ("loser", "ir.tube.smear (6.110 ms, 346 C claim)"),
+                        ("margin_us", 250),
+                        (
+                            "counterfactual_if_reversed",
+                            "Smear-first by < 250 us would only delay confirmation. The pass stays "
+                            "legal either way; ACCEPT is still required.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 6700),
+            (
+                "reward_inflection_note",
+                "Task credit lands at the ACCEPT (6.700 ms, tick 4). Survey is delayed surprise.",
+            ),
+            ("delayed_surprise_s", 540.0),
+            ("survey_s", 540),
+        ]
+    )
+    ras = raster_core(
+        30,
+        64,
+        34,
+        65,
+        routing(
+            "relay.rtd.bath",
+            "policy.go_accept",
+            [
+                ("relay.rtd.bath", "policy.go_accept", 0.68),
+                ("relay.ir.tube", "policy.smear_hold", 0.21),
+            ],
+            "serotonin",
+            0.07,
+            "legal_ox_stdp; 5-HT tags the go_accept bind at the bath-RTD win",
+        ),
+        excerpt,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.38),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("go_accept", 40, 0.50, 180.0, 3),
+                    pop("smear_hold", 40, 0.80, 10.0, 0),
+                    pop("bath_cap_veto", 20, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r80-419",
+        "Acryl-Sough oxidizer / OX-5: salt-bath 318 C beats tube smear by 250 us; ACCEPT "
+        "already-legal 18500 Nm3/h pass",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Correct ACCEPT of an already-legal 1D acrylic-acid hotspot pass. total +1.06 = "
+        "0.42 + 0.28 + 0.18 + 0.10 + 0.08.",
+        ras,
+        gate,
+        "acrylic-acid-oxidizer",
+        [
+            "accept",
+            "already-legal",
+            "simulated-ox-train",
+            "bath-vs-tube",
+            "sidecar-convictable",
+            "simulated",
+        ],
+        "Teaches that a salt-bath RTD under cap can confirm an already-legal oxidation pass without "
+        "a tube-IR smear becoming a hold.",
+        4,
+    )
+
+
+def record_420():
+    ticks = [
+        tick(1568, 0.06, 0.04, 0.03, 0.02, 0.01),
+        tick(3920, 0.10, 0.08, 0.04, 0.02, 0.02),
+        tick(4120, 0.06, 0.04, 0.02, 0.02, 0.01),
+        tick(4600, 0.12, 0.08, 0.05, 0.04, 0.02),
+        tick(4940, 0.06, 0.05, 0.02, 0.01, 0.01),
+        tick(360000000, 0.04, 0.03, 0.02, 0.01, 0.01),
+    ]
+    params = OrderedDict(
+        [
+            ("feed_t_h", 3.2),
+            ("liquor_C", 68.4),
+            ("cx_id", 2),
+            ("hold", False),
+        ]
+    )
+    spikes = [
+        spike("enc.feed.ctx", 0.880, 0.41),
+        spike("rtd.liquor.c", 2.040, 0.60),
+        spike("ir.vapor.glint", 3.020, 0.51),
+        spike("rtd.liquor.c", 3.920, 1.30),
+        spike("ir.vapor.glint", 4.120, 1.12),
+        spike("ctrl.gate", 4.600, 0.97),
+        spike("rtd.liquor.c", 6.400, 0.78),
+        spike("ir.vapor.glint", 8.800, 0.62),
+        spike("ctrl.gate", 13.200, 0.85),
+        spike("rtd.liquor.c", 17.600, 0.54),
+        spike("ir.vapor.glint", 20.400, 0.43),
+    ]
+    excerpt = independent_excerpt(80420, 56, 24000, 11, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Lithium-hydroxide crystallizer CX-2 at Lithia-Spout already holds a mother-liquor RTD of "
+                "68.4 C when that analog sample races a vapor-space IR glint still printing 88 C",
+            ),
+            ("domain", "lithium-hydroxide-crystallizer"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Run CX-2 at 3.2 t/h, keep liquor <= 75.0 C and vapor IR <= 110 C, "
+                "and leave the LiOH train on schedule.",
+            ),
+            ("t0_us", 1762300000000420),
+            ("gate_latency_us", 680),
+            ("race_window_us", 340),
+            ("race_window_rel_ms", [3.920, 4.260]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "rtd.liquor.c 68.4 C mother liquor",
+                                "ir.vapor.glint vapor-space hitch claim",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Liquor-first confirms the already-legal 3.2 t/h / 68.4 C pass; glint-first "
+                            "would have treated the liquor RTD as a hitch echo and looked for an extra hold "
+                            "the crystallizer does not need.",
+                        ),
+                        (
+                            "window_derivation",
+                            "340 us = one liquor-RTD slot versus the vapor-IR publisher on this "
+                            "crystallizer bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 200 us vs combined jitter 60 us (liquor 28 + IR 32): 3.3x over "
+                            "a 2.0x trust floor. Reversing order by < 200 us would not make the "
+                            "proposed pass illegal; it would only have delayed confirmation.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "mother-liquor RTD, 28 us jitter",
+                    "vapor-space IR glint, 32 us jitter",
+                    "slurry encoder (context)",
+                    "caustic assay (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("liquor_cap_C", 75.0),
+                        ("observed_liquor_C", 68.4),
+                        ("feed_floor_t_h", 2.4),
+                        ("proposed_feed_t_h", 3.2),
+                        ("vapor_cap_C", 110.0),
+                        ("observed_vapor_C", 88.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Crystallizer CX-2 indexed on Lithia-Spout; feed armed 3.2 t/h pass.",
+                    "2. Caps: liquor 75.0 C, vapor 110 C, feed floor 2.4 t/h.",
+                    "3. Encoder precursor at 0.880 ms.",
+                    "4. Race window [3.920, 4.260] ms.",
+                    "5. Liquor RTD 68.4 C at 3.920 ms (winner).",
+                    "6. Vapor IR glint at 4.120 ms (loser by 200 us).",
+                    "7. Gate at 4.600 ms: ACCEPT 3.2 t/h / 68.4 C already legal.",
+                    "8. Pass continues; no extra hold.",
+                    "9. 6 min survey confirms vapor IR still under 110 C.",
+                    "10. QA: ACCEPT params identical to proposed.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "pass_3p2"),
+            ("parameters", params),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("liquor_C", 68.4),
+                        ("liquor_cap_C", 75.0),
+                        ("feed_t_h", 3.2),
+                        ("feed_floor_t_h", 2.4),
+                        ("vapor_C", 88.0),
+                        ("vapor_cap_C", 110.0),
+                        ("race_margin_us", 200),
+                        ("combined_jitter_us", 60),
+                        ("t_gate_us", 4600),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes a 3.2 t/h pass because liquor 68.4 C is 6.6 C under the 75.0 C "
+                "cap and vapor IR 88 C is under 110 C.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Liquor 68.4 C won by 200 us and is under 75.0 C. Vapor IR 88 C is under "
+                "110 C. Feed 3.2 t/h is over the 2.4 t/h floor. ACCEPT the already-legal pass.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "liquor_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 75.0),
+                                    ("observed", 68.4),
+                                    ("executed_feed_t_h", 3.2),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 200),
+                                    ("combined_jitter_us", 60),
+                                    ("ratio", 3.33),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "pass_3p2"),
+            ("parameters", params),
+            (
+                "gate_effect",
+                "ACCEPT: 3.2 t/h pass and 68.4 C unchanged. Routing relay.rtd.liquor -> "
+                "policy.go_accept.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct ACCEPT left CX-2 on a 3.2 t/h / 68.4 C pass. Vapor IR glint did not "
+                "justify a hold. 6 min survey confirmed IR still under 110 C.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("crystallizer", "still 3.2 t/h / 68.4 C"),
+                        ("vapor", "88 C under 110 cap"),
+                        ("train", "on schedule"),
+                        ("hold", "none applied"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Vapor IR 88 C glint is residual steam, not a packed-liquor trip.",
+                    "Delayed (6 min): survey restacks CX-2 without a recovery hold.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.liquor.c (3.920 ms, 68.4 C)"),
+                        ("loser", "ir.vapor.glint (4.120 ms, vapor glint)"),
+                        ("margin_us", 200),
+                        (
+                            "counterfactual_if_reversed",
+                            "Glint-first by < 200 us would only delay confirmation. The pass stays "
+                            "legal either way; ACCEPT is still required.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 4600),
+            (
+                "reward_inflection_note",
+                "Task credit lands at the ACCEPT (4.600 ms, tick 4). Survey is delayed surprise.",
+            ),
+            ("delayed_surprise_s", 360.0),
+            ("survey_s", 360),
+        ]
+    )
+    ras = raster_core(
+        24,
+        56,
+        38,
+        51,
+        routing(
+            "relay.rtd.liquor",
+            "policy.go_accept",
+            [
+                ("relay.rtd.liquor", "policy.go_accept", 0.66),
+                ("relay.ir.vapor", "policy.hitch_hold", 0.20),
+            ],
+            "adenosine",
+            0.04,
+            "legal_lioh_stdp; adenosine tags the go_accept bind at the liquor-RTD win",
+        ),
+        excerpt,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.34),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("go_accept", 40, 0.50, 160.0, 2),
+                    pop("hitch_hold", 40, 0.80, 10.0, 0),
+                    pop("liquor_cap_veto", 20, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r80-420",
+        "Lithia-Spout crystallizer / CX-2: liquor 68.4 C beats vapor glint by 200 us; "
+        "ACCEPT already-legal 3.2 t/h pass",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Correct ACCEPT of an already-legal LiOH crystallizer pass. total +1.14 = "
+        "0.44 + 0.32 + 0.18 + 0.12 + 0.08.",
+        ras,
+        gate,
+        "lithium-hydroxide-crystallizer",
+        [
+            "accept",
+            "already-legal",
+            "liquor-vs-vapor-ir",
+            "sidecar-convictable",
+            "designed",
+        ],
+        "Teaches that a liquor RTD under cap can confirm an already-legal LiOH pass without "
+        "a vapor-IR hitch becoming a hold.",
+        5,
+    )

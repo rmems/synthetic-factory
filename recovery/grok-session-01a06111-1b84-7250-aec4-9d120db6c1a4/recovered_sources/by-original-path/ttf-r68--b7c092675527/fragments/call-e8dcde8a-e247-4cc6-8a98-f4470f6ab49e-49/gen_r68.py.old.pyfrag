@@ -1,0 +1,13 @@
+    skip = {
+        BATCH_PATH.resolve(),
+        NOTES_PATH.resolve(),
+        Path("/tmp/ttf-r68/gen_r68.py").resolve(),
+    }
+    for p in sorted(Path("/tmp").glob("ttf-r*/*")):
+        if p.suffix not in {".jsonl", ".md", ".py"}:
+            continue
+        try:
+            if p.resolve() in skip:
+                continue
+        except OSError:
+            continue

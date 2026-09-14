@@ -1,0 +1,23 @@
+            desc = rec.get("state", {}).get("description")
+            if isinstance(desc, str):
+                descs.append(desc)
+    skip = {BATCH_PATH.parent.resolve()}
+    for gpath in sorted(Path("/tmp").glob("ttf-r*/*")):
+        if not gpath.is_file():
+            continue
+        if gpath.parent.resolve() in skip:
+            continue
+        if gpath.suffix not in {".py", ".md", ".jsonl"}:
+            continue
+        try:
+            txt = gpath.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        blobs.append(txt)
+        for m in re.finditer(
+            r"(?:THIS_DOMAINS|MY_DOMAINS)\s*=\s*[\{(](.*?)[\})]", txt, re.S
+        ):
+            domains.update(re.findall(r'"([^"]+)"', m.group(1)))
+        for m in re.finditer(r"Domains this batch:\s*(.*)", txt):
+            domains.update(re.findall(r"`([^`]+)`", m.group(1)))
+    return domains, descs, "\n".join(blobs)

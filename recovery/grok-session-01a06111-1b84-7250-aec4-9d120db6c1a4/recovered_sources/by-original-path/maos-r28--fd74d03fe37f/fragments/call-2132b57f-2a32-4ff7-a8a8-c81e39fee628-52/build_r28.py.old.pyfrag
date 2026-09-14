@@ -1,0 +1,9 @@
+        if domain == DOMAIN:
+            hits.append(f"{p}: domain {domain}")
+        if PLANT in blob:
+            hits.append(f"{p}: plant token {PLANT}")
+        if GEO in blob:
+            hits.append(f"{p}: geo {GEO}")
+        if "pem-water-electrolysis" in (domain or ""):
+            hits.append(f"{p}: pem domain")
+    return hits

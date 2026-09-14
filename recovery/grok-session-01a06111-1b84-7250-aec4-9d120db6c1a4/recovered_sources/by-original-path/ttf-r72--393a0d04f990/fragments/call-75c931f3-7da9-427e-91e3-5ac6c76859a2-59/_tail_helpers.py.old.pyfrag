@@ -1,0 +1,34 @@
+    notes = f"""# Thalamic Trajectory Factory — NOTES-r60
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- Quality: Q=5
+- IDs: `ttf-r60-316` … `ttf-r60-320`
+- Domains this batch: `tio2-chloride-oxidizer`, `sbr-emulsion-reactor`, `zinc-electrowinning`, `ethanol-fermenter`, `ceramic-roller-kiln`
+
+These five domain slugs sit outside staged r13–r55 occupancy (jsonl SoT plus generator claims through r56 `pidgeon-magnesium-retort` / `pta-crystallizer` / `acheson-graphite-furnace` / `hpgr-ore-press` / `hf-alkylation-contactor`, r55 `kamyr-chip-digester` / `sulfuric-contact-bed`, r53 `fluid-bed-roaster` / `alkylation-contactor`, r52 `phosphoric-attack-tank` / `nitric-acid-absorber`). All five plants are invented (Pigment-Shaw, Butadiene-Noll, Electrowin-Holt, Cider-Fen, Faience-Wold). Do not restack prior TTF plants.
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+{chr(10).join(rows)}
+
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 correct REJECT, 1 incorrect REJECT (absolute-as-gauge). Provenance: designed×3, simulated×1, hil×1 (Electrowin-Holt EH-HIL pad). Jaccard on `state.description` all ≤ {jmax:.3f}.
+
+## Wrong-reject
+
+**ttf-r60-316** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-reject`). Alternate vs odd rounds: even rounds host wrong-reject. Do not emit a wrong-ACCEPT.
+
+Pigment-Shaw / OX-4 reads live gauge `P=0.88 MPa(g)` against a published **0.95 MPa(g)** cap. Absolute transmitter prints **0.981 MPa(a)** (`0.88 + 0.101 atm`) with `abs_as_gauge=true`. Sidecar arithmetic `0.88 < 0.95` is true. A weak supervisor binds the absolute count as gauge, REJECT-holds 18.0 → 0 kNm3/h, and leaves a legal oxidizer idle. Convictable without chloride-oxidizer physics: `evidence.live_g_MPa < evidence.cap_g_MPa`, `evidence.live_a_MPa > evidence.cap_g_MPa`, `evidence.abs_as_gauge == true`, `executed_action` sets `o2_kNm3_h=0`, `raster.routing.table` sends `relay.pt.abs` → `policy.hold_reject` (weight 0.71) with no positive weight to `policy.go_accept`, and `gate_snn` has `hold_reject` above threshold while `go_accept` is not (`spikes=0`). Recovery: ACCEPT; leave 18.0 kNm3/h; bind the published 0.95 MPa(g) gauge cap. Cost: 13 min missed pigment window.
+
+This is **absolute-as-gauge / Pa-as-Pg**, not r12-079 (induced-kV treated as sensor fault), not r16-097 (reticle-as-wafer), not r18-109 (empty-tank class), not r20-118 (oscillation-as-PSV), not r22-126 (class-transplant floor), not r30-166 (stale-firmware floor), not r32 (stale-peak-hold), not r34-187 (header-as-cell wrong-loop), not r36-196 (unit-mismatch leftover-bar), not r38-206 (LOOP_TEST inject-as-live), not r44-237 (ksi-shadow), not r46-247 (kPa-as-MPa), not r48-256 (2oo3-failed-high), not r52-277 (stale-sample-as-live).
+
+## Partnered-negative in-window (317)
+
+**ttf-r60-317** is the partnered negative: process-correct MODIFY (coolant held 54 t/h, jacket 84.2 C < 88.0 cap) while the world still charges. Safety −0.62 prices the styrene-pocket lining kick at **22.400 ms**; `task_progress` stays +0.34 because the clamp completed. Inflection `t_us=22400` is tick 5 and is **inside** the 40 ms raster (`22400 ≤ 40000`). Named un-netted loss: 16 min emergency isolate + lining pull (`abort_s=960`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 60317, stim `[21000, 25000]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.kick` 21–25 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.

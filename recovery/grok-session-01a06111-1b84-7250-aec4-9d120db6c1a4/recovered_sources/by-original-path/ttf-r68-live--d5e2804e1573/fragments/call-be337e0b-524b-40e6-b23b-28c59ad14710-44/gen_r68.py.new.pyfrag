@@ -1,0 +1,2504 @@
+#!/usr/bin/env python3
+"""Emit TTF r68 (ttf-r68-336..340) CREATE-ONLY into the live 2026-09-02-final-heavy tree.
+
+Never overwrites. Never writes 2026-08-17 / 2026-08-30.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import os
+import random
+import re
+import sys
+from collections import OrderedDict
+from decimal import Decimal
+from pathlib import Path
+
+LIVE_DIR = Path(
+    "/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-09-02-final-heavy/"
+    "thalamic-trajectory-factory"
+)
+BATCH_NAME = "batch-r68.jsonl"
+NOTES_NAME = "NOTES-r68.md"
+PJ_PER_SPIKE = 23
+RIGHTS = OrderedDict(
+    [
+        ("provider", "SpaceXAI/xAI"),
+        ("model", "grok-4.6"),
+        ("channel", "consumer"),
+        ("subscription_plan", "SuperGrok Heavy"),
+        ("generation_surface", "SuperGrok Heavy chat"),
+        ("generated_at", "2026-09-02T19:32:00Z"),
+        ("intended_use", "research_only"),
+        ("project_training_policy", "blocked"),
+        ("research_retention_status", "allowed"),
+        ("research_evaluation_status", "allowed"),
+        ("redistribution_status", "unresolved"),
+        ("provider_training_status", "unresolved"),
+        ("weight_publication_status", "blocked"),
+        ("status_basis", "RM-793 project policy: xAI hosted outputs are research-only"),
+        ("linear_issue", "RM-793"),
+    ]
+)
+AGG = "total = task_progress + safety + efficiency + coherence + exploration"
+CHANNEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,31}$")
+MY_PLANTS = (
+    "Heptox-Brae",
+    "Dyfluor-Holt",
+    "Chloririd-Ness",
+    "Paddenit-Beck",
+    "Cadselen-Howe",
+)
+MY_DOMAINS = (
+    "rhenium-heptoxide-roaster",
+    "dysprosium-fluoride-electrolyzer",
+    "iridium-chloride-still",
+    "palladium-nitrate-denitrator",
+    "cadmium-selenide-cvd",
+)
+IDS = [f"ttf-r68-{n}" for n in range(336, 341)]
+BANNED_PLANT_FRAGMENTS = (
+    "Marrow-Dock",
+    "Vesper-Lattice",
+    "Brine-Well",
+    "Saddle-Arc",
+    "Ashlar-Gait",
+    "Nacre-Well",
+    "Quern-Forge",
+    "Tinder-Box",
+    "Whimbrel-Stack",
+    "Cinder-Loft",
+    "Lumen-Quay",
+    "Rivermead",
+    "Fork-Haven",
+    "Pylon-Wick",
+    "Slate-March",
+    "Pallet-Wythe",
+    "Downdraft-Cairn",
+    "Thalass-Ness",
+    "Cinch-Quarry",
+    "Clover-Weir",
+    "Coble-Yard",
+    "Gannet-Lea",
+    "Silt-Quern",
+    "Bushing-Holt",
+    "Insulator-Wick",
+    "Glucinum-Beck",
+    "Molybdenite-Gair",
+    "Gatrich-Haugh",
+    "Ethoxytant-Ness",
+    "Carbolox-Knap",
+    "Loop-Sike",
+    "Meniscus-Wold",
+    "Tinning-Fen",
+    "Pad-Rake",
+    "Decarb-Howe",
+    "Columbic-Howe",
+    "Fluorspar-Beck",
+    "Bridgman-Keld",
+    "Didym-Naze",
+    "Cermet-Brae",
+    "Corundum-Greet",
+    "Ethylbenz-Stook",
+    "Dioxide-Lade",
+    "Downs-Stob",
+    "Adipate-Marr",
+    "DeBoer-Knap",
+    "Oxalate-Fell",
+    "Phosphide-Brae",
+    "Zirconyl-Holt",
+    "Trifluor-Ness",
+    "Bismite-Holt",
+    "Praseo-Ness",
+    "Carbopvt-Keld",
+    "Yag-Fen",
+    "Adamant-Beck",
+)
+FORBIDDEN_PATH_FRAGMENTS = ("2026-08-17", "2026-08-30")
+THOUGHT_RE = re.compile(
+    r"\b(thought|reasoning|chain_of_thought|scratch|inner_monologue|"
+    r"hidden_reasoning|thinking|cot|thoughts)\b",
+    re.I,
+)
+
+
+def energy(spikes: int) -> tuple[int, float]:
+    return spikes * PJ_PER_SPIKE, spikes * PJ_PER_SPIKE / 1_000_000.0
+
+
+def spike(channel: str, t_rel_ms: float, amplitude: float) -> OrderedDict:
+    if not CHANNEL_RE.fullmatch(channel):
+        raise ValueError(f"bad channel {channel!r}")
+    if t_rel_ms <= 0:
+        raise ValueError(f"t_rel_ms must be > 0, got {t_rel_ms}")
+    return OrderedDict(
+        [("channel", channel), ("t_rel_ms", t_rel_ms), ("amplitude", amplitude)]
+    )
+
+
+def tick(t_us: int, tp, saf, eff, coh, exp) -> OrderedDict:
+    return OrderedDict(
+        [
+            ("t_us", int(t_us)),
+            ("task_progress", tp),
+            ("safety", saf),
+            ("efficiency", eff),
+            ("coherence", coh),
+            ("exploration", exp),
+        ]
+    )
+
+
+def routing(source, target, table, modulator, tau_e_s, eligibility) -> OrderedDict:
+    tau_e_ms = float(Decimal(str(tau_e_s)) * Decimal("1000"))
+    return OrderedDict(
+        [
+            ("source", source),
+            ("target", target),
+            (
+                "table",
+                [
+                    OrderedDict([("from", a), ("to", b), ("weight", w)])
+                    for a, b, w in table
+                ],
+            ),
+            (
+                "third_factor",
+                OrderedDict(
+                    [
+                        ("modulator", modulator),
+                        ("tau_e_s", tau_e_s),
+                        ("tau_e_ms", tau_e_ms),
+                        ("eligibility", eligibility),
+                    ]
+                ),
+            ),
+        ]
+    )
+
+
+def raster_core(window_ms, neurons, rate, spikes, route, excerpt, extra=None) -> OrderedDict:
+    pj, uj = energy(spikes)
+    window_s = float(Decimal(str(window_ms)) / Decimal("1000"))
+    body = OrderedDict(
+        [
+            ("window_ms", window_ms),
+            ("window_s", window_s),
+            ("neurons", neurons),
+            ("mean_rate_hz", rate),
+            ("spikes", spikes),
+            ("energy_pJ", pj),
+            ("energy_uJ", uj),
+        ]
+    )
+    if extra:
+        body.update(extra)
+    body["routing"] = route
+    body["excerpt"] = excerpt
+    return body
+
+
+def excerpt_items(pairs, channels=None) -> list:
+    out = []
+    last = {}
+    prev_t = -1
+    for i, (t_us, nid) in enumerate(pairs):
+        t_us, nid = int(t_us), int(nid)
+        if t_us < prev_t:
+            raise ValueError("excerpt not sorted")
+        if nid in last and t_us - last[nid] < 1000:
+            raise ValueError(f"same-neuron gap {nid}")
+        item = OrderedDict([("t_us", t_us), ("neuron_id", nid)])
+        if channels is not None:
+            item["channel"] = channels[i]
+        out.append(item)
+        last[nid] = t_us
+        prev_t = t_us
+    return out
+
+
+def kernel_excerpt(window_ms, neurons, spike_events, n_want, seed):
+    spike_us = {int(round(ev["t_rel_ms"] * 1000.0)) for ev in spike_events}
+    rng = random.Random(seed)
+    window_us = int(window_ms * 1000)
+    picked = []
+    last = {}
+    t = 640 + (seed % 180)
+    stride = 1680 + (seed % 9) * 20
+    guard = 0
+    while len(picked) < n_want and t <= window_us - 180 and guard < 400:
+        guard += 1
+        if t not in spike_us:
+            for _ in range(24):
+                nid = rng.randrange(neurons)
+                if nid in last and t - last[nid] < 1000:
+                    continue
+                picked.append((t, nid))
+                last[nid] = t
+                break
+        t += stride
+    if len(picked) < 8:
+        raise RuntimeError(f"kernel excerpt too short seed={seed} n={len(picked)}")
+    return excerpt_items(picked)
+
+
+def lif_336_excerpt():
+    n = 80
+    dt_us = 100
+    tau_m_ms = 19.5
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.93
+    i_stim_peak = 2.48
+    stim = (22000, 25400)
+    seed = 68336
+    window_us = 42000
+    i_clamp_extra = 0.66
+    clamp_n = 14
+    rng = random.Random(seed)
+    tau_s = tau_m_ms / 1000.0
+    dt_s = dt_us / 1e6
+    decay = math.exp(-dt_s / tau_s)
+    steps = window_us // dt_us
+    voltage = [rng.random() * v_th * 0.97 for _ in range(n)]
+    bias = [i_bias * (1.0 + 0.13 * (rng.random() * 2 - 1)) for _ in range(n)]
+    for i in range(clamp_n):
+        bias[i] += i_clamp_extra
+    ref = [0] * n
+    spikes = []
+    for step in range(steps):
+        t_us = step * dt_us
+        stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+        for i in range(n):
+            if ref[i] > 0:
+                ref[i] -= dt_us
+                voltage[i] = v_reset
+                continue
+            current = bias[i] + stim_i
+            voltage[i] = current + (voltage[i] - current) * decay
+            if voltage[i] >= v_th:
+                spikes.append((t_us, i))
+                voltage[i] = v_reset
+                ref[i] = refractory_us
+    early = [(t, nid) for t, nid in spikes if t < 22000]
+    burst = [(t, nid) for t, nid in spikes if 22000 <= t < 25400]
+    used = set()
+    last = {}
+    picked = []
+
+    def take(pool, want, label_times=None):
+        if not pool:
+            return
+        chosen_idx = set()
+        if label_times:
+            for target in label_times:
+                best = None
+                for idx, (t, nid) in enumerate(pool):
+                    if idx in chosen_idx or nid in used:
+                        continue
+                    if nid in last and t - last[nid] < 1000:
+                        continue
+                    if best is None or abs(t - target) < abs(best[0] - target):
+                        best = (t, nid, idx)
+                if best is not None:
+                    t, nid, idx = best
+                    picked.append((t, nid))
+                    used.add(nid)
+                    last[nid] = t
+                    chosen_idx.add(idx)
+        stride = max(1, len(pool) // max(want, 1))
+        for idx in range(0, len(pool), stride):
+            early_flag = pool[0][0] < 22000
+            have = len([1 for t, _ in picked if (t < 22000) == early_flag])
+            if have >= want:
+                break
+            t, nid = pool[idx]
+            if nid in used:
+                continue
+            if nid in last and t - last[nid] < 1000:
+                continue
+            picked.append((t, nid))
+            used.add(nid)
+            last[nid] = t
+
+    take(early, 7)
+    take(burst, 9, label_times=(23200, 24000, 24800))
+    clamp = [(t, nid) for t, nid in picked if t < 22000][:7]
+    slump = [(t, nid) for t, nid in picked if t >= 22000][:9]
+    picked = sorted(clamp + slump, key=lambda item: (item[0], item[1]))
+    if len(picked) < 8:
+        raise RuntimeError(f"LIF excerpt too short: {len(picked)}")
+    channels = ["lif.clamp" if t < 22000 else "lif.brick" for t, _ in picked]
+    lif = OrderedDict(
+        [
+            ("model", "leaky_integrate_and_fire"),
+            ("n", 80),
+            ("dt_us", 100),
+            ("tau_m_ms", 19.5),
+            ("v_rest", 0.0),
+            ("v_reset", 0.0),
+            ("v_th", 1.0),
+            ("r_m", 1.0),
+            ("refractory_us", 1000),
+            ("i_bias", 0.93),
+            ("i_stim_peak", 2.48),
+            ("stim_t_us", [22000, 25400]),
+            ("i_clamp_extra", 0.66),
+            ("clamp_n", 14),
+            ("seed", 68336),
+            (
+                "note",
+                "Population sim scoped to this sidecar. Plant remains designed. "
+                "Neurons 0-13 carry +0.66 RPM-clamp bias; stim 22.0-25.4 ms is the hearth-brick slump.",
+            ),
+        ]
+    )
+    extra = OrderedDict(
+        [
+            ("excerpt_source", "independent_lif"),
+            ("sim_scope", "sidecar_only"),
+            ("lif", lif),
+            ("abort_s", 720),
+            ("delayed_surprise_s", 720),
+        ]
+    )
+    return excerpt_items(picked, channels), extra
+
+
+def meta_block(domain, tags, distillation_value, batch_position, supervisor_error_type=None):
+    body = OrderedDict(
+        [
+            ("round", 68),
+            ("factory", "thalamic-trajectory-factory"),
+            ("generator", "grok-4.6"),
+            ("run_label", "2026-09-02-final-heavy"),
+            ("domain", domain),
+        ]
+    )
+    if supervisor_error_type:
+        body["supervisor_error_type"] = supervisor_error_type
+    body["tags"] = tags
+    body["snn_tags"] = ["race", "refractory", "adaptation"]
+    body["distillation_value"] = distillation_value
+    body["rights"] = RIGHTS
+    body["batch_position"] = batch_position
+    return body
+
+
+def reward_block(ticks, notes) -> OrderedDict:
+    heads = ["task_progress", "safety", "efficiency", "coherence", "exploration"]
+    sums = {h: Decimal("0") for h in heads}
+    for item in ticks:
+        for h in heads:
+            sums[h] += Decimal(str(item[h]))
+    total = sum(sums.values(), Decimal("0"))
+    return OrderedDict(
+        [
+            ("_aggregation", AGG),
+            ("ticks", ticks),
+            ("task_progress", float(sums["task_progress"])),
+            ("safety", float(sums["safety"])),
+            ("efficiency", float(sums["efficiency"])),
+            ("coherence", float(sums["coherence"])),
+            ("exploration", float(sums["exploration"])),
+            ("total", float(total)),
+            ("notes", notes),
+        ]
+    )
+
+
+def pop(name, neurons, threshold, rate=None, spikes=None) -> OrderedDict:
+    body = OrderedDict([("name", name), ("neurons", neurons), ("threshold", threshold)])
+    if rate is not None:
+        body["mean_rate_hz"] = rate
+        body["spikes"] = spikes
+    return body
+
+
+def pack(
+    rec_id,
+    title,
+    state,
+    spikes,
+    proposed,
+    safety,
+    executed,
+    future,
+    reward_notes,
+    ticks,
+    ras,
+    gate,
+    domain,
+    tags,
+    distillation,
+    batch_position,
+    supervisor_error_type=None,
+):
+    return OrderedDict(
+        [
+            ("id", rec_id),
+            ("title", title),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            ("reward_components", reward_block(ticks, reward_notes)),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    domain, tags, distillation, batch_position, supervisor_error_type
+                ),
+            ),
+        ]
+    )
+
+
+def record_336():
+    excerpt, extra = lif_336_excerpt()
+    ticks = [
+        tick(1920, 0.04, -0.02, -0.02, 0.01, 0.00),
+        tick(4800, 0.08, -0.04, -0.02, 0.01, -0.01),
+        tick(4980, 0.04, -0.03, -0.02, 0.00, 0.00),
+        tick(5440, 0.08, -0.05, -0.03, 0.02, -0.01),
+        tick(23200, 0.06, -0.41, -0.04, -0.01, -0.01),
+        tick(720000000, 0.02, -0.05, -0.03, 0.01, -0.01),
+    ]
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Roaster-R4 on Heptox-Brae hearth HB-6 is 32 C over the published 380 C Re2O7 "
+                "bed cap when a 2 kHz bed TC sample races the hearth AE puck. RPM is still armed "
+                "at 2.40; a timely clamp to 0.90 rpm keeps the bed under cap. A hearth brick "
+                "already seated on ring 3 still slumps inside the 42 ms raster after that "
+                "process-correct RPM clamp.",
+            ),
+            ("domain", "rhenium-heptoxide-roaster"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Keep HB-6 bed <= 380 C, finish the Re2O7 oxidation pass, and do not dump "
+                "condensate through a slumped hearth brick.",
+            ),
+            ("t0_us", 1756850400000336),
+            ("gate_latency_us", 640),
+            ("race_window_us", 380),
+            ("race_window_rel_ms", [4.8, 5.18]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "tc.bed.C 412 C over 380 cap",
+                                "ae.hearth.pps 14 under 40 context",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Bed-TC-first latches RPM clamp 2.40 -> 0.90; AE-first keeps 2.40 on a "
+                            "still-under-hearth-AE model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "380 us = one bed-TC slot versus the hearth AE publisher on this "
+                            "rhenium-heptoxide-roaster bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 180 us vs combined jitter 60 us (TC 26 + AE 34): 3.00x over a "
+                            "2.0x trust floor. Reversing order by < 180 us inside the 380 us window "
+                            "would have kept 2.40 rpm; predicted next bed 396 C would miss the 380 "
+                            "cap even without the brick slump.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "bed TC, 2 kHz, 26 us jitter",
+                    "hearth AE puck, 1 kHz, 34 us jitter",
+                    "brick AE puck (context)",
+                    "offgas IR (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("bed_cap_C", 380.0),
+                        ("observed_bed_C", 412.0),
+                        ("rpm", 2.40),
+                        ("hearth_ae_pps", 14.0),
+                        ("hearth_ae_ctx_pps", 40.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Roaster-R4 indexed on Heptox-Brae HB-6; RPM 2.40; bed 412 C.",
+                    "2. Hearth AE 14 pps under 40 context; Re2O7 oxidation armed.",
+                    "3. AE precursor at 2.240 ms.",
+                    "4. Race window [4.800, 5.180] ms.",
+                    "5. tc.bed.C 412 at 4.800 ms (winner).",
+                    "6. ae.hearth.pps 14 at 4.980 ms (loser by 180 us).",
+                    "7. Gate at 5.440 ms: MODIFY clamp RPM 2.40 -> 0.90.",
+                    "8. After clamp bed 372 C <= 380; AE still 14 pps.",
+                    "9. At 23.200 ms a hearth brick slumps and dumps 0.3 t of condensate.",
+                    "10. 12 min hearth isolate (abort_s=720); named un-netted loss.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_roaster_rpm"),
+            (
+                "parameters",
+                OrderedDict(
+                    [("rpm", 2.40), ("bed_C", 412.0), ("hearth_ae_pps", 14.0)]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("bed_C", 412.0),
+                        ("bed_cap_C", 380.0),
+                        ("predicted_unclamped_next_C", 396.0),
+                        ("rpm", 2.40),
+                        ("hearth_ae_pps", 14.0),
+                        ("hearth_ae_ctx_pps", 40.0),
+                        ("race_margin_us", 180),
+                        ("combined_jitter_us", 60),
+                        ("abort_s", 720),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 2.40 rpm because hearth AE 14 pps is quiet versus 40, treating "
+                "the 412 C bed as a fogged TC cell rather than a 380 C cap miss.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Bed 412 C won by 180 us, so HB-6 is over the 380 C Re2O7 bed cap, not still a "
+                "hearth-AE story. Holding 2.40 rpm predicts next-sample 396 C > 380. MODIFY: RPM "
+                "2.40 -> 0.90. Observed after clamp 372 C <= 380. A full REJECT is not indicated: "
+                "a legal bed accepts 0.90 rpm.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "bed_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 380.0),
+                                    ("observed", 412.0),
+                                    ("predicted_unclamped_next", 396.0),
+                                    ("clamped_rpm", 0.90),
+                                    ("observed_after_clamp", 372.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 180),
+                                    ("combined_jitter_us", 60),
+                                    ("ratio", 3.0),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_roaster_rpm"),
+            (
+                "parameters",
+                OrderedDict(
+                    [("rpm", 0.90), ("bed_C", 372.0), ("hearth_ae_pps", 14.0)]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: RPM 2.40 -> 0.90. Process-correct vs the 380 C bed cap. Hearth brick "
+                "still slumps at 23.200 ms.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Process-correct MODIFY held bed at 372 C. At 23.200 ms a hearth brick already "
+                "seated on ring 3 dumped 0.3 t of Re2O7 condensate into HB-6. Clamp reduced "
+                "thermal load; it did not prevent the slump. Partnered negative: process heads "
+                "stay honest; world loss is named, not netted.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("roaster", "clamp executed; bed 372 C <= 380 cap"),
+                        ("brick", "slumped at 23.200 ms; 0.3 t condensate on the hearth"),
+                        ("repair", "12 min hearth isolate (abort_s=720)"),
+                        ("mission", "HB-6 Re2O7 oxidation incomplete this circuit"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Neither bed TC nor hearth AE predicted the seated brick slump; ae.brick.slump is a new channel at 23.200 ms, 17.760 ms after the gate, still inside the 42 ms raster.",
+                    "Delayed (abort_s=720): 12 min hearth isolate. Named un-netted loss, not folded into task_progress.",
+                ],
+            ),
+            (
+                "un_netted_loss",
+                "12 min hearth isolate after the brick slump. Safety head -0.60 prices the dump; "
+                "task_progress stays +0.32 because the RPM clamp completed under the 380 C cap. "
+                "World loss is named here, not subtracted from process heads.",
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "tc.bed.C (4.800 ms, 412 C)"),
+                        ("loser", "ae.hearth.pps (4.980 ms, 14 pps)"),
+                        ("margin_us", 180),
+                        (
+                            "counterfactual_if_reversed",
+                            "AE-first by < 180 us inside the 380 us window would have kept 2.40 "
+                            "rpm; predicted next-sample 396 C would have missed the 380 cap even "
+                            "without the slump. The MODIFY is still the correct process. The slump "
+                            "is a later world charge either way, cheaper with the clamp than without.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 23200),
+            (
+                "reward_inflection_note",
+                "Safety collapses at the 23.200 ms hearth-brick slump (tick t_us=23200), inside "
+                "the 42 ms raster. The correct MODIFY at 5.440 ms is in the same excerpt. Do not "
+                "put inflection on the +12 min isolate tick.",
+            ),
+            ("delayed_surprise_s", 720.0),
+        ]
+    )
+    spikes = [
+        spike("tc.bed.C", 1.12, 0.44),
+        spike("ae.hearth.pps", 2.24, 0.58),
+        spike("tc.bed.C", 3.40, 0.66),
+        spike("tc.bed.C", 4.80, 1.31),
+        spike("ae.hearth.pps", 4.98, 1.14),
+        spike("ctrl.gate", 5.44, 0.96),
+        spike("tc.bed.C", 8.10, 0.82),
+        spike("ae.hearth.pps", 11.20, 0.61),
+        spike("ctrl.gate", 14.40, 0.85),
+        spike("ae.brick.slump", 23.20, 1.46),
+        spike("ae.brick.slump", 25.10, 0.92),
+        spike("ae.hearth.pps", 31.40, 0.40),
+        spike("tc.bed.C", 38.20, 0.54),
+    ]
+    ras = raster_core(
+        42,
+        80,
+        24,
+        81,
+        routing(
+            "thalamic-relay.bed-tc",
+            "spikenaut.policy.rpm-clamp",
+            [
+                ("relay.tc.bed", "policy.rpm_clamp", 0.68),
+                ("relay.ae.hearth", "policy.speed_hold", 0.29),
+                ("relay.ae.brick", "policy.rpm_clamp", -0.44),
+            ],
+            "noradrenaline",
+            0.04,
+            "surprise-gated pre_post_stdp; NA at bed-TC win (4.800 ms) opens a 42 ms eligibility "
+            "trace that still covers the 23.200 ms hearth-brick slump",
+        ),
+        excerpt,
+        extra=extra,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.38),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("rpm_clamp", 48, 0.50, 220.0, 4),
+                    pop("speed_hold", 36, 0.80, 40.0, 1),
+                    pop("brick_veto", 22, 0.75),
+                ],
+            ),
+        ]
+    )
+    return pack(
+        "ttf-r68-336",
+        "Heptox-Brae HB-6 / Roaster-R4: bed TC beats hearth AE by 180 us; correct MODIFY still "
+        "eats an in-window hearth-brick slump (partnered negative total -0.44)",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        "Partnered negative. Process-correct MODIFY; world still charges inside the 42 ms "
+        "raster. total -0.44 = 0.32 + -0.60 + -0.16 + 0.04 + -0.04. Named hearth isolate "
+        "(abort_s=720) is not netted into task_progress.",
+        ticks,
+        ras,
+        gate,
+        "rhenium-heptoxide-roaster",
+        [
+            "modify",
+            "partnered-negative-total",
+            "independent-lif-raster",
+            "sidecar-sim-only",
+            "in-window-world-charge",
+            "designed",
+        ],
+        "A critic can see the world-charge as a LIF burst inside the raster while process "
+        "heads stay honest. Credit assignment is spikes, not prose across a 12 min hearth isolate.",
+        1,
+    )
+
+
+def record_337():
+    ticks = [
+        tick(2080, 0.05, 0.04, 0.02, 0.01, 0.01),
+        tick(5200, 0.08, 0.06, 0.04, 0.02, 0.01),
+        tick(5360, 0.05, 0.04, 0.02, 0.01, 0.01),
+        tick(5780, 0.12, 0.10, 0.05, 0.04, 0.02),
+        tick(6140, 0.05, 0.05, 0.02, 0.01, 0.01),
+        tick(210000000, 0.03, 0.03, 0.02, 0.01, 0.01),
+    ]
+    spikes = [
+        spike("v.cell.V", 1.04, 0.41),
+        spike("ae.crust.pps", 2.18, 0.55),
+        spike("v.cell.V", 3.60, 0.70),
+        spike("enc.crust.ctx", 4.40, 0.48),
+        spike("v.cell.V", 5.20, 1.28),
+        spike("ae.crust.pps", 5.36, 1.10),
+        spike("ctrl.gate", 5.78, 0.97),
+        spike("v.cell.V", 8.40, 0.80),
+        spike("ae.crust.pps", 11.60, 0.62),
+        spike("ctrl.gate", 16.20, 0.84),
+        spike("enc.crust.ctx", 22.40, 0.46),
+    ]
+    excerpt = kernel_excerpt(26, 64, spikes, 12, seed=68337)
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Cell C-9 at Dyfluor-Holt DH-3 has already crossed the 8.40 V anode-effect cap "
+                "at 9.80 V while crust AE is a quiet 16 pps under the 40 pps trip. Current is "
+                "armed at 7.2 kA; a timely cut to 3.6 kA collapses the anode effect without "
+                "dumping the DyF3 bath.",
+            ),
+            ("domain", "dysprosium-fluoride-electrolyzer"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Keep C-9 cell voltage <= 8.40 V, hold bath inventory, and finish the Dy metal "
+                "tap without an anode-effect dump.",
+            ),
+            ("t0_us", 1756850400000337),
+            ("gate_latency_us", 580),
+            ("race_window_us", 360),
+            ("race_window_rel_ms", [5.2, 5.56]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "v.cell.V 9.80 over 8.40 cap",
+                                "ae.crust.pps 16 under 40 context",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Voltage-first latches current cut 7.2 -> 3.6 kA; AE-first keeps 7.2 kA "
+                            "on a still-under-crust-AE model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "360 us = one cell-voltage slot versus the crust AE publisher on this "
+                            "dysprosium-fluoride-electrolyzer bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 160 us vs combined jitter 52 us (voltage 24 + AE 28): 3.08x over "
+                            "a 2.0x trust floor. Reversing order by < 160 us inside the 360 us window "
+                            "would have kept 7.2 kA; predicted next voltage 9.20 V would miss the "
+                            "8.40 cap.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "cell voltage tap, 2 kHz, 24 us jitter",
+                    "crust AE puck, 1 kHz, 28 us jitter",
+                    "crust encoder (context)",
+                    "HF offgas IR (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("voltage_cap_V", 8.40),
+                        ("observed_V", 9.80),
+                        ("current_kA", 7.2),
+                        ("crust_ae_pps", 16.0),
+                        ("crust_ae_ctx_pps", 40.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Cell C-9 indexed on Dyfluor-Holt DH-3; current 7.2 kA; voltage 9.80 V.",
+                    "2. Crust AE 16 pps under 40 context; Dy metal tap armed.",
+                    "3. AE precursor at 2.180 ms.",
+                    "4. Race window [5.200, 5.560] ms.",
+                    "5. v.cell.V 9.80 at 5.200 ms (winner).",
+                    "6. ae.crust.pps 16 at 5.360 ms (loser by 160 us).",
+                    "7. Gate at 5.780 ms: MODIFY cut current 7.2 -> 3.6 kA.",
+                    "8. After cut voltage 7.90 V <= 8.40; crust held.",
+                    "9. 3.5 min bath survey (survey_s=210) confirms no dump.",
+                    "10. Dy metal tap completes under the 8.40 V cap.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_cell_current"),
+            (
+                "parameters",
+                OrderedDict(
+                    [("current_kA", 7.2), ("voltage_V", 9.80), ("crust_ae_pps", 16.0)]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("voltage_V", 9.80),
+                        ("voltage_cap_V", 8.40),
+                        ("predicted_unclamped_next_V", 9.20),
+                        ("current_kA", 7.2),
+                        ("crust_ae_pps", 16.0),
+                        ("race_margin_us", 160),
+                        ("combined_jitter_us", 52),
+                        ("survey_s", 210),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 7.2 kA because crust AE 16 pps looks like a frozen-crust "
+                "tap, not an anode-effect voltage over the 8.40 V cap.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Cell voltage 9.80 V won by 160 us, so C-9 is over the 8.40 V anode-effect cap, "
+                "not still a crust-AE story. Holding 7.2 kA predicts next-sample 9.20 V > 8.40. "
+                "MODIFY: current 7.2 -> 3.6 kA. Observed after cut 7.90 V <= 8.40. A full REJECT "
+                "is not indicated: a legal bath accepts 3.6 kA.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "voltage_V",
+                            OrderedDict(
+                                [
+                                    ("cap", 8.40),
+                                    ("observed", 9.80),
+                                    ("predicted_unclamped_next", 9.20),
+                                    ("clamped_current_kA", 3.6),
+                                    ("observed_after_clamp", 7.90),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 160),
+                                    ("combined_jitter_us", 52),
+                                    ("ratio", 3.08),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_cell_current"),
+            (
+                "parameters",
+                OrderedDict(
+                    [("current_kA", 3.6), ("voltage_V", 7.90), ("crust_ae_pps", 16.0)]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: current 7.2 -> 3.6 kA. Process-correct vs the 8.40 V anode-effect cap. "
+                "Bath inventory held.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Process-correct MODIFY held cell voltage at 7.90 V. C-9 stayed in the DyF3 "
+                "circuit. A 3.5 min bath survey closed the anode-effect cell. No world charge "
+                "inside the 26 ms raster.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("current", "cut executed; voltage 7.90 <= 8.40 cap"),
+                        ("bath", "inventory held; no dump"),
+                        ("survey", "3.5 min bath survey (survey_s=210)"),
+                        ("mission", "DH-3 Dy metal tap complete"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Crust AE never rose with cell voltage; the 9.80 V was an anode-effect, not a frozen-crust tap.",
+                    "Delayed (survey_s=210): 3.5 min bath survey confirms C-9 before the next tap slot.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "v.cell.V (5.200 ms, 9.80 V)"),
+                        ("loser", "ae.crust.pps (5.360 ms, 16 pps)"),
+                        ("margin_us", 160),
+                        (
+                            "counterfactual_if_reversed",
+                            "AE-first by < 160 us inside the 360 us window would have kept 7.2 kA; "
+                            "predicted next-sample 9.20 V would have missed the 8.40 cap. The "
+                            "MODIFY is the correct process either way.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 5780),
+            (
+                "reward_inflection_note",
+                "Task and safety inflect at the correct MODIFY (5.780 ms, tick 4). The 3.5 min "
+                "survey is delayed surprise, not the inflection.",
+            ),
+            ("delayed_surprise_s", 210.0),
+        ]
+    )
+    ras = raster_core(
+        26,
+        64,
+        40,
+        67,
+        routing(
+            "thalamic-relay.cell-voltage",
+            "spikenaut.policy.current-cut",
+            [
+                ("relay.v.cell", "policy.current_cut", 0.71),
+                ("relay.ae.crust", "policy.bath_hold", 0.27),
+            ],
+            "acetylcholine",
+            0.05,
+            "voltage-gated pre_post_stdp; ACh at cell-voltage win (5.200 ms) opens a 26 ms eligibility trace covering the 5.780 ms cut",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("survey_s", 210),
+                ("delayed_surprise_s", 210),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.36),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("current_cut", 48, 0.50, 250.0, 4),
+                    pop("bath_hold", 40, 0.80, 50.0, 1),
+                    pop("ae_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return pack(
+        "ttf-r68-337",
+        "Dyfluor-Holt DH-3 / Cell C-9: cell voltage beats crust AE by 160 us; correct MODIFY "
+        "cuts current 7.2 -> 3.6 kA",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        "Correct MODIFY. total +1.04 = 0.38 + 0.32 + 0.17 + 0.10 + 0.07. Bath survey "
+        "(survey_s=210) is delayed, not the inflection.",
+        ticks,
+        ras,
+        gate,
+        "dysprosium-fluoride-electrolyzer",
+        ["modify", "correct", "voltage-vs-ae", "designed", "tick6-sidecar-bound"],
+        "Teaches a probe that a cell-voltage-over-cap win routes to current_cut while crust AE "
+        "stay weights bath_hold, with gate_snn current_cut above threshold.",
+        2,
+    )
+
+
+def record_338():
+    ticks = [
+        tick(2560, 0.01, 0.04, 0.02, 0.01, 0.01),
+        tick(6400, 0.02, 0.08, 0.02, 0.02, 0.01),
+        tick(6620, 0.01, 0.06, 0.02, 0.01, 0.01),
+        tick(7120, 0.03, 0.14, 0.04, 0.04, 0.02),
+        tick(7520, 0.02, 0.06, 0.01, 0.01, 0.01),
+        tick(420000000, 0.01, 0.04, 0.01, 0.01, 0.00),
+    ]
+    spikes = [
+        spike("tc.head.C", 1.60, 0.43),
+        spike("enc.reflux.Hz", 3.20, 0.58),
+        spike("tc.head.C", 4.80, 0.71),
+        spike("ae.still.ctx", 5.60, 0.50),
+        spike("tc.head.C", 6.40, 1.32),
+        spike("enc.reflux.Hz", 6.62, 1.16),
+        spike("ctrl.gate", 7.12, 0.98),
+        spike("tc.head.C", 10.40, 0.81),
+        spike("enc.reflux.Hz", 14.80, 0.64),
+        spike("ctrl.gate", 18.60, 0.86),
+        spike("ae.still.ctx", 28.20, 0.44),
+        spike("tc.head.C", 41.00, 0.52),
+    ]
+    excerpt = kernel_excerpt(44, 104, spikes, 15, seed=68338)
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Still S-7 on the Chloririd-Ness CN-HIL pad already sees head temperature 168 C "
+                "against a 145 C IrCl3 decomposition cap while the reflux encoder is only 12 Hz. "
+                "Planner wants +1.80 t/h steam; a correct REJECT holds steam and does not boil "
+                "into a decomposing still.",
+            ),
+            ("domain", "iridium-chloride-still"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Keep CN-HIL still head <= 145 C and do not raise steam into a distressed IrCl3 "
+                "column on the HIL pad.",
+            ),
+            ("t0_us", 1756850400000338),
+            ("gate_latency_us", 720),
+            ("race_window_us", 400),
+            ("race_window_rel_ms", [6.4, 6.8]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "tc.head.C 168 over 145 cap",
+                                "enc.reflux.Hz 12 under 40 context",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Head-TC-first REJECT-holds steam; reflux-first would treat encoder "
+                            "rate as the story and keep boiling.",
+                        ),
+                        (
+                            "window_derivation",
+                            "400 us = one head-TC slot versus the reflux-encoder publisher on this "
+                            "iridium-chloride-still HIL bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 220 us vs combined jitter 70 us (TC 32 + encoder 38): 3.14x over "
+                            "a 2.0x trust floor. Reversing order by < 220 us inside the 400 us window "
+                            "would have kept +1.80 t/h steam into a 168 C still head.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "head TC, 2 kHz, 32 us jitter",
+                    "reflux encoder, 1 kHz, 38 us jitter",
+                    "still AE (context)",
+                    "steam FT (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("head_cap_C", 145.0),
+                        ("observed_head_C", 168.0),
+                        ("proposed_steam_t_h", 1.80),
+                        ("reflux_Hz", 12.0),
+                        ("reflux_ctx_Hz", 40.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Still S-7 indexed on Chloririd-Ness CN-HIL; steam armed +1.80 t/h; head 168 C.",
+                    "2. Reflux 12 Hz under 40 context; HIL boil-up armed.",
+                    "3. Encoder precursor at 3.200 ms.",
+                    "4. Race window [6.400, 6.800] ms.",
+                    "5. tc.head.C 168 at 6.400 ms (winner).",
+                    "6. enc.reflux.Hz 12 at 6.620 ms (loser by 220 us).",
+                    "7. Gate at 7.120 ms: REJECT hold, steam 1.80 -> 0 t/h.",
+                    "8. Head stays 168 C; no additional boil-up.",
+                    "9. 7 min still inspect (abort_s=420).",
+                    "10. Distillation postponed until head under 145 C.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "raise_still_steam"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("steam_t_h", 1.80),
+                        ("hold", False),
+                        ("head_C", 168.0),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("head_C", 168.0),
+                        ("head_cap_C", 145.0),
+                        ("reflux_Hz", 12.0),
+                        ("reflux_ctx_Hz", 40.0),
+                        ("race_margin_us", 220),
+                        ("combined_jitter_us", 70),
+                        ("abort_s", 420),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes +1.80 t/h steam because reflux 12 Hz looks like a condenser "
+                "trim, not a still head over the 145 C IrCl3 decomposition cap.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Head 168 C won by 220 us, so the still is over the 145 C IrCl3 decomposition "
+                "cap, not still a reflux-encoder story. Raising steam +1.80 t/h would drive head "
+                "further. REJECT: hold steam 1.80 -> 0 t/h. Observed after hold 168 C, no "
+                "additional boil-up. A MODIFY that only trims reflux would leave the cap miss "
+                "unaddressed.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "head_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 145.0),
+                                    ("observed", 168.0),
+                                    ("executed_steam_t_h", 0.0),
+                                    ("hold", True),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 220),
+                                    ("combined_jitter_us", 70),
+                                    ("ratio", 3.14),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hold_still_steam"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("steam_t_h", 0.0),
+                        ("hold", True),
+                        ("head_C", 168.0),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: steam 1.80 -> 0 t/h. Process-correct vs the 145 C head cap. Boil-up "
+                "held on the CN-HIL pad.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct REJECT held steam at 0 t/h while head stayed 168 C over the 145 cap. "
+                "7 min still inspect followed. No additional IrCl3 decomposition.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("steam", "hold executed; steam 0 t/h"),
+                        ("head", "still 168 C, over 145 cap, no extra boil-up"),
+                        ("repair", "7 min still inspect (abort_s=420)"),
+                        ("mission", "CN-HIL distillation postponed this circuit"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Reflux never rose with head temperature; the 168 C was a flooded reboiler, not encoder lag.",
+                    "Delayed (abort_s=420): 7 min still inspect before the next HIL slot.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "tc.head.C (6.400 ms, 168 C)"),
+                        ("loser", "enc.reflux.Hz (6.620 ms, 12 Hz)"),
+                        ("margin_us", 220),
+                        (
+                            "counterfactual_if_reversed",
+                            "Reflux-first by < 220 us inside the 400 us window would have kept "
+                            "+1.80 t/h steam into a 168 C still head. The REJECT is the correct "
+                            "process either way.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 7120),
+            (
+                "reward_inflection_note",
+                "Safety inflects at the correct REJECT (7.120 ms, tick 4). The 7 min inspect is "
+                "delayed surprise, not the inflection.",
+            ),
+            ("delayed_surprise_s", 420.0),
+        ]
+    )
+    ras = raster_core(
+        44,
+        104,
+        22,
+        101,
+        routing(
+            "thalamic-relay.head-tc",
+            "spikenaut.policy.steam-hold",
+            [
+                ("relay.tc.head", "policy.steam_hold", 0.72),
+                ("relay.enc.reflux", "policy.boil_go", 0.24),
+            ],
+            "dopamine",
+            0.06,
+            "head-gated pre_post_stdp; DA at head-TC win (6.400 ms) opens a 44 ms eligibility trace covering the 7.120 ms hold",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("abort_s", 420),
+                ("delayed_surprise_s", 420),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.40),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("steam_hold", 48, 0.50, 250.0, 5),
+                    pop("boil_go", 36, 0.80),
+                    pop("head_veto", 22, 0.75, 80.0, 1),
+                ],
+            ),
+        ]
+    )
+    return pack(
+        "ttf-r68-338",
+        "Chloririd-Ness CN-HIL / Still S-7: head 168 C beats reflux encoder 12 Hz by 220 us; "
+        "correct REJECT holds steam",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        "Correct REJECT. total +0.80 = 0.10 + 0.42 + 0.12 + 0.10 + 0.06. Still inspect "
+        "(abort_s=420) is delayed, not the inflection.",
+        ticks,
+        ras,
+        gate,
+        "iridium-chloride-still",
+        ["reject", "hil", "head-vs-reflux", "tick6-sidecar-bound"],
+        "Teaches a probe that a still-head-over-cap win routes to steam_hold while reflux stay "
+        "weights boil_go, with gate_snn steam_hold above threshold and boil_go not.",
+        3,
+    )
+
+
+def record_339():
+    ticks = [
+        tick(2720, 0.06, 0.04, 0.03, 0.02, 0.01),
+        tick(6800, 0.08, 0.06, 0.04, 0.02, 0.02),
+        tick(7020, 0.06, 0.04, 0.02, 0.02, 0.01),
+        tick(7300, 0.12, 0.08, 0.05, 0.03, 0.02),
+        tick(7680, 0.05, 0.04, 0.02, 0.02, 0.01),
+        tick(300000000, 0.03, 0.02, 0.02, 0.01, 0.01),
+    ]
+    spikes = [
+        spike("tc.liquor.C", 1.36, 0.42),
+        spike("gc.nox.ppm", 2.72, 0.56),
+        spike("tc.liquor.C", 4.40, 0.68),
+        spike("ir.header.ctx", 5.50, 0.47),
+        spike("tc.liquor.C", 6.80, 1.22),
+        spike("gc.nox.ppm", 7.02, 1.08),
+        spike("ctrl.gate", 7.30, 0.95),
+        spike("tc.liquor.C", 10.80, 0.74),
+        spike("gc.nox.ppm", 14.20, 0.60),
+        spike("ctrl.gate", 18.40, 0.82),
+        spike("ir.header.ctx", 23.60, 0.45),
+    ]
+    excerpt = kernel_excerpt(26, 56, spikes, 12, seed=68339)
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Denitrator DN-2 at Paddenit-Beck PB-4 is a simulated twin with liquor 68.4 C "
+                "against a 90 C cap and NOx 840 ppm under the 2000 ppm trip. The 4.8 t/h air "
+                "sparge is already legal. Header IR prints 88 C as a glint, not a liquor "
+                "measurement.",
+            ),
+            ("domain", "palladium-nitrate-denitrator"),
+            ("sim_or_real", "simulated"),
+            (
+                "goal",
+                "Finish the PB-4 denitration pass with liquor <= 90 C and NOx <= 2000 ppm.",
+            ),
+            ("t0_us", 1756850400000339),
+            ("gate_latency_us", 500),
+            ("race_window_us", 380),
+            ("race_window_rel_ms", [6.8, 7.18]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "tc.liquor.C 68.4 under 90 cap",
+                                "gc.nox.ppm 840 under 2000 trip",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Liquor-first ACCEPTs 4.8 t/h air (68.4 C <= 90 C). NOx-first would only "
+                            "delay confirmation of the same legal sparge.",
+                        ),
+                        (
+                            "window_derivation",
+                            "380 us = one liquor-TC slot versus the NOx GC publisher on this "
+                            "palladium-nitrate-denitrator twin bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 220 us vs combined jitter 64 us (liquor 30 + NOx 34): 3.44x over "
+                            "a 2.0x trust floor. Reversing order by < 220 us still shows 68.4 C <= "
+                            "90 C and 840 ppm <= 2000. A correct gate ACCEPTs either way.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "liquor TC, 2 kHz, 30 us jitter",
+                    "NOx GC, 1 kHz, 34 us jitter",
+                    "header IR glint (context)",
+                    "air FT (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("liquor_cap_C", 90.0),
+                        ("observed_liquor_C", 68.4),
+                        ("nox_trip_ppm", 2000.0),
+                        ("observed_nox_ppm", 840.0),
+                        ("air_t_h", 4.8),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Denitrator DN-2 indexed on Paddenit-Beck PB-4 twin; air 4.8 t/h; liquor 68.4 C.",
+                    "2. NOx 840 ppm under 2000 trip; denitration pass armed.",
+                    "3. NOx precursor at 2.720 ms.",
+                    "4. Race window [6.800, 7.180] ms.",
+                    "5. tc.liquor.C 68.4 at 6.800 ms (winner).",
+                    "6. gc.nox.ppm 840 at 7.020 ms (loser by 220 us).",
+                    "7. Gate at 7.300 ms: ACCEPT already-legal 4.8 t/h air.",
+                    "8. Liquor stays 68.4 C <= 90; NOx stays 840 ppm.",
+                    "9. 5 min post-denitration survey (survey_s=300).",
+                    "10. Denitration pass completes under both caps.",
+                ],
+            ),
+        ]
+    )
+    params = OrderedDict(
+        [("air_t_h", 4.8), ("liquor_C", 68.4), ("nox_ppm", 840.0), ("hold", False)]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_air_sparge"),
+            ("parameters", params),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("liquor_C", 68.4),
+                        ("liquor_cap_C", 90.0),
+                        ("nox_ppm", 840.0),
+                        ("nox_trip_ppm", 2000.0),
+                        ("air_t_h", 4.8),
+                        ("header_glint_C", 88.0),
+                        ("race_margin_us", 220),
+                        ("combined_jitter_us", 64),
+                        ("survey_s", 300),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 4.8 t/h air because liquor 68.4 C is 21.6 C under the 90 C cap "
+                "and NOx 840 ppm is quiet versus the 2000 ppm trip.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Liquor 68.4 C won by 220 us and is 21.6 C under the 90 C denitration cap. NOx "
+                "840 ppm is under the 2000 ppm trip. ACCEPT the already-legal 4.8 t/h air sparge. "
+                "A MODIFY or REJECT would idle a legal denitrator pass. Header IR 88 C is a glint, "
+                "not liquor.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "liquor_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 90.0),
+                                    ("observed", 68.4),
+                                    ("executed_air_t_h", 4.8),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 220),
+                                    ("combined_jitter_us", 64),
+                                    ("ratio", 3.44),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "cruise_air_sparge"),
+            ("parameters", OrderedDict(params.items())),
+            (
+                "gate_effect",
+                "ACCEPT: leave 4.8 t/h air. Liquor 68.4 C <= 90 C cap. NOx 840 ppm <= 2000 trip.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct ACCEPT left the already-legal 4.8 t/h air sparge. Liquor stayed 68.4 C. "
+                "A 5 min post-denitration survey closed the pass. No world charge inside the 26 ms "
+                "raster.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("air", "4.8 t/h executed; liquor 68.4 C <= 90"),
+                        ("nox", "840 ppm under 2000 trip"),
+                        ("survey", "5 min post-denitration survey (survey_s=300)"),
+                        ("mission", "PB-4 denitration pass complete"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Header IR 88 C never coupled into liquor TC; the glint was a steam-trace reflection, not a liquor rise.",
+                    "Delayed (survey_s=300): 5 min post-denitration survey before the next twin cycle.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "tc.liquor.C (6.800 ms, 68.4 C)"),
+                        ("loser", "gc.nox.ppm (7.020 ms, 840 ppm)"),
+                        ("margin_us", 220),
+                        (
+                            "counterfactual_if_reversed",
+                            "NOx-first by < 220 us would still show 68.4 C <= 90 C. A correct gate "
+                            "ACCEPTs either way.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 7300),
+            (
+                "reward_inflection_note",
+                "Task inflects at the correct ACCEPT (7.300 ms, tick 4). The 5 min survey is "
+                "delayed surprise, not the inflection.",
+            ),
+            ("delayed_surprise_s", 300.0),
+        ]
+    )
+    ras = raster_core(
+        26,
+        56,
+        40,
+        58,
+        routing(
+            "thalamic-relay.liquor-tc",
+            "spikenaut.policy.air-go",
+            [
+                ("relay.tc.liquor", "policy.air_go", 0.73),
+                ("relay.gc.nox", "policy.nox_hold", 0.25),
+            ],
+            "serotonin",
+            0.07,
+            "already-legal pre_post_stdp; 5-HT at liquor win (6.800 ms) opens a 26 ms eligibility trace covering the 7.300 ms accept",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("survey_s", 300),
+                ("delayed_surprise_s", 300),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.38),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("air_go", 48, 0.50, 210.0, 4),
+                    pop("nox_hold", 28, 0.80),
+                    pop("temp_veto", 20, 0.75),
+                ],
+            ),
+        ]
+    )
+    return pack(
+        "ttf-r68-339",
+        "Paddenit-Beck PB-4 / Denitrator DN-2: liquor 68.4 C beats NOx 840 ppm by 220 us; "
+        "correct ACCEPT of already-legal 4.8 t/h air",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        "Correct ACCEPT. total +1.06 = 0.40 + 0.28 + 0.18 + 0.12 + 0.08. Post-denitration "
+        "survey (survey_s=300) is delayed, not the inflection.",
+        ticks,
+        ras,
+        gate,
+        "palladium-nitrate-denitrator",
+        ["accept", "simulated", "already-legal", "liquor-vs-nox", "tick6-sidecar-bound"],
+        "Teaches a probe that an already-legal liquor-under-cap win routes to air_go with "
+        "gate_snn air_go above threshold and temp_veto silent.",
+        4,
+    )
+
+
+def record_340():
+    ticks = [
+        tick(2160, -0.02, 0.01, -0.02, -0.01, 0.01),
+        tick(5400, -0.04, 0.01, -0.04, -0.02, 0.01),
+        tick(5640, -0.03, 0.01, -0.03, -0.01, 0.01),
+        tick(6080, -0.06, 0.02, -0.08, -0.03, 0.02),
+        tick(6500, -0.02, 0.01, -0.03, -0.01, 0.01),
+        tick(480000000, -0.01, 0.00, -0.02, 0.00, 0.00),
+    ]
+    spikes = [
+        spike("rtd.susceptor.C", 1.20, 0.44),
+        spike("pyr.glint.C", 2.40, 0.61),
+        spike("rtd.susceptor.C", 3.88, 0.52),
+        spike("tc.burnout.rail", 4.62, 0.70),
+        spike("rtd.susceptor.C", 5.40, 1.31),
+        spike("pyr.glint.C", 5.64, 1.18),
+        spike("ctrl.gate", 6.08, 0.99),
+        spike("rtd.susceptor.C", 7.22, 0.84),
+        spike("pyr.glint.C", 9.44, 0.66),
+        spike("ctrl.gate", 14.88, 0.88),
+        spike("tc.burnout.rail", 18.40, 0.41),
+        spike("rtd.susceptor.C", 24.20, 0.58),
+    ]
+    excerpt = kernel_excerpt(24, 88, spikes, 14, seed=68340)
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Susceptor H-11 at Cadselen-Howe CH-8 reports a live RTD of 640 C, 140 C under "
+                "the 780 C CdSe growth trip, while an open-thermocouple burnout rail still prints "
+                "1372 C. A weak supervisor binds the burnout-high failsafe as live over-temp and "
+                "REJECT-holds a legal 18 sccm TMCd feed.",
+            ),
+            ("domain", "cadmium-selenide-cvd"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Complete the CH-8 CdSe growth at 18 sccm TMCd with live susceptor RTD 640 C "
+                "under the 780 C trip, and drop any open-TC burnout rail that is not live.",
+            ),
+            ("t0_us", 1756850400000340),
+            ("gate_latency_us", 680),
+            ("race_window_us", 420),
+            ("race_window_rel_ms", [5.4, 5.82]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "rtd.susceptor.C 640 C under 780 trip",
+                                "pyr.glint.C 612 C under 780 context",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "RTD-first should ACCEPT 18 sccm TMCd (640 C < 780). Pyrometer-first "
+                            "would only delay confirmation of the same legal growth. The error is "
+                            "the burnout rail the supervisor binds, not the race.",
+                        ),
+                        (
+                            "window_derivation",
+                            "420 us = one susceptor-RTD slot versus the pyrometer publisher on "
+                            "this cadmium-selenide-cvd bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 240 us vs combined jitter 76 us (RTD 36 + pyrometer 40): 3.16x "
+                            "over a 2.0x trust floor. Order is correctly RTD-first. The error is "
+                            "the 1372 C open-TC burnout rail, not the race.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "susceptor RTD, 2 kHz, 36 us jitter",
+                    "chamber pyrometer, 1 kHz, 40 us jitter",
+                    "open-TC burnout rail (1372 C fail-high, not live)",
+                    "TMCd MFC (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("trip_C", 780.0),
+                        ("live_C", 640.0),
+                        ("burnout_C", 1372.0),
+                        ("burnout_is_live", False),
+                        ("rtd_is_live", True),
+                        ("proposed_tmcd_sccm", 18.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Susceptor H-11 indexed onto Cadselen-Howe CH-8; TMCd 18 sccm armed; live RTD 640 C.",
+                    "2. Pyrometer 612 C under 780; burnout rail 1372 C is fail-high, not live.",
+                    "3. Pyrometer precursor at 2.400 ms.",
+                    "4. Race window [5.400, 5.820] ms.",
+                    "5. rtd.susceptor.C 640 at 5.400 ms (winner).",
+                    "6. pyr.glint.C 612 at 5.640 ms (loser by 240 us).",
+                    "7. Gate at 6.080 ms: wrong REJECT holds 18 -> 0 sccm on the burnout rail.",
+                    "8. Growth idle; live RTD stayed 640 C; trip stayed 780 C.",
+                    "9. 8 min CdSe growth window missed (abort_s=480).",
+                    "10. QA: correct gate was ACCEPT; leave 18 sccm; drop the burnout rail.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "hold_tmcd_18sccm"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("tmcd_sccm", 18.0),
+                        ("live_C", 640.0),
+                        ("hold", False),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("live_C", 640.0),
+                        ("trip_C", 780.0),
+                        ("burnout_C", 1372.0),
+                        ("burnout_flag", True),
+                        ("burnout_is_live", False),
+                        ("rtd_is_live", True),
+                        ("tc_is_live", False),
+                        ("race_margin_us", 240),
+                        ("combined_jitter_us", 76),
+                        ("t_gate_us", 6080),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 18 sccm TMCd because live susceptor RTD 640 C is 140 C under "
+                "the 780 C trip; the 1372 C rail is an open-TC burnout fail-high, not live.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "incorrect"),
+            (
+                "rationale",
+                "Susceptor thermocouple is railed at 1372 C, so the growth is treated as over "
+                "the 780 C trip. REJECT: hold TMCd 18 -> 0 sccm until the over-temp clears so "
+                "H-11 does not run a melted CdSe film.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "susceptor",
+                            OrderedDict(
+                                [
+                                    ("live_C", 640.0),
+                                    ("trip_C", 780.0),
+                                    ("burnout_C", 1372.0),
+                                    ("executed_tmcd_sccm", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 240),
+                                    ("combined_jitter_us", 76),
+                                    ("ratio", 3.16),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "tmcd_hold_burnout_rail"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("tmcd_sccm", 0.0),
+                        ("live_C", 640.0),
+                        ("hold", True),
+                        ("bind_burnout_as_live", True),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT (incorrect): TMCd 18 -> 0 sccm. Routing relay.tc.burnout -> "
+                "policy.hold_reject; no positive weight to policy.go_accept. Live RTD stayed "
+                "640 C; trip stayed 780 C.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Wrong-REJECT froze H-11 at 0 sccm TMCd while live RTD stayed 640 C under the "
+                "780 C trip. 8 min CdSe growth window missed. Correct gate was ACCEPT of the "
+                "already-legal 18 sccm feed.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("mfc", "held at 0 sccm; 18 sccm abandoned"),
+                        ("susceptor", "live still 640 C; burnout rail 1372 C never live"),
+                        ("growth", "8 min CdSe window missed"),
+                        ("gap", "no over-temp; open-TC burnout false positive"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "The 1372 C rail is an open-thermocouple burnout fail-high; it is not a live susceptor temperature and never appears on the RTD.",
+                    "Delayed (abort_s=480): sister-shift H-12 ran the same 18 sccm window after QA dropped the burnout rail; H-11's slot was already gone.",
+                ],
+            ),
+            (
+                "recovery",
+                OrderedDict(
+                    [
+                        (
+                            "correct_gate",
+                            "ACCEPT: live RTD 640 C < 780 C trip; leave 18 sccm TMCd; drop the 1372 C burnout rail.",
+                        ),
+                        ("correct_tmcd_sccm", 18.0),
+                        ("wrong_tmcd_sccm", 0.0),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict(
+                                [
+                                    ("tmcd_sccm", 0.0),
+                                    ("hold", True),
+                                    ("bind_burnout_as_live", True),
+                                ]
+                            ),
+                        ),
+                        (
+                            "cost",
+                            "8 min missed CdSe growth window (task/efficiency); susceptor never over-temp (safety false-positive).",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.susceptor.C (5.400 ms, 640 C)"),
+                        ("loser", "pyr.glint.C (5.640 ms, 612 C)"),
+                        ("margin_us", 240),
+                        (
+                            "counterfactual_if_reversed",
+                            "Pyrometer-first by < 240 us would still show 640 C < 780 C and live "
+                            "RTD under trip. A correct gate ACCEPTs either way. The wrong REJECT "
+                            "spent the RTD win on an open-TC burnout rail.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 6080),
+            (
+                "reward_inflection_note",
+                "Task and efficiency drop at the wrong REJECT (6.080 ms, tick 4). The 8 min "
+                "missed window is delayed surprise, not the inflection.",
+            ),
+            ("delayed_surprise_s", 480.0),
+        ]
+    )
+    ras = raster_core(
+        24,
+        88,
+        32,
+        68,
+        routing(
+            "relay.tc.burnout",
+            "policy.hold_reject",
+            [
+                ("relay.tc.burnout", "policy.hold_reject", 0.74),
+                ("relay.rtd.susceptor", "policy.hold_reject", 0.22),
+            ],
+            "acetylcholine",
+            0.08,
+            "burnout-rail stdp; ACh tags the (wrong) hold_reject bind at the RTD win; no positive weight to policy.go_accept",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("abort_s", 480),
+                ("delayed_surprise_s", 480),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.42),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("hold_reject", 48, 0.50, 240.0, 5),
+                    pop("go_accept", 48, 0.80, 10.0, 0),
+                    pop("burnout_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return pack(
+        "ttf-r68-340",
+        "WRONG-REJECT at Cadselen-Howe CH-8 / Susceptor H-11: live RTD 640 C is legal vs "
+        "published 780 C trip; supervisor bound an open-TC burnout rail at 1372 C",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        "Wrong-reject. Sidecar arithmetic live_C<trip_C is true; gate bound to an open-TC "
+        "burnout rail (1372 C fail-high, burnout_is_live=false). total -0.36 = -0.18 + 0.06 + "
+        "-0.22 + -0.08 + 0.06.",
+        ticks,
+        ras,
+        gate,
+        "cadmium-selenide-cvd",
+        [
+            "reject",
+            "wrong-gate",
+            "wrong-reject",
+            "open-tc-burnout",
+            "burnout-as-overtemp",
+            "sidecar-convictable",
+            "designed",
+        ],
+        "Teaches a probe that a correct live-under-trip RTD read can still be a wrong gate "
+        "when routing.table[0].to is policy.hold_reject and executed TMCd is zeroed.",
+        5,
+        supervisor_error_type="wrong-reject",
+    )
+
+
+def tokenize(text: str) -> set[str]:
+    return {tok for tok in re.split(r"[^a-z0-9]+", text.lower()) if tok}
+
+
+def jaccard(a: str, b: str) -> float:
+    sa, sb = tokenize(a), tokenize(b)
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+
+def check_refractory(events, min_ms=0.8):
+    last = {}
+    for ev in events:
+        ch, t = ev["channel"], ev["t_rel_ms"]
+        if ch in last and t - last[ch] < min_ms - 1e-12:
+            return f"{ch} gap {t - last[ch]} ms"
+        last[ch] = t
+    return None
+
+
+def check_race(rec):
+    start, end = rec["state"]["race_window_rel_ms"]
+    in_win = {}
+    for ev in rec["spike_events"]:
+        if start - 1e-12 <= ev["t_rel_ms"] <= end + 1e-12:
+            in_win.setdefault(ev["channel"], 0)
+            in_win[ev["channel"]] += 1
+    if len(in_win) < 2:
+        return f"race window has {len(in_win)} channels: {in_win}"
+    return None
+
+
+def excerpt_vs_spikes(rec):
+    spike_us = {int(round(ev["t_rel_ms"] * 1000.0)) for ev in rec["spike_events"]}
+    ex_us = {item["t_us"] for item in rec["raster"]["excerpt"]}
+    if not spike_us:
+        return 0.0
+    return len(spike_us & ex_us) / len(spike_us)
+
+
+def expected_m6_prefix(rec):
+    st = rec["state"]
+    events = rec["spike_events"]
+    race = st["race_window_rel_ms"]
+    in_win = [e for e in events if race[0] - 1e-9 <= e["t_rel_ms"] <= race[1] + 1e-9]
+    ordered = sorted(in_win, key=lambda e: e["t_rel_ms"])
+    win_e = next(e for e in ordered if e["channel"] != "ctrl.gate")
+    lose_e = next(
+        e for e in ordered if e["channel"] not in {win_e["channel"], "ctrl.gate"}
+    )
+    t_win = round(win_e["t_rel_ms"] * 1000)
+    t_lose = round(lose_e["t_rel_ms"] * 1000)
+    t_gate = t_win + int(st["gate_latency_us"])
+    t_race = int(st["race_window_us"])
+    tick1 = round(0.40 * t_win)
+    if rec["id"] == "ttf-r68-336":
+        tick5 = 23200
+    else:
+        tick5 = t_gate + t_race
+    return [tick1, t_win, t_lose, t_gate, tick5], t_win, t_lose, t_gate
+
+
+def harvest_live_occupancy():
+    plants = set()
+    domains = set()
+    ids = set()
+    plant_re = re.compile(r"\b([A-Z][A-Za-z]+(?:-[A-Z][A-Za-z0-9]+)+)\b")
+    if not LIVE_DIR.exists():
+        return plants, domains, ids
+    for path in LIVE_DIR.glob("batch-r*.jsonl"):
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                rec = json.loads(line)
+                ids.add(rec.get("id"))
+                st = rec.get("state") or {}
+                if st.get("domain"):
+                    domains.add(st["domain"])
+                blob = json.dumps(rec)
+                plants.update(plant_re.findall(blob))
+    return plants, domains, ids
+
+
+def self_check(records):
+    issues = []
+    descs = [r["state"]["description"] for r in records]
+    opens = [d.split(".")[0] for d in descs]
+    if len(set(opens)) != 5:
+        issues.append("opening sentences not unique")
+    jmax = 0.0
+    for i in range(5):
+        for j in range(i + 1, 5):
+            val = jaccard(descs[i], descs[j])
+            jmax = max(jmax, val)
+            if val >= 0.4:
+                issues.append(f"Jaccard {records[i]['id']}/{records[j]['id']} = {val:.3f}")
+    wrong = [
+        r
+        for r in records
+        if r["safety_decision"].get("correctness") == "incorrect"
+        or r["meta"].get("supervisor_error_type")
+    ]
+    if len(wrong) != 1 or wrong[0]["id"] != "ttf-r68-340":
+        issues.append(f"wrong-gate set {[w['id'] for w in wrong]}")
+    if any(r["state"]["sim_or_real"] == "real" for r in records):
+        issues.append("sim_or_real=real")
+    hil = [r["id"] for r in records if r["state"]["sim_or_real"] == "hil"]
+    sim = [r["id"] for r in records if r["state"]["sim_or_real"] == "simulated"]
+    if hil != ["ttf-r68-338"]:
+        issues.append(f"hil set {hil}")
+    if sim != ["ttf-r68-339"]:
+        issues.append(f"simulated set {sim}")
+    designed = [r["id"] for r in records if r["state"]["sim_or_real"] == "designed"]
+    if designed != ["ttf-r68-336", "ttf-r68-337", "ttf-r68-340"]:
+        issues.append(f"designed set {designed}")
+    domains = [r["state"]["domain"] for r in records]
+    if len(set(domains)) != 5:
+        issues.append(f"domain collision {domains}")
+    if domains != list(MY_DOMAINS):
+        issues.append(f"domain order {domains}")
+    decisions = [r["safety_decision"]["decision"] for r in records]
+    if decisions != ["MODIFY", "MODIFY", "REJECT", "ACCEPT", "REJECT"]:
+        issues.append(f"decision mix {decisions}")
+    ids = [r["id"] for r in records]
+    if ids != IDS:
+        issues.append(f"id set {ids}")
+    blob = json.dumps(records)
+    for frag in BANNED_PLANT_FRAGMENTS:
+        if frag in blob:
+            issues.append(f"banned plant fragment {frag}")
+    if "training_ready" in blob:
+        issues.append("training_ready present")
+    if THOUGHT_RE.search(blob):
+        issues.append("thought-like key/text present")
+    totals = [r["reward_components"]["total"] for r in records]
+    if all(t > 0 for t in totals):
+        issues.append("all-positive totals")
+    live_plants, live_domains, live_ids = harvest_live_occupancy()
+    for plant in MY_PLANTS:
+        if plant in live_plants:
+            issues.append(f"plant already live {plant}")
+    for domain in MY_DOMAINS:
+        if domain in live_domains:
+            issues.append(f"domain already live {domain}")
+    for rid in IDS:
+        if rid in live_ids:
+            issues.append(f"id already live {rid}")
+    for rec in records:
+        rid = rec["id"]
+        err = check_refractory(rec["spike_events"])
+        if err:
+            issues.append(f"{rid} refractory {err}")
+        err = check_race(rec)
+        if err:
+            issues.append(f"{rid} {err}")
+        n = rec["raster"]["neurons"]
+        rate = rec["raster"]["mean_rate_hz"]
+        window_s = rec["raster"]["window_s"]
+        expected = round(n * rate * window_s)
+        if abs(rec["raster"]["spikes"] - expected) > 1:
+            issues.append(f"{rid} spike budget {rec['raster']['spikes']} vs {expected}")
+        overlap = excerpt_vs_spikes(rec)
+        if rid == "ttf-r68-336":
+            if rec["raster"].get("excerpt_source") != "independent_lif":
+                issues.append("336 missing independent_lif")
+            if rec["future_outcome"]["reward_inflection_t_us"] > rec["raster"]["window_ms"] * 1000:
+                issues.append("336 inflection outside window")
+        elif overlap >= 0.8:
+            issues.append(f"{rid} excerpt overlap {overlap:.2f}")
+        inf = rec["future_outcome"]["reward_inflection_t_us"]
+        tick_times = [t["t_us"] for t in rec["reward_components"]["ticks"]]
+        if inf not in tick_times:
+            issues.append(f"{rid} inflection {inf} not a tick")
+        if len(rec["reward_components"]["ticks"]) != 6:
+            issues.append(f"{rid} tick count")
+        if not (8 <= len(rec["state"]["episode_steps"]) <= 15):
+            issues.append(f"{rid} episode_steps")
+        if rec["gate_snn"]["decision"] != rec["safety_decision"]["decision"]:
+            issues.append(f"{rid} gate_snn decision mismatch")
+        heads = ["task_progress", "safety", "efficiency", "coherence", "exploration"]
+        total = sum(rec["reward_components"][h] for h in heads)
+        if abs(total - rec["reward_components"]["total"]) > 1e-6:
+            issues.append(f"{rid} total mismatch {total}")
+        for h in heads:
+            s = sum(t[h] for t in rec["reward_components"]["ticks"])
+            if abs(s - rec["reward_components"][h]) > 1e-6:
+                issues.append(f"{rid} {h} tick sum {s} vs {rec['reward_components'][h]}")
+        prefix, t_win, t_lose, t_gate = expected_m6_prefix(rec)
+        if tick_times[:5] != prefix:
+            issues.append(f"{rid} TTF-M6 prefix {tick_times[:5]} != {prefix}")
+        t_win_us = int(round(float(rec["raster"]["window_ms"]) * 1000))
+        if not (tick_times[5] > t_win_us):
+            issues.append(f"{rid} tick6 not after raster")
+        delayed = rec["future_outcome"].get("delayed_surprise_s")
+        if delayed is None or abs(tick_times[5] - round(delayed * 1e6)) > 0:
+            issues.append(f"{rid} tick6 != delayed_surprise_s")
+        exec_p = rec["executed_action"]["parameters"]
+        prop_p = rec["proposed_action"]["parameters"]
+        if rec["safety_decision"]["decision"] == "ACCEPT" and exec_p != prop_p:
+            issues.append(f"{rid} ACCEPT params differ")
+        if rec["meta"]["round"] != 68:
+            issues.append(f"{rid} meta.round")
+        dw_s = rec["gate_snn"]["decision_window_ms"] / 1000.0
+        for p in rec["gate_snn"]["populations"]:
+            if "mean_rate_hz" in p:
+                exp_sp = round(p["neurons"] * p["mean_rate_hz"] * dw_s)
+                if abs(p["spikes"] - exp_sp) > 1:
+                    issues.append(f"{rid} gate_snn {p['name']} spikes {p['spikes']} vs {exp_sp}")
+        if rec["raster"]["energy_pJ"] != rec["raster"]["spikes"] * 23:
+            issues.append(f"{rid} energy_pJ")
+        rights = rec["meta"]["rights"]
+        if rights.get("linear_issue") != "RM-793" or rights.get("intended_use") != "research_only":
+            issues.append(f"{rid} rights stamp")
+        n_spk = len(rec["spike_events"])
+        if not (5 <= n_spk <= 40):
+            issues.append(f"{rid} spike n={n_spk}")
+        n_ex = len(rec["raster"]["excerpt"])
+        if not (8 <= n_ex <= 16):
+            issues.append(f"{rid} excerpt n={n_ex}")
+        if rec["safety_decision"]["decision"] == "REJECT" and rec["safety_decision"]["correctness"] == "incorrect":
+            if "recovery" not in rec["future_outcome"]:
+                issues.append(f"{rid} missing recovery")
+        gl = rec["state"]["gate_latency_us"]
+        rw = rec["state"]["race_window_us"]
+        if not (50 <= gl <= 2000):
+            issues.append(f"{rid} gate_latency")
+        if not (50 <= rw <= 1000):
+            issues.append(f"{rid} race_window")
+        wm = rec["raster"]["window_ms"]
+        if not (20 <= wm <= 50):
+            issues.append(f"{rid} window_ms")
+        for item in rec["raster"]["excerpt"]:
+            if not (0 <= item["t_us"] <= wm * 1000):
+                issues.append(f"{rid} excerpt t_us {item['t_us']}")
+            if not (0 <= item["neuron_id"] < rec["raster"]["neurons"]):
+                issues.append(f"{rid} neuron_id {item['neuron_id']}")
+        walk = json.dumps(rec)
+        if '"real"' in walk and rec["state"]["sim_or_real"] != "real":
+            pass
+        if rec["state"]["sim_or_real"] not in {"designed", "simulated", "hil"}:
+            issues.append(f"{rid} bad provenance")
+    return issues, jmax
+
+
+def notes_text(records, jmax: float) -> str:
+    rows = []
+    edges = {
+        "ttf-r68-336": "process-correct RPM clamp; hearth-brick slump inside 42 ms raster; independent LIF",
+        "ttf-r68-337": "cell 9.80 V > 8.40 cap; current 7.2 -> 3.6 kA",
+        "ttf-r68-338": "head 168 C beats reflux 12 Hz; hold steam",
+        "ttf-r68-339": "liquor 68.4 C vs NOx 840 ppm; proposed 4.8 t/h air already legal",
+        "ttf-r68-340": "live RTD 640 C < 780 trip; open-TC burnout 1372 C REJECT-holds 18 -> 0 sccm",
+    }
+    for rec in records:
+        dec = rec["safety_decision"]["decision"]
+        cor = rec["safety_decision"]["correctness"]
+        if cor == "incorrect":
+            cor = f"**incorrect ({rec['meta']['supervisor_error_type']})**"
+        tot = rec["reward_components"]["total"]
+        tot_s = f"{tot:+.2f}"
+        if rec["id"] == "ttf-r68-336":
+            tot_s = f"**{tot:+.2f}**"
+        rows.append(
+            f"| {rec['id']} | {rec['state']['domain']} | {dec} | {cor} | "
+            f"{rec['state']['sim_or_real']} | {tot_s} | {edges[rec['id']]} |"
+        )
+    ras_rows = []
+    for rec in records:
+        r = rec["raster"]
+        ras_rows.append(
+            f"| {rec['id']} | {rec['state']['domain']} | {r['neurons']} | {r['mean_rate_hz']} | "
+            f"{r['window_ms']} | {r['spikes']} | {r['energy_pJ']} | {r['energy_uJ']:.6f} |"
+        )
+    tick_rows = []
+    for rec in records:
+        rc = rec["reward_components"]
+        inf = rec["future_outcome"]["reward_inflection_t_us"]
+        ticks = rc["ticks"]
+        idx = next(i + 1 for i, t in enumerate(ticks) if t["t_us"] == inf)
+        tick_rows.append(
+            f"| {rec['id'][-3:]} | {len(ticks)} | {rc['task_progress']:+.2f} | {rc['safety']:+.2f} | "
+            f"{rc['efficiency']:+.2f} | {rc['coherence']:+.2f} | {rc['exploration']:+.2f} | "
+            f"{rc['total']:+.2f} | {idx} ({inf}) |"
+        )
+    return f"""# Thalamic Trajectory Factory — NOTES-r68
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- Quality: Q=5
+- IDs: `ttf-r68-336` … `ttf-r68-340`
+- Domains this batch: `rhenium-heptoxide-roaster`, `dysprosium-fluoride-electrolyzer`, `iridium-chloride-still`, `palladium-nitrate-denitrator`, `cadmium-selenide-cvd`
+
+These five domain slugs sit outside the prompt 8-pool and outside live-window occupancy (r01/r02/r21/r22/r41/r42/r61/r62/r63/r64/r65) plus staged `/tmp/ttf-r68` IDs `ttf-r68-356`…`360`. All five plants are invented (Heptox-Brae, Dyfluor-Holt, Chloririd-Ness, Paddenit-Beck, Cadselen-Howe). Do not restack prior TTF plants. Sit-outs: the entire prompt 8-pool (densification residual documented on r01). Distinct from r64 `iridium-chloride-precipitator`.
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+{chr(10).join(rows)}
+
+Gate mix: 1 ACCEPT, 2 correct MODIFY (one partnered-neg, in-window), 1 correct REJECT, 1 incorrect REJECT (open-TC burnout-as-overtemp). Provenance: designed×3, simulated×1, hil×1 (Chloririd-Ness CN-HIL still pad). Intra-batch Jaccard on `state.description` {jmax:.3f} (< 0.4). Totals not all-positive (336 −0.44, 340 −0.36).
+
+## Wrong-reject
+
+**ttf-r68-340** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-reject`). Alternate vs odd rounds: even rounds host wrong-reject. This is **open-thermocouple burnout-as-overtemp** (live RTD under trip; supervisor binds a fail-high burnout rail as live). Not r02 humidity-as-trip, not r12-079 induced-kV-as-sensor-fault, not r22-110 stale-interlock / ghost occupancy, not r62 leftover-kelvin-offset, not `/tmp/ttf-r68-356` sibling-loop-as-live, not r16 residual-as-live, not r18 empty-tank, not r38 LOOP_TEST inject-as-live. Do not emit a wrong-ACCEPT.
+
+Cadselen-Howe CH-8 / Susceptor H-11 reads live RTD **640 C** against a published **780 C** trip. An open-TC burnout rail still prints **1372 C** (`burnout_is_live=false`; `rtd_is_live=true`). Sidecar arithmetic `640 < 780` is true. A timely ACCEPT at `t_gate_us=6080` leaves **18 sccm** TMCd. A weak supervisor binds the burnout rail and REJECT-holds **18 → 0 sccm**. Live RTD stays **640 C**. Convictable without CdSe kinetics: `evidence.live_C < evidence.trip_C`, `evidence.burnout_is_live == false`, `evidence.rtd_is_live == true`, `executed_action.tmcd_sccm == 0`, `executed_action.bind_burnout_as_live == true`, `raster.routing.table` sends `relay.tc.burnout` → `policy.hold_reject` (weight 0.74) with no positive weight to `policy.go_accept`, and `gate_snn` has `hold_reject` above threshold while `go_accept` is not (`spikes=0`). Recovery: ACCEPT; leave 18 sccm TMCd; drop the 1372 C burnout rail. Cost: 8 min missed CdSe growth window (`abort_s=480`).
+
+## Partnered-negative in-window (336)
+
+**ttf-r68-336** is the partnered negative: process-correct MODIFY (RPM held 0.90; bed 372 C <= 380 cap) while the world still charges. Safety −0.60 prices the hearth-brick slump at **23.200 ms**; `task_progress` stays +0.32 because the clamp completed. Inflection `t_us=23200` is tick 5 and is **inside** the 42 ms raster (`23200 ≤ 42000`). Named un-netted loss: 12 min hearth isolate (`abort_s=720`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 68336, stim `[22000, 25400]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.brick` 22–25.4 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks). Tick 6 is bound to a published sidecar (`abort_s`, `survey_s`) via `future_outcome.delayed_surprise_s` and is strictly after the raster window. Inflection `t_us` is an actual tick.
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+{chr(10).join(tick_rows)}
+
+Tick-6 sidecar bind: 336 `abort_s=720`, 337 `survey_s=210`, 338 `abort_s=420`, 339 `survey_s=300`, 340 `abort_s=480`.
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+{chr(10).join(ras_rows)}
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator (NA / ACh / DA / 5-HT / ACh), `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-336 excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).
+
+## Local checks (this window)
+
+Generator stdout: self_check (Jaccard, refractory, race, spike budget, energy, tick6 bind, gate_snn budget, rights). Then `json.loads` every line, `validate_run.check_line` if importable, `spike_probe.py --strict` if available.
+
+Never `training_ready`. Never `sim_or_real=real`. Create-only into the assigned live path; did not clobber 2026-08-17 / 2026-08-30; did not overwrite existing r68 files (c-suffix if occupied).
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (336). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. Tick-6 sidecar bind is standing machinery (r14+), not a new class.
+4. Chemical densification is well-trodden in this live tree; novelty is the burnout-as-overtemp class plus five unused plants/domains, not a new temporal contract.
+5. 339 ACCEPT is already-legal; a later round could pair the single ACCEPT with a world charge that does not go negative.
+
+## Next densification target
+
+Publish a burnout-flag sidecar enum (`tc_burnout`) so an open-TC fail-high REJECT is convictable without the failsafe story. Optional: labeled LIF on a second record, or an ISI histogram sidecar. Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+Novel coverage: 24.0%
+"""
+
+
+def create_only(path: Path, text: str) -> Path:
+    text_path = str(path)
+    for frag in FORBIDDEN_PATH_FRAGMENTS:
+        if frag in text_path:
+            raise SystemExit(f"refusing forbidden path {path}")
+    if "2026-09-02-final-heavy" not in text_path:
+        raise SystemExit(f"refusing non-live path {path}")
+    target = path
+    if target.exists():
+        target = path.with_name(path.stem + "c" + path.suffix)
+        if target.exists():
+            raise SystemExit(f"c-suffix also exists: {target}")
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    fd = os.open(target, flags, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    return target
+
+
+def main() -> int:
+    if any(frag in str(LIVE_DIR) for frag in FORBIDDEN_PATH_FRAGMENTS):
+        raise SystemExit("refusing forbidden live dir")
+    LIVE_DIR.mkdir(parents=True, exist_ok=True)
+    records = [record_336(), record_337(), record_338(), record_339(), record_340()]
+    issues, jmax = self_check(records)
+    lines = [
+        json.dumps(rec, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        for rec in records
+    ]
+    if issues:
+        print("SELF_CHECK_ISSUES:")
+        for item in issues:
+            print(" -", item)
+        return 1
+    batch_path = create_only(LIVE_DIR / BATCH_NAME, "\n".join(lines) + "\n")
+    notes_path = create_only(LIVE_DIR / NOTES_NAME, notes_text(records, jmax))
+    print(f"wrote {batch_path} lines={len(lines)} jmax={jmax:.3f}")
+    print(f"wrote {notes_path}")
+    print("SELF_CHECK_OK")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

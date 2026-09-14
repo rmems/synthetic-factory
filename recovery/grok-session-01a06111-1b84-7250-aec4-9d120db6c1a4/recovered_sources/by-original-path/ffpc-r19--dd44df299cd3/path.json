@@ -1,0 +1,52 @@
+{
+  "agent_ids": [
+    "01a0640a-3690-74a3-b81e-f79a426f70c3"
+  ],
+  "classification": "high-confidence",
+  "classification_evidence": [
+    "latest state includes a completed deterministic terminal write/copy/concatenation replayed statically"
+  ],
+  "event_count": 0,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 0,
+  "original_basename": "build_chosen.py",
+  "original_path": "/tmp/ffpc-r19/build_chosen.py",
+  "path_key": "ffpc-r19--dd44df299cd3",
+  "terminal_event_ids": [
+    "01a0640a-3690-74a3-b81e-f79a426f70c3:call-1538e27c-59fb-4c79-a518-f4406f282e93-73"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a0640a-3690-74a3-b81e-f79a426f70c3",
+      "basename_preserved": true,
+      "bytes": 30153,
+      "classification": "high-confidence",
+      "classification_evidence": [
+        "terminal call completed with exit code 0",
+        "literal copy source and destination were recorded",
+        "source state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 412,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640a-3690-74a3-b81e-f79a426f70c3/updates.jsonl",
+      "original_basename": "build_chosen.py",
+      "original_path": "/tmp/ffpc-r19/build_chosen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r19--dd44df299cd3/versions/v0001/build_chosen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r19--dd44df299cd3/versions/v0001/build_chosen.py",
+      "session_id": "01a0640a-3690-74a3-b81e-f79a426f70c3",
+      "sha256": "767b8103832d7d68992088da2ca727996dc6c6a9b38c2a5012f77579edc16143",
+      "source_channel": "terminal",
+      "source_event_id": "01a0640a-3690-74a3-b81e-f79a426f70c3:call-1538e27c-59fb-4c79-a518-f4406f282e93-73",
+      "source_operation": "copy",
+      "timestamp_ms": 1788388359012,
+      "timestamp_utc": "2026-09-02T22:32:39.012Z",
+      "tool_call_id": "call-1538e27c-59fb-4c79-a518-f4406f282e93-73",
+      "version": 1,
+      "version_id": "ffpc-r19--dd44df299cd3:v0001"
+    }
+  ]
+}

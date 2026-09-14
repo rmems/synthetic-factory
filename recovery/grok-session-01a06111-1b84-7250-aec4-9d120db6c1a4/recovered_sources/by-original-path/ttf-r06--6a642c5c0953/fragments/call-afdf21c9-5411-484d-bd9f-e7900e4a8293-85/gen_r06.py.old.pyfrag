@@ -1,0 +1,47 @@
+            "name": "cruise_quay_survey",
+            "parameters": dict(params),
+            "evidence": {
+                "tether_N": 162.0,
+                "tether_cap_N": 240.0,
+                "dvl_mps": 0.18,
+                "dvl_cap_mps": 0.40,
+                "survey_mps": 0.22,
+                "survey_cap_mps": 0.30,
+                "race_margin_us": 360,
+                "combined_jitter_us": 88,
+            },
+            "basis": "Planner proposes 0.22 m/s quay survey: tether 162 N is under 240 N and DVL 0.18 m/s is under 0.40 m/s, so both envelopes already allow the pass.",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "correctness": "correct",
+            "rationale": "Tether 162 N won by 360 us and is under the 240 N cap. DVL 0.18 m/s is under the 0.40 m/s envelope. Proposed 0.22 m/s is under the 0.30 m/s envelope. ACCEPT: executed equals proposed.",
+            "constraint_checked": {
+                "tether_N": {"cap": 240.0, "observed": 162.0, "legal": True},
+                "dvl_mps": {"cap": 0.40, "observed": 0.18, "legal": True},
+                "survey_mps": {"cap": 0.30, "proposed": 0.22},
+                "order_evidence": {"margin_us": 360, "combined_jitter_us": 88, "ratio": 4.09},
+            },
+        },
+        "executed_action": {
+            "name": "cruise_quay_survey",
+            "parameters": dict(params),
+            "gate_effect": "ACCEPT: executed equals proposed 0.22 m/s quay survey at tether 162 N.",
+        },
+        "future_outcome": {
+            "summary": "Correct ACCEPT completed the quay survey under tether and DVL floors. Delayed log tags the already-legal bind on the next quay pass.",
+            "state_delta": {
+                "hull": "survey complete; peak 0.23 m/s < 0.30",
+                "wall": "unscoured",
+                "log": "2.5 min tag on next pass",
+            },
+            "surprises": [
+                "DVL stayed 0.17-0.18 m/s through the pass; tether never approached 240 N.",
+                "Delayed (2.5 min / delayed_surprise_s=150): log tags the already-legal tether-first bind.",
+            ],
+            "race_result": {
+                "winner": "tether.n (8.060 ms, 162 N under cap)",
+                "loser": "dvl.mps (8.420 ms, 0.18 m/s under envelope)",
+                "margin_us": 360,
+                "counterfactual_if_reversed": "DVL-first by < 360 us inside the 700 us window would still accept unless the envelope were a false 0.55 m/s trip. Both channels are inside limits.",
+            },

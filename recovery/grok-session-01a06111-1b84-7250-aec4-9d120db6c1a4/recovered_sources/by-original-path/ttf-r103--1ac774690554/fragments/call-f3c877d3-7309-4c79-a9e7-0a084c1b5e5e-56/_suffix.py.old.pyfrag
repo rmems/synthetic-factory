@@ -1,0 +1,25 @@
+        if rec["id"] == "ttf-r103-532":
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["live_lead_C"] > ev["cap_C"]):
+                issues.append("492 live lead C not over cap")
+            if not (ev["fresh_lag_C"] < ev["cap_C"]):
+                issues.append("492 fresh lag C not under cap")
+            if ev.get("fresh_tag_status") != "COMMISSIONING":
+                issues.append("492 fresh tag not COMMISSIONING")
+            if rec["executed_action"]["parameters"].get("bind_fresh_lag") is not True:
+                issues.append("492 bind_fresh_lag not true")
+            if rec["executed_action"]["parameters"].get("lead_lag_invert") is not True:
+                issues.append("492 lead_lag_invert not true")
+            if rec["executed_action"]["parameters"].get("steam_tph") != 18.6:
+                issues.append("492 steam should open to 18.6")
+            if rec["executed_action"]["parameters"].get("live_lead_C") != 148.0:
+                issues.append("492 live lead C should stay 148")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("492 missing recovery")
+            table_to = {row["to"] for row in rec["raster"]["routing"]["table"]}
+            if "policy.lead_cut" in table_to:
+                issues.append("492 routing still has lead_cut")
+            if "policy.lag_as_lead" not in table_to:
+                issues.append("492 routing missing lag_as_lead")
+            if "lead-lag-invert" not in rec["meta"]["tags"] or "fresh-tag" not in rec["meta"]["tags"]:
+                issues.append("492 missing lead-lag-invert/fresh-tag tags")

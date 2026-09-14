@@ -1,0 +1,10 @@
+            "thalamic-relay.faraday-beam",
+            "spikenaut.policy.beam-hold",
+            [
+                ("relay.faraday.beam", "policy.beam_hold", 0.71),
+                ("relay.rf.vswr", "policy.extract_go", 0.24),
+                ("relay.tc.dee", "policy.beam_hold", 0.09),
+            ],
+            "dopamine",
+            0.05,
+            "beam_cap_stdp; DA at Faraday win (6.140 ms) tags beam_hold over extract_go",

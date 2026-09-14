@@ -1,0 +1,913 @@
+def lif_146_excerpt():
+    n = 68
+    dt_us = 100
+    tau_m_ms = 18.0
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.90
+    i_stim_peak = 2.55
+    stim = (20000, 23000)
+    seed = 26146
+    window_us = 42000
+    i_clamp_extra = 0.65
+    clamp_n = 14
+    rng = random.Random(seed)
+    tau_s = tau_m_ms / 1000.0
+    dt_s = dt_us / 1e6
+    decay = math.exp(-dt_s / tau_s)
+    steps = window_us // dt_us
+    voltage = [rng.random() * v_th * 0.97 for _ in range(n)]
+    bias = [i_bias * (1.0 + 0.14 * (rng.random() * 2 - 1)) for _ in range(n)]
+    for i in range(clamp_n):
+        bias[i] += i_clamp_extra
+    ref = [0] * n
+    spikes = []
+    for step in range(steps):
+        t_us = step * dt_us
+        stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+        for i in range(n):
+            if ref[i] > 0:
+                ref[i] -= dt_us
+                voltage[i] = v_reset
+                continue
+            current = bias[i] + stim_i
+            voltage[i] = current + (voltage[i] - current) * decay
+            if voltage[i] >= v_th:
+                spikes.append((t_us, i))
+                voltage[i] = v_reset
+                ref[i] = refractory_us
+    early = [(t, nid) for t, nid in spikes if t < 20000]
+    burst = [(t, nid) for t, nid in spikes if 20000 <= t < 23000]
+    used = set()
+    last = {}
+    picked = []
+
+    def take(pool, want, label_times=None):
+        if not pool:
+            return
+        chosen_idx = set()
+        if label_times:
+            for target in label_times:
+                best = None
+                for idx, (t, nid) in enumerate(pool):
+                    if idx in chosen_idx or nid in used:
+                        continue
+                    if nid in last and t - last[nid] < 1000:
+                        continue
+                    if best is None or abs(t - target) < abs(best[0] - target):
+                        best = (t, nid, idx)
+                if best is not None:
+                    t, nid, idx = best
+                    picked.append((t, nid))
+                    used.add(nid)
+                    last[nid] = t
+                    chosen_idx.add(idx)
+        stride = max(1, len(pool) // max(want, 1))
+        for idx in range(0, len(pool), stride):
+            group = [1 for tt, _ in picked if (tt < 20000) == (pool[0][0] < 20000)]
+            if len(group) >= want:
+                break
+            t, nid = pool[idx]
+            if nid in used:
+                continue
+            if nid in last and t - last[nid] < 1000:
+                continue
+            picked.append((t, nid))
+            used.add(nid)
+            last[nid] = t
+
+    take(early, 7)
+    take(burst, 9, label_times=(21200, 21600, 22400))
+    clamp = [(t, nid) for t, nid in picked if t < 20000][:7]
+    tear = [(t, nid) for t, nid in picked if t >= 20000][:9]
+    picked = sorted(clamp + tear, key=lambda item: (item[0], item[1]))
+    channels = ["lif.clamp" if t < 20000 else "lif.chain" for t, _ in picked]
+    lif = OrderedDict(
+        [
+            ("model", "leaky_integrate_and_fire"),
+            ("n", 68),
+            ("dt_us", 100),
+            ("tau_m_ms", 18.0),
+            ("v_rest", 0.0),
+            ("v_reset", 0.0),
+            ("v_th", 1.0),
+            ("r_m", 1.0),
+            ("refractory_us", 1000),
+            ("i_bias", 0.90),
+            ("i_stim_peak", 2.55),
+            ("stim_t_us", [20000, 23000]),
+            ("i_clamp_extra", 0.65),
+            ("clamp_n", 14),
+            ("seed", 26146),
+            (
+                "note",
+                "Population sim scoped to this sidecar. Plant remains designed. "
+                "Neurons 0-13 carry +0.65 fuel-clamp bias; stim 20.0-23.0 ms is the hanging-chain burst.",
+            ),
+        ]
+    )
+    extra = OrderedDict(
+        [
+            ("excerpt_source", "independent_lif"),
+            ("sim_scope", "sidecar_only"),
+            ("lif", lif),
+            ("delayed_surprise_s", 900),
+        ]
+    )
+    return excerpt_items(picked, channels), extra
+
+
+def meta_block(
+    domain,
+    tags,
+    distillation_value,
+    batch_position,
+    supervisor_error_type=None,
+) -> OrderedDict:
+    body = OrderedDict(
+        [
+            ("round", 26),
+            ("factory", "thalamic-trajectory-factory"),
+            ("generator", "grok-4.6"),
+            ("run_label", "2026-09-02-final-heavy"),
+            ("domain", domain),
+        ]
+    )
+    if supervisor_error_type:
+        body["supervisor_error_type"] = supervisor_error_type
+    body["tags"] = tags
+    body["snn_tags"] = ["race", "refractory", "adaptation"]
+    body["distillation_value"] = distillation_value
+    body["rights"] = RIGHTS
+    body["batch_position"] = batch_position
+    return body
+
+
+def reward_block(ticks, notes) -> OrderedDict:
+    heads = ["task_progress", "safety", "efficiency", "coherence", "exploration"]
+    sums = {h: Decimal("0") for h in heads}
+    for item in ticks:
+        for h in heads:
+            sums[h] += Decimal(str(item[h]))
+    total = sum(sums.values(), Decimal("0"))
+    return OrderedDict(
+        [
+            ("_aggregation", AGG),
+            ("ticks", ticks),
+            ("task_progress", float(sums["task_progress"])),
+            ("safety", float(sums["safety"])),
+            ("efficiency", float(sums["efficiency"])),
+            ("coherence", float(sums["coherence"])),
+            ("exploration", float(sums["exploration"])),
+            ("total", float(total)),
+            ("notes", notes),
+        ]
+    )
+
+
+def pop(name, neurons, threshold, rate=None, spikes=None) -> OrderedDict:
+    body = OrderedDict(
+        [("name", name), ("neurons", neurons), ("threshold", threshold)]
+    )
+    if rate is not None:
+        body["mean_rate_hz"] = rate
+        body["spikes"] = spikes
+    return body
+
+
+def spike_avoid_us(events):
+    return {int(round(ev["t_rel_ms"] * 1000.0)) for ev in events}
+
+
+def record_146():
+    excerpt, extra = lif_146_excerpt()
+    ticks = [
+        tick(2200, 0.04, -0.02, -0.02, 0.01, 0.00),
+        tick(5180, 0.08, -0.04, -0.03, 0.01, -0.01),
+        tick(5392, 0.04, -0.03, -0.02, 0.00, 0.00),
+        tick(5860, 0.10, -0.06, -0.04, 0.02, -0.02),
+        tick(21200, 0.06, -0.36, -0.05, -0.02, -0.02),
+        tick(900000000, 0.02, -0.05, -0.02, 0.00, -0.01),
+    ]
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Hood-Pike HP-8 is already firing 1.80 t/h of natural gas at Marl-Knap MK-4 "
+                "when a zirconia O2 probe at the kiln hood reads 4.8 percent against a 5.5 percent "
+                "reducing-floor. O2-first clamps fuel; pyrometer-first would keep 1.80 t/h on a "
+                "still-hot-hood model. A hanging chain already fatigued in zone 3 does not appear "
+                "on O2 or hood pyrometry until the AE burst.",
+            ),
+            ("domain", "lime-rotary-kiln"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Hold hood O2 >= 5.5 percent while finishing the MK-4 lime pass, and leave the "
+                "hanging-chain curtain un-sheared.",
+            ),
+            ("t0_us", 1756843200000146),
+            ("gate_latency_us", 680),
+            ("race_window_us", 450),
+            ("race_window_rel_ms", [5.0, 5.45]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "o2.hood.pct 4.8 percent",
+                                "pyro.hood.C 978 C residual",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "O2-first latches fuel clamp 1.80 -> 1.35 t/h; pyrometer-first keeps "
+                            "1.80 t/h cruise on a 'hood still oxidizing' model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "450 us = one 2 kHz zirconia slot minus hood-pyrometer group delay on "
+                            "this burner bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 212 us vs combined jitter ~70 us (O2 32 + pyro 38): 3.0x over "
+                            "a 2.0x trust floor. Reversing order by < 212 us inside the 450 us window "
+                            "would have kept 1.80 t/h; predicted next-sample 4.6 percent < 5.5 floor.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "hood zirconia O2, 2 kHz, 32 us timestamp jitter",
+                    "hood two-color pyrometer 800-1200 C, 38 us jitter",
+                    "hanging-chain AE puck on zone 3, 50 kHz (context)",
+                    "fuel-train Coriolis (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("hood_o2_floor_pct", 5.5),
+                        ("hood_o2_pct", 4.8),
+                        ("hood_pyro_C", 978.0),
+                        ("proposed_fuel_t_h", 1.80),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Hood-Pike HP-8 indexed onto MK-4 lime; fuel 1.80 t/h, hood O2 4.8 percent.",
+                    "2. Reducing-floor 5.5 percent armed; hood pyrometer 978 C residual.",
+                    "3. Fuel-train precursor at 1.210 ms; zirconia warm-start 4.8 percent.",
+                    "4. Race window [5.000, 5.450] ms opens on the burner bus.",
+                    "5. o2.hood.pct 4.8 percent at 5.180 ms (winner).",
+                    "6. pyro.hood.C 978 C at 5.392 ms (loser by 212 us).",
+                    "7. Gate at 5.860 ms (winner + 680 us): MODIFY clamp 1.80 -> 1.35 t/h.",
+                    "8. Clamp executes; next-sample O2 5.7 percent >= 5.5 floor.",
+                    "9. At 21.200 ms hanging chain 11 shears; AE burst.",
+                    "10. 15 min chain swap (abort_s=900); named un-netted loss, not folded into process heads.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_hood_fuel"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("fuel_t_h", 1.80),
+                        ("kiln_rpm", 1.15),
+                        ("id_fan_pct", 62.0),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("hood_o2_pct", 4.8),
+                        ("hood_o2_floor_pct", 5.5),
+                        ("predicted_unclamped_next_pct", 4.6),
+                        ("hood_pyro_C", 978.0),
+                        ("race_margin_us", 212),
+                        ("combined_jitter_us", 70),
+                        ("abort_s", 900),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 1.80 t/h fuel cruise at 1.15 rpm: 978 C hood looks like a still-"
+                "oxidizing flame, not a reducing pocket, and the chain curtain is treated as still intact.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Hood zirconia 4.8 percent won by 212 us, so the flame is reducing, not still "
+                "oxidizing. Holding 1.80 t/h predicts next-sample 4.6 percent < 5.5 floor. MODIFY: "
+                "fuel 1.80 -> 1.35 t/h. Observed after clamp 5.7 percent >= 5.5. A full REJECT is "
+                "not indicated: a clean lime pass accepts 1.35 t/h.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "hood_o2_pct",
+                            OrderedDict(
+                                [
+                                    ("floor", 5.5),
+                                    ("observed", 4.8),
+                                    ("predicted_unclamped_next", 4.6),
+                                    ("clamped_fuel_t_h", 1.35),
+                                    ("observed_after_clamp", 5.7),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 212),
+                                    ("combined_jitter_us", 70),
+                                    ("ratio", 3.03),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_hood_fuel"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("fuel_t_h", 1.35),
+                        ("kiln_rpm", 1.15),
+                        ("id_fan_pct", 62.0),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: fuel 1.80 -> 1.35 t/h. Process-correct vs the 5.5 percent O2 floor. "
+                "Chain 11 still shears at 21.200 ms.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Process-correct MODIFY held hood O2 at 5.7 percent. At 21.200 ms a hanging chain "
+                "already fatigued in zone 3 sheared. Clamp reduced dump energy; it did not prevent "
+                "the shear. Partnered negative: process heads stay honest; world loss is named, "
+                "not netted.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("hood", "clamp executed; O2 peak 5.7 percent >= 5.5 floor"),
+                        ("chain_11", "sheared at 21.200 ms"),
+                        ("repair", "15 min chain swap (abort_s=900)"),
+                        ("mission", "MK-4 pass incomplete this circuit"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Neither hood O2 nor pyrometer predicted the fatigued chain; ae.chain.fall is a new channel at 21.200 ms, 15.340 ms after the gate, still inside the 42 ms raster.",
+                    "Delayed (abort_s=900): 15 min hanging-chain swap. Named un-netted loss, not folded into task_progress.",
+                ],
+            ),
+            (
+                "un_netted_loss",
+                "15 min chain swap after chain 11 shear. Safety head -0.56 prices the shear; "
+                "task_progress stays +0.34 because the fuel clamp completed under the 5.5 percent "
+                "floor. World loss is named here, not subtracted from process heads.",
+            ),
+            ("delayed_surprise_s", 900),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "o2.hood.pct (5.180 ms, 4.8 percent)"),
+                        ("loser", "pyro.hood.C (5.392 ms, 978 C)"),
+                        ("margin_us", 212),
+                        (
+                            "counterfactual_if_reversed",
+                            "Pyrometer-first by < 212 us inside the 450 us window would have kept "
+                            "1.80 t/h cruise; predicted next-sample 4.6 percent would have stayed "
+                            "under the 5.5 floor even without the chain. The MODIFY is still the "
+                            "correct process. The shear is a later world charge either way, cheaper "
+                            "with the clamp than without.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 21200),
+            (
+                "reward_inflection_note",
+                "Safety collapses at the 21.200 ms chain shear (tick t_us=21200), inside the "
+                "42 ms raster. The correct MODIFY at 5.860 ms is in the same excerpt. Do not put "
+                "inflection on the abort_s=900 swap tick.",
+            ),
+        ]
+    )
+    spikes = [
+        spike("enc.fuel.ctx", 1.210, 0.40),
+        spike("o2.hood.pct", 2.440, 0.56),
+        spike("pyro.hood.C", 3.880, 0.48),
+        spike("o2.hood.pct", 5.180, 1.31),
+        spike("pyro.hood.C", 5.392, 1.12),
+        spike("ctrl.gate", 5.860, 0.99),
+        spike("o2.hood.pct", 7.620, 0.80),
+        spike("pyro.hood.C", 10.140, 0.61),
+        spike("ctrl.gate", 14.050, 0.84),
+        spike("ae.chain.fall", 21.200, 1.46),
+        spike("ae.chain.fall", 22.880, 0.91),
+        spike("enc.fuel.ctx", 28.400, 0.39),
+        spike("o2.hood.pct", 35.100, 0.52),
+        spike("pyro.hood.C", 40.200, 0.44),
+    ]
+    ras = raster_core(
+        42,
+        68,
+        28,
+        80,
+        routing(
+            "thalamic-relay.hood-o2",
+            "spikenaut.policy.fuel-clamp",
+            [
+                ("relay.o2.hood", "policy.fuel_clamp", 0.67),
+                ("relay.pyro.hood", "policy.pyro_hold", 0.31),
+                ("relay.ae.chain", "policy.fuel_clamp", -0.44),
+            ],
+            "noradrenaline",
+            0.04,
+            "surprise-gated pre_post_stdp; NA at O2 win (5.180 ms) opens a 40 ms eligibility "
+            "trace that still covers the 21.200 ms chain shear",
+        ),
+        excerpt,
+        extra=extra,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.45),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("fuel_clamp", 44, 0.50, 280.0, 6),
+                    pop("pyro_hold", 44, 0.50, 70.0, 1),
+                    pop("o2_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r26-146"),
+            (
+                "title",
+                "Marl-Knap MK-4 / Hood-Pike HP-8: hood O2 beats pyrometer by 212 us; correct "
+                "MODIFY still eats an in-window hanging-chain shear (partnered negative total -0.44)",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Partnered negative. Process-correct MODIFY; world still charges inside the "
+                    "42 ms raster. total -0.44 = 0.34 + -0.56 + -0.18 + 0.02 + -0.06. Named chain "
+                    "swap (abort_s=900) is not netted into task_progress.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "lime-rotary-kiln",
+                    [
+                        "modify",
+                        "partnered-negative-total",
+                        "independent-lif-raster",
+                        "sidecar-sim-only",
+                        "in-window-world-charge",
+                        "designed",
+                    ],
+                    "A critic can see the world-charge as a LIF burst inside the raster while "
+                    "process heads stay honest. Credit assignment is spikes, not prose across a "
+                    "15 min chain swap.",
+                    1,
+                ),
+            ),
+        ]
+    )
+
+
+def record_147():
+    ticks = [
+        tick(1020, -0.02, -0.01, -0.02, -0.01, 0.00),
+        tick(4240, -0.03, -0.01, -0.03, -0.02, 0.01),
+        tick(4410, -0.02, -0.01, -0.03, -0.02, 0.00),
+        tick(5000, -0.08, -0.03, -0.09, -0.05, 0.01),
+        tick(6880, -0.02, -0.01, -0.02, -0.01, 0.01),
+        tick(1440000000, -0.02, -0.01, -0.03, -0.01, 0.00),
+    ]
+    spikes = [
+        spike("enc.winch.ctx", 0.640, 0.38),
+        spike("hyd.apron.MPa", 1.020, 0.42),
+        spike("hyd.apron.MPa", 2.880, 0.58),
+        spike("tide.staff.m", 3.440, 0.50),
+        spike("hyd.apron.MPa", 4.240, 1.29),
+        spike("tide.staff.m", 4.410, 1.18),
+        spike("ctrl.gate", 5.000, 1.02),
+        spike("hyd.apron.MPa", 6.880, 0.71),
+        spike("tide.staff.m", 9.220, 0.55),
+        spike("ctrl.gate", 13.400, 0.80),
+        spike("enc.winch.ctx", 18.100, 0.40),
+        spike("hyd.apron.MPa", 22.600, 0.49),
+        spike("tide.staff.m", 28.900, 0.44),
+    ]
+    excerpt = independent_excerpt(26147, 92, 31000, 14, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Apron-3 on Gull-Pontoon GP-5 is armed for a 0.08 m/s raise with hydraulic "
+                "pressure at 8.2 MPa under an 11.0 MPa cylinder cap. A tide staff still reports "
+                "2.40 m on a different loop whose own cap is 3.50 m. Hydraulics-first should "
+                "ACCEPT the raise; a weak supervisor that binds tide residual onto the apron cap "
+                "will REJECT a legal move.",
+            ),
+            ("domain", "ferry-linkspan"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Execute the 0.08 m/s apron raise while cylinder pressure stays <= 11.0 MPa; do "
+                "not spend a tide-staff residual on the apron hold.",
+            ),
+            ("t0_us", 1756843200000147),
+            ("gate_latency_us", 760),
+            ("race_window_us", 320),
+            ("race_window_rel_ms", [4.2, 4.52]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "hyd.apron.MPa 8.2 MPa",
+                                "tide.staff.m 2.40 m residual",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Hydraulics-first should ACCEPT 0.08 m/s (8.2 < 11.0 MPa apron cap). "
+                            "Tide-first tempts a weak supervisor to treat 2.40 m as an apron over-travel.",
+                        ),
+                        (
+                            "window_derivation",
+                            "320 us = one cylinder-PT sample minus tide-staff group delay on this "
+                            "linkspan bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 170 us vs combined jitter ~62 us (hyd 28 + tide 34): 2.7x over "
+                            "a 2.0x trust floor. Order is correctly hydraulics-first. The error is "
+                            "which loop the REJECT is bound to, not the race.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "apron cylinder PT, 4 kHz, 28 us jitter",
+                    "tide staff encoder, 20 Hz interpolated, 34 us jitter",
+                    "winch encoder (context)",
+                    "pontoon IMU heel (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("apron_cap_MPa", 11.0),
+                        ("apron_MPa", 8.2),
+                        ("tide_cap_m", 3.50),
+                        ("tide_m", 2.40),
+                        ("proposed_raise_m_s", 0.08),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Apron-3 latched to GP-5; raise 0.08 m/s armed.",
+                    "2. Cylinder PT 8.2 MPa; tide staff 2.40 m on a separate loop.",
+                    "3. Winch precursor at 0.640 ms.",
+                    "4. Race window [4.200, 4.520] ms.",
+                    "5. hyd.apron.MPa 8.2 MPa at 4.240 ms (winner).",
+                    "6. tide.staff.m 2.40 m at 4.410 ms (loser by 170 us).",
+                    "7. Gate at 5.000 ms: REJECT hold 0.00 m/s (incorrect).",
+                    "8. Legal raise cancelled; apron still 8.2 MPa < 11.0 cap.",
+                    "9. Tide 2.40 m remains under its own 3.50 m cap.",
+                    "10. Delayed missed_window_s=1440 (24 min tide window) while the ferry waits.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "apron_raise_08"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("raise_m_s", 0.08),
+                        ("hold", False),
+                        ("loop", "apron"),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("apron_MPa", 8.2),
+                        ("apron_cap_MPa", 11.0),
+                        ("apron_loop_id", "hydraulics"),
+                        ("tide_m", 2.40),
+                        ("tide_cap_m", 3.50),
+                        ("tide_loop_id", "tide_staff"),
+                        ("proposed_raise_m_s", 0.08),
+                        ("race_margin_us", 170),
+                        ("combined_jitter_us", 62),
+                        ("missed_window_s", 1440),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 0.08 m/s apron raise because cylinder PT 8.2 MPa is under "
+                "the 11.0 MPa apron cap; tide 2.40 m is a different loop under a 3.50 m cap.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "incorrect"),
+            (
+                "rationale",
+                "Tide staff 2.40 m looks like an apron over-travel over an 11.0 MPa cylinder "
+                "story, so the supervisor holds the raise at 0.00 m/s. Hydraulics-first is treated "
+                "as a noisy echo of the same loop. Over-caution on a floating pontoon is the "
+                "stated doctrine.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "apron_MPa",
+                            OrderedDict(
+                                [
+                                    ("cap", 11.0),
+                                    ("observed", 8.2),
+                                    ("executed_raise_m_s", 0.0),
+                                    ("loop_id", "hydraulics"),
+                                ]
+                            ),
+                        ),
+                        (
+                            "tide_m",
+                            OrderedDict(
+                                [
+                                    ("cap", 3.50),
+                                    ("observed", 2.40),
+                                    ("misbound_as", "apron_overtravel"),
+                                    ("loop_id", "tide_staff"),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 170),
+                                    ("combined_jitter_us", 62),
+                                    ("ratio", 2.74),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "apron_hold_wrong_loop"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("raise_m_s", 0.0),
+                        ("hold", True),
+                        ("loop", "apron"),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT (incorrect): raise 0.08 -> 0.00 m/s. Routing relay.tide.staff -> "
+                "policy.apron_hold; apron 8.2 MPa left unused as a go signal.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Wrong-REJECT held Apron-3 at 0.00 m/s. Cylinder 8.2 MPa was under the 11.0 MPa "
+                "cap; tide 2.40 m was a different loop under 3.50 m. 24 min tide window missed "
+                "(missed_window_s=1440). Correct gate was ACCEPT of the 0.08 m/s raise.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("apron", "held; raise 0.00 m/s; PT still 8.2 MPa < 11.0"),
+                        ("tide", "2.40 m residual unused, still < 3.50 m cap"),
+                        ("ferry", "24 min tide window missed"),
+                        ("mission", "raise deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Hydraulics-first was the correct order and the apron number was legal; the REJECT spent that win on the tide staff.",
+                    "Delayed (missed_window_s=1440): GP-5 loses the 24 min slack-water slot; next window 6.1 h.",
+                ],
+            ),
+            (
+                "recovery",
+                OrderedDict(
+                    [
+                        (
+                            "correct_gate",
+                            "ACCEPT the 0.08 m/s apron raise; leave tide 2.40 m to its own 3.50 m cap.",
+                        ),
+                        ("correct_loop", "hydraulics"),
+                        ("wrong_loop", "tide_staff"),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict([("raise_m_s", 0.0), ("hold", True)]),
+                        ),
+                        (
+                            "cost",
+                            "Missed 24 min tide window (task/efficiency); apron never exceeded 8.2 MPa (safety near-miss of a false hold).",
+                        ),
+                    ]
+                ),
+            ),
+            ("delayed_surprise_s", 1440),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "hyd.apron.MPa (4.240 ms, 8.2 MPa)"),
+                        ("loser", "tide.staff.m (4.410 ms, 2.40 m)"),
+                        ("margin_us", 170),
+                        (
+                            "counterfactual_if_reversed",
+                            "Tide-first by < 170 us would still be under the 3.50 m tide cap; "
+                            "a correct gate binds hyd.apron.MPa to raise_go either way. The wrong "
+                            "REJECT spent the hydraulics win on the wrong loop.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 5000),
+            (
+                "reward_inflection_note",
+                "Task, efficiency, and coherence drop at the wrong REJECT (5.000 ms, tick 4). "
+                "The 24 min missed slot is delayed surprise, not the inflection.",
+            ),
+        ]
+    )
+    ras = raster_core(
+        31,
+        92,
+        36,
+        103,
+        routing(
+            "relay.tide.staff",
+            "policy.apron_hold",
+            [
+                ("relay.tide.staff", "policy.apron_hold", 0.73),
+                ("relay.hyd.apron", "policy.apron_hold", 0.21),
+            ],
+            "acetylcholine",
+            0.06,
+            "loop_cap_stdp; ACh tags the (wrong) apron_hold bind at the tide residual",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("delayed_surprise_s", 1440),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.32),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("apron_hold", 50, 0.50, 250.0, 4),
+                    pop("raise_go", 50, 0.80, 20.0, 0),
+                    pop("tide_ctx", 30, 0.55, 140.0, 1),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r26-147"),
+            (
+                "title",
+                "WRONG-REJECT at Gull-Pontoon GP-5 / Apron-3: cylinder 8.2 MPa < 11.0 cap; "
+                "supervisor treats tide 2.40 m as apron over-travel",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Wrong-reject. Sidecar arithmetic 8.2 < 11.0 on apron is true; REJECT bound to "
+                    "tide residual. total -0.58 = -0.19 + -0.08 + -0.22 + -0.12 + 0.03.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "ferry-linkspan",
+                    [
+                        "reject",
+                        "wrong-gate",
+                        "wrong-loop",
+                        "sidecar-convictable",
+                        "designed",
+                    ],
+                    "Teaches a probe that a correct hydraulics-first race can still be a wrong gate "
+                    "when the REJECT binds tide residual onto the apron hold. Convictable from "
+                    "loop IDs and caps without marine hydraulics physics.",
+                    2,
+                    supervisor_error_type="wrong-reject",
+                ),
+            ),
+        ]
+    )

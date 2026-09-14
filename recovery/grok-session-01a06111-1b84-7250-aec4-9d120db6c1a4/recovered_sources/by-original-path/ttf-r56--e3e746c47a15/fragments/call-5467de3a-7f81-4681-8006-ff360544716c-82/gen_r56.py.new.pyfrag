@@ -1,0 +1,31 @@
+def record_299():
+    ticks = [
+        tick(2352, 0.06, 0.04, 0.03, 0.02, 0.01),
+        tick(5880, 0.10, 0.06, 0.04, 0.02, 0.02),
+        tick(6090, 0.06, 0.04, 0.02, 0.01, 0.01),
+        tick(6740, 0.12, 0.08, 0.05, 0.03, 0.02),
+        tick(7080, 0.05, 0.04, 0.02, 0.01, 0.01),
+        tick(540000000, 0.03, 0.02, 0.02, 0.01, 0.01),
+    ]
+    params = OrderedDict(
+        [
+            ("gap_mm", 18.0),
+            ("press_N_mm2", 4.20),
+            ("roll_id", 5),
+            ("hold", False),
+        ]
+    )
+    spikes = [
+        spike("ft.feed.ctx", 1.360, 0.42),
+        spike("pt.press.nmm", 2.980, 0.58),
+        spike("dp.gap.smear", 4.420, 0.50),
+        spike("pt.press.nmm", 5.880, 1.28),
+        spike("dp.gap.smear", 6.090, 1.10),
+        spike("ctrl.gate", 6.740, 0.96),
+        spike("pt.press.nmm", 8.900, 0.74),
+        spike("dp.gap.smear", 12.400, 0.60),
+        spike("ctrl.gate", 17.800, 0.82),
+        spike("pt.press.nmm", 24.200, 0.55),
+        spike("ft.feed.ctx", 29.400, 0.40),
+    ]
+    excerpt = independent_excerpt(56299, 64, 32000, 12, spike_avoid_us(spikes))

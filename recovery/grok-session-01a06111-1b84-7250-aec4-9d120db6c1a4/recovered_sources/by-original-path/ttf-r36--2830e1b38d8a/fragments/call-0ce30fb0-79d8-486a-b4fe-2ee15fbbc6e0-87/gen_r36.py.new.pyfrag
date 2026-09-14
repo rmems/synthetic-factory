@@ -1,0 +1,10 @@
+                    "galvanize-kettle",
+                    [
+                        "accept",
+                        "zinc",
+                        "bath-vs-dross",
+                        "already-legal-dip",
+                        "designed",
+                    ],
+                    "Teaches that a dross IR glare can lose to a bath RTD when both "
+                    "reads are under cap; reversing 220 us would have cut a legal dip.",

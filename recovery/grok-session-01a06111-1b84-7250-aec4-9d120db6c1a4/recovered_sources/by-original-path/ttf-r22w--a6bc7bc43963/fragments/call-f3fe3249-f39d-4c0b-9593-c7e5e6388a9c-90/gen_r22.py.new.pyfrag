@@ -1,0 +1,4 @@
+                "Susceptor 1048 C won by 192 us, so Boat B-4 is over the 1020 C GaN-growth cap, "
+                "not still a wet-boat story. Holding 0.42 slm predicts next-sample 1056 C > 1020. "
+                "MODIFY: GaCl 0.42 -> 0.26 slm. Observed after clamp 1008 C <= 1020. A full REJECT "
+                "is not indicated: a clean GaN pass accepts 0.26 slm.",

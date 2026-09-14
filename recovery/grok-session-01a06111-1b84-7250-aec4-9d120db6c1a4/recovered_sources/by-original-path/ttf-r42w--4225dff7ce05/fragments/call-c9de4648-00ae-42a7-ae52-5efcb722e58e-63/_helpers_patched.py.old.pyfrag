@@ -1,0 +1,3 @@
+    for path in sorted(Path("/tmp").glob("ttf-r*/batch-r*.jsonl")):
+        if path.parent.name == "ttf-r42w":
+            continue

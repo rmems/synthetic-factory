@@ -1,0 +1,1 @@
+                "Observation: acquire is a plain await with no shield (step 13). Re-run pytest tests/test_lease.py tests/test_lease_cancel.py to verify the leak is gone."

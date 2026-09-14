@@ -1,0 +1,19 @@
+                        (
+                            "furnace_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 1160.0),
+                                    ("observed", 1120.0),
+                                    ("executed_bar", 1030.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "jacket_bar",
+                            OrderedDict(
+                                [
+                                    ("cap", 55.0),
+                                    ("observed", 48.0),
+                                ]
+                            ),
+                        ),

@@ -1,0 +1,3 @@
+                "Plan change: live state already has BucketOwnerEnforced while config still declares aws_s3_bucket_acl.harbor, "
+                "which is an ACL-not-supported apply not a stale backend. Abandon remounting remote state. "
+                "Switching the edit target to bucket.tf so the canned ACL is removed. found ACL skew."

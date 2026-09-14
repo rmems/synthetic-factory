@@ -1,0 +1,1 @@
+oven temperature recomputes from the serialized NTC model at every recon.T event

@@ -1,0 +1,4 @@
+            clock_domain="th3-rheo-sim-relative-ms-t0-2026-08-19T03:00:00Z",
+            tags=["capillary-rheometer", "ACCEPT", "REJECT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }

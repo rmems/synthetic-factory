@@ -1,0 +1,8 @@
+    eta = k_b * ratio
+    _exact(eta, 480.00)
+    _exact(k_b * (4.80 / v_i), 576.00)
+    _exact(k_b * (4.50 / v_i), 540.00)
+    _exact(k_b * (3.50 / v_i), 420.00)
+    k_id = eta / ratio
+    _exact(k_id, 600.00)
+    _exact(2820.0 + 1440.0, 4260.0)

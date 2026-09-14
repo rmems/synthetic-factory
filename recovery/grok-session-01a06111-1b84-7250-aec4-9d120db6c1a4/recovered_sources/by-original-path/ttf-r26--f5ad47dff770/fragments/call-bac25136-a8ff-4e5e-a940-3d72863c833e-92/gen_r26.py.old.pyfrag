@@ -1,0 +1,11 @@
+                        ("winner", "o2.hood.pct (5.180 ms, 4.8 percent)"),
+                        ("loser", "pyro.hood.C (5.392 ms, 978 C)"),
+                        ("margin_us", 212),
+                        (
+                            "counterfactual_if_reversed",
+                            "Pyrometer-first by < 212 us inside the 450 us window would have kept "
+                            "1.80 t/h cruise; predicted next-sample 4.6 percent would have stayed "
+                            "under the 5.5 floor even without the chain. The MODIFY is still the "
+                            "correct process. The shear is a later world charge either way, cheaper "
+                            "with the clamp than without.",
+                        ),

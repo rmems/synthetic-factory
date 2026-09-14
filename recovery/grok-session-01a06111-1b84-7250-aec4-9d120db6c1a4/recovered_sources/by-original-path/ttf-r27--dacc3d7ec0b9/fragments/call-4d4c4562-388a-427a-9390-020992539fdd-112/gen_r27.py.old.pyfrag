@@ -1,0 +1,22 @@
+                            [
+                                "dia.opt.mm 191.4 C on coupon",
+                                "pull.mm.h 620 kPa head",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Part-first should latch steam 7.2 -> 5.1 bar; pressure-first is a "
+                            "false 'healthy-head' bind. The supervisor error is not the race: it "
+                            "clamps nitrogen instead of steam even after the coupon wins.",
+                        ),
+                        (
+                            "window_derivation",
+                            "560 us = one coupon-TC sample versus the vessel pressure publisher "
+                            "on this autoclave bus cycle.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 340 us vs combined jitter 86 us (TC 44 + PT 42). Order is "
+                            "correctly part-first. The error is which actuator the clamp is bound "
+                            "to, not the race.",
+                        ),

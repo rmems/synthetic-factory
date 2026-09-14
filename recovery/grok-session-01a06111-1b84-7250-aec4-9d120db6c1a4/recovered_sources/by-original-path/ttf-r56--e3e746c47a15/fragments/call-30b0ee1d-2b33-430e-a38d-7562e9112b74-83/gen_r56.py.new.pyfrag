@@ -1,0 +1,18 @@
+            (
+                "description",
+                "Roll HP-5 of the Rollgap-Knap HPGR train is nipping 620 t/h when a "
+                "specific-press PT at 4.20 N/mm2 races a gap-Delta-P smear that still claims over-compression. "
+                "Commanded 18.0 mm gap and 4.20 N/mm2 sit 4.0 mm and 1.60 N/mm2 inside the legal "
+                "envelopes. The PT win only ratifies the nipping zone already on the rolls.",
+            ),
+            ("domain", "hpgr-ore-press"),
+            ("sim_or_real", "simulated"),
+            (
+                "goal",
+                "Finish the HPGR pass on Rollgap-Knap, keep specific press <= 5.80 N/mm2 and "
+                "gap >= 14.0 mm, and leave nipping-zone draft in spec.",
+            ),
+            ("t0_us", 1762300000000299),
+            ("gate_latency_us", 860),
+            ("race_window_us", 340),
+            ("race_window_rel_ms", [5.880, 6.220]),

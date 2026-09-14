@@ -1,0 +1,4 @@
+    notes_hits = [ln for ln in NOTES.splitlines() if ln.strip().lower().startswith("novel coverage")]
+    if notes_hits != ["Novel coverage: 19.0%"]:
+        issues.append(f"novel coverage lines {notes_hits}")
+    return issues, jmax

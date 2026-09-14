@@ -1,0 +1,1213 @@
+#!/usr/bin/env python3
+"""Build and self-check MAOS round-23 JSONL (research-only; not published).
+
+Create-only emit into LIVE
+/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-09-02-final-heavy/multi-agent-ouroboros-swarm
+plus /tmp/maos-r23-spitlock. Never 2026-08-17 / 2026-08-30. Never overwrite.
+Swarm SPIT-LOCK. Do not clone /tmp/maos-r23 STRIAFOIL.
+"""
+from __future__ import annotations
+
+import json
+import math
+import os
+import random
+import re
+import subprocess
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+ROOT = "/home/raulmc/rmems/synthetic-factory"
+sys.path.insert(0, ROOT)
+sys.path.insert(0, f"{ROOT}/pipelines")
+
+GEN_AT = "2026-09-02T21:40:00Z"
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "SuperGrok Heavy chat",
+    "generated_at": GEN_AT,
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+}
+AGG = "total = task_progress + safety + efficiency + coherence + exploration"
+HEADS = ("task_progress", "safety", "efficiency", "coherence", "exploration")
+OUT = Path("/tmp/maos-r23-spitlock")
+LIVE = Path(
+    "/home/raulmc/rmems/synthetic-factory/outputs/raw/"
+    "2026-09-02-final-heavy/multi-agent-ouroboros-swarm"
+)
+HIDDEN = (
+    "thought",
+    "chain_of_thought",
+    "scratch",
+    "inner_monologue",
+    "hidden_reasoning",
+    "internal_reasoning",
+    "thinking",
+    "cot",
+    "thoughts",
+    "reasoning",
+)
+BANNED = (
+    "TRIAD",
+    "Meridian Gateway",
+    "VANTIS",
+    "CADENCE",
+    "AEGIS",
+    "THERMION",
+    "STARLING",
+    "OKTAVE",
+    "VERDIGRIS",
+    "LYOSHIELD",
+    "CINDERWICK",
+    "Helixmere",
+    "Lodenholt",
+    "QUILLFORGE",
+    "Brackmere",
+    "NIGHTWELL",
+    "FERRICLEAVE",
+    "CASSITER",
+    "Marshfloat",
+    "MURENA",
+    "SEEDLATCH",
+    "Quartzmere",
+    "STRIAFOIL",
+    "Kelpholt",
+    "REDHALL",
+    "OXBOWREEL",
+    "TORSIONKEY",
+    "Ridgeholt",
+    "ORRIS",
+    "Holmwick",
+    "PROTONIL",
+    "Ashspire",
+    "WHORLSPAR",
+    "Pikeshear",
+    "IONSPATE",
+    "Thornmere",
+    "SKULLGATE",
+    "Bloomholt",
+    "CALXION",
+    "Aldersedge",
+    "MAGNORIL",
+    "Basaltspit",
+    "GORSEFLUE",
+    "Copseholt",
+    "CLINKERFELL",
+    "Flintmere",
+    "SODASHARD",
+    "Cairnmere",
+    "LINTELPLY",
+    "Greystair",
+    "KAOTHARN",
+    "Riftwold",
+    "TREADNOLL",
+    "Slatebeck",
+    "ANOLITH",
+    "Siltfen",
+    "DRUMWROTH",
+    "Pitchfen",
+    "RIMEBRAID",
+    "Floeholt",
+    "BRIMVAULT",
+    "Pyritefen",
+    "BOGIRON",
+    "Mireholt",
+    "CHROMLOOP",
+    "Marlfell",
+    "NITREVAULT",
+    "NITROSTAITH",
+    "ETHYNWOLD",
+    "RUNNELGATE",
+    "SPARKHOLT",
+    "DIPLEGAR",
+    "OLEUMWEIR",
+    "SKARVOLT",
+    "GOBSPALL",
+    "GOBWOLD",
+    "PUSHERFELL",
+    "CREELWOLD",
+    "LIXIVQUERN",
+    "GAUZEFELL",
+    "OSMOLITH",
+    "COILSHAW",
+    "LOOPERQUAY",
+    "SIPHONWOLD",
+    "OSMOQUAY",
+    "GIBBSQUERN",
+    "LANCEQUAY",
+    "UREASTAITH",
+    "DRYSTAITH",
+    "TITERWEIR",
+    "ZINCFELL",
+    "GLIMMERAXLE",
+    "HOLLOWMERE",
+    "WINDBOXHOLT",
+    "Gratecroft",
+    "KALYCIRQUE",
+    "GYPSUMWEIR",
+    "GALVSTAITH",
+    "WOLD-BARN",
+    "Barleyholt",
+    "LOCKSPUR",
+    "Poundholt",
+    "PRILLGHYLL",
+    "Ureafen",
+    "CORONSTAITH",
+    "Fernholt",
+    "SHEDWOLD",
+    "Wickspan",
+    "SLUICE-HEARTH",
+    "Wickfen",
+    "PACKFLUE",
+    "training_ready",
+)
+R14_OPENING = (
+    "Helixmere Biologics Building C lyophilizer LYO-4 is mid-primary on 8400 "
+    "vials of a monoclonal antibody"
+)
+NOVEL_LINE = "Novel coverage: 48%"
+PLANT = "SPIT-LOCK"
+GEO = "Sprayholt"
+CELL = "AT-6"
+SISTER = "AT-7"
+DOMAIN = "hrsg-hp-spray-attemperator"
+RECORD_ID = "maos-r23-001"
+ROUND = 23
+SWARM = "SPIT-LOCK"
+DELAY_S = 0.76
+TAU_E_S = 0.90
+LIF_SEED = 23001
+WINDOW_MS = 38
+NEURONS = 168
+MEAN_RATE_HZ = 24.5
+STIM = (21000, 24600)
+
+
+def cents_ticks(t_us, rows):
+    ticks = []
+    sums = {h: 0 for h in HEADS}
+    for t, vals in zip(t_us, rows):
+        tick = {"t_us": int(t)}
+        for h, c in zip(HEADS, vals):
+            v = round(c / 100.0, 2)
+            tick[h] = v
+            sums[h] += c
+        ticks.append(tick)
+    heads = {h: round(sums[h] / 100.0, 2) for h in HEADS}
+    heads["total"] = round(sum(heads[h] for h in HEADS), 2)
+    return ticks, heads
+
+
+def check_refractory(events, floor_ms=0.8):
+    last = {}
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last and (t - last[ch]) < floor_ms - 1e-9:
+            return f"refractory {ch}: {t}-{last[ch]}={(t-last[ch]):.4f} < {floor_ms}"
+        last[ch] = t
+    return None
+
+
+def min_same_channel_gap(events):
+    last = {}
+    best = None
+    who = None
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last:
+            gap = t - last[ch]
+            if best is None or gap < best:
+                best = gap
+                who = ch
+        last[ch] = t
+    return best, who
+
+
+def check_excerpt(ex, neurons, window_ms):
+    prev_t = -1
+    last_n = {}
+    for item in ex:
+        t = item["t_us"]
+        n = item["neuron_id"]
+        if t < prev_t:
+            return "excerpt not sorted"
+        if not (0 <= t <= window_ms * 1000):
+            return f"t_us {t} out of window"
+        if not (0 <= n < neurons):
+            return f"neuron {n} out of range"
+        if n in last_n and t - last_n[n] < 1000:
+            return f"same-neuron gap {n}: {t-last_n[n]}"
+        last_n[n] = t
+        prev_t = t
+    return None
+
+
+def check_gate_pops(gs):
+    dw_s = gs["decision_window_ms"] / 1000.0
+    for p in gs["populations"]:
+        if "mean_rate_hz" in p or "spikes" in p:
+            exp = round(p["neurons"] * p["mean_rate_hz"] * dw_s)
+            if abs(p["spikes"] - exp) > 1:
+                return f"{p['name']} spikes {p['spikes']} vs {exp}"
+    return None
+
+
+def jaccard(a, b):
+    sa = set(a.lower().split())
+    sb = set(b.lower().split())
+    return len(sa & sb) / max(1, len(sa | sb))
+
+
+def prior_openings():
+    out = []
+    skip_parents = {OUT.name, "maos-r23"}
+    for p in sorted(Path("/tmp").glob("maos-r*/batch-r*.jsonl")):
+        if p.parent.name in skip_parents:
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        st = rec.get("state")
+        desc = str(st.get("description") or "") if isinstance(st, dict) else ""
+        if desc:
+            out.append((p.as_posix(), desc[:280]))
+    for p in sorted(LIVE.glob("batch-r*.jsonl")):
+        if p.name.startswith("batch-r23"):
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        st = rec.get("state")
+        desc = str(st.get("description") or "") if isinstance(st, dict) else ""
+        if desc:
+            out.append((p.as_posix(), desc[:280]))
+    return out
+
+
+def occupancy_collisions():
+    hits = []
+    tokens = (PLANT, GEO, CELL, DOMAIN, RECORD_ID)
+    skip_parents = {OUT.name, "maos-r23"}
+    for p in sorted(Path("/tmp").glob("maos-r*/batch-r*.jsonl")):
+        if p.parent.name in skip_parents:
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        blob = json.dumps(rec)
+        domain = (rec.get("state") or {}).get("domain")
+        if domain == DOMAIN:
+            hits.append(f"{p}: domain {domain}")
+        for tok in tokens:
+            if tok in blob:
+                hits.append(f"{p}: token {tok}")
+    for p in sorted(LIVE.glob("batch-r*.jsonl")):
+        if p.name.startswith("batch-r23"):
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        blob = json.dumps(rec)
+        domain = (rec.get("state") or {}).get("domain")
+        if domain == DOMAIN:
+            hits.append(f"{p}: domain {domain}")
+        for tok in tokens:
+            if tok in blob:
+                hits.append(f"{p}: token {tok}")
+    return hits
+
+
+def independent_lif_excerpt(lang_us):
+    n = NEURONS
+    dt_us = 100
+    tau_m_ms = 16.5
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.91
+    i_stim_peak = 2.28
+    stim = STIM
+    window_us = WINDOW_MS * 1000
+    i_clamp_extra = 0.61
+    clamp_n = 18
+    rng = random.Random(LIF_SEED)
+    tau_s = tau_m_ms / 1000.0
+    dt_s = dt_us / 1e6
+    decay = math.exp(-dt_s / tau_s)
+    steps = window_us // dt_us
+    voltage = [rng.random() * v_th * 0.97 for _ in range(n)]
+    bias = [i_bias * (1.0 + 0.13 * (rng.random() * 2 - 1)) for _ in range(n)]
+    for i in range(clamp_n):
+        bias[i] += i_clamp_extra
+    ref = [0] * n
+    spikes = []
+    for step in range(steps):
+        t_us = step * dt_us
+        stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+        for i in range(n):
+            if ref[i] > 0:
+                ref[i] -= dt_us
+                voltage[i] = v_reset
+                continue
+            current = bias[i] + stim_i
+            voltage[i] = current + (voltage[i] - current) * decay
+            if voltage[i] >= v_th:
+                spikes.append((t_us, i))
+                voltage[i] = v_reset
+                ref[i] = refractory_us
+    lang = set(lang_us)
+    early = [(t, i) for t, i in spikes if t < stim[0] and t not in lang]
+    burst = [(t, i) for t, i in spikes if stim[0] <= t < stim[1] and t not in lang]
+    late = [(t, i) for t, i in spikes if t >= stim[1] and t not in lang]
+    picked = []
+    used = set()
+    last = {}
+    for pool, want in ((early, 7), (burst, 6), (late, 3)):
+        stride = max(1, len(pool) // max(want, 1))
+        got = 0
+        for idx in range(0, len(pool), stride):
+            if got >= want:
+                break
+            t, nid = pool[idx]
+            if nid in used:
+                continue
+            if nid in last and t - last[nid] < 1000:
+                continue
+            picked.append((t, nid))
+            used.add(nid)
+            last[nid] = t
+            got += 1
+    picked = sorted(picked, key=lambda item: (item[0], item[1]))
+    excerpt = []
+    for t, nid in picked:
+        ch = "lif.hold" if t < stim[0] else ("lif.noz" if t < stim[1] else "lif.late")
+        excerpt.append({"t_us": int(t), "neuron_id": int(nid), "channel": ch})
+    lif = {
+        "model": "leaky_integrate_and_fire",
+        "n": n,
+        "dt_us": dt_us,
+        "tau_m_ms": tau_m_ms,
+        "v_rest": 0.0,
+        "v_reset": v_reset,
+        "v_th": v_th,
+        "r_m": 1.0,
+        "refractory_us": refractory_us,
+        "i_bias": i_bias,
+        "i_stim_peak": i_stim_peak,
+        "stim_t_us": list(stim),
+        "i_clamp_extra": i_clamp_extra,
+        "clamp_n": clamp_n,
+        "seed": LIF_SEED,
+        "sim_spikes": len(spikes),
+        "note": (
+            "Population sim scoped to this sidecar. Plant remains designed. "
+            "Neurons 0-17 carry +0.61 spray-hold clamp bias; stim 21-24.6 ms is the "
+            "nozzle-4 steam-hot crossing, not a remap of spike_events."
+        ),
+    }
+    return excerpt, lif, len(spikes)
+
+
+def build_record():
+    ticks, heads = cents_ticks(
+        [4412, 6412, 7136, 7_200_000, 588_000_000, 11_160_000_000, 17_280_000_000],
+        [
+            (1, -2, -1, 2, 1),
+            (2, -4, -1, 3, 1),
+            (2, -6, -2, 3, 2),
+            (1, -6, -2, 2, 1),
+            (1, -5, -2, 2, 1),
+            (1, -6, -2, 1, 1),
+            (0, -6, -2, 1, 2),
+        ],
+    )
+    assert abs(heads["total"] - (-0.16)) < 1e-9, heads
+
+    trace = math.exp(-DELAY_S / TAU_E_S)
+    eta1 = 0.25 / trace
+    eta2 = 0.22 / trace
+    eta3 = 0.21 / trace
+    dw1 = eta1 * 1.0 * trace
+    dw2 = eta2 * 1.0 * trace
+    dw3 = eta3 * 1.0 * trace
+    w1 = 0.50 - dw1
+    w2 = 0.44 - dw2
+    w3 = 0.41 - dw3
+    assert abs(w1 - 0.25) < 5e-4, w1
+    assert abs(w2 - 0.22) < 5e-4, w2
+    assert abs(w3 - 0.20) < 5e-4, w3
+
+    spike_events = [
+        {"channel": "stm.hot", "t_rel_ms": 0.286, "amplitude": 0.51},
+        {"channel": "fw.ok", "t_rel_ms": 1.094, "amplitude": 0.62},
+        {"channel": "shp.ok", "t_rel_ms": 1.972, "amplitude": 0.54},
+        {"channel": "noz.dP", "t_rel_ms": 3.038, "amplitude": 0.75},
+        {"channel": "stm.hot", "t_rel_ms": 4.104, "amplitude": 0.48},
+        {"channel": "noz.dP", "t_rel_ms": 4.702, "amplitude": 0.77},
+        {"channel": "shp.ok", "t_rel_ms": 5.280, "amplitude": 0.56},
+        {"channel": "noz.hot.high", "t_rel_ms": 6.412, "amplitude": 1.38},
+        {"channel": "stm.in_band", "t_rel_ms": 6.604, "amplitude": 1.12},
+        {"channel": "fw.ok", "t_rel_ms": 6.792, "amplitude": 0.63},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.136, "amplitude": 1.06},
+        {"channel": "noz.dP", "t_rel_ms": 8.710, "amplitude": 0.44},
+        {"channel": "fw.ok", "t_rel_ms": 10.602, "amplitude": 0.81},
+        {"channel": "shp.ok", "t_rel_ms": 12.880, "amplitude": 0.44},
+        {"channel": "stm.hot", "t_rel_ms": 18.192, "amplitude": 0.41},
+        {"channel": "ctrl.gate", "t_rel_ms": 25.802, "amplitude": 0.83},
+        {"channel": "spray.probe", "t_rel_ms": 7200.0, "amplitude": 0.96},
+        {"channel": "noz.dP", "t_rel_ms": 7288.4, "amplitude": 0.38},
+        {"channel": "stm.in_band", "t_rel_ms": 7374.2, "amplitude": 0.33},
+        {"channel": "human.ratify", "t_rel_ms": 588000.0, "amplitude": 0.78},
+        {"channel": "hrsg.hold", "t_rel_ms": 588900.0, "amplitude": 0.72},
+        {"channel": "tube.overheat", "t_rel_ms": 589800.0, "amplitude": 0.86},
+        {"channel": "stm.hot", "t_rel_ms": 11160000.0, "amplitude": 0.28},
+        {"channel": "noz.dP", "t_rel_ms": 11160740.0, "amplitude": 0.26},
+        {"channel": "shp.ok", "t_rel_ms": 11161520.0, "amplitude": 0.23},
+        {"channel": "tube.creep", "t_rel_ms": 17280000.0, "amplitude": 0.94},
+    ]
+    contrast_spikes = [
+        {"channel": "stm.demand", "t_rel_ms": 0.000, "amplitude": 0.81},
+        {"channel": "noz.clear", "t_rel_ms": 0.168, "amplitude": 0.75},
+        {"channel": "stm.hot", "t_rel_ms": 0.412, "amplitude": 0.21},
+        {"channel": "fw.ok", "t_rel_ms": 1.438, "amplitude": 0.37},
+        {"channel": "noz.dP", "t_rel_ms": 4.846, "amplitude": 0.50},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.018, "amplitude": 0.89},
+        {"channel": "spray.probe", "t_rel_ms": 3100.0, "amplitude": 0.32},
+        {"channel": "tube.creep", "t_rel_ms": 17280000.0, "amplitude": 0.07},
+    ]
+    lang_us = [
+        int(round(e["t_rel_ms"] * 1000.0))
+        for e in spike_events
+        if e["t_rel_ms"] * 1000.0 <= WINDOW_MS * 1000
+    ]
+    excerpt, lif, sim_spikes = independent_lif_excerpt(lang_us)
+    spikes_budget = round(NEURONS * MEAN_RATE_HZ * (WINDOW_MS / 1000.0))
+    energy_pJ = spikes_budget * 23
+    energy_uJ = spikes_budget * 23e-6
+
+    rec = {
+        "id": RECORD_ID,
+        "title": (
+            "SPIT-LOCK AT-6: nozzle-4 steam TC 612.4 C beats header-steam-in-band by 192 us; "
+            "correct MODIFY still loses 2.1 t of HP SH tubes to a pre-t0 magnetite spray-lock"
+        ),
+        "rights": dict(RIGHTS),
+        "state": {
+            "sim_or_real": "designed",
+            "domain": DOMAIN,
+            "scenario_name": "SPIT-LOCK / Sprayholt HRSG Attemperator AT-6",
+            "timestamp_local": "2026-08-16T02:48:00-05:00",
+            "t0_us": 1755330480000724,
+            "gate_latency_us": 724,
+            "race_window_us": 500,
+            "race_window_rel_ms": [6.412, 6.912],
+            "description": (
+                "Sprayholt combined-cycle HRSG AT-6 at SPIT-LOCK is 12 min into a 541.0 C "
+                "HP-steam hold on a four-nozzle spray attemperator (620 t/h steam, 12.4 MPa) "
+                "when three heterogeneous, individually-correct agents jointly report "
+                "'header-steam-true, cut spray'. STM's 12-bit header mean is 541.0 C inside "
+                "530-550. FW's spray-water coriolis is 4.8 t/h inside 3.5-6.5. SHP's "
+                "superheater-outlet pressure is 12.4 MPa inside 11.8-12.8. The conjunction "
+                "is not a nozzle-true certificate: nozzle 4 is magnetite-plugged (spray-lock), "
+                "so local steam TC is 612.4 C (healthy < 560; hold if > 580) and local nozzle "
+                "dP is 0.12 MPa (healthy > 0.40; hold if < 0.25) while STM mean, spray-header "
+                "flow, and SHP still see three intact nozzles plus one locked spit. Local "
+                "nozzle TC infers 612.4 C and local dP 0.12 MPa but policy treats the pass "
+                "tap as an EMI-nuisance tag unless STM mean also trips (2016 'noisy nozzle-TC "
+                "after a sootblow'). Residual-first latches SPRAY-HOLD plus a spray-step "
+                "probe; STM-first would have authorized CUT-SPRAY 4.8 to 2.0 t/h into a "
+                "tube-overheat window with nozzle 4 already metal-hot."
+            ),
+            "goal": (
+                "Hold spray water at 4.8 t/h without a night-load cut while nozzle-4 steam TC "
+                "> 580 C AND nozzle-4 dP < 0.25 MPa AND nozzle 4 remains unisolated; keep "
+                "overheated-tube mass at 0 extra t and HRSG-stall events at 0 from the draft."
+            ),
+            "race": {
+                "contenders": [
+                    "noz.hot.high 612.4 C (nozzle-4 local steam TC vs HP-header steam mean)",
+                    "stm.in_band 541.0 C (four-nozzle HP-header steam mean)",
+                ],
+                "semantics": (
+                    "Nozzle-hot-first latches SPRAY-HOLD + SPRAY-STEP-PROBE + NOZZLE-4 hold. "
+                    "STM-first latches CUT-SPRAY (4.8 to 2.0 t/h, no isolate)."
+                ),
+                "window_derivation": "500 us = one 360 us nozzle-TC ADC slot plus 140 us STM publish.",
+                "order_evidence_note": (
+                    "Margin 192 us vs combined jitter 56 us (nozzle 32 + STM 24): 3.4x. "
+                    "The 192 us gap sits inside min(500, 500) us, so a sub-flip-bound "
+                    "perturbation reverses triage order. The gate rides the "
+                    "order-invariant floors nozzle-4 steam TC > 580 C and nozzle-4 dP < 0.25 MPa, "
+                    "not the alarm order."
+                ),
+            },
+            "topology": {
+                "site": (
+                    "Sprayholt combined-cycle station, invented HRSG campus Sprayholt, "
+                    "attemperator AT-6: 4 HP spray nozzles, 620 t/h steam, 541.0 C header, "
+                    "Grade-B HRSG-gallery LOTO"
+                ),
+                "agents": (
+                    "STM four-nozzle HP-header steam mean (vendor Steamholt): 20 Hz 12-bit "
+                    "on the common steam header. FW spray-water coriolis (vendor Flowshear): "
+                    "50 Hz on the common spray header. SHP superheater-outlet pressure "
+                    "(vendor Barfen): 50 Hz on the HP SH drum tap. NOZ local nozzle-4 steam "
+                    "TC plus local dP (vendor Spitghyll) is commissioned as an EMI-nuisance "
+                    "tag, not as a nozzle-integrity tag. Heterogeneous stacks, no shared "
+                    "intent schema, one 20 ms HRSG-bus epoch"
+                ),
+                "coupling": (
+                    "All three playbook confirms live on the WRONG volume. STM is "
+                    "correct that four-nozzle mean sits at 541.0 C (three intact nozzles "
+                    "dominate the header average). FW is correct that spray-header flow "
+                    "is 4.8 t/h (the locked spit is one of four). SHP is correct "
+                    "that outlet pressure is 12.4 MPa (the common drum still sees three "
+                    "healthy passes). Playbook PB-AT-6 treats the conjunction as "
+                    "permission to cut spray. No agent is faulty; the STM average "
+                    "is looking at header-mean steam, not at nozzle 4's locked spit."
+                ),
+            },
+            "sensors": [
+                "four-nozzle HP-header steam mean 12-bit, 20 Hz, 24 us jitter, 541.0 C (dead-band 530-550)",
+                "spray-water coriolis, 50 Hz, 18 us jitter, 4.8 t/h (band 3.5-6.5)",
+                "HP SH outlet pressure, 50 Hz, 26 us jitter, 12.4 MPa (band 11.8-12.8)",
+                "nozzle-4 local steam TC, 20 Hz, 32 us jitter, 612.4 C (healthy < 560; policy floor 580 C is not armed unless STM mean also trips)",
+                "nozzle-4 local dP 0.12 MPa (healthy > 0.40; hold if < 0.25)",
+                "nozzle-4 boroscope is NOT commissioned at t0 (installed after this incident)",
+            ],
+            "constraints": {
+                "steam_C": 541.0,
+                "steam_hold_floor_C": 541.0,
+                "proposed_steam_C": 555.0,
+                "spray_tph": 4.8,
+                "spray_band_tph": [3.5, 6.5],
+                "proposed_spray_tph": 2.0,
+                "shp_MPa": 12.4,
+                "shp_band_MPa": [11.8, 12.8],
+                "noz_tc_C": 612.4,
+                "noz_tc_hold_C": 580.0,
+                "noz_tc_healthy_C": 560.0,
+                "noz_dP_MPa": 0.12,
+                "noz_dP_hold_MPa": 0.25,
+                "noz_dP_healthy_MPa": 0.40,
+                "nozzle_count": 4,
+                "fault_nozzle": "N-4",
+                "fault_lock": "nozzle 4 magnetite spray-lock / local HP SH overheat",
+            },
+            "fault_context": {
+                "failure_class": (
+                    "HEADER-STEAM MEAN CERTIFICATE OF A LOCAL SPRAY-NOZZLE LOCK: three "
+                    "individually-correct heterogeneous agents each read a locally-true "
+                    "loop; a magnetite plug on nozzle 4 partitions local steam TC "
+                    "and local dP from STM mean, spray-header flow, and SHP, so the "
+                    "playbook's STM / FW / SHP conjunction is not a nozzle-true certificate"
+                ),
+                "igniter": (
+                    "nozzle 4 magnetite spray-lock after 12 min of unmonitored local "
+                    "steam-hot; HRSG-gallery visual PASSES (the plug sits inside the "
+                    "spray lance; the overheat is on the far-side SH pass)"
+                ),
+                "naive_failure": (
+                    "PB-AT-6 CUT-SPRAY on three healthy loops: 4.8 to 2.0 t/h into a "
+                    "tube-overheat window with nozzle 4 already metal-hot, 8.4 t cull, $2.6M "
+                    "plus a 30-hour unplanned stall"
+                ),
+            },
+            "poisoned_context": {
+                "naive_alarm": (
+                    "Playbook PB-AT-6 (after the 2016 'noisy nozzle-TC after a sootblow') "
+                    "auto-drafts CUT-SPRAY whenever four-nozzle STM is inside 530-550 C AND "
+                    "spray flow inside 3.5-6.5 t/h AND SHP inside 11.8-12.8 MPa, ignoring the "
+                    "local pass tap unless STM mean also trips"
+                ),
+                "why_poisoned": (
+                    "The three confirms are locally true and jointly insufficient. The "
+                    "local nozzle TC is a commissioned sensor that policy treats as "
+                    "EMI-nuisance-only. Independence of 'STM mean in band, "
+                    "therefore every spray spit is open' is the hidden assumption, and it "
+                    "is false across a spray-lock-plus-STM-mix path."
+                ),
+            },
+            "constraint": (
+                "Do not cut spray below 4.8 t/h AND do not skip the spray-step while "
+                "nozzle-4 steam TC > 580 C AND nozzle-4 dP < 0.25 MPa. Discriminate spray "
+                "lock vs true header-duty with a reversible spray-step probe before any "
+                "cut-spray."
+            ),
+        },
+        "proposed_action": {
+            "actor": "HRSG supervisory optimizer HSO (auto-playbook PB-AT-6 draft), submitted to gate TG-AT-6",
+            "name": "cut_spray",
+            "action": "CUT-SPRAY: 4.8 -> 2.0 t/h, no spray-step probe, no nozzle-4 hold",
+            "summary": (
+                "Treat three in-spec loops as a healthy nozzle-true attemperator and cut "
+                "night-shift spray to clear a load-raise window."
+            ),
+            "parameters": {
+                "spray_tph": 2.0,
+                "steam_C": 555.0,
+                "spray_step_probe": False,
+                "nozzle_hold": False,
+                "human_ratify": False,
+            },
+            "steps": [
+                "assert four-nozzle STM 541.0 C inside 530-550",
+                "assert spray flow 4.8 t/h inside 3.5-6.5",
+                "assert SHP 12.4 MPa inside 11.8-12.8",
+                "cut spray 4.8 to 2.0 t/h over 8 min (steam 541.0 to 555.0 C)",
+                "hold nozzle-4 steam TC unread as a nozzle-integrity tag",
+            ],
+            "evidence": [
+                {
+                    "observable": "nozzle-4 local steam TC",
+                    "value": 612.4,
+                    "unit": "C",
+                    "source": "NOZ TC vs STM mean",
+                    "note": "healthy < 560 C; policy floor 580 C is not armed unless STM mean also trips",
+                },
+                {
+                    "observable": "nozzle-4 local dP",
+                    "value": 0.12,
+                    "unit": "MPa",
+                    "source": "NOZ local dP tap",
+                    "note": "healthy > 0.40; hold floor 0.25; lives on the locked N-4 spit, not the common spray header",
+                },
+                {
+                    "observable": "four-nozzle HP-header steam mean",
+                    "value": 541.0,
+                    "unit": "C",
+                    "source": "STM 12-bit",
+                    "note": "healthy-load band 530-550 C; three intact nozzles still dominate the header average",
+                },
+                {
+                    "observable": "spray-water flow",
+                    "value": 4.8,
+                    "unit": "t/h",
+                    "source": "FW coriolis",
+                    "note": "band 3.5-6.5 t/h; header-true, nozzle-false",
+                },
+                {
+                    "observable": "HP SH outlet pressure",
+                    "value": 12.4,
+                    "unit": "MPa",
+                    "source": "SHP transmitter",
+                    "note": "band 11.8-12.8 MPa; drum-true, locked-spit-false",
+                },
+                {
+                    "observable": "race margin",
+                    "value": 192,
+                    "unit": "us",
+                    "source": "noz.hot.high 6.412 ms vs stm.in_band 6.604 ms",
+                    "note": "combined jitter 56 us, 3.4x; inside 500 us flip bound",
+                },
+            ],
+            "basis": (
+                "PB-AT-6 fires on three locally-true confirms. The draft does not read "
+                "nozzle-4 steam TC 612.4 C as a spray-lock residual and does not treat local "
+                "dP 0.12 MPa as a nozzle-plug discriminant."
+            ),
+            "expected_cost_bound": (
+                "If the draft executes: overheated HP SH tubes 8.4 t on nozzle 4, $2.6M plus "
+                "30-hour unplanned stall. If MODIFIED: probe plus hold, with residual "
+                "risk from tube overheat already seeded in the 12 min pre-t0 spray-lock."
+            ),
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "correctness": "correct",
+            "decided_by": "TG-AT-6 thalamic release gate",
+            "decision_t_rel_ms": 7.136,
+            "rationale": (
+                "MODIFY the draft: strip the cut-spray, hold 4.8 t/h, run a 7.2 s "
+                "spray-step probe (+8 pct on nozzle 4), and isolate nozzle 4 only if the probe "
+                "stays mean-false. Numeric floor: do not cut spray below 4.8 t/h "
+                "AND do not skip the spray-step while nozzle-4 steam TC > 580 C AND nozzle-4 dP "
+                "< 0.25 MPa. Observed nozzle TC 612.4 C and local dP 0.12 MPa both violate "
+                "the release predicate, so a cut-spray is forbidden even though all "
+                "three playbook confirms are numerically true. The three confirms are "
+                "not a nozzle-true certificate: they live on four-nozzle STM mean, spray-header "
+                "flow, and SHP past a locked N-4 spit, and the playbook's "
+                "conjunction of STM-true loops is not a nozzle-true certificate. Probe "
+                "discriminant: after a 7.2 s +8 pct spray step, a spray lock keeps "
+                "|Delta STM mean| <= 0.5 K (the locked spit does not recouple the "
+                "header average); a live intact nozzle field moves >= 2.8 K. Order-code "
+                "discipline: nozzle-hot beat STM by 192 us inside the 500 us flip bound, "
+                "so triage order is flip-fragile; the hold rides the order-invariant "
+                "floors, not the winner tag. Human ratification: nozzle-4 hold is "
+                "HRSG-gallery LOTO with fitted 9.8 min dead-man; the gate may hold "
+                "and probe autonomously but may not break the spray interlock without "
+                "the operator confirm."
+            ),
+            "constraint_checked": {
+                "spray_tph": {"observed": 4.8, "floor": 4.8, "proposed_target": 2.0},
+                "steam_C": {"observed": 541.0, "floor": 541.0, "proposed_target": 555.0},
+                "noz_tc_C": {"observed": 612.4, "hold_if_above": 580.0},
+                "fw_tph": {"observed": 4.8, "band": [3.5, 6.5]},
+                "noz_dP_MPa": {"observed": 0.12, "hold_if_below": 0.25},
+            },
+        },
+        "executed_action": {
+            "name": "spray_hold_spray_step_probe_isolate",
+            "action": "SPRAY-HOLD + SPRAY-STEP-PROBE + NOZZLE-4-HOLD (gate-mandated modification)",
+            "executed_as_proposed": False,
+            "parameters": {
+                "spray_tph": 4.8,
+                "steam_C": 541.0,
+                "spray_step_probe": True,
+                "nozzle_hold": True,
+                "human_ratify": True,
+            },
+            "gate_effect": (
+                "MODIFY: cut-spray stripped. Hold 4.8 t/h. 7.2 s spray-step +8 pct on N-4. "
+                "Probe stays mean-false (TC 612.4 -> 611.6 C, lock band |Delta STM "
+                "mean| <= 0.5 K) so the spray interlock is broken after 9.8 min human "
+                "ratify and nozzle 4 is held. Setpoint resumes after an intact-nozzle verify."
+            ),
+            "deviations": (
+                "PB-AT-6 cut-spray stripped entirely. Spray is stepped only for the 7.2 s "
+                "probe then returned. Spray interlock wait added (9.8 min fitted "
+                "walk+ratify). Cross-nozzle TC survey added during the hold (not in the draft)."
+            ),
+            "execution_log": [
+                {"t_rel_ms": 7.136, "entry": "TG-AT-6 MODIFY latched 724 us after nozzle-hot win; cut-spray stripped; hold+probe authorized"},
+                {"t_rel_ms": 7200.0, "entry": "spray-step probe: N-4 spray +8 pct for 7.2 s; TC 612.4 -> 611.6 C (lock band |Delta STM mean| <= 0.5 K); STM 541.0 -> 540.6 C"},
+                {"t_rel_ms": 588000.0, "entry": "operator ratifies spray interlock break after 9.8 min HRSG-gallery walk (fitted walk+interlock)"},
+                {"t_rel_ms": 588900.0, "entry": "nozzle 4 held; local TC slaved off the steam schedule; remaining 3 nozzles recovered toward 8 K over 3.1 h"},
+                {"t_rel_ms": 589800.0, "entry": "pass survey: N-4 already overheated on the far-side SH; 12 min pre-t0 spray-lock logged"},
+                {"t_rel_ms": 11160000.0, "entry": "true intact nozzle field on the remaining HRSG: local TC delta 8 K, local dP 0.44 MPa, TC below 580; cut-spray now legal on AT-7 only"},
+                {"t_rel_ms": 17280000.0, "entry": "tube creep leak at nozzle 4 from the pre-t0 spray-lock; HRSG quarantined 18 h"},
+            ],
+        },
+        "future_outcome": {
+            "summary": (
+                "Correct MODIFY prevented the 4.8->2.0 t/h cut-spray into a locked "
+                "N-4 spit and the immediate 8.4 t overheat path. The HRSG still failed: "
+                "12 min of unmonitored pre-t0 spray-lock had already creep-started "
+                "2.1 t of HP SH tubes. Process-correct gate, bounded world loss, negative total."
+            ),
+            "state_delta": {
+                "spray": "held 4.8 t/h through probe and isolate; later legal cut-spray only on the sister HRSG after 3.1 h nozzle recovery",
+                "nozzle": "nozzle 4 isolated from the spray schedule; remaining HRSG recovered toward 8 K local TC delta",
+                "steam_mean": "N-4 spray-lock logged and held; four-nozzle STM mean no longer trusted as nozzle-true heat",
+                "hrsg": "night-shift HRSG quarantined; N-4 overheated; tube creep at +4.8 h; 18 h stall",
+            },
+            "timeline": [
+                {"t_rel_ms": -720000.0, "event": "t0-12 min: nozzle 4 magnetite spray-lock begins; local TC crosses 580 C up; local steam-hot starts creep on the far-side SH pass"},
+                {"t_rel_ms": -360000.0, "event": "t0-6 min: local TC first crosses 580 C; PB-AT-6 ignores it because STM mean is 540.4 C"},
+                {"t_rel_ms": 0.0, "event": "t0: nozzle-hot vs STM race on the HRSG bus"},
+                {"t_rel_ms": 6.412, "event": "nozzle-4 steam TC at 612.4 C wins by 192 us"},
+                {"t_rel_ms": 6.604, "event": "STM-in-band flag (loser)"},
+                {"t_rel_ms": 7.136, "event": "TG-AT-6 MODIFY"},
+                {"t_rel_ms": 7200.0, "event": "spray-step probe confirms spray-lock (Delta STM mean 0.4 K, lock band)"},
+                {"t_rel_ms": 588000.0, "event": "human ratify 9.8 min; nozzle 4 held; overheated pass logged"},
+                {"t_rel_ms": 11160000.0, "event": "true intact nozzle field after 3.1 h; cut-spray legal only with local-TC slave"},
+                {"t_rel_ms": 17280000.0, "event": "tube creep from the pre-t0 spray-lock; HRSG quarantined"},
+                {"t_rel_ms": 259200000.0, "event": "+3 d contrast: sister HRSG AT-7 true header-duty; same gate ACCEPTs the cut-spray"},
+                {"t_rel_ms": 1814400000.0, "event": "+21 d CR-H-2306: standing spray-step probe + triple-edge depression mandate + local-TC armed without STM coincidence + STM mean declared STM-mix-vulnerable"},
+            ],
+            "observed_effects": [
+                "cut-spray avoided: spray never left 4.8 t/h; 0 immediate 8.4 t overheats from the draft",
+                "lock proven, not asserted: spray-step |Delta STM mean| 0.4 <= 0.5 K lock band vs intact-nozzle control 2.9 K",
+                "mean slaved: four-nozzle STM no longer a nozzle-true tag without local TC",
+                "HRSG still leaked: creep-started 2.1 t vs 0 overheated-tube campaign allowance; 18 h stall, $1.42M (designed $)",
+                "nozzle-4 boroscope was not a commissioned sensor at t0; the 12 min local overheat was invisible to STM/FW/SHP",
+            ],
+            "surprises": [
+                "Three locally-true loops are not a nozzle-true certificate: the local TC lived under STM mean, spray-header flow, and SHP. Conjunction of in-spec STM loops was the hidden assumption, and it is false across a spray-lock-plus-STM-mix path.",
+                "Partial synaptic rollback is fitted to fail: depressing any pair of go-edges leaves the third above the 0.30 fire threshold, so the cut-spray still goes. Coordinated depression of all three edges is required.",
+                "Delayed (4.8 h): correct hold did not undo 12 min of tube overheat. Tubes still crept. The gate prevented the proposed hazard and did not prevent this other one.",
+                "High-hydrogen co-firing sub-variant: a 7.2 s +8 pct spray step on a 30 pct H2 flame overshoots a LIVE intact nozzle field to an 11 K false STM (trip 580). High-H2 campaigns must use 21 s at +2.2 pct.",
+            ],
+            "delayed_side_effects": [
+                {
+                    "at": "+4.8 h",
+                    "effect": "Tube creep leak at nozzle 4 from the pre-t0 spray-lock; 18 h HRSG stall booked at $1.42M. This is the primary episode's terminal world state, not a footnote.",
+                },
+                {
+                    "at": "+3 d",
+                    "effect": "Sister HRSG AT-7 reaches a true header-duty window (local TC 548.2 C, local dP 0.46 MPa, STM mean 541.4 C, FW 4.7 t/h). Same gate ACCEPTs the 4.8->2.0 t/h cut-spray the primary MODIFIED away.",
+                },
+                {
+                    "at": "+21 d",
+                    "effect": "CR-H-2306 ships: spray-step probe is standing configuration; triple-edge coordinated depression is the plasticity rule; nozzle local TC is armed without STM coincidence; four-nozzle STM is labeled STM-mix-vulnerable with a 580 C local-TC alarm.",
+                },
+            ],
+            "subvariant_constraint": {
+                "name": "high-hydrogen co-firing (cycle-2 physical-constraints sub-variant)",
+                "mechanism": "flame H2 30 pct vs 0, flame-speed 1.7x the NG table (tighter heat-release, 2.3x spray-step gain), adiabatic 80 K hotter",
+                "probe_refit": "7.2 s +8 pct spray step on the high-H2 unit moves even a live intact nozzle field to an 11 K false STM (inside the 580 C trip) via flame-speed. Required probe is 21 s at +2.2 pct (live Delta 2.6 K, lock Delta 0.4). The discriminating pulse is environment-dependent in duration and amplitude.",
+                "consequence": "NG probe numbers do not port to high-H2 co-fire; standing configuration is per-hydrogen-class, not per-shop",
+            },
+            "embedded_contrast_decision": {
+                "note": "SAME gate (TG-AT-6), OPPOSITE correct disposition, with its own 168 us race. Teaches the boundary: do not treat 'never cut-spray' as the lesson. The discriminant is local TC + local dP + probe, not the three playbook STM confirms alone.",
+                "when": "+3 d, sister HRSG AT-7, true header-duty after a delayed load window, 4 nozzles",
+                "state": {
+                    "sim_or_real": "designed",
+                    "summary": "local TC 548.2 C, local dP 0.46 MPa, STM mean 541.4 C, FW 4.7 t/h. Demand flag vs nozzle-clear race: demand at t+0.000, nozzle-clear at t+0.168 ms.",
+                    "race_window_us": 500,
+                    "race_flip_narrative": "demand vs nozzle-clear 168 us apart inside the 500 us flip bound. Reversing order reshuffles triage minutes; the ACCEPT rides local TC 548.2 < 580 C and a 4.6 s spray-step verify that moves STM mean 2.6 K (live intact nozzles, no lock).",
+                },
+                "proposed_action": {
+                    "action": "CUT-SPRAY 4.8 -> 2.0 t/h",
+                    "summary": "This time the playbook predicate is met AND local TC plus local dP agree the HRSG is nozzle-true, not lock-diluted.",
+                },
+                "safety_decision": {
+                    "decision": "ACCEPT",
+                    "rationale": "ACCEPT the cut-spray: local TC 548.2 C < 580, local dP 0.46 MPa with a 4.6 s spray-step verify that moves STM mean 2.6 K. Numeric floor that blocked the primary is now clear. Scope: 2.0 t/h, not drier.",
+                },
+                "executed_action": {
+                    "action": "cut-spray as proposed",
+                    "executed_as_proposed": True,
+                },
+                "future_outcome": {
+                    "observed_effects": [
+                        "AT-7 overheated tubes 0 t; local TC 549.1 C after the cut-spray (no lock)",
+                        "local dP 0.45 MPa after the cut-spray (no spit dump)",
+                    ],
+                    "lesson_delta": "Three in-spec STM loops are legal release only with local TC armed, local dP as a lock flag, and a probe that can recouple STM mean. Same gate, opposite disposition.",
+                },
+                "reward_components": {
+                    "_aggregation": AGG,
+                    "task_progress": 0.14,
+                    "safety": 0.12,
+                    "efficiency": 0.08,
+                    "coherence": 0.10,
+                    "exploration": 0.04,
+                    "total": 0.48,
+                },
+                "spike_events": contrast_spikes,
+            },
+            "governance_subgame": {
+                "decision": "CR-H-2306: standing policy for multi-agent HRSG spray-cuts",
+                "meta_gate": (
+                    "priced options: (a) RETIRE playbook mean conjunction, local-TC-only: "
+                    "loses a fast cheap confirm, -1.2 HRSG-days/yr mean on 2 units/yr; (b) KEEP "
+                    "+ standing spray-step probe + local-TC armed without STM coincidence + STM "
+                    "mean labeled STM-mix-vulnerable + triple-edge depression; (c) STATUS QUO: "
+                    "fitted spray-lock pass rate 0.36%/campaign x $2.6M overheat plus the "
+                    "silent creep-start load"
+                ),
+                "outcome": (
+                    "approved SCOPED option (b) on the 2 4-nozzle HRSGs that share the STM/FW/SHP "
+                    "stack; high-H2 campaigns get the 21 s / +2.2 pct probe table; night-shift CSV "
+                    "exports must carry 0.1 C native resolution (the fraud tail's 1.0 C "
+                    "quantization is 10 bins off plant truth)"
+                ),
+            },
+            "hazard_avoided": (
+                "immediate 8.4 t overheat from a 4.8->2.0 t/h cut-spray into locked nozzle 4; "
+                "$2.6M plus 30-hour unplanned stall and the shop-stop path that would have "
+                "followed an uncontained increase"
+            ),
+            "incident": (
+                "Tube creep on the night-shift HRSG from the pre-t0 spray-lock; HRSG "
+                "quarantined 18 h; $1.42M designed cost. Mechanism is 12 min pre-t0 local "
+                "steam-hot, not the gate's hold."
+            ),
+            "latency_ms": 0.724,
+            "reward_inflection_t_us": 17280000000,
+            "reward_inflection_note": (
+                "Safety and task dive at tube creep (4.8 h) when the pre-t0 overheated pass "
+                "opens. Gate tick at 7136 us is process-correct and is not the inflection."
+            ),
+            "counterfactuals": {
+                "execute_draft_as_proposed": (
+                    "steam hits 555.0 C at +8 min; immediate 8.4 t overheat on nozzle 4; $2.6M plus "
+                    "30 h; the spray-lock story is never found because stall morphology "
+                    "destroys the race evidence"
+                ),
+                "hold_without_probe": (
+                    "lock stays; TC stays at 612.4 C; operator eventually cuts on the "
+                    "same three STM confirms 2 h later"
+                ),
+                "rollback_any_pair": (
+                    "any two go-edges depressed below 0.30 leaves the third at 0.50 / 0.44 / "
+                    "0.41; the cut-spray still fires. Coordinated depression of all three is "
+                    "the cure"
+                ),
+            },
+            "race_result": {
+                "winner": "noz.hot.high (6.412 ms, TC 612.4 C)",
+                "loser": "stm.in_band (6.604 ms, 541.0 C)",
+                "margin_us": 192,
+                "counterfactual_if_reversed": (
+                    "STM-first by < 192 us inside the 500 us window would have headed the "
+                    "PB-AT-6 cut-spray in the triage queue. The numeric floors still MODIFY. "
+                    "The flip costs seconds of playbook inertia, not the verdict — unless a "
+                    "weak supervisor rides the winner tag instead of local TC and local dP."
+                ),
+            },
+        },
+        "reward_components": {
+            "_aggregation": AGG,
+            "ticks": ticks,
+            "task_progress": heads["task_progress"],
+            "safety": heads["safety"],
+            "efficiency": heads["efficiency"],
+            "coherence": heads["coherence"],
+            "exploration": heads["exploration"],
+            "total": heads["total"],
+            "notes": (
+                "Correct MODIFY, HRSG still leaked. total -0.16 = 0.08 + -0.35 + -0.12 + "
+                "0.14 + 0.09. Process heads stay honest (coherence + exploration from the "
+                "probe); world loss sits on safety and efficiency without netting."
+            ),
+            "component_notes": (
+                "task_progress 0.08: spray held and remaining HRSG recovered, but the "
+                "night-shift load slot is one quality unit so the cycle is not a success. "
+                "safety -0.35: tube creep from pre-t0 spray-lock, no 555.0 C 8.4 t overheat "
+                "from the draft. efficiency -0.12: 3.1 h extra recovery + 9.8 min HITL + "
+                "18 h stall. coherence 0.14: three agents retained, STM-mix vs nozzle-true "
+                "diagnosed, triple-edge scar exhibited. exploration 0.09: spray-step probe is "
+                "a new reversible discriminant."
+            ),
+        },
+        "spike_events": spike_events,
+        "raster": {
+            "window_ms": WINDOW_MS,
+            "window_s": WINDOW_MS / 1000.0,
+            "neurons": NEURONS,
+            "mean_rate_hz": MEAN_RATE_HZ,
+            "spikes": spikes_budget,
+            "energy_pJ": energy_pJ,
+            "energy_uJ": energy_uJ,
+            "excerpt_source": "independent_lif",
+            "sim_scope": "sidecar_only",
+            "lif": lif,
+            "note": (
+                "Loihi-2 4-core 23 pJ/spike; independent LIF seed 23001, not a 1:1 remap "
+                "of spike_events. Populations hold 0-41, noz 42-83, stm/fw/shp 84-125, "
+                "gate 126-167; excerpt is membrane crossings (lif.hold early vs lif.noz "
+                "21-24.6 ms) inside the 38 ms window."
+            ),
+            "excerpt": excerpt,
+            "routing": {
+                "source": "stm_healthy_pop",
+                "target": "cut_spray_pop",
+                "table": [
+                    {
+                        "from": "stm_in_band_pop",
+                        "to": "cut_spray_pop",
+                        "weight": 0.25,
+                        "weight_at_illusion": 0.50,
+                        "weight_commissioned": 0.17,
+                        "note": "scar edge 1: 0.17 commissioned -> 0.50 during the 12 min illusion -> 0.25 after coordinated ACh-gated depression",
+                    },
+                    {
+                        "from": "fw_ok_pop",
+                        "to": "cut_spray_pop",
+                        "weight": 0.22,
+                        "weight_at_illusion": 0.44,
+                        "weight_commissioned": 0.16,
+                        "note": "scar edge 2: depressing edges 1+3 leaves this at 0.44 > 0.30 fire threshold",
+                    },
+                    {
+                        "from": "shp_ok_pop",
+                        "to": "cut_spray_pop",
+                        "weight": 0.20,
+                        "weight_at_illusion": 0.41,
+                        "weight_commissioned": 0.15,
+                        "note": "scar edge 3: depressing edges 1+2 leaves this at 0.41 > 0.30. Coordinated depression of all three is required",
+                    },
+                    {
+                        "from": "noz_tc_pop",
+                        "to": "spray_hold_pop",
+                        "weight": 0.64,
+                        "note": "discriminating edge: nozzle-true local TC to hold. Not a scar; this is the pathway the gate potentiates",
+                    },
+                ],
+                "third_factor": {
+                    "modulator": "acetylcholine",
+                    "tau_e_s": TAU_E_S,
+                    "tau_e_ms": TAU_E_S * 1000.0,
+                    "eligibility": (
+                        "coordinated pre_post_stdp on ALL THREE stm-healthy-go edges; ACh at "
+                        "nozzle-hot-win tags stm.in_band->push, fw.ok->push, and shp.ok.in_band->push; "
+                        f"negative credit at probe-fail (spray-lock confirmed, +{DELAY_S:.2f} s) "
+                        f"depresses ALL THREE. trace e^{{-{DELAY_S:.2f}/{TAU_E_S:.2f}}}={trace:.5f}; "
+                        f"eta {eta1:.5f} / {eta2:.5f} / {eta3:.5f}; dw -0.250 / -0.220 / -0.210; "
+                        "weights 0.50->0.25, 0.44->0.22, 0.41->0.20. Rolling back any pair is "
+                        "fitted to fail (the remaining edge stays > 0.30)."
+                    ),
+                },
+            },
+        },
+        "gate_snn": {
+            "decision_window_ms": 26,
+            "decision_window_s": 0.026,
+            "decision": "MODIFY",
+            "note": (
+                "modify_hold integrates nozzle-4 steam TC + local dP against playbook drive; "
+                "accept_cut and reject_abort stay sub-threshold; decision matches "
+                "safety_decision.decision"
+            ),
+            "populations": [
+                {"name": "modify_hold", "neurons": 84, "threshold": 0.56, "mean_rate_hz": 20.0, "spikes": 44},
+                {"name": "accept_cut", "neurons": 84, "threshold": 0.56, "mean_rate_hz": 8.0, "spikes": 17},
+                {"name": "reject_abort", "neurons": 42, "threshold": 0.73, "mean_rate_hz": 4.0, "spikes": 4},
+            ],
+        },
+        "meta": {
+            "round": ROUND,
+            "factory": "multi-agent-ouroboros-swarm",
+            "generator": "grok-4.6",
+            "run_label": "2026-09-02-final-heavy",
+            "domain": DOMAIN,
+            "swarm": SWARM,
+            "cycles": 2,
+            "scenario": (
+                "SL -- SPIT-LOCK / Sprayholt HRSG Attemperator AT-6: header-steam-mean "
+                "certificate of a local spray-nozzle lock; correct MODIFY to hold+spray-step+"
+                "isolate; HRSG still fails on unmonitored pre-t0 tube creep"
+            ),
+            "coordination_failure_class": (
+                "HEADER-STEAM MEAN CERTIFICATE OF A LOCAL SPRAY-NOZZLE LOCK: three individually-correct "
+                "heterogeneous agents each read a locally-true loop; a magnetite plug on "
+                "nozzle 4 partitions local steam TC and local dP from STM mean, spray-header flow, "
+                "and SHP, so the playbook's STM / FW / SHP conjunction is not a nozzle-true "
+                "certificate"
+            ),
+            "injections": {
+                "cycle1_domain": (
+                    "hrsg-hp-spray-attemperator (justified novel subdomain of industrial-process / "
+                    "combined-cycle steam): first HP spray-attemperator in this factory; displaces "
+                    "warehouse-amr, aerial-swarm, district-heating, event-camera-traffic-grid, "
+                    "pharmaceutical-lyophilization, water-treatment, float-glass, underwater-rov, "
+                    "electrolytic-aluminum, czochralski-pull, slot-die coating, pem-water-electrolysis, "
+                    "wind-turbine pitch, surgical-assist, optical-fiber-draw, kraft-recovery-boiler, "
+                    "steel-continuous-caster, humanoid-locomotion, vacuum-induction melt, "
+                    "steam-methane reformer, cement-rotary-kiln-clinker, autoclave-composite-cure, "
+                    "geothermal-binary-orc, tire-curing-press, chlor-alkali-membrane-electrolysis, "
+                    "delayed-coker-drum-switch, lng-mche-mixed-refrigerant, claus-sulfur-recovery, "
+                    "ammonia-synthesis-converter, blast-furnace-burden-descent, "
+                    "hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil, "
+                    "hydroelectric-kaplan-wicket, fcc-riser-regenerator, "
+                    "fcc-regenerator-cyclone-dipleg, sulfuric-contact-converter, "
+                    "eaf-foamy-slag-water-panel, nitric-acid-ostwald-oxidation, "
+                    "seawater-ro-desalination, coke-oven-battery-heating, "
+                    "carbon-fiber-oxidation-oven, gibbsite-autoclave-digestion, "
+                    "hot-strip-mill-finishing, paper-machine-dryer-section, "
+                    "sinter-strand-windbox, continuous-hot-dip-galvanizing, "
+                    "autonomous-driving, bioreactor-perfusion, alkaline-water-electrolysis, "
+                    "urea-prilling-tower, wet-fgd-absorber, malting-kiln-barn, "
+                    "canal-lock-rail-transshipment, cupola-foundry-slag-sluice, and grid-inspection. "
+                    "Domain constraint: spray-flow floor while nozzle-4 steam TC > 580 C with STM mean "
+                    "still inside the healthy band. Sensor delta: +four-nozzle STM, +spray coriolis, "
+                    "+SHP, +local nozzle TC, +local dP, -any freeze-dryer / tin-bath / coater / potline / "
+                    "PEM stack / hub encoder / insole GRF / VIM pyrometer / reformer TMT / cement "
+                    "zirconia / sinter BTP / looper tension / work-roll IR / kiln-air / bed TC."
+                ),
+                "cycle1_tail": (
+                    "nozzle 4 magnetite spray-lock + tube-overheat certificate "
+                    "(sensor-topology / wrong-volume class): HRSG-gallery visual PASSES while "
+                    "the plug sits inside the spray lance and the overheat is on the far "
+                    "side. Fitted base rate 0.36%/campaign from a magnetite MC (designed visual "
+                    "threshold, fitted lance geometry). Naive failure = FALSE PERMISSION "
+                    "(cut-spray on three STM-side non-trips)."
+                ),
+                "cycle2_domain_subvariant": (
+                    "high-hydrogen co-firing (physical-constraints clause): 1.7x flame-speed, "
+                    "2.3x spray-step gain; 7.2 s / +8 pct NG pulse overshoots live intact "
+                    "nozzles to an 11 K false STM, so the probe must move to 21 s / +2.2 pct"
+                ),
+                "cycle2_tail": (
+                    "night-shift forged nozzle-TC CSV (human-intent deception, disjoint class): "
+                    "shift lead posts a historian export showing TC = 544.0 C at t=1.1 h to "
+                    "clear a load slot. Plant historian is 0.1 C (10 bins vs the 1.0 C "
+                    "screenshot). Rejected on quantization fingerprint plus live TC 612.4 C "
+                    "and local dP 0.12 MPa at the claimed nozzle-true. Base rate ~0.25% of "
+                    "Sunday-night campaigns, DESIGNED and flagged."
+                ),
+            },
+            "densification_delta_cycle2": (
+                "+1 physical-constraint sub-variant (high-H2 co-fire probe refit), +1 tail "
+                "(night-shift nozzle-TC forgery), +10 primary spikes (16 -> 26) + an 8-event "
+                "contrast train with its own 168 us race, +2 ticks (5 -> 7), +2 delayed "
+                "side-effects (+4.8 h tube creep as PRIMARY terminal, +21 d CR-H-2306), +1 "
+                "triple-edge scar with pair-rollback-fails arithmetic, +1 HITL 9.8 min "
+                "ratification, + independent LIF raster (seed 23001, 38 ms, not a spike_events "
+                "remap), + tube creep as the honest negative-result mechanism"
+            ),
+            "gaps_targeted": [
+                "NOTES-r22/r64 residual: leftover domain hrsg-attemperator / alkaline-water-electrolysis / wet-fgd; took hrsg-hp-spray-attemperator to match SPIT-LOCK",
+                "NOTES-r14 item 4: LEARNING-ON-LEARNING DEPTH — three go-edges; rollback of any pair is fitted to fail; coordinated depression of all three exhibited with eligibility arithmetic",
+                "NOTES-r04 gap 4 (partial): human ratification of the spray interlock, 9.8 min fitted, without switching sim_or_real to hil (plant remains designed)",
+                "Independent LIF raster: excerpt_source=independent_lif, sim_scope=sidecar_only, seed 23001; membrane crossings not a 1:1 remap of spike_events",
+            ],
+            "race_flip_narrative": (
+                "noz.hot.high @ 6.412 ms vs stm.in_band @ 6.604 ms (192 us) inside "
+                "race_window_us 500. Gap < min(500, 500) us so a sub-flip-bound perturbation "
+                "reverses which alarm heads the PB-AT-6 queue. The gate excludes the winner "
+                "tag and rides nozzle-4 steam TC > 580 C and nozzle-4 dP < 0.25 MPa — order-invariant "
+                "floors. Extends the flip-fragility series to NOZZLE-TRUE CERTIFICATE: when three "
+                "STM-side channels agree, their race does not decide truth; a local nozzle TC that "
+                "policy treated as EMI-nuisance-only does."
+            ),
+            "tags": [
+                "hrsg-hp-spray-attemperator",
+                "magnetite-spray-lock",
+                "nozzle-true-certificate",
+                "local-tc-discriminant",
+                "spray-step-probe",
+                "triple-edge-scar",
+                "pair-rollback-fails",
+                "coordinated-depression",
+                "correct-modify-hrsg-still-fails",
+                "tube-creep",
+                "human-ratify-hrsg-gallery",
+                "high-h2-cofire-probe-refit",
+                "night-shift-forgery",
+                "same-gate-opposite-disposition-contrast",
+                "independent-lif-raster",
+                "sidecar-sim-only",
+                "industrial-process",
+                "research-only",
+            ],
+            "snn_tags": ["race", "refractory", "adaptation", "third-factor", "multi-edge-eligibility", "independent-lif"],
+            "distillation_value": (
+                "A spray-lock nozzle-true certificate is three correct loops looking at "
+                "four-nozzle STM mean, spray-header flow, and SHP that is not the locked "
+                "spit. Distill (1) a local nozzle TC that policy had treated as "
+                "EMI-nuisance-only, (2) a reversible probe that recouples STM mean "
+                "only if the spray field is intact, (3) coordinated depression of every "
+                "STM-healthy-go edge because rolling back any pair leaves the third above "
+                "threshold, (4) a critic head that can book a process-correct gate against "
+                "a later unmonitored world loss without netting them, and (5) an independent "
+                "LIF sidecar whose excerpt is membrane crossings, not a remap of spike_events."
+            ),
+            "rights": dict(RIGHTS),
+            "batch_position": 1,
+        },
+    }
+    return rec, dict(
+        trace=trace,
+        eta1=eta1,
+        eta2=eta2,
+        eta3=eta3,
+        dw1=dw1,
+        dw2=dw2,
+        dw3=dw3,
+        w1=w1,
+        w2=w2,
+        w3=w3,
+        sim_spikes=sim_spikes,
+        spikes_budget=spikes_budget,
+    )

@@ -1,0 +1,132 @@
+            (
+                "summary",
+                "Wrong-REJECT froze RT-4 at 0 t/d while live wall stayed 1204 C under the "
+                "1220 C trip. 14 min magnesium reduction window missed. Correct gate was ACCEPT of the "
+                "already-legal 2.40 t/d command.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("retort", "held at 0 t/d; 2.40 t/d abandoned"),
+                        ("live_C", "still 1204 C, under 1220 C published trip"),
+                        ("charge", "14 min magnesium reduction window missed"),
+                        ("latch", "no over-temperature; reset-band false positive"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "The 1190 C reading is a hysteresis reset, not a published 1220 C trip, and prior peak 1212 C never latched.",
+                    "Delayed (14 min): sister retort RT-5 ran the same 2.40 t/d reduction window after QA rebound the live trip; RT-4's slot was already gone.",
+                ],
+            ),
+            (
+                "recovery",
+                OrderedDict(
+                    [
+                        (
+                            "correct_gate",
+                            "ACCEPT: live 1204 C < published 1220 C trip; leave 2.40 t/d.",
+                        ),
+                        ("correct_trip_C", 1220.0),
+                        ("wrong_reset_C", 1190.0),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict([("feed_t_d", 0.0), ("hold", True)]),
+                        ),
+                        (
+                            "cost",
+                            "14 min missed magnesium reduction window (task/efficiency); live never over trip (safety false-positive).",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "ir.live.c (5.160 ms, 1204 C)"),
+                        ("loser", "rtd.reset.band (5.380 ms, 1190 C reset)"),
+                        ("margin_us", 220),
+                        (
+                            "counterfactual_if_reversed",
+                            "Reset-band-first by < 220 us would still show live 1204 C < 1220 C. A "
+                            "correct gate ACCEPTs either way. The wrong REJECT spent the live win "
+                            "on a hysteresis reset tag.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 5900),
+            (
+                "reward_inflection_note",
+                "Task and efficiency drop at the wrong REJECT (5.900 ms, tick 4). The 14 min "
+                "missed window is delayed surprise, not the inflection.",
+            ),
+            ("delayed_surprise_s", 840.0),
+            ("missed_window_s", 840),
+        ]
+    )
+    ras = raster_core(
+        28,
+        72,
+        32,
+        65,
+        routing(
+            "relay.reset.band",
+            "policy.hold_reject",
+            [
+                ("relay.reset.band", "policy.hold_reject", 0.71),
+                ("relay.ir.live", "policy.hold_reject", 0.22),
+            ],
+            "acetylcholine",
+            0.08,
+            "reset_band_stdp; ACh tags the (wrong) hold_reject bind at the live-IR win",
+        ),
+        excerpt,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.36),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("hold_reject", 48, 0.50, 200.0, 3),
+                    pop("go_accept", 48, 0.80, 10.0, 0),
+                    pop("reset_band_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r56-296",
+        "WRONG-REJECT at Dolime-Toft / RT-4: live wall 1204 C is legal vs "
+        "published 1220 C trip; supervisor bound a 1190 C hysteresis reset as a latched trip",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Wrong-reject. Sidecar arithmetic 1204 < 1220 is true; clamp bound to a "
+        "hysteresis reset 1190 C with trip_latched false. total -0.36 = -0.18 + 0.06 + -0.22 + -0.08 + 0.06.",
+        ras,
+        gate,
+        "pidgeon-magnesium-retort",
+        [
+            "reject",
+            "wrong-gate",
+            "hysteresis-reset-as-trip",
+            "reset-band-as-latched",
+            "sidecar-convictable",
+            "designed",
+        ],
+        "Teaches a probe that a correct live<trip read can still be a wrong gate when "
+        "routing.table[0].to is policy.hold_reject and executed feed is zeroed.",
+        1,
+        supervisor_error_type="wrong-reject",
+    )

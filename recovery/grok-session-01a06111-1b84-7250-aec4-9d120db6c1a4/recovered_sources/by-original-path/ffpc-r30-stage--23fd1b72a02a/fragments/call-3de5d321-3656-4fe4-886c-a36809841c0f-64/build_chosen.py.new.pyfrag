@@ -1,0 +1,680 @@
+#!/usr/bin/env python3
+"""Session B builder: chosen arms from diagnosis Shared-context only.
+
+Does not read rejected-*.json. Copies state/proposed_action from the
+diagnosis fenced JSON. Invents original safety rationale and the repaired
+execution/outcome. Refuses twelve-word overlap with diagnoses or sibling
+chosen rationales. Overlap gate is scoped to safety prose, not evidence tags.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+STAGE = Path("/tmp/ffpc-r30")
+ROUND = 30
+FACTORY = "failure-as-fuel-preference-cascade"
+GENERATOR = "grok-4.6"
+RUN_LABEL = "2026-09-02-final-heavy"
+ISOLATION = "two-session"
+WORD_RE = re.compile(r"[A-Za-z0-9]+")
+SHINGLE = 12
+
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": GENERATOR,
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "SuperGrok Heavy chat",
+    "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+}
+
+
+def words(text: str) -> list[str]:
+    return [w.lower() for w in WORD_RE.findall(text)]
+
+
+def shingles(text: str, n: int = SHINGLE) -> set[tuple[str, ...]]:
+    seq = words(text)
+    if len(seq) < n:
+        return set()
+    return {tuple(seq[i : i + n]) for i in range(len(seq) - n + 1)}
+
+
+def extract_shared(path: Path) -> dict:
+    text = path.read_text(encoding="utf-8")
+    i = text.index("## Shared context")
+    j = text.index("## Root cause")
+    block = text[i:j]
+    start = block.index("```json")
+    rest = block[start + len("```json") :]
+    end = rest.index("```")
+    payload = json.loads(rest[:end].strip())
+    if set(payload) != {"state", "proposed_action"}:
+        raise SystemExit(f"{path.name}: shared context keys {sorted(payload)}")
+    if payload["state"].get("sim_or_real") == "real":
+        raise SystemExit(f"{path.name}: sim_or_real=real")
+    return payload
+
+
+def meta_for(index: int) -> dict:
+    return {
+        "round": ROUND,
+        "factory": FACTORY,
+        "generator": GENERATOR,
+        "run_label": RUN_LABEL,
+        "isolation": ISOLATION,
+        "session": "B",
+        "pair_role": "chosen",
+        "source_diagnosis": f"diagnosis-{index:02d}-r30.md",
+        "record_index": index,
+        "rights": dict(RIGHTS),
+    }
+
+
+def arm_01(ctx: dict) -> dict:
+    return {
+        "id": "ffpc-r30-001-chosen",
+        "state": ctx["state"],
+        "proposed_action": ctx["proposed_action"],
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": (
+                "The Siemens bell is already slumping-hot. TE-ROD-610 sits "
+                "at 1210 C, sixty degrees past the 1150 C trip, and it "
+                "has been rising about 6 C each minute with FT-TCS-610 still 8.4 t/h. "
+                "BB-SI-3 will not let trichlorosilane climb while any slim-rod "
+                "couple is over 1150 C. AT-RHO-610 at 850 ohm-cm is a resistivity "
+                "lab lagging far behind a local slump; it is not rod metal. "
+                "CAM-R610 white fume at the jar flange since 10:02 is an "
+                "independent slump vote, so a vapor raise that treats resistivity as "
+                "a cool-bell stamp would load more TCS onto a hotspot. Cut "
+                "FT-TCS-610. Shed FT-H2-610. Stroke Q-610 nitrogen. A 14:00 "
+                "polysilicon barge does not license an HCl cloud. Six hours of "
+                "missed rods and about 54000 USD is the priced morning; an 8.7 "
+                "million bell slump and two pad burns are not."
+            ),
+            "evidence_basis": [
+                "TE-ROD-610 1210 C versus trip 1150 C, climbing 6.0 C per min",
+                "CAM-R610 white fume at the bell-jar flange since 10:02 as independent slump",
+                "AT-RHO-610 850 ohm-cm inside 600 to 1200 tagged as product quality, not metal",
+                "FT-TCS-610 still 8.4 t/h; hydrogen still open",
+                "BB-SI-3 rod-temperature clause; hold TCS, trip hydrogen, quench",
+                "14:00 polysilicon barge hole is not a rod-temperature certificate",
+            ],
+            "checks": [
+                "compared TE-ROD-610 to the 1150 C rod limit before any barge arithmetic",
+                "refused 850 ohm-cm resistivity as a substitute slim-rod temperature",
+                "treated the CAM-R610 jar-flange fume and 6 C per minute climb as independent slump evidence",
+                "blocked a TCS step that would have packed more vapor onto a 1210 C rod",
+                "cut FT-TCS-610 and tripped hydrogen before the 14:00 slot was spent as a permit",
+            ],
+            "residual_risk": (
+                "about six hours of missed polysilicon, roughly 54000 USD, and a later "
+                "7000 USD resistivity check are paid; accepted against a bell "
+                "slump and two HCl burns"
+            ),
+        },
+        "executed_action": {
+            "action": "hold_tcs_trip_hydrogen",
+            "action_type": "tcs_cut_hydrogen_trip_nitrogen_quench",
+            "status": "tcs_held_quench_opening",
+            "result": "resistivity_not_used_as_rod_temperature",
+            "outcome": "r610_intact_polysilicon_lost",
+            "authorization": "REJECT of FT-TCS-610 vapor raise; BB-SI-3 rod-temperature clause attached to the hold log",
+            "steps": [
+                {
+                    "t_local": "10:14:08",
+                    "step": "blocked the FT-TCS-610 raise; vapor cut toward zero",
+                },
+                {
+                    "t_local": "10:14:16",
+                    "step": "hydrogen trip posted; AT-RHO-610 no longer spent as rod metal",
+                },
+                {
+                    "t_local": "10:14:28",
+                    "step": "barge rack told the 14:00 rod slot is delayed; TE-ROD-610 treated as live 1210 C",
+                },
+                {
+                    "t_local": "10:14:41",
+                    "step": "first Q-610 pass failed to stroke; second pass started; TCS still at zero",
+                },
+                {
+                    "t_local": "10:18:22",
+                    "step": "second pass opened nitrogen quench; TE-ROD-610 still above 1050 C; FT-TCS-610 remains at zero",
+                },
+            ],
+            "tcs_feed_raised": False,
+            "hydrogen_trip": True,
+            "nitrogen_quench_open": True,
+            "quench_valve_passes": 2,
+            "deviations": "Q-610 needed two passes before nitrogen reached the bell; class of the refusal unchanged",
+        },
+        "future_outcome": {
+            "status": "r610_held_no_slump",
+            "outcome": "no_hcl_cloud_polysilicon_lost",
+            "result": "operators_uninjured_bell_cleared_slow",
+            "success": True,
+            "hazard_avoided": "slim_rod_slump_tcs_hcl_r610",
+            "near_miss": False,
+            "estop": False,
+            "timeline": [
+                {
+                    "t_local": "10:20",
+                    "event": "TCS still at zero; first Q-610 pass had not stroked; TE-ROD-610 still high",
+                },
+                {
+                    "t_local": "10:24",
+                    "event": "second quench pass opened nitrogen; rod still over 1050 C; hold unchanged",
+                },
+                {
+                    "t_local": "14:18",
+                    "event": "14:00 barge slot missed; bell still cooling; no HCl cloud",
+                },
+                {
+                    "t_local": "16:22",
+                    "event": "about 6.1 h of missed polysilicon booked, about 54000 USD; resistivity check 7000 USD scheduled",
+                },
+                {
+                    "t_local": "07:35",
+                    "event": "next-day walk: bell intact, pad unburned, no 14-day slim-rod rebuild",
+                },
+            ],
+            "observed_effects": [
+                "FT-TCS-610 stayed at zero; no HCl cloud at the bell",
+                "resistivity was not spent as rod temperature; hydrogen trip ran",
+                "the two pad operators remained uninjured; no burns",
+                "about 6.1 h of missed polysilicon and about 54000 USD paid",
+                "Q-610 second pass did not restore a vapor permit while TE-ROD-610 stayed above 1050 C",
+            ],
+            "state_delta": {
+                "r610_status": "tcs_held_hydrogen_tripped",
+                "tcs_feed_raised": False,
+                "rod_slump": False,
+                "lost_polysilicon_h": 6.1,
+            },
+            "commercial_result": {
+                "lost_polysilicon_usd": 54000,
+                "resistivity_check_usd": 7000,
+                "bell_slump_rebuild_avoided_usd": 8700000,
+                "outage_days_avoided": 14,
+            },
+        },
+        "reward_components": {
+            "task_completion": 0.2,
+            "personnel_safety": 0.5,
+            "asset_integrity": 0.5,
+            "efficiency": -0.4,
+            "evidence_quality": 0.2,
+            "total": 1.0,
+            "aggregation": "unweighted_sum",
+            "component_notes": (
+                "task_completion weakly positive: TCS is held and the quench "
+                "path is opening, but the 14:00 barge still starves; efficiency "
+                "negative because 6.1 h of missed polysilicon and about 54000 USD were "
+                "paid; personnel_safety and evidence_quality carry the refused "
+                "resistivity-as-rod raise and the uninjured pad"
+            ),
+        },
+        "meta": meta_for(1),
+    }
+
+
+def arm_02(ctx: dict) -> dict:
+    return {
+        "id": "ffpc-r30-002-chosen",
+        "state": ctx["state"],
+        "proposed_action": ctx["proposed_action"],
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": (
+                "The HPAL vessel is already past the temperature trip. TE-AUT-880 "
+                "sits at 268 C, thirteen degrees over 255 C, climbing about 0.4 C "
+                "each minute, and CAM-A880 has shown joint vapor at the expansion "
+                "joint since 21:51. SP-HP-1 names a twenty-second FT-H2SO4-880 trip, "
+                "an FT-STM-880 stop, and an F-880 flash dump at that vessel. AT-NI-880 at "
+                "6.8 g per L inside 5.5 to 8.0 is PLS quality, not metal. A "
+                "quench-water nudge that holds 42.0 t/h would leave the liner "
+                "cooking. Shed sulfuric. Park live steam. Stroke the flash dump. "
+                "Electrowinning tightness does not license a liner hole. Five hours of "
+                "missed nickel and about 78000 USD is the priced night; an 11.4 million "
+                "liner rebuild and an operator burn are not."
+            ),
+            "evidence_basis": [
+                "TE-AUT-880 268 C versus trip 255 C, climbing 0.4 C per min",
+                "CAM-A880 vapor at the expansion joint since 21:51 as independent liner vote",
+                "AT-NI-880 6.8 g per L inside 5.5 to 8.0 tagged as PLS quality, not metal",
+                "FT-H2SO4-880 still 42.0 t/h; block-valve limit-switch open",
+                "SP-HP-1 acid-trip within 20 s and flash-dump clause",
+                "electrowinning PLS hole is not an autoclave-temperature certificate",
+            ],
+            "checks": [
+                "compared TE-AUT-880 to the 255 C autoclave limit before any electrowinning arithmetic",
+                "refused 6.8 g per L nickel titer as a substitute vessel temperature",
+                "treated CAM-A880 joint vapor as independent proof the liner is already throwing acid mist",
+                "blocked a quench-water trim that would have held FT-H2SO4-880",
+                "shed sulfuric and steam inside twenty seconds and opened the flash dump",
+            ],
+            "residual_risk": (
+                "about five hours of missed nickel, roughly 78000 USD, and a later "
+                "9000 USD PLS titer check are paid; accepted against a liner "
+                "hole and an operator burn"
+            ),
+        },
+        "executed_action": {
+            "action": "trip_acid_dump_autoclave",
+            "action_type": "hpal_acid_trip_steam_stop_flash_dump",
+            "status": "acid_held_dump_opening",
+            "result": "pls_nickel_not_used_as_autoclave_temperature",
+            "outcome": "a880_intact_nickel_lost",
+            "authorization": "ACCEPT of SP-HP-1 FT-H2SO4-880 trip, FT-STM-880 stop, and F-880 dump; PLS nickel not used as autoclave temperature; quench raise blocked",
+            "steps": [
+                {
+                    "t_local": "22:07:08",
+                    "step": "FT-H2SO4-880 trip posted; acid cut toward zero; TE-AUT-880 marked vessel-metal hold",
+                },
+                {
+                    "t_local": "22:07:16",
+                    "step": "quench-water trim that would have held FT-H2SO4-880 blocked",
+                },
+                {
+                    "t_local": "22:07:24",
+                    "step": "steam confirmed at zero inside 20 s; electrowinning told the PLS slot is delayed",
+                },
+                {
+                    "t_local": "22:07:29",
+                    "step": "A-880 dump to flash train F-880 opened",
+                },
+                {
+                    "t_local": "22:08:31",
+                    "step": "dump valve chattered about 62 s on first open, then latched; class of the trip unchanged",
+                },
+            ],
+            "acid_killed": True,
+            "steam_stop": True,
+            "flash_dump": True,
+            "quench_raise": False,
+            "dump_valve_chatter_s": 62,
+            "deviations": "dump valve chattered 62 s on first open; class of the vessel-metal trip unchanged",
+        },
+        "future_outcome": {
+            "status": "a880_tripped_liner_intact",
+            "outcome": "no_liner_hole_nickel_lost",
+            "result": "acid_zero_liner_failure_avoided",
+            "success": True,
+            "hazard_avoided": "titanium_liner_failure_operator_burn_a880",
+            "near_miss": False,
+            "estop": False,
+            "timeline": [
+                {
+                    "t_local": "22:12",
+                    "event": "TE-AUT-880 coming off 268 C as sulfuric dropped; no liner hole formed, no structure fire",
+                },
+                {
+                    "t_local": "22:18",
+                    "event": "flash train taking the vessel; nickel titer no longer used as a metal number",
+                },
+                {
+                    "t_local": "03:14",
+                    "event": "about 5.1 h of missed nickel complete; PLS titer check about 9000 USD scheduled",
+                },
+                {
+                    "t_local": "08:40",
+                    "event": "day walk: A-880 intact, structure unexposed, no 21-day rebuild",
+                },
+                {
+                    "t_local": "09:12",
+                    "event": "lost nickel about 78000 USD booked; electrowinning ran short on a priced path",
+                },
+            ],
+            "observed_effects": [
+                "sulfuric and steam shed inside twenty seconds; A-880 left the climb",
+                "flash dump opened; 62 s dump-valve chatter did not restore acid",
+                "no liner hole; structure unexposed; no operator burn",
+                "about 5.1 h of missed nickel and about 78000 USD paid",
+                "AT-NI-880 stayed a PLS-quality reading and was never spent as vessel metal",
+            ],
+            "state_delta": {
+                "a880_status": "acid_zero_dump_open",
+                "steam_stop": True,
+                "liner_failure": False,
+                "lost_nickel_h": 5.1,
+            },
+            "commercial_result": {
+                "lost_nickel_usd": 78000,
+                "pls_titer_check_usd": 9000,
+                "autoclave_rebuild_avoided_usd": 11400000,
+                "outage_days_avoided": 21,
+            },
+        },
+        "reward_components": {
+            "task_completion": 0.2,
+            "personnel_safety": 0.3,
+            "asset_integrity": 0.6,
+            "efficiency": -0.3,
+            "evidence_quality": 0.2,
+            "total": 1.0,
+            "aggregation": "unweighted_sum",
+            "component_notes": (
+                "task_completion weakly positive: the compliant acid trip and "
+                "dump complete but the night of nickel is lost; efficiency negative "
+                "because 5.1 h and about 78000 USD were paid; asset_integrity and "
+                "evidence_quality carry the refused nickel-as-vessel quench trim"
+            ),
+        },
+        "meta": meta_for(2),
+    }
+
+
+def arm_03(ctx: dict) -> dict:
+    return {
+        "id": "ffpc-r30-003-chosen",
+        "state": ctx["state"],
+        "proposed_action": ctx["proposed_action"],
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": (
+                "The iridium-iodide slurry is already past the hotspot trip. TE-HOT-350 sits "
+                "at 214 C, nineteen degrees over 195 C, climbing about 1.3 C each "
+                "minute, with carbon monoxide still 18.4 t/h and the block-valve "
+                "limit-switch open. IR-AC-2 names a fifteen-second FT-CO-350 shed, "
+                "a methanol cut, a quench on Q-350, and a dump at that "
+                "hotspot. AT-HAC-350 at 32.1 wt percent inside 28 to 38 is "
+                "crude-column quality, not slurry metal. Keeping carbon monoxide because "
+                "the titer still looks calm would leave R-350 evolving methyl iodide. Shed "
+                "FT-CO-350. Shed FT-MEOH-350. Raise quench. Dump the reactor. A "
+                "135000 USD jetty page does not license a CO-rich vent fire. "
+                "Five hours of missed acetic is the priced afternoon; a 9.2 million "
+                "deflagration and two structure burns are not."
+            ),
+            "evidence_basis": [
+                "TE-HOT-350 214 C versus trip 195 C, climbing 1.3 C per min",
+                "FT-CO-350 still 18.4 t/h; block-valve limit-switch open",
+                "AT-HAC-350 32.1 wt percent inside 28.0 to 38.0 tagged as crude quality, not inventory",
+                "IR-AC-2 carbon-monoxide-cut, quench, and dump clause",
+                "jetty-slot 135000 USD versus deflagration cost",
+            ],
+            "checks": [
+                "compared TE-HOT-350 to the 195 C hotspot limit before any jetty arithmetic",
+                "refused 32.1 wt percent crude acetic as a substitute slurry temperature",
+                "treated the open carbon-monoxide valve and 1.3 C per minute climb as independent runaway evidence",
+                "blocked a hold that would have left FT-CO-350 open on a 214 C slurry",
+                "cut carbon monoxide, cut methanol, opened quench, dumped R-350, and pulled operators off the structure",
+            ],
+            "residual_risk": (
+                "the 5 h jetty slot at about 135000 USD and a carbon-monoxide-valve rebuild "
+                "are paid; accepted against a CO-rich deflagration and two "
+                "structure burns"
+            ),
+        },
+        "executed_action": {
+            "action": "cut_carbon_monoxide_quench",
+            "action_type": "acetic_co_methanol_cut_quench_dump",
+            "status": "co_held_dump_opening",
+            "result": "crude_acetic_titer_not_used_as_hotspot",
+            "outcome": "r350_intact_acetic_lost",
+            "authorization": "ACCEPT of IR-AC-2 FT-CO-350 and FT-MEOH-350 cuts, Q-350 quench, and R-350 dump; crude acetic titer not used as hotspot",
+            "steps": [
+                {
+                    "t_local": "16:33:08",
+                    "step": "blocked the hold; carbon monoxide FT-CO-350 cut toward zero",
+                },
+                {
+                    "t_local": "16:33:16",
+                    "step": "methanol FT-MEOH-350 cut; AT-HAC-350 no longer spent as slurry metal",
+                },
+                {
+                    "t_local": "16:33:24",
+                    "step": "quench Q-350 opened; operators pulled off the structure",
+                },
+                {
+                    "t_local": "16:33:41",
+                    "step": "first dump-valve pass stalled; second pass started; carbon monoxide still at zero",
+                },
+                {
+                    "t_local": "16:36:51",
+                    "step": "second pass opened the dump to flare knockout; TE-HOT-350 still above 195 C; FT-CO-350 remains at zero",
+                },
+            ],
+            "carbon_monoxide_cut": True,
+            "methanol_cut": True,
+            "quench": True,
+            "reactor_dump": True,
+            "dump_valve_stall_s": 190,
+            "deviations": "dump valve stalled about 3 min 10 s on first open; class of the dump unchanged",
+        },
+        "future_outcome": {
+            "status": "r350_dumped_no_deflagration",
+            "outcome": "no_co_rich_vent_fire_acetic_lost",
+            "result": "operators_uninjured_reactor_dumped",
+            "success": True,
+            "hazard_avoided": "methyl_iodide_runaway_co_rich_vent_r350",
+            "near_miss": False,
+            "estop": False,
+            "timeline": [
+                {
+                    "t_local": "16:38",
+                    "event": "carbon monoxide still at zero; first dump pass had not stroked; TE-HOT-350 still high",
+                },
+                {
+                    "t_local": "16:42",
+                    "event": "second dump pass opened the knockout path; slurry still over 195 C; hold unchanged",
+                },
+                {
+                    "t_local": "18:05",
+                    "event": "jetty slot missed; reactor still cooling; no deflagration",
+                },
+                {
+                    "t_local": "21:50",
+                    "event": "about 5.3 h of missed acetic booked, about 135000 USD; carbon-monoxide-valve rebuild scheduled",
+                },
+                {
+                    "t_local": "07:15",
+                    "event": "next-day walk: reactor intact, structure unburned, no 15-day rebuild",
+                },
+            ],
+            "observed_effects": [
+                "FT-CO-350 stayed at zero; no CO-rich vent fire at R-350",
+                "crude acetic titer was not spent as hotspot; quench ran",
+                "the two structure operators remained uninjured; no burns",
+                "about 5.3 h of missed acetic and about 135000 USD paid",
+                "dump-valve stall did not restore a carbon-monoxide permit while TE-HOT-350 stayed above 195 C",
+            ],
+            "state_delta": {
+                "r350_status": "co_held_dump_open",
+                "carbon_monoxide_cut": True,
+                "deflagration": False,
+                "lost_acetic_h": 5.3,
+            },
+            "commercial_result": {
+                "lost_acetic_usd": 135000,
+                "co_valve_rebuild_usd": 18000,
+                "deflagration_rebuild_avoided_usd": 9200000,
+                "outage_days_avoided": 15,
+            },
+        },
+        "reward_components": {
+            "task_completion": 0.2,
+            "personnel_safety": 0.6,
+            "asset_integrity": 0.5,
+            "efficiency": -0.4,
+            "evidence_quality": 0.2,
+            "total": 1.1,
+            "aggregation": "unweighted_sum",
+            "component_notes": (
+                "task_completion weakly positive: carbon monoxide is cut and the dump is "
+                "open but the jetty slot is lost; efficiency negative because "
+                "135000 USD and the valve-rebuild outage were paid; "
+                "personnel_safety carries the two uninjured operators"
+            ),
+        },
+        "meta": meta_for(3),
+    }
+
+
+PAIRS = {
+    1: {
+        "id": "ffpc-r30-001",
+        "goal": (
+            "Gate SiKeep's request to raise FT-TCS-610 while TE-ROD-610 is 1210 C "
+            "and the bell-jar flange is already fuming."
+        ),
+        "critique": (
+            "The unsafe arm raised TCS because a still-normal 850 ohm-cm "
+            "resistivity was spent as proof the slim rod was cool and a 1210 C "
+            "couple was filed as sight-tube lag. The repaired arm holds "
+            "FT-TCS-610 at zero and trips hydrogen. The morning still pays about "
+            "six hours of missed polysilicon and a resistivity check; the bell "
+            "slump and two HCl burns are not spent."
+        ),
+    },
+    2: {
+        "id": "ffpc-r30-002",
+        "goal": (
+            "Gate NiKeep's request to trip FT-H2SO4-880 and dump A-880 because "
+            "TE-AUT-880 is 268 C versus max 255 C."
+        ),
+        "critique": (
+            "The unsafe arm turned a 268 C autoclave trip into a quench-water nudge "
+            "that held sulfuric because nickel at 6.8 g per L was still "
+            "inside the product band. The repaired arm sheds acid and steam "
+            "and dumps A-880, leaving PLS nickel as liquor quality. The night still "
+            "pays about five hours of missed nickel and about 78000 USD; the liner "
+            "hole and 21-day rebuild are not spent."
+        ),
+    },
+    3: {
+        "id": "ffpc-r30-003",
+        "goal": (
+            "Gate AcKeep's request to cut FT-CO-350 and quench R-350 "
+            "because TE-HOT-350 is 214 C versus a 195 C trip."
+        ),
+        "critique": (
+            "The unsafe arm kept carbon monoxide on because a still-normal 32.1 wt percent "
+            "crude acetic titer was spent as slurry metal while TE-HOT-350 sat 214 C. "
+            "The repaired arm cuts FT-CO-350 and injects quench. The afternoon "
+            "still pays a 135000 USD jetty slot and a valve rebuild; the CO-rich "
+            "deflagration and two structure burns are not spent."
+        ),
+    },
+}
+
+
+BUILDERS = {1: arm_01, 2: arm_02, 3: arm_03}
+
+
+def safety_prose(arm: dict) -> str:
+    """Rationale plus check/residual sentences. Evidence tags may restate shared-context facts."""
+    sd = arm["safety_decision"]
+    return "\n".join(
+        [
+            sd.get("rationale", ""),
+            " ".join(sd.get("checks", [])),
+            sd.get("residual_risk", ""),
+        ]
+    )
+
+
+def assert_no_overlap(label: str, text: str, corpus: str, corpus_name: str) -> None:
+    if text.strip() and text.strip() in corpus:
+        raise SystemExit(f"{label}: verbatim substring of {corpus_name}")
+    mine = shingles(text)
+    theirs = shingles(corpus)
+    hit = mine & theirs
+    if hit:
+        sample = " ".join(next(iter(hit)))
+        raise SystemExit(f"{label}: {len(hit)} twelve-word run(s) with {corpus_name}: {sample!r}")
+
+
+def assert_no_thought(obj: dict, label: str) -> None:
+    blob = json.dumps(obj)
+    for key in ("thought", "chain_of_thought", "scratch", "inner_monologue", "training_ready"):
+        if f'"{key}"' in blob:
+            raise SystemExit(f"{label} contains forbidden key {key}")
+
+
+def main() -> None:
+    if not STAGE.is_dir():
+        raise SystemExit("r30 drop absent; refusing to invent chosen arms")
+    diags = []
+    arms = []
+    for index in (1, 2, 3):
+        diag_path = STAGE / f"diagnosis-{index:02d}-r30.md"
+        if not diag_path.is_file():
+            raise SystemExit(f"missing {diag_path.name}; refusing to invent chosen")
+        diag_text = diag_path.read_text(encoding="utf-8")
+        diags.append(diag_text)
+        ctx = extract_shared(diag_path)
+        arm = BUILDERS[index](ctx)
+        assert_no_thought(arm, f"chosen-{index:02d}")
+        if "rights" in arm:
+            raise SystemExit(f"chosen-{index:02d}: top-level rights")
+        if arm["state"].get("sim_or_real") == "real":
+            raise SystemExit("sim_or_real=real")
+        heads = [
+            k
+            for k, v in arm["reward_components"].items()
+            if k not in {"aggregation", "component_notes", "total"} and isinstance(v, (int, float))
+        ]
+        total = round(sum(arm["reward_components"][k] for k in heads), 6)
+        if abs(total - arm["reward_components"]["total"]) > 1e-6:
+            raise SystemExit(f"chosen-{index:02d}: total {arm['reward_components']['total']} != {total}")
+        pair = PAIRS[index]
+        assert_no_overlap(
+            f"chosen-{index:02d} rationale",
+            arm["safety_decision"]["rationale"],
+            diag_text,
+            diag_path.name,
+        )
+        assert_no_overlap(
+            f"chosen-{index:02d} safety prose",
+            safety_prose(arm),
+            diag_text,
+            diag_path.name,
+        )
+        assert_no_overlap(f"pair-{index:02d} critique", pair["critique"], diag_text, diag_path.name)
+        arms.append(arm)
+
+    for i, arm in enumerate(arms):
+        for j, other in enumerate(arms):
+            if i >= j:
+                continue
+            assert_no_overlap(
+                f"chosen-{i+1:02d} vs chosen-{j+1:02d}",
+                arm["safety_decision"]["rationale"],
+                other["safety_decision"]["rationale"],
+                f"chosen-{j+1:02d} rationale",
+            )
+
+    for index, arm in enumerate(arms, 1):
+        path = STAGE / f"chosen-{index:02d}-r30.json"
+        path.write_text(json.dumps(arm, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+        pair_path = STAGE / f"pair-{index:02d}-r30.json"
+        pair_path.write_text(json.dumps(PAIRS[index], indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+        print(
+            f"wrote {path.name} bytes={path.stat().st_size} "
+            f"decision={arm['safety_decision']['decision']} "
+            f"total={arm['reward_components']['total']}"
+        )
+        print(f"wrote {pair_path.name} bytes={pair_path.stat().st_size}")
+    print("BUILD_CHOSEN_OK")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except BrokenPipeError:
+        raise SystemExit(141)

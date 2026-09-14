@@ -1,0 +1,13 @@
+                "Buncher-B2 sits on the Klystron-Fen KF-HIL injector pad with a strip-line BPM "
+                "reporting 2.40 mm offset against a 0.80 mm steering cap. A waveguide forward-"
+                "power coupler, lit by the pad's dummy-load, still reads 18.0 kW under a 24.0 kW "
+                "trip. BPM-first latches REJECT hold; klystron-first would commit an 18 percent "
+                "RF drive ramp on an under-read orbit.",
+            ),
+            ("domain", "electron-linac"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Do not ramp RF drive unless BPM offset <= 0.80 mm; keep drive 0 percent until "
+                "the injected orbit recenters.",
+            ),

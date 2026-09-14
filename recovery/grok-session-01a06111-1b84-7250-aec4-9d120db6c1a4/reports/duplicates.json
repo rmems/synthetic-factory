@@ -1,0 +1,1415 @@
+{
+  "exact_duplicate_groups": [
+    {
+      "count": 3,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-r63-live/gen_r63.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r63-live--8c876e7dbf46/versions/v0004/gen_r63.py",
+          "version_id": "nelb-r63-live--8c876e7dbf46:v0004"
+        },
+        {
+          "original_path": "/tmp/nelb-r64-live/gen_r64.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r64-live--6f2120a0c430/versions/v0011/gen_r64.py",
+          "version_id": "nelb-r64-live--6f2120a0c430:v0011"
+        },
+        {
+          "original_path": "/tmp/nelb-r66-live/gen_r66.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r66-live--806d70be106b/versions/v0001/gen_r66.py",
+          "version_id": "nelb-r66-live--806d70be106b:v0001"
+        }
+      ],
+      "sha256": "02239fc4353019b4a921bdac790ac8f3e580b6a19545c800f66330fa1f816b19"
+    },
+    {
+      "count": 3,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-r19/gen_r19.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r19--8c8d00a7e787/versions/v0001/gen_r19.py",
+          "version_id": "nelb-r19--8c8d00a7e787:v0001"
+        },
+        {
+          "original_path": "/tmp/nelb-r23/gen_r23.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r23--77d76ab89c23/versions/v0001/gen_r23.py",
+          "version_id": "nelb-r23--77d76ab89c23:v0001"
+        },
+        {
+          "original_path": "/tmp/nelb-r25/gen_r25.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r25--5d95bf860b3e/versions/v0001/gen_r25.py",
+          "version_id": "nelb-r25--5d95bf860b3e:v0001"
+        }
+      ],
+      "sha256": "023b2af693aa0508690f87b5bc62507d105e29bd4399264d2c56727cb650526e"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/maos-r31/build_r31.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r31--98337e5ae1fe/versions/v0009/build_r31.py",
+          "version_id": "maos-r31--98337e5ae1fe:v0009"
+        },
+        {
+          "original_path": "/tmp/maos-r34/build_r34.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r34--947712f03cfd/versions/v0001/build_r34.py",
+          "version_id": "maos-r34--947712f03cfd:v0001"
+        }
+      ],
+      "sha256": "06ed4f9114c60deb249d586bc6ce851d9689c8ff2a21f1de949cb13e34169d78"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-r20/gen_r20.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r20--b6bdf65914a0/versions/v0004/gen_r20.py",
+          "version_id": "nelb-r20--b6bdf65914a0:v0004"
+        },
+        {
+          "original_path": "/tmp/nelb-r29/gen_r29.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r29--cc105791ffdc/versions/v0001/gen_r29.py",
+          "version_id": "nelb-r29--cc105791ffdc:v0001"
+        }
+      ],
+      "sha256": "18463e1afa5a121060a87550b5f298263905fcef9d96f5d8b5ea5d6ebedb7e99"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-r25/gen_r25.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r25--5d95bf860b3e/versions/v0003/gen_r25.py",
+          "version_id": "nelb-r25--5d95bf860b3e:v0003"
+        },
+        {
+          "original_path": "/tmp/nelb-r31/gen_r31.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r31--7703430cef4d/versions/v0001/gen_r31.py",
+          "version_id": "nelb-r31--7703430cef4d:v0001"
+        }
+      ],
+      "sha256": "19e582b3c0f17dbec7656ad421fdcefbe217d8ac150992893b81f2c28192a9d4"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-r01-live/gen_r01.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-live--a4378171ce87/versions/v0001/gen_r01.py",
+          "version_id": "nelb-r01-live--a4378171ce87:v0001"
+        },
+        {
+          "original_path": "/tmp/nelb-r22c/gen_r22c.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r22c--805e0362b758/versions/v0001/gen_r22c.py",
+          "version_id": "nelb-r22c--805e0362b758:v0001"
+        }
+      ],
+      "sha256": "1d116cac35a513797dfeecc3ecfc584df186193daf6a6f2c0ffbc3b708ad5e2a"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r58/gen_r58.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r58--66e11b64cb50/versions/v0002/gen_r58.py",
+          "version_id": "ttf-r58--66e11b64cb50:v0002"
+        },
+        {
+          "original_path": "/tmp/ttf-r70/gen_r70.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r70--412a47e0f6f3/versions/v0001/gen_r70.py",
+          "version_id": "ttf-r70--412a47e0f6f3:v0001"
+        }
+      ],
+      "sha256": "22dd88340bf98887c6620c96b4d873ab18d1aa2794c1d1df81ef00e0394f2b64"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r40/gen_r40.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r40--fc50f34b8e29/versions/v0021/gen_r40.py",
+          "version_id": "ttf-r40--fc50f34b8e29:v0021"
+        },
+        {
+          "original_path": "/tmp/ttf-r40/gen_r40.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r40--fc50f34b8e29/versions/v0024/gen_r40.py",
+          "version_id": "ttf-r40--fc50f34b8e29:v0024"
+        }
+      ],
+      "sha256": "33b2d71d6a7c2bed78ede341b6ab46c3594bf25e77b8381f2cb7a1f05c240c5a"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/maos-r45/build_r45.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r45--f8c222bcb5e5/versions/v0015/build_r45.py",
+          "version_id": "maos-r45--f8c222bcb5e5:v0015"
+        },
+        {
+          "original_path": "/tmp/maos-r50/build_r50.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r50--38ac8d6a5b3f/versions/v0001/build_r50.py",
+          "version_id": "maos-r50--38ac8d6a5b3f:v0001"
+        }
+      ],
+      "sha256": "40d6fc32a8ad6b17cf951176d0dd594e3f8b70dc5579f175ce598c3ab0796c54"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-r13/gen_r13.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r13--5f2d6420948e/versions/v0004/gen_r13.py",
+          "version_id": "nelb-r13--5f2d6420948e:v0004"
+        },
+        {
+          "original_path": "/tmp/nelb-r14/gen_r14.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r14--9edf270d2529/versions/v0001/gen_r14.py",
+          "version_id": "nelb-r14--9edf270d2529:v0001"
+        }
+      ],
+      "sha256": "4309f32bb690f876acf491e4f1a81c15f4e82e8b27f1ff6df7744b735467661e"
+    },
+    {
+      "count": 4,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r38/gen_r38.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r38--0ad839dfa515/versions/v0003/gen_r38.py",
+          "version_id": "ttf-r38--0ad839dfa515:v0003"
+        },
+        {
+          "original_path": "/tmp/ttf-r48/gen_r48.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r48--f1f4fa26cf20/versions/v0001/gen_r48.py",
+          "version_id": "ttf-r48--f1f4fa26cf20:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r56/gen_r56.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r56--e3e746c47a15/versions/v0001/gen_r56.py",
+          "version_id": "ttf-r56--e3e746c47a15:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r58/gen_r58.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r58--66e11b64cb50/versions/v0001/gen_r58.py",
+          "version_id": "ttf-r58--66e11b64cb50:v0001"
+        }
+      ],
+      "sha256": "45e30cbeb52b1afe02a3d4f9b1c8f024afbc88c932a58779f8d56c528c7c0864"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r19/gen_r19.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r19--4498fe2e8ba6/versions/v0005/gen_r19.py",
+          "version_id": "ttf-r19--4498fe2e8ba6:v0005"
+        },
+        {
+          "original_path": "/tmp/ttf-r27/gen_r27.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r27--dacc3d7ec0b9/versions/v0001/gen_r27.py",
+          "version_id": "ttf-r27--dacc3d7ec0b9:v0001"
+        }
+      ],
+      "sha256": "4af5c08ebfc79a070311e568badda0e7b4a24ee648373ee57a017d2b53b47e56"
+    },
+    {
+      "count": 3,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-r03-live/gen_r03.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r03-live--10706cab715f/versions/v0001/gen_r03.py",
+          "version_id": "nelb-r03-live--10706cab715f:v0001"
+        },
+        {
+          "original_path": "/tmp/nelb-r05-live/gen_r05.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r05-live--3c20e7c4f13c/versions/v0001/gen_r05.py",
+          "version_id": "nelb-r05-live--3c20e7c4f13c:v0001"
+        },
+        {
+          "original_path": "/tmp/nelb-r23-live/gen_r23.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r23-live--b0ea35538d39/versions/v0001/gen_r23.py",
+          "version_id": "nelb-r23-live--b0ea35538d39:v0001"
+        }
+      ],
+      "sha256": "5572a51149df22a7fa2c2f6d0d694750747dd587c767e023c672bb79c6fe6855"
+    },
+    {
+      "count": 3,
+      "members": [
+        {
+          "original_path": "/tmp/maos-r67/build_r67.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r67--f7a3a06137cb/versions/v0002/build_r67.py",
+          "version_id": "maos-r67--f7a3a06137cb:v0002"
+        },
+        {
+          "original_path": "/tmp/maos-r68/build_r68.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r68--31bc0fc87304/versions/v0001/build_r68.py",
+          "version_id": "maos-r68--31bc0fc87304:v0001"
+        },
+        {
+          "original_path": "/tmp/maos-r69/build_r69.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r69--f41813658823/versions/v0001/build_r69.py",
+          "version_id": "maos-r69--f41813658823:v0001"
+        }
+      ],
+      "sha256": "5de722d2e6fed33367e225de45e1a07d5c1a71b622e01eef07613e8430756c78"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r23-live/gen_r23.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r23-live--508169392d66/versions/v0001/gen_r23.py",
+          "version_id": "ttf-r23-live--508169392d66:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r25-live/gen_r25.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r25-live--5fc901fce206/versions/v0001/gen_r25.py",
+          "version_id": "ttf-r25-live--5fc901fce206:v0001"
+        }
+      ],
+      "sha256": "5f9e4e5a8125748873ce24d215d27cd25ef575b4edcd0b7b0b2a3735c9704375"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-r02/gen_r02.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r02--82f5099afd20/versions/v0001/gen_r02.py",
+          "version_id": "nelb-r02--82f5099afd20:v0001"
+        },
+        {
+          "original_path": "/tmp/nelb-r65-live/gen_r65.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r65-live--885b634884a5/versions/v0001/gen_r65.py",
+          "version_id": "nelb-r65-live--885b634884a5:v0001"
+        }
+      ],
+      "sha256": "6ce6b34497408350d390a9c0ffb4e06526d074172dea5983780e4ec931ec95ea"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ffpc-r19-stage/build_chosen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r19-stage--93bc955995c5/versions/v0002/build_chosen.py",
+          "version_id": "ffpc-r19-stage--93bc955995c5:v0002"
+        },
+        {
+          "original_path": "/tmp/ffpc-r19/build_chosen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r19--dd44df299cd3/versions/v0001/build_chosen.py",
+          "version_id": "ffpc-r19--dd44df299cd3:v0001"
+        }
+      ],
+      "sha256": "767b8103832d7d68992088da2ca727996dc6c6a9b38c2a5012f77579edc16143"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/actf-r40/gen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r40--4139d39926e5/versions/v0002/gen.py",
+          "version_id": "actf-r40--4139d39926e5:v0002"
+        },
+        {
+          "original_path": "/tmp/actf-r43/gen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r43--a7e99a7ffc42/versions/v0001/gen.py",
+          "version_id": "actf-r43--a7e99a7ffc42:v0001"
+        }
+      ],
+      "sha256": "7834d5e318247bc8e2844ee376c2f573b575f929f4d6e9aff6c5455075eb5ddf"
+    },
+    {
+      "count": 3,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r04/gen_r04.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r04--ea6635b232f8/versions/v0010/gen_r04.py",
+          "version_id": "ttf-r04--ea6635b232f8:v0010"
+        },
+        {
+          "original_path": "/tmp/ttf-r06/gen_r06.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r06--6a642c5c0953/versions/v0001/gen_r06.py",
+          "version_id": "ttf-r06--6a642c5c0953:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r24-live/gen_r24.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r24-live--6e0319c245f4/versions/v0001/gen_r24.py",
+          "version_id": "ttf-r24-live--6e0319c245f4:v0001"
+        }
+      ],
+      "sha256": "7d946fbf00e8091ca76ed2dd0e180545548168f82a34354b56d711e284339f55"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/maos-r52/build_r52.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r52--e0ccc5b0f0c4/versions/v0020/build_r52.py",
+          "version_id": "maos-r52--e0ccc5b0f0c4:v0020"
+        },
+        {
+          "original_path": "/tmp/maos-r57/build_r57.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r57--4ce8999df4fe/versions/v0001/build_r57.py",
+          "version_id": "maos-r57--4ce8999df4fe:v0001"
+        }
+      ],
+      "sha256": "89778feb318ecddde864a0b50627720a872c67de2c17046b5592405f153a5bfd"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r23/gen_r23.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r23--8a3c40628e1a/versions/v0001/gen_r23.py",
+          "version_id": "ttf-r23--8a3c40628e1a:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r30/gen_r30.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r30--84070e36b87d/versions/v0001/gen_r30.py",
+          "version_id": "ttf-r30--84070e36b87d:v0001"
+        }
+      ],
+      "sha256": "8a9cc901a2981ce6a4bf2ef9cfae7e8072df8696145ae9a089e243988cf815ab"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/maos-r42/build_r42.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r42--de5d5bc7a0c6/versions/v0001/build_r42.py",
+          "version_id": "maos-r42--de5d5bc7a0c6:v0001"
+        },
+        {
+          "original_path": "/tmp/maos-r45/build_r45.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r45--f8c222bcb5e5/versions/v0001/build_r45.py",
+          "version_id": "maos-r45--f8c222bcb5e5:v0001"
+        }
+      ],
+      "sha256": "933d23fee4b213b03ac20a2e626288143e1bd7e022309e6d0b3adee8351b0269"
+    },
+    {
+      "count": 4,
+      "members": [
+        {
+          "original_path": "/tmp/ffpc-r29-build-session-a.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--b0b81573df36/versions/v0001/ffpc-r29-build-session-a.py",
+          "version_id": "tmp-root--b0b81573df36:v0001"
+        },
+        {
+          "original_path": "/tmp/ffpc-r30-build-session-a.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--7d3bc7ac17da/versions/v0001/ffpc-r30-build-session-a.py",
+          "version_id": "tmp-root--7d3bc7ac17da:v0001"
+        },
+        {
+          "original_path": "/tmp/ffpc-r31-build-session-a.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--d3770fd35a0f/versions/v0001/ffpc-r31-build-session-a.py",
+          "version_id": "tmp-root--d3770fd35a0f:v0001"
+        },
+        {
+          "original_path": "/tmp/ffpc-r32-build-session-a.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--e217cc54b672/versions/v0001/ffpc-r32-build-session-a.py",
+          "version_id": "tmp-root--e217cc54b672:v0001"
+        }
+      ],
+      "sha256": "95bf8ecdc689312f4b4e5f9b81e48273d25d9f641b62c4e78292f2d11267e770"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r31/gen_r31.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r31--dadcef3e2ae6/versions/v0021/gen_r31.py",
+          "version_id": "ttf-r31--dadcef3e2ae6:v0021"
+        },
+        {
+          "original_path": "/tmp/ttf-r37/gen_r37.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r37--bd61808fb42f/versions/v0001/gen_r37.py",
+          "version_id": "ttf-r37--bd61808fb42f:v0001"
+        }
+      ],
+      "sha256": "963875e420953cd8b6cf9905cdd71f997177c413f0c77b60e2a67da0f150f4b1"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ffpc-r18-stage/build_chosen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r18-stage--ec5c6b908907/versions/v0001/build_chosen.py",
+          "version_id": "ffpc-r18-stage--ec5c6b908907:v0001"
+        },
+        {
+          "original_path": "/tmp/ffpc-r18/build_chosen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r18--34d17fa6cb38/versions/v0001/build_chosen.py",
+          "version_id": "ffpc-r18--34d17fa6cb38:v0001"
+        }
+      ],
+      "sha256": "a41fb8a1de89ce74c4ac764ed80f8c46d3f7fd4f05135445e070e7625227b441"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ffpc-r17-session-b-tools/build_chosen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r17-session-b-tools--355a751e2102/versions/v0001/build_chosen.py",
+          "version_id": "ffpc-r17-session-b-tools--355a751e2102:v0001"
+        },
+        {
+          "original_path": "/tmp/ffpc-r17/build_chosen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r17--0f1960944389/versions/v0001/build_chosen.py",
+          "version_id": "ffpc-r17--0f1960944389:v0001"
+        }
+      ],
+      "sha256": "a6be4c207c0f7a15da594d35f18fdf138200b84bd4ed1e08e3c9e6ba14001240"
+    },
+    {
+      "count": 3,
+      "members": [
+        {
+          "original_path": "/tmp/gen_ttf_r02.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--c8ae2b925cad/versions/v0001/gen_ttf_r02.py",
+          "version_id": "tmp-root--c8ae2b925cad:v0001"
+        },
+        {
+          "original_path": "/tmp/gen_ttf_r03.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--54b6c3a2c53f/versions/v0001/gen_ttf_r03.py",
+          "version_id": "tmp-root--54b6c3a2c53f:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r04/gen_r04.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r04--ea6635b232f8/versions/v0001/gen_r04.py",
+          "version_id": "ttf-r04--ea6635b232f8:v0001"
+        }
+      ],
+      "sha256": "abf5e140da613b77899983fd07e684395a8a9e0e97a756097e0a4d619cfd070e"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r65-live/gen_r65.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r65-live--ce6b3cd6aeaf/versions/v0001/gen_r65.py",
+          "version_id": "ttf-r65-live--ce6b3cd6aeaf:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r69-live/gen_r69.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r69-live--22992810daa9/versions/v0001/gen_r69.py",
+          "version_id": "ttf-r69-live--22992810daa9:v0001"
+        }
+      ],
+      "sha256": "b432a43cdfd427f439934fd418e2b11eed247b9448cd3a71ecaf7c3f110f9b12"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-sfw-r21/gen_r21.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-sfw-r21--3cdca1832613/versions/v0001/gen_r21.py",
+          "version_id": "nelb-sfw-r21--3cdca1832613:v0001"
+        },
+        {
+          "original_path": "/tmp/nelb-sfw-r22/gen_r22.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-sfw-r22--461b1f70c20d/versions/v0001/gen_r22.py",
+          "version_id": "nelb-sfw-r22--461b1f70c20d:v0001"
+        }
+      ],
+      "sha256": "b95f1f876d64c568f5af7183ddd079c54cc8d6d70055cfb0506ea0a49090a9eb"
+    },
+    {
+      "count": 4,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r35/gen_r35.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r35--cc2af472abf5/versions/v0007/gen_r35.py",
+          "version_id": "ttf-r35--cc2af472abf5:v0007"
+        },
+        {
+          "original_path": "/tmp/ttf-r39/gen_r39.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r39--c576930a8e22/versions/v0001/gen_r39.py",
+          "version_id": "ttf-r39--c576930a8e22:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r45/gen_r45.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r45--1a4a9bfeeda3/versions/v0001/gen_r45.py",
+          "version_id": "ttf-r45--1a4a9bfeeda3:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r47/gen_r47.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r47--cf453a2bf874/versions/v0001/gen_r47.py",
+          "version_id": "ttf-r47--cf453a2bf874:v0001"
+        }
+      ],
+      "sha256": "bdf62869e73ac3f65f71f05e1a30fae6d6b832861e167c6fe657b016af8559ab"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ffpc-r20-stage/build_chosen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r20-stage--9afe26c6c6c0/versions/v0001/build_chosen.py",
+          "version_id": "ffpc-r20-stage--9afe26c6c6c0:v0001"
+        },
+        {
+          "original_path": "/tmp/ffpc-r20/build_chosen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r20--fa644e626ba8/versions/v0001/build_chosen.py",
+          "version_id": "ffpc-r20--fa644e626ba8:v0001"
+        }
+      ],
+      "sha256": "c11a3995fc6f2cb63e3449f44e392771e602d2b46da314ae571e87fc816dc66e"
+    },
+    {
+      "count": 4,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r34/gen_r34.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r34--f397fa4cfd7e/versions/v0002/gen_r34.py",
+          "version_id": "ttf-r34--f397fa4cfd7e:v0002"
+        },
+        {
+          "original_path": "/tmp/ttf-r40/gen_r40.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r40--fc50f34b8e29/versions/v0001/gen_r40.py",
+          "version_id": "ttf-r40--fc50f34b8e29:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r41/gen_r41.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r41--cc233a32d2ef/versions/v0001/gen_r41.py",
+          "version_id": "ttf-r41--cc233a32d2ef:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r44/gen_r44.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r44--82200154070b/versions/v0001/gen_r44.py",
+          "version_id": "ttf-r44--82200154070b:v0001"
+        }
+      ],
+      "sha256": "c334ac62c3a51415271ff91c67355611acfbbf02d71f019f2571e9ee29bdd7f0"
+    },
+    {
+      "count": 3,
+      "members": [
+        {
+          "original_path": "/tmp/actf-r32/gen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r32--f7c5156d0656/versions/v0005/gen.py",
+          "version_id": "actf-r32--f7c5156d0656:v0005"
+        },
+        {
+          "original_path": "/tmp/actf-r34/gen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r34--f6a0015770f7/versions/v0001/gen.py",
+          "version_id": "actf-r34--f6a0015770f7:v0001"
+        },
+        {
+          "original_path": "/tmp/actf-r35/gen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r35--252db9cd2260/versions/v0001/gen.py",
+          "version_id": "actf-r35--252db9cd2260:v0001"
+        }
+      ],
+      "sha256": "c71d0f97a3049cd930949c2df453b66316d3b3c7f37ca2255d1bd4693304713d"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r52/gen_r52.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r52--eb8233a7ab60/versions/v0010/gen_r52.py",
+          "version_id": "ttf-r52--eb8233a7ab60:v0010"
+        },
+        {
+          "original_path": "/tmp/ttf-r62/gen_r62.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r62--b1dbd6909b8c/versions/v0001/gen_r62.py",
+          "version_id": "ttf-r62--b1dbd6909b8c:v0001"
+        }
+      ],
+      "sha256": "e4977cae48da9c3baff715c5d952e6539ea016d9c7bceb7f207d2b4e5c62d5a0"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/maos-r33/build_r33.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r33--a308f663ff99/versions/v0016/build_r33.py",
+          "version_id": "maos-r33--a308f663ff99:v0016"
+        },
+        {
+          "original_path": "/tmp/maos-r37/build_r37.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r37--d31e8715bbc9/versions/v0001/build_r37.py",
+          "version_id": "maos-r37--d31e8715bbc9:v0001"
+        }
+      ],
+      "sha256": "e799d17a25917fef8c184c626fb029f9cc58e66abddd6cfad7b73eb650228ff4"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/maos-r49/build_r49.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r49--1315fd0d5d70/versions/v0008/build_r49.py",
+          "version_id": "maos-r49--1315fd0d5d70:v0008"
+        },
+        {
+          "original_path": "/tmp/maos-r53/build_r53.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r53--605002260953/versions/v0001/build_r53.py",
+          "version_id": "maos-r53--605002260953:v0001"
+        }
+      ],
+      "sha256": "e862eaea3a61e66e7a0cc34dff8c941228a32a2ed2824152311b2b7bbd40e352"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ffpc-r25-build-session-a.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--275da63734fb/versions/v0011/ffpc-r25-build-session-a.py",
+          "version_id": "tmp-root--275da63734fb:v0011"
+        },
+        {
+          "original_path": "/tmp/ffpc-r26-build-session-a.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--d32728d72370/versions/v0001/ffpc-r26-build-session-a.py",
+          "version_id": "tmp-root--d32728d72370:v0001"
+        }
+      ],
+      "sha256": "f045834dcb4a57f45484f5e6d4d5596608c3b0e699f9f0978e3b6bd819e8e272"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r16/gen_r16.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r16--9c5e6ee8399b/versions/v0004/gen_r16.py",
+          "version_id": "ttf-r16--9c5e6ee8399b:v0004"
+        },
+        {
+          "original_path": "/tmp/ttf-r26/gen_r26.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r26--f5ad47dff770/versions/v0001/gen_r26.py",
+          "version_id": "ttf-r26--f5ad47dff770:v0001"
+        }
+      ],
+      "sha256": "fa44fa443ed15424e15eeb94663925f267dffca2f280842185467e06067c802a"
+    },
+    {
+      "count": 3,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r39/gen_r39.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r39--c576930a8e22/versions/v0013/gen_r39.py",
+          "version_id": "ttf-r39--c576930a8e22:v0013"
+        },
+        {
+          "original_path": "/tmp/ttf-r49/gen_r49.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r49--e8d634e5baf8/versions/v0001/gen_r49.py",
+          "version_id": "ttf-r49--e8d634e5baf8:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r53/gen_r53.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r53--d211f9b73939/versions/v0001/gen_r53.py",
+          "version_id": "ttf-r53--d211f9b73939:v0001"
+        }
+      ],
+      "sha256": "fe7963963f1e08e67432505e10fe30f9aebdf55705fd3d8d9073aab372eaa9ca"
+    }
+  ],
+  "normalized_ast_duplicate_groups": [
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/actf-r40/gen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r40--4139d39926e5/versions/v0002/gen.py",
+          "version_id": "actf-r40--4139d39926e5:v0002"
+        },
+        {
+          "original_path": "/tmp/actf-r43/gen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r43--a7e99a7ffc42/versions/v0001/gen.py",
+          "version_id": "actf-r43--a7e99a7ffc42:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "0c2f2e478a52e5e830d7778dfd1677613325609f79b3b58bc8e0295af4bc96d1"
+    },
+    {
+      "count": 3,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-r63-live/gen_r63.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r63-live--8c876e7dbf46/versions/v0004/gen_r63.py",
+          "version_id": "nelb-r63-live--8c876e7dbf46:v0004"
+        },
+        {
+          "original_path": "/tmp/nelb-r64-live/gen_r64.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r64-live--6f2120a0c430/versions/v0011/gen_r64.py",
+          "version_id": "nelb-r64-live--6f2120a0c430:v0011"
+        },
+        {
+          "original_path": "/tmp/nelb-r66-live/gen_r66.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r66-live--806d70be106b/versions/v0001/gen_r66.py",
+          "version_id": "nelb-r66-live--806d70be106b:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "0e1306562ff539be77edc30b4ccb0d91b87ed8de835b2e5873c9b8fb36bfc2b1"
+    },
+    {
+      "count": 3,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r04/gen_r04.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r04--ea6635b232f8/versions/v0010/gen_r04.py",
+          "version_id": "ttf-r04--ea6635b232f8:v0010"
+        },
+        {
+          "original_path": "/tmp/ttf-r06/gen_r06.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r06--6a642c5c0953/versions/v0001/gen_r06.py",
+          "version_id": "ttf-r06--6a642c5c0953:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r24-live/gen_r24.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r24-live--6e0319c245f4/versions/v0001/gen_r24.py",
+          "version_id": "ttf-r24-live--6e0319c245f4:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "1ae7901da4aea43f1da7ab15961bd3d8ad85b435fa5395e0f4b10834461c1cf5"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r31/gen_r31.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r31--dadcef3e2ae6/versions/v0021/gen_r31.py",
+          "version_id": "ttf-r31--dadcef3e2ae6:v0021"
+        },
+        {
+          "original_path": "/tmp/ttf-r37/gen_r37.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r37--bd61808fb42f/versions/v0001/gen_r37.py",
+          "version_id": "ttf-r37--bd61808fb42f:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "1b2c3dd219f116fd6494252455f6a565c7c76ffdda2df76f07da0ac2373ef487"
+    },
+    {
+      "count": 3,
+      "members": [
+        {
+          "original_path": "/tmp/gen_ttf_r02.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--c8ae2b925cad/versions/v0001/gen_ttf_r02.py",
+          "version_id": "tmp-root--c8ae2b925cad:v0001"
+        },
+        {
+          "original_path": "/tmp/gen_ttf_r03.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--54b6c3a2c53f/versions/v0001/gen_ttf_r03.py",
+          "version_id": "tmp-root--54b6c3a2c53f:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r04/gen_r04.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r04--ea6635b232f8/versions/v0001/gen_r04.py",
+          "version_id": "ttf-r04--ea6635b232f8:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "1e79a5e568e667872a0439bc625af37fd680639e448fb6398ba82d3eb0230909"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r23/gen_r23.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r23--8a3c40628e1a/versions/v0001/gen_r23.py",
+          "version_id": "ttf-r23--8a3c40628e1a:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r30/gen_r30.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r30--84070e36b87d/versions/v0001/gen_r30.py",
+          "version_id": "ttf-r30--84070e36b87d:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "2dd334e33caf552ad810b379230ed0b38b7e88026b742831bb82b7138eeb22f7"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r58/gen_r58.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r58--66e11b64cb50/versions/v0002/gen_r58.py",
+          "version_id": "ttf-r58--66e11b64cb50:v0002"
+        },
+        {
+          "original_path": "/tmp/ttf-r70/gen_r70.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r70--412a47e0f6f3/versions/v0001/gen_r70.py",
+          "version_id": "ttf-r70--412a47e0f6f3:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "2e3771a17c7628f60f455a3904841e47ae4a61f9713fb98c8306121f2d93bf8f"
+    },
+    {
+      "count": 3,
+      "members": [
+        {
+          "original_path": "/tmp/actf-r32/gen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r32--f7c5156d0656/versions/v0005/gen.py",
+          "version_id": "actf-r32--f7c5156d0656:v0005"
+        },
+        {
+          "original_path": "/tmp/actf-r34/gen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r34--f6a0015770f7/versions/v0001/gen.py",
+          "version_id": "actf-r34--f6a0015770f7:v0001"
+        },
+        {
+          "original_path": "/tmp/actf-r35/gen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r35--252db9cd2260/versions/v0001/gen.py",
+          "version_id": "actf-r35--252db9cd2260:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "2f617bc0a454f24c52e822ce0add332daa36cdb96122e33d3a1c9ec1b3003d33"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-r13/gen_r13.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r13--5f2d6420948e/versions/v0004/gen_r13.py",
+          "version_id": "nelb-r13--5f2d6420948e:v0004"
+        },
+        {
+          "original_path": "/tmp/nelb-r14/gen_r14.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r14--9edf270d2529/versions/v0001/gen_r14.py",
+          "version_id": "nelb-r14--9edf270d2529:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "38f8155b9f1ad16ae7466f2afd8010c27700808a3a241f105bedabd6f7288472"
+    },
+    {
+      "count": 4,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r35/gen_r35.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r35--cc2af472abf5/versions/v0007/gen_r35.py",
+          "version_id": "ttf-r35--cc2af472abf5:v0007"
+        },
+        {
+          "original_path": "/tmp/ttf-r39/gen_r39.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r39--c576930a8e22/versions/v0001/gen_r39.py",
+          "version_id": "ttf-r39--c576930a8e22:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r45/gen_r45.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r45--1a4a9bfeeda3/versions/v0001/gen_r45.py",
+          "version_id": "ttf-r45--1a4a9bfeeda3:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r47/gen_r47.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r47--cf453a2bf874/versions/v0001/gen_r47.py",
+          "version_id": "ttf-r47--cf453a2bf874:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "425ccff1417ccc9f6a193bba394662afc21cb1d89d5302977d5132455416a8db"
+    },
+    {
+      "count": 3,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-r03-live/gen_r03.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r03-live--10706cab715f/versions/v0001/gen_r03.py",
+          "version_id": "nelb-r03-live--10706cab715f:v0001"
+        },
+        {
+          "original_path": "/tmp/nelb-r05-live/gen_r05.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r05-live--3c20e7c4f13c/versions/v0001/gen_r05.py",
+          "version_id": "nelb-r05-live--3c20e7c4f13c:v0001"
+        },
+        {
+          "original_path": "/tmp/nelb-r23-live/gen_r23.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r23-live--b0ea35538d39/versions/v0001/gen_r23.py",
+          "version_id": "nelb-r23-live--b0ea35538d39:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "460662701eb02ad3a3e803719b39925db9755aff9b3ecb7990a6cb0ea300d01b"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-r20/gen_r20.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r20--b6bdf65914a0/versions/v0004/gen_r20.py",
+          "version_id": "nelb-r20--b6bdf65914a0:v0004"
+        },
+        {
+          "original_path": "/tmp/nelb-r29/gen_r29.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r29--cc105791ffdc/versions/v0001/gen_r29.py",
+          "version_id": "nelb-r29--cc105791ffdc:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "4f3da94ff4d3780cf2b57942b5ca88657df050371d686348234b9e982fc1d8d3"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-sfw-r21/gen_r21.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-sfw-r21--3cdca1832613/versions/v0001/gen_r21.py",
+          "version_id": "nelb-sfw-r21--3cdca1832613:v0001"
+        },
+        {
+          "original_path": "/tmp/nelb-sfw-r22/gen_r22.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-sfw-r22--461b1f70c20d/versions/v0001/gen_r22.py",
+          "version_id": "nelb-sfw-r22--461b1f70c20d:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "50d4b7934c2333482cc0321597f35059a00c950225d04bd64f81cc7f1b106b41"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-r25/gen_r25.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r25--5d95bf860b3e/versions/v0003/gen_r25.py",
+          "version_id": "nelb-r25--5d95bf860b3e:v0003"
+        },
+        {
+          "original_path": "/tmp/nelb-r31/gen_r31.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r31--7703430cef4d/versions/v0001/gen_r31.py",
+          "version_id": "nelb-r31--7703430cef4d:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "5190a4a511face64e8d898c2ace541f5bfdc50eeefc354827c78986b571b1620"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ffpc-r17-session-b-tools/build_chosen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r17-session-b-tools--355a751e2102/versions/v0001/build_chosen.py",
+          "version_id": "ffpc-r17-session-b-tools--355a751e2102:v0001"
+        },
+        {
+          "original_path": "/tmp/ffpc-r17/build_chosen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r17--0f1960944389/versions/v0001/build_chosen.py",
+          "version_id": "ffpc-r17--0f1960944389:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "53e1db1bc9b26aa420ac11ff54c9cd07b067f89f127f27bc0fefb4b75041a00f"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r52/gen_r52.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r52--eb8233a7ab60/versions/v0010/gen_r52.py",
+          "version_id": "ttf-r52--eb8233a7ab60:v0010"
+        },
+        {
+          "original_path": "/tmp/ttf-r62/gen_r62.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r62--b1dbd6909b8c/versions/v0001/gen_r62.py",
+          "version_id": "ttf-r62--b1dbd6909b8c:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "5ef9e2a6c5c5a79036d6b8383daa8210b5fd11008031ee52afa46ce981e87205"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/maos-r42/build_r42.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r42--de5d5bc7a0c6/versions/v0001/build_r42.py",
+          "version_id": "maos-r42--de5d5bc7a0c6:v0001"
+        },
+        {
+          "original_path": "/tmp/maos-r45/build_r45.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r45--f8c222bcb5e5/versions/v0001/build_r45.py",
+          "version_id": "maos-r45--f8c222bcb5e5:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "66dad96be7ad1f4110b472bb20fe5f7a7a0b1204614ee87f41bb6c330676c847"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ffpc-r18-stage/build_chosen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r18-stage--ec5c6b908907/versions/v0001/build_chosen.py",
+          "version_id": "ffpc-r18-stage--ec5c6b908907:v0001"
+        },
+        {
+          "original_path": "/tmp/ffpc-r18/build_chosen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r18--34d17fa6cb38/versions/v0001/build_chosen.py",
+          "version_id": "ffpc-r18--34d17fa6cb38:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "77570e662d7b0f5a78de2a56ccc6421909bf0a5f1ac7727ce088c9ed62ba3ef1"
+    },
+    {
+      "count": 4,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r38/gen_r38.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r38--0ad839dfa515/versions/v0003/gen_r38.py",
+          "version_id": "ttf-r38--0ad839dfa515:v0003"
+        },
+        {
+          "original_path": "/tmp/ttf-r48/gen_r48.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r48--f1f4fa26cf20/versions/v0001/gen_r48.py",
+          "version_id": "ttf-r48--f1f4fa26cf20:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r56/gen_r56.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r56--e3e746c47a15/versions/v0001/gen_r56.py",
+          "version_id": "ttf-r56--e3e746c47a15:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r58/gen_r58.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r58--66e11b64cb50/versions/v0001/gen_r58.py",
+          "version_id": "ttf-r58--66e11b64cb50:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "776336bd205ccc415c46b59c4abebfa33a0609ed2ae801b4f38c9d76f59572cd"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r40/gen_r40.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r40--fc50f34b8e29/versions/v0021/gen_r40.py",
+          "version_id": "ttf-r40--fc50f34b8e29:v0021"
+        },
+        {
+          "original_path": "/tmp/ttf-r40/gen_r40.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r40--fc50f34b8e29/versions/v0024/gen_r40.py",
+          "version_id": "ttf-r40--fc50f34b8e29:v0024"
+        }
+      ],
+      "normalized_ast_sha256": "7bab3caaf9ed0df71b350401d62c11686c32c638a3caaa694363b55777ed4d54"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ffpc-r19-stage/build_chosen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r19-stage--93bc955995c5/versions/v0002/build_chosen.py",
+          "version_id": "ffpc-r19-stage--93bc955995c5:v0002"
+        },
+        {
+          "original_path": "/tmp/ffpc-r19/build_chosen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r19--dd44df299cd3/versions/v0001/build_chosen.py",
+          "version_id": "ffpc-r19--dd44df299cd3:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "7d3134eea8ac39a6d713ed2b2270c582fa03593cc672d8007674a2639eafffff"
+    },
+    {
+      "count": 3,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-r19/gen_r19.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r19--8c8d00a7e787/versions/v0001/gen_r19.py",
+          "version_id": "nelb-r19--8c8d00a7e787:v0001"
+        },
+        {
+          "original_path": "/tmp/nelb-r23/gen_r23.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r23--77d76ab89c23/versions/v0001/gen_r23.py",
+          "version_id": "nelb-r23--77d76ab89c23:v0001"
+        },
+        {
+          "original_path": "/tmp/nelb-r25/gen_r25.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r25--5d95bf860b3e/versions/v0001/gen_r25.py",
+          "version_id": "nelb-r25--5d95bf860b3e:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "7f40cde44ee21e9248f0d6716b037c935841a1bca0b17ba4fc0894a5101e6cc8"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/maos-r52/build_r52.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r52--e0ccc5b0f0c4/versions/v0020/build_r52.py",
+          "version_id": "maos-r52--e0ccc5b0f0c4:v0020"
+        },
+        {
+          "original_path": "/tmp/maos-r57/build_r57.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r57--4ce8999df4fe/versions/v0001/build_r57.py",
+          "version_id": "maos-r57--4ce8999df4fe:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "937388a46ecc38742b81242c1392a81c5e729fc21eb38980c30bbaa92f0e9e47"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/maos-r49/build_r49.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r49--1315fd0d5d70/versions/v0008/build_r49.py",
+          "version_id": "maos-r49--1315fd0d5d70:v0008"
+        },
+        {
+          "original_path": "/tmp/maos-r53/build_r53.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r53--605002260953/versions/v0001/build_r53.py",
+          "version_id": "maos-r53--605002260953:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "93a8ac1cf6f23c10dcd84ee77852bc30ac48f06173d86e79588131f7692ae0d7"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/maos-r31/build_r31.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r31--98337e5ae1fe/versions/v0009/build_r31.py",
+          "version_id": "maos-r31--98337e5ae1fe:v0009"
+        },
+        {
+          "original_path": "/tmp/maos-r34/build_r34.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r34--947712f03cfd/versions/v0001/build_r34.py",
+          "version_id": "maos-r34--947712f03cfd:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "979c043864875b7a4ced8fad351b93b85e40ed696737c21cb935cd0ca81bb38a"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ffpc-r25-build-session-a.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--275da63734fb/versions/v0011/ffpc-r25-build-session-a.py",
+          "version_id": "tmp-root--275da63734fb:v0011"
+        },
+        {
+          "original_path": "/tmp/ffpc-r26-build-session-a.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--d32728d72370/versions/v0001/ffpc-r26-build-session-a.py",
+          "version_id": "tmp-root--d32728d72370:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "9d999747a1cbbed576867b3c33a09bacebd2ef2833e6790be345f65e9a32d5f3"
+    },
+    {
+      "count": 3,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r39/gen_r39.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r39--c576930a8e22/versions/v0013/gen_r39.py",
+          "version_id": "ttf-r39--c576930a8e22:v0013"
+        },
+        {
+          "original_path": "/tmp/ttf-r49/gen_r49.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r49--e8d634e5baf8/versions/v0001/gen_r49.py",
+          "version_id": "ttf-r49--e8d634e5baf8:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r53/gen_r53.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r53--d211f9b73939/versions/v0001/gen_r53.py",
+          "version_id": "ttf-r53--d211f9b73939:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "a1426179be3b355eb8e7e543997e94fc1f33bf7cdce41081529fa5c14511b134"
+    },
+    {
+      "count": 3,
+      "members": [
+        {
+          "original_path": "/tmp/maos-r67/build_r67.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r67--f7a3a06137cb/versions/v0002/build_r67.py",
+          "version_id": "maos-r67--f7a3a06137cb:v0002"
+        },
+        {
+          "original_path": "/tmp/maos-r68/build_r68.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r68--31bc0fc87304/versions/v0001/build_r68.py",
+          "version_id": "maos-r68--31bc0fc87304:v0001"
+        },
+        {
+          "original_path": "/tmp/maos-r69/build_r69.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r69--f41813658823/versions/v0001/build_r69.py",
+          "version_id": "maos-r69--f41813658823:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "b40499808c8155844aa66066946ff378baebe750453908189afb9e75958a3629"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r16/gen_r16.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r16--9c5e6ee8399b/versions/v0004/gen_r16.py",
+          "version_id": "ttf-r16--9c5e6ee8399b:v0004"
+        },
+        {
+          "original_path": "/tmp/ttf-r26/gen_r26.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r26--f5ad47dff770/versions/v0001/gen_r26.py",
+          "version_id": "ttf-r26--f5ad47dff770:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "c25f3a4dc20e2c019b10cb20d732af995deb52e037acc3df38469c767e1016e6"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-r02/gen_r02.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r02--82f5099afd20/versions/v0001/gen_r02.py",
+          "version_id": "nelb-r02--82f5099afd20:v0001"
+        },
+        {
+          "original_path": "/tmp/nelb-r65-live/gen_r65.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r65-live--885b634884a5/versions/v0001/gen_r65.py",
+          "version_id": "nelb-r65-live--885b634884a5:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "c3f19a839bdd35564d3393a608d10410598ad602bb2dd16c95d0e54e8900e273"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ffpc-r20-stage/build_chosen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r20-stage--9afe26c6c6c0/versions/v0001/build_chosen.py",
+          "version_id": "ffpc-r20-stage--9afe26c6c6c0:v0001"
+        },
+        {
+          "original_path": "/tmp/ffpc-r20/build_chosen.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r20--fa644e626ba8/versions/v0001/build_chosen.py",
+          "version_id": "ffpc-r20--fa644e626ba8:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "c5d65d942f84c66894935094034ff7e56ac0f4f2d5860146ae759c74ffd1b05f"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r65-live/gen_r65.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r65-live--ce6b3cd6aeaf/versions/v0001/gen_r65.py",
+          "version_id": "ttf-r65-live--ce6b3cd6aeaf:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r69-live/gen_r69.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r69-live--22992810daa9/versions/v0001/gen_r69.py",
+          "version_id": "ttf-r69-live--22992810daa9:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "c722a4d6ea8f77ce1f11f53f97b5f0e4982c3fd77e19e28f3f4305ef47f92a86"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/maos-r45/build_r45.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r45--f8c222bcb5e5/versions/v0015/build_r45.py",
+          "version_id": "maos-r45--f8c222bcb5e5:v0015"
+        },
+        {
+          "original_path": "/tmp/maos-r50/build_r50.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r50--38ac8d6a5b3f/versions/v0001/build_r50.py",
+          "version_id": "maos-r50--38ac8d6a5b3f:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "d50c5d0f216bedccd8f5ae25a57b853a2cc0a7f8217c9b5df4a7fb369368b4f7"
+    },
+    {
+      "count": 4,
+      "members": [
+        {
+          "original_path": "/tmp/ffpc-r29-build-session-a.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--b0b81573df36/versions/v0001/ffpc-r29-build-session-a.py",
+          "version_id": "tmp-root--b0b81573df36:v0001"
+        },
+        {
+          "original_path": "/tmp/ffpc-r30-build-session-a.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--7d3bc7ac17da/versions/v0001/ffpc-r30-build-session-a.py",
+          "version_id": "tmp-root--7d3bc7ac17da:v0001"
+        },
+        {
+          "original_path": "/tmp/ffpc-r31-build-session-a.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--d3770fd35a0f/versions/v0001/ffpc-r31-build-session-a.py",
+          "version_id": "tmp-root--d3770fd35a0f:v0001"
+        },
+        {
+          "original_path": "/tmp/ffpc-r32-build-session-a.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--e217cc54b672/versions/v0001/ffpc-r32-build-session-a.py",
+          "version_id": "tmp-root--e217cc54b672:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "d888f7f331db83ef94fbb097492ae82e8cec23c68ec3479145fa903513ced552"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r19/gen_r19.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r19--4498fe2e8ba6/versions/v0005/gen_r19.py",
+          "version_id": "ttf-r19--4498fe2e8ba6:v0005"
+        },
+        {
+          "original_path": "/tmp/ttf-r27/gen_r27.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r27--dacc3d7ec0b9/versions/v0001/gen_r27.py",
+          "version_id": "ttf-r27--dacc3d7ec0b9:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "db4a8de7191d1f2128a98a26227f31e6ad67a4b0fe491456e1b3bc81a78f2f43"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/nelb-r01-live/gen_r01.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-live--a4378171ce87/versions/v0001/gen_r01.py",
+          "version_id": "nelb-r01-live--a4378171ce87:v0001"
+        },
+        {
+          "original_path": "/tmp/nelb-r22c/gen_r22c.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r22c--805e0362b758/versions/v0001/gen_r22c.py",
+          "version_id": "nelb-r22c--805e0362b758:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "e810cd5479f40c23c7ed9bc92bf74ac97a234d5b21b6505533aa285ca1e75440"
+    },
+    {
+      "count": 4,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r34/gen_r34.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r34--f397fa4cfd7e/versions/v0002/gen_r34.py",
+          "version_id": "ttf-r34--f397fa4cfd7e:v0002"
+        },
+        {
+          "original_path": "/tmp/ttf-r40/gen_r40.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r40--fc50f34b8e29/versions/v0001/gen_r40.py",
+          "version_id": "ttf-r40--fc50f34b8e29:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r41/gen_r41.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r41--cc233a32d2ef/versions/v0001/gen_r41.py",
+          "version_id": "ttf-r41--cc233a32d2ef:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r44/gen_r44.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r44--82200154070b/versions/v0001/gen_r44.py",
+          "version_id": "ttf-r44--82200154070b:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "f1aa7d0d09d979ec5eec4fe5090c10686544e715e19eeaf17b5e49b7ac21137c"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/maos-r33/build_r33.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r33--a308f663ff99/versions/v0016/build_r33.py",
+          "version_id": "maos-r33--a308f663ff99:v0016"
+        },
+        {
+          "original_path": "/tmp/maos-r37/build_r37.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r37--d31e8715bbc9/versions/v0001/build_r37.py",
+          "version_id": "maos-r37--d31e8715bbc9:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "fd29f540c51b4aeea102bd23ef70fece598b37e356815e13548d60e4cdff4fdc"
+    },
+    {
+      "count": 2,
+      "members": [
+        {
+          "original_path": "/tmp/ttf-r23-live/gen_r23.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r23-live--508169392d66/versions/v0001/gen_r23.py",
+          "version_id": "ttf-r23-live--508169392d66:v0001"
+        },
+        {
+          "original_path": "/tmp/ttf-r25-live/gen_r25.py",
+          "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r25-live--5fc901fce206/versions/v0001/gen_r25.py",
+          "version_id": "ttf-r25-live--5fc901fce206:v0001"
+        }
+      ],
+      "normalized_ast_sha256": "fe07504679c98adfd9f4f5e6ed94fae2f6e31252a36d693e61d389209ba24117"
+    }
+  ],
+  "schema_version": "grok-temp-python-recovery-v1"
+}

@@ -1,0 +1,15 @@
+    for path in list(Path("/tmp").glob("ttf-r*-occ-*.txt")) + list(
+        Path("/tmp").glob("ttf-r*/occ-*.txt")
+    ):
+        if path.parent.name == "ttf-r118" or "r118" in path.name:
+            continue
+        try:
+            lines = [ln.strip() for ln in path.read_text(encoding="utf-8", errors="ignore").splitlines() if ln.strip()]
+        except OSError:
+            continue
+        name = path.name.lower()
+        if "plant" in name:
+            plants.update(lines)
+        else:
+            domains.update(lines)
+    return domains, plants

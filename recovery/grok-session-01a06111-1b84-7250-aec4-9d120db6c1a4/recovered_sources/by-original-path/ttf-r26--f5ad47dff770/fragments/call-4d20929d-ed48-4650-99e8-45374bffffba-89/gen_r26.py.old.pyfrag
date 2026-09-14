@@ -1,0 +1,21 @@
+                "Hood zirconia 4.8 percent won by 212 us, so the flame is reducing, not still "
+                "oxidizing. Holding 1.80 t/h predicts next-sample 4.6 percent < 5.5 floor. MODIFY: "
+                "fuel 1.80 -> 1.35 t/h. Observed after clamp 5.7 percent >= 5.5. A full REJECT is "
+                "not indicated: a clean lime pass accepts 1.35 t/h.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "hood_o2_pct",
+                            OrderedDict(
+                                [
+                                    ("floor", 5.5),
+                                    ("observed", 4.8),
+                                    ("predicted_unclamped_next", 4.6),
+                                    ("clamped_fuel_t_h", 1.35),
+                                    ("observed_after_clamp", 5.7),
+                                ]
+                            ),
+                        ),

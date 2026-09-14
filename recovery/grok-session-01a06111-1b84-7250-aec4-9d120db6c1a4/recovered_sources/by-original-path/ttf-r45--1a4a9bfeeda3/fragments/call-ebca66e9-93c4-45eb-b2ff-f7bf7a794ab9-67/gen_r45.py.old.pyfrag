@@ -1,0 +1,7 @@
+THIS_DOMAINS = {
+    "ethylene-cracker-coil",
+    "hydrogen-PSA-bed",
+    "stacker-reclaimer-boom",
+    "glass-fiber-bushing",
+    "oil-pipeline-pig-trap",
+}

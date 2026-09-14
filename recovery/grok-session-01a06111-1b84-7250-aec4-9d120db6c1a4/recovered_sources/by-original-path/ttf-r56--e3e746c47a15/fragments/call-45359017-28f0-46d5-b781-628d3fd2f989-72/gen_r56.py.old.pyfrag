@@ -1,0 +1,23 @@
+                        (
+                            "contenders",
+                            [
+                                "dp.gas.kpa 2.48 kPa absorber gas",
+                                "ph.recycle.su 5.60 still-legal slurry",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Pressure-first latches ID-fan clamp 92 -> 78 percent; pH-first keeps "
+                            "cruise fan on a 'slurry still open' model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "380 us = one gas-side DP slot minus recycle-pH group delay on this "
+                            "1 kHz absorber bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 230 us vs combined jitter 68 us (DP 30 + pH 38): 3.4x over "
+                            "a 2.0x trust floor. Reversing order by < 230 us inside the 380 us window "
+                            "would have kept 92 percent cruise; predicted next-sample DP 2.31 kPa > 2.20 cap.",
+                        ),

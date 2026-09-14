@@ -1,0 +1,3 @@
+        ev(1440000.0, "cell.zero", 0.00, code="ZERO_NA", units="nA"),
+        ev(1500000.0, "h2s.snr", 14.0, code="H2S_SNR", units="1", note="SNR 14.0 >= 12 lock"),
+        ev(1560000.0, "h2s.I", 5.00, code="I_NA", units="nA", note="isolate-floor frame; raster sidecar"),

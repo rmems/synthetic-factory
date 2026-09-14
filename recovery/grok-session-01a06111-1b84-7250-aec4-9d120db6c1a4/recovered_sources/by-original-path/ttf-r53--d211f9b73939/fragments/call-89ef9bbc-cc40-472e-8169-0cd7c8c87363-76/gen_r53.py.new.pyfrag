@@ -1,0 +1,10 @@
+                    "twin-screw-compounder",
+                    [
+                        "reject",
+                        "hil",
+                        "ae-vs-motor",
+                        "unmelt-slug",
+                        "tick6-sidecar-bound",
+                    ],
+                    "Teaches that a legal motor-amp header can lose to unmelt AE inside a 320 us "
+                    "window; reversing 180 us would have kept 420 rpm into an unmelted slug.",

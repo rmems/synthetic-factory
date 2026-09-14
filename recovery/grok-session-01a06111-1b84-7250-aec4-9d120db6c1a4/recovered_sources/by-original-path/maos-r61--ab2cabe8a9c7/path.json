@@ -1,0 +1,46 @@
+{
+  "agent_ids": [
+    "01a06411-a21b-7e50-bc12-11ad4a3a6993",
+    "01a0647d-5a2e-7911-9584-02b7831e65ff"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 1,
+  "final_state": "unknown",
+  "hunk_evidence_count": 1,
+  "original_basename": "_r61_tail.py",
+  "original_path": "/tmp/maos-r61/_r61_tail.py",
+  "path_key": "maos-r61--ab2cabe8a9c7",
+  "terminal_event_ids": [
+    "01a06411-a21b-7e50-bc12-11ad4a3a6993:call-8abad064-5a88-4fba-920a-399b2b439c2a-38",
+    "01a0647d-5a2e-7911-9584-02b7831e65ff:call-e19f089c-22aa-4137-a68a-b8b3241a80ac-55"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 2,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a0647d-5a2e-7911-9584-02b7831e65ff:call-3b360659-eab6-490c-93b5-dff38af436f7-54",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r61--ab2cabe8a9c7/fragments/call-3b360659-eab6-490c-93b5-dff38af436f7-54/_r61_tail.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r61--ab2cabe8a9c7/fragments/call-3b360659-eab6-490c-93b5-dff38af436f7-54/_r61_tail.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "terminal",
+      "event_id": "01a06411-a21b-7e50-bc12-11ad4a3a6993:call-8abad064-5a88-4fba-920a-399b2b439c2a-38",
+      "journal_line": 205,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06411-a21b-7e50-bc12-11ad4a3a6993/updates.jsonl",
+      "operation": "inline_python_possible_mutation",
+      "reason": "inline_python_possible_mutation was recorded but is not conclusively reproducible without execution",
+      "timestamp_utc": "2026-09-03T00:02:37.662Z"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

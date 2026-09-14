@@ -1,0 +1,2 @@
+    if jprior >= 0.4:
+        issues.append(f"Jaccard vs prior {jprior:.3f}")

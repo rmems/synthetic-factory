@@ -1,0 +1,5 @@
+                "Gossan-Weald GW-8 pyrite bed R-4 has an IR pyrometer at 912 C, 22 C over the 890 C "
+                "license, while the air encoder still advertises a legal 14.2 kNm3/h. Bed-IR arrival "
+                "must cut air 14.2 -> 11.6 kNm3/h and park the bed at 878 C; air-first would treat 912 C "
+                "as a warming transient. Packed cyclone-dipleg calcine is invisible on both buses until "
+                "the AE collapse.",

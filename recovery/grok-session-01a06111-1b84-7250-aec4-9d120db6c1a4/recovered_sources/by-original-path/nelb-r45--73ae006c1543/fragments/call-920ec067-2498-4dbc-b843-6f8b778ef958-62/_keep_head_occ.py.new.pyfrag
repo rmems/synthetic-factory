@@ -1,0 +1,15 @@
+    banned = (
+        "woldfen",
+        "seebveil",
+        "gullmere",
+        "waveveil",
+        "wickmere cooling",
+        "polarveil",
+        "seebeck thermoelectric",
+        "coda-wave interferometry",
+        "linear polarization resistance",
+        "stern-geary i_corr",
+        "tamsin wold",
+        "lyle harbin",
+        "edda pell",
+    )

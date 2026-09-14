@@ -1,0 +1,9 @@
+                    "isotope-cyclotron",
+                    [
+                        "reject",
+                        "hil",
+                        "faraday-vs-vswr",
+                        "dummy-load-underread",
+                    ],
+                    "Teaches that a HIL dummy-load VSWR can lose to Faraday current inside a "
+                    "380 us window; reversing 182 us would have ACCEPTed an over-cap extraction.",

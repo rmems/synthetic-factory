@@ -1,0 +1,13 @@
+                "Hood-Pike HP-8 is already firing 1.80 t/h of natural gas at Marl-Knap MK-4 "
+                "when a zirconia O2 probe at the kiln hood reads 4.8 percent against a 5.5 percent "
+                "reducing-floor. O2-first clamps fuel; pyrometer-first would keep 1.80 t/h on a "
+                "still-hot-hood model. A hanging chain already fatigued in zone 3 does not appear "
+                "on O2 or hood pyrometry until the AE burst.",
+            ),
+            ("domain", "lime-rotary-kiln"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Hold hood O2 >= 5.5 percent while finishing the MK-4 lime pass, and leave the "
+                "hanging-chain curtain un-sheared.",
+            ),

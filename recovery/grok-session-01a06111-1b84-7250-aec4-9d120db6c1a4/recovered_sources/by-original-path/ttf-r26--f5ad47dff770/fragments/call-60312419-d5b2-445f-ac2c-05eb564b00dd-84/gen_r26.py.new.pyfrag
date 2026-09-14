@@ -1,0 +1,1 @@
+    channels = ["lif.clamp" if t < 20000 else "lif.wrinkle" for t, _ in picked]

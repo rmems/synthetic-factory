@@ -1,0 +1,9 @@
+    "urea-prill-tower",
+)
+THIS_PLANTS = (
+    "Winze-Capstan",
+    "Fumarole-Dyke",
+    "Spray-Header",
+    "Flight-Furlong",
+    "Prill-Garth",
+)

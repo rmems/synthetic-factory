@@ -1,0 +1,20 @@
+    if errs:
+        print("FAIL pre-live", errs)
+        return 1
+
+    jsonl_live = emit_text(live_batch, line + "\n")
+    notes = write_notes(rec, aux, pipeline_receipt)
+    transcript = write_transcript(rec, line)
+    notes_stage = emit_text(stage_notes, notes)
+    notes_live = emit_text(live_notes, notes)
+    tr_stage = emit_text(stage_tr, transcript)
+    tr_live = emit_text(live_tr, transcript)
+
+    heading = subprocess.run(
+        [sys.executable, "/tmp/maos_heading_check.py", str(tr_stage)],
+        capture_output=True,
+        text=True,
+    )
+    print(heading.stdout)
+    if heading.returncode != 0:
+        errs.append(f"heading check {heading.returncode} {heading.stdout}")

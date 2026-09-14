@@ -1,0 +1,11 @@
+    if errs:
+        print("FAIL", errs)
+        return 1
+
+    jsonl_live = emit_text(live_batch, line + "\n")
+    notes_live = emit_text(live_notes, notes)
+    tr_live = emit_text(live_tr, transcript)
+    print("OK maos-r04-001")
+    print("LIVE", jsonl_live)
+    print("LIVE", notes_live)
+    print("LIVE", tr_live)

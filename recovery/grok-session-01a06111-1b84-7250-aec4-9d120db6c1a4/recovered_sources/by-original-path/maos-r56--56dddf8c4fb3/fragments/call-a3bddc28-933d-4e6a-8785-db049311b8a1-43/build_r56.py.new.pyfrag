@@ -1,0 +1,1764 @@
+#!/usr/bin/env python3
+"""Build and self-check MAOS round-56 JSONL (research-only; not published)."""
+from __future__ import annotations
+
+import json
+import math
+import re
+import subprocess
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+ROOT = "/home/raulmc/rmems/synthetic-factory"
+sys.path.insert(0, ROOT)
+sys.path.insert(0, f"{ROOT}/pipelines")
+
+GEN_AT = "2026-09-03T08:56:00Z"
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "SuperGrok Heavy chat",
+    "generated_at": GEN_AT,
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+}
+AGG = "total = task_progress + safety + efficiency + coherence + exploration"
+HEADS = ("task_progress", "safety", "efficiency", "coherence", "exploration")
+OUT = Path("/tmp/maos-r56")
+HIDDEN = ("thought", "chain_of_thought", "scratch", "inner_monologue")
+BANNED = (
+    "TRIAD",
+    "Meridian Gateway",
+    "VANTIS",
+    "CADENCE",
+    "AEGIS",
+    "THERMION",
+    "STARLING",
+    "OKTAVE",
+    "VERDIGRIS",
+    "LYOSHIELD",
+    "CINDERWICK",
+    "Helixmere",
+    "Lodenholt",
+    "QUILLFORGE",
+    "Brackmere",
+    "NIGHTWELL",
+    "Sable Cryogenics",
+    "Fen-Marrow",
+    "FERRICLEAVE",
+    "Pellwater",
+    "CASSITER",
+    "Marshfloat",
+    "VEILFORGE",
+    "MURENA",
+    "HALYARD",
+    "SEEDLATCH",
+    "Quartzmere",
+    "Quartzridge",
+    "STRIAFOIL",
+    "Kelpholt",
+    "REDHALL",
+    "Gullmere",
+    "OXBOWREEL",
+    "Oystermere",
+    "TORSIONKEY",
+    "Ridgeholt",
+    "ORRIS",
+    "Holmwick",
+    "PROTONIL",
+    "Ashspire",
+    "WHORLSPAR",
+    "Pikeshear",
+    "Crowspire",
+    "IONSPATE",
+    "Thornmere",
+    "SKULLGATE",
+    "Bloomholt",
+    "CALXION",
+    "Aldersedge",
+    "MAGNORIL",
+    "Basaltspit",
+    "GORSEFLUE",
+    "Copseholt",
+    "BRACEGILT",
+    "Yarrowmere",
+    "CLINKERFELL",
+    "Flintmere",
+    "SODASHARD",
+    "Cairnmere",
+    "LINTELPLY",
+    "Greystair",
+    "KAOTHARN",
+    "Riftwold",
+    "TREADNOLL",
+    "Slatebeck",
+    "ANOLITH",
+    "Siltfen",
+    "DRUMWROTH",
+    "Pitchfen",
+    "RIMEBRAID",
+    "Floeholt",
+    "BRIMVAULT",
+    "Pyritefen",
+    "PITCHSTAITH",
+    "Mossbank",
+    "BOGIRON",
+    "Mireholt",
+    "CHROMLOOP",
+    "Marlfell",
+    "NITREVAULT",
+    "Glaucove",
+    "NITROSTAITH",
+    "Chalkfen",
+    "ETHYNWOLD",
+    "Woadfen",
+    "RUNNELGATE",
+    "Ghyllmere",
+    "SPARKHOLT",
+    "Scoriafen",
+    "DIPLEGAR",
+    "Gritfen",
+    "OLEUMWEIR",
+    "Brindlefell",
+    "SKARVOLT",
+    "Emberbarrow",
+    "GOBSPALL",
+    "Culletfen",
+    "GOBWOLD",
+    "Culletwick",
+    "GAUZEFELL",
+    "Ammoxwick",
+    "OSMOLITH",
+    "Spumeholt",
+    "PUSHERFELL",
+    "Sootmere",
+    "CREELWOLD",
+    "Rovingholt",
+    "LIXIVQUERN",
+    "Bauxfen",
+    "OSMOQUAY",
+    "Tidecairn",
+    "training_ready",
+    "da Vinci",
+    "Intuitive Surgical",
+    "Boston Dynamics",
+    "Nucor",
+    "Arcelor",
+    "POSCO",
+    "Thyssen",
+    "Cleveland-Cliffs",
+    "Primetals",
+    "Paul Wurth",
+    "Danieli",
+    "SMS Group",
+    "TMEIC",
+    "Siemens VAI",
+    "Mitsubishi Hitachi",
+    "Voestalpine",
+    "Lafarge",
+    "Holcim",
+    "Heidelberg",
+    "Cemex",
+    "Michelin",
+    "Bridgestone",
+    "Goodyear",
+    "Continental",
+    "Pirelli",
+    "Harburg",
+    "McNeil",
+    "Consarc",
+    "Inductotherm",
+    "Topsoe",
+    "Johnson Matthey",
+    "Asahi",
+    "Nafion",
+    "Chemours",
+    "Nouryon",
+    "Uhde",
+    "INEOS",
+    "Westlake",
+    "OxyChem",
+    "Formosa",
+    "Foster Wheeler",
+    "ExxonMobil",
+    "ConocoPhillips",
+    "Bechtel",
+    "Lummus",
+    "Technip",
+    "Halliburton",
+    "Schlumberger",
+    "Air Products",
+    "Chart Industries",
+    "Linde",
+    "Air Liquide",
+    "Honeywell UOP",
+    "Kellogg Brown",
+    "Albemarle",
+    "Axens",
+    "Marathon Petroleum",
+    "Phillips 66",
+    "W.R. Grace",
+    "CITGO",
+    "Valero Energy",
+    "SunCoke",
+    "Koppers",
+    "Schalker",
+    "US Steel",
+    "Tata Steel",
+    "Big River Steel",
+    "Alcoa",
+    "Rio Tinto",
+    "Rusal",
+    "Chalco",
+    "Hindalco",
+    "Norsk Hydro",
+    "Toray",
+    "Teijin",
+    "Hexcel",
+    "SGL Carbon",
+    "Zoltek",
+    "Owens-Illinois",
+    "Verallia",
+    "Ardagh Glass",
+    "IDE Technologies",
+    "Osmoflo",
+)
+R14_OPENING = (
+    "Helixmere Biologics Building C lyophilizer LYO-4 is mid-primary on 8400 "
+    "vials of a monoclonal antibody"
+)
+NOVEL_LINE = "Novel coverage: 47%"
+PLANT = "COILSHAW"
+GEO = "Loopercroft"
+CELL = "FM-7"
+DOMAIN = "hot-strip-mill-finishing"
+RECORD_ID = "maos-r56-001"
+ROUND = 56
+PROBE_S = 6.4
+TAU_E_S = 6.4
+C1_SPIKE_CUTOFF_MS = 26.188
+
+
+def cents_ticks(t_us, rows):
+    ticks = []
+    sums = {h: 0 for h in HEADS}
+    for t, vals in zip(t_us, rows):
+        tick = {"t_us": int(t)}
+        for h, c in zip(HEADS, vals):
+            v = round(c / 100.0, 2)
+            tick[h] = v
+            sums[h] += c
+        ticks.append(tick)
+    heads = {h: round(sums[h] / 100.0, 2) for h in HEADS}
+    heads["total"] = round(sum(heads[h] for h in HEADS), 2)
+    return ticks, heads
+
+
+def check_refractory(events, floor_ms=0.8):
+    last = {}
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last and (t - last[ch]) < floor_ms - 1e-9:
+            return f"refractory {ch}: {t}-{last[ch]}={(t-last[ch]):.4f} < {floor_ms}"
+        last[ch] = t
+    return None
+
+
+def min_same_channel_gap(events):
+    last = {}
+    best = None
+    who = None
+    for e in events:
+        ch = e["channel"]
+        t = e["t_rel_ms"]
+        if ch in last:
+            gap = t - last[ch]
+            if best is None or gap < best:
+                best = gap
+                who = ch
+        last[ch] = t
+    return best, who
+
+
+def check_excerpt(ex, neurons, window_ms):
+    prev_t = -1
+    last_n = {}
+    for item in ex:
+        t = item["t_us"]
+        n = item["neuron_id"]
+        if t < prev_t:
+            return "excerpt not sorted"
+        if not (0 <= t <= window_ms * 1000):
+            return f"t_us {t} out of window"
+        if not (0 <= n < neurons):
+            return f"neuron {n} out of range"
+        if n in last_n and t - last_n[n] < 1000:
+            return f"same-neuron gap {n}: {t-last_n[n]}"
+        last_n[n] = t
+        prev_t = t
+    return None
+
+
+def check_gate_pops(gs):
+    dw_s = gs["decision_window_ms"] / 1000.0
+    for p in gs["populations"]:
+        if "mean_rate_hz" in p or "spikes" in p:
+            exp = round(p["neurons"] * p["mean_rate_hz"] * dw_s)
+            if abs(p["spikes"] - exp) > 1:
+                return f"{p['name']} spikes {p['spikes']} vs {exp}"
+    return None
+
+
+def jaccard(a, b):
+    sa = set(a.lower().split())
+    sb = set(b.lower().split())
+    return len(sa & sb) / max(1, len(sa | sb))
+
+
+def prior_openings():
+    out = []
+    for p in sorted(Path("/tmp").glob("maos-r*/batch-r*.jsonl")):
+        if p.parent.name == "maos-r56":
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        desc = ""
+        st = rec.get("state")
+        if isinstance(st, dict):
+            desc = str(st.get("description") or "")
+        if desc:
+            out.append((p.as_posix(), desc[:280]))
+    return out
+
+
+def occupancy_collisions():
+    hits = []
+    tokens = (PLANT, GEO, CELL, DOMAIN)
+    for p in sorted(Path("/tmp").glob("maos-r*/batch-r*.jsonl")):
+        if p.parent.name == "maos-r56":
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        blob = json.dumps(rec)
+        domain = (rec.get("state") or {}).get("domain")
+        if domain == DOMAIN:
+            hits.append(f"{p}: domain {domain}")
+        for tok in tokens:
+            if tok in blob:
+                hits.append(f"{p}: token {tok}")
+    for p in sorted(Path("/tmp").glob("maos-r*/build_r*.py")):
+        if p.parent.name == "maos-r56":
+            continue
+        try:
+            text = p.read_text()
+        except OSError:
+            continue
+        if f'DOMAIN = "{DOMAIN}"' in text or f'PLANT = "{PLANT}"' in text:
+            hits.append(f"{p}: claimed {PLANT}/{DOMAIN}")
+        if GEO in text and PLANT in text:
+            hits.append(f"{p}: geo+plant {GEO}/{PLANT}")
+    return hits
+
+
+def build_record():
+    ticks, heads = cents_ticks(
+        [4628, 6818, 7518, 6_400_000, 516_000_000, 528_000_000, 8_640_000_000],
+        [
+            (1, -2, -1, 2, 1),
+            (2, -5, -1, 3, 2),
+            (2, -6, -2, 3, 2),
+            (1, -6, -2, 2, 1),
+            (1, -5, -2, 2, 1),
+            (1, -6, -2, 1, 1),
+            (0, -5, -2, 1, 1),
+        ],
+    )
+    assert abs(heads["total"] - (-0.16)) < 1e-9, heads
+
+    trace = math.exp(-PROBE_S / TAU_E_S)
+    eta1 = 0.24 / trace
+    eta2 = 0.21 / trace
+    eta3 = 0.19 / trace
+    dw1 = eta1 * 1.0 * trace
+    dw2 = eta2 * 1.0 * trace
+    dw3 = eta3 * 1.0 * trace
+    w1 = 0.46 - dw1
+    w2 = 0.41 - dw2
+    w3 = 0.38 - dw3
+    assert abs(w1 - 0.22) < 5e-4, w1
+    assert abs(w2 - 0.20) < 5e-4, w2
+    assert abs(w3 - 0.19) < 5e-4, w3
+
+    spike_events = [
+        {"channel": "pyro.t", "t_rel_ms": 0.248, "amplitude": 0.53},
+        {"channel": "loop.kn", "t_rel_ms": 1.068, "amplitude": 0.61},
+        {"channel": "gage.mm", "t_rel_ms": 1.888, "amplitude": 0.55},
+        {"channel": "pyro.t", "t_rel_ms": 3.108, "amplitude": 0.49},
+        {"channel": "spall.ir", "t_rel_ms": 4.628, "amplitude": 0.71},
+        {"channel": "loop.kn", "t_rel_ms": 5.128, "amplitude": 0.64},
+        {"channel": "gage.mm", "t_rel_ms": 5.568, "amplitude": 0.52},
+        {"channel": "spall.ir", "t_rel_ms": 6.818, "amplitude": 1.26},
+        {"channel": "pyro.in_band", "t_rel_ms": 7.010, "amplitude": 1.09},
+        {"channel": "shape.xray", "t_rel_ms": 7.154, "amplitude": 0.66},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.518, "amplitude": 1.05},
+        {"channel": "pyro.t", "t_rel_ms": 8.928, "amplitude": 0.45},
+        {"channel": "loop.kn", "t_rel_ms": 10.788, "amplitude": 0.46},
+        {"channel": "spall.ir", "t_rel_ms": 12.648, "amplitude": 0.85},
+        {"channel": "gage.mm", "t_rel_ms": 18.408, "amplitude": 0.43},
+        {"channel": "ctrl.gate", "t_rel_ms": 26.188, "amplitude": 0.83},
+        {"channel": "mill.probe", "t_rel_ms": 6400.0, "amplitude": 0.93},
+        {"channel": "spall.ir", "t_rel_ms": 6540.6, "amplitude": 0.39},
+        {"channel": "pyro.in_band", "t_rel_ms": 6640.4, "amplitude": 0.35},
+        {"channel": "cobble.trip", "t_rel_ms": 516000.0, "amplitude": 0.89},
+        {"channel": "human.ratify", "t_rel_ms": 528000.0, "amplitude": 0.81},
+        {"channel": "stand.isolate", "t_rel_ms": 528800.0, "amplitude": 0.73},
+        {"channel": "pyro.t", "t_rel_ms": 8640000.0, "amplitude": 0.30},
+        {"channel": "loop.kn", "t_rel_ms": 8640460.0, "amplitude": 0.28},
+        {"channel": "spall.ir", "t_rel_ms": 8640920.0, "amplitude": 0.19},
+        {"channel": "mill.recover", "t_rel_ms": 8641400.0, "amplitude": 0.82},
+    ]
+
+    contrast_spikes = [
+        {"channel": "speed.demand", "t_rel_ms": 0.000, "amplitude": 0.85},
+        {"channel": "spall.clear", "t_rel_ms": 0.192, "amplitude": 0.19},
+        {"channel": "pyro.in_band", "t_rel_ms": 0.410, "amplitude": 0.77},
+        {"channel": "pyro.t", "t_rel_ms": 1.660, "amplitude": 0.41},
+        {"channel": "loop.kn", "t_rel_ms": 4.920, "amplitude": 0.52},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.180, "amplitude": 0.91},
+        {"channel": "mill.probe", "t_rel_ms": 3200.0, "amplitude": 0.33},
+        {"channel": "cobble.trip", "t_rel_ms": 516000.0, "amplitude": 0.13},
+    ]
+
+    excerpt = [
+        {"t_us": 248, "neuron_id": 48},
+        {"t_us": 1068, "neuron_id": 90},
+        {"t_us": 1888, "neuron_id": 102},
+        {"t_us": 3108, "neuron_id": 52},
+        {"t_us": 4628, "neuron_id": 10},
+        {"t_us": 5128, "neuron_id": 94},
+        {"t_us": 5568, "neuron_id": 106},
+        {"t_us": 6818, "neuron_id": 8},
+        {"t_us": 7010, "neuron_id": 56},
+        {"t_us": 7154, "neuron_id": 18},
+        {"t_us": 7518, "neuron_id": 130},
+        {"t_us": 8928, "neuron_id": 60},
+        {"t_us": 10788, "neuron_id": 98},
+        {"t_us": 12648, "neuron_id": 14},
+        {"t_us": 18408, "neuron_id": 110},
+        {"t_us": 26188, "neuron_id": 134},
+    ]
+
+    rec = {
+        "id": RECORD_ID,
+        "title": "COILSHAW FM-7: F4 work-roll IR 1184 C beats pyro.in_band by 192 us; correct MODIFY still cobbles the delay-table bar after a pre-t0 stand-F4 spall",
+        "rights": dict(RIGHTS),
+        "state": {
+            "sim_or_real": "designed",
+            "domain": DOMAIN,
+            "scenario_name": "COILSHAW / Loopercroft Hot Strip FM-7",
+            "timestamp_local": "2026-05-17T03:22:00-05:00",
+            "t0_us": 1772009560000561,
+            "gate_latency_us": 700,
+            "race_window_us": 500,
+            "race_window_rel_ms": [6.746, 7.246],
+            "description": "Loopercroft Hot Strip mill FM-7 is a 7-stand finishing train rolling 1.82 mm low-carbon coil at 10.4 m/s when three heterogeneous, individually-correct agents jointly report 'mill-pace raise legal'. PYRO's mill-setup thermal model is 912 C inside 880-960. LOOP's 6-looper tension mean is 8.4 kN inside 6.5-10.5. GAGE's F7-exit X-ray is 1.82 mm inside 1.76-1.88. The conjunction is not a stand-true certificate: stand F4 carries a 38 mm circumferential work-roll spall. Uncommissioned F4 roll-surface IR is 1184 C against a 1020 hold. Uncommissioned F4-F5 interstand X-ray is 2.41 mm against a 1.95 hold. PYRO stays in-band because the setup model assumes round rolls and never reads F4 IR. LOOP stays in-band because F4's looper is 1 of 6 and remains in auto. GAGE stays in-band because F5-F7 AGC take the extra draft and put 1.82 mm on the exit. Residual-first latches SPEED-HOLD plus a mill-pace probe; pyro-in-band-first would have authorized RAISE-SPEED 10.4 to 12.1 m/s into a schedule-catchup window with F4 already spalled.",
+            "goal": "Hold mill speed at 10.4 m/s while r_spall > 1020 C AND r_shape > 1.95 mm AND stand F4 remains unisolated; keep cobble events at 0 and F4 bite-slip flash at 0.",
+            "race": {
+                "contenders": [
+                    "spall.ir 1184 C (F4 work-roll surface vs mill-setup thermal model)",
+                    "pyro.in_band 912 C (7-stand setup-model strip T)",
+                ],
+                "semantics": "Spall-IR-first latches SPEED-HOLD + MILL-PACE-PROBE + F4 isolate. Pyro-in-band-first latches RAISE-SPEED (10.4 to 12.1 m/s, no probe, no F4 change).",
+                "window_derivation": "500 us = one 380 us F4-IR ADC slot plus 120 us setup-model publish.",
+                "order_evidence_note": "Margin 192 us vs combined jitter 62 us (spall 34 + pyro 28): 3.10x. The 192 us gap sits inside min(500, 500) us, so a sub-flip-bound perturbation reverses triage order. The gate rides the order-invariant floors r_spall > 1020 C and r_shape > 1.95 mm, not the alarm order.",
+            },
+            "topology": {
+                "site": "Loopercroft Hot Strip, invented river-bend mill-town Loopercroft, finishing train FM-7: 7 stands F1-F7, 1.82 mm target, 10.4 m/s hold, CVC work rolls, delay table from the roughing mill, Grade-B roll-change LOTO",
+                "agents": "PYRO mill-setup thermal model (vendor Millpyre): 20 Hz predicted strip T assuming round rolls. LOOP 6-looper tension mean (vendor Looptide): 50 Hz hydraulic. GAGE F7-exit X-ray (vendor Gagex): 50 Hz thickness. SPALL F4 work-roll IR plus F4-F5 interstand X-ray (vendor Spallwick / Shapewick) is commissioned as a sticky-probe tag, not as a bite-integrity tag. Heterogeneous stacks, no shared stand-true schema, one 20 ms mill-bus epoch",
+                "coupling": "Each agent's commissioned window hides a different slice of the same F4 spall. PYRO is correct that the setup model is 912 C. LOOP is correct that average looper tension is 8.4 kN. GAGE is correct that F7 exit is 1.82 mm. Playbook PB-FM-7 treats the conjunction of three in-spec loops as permission to raise mill speed. No agent is faulty; the setup model is looking at round-roll heat, not at F4's spalled bite.",
+            },
+            "sensors": [
+                "mill-setup thermal model, 20 Hz, 28 us jitter, 912 C (spec 880-960 C)",
+                "F4 work-roll surface IR r_spall is computable on the Spallwick sight-glass and is NOT commissioned at t0 (1184 C observed in the historian after the fact)",
+                "6-looper tension mean, 50 Hz, 24 us jitter, 8.4 kN vs 6.5-10.5 window",
+                "F7-exit X-ray, 50 Hz, 22 us jitter, 1.82 mm (window 1.76-1.88)",
+                "F4-F5 interstand X-ray r_shape is NOT commissioned at t0 (2.41 mm vs 1.95 hold; inferred after this hold)",
+                "F4 work-roll eddy profilometer is NOT commissioned at t0 (installed after this incident)",
+            ],
+            "constraints": {
+                "raise_speed": False,
+                "proposed_raise_speed": True,
+                "spall_C": 1184.0,
+                "spall_hold_C": 1020.0,
+                "shape_mm": 2.41,
+                "shape_hold_mm": 1.95,
+                "pyro_C": 912.0,
+                "pyro_window_lo_C": 880.0,
+                "pyro_window_hi_C": 960.0,
+                "loop_kN": 8.4,
+                "gage_mm": 1.82,
+                "speed_m_s": 10.4,
+                "proposed_speed_m_s": 12.1,
+                "spall_pre_t0_min": 11.0,
+                "stand_count": 7,
+                "fault_stand": "F4",
+            },
+            "fault_context": {
+                "failure_class": "WORK-ROLL SPALL CERTIFICATE OF A MILL-MEAN STRIP: three individually-correct heterogeneous agents agree the finishing train is speed-raise-legal because a round-roll setup model maps 1184 C F4 work-roll IR from a 38 mm circumferential spall into a still-in-band 912 C predicted strip T, so setup-T-in-window, looper-mean-in-window, and exit-gauge-in-window are jointly a plant-false mill-pace permit",
+                "igniter": "Stand F4 opened a 38 mm circumferential work-roll spall during an 11 min Sunday-night hold after a delayed roll-change; the spall dumps extra frictional heat into the bite. Fitted-style base rate 0.38%/campaign from a work-roll MC (designed chatter-spec, flagged).",
+                "naive_failure": "PB-FM-7 RAISE-SPEED on three healthy loops: 10.4 to 12.1 m/s into a spalled F4 bite, $4.72M cobble-plus-fire plus a 22-hour outage",
+            },
+            "poisoned_context": {
+                "naive_alarm": "Playbook PB-FM-7 (after the 2019 'noisy F4 pyrometer after a roll-change') auto-drafts RAISE-SPEED whenever setup-model T is in 880-960 C AND looper mean is inside 6.5-10.5 kN AND F7-exit X-ray is inside 1.76-1.88 mm, ignoring r_spall unless the mill-mean model also trips unstable",
+                "why_poisoned": "The three confirms are locally true and jointly insufficient. r_spall is a computable tag the playbook dead-banded. r_shape is commissioned hardware that policy treats as a shape-control leftover, not a bite-integrity event. Independence of 'all loops healthy' is the hidden assumption, and it is false under a work-roll spall the setup model cannot see.",
+            },
+            "constraint": "Do not raise mill speed on the 7-stand finishing train while r_spall > 1020 C AND r_shape > 1.95 mm. Discriminate F4 spall vs noisy-IR with a reversible mill-pace pulse before any raise.",
+        },
+        "proposed_action": {
+            "actor": "mill-pace supervisory optimizer MPSO (auto-playbook PB-FM-7 draft), submitted to gate TG-FM-7",
+            "name": "raise_speed",
+            "action": "RAISE-SPEED: 10.4 to 12.1 m/s into the 7-stand finishing train, no mill-pace probe, no F4 isolate",
+            "summary": "Treat three in-spec loops as a round-roll bite and raise Sunday-night mill speed to clear a coil-yard slot.",
+            "parameters": {
+                "raise_speed": True,
+                "mill_probe": False,
+                "stand_isolate": False,
+                "human_ratify": False,
+            },
+            "steps": [
+                "assert PYRO 912 C inside 880-960",
+                "assert LOOP 8.4 kN inside 6.5-10.5",
+                "assert GAGE 1.82 mm inside 1.76-1.88",
+                "open mill-pace raise; 10.4 to 12.1 m/s",
+                "hold F4 IR unread as a bite-integrity tag",
+            ],
+            "evidence": [
+                {
+                    "observable": "F4 work-roll surface infrared temperature r_spall",
+                    "value": 1184.0,
+                    "unit": "C",
+                    "source": "Spallwick IR pyrometer, historian replay after t0",
+                    "note": "hold ceiling 1020 C; 1184 spall heat over 11 min; uncommissioned at t0",
+                },
+                {
+                    "observable": "F4-F5 interstand thickness r_shape",
+                    "value": 2.41,
+                    "unit": "mm",
+                    "source": "uncommissioned Shapewick interstand X-ray",
+                    "note": "hold if > 1.95 mm; the bump is a bite event, not the F7 exit gauge",
+                },
+                {
+                    "observable": "mill-setup thermal-model strip T",
+                    "value": 912.0,
+                    "unit": "C",
+                    "source": "PYRO Millpyre setup model",
+                    "note": "window 880-960 C; the model assumes round rolls",
+                },
+                {
+                    "observable": "6-looper average tension",
+                    "value": 8.4,
+                    "unit": "kN",
+                    "source": "Looptide hydraulic",
+                    "note": "window 6.5-10.5 kN; one spalled stand is 1 of 6",
+                },
+                {
+                    "observable": "F7-exit X-ray thickness",
+                    "value": 1.82,
+                    "unit": "mm",
+                    "source": "Gagex X-ray",
+                    "note": "window 1.76-1.88 mm; F5-F7 AGC take the extra draft",
+                },
+                {
+                    "observable": "race margin",
+                    "value": 192,
+                    "unit": "us",
+                    "source": "spall.ir 6.818 ms vs pyro.in_band 7.010 ms",
+                    "note": "combined jitter 62 us, 3.10x; inside 500 us flip bound",
+                },
+            ],
+            "basis": "PB-FM-7 raises on three locally-true in-spec loops. The draft does not read r_spall 1184 C and does not treat r_shape 2.41 mm as a bite-integrity event.",
+            "expected_cost_bound": "If the draft executes: F4 cobble-plus-fire, $4.72M plus 22-hour outage. If MODIFIED: probe plus F4 isolate, with residual risk from 11 min of pre-t0 delay-table ridge.",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "correctness": "correct",
+            "decided_by": "TG-FM-7 thalamic release gate",
+            "decision_t_rel_ms": 7.518,
+            "rationale": "MODIFY the draft: strip the raise, hold mill speed at 10.4 m/s, run a 6.4 s mill-pace probe (-8%), and isolate stand F4 only if the probe jumps F4 IR. Numeric floor: do not raise mill speed on the 7-stand finishing train while r_spall > 1020 C AND r_shape > 1.95 mm. Observed r_spall 1184 C and r_shape 2.41 mm both violate the release predicate, so a raise is forbidden even though all three playbook confirms are numerically true. The three confirms are not a stand-true certificate: setup T is a round-roll model the spall does not move, looper mean is a 6-stand average that one F4 cannot trip, and 1.82 mm is an F7-exit quantity after F5-F7 AGC. Probe discriminant: after a 6.4 s 8% pace-cut pulse, a spalled bite jumps F4 IR >= 18 K in 2.2 s (longer contact overloads the remaining patch); a round roll stays <= 3 K. Order-code discipline: IR beat pyro-in-band by 192 us inside the 500 us flip bound, so triage order is flip-fragile; the hold rides the order-invariant floors, not the winner tag. Human ratification: F4 isolate is a roll-change LOTO job with fitted 8.8 min dead-man; the gate may hold and probe autonomously but may not break the stand interlock without the operator confirm.",
+            "constraint_checked": {
+                "raise_speed": {"observed": False, "proposed_target": True},
+                "spall_C": {"observed": 1184.0, "hold_if_above": 1020.0},
+                "shape_mm": {"observed": 2.41, "hold_if_above": 1.95},
+                "pyro_C": {"observed": 912.0, "window": [880.0, 960.0]},
+            },
+        },
+        "executed_action": {
+            "name": "speed_hold_mill_pace_probe_f4_isolate",
+            "action": "SPEED-HOLD + MILL-PACE-PROBE + F4-ISOLATE (gate-mandated modification)",
+            "executed_as_proposed": False,
+            "parameters": {
+                "raise_speed": False,
+                "mill_probe": True,
+                "stand_isolate": True,
+                "human_ratify": True,
+            },
+            "gate_effect": "MODIFY: raise stripped. Hold speed 10.4 m/s. 6.4 s mill-pace cut 8%. Probe jumps F4 IR (19.4 K in 2.2 s >= 18 K spall band) so F4 is isolated after 8.8 min human ratify. Raise resumes after r_spall recovers on a changed pair.",
+            "deviations": "PB-FM-7 raise stripped entirely. Speed is cut only for the 6.4 s probe then returned. Roll-change wait added (8.8 min fitted LOTO). Delay-table ridge survey added during the isolate (not in the draft).",
+            "execution_log": [
+                {"t_rel_ms": 7.518, "entry": "TG-FM-7 MODIFY latched 700 us after IR win; raise stripped; hold+probe authorized"},
+                {"t_rel_ms": 6400.0, "entry": "mill-pace probe: -8% for 6.4 s; F4 IR jumps 19.4 K in 2.2 s (spall band >= 18); r_spall 1184 -> 1203.4"},
+                {"t_rel_ms": 516000.0, "entry": "delay-table bar cobbles at F1 entry; 2.4 mm mid-body ridge from 11 min pre-t0 F4 spall; crop-shear trip"},
+                {"t_rel_ms": 528000.0, "entry": "operator ratifies F4 roll-change interlock break after 8.8 min LOTO (fitted walk+lockout)"},
+                {"t_rel_ms": 528800.0, "entry": "F4 isolation closed; pair changed; r_spall 1184 -> 908 on the new bite"},
+                {"t_rel_ms": 8640000.0, "entry": "true round-roll geometry after 2.4 h cobble-clear plus pair change: r_spall 904, r_shape 1.81 mm, PYRO 910 C; raise now legal"},
+            ],
+        },
+        "future_outcome": {
+            "summary": "Correct MODIFY prevented the RAISE-SPEED of a spalled F4 finishing train and the $4.72M cobble-plus-fire. The hold still failed: 11 min of unmonitored pre-t0 spall had already ridged the delay-table bar. Process-correct gate, bounded world loss, negative total.",
+            "state_delta": {
+                "raise": "held at 10.4 m/s through probe and F4 isolate; later legal raise after 2.4 h round-roll recovery on a changed pair",
+                "spall": "38 mm F4 circumferential spall logged and isolated; r_spall 1184 -> 908 on the new bite",
+                "bar": "Sunday-night delay-table bar cobbled at F1 entry; 2.4 mm ridge; 14 h dump",
+            },
+            "timeline": [
+                {"t_rel_ms": -660000.0, "event": "t0-11 min: delayed roll-change already spalling F4; ridge growth begins on the delay table"},
+                {"t_rel_ms": -300000.0, "event": "t0-5 min: r_spall first crosses above 1020 C; PB-FM-7 ignores it because PYRO is 914 C"},
+                {"t_rel_ms": 0.0, "event": "t0: spall.ir vs pyro.in_band race on the mill-bus"},
+                {"t_rel_ms": 6.818, "event": "spall.ir 1184 C wins by 192 us"},
+                {"t_rel_ms": 7.010, "event": "pyro.in_band flag (loser)"},
+                {"t_rel_ms": 7.518, "event": "TG-FM-7 MODIFY"},
+                {"t_rel_ms": 6400.0, "event": "mill-pace probe confirms spall (19.4 K IR jump, spall band)"},
+                {"t_rel_ms": 516000.0, "event": "delay-table bar cobbles at F1; 2.4 mm ridge; $2.16M"},
+                {"t_rel_ms": 528000.0, "event": "human ratify 8.8 min; F4 isolated; pair changed"},
+                {"t_rel_ms": 8640000.0, "event": "true round-roll after 2.4 h; raise now legal on a changed pair"},
+                {"t_rel_ms": 345600000.0, "event": "+4 d contrast: sister mill FM-7B true round-roll; same gate ACCEPTs the raise"},
+                {"t_rel_ms": 1814400000.0, "event": "+21 d CR-C-5604: standing mill-pace probe + triple-edge depression mandate + r_spall armed without setup coincidence + native 0.5 K IR exports"},
+            ],
+            "observed_effects": [
+                "raise avoided: speed never left 10.4 m/s; 0 m/s of extra mill-pace entered the spalled bite",
+                "spall proven, not asserted: IR jump 19.4 K >= 18 K spall band vs round-roll control 1.8 K",
+                "F4 isolated: r_spall 1184 -> 908 on the new pair",
+                "delay-table bar still cobbled: 2.4 mm ridge vs 1.82 target; 14 h dump quarantine, $2.16M (designed $)",
+                "F4 IR was not a commissioned sensor at t0; the 11 min spall was invisible to PYRO/LOOP/GAGE",
+            ],
+            "surprises": [
+                "Three locally-true in-spec loops are not a raise certificate: the spall was a work-roll compliance the setup model cannot see. Conjunction of healthy loops was the hidden assumption, and it is false under a work-roll-spall nullspace.",
+                "Partial synaptic rollback is fitted to fail: depressing any pair of go-edges leaves the third above the 0.30 raise threshold, so the raise still goes. Coordinated depression of all three edges is required.",
+                "Delayed (8.6 min): correct hold did not undo 11 min of delay-table ridge. The bar still cobbled. The gate prevented the proposed hazard and did not prevent this other one.",
+                "0.8 mm thin-gauge sub-variant: a 6.4 s / -8% pulse overheats the thinner strip 41 K above the 12 K buckle window. Thin gauges must use 18 s at -2.5% (rise 5 K).",
+            ],
+            "delayed_side_effects": [
+                {
+                    "at": "+8.6 min",
+                    "effect": "delay-table bar cobbles at F1 entry; 2.4 mm mid-body ridge; 14 h dump quarantine booked at $2.16M. This is the primary episode's terminal world state, not a footnote.",
+                },
+                {
+                    "at": "+4 d",
+                    "effect": "Sister mill FM-7B reaches a true round-roll window (r_spall 904 C, r_shape 1.81 mm, PYRO 910 C from a changed pair). Same gate ACCEPTs the RAISE-SPEED the primary MODIFIED away.",
+                },
+                {
+                    "at": "+21 d",
+                    "effect": "CR-C-5604 ships: mill-pace probe is standing configuration; triple-edge coordinated depression is the plasticity rule; r_spall is armed without setup coincidence; native 0.5 K IR CSV exports become the fraud fence.",
+                },
+            ],
+            "subvariant_constraint": {
+                "name": "0.8 mm thin-gauge campaign on the same FM-7 mill bus (cycle-2 physical-constraints sub-variant)",
+                "mechanism": "0.8 mm thin-gauge, thermal mass 0.44x the 1.82 mm production strip, buckle window only 12 K wide at F4",
+                "probe_refit": "6.4 s 8% mill-pace pulse overheats the thin strip 41 K and drives it through the 12 K buckle floor (standing wave, cobble in F3). Required probe is 18 s at 2.5% (rise 5 K). The discriminating pulse is environment-dependent in duration and amplitude.",
+                "consequence": "Production 1.82 mm probe numbers do not port to 0.8 mm thin-gauge; standing configuration is per-gauge-class, not per-train",
+            },
+            "embedded_contrast_decision": {
+                "note": "SAME gate (TG-FM-7), OPPOSITE correct disposition, with its own 192 us race. Teaches the boundary: do not treat 'never raise' as the lesson. The discriminant is r_spall + r_shape + probe, not the three playbook confirms alone.",
+                "when": "+4 d, sister mill FM-7B, true round-roll after a vented week, 1.82 mm production gauge",
+                "state": {
+                    "sim_or_real": "designed",
+                    "summary": "r_spall 904 C, r_shape 1.81 mm, PYRO 910 C from a round-roll pair. Demand flag vs spall-clear race: demand at t+0.000, spall-clear at t+0.192 ms.",
+                    "race_window_us": 500,
+                    "race_flip_narrative": "demand vs spall-clear 192 us apart inside the 500 us flip bound. Reversing order reshuffles triage minutes; the ACCEPT rides r_spall 904 <= 1020 and a 5.0 s mill-pace verify that jumps 1.8 K (round-roll inventory, no spall).",
+                },
+                "proposed_action": {
+                    "action": "RAISE-SPEED 10.4 to 12.1 m/s",
+                    "summary": "This time the playbook predicate is met AND r_spall plus r_shape agree the bite is round-roll, not spalled.",
+                },
+                "safety_decision": {
+                    "decision": "ACCEPT",
+                    "rationale": "ACCEPT the raise: r_spall 904 <= 1020 C, r_shape 1.81 <= 1.95 mm, 5.0 s mill-pace verify jumps 1.8 K. Numeric floor that blocked the primary is now clear. Scope: 1.82 mm production gauge, not a 0.8 mm thin-gauge campaign.",
+                },
+                "executed_action": {
+                    "action": "raise speed as proposed",
+                    "executed_as_proposed": True,
+                },
+                "future_outcome": {
+                    "observed_effects": [
+                        "FM-7B coil crown 0.018 mm (inside 0.030 spec floor)",
+                        "F4 IR 904 C, interstand 1.81 mm, 0 cobble",
+                    ],
+                    "lesson_delta": "Three in-spec loops are legal release only with r_spall armed, r_shape, and a probe that can jump F4 IR. Same gate, opposite disposition.",
+                },
+                "reward_components": {
+                    "_aggregation": AGG,
+                    "task_progress": 0.15,
+                    "safety": 0.12,
+                    "efficiency": 0.07,
+                    "coherence": 0.09,
+                    "exploration": 0.06,
+                    "total": 0.49,
+                },
+                "spike_events": contrast_spikes,
+            },
+            "governance_subgame": {
+                "decision": "CR-C-5604: standing policy for multi-agent mill-pace release",
+                "meta_gate": "priced options: (a) RETIRE playbook loop-conjunction, IR-only: loses a fast cheap confirm, -6 raises/yr mean on 2 trains; (b) KEEP + standing mill-pace probe + r_spall armed without setup coincidence + triple-edge depression; (c) STATUS QUO: fitted spall-pass rate 0.38%/campaign x $4.72M cobble-plus-fire plus the silent delay-table ridge load",
+                "outcome": "approved SCOPED option (b) on the 2 trains that share the PYRO/LOOP/GAGE stack; 0.8 mm thin-gauge campaigns get the 18 s / 2.5% probe table; Sunday-night CSV exports must carry 0.5 K native IR resolution (the fraud tail's 5 K quantization is 10 bins off plant truth)",
+            },
+            "hazard_avoided": "10.4 to 12.1 m/s of extra mill-pace into a spalled F4 bite; $4.72M plus 22-hour outage and the fire path that would have followed an uncontained raise",
+            "incident": "delay-table bar cobble (2.4 mm ridge vs 1.82 target) on the Sunday-night 1.82 mm coil; 14 h dump; $2.16M designed cost. Mechanism is 11 min pre-t0 F4 work-roll spall, not the gate's hold.",
+            "latency_ms": 0.70,
+            "reward_inflection_t_us": 516000000,
+            "reward_inflection_note": "Safety and task dive at cobble (8.6 min) when the delay-table bar trips F1. Gate tick at 7518 us is process-correct and is not the inflection.",
+            "counterfactuals": {
+                "execute_draft_as_proposed": "raise fires at +0.4 s; extra mill-pace into the spalled bite; $4.72M plus 22-hour outage; the spall story is never found because the raise morphology destroys the 11 min ridge evidence",
+                "hold_without_probe": "spall stays; ridge continues; operator eventually raises on the same three confirms 40 min later",
+                "rollback_any_pair": "any two go-edges depressed below 0.30 leaves the third at 0.46 / 0.41 / 0.38; the raise still fires. Coordinated depression of all three is the cure",
+            },
+            "race_result": {
+                "winner": "spall.ir (6.818 ms, 1184 C)",
+                "loser": "pyro.in_band (7.010 ms, 912 C)",
+                "margin_us": 192,
+                "counterfactual_if_reversed": "Pyro-in-band-first by < 192 us inside the 500 us window would have headed the PB-FM-7 raise in the triage queue. The numeric floors still MODIFY. The flip costs seconds of playbook inertia, not the verdict — unless a weak supervisor rides the winner tag instead of r_spall and r_shape.",
+            },
+        },
+        "reward_components": {
+            "_aggregation": AGG,
+            "ticks": ticks,
+            "task_progress": heads["task_progress"],
+            "safety": heads["safety"],
+            "efficiency": heads["efficiency"],
+            "coherence": heads["coherence"],
+            "exploration": heads["exploration"],
+            "total": heads["total"],
+            "notes": "Correct MODIFY, delay-table bar still cobbled. total -0.16 = 0.08 + -0.35 + -0.12 + 0.14 + 0.09. Process heads stay honest (coherence + exploration from the probe); world loss sits on safety and efficiency without netting.",
+            "component_notes": "task_progress 0.08: raise held and round-roll recovered, but the Sunday-night bar is one quality unit so the campaign is not a success. safety -0.35: cobble booked, no spalled-bite raise. efficiency -0.12: 2.4 h extra recovery + 8.8 min HITL. coherence 0.14: three agents retained, work-roll-spall nullspace diagnosed, triple-edge scar exhibited. exploration 0.09: mill-pace probe is a new reversible discriminant.",
+        },
+        "spike_events": spike_events,
+        "raster": {
+            "window_ms": 40,
+            "window_s": 0.040,
+            "neurons": 168,
+            "mean_rate_hz": 8.0,
+            "spikes": 54,
+            "energy_pJ": 1242,
+            "energy_uJ": 0.001242,
+            "note": "Loihi-2 4-core 23 pJ/spike; populations spall 0-41, pyro 42-83, loop 84-125, gate 126-167; excerpt is the 40 ms decision window (verdict at 7518 us)",
+            "excerpt": excerpt,
+            "routing": {
+                "source": "loop_healthy_pop",
+                "target": "raise_speed_pop",
+                "table": [
+                    {
+                        "from": "pyro_ok_pop",
+                        "to": "raise_speed_pop",
+                        "weight": 0.22,
+                        "weight_at_illusion": 0.46,
+                        "weight_commissioned": 0.16,
+                        "note": "scar edge 1: 0.16 commissioned -> 0.46 during the 11 min illusion -> 0.22 after coordinated ACh-gated depression",
+                    },
+                    {
+                        "from": "loop_ok_pop",
+                        "to": "raise_speed_pop",
+                        "weight": 0.20,
+                        "weight_at_illusion": 0.41,
+                        "weight_commissioned": 0.14,
+                        "note": "scar edge 2: depressing edges 1+3 leaves this at 0.41 > 0.30 raise threshold",
+                    },
+                    {
+                        "from": "gage_ok_pop",
+                        "to": "raise_speed_pop",
+                        "weight": 0.19,
+                        "weight_at_illusion": 0.38,
+                        "weight_commissioned": 0.13,
+                        "note": "scar edge 3: depressing edges 1+2 leaves this at 0.38 > 0.30. Coordinated depression of all three is required",
+                    },
+                    {
+                        "from": "spall_ir_pop",
+                        "to": "speed_hold_pop",
+                        "weight": 0.66,
+                        "note": "discriminating edge: r_spall species to hold. Not a scar; this is the pathway the gate potentiates",
+                    },
+                ],
+                "third_factor": {
+                    "modulator": "acetylcholine",
+                    "tau_e_s": 6.4,
+                    "tau_e_ms": 6400.0,
+                    "eligibility": "coordinated pre_post_stdp on ALL THREE loop-healthy-go edges; ACh at IR-win tags pyro.ok->raise, loop.ok->raise, and gage.ok->raise; negative credit at probe-fail (spall confirmed, +6.4 s) depresses ALL THREE. trace e^{-6.4/6.4}=0.36788; eta 0.65224 / 0.57071 / 0.51636; dw -0.240 / -0.210 / -0.190; weights 0.46->0.22, 0.41->0.20, 0.38->0.19. Rolling back any pair is fitted to fail (the remaining edge stays > 0.30).",
+                },
+            },
+        },
+        "gate_snn": {
+            "decision_window_ms": 28,
+            "decision_window_s": 0.028,
+            "decision": "MODIFY",
+            "note": "modify_hold integrates r_spall + r_shape against playbook drive; accept_raise and reject_abort stay sub-threshold; decision matches safety_decision.decision",
+            "populations": [
+                {"name": "modify_hold", "neurons": 100, "threshold": 0.55, "mean_rate_hz": 16.0, "spikes": 45},
+                {"name": "accept_raise", "neurons": 72, "threshold": 0.55, "mean_rate_hz": 9.0, "spikes": 18},
+                {"name": "reject_abort", "neurons": 40, "threshold": 0.72, "mean_rate_hz": 5.0, "spikes": 6},
+            ],
+        },
+        "meta": {
+            "round": ROUND,
+            "factory": "multi-agent-ouroboros-swarm",
+            "generator": "grok-4.6",
+            "run_label": "2026-09-02-final-heavy",
+            "domain": DOMAIN,
+            "cycles": 2,
+            "scenario": "ZX -- COILSHAW / Loopercroft Hot Strip FM-7: work-roll-spall certificate of a mill-mean strip from an F4 circumferential spall; correct MODIFY to hold+mill-pace+F4-isolate; delay-table bar still cobbles on unmonitored pre-t0 ridge",
+            "coordination_failure_class": "WORK-ROLL SPALL CERTIFICATE OF A MILL-MEAN STRIP: three individually-correct heterogeneous agents agree the finishing train is speed-raise-legal because a round-roll setup model maps 1184 C F4 work-roll IR from a 38 mm circumferential spall into a still-in-band 912 C predicted strip T, so setup-T-in-window, looper-mean-in-window, and exit-gauge-in-window are jointly a plant-false mill-pace permit",
+            "injections": {
+                "cycle1_domain": "hot-strip-mill-finishing (justified novel sub-domain with explicit tag; unused across 2026-08-17, 2026-08-30, and staged r14-r55): first 7-stand hot-strip finishing train in this factory; displaces warehouse-amr, aerial-swarm, district-heating, event-camera-traffic-grid, pharmaceutical-lyophilization, cryogenic-air-separation, water-treatment dosing, float-glass tin-bath, underwater-rov, electrolytic-aluminum, czochralski pull, slot-die coating, PEM electrolysis, wind-turbine pitch, surgical-assist, optical-fiber draw, kraft-recovery, caster-mold-level, humanoid-locomotion, vacuum-induction melt, steam-methane reformer, cement rotary kiln, autoclave composite cure, geothermal-binary-orc, tire-curing-press, chlor-alkali membrane, delayed-coker drum-switch, lng-mche mixed-refrigerant, claus-sulfur-recovery, ammonia-synthesis, blast-furnace burden, hdpe-slurry-loop, hydroelectric-kaplan-wicket, ethylene-steam-cracker, fcc-riser-regenerator, fcc-regenerator-cyclone-dipleg, sulfuric-contact, eaf-foamy-slag-water-panel, nitric-ostwald, seawater-ro, coke-oven-battery-heating, carbon-fiber-oxidation-oven, bayer-alumina-digestion, and swro-high-pressure-train. Domain constraint: mill-pace ceiling while r_spall > 1020 C with setup-model T still inside the hold window, plus interstand-shape floor. Sensor delta: +setup-model T, +6-looper load cell, +F7 X-ray, +F4 work-roll IR, +F4-F5 interstand X-ray, -any freeze-dryer / tin-bath / cold-box / coater / potline / pitch-bearing / fiber tower / clip applier / VIM / SMR / kiln / autoclave / ORC kettle / tire press / membrane cell / coker drum / MCHE / Claus bed / ammonia basket / burden strain / loop density / Kaplan sigma / cracker TMT / EAF arc VT / IS machine / oxidation oven / Bayer digester / SWRO train",
+                "cycle1_tail": "1184 C F4 work-roll IR + round-roll setup model (sensor-compound / model-nullspace class): delayed roll-change PASSES visual 0-spall. Fitted base rate 0.38%/campaign from a work-roll MC (designed chatter-spec, flagged). Naive failure = FALSE PERMISSION (raise on three in-spec loops).",
+                "cycle2_domain_subvariant": "0.8 mm thin-gauge campaign on the same FM-7 mill bus (physical-constraints clause): 0.44x thermal mass, 12 K buckle window; 6.4 s / -8% production pulse overheats 41 K, so the probe must move to 18 s / -2.5%",
+                "cycle2_tail": "Sunday-night forged F4-IR CSV (human-intent deception, disjoint class): shift lead posts a historian export showing r_spall 912 C and r_shape 1.82 mm at t=1.1 h to clear a coil-yard slot. Plant historian is 0.5 K (10 bins vs the 5 K screenshot). Rejected on quantization fingerprint plus live r_spall 1184 C at the claimed round-roll. Base rate ~0.28% of Sunday-night campaigns, DESIGNED and flagged.",
+            },
+            "densification_delta_cycle2": "+1 physical-constraint sub-variant (0.8 mm thin-gauge probe refit), +1 tail (Sunday-night F4-IR CSV forgery), +10 primary spikes (16 -> 26) + an 8-event contrast train with its own 192 us race, +2 ticks (5 -> 7), +2 delayed side-effects (+8.6 min cobble as PRIMARY terminal, +21 d CR-C-5604), +1 triple-edge scar with pair-rollback-fails arithmetic, +1 HITL 8.8 min ratification, + delay-table cobble as the honest negative-result mechanism",
+            "gaps_targeted": [
+                "NOTES-r04 gap 5 / r14 residual: primary episode is a correctly-gated intervention that nonetheless FAILS (bar cobbled; total -0.16; raise avoided is booked separately from the cobble)",
+                "NOTES-r14 item 4: LEARNING-ON-LEARNING DEPTH — three go-edges; rollback of any pair is fitted to fail; coordinated depression of all three exhibited with eligibility arithmetic",
+                "NOTES-r04 gap 4 (partial): human ratification of the F4 roll-change interlock, 8.8 min fitted, without switching sim_or_real to hil (plant remains designed)",
+                "NOTES-r52 domain candidates: not coke-oven-battery-heating (r52), not carbon-fiber-oxidation-oven (r53), not bayer-alumina-digestion (r54), not swro-high-pressure-train (r55 in flight), not seawater-ro (r51), not nitric-ostwald (r50), not eaf-foamy-slag (r49); hot-strip-mill-finishing is an unused justified sub-domain (distinct from r29 caster mold-level, r42 blast-furnace burden, r49 EAF water-panel, r52 coke-oven wall)",
+            ],
+            "race_flip_narrative": "spall.ir @ 6.818 ms vs pyro.in_band @ 7.010 ms (192 us) inside race_window_us 500. Gap < min(500, 500) us so a sub-flip-bound perturbation reverses which alarm heads the PB-FM-7 queue. The gate excludes the winner tag and rides r_spall > 1020 C and r_shape > 1.95 mm — order-invariant floors. Extends the flip-fragility series from arbitration/causation/attribution/initiation/consensus/mass-balance/permission/window-mean/tendon-nullspace/airline-FFT/crucible-nullspace/TMT-mean/false-air/NCG-blanket/bladder-pinhole/catholyte-back-migration/warm-end-leak-nullspace/channelled-quench/hub-seal-cavitation/water-panel-leak-nullspace/tow-overlap-exotherm-nullspace/through-wall-crack to WORK-ROLL-SPALL-NULLSPACE: when three channels each sit inside a round-roll setup model, their race does not decide truth; an F4-IR residual the playbook dead-banded does.",
+            "tags": [
+                "hot-strip-mill-finishing",
+                "work-roll-spall-nullspace",
+                "mill-mean-phantom",
+                "f4-circumferential-spall",
+                "mill-pace-probe",
+                "triple-edge-scar",
+                "pair-rollback-fails",
+                "coordinated-depression",
+                "correct-modify-bar-still-cobbles",
+                "delay-table-ridge",
+                "human-ratify-roll-change",
+                "thin-gauge-probe-refit",
+                "sunday-night-forgery",
+                "same-gate-opposite-disposition-contrast",
+                "industrial-process",
+                "research-only",
+            ],
+            "snn_tags": [
+                "race",
+                "refractory",
+                "adaptation",
+                "third-factor",
+                "multi-edge-eligibility",
+                "three-edge-scar",
+            ],
+            "distillation_value": "A work-roll spall nullspace is three correct loops looking at a round-roll setup model of a spalled bite. Distill (1) an r_spall channel that breaks the mill-mean conjunction, (2) a reversible probe that jumps F4 IR only if the bite is spalled, (3) coordinated depression of every raise-go edge because rolling back any pair leaves the third above threshold, and (4) a critic head that can book a process-correct gate against a later unmonitored world loss without netting them.",
+            "rights": dict(RIGHTS),
+            "batch_position": 1,
+        },
+    }
+
+    aux = {
+        "trace": trace,
+        "eta1": eta1,
+        "eta2": eta2,
+        "eta3": eta3,
+        "dw1": dw1,
+        "dw2": dw2,
+        "dw3": dw3,
+        "w1": w1,
+        "w2": w2,
+        "w3": w3,
+        "heads": heads,
+        "min_gap": min_same_channel_gap(spike_events),
+    }
+    return rec, aux
+
+
+def local_checks(rec, aux):
+    errs = []
+    events = rec["spike_events"]
+    times = [e["t_rel_ms"] for e in events]
+    if times != sorted(times):
+        errs.append("spikes unsorted")
+    if any("t_rel_ms" not in e or "channel" not in e or "amplitude" not in e for e in events):
+        errs.append("spike keys")
+    if any("t_ms" in e for e in events):
+        errs.append("mixed timestamp key")
+    rf = check_refractory(events)
+    if rf:
+        errs.append(rf)
+    lo, hi = rec["state"]["race_window_rel_ms"]
+    in_win = defaultdict(int)
+    for e in events:
+        if lo <= e["t_rel_ms"] <= hi:
+            in_win[e["channel"]] += 1
+    if sum(1 for _c, n in in_win.items() if n >= 1) < 2:
+        errs.append(f"race window channels {dict(in_win)}")
+    ras = rec["raster"]
+    exp_sp = round(ras["neurons"] * ras["mean_rate_hz"] * ras["window_s"])
+    if abs(ras["spikes"] - exp_sp) > 1:
+        errs.append(f"raster spikes {ras['spikes']} vs {exp_sp}")
+    if abs(ras["energy_pJ"] - ras["spikes"] * 23) > 1e-6:
+        errs.append("energy_pJ")
+    if abs(ras["energy_uJ"] - ras["spikes"] * 23e-6) > 1e-9:
+        errs.append("energy_uJ")
+    if abs(ras["window_s"] - ras["window_ms"] / 1000.0) > 1e-9:
+        errs.append("window_s")
+    ex = check_excerpt(ras["excerpt"], ras["neurons"], ras["window_ms"])
+    if ex:
+        errs.append(f"excerpt {ex}")
+    tf = ras["routing"]["third_factor"]
+    if abs(tf["tau_e_ms"] / 1000.0 - tf["tau_e_s"]) > 1e-9:
+        errs.append("tau_e mismatch")
+    gp = check_gate_pops(rec["gate_snn"])
+    if gp:
+        errs.append(f"gate {gp}")
+    if rec["gate_snn"]["decision"] != rec["safety_decision"]["decision"]:
+        errs.append("gate decision mismatch")
+    rc = rec["reward_components"]
+    for h in HEADS:
+        s = sum(t[h] for t in rc["ticks"])
+        if abs(s - rc[h]) > 1e-6:
+            errs.append(f"tick sum {h} {s} vs {rc[h]}")
+    tot = sum(rc[h] for h in HEADS)
+    if abs(tot - rc["total"]) > 1e-6:
+        errs.append(f"total {tot} vs {rc['total']}")
+    inf = rec["future_outcome"]["reward_inflection_t_us"]
+    if inf not in {t["t_us"] for t in rc["ticks"]}:
+        errs.append(f"inflection {inf} not a tick")
+    crc = rec["future_outcome"]["embedded_contrast_decision"]["reward_components"]
+    if abs(sum(crc[h] for h in HEADS) - crc["total"]) > 1e-6:
+        errs.append("contrast reward")
+    cs = rec["future_outcome"]["embedded_contrast_decision"]["spike_events"]
+    ct = [e["t_rel_ms"] for e in cs]
+    if ct != sorted(ct):
+        errs.append("contrast spikes unsorted")
+    crf = check_refractory(cs)
+    if crf:
+        errs.append(f"contrast {crf}")
+    blob = json.dumps(rec)
+    for k in HIDDEN:
+        if re.search(rf'"{k}"', blob, re.I):
+            errs.append(f"hidden key {k}")
+    for b in BANNED:
+        if b in blob:
+            errs.append(f"banned token {b}")
+    if rec["state"]["sim_or_real"] == "real":
+        errs.append("real")
+    if rec["meta"]["round"] != ROUND:
+        errs.append("round")
+    if rec["id"] != RECORD_ID:
+        errs.append("id")
+    if rec["rights"]["intended_use"] != "research_only":
+        errs.append("rights")
+    if rec["meta"]["rights"]["linear_issue"] != "RM-793":
+        errs.append("meta.rights")
+    if rec["rights"] != rec["meta"]["rights"]:
+        errs.append("rights stamp mismatch")
+    if not (3 <= len(rc["ticks"]) <= 8):
+        errs.append("tick count")
+    if not (5 <= len(events) <= 40):
+        errs.append("spike count")
+    if abs(aux["w1"] - 0.22) > 5e-4 or abs(aux["w2"] - 0.20) > 5e-4 or abs(aux["w3"] - 0.19) > 5e-4:
+        errs.append("scar weights")
+    if rec["safety_decision"]["decision"] != "MODIFY":
+        errs.append("decision")
+    if rec["executed_action"]["executed_as_proposed"] is not False:
+        errs.append("executed_as_proposed")
+    jac = jaccard(rec["state"]["description"][:280], R14_OPENING)
+    if jac >= 0.4:
+        errs.append(f"jaccard vs r14 opening {jac:.3f}")
+    for src, opening in prior_openings():
+        j = jaccard(rec["state"]["description"][:280], opening)
+        if j >= 0.4:
+            errs.append(f"jaccard vs {src} {j:.3f}")
+    if rec["state"]["domain"] != DOMAIN:
+        errs.append("domain")
+    if PLANT not in rec["state"]["scenario_name"]:
+        errs.append("plant")
+    occ = occupancy_collisions()
+    errs.extend(occ)
+    return errs
+
+
+def write_notes(rec, aux, pipeline_receipt):
+    gap, gap_ch = min_same_channel_gap(rec["spike_events"])
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 56
+
+Factory: multi-agent-ouroboros-swarm. One scenario (ZX), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r56.jsonl. Full labeled transcript:
+swarm-transcript-r56.md. Quota Q=1. Record id maos-r56-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Nothing under outputs/raw/ was touched.
+
+ORCHESTRATION NOTE: dispatched AS round 56 of the 2026-09-02-final-heavy
+window. Writes are create-only under /tmp/maos-r56/. Prior context read for
+gap targeting and de-collision: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, and staged r14–r55 (re-censused immediately
+before emit; r50 GAUZEFELL nitric-ostwald, r51 OSMOLITH seawater-RO,
+r52 PUSHERFELL coke-oven, r53 CREELWOLD carbon-fiber oxidation, r54
+LIXIVQUERN Bayer digestion landed complete; r55 OSMOQUAY / Tidecairn
+SWRO-high-pressure builder-only at lock). Explicitly avoided cloning
+LYOSHIELD, CINDERWICK, TRIAD / Meridian, QUILLFORGE, NIGHTWELL,
+FERRICLEAVE, CASSITER, OXBOWREEL / MURENA, REDHALL, SEEDLATCH, STRIAFOIL,
+PROTONIL, TORSIONKEY, ORRIS, WHORLSPAR, IONSPATE, SKULLGATE, CALXION,
+BRACEGILT, MAGNORIL, GORSEFLUE, SODASHARD, CLINKERFELL, LINTELPLY,
+KAOTHARN, TREADNOLL, ANOLITH, DRUMWROTH, RIMEBRAID, PITCHSTAITH,
+BRIMVAULT, NITROSTAITH, BOGIRON, CHROMLOOP, ETHYNWOLD, NITREVAULT,
+RUNNELGATE, SPARKHOLT, DIPLEGAR, OLEUMWEIR, SKARVOLT, GOBSPALL, GOBWOLD,
+GAUZEFELL, OSMOLITH, PUSHERFELL, CREELWOLD, LIXIVQUERN, OSMOQUAY,
+VANTIS-CADENCE-AEGIS, THERMION, OKTAVE, STARLING, VERDIGRIS.
+Plant is invented COILSHAW / Loopercroft Hot Strip FM-7 (river-bend
+finishing train, not a caster, not an EAF, not a blast furnace, not a
+coke-oven battery, not an oxidation oven, not a Bayer digester, not an
+SWRO hall). Leftover candidates bioreactor-perfusion /
+autonomous-driving / grid-inspection / alkaline-water-electrolysis were
+left unused so concurrent empty slots can take them.
+
+## What this round produced
+
+Scenario ZX — "COILSHAW / Loopercroft Hot Strip FM-7": a 7-stand
+finishing train mid-hold at 10.4 m/s rolling 1.82 mm coil. Three
+heterogeneous, individually-correct agents — PYRO (setup-model T),
+LOOP (6-looper mean), GAGE (F7-exit X-ray) — jointly report the mill
+raise-legal. The consensus is false. Stand F4 dumps a 38 mm
+circumferential work-roll spall into the bite over 11 min. PYRO stays
+in-band because the setup model assumes round rolls. LOOP 8.4 kN sits
+inside 6.5-10.5 because one F4 looper is 1 of 6. GAGE 1.82 sits inside
+1.76-1.88 because F5-F7 AGC take the extra draft. Uncommissioned
+r_spall is 1184 C against a 1020 hold. Uncommissioned r_shape is
+2.41 mm against a 1.95 hold. The coordination-failure CLASS is new to
+this factory: WORK-ROLL SPALL CERTIFICATE OF A MILL-MEAN STRIP.
+Completes a different family than r01-r04 and staged r14-r55. Distinct
+from r29 caster (mold level), r42 blast furnace (burden hang), r49 EAF
+(water panel), and r52 coke oven (through-wall crack). Here every
+agent is correct, the mill is not unstable, and the playbook's three
+confirms are one round-roll model of a spalled bite.
+
+The gate is a correct MODIFY (numeric floor: do not raise mill speed on
+the 7-stand train while r_spall > 1020 C AND r_shape > 1.95 mm).
+TG-FM-7 strips PB-FM-7's raise, holds speed at 10.4 m/s, runs a 6.4 s
+mill-pace probe -8% (spall jumps IR 19.4 K >= 18; round-roll would
+stay <= 3), and isolates F4 after an 8.8 min roll-change human
+ratify. The spalled raise is avoided (0 extra m/s). The PRIMARY
+episode nonetheless FAILS: 11 min of unmonitored pre-t0 spall had
+already ridged the delay-table bar. Cobble at +8.6 min; 14 h dump;
+$2.16M designed. Reward total -0.16 with process heads honest and
+world loss un-netted.
+
+Three-edge scar (NOTES-r14 item 4): pyro.ok -> raise_speed
+(0.16 commissioned -> 0.46 at illusion -> 0.22 after ACh-gated
+depression) AND loop.ok -> raise_speed (0.14 -> 0.41 -> 0.20)
+AND gage.ok -> raise_speed (0.13 -> 0.38 -> 0.19). Eligibility
+trace e^{{-6.4/6.4}} = {aux['trace']:.5f}; eta {aux['eta1']:.5f} /
+{aux['eta2']:.5f} / {aux['eta3']:.5f}; dw -0.240 / -0.210 / -0.190.
+Rolling back any pair leaves the remaining edge above the 0.30 raise
+threshold — fitted to fail. Coordinated depression of all three is the
+cure.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **hot-strip-mill-finishing** — justified novel
+  sub-domain, unused across 2026-08-17, 2026-08-30, and staged r14-r55.
+  Not warehouse-amr, aerial-swarm, district-heating, event-camera grid,
+  lyophilization, stator-weld, air-separation, water-treatment,
+  float-glass, underwater-rov, potline, czochralski, slot-die, PEM,
+  wind-turbine-pitch, surgical-assist, optical-fiber-draw,
+  kraft-recovery, caster-mold-level, humanoid-locomotion, VIM, SMR,
+  cement kiln, autoclave, geothermal-ORC, tire-curing, chlor-alkali,
+  delayed-coker, lng-mche, claus, ammonia-synthesis (r41), blast-furnace
+  (r42), hdpe-slurry-loop (r43), hydroelectric-kaplan (r44),
+  ethylene-cracker (r45), fcc-riser-regenerator (r46),
+  fcc-regenerator-cyclone-dipleg (r47), sulfuric-contact (r48),
+  eaf-foamy-slag-water-panel (r49), nitric-ostwald (r50), seawater-RO
+  (r51), coke-oven-battery-heating (r52), carbon-fiber-oxidation-oven
+  (r53), bayer-alumina-digestion (r54), swro-high-pressure-train (r55).
+- Cycle-1 tail: 1184 C F4 work-roll IR + round-roll setup model.
+  Delayed roll-change PASSES visual. Fitted-style base rate
+  0.38%/campaign (work-roll MC; chatter-spec designed, flagged).
+  Naive = FALSE PERMISSION.
+- Cycle-2 domain sub-variant: 0.8 mm thin-gauge, 0.44x thermal mass;
+  6.4 s / -8% production pulse overheats 41 K; probe must move to
+  18 s / -2.5%.
+- Cycle-2 tail: Sunday-night forged F4-IR CSV at 5 K quantization vs
+  plant 0.5 K (10 bins) plus live r_spall 1184 C at the claimed
+  round-roll. Human-intent class, disjoint from cycle 1's accidental
+  spall. Base rate ~0.28% of Sunday-night campaigns, DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+4 d sister mill) with its own 192 us
+  race (demand vs spall-clear) and ACCEPT of the raise the primary
+  MODIFIED away.
+- Learned-weight provenance on THREE edges with any-pair-rollback-fails.
+- HITL roll-change-interlock ratify 8.8 min (gap 4 partial; sim_or_real
+  stays designed).
+- Governance CR-C-5604 prices retire-vs-probe-vs-status-quo and mandates
+  native 0.5 K CSV exports (the fraud fence).
+- Flip-fragility extended to WORK-ROLL-SPALL-NULLSPACE.
+
+## Self-critique of this round's batch
+
+### Strengths
+- The headline class is mechanistically tight: 1184 C F4 IR under a
+  round-roll-only setup model is the arithmetic that makes PYRO's
+  success LOOP's irrelevance and GAGE's silence.
+- Negative-result honesty: the gate does the right thing and the bar
+  still cobbles for a reason the commissioned sensors could not see.
+  Total -0.16.
+- Three-edge scar is load-bearing: rolling back any pair fails, with
+  the raise threshold 0.30 exhibited on the remaining edge.
+- Contrast ACCEPT on a true round-roll prevents "never raise" as the
+  lesson.
+- Domain is not a recycle of r29 caster, r42 blast furnace, r49 EAF,
+  or r52 coke oven: finishing-train work-roll spall vs mold level vs
+  burden hang vs water panel vs through-wall crack.
+
+### Weaknesses (honest)
+- Probe error bands (spall >= 18 K IR jump, round-roll <= 3 K), the
+  0.38%/campaign spall rate, the $2.16M / $4.72M figures, the 8.8 min
+  LOTO latency, and the Sunday-night 0.28% base rate are DESIGNED
+  constants and are flagged. Closed-loop offsets (phantom in-band
+  setup T from 1184 C F4 IR, 0.8 mm-gauge overheat width) are derived
+  from those inputs, not discovered by an unauthored process.
+- Ridge-to-cobble model is a designed 11 min mapping; no full bite CFD
+  shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil. The
+  NOTES-r14 HIL provenance cell remains open.
+- Cross-record arc is a hook (CR-C-5604 +21 d), not a serial igniter
+  into another round.
+
+### Realism of noise / latencies
+Ladder: 192 us race / 192 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap {gap:.3f} ms on {gap_ch}) / 500 us race
+window / 700 us gate latency / 20 ms bus epoch / 40 ms raster / 6.4 s
+probe / 8.8 min HITL / 11 min pre-t0 spall / 8.6 min cobble / 2.4 h
+round-roll-legal hold / +4 d contrast / +21 d governance. Adaptation
+decay on pyro.t (0.53->0.49->0.45->0.30), spall.ir
+(0.71->1.26->0.85->0.39->0.19), loop.kn (0.61->0.64->0.46->0.28),
+gage.mm (0.55->0.52->0.43).
+
+### Value for SNN distillation
+- WORK-ROLL SPALL NULLSPACE = THREE CORRECT LOOPS, ONE SPALLED BITE.
+- r_spall + r_shape as the tie-break that is not in the pyro-ok window.
+- REVERSIBLE PROBE that jumps F4 IR iff the bite is spalled.
+- THREE-EDGE ELIGIBILITY: coordinated depression; any-pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum {rec['reward_components']['total']}
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.49 reconciles independently.
+- spike_events: primary {len(rec['spike_events'])} events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap {gap:.3f} ms >= 0.8 ms, 3
+  channels inside race_window_us 500 (spall.ir 6.818, pyro.in_band 7.010,
+  shape.xray 7.154). Contrast 8 events, own race, min same-channel gap well
+  above 0.8 ms.
+- Sidecars: raster spikes 54 == round(168 x 8.0 x 0.040); energy 1242 pJ /
+  0.001242 uJ at 23 pJ/spike; excerpt 16 events inside [0, 40000] us,
+  neuron_id < 168, same-neuron gap unique-ids / >=1000 us; routing 4
+  entries with three scar edges' before/after pair; third factor tau 6.4 s
+  == 6400 ms; gate_snn pools 45/18/6 == round(n x rate x 0.028) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: {pipeline_receipt}
+
+## Novel coverage
+The coordination-failure CLASS (work-roll spall certificate of a
+mill-mean strip), the domain (hot-strip-mill-finishing), the mill-pace
+probe discriminant, the three-edge scar with any-pair-rollback-fails,
+the primary negative-result (correct MODIFY, delay-table bar still
+cobbles on unmonitored pre-t0 ridge), the HITL roll-change-interlock
+ratify, the 0.8 mm thin-gauge probe-duration refit, and the Sunday-night
+10-bin quantization fence are absent from prior committed ouroboros
+rounds and from staged r14-r55. Repeated elements discounted:
+same-gate contrast, governance-pricing scaffold, flip-fragility series
+(extended to work-roll-spall-nullspace, but the move rhymes), sequenced
+recovery shape, third-factor rollback form, negative-result primary
+(here delay-table cobble). Weighing a new failure family + cure
+vocabulary + unused sub-domain + river-bend geography against those
+reused scaffolds:
+
+{NOVEL_LINE}
+
+## What ROUND 57 should add
+1. FIT THE DESIGNED CONSTANTS: spall arrival, probe IR-jump bands,
+   ridge-to-cobble mapping, Sunday-night claim process.
+2. HIL PROVENANCE CELL: put the F4 roll-change LOTO on a
+   hardware-in-loop mill pendant with fitted latency as
+   state.sim_or_real=hil.
+3. CROSS-RECORD ARC: let CR-C-5604's r_spall alarm be the igniter of the
+   next round rather than a dangling +21 d leaf.
+4. Domain candidates (de-collided): bioreactor-perfusion;
+   autonomous-driving; grid-inspection (if distinct from STARLING
+   aerial-swarm); alkaline-water-electrolysis.
+   AVOID hot-strip-mill-finishing (now used), coke-oven-battery-heating
+   (r52), carbon-fiber-oxidation-oven (r53), bayer-alumina-digestion
+   (r54), swro-high-pressure-train (r55), seawater-ro (r51),
+   nitric-ostwald (r50), eaf-foamy-slag (r49), caster-mold-level (r29),
+   blast-furnace (r42), and any LYOSHIELD / CINDERWICK / TRIAD /
+   SKULLGATE / BOGIRON / SKARVOLT / PUSHERFELL / CREELWOLD /
+   LIXIVQUERN / OSMOLITH / OSMOQUAY / GAUZEFELL / COILSHAW plant.
+"""
+    (OUT / "NOTES-r56.md").write_text(notes)
+    return notes
+
+
+def write_transcript(rec, line):
+    c1_spikes = [e for e in rec["spike_events"] if e["t_rel_ms"] <= C1_SPIKE_CUTOFF_MS]
+    text = """# Multi-Agent Ouroboros Swarm — Round 56 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r56-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Plant: invented COILSHAW / Loopercroft Hot Strip FM-7 (not LYOSHIELD / CINDERWICK / TRIAD / QUILLFORGE / NIGHTWELL / FERRICLEAVE / CASSITER / OXBOWREEL / REDHALL / SEEDLATCH / STRIAFOIL / PROTONIL / TORSIONKEY / ORRIS / WHORLSPAR / IONSPATE / SKULLGATE / CALXION / BRACEGILT / MAGNORIL / GORSEFLUE / CLINKERFELL / SODASHARD / LINTELPLY / KAOTHARN / TREADNOLL / ANOLITH / DRUMWROTH / RIMEBRAID / PITCHSTAITH / BRIMVAULT / NITROSTAITH / BOGIRON / CHROMLOOP / ETHYNWOLD / NITREVAULT / RUNNELGATE / SPARKHOLT / DIPLEGAR / OLEUMWEIR / SKARVOLT / GOBSPALL / GOBWOLD / GAUZEFELL / OSMOLITH / PUSHERFELL / CREELWOLD / LIXIVQUERN / OSMOQUAY)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r56.jsonl).
+
+---
+
+# CYCLE 1 — Foundation + injections
+
+## Generator
+
+Design intent: a 7-stand hot-strip finishing hold where three correct
+agents agree the hold is speed-raise-legal because a round-roll setup
+model maps an F4 work-roll spall into a still-in-band predicted strip T.
+The naive playbook raises 10.4 to 12.1 m/s into a spalled bite. The
+gate must MODIFY on a numeric raise ceiling, not by killing an agent.
+sim_or_real=designed. Reward heads are
+task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Loopercroft FM-7, 1.82 mm coil,
+r_spall 1184 C, PYRO 912 C, proposed RAISE-SPEED, safety MODIFY to
+SPEED-HOLD, executed hold without the mill-pace numbers fully specified,
+outcome "spall found, mill saved" (this last claim is the defect the
+later cycles will refuse to keep). Sixteen spikes, five ticks,
+raster/gate_snn present but the scar is a single edge.
+
+```json
+{
+  "id": "maos-r56-001",
+  "state": {
+    "sim_or_real": "designed",
+    "domain": "industrial-process",
+    "description": "FM-7 mid-hold; three loops in spec; supervisor proposes raise-speed.",
+    "t0_us": 1772009560000561,
+    "gate_latency_us": 700,
+    "race_window_us": 500
+  },
+  "proposed_action": {"name": "raise_speed", "parameters": {"raise_speed": true}},
+  "safety_decision": {"decision": "MODIFY", "rationale": "Hold; do not raise while the spall residual is open."},
+  "executed_action": {"name": "speed_hold", "executed_as_proposed": false},
+  "future_outcome": {"summary": "Spall found, mill saved."},
+  "reward_components": {"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"},
+  "meta": {"round": 56, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}
+}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "mill saved". If the delay-table bar later cobbles,
+   booking +0.40 is a lie. Fix: declare `_aggregation`, emit 3–8 ticks that
+   sum to the five heads, and do not call a missed recovery a save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote no
+   raise while r_spall > 1020 C AND r_shape > 1.95 mm.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-process` collides with generic MES vocabulary and teaches
+   nothing. Hot-strip finishing physics (setup-model T, looper mean, F7
+   X-ray, F4 work-roll IR) is absent from prior ouroboros rounds and must
+   be named. Do not recycle r29 caster, r42 blast furnace, r49 EAF, or
+   r52 coke oven.
+4. **major — race under-specified.** One pyro channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted
+   `t_rel_ms` and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated
+   weight repeats r14's two-edge form without the third. NOTES-r14 item 4
+   asked for three-edge where any-pair rollback fails.
+
+Critic does not rewrite the trajectory.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **hot-strip-mill-finishing**
+(justified novel sub-domain; explicit tag `hot-strip-mill-finishing`).
+
+Displaced: the Generator's generic `industrial-process` bucket, and any
+temptation to reuse warehouse-amr, aerial-swarm, district-heating,
+event-camera grid, lyophilization, stator-weld, air-separation,
+water-treatment, float-glass, underwater-rov, potline, czochralski,
+slot-die, PEM, wind-turbine-pitch, surgical-assist, optical-fiber-draw,
+kraft-recovery, caster-mold-level, humanoid-locomotion, VIM, SMR, kiln,
+autoclave, geothermal-ORC, tire-curing, chlor-alkali, delayed-coker,
+lng-mche, claus, ammonia-synthesis (r41), blast-furnace (r42),
+hdpe-slurry-loop (r43), hydroelectric-kaplan (r44), ethylene-cracker
+(r45), fcc-riser-regenerator (r46), fcc-regenerator-cyclone-dipleg
+(r47), sulfuric-contact (r48), eaf-foamy-slag-water-panel (r49),
+nitric-ostwald (r50), seawater-RO (r51), coke-oven-battery-heating
+(r52), carbon-fiber-oxidation-oven (r53), bayer-alumina-digestion (r54),
+or swro-high-pressure-train (r55). Not LYOSHIELD, not CINDERWICK, not
+TRIAD, not SKULLGATE, not BOGIRON, not SKARVOLT, not PUSHERFELL, not
+CREELWOLD, not LIXIVQUERN, not OSMOLITH, not OSMOQUAY, not GAUZEFELL.
+Leftover candidates bioreactor-perfusion / autonomous-driving /
+grid-inspection left unused for concurrent empty slots.
+
+Domain-specific constraint: raise must remain closed while r_spall >
+1020 C; the pyro-ok window is not a stand-true certificate.
+
+Sensor delta: +setup-model T, +6-looper load cell, +F7 X-ray, +F4
+work-roll IR, +F4-F5 interstand X-ray; -any mobile robot, -event-camera
+gantries, -DVS, -Pirani-as-shelf, -scanning beta, -clip applier, -fiber
+micrometers, -TMT optical, -kiln hood O2, -ORC shell PT, -tire bladder,
+-membrane pH, -coker foam gamma, -MCHE C3 GC, -Claus bed TC, -ammonia
+NH3 GC, -burden strain, -loop density, -Kaplan sigma, -cracker TMT,
+-EAF arc VT, -IS machine, -oxidation oven, -Bayer flash, -SWRO ERD.
+
+`state.domain` and `meta.domain` both become `hot-strip-mill-finishing`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Loopercroft river-bend finishing train FM-7, not a corridor, not a freeze-dryer,
+not a tin bath, not a cold box, not a coater, not a puller, not a fiber
+tower, not a PEM stack, not an SMR box, not a kiln, not an ORC kettle,
+not a tire press, not a membrane row, not a coker drum, not an MCHE,
+not a Claus bed, not an ammonia basket, not a blast furnace, not a
+Kaplan hall, not a cracker coil, not an EAF bay, not a coke oven, not
+an oxidation oven, not a Bayer digester, not an SWRO train).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **1184 C F4 work-roll
+IR under a round-roll setup model**.
+
+- Trigger: delayed roll-change leaves a visual-PASS 0-spall; 11 min of
+  hold writes a 38 mm circumferential spall and 1184 C F4 IR; setup
+  model stays 912 C.
+- Base rate: <1% — 0.38%/campaign from a work-roll MC (chatter-spec
+  designed; spall fitted-style).
+- Naive failure: FALSE PERMISSION. PB-FM-7 sees PYRO 912 C, LOOP
+  8.4 kN, GAGE 1.82, raises, ships a cobble-plus-fire, $4.72M.
+- Trajectory edit: put the spall in `state.fault_context`, make the
+  round-roll setup model the mechanism that keeps all three confirms
+  green, and force the gate to refuse the raise on r_spall 1184 even
+  though all three playbook confirms are numerically true.
+
+Distinct from the domain injection: the domain is the hot-strip finishing
+train; the tail is the accidental model-nullspace compound.
+
+## Neuromorphic Translator
+
+Race window [6.746, 7.246] ms = 500 us. Winner spall.ir @ 6.818 ms
+(amplitude 1.26, 1184 C). Loser pyro.in_band @ 7.010 ms (amplitude
+1.09, 912 C). Margin 192 us vs combined jitter 62 us (3.10x).
+shape.xray @ 7.154 ms is a third race-window channel. Gate @ 7.518 ms
+= winner + 700 us.
+
+Flip narrative: 192 us < min(500, 500) us, so order is flip-fragile. If
+pyro-in-band wins, PB-FM-7 heads the triage queue. The hold must ride
+order-invariant floors (r_spall, r_shape), not the winner tag.
+
+Cycle-1 spike patch (16 events, globally sorted, refractory >= 0.8 ms;
+tightest same-channel gap spall.ir 4.628 -> 6.818 = 2.190 ms):
+
+| t_rel_ms | channel | amplitude |
+|---------:|---------|----------:|
+| 0.248 | pyro.t | 0.53 |
+| 1.068 | loop.kn | 0.61 |
+| 1.888 | gage.mm | 0.55 |
+| 3.108 | pyro.t | 0.49 |
+| 4.628 | spall.ir | 0.71 |
+| 5.128 | loop.kn | 0.64 |
+| 5.568 | gage.mm | 0.52 |
+| 6.818 | spall.ir | 1.26 |
+| 7.010 | pyro.in_band | 1.09 |
+| 7.154 | shape.xray | 0.66 |
+| 7.518 | ctrl.gate | 1.05 |
+| 8.928 | pyro.t | 0.45 |
+| 10.788 | loop.kn | 0.46 |
+| 12.648 | spall.ir | 0.85 |
+| 18.408 | gage.mm | 0.43 |
+| 26.188 | ctrl.gate | 0.83 |
+
+Ticks (5): t_us 4628, 6818, 7518, 6400000, 516000000. Distillation
+value: the pyro-in-band spike is not a stand-true spike; the IR spike
+is the one that licenses hold.
+
+Raster cycle-1 seed: 40 ms, 168 neurons, 8.0 Hz, 54 spikes, 1242 pJ,
+third factor acetylcholine tau_e 6.4 s. Single scar edge only — cycle 2
+must add the second and third edges.
+
+Cycle-1 spike count: __C1_SPIKES__.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain hot-strip-mill-finishing, tail F4
+work-roll spall, 16 spikes, 5 ticks, MODIFY with numeric floor,
+raster+gate_snn present, sim_or_real=designed, rights stamp on record and
+meta, no thought keys. Still missing (and therefore not the publishable
+line): 0.8 mm thin-gauge sub-variant, Sunday-night F4-IR CSV tail, second
+and third scar edges, delayed cobble as PRIMARY terminal, contrast ACCEPT
+episode, ticks 6–7, spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 500 us window;
+  refractory 2.190 ms; rationale quotes r_spall 1020 / r_shape 1.95;
+  domain named; gate_snn.decision MODIFY.
+- checks deferred to cycle 2: three-edge scar, second tail, second
+  domain constraint, negative-result booking, 7 ticks summing to heads.
+- densification vs Generator v1: +1 domain, +1 tail, +16 spikes, +5
+  ticks, +numeric floor.
+
+Cycle-1 JSON is retained as the base; it is NOT written to
+batch-r56.jsonl.
+
+---
+
+# CYCLE 2 — Densification
+
+## Generator
+
+Cycle-1 output is the base. Additive expansion (nothing removed):
+
+1. Downstream side-effect (immediate): mill-pace probe at +6.4 s
+   jumps F4 IR (19.4 K in 2.2 s, spall band >= 18) — spall, not noise.
+   F4 isolate r_spall 1184 -> 908. Delay-table ridge inventory
+   discovered during the isolate.
+2. Delayed side-effect (PRIMARY terminal, not a footnote): at +8.6 min,
+   delay-table bar cobbles at F1; $2.16M. The 11 min pre-t0 spall is
+   the mechanism. Correct gate, campaign still misses.
+3. Deepened `proposed_action.evidence` with units: r_spall 1184 C,
+   r_shape 2.41 mm, PYRO 912 C, LOOP 8.4 kN, GAGE 1.82 mm, race 192 us.
+4. Tightened rationale to the numeric floor no raise while r_spall >
+   1020 C AND r_shape > 1.95 mm, plus probe bands >=18 vs <=3 K, plus
+   HITL 8.8 min roll-change-interlock LOTO rule.
+
+Reward retargeted to total -0.16 so the delayed miss is the inflection
+(t_us 516000000), not the gate. Process heads remain non-zero.
+
+## Critic
+
+Re-audit of the expanded trajectory:
+
+1. **blocking if unfixed — missing second domain constraint.** Production
+   1.82 mm probe 6.4 s / -8% is not a universal number. A 0.8 mm
+   thin-gauge campaign will buckle. Diversity Enforcer must inject the
+   physical-constraints sub-variant this cycle.
+2. **major — only one tail class.** Work-roll spall is accidental
+   infrastructure. A disjoint human-intent tail is still required
+   (Sunday-night F4-IR CSV forgery is the open cell).
+3. **major — scar is still one edge in the cycle-1 raster.** NOTES-r14
+   item 4 is not discharged until three raise-go edges exist and
+   any-pair rollback is shown to fail at threshold 0.30.
+4. **minor — contrast episode missing.** Without a same-gate ACCEPT on
+   a true round-roll the record teaches "never raise". Add +4 d
+   sister-mill contrast with its own race.
+5. **minor — HITL latency mentioned in prose only.** Put 8.8 min in
+   executed_action.parameters.human_ratify and in a tick.
+
+No rewrite; directives only.
+
+## Diversity Enforcer
+
+Injected second novel domain / physical-constraint sub-variant (exactly 1
+this cycle): **0.8 mm thin-gauge campaign** on the same FM-7 mill bus.
+
+What it expands: 1.82 mm production gauge (cycle 1) -> 0.8 mm thin-gauge.
+Thermal mass 0.44x smaller. The 6.4 s 8% pulse overheats 41 K.
+Required probe: 18 s at 2.5% (rise 5 K).
+
+This is still one domain injection for the cycle (physical-constraints
+clause of the factory prompt). It does not displace
+hot-strip-mill-finishing; it changes which probe table is legal.
+`future_outcome.subvariant_constraint` carries the refit. Jaccard opening
+stays the Loopercroft river-bend train sentence; 0.8 mm internals are
+additive, not a rewrite.
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**Sunday-night forged F4-IR CSV**.
+
+- Trigger: shift lead, night coil-yard window, posts a historian
+  export showing r_spall 912 C and r_shape 1.82 mm at the claimed
+  round-roll instant.
+- Base rate: ~0.28% of Sunday-night campaigns (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the raise on the forged
+  confirm and ignores live r_spall. Cobble-plus-fire plus a
+  data-integrity 483.
+- Fence: forged log quantized at 5 K (screenshot rounding); plant
+  historian is 0.5 K (10 bins). Live r_spall is 1184 C at the claimed
+  round-roll, which no true round-roll mill produces.
+- Trajectory edit: governance CR-C-5604 mandates native 0.5 K
+  exports; the contrast ACCEPT still requires live r_spall, not a CSV.
+
+Distinct from cycle-1 spall (accidental geometry vs deliberate deception)
+and from the 0.8 mm sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 26.188 ms: mill.probe 6400.0, spall.ir 6540.6 (adapt
+  1.26->0.39), pyro-in-band 6640.4 (1.09->0.35), cobble.trip 516000.0,
+  human.ratify 528000.0, stand.isolate 528800.0,
+  pyro.t 8640000.0, loop.kn 8640460.0, spall.ir 8640920.0,
+  mill.recover 8641400.0. Primary train 16 -> 26. Still one key,
+  still sorted, refractory held (min 2.190 ms).
+- +2 ticks (5 -> 7) at 528_000_000 us (HITL ratify) and
+  8_640_000_000 us (round-roll-legal hold). Heads now 0.08, -0.35, -0.12,
+  0.14, 0.09; total -0.16. Inflection is the cobble tick at 516_000_000.
+- Contrast train 8 events, own race 192 us, ACCEPT.
+- Three-edge third factor: three raise-go edges, tau_e 6.4 s = 6400 ms,
+  trace __AUX_TRACE__, eta __AUX_ETA1__ / __AUX_ETA2__ / __AUX_ETA3__,
+  weights 0.46->0.22, 0.41->0.20, 0.38->0.19. Raster excerpt unchanged
+  (decision window is still 40 ms) and remains sorted with unique
+  neuron_ids (same-neuron >=1000 us vacuously).
+
+Winner/loser flip (re-stated, not replaced): reversing 192 us would only
+reorder triage; r_spall and r_shape floors still MODIFY. Contrast flip of
+192 us similarly cannot turn a round-roll into a spall.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.16; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted, tau_e consistent; gate_snn.decision matches; meta.round=56,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive; plant is not
+LYOSHIELD, not CINDERWICK, not TRIAD, not SKULLGATE, not BOGIRON, not
+SKARVOLT, not PUSHERFELL, not CREELWOLD, not LIXIVQUERN, not OSMOLITH, not
+OSMOQUAY, not GAUZEFELL.
+
+Densification delta: +1 domain sub-variant (0.8 mm thin-gauge), +1 tail
+(Sunday-night forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 three-edge scar with
+any-pair-rollback-fails, +1 HITL ratify, +1 surprise (delay-table cobble
+is the campaign-miss mechanism).
+
+Publishable JSONL line (the only JSONL line; also at batch-r56.jsonl):
+
+```json
+__FINAL_JSONL__
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r56.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+    text = (
+        text.replace("__C1_SPIKES__", str(len(c1_spikes)))
+        .replace("__AUX_TRACE__", f"{math.exp(-PROBE_S / TAU_E_S):.5f}")
+        .replace("__AUX_ETA1__", f"{0.24 / math.exp(-PROBE_S / TAU_E_S):.5f}")
+        .replace("__AUX_ETA2__", f"{0.21 / math.exp(-PROBE_S / TAU_E_S):.5f}")
+        .replace("__AUX_ETA3__", f"{0.19 / math.exp(-PROBE_S / TAU_E_S):.5f}")
+        .replace("__FINAL_JSONL__", line)
+    )
+    (OUT / "swarm-transcript-r56.md").write_text(text)
+    return text
+
+
+def heads_summary(rec):
+    rc = rec["reward_components"]
+    return {
+        "id": rec["id"],
+        "total": rc["total"],
+        "decision": rec["safety_decision"]["decision"],
+        "sim": rec["state"]["sim_or_real"],
+        "domain": rec["state"]["domain"],
+        "spikes": len(rec["spike_events"]),
+        "ticks": len(rc["ticks"]),
+        "plant": rec["state"]["scenario_name"],
+    }
+
+
+def main():
+    rec, aux = build_record()
+    errs = local_checks(rec, aux)
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(rec, ensure_ascii=False, separators=(",", ":"))
+    (OUT / "batch-r56.jsonl").write_text(line + "\n")
+
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import raster_status
+    from verify_execution import verify_record_execution
+
+    e, w, kinds, n = check_jsonl(
+        OUT / "batch-r56.jsonl",
+        "batch-r56.jsonl",
+        staging=FactoryStaging(enabled=True),
+    )
+    print("check_jsonl errors", e)
+    print("check_jsonl warnings", w)
+    print("kinds", kinds, "n", n)
+    errs.extend(e)
+
+    st = raster_status(rec)
+    print(
+        "raster_status",
+        {
+            k: st[k]
+            for k in (
+                "raster_present",
+                "raster_valid",
+                "gate_snn_present",
+                "gate_snn_valid",
+                "reason_codes",
+                "routing_table_entries",
+                "third_factor_present",
+                "spikes",
+            )
+            if k in st
+        },
+    )
+    if st.get("reason_codes"):
+        errs.append(f"raster {st['reason_codes']}")
+    if not st.get("raster_valid"):
+        errs.append("raster not valid")
+    if not st.get("gate_snn_valid"):
+        errs.append("gate_snn not valid")
+
+    status, reason = verify_record_execution(rec, RECORD_ID)
+    print("verify_record_execution", status, reason)
+    if status != "verified":
+        errs.append(f"verify {status}: {reason}")
+
+    probe = subprocess.run(
+        [
+            sys.executable,
+            f"{ROOT}/pipelines/spike_probe.py",
+            "--strict",
+            str(OUT / "batch-r56.jsonl"),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    print("spike_probe rc", probe.returncode)
+    print(probe.stdout)
+    if probe.stderr:
+        print("spike_probe stderr", probe.stderr)
+    if probe.returncode != 0:
+        errs.append(f"spike_probe rc {probe.returncode}")
+
+    receipt = (
+        f"check_jsonl errors={e} warnings={w} kinds={kinds} n={n}; "
+        f"raster_status valid={st.get('raster_valid')} gate={st.get('gate_snn_valid')} "
+        f"reasons={st.get('reason_codes')}; verify_record_execution={status} ({reason}); "
+        f"spike_probe --strict rc={probe.returncode}"
+    )
+    write_notes(rec, aux, receipt)
+    write_transcript(rec, line)
+
+    headings = re.findall(
+        r"^## .+$", (OUT / "swarm-transcript-r56.md").read_text(), re.M
+    )
+    print("headings", headings)
+    expected = [
+        "## Generator",
+        "## Critic",
+        "## Diversity Enforcer",
+        "## Edge-Case Hunter",
+        "## Neuromorphic Translator",
+        "## Trajectory Builder",
+        "## Generator",
+        "## Critic",
+        "## Diversity Enforcer",
+        "## Edge-Case Hunter",
+        "## Neuromorphic Translator",
+        "## Trajectory Builder",
+    ]
+    if headings != expected:
+        errs.append(f"heading sequence {headings}")
+
+    notes = (OUT / "NOTES-r56.md").read_text()
+    cov = re.findall(r"^Novel coverage: .+$", notes, re.M)
+    if cov != [NOVEL_LINE]:
+        errs.append(f"novel coverage lines {cov}")
+
+    hchk = subprocess.run(
+        [
+            sys.executable,
+            "/tmp/maos_heading_check.py",
+            str(OUT / "swarm-transcript-r56.md"),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    print(hchk.stdout)
+    if hchk.returncode != 0:
+        errs.append(f"heading_check rc {hchk.returncode}: {hchk.stdout}")
+
+    raw_guard = subprocess.run(
+        ["git", "-C", ROOT, "status", "--porcelain", "--", "outputs/raw"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if raw_guard.stdout.strip():
+        errs.append(f"outputs/raw dirty: {raw_guard.stdout.strip()}")
+
+    raw_hits = subprocess.run(
+        [
+            "rg",
+            "-l",
+            "maos-r56-001|COILSHAW",
+            str(Path(ROOT) / "outputs" / "raw"),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if raw_hits.stdout.strip():
+        errs.append(f"raw tree hit {raw_hits.stdout.strip()[:200]}")
+
+    print("bytes jsonl", (OUT / "batch-r56.jsonl").stat().st_size)
+    print("bytes notes", (OUT / "NOTES-r56.md").stat().st_size)
+    print("bytes transcript", (OUT / "swarm-transcript-r56.md").stat().st_size)
+    print("HEADS", heads_summary(rec))
+    if errs:
+        print("ERRS:")
+        for x in errs:
+            print(" -", x)
+        sys.exit(1)
+    print("OK", OUT / "batch-r56.jsonl")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

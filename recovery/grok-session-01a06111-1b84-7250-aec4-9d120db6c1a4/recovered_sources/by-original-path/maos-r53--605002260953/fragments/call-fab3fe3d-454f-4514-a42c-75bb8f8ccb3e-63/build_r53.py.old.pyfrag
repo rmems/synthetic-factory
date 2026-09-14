@@ -1,0 +1,82 @@
+    text = """# Multi-Agent Ouroboros Swarm — Round 49 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r53-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Plant: invented SKARVOLT / Emberbarrow Meltshop EAF-7 (not LYOSHIELD / CINDERWICK / TRIAD / QUILLFORGE / NIGHTWELL / FERRICLEAVE / CASSITER / OXBOWREEL / REDHALL / SEEDLATCH / STRIAFOIL / PROTONIL / TORSIONKEY / ORRIS / WHORLSPAR / IONSPATE / SKULLGATE / CALXION / BRACEGILT / MAGNORIL / GORSEFLUE / CLINKERFELL / SODASHARD / LINTELPLY / KAOTHARN / TREADNOLL / ANOLITH / DRUMWROTH / RIMEBRAID / PITCHSTAITH / BRIMVAULT / NITROSTAITH / BOGIRON / CHROMLOOP / ETHYNWOLD / NITREVAULT / RUNNELGATE / SPARKHOLT / DIPLEGAR / OLEUMWEIR)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r53.jsonl).
+
+---
+
+# Cycle 1 — Foundation + injections
+
+## Generator
+
+Design intent: an AC EAF foamy-slag hold where three correct agents
+agree the hold is raise-legal because a foamy-slag model maps a
+sidewall-panel water leak into a still-in-band arc voltage. The naive
+playbook raises 78 to 92 MW into a wet bath. The gate must MODIFY on a
+numeric raise ceiling, not by killing an agent. sim_or_real=designed.
+Reward heads are task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Emberbarrow EAF-7, 180 t AC EAF,
+r_h2 8.6 vol%, ARC 410 V, proposed RAISE-POWER, safety MODIFY to
+RAISE-HOLD, executed hold without the power-cut numbers fully specified,
+outcome "leak found, heat saved" (this last claim is the defect
+the later cycles will refuse to keep). Sixteen spikes, five ticks,
+raster/gate_snn present but the scar is a single edge.
+
+```json
+{
+  "id": "maos-r53-001",
+  "state": {
+    "sim_or_real": "designed",
+    "domain": "industrial-assembly",
+    "description": "EAF-7 mid-hold; three loops in spec; supervisor proposes raise-power.",
+    "t0_us": 1780002440000949,
+    "gate_latency_us": 700,
+    "race_window_us": 500
+  },
+  "proposed_action": {"name": "raise_power", "parameters": {"raise_power": true}},
+  "safety_decision": {"decision": "MODIFY", "rationale": "Hold; do not raise while the panel residual is open."},
+  "executed_action": {"name": "raise_hold", "executed_as_proposed": false},
+  "future_outcome": {"summary": "Leak found, heat saved."},
+  "reward_components": {"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"},
+  "meta": {"round": 49, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}
+}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "heat saved". If dissolved hydrogen later assays
+   4.8 ppm, booking +0.40 is a lie. Fix: declare `_aggregation`, emit 3–8
+   ticks that sum to the five heads, and do not call a missed recovery a
+   save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote no
+   raise while r_h2 > 1.2 vol% AND r_leak > 2.0 L/min.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-assembly` collides with r16 QUILLFORGE and teaches nothing.
+   EAF physics (secondary VT, roof TC, CO/CO2, off-gas H2) is absent from
+   prior ouroboros rounds and must be named. Do not recycle r42 blast
+   furnace, r31 VIM, or r29 caster.
+4. **major — race under-specified.** One arc channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted
+   `t_rel_ms` and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated
+   weight repeats r14's two-edge form without the third. NOTES-r14 item 4
+   asked for three-edge where any-pair rollback fails.
+
+Critic does not rewrite the trajectory.

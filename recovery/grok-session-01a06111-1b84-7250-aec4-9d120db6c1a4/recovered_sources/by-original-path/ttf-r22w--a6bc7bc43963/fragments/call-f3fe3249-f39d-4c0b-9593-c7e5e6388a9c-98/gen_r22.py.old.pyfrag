@@ -1,0 +1,7 @@
+            "thalamic-relay.pw-sus",
+            "spikenaut.policy.tmin-clamp",
+            [
+                ("relay_sus_C", "policy_tmin_clamp", 0.68),
+                ("relay_tmin_ft", "policy_tmin_hold", 0.29),
+                ("relay_ae_clog", "policy_tmin_clamp", -0.42),
+            ],

@@ -1,0 +1,25 @@
+        if rec["id"] == "ttf-r101-522":
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["live_phosgene_ppm"] > ev["cap_phosgene_ppm"]):
+                issues.append("502 live residual not over cap")
+            if ev.get("lead_status") != "LIVE" or ev.get("lag_status") != "LIVE":
+                issues.append("502 both lead-lag tags must be LIVE")
+            if ev.get("lead_fresh") is not True or ev.get("lag_fresh") is not True:
+                issues.append("502 both tags must be FRESH")
+            if rec["executed_action"]["parameters"].get("bind_lag") is not True:
+                issues.append("502 bind_lag not true")
+            if rec["executed_action"]["parameters"].get("lead_lag_invert") is not True:
+                issues.append("502 lead_lag_invert not true")
+            if rec["executed_action"]["parameters"].get("phosgene_tph") != 8.4:
+                issues.append("502 phosgene should stay 8.4")
+            if rec["executed_action"]["parameters"].get("jacket_steam_tph") != 2.1:
+                issues.append("502 jacket steam should cut to 2.1")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("502 missing recovery")
+            table_to = {row["to"] for row in rec["raster"]["routing"]["table"]}
+            if "policy.phosgene_cut" in table_to:
+                issues.append("502 routing still has phosgene_cut")
+            if "policy.jacket_cut" not in table_to:
+                issues.append("502 routing missing jacket_cut")
+            if "lead-lag-invert" not in rec["meta"]["tags"] or "fresh-tag" not in rec["meta"]["tags"]:
+                issues.append("502 missing lead-lag-invert/fresh-tag tags")

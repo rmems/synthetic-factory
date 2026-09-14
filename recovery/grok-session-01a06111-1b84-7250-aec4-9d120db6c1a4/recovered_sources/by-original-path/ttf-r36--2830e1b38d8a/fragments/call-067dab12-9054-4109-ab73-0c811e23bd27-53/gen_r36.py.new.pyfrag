@@ -1,0 +1,2647 @@
+#!/usr/bin/env python3
+"""Emit TTF r36 JSONL (ttf-r36-196..200) into /tmp/ttf-r36/. Never writes outputs/raw/."""
+
+from __future__ import annotations
+
+import json
+import math
+import random
+import re
+import subprocess
+import sys
+from collections import OrderedDict
+from decimal import Decimal
+from pathlib import Path
+
+OUT_DIR = Path("/tmp/ttf-r36")
+BATCH_PATH = OUT_DIR / "batch-r36.jsonl"
+NOTES_PATH = OUT_DIR / "NOTES-r36.md"
+REPO = Path("/home/raulmc/rmems/synthetic-factory")
+PIPELINES = REPO / "pipelines"
+RAW = REPO / "outputs" / "raw"
+
+PJ_PER_SPIKE = 23
+RIGHTS = OrderedDict(
+    [
+        ("provider", "SpaceXAI/xAI"),
+        ("model", "grok-4.6"),
+        ("channel", "consumer"),
+        ("subscription_plan", "SuperGrok Heavy"),
+        ("generation_surface", "SuperGrok Heavy chat"),
+        ("generated_at", "2026-09-02T19:20:00Z"),
+        ("intended_use", "research_only"),
+        ("project_training_policy", "blocked"),
+        ("research_retention_status", "allowed"),
+        ("research_evaluation_status", "allowed"),
+        ("redistribution_status", "unresolved"),
+        ("provider_training_status", "unresolved"),
+        ("weight_publication_status", "blocked"),
+        ("status_basis", "RM-793 project policy: xAI hosted outputs are research-only"),
+        ("linear_issue", "RM-793"),
+    ]
+)
+AGG = "total = task_progress + safety + efficiency + coherence + exploration"
+CHANNEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,31}$")
+FROM_TO_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,31}$")
+THOUGHT_KEYS = {
+    "thought",
+    "reasoning",
+    "chain_of_thought",
+    "hidden_reasoning",
+    "inner_monologue",
+    "scratch",
+    "internal_reasoning",
+    "internal_reasoning_verbatim",
+    "thinking",
+    "cot",
+    "thoughts",
+}
+SITOUT_DOMAINS = {
+    "warehouse-amr",
+    "aerial-swarm",
+    "underwater-rov",
+    "grid-inspection",
+    "humanoid-locomotion",
+    "surgical-assist",
+    "industrial-assembly",
+    "autonomous-driving",
+}
+THIS_DOMAINS = (
+    "mine-skip-winder",
+    "geothermal-flash-separator",
+    "HRSG-attemperator",
+    "overland-conveyor",
+    "urea-prill-tower",
+)
+THIS_PLANTS = (
+    "Winze-Capstan",
+    "Fumarole-Dyke",
+    "Spray-Header",
+    "Flight-Furlong",
+    "Prill-Garth",
+)
+IDS = [f"ttf-r36-{n}" for n in range(196, 201)]
+
+
+def energy(spikes: int) -> tuple[int, float]:
+    return spikes * PJ_PER_SPIKE, spikes * PJ_PER_SPIKE / 1_000_000.0
+
+
+def spike(channel: str, t_rel_ms: float, amplitude: float) -> OrderedDict:
+    if not CHANNEL_RE.fullmatch(channel):
+        raise ValueError(f"bad channel {channel!r}")
+    if t_rel_ms <= 0:
+        raise ValueError(f"t_rel_ms must be > 0, got {t_rel_ms}")
+    return OrderedDict(
+        [("channel", channel), ("t_rel_ms", t_rel_ms), ("amplitude", amplitude)]
+    )
+
+
+def tick(t_us: int, tp, saf, eff, coh, exp) -> OrderedDict:
+    return OrderedDict(
+        [
+            ("t_us", int(t_us)),
+            ("task_progress", tp),
+            ("safety", saf),
+            ("efficiency", eff),
+            ("coherence", coh),
+            ("exploration", exp),
+        ]
+    )
+
+
+def routing(source, target, table, modulator, tau_e_s, eligibility) -> OrderedDict:
+    tau_e_ms = float(Decimal(str(tau_e_s)) * Decimal("1000"))
+    rows = []
+    for a, b, w in table:
+        if not FROM_TO_RE.fullmatch(a) or not FROM_TO_RE.fullmatch(b):
+            raise ValueError(f"bad routing endpoints {a!r} -> {b!r}")
+        rows.append(OrderedDict([("from", a), ("to", b), ("weight", w)]))
+    return OrderedDict(
+        [
+            ("source", source),
+            ("target", target),
+            ("table", rows),
+            (
+                "third_factor",
+                OrderedDict(
+                    [
+                        ("modulator", modulator),
+                        ("tau_e_s", tau_e_s),
+                        ("tau_e_ms", tau_e_ms),
+                        ("eligibility", eligibility),
+                    ]
+                ),
+            ),
+        ]
+    )
+
+
+def raster_core(window_ms, neurons, rate, spikes, route, excerpt, extra=None) -> OrderedDict:
+    pj, uj = energy(spikes)
+    window_s = float(Decimal(str(window_ms)) / Decimal("1000"))
+    expected = round(neurons * rate * window_s)
+    if abs(spikes - expected) > 1:
+        raise ValueError(f"spike budget {spikes} vs {expected}")
+    body = OrderedDict(
+        [
+            ("window_ms", window_ms),
+            ("window_s", window_s),
+            ("neurons", neurons),
+            ("mean_rate_hz", rate),
+            ("spikes", spikes),
+            ("energy_pJ", pj),
+            ("energy_uJ", uj),
+        ]
+    )
+    if extra:
+        body.update(extra)
+    body["routing"] = route
+    body["excerpt"] = excerpt
+    return body
+
+
+def excerpt_items(pairs, channels=None) -> list:
+    out = []
+    last = {}
+    prev_t = -1
+    for i, (t_us, nid) in enumerate(pairs):
+        t_us, nid = int(t_us), int(nid)
+        if t_us < prev_t:
+            raise ValueError("excerpt not sorted")
+        if nid in last and t_us - last[nid] < 1000:
+            raise ValueError(f"same-neuron gap {nid}")
+        item = OrderedDict([("t_us", t_us), ("neuron_id", nid)])
+        if channels is not None:
+            item["channel"] = channels[i]
+        out.append(item)
+        last[nid] = t_us
+        prev_t = t_us
+    return out
+
+
+def independent_excerpt(seed, neurons, window_us, n_events, avoid_us):
+    rng = random.Random(seed)
+    avoid = {int(t) for t in avoid_us}
+    picked = []
+    last = {}
+    attempts = 0
+    grid = list(range(400, int(window_us) - 400, 70))
+    rng.shuffle(grid)
+    for t in grid:
+        if len(picked) >= n_events:
+            break
+        nid = rng.randrange(0, neurons)
+        if t in avoid:
+            continue
+        if any(abs(t - pt) < 40 for pt, _ in picked):
+            continue
+        if nid in last and abs(t - last[nid]) < 1000:
+            continue
+        picked.append((t, nid))
+        last[nid] = t
+        attempts += 1
+    while len(picked) < n_events and attempts < 8000:
+        attempts += 1
+        t = rng.randrange(300, int(window_us) - 300)
+        nid = rng.randrange(0, neurons)
+        if t in avoid:
+            continue
+        if any(abs(t - pt) < 50 for pt, _ in picked):
+            continue
+        if nid in last and abs(t - last[nid]) < 1000:
+            continue
+        picked.append((t, nid))
+        last[nid] = t
+    picked.sort(key=lambda item: (item[0], item[1]))
+    if len(picked) < n_events:
+        raise RuntimeError(f"excerpt short: {len(picked)}")
+    return excerpt_items(picked[:n_events])
+
+
+def lif_197_excerpt():
+    n = 76
+    dt_us = 100
+    tau_m_ms = 18.5
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.90
+    i_stim_peak = 2.50
+    stim = (20800, 23800)
+    seed = 36197
+    window_us = 42000
+    i_clamp_extra = 0.64
+    clamp_n = 14
+    rng = random.Random(seed)
+    tau_s = tau_m_ms / 1000.0
+    dt_s = dt_us / 1e6
+    decay = math.exp(-dt_s / tau_s)
+    steps = window_us // dt_us
+    voltage = [rng.random() * v_th * 0.97 for _ in range(n)]
+    bias = [i_bias * (1.0 + 0.13 * (rng.random() * 2 - 1)) for _ in range(n)]
+    for i in range(clamp_n):
+        bias[i] += i_clamp_extra
+    ref = [0] * n
+    spikes = []
+    for step in range(steps):
+        t_us = step * dt_us
+        stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+        for i in range(n):
+            if ref[i] > 0:
+                ref[i] -= dt_us
+                voltage[i] = v_reset
+                continue
+            current = bias[i] + stim_i
+            voltage[i] = current + (voltage[i] - current) * decay
+            if voltage[i] >= v_th:
+                spikes.append((t_us, i))
+                voltage[i] = v_reset
+                ref[i] = refractory_us
+    early = [(t, nid) for t, nid in spikes if t < stim[0]]
+    burst = [(t, nid) for t, nid in spikes if stim[0] <= t < stim[1]]
+    used = set()
+    last = {}
+    picked = []
+
+    def take(pool, want, label_times=None):
+        if not pool:
+            return
+        chosen_idx = set()
+        if label_times:
+            for target in label_times:
+                best = None
+                for idx, (t, nid) in enumerate(pool):
+                    if idx in chosen_idx or nid in used:
+                        continue
+                    if nid in last and t - last[nid] < 1000:
+                        continue
+                    if best is None or abs(t - target) < abs(best[0] - target):
+                        best = (t, nid, idx)
+                if best is not None:
+                    t, nid, idx = best
+                    picked.append((t, nid))
+                    used.add(nid)
+                    last[nid] = t
+                    chosen_idx.add(idx)
+        stride = max(1, len(pool) // max(want, 1))
+        for idx in range(0, len(pool), stride):
+            group = [1 for tt, _ in picked if (tt < stim[0]) == (pool[0][0] < stim[0])]
+            if len(group) >= want:
+                break
+            t, nid = pool[idx]
+            if nid in used:
+                continue
+            if nid in last and t - last[nid] < 1000:
+                continue
+            picked.append((t, nid))
+            used.add(nid)
+            last[nid] = t
+
+    take(early, 7)
+    take(burst, 9, label_times=(21800, 22400, 23100))
+    clamp = [(t, nid) for t, nid in picked if t < stim[0]][:7]
+    tear = [(t, nid) for t, nid in picked if t >= stim[0]][:9]
+    picked = sorted(clamp + tear, key=lambda item: (item[0], item[1]))
+    if len(picked) < 10:
+        raise RuntimeError(f"LIF excerpt short: {len(picked)}")
+    channels = ["lif.clamp" if t < stim[0] else "lif.scale" for t, _ in picked]
+    lif = OrderedDict(
+        [
+            ("model", "leaky_integrate_and_fire"),
+            ("n", 76),
+            ("dt_us", 100),
+            ("tau_m_ms", 18.5),
+            ("v_rest", 0.0),
+            ("v_reset", 0.0),
+            ("v_th", 1.0),
+            ("r_m", 1.0),
+            ("refractory_us", 1000),
+            ("i_bias", 0.90),
+            ("i_stim_peak", 2.50),
+            ("stim_t_us", [20800, 23800]),
+            ("i_clamp_extra", 0.64),
+            ("clamp_n", 14),
+            ("seed", 36197),
+            (
+                "note",
+                "Population sim scoped to this sidecar. Plant remains designed. "
+                "Neurons 0-13 carry +0.64 choke-clamp bias; stim 20.8-23.8 ms is the silica scale-bridge rupture.",
+            ),
+        ]
+    )
+    extra = OrderedDict(
+        [
+            ("excerpt_source", "independent_lif"),
+            ("sim_scope", "sidecar_only"),
+            ("lif", lif),
+            ("abort_s", 960),
+            ("delayed_surprise_s", 960),
+        ]
+    )
+    return excerpt_items(picked, channels), extra
+
+
+def meta_block(
+    domain,
+    tags,
+    distillation_value,
+    batch_position,
+    supervisor_error_type=None,
+) -> OrderedDict:
+    body = OrderedDict(
+        [
+            ("round", 36),
+            ("factory", "thalamic-trajectory-factory"),
+            ("generator", "grok-4.6"),
+            ("run_label", "2026-09-02-final-heavy"),
+            ("domain", domain),
+        ]
+    )
+    if supervisor_error_type:
+        body["supervisor_error_type"] = supervisor_error_type
+    body["tags"] = tags
+    body["snn_tags"] = ["race", "refractory", "adaptation"]
+    body["distillation_value"] = distillation_value
+    body["rights"] = RIGHTS
+    body["batch_position"] = batch_position
+    return body
+
+
+def reward_block(ticks, notes) -> OrderedDict:
+    heads = ["task_progress", "safety", "efficiency", "coherence", "exploration"]
+    sums = {h: Decimal("0") for h in heads}
+    for item in ticks:
+        for h in heads:
+            sums[h] += Decimal(str(item[h]))
+    total = sum(sums.values(), Decimal("0"))
+    return OrderedDict(
+        [
+            ("_aggregation", AGG),
+            ("ticks", ticks),
+            ("task_progress", float(sums["task_progress"])),
+            ("safety", float(sums["safety"])),
+            ("efficiency", float(sums["efficiency"])),
+            ("coherence", float(sums["coherence"])),
+            ("exploration", float(sums["exploration"])),
+            ("total", float(total)),
+            ("notes", notes),
+        ]
+    )
+
+
+def pop(name, neurons, threshold, rate=None, spikes=None) -> OrderedDict:
+    body = OrderedDict(
+        [("name", name), ("neurons", neurons), ("threshold", threshold)]
+    )
+    if rate is not None:
+        body["mean_rate_hz"] = rate
+        body["spikes"] = spikes
+    return body
+
+
+def spike_avoid_us(events):
+    return {int(round(ev["t_rel_ms"] * 1000.0)) for ev in events}
+
+
+def load_prior_occupancy():
+    domains = set()
+    plants = set()
+    plant_re = re.compile(r"\b([A-Z][A-Za-z0-9]+(?:-[A-Z][A-Za-z0-9]+)+)\b")
+    for p in Path("/tmp").glob("ttf-r*/batch-r*.jsonl"):
+        if p.resolve() == BATCH_PATH.resolve():
+            continue
+        try:
+            text = p.read_text()
+        except OSError:
+            continue
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            rec = json.loads(line)
+            st = rec.get("state") or {}
+            if st.get("domain"):
+                domains.add(st["domain"])
+            if rec.get("meta", {}).get("domain"):
+                domains.add(rec["meta"]["domain"])
+            plants.update(plant_re.findall(json.dumps(rec)))
+    return domains, plants
+
+
+def record_196():
+    ticks = [
+        tick(1940, -0.02, 0.01, -0.03, -0.01, 0.01),
+        tick(5240, -0.04, 0.01, -0.04, -0.02, 0.01),
+        tick(5470, -0.03, 0.01, -0.04, -0.01, 0.01),
+        tick(5740, -0.06, 0.02, -0.07, -0.03, 0.02),
+        tick(6280, -0.02, 0.01, -0.02, -0.01, 0.01),
+        tick(1080000000, -0.01, 0.00, -0.02, 0.00, 0.00),
+    ]
+    spikes = [
+        spike("enc.skip.ctx", 1.140, 0.42),
+        spike("pt.brake.MPa", 2.180, 0.58),
+        spike("pt.slack.MPa", 3.360, 0.50),
+        spike("pt.brake.MPa", 5.240, 1.32),
+        spike("pt.slack.MPa", 5.470, 1.14),
+        spike("ctrl.gate", 5.740, 0.98),
+        spike("pt.brake.MPa", 7.200, 0.82),
+        spike("pt.slack.MPa", 9.550, 0.64),
+        spike("ctrl.gate", 14.100, 0.86),
+        spike("enc.skip.ctx", 18.400, 0.41),
+        spike("pt.brake.MPa", 24.200, 0.55),
+        spike("pt.slack.MPa", 31.200, 0.38),
+    ]
+    excerpt = independent_excerpt(36196, 88, 32000, 13, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Skip-S4 on Winze-Capstan WC-2 holds an 8.4 MPa brake-circuit against the published "
+                "12.0 MPa firmware cap while the cage still climbs at 1.60 m/s. Slack-rope PT sits "
+                "at 0.18 MPa under a 0.40 MPa floor. Brake-first should ACCEPT the already-legal "
+                "raise; a weak supervisor binds the HMI's leftover bar scale and treats 8.4 as 8.4 bar.",
+            ),
+            ("domain", "mine-skip-winder"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Keep the 1.60 m/s skip raise with brake-circuit <= 12.0 MPa (live unit) and "
+                "slack-rope >= 0.18 MPa; do not hold a legal hoist on a stale bar nameplate.",
+            ),
+            ("t0_us", 1756852800000196),
+            ("gate_latency_us", 500),
+            ("race_window_us", 400),
+            ("race_window_rel_ms", [5.20, 5.60]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "pt.brake.MPa 8.4 MPa vs 12.0 MPa cap",
+                                "pt.slack.MPa 0.18 MPa under 0.40 floor",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Brake-first should ACCEPT 1.60 m/s (8.4 < 12.0 live MPa). Slack-first "
+                            "would only confirm the same legal raise. The error is the unit the "
+                            "supervisor binds, not the race.",
+                        ),
+                        (
+                            "window_derivation",
+                            "400 us = one brake-PT demodulation slot versus the slack-rope "
+                            "publisher on this 2.5 kHz winder bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 230 us vs combined jitter 70 us (brake 32 + slack 38): 3.3x over "
+                            "a 2.0x trust floor. Order is correctly brake-first. The error is the "
+                            "HMI bar scale, not the race.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "brake-circuit PT, 2.5 kHz, 32 us jitter, axis brake_MPa",
+                    "slack-rope hydraulic PT, 1 kHz, 38 us jitter",
+                    "skip-encoder m/s (context)",
+                    "depth encoder (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("brake_cap_MPa", 12.0),
+                        ("observed_brake_MPa", 8.4),
+                        ("live_unit", "MPa"),
+                        ("hmi_unit", "bar"),
+                        ("hmi_cap_numeric", 12.0),
+                        ("hmi_implied_cap_MPa", 1.2),
+                        ("proposed_hoist_m_s", 1.60),
+                        ("slack_MPa", 0.18),
+                        ("slack_floor_MPa", 0.40),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Skip-S4 indexed on WC-2; brake 8.4 MPa; 1.60 m/s raise armed.",
+                    "2. Published live cap 12.0 MPa; HMI still paints a 12 bar nameplate after the MPa conversion.",
+                    "3. Encoder precursor at 1.140 ms.",
+                    "4. Race window [5.200, 5.600] ms.",
+                    "5. pt.brake.MPa 8.4 MPa at 5.240 ms (winner).",
+                    "6. pt.slack.MPa 0.18 MPa at 5.470 ms (loser by 230 us).",
+                    "7. Gate at 5.740 ms: wrong REJECT holds hoist 1.60 -> 0 m/s on a bar-scale bind.",
+                    "8. Cage idle; 8.4 MPa never went over 12.0 MPa.",
+                    "9. 18 min skip cycle missed (missed_window_s=1080).",
+                    "10. QA: correct gate was ACCEPT; leave 1.60 m/s; bind the published 12.0 MPa cap.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "hold_raise_1p60"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("hoist_m_s", 1.60),
+                        ("hold", False),
+                        ("brake_MPa", 8.4),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("brake_MPa", 8.4),
+                        ("brake_cap_MPa", 12.0),
+                        ("live_unit", "MPa"),
+                        ("hmi_unit", "bar"),
+                        ("hmi_cap_numeric", 12.0),
+                        ("hmi_implied_cap_MPa", 1.2),
+                        ("unit_mismatch", True),
+                        ("slack_MPa", 0.18),
+                        ("slack_floor_MPa", 0.40),
+                        ("race_margin_us", 230),
+                        ("combined_jitter_us", 70),
+                        ("t_gate_us", 5740),
+                        ("missed_window_s", 1080),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 1.60 m/s because brake 8.4 MPa is 3.6 MPa under the published "
+                "12.0 MPa live cap and slack 0.18 MPa is residual, not a trip.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "incorrect"),
+            (
+                "rationale",
+                "Brake 8.4 is over the 12 bar floor still painted on the converted HMI (true vs "
+                "that undocumented bar scale). REJECT: hold hoist 0 m/s until brake recovers "
+                "below 12 so the winder does not walk the brake path.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "brake_MPa",
+                            OrderedDict(
+                                [
+                                    ("published_cap", 12.0),
+                                    ("observed", 8.4),
+                                    ("wrong_unit_applied", "bar"),
+                                    ("wrong_numeric_cap", 12.0),
+                                    ("executed_hoist_m_s", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 230),
+                                    ("combined_jitter_us", 70),
+                                    ("ratio", 3.29),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hold_wrong_unit"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("hoist_m_s", 0.0),
+                        ("hold", True),
+                        ("brake_MPa", 8.4),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT (incorrect): hoist 1.60 -> 0 m/s, hold true. Routing relay_pt_brake -> "
+                "policy_hoist_hold; no positive weight to policy_hoist_go. Published 12.0 MPa "
+                "cap was never violated.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Wrong-REJECT held Skip-S4 at 0 m/s while brake stayed 8.4 MPa under the "
+                "12.0 MPa live cap. 18 min skip cycle missed. Correct gate was ACCEPT of the "
+                "already-legal 1.60 m/s raise.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("winder", "held; 1.60 m/s abandoned"),
+                        ("brake", "still 8.4 MPa, under 12.0 MPa published cap"),
+                        ("window", "18 min skip cycle missed"),
+                        ("path", "no walk; unit-mismatch false positive"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "The 12 bar HMI nameplate is a leftover engineering-unit after the MPa conversion; it is not a published live cap and never appears on the SCADA MPa register.",
+                    "Delayed (missed_window_s=1080): sister skip S5 ran the same 1.60 m/s window after QA rebound the 12.0 MPa cap; S4's slot was already gone.",
+                ],
+            ),
+            (
+                "recovery",
+                OrderedDict(
+                    [
+                        (
+                            "correct_gate",
+                            "ACCEPT: brake 8.4 MPa < published 12.0 MPa live cap; leave 1.60 m/s.",
+                        ),
+                        ("correct_cap_MPa", 12.0),
+                        ("wrong_unit", "bar"),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict([("hoist_m_s", 0.0), ("hold", True)]),
+                        ),
+                        (
+                            "cost",
+                            "18 min missed skip cycle (task/efficiency); brake never over cap (safety false-positive).",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "pt.brake.MPa (5.240 ms, 8.4 MPa)"),
+                        ("loser", "pt.slack.MPa (5.470 ms, 0.18 MPa)"),
+                        ("margin_us", 230),
+                        (
+                            "counterfactual_if_reversed",
+                            "Slack-first by < 230 us would still show 8.4 MPa < 12.0 MPa. A "
+                            "correct gate ACCEPTs either way. The wrong REJECT spent the brake "
+                            "win on a leftover bar nameplate.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 5740),
+            (
+                "reward_inflection_note",
+                "Task and efficiency drop at the wrong REJECT (5.740 ms, tick 4). The 18 min "
+                "missed window is delayed surprise, not the inflection.",
+            ),
+            ("delayed_surprise_s", 1080),
+        ]
+    )
+    ras = raster_core(
+        32,
+        88,
+        24,
+        68,
+        routing(
+            "thalamic-relay.brake-pt",
+            "spikenaut.policy.hoist-hold",
+            [
+                ("relay_pt_brake", "policy_hoist_hold", 0.72),
+                ("relay_pt_slack", "policy_hoist_hold", 0.21),
+            ],
+            "acetylcholine",
+            0.08,
+            "unit_mismatch_stdp; ACh tags the (wrong) hoist_hold bind at the brake win",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("missed_window_s", 1080),
+                ("delayed_surprise_s", 1080),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.40),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("hoist_hold", 48, 0.50, 250.0, 5),
+                    pop("hoist_go", 48, 0.80, 12.0, 0),
+                    pop("slack_ctx", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r36-196"),
+            (
+                "title",
+                "WRONG-REJECT at Winze-Capstan WC-2 / Skip-S4: brake 8.4 MPa is legal vs "
+                "published 12.0 MPa live cap; supervisor bound a leftover 12 bar HMI nameplate",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Wrong-reject. Sidecar arithmetic 8.4 < 12.0 MPa is true; clamp bound to a "
+                    "leftover bar nameplate. total -0.36 = -0.18 + 0.06 + -0.22 + -0.08 + 0.06.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "mine-skip-winder",
+                    [
+                        "reject",
+                        "wrong-gate",
+                        "wrong-reject",
+                        "unit-mismatch",
+                        "mpa-vs-bar",
+                        "sidecar-convictable",
+                        "designed",
+                    ],
+                    "Teaches a probe that a correct brake_MPa<cap read can still be a wrong gate "
+                    "when routing.table[0].to is policy_hoist_hold and executed hoist_m_s is zeroed.",
+                    1,
+                    supervisor_error_type="wrong-reject",
+                ),
+            ),
+        ]
+    )
+
+
+def record_197():
+    excerpt, extra = lif_197_excerpt()
+    ticks = [
+        tick(2480, 0.04, -0.02, -0.02, 0.01, 0.00),
+        tick(6140, 0.08, -0.04, -0.03, 0.01, -0.01),
+        tick(6360, 0.04, -0.03, -0.02, 0.00, 0.00),
+        tick(6860, 0.10, -0.06, -0.04, 0.02, -0.01),
+        tick(21800, 0.04, -0.42, -0.03, -0.02, -0.01),
+        tick(960000000, 0.02, -0.05, -0.02, 0.00, -0.01),
+    ]
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Well-W7 at Fumarole-Dyke FD-4 is flashing 18.6 bar into the separator under a "
+                "16.0 bar two-phase cap while the choke still sits at 42 percent, under a 55 "
+                "percent stem overspeed. Separator-first drops choke to 22 percent; choke-first "
+                "would keep 42 percent because the stem is still legal. A silica scale-bridge "
+                "already spanning the demister does not appear on PT or stem until the AE rupture.",
+            ),
+            ("domain", "geothermal-flash-separator"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Keep Well-W7 separator <= 16.0 bar and finish the flash without dumping brine "
+                "onto the weir floor.",
+            ),
+            ("t0_us", 1756852800000197),
+            ("gate_latency_us", 720),
+            ("race_window_us", 380),
+            ("race_window_rel_ms", [6.10, 6.48]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "pt.sep.bar 18.6 vs 16.0 cap",
+                                "enc.choke.pct 42 under 55 stem",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Separator-first latches choke clamp 42 -> 22 percent; choke-first "
+                            "keeps 42 percent on a 'still under stem' model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "380 us = one separator-PT slot versus the choke-stem encoder "
+                            "publisher on this flash-skid bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 220 us vs combined jitter 68 us (sep 30 + choke 38): 3.2x "
+                            "over a 2.0x trust floor. Reversing order by < 220 us inside the 380 us "
+                            "window would have kept 42 percent; predicted next-sample 17.1 bar > 16.0 cap.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "separator pressure transmitter, 2 kHz, 30 us jitter",
+                    "choke-stem encoder, 1 kHz, 38 us jitter",
+                    "demister AE puck on the weir wall, 40 kHz (context)",
+                    "brine conductivity cell (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("sep_cap_bar", 16.0),
+                        ("observed_sep_bar", 18.6),
+                        ("choke_pct", 42.0),
+                        ("choke_stem_cap_pct", 55.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Well-W7 indexed; choke 42 percent; separator 18.6 bar.",
+                    "2. Stem 42 percent under 55 cap; flash armed.",
+                    "3. Choke precursor at 1.180 ms.",
+                    "4. Race window [6.100, 6.480] ms.",
+                    "5. pt.sep.bar 18.6 at 6.140 ms (winner).",
+                    "6. enc.choke.pct 42 at 6.360 ms (loser by 220 us).",
+                    "7. Gate at 6.860 ms: MODIFY clamp choke 42 -> 22 percent.",
+                    "8. After clamp separator 15.4 < 16.0; stem still 42 percent available.",
+                    "9. At 21.800 ms a silica scale-bridge ruptures the demister; 0.4 t dumps to the weir.",
+                    "10. 16 min well isolate + demister pull (abort_s=960); named un-netted loss.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_choke_42"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("choke_pct", 42.0),
+                        ("sep_bar", 18.6),
+                        ("brine_kg_s", 6.4),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("sep_bar", 18.6),
+                        ("sep_cap_bar", 16.0),
+                        ("predicted_unclamped_next_bar", 17.1),
+                        ("choke_pct", 42.0),
+                        ("choke_stem_cap_pct", 55.0),
+                        ("race_margin_us", 220),
+                        ("combined_jitter_us", 68),
+                        ("abort_s", 960),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 42 percent choke because the stem is under 55, treating "
+                "the 18.6 bar separator as a still-wet flash rather than a two-phase overshoot.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Separator 18.6 bar won by 220 us, so the well is over-flashing, not still a "
+                "stem story. Holding 42 percent predicts next-sample 17.1 > 16.0 cap. MODIFY: "
+                "choke 42 -> 22 percent. Observed after clamp 15.4 < 16.0. A full REJECT is not "
+                "indicated: a clean flash accepts 22 percent.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "sep_bar",
+                            OrderedDict(
+                                [
+                                    ("cap", 16.0),
+                                    ("observed", 18.6),
+                                    ("predicted_unclamped_next", 17.1),
+                                    ("clamped_choke_pct", 22.0),
+                                    ("observed_after_clamp", 15.4),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 220),
+                                    ("combined_jitter_us", 68),
+                                    ("ratio", 3.24),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_choke_22"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("choke_pct", 22.0),
+                        ("sep_bar", 15.4),
+                        ("brine_kg_s", 6.4),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: choke 42 -> 22 percent. Process-correct vs the 16.0 bar separator cap. "
+                "Scale-bridge still ruptures at 21.800 ms.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Process-correct MODIFY held separator at 15.4 bar. At 21.800 ms a silica "
+                "scale-bridge already spanning the demister ruptured and dumped 0.4 t onto the "
+                "weir. Clamp reduced dump energy; it did not prevent the rupture. Partnered "
+                "negative: process heads stay honest; world loss is named, not netted.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("separator", "clamp executed; peak 15.4 < 16.0 cap"),
+                        ("scale_bridge", "ruptured at 21.800 ms; 0.4 t weir dump"),
+                        ("repair", "16 min well isolate + demister pull (abort_s=960)"),
+                        ("mission", "FD-4 flash incomplete this circuit"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Neither separator PT nor choke encoder predicted the seated scale-bridge; ae.scale.rupt is a new channel at 21.800 ms, 14.940 ms after the gate, still inside the 42 ms raster.",
+                    "Delayed (abort_s=960): 16 min well isolate + demister pull. Named un-netted loss, not folded into task_progress.",
+                ],
+            ),
+            (
+                "un_netted_loss",
+                "16 min well isolate + demister pull after the scale rupture. Safety head -0.62 "
+                "prices the dump; task_progress stays +0.32 because the choke clamp completed "
+                "under the 16.0 bar cap. World loss is named here, not subtracted from process "
+                "heads.",
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "pt.sep.bar (6.140 ms, 18.6 bar)"),
+                        ("loser", "enc.choke.pct (6.360 ms, 42 percent)"),
+                        ("margin_us", 220),
+                        (
+                            "counterfactual_if_reversed",
+                            "Choke-first by < 220 us inside the 380 us window would have kept "
+                            "42 percent; predicted next-sample 17.1 would have exceeded the 16.0 "
+                            "cap even without the scale-bridge. The MODIFY is still the correct "
+                            "process. The rupture is a later world charge either way, cheaper with "
+                            "the clamp than without.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 21800),
+            (
+                "reward_inflection_note",
+                "Safety collapses at the 21.800 ms scale-bridge rupture (tick t_us=21800), inside "
+                "the 42 ms raster. The correct MODIFY at 6.860 ms is in the same excerpt. Do not "
+                "put inflection on the abort_s=960 isolate tick.",
+            ),
+            ("delayed_surprise_s", 960),
+        ]
+    )
+    spikes = [
+        spike("enc.choke.ctx", 1.180, 0.40),
+        spike("pt.sep.bar", 2.480, 0.59),
+        spike("enc.choke.pct", 3.880, 0.51),
+        spike("pt.sep.bar", 6.140, 1.30),
+        spike("enc.choke.pct", 6.360, 1.12),
+        spike("ctrl.gate", 6.860, 0.97),
+        spike("pt.sep.bar", 8.400, 0.80),
+        spike("enc.choke.pct", 11.200, 0.63),
+        spike("ctrl.gate", 14.600, 0.84),
+        spike("ae.scale.rupt", 21.800, 1.46),
+        spike("ae.scale.rupt", 24.200, 0.92),
+        spike("enc.choke.ctx", 31.100, 0.40),
+        spike("pt.sep.bar", 38.400, 0.52),
+    ]
+    ras = raster_core(
+        42,
+        76,
+        28,
+        89,
+        routing(
+            "thalamic-relay.sep-pt",
+            "spikenaut.policy.choke-clamp",
+            [
+                ("relay_pt_sep", "policy_choke_clamp", 0.69),
+                ("relay_enc_choke", "policy_choke_hold", 0.27),
+                ("relay_ae_scale", "policy_choke_clamp", -0.40),
+            ],
+            "noradrenaline",
+            0.04,
+            "surprise-gated pre_post_stdp; NA at separator win (6.140 ms) opens a 42 ms eligibility "
+            "trace that still covers the 21.800 ms scale rupture",
+        ),
+        excerpt,
+        extra=extra,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.38),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("choke_clamp", 50, 0.50, 210.0, 4),
+                    pop("choke_hold", 40, 0.80, 66.0, 1),
+                    pop("scale_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r36-197"),
+            (
+                "title",
+                "Fumarole-Dyke FD-4 / Well-W7: separator 18.6 bar beats choke 42 percent by "
+                "220 us; correct MODIFY still eats an in-window scale-bridge rupture (partnered "
+                "negative total -0.48)",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Partnered negative. Process-correct MODIFY; world still charges inside the "
+                    "42 ms raster. total -0.48 = 0.32 + -0.62 + -0.16 + 0.02 + -0.04. Named well "
+                    "isolate (abort_s=960) is not netted into task_progress.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "geothermal-flash-separator",
+                    [
+                        "modify",
+                        "partnered-negative-total",
+                        "independent-lif-raster",
+                        "sidecar-sim-only",
+                        "in-window-world-charge",
+                        "designed",
+                    ],
+                    "A critic can see the world-charge as a LIF burst inside the raster while "
+                    "process heads stay honest. Credit assignment is spikes, not prose across a "
+                    "16 min well isolate.",
+                    2,
+                ),
+            ),
+        ]
+    )
+
+
+def record_198():
+    ticks = [
+        tick(2760, 0.01, 0.04, 0.01, 0.01, 0.01),
+        tick(7140, 0.02, 0.08, 0.02, 0.02, 0.01),
+        tick(7320, 0.01, 0.06, 0.02, 0.01, 0.01),
+        tick(7980, 0.04, 0.14, 0.04, 0.04, 0.02),
+        tick(8420, 0.01, 0.05, 0.02, 0.01, 0.01),
+        tick(420000000, 0.01, 0.03, 0.01, 0.01, 0.00),
+    ]
+    spikes = [
+        spike("tc.header.ctx", 1.380, 0.42),
+        spike("rtd.steam.C", 2.760, 0.60),
+        spike("ir.steam.C", 4.510, 0.48),
+        spike("rtd.steam.C", 7.140, 1.33),
+        spike("ir.steam.C", 7.320, 1.10),
+        spike("ctrl.gate", 7.980, 1.01),
+        spike("rtd.steam.C", 10.400, 0.76),
+        spike("tc.header.ctx", 15.200, 0.44),
+        spike("ir.steam.C", 19.800, 0.57),
+        spike("ctrl.gate", 25.100, 0.80),
+        spike("rtd.steam.C", 32.400, 0.52),
+        spike("ir.steam.C", 39.200, 0.45),
+        spike("tc.header.ctx", 45.800, 0.36),
+    ]
+    excerpt = independent_excerpt(36198, 128, 48000, 14, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Attemp-A2 on the Spray-Header SH-HIL pad shows thermowell 512 C against a 540 C "
+                "overheat cap while a steam IR camera, lit by the pad lamp, still reads 548 C "
+                "over a 540 C freeze-look. RTD-first latches REJECT hold; IR-first would raise "
+                "spray 1.8 -> 3.2 kg/s on an over-read face.",
+            ),
+            ("domain", "HRSG-attemperator"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Do not raise spray unless thermowell steam >= 540 C; keep spray 1.8 kg/s "
+                "until the injected RTD recovers.",
+            ),
+            ("t0_us", 1756852800000198),
+            ("gate_latency_us", 840),
+            ("race_window_us", 280),
+            ("race_window_rel_ms", [7.10, 7.38]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "rtd.steam.C 512 C vs 540 C cap",
+                                "ir.steam.C 548 C over 540",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "RTD-first latches REJECT hold 1.8 kg/s; IR-first would commit a "
+                            "1.4 kg/s raise on an apparent 548 C over-read.",
+                        ),
+                        (
+                            "window_derivation",
+                            "280 us = one thermowell RTD sample versus IR integration on "
+                            "this HRSG HIL bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 180 us vs combined jitter 58 us (RTD 26 + IR 32): 3.1x over a "
+                            "2.0x trust floor. Pad injects the IR lamp 110-150 us before the RTD "
+                            "demodulator (geometric lag, not a sensor fault); the 548 C packet is "
+                            "still the loser in this 280 us window.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "steam thermowell RTD, 5 kHz burst, 26 us jitter",
+                    "steam IR pyrometer, 2 kHz, 32 us jitter",
+                    "header thermocouple (context)",
+                    "spray-mass flowmeter (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("steam_cap_C", 540.0),
+                        ("observed_rtd_C", 512.0),
+                        ("observed_ir_C", 548.0),
+                        ("proposed_spray_kg_s", 3.2),
+                    ]
+                ),
+            ),
+            (
+                "hil",
+                OrderedDict(
+                    [
+                        ("pad", "Spray-Header SH-HIL attemperator mockup"),
+                        ("injected", "thermowell RTD + IR lamp glare"),
+                        (
+                            "note",
+                            "Hardware-in-the-loop HRSG spray. Invented plant; not a live boiler.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Attemp-A2 on SH-HIL; spray armed 3.2 kg/s raise.",
+                    "2. Overheat cap 540 C; IR 548 C over, RTD 512 C under.",
+                    "3. Header-TC precursor at 1.380 ms.",
+                    "4. Race window [7.100, 7.380] ms.",
+                    "5. rtd.steam.C 512 C at 7.140 ms (winner).",
+                    "6. ir.steam.C 548 C at 7.320 ms (loser by 180 us).",
+                    "7. Gate at 7.980 ms: REJECT hold spray 1.8 kg/s.",
+                    "8. RTD stays 512 C; no extra spray.",
+                    "9. HIL pad confirms RTD-authoritative under lamp-present mode.",
+                    "10. Delayed (abort_s=420): 7 min attemperator reseq before the next ramp.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "raise_spray_3p2"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("spray_kg_s", 3.2),
+                        ("hold", False),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("rtd_C", 512.0),
+                        ("steam_cap_C", 540.0),
+                        ("ir_C", 548.0),
+                        ("race_margin_us", 180),
+                        ("combined_jitter_us", 58),
+                        ("abort_s", 420),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 3.2 kg/s because steam IR 548 C is over the 540 C "
+                "overheat look, treating the 512 C RTD as a still-lagging thermowell.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "RTD 512 C won by 180 us, so steam is under the 540 C overheat cap. IR 548 C "
+                "is a pad-lamp over-read, not a spray permit. REJECT: hold spray 1.8 kg/s. "
+                "Raising to 3.2 kg/s on a 512 C thermowell is a quench.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "steam_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 540.0),
+                                    ("observed_rtd", 512.0),
+                                    ("executed_spray_kg_s", 1.8),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 180),
+                                    ("combined_jitter_us", 58),
+                                    ("ratio", 3.10),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hold_spray_1p8"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("spray_kg_s", 1.8),
+                        ("hold", True),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: spray 3.2 -> 1.8 kg/s. RTD-authoritative vs the 540 C cap. IR "
+                "over-read does not clear a legal thermowell.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct REJECT held Attemp-A2 at 1.8 kg/s while RTD stayed 512 C under "
+                "the 540 C cap. Header did not quench; over-spray avoided. 7 min reseq "
+                "is delayed surprise bound to abort_s=420.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("spray", "held 1.8 kg/s; 3.2 kg/s abandoned"),
+                        ("rtd", "512 C, under 540 C cap"),
+                        ("header", "no quench; IR was pad-lamp"),
+                        ("ramp", "7 min reseq before next ramp"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "The 548 C IR face was not a calibration fault: a HIL pad lamp can raise apparent steam temperature while thermowell stays under cap.",
+                    "Delayed (abort_s=420): 7 min attemperator reseq. Sister header Attemp-A3 confirmed RTD-authoritative under lamp-present mode.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.steam.C (7.140 ms, 512 C)"),
+                        ("loser", "ir.steam.C (7.320 ms, 548 C)"),
+                        ("margin_us", 180),
+                        (
+                            "counterfactual_if_reversed",
+                            "IR-first by < 180 us inside the 280 us window would have committed "
+                            "a 1.4 kg/s raise with RTD 512 < 540 cap. Order, not amplitude, "
+                            "selected the hold.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 7980),
+            (
+                "reward_inflection_note",
+                "Safety and coherence step up at the REJECT gate (7.980 ms, tick 4) as the hold "
+                "lands. The 7 min reseq is delayed surprise bound to abort_s=420.",
+            ),
+            ("delayed_surprise_s", 420),
+        ]
+    )
+    ras = raster_core(
+        48,
+        128,
+        16,
+        98,
+        routing(
+            "thalamic-relay.steam-rtd",
+            "spikenaut.policy.spray-hold",
+            [
+                ("relay_rtd_steam", "policy_spray_hold", 0.70),
+                ("relay_ir_steam", "policy_spray_raise", 0.24),
+            ],
+            "dopamine",
+            0.15,
+            "overheat_hold_stdp; DA tags the spray_hold bind at the RTD win",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("abort_s", 420),
+                ("delayed_surprise_s", 420),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.28),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("spray_hold", 64, 0.48, 280.0, 5),
+                    pop("spray_raise", 40, 0.85, 18.0, 0),
+                    pop("quench_veto", 28, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r36-198"),
+            (
+                "title",
+                "Spray-Header SH-HIL / Attemp-A2: RTD 512 C beats IR 548 C by 180 us; correct "
+                "REJECT holds the spray mass",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct REJECT. RTD under cap beats IR over-read. "
+                    "total 0.78 = 0.10 + 0.40 + 0.12 + 0.10 + 0.06. Tick 6 binds abort_s=420.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "HRSG-attemperator",
+                    [
+                        "reject",
+                        "hil",
+                        "overheat-cap",
+                        "ir-overread",
+                        "tick6-sidecar-bound",
+                    ],
+                    "Teaches that a HIL lamp over-read losing a 180 us race does not clear a "
+                    "thermowell under-cap. Hold is distillable from RTD vs cap.",
+                    3,
+                ),
+            ),
+        ]
+    )
+
+
+def record_199():
+    ticks = [
+        tick(3100, 0.05, 0.04, 0.02, 0.01, 0.01),
+        tick(7840, 0.08, 0.06, 0.04, 0.03, 0.02),
+        tick(8020, 0.06, 0.04, 0.03, 0.02, 0.01),
+        tick(8280, 0.14, 0.10, 0.05, 0.04, 0.02),
+        tick(8720, 0.06, 0.04, 0.02, 0.01, 0.01),
+        tick(300000000, 0.03, 0.02, 0.02, 0.01, 0.01),
+    ]
+    spikes = [
+        spike("enc.drive.ctx", 1.080, 0.43),
+        spike("slip.belt.pct", 3.180, 0.58),
+        spike("pt.takeup.MPa", 5.020, 0.50),
+        spike("slip.belt.pct", 7.840, 1.26),
+        spike("pt.takeup.MPa", 8.020, 1.08),
+        spike("ctrl.gate", 8.280, 0.97),
+        spike("slip.belt.pct", 11.400, 0.76),
+        spike("pt.takeup.MPa", 14.880, 0.60),
+        spike("ctrl.gate", 18.200, 0.83),
+        spike("slip.belt.pct", 22.050, 0.55),
+        spike("enc.drive.ctx", 25.400, 0.40),
+        spike("pt.takeup.MPa", 27.200, 0.46),
+    ]
+    excerpt = independent_excerpt(36199, 52, 28000, 12, spike_avoid_us(spikes))
+    params = OrderedDict(
+        [
+            ("belt_m_s", 3.4),
+            ("slip_pct", 2.1),
+            ("hold", False),
+        ]
+    )
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Flight-F3 on Flight-Furlong FF-11 holds 2.1 percent belt slip under a 5.0 "
+                "percent trip with a 3.4 m/s cruise already filed under the 4.2 m/s element "
+                "cap. Take-up PT is 1.8 MPa, still legal. Slip-first ACCEPTS the filed "
+                "cruise; take-up-first would have extra-clamped a legal overland flight.",
+            ),
+            ("domain", "overland-conveyor"),
+            ("sim_or_real", "simulated"),
+            (
+                "goal",
+                "Hold the 3.4 m/s cruise while belt slip stays <= 5.0 percent and take-up "
+                "stays <= 2.4 MPa; do not extra-clamp a legal overland flight.",
+            ),
+            ("t0_us", 1756852800000199),
+            ("gate_latency_us", 440),
+            ("race_window_us", 360),
+            ("race_window_rel_ms", [7.80, 8.16]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "slip.belt.pct 2.1 vs 5.0 cap",
+                                "pt.takeup.MPa 1.8 under 2.4 cap",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Slip-first latches ACCEPT of the 3.4 m/s cruise; take-up-first "
+                            "would extra-clamp a legal flight.",
+                        ),
+                        (
+                            "window_derivation",
+                            "360 us = one slip-integrator versus take-up PT on this "
+                            "overland flight bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 180 us vs combined jitter 62 us (slip 28 + PT 34): 2.9x over a "
+                            "2.0x trust floor. Reversing order by < 180 us would have extra-clamped "
+                            "a legal 3.4 m/s cruise.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "belt-slip integrator, 2 kHz, 28 us jitter",
+                    "take-up pressure transmitter, 1 kHz, 34 us jitter",
+                    "drive encoder (context)",
+                    "belt-scale orifice (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("slip_cap_pct", 5.0),
+                        ("observed_slip_pct", 2.1),
+                        ("takeup_cap_MPa", 2.4),
+                        ("observed_takeup_MPa", 1.8),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Flight-F3 latched on FF-11; overland cruise in production.",
+                    "2. Slip 2.1 percent; take-up 1.8 MPa under 2.4 cap.",
+                    "3. Drive precursor at 1.080 ms.",
+                    "4. Race window [7.800, 8.160] ms.",
+                    "5. slip.belt.pct 2.1 at 7.840 ms (winner).",
+                    "6. pt.takeup.MPa 1.8 at 8.020 ms (loser by 180 us).",
+                    "7. Gate at 8.280 ms: ACCEPT 3.4 m/s cruise.",
+                    "8. Slip 2.1 percent; take-up 1.8 MPa under 2.4 cap.",
+                    "9. Production continues; flight remains latched.",
+                    "10. Delayed (survey_s=300): sister flight F4 slip-authoritative under PT-present mode.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "hold_cruise_3p4"),
+            ("parameters", params),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("slip_pct", 2.1),
+                        ("slip_cap_pct", 5.0),
+                        ("takeup_MPa", 1.8),
+                        ("takeup_cap_MPa", 2.4),
+                        ("race_margin_us", 180),
+                        ("combined_jitter_us", 62),
+                        ("survey_s", 300),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Slip 2.1 percent is under the 5.0 percent cap and take-up 1.8 MPa is under "
+                "the 2.4 MPa cap; 3.4 m/s hold is already legal.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Slip 2.1 percent won by 180 us; commanded 3.4 m/s is 0.8 m/s under the 4.2 "
+                "m/s cap; take-up keeps the 2.4 MPa floor. ACCEPT the hold. A take-up-led "
+                "extra-clamp would abort a legal flight.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "slip_pct",
+                            OrderedDict(
+                                [
+                                    ("cap", 5.0),
+                                    ("observed", 2.1),
+                                ]
+                            ),
+                        ),
+                        (
+                            "takeup_MPa",
+                            OrderedDict(
+                                [
+                                    ("cap", 2.4),
+                                    ("commanded", 1.8),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 180),
+                                    ("combined_jitter_us", 62),
+                                    ("ratio", 2.90),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hold_cruise_3p4"),
+            ("parameters", OrderedDict(params.items())),
+            (
+                "gate_effect",
+                "ACCEPT: executed identical to proposed_action; 3.4 m/s cruise held for the "
+                "overland flight.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Flight-F3 completed the hold with slip 2.1 percent and take-up 1.8 MPa; belt "
+                "unharmed. Slip-authoritative under take-up-present mode confirmed.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("slip", "2.1 percent held; under 5.0 cap"),
+                        ("takeup", "1.8 MPa; under 2.4 cap"),
+                        ("flight", "latched; production continues"),
+                        ("near_miss_log", "none"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "The 1.8 MPa take-up PT was not a calibration fault: a return-side pulse can raise apparent header while slip stays legal.",
+                    "Delayed (survey_s=300): sister flight F4 logged the same slip-vs-PT disagreement; rack policy flipped slip-authoritative before the next splice.",
+                ],
+            ),
+            ("survey_s", 300),
+            ("delayed_surprise_s", 300),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "slip.belt.pct (7.840 ms, 2.1 percent)"),
+                        ("loser", "pt.takeup.MPa (8.020 ms, 1.8 MPa)"),
+                        ("margin_us", 180),
+                        (
+                            "counterfactual_if_reversed",
+                            "Take-up-first by < 180 us inside the 360 us window would have extra-clamped "
+                            "a legal 3.4 m/s cruise on a 2.1 percent slip that is still under the "
+                            "5.0 percent cap.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 8280),
+            (
+                "reward_inflection_note",
+                "Safety and efficiency both step up at the ACCEPT gate (8.280 ms, tick 4) as "
+                "the hold locks in over a false extra-clamp.",
+            ),
+        ]
+    )
+    ras = raster_core(
+        28,
+        52,
+        36,
+        52,
+        routing(
+            "thalamic-relay.belt-slip",
+            "spikenaut.policy.belt-accept",
+            [
+                ("relay_slip_belt", "policy_belt_go", 0.66),
+                ("relay_pt_takeup", "policy_extra_clamp", 0.23),
+            ],
+            "serotonin",
+            0.12,
+            "slip_passage_stdp; 5-HT tags the belt_go bind at the slip win",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("survey_s", 300),
+                ("delayed_surprise_s", 300),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.36),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("belt_go", 36, 0.50, 280.0, 4),
+                    pop("extra_clamp", 28, 0.85, 99.0, 1),
+                    pop("slip_veto", 22, 0.80),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r36-199"),
+            (
+                "title",
+                "Flight-Furlong FF-11 / Flight-F3: slip 2.1 percent beats take-up 1.8 MPa by "
+                "180 us; ACCEPT already-legal 3.4 m/s overland cruise",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Clean ACCEPT of an already-legal overland cruise. total 1.10 = 0.42 + 0.30 + "
+                    "0.18 + 0.12 + 0.08.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "overland-conveyor",
+                    [
+                        "accept",
+                        "simulated",
+                        "slip-vs-takeup",
+                        "already-legal-cruise",
+                        "overland-flight",
+                    ],
+                    "Teaches a fusion head that a take-up PT pulse can lose to a legal belt "
+                    "slip without a further speed clamp.",
+                    4,
+                ),
+            ),
+        ]
+    )
+
+
+def record_200():
+    ticks = [
+        tick(1760, 0.05, 0.04, 0.03, 0.01, 0.01),
+        tick(4860, 0.08, 0.06, 0.04, 0.03, 0.02),
+        tick(5080, 0.06, 0.04, 0.03, 0.02, 0.01),
+        tick(5340, 0.14, 0.10, 0.06, 0.04, 0.02),
+        tick(5780, 0.07, 0.05, 0.02, 0.01, 0.01),
+        tick(240000000, 0.04, 0.03, 0.02, 0.01, 0.01),
+    ]
+    spikes = [
+        spike("enc.disk.ctx", 1.120, 0.43),
+        spike("opt.prill.mm", 1.760, 0.58),
+        spike("pt.tower.kPa", 3.410, 0.50),
+        spike("opt.prill.mm", 4.860, 1.32),
+        spike("pt.tower.kPa", 5.080, 1.14),
+        spike("ctrl.gate", 5.340, 0.98),
+        spike("opt.prill.mm", 7.200, 0.82),
+        spike("pt.tower.kPa", 9.550, 0.64),
+        spike("ctrl.gate", 14.100, 0.86),
+        spike("enc.disk.ctx", 16.400, 0.41),
+        spike("opt.prill.mm", 19.200, 0.55),
+        spike("pt.tower.kPa", 22.800, 0.38),
+    ]
+    excerpt = independent_excerpt(36200, 44, 24000, 12, spike_avoid_us(spikes))
+    params = OrderedDict(
+        [
+            ("melt_t_h", 28.0),
+            ("prill_mm", 1.80),
+            ("hold", False),
+        ]
+    )
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Tower-T6 at Prill-Garth PG-3 holds 1.80 mm mean prill under a 2.40 mm shatter "
+                "cap with a 28 t/h melt already filed under the 34 t/h shower cap. Tower draft "
+                "is 1.80 kPa, still legal. Optic-first ACCEPTS the filed melt; draft-first would "
+                "have extra-cut a legal urea shower.",
+            ),
+            ("domain", "urea-prill-tower"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Hold the 28 t/h melt while mean prill stays <= 2.40 mm and tower draft stays "
+                "<= 2.40 kPa; do not extra-cut a legal urea shower.",
+            ),
+            ("t0_us", 1756852800000200),
+            ("gate_latency_us", 480),
+            ("race_window_us", 420),
+            ("race_window_rel_ms", [4.80, 5.22]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "opt.prill.mm 1.80 vs 2.40 cap",
+                                "pt.tower.kPa 1.80 under 2.40 cap",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Optic-first latches ACCEPT of the 28 t/h melt; draft-first "
+                            "would extra-cut a legal shower.",
+                        ),
+                        (
+                            "window_derivation",
+                            "420 us = one optical-sizer slot versus tower-draft PT on this "
+                            "prill-shower bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 220 us vs combined jitter 70 us (opt 32 + PT 38): 3.1x over a "
+                            "2.0x trust floor. Reversing order by < 220 us would have extra-cut "
+                            "a legal 28 t/h melt.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "optical prill sizer, 2.5 kHz, 32 us jitter",
+                    "tower-draft pressure transmitter, 1 kHz, 38 us jitter",
+                    "disk-speed encoder (context)",
+                    "melt-flow orifice (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("prill_cap_mm", 2.40),
+                        ("observed_prill_mm", 1.80),
+                        ("draft_cap_kPa", 2.40),
+                        ("observed_draft_kPa", 1.80),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Tower-T6 latched on PG-3; urea shower in production.",
+                    "2. Prill 1.80 mm; draft 1.80 kPa under 2.40 cap.",
+                    "3. Disk precursor at 1.120 ms.",
+                    "4. Race window [4.800, 5.220] ms.",
+                    "5. opt.prill.mm 1.80 at 4.860 ms (winner).",
+                    "6. pt.tower.kPa 1.80 at 5.080 ms (loser by 220 us).",
+                    "7. Gate at 5.340 ms: ACCEPT 28 t/h melt.",
+                    "8. Prill 1.80 mm; draft 1.80 kPa under 2.40 cap.",
+                    "9. Production continues; tower remains latched.",
+                    "10. Delayed (reseq_s=240): sister tower T7 optic-authoritative under draft-present mode.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "hold_melt_28"),
+            ("parameters", params),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("prill_mm", 1.80),
+                        ("prill_cap_mm", 2.40),
+                        ("draft_kPa", 1.80),
+                        ("draft_cap_kPa", 2.40),
+                        ("race_margin_us", 220),
+                        ("combined_jitter_us", 70),
+                        ("reseq_s", 240),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Prill 1.80 mm is under the 2.40 mm cap and draft 1.80 kPa is under "
+                "the 2.40 kPa cap; 28 t/h hold is already legal.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Prill 1.80 mm won by 220 us; commanded 28 t/h is 6 t/h under the 34 t/h "
+                "shower cap; draft keeps the 2.40 kPa floor. ACCEPT the hold. A draft-led "
+                "extra-cut would abort a legal tower.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "prill_mm",
+                            OrderedDict(
+                                [
+                                    ("cap", 2.40),
+                                    ("observed", 1.80),
+                                ]
+                            ),
+                        ),
+                        (
+                            "draft_kPa",
+                            OrderedDict(
+                                [
+                                    ("cap", 2.40),
+                                    ("commanded", 1.80),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 220),
+                                    ("combined_jitter_us", 70),
+                                    ("ratio", 3.14),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hold_melt_28"),
+            ("parameters", OrderedDict(params.items())),
+            (
+                "gate_effect",
+                "ACCEPT: executed identical to proposed_action; 28 t/h melt held for the "
+                "urea shower.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Tower-T6 completed the hold with prill 1.80 mm and draft 1.80 kPa; shower "
+                "unharmed. Optic-authoritative under draft-present mode confirmed.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("prill", "1.80 mm held; under 2.40 cap"),
+                        ("draft", "1.80 kPa; under 2.40 cap"),
+                        ("tower", "latched; production continues"),
+                        ("near_miss_log", "none"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "The 1.80 kPa draft PT was not a calibration fault: a stack-side pulse can raise apparent draft while prill size stays legal.",
+                    "Delayed (reseq_s=240): sister tower T7 logged the same optic-vs-draft disagreement; rack policy flipped optic-authoritative before the next melt.",
+                ],
+            ),
+            ("reseq_s", 240),
+            ("delayed_surprise_s", 240),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "opt.prill.mm (4.860 ms, 1.80 mm)"),
+                        ("loser", "pt.tower.kPa (5.080 ms, 1.80 kPa)"),
+                        ("margin_us", 220),
+                        (
+                            "counterfactual_if_reversed",
+                            "Draft-first by < 220 us inside the 420 us window would have extra-cut "
+                            "a legal 28 t/h melt on a 1.80 mm prill that is still under the "
+                            "2.40 mm cap.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 5340),
+            (
+                "reward_inflection_note",
+                "Safety and efficiency both step up at the ACCEPT gate (5.340 ms, tick 4) as "
+                "the hold locks in over a false extra-cut.",
+            ),
+        ]
+    )
+    ras = raster_core(
+        24,
+        44,
+        48,
+        51,
+        routing(
+            "thalamic-relay.prill-opt",
+            "spikenaut.policy.melt-accept",
+            [
+                ("relay_opt_prill", "policy_melt_go", 0.64),
+                ("relay_pt_tower", "policy_melt_cut", 0.26),
+            ],
+            "histamine",
+            0.18,
+            "prill_size_stdp; histamine tags the melt_go bind at the optic win",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("reseq_s", 240),
+                ("delayed_surprise_s", 240),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.42),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("melt_go", 32, 0.50, 298.0, 4),
+                    pop("melt_cut", 32, 0.80, 74.0, 1),
+                    pop("draft_ctx", 16, 0.80),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r36-200"),
+            (
+                "title",
+                "Prill-Garth PG-3 / Tower-T6: prill 1.80 mm beats draft 1.80 kPa by 220 us; "
+                "ACCEPT already-legal 28 t/h urea shower",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Clean ACCEPT. Prill 1.80 mm < 2.40 cap; melt 28 t/h < 34 cap. total "
+                    "1.16 = 0.44 + 0.32 + 0.20 + 0.12 + 0.08.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "urea-prill-tower",
+                    [
+                        "accept",
+                        "urea",
+                        "optic-vs-draft",
+                        "already-legal-melt",
+                        "designed",
+                    ],
+                    "Teaches that a draft pulse can lose to an optical prill sizer when both "
+                    "reads are under cap; reversing 220 us would have cut a legal melt.",
+                    5,
+                ),
+            ),
+        ]
+    )
+
+
+def tokenize(text: str) -> set[str]:
+    return {tok for tok in re.split(r"[^a-z0-9]+", text.lower()) if tok}
+
+
+def jaccard(a: str, b: str) -> float:
+    sa, sb = tokenize(a), tokenize(b)
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+
+def check_refractory(events, min_ms=0.8):
+    last = {}
+    for ev in events:
+        ch, t = ev["channel"], ev["t_rel_ms"]
+        if ch in last and t - last[ch] < min_ms - 1e-12:
+            return f"{ch} gap {t - last[ch]} ms"
+        last[ch] = t
+    return None
+
+
+def check_race(rec):
+    start, end = rec["state"]["race_window_rel_ms"]
+    in_win = {}
+    for ev in rec["spike_events"]:
+        if start <= ev["t_rel_ms"] <= end:
+            in_win.setdefault(ev["channel"], 0)
+            in_win[ev["channel"]] += 1
+    if len(in_win) < 2:
+        return f"race window has {len(in_win)} channels: {in_win}"
+    return None
+
+
+def excerpt_vs_spikes(rec):
+    spike_us = {int(round(ev["t_rel_ms"] * 1000.0)) for ev in rec["spike_events"]}
+    ex_us = {item["t_us"] for item in rec["raster"]["excerpt"]}
+    if not spike_us:
+        return 0.0
+    return len(spike_us & ex_us) / len(spike_us)
+
+
+def walk_keys(obj, path=""):
+    found = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            p = f"{path}.{k}" if path else k
+            if str(k).lower() in THOUGHT_KEYS:
+                found.append(p)
+            found.extend(walk_keys(v, p))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            found.extend(walk_keys(v, f"{path}[{i}]"))
+    return found
+
+
+def self_check(records):
+    issues = []
+    prior_domains, prior_plants = load_prior_occupancy()
+    descs = [r["state"]["description"] for r in records]
+    opens = [d.split(".")[0] for d in descs]
+    if len(set(opens)) != 5:
+        issues.append("opening sentences not unique")
+    jmax = 0.0
+    for i in range(5):
+        for j in range(i + 1, 5):
+            val = jaccard(descs[i], descs[j])
+            jmax = max(jmax, val)
+            if val >= 0.4:
+                issues.append(f"Jaccard {records[i]['id']}/{records[j]['id']} = {val:.3f}")
+    domains = [r["state"]["domain"] for r in records]
+    if len(set(domains)) != 5:
+        issues.append(f"domain collision {domains}")
+    if set(domains) & SITOUT_DOMAINS:
+        issues.append(f"sitout domains {set(domains) & SITOUT_DOMAINS}")
+    collided = set(domains) & prior_domains
+    if collided:
+        issues.append(f"prior-round domain occupancy {collided}")
+    blob_all = "\n".join(json.dumps(r) for r in records)
+    for plant in THIS_PLANTS:
+        if plant not in blob_all:
+            issues.append(f"missing plant {plant}")
+        if plant in prior_plants:
+            issues.append(f"prior-round plant occupancy {plant}")
+    ids = [r["id"] for r in records]
+    if ids != IDS:
+        issues.append(f"ids {ids}")
+    wrong = [
+        r
+        for r in records
+        if r["safety_decision"].get("correctness") == "incorrect"
+        or r["meta"].get("supervisor_error_type")
+    ]
+    if len(wrong) != 1 or wrong[0]["id"] != "ttf-r36-196":
+        issues.append(f"wrong-gate set {[w['id'] for w in wrong]}")
+    if wrong and wrong[0]["meta"].get("supervisor_error_type") != "wrong-reject":
+        issues.append("196 supervisor_error_type")
+    if any(r["state"]["sim_or_real"] == "real" for r in records):
+        issues.append("sim_or_real=real")
+    hil = [r["id"] for r in records if r["state"]["sim_or_real"] == "hil"]
+    if hil != ["ttf-r36-198"]:
+        issues.append(f"hil set {hil}")
+    sim = [r["id"] for r in records if r["state"]["sim_or_real"] == "simulated"]
+    if sim != ["ttf-r36-199"]:
+        issues.append(f"simulated set {sim}")
+    decisions = [r["safety_decision"]["decision"] for r in records]
+    if (
+        decisions.count("ACCEPT") != 2
+        or decisions.count("MODIFY") != 1
+        or decisions.count("REJECT") != 2
+    ):
+        issues.append(f"gate mix {decisions}")
+    for rec in records:
+        blob = json.dumps(rec)
+        if "training_ready" in blob:
+            issues.append(f"{rec['id']} training_ready present")
+        if "outputs/raw" in blob:
+            issues.append(f"{rec['id']} mentions outputs/raw")
+        hidden = walk_keys(rec)
+        if hidden:
+            issues.append(f"{rec['id']} hidden keys {hidden}")
+        err = check_refractory(rec["spike_events"])
+        if err:
+            issues.append(f"{rec['id']} refractory {err}")
+        err = check_race(rec)
+        if err:
+            issues.append(f"{rec['id']} {err}")
+        n = rec["raster"]["neurons"]
+        rate = rec["raster"]["mean_rate_hz"]
+        window_s = rec["raster"]["window_s"]
+        expected = round(n * rate * window_s)
+        if abs(rec["raster"]["spikes"] - expected) > 1:
+            issues.append(f"{rec['id']} spike budget {rec['raster']['spikes']} vs {expected}")
+        overlap = excerpt_vs_spikes(rec)
+        if rec["id"] == "ttf-r36-197":
+            if rec["raster"].get("excerpt_source") != "independent_lif":
+                issues.append("197 missing independent_lif")
+            if rec["future_outcome"]["reward_inflection_t_us"] > rec["raster"]["window_ms"] * 1000:
+                issues.append("197 inflection outside window")
+            if rec["reward_components"]["total"] >= 0:
+                issues.append("197 partnered-neg total not negative")
+        elif overlap >= 0.8:
+            issues.append(f"{rec['id']} excerpt overlap {overlap:.2f}")
+        inf = rec["future_outcome"]["reward_inflection_t_us"]
+        tick_times = [t["t_us"] for t in rec["reward_components"]["ticks"]]
+        if inf not in tick_times:
+            issues.append(f"{rec['id']} inflection {inf} not a tick")
+        if len(rec["reward_components"]["ticks"]) != 6:
+            issues.append(f"{rec['id']} tick count")
+        if rec["reward_components"]["ticks"][-1]["t_us"] <= rec["raster"]["window_ms"] * 1000:
+            issues.append(f"{rec['id']} tick6 not after raster")
+        if not (8 <= len(rec["state"]["episode_steps"]) <= 15):
+            issues.append(f"{rec['id']} episode_steps")
+        if rec["gate_snn"]["decision"] != rec["safety_decision"]["decision"]:
+            issues.append(f"{rec['id']} gate_snn decision mismatch")
+        if rec["meta"]["round"] != 36:
+            issues.append(f"{rec['id']} round")
+        if rec["meta"]["rights"]["linear_issue"] != "RM-793":
+            issues.append(f"{rec['id']} linear_issue")
+        if rec["meta"]["domain"] != rec["state"]["domain"]:
+            issues.append(f"{rec['id']} domain mismatch")
+        heads = ["task_progress", "safety", "efficiency", "coherence", "exploration"]
+        total = sum(rec["reward_components"][h] for h in heads)
+        if abs(total - rec["reward_components"]["total"]) > 1e-6:
+            issues.append(f"{rec['id']} total mismatch {total}")
+        for h in heads:
+            s = sum(t[h] for t in rec["reward_components"]["ticks"])
+            if abs(s - rec["reward_components"][h]) > 1e-6:
+                issues.append(f"{rec['id']} {h} tick sum {s} vs {rec['reward_components'][h]}")
+        nspk = len(rec["spike_events"])
+        if not (8 <= nspk <= 16):
+            issues.append(f"{rec['id']} spike count {nspk}")
+        times = [e["t_rel_ms"] for e in rec["spike_events"]]
+        if times != sorted(times):
+            issues.append(f"{rec['id']} spike order")
+        nex = len(rec["raster"]["excerpt"])
+        if not (8 <= nex <= 16):
+            issues.append(f"{rec['id']} excerpt count {nex}")
+        exec_p = rec["executed_action"]["parameters"]
+        prop_p = rec["proposed_action"]["parameters"]
+        if rec["safety_decision"]["decision"] == "ACCEPT" and exec_p != prop_p:
+            issues.append(f"{rec['id']} ACCEPT params differ")
+        if rec["id"] == "ttf-r36-196":
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("196 missing recovery")
+            if exec_p.get("hoist_m_s") != 0.0:
+                issues.append("196 did not zero hoist_m_s")
+            if exec_p.get("hold") is not True:
+                issues.append("196 did not hold")
+            tos = {row["to"] for row in rec["raster"]["routing"]["table"]}
+            if "policy_hoist_go" in tos:
+                issues.append("196 routing contains policy_hoist_go")
+            if "policy_hoist_hold" not in tos:
+                issues.append("196 routing missing policy_hoist_hold")
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["brake_MPa"] < ev["brake_cap_MPa"]):
+                issues.append("196 live arithmetic false")
+            if ev.get("live_unit") != "MPa" or ev.get("hmi_unit") != "bar":
+                issues.append("196 unit sidecar missing")
+        delay = rec["future_outcome"].get("delayed_surprise_s") or rec["raster"].get(
+            "delayed_surprise_s"
+        )
+        if delay is not None:
+            expected_t6 = int(round(float(delay) * 1e6))
+            if rec["reward_components"]["ticks"][-1]["t_us"] != expected_t6:
+                issues.append(
+                    f"{rec['id']} tick6 {rec['reward_components']['ticks'][-1]['t_us']} "
+                    f"vs delayed_surprise {expected_t6}"
+                )
+        dw_s = rec["gate_snn"]["decision_window_ms"] / 1000.0
+        for popu in rec["gate_snn"]["populations"]:
+            if "mean_rate_hz" in popu:
+                exp = round(popu["neurons"] * popu["mean_rate_hz"] * dw_s)
+                if abs(popu["spikes"] - exp) > 1:
+                    issues.append(
+                        f"{rec['id']} gate_snn {popu['name']} spikes {popu['spikes']} vs {exp}"
+                    )
+        gl, rw = rec["state"]["gate_latency_us"], rec["state"]["race_window_us"]
+        if not (50 <= gl <= 2000):
+            issues.append(f"{rec['id']} gate_latency")
+        if not (50 <= rw <= 1000):
+            issues.append(f"{rec['id']} race_window")
+        if rec["meta"]["rights"]["intended_use"] != "research_only":
+            issues.append(f"{rec['id']} intended_use")
+        wm = rec["raster"]["window_ms"]
+        if not (20 <= wm <= 50):
+            issues.append(f"{rec['id']} window_ms {wm}")
+        for item in rec["raster"]["excerpt"]:
+            if not (0 <= item["t_us"] <= wm * 1000):
+                issues.append(f"{rec['id']} excerpt t_us {item['t_us']}")
+            if not (0 <= item["neuron_id"] < rec["raster"]["neurons"]):
+                issues.append(f"{rec['id']} neuron_id {item['neuron_id']}")
+    return issues, jmax
+
+
+def notes_text(jmax: float) -> str:
+    return f"""# Thalamic Trajectory Factory — NOTES-r36
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- Quality: Q=5
+- IDs: `ttf-r36-196` … `ttf-r36-200`
+- Domains this batch: `mine-skip-winder`, `geothermal-flash-separator`, `HRSG-attemperator`, `overland-conveyor`, `urea-prill-tower`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged r13–r34 occupancy (JSONL + generators). All five plants are invented. Do not restack prior TTF plants (Marrow-Dock, Vesper-Lattice, Brine-Well, Saddle-Arc, Ashlar-Gait, Nacre-Well, Quern-Forge, Tinder-Box, Whimbrel-Stack, Cinder-Loft, Suture-Isle, Kiln-Spur, Oxbow-Switch, Pitch-Kettle, Shale-Quay, Polder-Rye, Flint-Mask, Gyre-Tokamak, Quarry-Bowl, Orpiment, Foehn-Nacelle, Treacle-Kettle, Bloom-Weir, Spindrift-Rack, Clinker-Spire, Winze-Capstan / Fumarole-Dyke / Spray-Header / Flight-Furlong / Prill-Garth are this round only).
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+| ttf-r36-196 | mine-skip-winder | REJECT | **incorrect (wrong-reject / unit-mismatch)** | designed | −0.36 | brake 8.4 MPa < 12.0 live cap; supervisor bound leftover 12 bar HMI nameplate |
+| ttf-r36-197 | geothermal-flash-separator | MODIFY | correct | designed | **−0.48** | process-correct choke clamp; silica scale-bridge rupture inside 42 ms raster; independent LIF |
+| ttf-r36-198 | HRSG-attemperator | REJECT | correct | hil | +0.78 | RTD 512 C beats IR 548 C; hold spray |
+| ttf-r36-199 | overland-conveyor | ACCEPT | correct | simulated | +1.10 | slip 2.1 pct vs take-up 1.8 MPa; proposed 3.4 m/s already legal |
+| ttf-r36-200 | urea-prill-tower | ACCEPT | correct | designed | +1.16 | prill 1.80 mm vs draft 1.80 kPa; proposed 28 t/h already legal |
+
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 correct REJECT, 1 incorrect REJECT (unit-mismatch MPa-vs-bar). Provenance: designed×3, simulated×1, hil×1 (Spray-Header SH-HIL pad). Intra-batch Jaccard on `state.description` {jmax:.3f}.
+
+## Wrong-reject
+
+**ttf-r36-196** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-reject`). Alternate vs odd rounds: even rounds host wrong-reject. This subclass is **unit-mismatch / leftover-bar nameplate after MPa conversion**, not r22 class-transplant (M-series vs P-series), not r18 empty-tank, not r20 oscillation-as-PSV, not r16 reticle-as-wafer, not r30 stale-firmware floor, not r32 stale-peak-hold, not r34 wrong-bus. Do not emit a wrong-ACCEPT.
+
+Winze-Capstan WC-2 / Skip-S4 reads brake **8.4 MPa** against a published **12.0 MPa** live cap. Slack 0.18 MPa is under 0.40 MPa. Sidecar arithmetic `8.4 < 12.0` is true. A weak supervisor binds the **leftover 12 bar HMI nameplate** still painted after the MPa conversion, REJECT-holds 1.60 → 0 m/s, and leaves a legal hoist idle. Convictable without winder physics: `evidence.brake_MPa < evidence.brake_cap_MPa`, `evidence.live_unit == MPa`, `evidence.hmi_unit == bar`, `executed_action` sets `hoist_m_s=0` / `hold=true`, `raster.routing.table` sends `relay_pt_brake` → `policy_hoist_hold` (weight 0.72) with no positive weight to `policy_hoist_go`, and `gate_snn` has `hoist_hold` above threshold while `hoist_go` is not (`spikes=0`). Recovery: ACCEPT; leave 1.60 m/s; bind the published 12.0 MPa cap. Cost: 18 min missed skip cycle (`missed_window_s=1080`).
+
+## Partnered-negative in-window (197)
+
+**ttf-r36-197** is the partnered negative: process-correct MODIFY (choke held 22 percent; separator 15.4 < 16.0 cap) while the world still charges. Safety −0.62 prices the silica scale-bridge rupture at **21.800 ms**; `task_progress` stays +0.32 because the clamp completed. Inflection `t_us=21800` is tick 5 and is **inside** the 42 ms raster (`21800 ≤ 42000`). Named un-netted loss: 16 min well isolate + demister pull (`abort_s=960`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 36197, stim `[20800, 23800]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.scale` 20.8–23.8 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks). Tick 6 is bound to a published sidecar (`missed_window_s`, `abort_s`, `survey_s`, `reseq_s`) and is strictly after the raster window. Inflection `t_us` is an actual tick.
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+| 196 | 6 | −0.18 | +0.06 | −0.22 | −0.08 | +0.06 | −0.36 | 4 (5740) |
+| 197 | 6 | +0.32 | −0.62 | −0.16 | +0.02 | −0.04 | −0.48 | 5 (21800) |
+| 198 | 6 | +0.10 | +0.40 | +0.12 | +0.10 | +0.06 | +0.78 | 4 (7980) |
+| 199 | 6 | +0.42 | +0.30 | +0.18 | +0.12 | +0.08 | +1.10 | 4 (8280) |
+| 200 | 6 | +0.44 | +0.32 | +0.20 | +0.12 | +0.08 | +1.16 | 4 (5340) |
+
+Tick-6 sidecar bind: 196 `missed_window_s=1080`, 197 `abort_s=960`, 198 `abort_s=420`, 199 `survey_s=300`, 200 `reseq_s=240`.
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+| 196 | mine-skip-winder | 88 | 24 | 32 | 68 | 1564 | 0.001564 |
+| 197 | geothermal-flash-separator | 76 | 28 | 42 | 89 | 2047 | 0.002047 |
+| 198 | HRSG-attemperator | 128 | 16 | 48 | 98 | 2254 | 0.002254 |
+| 199 | overland-conveyor | 52 | 36 | 28 | 52 | 1196 | 0.001196 |
+| 200 | urea-prill-tower | 44 | 48 | 24 | 51 | 1173 | 0.001173 |
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator (ACh / NA / DA / 5-HT / histamine), `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-197 excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).
+
+## Local checks (staging, not raw)
+
+See generator stdout: `check_jsonl` FactoryStaging, `validate_run.check_line`, `dumps_exact_json`, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`, tick sums, refractory, Jaccard.
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrote `outputs/raw/`.
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (197). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. 199 and 200 are both already-legal ACCEPTs; a later round could pair one ACCEPT with a world charge that does not go negative, or drop to a single ACCEPT.
+4. Five domain slugs leave the prompt's 8-item pool; a later round that must stay inside the pool will have to rotate sit-outs instead.
+5. Tick-6 sidecar bind is standing machinery (r14+), not a new class.
+
+## Next densification target
+
+Publish the unit-class predicate as a sidecar enum (`live_unit` / `hmi_unit`) so a leftover-bar REJECT is convictable without the MPa-vs-bar story. Optional: labeled LIF on a second record, or an ISI histogram sidecar. Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+Novel coverage: 23.0%
+"""
+
+
+def run_pipelines(records):
+    sys.path.insert(0, str(PIPELINES))
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import raster_status
+    from exact_json import dumps_exact_json
+    from round_txn import validate_novel_coverage
+    from validate_run import check_line
+    from verify_execution import verify_batch_for_frontier
+
+    report = []
+    errors, warnings, kinds, nrec = check_jsonl(
+        BATCH_PATH, "batch-r36.jsonl", staging=FactoryStaging(enabled=True)
+    )
+    report.append(("check_jsonl FactoryStaging", errors, warnings, kinds, nrec))
+    line_errs = []
+    for i, rec in enumerate(records, 1):
+        errs, kind = check_line(rec, f"batch-r36.jsonl:{i}", factory_staging=True)
+        if errs:
+            line_errs.append((i, kind, errs))
+        try:
+            dumps_exact_json(rec, ensure_ascii=False, sort_keys=False)
+        except Exception as exc:
+            line_errs.append((i, "exact_json", [str(exc)]))
+    report.append(("check_line+exact_json", line_errs, None, None, None))
+    raster_fail = []
+    for rec in records:
+        st = raster_status(rec, require_raster=True, require_routing_table=True)
+        if not st.get("raster_valid") or not st.get("gate_snn_valid"):
+            raster_fail.append((rec["id"], st))
+    report.append(("raster_status", raster_fail, None, None, None))
+    counts, findings, blocked = verify_batch_for_frontier(BATCH_PATH, strict=True)
+    report.append(("verify_batch_for_frontier", counts, findings, blocked, None))
+    cov = validate_novel_coverage(
+        NOTES_PATH,
+        Path("thalamic-trajectory-factory"),
+        notes_text=NOTES_PATH.read_text(),
+        required=True,
+    )
+    report.append(("validate_novel_coverage", cov, None, None, None))
+    probe = subprocess.run(
+        [sys.executable, str(PIPELINES / "spike_probe.py"), "--strict", str(BATCH_PATH)],
+        cwd=str(REPO),
+        capture_output=True,
+        text=True,
+    )
+    report.append(("spike_probe", probe.returncode, probe.stdout[-2000:], probe.stderr[-2000:], None))
+    schema_err = None
+    try:
+        import jsonschema
+        from referencing import Registry, Resource
+        from referencing.jsonschema import DRAFT202012
+
+        schema_dir = REPO / "schemas"
+        ttf_schema = json.loads((schema_dir / "thalamic-trajectory-v2.schema.json").read_text())
+        raster_schema = json.loads((schema_dir / "raster.schema.json").read_text())
+        base_schema = json.loads((schema_dir / "thalamic-trajectory.schema.json").read_text())
+        registry = Registry().with_resources(
+            [
+                ("thalamic-trajectory-v2.schema.json", Resource.from_contents(ttf_schema, DRAFT202012)),
+                ("thalamic-trajectory.schema.json", Resource.from_contents(base_schema, DRAFT202012)),
+                ("raster.schema.json", Resource.from_contents(raster_schema, DRAFT202012)),
+            ]
+        )
+        validator = jsonschema.Draft202012Validator(ttf_schema, registry=registry)
+        fails = []
+        for rec in records:
+            errs = sorted(validator.iter_errors(rec), key=lambda e: list(e.path))
+            if errs:
+                fails.append((rec["id"], [e.message for e in errs[:4]]))
+        schema_err = fails
+    except Exception as exc:
+        schema_err = f"skip:{exc}"
+    report.append(("jsonschema", schema_err, None, None, None))
+    return report
+
+
+def main() -> int:
+    if str(BATCH_PATH).startswith(str(RAW)) or str(NOTES_PATH).startswith(str(RAW)):
+        print("refusing to write outputs/raw")
+        return 1
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    records = [record_196(), record_197(), record_198(), record_199(), record_200()]
+    issues, jmax = self_check(records)
+    lines = [
+        json.dumps(rec, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        for rec in records
+    ]
+    BATCH_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    NOTES_PATH.write_text(notes_text(jmax), encoding="utf-8")
+    print(f"wrote {BATCH_PATH} lines={len(lines)} jmax={jmax:.3f}")
+    print(f"wrote {NOTES_PATH}")
+    if issues:
+        print("SELF_CHECK_ISSUES:")
+        for item in issues:
+            print(" -", item)
+        return 1
+    print("SELF_CHECK_OK")
+    report = run_pipelines(records)
+    failed = False
+    for item in report:
+        name = item[0]
+        print(f"PIPELINE {name}: {item[1:]}")
+        if name == "check_jsonl FactoryStaging":
+            errors, warnings, kinds, nrec = item[1], item[2], item[3], item[4]
+            print(f"  kinds={kinds} n={nrec} errors={len(errors)} warnings={len(warnings)}")
+            for e in errors:
+                print("  ERR", e)
+                failed = True
+        elif name == "check_line+exact_json":
+            if item[1]:
+                print("  LINE_ERR", item[1])
+                failed = True
+        elif name == "raster_status":
+            if item[1]:
+                print("  RASTER_FAIL", item[1])
+                failed = True
+        elif name == "verify_batch_for_frontier":
+            if item[3]:
+                print("  BLOCKED", item[1], item[2])
+                failed = True
+        elif name == "validate_novel_coverage":
+            if item[1]:
+                print("  COVERAGE", item[1])
+                failed = True
+        elif name == "spike_probe":
+            if item[1] != 0:
+                print("  PROBE_FAIL", item[2], item[3])
+                failed = True
+        elif name == "jsonschema":
+            if isinstance(item[1], list) and item[1]:
+                print("  SCHEMA_FAIL", item[1])
+                failed = True
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

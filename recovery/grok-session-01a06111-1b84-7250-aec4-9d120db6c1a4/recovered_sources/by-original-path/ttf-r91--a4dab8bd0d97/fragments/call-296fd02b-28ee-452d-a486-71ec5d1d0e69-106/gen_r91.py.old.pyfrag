@@ -1,0 +1,2 @@
+        if rec["meta"]["round"] != 79:
+            issues.append(f"{rec['id']} meta.round")

@@ -1,0 +1,63 @@
+            "name": "cruise_dock_crawl",
+            "parameters": {
+                "speed_mps": 0.36,
+                "heading_rps": 0.04,
+                "caster_Nm": 38.0,
+            },
+            "evidence": {
+                "caster_Nm": 38.0,
+                "caster_cap_Nm": 24.0,
+                "predicted_unclamped_next_Nm": 29.0,
+                "mag_heading_deg": 1.6,
+                "mag_trip_deg": 6.0,
+                "race_margin_us": 260,
+                "combined_jitter_us": 80,
+            },
+            "basis": "Planner proposes 0.36 m/s dock-crawl: mag-tape heading 1.6 deg looks like a still-on-tape plant, not dock-lip load, and the 6.0 deg trip is treated as still satisfied.",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "correctness": "correct",
+            "rationale": "Caster FT 38 N-m won by 260 us, so the tote is loading the dock lip, not still tracking tape. Holding 0.36 m/s predicts next-sample 29 N-m > 24 N-m cap. MODIFY: speed 0.36 -> 0.14 m/s. Observed after clamp 21 N-m < 24. A full REJECT is not indicated: a seated dock plate accepts 0.14 m/s. Heading rate stays 0.04 rad/s.",
+            "constraint_checked": {
+                "caster_Nm": {
+                    "cap": 24.0,
+                    "observed": 38.0,
+                    "predicted_unclamped_next": 29.0,
+                    "observed_after_clamp": 21.0,
+                },
+                "speed_mps": {"proposed": 0.36, "clamped": 0.14},
+                "heading_rps": {"held": 0.04},
+                "order_evidence": {"margin_us": 260, "combined_jitter_us": 80, "ratio": 3.25},
+            },
+        },
+        "executed_action": {
+            "name": "clamped_dock_crawl",
+            "parameters": {
+                "speed_mps": 0.14,
+                "heading_rps": 0.04,
+                "caster_Nm": 21.0,
+            },
+            "gate_effect": "MODIFY: speed 0.36 -> 0.14 m/s. Process-correct vs the 24 N-m cap. Frost-heaved dock-plate snap still occurs at 23.800 ms.",
+        },
+        "future_outcome": {
+            "summary": "Process-correct MODIFY held caster torque at 21 N-m. At 23.800 ms the frost-heaved dock plate snapped under the left caster. Clamp reduced impact energy; it did not prevent the snap. Partnered negative: process heads stay honest; world loss is named, not netted.",
+            "state_delta": {
+                "tote": "clamp executed; peak 21 N-m < 24",
+                "dock": "frost-heaved plate snap at 23.800 ms",
+                "repair": "9 min dock isolate + plate swap",
+                "mission": "dock-on still seated; plate isolated",
+            },
+            "surprises": [
+                "Neither caster FT nor mag-tape heading predicted the snap; dock.plate.snap is a new channel at 23.800 ms, 16.100 ms after the gate, still inside the 42 ms raster.",
+                "Delayed (9 min / delayed_surprise_s=540): dock isolate and plate swap. Named un-netted loss, not folded into task_progress.",
+            ],
+            "un_netted_loss": "9 min dock isolate + plate swap after a frost-heave snap. Safety head -0.58 prices the snap; task_progress stays +0.30 because the torque clamp completed under the 24 N-m cap. World loss is named here, not subtracted from process heads.",
+            "race_result": {
+                "winner": "ft.caster.nm (6.980 ms, 38 N-m)",
+                "loser": "mag.heading.deg (7.240 ms, 1.6 deg)",
+                "margin_us": 260,
+                "counterfactual_if_reversed": "Heading-first by < 260 us inside the 480 us window would have kept 0.36 m/s; predicted next-sample 29 N-m would have exceeded the 24 N-m cap even without the plate snap. The MODIFY is still the correct process. The snap is a later world charge either way, cheaper with the clamp than without.",
+            },
+            "reward_inflection_t_us": 23800,
+            "reward_inflection_note": "Safety collapses at the 23.800 ms frost-heaved dock-plate snap (tick t_us=23800), inside the 42 ms raster. The correct MODIFY at 7.700 ms is in the same excerpt. Do not put inflection on the +9 min dock-isolate tick.",

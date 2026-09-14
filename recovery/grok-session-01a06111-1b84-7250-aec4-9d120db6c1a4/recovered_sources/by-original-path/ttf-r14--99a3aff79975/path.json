@@ -1,0 +1,82 @@
+{
+  "agent_ids": [
+    "01a06404-1470-7a41-95e1-e2804bd0de37"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 2,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 3,
+  "original_basename": "gen_r14.py",
+  "original_path": "/tmp/ttf-r14/gen_r14.py",
+  "path_key": "ttf-r14--99a3aff79975",
+  "terminal_event_ids": [
+    "01a06404-1470-7a41-95e1-e2804bd0de37:call-192414f7-b74b-4711-a56f-e891f532f15e-91",
+    "01a06404-1470-7a41-95e1-e2804bd0de37:call-6dca2cbe-bd11-4927-a28a-433f6452474a-93",
+    "01a06406-1393-73d3-9dd9-7c554e840746:call-1d15e35f-1feb-4f50-883d-b8e679a57335-36"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 2,
+  "versions": [
+    {
+      "agent_id": "01a06404-1470-7a41-95e1-e2804bd0de37",
+      "basename_preserved": true,
+      "bytes": 92644,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 483,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06404-1470-7a41-95e1-e2804bd0de37/updates.jsonl",
+      "original_basename": "gen_r14.py",
+      "original_path": "/tmp/ttf-r14/gen_r14.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r14--99a3aff79975/versions/v0001/gen_r14.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r14--99a3aff79975/versions/v0001/gen_r14.py",
+      "session_id": "01a06404-1470-7a41-95e1-e2804bd0de37",
+      "sha256": "4668396372817567e4a3da9f12e286c6c94a8bebce15d791022d7f8e41192e66",
+      "source_channel": "structured",
+      "source_event_id": "01a06404-1470-7a41-95e1-e2804bd0de37:call-ea750450-3841-4ab9-94fc-3b32e65a66c4-90",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788385139124,
+      "timestamp_utc": "2026-09-02T21:38:59.124Z",
+      "tool_call_id": "call-ea750450-3841-4ab9-94fc-3b32e65a66c4-90",
+      "version": 1,
+      "version_id": "ttf-r14--99a3aff79975:v0001"
+    },
+    {
+      "agent_id": "01a06404-1470-7a41-95e1-e2804bd0de37",
+      "basename_preserved": true,
+      "bytes": 92711,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 496,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06404-1470-7a41-95e1-e2804bd0de37/updates.jsonl",
+      "original_basename": "gen_r14.py",
+      "original_path": "/tmp/ttf-r14/gen_r14.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r14--99a3aff79975/versions/v0002/gen_r14.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r14--99a3aff79975/versions/v0002/gen_r14.py",
+      "session_id": "01a06404-1470-7a41-95e1-e2804bd0de37",
+      "sha256": "d912c4bcb7473b1ced02cbbb3a9cfb5d39dad1788620c30b3c3fcb291fa34dc9",
+      "source_channel": "structured",
+      "source_event_id": "01a06404-1470-7a41-95e1-e2804bd0de37:call-b9a2b2d0-b57f-4865-ac72-e51c3a37e627-92",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788385159109,
+      "timestamp_utc": "2026-09-02T21:39:19.109Z",
+      "tool_call_id": "call-b9a2b2d0-b57f-4865-ac72-e51c3a37e627-92",
+      "version": 2,
+      "version_id": "ttf-r14--99a3aff79975:v0002"
+    }
+  ]
+}

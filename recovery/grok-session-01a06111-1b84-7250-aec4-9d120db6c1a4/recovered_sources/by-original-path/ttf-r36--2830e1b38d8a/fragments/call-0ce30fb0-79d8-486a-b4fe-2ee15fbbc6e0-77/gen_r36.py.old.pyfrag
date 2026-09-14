@@ -1,0 +1,33 @@
+                [
+                    "optical prill sizer, 2.5 kHz, 32 us jitter",
+                    "tower-draft pressure transmitter, 1 kHz, 38 us jitter",
+                    "disk-speed encoder (context)",
+                    "melt-flow orifice (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("prill_cap_mm", 2.40),
+                        ("observed_prill_mm", 1.80),
+                        ("draft_cap_kPa", 2.40),
+                        ("observed_draft_kPa", 1.80),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Tower-T6 latched on PG-3; urea shower in production.",
+                    "2. Prill 1.80 mm; draft 1.80 kPa under 2.40 cap.",
+                    "3. Disk precursor at 1.120 ms.",
+                    "4. Race window [4.800, 5.220] ms.",
+                    "5. opt.prill.mm 1.80 at 4.860 ms (winner).",
+                    "6. pt.tower.kPa 1.80 at 5.080 ms (loser by 220 us).",
+                    "7. Gate at 5.340 ms: ACCEPT 28 t/h melt.",
+                    "8. Prill 1.80 mm; draft 1.80 kPa under 2.40 cap.",
+                    "9. Production continues; tower remains latched.",
+                    "10. Delayed (reseq_s=240): sister tower T7 optic-authoritative under draft-present mode.",
+                ],
+            ),

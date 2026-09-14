@@ -1,0 +1,1 @@
+`batch-r01c.jsonl`: 3 lines, `json.loads`-clean (allow_nan=False), {sizes[0]}/{sizes[1]}/{sizes[2]} bytes (file {BATCH.stat().st_size}, sha256 `{file_sha}`). Create-only write to the factory dir after `/tmp/nelb-r01-window` staging (`batch-r01.jsonl` was occupied).

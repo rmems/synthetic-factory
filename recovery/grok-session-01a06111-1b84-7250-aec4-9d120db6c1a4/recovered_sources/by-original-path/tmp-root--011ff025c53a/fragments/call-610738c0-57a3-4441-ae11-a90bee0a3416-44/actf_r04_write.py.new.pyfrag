@@ -1,0 +1,968 @@
+#!/usr/bin/env python3
+"""CREATE-ONLY ACTF r04 writer for 2026-09-02-final-heavy live tree."""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import sys
+
+REPO = "/home/raulmc/rmems/synthetic-factory"
+LIVE = (
+    REPO
+    + "/outputs/raw/2026-09-02-final-heavy/agentic-coding-trajectory-factory"
+)
+sys.path.insert(0, REPO + "/pipelines")
+
+from round_txn_coverage import sparse_step_progress_errors  # noqa: E402
+from validate_run import OBSERVABLE_BASIS_RE, check_episode  # noqa: E402
+from verify_execution_shapes import KNOWN_TOOLS, verify_episode_steps  # noqa: E402
+
+HIDDEN = {
+    "thought",
+    "chain_of_thought",
+    "scratch",
+    "reasoning",
+    "inner_monologue",
+    "hidden_reasoning",
+    "internal_reasoning",
+    "internal_reasoning_verbatim",
+}
+
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "SuperGrok Heavy chat",
+    "generated_at": "2026-09-02T21:20:00Z",
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+    "training_ready": False,
+}
+
+PREFIXES = ("Plan: ", "Observation: ", "Reflection: ", "Tool call: ")
+
+
+def db(text: str) -> str:
+    if not text.startswith(PREFIXES):
+        raise SystemExit(f"basis prefix: {text!r}")
+    if OBSERVABLE_BASIS_RE.search(text) is None:
+        raise SystemExit(f"basis observable: {text!r}")
+    n = len(text)
+    if not (80 <= n <= 240):
+        raise SystemExit(f"basis len {n}: {text!r}")
+    return text
+
+
+def hid(slug: str) -> str:
+    return hashlib.sha256(slug.encode()).hexdigest()[:6]
+
+
+def step(
+    n: int,
+    basis: str,
+    name: str,
+    args: dict,
+    observation: str,
+    reflection: str,
+    plan: str | None = None,
+) -> dict:
+    out = {
+        "n": n,
+        "decision_basis": db(basis),
+        "tool_call": {"name": name, "args": args},
+        "observation": observation,
+        "reflection": reflection,
+    }
+    if plan is not None:
+        out["plan"] = plan
+        # keep plan after decision_basis like live r02
+        ordered = {
+            "n": n,
+            "decision_basis": out["decision_basis"],
+            "plan": plan,
+            "tool_call": out["tool_call"],
+            "observation": observation,
+            "reflection": reflection,
+        }
+        return ordered
+    return out
+
+
+def walk_hidden(obj, path=""):
+    hits = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            lk = k.lower()
+            if lk in HIDDEN or lk.startswith("internal_reasoning"):
+                hits.append(f"{path}{k}")
+            hits.extend(walk_hidden(v, path + k + "."))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            hits.extend(walk_hidden(v, path + f"[{i}]."))
+    return hits
+
+
+def census_live_ids():
+    ids = set()
+    if not os.path.isdir(LIVE):
+        raise SystemExit(f"missing live dir {LIVE}")
+    for name in os.listdir(LIVE):
+        if not name.startswith("batch-r") or not name.endswith(".jsonl"):
+            continue
+        with open(os.path.join(LIVE, name), encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                ids.add(json.loads(line)["id"])
+    return ids
+
+
+def validate(ep: dict) -> None:
+    where = ep["id"]
+    errs = check_episode(ep, where, require_goal=True, forbid_hidden_thought=True)
+    if errs:
+        raise SystemExit("check_episode: " + "; ".join(errs))
+    status, reasons = verify_episode_steps(ep["steps"], where)
+    if status != "verified":
+        raise SystemExit(f"verify_episode_steps {status}: {reasons}")
+    sparse = sparse_step_progress_errors(where, ep["steps"])
+    if sparse:
+        raise SystemExit("sparse: " + "; ".join(sparse))
+    hidden = walk_hidden(ep)
+    if hidden:
+        raise SystemExit("hidden keys: " + ",".join(hidden))
+    steps = ep["steps"]
+    ns = [s["n"] for s in steps]
+    if ns != list(range(1, len(steps) + 1)):
+        raise SystemExit(f"step numbering {ns}")
+    if not (12 <= len(steps) <= 17):
+        raise SystemExit(f"step count {len(steps)}")
+    tools = [(s["tool_call"]["name"]) for s in steps]
+    bad = [t for t in tools if t not in KNOWN_TOOLS]
+    if bad:
+        raise SystemExit(f"unknown tools {bad}")
+    obs = [s["observation"] for s in steps]
+    n429 = sum(1 for o in obs if "429" in o)
+    n502 = sum(1 for o in obs if "502" in o)
+    if n429 != 1 or n502 != 1:
+        raise SystemExit(f"noise counts 429={n429} 502={n502}")
+    for s in steps:
+        if "hypothesis" in s["observation"].lower():
+            raise SystemExit(f"hypothesis in observation step {s['n']}")
+        if not s["decision_basis"].startswith(PREFIXES):
+            raise SystemExit(f"basis prefix step {s['n']}")
+    # recovery observations must not repeat status codes
+    for s in steps:
+        dbasis = s["decision_basis"]
+        if "429" in dbasis and "429" in s["observation"]:
+            raise SystemExit(f"429 leaked into recovery obs step {s['n']}")
+        if "502" in dbasis and "502" in s["observation"]:
+            raise SystemExit(f"502 leaked into recovery obs step {s['n']}")
+    plan_hits = [
+        s["n"]
+        for s in steps
+        if "plan change:" in (s.get("reflection") or "").lower()
+        or "pivoting:" in (s.get("reflection") or "").lower()
+    ]
+    if plan_hits != [8]:
+        raise SystemExit(f"plan change steps {plan_hits}")
+    if ep["meta"]["round"] != 4:
+        raise SystemExit("meta.round")
+    if ep["meta"]["factory"] != "agentic-coding-trajectory-factory":
+        raise SystemExit("meta.factory")
+    if ep["meta"]["sim_or_real"] != "designed":
+        raise SystemExit("sim_or_real")
+
+
+def episode_a(eid: str) -> dict:
+    steps = [
+        step(
+            1,
+            "Plan: BT-240 reports harbor event IDs round from 9007199254740993 to 9007199254740992. Search ParseEventID and json.Unmarshal as evidence of a float64 id.",
+            "search",
+            {
+                "pattern": "ParseEventID|json.Unmarshal|float64|UseNumber|json.Number",
+                "path": ".",
+            },
+            "bitternid/parse.go:11:func ParseEventID(b []byte) (uint64, error) {\n"
+            "bitternid/parse.go:12:    var m map[string]any\n"
+            "bitternid/parse.go:13:    if err := json.Unmarshal(b, &m); err != nil {\n"
+            "bitternid/parse.go:16:    f, ok := m[\"id\"].(float64)\n"
+            "bitternid/parse.go:20:    return uint64(f), nil\n"
+            "tests/smoke_test.go:8:    got, _ := ParseEventID([]byte(`{\"id\":1001}`))\n"
+            "6 matches",
+            "Found ParseEventID unmarshalling id into map[string]any then float64. Next read the helper.",
+            plan="1) search ParseEventID 2) read parse.go 3) measure float64 rounding 4) confirm want exact uint64 5) UseNumber 6) mixed-id regression + PR",
+        ),
+        step(
+            2,
+            "Observation: parse.go:16 casts m[\"id\"].(float64) then uint64(f) (step 1). Read the helper as evidence of any json.Decoder UseNumber path.",
+            "read_file",
+            {"path": "bitternid/parse.go", "offset": 1, "limit": 22},
+            "1  package bitternid\n"
+            "2\n"
+            "3  import (\n"
+            "4      \"encoding/json\"\n"
+            "5      \"fmt\"\n"
+            "6  )\n"
+            "7\n"
+            "8  // Harbor event IDs are uint64 snowflakes; JSON numbers must stay exact.\n"
+            "9  // A truncated S3 object is independent of this client decoder.\n"
+            "10\n"
+            "11 func ParseEventID(b []byte) (uint64, error) {\n"
+            "12     var m map[string]any\n"
+            "13     if err := json.Unmarshal(b, &m); err != nil {\n"
+            "14         return 0, err\n"
+            "15     }\n"
+            "16     f, ok := m[\"id\"].(float64)\n"
+            "17     if !ok {\n"
+            "18         return 0, fmt.Errorf(\"id\")\n"
+            "19     }\n"
+            "20     return uint64(f), nil\n"
+            "21 }\n",
+            "Learned Unmarshal into any stores id as float64. First plan: S3 truncated the snowflake digits. Next measure IEEE rounding.",
+        ),
+        step(
+            3,
+            "Observation: ParseEventID returns uint64 of a float64 id (step 2). Measure float(9007199254740993) as evidence of mantissa rounding.",
+            "bash",
+            {
+                "command": "python3 -c \"print(int(float(9007199254740993))); print(repr(float(9007199254740993)))\""
+            },
+            "9007199254740992\n9007199254740992.0",
+            "Measured IEEE float64 rounding 2^53+1 down to 9007199254740992. Next confirm partner want still lists the exact uint64.",
+        ),
+        step(
+            4,
+            "Reflection: float64 rounded the snowflake id (step 3). Fetch encoding/json UseNumber notes via gh as evidence of json.Number vs float64.",
+            "gh",
+            {
+                "subcommand": "api",
+                "method": "GET",
+                "path": "repos/golang/go/contents/src/encoding/json/decode.go",
+            },
+            "HTTP/2 429\n"
+            "retry-after: 5\n"
+            "x-ratelimit-limit: 60\n"
+            "x-ratelimit-remaining: 0\n"
+            "{\"message\":\"API rate limit exceeded for user ci-runner (60 req/h GitHub); retry_after=5\",\"documentation_url\":\"https://docs.github.com/rest/overview/rate-limits\"}",
+            "GitHub returned 429 with retry-after 5 while fetching decode.go. Wait, then use the vendored docs/json-number-id.md fixture.",
+        ),
+        step(
+            5,
+            "Observation: gh api returned 429 with retry-after 5 (step 4). Sleep 6s, then read docs/json-number-id.md as local-docs evidence.",
+            "read_file",
+            {"path": "docs/json-number-id.md", "offset": 1, "limit": 16},
+            "1  encoding/json Unmarshal into any stores numbers as float64; integers above 2^53 are not exact.\n"
+            "2  uint64(float64(9007199254740993)) is 9007199254740992.\n"
+            "3  A string-only decoder (id as JSON string) still fails partner A number payloads.\n"
+            "4  Durable: json.Decoder.UseNumber then json.Number.String into ParseUint, and accept string ids.\n"
+            "5  Dropping the small id 1001 loses the smoke row.\n"
+            "6  A truncated S3 object is independent of this client decoder.\n",
+            "Verified UseNumber plus string ids is the contract and string-only still fails numbers. Next pull the committed event-ids fixture.",
+        ),
+        step(
+            6,
+            "Observation: RFC-style notes say ParseEventID needs UseNumber (step 5). Get the committed event-ids object as evidence the want id is exact.",
+            "aws",
+            {
+                "argv": [
+                    "s3api",
+                    "get-object",
+                    "--bucket",
+                    "bitternfen-specs",
+                    "--key",
+                    "bitternid/event-ids.json",
+                    "/tmp/bitternid-inventory.json",
+                ]
+            },
+            "download failed: s3.eu-north-1.amazonaws.com/bitternfen-specs\n"
+            "HTTP/1.1 502 Bad Gateway\n"
+            "server: awselb/2.0\n"
+            "upstream connect error or disconnect/reset before headers. reset reason: connection failure",
+            "Event-id inventory get-object hit 502 on the ELB before headers. Retry against the committed fixtures/event-ids.json instead of the edge.",
+        ),
+        step(
+            7,
+            "Observation: event-ids get-object returned 502 from the ELB (step 6). jq fixtures/event-ids.json want against the stale file as local-spec evidence.",
+            "jq",
+            {
+                "argv": [
+                    "-s",
+                    "{want:.[0].want, stale:.[1].want, got:.[0].got, path:.[0].path}",
+                    "fixtures/event-ids.json",
+                    "fixtures/event-ids.stale.json",
+                ]
+            },
+            "{\n"
+            "  \"want\": {\n"
+            "    \"number\": 9007199254740993,\n"
+            "    \"string\": \"9007199254740993\",\n"
+            "    \"small\": 1001\n"
+            "  },\n"
+            "  \"stale\": {\n"
+            "    \"number\": 9007199254740992,\n"
+            "    \"string\": \"9007199254740992\",\n"
+            "    \"small\": 1001\n"
+            "  },\n"
+            "  \"got\": 9007199254740992,\n"
+            "  \"path\": \"fixtures/events.ndjson\"\n"
+            "}",
+            "Verified dest want already lists exact 9007199254740993 while stale still lists the rounded 9007199254740992. Next join that with the measured uint64(float64).",
+        ),
+        step(
+            8,
+            "Observation: fixture want already lists exact 9007199254740993 and stale still lists 9007199254740992 (step 7). jq the measured rounded id against that spec as evidence whether S3 truncated digits.",
+            "jq",
+            {
+                "argv": [
+                    "-n",
+                    "--slurpfile",
+                    "s",
+                    "fixtures/event-ids.json",
+                    "{got:9007199254740992,want:$s[0].want.number,small:$s[0].want.small,path:$s[0].path}",
+                ]
+            },
+            "{\n"
+            "  \"got\": 9007199254740992,\n"
+            "  \"want\": 9007199254740993,\n"
+            "  \"small\": 1001,\n"
+            "  \"path\": \"fixtures/events.ndjson\"\n"
+            "}",
+            "Plan change: partner want already lists exact 9007199254740993 and got is float64 rounding on a committed 3-line ndjson. Abandon truncated-transit. Switching the edit target to ParseEventID so json.Decoder uses UseNumber.",
+        ),
+        step(
+            9,
+            "Reflection: pivoting off the truncated-transit plan; ParseEventID still emits 9007199254740992 (step 8). Edit a string-only id as evidence number payloads may be dropped.",
+            "edit_file",
+            {
+                "path": "bitternid/parse.go",
+                "old_string": "    f, ok := m[\"id\"].(float64)\n    if !ok {\n        return 0, fmt.Errorf(\"id\")\n    }\n    return uint64(f), nil\n",
+                "new_string": "    s, ok := m[\"id\"].(string)\n    if !ok {\n        return 0, fmt.Errorf(\"id not string\")\n    }\n    u, err := strconv.ParseUint(s, 10, 64)\n    return u, err\n",
+            },
+            "Edited bitternid/parse.go: ParseEventID now requires a JSON string id so number payloads error.",
+            "Wrote a string-only decoder. Add a go test that requires mixed number and string snowflakes to stay exact.",
+        ),
+        step(
+            10,
+            "Observation: ParseEventID now type-asserts id as string (step 9). Write a go test as evidence that number 9007199254740993 stays exact.",
+            "write_file",
+            {
+                "path": "bitternid/parse_mixed_test.go",
+                "content": (
+                    "package bitternid\n\n"
+                    "import \"testing\"\n\n"
+                    "func TestParseMixedIDs(t *testing.T) {\n"
+                    "    n, err := ParseEventID([]byte(`{\"id\":9007199254740993}`))\n"
+                    "    if err != nil || n != 9007199254740993 {\n"
+                    "        t.Fatalf(\"number: got %d err %v\", n, err)\n"
+                    "    }\n"
+                    "    s, err := ParseEventID([]byte(`{\"id\":\"9007199254740993\"}`))\n"
+                    "    if err != nil || s != 9007199254740993 {\n"
+                    "        t.Fatalf(\"string: got %d err %v\", s, err)\n"
+                    "    }\n"
+                    "    small, err := ParseEventID([]byte(`{\"id\":1001}`))\n"
+                    "    if err != nil || small != 1001 {\n"
+                    "        t.Fatalf(\"small: got %d err %v\", small, err)\n"
+                    "    }\n"
+                    "}\n"
+                ),
+            },
+            "Wrote bitternid/parse_mixed_test.go (18 lines).",
+            "Created a mixed-id regression that expects number and string snowflakes to stay 9007199254740993. Run go test to reproduce the string-only miss.",
+        ),
+        step(
+            11,
+            "Plan: run go test ./bitternid as evidence whether the string-only decoder keeps partner dest ids exact.",
+            "bash",
+            {"command": "go test ./bitternid -count=1 2>&1 | tail -n 24"},
+            "--- FAIL: TestParseMixedIDs (0.00s)\n"
+            "    parse_mixed_test.go:7: number: got 0 err id not string\n"
+            "FAIL\n"
+            "FAIL\tgit.bitternfen.internal/pkg/bitternid-harbor/bitternid\t0.01s\n"
+            "FAIL",
+            "Test failed: string-only still rejects the number payload. Re-read ParseEventID and switch to UseNumber.",
+        ),
+        step(
+            12,
+            "Observation: go test failed with id not string on the number payload (step 11). Re-read ParseEventID for the Unmarshal evidence.",
+            "read_file",
+            {"path": "bitternid/parse.go", "offset": 11, "limit": 16},
+            "11 func ParseEventID(b []byte) (uint64, error) {\n"
+            "12     var m map[string]any\n"
+            "13     if err := json.Unmarshal(b, &m); err != nil {\n"
+            "14         return 0, err\n"
+            "15     }\n"
+            "16     s, ok := m[\"id\"].(string)\n"
+            "17     if !ok {\n"
+            "18         return 0, fmt.Errorf(\"id not string\")\n"
+            "19     }\n"
+            "20     u, err := strconv.ParseUint(s, 10, 64)\n"
+            "21     return u, err\n"
+            "22 }\n",
+            "Confirmed line 16 still requires a string id against a number payload that must parse. Patch UseNumber and keep string ids.",
+        ),
+        step(
+            13,
+            "Reflection: ParseEventID must UseNumber rather than float64 or string-only (step 12). Patch parse.go as evidence of the mixed-id contract.",
+            "edit_file",
+            {
+                "path": "bitternid/parse.go",
+                "old_string": (
+                    "func ParseEventID(b []byte) (uint64, error) {\n"
+                    "    var m map[string]any\n"
+                    "    if err := json.Unmarshal(b, &m); err != nil {\n"
+                    "        return 0, err\n"
+                    "    }\n"
+                    "    s, ok := m[\"id\"].(string)\n"
+                    "    if !ok {\n"
+                    "        return 0, fmt.Errorf(\"id not string\")\n"
+                    "    }\n"
+                    "    u, err := strconv.ParseUint(s, 10, 64)\n"
+                    "    return u, err\n"
+                    "}\n"
+                ),
+                "new_string": (
+                    "func ParseEventID(b []byte) (uint64, error) {\n"
+                    "    dec := json.NewDecoder(bytes.NewReader(b))\n"
+                    "    dec.UseNumber()\n"
+                    "    var m map[string]any\n"
+                    "    if err := dec.Decode(&m); err != nil {\n"
+                    "        return 0, err\n"
+                    "    }\n"
+                    "    switch v := m[\"id\"].(type) {\n"
+                    "    case json.Number:\n"
+                    "        return strconv.ParseUint(v.String(), 10, 64)\n"
+                    "    case string:\n"
+                    "        return strconv.ParseUint(v, 10, 64)\n"
+                    "    default:\n"
+                    "        return 0, fmt.Errorf(\"id\")\n"
+                    "    }\n"
+                    "}\n"
+                ),
+            },
+            "Edited bitternid/parse.go: ParseEventID now UseNumber and accepts string ids so 9007199254740993 stays exact.",
+            "Patched the UseNumber decoder. Re-run go test; mixed ids should stay exact.",
+        ),
+        step(
+            14,
+            "Observation: ParseEventID now uses json.Decoder UseNumber (step 13). Re-run go test as verification evidence.",
+            "bash",
+            {"command": "go test ./bitternid -count=1 2>&1 | tail -n 12"},
+            "ok  \tgit.bitternfen.internal/pkg/bitternid-harbor/bitternid\t0.02s",
+            "Verified go test passed including TestParseMixedIDs. Open the BT-240 PR.",
+        ),
+        step(
+            15,
+            "Observation: go test passed after the UseNumber patch (step 14). Create the BT-240 PR via gh as evidence of the ParseEventID fix.",
+            "gh",
+            {
+                "subcommand": "api",
+                "method": "POST",
+                "path": "repos/bitternfen/bitternid-harbor/pulls",
+                "raw_field": "title=BT-240: UseNumber so ParseEventID keeps 9007199254740993 instead of float64 rounding",
+            },
+            "{\n"
+            "  \"number\": 241,\n"
+            "  \"html_url\": \"https://git.bitternfen.internal/pkg/bitternid-harbor/pull/241\",\n"
+            "  \"state\": \"open\"\n"
+            "}",
+            "Opened PR 241. ParseEventID keeps exact uint64 ids. Live partner copies remain a follow-up against the designed host.",
+        ),
+    ]
+    return {
+        "id": eid,
+        "goal": (
+            "BT-240 (bitternid-harbor, Go 1.22 encoding/json event-id helper + fixtures/event-ids.json; go test): "
+            "nightly partner copies print event id 9007199254740992 while the dest id is 9007199254740993 "
+            "(file fixtures/events.ndjson). Find why ParseEventID rounds snowflakes, add a mixed number/string "
+            "regression, and open a PR. Designed plant; not a live partner apply."
+        ),
+        "steps": steps,
+        "outcome": (
+            "ParseEventID unmarshaled JSON numbers into map[string]any float64, so snowflake 9007199254740993 "
+            "became 9007199254740992. A first patch that accepted only JSON string ids still failed "
+            "TestParseMixedIDs (got 0 err id not string on the number payload). ParseEventID now uses "
+            "json.Decoder.UseNumber and accepts string ids. Verified by go test (bitternid.TestParseMixedIDs). "
+            "PR 241 opened. Live partner copies remain a follow-up against the designed host."
+        ),
+        "reward": {
+            "success": True,
+            "task_completion": 0.4,
+            "json_number_id_fix": 0.12,
+            "mixed_id_go_test": 0.08,
+            "noise_retry_overhead_penalty": -0.02,
+            "total": 0.58,
+            "aggregation": (
+                "unweighted sum of the numeric components above (success is a boolean label, not a summand); "
+                "rounding_decimals 2"
+            ),
+            "cost": {
+                "tests_passed": 6,
+                "tests_failed_final": 0,
+                "wasted_calls": 2,
+                "retries": 2,
+                "duration_min": 26,
+            },
+        },
+        "meta": {
+            "factory": "agentic-coding-trajectory-factory",
+            "round": 4,
+            "generator": "grok-4.6",
+            "run_label": "2026-09-02-final-heavy",
+            "sim_or_real": "designed",
+            "training_ready": False,
+            "rights": RIGHTS,
+            "codebase_type": "library / harbor event-id helper (Go 1.22 encoding/json)",
+            "bug_class": (
+                "schema mismatch: json.Unmarshal into any stores id as float64 so 2^53+1 rounds; "
+                "first fix string-only decoder rejected number payloads"
+            ),
+            "test_harness": "go test + aws s3api + jq",
+            "noise_steps": {"429": 4, "502": 6},
+            "noise_recovery_steps": {"429": 5, "502": 7},
+            "plan_change_step": 8,
+            "debug_loop_steps": [9, 10, 11, 12, 13, 14],
+            "tags": [
+                "encoding-json",
+                "float64-mantissa",
+                "UseNumber",
+                "json.Number",
+                "snowflake-id",
+                "go-test",
+            ],
+        },
+    }
+
+
+def episode_b(eid: str) -> dict:
+    steps = [
+        step(
+            1,
+            "Plan: AV-72 reports harbor dest rows split \"harbor, quay\" into extra fields. Search split_row and str.split as evidence of a quoted-comma parse.",
+            "search",
+            {
+                "pattern": "split_row|line.split\\(\",\"\\)|csv.reader|quoted",
+                "path": ".",
+            },
+            "avocetsv/split.py:6:def split_row(line: str) -> list[str]:\n"
+            "avocetsv/split.py:7:    return [p.strip() for p in line.split(\",\")]\n"
+            "avocetsv/split.py:11:        return [split_row(line.rstrip(\"\\n\")) for line in fh]\n"
+            "tests/smoke.test.py:6:    split_row(\"harbor,ok\")\n"
+            "5 matches",
+            "Found split_row splitting dest lines on every comma. Next read the CLI helper.",
+            plan="1) search split_row 2) read split.py 3) measure quoted comma 4) confirm want 2 fields 5) csv.reader 6) apply or hand off",
+        ),
+        step(
+            2,
+            "Observation: split.py:7 calls line.split(\",\") (step 1). Read the helper as evidence of any csv.reader path.",
+            "read_file",
+            {"path": "avocetsv/split.py", "offset": 1, "limit": 16},
+            "1  import csv\n"
+            "2\n"
+            "3  # Harbor dest rows quote names that contain commas.\n"
+            "4  # Deleting dest.lock fail-opens partner coverage.\n"
+            "5\n"
+            "6  def split_row(line: str) -> list[str]:\n"
+            "7      return [p.strip() for p in line.split(\",\")]\n"
+            "8\n"
+            "9  def load_rows(path: str) -> list:\n"
+            "10     with open(path, encoding=\"utf-8\") as fh:\n"
+            "11         return [split_row(line.rstrip(\"\\n\")) for line in fh]\n",
+            "Learned split_row uses str.split on commas. First plan: S3 dest traces omitted the quoted name. Next measure a quoted comma split.",
+        ),
+        step(
+            3,
+            "Observation: split_row splits on every comma (step 2). Measure '\"harbor, quay\",ok'.split(',') as evidence of a three-field dest row.",
+            "bash",
+            {
+                "command": "python3 -c 'print(\"\\\"harbor, quay\\\",ok\".split(\",\")); print(len(\"\\\"harbor, quay\\\",ok\".split(\",\")))'"
+            },
+            "['\"harbor', ' quay\"', 'ok']\n3",
+            "Measured three fields from a quoted dest name. Next confirm the want field count is 2.",
+        ),
+        step(
+            4,
+            "Observation: quoted dest names split into 3 fields (step 3). Get the committed dest-rows traces as evidence the want field count is 2.",
+            "aws",
+            {
+                "argv": [
+                    "s3api",
+                    "get-object",
+                    "--bucket",
+                    "avocetfen-specs",
+                    "--key",
+                    "avocetsv/dest-rows.json",
+                    "/tmp/avocetsv-inventory.json",
+                ]
+            },
+            "download failed: s3.eu-north-1.amazonaws.com/avocetfen-specs\n"
+            "HTTP/1.1 502 Bad Gateway\n"
+            "server: awselb/2.0\n"
+            "upstream connect error or disconnect/reset before headers. reset reason: connection failure",
+            "Dest-rows get-object hit 502 on the ELB before headers. Retry against the committed fixtures/dest-rows.json instead of the edge.",
+        ),
+        step(
+            5,
+            "Observation: dest-rows get-object returned 502 from the ELB (step 4). jq fixtures/dest-rows.json want against the stale file as local-spec evidence.",
+            "jq",
+            {
+                "argv": [
+                    "-s",
+                    "{want:.[0].want, stale:.[1].want, got:.[0].got, argv:.[0].row}",
+                    "fixtures/dest-rows.json",
+                    "fixtures/dest-rows.stale.json",
+                ]
+            },
+            "{\n"
+            "  \"want\": [\"harbor, quay\", \"ok\"],\n"
+            "  \"stale\": [\"\\\"harbor\", \"quay\\\"\", \"ok\"],\n"
+            "  \"got\": [\"\\\"harbor\", \"quay\\\"\", \"ok\"],\n"
+            "  \"argv\": \"\\\"harbor, quay\\\",ok\"\n"
+            "}\n"
+            "wrote /tmp/avocetsv-traces.json",
+            "Verified dest want already lists two fields harbor, quay and ok while stale still lists three split tokens. Next fetch csv.reader notes.",
+        ),
+        step(
+            6,
+            "Observation: fixture want is two fields while got is three (step 5). Fetch csv.reader notes via gh as evidence of quoted-comma vs a regex split.",
+            "gh",
+            {
+                "subcommand": "api",
+                "method": "GET",
+                "path": "repos/python/cpython/contents/Doc/library/csv.rst",
+            },
+            "HTTP/2 429\n"
+            "retry-after: 7\n"
+            "x-ratelimit-limit: 60\n"
+            "x-ratelimit-remaining: 0\n"
+            "{\"message\":\"API rate limit exceeded for user ci-runner (60 req/h GitHub); retry_after=7\",\"documentation_url\":\"https://docs.github.com/rest/overview/rate-limits\"}",
+            "GitHub returned 429 with retry-after 7 while fetching csv docs. Wait, then use the vendored docs/csv-quoted.md fixture.",
+        ),
+        step(
+            7,
+            "Observation: gh api returned 429 with retry-after 7 (step 6). Sleep 8s, then read docs/csv-quoted.md as local-docs evidence.",
+            "read_file",
+            {"path": "docs/csv-quoted.md", "offset": 1, "limit": 16},
+            "1  str.split(\",\") does not honor RFC 4180 quotes, so \"harbor, quay\" becomes two fields.\n"
+            "2  A lookahead regex ,(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$) still fails doubled quotes inside a field.\n"
+            "3  Durable: next(csv.reader([line])) so \"harbor, \"\"quay\"\"\",ok is [harbor, \"quay\", ok].\n"
+            "4  Deleting dest.lock fail-opens partner coverage.\n"
+            "5  A dummy unquoted harbor,ok run still does not prove the quoted name.\n"
+            "6  Remote-trace lag is independent of this csv split.\n",
+            "Verified quoted dest names need csv.reader, not a regex split. Next join that with the saved traces.",
+        ),
+        step(
+            8,
+            "Observation: docs require csv.reader, not str.split (step 7). jq the saved traces as evidence of the dest-field skew.",
+            "jq",
+            {
+                "argv": [
+                    "-r",
+                    "{want:.want,got:.got,row:.row}",
+                    "/tmp/avocetsv-traces.json",
+                ]
+            },
+            "{\n"
+            "  \"want\": [\"harbor, quay\", \"ok\"],\n"
+            "  \"got\": [\"\\\"harbor\", \"quay\\\"\", \"ok\"],\n"
+            "  \"row\": \"\\\"harbor, quay\\\",ok\"\n"
+            "}",
+            "Plan change: traces already include the quoted dest name and got is three fields, which is str.split not an omitted quote. Abandon remounting remote traces. Switching the edit target to split.py so quoted commas stay inside one field.",
+        ),
+        step(
+            9,
+            "Reflection: pivoting off the omitted-quote plan; split_row still emits three fields (step 8). Refuse deleting dest.lock as evidence the objects must stay.",
+            "refuse",
+            {
+                "action": "rm -f dest.lock so a freshly created dest catalog picks csv.reader",
+                "policy": "FS-MUTATE-04",
+                "incident": "AV-72",
+            },
+            "refused: FS-MUTATE-04 forbids deleting dest.lock to skip a str.split skew. Delete would drop in-flight partner dest writes and can fail-open coverage. Safe alternative: patch csv.reader and keep the lock file. found 0 waivers",
+            "Denied the delete. Next patch split.py; keep the dest lock.",
+        ),
+        step(
+            10,
+            "Observation: delete is refused; edit target is str.split (step 9). First patch: regex comma-not-in-quotes as evidence doubled quotes may still split.",
+            "edit_file",
+            {
+                "path": "avocetsv/split.py",
+                "old_string": "    return [p.strip() for p in line.split(\",\")]\n",
+                "new_string": "    return [p.strip().strip('\"') for p in re.split(r',(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)', line)]\n",
+            },
+            "Edited avocetsv/split.py: split_row now uses a quote-lookahead regex so simple quoted commas group.",
+            "Wrote a regex split. Add a pytest that requires doubled quotes inside the dest name to stay one field.",
+        ),
+        step(
+            11,
+            "Observation: parser now uses a quote-lookahead regex (step 10). Write a pytest as evidence that doubled quotes keep dest names as one field.",
+            "write_file",
+            {
+                "path": "tests/test_split.py",
+                "content": (
+                    "from avocetsv.split import split_row\n\n"
+                    "def test_quoted_comma_dest():\n"
+                    "    assert split_row('\"harbor, quay\",ok') == [\"harbor, quay\", \"ok\"]\n\n"
+                    "def test_escaped_quote_dest():\n"
+                    "    assert split_row('\"harbor, \"\"quay\"\"\",ok') == ['harbor, \"quay\"', \"ok\"]\n"
+                ),
+            },
+            "Wrote tests/test_split.py (8 lines).",
+            "Created an escaped-quote regression. Run pytest to reproduce the regex miss.",
+        ),
+        step(
+            12,
+            "Plan: run pytest tests/test_split.py as evidence whether the regex split satisfies the escaped-quote dest contract.",
+            "bash",
+            {
+                "command": "pytest tests/test_split.py tests/smoke.test.py -q 2>&1 | tail -n 24"
+            },
+            "F.\n"
+            "=========================== FAILURES ===========================\n"
+            "______________ test_escaped_quote_dest ______________\n"
+            "tests/test_split.py:8: in test_escaped_quote_dest\n"
+            "    assert split_row('\"harbor, \"\"quay\"\"\",ok') == ['harbor, \"quay\"', \"ok\"]\n"
+            "E   AssertionError: assert ['harbor', '\"quay\"\"', 'ok'] == ['harbor, \"quay\"', 'ok']\n"
+            "FAILED tests/test_split.py::test_escaped_quote_dest\n"
+            "1 failed, 2 passed in 0.11s",
+            "Test failed: regex still splits on the comma inside doubled quotes. Re-read split.py and switch to csv.reader.",
+        ),
+        step(
+            13,
+            "Observation: pytest failed with a three-field got on escaped quotes (step 12). Re-read split_row for the regex evidence.",
+            "read_file",
+            {"path": "avocetsv/split.py", "offset": 6, "limit": 8},
+            "6  def split_row(line: str) -> list[str]:\n"
+            "7      return [p.strip().strip('\"') for p in re.split(r',(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)', line)]\n"
+            "8\n"
+            "9  def load_rows(path: str) -> list:\n"
+            "10     with open(path, encoding=\"utf-8\") as fh:\n"
+            "11         return [split_row(line.rstrip(\"\\n\")) for line in fh]\n",
+            "Confirmed line 7 still uses a lookahead regex against doubled quotes that must parse. Patch csv.reader and keep split_row.",
+        ),
+        step(
+            14,
+            "Reflection: helper must parse RFC 4180 quotes via csv.reader (step 13). Patch split.py spec as evidence of the dest-field contract.",
+            "edit_file",
+            {
+                "path": "avocetsv/split.py",
+                "old_string": "def split_row(line: str) -> list[str]:\n    return [p.strip().strip('\"') for p in re.split(r',(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)', line)]\n",
+                "new_string": "def split_row(line: str) -> list[str]:\n    return next(csv.reader([line]))\n",
+            },
+            "Edited avocetsv/split.py: split_row now uses csv.reader so doubled quotes stay inside the dest name.",
+            "Patched csv.reader and kept split_row. Re-run pytest; dest field count should stay 2.",
+        ),
+        step(
+            15,
+            "Observation: helper now parses quoted dest names via csv.reader (step 14). Re-run pytest as verification evidence.",
+            "bash",
+            {
+                "command": "pytest tests/test_split.py tests/smoke.test.py -q 2>&1 | tail -n 12"
+            },
+            "....\n4 passed in 0.09s",
+            "Verified 4 passed including test_escaped_quote_dest. Check gate-cli before applying the dest catalog.",
+        ),
+        step(
+            16,
+            "Observation: pytest passed 4/4 after the csv.reader patch (step 15). Run gate-cli check apply as evidence whether prod dest mutation is allowed.",
+            "gate-cli",
+            {
+                "argv": [
+                    "check",
+                    "apply",
+                    "--change",
+                    "avocetsv-csv-reader",
+                    "--resource",
+                    "dest.lock",
+                ]
+            },
+            "gate-cli check apply --change avocetsv-csv-reader\n"
+            "status: REJECT\n"
+            "policy: prod-batch-freeze\n"
+            "ticket: AV-60\n"
+            "until: 2026-09-16T00:00:00Z\n"
+            "evidence: change mutates dest.lock (avocetsv-harbor str.split to csv.reader)\n"
+            "found 0 waivers",
+            "Measured REJECT under AV-60 freeze through 2026-09-16. Do not apply dest writes. Open a handoff issue attaching the csv.reader fix.",
+        ),
+        step(
+            17,
+            "Observation: gate-cli REJECT'd the dest apply under freeze AV-60 (step 16). Open a handoff issue as evidence live still has str.split.",
+            "gh",
+            {
+                "subcommand": "issue",
+                "verb": "create",
+                "title": "AV-83: apply avocetsv csv.reader after AV-60 freeze (blocks AV-72 close)",
+                "body": "split.py now emits csv.reader for dest rows; pytest 4 passed. Live dest still has str.split. gate-cli freeze AV-60 until 2026-09-16. Do not delete dest.lock.",
+            },
+            "https://git.avocetfen.internal/cli/avocetsv-harbor/issues/83",
+            "Opened AV-83. CLI tests are green; prod apply remains blocked. Handoff, not close.",
+        ),
+    ]
+    return {
+        "id": eid,
+        "goal": (
+            "AV-72 (avocetsv-harbor, Python 3.12 dest-row splitter CLI + kind-less avocetfen; pytest + gate-cli): "
+            "partner dest rows were cut into extra fields when names contained commas because split_row used str.split. "
+            "Find why the quoted name still splits, fix the CLI, and apply or hand off. Designed plant; not a live dest apply."
+        ),
+        "steps": steps,
+        "outcome": (
+            "split.py emitted line.split(\",\"), so \"harbor, quay\",ok became three fields. A first patch that used a "
+            "quote-lookahead regex still failed tests/test_split.py (got ['harbor', '\"quay\"\"', 'ok'] on doubled quotes). "
+            "The CLI now emits csv.reader; pytest 4 passed. Applying dest.lock remains blocked by gate-cli freeze AV-60; "
+            "live dest still has str.split. AV-83 opened. Overall: incomplete; prod apply unresolved."
+        ),
+        "reward": {
+            "success": False,
+            "task_completion": 0.24,
+            "csv_reader_fix": 0.1,
+            "escaped_quote_test": 0.08,
+            "prod_apply_blocked_penalty": -0.12,
+            "noise_retry_overhead_penalty": -0.02,
+            "total": 0.28,
+            "aggregation": (
+                "unweighted sum of the numeric components above (success is a boolean label, not a summand); "
+                "rounding_decimals 2"
+            ),
+            "cost": {
+                "tests_passed": 4,
+                "tests_failed_final": 0,
+                "wasted_calls": 2,
+                "retries": 3,
+                "duration_min": 33,
+                "prod_apply": 0,
+            },
+        },
+        "meta": {
+            "factory": "agentic-coding-trajectory-factory",
+            "round": 4,
+            "generator": "grok-4.6",
+            "run_label": "2026-09-02-final-heavy",
+            "sim_or_real": "designed",
+            "training_ready": False,
+            "rights": RIGHTS,
+            "codebase_type": "CLI / harbor dest-row splitter (Python 3.12 csv)",
+            "bug_class": (
+                "silent no-op: str.split(',') breaks quoted dest names; first fix quote-lookahead regex "
+                "still splits doubled quotes"
+            ),
+            "test_harness": "pytest + aws s3api + jq + gate-cli",
+            "noise_steps": {"502": 4, "429": 6},
+            "noise_recovery_steps": {"502": 5, "429": 7},
+            "plan_change_step": 8,
+            "debug_loop_steps": [10, 11, 12, 13, 14, 15],
+            "tags": [
+                "csv.reader",
+                "quoted-comma",
+                "rfc4180",
+                "str.split",
+                "gate-cli-freeze",
+                "refuse-delete",
+            ],
+        },
+    }
+
+
+NOTES = """# ACTF r04 — 2026-09-02-final-heavy (grok-4.6)
+
+Quota Q=2 designed coding episodes (FACTORY_QUOTAS=2). IDs `{id_a}`, `{id_b}` (mill prefix `act`, unused in-repo). Envelope: id/goal/steps/outcome/reward/meta. Tools restricted to verify_execution KNOWN_TOOLS (`bash`/`read_file`/`edit_file`/`write_file`/`search`/`gh`/`kubectl`/`gate-cli`/`aws`/`jq`/`refuse`). meta.round=4 factory=agentic-coding-trajectory-factory generator=grok-4.6 run_label=2026-09-02-final-heavy sim_or_real=designed. meta.rights RM-793 research_only; training_ready false. Live-tree write is create-only (`{batch_name}`); never clobbered `batch-r01.jsonl` / `NOTES-r01.md` / r02 / r21 / r22 / r41 / r61 / r62 / r63 / r64 and never wrote 2026-08-17/2026-08-30. Distinct from window r01 (sanderling inclusive-after Rust pager / whimbrel Node inflight Map race), r02 (jacanasub re.sub count-vs-flags / tattlerbool argparse type=bool), r21 duration-json-ns / sqlite executescript, r22 sql NullString / SameSite morsel, r41 unpack-be-le / PVC RWO, r61 tzdata LoadLocation / tofu count-index, r62 parsedate -0000 / dunlincut unsorted dedup, r63 pem.Decode rest / tofu moved-block, r64 inet_aton abbrev / WaitForFirstConsumer. Addresses r02 NOTES gap (stale 502 fixture whose want disagrees with a second document) and leaves mill lots and Kubernetes YAML (r64 already returned k8s volumeBindingMode). Invented repos `git.bitternfen.internal/pkg/bitternid-harbor.git` and `git.avocetfen.internal/cli/avocetsv-harbor.git`. Linear RM-793 remains the rights tracker.
+
+| id | codebase / harness | bug class | result | reward.total |
+|----|--------------------|-----------|--------|--------------|
+| {id_a} | Go 1.22 harbor event-id helper + event-ids fixtures / go test + aws s3api + jq | schema mismatch: `json.Unmarshal` into `any` stores id as float64 so 2^53+1 rounds; first fix string-only decoder rejected number payloads | success; TestParseMixedIDs; PR 241 | 0.58 |
+| {id_b} | Python 3.12 dest-row splitter CLI / pytest + gate-cli | silent split: `str.split(',')` broke quoted dest names; first fix quote-lookahead regex still split doubled quotes | incomplete HIL/prod apply; AV-83; freeze AV-60 | 0.28 |
+
+## Step counts, noise, plan change
+- {id_a}: 15 steps. 429 at step 4 (`gh api` golang encoding/json decode.go, retry-after 5) -> recovery step 5 (`sleep 6` + read `docs/json-number-id.md`). 502 at step 6 (`aws s3api get-object` bitternfen-specs event-ids ELB) -> recovery step 7 (`jq` committed `fixtures/event-ids.json` against stale `fixtures/event-ids.stale.json`). Plan change at step 8: jq join shows want already 9007199254740993 while stale/got are 9007199254740992; abandon truncated-transit. Debug loop: 9 edit string-only id -> 10 write mixed-id go test -> 11 FAIL id not string -> 12 re-read parse.go -> 13 UseNumber patch -> 14 go test ok.
+- {id_b}: 17 steps. 502 at step 4 (`aws s3api get-object` avocetfen-specs dest-rows ELB) -> recovery step 5 (`jq` committed `fixtures/dest-rows.json` against stale `fixtures/dest-rows.stale.json`, writes /tmp/avocetsv-traces.json). 429 at step 6 (`gh api` cpython csv.rst, retry-after 7) -> recovery step 7 (`sleep 8` + read `docs/csv-quoted.md`). Plan change at step 8: jq want already two fields while got is three on the quoted dest name; abandon remounting remote traces. Debug loop: 10 edit regex split -> 11 write escaped-quote pytest -> 12 FAIL got three fields -> 13 re-read split.py -> 14 csv.reader patch -> 15 4 passed. `refuse` at step 9 blocks deleting dest.lock. gate-cli REJECT at 16; AV-83 at 17.
+
+## decision_basis audit
+Every step has non-empty decision_basis starting with Plan:/Observation:/Reflection:, 80-240 chars, citing prior visible observation/reflection. No thought/chain_of_thought/scratch/inner_monologue/reasoning keys at any depth. Recovery bases cite 429/502; recovery observations do not repeat those status codes so noise-scan stays 1+1 per episode. Progress terms (found/measured/reproduced/failed/edited/tested/verified/patched) appear on each turn. Word "hypothesis" kept out of observations.
+
+## Reward
+Unweighted numeric sum; success is a label. Cost sits under reward.cost. json-float64-id: 0.40+0.12+0.08-0.02=0.58. csv-quoted-comma: 0.24+0.10+0.08-0.12-0.02=0.28.
+
+## Realism / weak recovery
+Good: `encoding/json` storing numbers in `any` as float64 is a real snowflake-id footgun; a string-only `id.(string)` decoder is the equally tempting OpenAPI-shaped wrong fix and the mixed-id test names the contract (number 9007199254740993 plus string `"9007199254740993"` plus small 1001). `str.split(',')` breaking `"harbor, quay"` is the usual dest-CSV trap; a quote-lookahead regex still cannot satisfy a test that requires doubled quotes `"harbor, ""quay"""`. Stale 502 fallback now compares dest want exact 9007199254740993 / two fields against a second file still on the rounded id / three-token split (r02 densification). gate-cli freeze plus refuse-delete is an honest apply block, not a silent skip. Weak: the Go measure step still shells a python float print as a stand-in before go test; regex failure mode is one doubled-quote row rather than a nested quotes+newline CSV. Next densification: a reviewer asking to keep string-only decode "so partner B string clients never see json.Number", or a 502 whose local dest-rows fixture is rewritten after the csv.reader patch and still lists three fields.
+
+Novel coverage: 47%
+"""
+
+
+def create_only(path: str, data: str) -> None:
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    fd = os.open(path, flags, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(data)
+        if not data.endswith("\n"):
+            fh.write("\n")
+
+
+def pick_paths():
+    batch = os.path.join(LIVE, "batch-r04.jsonl")
+    notes = os.path.join(LIVE, "NOTES-r04.md")
+    if not os.path.exists(batch) and not os.path.exists(notes):
+        return batch, notes, "batch-r04.jsonl", "NOTES-r04.md"
+    batch_c = os.path.join(LIVE, "batch-r04c.jsonl")
+    notes_c = os.path.join(LIVE, "NOTES-r04c.md")
+    if not os.path.exists(batch_c) and not os.path.exists(notes_c):
+        return batch_c, notes_c, "batch-r04c.jsonl", "NOTES-r04c.md"
+    raise SystemExit("both r04 and r04c already exist; refusing overwrite")
+
+
+def main() -> None:
+    live_ids = census_live_ids()
+    slug_a = "json-float64-id-bitternid"
+    slug_b = "csv-quoted-comma-avocetsv"
+    id_a = f"act-r04-{slug_a}-{hid(slug_a)}"
+    id_b = f"act-r04-{slug_b}-{hid(slug_b)}"
+    if id_a in live_ids or id_b in live_ids:
+        raise SystemExit(f"id collision {id_a} {id_b}")
+    plants = "bitternfen avocetfen bitternid avocetsv"
+    blob = " ".join(live_ids).lower()
+    for tok in plants.split():
+        if tok in blob:
+            raise SystemExit(f"plant token collision {tok}")
+    ep_a = episode_a(id_a)
+    ep_b = episode_b(id_b)
+    validate(ep_a)
+    validate(ep_b)
+    batch_path, notes_path, batch_name, notes_name = pick_paths()
+    body = (
+        json.dumps(ep_a, ensure_ascii=False, separators=(",", ":"))
+        + "\n"
+        + json.dumps(ep_b, ensure_ascii=False, separators=(",", ":"))
+        + "\n"
+    )
+    notes = NOTES.format(id_a=id_a, id_b=id_b, batch_name=batch_name)
+    create_only(batch_path, body)
+    try:
+        create_only(notes_path, notes)
+    except FileExistsError:
+        os.remove(batch_path)
+        raise
+    print(json.dumps({
+        "batch": batch_path,
+        "notes": notes_path,
+        "ids": [id_a, id_b],
+        "steps": [len(ep_a["steps"]), len(ep_b["steps"])],
+        "batch_name": batch_name,
+        "notes_name": notes_name,
+    }))
+
+
+if __name__ == "__main__":
+    main()

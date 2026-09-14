@@ -1,0 +1,77 @@
+{
+  "agent_ids": [
+    "01a0640b-4747-72f2-a0e8-e80d84712595"
+  ],
+  "classification": "partial",
+  "classification_evidence": [
+    "at least one full version was recovered, but a later successful edit or terminal mutation could not be placed conclusively",
+    "a successful recorded terminal delete or move removed the final in-/tmp state",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 2,
+  "final_state": "deleted",
+  "hunk_evidence_count": 2,
+  "original_basename": "records_block.py",
+  "original_path": "/tmp/nelb-r38/records_block.py",
+  "path_key": "nelb-r38--e550524d5962",
+  "terminal_event_ids": [
+    "01a0640b-4747-72f2-a0e8-e80d84712595:call-3f5b6694-db5e-499f-a222-25a4b4fb49de-45",
+    "01a0640b-4747-72f2-a0e8-e80d84712595:call-5fed8530-8e05-4b45-8a9b-12ae568a722c-66",
+    "01a0640b-4747-72f2-a0e8-e80d84712595:call-925e4993-a352-4245-ae9b-097a43871738-69",
+    "01a0640b-4747-72f2-a0e8-e80d84712595:call-9993a088-aeca-4371-ba7c-cc0986bd3292-49",
+    "01a0640b-476a-7553-85d1-024148e88fbe:call-28544235-3305-4b07-a299-f6d1434b7224-49",
+    "01a0640b-476a-7553-85d1-024148e88fbe:call-350edfc8-8953-4085-89bc-a5fb78674881-45",
+    "01a0640b-476a-7553-85d1-024148e88fbe:call-5b95af94-6753-4638-a7ec-b93694c1ad51-52",
+    "01a0640b-476a-7553-85d1-024148e88fbe:call-69dd7c08-218c-45be-a436-42c89af42cd8-38",
+    "01a0640c-18be-7ff2-853b-e1ceb09fad5b:call-bf955b6c-d81a-4871-a1c1-a9e28efbc6f8-19",
+    "01a0640c-18be-7ff2-853b-e1ceb09fad5b:call-d1414dab-29e0-4267-be43-87527b052225-45",
+    "01a0640c-18bf-7fa1-84e1-3406acf8b886:call-cc99b9c7-1b1c-477f-835e-61500a6718bc-16",
+    "01a0640c-18bf-7fa1-84e1-3415af253a11:call-254c5871-ee80-4b42-8a02-8e82d119c788-22",
+    "01a0640c-18bf-7fa1-84e1-3415af253a11:call-43da037b-d53e-42b2-bb8d-02df2a638a23-16",
+    "01a0640c-18bf-7fa1-84e1-3415af253a11:call-78827b9b-e4c8-4100-8deb-d1fd9e4c0065-17"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 1,
+  "unresolved_events": [
+    {
+      "channel": "terminal",
+      "event_id": "01a0640b-4747-72f2-a0e8-e80d84712595:call-5fed8530-8e05-4b45-8a9b-12ae568a722c-66",
+      "journal_line": 374,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640b-4747-72f2-a0e8-e80d84712595/updates.jsonl",
+      "operation": "inline_python_write_text",
+      "reason": "inline_python_write_text was recorded but is not conclusively reproducible without execution",
+      "timestamp_utc": "2026-09-02T22:41:36.735Z"
+    }
+  ],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a0640b-4747-72f2-a0e8-e80d84712595",
+      "basename_preserved": true,
+      "bytes": 57323,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 239,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640b-4747-72f2-a0e8-e80d84712595/updates.jsonl",
+      "original_basename": "records_block.py",
+      "original_path": "/tmp/nelb-r38/records_block.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r38--e550524d5962/versions/v0001/records_block.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/nelb-r38--e550524d5962/versions/v0001/records_block.py",
+      "session_id": "01a0640b-4747-72f2-a0e8-e80d84712595",
+      "sha256": "668bf09451ee640efc072cfc0122038964c5ef080efbea46672855fe73dda925",
+      "source_channel": "structured",
+      "source_event_id": "01a0640b-4747-72f2-a0e8-e80d84712595:call-916f8669-7df9-4a61-bd3a-7ed13c5cb0b5-42",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788388483685,
+      "timestamp_utc": "2026-09-02T22:34:43.685Z",
+      "tool_call_id": "call-916f8669-7df9-4a61-bd3a-7ed13c5cb0b5-42",
+      "version": 1,
+      "version_id": "nelb-r38--e550524d5962:v0001"
+    }
+  ]
+}

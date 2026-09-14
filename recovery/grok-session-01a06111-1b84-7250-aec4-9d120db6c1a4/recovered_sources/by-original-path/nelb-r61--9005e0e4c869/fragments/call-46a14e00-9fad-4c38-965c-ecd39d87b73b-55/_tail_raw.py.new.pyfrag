@@ -1,0 +1,5 @@
+1. **Temperature / fouling cell-constant table** on a non-AW-6 evaporator so an 8 K hop fakes 16.00 mS/cm inside a 4.80 Torveil corridor, closing 184's lumped-k_c gap.
+2. **Humidity / electrolyte-age map** on a non-TW-8 vent so a dry-membrane hop fakes 12.00 ppm while mean I looks healthy.
+3. **Dielectric / foam-layer map** on a non-PS-6 still so a foam hop fakes 12.00 m inside a 4.80 last-good corridor.
+4. **Vendor-only as a lead REJECT** on a plant that has no independent toroid/H2S/radar installed yet (184/185 still had plant heads).
+5. **Do not restage**

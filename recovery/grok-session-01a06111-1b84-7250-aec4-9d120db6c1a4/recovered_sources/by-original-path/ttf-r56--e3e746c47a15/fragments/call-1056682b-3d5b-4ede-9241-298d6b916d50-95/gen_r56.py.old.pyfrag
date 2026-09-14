@@ -1,0 +1,49 @@
+def harvest_occupancy():
+    domains = set()
+    plants = set()
+    for p in sorted(Path("/tmp").glob("ttf-r*/batch-r*.jsonl")):
+        try:
+            if p.resolve() == BATCH_PATH.resolve():
+                continue
+        except OSError:
+            continue
+        try:
+            text = p.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        plants.update(PLANT_RE.findall(text))
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            rec = json.loads(line)
+            d = (rec.get("state") or {}).get("domain")
+            if d:
+                domains.add(d)
+    for p in sorted(Path("/tmp").glob("ttf-r*/NOTES-r*.md")):
+        try:
+            if p.resolve() == NOTES_PATH.resolve():
+                continue
+        except OSError:
+            continue
+        try:
+            text = p.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        plants.update(PLANT_RE.findall(text))
+        for m in re.finditer(r"Domains this batch:\s*(.+)", text):
+            domains.update(re.findall(r"`([^`]+)`", m.group(1)))
+    for p in sorted(Path("/tmp").glob("ttf-r*/gen_r*.py")):
+        try:
+            if p.resolve() == Path("/tmp/ttf-r48/gen_r48.py").resolve():
+                continue
+        except OSError:
+            continue
+        try:
+            text = p.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        plants.update(PLANT_RE.findall(text))
+        domains.update(re.findall(r'\("domain",\s*"([^"]+)"\)', text))
+        for m in re.finditer(r"MY_DOMAINS = \((.*?)\)", text, re.S):
+            domains.update(re.findall(r'"([^"]+)"', m.group(1)))
+    return domains, plants

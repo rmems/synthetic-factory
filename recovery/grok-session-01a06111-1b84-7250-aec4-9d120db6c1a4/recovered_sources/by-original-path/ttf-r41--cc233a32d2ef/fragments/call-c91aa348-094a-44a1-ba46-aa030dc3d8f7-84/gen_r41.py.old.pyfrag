@@ -1,0 +1,22 @@
+                "locks in over the illegal raise.",
+            ),
+            ("delayed_surprise_s", 600),
+        ]
+    )
+    ras = raster_core(
+        40,
+        104,
+        22,
+        92,
+        routing(
+            "thalamic-relay.yankee-rtd",
+            "spikenaut.policy.reel-hold",
+            [
+                ("relay.rtd.yankee", "policy.reel_hold", 0.69),
+                ("relay.ir.crepe", "policy.reel_commit", 0.27),
+                ("relay.tc.hood", "policy.reel_hold", 0.11),
+            ],
+            "dopamine",
+            0.09,
+            "adhesion_stdp; DA at surface win (5.760 ms) tags reel_hold over reel_commit",
+        ),

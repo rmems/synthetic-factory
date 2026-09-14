@@ -1,0 +1,34 @@
+                [
+                    "pitch-fire AE puck, 50 kHz, 26 us jitter",
+                    "flue zirconia O2, 1 kHz, 32 us jitter",
+                    "ram LVDT (context)",
+                    "pit TC (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("ae_cap_pps", 10.0),
+                        ("observed_ae_pps", 36.0),
+                        ("flue_o2_pct", 3.1),
+                        ("flue_o2_cap_pct", 5.0),
+                        ("proposed_push", True),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. F-11 HIL indexed; next green anode armed.",
+                    "2. Flue O2 3.1 percent under 5.0; AE 36 pps over 10.",
+                    "3. Flue precursor at 1.360 ms.",
+                    "4. Race window [6.840, 7.160] ms.",
+                    "5. ae.pitch.pps 36 at 6.840 ms (winner).",
+                    "6. enc.flue.o2 3.1 at 7.020 ms (loser by 180 us).",
+                    "7. Gate at 7.620 ms: REJECT hold, do not push.",
+                    "8. Ram 0 mm; flue left at 3.1 percent.",
+                    "9. Pitch-fire inspected on the HIL pit.",
+                    "10. Delayed (abort_s=480): 8 min pit cooldown.",
+                ],
+            ),

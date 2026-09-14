@@ -1,0 +1,11 @@
+                        ("winner", "rtd.sus.C (6.180 ms, 1048 C)"),
+                        ("loser", "ft.gacl.slm (6.372 ms, 0.42 slm)"),
+                        ("margin_us", 192),
+                        (
+                            "counterfactual_if_reversed",
+                            "Chloride-first by < 192 us inside the 400 us window would have kept "
+                            "0.42 slm; predicted next-sample 1056 C would have missed the 1020 "
+                            "GaN-growth cap even without the clog. The MODIFY is still the correct "
+                            "process. The dump is a later world charge either way, cheaper with "
+                            "the clamp than without.",
+                        ),

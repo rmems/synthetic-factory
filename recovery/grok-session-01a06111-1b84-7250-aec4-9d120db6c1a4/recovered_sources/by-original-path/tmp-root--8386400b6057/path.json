@@ -1,0 +1,81 @@
+{
+  "agent_ids": [
+    "01a06405-cc45-7fc3-b332-720fe40ae6cb"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 2,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 3,
+  "original_basename": "build_maos_r18.py",
+  "original_path": "/tmp/build_maos_r18.py",
+  "path_key": "tmp-root--8386400b6057",
+  "terminal_event_ids": [
+    "01a06405-cc45-7fc3-b332-720fe40ae6cb:call-33fe0c5c-a64f-4ac2-8119-9df6ae707ebc-79",
+    "01a06405-cc45-7fc3-b332-720fe40ae6cb:call-b58e1884-6ecd-4a2f-b46b-b223ade98510-77"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 2,
+  "versions": [
+    {
+      "agent_id": "01a06405-cc45-7fc3-b332-720fe40ae6cb",
+      "basename_preserved": true,
+      "bytes": 79498,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 380,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06405-cc45-7fc3-b332-720fe40ae6cb/updates.jsonl",
+      "original_basename": "build_maos_r18.py",
+      "original_path": "/tmp/build_maos_r18.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--8386400b6057/versions/v0001/build_maos_r18.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/tmp-root--8386400b6057/versions/v0001/build_maos_r18.py",
+      "session_id": "01a06405-cc45-7fc3-b332-720fe40ae6cb",
+      "sha256": "c140ad156d0cb8ff207039d0d1c5ab2ef90d6f1f1bb200565fcaf72defd82ba7",
+      "source_channel": "structured",
+      "source_event_id": "01a06405-cc45-7fc3-b332-720fe40ae6cb:call-034a738e-5d86-447e-9658-9d882ed9a6a6-69",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788385657281,
+      "timestamp_utc": "2026-09-02T21:47:37.281Z",
+      "tool_call_id": "call-034a738e-5d86-447e-9658-9d882ed9a6a6-69",
+      "version": 1,
+      "version_id": "tmp-root--8386400b6057:v0001"
+    },
+    {
+      "agent_id": "01a06405-cc45-7fc3-b332-720fe40ae6cb",
+      "basename_preserved": true,
+      "bytes": 79505,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 434,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06405-cc45-7fc3-b332-720fe40ae6cb/updates.jsonl",
+      "original_basename": "build_maos_r18.py",
+      "original_path": "/tmp/build_maos_r18.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--8386400b6057/versions/v0002/build_maos_r18.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/tmp-root--8386400b6057/versions/v0002/build_maos_r18.py",
+      "session_id": "01a06405-cc45-7fc3-b332-720fe40ae6cb",
+      "sha256": "7d53cf04dc3aebb948a7221e02b3612b6003a277d8cb5159cf91db0c815bbbc6",
+      "source_channel": "structured",
+      "source_event_id": "01a06405-cc45-7fc3-b332-720fe40ae6cb:call-b8312e63-8037-4b4e-964b-0eafd9fbd443-78",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788385721113,
+      "timestamp_utc": "2026-09-02T21:48:41.113Z",
+      "tool_call_id": "call-b8312e63-8037-4b4e-964b-0eafd9fbd443-78",
+      "version": 2,
+      "version_id": "tmp-root--8386400b6057:v0002"
+    }
+  ]
+}

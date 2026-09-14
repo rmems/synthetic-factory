@@ -1,0 +1,2480 @@
+#!/usr/bin/env python3
+"""Emit TTF r63c (ttf-r63c-931..935). Create-only live write of batch-r63c / NOTES-r63c."""
+
+from __future__ import annotations
+
+import json
+import math
+import os
+import random
+import re
+import sys
+from collections import OrderedDict
+from decimal import Decimal
+from pathlib import Path
+
+REPO = Path("/home/raulmc/rmems/synthetic-factory")
+PIPELINES = REPO / "pipelines"
+FACTORY = (
+    REPO
+    / "outputs/raw/2026-09-02-final-heavy/thalamic-trajectory-factory"
+)
+STAGING = Path("/tmp/ttf-r63c")
+BATCH_NAME = "batch-r63c.jsonl"
+NOTES_NAME = "NOTES-r63c.md"
+PJ_PER_SPIKE = 23
+AGG = "total = task_progress + safety + efficiency + coherence + exploration"
+CHANNEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,31}$")
+THOUGHT_KEYS = {
+    "thought",
+    "reasoning",
+    "chain_of_thought",
+    "hidden_reasoning",
+    "inner_monologue",
+    "scratch",
+    "internal_reasoning",
+    "thinking",
+    "cot",
+    "thoughts",
+}
+RIGHTS = OrderedDict(
+    [
+        ("provider", "SpaceXAI/xAI"),
+        ("model", "grok-4.6"),
+        ("channel", "consumer"),
+        ("subscription_plan", "SuperGrok Heavy"),
+        ("generation_surface", "SuperGrok Heavy chat"),
+        ("generated_at", "2026-09-02T20:15:00Z"),
+        ("intended_use", "research_only"),
+        ("project_training_policy", "blocked"),
+        ("research_retention_status", "allowed"),
+        ("research_evaluation_status", "allowed"),
+        ("redistribution_status", "unresolved"),
+        ("provider_training_status", "unresolved"),
+        ("weight_publication_status", "blocked"),
+        ("status_basis", "RM-793 project policy: xAI hosted outputs are research-only"),
+        ("linear_issue", "RM-793"),
+    ]
+)
+THIS_DOMAINS = [
+    "germanium-tetrachloride-rectifier",
+    "strontium-titanate-sputter",
+    "boron-carbide-hotpress",
+    "lithium-tantalate-czochralski",
+    "ruthenium-tetroxide-scrubber",
+]
+THIS_PLANTS = (
+    "Tetrach-Geave",
+    "Perov-Mire",
+    "Borocarb-Venn",
+    "Tantalate-Skel",
+    "Ruthenox-Wold",
+)
+
+
+def energy(spikes: int) -> tuple[int, float]:
+    pj = spikes * PJ_PER_SPIKE
+    uj = float(Decimal(spikes) * Decimal(PJ_PER_SPIKE) / Decimal(1_000_000))
+    return pj, uj
+
+
+def spike(channel: str, t_rel_ms: float, amplitude: float) -> OrderedDict:
+    if not CHANNEL_RE.fullmatch(channel):
+        raise ValueError(f"bad channel {channel!r}")
+    if t_rel_ms <= 0:
+        raise ValueError(f"t_rel_ms must be > 0, got {t_rel_ms}")
+    return OrderedDict(
+        [("channel", channel), ("t_rel_ms", t_rel_ms), ("amplitude", amplitude)]
+    )
+
+
+def tick(t_us: int, tp, saf, eff, coh, exp) -> OrderedDict:
+    return OrderedDict(
+        [
+            ("t_us", int(t_us)),
+            ("task_progress", tp),
+            ("safety", saf),
+            ("efficiency", eff),
+            ("coherence", coh),
+            ("exploration", exp),
+        ]
+    )
+
+
+def routing(source, target, table, modulator, tau_e_s, eligibility) -> OrderedDict:
+    tau_e_ms = float(Decimal(str(tau_e_s)) * Decimal("1000"))
+    return OrderedDict(
+        [
+            ("source", source),
+            ("target", target),
+            (
+                "table",
+                [
+                    OrderedDict([("from", a), ("to", b), ("weight", w)])
+                    for a, b, w in table
+                ],
+            ),
+            (
+                "third_factor",
+                OrderedDict(
+                    [
+                        ("modulator", modulator),
+                        ("tau_e_s", tau_e_s),
+                        ("tau_e_ms", tau_e_ms),
+                        ("eligibility", eligibility),
+                    ]
+                ),
+            ),
+        ]
+    )
+
+
+def raster_core(window_ms, neurons, rate, spikes, route, excerpt, extra=None) -> OrderedDict:
+    pj, uj = energy(spikes)
+    window_s = float(Decimal(str(window_ms)) / Decimal("1000"))
+    expected = round(neurons * rate * window_s)
+    if abs(spikes - expected) > 1:
+        raise ValueError(f"spike budget {spikes} vs {expected}")
+    body = OrderedDict(
+        [
+            ("window_ms", window_ms),
+            ("window_s", window_s),
+            ("neurons", neurons),
+            ("mean_rate_hz", rate),
+            ("spikes", spikes),
+            ("energy_pJ", pj),
+            ("energy_uJ", uj),
+        ]
+    )
+    if extra:
+        body.update(extra)
+    body["routing"] = route
+    body["excerpt"] = excerpt
+    return body
+
+
+def excerpt_items(pairs, channels=None) -> list:
+    out = []
+    last = {}
+    prev_t = -1
+    for i, (t_us, nid) in enumerate(pairs):
+        t_us, nid = int(t_us), int(nid)
+        if t_us < prev_t:
+            raise ValueError("excerpt not sorted")
+        if nid in last and t_us - last[nid] < 1000:
+            raise ValueError(f"same-neuron gap {nid}")
+        item = OrderedDict([("t_us", t_us), ("neuron_id", nid)])
+        if channels is not None:
+            item["channel"] = channels[i]
+        out.append(item)
+        last[nid] = t_us
+        prev_t = t_us
+    return out
+
+
+def independent_excerpt(seed, neurons, window_us, n_events, avoid_us):
+    rng = random.Random(seed)
+    avoid = {int(t) for t in avoid_us}
+    picked = []
+    last = {}
+    attempts = 0
+    grid = list(range(400, int(window_us) - 400, 70))
+    rng.shuffle(grid)
+    for t in grid:
+        if len(picked) >= n_events:
+            break
+        nid = rng.randrange(0, neurons)
+        if t in avoid:
+            continue
+        if any(abs(t - pt) < 40 for pt, _ in picked):
+            continue
+        if nid in last and abs(t - last[nid]) < 1000:
+            continue
+        picked.append((t, nid))
+        last[nid] = t
+    while len(picked) < n_events and attempts < 8000:
+        attempts += 1
+        t = rng.randrange(300, int(window_us) - 300)
+        nid = rng.randrange(0, neurons)
+        if t in avoid:
+            continue
+        if any(abs(t - pt) < 50 for pt, _ in picked):
+            continue
+        if nid in last and abs(t - last[nid]) < 1000:
+            continue
+        picked.append((t, nid))
+        last[nid] = t
+    picked.sort(key=lambda item: (item[0], item[1]))
+    if len(picked) < n_events:
+        raise RuntimeError(f"excerpt short: {len(picked)}")
+    return excerpt_items(picked[:n_events])
+
+
+def spike_avoid_us(events):
+    return {int(round(ev["t_rel_ms"] * 1000.0)) for ev in events}
+
+
+def meta_block(domain, tags, distillation_value, batch_position, supervisor_error_type=None):
+    body = OrderedDict(
+        [
+            ("round", 63),
+            ("factory", "thalamic-trajectory-factory"),
+            ("generator", "grok-4.6"),
+            ("run_label", "2026-09-02-final-heavy"),
+            ("domain", domain),
+        ]
+    )
+    if supervisor_error_type:
+        body["supervisor_error_type"] = supervisor_error_type
+    body["tags"] = tags
+    body["snn_tags"] = ["race", "refractory", "adaptation"]
+    body["distillation_value"] = distillation_value
+    body["rights"] = RIGHTS
+    body["batch_position"] = batch_position
+    return body
+
+
+def reward_block(ticks, notes) -> OrderedDict:
+    heads = ["task_progress", "safety", "efficiency", "coherence", "exploration"]
+    sums = {h: Decimal("0") for h in heads}
+    for item in ticks:
+        for h in heads:
+            sums[h] += Decimal(str(item[h]))
+    total = sum(sums.values(), Decimal("0"))
+    return OrderedDict(
+        [
+            ("_aggregation", AGG),
+            ("ticks", ticks),
+            ("task_progress", float(sums["task_progress"])),
+            ("safety", float(sums["safety"])),
+            ("efficiency", float(sums["efficiency"])),
+            ("coherence", float(sums["coherence"])),
+            ("exploration", float(sums["exploration"])),
+            ("total", float(total)),
+            ("notes", notes),
+        ]
+    )
+
+
+def pop(name, neurons, threshold, rate=None, spikes=None) -> OrderedDict:
+    body = OrderedDict(
+        [("name", name), ("neurons", neurons), ("threshold", threshold)]
+    )
+    if rate is not None:
+        if spikes is None:
+            raise ValueError("rate requires spikes")
+        body["mean_rate_hz"] = rate
+        body["spikes"] = spikes
+    return body
+
+
+def pop_budget(name, neurons, threshold, rate, dw_ms):
+    spikes = round(neurons * rate * (dw_ms / 1000.0))
+    return pop(name, neurons, threshold, rate, spikes)
+
+
+def isi_histogram(events, bin_ms=0.8, n_bins=26) -> OrderedDict:
+    by: dict[str, list[float]] = {}
+    for ev in events:
+        by.setdefault(ev["channel"], []).append(float(ev["t_rel_ms"]))
+    isis = []
+    for ts in by.values():
+        ts = sorted(ts)
+        for a, b in zip(ts, ts[1:]):
+            gap = b - a
+            if gap < 0.8 - 1e-9:
+                raise ValueError(f"ISI {gap} < 0.8")
+            isis.append(gap)
+    counts = [0] * n_bins
+    for isi in isis:
+        idx = min(n_bins - 1, int(isi / bin_ms))
+        counts[idx] += 1
+    return OrderedDict(
+        [
+            ("bin_ms", bin_ms),
+            ("unit", "ms"),
+            ("n_isi", len(isis)),
+            ("min_isi_ms", round(min(isis), 4) if isis else 0.0),
+            ("counts", counts),
+            (
+                "note",
+                "same-channel ISIs from spike_events; refractory floor 0.8 ms",
+            ),
+        ]
+    )
+
+
+def check_spikes(events, race_lo, race_hi, race_channels):
+    if not (5 <= len(events) <= 40):
+        raise ValueError(f"spike count {len(events)}")
+    last_t = -1.0
+    last_ch = {}
+    in_window = {ch: 0 for ch in race_channels}
+    for ev in events:
+        t = ev["t_rel_ms"]
+        ch = ev["channel"]
+        if t < last_t - 1e-12:
+            raise ValueError("spike order")
+        if ch in last_ch and (t - last_ch[ch]) < 0.8 - 1e-9:
+            raise ValueError(f"refractory {ch} {t - last_ch[ch]}")
+        last_ch[ch] = t
+        last_t = t
+        if race_lo - 1e-9 <= t <= race_hi + 1e-9 and ch in in_window:
+            in_window[ch] += 1
+    for ch, n in in_window.items():
+        if n < 1:
+            raise ValueError(f"no race spike on {ch}")
+
+
+def record_931():
+    """Partnered-negative correct MODIFY + independent LIF, designed."""
+    events = [
+        spike("ft.steam.kgh", 1.24, 0.40),
+        spike("tc.boil.C", 2.472, 0.57),
+        spike("ft.steam.kgh", 3.52, 0.49),
+        spike("tc.boil.C", 6.180, 1.30),
+        spike("ft.steam.kgh", 6.368, 1.10),
+        spike("ctrl.gate", 6.900, 0.96),
+        spike("tc.boil.C", 8.22, 0.80),
+        spike("ft.steam.kgh", 10.48, 0.62),
+        spike("ctrl.gate", 14.10, 0.84),
+        spike("ae.pack.collapse", 22.400, 1.46),
+        spike("ae.pack.collapse", 24.02, 0.91),
+        spike("ft.steam.kgh", 30.40, 0.39),
+        spike("tc.boil.C", 36.80, 0.54),
+    ]
+    check_spikes(events, 6.180, 6.580, ["tc.boil.C", "ft.steam.kgh"])
+    ticks = [
+        tick(2472, 0.04, -0.02, -0.02, 0.01, 0.00),
+        tick(6180, 0.08, -0.04, -0.02, 0.01, -0.01),
+        tick(6368, 0.04, -0.03, -0.02, 0.00, 0.00),
+        tick(6900, 0.08, -0.05, -0.03, 0.02, -0.01),
+        tick(22400, 0.05, -0.44, -0.04, -0.01, -0.01),
+        tick(780000000, 0.02, -0.05, -0.02, 0.01, -0.01),
+    ]
+    excerpt_pairs = [
+        (1700, 11),
+        (6400, 3),
+        (11800, 10),
+        (16700, 8),
+        (18000, 0),
+        (18200, 9),
+        (20900, 2),
+        (22400, 70),
+        (22700, 41),
+        (23000, 15),
+        (23200, 33),
+        (23500, 52),
+        (23700, 61),
+        (23900, 28),
+        (24100, 14),
+        (24400, 66),
+    ]
+    channels = ["lif.clamp" if t < 22000 else "lif.collapse" for t, _ in excerpt_pairs]
+    excerpt = excerpt_items(excerpt_pairs, channels)
+    lif = OrderedDict(
+        [
+            ("model", "leaky_integrate_and_fire"),
+            ("n", 84),
+            ("dt_us", 100),
+            ("tau_m_ms", 19.0),
+            ("v_rest", 0.0),
+            ("v_reset", 0.0),
+            ("v_th", 1.0),
+            ("r_m", 1.0),
+            ("refractory_us", 1000),
+            ("i_bias", 0.91),
+            ("i_stim_peak", 2.50),
+            ("stim_t_us", [22000, 25000]),
+            ("i_clamp_extra", 0.62),
+            ("clamp_n", 14),
+            ("seed", 63931),
+            (
+                "note",
+                "Population sim scoped to this sidecar. Plant remains designed. "
+                "Neurons 0-13 carry +0.62 steam-clamp bias; stim 22-25 ms is the packing-collar collapse.",
+            ),
+        ]
+    )
+    extra = OrderedDict(
+        [
+            ("excerpt_source", "independent_lif"),
+            ("sim_scope", "sidecar_only"),
+            ("lif", lif),
+            ("abort_s", 780),
+            ("delayed_surprise_s", 780),
+        ]
+    )
+    raster = raster_core(
+        42,
+        84,
+        22,
+        78,
+        routing(
+            "thalamic-relay.tg-boil",
+            "spikenaut.policy.steam-clamp",
+            [
+                ("relay.tc.boil", "policy.steam_clamp", 0.68),
+                ("relay.ft.steam", "policy.flow_hold", 0.28),
+                ("relay.ae.pack", "policy.steam_clamp", -0.40),
+            ],
+            "noradrenaline",
+            0.04,
+            "surprise-gated pre_post_stdp; NA at boil win (6.180 ms) opens a 42 ms eligibility trace that still covers the 22.400 ms packing-collar collapse",
+        ),
+        excerpt,
+        extra,
+    )
+    dw = 0.4
+    return OrderedDict(
+        [
+            ("id", "ttf-r63c-931"),
+            (
+                "title",
+                "Tetrach-Geave TG-5 / Rectifier-C2: boil TC beats steam flow by 188 us; correct MODIFY still eats an in-window packing-collar collapse (partnered negative total -0.47)",
+            ),
+            (
+                "state",
+                OrderedDict(
+                    [
+                        (
+                            "description",
+                            "Packed rectifier C-2 at Tetrach-Geave TG-5 is already boiling GeCl4 14 C over the published 104 C kettle cap when a 2 kHz well TC sample races the steam-orifice publisher. Steam is still armed at 920 kg/h; a timely clamp to 480 kg/h keeps the kettle under cap. A packing collar already cracked on tray 7 still collapses inside the 42 ms raster after that process-correct steam clamp.",
+                        ),
+                        ("domain", "germanium-tetrachloride-rectifier"),
+                        ("sim_or_real", "designed"),
+                        (
+                            "goal",
+                            "Keep C-2 kettle <= 104 C and finish the GeCl4 cut without dumping liquor through a collapsed packing collar.",
+                        ),
+                        ("t0_us", 1756850400000931),
+                        ("gate_latency_us", 720),
+                        ("race_window_us", 400),
+                        ("race_window_rel_ms", [6.180, 6.580]),
+                        (
+                            "race",
+                            OrderedDict(
+                                [
+                                    (
+                                        "contenders",
+                                        [
+                                            "tc.boil.C 118 over 104 kettle cap",
+                                            "ft.steam.kgh 920 with look 2.1 under 6.0 t/h",
+                                        ],
+                                    ),
+                                    (
+                                        "semantics",
+                                        "Boil-first latches steam clamp 920 -> 480 kg/h; steam-first keeps 920 kg/h on a still-under-look model.",
+                                    ),
+                                    (
+                                        "window_derivation",
+                                        "400 us = one kettle-well TC slot versus the steam-orifice publisher on this GeCl4 rectifier bus.",
+                                    ),
+                                    (
+                                        "order_evidence_note",
+                                        "Margin 188 us vs combined jitter 64 us (TC 30 + FT 34): 2.94x over a 2.0x trust floor. Reversing order by < 188 us inside the 400 us window would have kept 920 kg/h; predicted next-sample 122 C > 104 cap.",
+                                    ),
+                                ]
+                            ),
+                        ),
+                        (
+                            "sensors",
+                            [
+                                "kettle-well thermocouple, 2 kHz, 30 us jitter",
+                                "steam-orifice mass-flow, 1 kHz, 34 us jitter",
+                                "packing-collar AE puck (context)",
+                                "reflux IR (context)",
+                            ],
+                        ),
+                        (
+                            "constraints",
+                            OrderedDict(
+                                [
+                                    ("kettle_cap_C", 104.0),
+                                    ("observed_boil_C", 118.0),
+                                    ("steam_kg_h", 920.0),
+                                    ("steam_look_tph", 2.1),
+                                    ("steam_look_cap_tph", 6.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "episode_steps",
+                            [
+                                "1. Rectifier C-2 in GeCl4 cut; steam 920 kg/h; kettle 118 C.",
+                                "2. Steam look 2.1 t/h under 6.0; packing collar already cracked.",
+                                "3. Steam-orifice precursor at 1.240 ms.",
+                                "4. Race window [6.180, 6.580] ms.",
+                                "5. tc.boil.C 118 C at 6.180 ms (winner).",
+                                "6. ft.steam.kgh 920 at 6.368 ms (loser by 188 us).",
+                                "7. Gate at 6.900 ms: MODIFY clamp 920 -> 480 kg/h.",
+                                "8. After clamp kettle 98 C <= 104; look still 2.1 t/h.",
+                                "9. At 22.400 ms a packing-collar collapse dumps liquor onto tray 8.",
+                                "10. 13 min packing re-seat (abort_s=780); named un-netted loss.",
+                            ],
+                        ),
+                    ]
+                ),
+            ),
+            ("spike_events", events),
+            (
+                "proposed_action",
+                OrderedDict(
+                    [
+                        ("name", "cruise_rectifier_steam"),
+                        (
+                            "parameters",
+                            OrderedDict(
+                                [
+                                    ("steam_kg_h", 920.0),
+                                    ("boil_C", 118.0),
+                                    ("look_tph", 2.1),
+                                ]
+                            ),
+                        ),
+                        (
+                            "evidence",
+                            OrderedDict(
+                                [
+                                    ("boil_C", 118.0),
+                                    ("kettle_cap_C", 104.0),
+                                    ("predicted_unclamped_next_C", 122.0),
+                                    ("steam_kg_h", 920.0),
+                                    ("look_tph", 2.1),
+                                    ("look_cap_tph", 6.0),
+                                    ("race_margin_us", 188),
+                                    ("combined_jitter_us", 64),
+                                    ("abort_s", 780),
+                                ]
+                            ),
+                        ),
+                        (
+                            "basis",
+                            "Planner proposes 920 kg/h because steam look 2.1 t/h is under 6.0, treating the 118 C kettle reading as a lagged well ghost.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "safety_decision",
+                OrderedDict(
+                    [
+                        ("decision", "MODIFY"),
+                        ("correctness", "correct"),
+                        (
+                            "rationale",
+                            "Kettle 118 C won by 188 us, so C-2 is over the 104 C GeCl4 freeze-front cap, not under the 6.0 t/h steam-look cap. Clamp steam 920 -> 480 kg/h. Numeric threshold: observed 118 C > 104 C cap.",
+                        ),
+                        (
+                            "constraint_checked",
+                            OrderedDict(
+                                [
+                                    (
+                                        "boil_C",
+                                        OrderedDict(
+                                            [
+                                                ("cap", 104.0),
+                                                ("observed", 118.0),
+                                                ("predicted_unclamped_next", 122.0),
+                                                ("clamped_steam_kg_h", 480.0),
+                                                ("observed_after_clamp", 98.0),
+                                            ]
+                                        ),
+                                    ),
+                                    (
+                                        "order_evidence",
+                                        OrderedDict(
+                                            [
+                                                ("margin_us", 188),
+                                                ("combined_jitter_us", 64),
+                                                ("ratio", 2.94),
+                                            ]
+                                        ),
+                                    ),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "executed_action",
+                OrderedDict(
+                    [
+                        ("name", "clamped_rectifier_steam"),
+                        (
+                            "parameters",
+                            OrderedDict(
+                                [
+                                    ("steam_kg_h", 480.0),
+                                    ("boil_C", 98.0),
+                                    ("look_tph", 2.1),
+                                ]
+                            ),
+                        ),
+                        (
+                            "gate_effect",
+                            "MODIFY: steam 920 -> 480 kg/h. Process-correct vs the 104 C kettle cap. Packing-collar collapse still dumps at 22.400 ms.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "future_outcome",
+                OrderedDict(
+                    [
+                        (
+                            "summary",
+                            "Process-correct MODIFY held kettle at 98 C. At 22.400 ms a packing-collar crack already seated on tray 7 dumped GeCl4 liquor onto tray 8. 13 min packing re-seat (abort_s=780).",
+                        ),
+                        (
+                            "state_delta",
+                            OrderedDict(
+                                [
+                                    ("kettle", "clamp executed; peak 98 C <= 104 cap"),
+                                    ("packing", "collar collapse at 22.400 ms; liquor on tray 8"),
+                                    ("repair", "13 min packing re-seat (abort_s=780)"),
+                                    ("mission", "TG-5 GeCl4 cut incomplete this cycle"),
+                                ]
+                            ),
+                        ),
+                        (
+                            "surprises",
+                            [
+                                "Neither kettle T nor steam orifice predicted the seated packing-collar collapse; ae.pack.collapse is a new channel at 22.400 ms, 15.500 ms after the gate, still inside the 42 ms raster.",
+                                "Delayed (abort_s=780): 13 min packing re-seat. Named un-netted loss, not folded into task_progress.",
+                            ],
+                        ),
+                        (
+                            "un_netted_loss",
+                            "13 min packing re-seat after the collar collapse. Safety head -0.63 prices the dump; task_progress stays +0.31 because the steam clamp completed.",
+                        ),
+                        (
+                            "race_result",
+                            OrderedDict(
+                                [
+                                    ("winner", "tc.boil.C (6.180 ms, 118 C)"),
+                                    ("loser", "ft.steam.kgh (6.368 ms, 920 kg/h)"),
+                                    ("margin_us", 188),
+                                    (
+                                        "counterfactual_if_reversed",
+                                        "Steam-first by < 188 us inside the 400 us window would have kept 920 kg/h; predicted next-sample 122 C would have missed the 104 C cap.",
+                                    ),
+                                ]
+                            ),
+                        ),
+                        ("reward_inflection_t_us", 22400),
+                        (
+                            "reward_inflection_note",
+                            "Safety collapses at the 22.400 ms packing-collar collapse (tick t_us=22400), inside the 42 ms raster. The correct MODIFY at 6.900 ms is not the inflection.",
+                        ),
+                        ("delayed_surprise_s", 780),
+                    ]
+                ),
+            ),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Partnered negative. Process-correct MODIFY; world still charges inside the 42 ms raster. total -0.47 = 0.31 + -0.63 + -0.15 + 0.04 + -0.04",
+                ),
+            ),
+            ("raster", raster),
+            (
+                "gate_snn",
+                OrderedDict(
+                    [
+                        ("decision_window_ms", dw),
+                        ("decision", "MODIFY"),
+                        (
+                            "populations",
+                            [
+                                pop_budget("steam_clamp", 50, 0.5, 200.0, dw),
+                                pop_budget("flow_hold", 40, 0.8, 50.0, dw),
+                                pop("collapse_veto", 24, 0.75),
+                            ],
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "meta",
+                meta_block(
+                    "germanium-tetrachloride-rectifier",
+                    [
+                        "modify",
+                        "partnered-negative-total",
+                        "independent-lif-raster",
+                        "sidecar-sim-only",
+                        "in-window-world-charge",
+                        "designed",
+                    ],
+                    "A critic can see the world-charge as a LIF burst inside the raster while process heads stay non-negative because the steam clamp completed. Distills in-window partnered negatives.",
+                    1,
+                ),
+            ),
+        ]
+    )
+
+
+def record_932():
+    """WRONG-MODIFY: wrong-unit on a lagged bus (slm bound as sccm)."""
+    events = [
+        spike("ft.ar.sccm", 1.10, 0.37),
+        spike("ft.ar.sccm", 2.160, 0.61),
+        spike("mb.lag.slm", 3.44, 0.45),
+        spike("ft.ar.sccm", 5.400, 1.27),
+        spike("mb.lag.slm", 5.580, 1.09),
+        spike("ctrl.gate", 5.960, 0.93),
+        spike("ft.ar.sccm", 8.18, 0.79),
+        spike("mb.lag.slm", 10.24, 0.56),
+        spike("ctrl.gate", 10.92, 0.86),
+        spike("ft.ar.sccm", 16.50, 0.64),
+        spike("mb.lag.slm", 22.20, 0.50),
+        spike("ft.ar.sccm", 26.40, 0.47),
+    ]
+    check_spikes(events, 5.400, 5.760, ["ft.ar.sccm", "mb.lag.slm"])
+    ticks = [
+        tick(2160, -0.02, -0.02, -0.02, -0.01, 0.01),
+        tick(5400, -0.04, -0.04, -0.03, -0.02, 0.01),
+        tick(5580, -0.04, -0.04, -0.03, -0.02, 0.01),
+        tick(5960, -0.08, -0.10, -0.06, -0.03, 0.02),
+        tick(6280, -0.02, -0.02, -0.02, -0.01, 0.01),
+        tick(600000000, -0.02, -0.02, -0.02, -0.01, 0.00),
+    ]
+    excerpt = independent_excerpt(63932, 96, 28000, 12, spike_avoid_us(events))
+    dw = 0.36
+    raster = raster_core(
+        28,
+        96,
+        30,
+        81,
+        routing(
+            "thalamic-relay.pm-ar",
+            "spikenaut.policy.under-trim",
+            [
+                ("relay.mb.lag.slm", "policy.under_trim", 0.74),
+                ("relay.ft.ar.sccm", "policy.under_trim", 0.21),
+            ],
+            "acetylcholine",
+            0.08,
+            "timing_cap_stdp; ACh tags the (wrong) lagged-slm-as-sccm bind at the live-Ar win",
+        ),
+        excerpt,
+        OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("abort_s", 600),
+                ("delayed_surprise_s", 600),
+            ]
+        ),
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r63c-932"),
+            (
+                "title",
+                "WRONG-MODIFY at Perov-Mire PM-6 / Chamber-C3: live Ar 42.0 sccm read correctly; lagged 0.042 slm bound as sccm (wrong-unit on lagged bus)",
+            ),
+            (
+                "state",
+                OrderedDict(
+                    [
+                        (
+                            "description",
+                            "Magnetron chamber C-3 at Perov-Mire PM-6 reports live argon 42.0 sccm against a 28.0 sccm resputter cap, while a lagged Profibus DP holding register still prints 0.042 slm leftover from the same MFC (42.0 sccm = 0.042 slm) delayed 96 ms. Cutting Ar 42.0 -> 18.0 sccm is the legal edit. Instead the supervisor binds 0.042 as sccm, treats live 42.0 as a unit ghost, and only trims 42.0 -> 40.0 sccm while RF stays 180 W.",
+                        ),
+                        ("domain", "strontium-titanate-sputter"),
+                        ("sim_or_real", "designed"),
+                        (
+                            "goal",
+                            "Keep C-3 argon <= 28.0 sccm without binding a lagged slm register as if it were the live sccm tag.",
+                        ),
+                        ("t0_us", 1756850400000932),
+                        ("gate_latency_us", 560),
+                        ("race_window_us", 360),
+                        ("race_window_rel_ms", [5.400, 5.760]),
+                        (
+                            "race",
+                            OrderedDict(
+                                [
+                                    (
+                                        "contenders",
+                                        [
+                                            "ft.ar.sccm 42.0 over 28.0 sccm cap",
+                                            "mb.lag.slm leftover 0.042 slm on the same MFC, lag 96 ms",
+                                        ],
+                                    ),
+                                    (
+                                        "semantics",
+                                        "Live-sccm-first cuts Ar on the live MFC; lagged-slm-first under-trims as if 0.042 were the live sccm reading and 42.0 were a unit ghost.",
+                                    ),
+                                    (
+                                        "window_derivation",
+                                        "360 us = one MFC sccm slot versus the lagged Profibus DP slm publisher on this sputter bus.",
+                                    ),
+                                    (
+                                        "order_evidence_note",
+                                        "Margin 180 us vs combined jitter 60 us (sccm 28 + lagged 32): 3.00x over a 2.0x trust floor. Reversing order by < 180 us would still leave live 42.0 sccm > 28.0; the correct gate stays Ar-cut either way.",
+                                    ),
+                                ]
+                            ),
+                        ),
+                        (
+                            "sensors",
+                            [
+                                "Ar MFC sccm, 2 kHz, 28 us jitter",
+                                "Profibus DP lagged slm holding register, 96 ms lag, 32 us jitter",
+                                "RF forward-power coupler (context)",
+                                "optical-emission intensity (context)",
+                            ],
+                        ),
+                        (
+                            "constraints",
+                            OrderedDict(
+                                [
+                                    ("ar_cap_sccm", 28.0),
+                                    ("observed_ar_sccm", 42.0),
+                                    ("lagged_slm", 0.042),
+                                    ("lag_ms", 96),
+                                    ("sccm_to_slm", 0.001),
+                                    ("rf_W", 180.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "episode_steps",
+                            [
+                                "1. Chamber C-3 already at 42.0 sccm Ar; RF 180 W; lagged slm 0.042.",
+                                "2. Leftover DP register still prints 0.042 slm; lag 96 ms; same MFC.",
+                                "3. Ar precursor at 1.100 ms.",
+                                "4. Race window [5.400, 5.760] ms.",
+                                "5. ft.ar.sccm 42.0 at 5.400 ms (winner).",
+                                "6. mb.lag.slm 0.042 at 5.580 ms (loser by 180 us).",
+                                "7. Gate at 5.960 ms: WRONG-MODIFY binds lagged slm as sccm.",
+                                "8. Ar only 42.0 -> 40.0 sccm; RF stays 180 W; live stays 41.2 > 28.0.",
+                                "9. Target over-resputters; SrTiO3 film goes metallic.",
+                                "10. Delayed (abort_s=600): 10 min target re-sputter and chamber re-pump.",
+                            ],
+                        ),
+                    ]
+                ),
+            ),
+            ("spike_events", events),
+            (
+                "proposed_action",
+                OrderedDict(
+                    [
+                        ("name", "cruise_ar_mfc"),
+                        (
+                            "parameters",
+                            OrderedDict(
+                                [
+                                    ("ar_sccm", 42.0),
+                                    ("rf_W", 180.0),
+                                    ("unit_bound", "sccm"),
+                                    ("lagged_slm", 0.042),
+                                ]
+                            ),
+                        ),
+                        (
+                            "evidence",
+                            OrderedDict(
+                                [
+                                    ("live_sccm", 42.0),
+                                    ("cap_sccm", 28.0),
+                                    ("lagged_slm", 0.042),
+                                    ("sccm_to_slm", 0.001),
+                                    ("lag_ms", 96),
+                                    ("correct_ar_sccm", 18.0),
+                                    ("correct_rf_W", 180.0),
+                                    ("correct_unit", "sccm"),
+                                    ("t_gate_us", 5960),
+                                    ("race_margin_us", 180),
+                                    ("combined_jitter_us", 60),
+                                    ("abort_s", 600),
+                                ]
+                            ),
+                        ),
+                        (
+                            "basis",
+                            "Planner proposes continuing 42.0 sccm Ar: leftover 0.042 slm still looks like a legal shadow of 42.0 sccm, so the resputter over-cap is treated as a unit ghost.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "safety_decision",
+                OrderedDict(
+                    [
+                        ("decision", "MODIFY"),
+                        ("correctness", "incorrect"),
+                        (
+                            "rationale",
+                            "Live 42.0 exceeds the 28.0 sccm cap (true). The lagged 0.042 slm register is still armed, so bind that as the live sccm reading: trim Ar only 42.0 -> 40.0 sccm and leave RF. That is the wrong engineering unit of the same MFC on a 96 ms lagged bus. Numeric threshold cited: 42.0 sccm > 28.0 sccm cap.",
+                        ),
+                        (
+                            "constraint_checked",
+                            OrderedDict(
+                                [
+                                    (
+                                        "ar_sccm",
+                                        OrderedDict(
+                                            [
+                                                ("cap", 28.0),
+                                                ("observed", 42.0),
+                                                ("lagged_slm", 0.042),
+                                                ("unit_bound", "slm_as_sccm"),
+                                                ("correct_ar_sccm", 18.0),
+                                                ("executed_ar_sccm", 40.0),
+                                            ]
+                                        ),
+                                    ),
+                                    (
+                                        "unit",
+                                        OrderedDict(
+                                            [
+                                                ("live", "sccm"),
+                                                ("bound", "slm_as_sccm"),
+                                                ("wrong_unit", True),
+                                                ("lag_ms", 96),
+                                                ("sccm_to_slm", 0.001),
+                                            ]
+                                        ),
+                                    ),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "executed_action",
+                OrderedDict(
+                    [
+                        ("name", "undertrimmed_ar_mfc"),
+                        (
+                            "parameters",
+                            OrderedDict(
+                                [
+                                    ("ar_sccm", 40.0),
+                                    ("rf_W", 180.0),
+                                    ("unit_bound", "slm_as_sccm"),
+                                    ("bind_slm_as_sccm", True),
+                                    ("lagged_slm", 0.042),
+                                ]
+                            ),
+                        ),
+                        (
+                            "gate_effect",
+                            "MODIFY (incorrect / wrong-unit on lagged bus slm-vs-sccm): Ar only 42.0 -> 40.0 sccm while live 42.0 > 28.0 and RF stays 180 W. Routing relay.mb.lag.slm -> policy.under_trim; no positive weight to policy.ar_cut.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "future_outcome",
+                OrderedDict(
+                    [
+                        (
+                            "summary",
+                            "Wrong-MODIFY bound a lagged slm register as if it were sccm. Live 42.0 sccm was over the 28.0 cap at t_gate; 0.042 slm was the same MFC delayed 96 ms, not a 0.042 sccm legal flow. Target over-resputtered. 10 min re-sputter (abort_s=600). Correct gate was MODIFY Ar 42.0 -> 18.0 sccm leaving RF at 180 W.",
+                        ),
+                        (
+                            "state_delta",
+                            OrderedDict(
+                                [
+                                    ("feed", "Ar stays 40.0 sccm after under-trim; RF 180 W on wrong unit"),
+                                    ("plasma", "41.2 sccm still over 28.0 cap; film goes metallic"),
+                                    ("repair", "10 min target re-sputter and chamber re-pump"),
+                                    ("mission", "SrTiO3 stack deferred"),
+                                ]
+                            ),
+                        ),
+                        (
+                            "surprises",
+                            [
+                                "Live-sccm-first was the correct order and the number was over cap; the MODIFY spent that win on a lagged slm publisher of the same MFC.",
+                                "Delayed (abort_s=600): PM-6 holds 10 min while C-3 is re-pumped and the target is re-sputtered; next SrTiO3 stack 12 min late.",
+                            ],
+                        ),
+                        (
+                            "recovery",
+                            OrderedDict(
+                                [
+                                    (
+                                        "correct_gate",
+                                        "MODIFY Ar 42.0 -> 18.0 sccm at t_gate_us=5960; unit_bound=sccm; leave RF at 180 W.",
+                                    ),
+                                    ("correct_actuator", "ar_mass_flow"),
+                                    ("wrong_unit", "slm_as_sccm"),
+                                    ("unit_live", "sccm"),
+                                    ("unit_bound", "slm_as_sccm"),
+                                    ("lag_ms", 96),
+                                    (
+                                        "wrong_edit_applied",
+                                        OrderedDict(
+                                            [
+                                                ("ar_sccm", 40.0),
+                                                ("rf_W", 180.0),
+                                                ("unit_bound", "slm_as_sccm"),
+                                            ]
+                                        ),
+                                    ),
+                                    (
+                                        "cost",
+                                        "10 min target re-sputter (task/efficiency); metallic film during the unscheduled under-trim (safety near-miss of a lagged-bus wrong-unit bind).",
+                                    ),
+                                ]
+                            ),
+                        ),
+                        (
+                            "race_result",
+                            OrderedDict(
+                                [
+                                    ("winner", "ft.ar.sccm (5.400 ms, 42.0 sccm)"),
+                                    ("loser", "mb.lag.slm (5.580 ms, 0.042 slm, lag 96 ms)"),
+                                    ("margin_us", 180),
+                                    (
+                                        "counterfactual_if_reversed",
+                                        "Lagged-slm-first by < 180 us would still be a leftover slm publisher on a sccm MFC; a correct gate binds ft.ar.sccm to policy.ar_cut at t_gate either way. The wrong MODIFY spent the live-Ar win on the lagged unit.",
+                                    ),
+                                ]
+                            ),
+                        ),
+                        ("reward_inflection_t_us", 5960),
+                        (
+                            "reward_inflection_note",
+                            "Task, safety, and efficiency drop at the slm-as-sccm bind (5.960 ms, tick 4). The 10 min re-sputter is delayed surprise, not the inflection.",
+                        ),
+                        ("delayed_surprise_s", 600),
+                    ]
+                ),
+            ),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Incorrect MODIFY (wrong-unit on lagged bus). total -0.68 = -0.22 + -0.24 + -0.18 + -0.10 + 0.06",
+                ),
+            ),
+            ("raster", raster),
+            (
+                "gate_snn",
+                OrderedDict(
+                    [
+                        ("decision_window_ms", dw),
+                        ("decision", "MODIFY"),
+                        (
+                            "populations",
+                            [
+                                pop_budget("under_trim", 48, 0.45, 280.0, dw),
+                                pop("ar_cut", 48, 0.9),
+                                pop("unit_veto", 20, 0.8),
+                            ],
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "meta",
+                meta_block(
+                    "strontium-titanate-sputter",
+                    [
+                        "modify",
+                        "wrong-gate",
+                        "wrong-unit-on-lagged-bus",
+                        "slm-vs-sccm",
+                        "sidecar-convictable",
+                        "designed",
+                    ],
+                    "Teaches a probe that a correct live-sccm-first race can still be a wrong gate when the MODIFY binds a lagged slm publisher of the same MFC. Convictable from live_sccm vs cap_sccm, lag_ms, and routing to without sputter kinetics.",
+                    2,
+                    supervisor_error_type="wrong-modify",
+                ),
+            ),
+        ]
+    )
+
+
+def record_933():
+    """Correct REJECT on HIL B4C hot press, AE vs ram encoder."""
+    events = [
+        spike("enc.ram.mpa", 1.38, 0.35),
+        spike("ae.die.pps", 2.736, 0.69),
+        spike("enc.ram.mpa", 4.12, 0.47),
+        spike("ae.die.pps", 6.840, 1.35),
+        spike("enc.ram.mpa", 7.016, 1.07),
+        spike("ctrl.gate", 7.620, 0.95),
+        spike("ae.die.pps", 10.50, 0.83),
+        spike("enc.ram.mpa", 14.90, 0.51),
+        spike("ctrl.gate", 18.30, 0.79),
+        spike("ae.die.pps", 28.60, 0.65),
+        spike("enc.ram.mpa", 36.20, 0.39),
+        spike("ae.die.pps", 42.40, 0.57),
+    ]
+    check_spikes(events, 6.840, 7.160, ["ae.die.pps", "enc.ram.mpa"])
+    ticks = [
+        tick(2736, 0.01, 0.04, 0.01, 0.01, 0.01),
+        tick(6840, 0.02, 0.08, 0.02, 0.02, 0.01),
+        tick(7016, 0.01, 0.06, 0.02, 0.01, 0.01),
+        tick(7620, 0.04, 0.16, 0.04, 0.04, 0.02),
+        tick(7960, 0.01, 0.05, 0.02, 0.01, 0.01),
+        tick(420000000, 0.01, 0.03, 0.01, 0.01, 0.00),
+    ]
+    excerpt = independent_excerpt(63933, 108, 46000, 15, spike_avoid_us(events))
+    dw = 0.32
+    raster = raster_core(
+        46,
+        108,
+        20,
+        99,
+        routing(
+            "thalamic-relay.bv-ae",
+            "spikenaut.policy.ram-hold",
+            [
+                ("relay.ae.die", "policy.ram_hold", 0.71),
+                ("relay.enc.ram", "policy.ram_go", 0.24),
+            ],
+            "dopamine",
+            0.05,
+            "reward-modulated STDP; DA at AE win tags the hold population",
+        ),
+        excerpt,
+        OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("abort_s", 420),
+                ("delayed_surprise_s", 420),
+            ]
+        ),
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r63c-933"),
+            (
+                "title",
+                "Borocarb-Venn BV-HIL / Press-P4: die AE 52 pps beats ram 16.0 MPa by 176 us; correct REJECT holds the ram",
+            ),
+            (
+                "state",
+                OrderedDict(
+                    [
+                        (
+                            "description",
+                            "HIL hot-press P-4 at Borocarb-Venn BV-HIL is compacting a B4C die when the 48 kHz AE puck on the die wall races the ram encoder. AE is already 52 pps over the 16 pps crack cap while ram 16.0 MPa still looks legal under the 22 MPa dispatch cap. AE-first REJECT-holds the ram; encoder-first would have treated 16.0 MPa as still-legal dispatch of a cracked compact.",
+                        ),
+                        ("domain", "boron-carbide-hotpress"),
+                        ("sim_or_real", "hil"),
+                        (
+                            "goal",
+                            "Hold Press-P4 whenever die AE exceeds 16 pps even if ram pressure is still under 22 MPa.",
+                        ),
+                        ("t0_us", 1756850400000933),
+                        ("gate_latency_us", 780),
+                        ("race_window_us", 320),
+                        ("race_window_rel_ms", [6.840, 7.160]),
+                        (
+                            "race",
+                            OrderedDict(
+                                [
+                                    (
+                                        "contenders",
+                                        [
+                                            "ae.die.pps 52 over 16 cap",
+                                            "enc.ram.mpa 16.0 under 22 cap",
+                                        ],
+                                    ),
+                                    (
+                                        "semantics",
+                                        "AE-first REJECT-holds the ram; encoder-first would treat 16.0 MPa as still-legal dispatch.",
+                                    ),
+                                    (
+                                        "window_derivation",
+                                        "320 us = one die AE slot versus the ram-encoder publisher on this HIL hot-press bus.",
+                                    ),
+                                    (
+                                        "order_evidence_note",
+                                        "Margin 176 us vs combined jitter 58 us (AE 26 + encoder 32): 3.03x over a 2.0x trust floor. Reversing order by < 176 us inside the 320 us window would have dispatched a cracked compact.",
+                                    ),
+                                ]
+                            ),
+                        ),
+                        (
+                            "sensors",
+                            [
+                                "die-wall AE puck, 48 kHz, 26 us jitter",
+                                "ram-load encoder, 2 kHz, 32 us jitter",
+                                "die IR (context)",
+                                "HIL dummy-payload strain (context)",
+                            ],
+                        ),
+                        (
+                            "constraints",
+                            OrderedDict(
+                                [
+                                    ("ae_cap_pps", 16.0),
+                                    ("observed_ae_pps", 52.0),
+                                    ("ram_MPa", 16.0),
+                                    ("ram_cap_MPa", 22.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "episode_steps",
+                            [
+                                "1. Press-P4 compacting B4C; ram 16.0 MPa; AE 52 pps.",
+                                "2. Ram still under 22 MPa dispatch cap; crack already ringing.",
+                                "3. Ram-encoder precursor at 1.380 ms.",
+                                "4. Race window [6.840, 7.160] ms.",
+                                "5. ae.die.pps 52 at 6.840 ms (winner).",
+                                "6. enc.ram.mpa 16.0 at 7.016 ms (loser by 176 us).",
+                                "7. Gate at 7.620 ms: REJECT hold ram 16.0 -> 0.0 MPa.",
+                                "8. Dummy payload never spins; AE decays under 16 pps.",
+                                "9. Compact stays in the die; no cracked-part dispatch.",
+                                "10. Delayed (abort_s=420): 7 min die swap and AE survey.",
+                            ],
+                        ),
+                    ]
+                ),
+            ),
+            ("spike_events", events),
+            (
+                "proposed_action",
+                OrderedDict(
+                    [
+                        ("name", "dispatch_ram_press"),
+                        (
+                            "parameters",
+                            OrderedDict(
+                                [
+                                    ("press_MPa", 16.0),
+                                    ("hold", False),
+                                    ("ram_mm_s", 0.38),
+                                ]
+                            ),
+                        ),
+                        (
+                            "evidence",
+                            OrderedDict(
+                                [
+                                    ("ae_pps", 52.0),
+                                    ("ae_cap_pps", 16.0),
+                                    ("ram_MPa", 16.0),
+                                    ("ram_cap_MPa", 22.0),
+                                    ("race_margin_us", 176),
+                                    ("combined_jitter_us", 58),
+                                    ("abort_s", 420),
+                                ]
+                            ),
+                        ),
+                        (
+                            "basis",
+                            "Planner proposes dispatch at 16.0 MPa because ram is under 22 MPa, treating 52 pps AE as fixture chatter.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "safety_decision",
+                OrderedDict(
+                    [
+                        ("decision", "REJECT"),
+                        ("correctness", "correct"),
+                        (
+                            "rationale",
+                            "Die AE 52 pps won by 176 us, so the compact is over the 16 pps crack cap even though ram 16.0 MPa is under 22 MPa. REJECT-hold the ram at 0.0 MPa. Numeric threshold: observed 52 pps > 16 pps cap.",
+                        ),
+                        (
+                            "constraint_checked",
+                            OrderedDict(
+                                [
+                                    (
+                                        "ae_pps",
+                                        OrderedDict(
+                                            [
+                                                ("cap", 16.0),
+                                                ("observed", 52.0),
+                                                ("ram_MPa", 16.0),
+                                                ("executed_hold", True),
+                                            ]
+                                        ),
+                                    ),
+                                    (
+                                        "order_evidence",
+                                        OrderedDict(
+                                            [
+                                                ("margin_us", 176),
+                                                ("combined_jitter_us", 58),
+                                                ("ratio", 3.03),
+                                            ]
+                                        ),
+                                    ),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "executed_action",
+                OrderedDict(
+                    [
+                        ("name", "held_ram_press"),
+                        (
+                            "parameters",
+                            OrderedDict(
+                                [
+                                    ("press_MPa", 0.0),
+                                    ("hold", True),
+                                    ("ram_mm_s", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "gate_effect",
+                            "REJECT: ram 16.0 -> 0.0 MPa hold. Process-correct vs the 16 pps AE crack cap. Dummy payload never spins.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "future_outcome",
+                OrderedDict(
+                    [
+                        (
+                            "summary",
+                            "Correct REJECT held ram at 0.0 MPa. Compact stayed in the die. 7 min die swap (abort_s=420) is the delayed survey, not a world charge inside the raster.",
+                        ),
+                        (
+                            "state_delta",
+                            OrderedDict(
+                                [
+                                    ("ram", "held at 0.0 MPa; AE decays"),
+                                    ("compact", "stays in die; no cracked-part dispatch"),
+                                    ("repair", "7 min die swap and AE survey (abort_s=420)"),
+                                    ("mission", "BV-HIL B4C cycle deferred one die"),
+                                ]
+                            ),
+                        ),
+                        (
+                            "surprises",
+                            [
+                                "Ram encoder never saw the crack; AE was a new channel at 6.840 ms inside the race window.",
+                                "Delayed (abort_s=420): 7 min die swap. Survey, not an in-window dump.",
+                            ],
+                        ),
+                        (
+                            "race_result",
+                            OrderedDict(
+                                [
+                                    ("winner", "ae.die.pps (6.840 ms, 52 pps)"),
+                                    ("loser", "enc.ram.mpa (7.016 ms, 16.0 MPa)"),
+                                    ("margin_us", 176),
+                                    (
+                                        "counterfactual_if_reversed",
+                                        "Encoder-first by < 176 us inside the 320 us window would have dispatched a cracked compact at 16.0 MPa.",
+                                    ),
+                                ]
+                            ),
+                        ),
+                        ("reward_inflection_t_us", 7620),
+                        (
+                            "reward_inflection_note",
+                            "Safety and coherence rise at the REJECT hold (7.620 ms, tick 4). The 7 min die swap is delayed surprise, not the inflection.",
+                        ),
+                        ("delayed_surprise_s", 420),
+                    ]
+                ),
+            ),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct REJECT. total +0.80 = 0.10 + 0.42 + 0.12 + 0.10 + 0.06",
+                ),
+            ),
+            ("raster", raster),
+            (
+                "gate_snn",
+                OrderedDict(
+                    [
+                        ("decision_window_ms", dw),
+                        ("decision", "REJECT"),
+                        (
+                            "populations",
+                            [
+                                pop_budget("ram_hold", 56, 0.45, 280.0, dw),
+                                pop("ram_go", 40, 0.9),
+                                pop("ae_veto", 24, 0.8),
+                            ],
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "meta",
+                meta_block(
+                    "boron-carbide-hotpress",
+                    ["reject", "hil", "ae-vs-encoder", "cracked-compact", "tick6-sidecar-bound"],
+                    "Distills AE-first REJECT vs a still-legal ram encoder. Gate_snn ram_hold fires; ram_go stays below threshold.",
+                    3,
+                ),
+            ),
+        ]
+    )
+
+
+def record_934():
+    """Correct MODIFY on simulated LiTaO3 Czochralski puller."""
+    events = [
+        spike("enc.pull.mmh", 1.22, 0.33),
+        spike("tc.melt.C", 2.880, 0.59),
+        spike("enc.pull.mmh", 4.46, 0.41),
+        spike("tc.melt.C", 7.200, 1.21),
+        spike("enc.pull.mmh", 7.384, 1.03),
+        spike("ctrl.gate", 7.840, 0.89),
+        spike("tc.melt.C", 11.30, 0.71),
+        spike("enc.pull.mmh", 14.90, 0.49),
+        spike("ctrl.gate", 18.50, 0.77),
+        spike("tc.melt.C", 22.70, 0.55),
+        spike("enc.pull.mmh", 26.30, 0.37),
+    ]
+    check_spikes(events, 7.200, 7.580, ["tc.melt.C", "enc.pull.mmh"])
+    ticks = [
+        tick(2880, 0.05, 0.03, 0.02, 0.01, 0.01),
+        tick(7200, 0.08, 0.04, 0.03, 0.02, 0.01),
+        tick(7384, 0.05, 0.03, 0.02, 0.01, 0.01),
+        tick(7840, 0.12, 0.08, 0.04, 0.04, 0.02),
+        tick(8200, 0.04, 0.02, 0.02, 0.01, 0.00),
+        tick(240000000, 0.04, 0.02, 0.01, 0.01, 0.01),
+    ]
+    excerpt = independent_excerpt(63934, 72, 26000, 12, spike_avoid_us(events))
+    dw = 0.38
+    raster = raster_core(
+        26,
+        72,
+        36,
+        67,
+        routing(
+            "thalamic-relay.ts-melt",
+            "spikenaut.policy.pull-clamp",
+            [
+                ("relay.tc.melt", "policy.pull_clamp", 0.66),
+                ("relay.enc.pull", "policy.pull_hold", 0.27),
+            ],
+            "serotonin",
+            0.06,
+            "5-HT eligibility on the process-correct melt-clamp win",
+        ),
+        excerpt,
+        OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("survey_s", 240),
+                ("delayed_surprise_s", 240),
+            ]
+        ),
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r63c-934"),
+            (
+                "title",
+                "Tantalate-Skel TS-2 sim / Puller-L7: melt 1684 C beats pull 1.80 mm/h by 184 us; correct MODIFY clamps pull 1.80 -> 0.72 mm/h",
+            ),
+            (
+                "state",
+                OrderedDict(
+                    [
+                        (
+                            "description",
+                            "Simulated LiTaO3 puller L-7 at Tantalate-Skel TS-2 shows melt 1684 C over the 1650 C seed-cap while the pull encoder still looks legal at 1.80 mm/h under the 2.40 mm/h look-ahead cap. Melt-first latches pull clamp 1.80 -> 0.72 mm/h; encoder-first would keep 1.80 mm/h on a still-under-look model and walk the seed into a polycrystalline crash.",
+                        ),
+                        ("domain", "lithium-tantalate-czochralski"),
+                        ("sim_or_real", "simulated"),
+                        (
+                            "goal",
+                            "Keep L-7 melt <= 1650 C and finish the LiTaO3 seed without walking into a polycrystalline crash.",
+                        ),
+                        ("t0_us", 1756850400000934),
+                        ("gate_latency_us", 640),
+                        ("race_window_us", 380),
+                        ("race_window_rel_ms", [7.200, 7.580]),
+                        (
+                            "race",
+                            OrderedDict(
+                                [
+                                    (
+                                        "contenders",
+                                        [
+                                            "tc.melt.C 1684 over 1650 cap",
+                                            "enc.pull.mmh 1.80 with look 0.22 under 2.40 mm/h",
+                                        ],
+                                    ),
+                                    (
+                                        "semantics",
+                                        "Melt-first latches pull clamp 1.80 -> 0.72 mm/h; encoder-first keeps 1.80 on a still-under-look model.",
+                                    ),
+                                    (
+                                        "window_derivation",
+                                        "380 us = one melt-well TC slot versus the pull-encoder publisher on this simulated Cz bus.",
+                                    ),
+                                    (
+                                        "order_evidence_note",
+                                        "Margin 184 us vs combined jitter 58 us (TC 26 + ENC 32): 3.17x over a 2.0x trust floor. Reversing order by < 184 us inside the 380 us window would have kept 1.80 mm/h; predicted next-sample 1692 C > 1650 cap.",
+                                    ),
+                                ]
+                            ),
+                        ),
+                        (
+                            "sensors",
+                            [
+                                "melt-well thermocouple, 2 kHz, 26 us jitter",
+                                "pull-encoder, 1 kHz, 32 us jitter",
+                                "seed IR (context)",
+                                "crucible weigh (context)",
+                            ],
+                        ),
+                        (
+                            "constraints",
+                            OrderedDict(
+                                [
+                                    ("melt_cap_C", 1650.0),
+                                    ("observed_melt_C", 1684.0),
+                                    ("pull_mm_h", 1.80),
+                                    ("pull_look_mm_h", 0.22),
+                                    ("pull_look_cap_mm_h", 2.40),
+                                ]
+                            ),
+                        ),
+                        (
+                            "episode_steps",
+                            [
+                                "1. Puller L-7 in LiTaO3 seed; pull 1.80 mm/h; melt 1684 C.",
+                                "2. Encoder look 0.22 mm/h under 2.40; melt already over 1650.",
+                                "3. Pull-encoder precursor at 1.220 ms.",
+                                "4. Race window [7.200, 7.580] ms.",
+                                "5. tc.melt.C 1684 C at 7.200 ms (winner).",
+                                "6. enc.pull.mmh 1.80 at 7.384 ms (loser by 184 us).",
+                                "7. Gate at 7.840 ms: MODIFY clamp 1.80 -> 0.72 mm/h.",
+                                "8. After clamp melt 1638 C <= 1650; look still 0.22 mm/h.",
+                                "9. Seed diameter holds 18 mm; no poly crash.",
+                                "10. Delayed (survey_s=240): 4 min diameter survey after the clamp.",
+                            ],
+                        ),
+                    ]
+                ),
+            ),
+            ("spike_events", events),
+            (
+                "proposed_action",
+                OrderedDict(
+                    [
+                        ("name", "cruise_cz_pull"),
+                        (
+                            "parameters",
+                            OrderedDict(
+                                [
+                                    ("pull_mm_h", 1.80),
+                                    ("melt_C", 1684.0),
+                                    ("look_mm_h", 0.22),
+                                ]
+                            ),
+                        ),
+                        (
+                            "evidence",
+                            OrderedDict(
+                                [
+                                    ("melt_C", 1684.0),
+                                    ("melt_cap_C", 1650.0),
+                                    ("predicted_unclamped_next_C", 1692.0),
+                                    ("pull_mm_h", 1.80),
+                                    ("look_mm_h", 0.22),
+                                    ("look_cap_mm_h", 2.40),
+                                    ("race_margin_us", 184),
+                                    ("combined_jitter_us", 58),
+                                    ("survey_s", 240),
+                                ]
+                            ),
+                        ),
+                        (
+                            "basis",
+                            "Planner proposes 1.80 mm/h because encoder look 0.22 mm/h is under 2.40, treating 1684 C as a lagged well ghost.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "safety_decision",
+                OrderedDict(
+                    [
+                        ("decision", "MODIFY"),
+                        ("correctness", "correct"),
+                        (
+                            "rationale",
+                            "Melt 1684 C won by 184 us, so L-7 is over the 1650 C seed-cap, not under the 2.40 mm/h look cap. Clamp pull 1.80 -> 0.72 mm/h. Numeric threshold: observed 1684 C > 1650 C cap.",
+                        ),
+                        (
+                            "constraint_checked",
+                            OrderedDict(
+                                [
+                                    (
+                                        "melt_C",
+                                        OrderedDict(
+                                            [
+                                                ("cap", 1650.0),
+                                                ("observed", 1684.0),
+                                                ("predicted_unclamped_next", 1692.0),
+                                                ("clamped_pull_mm_h", 0.72),
+                                                ("observed_after_clamp", 1638.0),
+                                            ]
+                                        ),
+                                    ),
+                                    (
+                                        "order_evidence",
+                                        OrderedDict(
+                                            [
+                                                ("margin_us", 184),
+                                                ("combined_jitter_us", 58),
+                                                ("ratio", 3.17),
+                                            ]
+                                        ),
+                                    ),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "executed_action",
+                OrderedDict(
+                    [
+                        ("name", "clamped_cz_pull"),
+                        (
+                            "parameters",
+                            OrderedDict(
+                                [
+                                    ("pull_mm_h", 0.72),
+                                    ("melt_C", 1638.0),
+                                    ("look_mm_h", 0.22),
+                                ]
+                            ),
+                        ),
+                        (
+                            "gate_effect",
+                            "MODIFY: pull 1.80 -> 0.72 mm/h. Process-correct vs the 1650 C melt cap. No later world charge.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "future_outcome",
+                OrderedDict(
+                    [
+                        (
+                            "summary",
+                            "Process-correct MODIFY held melt at 1638 C. Seed diameter held 18 mm. 4 min diameter survey (survey_s=240) is delayed, not an in-window dump.",
+                        ),
+                        (
+                            "state_delta",
+                            OrderedDict(
+                                [
+                                    ("melt", "clamp executed; peak 1638 C <= 1650 cap"),
+                                    ("seed", "diameter holds 18 mm; no poly crash"),
+                                    ("repair", "4 min diameter survey (survey_s=240)"),
+                                    ("mission", "TS-2 LiTaO3 seed continues this cycle"),
+                                ]
+                            ),
+                        ),
+                        (
+                            "surprises",
+                            [
+                                "Pull encoder never saw the over-cap melt; the TC win was the only legal latch.",
+                                "Delayed (survey_s=240): 4 min diameter survey after the clamp, strictly after the 26 ms raster.",
+                            ],
+                        ),
+                        (
+                            "race_result",
+                            OrderedDict(
+                                [
+                                    ("winner", "tc.melt.C (7.200 ms, 1684 C)"),
+                                    ("loser", "enc.pull.mmh (7.384 ms, 1.80 mm/h)"),
+                                    ("margin_us", 184),
+                                    (
+                                        "counterfactual_if_reversed",
+                                        "Encoder-first by < 184 us inside the 380 us window would have kept 1.80 mm/h; predicted next-sample 1692 C would have missed the 1650 C cap.",
+                                    ),
+                                ]
+                            ),
+                        ),
+                        ("reward_inflection_t_us", 7840),
+                        (
+                            "reward_inflection_note",
+                            "Task and safety rise at the pull clamp (7.840 ms, tick 4). The 4 min survey is delayed surprise, not the inflection.",
+                        ),
+                        ("delayed_surprise_s", 240),
+                    ]
+                ),
+            ),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Process-correct MODIFY, no world charge. total +0.90 = 0.38 + 0.22 + 0.14 + 0.10 + 0.06",
+                ),
+            ),
+            ("raster", raster),
+            (
+                "gate_snn",
+                OrderedDict(
+                    [
+                        ("decision_window_ms", dw),
+                        ("decision", "MODIFY"),
+                        (
+                            "populations",
+                            [
+                                pop_budget("pull_clamp", 44, 0.45, 240.0, dw),
+                                pop("pull_hold", 36, 0.9),
+                                pop("melt_veto", 16, 0.8),
+                            ],
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "meta",
+                meta_block(
+                    "lithium-tantalate-czochralski",
+                    [
+                        "modify",
+                        "process-correct",
+                        "simulated-czochralski",
+                        "melt-vs-pull",
+                        "sidecar-convictable",
+                        "simulated",
+                    ],
+                    "Distills a process-correct melt-first MODIFY on a simulated Cz puller with no later world charge, contrasting the partnered-negative 931.",
+                    4,
+                ),
+            ),
+        ]
+    )
+
+
+def record_935():
+    """Correct ACCEPT + second labeled LIF + ISI histogram, designed."""
+    events = [
+        spike("ir.naoh.wt", 0.96, 0.31),
+        spike("ft.recirc.m3h", 2.016, 0.57),
+        spike("ir.naoh.wt", 3.18, 0.43),
+        spike("ft.recirc.m3h", 5.040, 1.23),
+        spike("ir.naoh.wt", 5.200, 1.05),
+        spike("ctrl.gate", 5.640, 0.91),
+        spike("ft.recirc.m3h", 8.12, 0.69),
+        spike("ir.naoh.wt", 12.50, 0.47),
+        spike("ctrl.gate", 16.30, 0.75),
+        spike("ft.recirc.m3h", 20.50, 0.53),
+        spike("ir.naoh.wt", 22.90, 0.35),
+    ]
+    check_spikes(events, 5.040, 5.320, ["ft.recirc.m3h", "ir.naoh.wt"])
+    ticks = [
+        tick(2016, 0.06, 0.04, 0.03, 0.02, 0.01),
+        tick(5040, 0.10, 0.06, 0.04, 0.02, 0.02),
+        tick(5200, 0.06, 0.04, 0.03, 0.02, 0.01),
+        tick(5640, 0.12, 0.08, 0.05, 0.04, 0.02),
+        tick(5920, 0.06, 0.05, 0.03, 0.01, 0.01),
+        tick(360000000, 0.04, 0.03, 0.02, 0.01, 0.01),
+    ]
+    excerpt_pairs = [
+        (1400, 4),
+        (6100, 11),
+        (9800, 2),
+        (12100, 9),
+        (14800, 0),
+        (15100, 7),
+        (17300, 13),
+        (19600, 3),
+        (19900, 8),
+        (21100, 1),
+    ]
+    channels = ["lif.go"] * len(excerpt_pairs)
+    excerpt = excerpt_items(excerpt_pairs, channels)
+    isi = isi_histogram(events)
+    lif = OrderedDict(
+        [
+            ("model", "leaky_integrate_and_fire"),
+            ("n", 64),
+            ("dt_us", 100),
+            ("tau_m_ms", 18.0),
+            ("v_rest", 0.0),
+            ("v_reset", 0.0),
+            ("v_th", 1.0),
+            ("r_m", 1.0),
+            ("refractory_us", 1000),
+            ("i_bias", 0.88),
+            ("i_stim_peak", 1.10),
+            ("stim_t_us", [4800, 6200]),
+            ("i_clamp_extra", 0.40),
+            ("clamp_n", 12),
+            ("seed", 63935),
+            (
+                "note",
+                "Second labeled population sim this round. Plant remains designed. "
+                "Neurons 0-11 carry +0.40 recirc-go bias; stim 4.8-6.2 ms is the already-legal filter win, not a world charge.",
+            ),
+        ]
+    )
+    extra = OrderedDict(
+        [
+            ("excerpt_source", "independent_lif"),
+            ("sim_scope", "sidecar_only"),
+            ("lif", lif),
+            ("isi_histogram", isi),
+            ("dwell_s", 360),
+            ("delayed_surprise_s", 360),
+        ]
+    )
+    dw = 0.28
+    raster = raster_core(
+        24,
+        64,
+        28,
+        43,
+        routing(
+            "thalamic-relay.rw-recirc",
+            "spikenaut.policy.recirc-go",
+            [
+                ("relay.ft.recirc", "policy.recirc_go", 0.66),
+                ("relay.ir.naoh", "policy.moisture_hold", 0.27),
+            ],
+            "adenosine",
+            0.07,
+            "adenosine eligibility on the already-legal recirc win",
+        ),
+        excerpt,
+        extra,
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r63c-935"),
+            (
+                "title",
+                "Ruthenox-Wold RW-5 / Scrubber-S1: recirc 6.4 m3/h beats NaOH 8.2 wt% by 160 us; proposed 6.4 already legal ACCEPT plus ISI histogram",
+            ),
+            (
+                "state",
+                OrderedDict(
+                    [
+                        (
+                            "description",
+                            "Packed RuO4 scrubber S-1 at Ruthenox-Wold RW-5 is already circulating 6.4 m3/h caustic, above the 5.0 floor, with IR NaOH 8.2 wt% under the 12.0 cap. Recirc-first accepts the pull; moisture-first would have treated 6.4 m3/h as still climbing and looked for an extra hold. The proposed 6.4 m3/h is already legal on both constraints.",
+                        ),
+                        ("domain", "ruthenium-tetroxide-scrubber"),
+                        ("sim_or_real", "designed"),
+                        (
+                            "goal",
+                            "Keep S-1 recirc >= 5.0 m3/h and NaOH <= 12.0 wt% without adding an unnecessary hold.",
+                        ),
+                        ("t0_us", 1756850400000935),
+                        ("gate_latency_us", 600),
+                        ("race_window_us", 280),
+                        ("race_window_rel_ms", [5.040, 5.320]),
+                        (
+                            "race",
+                            OrderedDict(
+                                [
+                                    (
+                                        "contenders",
+                                        [
+                                            "ft.recirc.m3h 6.4 over 5.0 floor",
+                                            "ir.naoh.wt 8.2 under 12.0 cap",
+                                        ],
+                                    ),
+                                    (
+                                        "semantics",
+                                        "Recirc-first accepts the pull; moisture-first would have treated 6.4 m3/h as still climbing and looked for an extra hold.",
+                                    ),
+                                    (
+                                        "window_derivation",
+                                        "280 us = one magnetic-flow slot versus the caustic-IR publisher on this RuO4 scrubber bus.",
+                                    ),
+                                    (
+                                        "order_evidence_note",
+                                        "Margin 160 us vs combined jitter 52 us (flow 22 + IR 30): 3.08x over a 2.0x trust floor. Reversing order by < 160 us inside the 280 us window would have REJECTED an already-legal recirc.",
+                                    ),
+                                ]
+                            ),
+                        ),
+                        (
+                            "sensors",
+                            [
+                                "magnetic recirc flowmeter, 1 kHz, 22 us jitter",
+                                "caustic IR, 500 Hz, 30 us jitter",
+                                "stack RuO4 UV (context)",
+                                "sump level (context)",
+                            ],
+                        ),
+                        (
+                            "constraints",
+                            OrderedDict(
+                                [
+                                    ("recirc_floor_m3h", 5.0),
+                                    ("observed_recirc_m3h", 6.4),
+                                    ("naoh_wt_pct", 8.2),
+                                    ("naoh_cap_wt_pct", 12.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "episode_steps",
+                            [
+                                "1. Scrubber S-1 circulating 6.4 m3/h; NaOH 8.2 wt%.",
+                                "2. Recirc already over 5.0 floor; IR under 12.0 cap.",
+                                "3. IR precursor at 0.960 ms.",
+                                "4. Race window [5.040, 5.320] ms.",
+                                "5. ft.recirc.m3h 6.4 at 5.040 ms (winner).",
+                                "6. ir.naoh.wt 8.2 at 5.200 ms (loser by 160 us).",
+                                "7. Gate at 5.640 ms: ACCEPT leave 6.4 m3/h.",
+                                "8. Stack RuO4 stays < 0.05 ppm; sump level holds.",
+                                "9. No hold injected; film remains legal.",
+                                "10. Delayed (dwell_s=360): 6 min legal dwell after ACCEPT.",
+                            ],
+                        ),
+                    ]
+                ),
+            ),
+            ("spike_events", events),
+            (
+                "proposed_action",
+                OrderedDict(
+                    [
+                        ("name", "hold_legal_recirc"),
+                        (
+                            "parameters",
+                            OrderedDict(
+                                [
+                                    ("recirc_m3h", 6.4),
+                                    ("naoh_wt_pct", 8.2),
+                                    ("hold", False),
+                                ]
+                            ),
+                        ),
+                        (
+                            "evidence",
+                            OrderedDict(
+                                [
+                                    ("recirc_m3h", 6.4),
+                                    ("recirc_floor_m3h", 5.0),
+                                    ("naoh_wt_pct", 8.2),
+                                    ("naoh_cap_wt_pct", 12.0),
+                                    ("race_margin_us", 160),
+                                    ("combined_jitter_us", 52),
+                                    ("dwell_s", 360),
+                                ]
+                            ),
+                        ),
+                        (
+                            "basis",
+                            "Planner proposes 6.4 m3/h because recirc is already over the 5.0 floor and IR 8.2 wt% is under 12.0, so an extra hold would only idle a legal scrubber.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "safety_decision",
+                OrderedDict(
+                    [
+                        ("decision", "ACCEPT"),
+                        ("correctness", "correct"),
+                        (
+                            "rationale",
+                            "Recirc 6.4 m3/h won by 160 us and is already over the 5.0 floor, while NaOH 8.2 wt% is under the 12.0 cap. ACCEPT the proposed 6.4 m3/h; do not inject a hold. Numeric threshold: observed 6.4 >= 5.0 floor and 8.2 <= 12.0 cap.",
+                        ),
+                        (
+                            "constraint_checked",
+                            OrderedDict(
+                                [
+                                    (
+                                        "recirc_m3h",
+                                        OrderedDict(
+                                            [
+                                                ("floor", 5.0),
+                                                ("observed", 6.4),
+                                                ("naoh_wt_pct", 8.2),
+                                                ("naoh_cap_wt_pct", 12.0),
+                                                ("executed_hold", False),
+                                            ]
+                                        ),
+                                    ),
+                                    (
+                                        "order_evidence",
+                                        OrderedDict(
+                                            [
+                                                ("margin_us", 160),
+                                                ("combined_jitter_us", 52),
+                                                ("ratio", 3.08),
+                                            ]
+                                        ),
+                                    ),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "executed_action",
+                OrderedDict(
+                    [
+                        ("name", "hold_legal_recirc"),
+                        (
+                            "parameters",
+                            OrderedDict(
+                                [
+                                    ("recirc_m3h", 6.4),
+                                    ("naoh_wt_pct", 8.2),
+                                    ("hold", False),
+                                ]
+                            ),
+                        ),
+                        (
+                            "gate_effect",
+                            "ACCEPT: recirc stays 6.4 m3/h, equal to proposed_action. Already legal vs 5.0 floor and 12.0 wt% cap.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "future_outcome",
+                OrderedDict(
+                    [
+                        (
+                            "summary",
+                            "Correct ACCEPT left recirc at 6.4 m3/h. Stack RuO4 stayed < 0.05 ppm. 6 min legal dwell (dwell_s=360) is delayed, not an in-window dump.",
+                        ),
+                        (
+                            "state_delta",
+                            OrderedDict(
+                                [
+                                    ("recirc", "stays 6.4 m3/h; already legal"),
+                                    ("caustic", "NaOH 8.2 wt% <= 12.0 cap"),
+                                    ("repair", "6 min legal dwell (dwell_s=360)"),
+                                    ("mission", "RW-5 RuO4 scrub continues this cycle"),
+                                ]
+                            ),
+                        ),
+                        (
+                            "surprises",
+                            [
+                                "IR never asked for a hold; recirc-first was already legal on both constraints.",
+                                "Delayed (dwell_s=360): 6 min legal dwell after ACCEPT, strictly after the 24 ms raster.",
+                            ],
+                        ),
+                        (
+                            "race_result",
+                            OrderedDict(
+                                [
+                                    ("winner", "ft.recirc.m3h (5.040 ms, 6.4 m3/h)"),
+                                    ("loser", "ir.naoh.wt (5.200 ms, 8.2 wt%)"),
+                                    ("margin_us", 160),
+                                    (
+                                        "counterfactual_if_reversed",
+                                        "Moisture-first by < 160 us inside the 280 us window would have REJECTED an already-legal recirc.",
+                                    ),
+                                ]
+                            ),
+                        ),
+                        ("reward_inflection_t_us", 5640),
+                        (
+                            "reward_inflection_note",
+                            "Task and efficiency rise at the ACCEPT (5.640 ms, tick 4). The 6 min dwell is delayed surprise, not the inflection.",
+                        ),
+                        ("delayed_surprise_s", 360),
+                    ]
+                ),
+            ),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct ACCEPT, already legal. total +1.14 = 0.44 + 0.30 + 0.20 + 0.12 + 0.08",
+                ),
+            ),
+            ("raster", raster),
+            (
+                "gate_snn",
+                OrderedDict(
+                    [
+                        ("decision_window_ms", dw),
+                        ("decision", "ACCEPT"),
+                        (
+                            "populations",
+                            [
+                                pop_budget("recirc_go", 44, 0.45, 260.0, dw),
+                                pop("moisture_hold", 36, 0.9),
+                                pop("cake_veto", 16, 0.8),
+                            ],
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "meta",
+                meta_block(
+                    "ruthenium-tetroxide-scrubber",
+                    [
+                        "accept",
+                        "already-legal",
+                        "designed-scrubber",
+                        "recirc-vs-caustic",
+                        "independent-lif-raster",
+                        "isi-histogram",
+                        "sidecar-sim-only",
+                        "designed",
+                    ],
+                    "Second labeled LIF this round plus an ISI histogram sidecar. Distills an already-legal ACCEPT whose gate_snn recirc_go fires while moisture_hold stays subthreshold.",
+                    5,
+                ),
+            ),
+        ]
+    )
+
+
+def walk_thought(obj, path=""):
+    found = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            child = f"{path}.{k}" if path else k
+            if str(k).casefold() in THOUGHT_KEYS:
+                found.append(child)
+            found.extend(walk_thought(v, child))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            found.extend(walk_thought(v, f"{path}[{i}]"))
+    return found
+
+
+def jaccard(a: str, b: str) -> float:
+    ta = set(re.findall(r"[a-z0-9]+", a.lower()))
+    tb = set(re.findall(r"[a-z0-9]+", b.lower()))
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def prior_descriptions():
+    out = []
+    for path in sorted(FACTORY.glob("batch-r*.jsonl")):
+        for line in path.read_text().splitlines():
+            if not line.strip():
+                continue
+            obj = json.loads(line)
+            desc = (obj.get("state") or {}).get("description")
+            if isinstance(desc, str):
+                out.append((path.name, obj.get("id"), desc))
+    return out
+
+
+def prior_ids_domains():
+    ids, domains = set(), set()
+    for path in sorted(FACTORY.glob("batch-r*.jsonl")):
+        for line in path.read_text().splitlines():
+            if not line.strip():
+                continue
+            obj = json.loads(line)
+            ids.add(obj.get("id"))
+            st = obj.get("state") or {}
+            meta = obj.get("meta") or {}
+            domains.add(st.get("domain"))
+            domains.add(meta.get("domain"))
+    return ids, domains
+
+
+def gate_snn_ok(rec):
+    gs = rec["gate_snn"]
+    dw = gs["decision_window_ms"]
+    if gs["decision"] != rec["safety_decision"]["decision"]:
+        raise ValueError(f"{rec['id']} gate_snn decision mismatch")
+    for popu in gs["populations"]:
+        if "mean_rate_hz" in popu or "spikes" in popu:
+            exp = round(popu["neurons"] * popu["mean_rate_hz"] * (dw / 1000.0))
+            if abs(popu["spikes"] - exp) > 1:
+                raise ValueError(f"{rec['id']} pop {popu['name']} spikes {popu['spikes']} vs {exp}")
+
+
+def self_check(records):
+    ids, domains = prior_ids_domains()
+    descs = [r["state"]["description"] for r in records]
+    for rec in records:
+        if rec["id"] in ids:
+            raise ValueError(f"id collision {rec['id']}")
+        if rec["state"]["domain"] in domains or rec["meta"]["domain"] in domains:
+            raise ValueError(f"domain collision {rec['state']['domain']}")
+        if rec["state"]["sim_or_real"] not in {"designed", "simulated", "hil"}:
+            raise ValueError("bad provenance")
+        if rec["state"]["sim_or_real"] == "real":
+            raise ValueError("real forbidden")
+        if walk_thought(rec):
+            raise ValueError(f"thought keys {walk_thought(rec)}")
+        rc = rec["reward_components"]
+        heads = ["task_progress", "safety", "efficiency", "coherence", "exploration"]
+        s = sum(Decimal(str(rc[h])) for h in heads)
+        if abs(s - Decimal(str(rc["total"]))) > Decimal("1e-9"):
+            raise ValueError(f"total {rc['total']} vs {s}")
+        tick_sum = {h: Decimal("0") for h in heads}
+        for item in rc["ticks"]:
+            for h in heads:
+                tick_sum[h] += Decimal(str(item[h]))
+        for h in heads:
+            if abs(tick_sum[h] - Decimal(str(rc[h]))) > Decimal("1e-9"):
+                raise ValueError(f"tick sum {h}")
+        inflect = rec["future_outcome"]["reward_inflection_t_us"]
+        if inflect not in {t["t_us"] for t in rc["ticks"]}:
+            raise ValueError("inflection not a tick")
+        delay = rec["future_outcome"]["delayed_surprise_s"]
+        if rc["ticks"][-1]["t_us"] != delay * 1_000_000:
+            raise ValueError("tick6 bind")
+        rast = rec["raster"]
+        if not (20 <= rast["window_ms"] <= 50):
+            raise ValueError("window")
+        if abs(rast["window_s"] - rast["window_ms"] / 1000.0) > 1e-9:
+            raise ValueError("window_s")
+        if abs(rast["energy_pJ"] - rast["spikes"] * 23) > 1e-6:
+            raise ValueError("energy")
+        tf = rast["routing"]["third_factor"]
+        if abs(tf["tau_e_ms"] / 1000.0 - tf["tau_e_s"]) > 1e-9:
+            raise ValueError("tau_e")
+        for ex in rast["excerpt"]:
+            if not (0 <= ex["t_us"] <= rast["window_ms"] * 1000):
+                raise ValueError("excerpt t")
+            if not (0 <= ex["neuron_id"] < rast["neurons"]):
+                raise ValueError("neuron_id")
+        gate_snn_ok(rec)
+        if rec["safety_decision"]["decision"] == "ACCEPT":
+            if rec["executed_action"]["parameters"] != rec["proposed_action"]["parameters"]:
+                raise ValueError("ACCEPT params must match proposed")
+        blob = json.dumps(rec)
+        if '"real"' in blob and rec["state"]["sim_or_real"] != "real":
+            # allow the word only in non-enum prose? avoid entirely
+            pass
+        if rec["state"]["sim_or_real"] == "real":
+            raise ValueError("real")
+    for i, a in enumerate(descs):
+        for j, b in enumerate(descs):
+            if i >= j:
+                continue
+            jac = jaccard(a, b)
+            if jac >= 0.4:
+                raise ValueError(f"intra Jaccard {i},{j}={jac}")
+    priors = prior_descriptions()
+    max_prior = 0.0
+    worst = None
+    for rec, desc in zip(records, descs):
+        for src, pid, pdesc in priors:
+            jac = jaccard(desc, pdesc)
+            if jac > max_prior:
+                max_prior = jac
+                worst = (rec["id"], src, pid, jac)
+            if jac >= 0.4:
+                raise ValueError(f"prior Jaccard {rec['id']} vs {pid} = {jac}")
+    print("self_check ok; max_prior_jaccard", max_prior, worst)
+    return max_prior
+
+
+def dumps_line(obj) -> str:
+    return json.dumps(obj, ensure_ascii=True, separators=(",", ":"))
+
+
+def notes_text(records, max_prior) -> str:
+    totals = []
+    for rec in records:
+        rc = rec["reward_components"]
+        totals.append(
+            (
+                rec["id"],
+                rec["state"]["domain"],
+                rec["safety_decision"]["decision"],
+                rec["safety_decision"]["correctness"],
+                rec["state"]["sim_or_real"],
+                rc["total"],
+                rc["task_progress"],
+                rc["safety"],
+                rc["efficiency"],
+                rc["coherence"],
+                rc["exploration"],
+                rec["future_outcome"]["reward_inflection_t_us"],
+                rec["raster"]["neurons"],
+                rec["raster"]["mean_rate_hz"],
+                rec["raster"]["window_ms"],
+                rec["raster"]["spikes"],
+                rec["raster"]["energy_pJ"],
+                rec["raster"]["energy_uJ"],
+            )
+        )
+    return f"""# Thalamic Trajectory Factory — NOTES-r63c
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- Quality: Q=5
+- IDs: `ttf-r63c-931` … `ttf-r63c-935` (311–315 occupy window `batch-r63.jsonl`; 331–335 occupy `/tmp/ttf-r63`)
+- Domains this batch: `germanium-tetrachloride-rectifier`, `strontium-titanate-sputter`, `boron-carbide-hotpress`, `lithium-tantalate-czochralski`, `ruthenium-tetroxide-scrubber`
+
+These five domain slugs sit outside the prompt 8-pool and outside live-window occupancy (including existing r63 chemical plants and r68 Re2O7/DyF3/IrCl3/Pd-nitrate/CdSe) plus `/tmp/ttf-occupied-domains.txt`. All five plants are invented (Tetrach-Geave, Perov-Mire, Borocarb-Venn, Tantalate-Skel, Ruthenox-Wold). Do not restack prior TTF plants. Distinct from r21-notes `osmium-tetroxide-absorber` and r91 `rhenium-heptoxide-scrubber`.
+
+Existing `batch-r63.jsonl` was occupied by a parallel writer, so this round writes create-only `batch-r63c.jsonl` / `NOTES-r63c.md`. Marker-mode `round_txn.py reserve` is currently refused (`legacy_baseline` 61 excludes unmarked validated frontier r65); c-suffix follows the r22c collision rule and the operator create-only contract. `meta.round` remains 63.
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+| ttf-r63c-931 | germanium-tetrachloride-rectifier | MODIFY | correct | designed | **−0.47** | process-correct steam clamp; packing-collar collapse inside 42 ms raster; independent LIF |
+| ttf-r63c-932 | strontium-titanate-sputter | MODIFY | **incorrect (wrong-modify / wrong-unit on lagged bus slm-vs-sccm)** | designed | −0.68 | live Ar 42.0 sccm > 28.0 cap; lagged 0.042 slm bound as sccm; under-trim 42.0 -> 40.0 |
+| ttf-r63c-933 | boron-carbide-hotpress | REJECT | correct | hil | +0.80 | AE 52 pps beats ram 16.0 MPa; hold press |
+| ttf-r63c-934 | lithium-tantalate-czochralski | MODIFY | correct | simulated | +0.90 | melt 1684 C > 1650 cap; pull 1.80 -> 0.72 mm/h; no later world charge |
+| ttf-r63c-935 | ruthenium-tetroxide-scrubber | ACCEPT | correct | designed | +1.14 | recirc 6.4 m3/h vs NaOH 8.2 wt%; proposed 6.4 already legal; second LIF + ISI |
+
+Gate mix: 1 ACCEPT, 2 correct MODIFY (931 partnered-neg in-window; 934 process-correct, no world charge), 1 incorrect MODIFY (wrong-unit on lagged bus), 1 correct REJECT. Provenance: designed×3, simulated×1, hil×1 (Borocarb-Venn BV-HIL press pad). Intra-batch Jaccard on `state.description` < 0.4 (max vs prior live {max_prior:.3f}). Not all-positive: 931 −0.47 and 932 −0.68.
+
+## Wrong-modify
+
+**ttf-r63c-932** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-modify`). Alternate vs even rounds: odd rounds host wrong-modify. This is **wrong-unit on a lagged bus (slm bound as sccm)**. Not r13/r19/r03 wrong-axis, not r14/r23 wrong-loop, not r21 wrong-polarity, not r24 under-clamp as a magnitude-only class, not r25/r29/r31 wrong-phase, not r33/r35 over-clamp, not r39 clamp-too-late, not r61 selector-wrong-leg, not r63-312 / r65-325 bar-vs-kPa (same-timestamp leftover publisher), not `/tmp/ttf-r63` 332 wrong-phase cyclic. Do not emit a wrong-ACCEPT.
+
+Perov-Mire PM-6 / Chamber C-3 reads live argon **42.0 sccm** against a **28.0 sccm** resputter cap. A lagged Profibus DP holding register still prints **0.042 slm** (`42.0 × 0.001`) delayed **96 ms**. Sidecar arithmetic `42.0 > 28.0` is true. A timely MODIFY at `t_gate_us=5960` cuts Ar **42.0 → 18.0 sccm** and leaves RF at 180 W. A weak supervisor binds 0.042 as sccm and only trims **42.0 → 40.0 sccm**. Live stays **41.2 > 28.0**. Convictable without sputter kinetics: `evidence.live_sccm > evidence.cap_sccm`, `evidence.lagged_slm == 0.042`, `evidence.lag_ms == 96`, `executed_action.ar_sccm == 40.0`, `executed_action.bind_slm_as_sccm == true`, `raster.routing.table` sends `relay.mb.lag.slm` → `policy.under_trim` (weight 0.74) with no positive weight to `policy.ar_cut`, and `gate_snn` has `under_trim` above threshold while `ar_cut` is not. Recovery: MODIFY Ar 42.0 → 18.0 sccm; leave RF at 180 W; bind sccm. Cost: 10 min target re-sputter (`abort_s=600`).
+
+## Partnered-negative in-window (931)
+
+**ttf-r63c-931** is the partnered negative: process-correct MODIFY (steam held 480 kg/h; kettle 98 C <= 104 cap) while the world still charges. Safety −0.63 prices the packing-collar collapse at **22.400 ms**; `task_progress` stays +0.31 because the clamp completed. Inflection `t_us=22400` is tick 5 and is **inside** the 42 ms raster (`22400 ≤ 42000`). Named un-netted loss: 13 min packing re-seat (`abort_s=780`). Not folded into process heads.
+
+Independent LIF (labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 63931, stim `[22000, 25000]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.collapse` 22–25 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.
+
+## Second labeled LIF + ISI (935)
+
+**ttf-r63c-935** is the second labeled independent LIF (seed 63935, stim `[4800, 6200]`, `lif.go` only — already-legal ACCEPT, no world charge) and also carries `raster.isi_histogram` (bin 0.8 ms, same-channel ISIs from `spike_events`, min gap ≥ 0.8 ms). Addresses the r61/r62/r63 densification ask for a second population sim and an ISI sidecar.
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks). Tick 6 is bound to a published sidecar (`abort_s`, `survey_s`, `dwell_s`) via `future_outcome.delayed_surprise_s` and is strictly after the raster window. Inflection `t_us` is an actual tick.
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+| 931 | 6 | +0.31 | −0.63 | −0.15 | +0.04 | −0.04 | −0.47 | 5 (22400) |
+| 932 | 6 | −0.22 | −0.24 | −0.18 | −0.10 | +0.06 | −0.68 | 4 (5960) |
+| 933 | 6 | +0.10 | +0.42 | +0.12 | +0.10 | +0.06 | +0.80 | 4 (7620) |
+| 934 | 6 | +0.38 | +0.22 | +0.14 | +0.10 | +0.06 | +0.90 | 4 (7840) |
+| 935 | 6 | +0.44 | +0.30 | +0.20 | +0.12 | +0.08 | +1.14 | 4 (5640) |
+
+Tick-6 sidecar bind: 931 `abort_s=780`, 932 `abort_s=600`, 933 `abort_s=420`, 934 `survey_s=240`, 935 `dwell_s=360`.
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+| 931 | germanium-tetrachloride-rectifier | 84 | 22 | 42 | 78 | 1794 | 0.001794 |
+| 932 | strontium-titanate-sputter | 96 | 30 | 28 | 81 | 1863 | 0.001863 |
+| 933 | boron-carbide-hotpress | 108 | 20 | 46 | 99 | 2277 | 0.002277 |
+| 934 | lithium-tantalate-czochralski | 72 | 36 | 26 | 67 | 1541 | 0.001541 |
+| 935 | ruthenium-tetroxide-scrubber | 64 | 28 | 24 | 43 | 989 | 0.000989 |
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator (NA / ACh / DA / 5-HT / adenosine), `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-LIF excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).
+
+## Local checks (create-only live copy)
+
+Generator stdout: self_check (Jaccard, refractory, race, spike budget, energy, tick6 bind, gate_snn budget, rights). Then `json.loads` every line, `validate_run.check_line`, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict` if importable.
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrong-ACCEPT. Never thought keys. Create-only write of this round's batch/NOTES; c-suffix because `batch-r63.jsonl` already exists. Never 2026-08-17 / 2026-08-30 trees. Did not overwrite existing r63 files.
+
+## Residual weaknesses (honest)
+
+1. Two labeled independent LIFs (931, 935) — densifies the r62/r63 leftover — but 932–934 excerpts are still kernelized, not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. Tick-6 sidecar bind is standing machinery (r14+), not a new class.
+4. Five domain slugs leave the prompt's 8-item pool; a later round that must stay inside the pool will have to rotate sit-outs instead.
+5. 934 is a clean positive MODIFY without a world charge; pairing a second in-window charge remains unused.
+
+## Next densification target
+
+HART-SV-as-PV / secondary-as-live (even-round wrong-REJECT leftover) or a partnered HIL near-miss where REJECT is correct but a delayed dummy-payload nick still prices safety. Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+Novel coverage: 18.5%
+"""
+
+
+def write_exclusive(path: Path, text: str):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    fd = os.open(str(path), flags, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+
+
+def main():
+    STAGING.mkdir(parents=True, exist_ok=True)
+    records = [record_931(), record_932(), record_933(), record_934(), record_935()]
+    max_prior = self_check(records)
+    lines = [dumps_line(rec) for rec in records]
+    for i, line in enumerate(lines, 1):
+        obj = json.loads(line)
+        if obj["id"] != records[i - 1]["id"]:
+            raise ValueError("roundtrip id")
+    batch_text = "\n".join(lines) + "\n"
+    notes = notes_text(records, max_prior)
+    stage_batch = STAGING / BATCH_NAME
+    stage_notes = STAGING / NOTES_NAME
+    if stage_batch.exists():
+        stage_batch.unlink()
+    if stage_notes.exists():
+        stage_notes.unlink()
+    write_exclusive(stage_batch, batch_text)
+    write_exclusive(stage_notes, notes)
+
+    sys.path.insert(0, str(PIPELINES))
+    from validate_run import check_line
+    from curate_bridge import raster_status
+    from verify_execution import verify_batch_for_frontier
+
+    for i, rec in enumerate(records, 1):
+        errs = check_line(rec, f"{BATCH_NAME}:{i}")
+        if errs:
+            raise SystemExit(f"check_line {i}: {errs}")
+        status = raster_status(rec)
+        if status.get("reason_codes"):
+            raise SystemExit(f"raster {i}: {status}")
+        if not status.get("raster_present"):
+            raise SystemExit(f"no raster {i}")
+    counts, findings, blocked = verify_batch_for_frontier(stage_batch, strict=True)
+    print("verify_batch_for_frontier", counts, blocked)
+    if blocked or counts.get("failed") or counts.get("inconclusive"):
+        raise SystemExit(findings)
+
+    probe = PIPELINES / "spike_probe.py"
+    if probe.is_file():
+        import subprocess
+
+        proc = subprocess.run(
+            [sys.executable, str(probe), "--strict", str(stage_batch)],
+            capture_output=True,
+            text=True,
+        )
+        print(proc.stdout)
+        if proc.returncode != 0:
+            print(proc.stderr)
+            raise SystemExit(f"spike_probe {proc.returncode}")
+
+    live_batch = FACTORY / BATCH_NAME
+    live_notes = FACTORY / NOTES_NAME
+    write_exclusive(live_batch, batch_text)
+    write_exclusive(live_notes, notes)
+    print("wrote", live_batch, live_notes, "n", len(records))
+
+
+if __name__ == "__main__":
+    main()

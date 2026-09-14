@@ -1,0 +1,47 @@
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "TMT 1048 C won by 180 us and is under 1080 C. Coil DP 12 kPa is under "
+                "25 kPa. Feed 18.0 t/h is over the 16.0 t/h floor. ACCEPT the already-legal pass.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "tmt_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 1080.0),
+                                    ("observed", 1048.0),
+                                    ("executed_feed_t_h", 18.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 180),
+                                    ("combined_jitter_us", 58),
+                                    ("ratio", 3.10),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "pass_18th"),
+            ("parameters", params),
+            (
+                "gate_effect",
+                "ACCEPT: 18.0 t/h pass and 1048 C TMT unchanged. Routing relay.ir.tmt -> "
+                "policy.go_accept.",
+            ),
+        ]
+    )

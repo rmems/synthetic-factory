@@ -1,0 +1,14 @@
+THIS_DOMAINS = {
+    "silane-cvd-epitaxy",
+    "dinitrotoluene-nitrator",
+    "magnesia-shaft-kiln",
+    "polyacetal-trioxane",
+    "calcium-hypochlorite-dryer",
+}
+THIS_PLANTS = (
+    "Silane-Fleet",
+    "Nitryl-Hope",
+    "Periclase-Quoin",
+    "Acetal-Spile",
+    "Bleach-Ketch",
+)

@@ -1,0 +1,76 @@
+def harvest_occupancy() -> tuple[set[str], set[str]]:
+    """Occupancy SoT is published jsonl + NOTES headers + THIS_/MY_ domain tuples.
+
+    Do not scrape every ``("domain", ...)`` in foreign gens: parallel clones copy
+    record bodies into BANNED lists without claiming the round.
+    """
+    domains: set[str] = set(PROMPT_POOL)
+    plants: set[str] = set()
+    for path in sorted(Path("/tmp").glob("ttf-r*/batch-r*.jsonl")):
+        if path.parent.name == "ttf-r114":
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            rec = json.loads(line)
+            st = rec.get("state") or {}
+            meta = rec.get("meta") or {}
+            if isinstance(st.get("domain"), str):
+                domains.add(st["domain"])
+            if isinstance(meta.get("domain"), str):
+                domains.add(meta["domain"])
+            plants.update(PLANT_RE.findall(json.dumps(rec)))
+    for path in sorted(Path("/tmp").glob("ttf-r*/NOTES-r*.md")):
+        if path.parent.name == "ttf-r114":
+            continue
+        try:
+            txt = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        match = re.search(r"Domains this batch:\s*(.*)", txt)
+        if match:
+            domains.update(re.findall(r"`([^`]+)`", match.group(1)))
+        # plants named as this-round-only, not the whole occupancy essay
+        plants.update(PLANT_RE.findall(txt))
+    gens = (
+        list(Path("/tmp").glob("ttf-r*/gen_r*.py"))
+        + list(Path("/tmp").glob("ttf-r*/_head.py"))
+        + list(Path("/tmp").glob("ttf-r*/_prefix.py"))
+        + list(Path("/tmp").glob("ttf-r*/_head_helpers.py"))
+    )
+    for path in sorted(gens):
+        if path.parent.name == "ttf-r114" or path.name == "gen_r114.py":
+            continue
+        try:
+            txt = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        match = re.search(
+            r"(THIS_DOMAINS|MY_DOMAINS)\s*=\s*[\{(](.*?)[\})]", txt, re.S
+        )
+        if match:
+            domains.update(re.findall(r'"([^"]+)"', match.group(2)))
+        match = re.search(
+            r"(THIS_PLANTS|MY_PLANTS)\s*=\s*[\{(](.*?)[\})]", txt, re.S
+        )
+        if match:
+            plants.update(re.findall(r'"([^"]+)"', match.group(2)))
+    for path in list(Path("/tmp").glob("ttf-r*-occ-*.txt")) + list(
+        Path("/tmp").glob("ttf-r*/occ-*.txt")
+    ):
+        if path.parent.name == "ttf-r114" or "r114" in path.name:
+            continue
+        try:
+            lines = [ln.strip() for ln in path.read_text(encoding="utf-8", errors="ignore").splitlines() if ln.strip()]
+        except OSError:
+            continue
+        name = path.name.lower()
+        if "plant" in name:
+            plants.update(lines)
+        else:
+            domains.update(lines)
+    return domains, plants

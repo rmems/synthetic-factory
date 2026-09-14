@@ -1,0 +1,4 @@
+                "Perchlate-Meres PM-HIL pad has Cell CL-7 at 58 C electrolyte RTD, 14 K short of the "
+                "72 C perchlorate-start floor, while a pad lamp paints the hood pyrometer at 81 C. "
+                "RTD-first should freeze bus current; hood-first would push 18 kA onto a "
+                "cold cell.",

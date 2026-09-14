@@ -1,0 +1,5 @@
+    plant_overlap = {
+        p
+        for p in plant_overlap
+        if "-" in p and p.lower() not in {"wrong-modify", "wrong-reject"}
+    }

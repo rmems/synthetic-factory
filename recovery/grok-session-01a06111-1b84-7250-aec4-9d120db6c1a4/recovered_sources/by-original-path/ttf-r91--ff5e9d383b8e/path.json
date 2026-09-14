@@ -1,0 +1,52 @@
+{
+  "agent_ids": [
+    "01a0640f-795d-74a2-a010-249e8da305f4"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 1,
+  "original_basename": "_records_r91.py",
+  "original_path": "/tmp/ttf-r91/_records_r91.py",
+  "path_key": "ttf-r91--ff5e9d383b8e",
+  "terminal_event_ids": [
+    "01a0640f-795d-74a2-a010-249e8da305f4:call-10681b7e-4f82-4fc2-9487-f425548b79fe-69"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a0640f-795d-74a2-a010-249e8da305f4",
+      "basename_preserved": true,
+      "bytes": 74977,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 343,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640f-795d-74a2-a010-249e8da305f4/updates.jsonl",
+      "original_basename": "_records_r91.py",
+      "original_path": "/tmp/ttf-r91/_records_r91.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r91--ff5e9d383b8e/versions/v0001/_records_r91.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r91--ff5e9d383b8e/versions/v0001/_records_r91.py",
+      "session_id": "01a0640f-795d-74a2-a010-249e8da305f4",
+      "sha256": "385b0321417980f9055b682368f9aa01a67417aeb5096bab09375af3564e7109",
+      "source_channel": "structured",
+      "source_event_id": "01a0640f-795d-74a2-a010-249e8da305f4:call-ae2dcabb-e0f4-40bf-880d-964433a77c0b-63",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788391072033,
+      "timestamp_utc": "2026-09-02T23:17:52.033Z",
+      "tool_call_id": "call-ae2dcabb-e0f4-40bf-880d-964433a77c0b-63",
+      "version": 1,
+      "version_id": "ttf-r91--ff5e9d383b8e:v0001"
+    }
+  ]
+}

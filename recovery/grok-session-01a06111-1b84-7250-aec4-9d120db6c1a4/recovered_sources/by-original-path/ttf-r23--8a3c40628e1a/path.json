@@ -1,0 +1,63 @@
+{
+  "agent_ids": [
+    "01a06406-1393-73d3-9dd9-7c554e840746",
+    "01a06408-8ccb-74c2-b68c-f76ee04b7c7f"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "gen_r23.py",
+  "original_path": "/tmp/ttf-r23/gen_r23.py",
+  "path_key": "ttf-r23--8a3c40628e1a",
+  "terminal_event_ids": [
+    "01a06406-1393-73d3-9dd9-7c554e840746:call-21b075cc-d797-481e-9509-34fb6a83b2da-53",
+    "01a06408-8ccb-74c2-b68c-f7598be5d31a:call-553d5ab6-9011-4e4a-9733-a0932996736e-49",
+    "01a06408-8ccb-74c2-b68c-f76ee04b7c7f:call-0c43d57e-6d33-4afd-bf28-a027ac81444b-23",
+    "01a06408-8ccb-74c2-b68c-f76ee04b7c7f:call-7d265e7f-d147-4dc4-9c65-50ee40432b4e-47",
+    "01a06408-8ccb-74c2-b68c-f76ee04b7c7f:call-e563bf22-16bd-4a29-8e20-80cc5a66e7e5-19",
+    "01a06409-0d8e-72b0-9bdf-c4d2baaa11ff:call-5f4f6448-4706-4683-8c41-fdb6369a7fec-21",
+    "01a06409-0d97-7132-b6e0-f4bec4d5c066:call-f1dad798-fa7f-475f-ab11-32a9cea23fc3-18",
+    "01a06409-0d97-7132-b6e0-f5093b055f73:call-ce908283-5532-4cd3-bd59-81da1b46b142-16",
+    "01a06409-0d97-7132-b6e0-f5093b055f73:call-ea4cedde-cf89-471b-9723-ba07b64ec200-17",
+    "01a06409-6c6c-7822-ba55-e62a49427aee:call-96c719c9-1d51-4d9d-96a5-dc5963a09753-10",
+    "01a064a7-40d2-7990-a372-f0c7ef708ad5:call-dee322a9-be46-4263-85ba-6c184f84f276-23"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06406-1393-73d3-9dd9-7c554e840746",
+      "basename_preserved": true,
+      "bytes": 101685,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 294,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06406-1393-73d3-9dd9-7c554e840746/updates.jsonl",
+      "original_basename": "gen_r23.py",
+      "original_path": "/tmp/ttf-r23/gen_r23.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r23--8a3c40628e1a/versions/v0001/gen_r23.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r23--8a3c40628e1a/versions/v0001/gen_r23.py",
+      "session_id": "01a06406-1393-73d3-9dd9-7c554e840746",
+      "sha256": "8a9cc901a2981ce6a4bf2ef9cfae7e8072df8696145ae9a089e243988cf815ab",
+      "source_channel": "structured",
+      "source_event_id": "01a06406-1393-73d3-9dd9-7c554e840746:call-f5ba848a-2440-4898-b3e0-2b0eb3d16b7a-52",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788385714739,
+      "timestamp_utc": "2026-09-02T21:48:34.739Z",
+      "tool_call_id": "call-f5ba848a-2440-4898-b3e0-2b0eb3d16b7a-52",
+      "version": 1,
+      "version_id": "ttf-r23--8a3c40628e1a:v0001"
+    }
+  ]
+}

@@ -1,0 +1,106 @@
+            (
+                "summary",
+                "Correct ACCEPT left Coil C-12 on an 18.0 t/h / 1048 C pass. Coil DP hitch did not "
+                "justify a hold. 7 min cooldown confirmed DP still under 25 kPa.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("coil", "still 18.0 t/h / 1048 C"),
+                        ("dp", "12 kPa under 25 cap"),
+                        ("furnace", "on schedule"),
+                        ("hold", "none applied"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Coil DP 12 kPa hitch is residual, not a coking trip.",
+                    "Delayed (7 min): cooldown restacks C-12 without a recovery hold.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "ir.tmt.c (4.180 ms, 1048 C)"),
+                        ("loser", "dp.coil.kpa (4.360 ms, 12 kPa)"),
+                        ("margin_us", 180),
+                        (
+                            "counterfactual_if_reversed",
+                            "DP-first by < 180 us would only delay confirmation. The pass stays "
+                            "legal either way; ACCEPT is still required.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 4940),
+            (
+                "reward_inflection_note",
+                "Task credit lands at the ACCEPT (4.940 ms, tick 4). Cooldown is delayed surprise.",
+            ),
+            ("delayed_surprise_s", 420.0),
+            ("cooldown_s", 420),
+        ]
+    )
+    ras = raster_core(
+        24,
+        48,
+        42,
+        48,
+        routing(
+            "relay.ir.tmt",
+            "policy.go_accept",
+            [
+                ("relay.ir.tmt", "policy.go_accept", 0.66),
+                ("relay.dp.coil", "policy.hitch_hold", 0.20),
+            ],
+            "dopamine",
+            0.04,
+            "legal_pass_stdp; DA tags the go_accept bind at the tube-metal win",
+        ),
+        excerpt,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.30),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("go_accept", 40, 0.50, 160.0, 2),
+                    pop("hitch_hold", 40, 0.80, 10.0, 0),
+                    pop("tmt_cap_veto", 20, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r48-260",
+        "Ethene-Veld furnace 3 / Coil C-12: TMT 1048 C beats coil DP 12 kPa by 180 us; "
+        "ACCEPT already-legal 18.0 t/h pass",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Correct ACCEPT of an already-legal steam-cracker pass. total +1.14 = "
+        "0.44 + 0.32 + 0.18 + 0.12 + 0.08.",
+        ras,
+        gate,
+        "steam-cracker-coil",
+        [
+            "accept",
+            "already-legal",
+            "tmt-vs-coil-dp",
+            "sidecar-convictable",
+            "designed",
+        ],
+        "Teaches that a tube-metal IR under cap can confirm an already-legal pass without "
+        "a coil-DP hitch becoming a hold.",
+        5,
+    )

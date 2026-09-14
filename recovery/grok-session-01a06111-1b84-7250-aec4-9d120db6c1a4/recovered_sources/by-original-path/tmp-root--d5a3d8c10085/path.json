@@ -1,0 +1,55 @@
+{
+  "agent_ids": [
+    "01a06126-2ae5-71e3-9c84-7727cf50f82a"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "ttf-r12-validate.py",
+  "original_path": "/tmp/ttf-r12-validate.py",
+  "path_key": "tmp-root--d5a3d8c10085",
+  "terminal_event_ids": [
+    "01a06126-2ae5-71e3-9c84-7727cf50f82a:call-5d28b3d3-fedc-41d8-a1bd-0f661e5ef71c-66",
+    "01a06404-d40e-79f3-904e-1a172c5e80f6:call-5e3a57ff-e366-4f4f-9781-c2d7121e76ed-82",
+    "01a06404-d40e-79f3-904e-1a172c5e80f6:call-c1687c31-fa27-4051-af96-2b6ba02cb2fb-76",
+    "01a06406-1393-73d3-9dd9-7c639ac5f920:call-c2f6159b-3603-41f7-8dcc-ce6b660f601c-29"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06126-2ae5-71e3-9c84-7727cf50f82a",
+      "basename_preserved": true,
+      "bytes": 39343,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 348,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06126-2ae5-71e3-9c84-7727cf50f82a/updates.jsonl",
+      "original_basename": "ttf-r12-validate.py",
+      "original_path": "/tmp/ttf-r12-validate.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--d5a3d8c10085/versions/v0001/ttf-r12-validate.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/tmp-root--d5a3d8c10085/versions/v0001/ttf-r12-validate.py",
+      "session_id": "01a06126-2ae5-71e3-9c84-7727cf50f82a",
+      "sha256": "dcc94c53cb6d2d6dd58857ba513c3f228db153823f18e2f351c2d2c9f6ef6c2c",
+      "source_channel": "structured",
+      "source_event_id": "01a06126-2ae5-71e3-9c84-7727cf50f82a:call-20a02b0a-af6e-40e6-977c-5d5b90bfa18b-65",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788336578429,
+      "timestamp_utc": "2026-09-02T08:09:38.429Z",
+      "tool_call_id": "call-20a02b0a-af6e-40e6-977c-5d5b90bfa18b-65",
+      "version": 1,
+      "version_id": "tmp-root--d5a3d8c10085:v0001"
+    }
+  ]
+}

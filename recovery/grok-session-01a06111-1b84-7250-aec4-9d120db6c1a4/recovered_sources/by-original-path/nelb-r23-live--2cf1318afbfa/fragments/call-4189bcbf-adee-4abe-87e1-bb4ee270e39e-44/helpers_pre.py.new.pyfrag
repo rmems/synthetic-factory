@@ -1,0 +1,2 @@
+BATCH = LIVE / "batch-r23.jsonl"
+NOTES = LIVE / "NOTES-r23.md"

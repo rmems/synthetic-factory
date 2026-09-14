@@ -1,0 +1,17 @@
+    pipeline_receipt = (
+        f"check_jsonl errors={e} warnings={w} kinds={kinds} n={n}; "
+        f"raster_status valid={st.get('raster_valid')} gate={st.get('gate_snn_valid')} "
+        f"reasons={st.get('reason_codes')}; verify_record_execution={status} "
+        f"({reason}); spike_probe --strict rc={probe.returncode}"
+    )
+    if errs:
+        print("FAIL pre-live", errs)
+        return 1
+
+    jsonl_live = emit_text(live_batch, line + "\n")
+    notes = write_notes(rec, aux, pipeline_receipt)
+    transcript = write_transcript(rec, line)
+    notes_stage = emit_text(stage_notes, notes)
+    notes_live = emit_text(live_notes, notes)
+    tr_stage = emit_text(stage_tr, transcript)
+    tr_live = emit_text(live_tr, transcript)

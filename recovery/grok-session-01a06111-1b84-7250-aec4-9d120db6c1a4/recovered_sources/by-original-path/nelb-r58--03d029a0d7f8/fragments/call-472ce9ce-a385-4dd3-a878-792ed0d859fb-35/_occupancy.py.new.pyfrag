@@ -1,0 +1,37 @@
+def occupancy_preflight():
+    banned = (
+        "nernstveil",
+        "glimmerholt",
+        "olan brigg",
+        "rogowski coil",
+        "coilveil",
+        "dunlinholt",
+        "tavish keld",
+        "kessa thorn",
+        "beta-attenuation",
+        "betaveil",
+        "oreholt sinter",
+        "willa kest",
+        "bam-sim-4",
+        "rog-hil-3",
+        "pump-current zirconia",
+        "wideband electrochemical o2",
+    )
+    hits = []
+    root = Path("/tmp")
+    for n in (
+        sorted(root.glob("nelb-r*/NOTES-r*.md"))
+        + sorted(root.glob("nelb-r*/gen_r*.py"))
+        + sorted(root.glob("nelb-r*/records_block.py"))
+        + sorted(root.glob("nelb-r*/*recs*.py"))
+    ):
+        if "nelb-r58" in str(n):
+            continue
+        text = n.read_text(encoding="utf-8", errors="replace").casefold()
+        for b in banned:
+            if b in text:
+                hits.append(f"{n}:{b}")
+    if hits:
+        raise RuntimeError(f"family/plant collision {hits}")
+
+

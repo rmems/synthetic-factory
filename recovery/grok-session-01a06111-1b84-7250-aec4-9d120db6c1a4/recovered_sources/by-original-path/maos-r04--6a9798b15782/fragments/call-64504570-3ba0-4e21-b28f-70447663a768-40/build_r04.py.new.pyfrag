@@ -1,0 +1,11 @@
+    jsonl_stage = emit_text(stage_batch, line + "\n")
+
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import raster_status
+    from verify_execution import verify_record_execution
+
+    e, w, kinds, n = check_jsonl(
+        jsonl_stage,
+        jsonl_stage.name,
+        staging=FactoryStaging(enabled=True),
+    )

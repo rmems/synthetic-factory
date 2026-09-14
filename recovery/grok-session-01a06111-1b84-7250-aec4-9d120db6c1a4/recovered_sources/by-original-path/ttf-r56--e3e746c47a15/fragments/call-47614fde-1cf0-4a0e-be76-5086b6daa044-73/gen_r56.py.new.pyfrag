@@ -1,0 +1,68 @@
+                [
+                    "mother-liquor density, 1 kHz, 30 us timestamp jitter",
+                    "agitator encoder, 1 kHz, 38 us jitter",
+                    "recycle-flow encoder (context)",
+                    "crystal-bridge AE (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("sg_cap", 1.220),
+                        ("observed_sg", 1.284),
+                        ("proposed_recycle_m3_h", 42.0),
+                        ("recycle_floor_m3_h", 28.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Crystallizer CX-3 indexed; 42 m3/h recycle; mother-liquor SG 1.284 > 1.220 cap.",
+                    "2. Cruise recycle 42 m3/h armed; liquor over the 1.220 SG cap.",
+                    "3. Encoder precursor at 1.080 ms; density warm-start 1.284 SG.",
+                    "4. Race window [4.480, 4.860] ms opens on the crystallizer bus.",
+                    "5. Mother-liquor SG 1.284 at 4.480 ms (winner).",
+                    "6. Agitator 48 rpm at 4.700 ms (loser by 220 us).",
+                    "7. Gate at 5.380 ms (winner + 900 us): MODIFY clamp 42 -> 34 m3/h.",
+                    "8. Clamp executes; next-sample SG 1.168 < 1.220 cap.",
+                    "9. At 22.600 ms stored crystal-bridge load collapses a baffle bay.",
+                    "10. Emergency isolate 15 min + bridge pull; named un-netted loss, not folded into process heads.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_recycle"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("recycle_m3_h", 42.0),
+                        ("sg", 1.284),
+                        ("hold", False),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("sg", 1.284),
+                        ("sg_cap", 1.220),
+                        ("predicted_unclamped_next_sg", 1.246),
+                        ("recycle_m3_h", 42.0),
+                        ("race_margin_us", 220),
+                        ("combined_jitter_us", 68),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 42 m3/h cruise: agitator rpm looks like an open slurry, not a "
+                "bridged baffle, and the 1.220 SG cap is treated as still open.",
+            ),
+        ]
+    )

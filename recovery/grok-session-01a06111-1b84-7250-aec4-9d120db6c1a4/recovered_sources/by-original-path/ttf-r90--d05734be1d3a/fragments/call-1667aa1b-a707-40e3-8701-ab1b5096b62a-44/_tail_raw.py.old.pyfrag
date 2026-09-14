@@ -1,0 +1,1 @@
+Tick 6 bind: `ticks[5].t_us == round(delayed_surprise_s * 1e6)` on every record (900 s, 1080 s, 480 s, 540 s, 360 s).

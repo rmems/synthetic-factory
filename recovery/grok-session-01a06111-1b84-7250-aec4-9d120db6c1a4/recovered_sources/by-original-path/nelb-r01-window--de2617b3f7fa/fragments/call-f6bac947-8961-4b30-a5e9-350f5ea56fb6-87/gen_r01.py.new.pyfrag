@@ -1,0 +1,5 @@
+        if rec["meta"]["round"] != ROUND:
+            raise RuntimeError("round")
+        tags = rec["meta"].get("snn_tags")
+        if tags != ["race", "refractory", "adaptation"]:
+            raise RuntimeError(f"snn_tags {tags}")

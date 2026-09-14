@@ -1,0 +1,21 @@
+                            [
+                                "rtd.bath.C 452 vs 470 cap",
+                                "ir.dross.C 438 under 455 cap",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Bath-first latches ACCEPT of the 1.40 m/min dip; dross-first "
+                            "would extra-cut a legal kettle.",
+                        ),
+                        (
+                            "window_derivation",
+                            "420 us = one bath-RTD slot versus dross-IR on this "
+                            "galvanize-kettle bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 220 us vs combined jitter 70 us (RTD 32 + IR 38): 3.1x over a "
+                            "2.0x trust floor. Reversing order by < 220 us would have extra-cut "
+                            "a legal 1.40 m/min dip.",
+                        ),

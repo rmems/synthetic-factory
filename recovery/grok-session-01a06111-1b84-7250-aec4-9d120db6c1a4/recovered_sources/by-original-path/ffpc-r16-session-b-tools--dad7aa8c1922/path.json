@@ -1,0 +1,53 @@
+{
+  "agent_ids": [
+    "01a06409-0d97-7132-b6e0-f4a8f402e5d0"
+  ],
+  "classification": "high-confidence",
+  "classification_evidence": [
+    "latest state includes a completed deterministic terminal write/copy/concatenation replayed statically"
+  ],
+  "event_count": 0,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 0,
+  "original_basename": "verify_diagnosis_receipt.py",
+  "original_path": "/tmp/ffpc-r16-session-b-tools/verify_diagnosis_receipt.py",
+  "path_key": "ffpc-r16-session-b-tools--dad7aa8c1922",
+  "terminal_event_ids": [
+    "01a06409-0d97-7132-b6e0-f4a8f402e5d0:call-18df00e2-a424-405b-854d-e89f76dc2363-52",
+    "01a06409-0d97-7132-b6e0-f4a8f402e5d0:call-875dbfa3-522c-4049-adcc-69e087fc4922-67"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06409-0d97-7132-b6e0-f4a8f402e5d0",
+      "basename_preserved": true,
+      "bytes": 2071,
+      "classification": "high-confidence",
+      "classification_evidence": [
+        "terminal call completed with exit code 0",
+        "quoted literal heredoc content was present in the recorded command",
+        "content was reconstructed by parsing shell text without executing it"
+      ],
+      "file_mode": "0400",
+      "journal_line": 275,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06409-0d97-7132-b6e0-f4a8f402e5d0/updates.jsonl",
+      "original_basename": "verify_diagnosis_receipt.py",
+      "original_path": "/tmp/ffpc-r16-session-b-tools/verify_diagnosis_receipt.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r16-session-b-tools--dad7aa8c1922/versions/v0001/verify_diagnosis_receipt.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r16-session-b-tools--dad7aa8c1922/versions/v0001/verify_diagnosis_receipt.py",
+      "session_id": "01a06409-0d97-7132-b6e0-f4a8f402e5d0",
+      "sha256": "c751460015c25d9eca44384ec18fb66bedc9861e9e692adce4cebf2b4d8eef8c",
+      "source_channel": "terminal",
+      "source_event_id": "01a06409-0d97-7132-b6e0-f4a8f402e5d0:call-18df00e2-a424-405b-854d-e89f76dc2363-52",
+      "source_operation": "literal_heredoc_write",
+      "timestamp_ms": 1788386101350,
+      "timestamp_utc": "2026-09-02T21:55:01.350Z",
+      "tool_call_id": "call-18df00e2-a424-405b-854d-e89f76dc2363-52",
+      "version": 1,
+      "version_id": "ffpc-r16-session-b-tools--dad7aa8c1922:v0001"
+    }
+  ]
+}

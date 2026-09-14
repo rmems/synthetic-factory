@@ -1,0 +1,81 @@
+{
+  "agent_ids": [
+    "01a06406-1394-7980-ae37-05917402fb4c"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 2,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 3,
+  "original_basename": "build_r20.py",
+  "original_path": "/tmp/maos-r20/build_r20.py",
+  "path_key": "maos-r20--a4cfc801e8f1",
+  "terminal_event_ids": [
+    "01a06406-1394-7980-ae37-05917402fb4c:call-4ac57aa3-d0ed-4e15-aecf-dbc475bb1b61-53",
+    "01a06409-6c6f-7940-9614-a0e0598e9ab7:call-524dfd78-2abc-46a3-8df8-15b231705cce-27"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 2,
+  "versions": [
+    {
+      "agent_id": "01a06406-1394-7980-ae37-05917402fb4c",
+      "basename_preserved": true,
+      "bytes": 79776,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 287,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06406-1394-7980-ae37-05917402fb4c/updates.jsonl",
+      "original_basename": "build_r20.py",
+      "original_path": "/tmp/maos-r20/build_r20.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r20--a4cfc801e8f1/versions/v0001/build_r20.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/maos-r20--a4cfc801e8f1/versions/v0001/build_r20.py",
+      "session_id": "01a06406-1394-7980-ae37-05917402fb4c",
+      "sha256": "35ff63579ff79b0187698c6878617b3b8ce485344ac2789a3542a855ef33635b",
+      "source_channel": "structured",
+      "source_event_id": "01a06406-1394-7980-ae37-05917402fb4c:call-28fcb6a8-b0d7-424e-aa5f-ad64caa8db35-51",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788386038733,
+      "timestamp_utc": "2026-09-02T21:53:58.733Z",
+      "tool_call_id": "call-28fcb6a8-b0d7-424e-aa5f-ad64caa8db35-51",
+      "version": 1,
+      "version_id": "maos-r20--a4cfc801e8f1:v0001"
+    },
+    {
+      "agent_id": "01a06406-1394-7980-ae37-05917402fb4c",
+      "basename_preserved": true,
+      "bytes": 79786,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 293,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06406-1394-7980-ae37-05917402fb4c/updates.jsonl",
+      "original_basename": "build_r20.py",
+      "original_path": "/tmp/maos-r20/build_r20.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r20--a4cfc801e8f1/versions/v0002/build_r20.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/maos-r20--a4cfc801e8f1/versions/v0002/build_r20.py",
+      "session_id": "01a06406-1394-7980-ae37-05917402fb4c",
+      "sha256": "e93f8fcc41bfc091d9452418e8f9fded65bf45fc63db49346a681ada8ef101ec",
+      "source_channel": "structured",
+      "source_event_id": "01a06406-1394-7980-ae37-05917402fb4c:call-56d5d1d5-c8af-4475-9bc1-7625712e1455-52",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788386074526,
+      "timestamp_utc": "2026-09-02T21:54:34.526Z",
+      "tool_call_id": "call-56d5d1d5-c8af-4475-9bc1-7625712e1455-52",
+      "version": 2,
+      "version_id": "maos-r20--a4cfc801e8f1:v0002"
+    }
+  ]
+}

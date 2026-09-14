@@ -1,0 +1,9 @@
+        if rec["id"] == ID_WR:
+            if "policy.go_accept" in table_tos:
+                issues.append("317 routing has go_accept")
+            if "policy.hold_reject" not in table_tos:
+                issues.append("317 missing hold_reject routing")
+            if rec["safety_decision"].get("correctness") != "incorrect":
+                issues.append("317 not marked incorrect")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("317 missing recovery")

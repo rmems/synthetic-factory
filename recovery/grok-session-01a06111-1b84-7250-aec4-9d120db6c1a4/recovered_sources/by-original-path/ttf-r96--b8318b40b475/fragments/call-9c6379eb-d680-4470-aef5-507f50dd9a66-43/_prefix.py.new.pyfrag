@@ -1,0 +1,3 @@
+        if match:
+            plants.update(re.findall(r'"([^"]+)"', match.group(2)))
+    return domains, plants

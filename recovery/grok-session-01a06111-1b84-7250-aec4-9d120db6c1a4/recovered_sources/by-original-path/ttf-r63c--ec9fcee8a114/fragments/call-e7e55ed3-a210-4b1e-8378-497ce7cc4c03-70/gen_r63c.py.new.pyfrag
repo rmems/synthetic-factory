@@ -1,0 +1,8 @@
+                                    ("live_sccm", 42.0),
+                                    ("cap_sccm", 28.0),
+                                    ("lagged_slm", 0.042),
+                                    ("sccm_to_slm", 0.001),
+                                    ("lag_ms", 96),
+                                    ("correct_wf6_sccm", 18.0),
+                                    ("correct_h2_sccm", 180.0),
+                                    ("correct_unit", "sccm"),

@@ -1,0 +1,10 @@
+def main():
+    occupancy_preflight()
+    records = [rec_184(), rec_185(), rec_186()]
+    local_checks(records)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    lines = [
+        json.dumps(r, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        for r in records
+    ]
+    BATCH.write_text("\n".join(lines) + "\n", encoding="utf-8")

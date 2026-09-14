@@ -1,0 +1,2 @@
+    (OUT / "NOTES-r17.md").write_text(notes)
+    return notes

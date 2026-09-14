@@ -1,0 +1,1 @@
+    channels = ["lif.clamp" if t < 20000 else "lif.chain" for t, _ in picked]

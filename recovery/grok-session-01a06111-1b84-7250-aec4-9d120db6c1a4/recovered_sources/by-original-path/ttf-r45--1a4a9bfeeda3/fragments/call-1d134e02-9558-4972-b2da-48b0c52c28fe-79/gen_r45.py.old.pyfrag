@@ -1,0 +1,38 @@
+                [
+                    "N2-front RTD, 2 kHz, 30 us jitter",
+                    "bed DP transmitter, 1 kHz, 32 us jitter",
+                    "feed coriolis (context)",
+                    "product H2 GC (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("bed_dp_cap_kPa", 28.0),
+                        ("observed_bed_dp_kPa", 18.2),
+                        ("front_trip_C", 58.0),
+                        ("observed_front_C", 41.0),
+                        ("predicted_next_front_C", 44.8),
+                        ("feed_tph", 8.4),
+                        ("correct_feed_tph", 8.4),
+                        ("executed_wrong_feed_tph", 2.0),
+                        ("remaining_adsorb_s", 420),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. LG-4 Tower-T9 in adsorption; feed 8.4 t/h; remaining adsorb 420 s.",
+                    "2. Bed DP 18.2 kPa < 28.0 cap; front 41.0 C < 58.0 trip.",
+                    "3. Header precursor at 0.980 ms.",
+                    "4. Race window [5.320, 5.660] ms.",
+                    "5. rtd.front.C 41.0 C at 5.480 ms (winner, still under trip).",
+                    "6. dp.bed.kPa 18.2 at 5.640 ms (loser by 160 us, still under cap).",
+                    "7. Gate at 6.180 ms: WRONG-MODIFY dumps feed 8.4 -> 2.0 t/h.",
+                    "8. Adsorb aborts 420 s early; predicted next front 44.8 C still < 58.0.",
+                    "9. Product H2 stays 99.68 percent over a 99.50 spec; no cap was crossed.",
+                    "10. Delayed (abort_s=660): 11 min unused adsorb plus extra regen.",
+                ],
+            ),

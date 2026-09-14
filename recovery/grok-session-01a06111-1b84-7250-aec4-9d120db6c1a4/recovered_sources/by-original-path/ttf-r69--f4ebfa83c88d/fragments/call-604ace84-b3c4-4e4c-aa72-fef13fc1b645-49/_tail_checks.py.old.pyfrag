@@ -1,0 +1,2 @@
+def notes_text(jmax: float) -> str:
+    return f"""# Thalamic Trajectory Factory — NOTES-r57

@@ -1,0 +1,7 @@
+    dest_batch = FACTORY_DIR / "batch-r22c.jsonl"
+    dest_notes = FACTORY_DIR / "NOTES-r22c.md"
+    write_exclusive(dest_batch, "\n".join(lines) + "\n")
+    write_exclusive(dest_notes, notes)
+    print(f"copied exclusive {dest_batch}")
+    print(f"copied exclusive {dest_notes}")
+    return 0

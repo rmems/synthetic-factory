@@ -1,0 +1,22 @@
+                "Correct REJECT held DK-3 at 0 nA. Faraday 14.2 uA stayed over the 8.0 uA cap; "
+                "VSWR 1.12 was dummy-load reflection. 8 min pad reclear (reclear_s=480) after the "
+                "load swap is delayed, not the inflection.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("beam", "held; extract 0 nA; Faraday 14.2 uA > 8.0"),
+                        ("rf", "VSWR 1.12 unused as go"),
+                        ("pad", "8 min reclear after dummy-load swap"),
+                        ("mission", "extraction deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Dummy-load reflection produced VSWR 1.12 without a Faraday drop; Faraday-first discarded it.",
+                    "Delayed (reclear_s=480): 8 min pad reclear under a second dummy-load; not a safety inflection.",
+                ],
+            ),

@@ -1,0 +1,13 @@
+            domains.update(re.findall(r'\("domain",\s*"([^"]+)"\)', txt))
+            match = re.search(
+                r"(THIS_DOMAINS|MY_DOMAINS)\s*=\s*[\{(](.*?)[\})]", txt, re.S
+            )
+            if match:
+                domains.update(re.findall(r'"([^"]+)"', match.group(2)))
+            match = re.search(
+                r"(THIS_PLANTS|MY_PLANTS)\s*=\s*[\{(](.*?)[\})]", txt, re.S
+            )
+            if match:
+                plants.update(re.findall(r'"([^"]+)"', match.group(2)))
+            plants.update(PLANT_RE.findall(txt))
+    return domains, plants

@@ -1,0 +1,7 @@
+            "thalamic-relay.hw-sus",
+            "spikenaut.policy.gacl-clamp",
+            [
+                ("relay_sus_C", "policy_gacl_clamp", 0.68),
+                ("relay_gacl_ft", "policy_gacl_hold", 0.29),
+                ("relay_ae_clog", "policy_gacl_clamp", -0.42),
+            ],

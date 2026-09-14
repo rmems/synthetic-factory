@@ -1,0 +1,22 @@
+                "locks in over the illegal plunge.",
+            ),
+            ("delayed_surprise_s", 600),
+        ]
+    )
+    ras = raster_core(
+        40,
+        104,
+        22,
+        92,
+        routing(
+            "thalamic-relay.fsw-pin",
+            "spikenaut.policy.plunge-hold",
+            [
+                ("relay.tc.pin", "policy.plunge_hold", 0.69),
+                ("relay.ir.bar", "policy.plunge_commit", 0.27),
+                ("relay.pt.anvil", "policy.plunge_hold", 0.11),
+            ],
+            "dopamine",
+            0.09,
+            "stir_stdp; DA at pin-root win (5.760 ms) tags plunge_hold over plunge_commit",
+        ),

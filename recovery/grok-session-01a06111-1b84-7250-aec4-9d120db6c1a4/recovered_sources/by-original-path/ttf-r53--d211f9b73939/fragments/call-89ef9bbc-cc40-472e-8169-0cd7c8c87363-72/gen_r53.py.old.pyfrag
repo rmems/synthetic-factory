@@ -1,0 +1,6 @@
+            "thalamic-relay.pitch-ae",
+            "spikenaut.policy.ram-hold",
+            [
+                ("relay.ae.pitch", "policy.ram_hold", 0.71),
+                ("relay.enc.flue", "policy.flue_go", 0.23),
+            ],

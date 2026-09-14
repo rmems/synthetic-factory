@@ -1,0 +1,37 @@
+{
+  "agent_ids": [
+    "01a06410-9662-7e11-ad9a-634de1bedf36"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations"
+  ],
+  "event_count": 1,
+  "final_state": "unknown",
+  "hunk_evidence_count": 1,
+  "original_basename": "harvest_occupancy.py",
+  "original_path": "/tmp/ffpc-r30-stage/harvest_occupancy.py",
+  "path_key": "ffpc-r30-stage--f6df6b7001c0",
+  "terminal_event_ids": [
+    "01a06410-9662-7e11-ad9a-634de1bedf36:call-3a3af6e2-7d97-4884-90cd-4d3ab973b1a8-50",
+    "01a06410-9662-7e11-ad9a-634de1bedf36:call-73abd04c-184c-4d9e-a91a-6cd7480b93c2-40",
+    "01a06410-9662-7e11-ad9a-634de1bedf36:call-7e02d8d1-4094-4198-aad8-754595587212-57",
+    "01a06410-9669-7a43-a6ec-e0f2ced88153:call-61d57e7a-eeba-47e9-8cac-ffda675aba72-14"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 1,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a06410-9662-7e11-ad9a-634de1bedf36:call-e42293b5-d7a9-46ca-9acf-185949264dac-37",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r30-stage--f6df6b7001c0/fragments/call-e42293b5-d7a9-46ca-9acf-185949264dac-37/harvest_occupancy.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r30-stage--f6df6b7001c0/fragments/call-e42293b5-d7a9-46ca-9acf-185949264dac-37/harvest_occupancy.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

@@ -1,0 +1,6 @@
+Rights: RM-793 research-only (SpaceXAI/xAI grok-4.6, SuperGrok Heavy chat). Not training_ready. Do not publish into `outputs/raw/` from this generator; operator uses `pipelines/round_txn.py`. Staged only at `/tmp/nelb-r61/`.
+
+## Context / de-duplication
+Prior corpus read: 2026-08-30 NOTES-r01–r04, 2026-08-17-w3 NOTES-r12 family table, `/tmp/nelb-r13-holes.md` + `/tmp/nelb-r13-premises.md`, staged `/tmp/nelb-r13` through `/tmp/nelb-r56` complete batches/NOTES plus r57 (zirconia Nernst / PID VOC / contact pulse-echo), r58 (zirconia wideband / Rogowski / BAM), r59 (UV-DOAS SO2 / Al2O3 moisture / load-cell hopper), in-flight r55 (Nernst zirconia / two-color pyrometer / magnetostrictive level) and r60 head-only. IDs: r13=`040`–`042` … r56=`169`–`171`, reserved r57–r60=`172`–`183`, this round `nelb-r61-184`…`186` as assigned. Envelope cloned from complete r56 (`language_view.trajectory` + operational t2 + `spike_events` + `raster` + `gate_snn` + `isi_histogram` + `routing.third_factor` + 15-key RM-793 `meta.rights`).
+
+Banned this round (committed + staged leftover-mill r13–r59 and in-flight r55/r57/r58 generators): not VOD-SNN replay, not pharma cold-chain, not stack-gas CEMS;

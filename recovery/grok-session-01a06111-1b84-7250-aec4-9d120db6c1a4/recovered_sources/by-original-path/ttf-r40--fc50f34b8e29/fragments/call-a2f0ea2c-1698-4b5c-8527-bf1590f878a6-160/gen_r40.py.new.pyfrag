@@ -1,0 +1,10 @@
+            "relay.tc.chamber",
+            "policy.flow_go",
+            [
+                ("relay.tc.chamber", "policy.flow_go", 0.64),
+                ("relay.pt.can", "policy.can_hold", 0.24),
+                ("relay.pt.argon", "policy.flow_go", 0.12),
+            ],
+            "histamine",
+            0.12,
+            "pre_post_stdp; histamine at chamber win (4.220 ms) opens 120 ms eligibility covering the 4.900 ms accept",

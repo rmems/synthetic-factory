@@ -1,0 +1,1050 @@
+                    supervisor_error_type="wrong-reject",
+                ),
+            ),
+        ]
+    )
+
+
+def record_288():
+    ticks = [
+        tick(2680, 0.01, 0.05, 0.01, 0.01, 0.01),
+        tick(5760, 0.02, 0.08, 0.02, 0.02, 0.01),
+        tick(5931, 0.02, 0.07, 0.02, 0.02, 0.01),
+        tick(6860, 0.03, 0.12, 0.04, 0.03, 0.02),
+        tick(9020, 0.01, 0.05, 0.02, 0.01, 0.01),
+        tick(540000000, 0.01, 0.03, 0.01, 0.01, 0.00),
+    ]
+    spikes = [
+        spike("tc.melt.ctx", 1.380, 0.43),
+        spike("rtd.melt.C", 2.680, 0.62),
+        spike("ir.lamp.glint", 4.180, 0.49),
+        spike("rtd.melt.C", 5.760, 1.35),
+        spike("ir.lamp.glint", 5.931, 1.12),
+        spike("ctrl.gate", 6.860, 1.03),
+        spike("rtd.melt.C", 9.020, 0.77),
+        spike("tc.melt.ctx", 13.200, 0.44),
+        spike("ir.lamp.glint", 17.100, 0.58),
+        spike("ctrl.gate", 23.400, 0.81),
+        spike("rtd.melt.C", 30.000, 0.54),
+        spike("tc.melt.ctx", 36.600, 0.38),
+        spike("ir.lamp.glint", 39.100, 0.46),
+    ]
+    excerpt = independent_excerpt(54288, 108, 40000, 15, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Rod-Quill RQ-5 is frozen on Zone-Holt ZH-2's HIL float-zone while a melt "
+                "RTD reports 1398 C against a 1410 C melt floor. A lamp-pyrometer, lit by the "
+                "pad spectrum, still reads 1452 C apparent. Melt-first latches REJECT hold; "
+                "glint-first would commit a 2.4 mm/min pull on an under-floor melt.",
+            ),
+            ("domain", "float-zone-silicon"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Do not pull the rod unless melt >= 1410 C; keep pull 0.0 mm/min "
+                "until the injected cold-neck packet drops.",
+            ),
+            ("t0_us", 1756794621000288),
+            ("gate_latency_us", 1100),
+            ("race_window_us", 380),
+            ("race_window_rel_ms", [5.7, 6.08]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "rtd.melt.C 1398 C",
+                                "ir.lamp.glint 1452 C apparent",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Melt-first latches REJECT hold 0.0 mm/min; glint-first would commit "
+                            "2.4 mm/min on an apparent 1452 C under-read of a cold-neck packet.",
+                        ),
+                        (
+                            "window_derivation",
+                            "380 us = one melt-RTD slot versus lamp-IR integration on this "
+                            "float-zone HIL bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 171 us vs combined jitter ~58 us (melt 26 + IR 32): 2.9x "
+                            "over a 2.0x trust floor. Pad injects the lamp 110-150 us before the "
+                            "melt RTD (geometric lag, not a sensor fault); the apparent "
+                            "1452 C packet is still the loser in this 380 us window.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "melt RTD, 5 kHz burst, 26 us jitter",
+                    "lamp pyrometer, 200 Hz, 32 us jitter",
+                    "neck thermocouple (context)",
+                    "HIL lamp-spectrum monitor (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("melt_floor_C", 1410.0),
+                        ("observed_melt_C", 1398.0),
+                        ("lamp_apparent_C", 1452.0),
+                        ("proposed_pull_mm_min", 2.4),
+                        ("lamp_inject_lead_us", [110, 150]),
+                    ]
+                ),
+            ),
+            (
+                "hil",
+                OrderedDict(
+                    [
+                        ("pad", "Zone-Holt ZH-2 float-zone mockup"),
+                        ("injected", "cold-neck packet + lamp-spectrum"),
+                        (
+                            "note",
+                            "Hardware-in-the-loop float-zone. Invented plant; not a live silicon puller.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Rod-Quill RQ-5 on the ZH-2 HIL zone; pull 2.4 mm/min armed.",
+                    "2. Lamp injected 110-150 us before melt RTD sees the cold-neck packet.",
+                    "3. Neck precursor at 1.380 ms.",
+                    "4. Race window [5.700, 6.080] ms.",
+                    "5. rtd.melt.C 1398 C at 5.760 ms (winner).",
+                    "6. ir.lamp.glint 1452 C at 5.931 ms (loser by 171 us).",
+                    "7. Gate at 6.860 ms: REJECT hold 0.0 mm/min; do not pull 2.4 mm/min.",
+                    "8. Melt remains under floor this cycle; freeze-in floor held.",
+                    "9. Seed recycle queued on the pad.",
+                    "10. Delayed (abort_s=540): 9 min zone retune and lamp-spectrum retune.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "pull_zone_24"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("pull_mm_min", 2.4),
+                        ("hold", False),
+                        ("lamp_authoritative", True),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("melt_C", 1398.0),
+                        ("melt_floor_C", 1410.0),
+                        ("lamp_apparent_C", 1452.0),
+                        ("race_margin_us", 171),
+                        ("combined_jitter_us", 58),
+                        ("abort_s", 540),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 2.4 mm/min pull because lamp apparent 1452 C looks "
+                "over the 1410 C floor, treating melt 1398 C as a noisy sheath echo.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Melt 1398 C is under the 1410 C freeze-in floor. Lamp apparent "
+                "1452 C is a HIL lamp under-read of a cold-neck packet, not a clearance. REJECT: hold "
+                "0.0 mm/min; do not commit 2.4 mm/min across the zone.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "melt_C",
+                            OrderedDict(
+                                [
+                                    ("floor", 1410.0),
+                                    ("observed_melt", 1398.0),
+                                    ("lamp_apparent", 1452.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "pull_mm_min",
+                            OrderedDict(
+                                [
+                                    ("proposed", 2.4),
+                                    ("executed", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 171),
+                                    ("combined_jitter_us", 58),
+                                    ("ratio", 2.95),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hold_for_melt_floor"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("pull_mm_min", 0.0),
+                        ("hold", True),
+                        ("lamp_authoritative", False),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: hold 0.0 mm/min; 2.4 mm/min pull cancelled. Melt 1398 < 1410 floor.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct REJECT held Rod-Quill RQ-5 at 0.0 mm/min. Melt under floor this cycle; "
+                "freeze-in floor held. Lamp apparent was not treated as a melt clearance.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("quill", "held; pull 0.0 mm/min"),
+                        ("melt", "still under 1410 C this cycle"),
+                        ("lamp_ir", "1452 C unused as clearance"),
+                        ("mission", "pull deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Geometric lag: lamp was injected 110-150 us before the melt RTD, yet melt still won the 380 us race.",
+                    "Delayed (abort_s=540): pad policy update forbids treating lamp apparent as a melt substitute after a 9 min retune.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.melt.C (5.760 ms, 1398 C)"),
+                        ("loser", "ir.lamp.glint (5.931 ms, 1452 C apparent)"),
+                        ("margin_us", 171),
+                        (
+                            "counterfactual_if_reversed",
+                            "Glint-first by < 171 us inside the 380 us window would have committed "
+                            "2.4 mm/min with melt 1398 < 1410 floor. Order, not amplitude, selected the hold.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 6860),
+            (
+                "reward_inflection_note",
+                "Safety and coherence step up at the REJECT gate (6.860 ms, tick 4) as the hold "
+                "locks in over the illegal pull.",
+            ),
+        ]
+    )
+    ras = raster_core(
+        40,
+        108,
+        21,
+        91,
+        routing(
+            "thalamic-relay.fz-melt",
+            "spikenaut.policy.pull-hold",
+            [
+                ("relay.rtd.melt", "policy.pull_hold", 0.69),
+                ("relay.ir.lamp", "policy.pull_commit", 0.27),
+                ("relay.tc.melt", "policy.pull_hold", 0.11),
+            ],
+            "dopamine",
+            0.09,
+            "freezein_stdp; DA at melt win (5.760 ms) tags pull_hold over pull_commit",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.38),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("pull_hold", 52, 0.50, 253.0, 5),
+                    pop("pull_commit", 40, 0.50, 65.8, 1),
+                    pop("melt_veto", 32, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r54-288"),
+            (
+                "title",
+                "Zone-Holt ZH-2 HIL / Rod-Quill RQ-5: melt 1398 C beats lamp 1452; "
+                "correct REJECT holds the float-zone pull",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct REJECT. Melt under floor; lamp under-read unused as clearance. "
+                    "total +0.78 = 0.10 + 0.40 + 0.12 + 0.10 + 0.06.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "float-zone-silicon",
+                    [
+                        "reject",
+                        "hil-zone",
+                        "melt-vs-lamp",
+                        "freezein-floor",
+                        "hil",
+                    ],
+                    "Teaches that a HIL lamp under-read can lose to melt RTD inside a "
+                    "380 us window; reversing 171 us would have selected an illegal float-zone pull.",
+                    3,
+                ),
+            ),
+        ]
+    )
+
+
+def record_289():
+    ticks = [
+        tick(3040, 0.04, 0.03, 0.02, 0.01, 0.00),
+        tick(6840, 0.08, 0.07, 0.03, 0.02, 0.01),
+        tick(7058, 0.05, 0.05, 0.02, 0.02, 0.01),
+        tick(7280, 0.11, 0.09, 0.04, 0.03, 0.01),
+        tick(9480, 0.04, 0.04, 0.02, 0.01, 0.01),
+        tick(420000000, 0.02, 0.02, 0.01, 0.01, 0.00),
+    ]
+    spikes = [
+        spike("pt.stack.ctx", 1.540, 0.42),
+        spike("rtd.nip.C", 3.040, 0.59),
+        spike("ir.stack.glint", 4.980, 0.48),
+        spike("rtd.nip.C", 6.840, 1.31),
+        spike("ir.stack.glint", 7.058, 1.09),
+        spike("ctrl.gate", 7.280, 0.96),
+        spike("rtd.nip.C", 9.480, 0.73),
+        spike("pt.stack.ctx", 13.700, 0.45),
+        spike("ir.stack.glint", 18.200, 0.57),
+        spike("ctrl.gate", 22.500, 0.80),
+        spike("rtd.nip.C", 26.700, 0.51),
+        spike("pt.stack.ctx", 29.200, 0.38),
+    ]
+    excerpt = independent_excerpt(54289, 64, 30000, 13, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Nip-Fen NF-8 at Supercal-Noll SC-4 still holds a 980 m/min stack while a "
+                "118 C nip pulse sits over a 105 C gloss cap. A stack IR on the same "
+                "canopy still claims 88 C cool-glint. Nip-first latches a speed "
+                "clamp; glint-first would keep 980 m/min into a close-out surge.",
+            ),
+            ("domain", "paper-supercalender"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Reel SC-4 only if nip <= 105 C; otherwise clamp "
+                "speed so the gloss surge is not made at 980 m/min.",
+            ),
+            ("t0_us", 1756794621000289),
+            ("gate_latency_us", 440),
+            ("race_window_us", 520),
+            ("race_window_rel_ms", [6.75, 7.27]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "rtd.nip.C 118 C",
+                                "ir.stack.glint 88 C cool-glint",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Nip-first latches stack clamp 980 -> 720 m/min; glint-first keeps "
+                            "980 m/min on a false-cool stack IR.",
+                        ),
+                        (
+                            "window_derivation",
+                            "520 us = one 2 kHz nip-RTD sample versus stack-IR decode on this "
+                            "supercalender bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 218 us vs combined jitter ~71 us (nip 33 + stack 38): 3.1x over "
+                            "a 2.0x trust floor. Reversing order by < 218 us inside the 520 us "
+                            "window would have kept 980 m/min into a 118 C pulse.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "nip RTD, 2 kHz, 33 us jitter",
+                    "stack IR camera, 200 Hz, 38 us jitter",
+                    "stack-air PT (context)",
+                    "nip load cell (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("gloss_cap_C", 105.0),
+                        ("observed_nip_C", 118.0),
+                        ("proposed_speed_m_min", 980.0),
+                        ("stack_glint_C", 88.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Nip-Fen indexed onto SC-4 stack; NF-8 armed at 980 m/min.",
+                    "2. Stack IR reports 88 C cool-glint; nip already sees 118 C.",
+                    "3. Stack-PT precursor at 1.540 ms.",
+                    "4. Race window [6.750, 7.270] ms.",
+                    "5. rtd.nip.C 118 C at 6.840 ms (winner).",
+                    "6. ir.stack.glint 88 C at 7.058 ms (loser by 218 us).",
+                    "7. Gate at 7.280 ms: MODIFY stack 980 -> 720 m/min.",
+                    "8. Speed applies; next-sample nip 101 C < 105 cap.",
+                    "9. Sheet occupies; next parent roll queued.",
+                    "10. Delayed (calender_reseq_s=420): dispatcher resequences the following parent +7 min.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "stack_980"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("speed_m_min", 980.0),
+                        ("nip_kN_m", 180.0),
+                        ("stack_id", 4),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("nip_C", 118.0),
+                        ("gloss_cap_C", 105.0),
+                        ("stack_cool", True),
+                        ("race_margin_us", 218),
+                        ("combined_jitter_us", 71),
+                        ("calender_reseq_s", 420),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 980 m/min stack because the stack IR claims the canopy "
+                "is cool, treating nip 118 C as a sidelobe.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Nip 118 C won by 218 us, so the pulse is inside the 105 C gloss cap. "
+                "Stack-IR cool-glint is not a nip temperature. MODIFY: stack 980 -> 720 m/min. "
+                "A full REJECT (kill the sheet) is not indicated: 720 m/min is a legal catch-and-pass.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "nip_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 105.0),
+                                    ("observed", 118.0),
+                                    ("stack_cool", True),
+                                    ("observed_after_clamp", 101.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "speed_m_min",
+                            OrderedDict(
+                                [
+                                    ("proposed", 980.0),
+                                    ("clamped", 720.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 218),
+                                    ("combined_jitter_us", 71),
+                                    ("ratio", 3.07),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_stack_720"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("speed_m_min", 720.0),
+                        ("nip_kN_m", 180.0),
+                        ("stack_id", 4),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: stack 980 -> 720 m/min. Process-correct vs the 105 C gloss cap.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct MODIFY held NF-8 at 720 m/min. Next-sample nip 101 C under the "
+                "105 C cap. Stack 88 C cool-glint was not treated as a nip clearance.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("stack", "clamped 980 -> 720 m/min"),
+                        ("nip", "101 C < 105 cap after clamp"),
+                        ("ir", "88 C unused as clearance"),
+                        ("mission", "parent roll completed under cap"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Stack-IR cool-glint lagged the nip pulse by 218 us; order, not amplitude, selected the clamp.",
+                    "Delayed (calender_reseq_s=420): dispatcher resequences the following parent +7 min. Not a safety inflection.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.nip.C (6.840 ms, 118 C)"),
+                        ("loser", "ir.stack.glint (7.058 ms, 88 C)"),
+                        ("margin_us", 218),
+                        (
+                            "counterfactual_if_reversed",
+                            "Glint-first by < 218 us inside the 520 us window would have kept "
+                            "980 m/min into a 118 C pulse over the 105 cap. The MODIFY is "
+                            "the correct process either way once nip RTD is bound.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 7280),
+            (
+                "reward_inflection_note",
+                "Task and safety step up at the MODIFY gate (7.280 ms, tick 4). Tick 6 is "
+                "calender_reseq_s=420.",
+            ),
+        ]
+    )
+    ras = raster_core(
+        30,
+        64,
+        42,
+        81,
+        routing(
+            "thalamic-relay.calender-nip",
+            "spikenaut.policy.speed-clamp",
+            [
+                ("relay.rtd.nip", "policy.speed_clamp", 0.64),
+                ("relay.ir.stack", "policy.glint_hold", 0.29),
+                ("relay.pt.stack", "policy.speed_clamp", 0.12),
+            ],
+            "serotonin",
+            0.07,
+            "gloss_stdp; 5-HT at nip win (6.840 ms) tags speed_clamp over glint_hold",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.52),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("speed_clamp", 30, 0.50, 256.4, 4),
+                    pop("glint_hold", 30, 0.50, 64.1, 1),
+                    pop("nip_veto", 20, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r54-289"),
+            (
+                "title",
+                "Supercal-Noll SC-4 / Nip-Fen NF-8: nip 118 C beats stack cool-glint; "
+                "correct MODIFY clamps stack 980 -> 720 m/min",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct MODIFY. Nip over cap; stack cool-glint unused. total +0.92 = "
+                    "0.34 + 0.30 + 0.14 + 0.10 + 0.04.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "paper-supercalender",
+                    [
+                        "modify",
+                        "designed",
+                        "nip-vs-stack",
+                        "gloss-cap",
+                    ],
+                    "Teaches that a cool-glint stack IR can lose to a legal nip RTD inside "
+                    "a 520 us window; reversing 218 us would have kept an illegal 980 m/min stack.",
+                    4,
+                ),
+            ),
+        ]
+    )
+
+
+def record_290():
+    ticks = [
+        tick(1580, 0.05, 0.04, 0.02, 0.01, 0.01),
+        tick(3740, 0.10, 0.08, 0.04, 0.03, 0.02),
+        tick(3858, 0.06, 0.05, 0.03, 0.02, 0.01),
+        tick(4300, 0.14, 0.10, 0.05, 0.04, 0.02),
+        tick(6120, 0.06, 0.04, 0.02, 0.01, 0.01),
+        tick(280000000, 0.03, 0.03, 0.02, 0.01, 0.01),
+    ]
+    spikes = [
+        spike("pt.slurry.ctx", 0.700, 0.39),
+        spike("rtd.slurry.C", 1.580, 0.57),
+        spike("ir.hood.glint", 2.400, 0.48),
+        spike("rtd.slurry.C", 3.740, 1.29),
+        spike("ir.hood.glint", 3.858, 1.10),
+        spike("ctrl.gate", 4.300, 0.97),
+        spike("rtd.slurry.C", 6.120, 0.76),
+        spike("ir.hood.glint", 8.800, 0.61),
+        spike("ctrl.gate", 12.200, 0.83),
+        spike("pt.slurry.ctx", 15.900, 0.41),
+        spike("rtd.slurry.C", 19.400, 0.54),
+        spike("ir.hood.glint", 21.200, 0.46),
+    ]
+    excerpt = independent_excerpt(54290, 80, 22000, 12, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Slake-Naze SK-1 in Hydrate-Kettle HK-6 is already at 68.4 C slurry while a "
+                "hood pyrometer glint still reports 96 against an 82 C boil cap that the "
+                "slurry RTD has not crossed. Slurry-first should ACCEPT the already-legal "
+                "3.2 t/h lime; glint-first would hold a legal slaker on lighting.",
+            ),
+            ("domain", "lime-hydrate-slaker"),
+            ("sim_or_real", "simulated"),
+            (
+                "goal",
+                "Run SK-1 when slurry RTD is <= 82 C; do not spend a hood pyrometer glint "
+                "on a hold.",
+            ),
+            ("t0_us", 1756794621000290),
+            ("gate_latency_us", 560),
+            ("race_window_us", 240),
+            ("race_window_rel_ms", [3.7, 3.94]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "rtd.slurry.C 68.4 C",
+                                "ir.hood.glint 96 lighting",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Slurry-first ACCEPTS the already-legal 68.4 C feed. Glint-first "
+                            "would REJECT a legal slaker on a 96 C lighting.",
+                        ),
+                        (
+                            "window_derivation",
+                            "240 us = one slurry-RTD sample minus hood-pyrometer integration on this "
+                            "slaker simulation.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 118 us vs combined jitter ~50 us (RTD 22 + IR 28): 2.4x over "
+                            "a 2.0x trust floor. Reversing order by < 118 us inside the 240 us "
+                            "window would have invented a boil hold on an already-legal 68.4 C slurry.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "slurry RTD, 2 kHz, 22 us jitter",
+                    "hood pyrometer, 200 Hz, 28 us jitter",
+                    "slurry PT (context)",
+                    "agitator torque (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("boil_cap_C", 82.0),
+                        ("observed_slurry_C", 68.4),
+                        ("hood_glint_C", 96.0),
+                        ("proposed_lime_t_h", 3.2),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. SK-1 seeded; slurry at 68.4 C under 82 boil cap.",
+                    "2. Hood pyrometer glint 96 from kettle lighting, not boil cake.",
+                    "3. Slurry-PT precursor at 0.700 ms.",
+                    "4. Race window [3.700, 3.940] ms.",
+                    "5. rtd.slurry.C 68.4 C at 3.740 ms (winner).",
+                    "6. ir.hood.glint 96 at 3.858 ms (loser by 118 us).",
+                    "7. Gate at 4.300 ms: ACCEPT 3.2 t/h as proposed.",
+                    "8. Lime executes; slurry remains 68.4 C < 82.",
+                    "9. Charge emptied; next pass queued.",
+                    "10. Delayed (survey_hold_s=280): 4.7 min hydrate survey. Not a safety inflection.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "lime_32"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("lime_t_h", 3.2),
+                        ("hold", False),
+                        ("slurry_kPa", 18.0),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("slurry_C", 68.4),
+                        ("boil_cap_C", 82.0),
+                        ("hood_glint_C", 96.0),
+                        ("race_margin_us", 118),
+                        ("combined_jitter_us", 50),
+                        ("survey_hold_s", 280),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 3.2 t/h because slurry RTD 68.4 C is under the 82 C "
+                "boil cap; hood 96 C is lighting, not boil.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Slurry RTD 68.4 C is under the 82 C boil cap. Hood 96 C is a "
+                "lighting glint, not boil load. ACCEPT the proposed 3.2 t/h; do "
+                "not invent a hold.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "slurry_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 82.0),
+                                    ("observed", 68.4),
+                                    ("hood_glint_C", 96.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "lime_t_h",
+                            OrderedDict(
+                                [
+                                    ("proposed", 3.2),
+                                    ("executed", 3.2),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 118),
+                                    ("combined_jitter_us", 50),
+                                    ("ratio", 2.36),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "lime_32"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("lime_t_h", 3.2),
+                        ("hold", False),
+                        ("slurry_kPa", 18.0),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "ACCEPT: proposed 3.2 t/h executed unchanged. Slurry 68.4 C < 82; hood glint unused.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct ACCEPT ran SK-1 at 68.4 C slurry. Hood 96 C was lighting, not boil. "
+                "The proposal was already legal; reversing 118 us would have invented a hold.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("slaker", "lime executed; slurry 68.4 C < 82"),
+                        ("hood_ir", "96 C glint unused as boil"),
+                        ("slurry", "held 18.0 kPa through the pass"),
+                        ("mission", "lime committed"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Hood 96 C is a legal lighting glint, not a high-slurry alarm; slurry-first discarded a false hold.",
+                    "Delayed (4.7 min / survey_hold_s=280): hydrate survey. Not a safety inflection.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.slurry.C (3.740 ms, 68.4 C)"),
+                        ("loser", "ir.hood.glint (3.858 ms, 96 lighting)"),
+                        ("margin_us", 118),
+                        (
+                            "counterfactual_if_reversed",
+                            "Glint-first by < 118 us inside the 240 us window would have held "
+                            "the slaker on a false high-slurry story. The proposal was already "
+                            "under the 82 cap, so the correct gate is still ACCEPT.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 4300),
+            (
+                "reward_inflection_note",
+                "Task and safety step up at the ACCEPT gate (4.300 ms, tick 4). Tick 6 is "
+                "survey_hold_s=280.",
+            ),
+        ]
+    )
+    ras = raster_core(
+        22,
+        80,
+        34,
+        60,
+        routing(
+            "thalamic-relay.slurry-rtd",
+            "spikenaut.policy.lime-accept",
+            [
+                ("relay.rtd.slurry", "policy.lime_go", 0.62),
+                ("relay.ir.hood", "policy.glint_hold", 0.28),
+                ("relay.pt.slurry", "policy.lime_go", 0.14),
+            ],
+            "adenosine",
+            0.16,
+            "pre_post_stdp; adenosine at slurry win (3.740 ms) opens 160 ms eligibility covering the 4.300 ms accept",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.24),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("lime_go", 42, 0.50, 297.6, 3),
+                    pop("glint_hold", 42, 0.50, 19.8, 0),
+                    pop("boil_veto", 20, 0.80),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r54-290"),
+            (
+                "title",
+                "Hydrate-Kettle HK-6 / Slake-Naze SK-1: slurry 68.4 C beats hood glint; "
+                "correct ACCEPT of an already-legal 3.2 t/h (total +1.16)",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct ACCEPT. Slurry 68.4 C < 82; hood glint is lighting, not boil. "
+                    "total +1.16 = 0.44 + 0.34 + 0.18 + 0.12 + 0.08.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "lime-hydrate-slaker",
+                    [
+                        "accept",
+                        "simulated-lighting",
+                        "slurry-vs-hood",
+                        "lime",
+                        "simulated",
+                    ],
+                    "Teaches that a hood lighting glint can lose to a legal slurry RTD "
+                    "inside a 240 us window; reversing 118 us would have invented a hold on an "
+                    "already-legal lime feed.",
+                    5,
+                ),
+            ),
+        ]
+    )

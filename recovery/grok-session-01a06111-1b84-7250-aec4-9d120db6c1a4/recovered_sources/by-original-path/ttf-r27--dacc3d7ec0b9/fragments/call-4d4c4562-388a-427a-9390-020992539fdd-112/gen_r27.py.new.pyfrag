@@ -1,0 +1,22 @@
+                            [
+                                "dia.opt.mm 191.4 mm on boule",
+                                "pull.mm.h 48 mm/h pull",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Diameter-first should latch heater 48 -> 36 kW; pull-first is a "
+                            "false 'healthy-speed' bind. The supervisor error is not the race: it "
+                            "clamps seed rpm instead of heater even after the optical micrometer wins.",
+                        ),
+                        (
+                            "window_derivation",
+                            "560 us = one diameter-camera sample versus the pull-encoder publisher "
+                            "on this CZ bus cycle.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 340 us vs combined jitter 86 us (optic 44 + encoder 42). Order is "
+                            "correctly diameter-first. The error is which actuator the clamp is bound "
+                            "to, not the race.",
+                        ),

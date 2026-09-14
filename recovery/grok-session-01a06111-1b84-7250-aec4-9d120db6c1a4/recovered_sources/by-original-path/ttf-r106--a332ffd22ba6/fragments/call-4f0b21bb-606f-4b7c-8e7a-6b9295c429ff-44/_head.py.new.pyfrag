@@ -1,0 +1,3 @@
+    for path in sorted(Path("/tmp").glob("ttf-r*/NOTES-r*.md")):
+        if path.parent.name == "ttf-r106":
+            continue

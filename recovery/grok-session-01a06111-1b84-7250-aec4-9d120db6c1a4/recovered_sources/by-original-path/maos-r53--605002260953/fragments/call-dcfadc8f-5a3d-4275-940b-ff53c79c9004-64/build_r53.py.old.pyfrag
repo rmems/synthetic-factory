@@ -1,0 +1,125 @@
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **eaf-foamy-slag-water-panel**
+(justified novel sub-domain; explicit tag `eaf-foamy-slag-water-panel`).
+
+Displaced: the Generator's generic `industrial-assembly` bucket, and any
+temptation to reuse warehouse-amr, aerial-swarm, district-heating,
+event-camera grid, lyophilization, stator-weld, air-separation,
+water-treatment, float-glass, underwater-rov, potline, czochralski,
+slot-die, PEM, wind-turbine-pitch, surgical-assist, optical-fiber-draw,
+kraft-recovery, caster-mold-level, humanoid-locomotion, VIM, SMR, kiln,
+autoclave, geothermal-ORC, tire-curing, chlor-alkali, delayed-coker,
+lng-mche, claus, ammonia-synthesis (r41), blast-furnace (r42),
+hdpe-slurry-loop (r43), hydroelectric-kaplan (r44), ethylene-cracker
+(r45), fcc-riser-regenerator (r46), fcc-regenerator-cyclone-dipleg
+(r47), or sulfuric-contact (r48 in flight). Not LYOSHIELD, not
+CINDERWICK, not TRIAD, not NITROSTAITH, not BOGIRON, not CHROMLOOP,
+not ETHYNWOLD, not NITREVAULT, not RUNNELGATE, not SPARKHOLT, not
+DIPLEGAR, not OLEUMWEIR, not BRIMVAULT. Leftover candidates
+bioreactor-perfusion / autonomous-driving / grid-inspection left unused
+for concurrent empty slots.
+
+Domain-specific constraint: raise must remain closed while r_h2 > 1.2
+vol%; the arc-ok window is not a sealed-panel certificate.
+
+Sensor delta: +secondary VT, +roof/delta TC, +CO/CO2 analyzer, +off-gas
+H2 TCD, +panel make-up MFC; -any mobile robot, -event-camera gantries,
+-DVS, -Pirani-as-shelf, -scanning beta, -clip applier, -fiber
+micrometers, -TMT optical, -kiln hood O2, -ORC shell PT, -tire bladder,
+-membrane pH, -coker foam gamma, -MCHE C3 GC, -Claus bed TC, -ammonia
+NH3 GC, -burden strain, -loop density, -Kaplan sigma, -cracker TMT.
+
+`state.domain` and `meta.domain` both become `eaf-foamy-slag-water-panel`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Emberbarrow slag-tip meltshop bay EAF-7, not a corridor, not a freeze-dryer,
+not a tin bath, not a cold box, not a coater, not a puller, not a fiber
+tower, not a PEM stack, not an SMR box, not a kiln, not an ORC kettle,
+not a tire press, not a membrane row, not a coker drum, not an MCHE,
+not a Claus bed, not an ammonia basket, not a blast furnace, not a
+Kaplan hall, not a cracker coil).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **8.6 vol% H2 panel
+leak under a foamy-slag model**.
+
+- Trigger: weekend carbon-lance stroke leaves 0.4 vol% already-open
+  residual; 16 min of hold writes 8.6 vol% H2; arc stays 410 V.
+- Base rate: <1% — 0.34%/hold from a panel-gasket MC (liner-gap spec
+  designed; leak fitted-style).
+- Naive failure: FALSE PERMISSION. PB-EAF-11 sees ARC 410 V, ROOF
+  1480 C, OG 1.42, raises, ships a wet-bath heat, $4.18M.
+- Trajectory edit: put the leak in `state.fault_context`, make the
+  foamy-slag model the mechanism that keeps all three confirms green,
+  and force the gate to refuse the raise on r_h2 8.6 even though all
+  three playbook confirms are numerically true.
+
+Distinct from the domain injection: the domain is the AC EAF;
+the tail is the accidental model-nullspace compound.
+
+## Neuromorphic Translator
+
+Race window [6.746, 7.246] ms = 500 us. Winner h2.og @ 6.818 ms
+(amplitude 1.26, 8.6 vol%). Loser arc.ok @ 7.010 ms (amplitude
+1.09, 410 V). Margin 192 us vs combined jitter 62 us (3.10x).
+leak.mfc @ 7.154 ms is a third race-window channel. Gate @ 7.518 ms
+= winner + 700 us.
+
+Flip narrative: 192 us < min(500, 500) us, so order is flip-fragile. If
+arc-ok wins, PB-EAF-11 heads the triage queue. The hold must ride
+order-invariant floors (r_h2, r_leak), not the winner tag.
+
+Cycle-1 spike patch (16 events, globally sorted, refractory >= 0.8 ms;
+tightest same-channel gap h2.og 4.628 -> 6.818 = 2.190 ms):
+
+| t_rel_ms | channel | amplitude |
+|---------:|---------|----------:|
+| 0.248 | arc.v | 0.53 |
+| 1.068 | roof.t | 0.61 |
+| 1.888 | og.ratio | 0.55 |
+| 3.108 | arc.v | 0.49 |
+| 4.628 | h2.og | 0.71 |
+| 5.128 | roof.t | 0.64 |
+| 5.568 | og.ratio | 0.52 |
+| 6.818 | h2.og | 1.26 |
+| 7.010 | arc.ok | 1.09 |
+| 7.154 | leak.mfc | 0.66 |
+| 7.518 | ctrl.gate | 1.05 |
+| 8.928 | arc.v | 0.45 |
+| 10.788 | roof.t | 0.46 |
+| 12.648 | h2.og | 0.85 |
+| 18.408 | og.ratio | 0.43 |
+| 26.188 | ctrl.gate | 0.83 |
+
+Ticks (5): t_us 4628, 6818, 7518, 7000000, 576000000. Distillation
+value: the arc-ok spike is not a sealed-panel spike; the H2 spike
+is the one that licenses hold.
+
+Raster cycle-1 seed: 40 ms, 168 neurons, 8.0 Hz, 54 spikes, 1242 pJ,
+third factor acetylcholine tau_e 7.0 s. Single scar edge only — cycle 2
+must add the second and third edges.
+
+Cycle-1 spike count: __C1_SPIKES__.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain eaf-foamy-slag-water-panel, tail
+panel-gasket H2 leak, 16 spikes, 5 ticks, MODIFY with numeric floor,
+raster+gate_snn present, sim_or_real=designed, rights stamp on record and
+meta, no thought keys. Still missing (and therefore not the publishable
+line): 35 t scrap-EAF sub-variant, Sunday-night H2-CSV tail, second
+and third scar edges, delayed hydrogen assay as PRIMARY terminal,
+contrast ACCEPT episode, ticks 6–7, spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 500 us window;
+  refractory 2.190 ms; rationale quotes r_h2 1.2 / r_leak 2.0;
+  domain named; gate_snn.decision MODIFY.
+- checks deferred to cycle 2: three-edge scar, second tail, second
+  domain constraint, negative-result booking, 7 ticks summing to heads.
+- densification vs Generator v1: +1 domain, +1 tail, +16 spikes, +5
+  ticks, +numeric floor.
+
+Cycle-1 JSON is retained as the base; it is NOT written to
+batch-r53.jsonl.

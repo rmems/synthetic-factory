@@ -1,0 +1,4 @@
+                "Cathode sheath at Adnloop-Brink AB-4 cell C-3 is already 78.4 C, 4.4 K past the "
+                "74.0 C limit, yet bus current still offers 16.8 kA as if the cell were cool. "
+                "A sheath sample that lands first should clamp amps; a bus sample that lands "
+                "first would hold cruise. Cation-exchange AE stays silent until the later tear.",

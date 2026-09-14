@@ -1,0 +1,47 @@
+            "name": "cruise_pile_mosaic",
+            "parameters": dict(params),
+            "evidence": {
+                "hydro_dB": 18.0,
+                "hydro_halt_dB": 28.0,
+                "alt_m": 3.40,
+                "alt_floor_m": 1.20,
+                "mosaic_mps": 0.16,
+                "mosaic_cap_mps": 0.28,
+                "race_margin_us": 360,
+                "combined_jitter_us": 88,
+            },
+            "basis": "Planner proposes 0.16 m/s pile mosaic: hydrophone 18 dB is under 28 dB and altimeter 3.40 m is over 1.20 m, so both envelopes already allow the pass.",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "correctness": "correct",
+            "rationale": "Hydrophone 18 dB won by 360 us and is under the 28 dB halt. Altimeter 3.40 m is over the 1.20 m floor. Proposed 0.16 m/s is under the 0.28 m/s envelope. ACCEPT: executed equals proposed.",
+            "constraint_checked": {
+                "hydro_dB": {"halt": 28.0, "observed": 18.0, "legal": True},
+                "alt_m": {"floor": 1.20, "observed": 3.40, "legal": True},
+                "mosaic_mps": {"cap": 0.28, "proposed": 0.16},
+                "order_evidence": {"margin_us": 360, "combined_jitter_us": 88, "ratio": 4.09},
+            },
+        },
+        "executed_action": {
+            "name": "cruise_pile_mosaic",
+            "parameters": dict(params),
+            "gate_effect": "ACCEPT: executed equals proposed 0.16 m/s pile mosaic at hydrophone 18 dB.",
+        },
+        "future_outcome": {
+            "summary": "Correct ACCEPT completed the pile mosaic under hydrophone and altimeter floors. Delayed log tags the already-legal bind on the next pile pass.",
+            "state_delta": {
+                "hull": "mosaic complete; peak 0.17 m/s < 0.28",
+                "piles": "unscoured",
+                "log": "2.5 min tag on next pass",
+            },
+            "surprises": [
+                "Altimeter stayed 3.3-3.4 m through the pass; hydrophone never approached 28 dB.",
+                "Delayed (2.5 min / delayed_surprise_s=150): log tags the already-legal hydrophone-first bind.",
+            ],
+            "race_result": {
+                "winner": "hydro.dB (8.060 ms, 18 dB under halt)",
+                "loser": "alt.m (8.420 ms, 3.40 m over floor)",
+                "margin_us": 360,
+                "counterfactual_if_reversed": "Altimeter-first by < 360 us inside the 700 us window would still accept unless the floor were a false 0.80 m trip. Both channels are inside limits.",
+            },

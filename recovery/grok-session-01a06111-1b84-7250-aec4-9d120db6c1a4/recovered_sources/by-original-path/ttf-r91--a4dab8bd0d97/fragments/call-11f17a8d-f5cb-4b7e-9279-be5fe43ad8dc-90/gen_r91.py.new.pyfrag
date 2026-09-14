@@ -1,0 +1,2 @@
+"Hold the 16 Nm3/h H2 while bed stays <= 1288 C and H2 stays <= 24 Nm3/h; "
+                "do not extra-clamp a legal Pd sponge reducer.",

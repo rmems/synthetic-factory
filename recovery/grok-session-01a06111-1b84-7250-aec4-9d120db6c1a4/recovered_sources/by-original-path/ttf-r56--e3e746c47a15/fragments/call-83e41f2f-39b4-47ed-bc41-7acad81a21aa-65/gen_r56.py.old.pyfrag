@@ -1,0 +1,35 @@
+    spikes = [
+        spike("enc.feed.ctx", 1.205, 0.44),
+        spike("rtd.median.c", 2.410, 0.61),
+        spike("rtd.failed.c", 3.880, 0.52),
+        spike("bus.soaker.ctx", 4.620, 0.47),
+        spike("rtd.median.c", 5.280, 1.31),
+        spike("rtd.failed.c", 5.510, 1.18),
+        spike("ctrl.gate", 6.000, 0.99),
+        spike("rtd.median.c", 7.220, 0.84),
+        spike("rtd.failed.c", 9.440, 0.66),
+        spike("ctrl.gate", 14.880, 0.88),
+        spike("enc.feed.ctx", 18.400, 0.41),
+        spike("rtd.median.c", 24.200, 0.58),
+    ]
+    excerpt = independent_excerpt(48256, 80, 26000, 12, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Soaker drum SN-6 at Soaker-Naze already holds a 2oo3 median of 412 C when that "
+                "median sample races a stuck-high RTD-B that still prints 448 C. Published trip "
+                "is 430 C on the median; a weak supervisor treats the failed channel as the vote "
+                "and zeros a legal 18.0 t/h visbreaker feed.",
+            ),
+            ("domain", "visbreaker-soaker"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Hold 18.0 t/h on SN-6, keep 2oo3 median T < 430 C trip, and finish the "
+                "13 min residue window.",
+            ),
+            ("t0_us", 1762300000000256),
+            ("gate_latency_us", 720),
+            ("race_window_us", 400),
+            ("race_window_rel_ms", [5.280, 5.680]),

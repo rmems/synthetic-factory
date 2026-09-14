@@ -1,0 +1,4 @@
+        if p.parent.name == "maos-r54":
+            continue
+        try:
+            text = p.read_text()

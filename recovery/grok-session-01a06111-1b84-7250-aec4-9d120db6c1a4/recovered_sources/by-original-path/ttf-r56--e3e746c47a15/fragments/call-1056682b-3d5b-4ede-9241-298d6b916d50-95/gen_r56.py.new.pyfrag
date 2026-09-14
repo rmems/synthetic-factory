@@ -1,0 +1,49 @@
+def harvest_occupancy():
+    domains = set()
+    plants = set()
+    skip = set()
+    for path in (BATCH_PATH, NOTES_PATH, Path("/tmp/ttf-r56/gen_r56.py")):
+        try:
+            skip.add(path.resolve())
+        except OSError:
+            continue
+    for root in sorted(Path("/tmp").glob("ttf-r*")):
+        if not root.is_dir():
+            continue
+        for p in root.rglob("*"):
+            if p.suffix not in {".jsonl", ".md", ".py"}:
+                continue
+            try:
+                if p.resolve() in skip:
+                    continue
+            except OSError:
+                continue
+            try:
+                text = p.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            plants.update(PLANT_RE.findall(text))
+            domains.update(re.findall(r'\("domain",\s*"([^"]+)"\)', text))
+            domains.update(re.findall(r'"domain"\s*:\s*"([^"]+)"', text))
+            for m in re.finditer(
+                r"(?:MY_DOMAINS|THIS_DOMAINS)\s*=\s*[{\(](.*?)[}\)]", text, re.S
+            ):
+                domains.update(re.findall(r'"([^"]+)"', m.group(1)))
+            for m in re.finditer(r'EXTRA_DOMAINS = """(.*?)"""', text, re.S):
+                domains.update(re.findall(r'"([^"]+)"', m.group(1)))
+            for m in re.finditer(r"Domains this batch:\s*(.+)", text):
+                domains.update(re.findall(r"`([^`]+)`", m.group(1)))
+            if p.name.startswith("batch-") and p.suffix == ".jsonl":
+                for line in text.splitlines():
+                    if not line.strip():
+                        continue
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    d = (rec.get("state") or {}).get("domain") or (
+                        rec.get("meta") or {}
+                    ).get("domain")
+                    if d:
+                        domains.add(d)
+    return domains, plants

@@ -1,0 +1,16 @@
+def main():
+    occupancy_preflight()
+    records = [rec_184(), rec_185(), rec_186()]
+    local_checks(records)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    global BATCH, NOTES
+    if BATCH.exists() or NOTES.exists():
+        BATCH = OUT_DIR / "batch-r61c.jsonl"
+        NOTES = OUT_DIR / "NOTES-r61c.md"
+        if BATCH.exists() or NOTES.exists():
+            raise RuntimeError(f"refuse: {BATCH} or {NOTES} already exists")
+    lines = [
+        json.dumps(r, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        for r in records
+    ]
+    BATCH.write_text("\n".join(lines) + "\n", encoding="utf-8")

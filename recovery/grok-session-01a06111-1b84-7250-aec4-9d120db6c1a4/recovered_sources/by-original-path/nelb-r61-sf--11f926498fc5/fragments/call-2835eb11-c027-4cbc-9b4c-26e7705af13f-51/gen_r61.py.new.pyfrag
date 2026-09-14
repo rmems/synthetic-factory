@@ -1,0 +1,25 @@
+        ev(14400000.0, "do.drop", 1.0, code="DO_DROP", units="bool"),
+        ev(15000000.0, "hold.lock", 1.0, code="AER_HELD", units="bool"),
+    ]
+    events.extend(
+        [
+            ev(1500000.0, "do.tau", 10.00, code="TAU_US", units="us", note="mid-rise lifetime; 4.00*(24.00/10.00-1)=5.60 exact"),
+            ev(1500001.4, "do.snr", 8.5, code="DO_SNR", units="1", note="1.4 ms SNR after tau 10.00 us; still under the 8.0 lock until the isolate frame"),
+            ev(1560000.0, "recon.DO", 5.60, code="DO_PPM", units="ppm", note="4.00*(24.00/10.00-1)=5.60 exact; still above the 2.50 restore-aeration floor"),
+            ev(2250000.0, "basin.ORP", 176.0, code="ORP_MV", units="mV", note="ORP tracks the plant optode, not Sternveil"),
+            ev(2550000.0, "sternveil.DO", 6.38, code="VENDOR_PPM", units="ppm"),
+            ev(3450000.0, "do.snr", 12.2, code="DO_SNR", units="1", note="post-lock confirm; 12.2 >= 8.0"),
+            ev(3750000.0, "recon.Q", 0.50, code="Q", units="1", note="24.00/16.00-1=0.50 identity held after the isolate frame"),
+            ev(4500000.0, "blower.kW", 41.0, code="BLOWER_KW", units="kW"),
+            ev(5100000.0, "do.tau", 16.00, code="TAU_US", units="us", note="still at the 16.00 us septic lifetime while ops argues continue-idle"),
+            ev(5700000.0, "basin.ORP", 168.0, code="ORP_MV", units="mV"),
+            ev(6300000.0, "do.snr", 12.1, code="DO_SNR", units="1"),
+            ev(6600000.0, "sternveil.DO", 6.35, code="VENDOR_PPM", units="ppm", note="vendor last-good still green through the hold bookend"),
+            ev(7500000.0, "blower.kW", 90.0, code="BLOWER_KW", units="kW", note="aeration ramp on the plant optode during the 18 min floor"),
+            ev(8100000.0, "recon.DO", 2.00, code="DO_PPM", units="ppm", note="4.00*(24.00/16.00-1)=2.00 still at the restore floor when plant ESD is proposed"),
+            ev(8700000.0, "do.tau", 15.00, code="TAU_US", units="us"),
+            ev(9300000.0, "recon.Q", 0.60, code="Q", units="1", note="24.00/15.00-1=0.60 exact on the post-hold tau 15.00 us frame"),
+        ]
+    )
+    events.sort(key=lambda e: (e["t_rel_ms"], e["channel"]))
+    assert_stream(events)

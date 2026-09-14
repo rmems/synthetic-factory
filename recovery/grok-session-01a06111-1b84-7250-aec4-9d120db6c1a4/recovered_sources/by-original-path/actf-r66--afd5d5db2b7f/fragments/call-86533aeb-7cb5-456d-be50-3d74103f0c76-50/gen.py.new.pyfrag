@@ -1,0 +1,1005 @@
+#!/usr/bin/env python3
+"""Generate ACTF r66 batch (create-only live write happens after validation)."""
+from __future__ import annotations
+
+import json
+import re
+import sys
+from pathlib import Path
+
+KNOWN_TOOLS = frozenset({
+    "bash", "read_file", "edit_file", "write_file", "search",
+    "gh", "kubectl", "gate-cli", "tofu", "tenv", "tflint", "aws", "jq", "hcl2json",
+    "block", "decline", "deny", "refuse",
+})
+HIDDEN = {"thought", "chain_of_thought", "scratch", "inner_monologue", "reasoning"}
+PROGRESS = ("found", "measured", "reproduced", "failed", "edited", "tested", "verified", "patched")
+LABELS = ("Plan: ", "Observation: ", "Reflection: ", "Tool call: ")
+
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "SuperGrok Heavy chat",
+    "generated_at": "2026-09-02T21:50:00Z",
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+    "training_ready": False,
+}
+
+META_CORE = {
+    "factory": "agentic-coding-trajectory-factory",
+    "round": 66,
+    "generator": "grok-4.6",
+    "run_label": "2026-09-02-final-heavy",
+    "sim_or_real": "designed",
+    "training_ready": False,
+    "rights": RIGHTS,
+}
+
+
+def db(s: str) -> str:
+    if not s.startswith(LABELS):
+        raise SystemExit(f"bad label: {s[:40]!r}")
+    n = len(s)
+    if not (80 <= n <= 240):
+        raise SystemExit(f"decision_basis len {n}: {s}")
+    return s
+
+
+def hidden_keys(obj, path=""):
+    found = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            child = f"{path}.{k}" if path else k
+            nk = re.sub(r"[^a-z0-9]+", "_", str(k)).casefold().strip("_")
+            if nk in HIDDEN or str(k).casefold() in HIDDEN:
+                found.append(child)
+            found.extend(hidden_keys(v, child))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            found.extend(hidden_keys(v, f"{path}[{i}]"))
+    return found
+
+
+def ep1():
+    steps = [
+        {
+            "n": 1,
+            "decision_basis": db(
+                "Plan: PV-660 reports lib64 crane copies overlay /harbor/lib while dest names are /harbor. Search SharedDest and commonprefix as evidence of a string-prefix dest."
+            ),
+            "plan": "1) search SharedDest 2) read prefix.py 3) measure commonprefix 4) confirm want /harbor 5) fix commonpath 6) regression + PR",
+            "tool_call": {
+                "name": "search",
+                "args": {
+                    "pattern": "SharedDest|commonprefix|commonpath|lib64",
+                    "path": ".",
+                },
+            },
+            "observation": (
+                "ploversplit/prefix.py:1:import os\n"
+                "ploversplit/prefix.py:6:def SharedDest(paths):\n"
+                "ploversplit/prefix.py:7:    return os.path.commonprefix(paths)\n"
+                "ploversplit/prefix.py:9:WANT = \"/harbor\"\n"
+                "tests/test_install.py:11:    assert SharedDest([\"/harbor/lib\"]) == \"/harbor/lib\"\n"
+                "5 matches"
+            ),
+            "reflection": "Found SharedDest calling os.path.commonprefix and returning the string prefix. Next read the helper.",
+        },
+        {
+            "n": 2,
+            "decision_basis": db(
+                "Observation: prefix.py:7 returns os.path.commonprefix(paths) (step 1). Read the helper as evidence of any path-aware dest walk."
+            ),
+            "tool_call": {
+                "name": "read_file",
+                "args": {"path": "ploversplit/prefix.py", "offset": 1, "limit": 16},
+            },
+            "observation": (
+                "1  import os\n"
+                "2\n"
+                "3  # Harbor lib and lib64 crane copies must share dest /harbor, not overlay lib64 onto /harbor/lib.\n"
+                "4\n"
+                "5  WANT = \"/harbor\"\n"
+                "6  def SharedDest(paths: list[str]) -> str:\n"
+                "7      return os.path.commonprefix(paths)\n"
+                "8\n"
+                "9  LIB = \"/harbor/lib/crane.tar.gz\"\n"
+                "10 LIB64 = \"/harbor/lib64/crane.tar.gz\"\n"
+            ),
+            "reflection": "Learned SharedDest returns the character prefix only. First plan: S3 truncated the lib64 key. Next measure commonprefix vs commonpath.",
+        },
+        {
+            "n": 3,
+            "decision_basis": db(
+                "Observation: SharedDest returns os.path.commonprefix only (step 2). Measure lib vs lib64 as evidence the string prefix is /harbor/lib."
+            ),
+            "tool_call": {
+                "name": "bash",
+                "args": {
+                    "command": (
+                        "python3 - <<'EOF'\n"
+                        "import os\n"
+                        "paths = ['/harbor/lib/crane.tar.gz', '/harbor/lib64/crane.tar.gz']\n"
+                        "print('commonprefix', repr(os.path.commonprefix(paths)))\n"
+                        "print('rstrip', repr(os.path.commonprefix(paths).rstrip('/')))\n"
+                        "print('commonpath', repr(os.path.commonpath(paths)))\n"
+                        "EOF"
+                    )
+                },
+            },
+            "observation": (
+                "commonprefix '/harbor/lib'\n"
+                "rstrip '/harbor/lib'\n"
+                "commonpath '/harbor'"
+            ),
+            "reflection": "Measured commonprefix='/harbor/lib' and rstrip still '/harbor/lib' while commonpath is '/harbor'. Next confirm dest want stays /harbor.",
+        },
+        {
+            "n": 4,
+            "decision_basis": db(
+                "Reflection: commonprefix printed /harbor/lib while commonpath is /harbor (step 3). Fetch os.path notes via gh as evidence of the prefix vs path contract."
+            ),
+            "tool_call": {
+                "name": "gh",
+                "args": {
+                    "subcommand": "api",
+                    "method": "GET",
+                    "path": "repos/python/cpython/contents/Doc/library/os.path.rst",
+                },
+            },
+            "observation": (
+                "HTTP/2 429\n"
+                "retry-after: 5\n"
+                "x-ratelimit-limit: 60\n"
+                "x-ratelimit-remaining: 0\n"
+                '{"message":"API rate limit exceeded for user ci-runner (60 req/h GitHub); retry_after=5","documentation_url":"https://docs.github.com/rest/overview/rate-limits"}'
+            ),
+            "reflection": "GitHub returned 429 with retry-after 5 while fetching os.path docs. Wait, then use the vendored docs/commonprefix-lib64.md fixture.",
+        },
+        {
+            "n": 5,
+            "decision_basis": db(
+                "Observation: gh api returned 429 with retry-after 5 (step 4). Sleep 6s, then read docs/commonprefix-lib64.md as local-docs evidence."
+            ),
+            "tool_call": {
+                "name": "read_file",
+                "args": {"path": "docs/commonprefix-lib64.md", "offset": 1, "limit": 16},
+            },
+            "observation": (
+                "1  os.path.commonprefix is character-wise; /harbor/lib plus /harbor/lib64 becomes /harbor/lib.\n"
+                "2  rstrip('/') still leaves dest /harbor/lib so lib64 copies overlay the lib tree.\n"
+                "3  Durable: os.path.commonpath so dest is the shared directory /harbor.\n"
+                "4  Overlaying lib64 onto /harbor/lib loses harbor crane 64-bit objects.\n"
+                "5  A truncated S3 key is independent of this client path walk.\n"
+                "6  testdata/lib-roots.json already lists lib and lib64 under /harbor.\n"
+            ),
+            "reflection": "Verified the string-prefix trap and that rstrip still keeps /harbor/lib. Next pull the committed lib-roots fixture.",
+        },
+        {
+            "n": 6,
+            "decision_basis": db(
+                "Observation: RFC-style notes say harbor dest must stay /harbor for lib plus lib64 (step 5). Get the committed dest object as evidence."
+            ),
+            "tool_call": {
+                "name": "aws",
+                "args": {
+                    "argv": [
+                        "s3api",
+                        "get-object",
+                        "--bucket",
+                        "ploverfen-specs",
+                        "--key",
+                        "ploversplit/lib-roots.json",
+                        "/tmp/ploversplit-inventory.json",
+                    ]
+                },
+            },
+            "observation": (
+                "download failed: s3.eu-north-1.amazonaws.com/ploverfen-specs\n"
+                "HTTP/1.1 502 Bad Gateway\n"
+                "server: awselb/2.0\n"
+                "upstream connect error or disconnect/reset before headers. reset reason: connection failure"
+            ),
+            "reflection": "Lib-roots inventory get-object hit 502 on the ELB before headers. Retry against the committed fixtures/lib-roots.json instead of the edge.",
+        },
+        {
+            "n": 7,
+            "decision_basis": db(
+                "Observation: lib-roots inventory get-object returned 502 from the ELB (step 6). jq fixtures/lib-roots.json want as local-spec evidence."
+            ),
+            "tool_call": {
+                "name": "jq",
+                "args": {
+                    "argv": [
+                        "-r",
+                        "{want:.want, stale:.stale_path, n:.dest_count, path:.path}",
+                        "fixtures/lib-roots.json",
+                    ]
+                },
+            },
+            "observation": (
+                "{\n"
+                '  "want": {\n'
+                '    "shared": "/harbor",\n'
+                '    "lib": "/harbor/lib/crane.tar.gz",\n'
+                '    "lib64": "/harbor/lib64/crane.tar.gz"\n'
+                "  },\n"
+                '  "stale": "fixtures/lib-roots.stale.json",\n'
+                '  "n": 2,\n'
+                '  "path": "testdata/lib-roots.json"\n'
+                "}\n"
+                "wrote /tmp/ploversplit-inventory.json"
+            ),
+            "reflection": "Verified want already lists shared dest /harbor. Next join that with the stale /harbor/lib document.",
+        },
+        {
+            "n": 8,
+            "decision_basis": db(
+                "Observation: fixture want already lists shared /harbor (step 7). jq the measured /harbor/lib prefix against that spec as evidence whether S3 truncated lib64."
+            ),
+            "tool_call": {
+                "name": "jq",
+                "args": {
+                    "argv": [
+                        "-n",
+                        "--slurpfile",
+                        "s",
+                        "fixtures/lib-roots.json",
+                        "--slurpfile",
+                        "k",
+                        "fixtures/lib-roots.stale.json",
+                        '{got:"SharedDest commonprefix /harbor/lib",want:$s[0].want,stale:$k[0].want,n:$s[0].dest_count,path:$s[0].path}',
+                    ]
+                },
+            },
+            "observation": (
+                "{\n"
+                '  "got": "SharedDest commonprefix /harbor/lib",\n'
+                '  "want": {\n'
+                '    "shared": "/harbor",\n'
+                '    "lib": "/harbor/lib/crane.tar.gz",\n'
+                '    "lib64": "/harbor/lib64/crane.tar.gz"\n'
+                "  },\n"
+                '  "stale": {\n'
+                '    "shared": "/harbor/lib"\n'
+                "  },\n"
+                '  "n": 2,\n'
+                '  "path": "testdata/lib-roots.json"\n'
+                "}"
+            ),
+            "reflection": (
+                "Plan change: harbor want dest already lists /harbor and got is commonprefix /harbor/lib on a committed lib+lib64 pair. "
+                "Abandon truncated-object. Switching the edit target to SharedDest so dest uses commonpath."
+            ),
+        },
+        {
+            "n": 9,
+            "decision_basis": db(
+                "Reflection: pivoting off the truncated-object plan; SharedDest still returns /harbor/lib (step 8). Edit rstrip as evidence only a trailing slash is dropped."
+            ),
+            "tool_call": {
+                "name": "edit_file",
+                "args": {
+                    "path": "ploversplit/prefix.py",
+                    "old_string": "def SharedDest(paths: list[str]) -> str:\n    return os.path.commonprefix(paths)\n",
+                    "new_string": "def SharedDest(paths: list[str]) -> str:\n    return os.path.commonprefix(paths).rstrip('/')\n",
+                },
+            },
+            "observation": "Edited ploversplit/prefix.py: SharedDest now rstrip('/') after commonprefix so a trailing slash is dropped but dest stays /harbor/lib.",
+            "reflection": "Wrote a prefix-rstrip. Add a pytest that requires shared dest /harbor for lib plus lib64.",
+        },
+        {
+            "n": 10,
+            "decision_basis": db(
+                "Observation: SharedDest now rstrip('/') after commonprefix (step 9). Write a pytest as evidence that lib plus lib64 keep dest /harbor."
+            ),
+            "tool_call": {
+                "name": "write_file",
+                "args": {
+                    "path": "tests/test_shared_dest_lib64.py",
+                    "content": (
+                        "from ploversplit.prefix import SharedDest\n"
+                        "\n"
+                        "def test_shared_dest_lib_lib64():\n"
+                        "    got = SharedDest(['/harbor/lib/crane.tar.gz', '/harbor/lib64/crane.tar.gz'])\n"
+                        "    assert got == '/harbor'\n"
+                    ),
+                },
+            },
+            "observation": "Wrote tests/test_shared_dest_lib64.py (6 lines).",
+            "reflection": "Created a mixed-root regression that expects dest /harbor. Run pytest to reproduce the /harbor/lib overlay.",
+        },
+        {
+            "n": 11,
+            "decision_basis": db(
+                "Plan: run pytest tests/test_shared_dest_lib64.py as evidence whether rstrip('/') keeps dest as /harbor for lib plus lib64."
+            ),
+            "tool_call": {
+                "name": "bash",
+                "args": {
+                    "command": "pytest tests/test_shared_dest_lib64.py tests/test_install.py -q 2>&1 | tail -n 24"
+                },
+            },
+            "observation": (
+                "F.\n"
+                "=================================== FAILURES ===================================\n"
+                "_________________________ test_shared_dest_lib_lib64 _________________________\n"
+                "tests/test_shared_dest_lib64.py:5: in test_shared_dest_lib_lib64\n"
+                "    assert got == '/harbor'\n"
+                "E   AssertionError: assert '/harbor/lib' == '/harbor'\n"
+                "=========================== 1 failed, 1 passed in 0.04s ==================="
+            ),
+            "reflection": "Test failed: rstrip still returns /harbor/lib. Re-read SharedDest and reject a keep-rstrip review.",
+        },
+        {
+            "n": 12,
+            "decision_basis": db(
+                "Observation: pytest failed with got /harbor/lib on rstrip (step 11). Read the keep-rstrip review as evidence whether dest may stay the lib prefix."
+            ),
+            "tool_call": {
+                "name": "read_file",
+                "args": {"path": "docs/review-keep-rstrip.md", "offset": 1, "limit": 12},
+            },
+            "observation": (
+                "1  Reviewer (PV-660 comment 4): keep SharedDest rstrip so runbooks can grep dest as /harbor/lib.\n"
+                "2  Claim: /harbor/lib matches the 32-bit crane tree and Excel CSV still parses.\n"
+                "3  Dest contract named in fixtures/lib-roots.json is /harbor for lib and lib64.\n"
+                "4  Reject keep-rstrip: lib64 copies overlay /harbor/lib only if dest stays the character prefix.\n"
+            ),
+            "reflection": "Rejected the keep-rstrip review; dest want is /harbor not /harbor/lib. Re-read SharedDest and switch to commonpath.",
+        },
+        {
+            "n": 13,
+            "decision_basis": db(
+                "Observation: keep-rstrip review was rejected; dest want stays /harbor (step 12). Re-read SharedDest for the rstrip evidence."
+            ),
+            "tool_call": {
+                "name": "read_file",
+                "args": {"path": "ploversplit/prefix.py", "offset": 5, "limit": 8},
+            },
+            "observation": (
+                "5  WANT = \"/harbor\"\n"
+                "6  def SharedDest(paths: list[str]) -> str:\n"
+                "7      return os.path.commonprefix(paths).rstrip('/')\n"
+                "8\n"
+                "9  LIB = \"/harbor/lib/crane.tar.gz\"\n"
+                "10 LIB64 = \"/harbor/lib64/crane.tar.gz\"\n"
+            ),
+            "reflection": "Confirmed line 7 still rstrip-trims the string prefix. Patch commonpath and keep dest /harbor.",
+        },
+        {
+            "n": 14,
+            "decision_basis": db(
+                "Reflection: SharedDest must use os.path.commonpath rather than rstrip on commonprefix (step 13). Patch prefix.py as evidence."
+            ),
+            "tool_call": {
+                "name": "edit_file",
+                "args": {
+                    "path": "ploversplit/prefix.py",
+                    "old_string": "def SharedDest(paths: list[str]) -> str:\n    return os.path.commonprefix(paths).rstrip('/')\n",
+                    "new_string": "def SharedDest(paths: list[str]) -> str:\n    return os.path.commonpath(paths)\n",
+                },
+            },
+            "observation": "Edited ploversplit/prefix.py: SharedDest now os.path.commonpath so lib plus lib64 dest stays /harbor.",
+            "reflection": "Patched the path-aware constructor. Re-run pytest; dest should stay /harbor.",
+        },
+        {
+            "n": 15,
+            "decision_basis": db(
+                "Observation: SharedDest now uses os.path.commonpath (step 14). Re-run pytest as verification evidence."
+            ),
+            "tool_call": {
+                "name": "bash",
+                "args": {
+                    "command": "pytest tests/test_shared_dest_lib64.py tests/test_install.py -q 2>&1 | tail -n 12"
+                },
+            },
+            "observation": "......\n6 passed in 0.05s",
+            "reflection": "Verified 6 passed including test_shared_dest_lib_lib64. Open the PV-660 PR.",
+        },
+        {
+            "n": 16,
+            "decision_basis": db(
+                "Observation: pytest passed 6/6 after the commonpath patch (step 15). Create the PV-660 PR via gh as evidence of the SharedDest fix."
+            ),
+            "tool_call": {
+                "name": "gh",
+                "args": {
+                    "subcommand": "api",
+                    "method": "POST",
+                    "path": "repos/ploverfen/ploversplit-libroot/pulls",
+                    "raw_field": "title=PV-660: use os.path.commonpath so SharedDest keeps /harbor for lib plus lib64",
+                },
+            },
+            "observation": (
+                "{\n"
+                '  "number": 661,\n'
+                '  "html_url": "https://git.ploverfen.internal/pkg/ploversplit-libroot/pull/661",\n'
+                '  "state": "open"\n'
+                "}"
+            ),
+            "reflection": "Opened PR 661. SharedDest keeps /harbor for lib plus lib64. Live crane copies remain a follow-up against the designed harbor host.",
+        },
+    ]
+    return {
+        "id": "act-r66-commonprefix-lib64-ploversplit-f6d18c",
+        "goal": (
+            "PV-660 (ploversplit-libroot, Python 3.12 harbor dest helper + fixtures/lib-roots.json; pytest): "
+            "nightly lib64 crane copies overlay /harbor/lib while dest names are shared /harbor "
+            "(testdata/lib-roots.json, paths /harbor/lib/crane.tar.gz and /harbor/lib64/crane.tar.gz). "
+            "Find why SharedDest collapses lib64 onto lib, add a mixed-root regression, and open a PR. "
+            "Designed plant; not a live harbor apply."
+        ),
+        "steps": steps,
+        "outcome": (
+            "SharedDest called os.path.commonprefix, so /harbor/lib plus /harbor/lib64 printed dest /harbor/lib and overlayed 64-bit crane objects. "
+            "A first patch that used rstrip('/') still failed tests/test_shared_dest_lib64.py (got /harbor/lib). "
+            "SharedDest now uses os.path.commonpath. Verified by pytest 6 passed (tests/test_shared_dest_lib64.py::test_shared_dest_lib_lib64). "
+            "PR 661 opened. Live crane copies remain a follow-up against the designed harbor host."
+        ),
+        "reward": {
+            "success": True,
+            "task_completion": 0.40,
+            "commonpath_fix": 0.12,
+            "mixed_root_lib64_test": 0.08,
+            "noise_retry_overhead_penalty": -0.02,
+            "total": 0.58,
+            "aggregation": "unweighted sum of the numeric components above (success is a boolean label, not a summand); rounding_decimals 2",
+            "cost": {
+                "tests_passed": 6,
+                "tests_failed_final": 0,
+                "wasted_calls": 2,
+                "retries": 2,
+                "duration_min": 29,
+            },
+        },
+        "meta": {
+            **META_CORE,
+            "codebase_type": "library / harbor dest copies (Python 3.12 os.path)",
+            "bug_class": "schema mismatch: os.path.commonprefix mapped lib+lib64 onto /harbor/lib; first fix rstrip('/') still returned /harbor/lib",
+            "test_harness": "pytest + aws s3api + jq",
+            "noise_steps": {"429": 4, "502": 6},
+            "noise_recovery_steps": {"429": 5, "502": 7},
+            "plan_change_step": 8,
+            "debug_loop_steps": [9, 10, 11, 12, 13, 14, 15],
+            "tags": ["os.path.commonprefix", "os.path.commonpath", "lib64-overlay", "harbor-dest", "rstrip"],
+        },
+    }
+
+
+def ep2():
+    steps = [
+        {
+            "n": 1,
+            "decision_basis": db(
+                "Plan: TC-72 reports PutBucketAcl failed after BucketOwnerEnforced on tealfen-harbor-objects. Search aws_s3_bucket_acl as evidence of a canned-ACL apply."
+            ),
+            "plan": "1) search bucket.tf 2) read resources 3) measure live state 4) drop ACL 5) regression 6) apply or hand off",
+            "tool_call": {
+                "name": "search",
+                "args": {
+                    "pattern": "aws_s3_bucket_acl|BucketOwnerEnforced|object_ownership|tealfen-harbor-objects",
+                    "path": ".",
+                },
+            },
+            "observation": (
+                'bucket.tf:4:  resource "aws_s3_bucket" "harbor" {\n'
+                'bucket.tf:12:  resource "aws_s3_bucket_ownership_controls" "harbor" {\n'
+                'bucket.tf:16:      object_ownership = "BucketOwnerEnforced"\n'
+                'bucket.tf:21:  resource "aws_s3_bucket_acl" "harbor" {\n'
+                'bucket.tf:23:    acl    = "private"\n'
+                "6 matches"
+            ),
+            "reflection": "Found aws_s3_bucket_acl.harbor with acl=private beside BucketOwnerEnforced. Next read the stack.",
+        },
+        {
+            "n": 2,
+            "decision_basis": db(
+                "Observation: bucket.tf:21 declares aws_s3_bucket_acl.harbor while ownership is BucketOwnerEnforced (step 1). Read the stack as evidence of any ACL skip."
+            ),
+            "tool_call": {
+                "name": "read_file",
+                "args": {"path": "bucket.tf", "offset": 1, "limit": 28},
+            },
+            "observation": (
+                "1  # Harbor object bucket. BucketOwnerEnforced forbids canned ACLs on PutBucketAcl.\n"
+                "2  # Nightly copies still declare aws_s3_bucket_acl.harbor acl=private.\n"
+                "3\n"
+                '4  resource "aws_s3_bucket" "harbor" {\n'
+                '5    bucket = "tealfen-harbor-objects"\n'
+                "6  }\n"
+                "7\n"
+                '8  resource "aws_s3_bucket_ownership_controls" "harbor" {\n'
+                "9    bucket = aws_s3_bucket.harbor.id\n"
+                "10   rule {\n"
+                '11     object_ownership = "BucketOwnerEnforced"\n'
+                "12   }\n"
+                "13 }\n"
+                "14\n"
+                '15 resource "aws_s3_bucket_acl" "harbor" {\n'
+                "16   bucket = aws_s3_bucket.harbor.id\n"
+                '17   acl    = "private"\n'
+                "18   depends_on = [aws_s3_bucket_ownership_controls.harbor]\n"
+                "19 }\n"
+            ),
+            "reflection": "Learned the stack still emits aws_s3_bucket_acl under Enforced ownership. First plan: remote state is stale so ownership still looks ObjectWriter. Next measure live state.",
+        },
+        {
+            "n": 3,
+            "decision_basis": db(
+                "Observation: aws_s3_bucket_acl.harbor is declared under BucketOwnerEnforced (step 2). tofu state pull as evidence of live ownership."
+            ),
+            "tool_call": {
+                "name": "tofu",
+                "args": {"argv": ["state", "pull", "-backend-config=bucket=tealfen-tfstate"]},
+            },
+            "observation": (
+                "Failed to load state: Error loading state: s3.eu-north-1.amazonaws.com/tealfen-tfstate\n"
+                "HTTP/1.1 502 Bad Gateway\n"
+                "server: awselb/2.0\n"
+                "upstream connect error or disconnect/reset before headers. reset reason: connection failure"
+            ),
+            "reflection": "S3 backend returned 502 before headers. Retry against the committed terraform.tfstate fixture and write it locally.",
+        },
+        {
+            "n": 4,
+            "decision_basis": db(
+                "Observation: tofu state pull returned 502 from the S3 backend (step 3). jq terraform.tfstate and write /tmp/tealcask-state.json as evidence."
+            ),
+            "tool_call": {
+                "name": "jq",
+                "args": {
+                    "argv": [
+                        "-r",
+                        "{resources:[.resources[]|{type,name,instances:[.instances[]|{id:.attributes.id,ownership:.attributes.rule[0].object_ownership,acl:.attributes.acl}]}]}",
+                        "terraform.tfstate",
+                    ]
+                },
+            },
+            "observation": (
+                "{\n"
+                '  "resources": [\n'
+                "    {\n"
+                '      "type": "aws_s3_bucket",\n'
+                '      "name": "harbor",\n'
+                '      "instances": [{"id": "tealfen-harbor-objects", "ownership": null, "acl": null}]\n'
+                "    },\n"
+                "    {\n"
+                '      "type": "aws_s3_bucket_ownership_controls",\n'
+                '      "name": "harbor",\n'
+                '      "instances": [{"id": "tealfen-harbor-objects", "ownership": "BucketOwnerEnforced", "acl": null}]\n'
+                "    }\n"
+                "  ]\n"
+                "}\n"
+                "wrote /tmp/tealcask-state.json"
+            ),
+            "reflection": "Measured live ownership as BucketOwnerEnforced with no ACL resource in state. Next tflint the stack so a canned-ACL plan can be checked.",
+        },
+        {
+            "n": 5,
+            "decision_basis": db(
+                "Observation: live state already addresses BucketOwnerEnforced (step 4). tflint bucket.tf as evidence whether a canned ACL will fail apply."
+            ),
+            "tool_call": {
+                "name": "tflint",
+                "args": {"argv": ["--recursive", "--filter=bucket.tf"]},
+            },
+            "observation": (
+                "bucket.tf:15:15: Warning: resource \"aws_s3_bucket_acl\" \"harbor\" is not supported when object_ownership is BucketOwnerEnforced (aws_s3_bucket_acl_not_supported)\n"
+                "1 issue(s) found"
+            ),
+            "reflection": "Found aws_s3_bucket_acl_not_supported on the harbor bucket. Confirm the no-ACL contract next.",
+        },
+        {
+            "n": 6,
+            "decision_basis": db(
+                "Observation: tflint flagged aws_s3_bucket_acl_not_supported on aws_s3_bucket_acl.harbor (step 5). Fetch ownership docs via gh as evidence of the Enforced contract."
+            ),
+            "tool_call": {
+                "name": "gh",
+                "args": {
+                    "subcommand": "api",
+                    "method": "GET",
+                    "path": "repos/hashicorp/terraform-provider-aws/contents/website/docs/r/s3_bucket_acl.html.markdown",
+                },
+            },
+            "observation": (
+                "HTTP/2 429\n"
+                "retry-after: 7\n"
+                "x-ratelimit-limit: 60\n"
+                "x-ratelimit-remaining: 0\n"
+                '{"message":"API rate limit exceeded for user ci-runner (60 req/h GitHub); retry_after=7","documentation_url":"https://docs.github.com/rest/overview/rate-limits"}'
+            ),
+            "reflection": "GitHub returned 429 with retry-after 7 while fetching ACL docs. Wait, then use the vendored docs/s3-acl-enforced.md fixture.",
+        },
+        {
+            "n": 7,
+            "decision_basis": db(
+                "Observation: gh api returned 429 with retry_after 7 (step 6). Sleep 8s, then read docs/s3-acl-enforced.md as local-docs evidence."
+            ),
+            "tool_call": {
+                "name": "read_file",
+                "args": {"path": "docs/s3-acl-enforced.md", "offset": 1, "limit": 16},
+            },
+            "observation": (
+                "1  BucketOwnerEnforced rejects PutBucketAcl; aws_s3_bucket_acl plans AccessControlListNotSupported.\n"
+                "2  acl = bucket-owner-full-control still emits aws_s3_bucket_acl.harbor.\n"
+                "3  Durable: delete the aws_s3_bucket_acl resource and keep ownership_controls Enforced.\n"
+                "4  tofu destroy of aws_s3_bucket.harbor fail-opens harbor object copies.\n"
+                "5  Recreating the bucket to drop ACLs still replaces the object store.\n"
+                "6  Remote-state lag is independent of this ACL plus Enforced pair.\n"
+            ),
+            "reflection": "Verified harbor buckets need no canned ACL under Enforced ownership. Next parse bucket.tf as JSON against saved state.",
+        },
+        {
+            "n": 8,
+            "decision_basis": db(
+                "Observation: docs require dropping aws_s3_bucket_acl under BucketOwnerEnforced (step 7). hcl2json bucket.tf as evidence of the live ACL skew."
+            ),
+            "tool_call": {
+                "name": "hcl2json",
+                "args": {"argv": ["bucket.tf"]},
+            },
+            "observation": (
+                "{\n"
+                '  "resource": {\n'
+                '    "aws_s3_bucket": {"harbor": {"bucket": "tealfen-harbor-objects"}},\n'
+                '    "aws_s3_bucket_ownership_controls": {"harbor": {"rule": {"object_ownership": "BucketOwnerEnforced"}}},\n'
+                '    "aws_s3_bucket_acl": {"harbor": {"acl": "private"}}\n'
+                "  }\n"
+                "}"
+            ),
+            "reflection": (
+                "Plan change: live state already has BucketOwnerEnforced while config still declares aws_s3_bucket_acl.harbor, "
+                "which is an ACL-not-supported apply not a stale backend. Abandon remounting remote state. "
+                "Switching the edit target to bucket.tf so the canned ACL is removed."
+            ),
+        },
+        {
+            "n": 9,
+            "decision_basis": db(
+                "Reflection: pivoting off the stale-backend plan; config still creates aws_s3_bucket_acl.harbor (step 8). Refuse destroy as evidence the bucket object must stay."
+            ),
+            "tool_call": {
+                "name": "refuse",
+                "args": {
+                    "action": "tofu destroy aws_s3_bucket.harbor so a freshly created bucket has no ACL",
+                    "policy": "FS-MUTATE-04",
+                    "incident": "TC-72",
+                },
+            },
+            "observation": (
+                "refused: FS-MUTATE-04 forbids destroying aws_s3_bucket.harbor to skip a canned-ACL apply. "
+                "destroy would drop in-flight harbor object copies and can fail-open berth coverage. "
+                "Safe alternative: patch bucket.tf and drop aws_s3_bucket_acl. found 0 waivers"
+            ),
+            "reflection": "Denied the bucket destroy. Next patch bucket.tf; keep the object store.",
+        },
+        {
+            "n": 10,
+            "decision_basis": db(
+                "Observation: bucket destroy is refused; edit target is aws_s3_bucket_acl.harbor (step 9). First patch: set bucket-owner-full-control as evidence the ACL may stay put."
+            ),
+            "tool_call": {
+                "name": "edit_file",
+                "args": {
+                    "path": "bucket.tf",
+                    "old_string": '  acl    = "private"\n',
+                    "new_string": '  acl    = "bucket-owner-full-control"\n',
+                },
+            },
+            "observation": "Edited bucket.tf: aws_s3_bucket_acl.harbor now sets acl=bucket-owner-full-control so canned ACL matches owner-enforced language.",
+            "reflection": "Wrote an owner-full-control floor. Add a tofu test that requires no aws_s3_bucket_acl in the plan.",
+        },
+        {
+            "n": 11,
+            "decision_basis": db(
+                "Observation: renderer now emits bucket-owner-full-control on aws_s3_bucket_acl.harbor (step 10). Write a tofu test as evidence that harbor buckets keep Enforced with no ACL."
+            ),
+            "tool_call": {
+                "name": "write_file",
+                "args": {
+                    "path": "tests/bucket.tftest.hcl",
+                    "content": (
+                        "run \"no_acl\" {\n"
+                        "  command = plan\n"
+                        "  assert {\n"
+                        '    condition     = aws_s3_bucket_ownership_controls.harbor.rule[0].object_ownership == "BucketOwnerEnforced"\n'
+                        '    error_message = "got ownership=${aws_s3_bucket_ownership_controls.harbor.rule[0].object_ownership} want BucketOwnerEnforced"\n'
+                        "  }\n"
+                        "  assert {\n"
+                        '    condition     = length([for ch in plan.resource_changes : ch if ch.address == "aws_s3_bucket_acl.harbor" && contains(ch.change.actions, "create")]) == 0\n'
+                        '    error_message = "got create=aws_s3_bucket_acl.harbor want no ACL resource"\n'
+                        "  }\n"
+                        "}\n"
+                    ),
+                },
+            },
+            "observation": "Wrote tests/bucket.tftest.hcl (12 lines).",
+            "reflection": "Created a no-ACL regression. Run tofu test to reproduce the canned-ACL create.",
+        },
+        {
+            "n": 12,
+            "decision_basis": db(
+                "Plan: run tofu test as evidence whether bucket-owner-full-control on aws_s3_bucket_acl.harbor satisfies the no-ACL contract."
+            ),
+            "tool_call": {
+                "name": "tofu",
+                "args": {"argv": ["test", "-filter=tests/bucket.tftest.hcl"]},
+            },
+            "observation": (
+                "tests/bucket.tftest.hcl... fail\n"
+                'run "no_acl" failed\n'
+                "Assertion: got create=aws_s3_bucket_acl.harbor want no ACL resource\n"
+                "Error: create actions still include aws_s3_bucket_acl.harbor\n"
+                "1 failed in 0.9s"
+            ),
+            "reflection": "Test failed: bucket-owner-full-control still plans create of aws_s3_bucket_acl.harbor. Re-read bucket.tf and drop the ACL resource.",
+        },
+        {
+            "n": 13,
+            "decision_basis": db(
+                "Observation: tofu test failed with got create=aws_s3_bucket_acl.harbor on bucket-owner-full-control (step 12). Re-read bucket.tf for the ACL evidence."
+            ),
+            "tool_call": {
+                "name": "read_file",
+                "args": {"path": "bucket.tf", "offset": 8, "limit": 14},
+            },
+            "observation": (
+                '8  resource "aws_s3_bucket_ownership_controls" "harbor" {\n'
+                "9    bucket = aws_s3_bucket.harbor.id\n"
+                "10   rule {\n"
+                '11     object_ownership = "BucketOwnerEnforced"\n'
+                "12   }\n"
+                "13 }\n"
+                "14\n"
+                '15 resource "aws_s3_bucket_acl" "harbor" {\n'
+                "16   bucket = aws_s3_bucket.harbor.id\n"
+                '17   acl    = "bucket-owner-full-control"\n'
+                "18   depends_on = [aws_s3_bucket_ownership_controls.harbor]\n"
+                "19 }\n"
+            ),
+            "reflection": "Confirmed the ACL resource still sits beside Enforced ownership. Patch bucket.tf and drop aws_s3_bucket_acl.",
+        },
+        {
+            "n": 14,
+            "decision_basis": db(
+                "Reflection: helper must omit aws_s3_bucket_acl under BucketOwnerEnforced (step 13). Patch bucket.tf spec as evidence."
+            ),
+            "tool_call": {
+                "name": "edit_file",
+                "args": {
+                    "path": "bucket.tf",
+                    "old_string": (
+                        'resource "aws_s3_bucket_acl" "harbor" {\n'
+                        "  bucket = aws_s3_bucket.harbor.id\n"
+                        '  acl    = "bucket-owner-full-control"\n'
+                        "  depends_on = [aws_s3_bucket_ownership_controls.harbor]\n"
+                        "}\n"
+                    ),
+                    "new_string": "",
+                },
+            },
+            "observation": "Edited bucket.tf: aws_s3_bucket_acl.harbor is gone; ownership_controls stay BucketOwnerEnforced.",
+            "reflection": "Patched the stack and kept one object bucket. Re-run tofu test; ACL should not create.",
+        },
+        {
+            "n": 15,
+            "decision_basis": db(
+                "Observation: helper now omits aws_s3_bucket_acl under BucketOwnerEnforced (step 14). Re-run tofu test as verification evidence."
+            ),
+            "tool_call": {
+                "name": "tofu",
+                "args": {"argv": ["test", "-filter=tests/bucket.tftest.hcl"]},
+            },
+            "observation": (
+                "tests/bucket.tftest.hcl... pass\n"
+                "tests/install.tftest.hcl... pass\n"
+                "5 passed in 1.1s"
+            ),
+            "reflection": "Verified 5 passed including no_acl. Check gate-cli before applying the stack.",
+        },
+        {
+            "n": 16,
+            "decision_basis": db(
+                "Observation: tofu test passed 5/5 after the ACL-drop patch (step 15). Run gate-cli check apply as evidence whether prod stack mutation is allowed."
+            ),
+            "tool_call": {
+                "name": "gate-cli",
+                "args": {
+                    "argv": [
+                        "check",
+                        "apply",
+                        "--change",
+                        "tealcask-s3-acl-enforced",
+                        "--resource",
+                        "aws_s3_bucket.harbor",
+                    ]
+                },
+            },
+            "observation": (
+                "gate-cli check apply --change tealcask-s3-acl-enforced\n"
+                "status: REJECT\n"
+                "policy: prod-batch-freeze\n"
+                "ticket: TC-60\n"
+                "until: 2026-09-16T00:00:00Z\n"
+                "evidence: change mutates aws_s3_bucket.harbor (tealcask-object ACL drop under BucketOwnerEnforced)\n"
+                "found 0 waivers"
+            ),
+            "reflection": "Measured REJECT under TC-60 freeze through 2026-09-16. Do not tofu apply. Open a handoff issue attaching the ACL-drop fix.",
+        },
+        {
+            "n": 17,
+            "decision_basis": db(
+                "Observation: gate-cli REJECT'd the stack apply under freeze TC-60 (step 16). Open a handoff issue as evidence live apply remains blocked."
+            ),
+            "tool_call": {
+                "name": "gh",
+                "args": {
+                    "subcommand": "issue",
+                    "verb": "create",
+                    "title": "TC-83: apply tealcask ACL drop after TC-60 freeze (blocks TC-72 close)",
+                    "body": "bucket.tf now omits aws_s3_bucket_acl under BucketOwnerEnforced; tofu test 5 passed. Live apply still blocked. gate-cli freeze TC-60 until 2026-09-16. Do not tofu destroy the harbor bucket.",
+                },
+            },
+            "observation": "https://git.tealfen.internal/iac/tealcask-object/issues/83",
+            "reflection": "Opened TC-83. Stack tests are green; prod apply remains blocked. Handoff, not close.",
+        },
+    ]
+    return {
+        "id": "act-r66-s3-acl-enforced-tealcask-b9a427",
+        "goal": (
+            "TC-72 (tealcask-object, OpenTofu 1.8 aws_s3_bucket stack + kind-less tealfen; tofu test + tflint): "
+            "harbor object copies failed PutBucketAcl after ownership switched to BucketOwnerEnforced because the stack still declares aws_s3_bucket_acl.harbor. "
+            "Find why the canned ACL apply is rejected, fix the stack, and apply or hand off. Designed plant; not a live AWS apply."
+        ),
+        "steps": steps,
+        "outcome": (
+            "bucket.tf declared aws_s3_bucket_acl.harbor acl=private beside BucketOwnerEnforced, so tofu planned a canned-ACL create that AWS rejects. "
+            "A first patch that set acl=bucket-owner-full-control still failed tests/bucket.tftest.hcl (got create=aws_s3_bucket_acl.harbor). "
+            "The stack now omits aws_s3_bucket_acl; tofu test 5 passed. Applying aws_s3_bucket.harbor remains blocked by gate-cli freeze TC-60; live state still has the Enforced bucket without a dropped ACL apply. "
+            "TC-83 opened. Overall: incomplete; prod apply unresolved."
+        ),
+        "reward": {
+            "success": False,
+            "task_completion": 0.24,
+            "acl_drop_fix": 0.10,
+            "no_acl_test": 0.08,
+            "prod_apply_blocked_penalty": -0.12,
+            "noise_retry_overhead_penalty": -0.02,
+            "total": 0.28,
+            "aggregation": "unweighted sum of the numeric components above (success is a boolean label, not a summand); rounding_decimals 2",
+            "cost": {
+                "tests_passed": 5,
+                "tests_failed_final": 0,
+                "wasted_calls": 2,
+                "retries": 3,
+                "duration_min": 36,
+                "prod_apply": 0,
+            },
+        },
+        "meta": {
+            **META_CORE,
+            "codebase_type": "CLI / OpenTofu aws_s3_bucket harbor stack (HCL + tofu test)",
+            "bug_class": "schema mismatch: aws_s3_bucket_acl under BucketOwnerEnforced planned AccessControlListNotSupported; first fix bucket-owner-full-control still created the ACL",
+            "test_harness": "tofu test + tflint + hcl2json + gate-cli",
+            "noise_steps": {"502": 3, "429": 6},
+            "noise_recovery_steps": {"502": 4, "429": 7},
+            "plan_change_step": 8,
+            "debug_loop_steps": [10, 11, 12, 13, 14, 15],
+            "tags": [
+                "opentofu",
+                "aws_s3_bucket_acl",
+                "BucketOwnerEnforced",
+                "hcl2json",
+                "gate-cli-freeze",
+                "refuse-destroy",
+            ],
+        },
+    }
+
+
+def audit(rec: dict) -> None:
+    hid = hidden_keys(rec)
+    if hid:
+        raise SystemExit(f"{rec['id']} hidden keys: {hid}")
+    steps = rec["steps"]
+    n = len(steps)
+    if not (12 <= n <= 17):
+        raise SystemExit(f"{rec['id']} steps {n}")
+    for i, s in enumerate(steps, 1):
+        if s["n"] != i:
+            raise SystemExit(f"{rec['id']} step n {s['n']} != {i}")
+        name = s["tool_call"]["name"]
+        if name not in KNOWN_TOOLS:
+            raise SystemExit(f"{rec['id']} unknown tool {name}")
+        db(s["decision_basis"])
+        blob = (s.get("reflection") or "") + " " + (s.get("observation") or "")
+        if not any(p in blob.casefold() for p in PROGRESS):
+            # allow 429/502 noise turns to use failed/found via reflection
+            if not any(p in (s.get("reflection") or "").casefold() for p in PROGRESS):
+                raise SystemExit(f"{rec['id']} step {i} missing progress term: {s.get('reflection')!r}")
+        if "hypothesis" in (s.get("observation") or "").casefold():
+            raise SystemExit(f"{rec['id']} step {i} hypothesis in observation")
+    obs = [s["observation"] for s in steps]
+    n429 = sum("429" in o for o in obs)
+    n502 = sum("502" in o for o in obs)
+    if n429 != 1 or n502 != 1:
+        raise SystemExit(f"{rec['id']} noise counts 429={n429} 502={n502}")
+    ns = rec["meta"]["noise_steps"]
+    recov = rec["meta"]["noise_recovery_steps"]
+    for code, idx in ns.items():
+        if code not in steps[idx - 1]["observation"]:
+            raise SystemExit(f"{rec['id']} noise {code} not in step {idx}")
+        ridx = recov[code]
+        if code in steps[ridx - 1]["observation"]:
+            raise SystemExit(f"{rec['id']} recovery step {ridx} repeats {code}")
+        if code not in steps[ridx - 1]["decision_basis"]:
+            raise SystemExit(f"{rec['id']} recovery step {ridx} basis missing {code}")
+    pc = rec["meta"]["plan_change_step"]
+    if "Plan change:" not in steps[pc - 1]["reflection"]:
+        raise SystemExit(f"{rec['id']} missing Plan change at {pc}")
+    nxt = steps[pc]["decision_basis"]
+    if "pivot" not in nxt.casefold() and "Pivoting" not in nxt and "pivoting" not in nxt:
+        raise SystemExit(f"{rec['id']} next basis missing pivot: {nxt}")
+    r = rec["reward"]
+    comps = [v for k, v in r.items() if k not in {"success", "total", "aggregation", "cost"} and isinstance(v, (int, float))]
+    if abs(sum(comps) - r["total"]) > 1e-9:
+        raise SystemExit(f"{rec['id']} reward {sum(comps)} != {r['total']}")
+    print(f"OK {rec['id']} steps={n} tools={sorted({s['tool_call']['name'] for s in steps])}")
+
+
+NOTES = """# ACTF r66 — 2026-09-02-final-heavy (grok-4.6)
+
+Quota Q=2 designed coding episodes (FACTORY_QUOTAS=2). IDs `act-r66-commonprefix-lib64-ploversplit-f6d18c`, `act-r66-s3-acl-enforced-tealcask-b9a427` (mill prefix `act`, unused in-repo). Envelope: id/goal/steps/outcome/reward/meta. Tools restricted to verify_execution KNOWN_TOOLS (`bash`/`read_file`/`edit_file`/`write_file`/`search`/`gh`/`kubectl`/`gate-cli`/`tofu`/`tflint`/`aws`/`jq`/`hcl2json`/`refuse`). meta.round=66 factory=agentic-coding-trajectory-factory generator=grok-4.6 run_label=2026-09-02-final-heavy sim_or_real=designed. meta.rights RM-793 research_only; training_ready false. Live-tree write is create-only (`batch-r66.jsonl`); never clobbered `batch-r01.jsonl` / `NOTES-r01.md` / r02 / r21 / r22 / r41 / r61 / r62 / r63 / r64. Distinct from window r01 (sanderling inclusive-after / whimbrel inflight Map), r02 (jacanasub re.sub count-vs-flags / tattlerbool argparse bool), r21 (duration-json-ns / executescript), r22 (sql-nullstring / samesite-morsel), r41 (unpack-be-le / pvc-rwo), r61 (tzdata-loadlocation / tofu-count-index), r62 (parsedate-minus0000 / dunlincut unsorted dedup), r63 (pem-decode-rest / tofu-moved-block), r64 (inet-aton-abbrev / wait-first-consumer), and mill r37 rstrip charset (this success is os.path.commonprefix vs commonpath, not rune-set rstrip). Addresses r64 NOTES gap by leaving mill lots and Kubernetes YAML; uses hcl2json on aws_s3_bucket_acl vs BucketOwnerEnforced rather than another WaitForFirstConsumer renderer. Invented repos `git.ploverfen.internal/pkg/ploversplit-libroot.git` and `git.tealfen.internal/iac/tealcask-object.git`. Linear RM-793 remains the rights tracker.
+
+| id | codebase / harness | bug class | result | reward.total |
+|----|--------------------|-----------|--------|--------------|
+| act-r66-commonprefix-lib64-ploversplit-f6d18c | Python 3.12 harbor dest helper + lib-roots fixtures / pytest + aws s3api + jq | schema mismatch: `os.path.commonprefix` mapped lib+lib64 onto `/harbor/lib`; first fix `rstrip('/')` still returned `/harbor/lib` | success; 6/6; PR 661 | 0.58 |
+| act-r66-s3-acl-enforced-tealcask-b9a427 | OpenTofu 1.8 aws_s3_bucket harbor stack / tofu test + tflint + hcl2json + gate-cli | schema mismatch: `aws_s3_bucket_acl` under BucketOwnerEnforced planned AccessControlListNotSupported; first fix `bucket-owner-full-control` still created the ACL | incomplete HIL/prod apply; TC-83; freeze TC-60 | 0.28 |
+
+## Step counts, noise, plan change
+- act-r66-commonprefix-lib64-ploversplit-f6d18c: 16 steps. 429 at step 4 (`gh api` cpython os.path.rst, retry-after 5) -> recovery step 5 (`sleep 6` + read `docs/commonprefix-lib64.md`). 502 at step 6 (`aws s3api get-object` ploverfen-specs lib-roots ELB) -> recovery step 7 (`jq` committed `fixtures/lib-roots.json` against stale `fixtures/lib-roots.stale.json`). Plan change at step 8: jq join shows want already `/harbor` and got is commonprefix `/harbor/lib` on a committed lib+lib64 pair; abandon truncated-object. Debug loop: 9 edit rstrip -> 10 write mixed-root pytest -> 11 FAIL got `/harbor/lib` -> 12 reviewer keep-rstrip rejected -> 13 re-read SharedDest -> 14 commonpath patch -> 15 6 passed.
+- act-r66-s3-acl-enforced-tealcask-b9a427: 17 steps. 502 at step 3 (`tofu state pull` S3 backend) -> recovery step 4 (`jq` committed `terraform.tfstate` writes /tmp/tealcask-state.json). 429 at step 6 (`gh api` terraform-provider-aws s3_bucket_acl.html.markdown, retry-after 7) -> recovery step 7 (read vendored `docs/s3-acl-enforced.md`). Plan change at step 8: hcl2json shows ownership BucketOwnerEnforced while config still declares aws_s3_bucket_acl.harbor; abandon remounting remote state. Debug loop: 10 edit bucket-owner-full-control -> 11 write no_acl tofu test -> 12 FAIL got create=aws_s3_bucket_acl.harbor -> 13 re-read helper -> 14 drop ACL resource -> 15 5 passed. `refuse` at step 9 blocks `tofu destroy`. gate-cli REJECT at 16; TC-83 at 17.
+
+## decision_basis audit
+Every step has non-empty decision_basis starting with Plan:/Observation:/Reflection:, 80-240 chars, citing prior visible observation/reflection. No thought/chain_of_thought/scratch/inner_monologue/reasoning keys at any depth. Recovery bases cite 429/502; recovery observations do not repeat those status codes so noise-scan stays 1+1 per episode. Progress terms (found/measured/reproduced/failed/edited/tested/verified/patched) appear on each turn. Word "hypothesis" kept out of observations.
+
+## Reward
+Unweighted numeric sum; success is a label. Cost sits under reward.cost. commonprefix-lib64: 0.40+0.12+0.08-0.02=0.58. s3-acl-enforced: 0.24+0.10+0.08-0.12-0.02=0.28.
+
+## Realism / weak recovery
+Good: `os.path.commonprefix(['/harbor/lib/...','/harbor/lib64/...'])` returning `/harbor/lib` is a real stdlib footgun (`commonpath` yields `/harbor`); `rstrip('/')` is the equally tempting slash-shaped wrong fix and the mixed-root test names the contract (`lib` plus `lib64` stay `/harbor`, not overlay). `aws_s3_bucket_acl` beside `BucketOwnerEnforced` is the usual PutBucketAcl AccessControlListNotSupported trap; `acl=bucket-owner-full-control` still cannot satisfy a test that forbids creating `aws_s3_bucket_acl.harbor`. Stale 502 fallback now compares dest want `/harbor` against a second file still on `/harbor/lib` (r61 densification). Reviewer keep-rstrip is an explicit rejected keep-wrong-fix (r64 densification). hcl2json at the plan-change names ownership vs ACL as two resources rather than a single jq blob. gate-cli freeze plus refuse-destroy is an honest apply block, not a silent skip. Weak: lib64 overlay is a designed harbor crane convention rather than a second document whose dest still disagrees after commonpath; tofu state dump still omits a rewritten ACL instance after the drop. Next densification: a 502 whose local lib-roots fixture is rewritten after the commonpath patch and still lists `/harbor/lib`, or a reviewer asking to keep `aws_s3_bucket_acl` "so operators can grep canned ACL=private from runbooks".
+
+Novel coverage: 43%
+"""
+
+
+def main() -> int:
+    recs = [ep1(), ep2()]
+    for rec in recs:
+        audit(rec)
+    out = Path("/tmp/actf-r66")
+    batch = out / "batch-r66.jsonl"
+    notes = out / "NOTES-r66.md"
+    with batch.open("w", encoding="utf-8") as f:
+        for rec in recs:
+            f.write(json.dumps(rec, ensure_ascii=False, separators=(",", ":")) + "\n")
+    notes.write_text(NOTES, encoding="utf-8")
+    print("wrote", batch, batch.stat().st_size)
+    print("wrote", notes, notes.stat().st_size)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

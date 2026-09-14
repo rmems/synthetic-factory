@@ -1,0 +1,4 @@
+PLANT = "OSMOQUAY"
+GEO = "Tidecairn"
+CELL = "HSM-5"
+DOMAIN = "swro-high-pressure-train"

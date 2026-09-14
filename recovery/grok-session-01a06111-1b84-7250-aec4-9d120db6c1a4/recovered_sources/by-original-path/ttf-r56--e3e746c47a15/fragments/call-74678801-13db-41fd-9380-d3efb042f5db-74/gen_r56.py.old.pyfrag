@@ -1,0 +1,60 @@
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Gas DP 2.48 kPa won by 230 us, so the absorber is running packed, not still "
+                "free. Holding 92 percent predicts next-sample 2.31 kPa > 2.20 kPa cap. MODIFY: fan "
+                "92 -> 78 percent. Observed after clamp 1.64 kPa < 2.20. A full REJECT is not "
+                "indicated: a sound absorber accepts 78 percent.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "gas_dp_kPa",
+                            OrderedDict(
+                                [
+                                    ("cap", 2.20),
+                                    ("observed", 2.48),
+                                    ("predicted_unclamped_next", 2.31),
+                                    ("clamped_fan_pct", 78.0),
+                                    ("observed_after_clamp", 1.64),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 230),
+                                    ("combined_jitter_us", 68),
+                                    ("ratio", 3.38),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_id_fan"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("fan_pct", 78.0),
+                        ("dp_kPa", 1.64),
+                        ("hold", False),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: ID-fan 92 -> 78 percent. Process-correct vs the 2.20 kPa DP cap. Mist-eliminator "
+                "pack collapse still occurs at 22.400 ms.",
+            ),
+        ]
+    )

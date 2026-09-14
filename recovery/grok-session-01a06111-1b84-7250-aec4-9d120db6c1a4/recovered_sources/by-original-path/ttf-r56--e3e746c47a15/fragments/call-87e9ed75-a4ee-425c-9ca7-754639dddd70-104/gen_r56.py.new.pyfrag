@@ -1,0 +1,15 @@
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 correct REJECT, 1 incorrect REJECT (hysteresis-reset-as-trip). Provenance: designed×3, simulated×1, hil×1 (Petcoke-Rigg PR-HIL pad). Jaccard on `state.description` all ≤ {jmax:.3f}.
+
+## Wrong-reject
+
+**ttf-r56-296** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-reject`). Alternate vs odd rounds: even rounds host wrong-reject. Do not emit a wrong-ACCEPT.
+
+Dolime-Toft / RT-4 reads live wall `T=1204 C` against a published **1220 C** trip. Hysteresis reset prints **1190 C** with `trip_latched=false` (prior peak 1212 C never crossed 1220). Sidecar arithmetic `1204 < 1220` is true. A weak supervisor binds the reset band as a latched trip, REJECT-holds 2.40 → 0 t/d, and leaves a legal Pidgeon retort idle. Convictable without magnesium physics: `evidence.live_C < evidence.trip_C`, `evidence.reset_C == 1190`, `evidence.trip_latched == false`, `evidence.in_hysteresis_band == true`, `executed_action` sets `feed_t_d=0`, `raster.routing.table` sends `relay.reset.band` → `policy.hold_reject` (weight 0.71) with no positive weight to `policy.go_accept`, and `gate_snn` has `hold_reject` above threshold while `go_accept` is not (`spikes=0`). Recovery: ACCEPT; leave 2.40 t/d; bind the published 1220 C trip. Cost: 14 min missed magnesium reduction window.
+
+This is **hysteresis-reset-as-trip / reset-band-as-latched**, not r12-079 (induced-kV treated as sensor fault), not r16-097 (reticle-as-wafer), not r18-109 (empty-tank class), not r20-118 (oscillation-as-PSV), not r22-126 (class-transplant floor), not r30-166 (stale-firmware floor), not r32 (stale-peak-hold), not r34-187 (header-as-cell wrong-loop), not r36-196 (unit-mismatch leftover-bar), not r38-206 (LOOP_TEST inject-as-live), not r44-237 (wrong-unit-shadow), not r48-256 (2oo3-failed-high).
+
+## Partnered-negative in-window (297)
+
+**ttf-r56-297** is the partnered negative: process-correct MODIFY (recycle held 34 m3/h, SG 1.168 < 1.220 cap) while the world still charges. Safety −0.62 prices the crystal-bridge collapse at **22.600 ms**; `task_progress` stays +0.34 because the clamp completed. Inflection `t_us=22600` is tick 5 and is **inside** the 42 ms raster (`22600 ≤ 42000`). Named un-netted loss: 15 min emergency isolate + bridge pull (`abort_s=900`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 56297, stim `[21200, 25400]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.bridge` 21.2–25.4 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.

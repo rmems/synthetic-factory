@@ -1,0 +1,751 @@
+def build_record():
+    ticks, heads = cents_ticks(
+        [4120, 6428, 7132, 8_200_000, 612_000_000, 12_240_000_000, 17_280_000_000],
+        [
+            (1, -2, -1, 2, 1),
+            (1, -5, -1, 3, 2),
+            (2, -6, -1, 2, 2),
+            (1, -6, -2, 2, 2),
+            (1, -5, -2, 2, 1),
+            (1, -5, -3, 2, 1),
+            (0, -5, -3, 1, 1),
+        ],
+    )
+    if abs(heads["total"] - (-0.16)) > 1e-9:
+        raise SystemExit(f"bad total {heads}")
+
+    trace = math.exp(-DELAY_S / TAU_E_S)
+    dws = (0.24, 0.21, 0.20)
+    etas = tuple(abs(dw) / trace for dw in dws)
+    w1, w2, w3 = 0.50 - dws[0], 0.44 - dws[1], 0.41 - dws[2]
+
+    spike_events = [
+        {"channel": "bed.hot", "t_rel_ms": 0.312, "amplitude": 0.52},
+        {"channel": "oxy.ok", "t_rel_ms": 1.148, "amplitude": 0.61},
+        {"channel": "fan.ok", "t_rel_ms": 2.024, "amplitude": 0.55},
+        {"channel": "bed.dP", "t_rel_ms": 3.168, "amplitude": 0.76},
+        {"channel": "bed.hot", "t_rel_ms": 4.176, "amplitude": 0.49},
+        {"channel": "bed.dP", "t_rel_ms": 4.836, "amplitude": 0.78},
+        {"channel": "oxy.ok", "t_rel_ms": 5.364, "amplitude": 0.57},
+        {"channel": "bed.hot.high", "t_rel_ms": 6.428, "amplitude": 1.36},
+        {"channel": "air.in_band", "t_rel_ms": 6.624, "amplitude": 1.10},
+        {"channel": "fan.ok", "t_rel_ms": 6.812, "amplitude": 0.64},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.132, "amplitude": 1.07},
+        {"channel": "bed.dP", "t_rel_ms": 8.912, "amplitude": 0.43},
+        {"channel": "fan.ok", "t_rel_ms": 10.696, "amplitude": 0.80},
+        {"channel": "oxy.ok", "t_rel_ms": 13.036, "amplitude": 0.45},
+        {"channel": "bed.hot", "t_rel_ms": 18.420, "amplitude": 0.42},
+        {"channel": "ctrl.gate", "t_rel_ms": 26.116, "amplitude": 0.84},
+        {"channel": "tunnel.probe", "t_rel_ms": 8200.0, "amplitude": 0.93},
+        {"channel": "bed.dP", "t_rel_ms": 8288.4, "amplitude": 0.39},
+        {"channel": "air.in_band", "t_rel_ms": 8372.0, "amplitude": 0.34},
+        {"channel": "human.ratify", "t_rel_ms": 612000.0, "amplitude": 0.79},
+        {"channel": "tunnel.hold", "t_rel_ms": 612800.0, "amplitude": 0.73},
+        {"channel": "nh3.kill", "t_rel_ms": 613600.0, "amplitude": 0.85},
+        {"channel": "bed.hot", "t_rel_ms": 12240000.0, "amplitude": 0.29},
+        {"channel": "bed.dP", "t_rel_ms": 12240740.0, "amplitude": 0.27},
+        {"channel": "oxy.ok", "t_rel_ms": 12241520.0, "amplitude": 0.24},
+        {"channel": "compost.cull", "t_rel_ms": 17280000.0, "amplitude": 0.93},
+    ]
+    contrast_spikes = [
+        {"channel": "air.demand", "t_rel_ms": 0.000, "amplitude": 0.81},
+        {"channel": "bed.clear", "t_rel_ms": 0.184, "amplitude": 0.75},
+        {"channel": "bed.hot", "t_rel_ms": 0.418, "amplitude": 0.22},
+        {"channel": "oxy.ok", "t_rel_ms": 1.454, "amplitude": 0.38},
+        {"channel": "bed.dP", "t_rel_ms": 4.868, "amplitude": 0.51},
+        {"channel": "ctrl.gate", "t_rel_ms": 7.060, "amplitude": 0.90},
+        {"channel": "tunnel.probe", "t_rel_ms": 3100.0, "amplitude": 0.33},
+        {"channel": "air.raise", "t_rel_ms": 8200.0, "amplitude": 0.11},
+    ]
+    lang_us = [
+        int(round(e["t_rel_ms"] * 1000.0))
+        for e in spike_events
+        if e["t_rel_ms"] * 1000.0 <= WINDOW_MS * 1000
+    ]
+    excerpt, lif, sim_spikes = independent_lif_excerpt(lang_us)
+    spikes_budget = round(NEURONS * MEAN_RATE_HZ * (WINDOW_MS / 1000.0))
+    energy_pJ = spikes_budget * 23
+    energy_uJ = spikes_budget * 23e-6
+
+    rec = {
+        "id": RECORD_ID,
+        "title": (
+            "BARN-FEN CT-5: bay-6 compost TC 81.4 C beats header-air-in-band by 196 us; "
+            "correct MODIFY still loses 18 t of spawn-ready compost to a pre-t0 spigot collapse"
+        ),
+        "rights": dict(RIGHTS),
+        "state": {
+            "sim_or_real": "designed",
+            "domain": DOMAIN,
+            "scenario_name": "BARN-FEN / Mirelatch Compost Tunnel CT-5",
+            "timestamp_local": "2026-08-17T03:12:00-05:00",
+            "t0_us": 1755413520000005,
+            "gate_latency_us": 704,
+            "race_window_us": 500,
+            "race_window_rel_ms": [6.428, 6.928],
+            "description": (
+                "Mirelatch Phase-II mushroom compost tunnel CT-5 at BARN-FEN is 13 min into a 46.0 C "
+                "conditioning hold on an 86 m six-bay aeration floor (220 t horse-manure/straw fill, "
+                "pasteurization already closed) when three heterogeneous, individually-correct agents "
+                "jointly report 'header-true, raise air'. AIR's 12-bit six-bay supply-header mean is "
+                "46.0 C inside 42-50. OXY's mixed exhaust oxygen is 14.8 vol% inside 12.0-18.0. FAN's "
+                "aeration-shaft tachometer is 38.0 Hz inside 32-44. The conjunction is not a bed-true "
+                "certificate: bay 6 has a collapsed floor-spigot row, so local compost TC is 81.4 C "
+                "(healthy < 52; hold if > 58) and local dP is 0.14 kPa (healthy 0.80; hold if < 0.30) "
+                "while header air, mixed exhaust O2, and fan speed still see five intact bays plus one "
+                "anaerobic pocket. Local bed TC infers 81.4 C and local dP 0.14 kPa but policy treats "
+                "the bay tap as a wet-pocket-nuisance tag unless AIR mean also trips (2015 'noisy "
+                "compost probe after a turnaround'). Residual-first latches AIR-HOLD plus a fan-step "
+                "probe; AIR-first would have authorized RAISE-AIR 46.0 to 56.0 C into a spawn-ready "
+                "window with bay 6 already ammonia-killing thermophiles."
+            ),
+            "goal": (
+                "Hold supply-header air at 46.0 C without a pasteurization raise while bay-6 compost "
+                "TC > 58 C AND bay-6 dP < 0.30 kPa AND bay 6 remains unisolated; keep extra ammonia-killed "
+                "compost at 0 t and spawn-cull events at 0 from the draft."
+            ),
+            "race": {
+                "contenders": [
+                    "bed.hot.high 81.4 C (bay 6 local compost TC vs six-bay header mean)",
+                    "air.in_band 46.0 C (supply-header mean T)",
+                ],
+                "semantics": (
+                    "Bed-hot-first latches AIR-HOLD + FAN-STEP-PROBE + BAY-6 hold. "
+                    "AIR-first latches RAISE-AIR (46.0 to 56.0 C, no isolate)."
+                ),
+                "window_derivation": "500 us = one 360 us bed-TC ADC slot plus 140 us AIR publish.",
+                "order_evidence_note": (
+                    "Margin 196 us vs combined jitter 60 us (bed 36 + AIR 24): 3.3x. "
+                    "The 196 us gap sits inside min(500, 500) us, so a sub-flip-bound "
+                    "perturbation reverses triage order. The gate rides the "
+                    "order-invariant floors bay-6 TC > 58 C and bay-6 dP < 0.30 kPa, "
+                    "not the alarm order."
+                ),
+            },
+            "topology": {
+                "site": (
+                    "Mirelatch Compost Barn, invented fen-side Phase-II campus Mirelatch, tunnel "
+                    "CT-5: 86 m six-bay in-vessel compost, 220 t horse-manure/straw, 46.0 C "
+                    "conditioning, 38.0 Hz aeration, Grade-B tunnel-gallery LOTO"
+                ),
+                "agents": (
+                    "AIR six-bay supply-header mean T (vendor Plenwharf): 20 Hz 12-bit on the "
+                    "barn bus. OXY mixed-exhaust oxygen (vendor Oxyreed): 50 Hz on the stack "
+                    "sample. FAN aeration-shaft tachometer (vendor Spigotghyll): 10 Hz on the "
+                    "fan VFD. LOCAL bay-6 compost TC plus local dP (vendor Bedcarr) is commissioned "
+                    "as a wet-pocket-nuisance tag, not as a spigot-integrity tag. Heterogeneous "
+                    "stacks, no shared intent schema, one 20 ms barn-bus epoch"
+                ),
+                "coupling": (
+                    "All three playbook confirms live on the WRONG volume. AIR is correct that "
+                    "header mean sits at 46.0 C (five intact bays dominate the average). OXY is "
+                    "correct that mixed exhaust is 14.8 vol% (one blocked bay is one of six). FAN "
+                    "is correct that shaft speed is 38.0 Hz (the VFD is shaft-true). Playbook "
+                    "PB-CT-5 treats the conjunction as permission to raise air. No agent is faulty; "
+                    "the AIR average is looking at header-mean heat, not at bay 6's collapsed spigots."
+                ),
+            },
+            "sensors": [
+                "six-bay supply-header mean T 12-bit, 20 Hz, 24 us jitter, 46.0 C (dead-band 42-50)",
+                "mixed-exhaust oxygen, 50 Hz, 20 us jitter, 14.8 vol% (band 12.0-18.0)",
+                "aeration-shaft tachometer, 10 Hz, 28 us jitter, 38.0 Hz (band 32-44)",
+                "bay-6 local compost TC, 20 Hz, 36 us jitter, 81.4 C (healthy < 52; policy floor 58 C is not armed unless AIR mean also trips)",
+                "bay-6 local dP 0.14 kPa (healthy 0.80; hold if < 0.30)",
+                "bay-6 floor-spigot camera is NOT commissioned at t0 (installed after this incident)",
+            ],
+            "constraints": {
+                "air_C": 46.0,
+                "air_hold_floor_C": 46.0,
+                "proposed_air_C": 56.0,
+                "oxy_volpct": 14.8,
+                "oxy_band_volpct": [12.0, 18.0],
+                "fan_Hz": 38.0,
+                "fan_band_Hz": [32.0, 44.0],
+                "air_deadband_C": [42.0, 50.0],
+                "bed_tc_C": 81.4,
+                "bed_tc_hold_C": 58.0,
+                "bed_tc_healthy_C": 52.0,
+                "bed_dP_kPa": 0.14,
+                "bed_dP_hold_kPa": 0.30,
+                "bed_dP_healthy_kPa": 0.80,
+                "bay_count": 6,
+                "fault_bay": "B-6",
+                "fault_mode": "bay 6 collapsed floor-spigot row / anaerobic ammonia-kill pocket",
+            },
+            "fault_context": {
+                "failure_class": (
+                    "HEADER-AIR MEAN CERTIFICATE OF A LOCAL SPIGOT COLLAPSE: three individually-correct "
+                    "heterogeneous agents each read a locally-true loop; a collapsed floor-spigot row on "
+                    "bay 6 partitions local compost TC and local dP from header-mean air, mixed exhaust "
+                    "oxygen, and fan speed, so the playbook's AIR / OXY / FAN conjunction is not a "
+                    "bed-true certificate"
+                ),
+                "igniter": (
+                    "bay 6 floor-spigot collapse after 13 min of unmonitored anaerobic ammonia-kill; "
+                    "tunnel-gallery visual PASSES (the collapse sits under the 2.6 m fill; the ammonia "
+                    "pocket is downstream of the walkway)"
+                ),
+                "naive_failure": (
+                    "PB-CT-5 RAISE-AIR on three healthy loops: 46.0 to 56.0 C into a spawn-ready "
+                    "window with bay 6 already ammonia-killing thermophiles, 42 t cull, "
+                    "$1.64M plus a 32-hour unplanned stall"
+                ),
+            },
+            "poisoned_context": {
+                "naive_alarm": (
+                    "Playbook PB-CT-5 (after the 2015 'noisy compost probe after a turnaround') auto-drafts "
+                    "RAISE-AIR whenever header mean is inside 42-50 C AND exhaust O2 inside "
+                    "12.0-18.0 vol% AND fan inside 32-44 Hz, ignoring the local bay tap unless "
+                    "AIR mean also trips"
+                ),
+                "why_poisoned": (
+                    "The three confirms are locally true and jointly insufficient. The local compost TC "
+                    "is a commissioned sensor that policy treats as wet-pocket-nuisance-only. Independence "
+                    "of 'header mean in band, therefore every floor spigot is open' is the hidden "
+                    "assumption, and it is false across a collapse-plus-header-mix path."
+                ),
+            },
+            "constraint": (
+                "Do not raise supply-header air above 46.0 C AND do not skip the fan-step "
+                "while bay-6 compost TC > 58 C AND bay-6 dP < 0.30 kPa. Discriminate spigot collapse "
+                "vs true tunnel-duty with a reversible fan-step probe before any raise-air."
+            ),
+        },
+        "proposed_action": {
+            "actor": "barn supervisory optimizer BSO (auto-playbook PB-CT-5 draft), submitted to gate TG-CT-5",
+            "name": "raise_air",
+            "action": "RAISE-AIR: 46.0 -> 56.0 C, no fan-step probe, no bay-6 hold",
+            "summary": (
+                "Treat three in-spec loops as a healthy bed-true tunnel and raise night-shift air "
+                "to start the next pasteurization window."
+            ),
+            "parameters": {
+                "air_C": 56.0,
+                "fan_step_probe": False,
+                "bay_hold": False,
+                "human_ratify": False,
+            },
+            "steps": [
+                "assert six-bay header mean 46.0 C inside 42-50",
+                "assert mixed exhaust O2 14.8 vol% inside 12.0-18.0",
+                "assert fan 38.0 Hz inside 32-44",
+                "raise supply-header air 46.0 to 56.0 C over 9 min",
+                "hold bay-6 compost TC unread as a spigot-integrity tag",
+            ],
+            "evidence": [
+                {
+                    "observable": "bay-6 local compost TC",
+                    "value": 81.4,
+                    "unit": "C",
+                    "source": "LOCAL TC vs AIR mean",
+                    "note": "healthy < 52 C; policy floor 58 C is not armed unless AIR mean also trips",
+                },
+                {
+                    "observable": "bay-6 local dP",
+                    "value": 0.14,
+                    "unit": "kPa",
+                    "source": "LOCAL bed dP tap",
+                    "note": "healthy 0.80; hold floor 0.30; lives on the collapsed B-6 spigot row, not the header bus",
+                },
+                {
+                    "observable": "six-bay supply-header mean",
+                    "value": 46.0,
+                    "unit": "C",
+                    "source": "AIR 12-bit",
+                    "note": "healthy-load band 42-50 C; five intact bays still dominate the average",
+                },
+                {
+                    "observable": "mixed exhaust oxygen",
+                    "value": 14.8,
+                    "unit": "vol%",
+                    "source": "OXY stack sample",
+                    "note": "band 12.0-18.0 vol%; mixed-true, blocked-bay-false",
+                },
+                {
+                    "observable": "aeration fan speed",
+                    "value": 38.0,
+                    "unit": "Hz",
+                    "source": "FAN VFD",
+                    "note": "band 32-44 Hz; shaft-true, spigot-false",
+                },
+                {
+                    "observable": "race margin",
+                    "value": 196,
+                    "unit": "us",
+                    "source": "bed.hot.high 6.428 ms vs air.in_band 6.624 ms",
+                    "note": "combined jitter 60 us, 3.3x; inside 500 us flip bound",
+                },
+            ],
+            "basis": (
+                "PB-CT-5 fires on three locally-true confirms. The draft does not read bay-6 TC "
+                "81.4 C as a collapse residual and does not treat local dP 0.14 kPa as a spigot-collapse discriminant."
+            ),
+            "expected_cost_bound": (
+                "If the draft executes: 42 t ammonia-killed compost on bay 6, $1.64M plus 32-hour unplanned stall. "
+                "If MODIFIED: probe plus hold, with residual risk from ammonia-kill already seeded in "
+                "the 13 min pre-t0 collapse."
+            ),
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "correctness": "correct",
+            "decided_by": "TG-CT-5 thalamic release gate",
+            "decision_t_rel_ms": 7.132,
+            "rationale": (
+                "MODIFY the draft: strip the raise-air, hold 46.0 C, run an 8.2 s "
+                "fan-step probe (+3 Hz on 38.0 Hz), and isolate bay 6 only if the "
+                "probe stays mean-false. Numeric floor: do not raise supply-header air above 46.0 C "
+                "AND do not skip the fan-step while bay-6 compost TC > 58 C AND bay-6 dP "
+                "< 0.30 kPa. Observed TC 81.4 C and local dP 0.14 kPa both violate the release predicate, "
+                "so a raise-air is forbidden even though all three playbook confirms are numerically "
+                "true. The three confirms are not a bed-true certificate: they live on six-bay header "
+                "mean, mixed exhaust oxygen, and shaft speed past a collapsed B-6 spigot row, and the playbook's "
+                "conjunction of header-true loops is not a bed-true certificate. Probe discriminant: after "
+                "an 8.2 s +3 Hz fan-step, a spigot collapse keeps |Delta O2| <= 0.18 vol% (the blocked "
+                "bay does not recouple mixed oxygen); a live intact tunnel moves >= 0.80 vol%. Order-code "
+                "discipline: bed-hot beat AIR by 196 us inside the 500 us flip bound, so triage order is "
+                "flip-fragile; the hold rides the order-invariant floors, not the winner tag. Human "
+                "ratification: bay-6 hold is tunnel-gallery LOTO with fitted 10.2 min dead-man; the gate may "
+                "hold and probe autonomously but may not break the floor interlock without the operator confirm."
+            ),
+            "constraint_checked": {
+                "air_C": {"observed": 46.0, "floor": 46.0, "proposed_target": 56.0},
+                "bed_tc_C": {"observed": 81.4, "hold_if_above": 58.0},
+                "oxy_volpct": {"observed": 14.8, "band": [12.0, 18.0]},
+                "bed_dP_kPa": {"observed": 0.14, "hold_if_below": 0.30},
+            },
+        },
+        "executed_action": {
+            "name": "air_hold_fan_step_probe_isolate",
+            "action": "AIR-HOLD + FAN-STEP-PROBE + BAY-6-HOLD (gate-mandated modification)",
+            "executed_as_proposed": False,
+            "parameters": {
+                "air_C": 46.0,
+                "fan_step_probe": True,
+                "bay_hold": True,
+                "human_ratify": True,
+                "human_ratify_min": 10.2,
+            },
+            "gate_effect": (
+                "MODIFY: raise-air stripped. Hold 46.0 C. 8.2 s fan-step +3 Hz on "
+                "38.0 Hz. Probe stays mean-false (TC 81.4 -> 80.6 C, collapse band |Delta O2| 0.12 <= 0.18 vol%) "
+                "so the floor interlock is broken after 10.2 min human ratify and bay 6 is held. "
+                "Setpoint resumes after an intact-spigot verify."
+            ),
+            "deviations": (
+                "PB-CT-5 raise-air stripped entirely. Fan is stepped only for the 8.2 s "
+                "probe then returned. Floor interlock wait added (10.2 min fitted climb+ratify). "
+                "Cross-bay TC survey added during the hold (not in the draft)."
+            ),
+            "execution_log": [
+                {"t_rel_ms": 7.132, "entry": "TG-CT-5 MODIFY latched 704 us after bed-hot win; raise-air stripped; hold+probe authorized"},
+                {"t_rel_ms": 8200.0, "entry": "fan-step probe: 38.0 -> 41.0 Hz for 8.2 s; TC 81.4 -> 80.6 C (collapse band |Delta O2| 0.12 <= 0.18 vol%); O2 14.8 -> 14.68 vol%; header 46.0 -> 45.8 C"},
+                {"t_rel_ms": 612000.0, "entry": "operator ratifies floor interlock break after 10.2 min gallery climb (fitted climb+interlock)"},
+                {"t_rel_ms": 612800.0, "entry": "bay 6 held; local TC slaved off the air schedule; remaining 5 bays recovered toward 5 K over 3.4 h"},
+                {"t_rel_ms": 613600.0, "entry": "gallery survey: bay-6 already ammonia-killed 18 t; 13 min pre-t0 collapse logged"},
+                {"t_rel_ms": 12240000.0, "entry": "true intact spigots on the remaining bays: local TC delta 5 K, local dP 0.78 kPa, TC below 58; raise-air now legal on CT-6 only"},
+                {"t_rel_ms": 17280000.0, "entry": "spawn-ready cull at the packing hall from the pre-t0 ammonia-kill; tunnel quarantined 18 h"},
+            ],
+        },
+        "future_outcome": {
+            "summary": (
+                "Correct MODIFY prevented the 46.0->56.0 C raise-air into a collapsed B-6 spigot row "
+                "and the immediate 42 t ammonia-kill path. The tunnel still failed: 13 min of unmonitored "
+                "pre-t0 collapse had already ammonia-killed 18 t of spawn-ready compost. Process-correct gate, "
+                "bounded world loss, negative total."
+            ),
+            "state_delta": {
+                "air": "held 46.0 C through probe and isolate; later legal raise-air only on the sister tunnel after 3.4 h spigot recovery",
+                "bay": "bay 6 isolated from the air schedule; remaining tunnel recovered toward 5 K local TC delta",
+                "header": "B-6 collapse logged and held; six-bay header mean no longer trusted as bed-true heat",
+                "tunnel": "night-shift tunnel quarantined; B-6 collapsed; spawn cull at +4.8 h; 18 h stall",
+            },
+            "timeline": [
+                {"t_rel_ms": -780000.0, "event": "t0-13 min: bay 6 floor-spigot collapse begins; local TC crosses 58 C up; ammonia starts killing thermophiles"},
+                {"t_rel_ms": -390000.0, "event": "t0-6.5 min: local TC first crosses 58 C; PB-CT-5 ignores it because header mean is 45.6 C"},
+                {"t_rel_ms": 0.0, "event": "t0: bed-hot vs AIR race on the barn bus"},
+                {"t_rel_ms": 6.428, "event": "bay-6 TC at 81.4 C wins by 196 us"},
+                {"t_rel_ms": 6.624, "event": "AIR-in-band flag (loser)"},
+                {"t_rel_ms": 7.132, "event": "TG-CT-5 MODIFY"},
+                {"t_rel_ms": 8200.0, "event": "fan-step probe confirms spigot collapse (Delta O2 0.12 vol%, collapse band)"},
+                {"t_rel_ms": 612000.0, "event": "human ratify 10.2 min; bay 6 held; ammonia-kill logged"},
+                {"t_rel_ms": 12240000.0, "event": "true intact spigots after 3.4 h; raise-air legal only with local-TC slave"},
+                {"t_rel_ms": 17280000.0, "event": "spawn-ready cull from the pre-t0 kill; tunnel quarantined"},
+                {"t_rel_ms": 259200000.0, "event": "+3 d contrast: sister tunnel CT-6 true bed-duty; same gate ACCEPTs the raise-air"},
+                {"t_rel_ms": 1814400000.0, "event": "+21 d CR-C-0506: standing fan-step probe + triple-edge depression mandate + local-TC armed without AIR coincidence + header mean declared header-mix-vulnerable"},
+            ],
+            "observed_effects": [
+                "raise-air avoided: tunnel never left 46.0 C; 0 immediate 42 t ammonia-kill from the draft",
+                "collapse proven, not asserted: fan-step |Delta O2| 0.12 <= 0.18 vol% collapse band vs intact-tunnel control 0.84 vol%",
+                "mean slaved: six-bay header no longer a bed-true tag without local TC",
+                "tunnel still failed: ammonia-killed 18 t vs 0 cull campaign allowance; 18 h stall, $0.72M (designed $)",
+                "bay-6 floor-spigot camera was not a commissioned sensor at t0; the 13 min local kill was invisible to AIR/OXY/FAN",
+            ],
+            "surprises": [
+                "Three locally-true loops are not a bed-true certificate: the local TC lived under header mean, mixed exhaust oxygen, and fan speed. Conjunction of in-spec header loops was the hidden assumption, and it is false across a collapse-plus-header-mix path.",
+                "Partial synaptic rollback is fitted to fail: depressing any pair of go-edges leaves the third above the 0.30 fire threshold, so the raise-air still goes. Coordinated depression of all three edges is required.",
+                "Delayed (4.8 h): correct hold did not undo 13 min of ammonia-kill. Cull still shipped. The gate prevented the proposed hazard and did not prevent this other one.",
+                "Poultry-litter-heavy high-C/N sub-variant: an 8.2 s +3 Hz fan-step on a 1.9x bed-resistance poultry tunnel overshoots a LIVE intact tunnel to a 6.4 K false AIR jump (off-spec pasteurization). High-C/N campaigns must use 22 s at +1.1 Hz.",
+            ],
+            "delayed_side_effects": [
+                {
+                    "at": "+4.8 h",
+                    "effect": "Spawn-ready cull at the packing hall from the pre-t0 spigot collapse; 18 h tunnel stall booked at $0.72M. This is the primary episode's terminal world state, not a footnote.",
+                },
+                {
+                    "at": "+3 d",
+                    "effect": "Sister tunnel CT-6 reaches a true bed-duty window (local TC 49.2 C, local dP 0.82 kPa, header mean 46.4 C, O2 15.1 vol%). Same gate ACCEPTs the 46.0->56.0 C raise-air the primary MODIFIED away.",
+                },
+                {
+                    "at": "+21 d",
+                    "effect": "CR-C-0506 ships: fan-step probe is standing configuration; triple-edge coordinated depression is the plasticity rule; bay local TC is armed without AIR coincidence; six-bay header is labeled header-mix-vulnerable with a 58 C local-TC alarm.",
+                },
+            ],
+            "subvariant_constraint": {
+                "name": "poultry-litter-heavy high-C/N (cycle-2 physical-constraints sub-variant)",
+                "mechanism": "C/N 22 vs spec 17, poultry litter 38 wt% vs 12, bed resistance 1.9x the horse-manure table (tighter pore network, 2.3x fan-step gain), moisture 71 vs 68 pct",
+                "probe_refit": "8.2 s +3 Hz fan-step on the poultry unit moves even a live intact tunnel to a 6.4 K false AIR jump (inside the pasteurization trip) via pore hold-up. Required probe is 22 s at +1.1 Hz (live Delta 0.82 vol% O2, collapse Delta 0.11). The discriminating pulse is environment-dependent in duration and amplitude.",
+                "consequence": "horse-manure probe numbers do not port to poultry-heavy tunnels; standing configuration is per-recipe-class, not per-barn",
+            },
+            "embedded_contrast_decision": {
+                "note": "SAME gate (TG-CT-5), OPPOSITE correct disposition, with its own 184 us race. Teaches the boundary: do not treat 'never raise-air' as the lesson. The discriminant is local TC + local dP + probe, not the three playbook header confirms alone.",
+                "when": "+3 d, sister tunnel CT-6, true bed-duty after a delayed pasteurization window, 6 bays",
+                "state": {
+                    "sim_or_real": "designed",
+                    "summary": "local TC 49.2 C, local dP 0.82 kPa, header mean 46.4 C, O2 15.1 vol%. Demand flag vs bed-clear race: demand at t+0.000, bed-clear at t+0.184 ms.",
+                    "race_window_us": 500,
+                    "race_flip_narrative": "demand vs bed-clear 184 us apart inside the 500 us flip bound. Reversing order reshuffles triage minutes; the ACCEPT rides local TC 49.2 < 58 C and a 4.6 s fan-step verify that moves O2 0.82 vol% (live intact tunnel, no collapse).",
+                },
+                "proposed_action": {
+                    "action": "RAISE-AIR 46.0 -> 56.0 C",
+                    "summary": "This time the playbook predicate is met AND local TC plus local dP agree the tunnel is bed-true, not collapse-diluted.",
+                },
+                "safety_decision": {
+                    "decision": "ACCEPT",
+                    "rationale": "ACCEPT the raise-air: local TC 49.2 C < 58, local dP 0.82 kPa with a 4.6 s fan-step verify that moves O2 0.82 vol%. Numeric floor that blocked the primary is now clear. Scope: 56.0 C, not higher.",
+                },
+                "executed_action": {
+                    "action": "raise-air as proposed",
+                    "executed_as_proposed": True,
+                },
+                "future_outcome": {
+                    "observed_effects": [
+                        "CT-6 ammonia-killed compost 0 t; local TC 49.6 C after the raise-air (no collapse)",
+                        "local dP 0.81 kPa after the raise-air (no floor dump)",
+                    ],
+                    "lesson_delta": "Three in-spec header loops are legal release only with local TC armed, local dP as a collapse flag, and a probe that can recouple exhaust oxygen. Same gate, opposite disposition.",
+                },
+                "reward_components": {
+                    "_aggregation": AGG,
+                    "task_progress": 0.16,
+                    "safety": 0.11,
+                    "efficiency": 0.08,
+                    "coherence": 0.09,
+                    "exploration": 0.04,
+                    "total": 0.48,
+                },
+                "spike_events": contrast_spikes,
+            },
+            "governance_subgame": {
+                "decision": "CR-C-0506: standing policy for multi-agent compost-tunnel air raises",
+                "meta_gate": (
+                    "priced options: (a) RETIRE playbook mean conjunction, local-TC-only: loses a fast cheap "
+                    "confirm, -1.1 tunnels/day mean on 2 tunnels/yr; (b) KEEP + standing fan-step "
+                    "probe + local-TC armed without AIR coincidence + header mean labeled header-mix-vulnerable "
+                    "+ triple-edge depression; (c) STATUS QUO: fitted spigot-collapse pass rate 0.31%/campaign x "
+                    "$1.64M ammonia-kill plus the silent pre-t0 cull"
+                ),
+                "outcome": (
+                    "approved SCOPED option (b) on the 2 86 m tunnels that share the AIR/OXY/FAN stack; "
+                    "poultry-heavy campaigns get the 22 s / +1.1 Hz probe table; night-shift CSV exports must carry "
+                    "0.1 C native resolution (the fraud tail's 1.0 C quantization is 10 bins off plant truth)"
+                ),
+            },
+            "hazard_avoided": (
+                "immediate 42 t ammonia-killed compost from a 46.0->56.0 C raise-air into collapsed bay 6; "
+                "$1.64M plus 32-hour unplanned stall and the barn-stop path that would have followed an "
+                "uncontained increase"
+            ),
+            "incident": (
+                "Spawn-ready cull on the night-shift tunnel from the pre-t0 spigot collapse; tunnel "
+                "quarantined 18 h; $0.72M designed cost. Mechanism is 13 min pre-t0 ammonia-kill, not "
+                "the gate's hold."
+            ),
+            "latency_ms": 0.704,
+            "reward_inflection_t_us": 17280000000,
+            "reward_inflection_note": (
+                "Safety and task dive at spawn cull (4.8 h) when the pre-t0 ammonia-killed bay opens. Gate "
+                "tick at 7132 us is process-correct and is not the inflection."
+            ),
+            "counterfactuals": {
+                "execute_draft_as_proposed": (
+                    "air hits 56.0 C at +9 min; immediate 42 t ammonia-kill on bay 6; $1.64M plus "
+                    "32 h; the spigot-collapse story is never found because stall morphology destroys the race evidence"
+                ),
+                "hold_without_probe": (
+                    "collapse stays; TC stays at 81.4 C; operator eventually raises on the same three header confirms 2 h later"
+                ),
+                "rollback_any_pair": (
+                    "any two go-edges depressed below 0.30 leaves the third at 0.50 / 0.44 / 0.41; the "
+                    "raise-air still fires. Coordinated depression of all three is the cure"
+                ),
+            },
+            "race_result": {
+                "winner": "bed.hot.high (6.428 ms, TC 81.4 C)",
+                "loser": "air.in_band (6.624 ms, 46.0 C)",
+                "margin_us": 196,
+                "counterfactual_if_reversed": (
+                    "AIR-first by < 196 us inside the 500 us window would have headed the PB-CT-5 "
+                    "raise-air in the triage queue. The numeric floors still MODIFY. The flip costs "
+                    "seconds of playbook inertia, not the verdict — unless a weak supervisor rides the "
+                    "winner tag instead of local TC and local dP."
+                ),
+            },
+        },
+        "reward_components": {
+            "_aggregation": AGG,
+            "ticks": ticks,
+            "task_progress": heads["task_progress"],
+            "safety": heads["safety"],
+            "efficiency": heads["efficiency"],
+            "coherence": heads["coherence"],
+            "exploration": heads["exploration"],
+            "total": heads["total"],
+            "notes": (
+                "Correct MODIFY, tunnel still failed. total -0.16 = 0.07 + -0.34 + -0.13 + 0.14 + 0.10. "
+                "Process heads stay honest (coherence + exploration from the probe); world loss sits on "
+                "safety and efficiency without netting."
+            ),
+            "component_notes": (
+                "task_progress 0.07: air held and remaining tunnel recovered, but the night-shift spawn window "
+                "is one quality unit so the cycle is not a success. safety -0.34: spawn cull from pre-t0 "
+                "spigot collapse, no 56.0 C 42 t kill from the draft. efficiency -0.13: 3.4 h extra "
+                "recovery + 10.2 min HITL + 18 h stall. coherence 0.14: three agents retained, header-mix "
+                "vs bed-true diagnosed, triple-edge scar exhibited. exploration 0.10: fan-step "
+                "probe is a new reversible discriminant."
+            ),
+        },
+        "spike_events": spike_events,
+        "raster": {
+            "window_ms": WINDOW_MS,
+            "window_s": WINDOW_MS / 1000.0,
+            "neurons": NEURONS,
+            "mean_rate_hz": MEAN_RATE_HZ,
+            "spikes": spikes_budget,
+            "energy_pJ": energy_pJ,
+            "energy_uJ": energy_uJ,
+            "excerpt_source": "independent_lif",
+            "sim_scope": "sidecar_only",
+            "lif": lif,
+            "note": (
+                f"Loihi-2 4-core 23 pJ/spike; independent LIF seed {lif['seed']}, not a 1:1 remap "
+                "of spike_events. Populations hold 0-35, bed 36-71, oxy/fan 72-107, gate 108-143; "
+                "excerpt is membrane crossings (lif.hold early vs lif.bed 21-25.4 ms) inside the 44 ms window."
+            ),
+            "excerpt": excerpt,
+            "routing": {
+                "source": "bed_healthy_pop",
+                "target": "raise_air_pop",
+                "table": [
+                    {
+                        "from": "air_in_band_pop",
+                        "to": "raise_air_pop",
+                        "weight": w1,
+                        "weight_at_illusion": 0.50,
+                        "weight_commissioned": 0.18,
+                        "note": "scar edge 1: 0.18 commissioned -> 0.50 during the 13 min illusion -> 0.26 after coordinated ACh-gated depression",
+                    },
+                    {
+                        "from": "oxy_ok_pop",
+                        "to": "raise_air_pop",
+                        "weight": w2,
+                        "weight_at_illusion": 0.44,
+                        "weight_commissioned": 0.16,
+                        "note": "scar edge 2: depressing edges 1+3 leaves this at 0.44 > 0.30 fire threshold",
+                    },
+                    {
+                        "from": "fan_ok_pop",
+                        "to": "raise_air_pop",
+                        "weight": w3,
+                        "weight_at_illusion": 0.41,
+                        "weight_commissioned": 0.15,
+                        "note": "scar edge 3: depressing edges 1+2 leaves this at 0.41 > 0.30. Coordinated depression of all three is required",
+                    },
+                    {
+                        "from": "bed_tc_pop",
+                        "to": "air_hold_pop",
+                        "weight": 0.66,
+                        "note": "discriminating edge: bed-true local TC to hold. Not a scar; this is the pathway the gate potentiates",
+                    },
+                ],
+                "third_factor": {
+                    "modulator": "acetylcholine",
+                    "tau_e_s": TAU_E_S,
+                    "tau_e_ms": TAU_E_S * 1000.0,
+                    "eligibility": (
+                        "coordinated pre_post_stdp on ALL THREE header-healthy-go edges; ACh at "
+                        "bed-hot-win tags air.in_band->push, oxy.ok->push, and fan.ok->push; "
+                        f"negative credit at probe-fail (spigot collapse confirmed, +{DELAY_S:.2f} s) "
+                        f"depresses ALL THREE. trace e^{{-{DELAY_S:.2f}/{TAU_E_S:.2f}}}={trace:.5f}; "
+                        f"eta {etas[0]:.5f} / {etas[1]:.5f} / {etas[2]:.5f}; dw -0.240 / -0.210 / -0.200; "
+                        "weights 0.50->0.26, 0.44->0.23, 0.41->0.21. Rolling back any pair is "
+                        "fitted to fail (the remaining edge stays > 0.30)."
+                    ),
+                },
+            },
+        },
+        "gate_snn": {
+            "decision_window_ms": 26,
+            "decision_window_s": 0.026,
+            "decision": "MODIFY",
+            "note": (
+                "modify_hold integrates bay-6 compost TC + local dP against playbook drive; "
+                "accept_raise and reject_abort stay sub-threshold; decision matches "
+                "safety_decision.decision"
+            ),
+            "populations": [
+                {"name": "modify_hold", "neurons": 64, "threshold": 0.55, "mean_rate_hz": 24.0, "spikes": 40},
+                {"name": "accept_raise", "neurons": 64, "threshold": 0.55, "mean_rate_hz": 9.0, "spikes": 15},
+                {"name": "reject_abort", "neurons": 32, "threshold": 0.72, "mean_rate_hz": 6.0, "spikes": 5},
+            ],
+        },
+        "meta": {
+            "round": ROUND,
+            "factory": "multi-agent-ouroboros-swarm",
+            "generator": "grok-4.6",
+            "run_label": "2026-09-02-final-heavy",
+            "swarm": SWARM,
+            "domain": DOMAIN,
+            "cycles": 2,
+            "scenario": (
+                "BF -- BARN-FEN / Mirelatch Compost Tunnel CT-5: header-air-mean certificate of a "
+                "local spigot collapse; correct MODIFY to hold+fan-step+isolate; tunnel still "
+                "fails on unmonitored pre-t0 ammonia-kill"
+            ),
+            "coordination_failure_class": (
+                "HEADER-AIR MEAN CERTIFICATE OF A LOCAL SPIGOT COLLAPSE: three individually-correct "
+                "heterogeneous agents each read a locally-true loop; a collapsed floor-spigot row on bay 6 "
+                "partitions local compost TC and local dP from header-mean air, mixed exhaust oxygen, and "
+                "fan speed, so the playbook's AIR / OXY / FAN conjunction is not a bed-true certificate"
+            ),
+            "injections": {
+                "cycle1_domain": (
+                    "mushroom-compost-tunnel (justified novel subdomain of industrial-process / "
+                    "in-vessel composting): first fen-side Phase-II mushroom compost tunnel in this factory; "
+                    "displaces warehouse-amr, aerial-swarm, district-heating, event-camera-traffic-grid, "
+                    "pharmaceutical-lyophilization, water-treatment, float-glass, underwater-rov, "
+                    "electrolytic-aluminum, czochralski-pull, slot-die coating, pem-water-electrolysis, "
+                    "wind-turbine pitch, surgical-assist, optical-fiber-draw, kraft-recovery-boiler, "
+                    "steel-continuous-caster, humanoid-locomotion, vacuum-induction melt, "
+                    "steam-methane reformer, cement-rotary-kiln-clinker, autoclave-composite-cure, "
+                    "geothermal-binary-orc, tire-curing-press, chlor-alkali-membrane-electrolysis, "
+                    "delayed-coker-drum-switch, lng-mche-mixed-refrigerant, claus-sulfur-recovery, "
+                    "ammonia-synthesis-converter, blast-furnace-burden-descent, "
+                    "hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil, "
+                    "hydroelectric-kaplan-wicket, fcc-riser-regenerator, sulfuric-contact-converter, "
+                    "eaf-foamy-slag-water-panel, nitric-acid-ostwald-oxidation, seawater-ro-desalination, "
+                    "coke-oven-battery-heating, carbon-fiber-oxidation-oven, gibbsite-autoclave-digestion, "
+                    "hot-strip-mill-finishing, paper-machine-dryer-section, sinter-strand-windbox, "
+                    "continuous-hot-dip-galvanizing, autonomous-driving, bioreactor-perfusion, "
+                    "urea-prilling-tower, cupola-foundry-slag-sluice, canal-lock-rail-transshipment, "
+                    "malting-kiln-barn, flue-cured-tobacco-barn, farm-ad-biogas, industrial-rotisserie-spit-oven, "
+                    "alkaline-stack-hydrogen-quay, fen-polder-drainage-pumping, hrsg-hp-spray-attemperator, "
+                    "and grid-inspection. Domain constraint: air-temperature floor "
+                    "while bay-6 TC > 58 C with header mean still inside the healthy band. Sensor delta: "
+                    "+six-bay header mean, +exhaust oxygen, +fan tachometer, +local compost TC, +local bed dP, "
+                    "-any freeze-dryer / tin-bath / CAV fusion / harvest-bag / grate-strand / air-knife / "
+                    "PEM stack / cupola blast / lock chamber / kiln AIR / live-line crawler / flue barn / AD crust."
+                ),
+                "cycle1_tail": (
+                    "bay 6 collapsed floor-spigot row + ammonia-kill certificate (sensor-topology / wrong-volume class): "
+                    "tunnel-gallery visual PASSES while the collapse sits under the 2.6 m fill and the kill is "
+                    "inside the bay. Fitted base rate 0.31%/campaign from a spigot-collapse MC (designed visual "
+                    "threshold, fitted floor geometry). Naive failure = FALSE PERMISSION (raise-air on "
+                    "three header-side non-trips)."
+                ),
+                "cycle2_domain_subvariant": (
+                    "poultry-litter-heavy high-C/N (physical-constraints clause): 1.9x bed resistance, "
+                    "2.3x fan-step gain; 8.2 s / +3 Hz horse-manure pulse overshoots live intact poultry tunnel to a "
+                    "6.4 K false AIR jump, so the probe must move to 22 s / +1.1 Hz"
+                ),
+                "cycle2_tail": (
+                    "night-shift forged local-TC CSV (human-intent deception, disjoint class): shift lead posts "
+                    "a historian export showing TC = 48.0 C at t=1.1 h to clear a pasteurization slot. Plant historian "
+                    "is 0.1 C (10 bins vs the 1.0 C screenshot). Rejected on quantization fingerprint plus live "
+                    "TC 81.4 C and local dP 0.14 kPa at the claimed bed-true. Base rate ~0.27% of Sunday-night "
+                    "campaigns, DESIGNED and flagged."
+                ),
+            },
+            "densification_delta_cycle2": (
+                "+1 physical-constraint sub-variant (high-C/N probe refit), +1 tail (night-shift local-TC forgery), "
+                "+10 primary spikes (16 -> 26) + an 8-event contrast train with its own 184 us race, +2 ticks "
+                "(5 -> 7), +2 delayed side-effects (+4.8 h spawn cull as PRIMARY terminal, +21 d CR-C-0506), "
+                "+1 triple-edge scar with pair-rollback-fails arithmetic, +1 HITL 10.2 min ratification, "
+                "+ independent LIF raster (seed sidecar-only, 44 ms, not a spike_events remap), + ammonia-kill "
+                "as the honest negative-result mechanism"
+            ),
+            "gaps_targeted": [
+                "NOTES-r03 leftover domain family: mushroom-compost-tunnel (unused across live r01 galvanizing, r02 cupola, r03 alkaline quay, r04 fen-polder, r21 autonomous-driving, r22 urea-prill, r23 HRSG attemperator, r41 bioreactor-perfusion, r42/r62 grid-inspection, r61 sinter, r63 canal-lock, r64 malt kiln, r65 tobacco barn, r66 rotisserie, r67 farm-AD)",
+                "NOTES-r14 item 4: LEARNING-ON-LEARNING DEPTH — three go-edges; rollback of any pair is fitted to fail; coordinated depression of all three exhibited with eligibility arithmetic",
+                "NOTES-r04 gap 4 (partial): human ratification of the floor interlock, 10.2 min fitted, without switching sim_or_real to hil (plant remains designed)",
+                "Independent LIF raster: excerpt_source=independent_lif, sim_scope=sidecar_only, seed 50051-family; membrane crossings not a 1:1 remap of spike_events",
+            ],
+            "race_flip_narrative": (
+                "bed.hot.high @ 6.428 ms vs air.in_band @ 6.624 ms (196 us) inside "
+                "race_window_us 500. Gap < min(500, 500) us so a sub-flip-bound perturbation "
+                "reverses which alarm heads the PB-CT-5 queue. The gate excludes the winner "
+                "tag and rides bay-6 TC > 58 C and bay-6 dP < 0.30 kPa — order-invariant "
+                "floors. Extends the flip-fragility series to BED-TRUE CERTIFICATE: when three "
+                "header-side channels agree, their race does not decide truth; a local compost TC that "
+                "policy treated as wet-pocket-nuisance-only does."
+            ),
+            "tags": [
+                "mushroom-compost-tunnel",
+                "spigot-collapse",
+                "bed-true-certificate",
+                "local-tc-discriminant",
+                "fan-step-probe",
+                "triple-edge-scar",
+                "pair-rollback-fails",
+                "coordinated-depression",
+                "correct-modify-tunnel-still-fails",
+                "ammonia-kill-cull",
+                "human-ratify-tunnel-gallery",
+                "high-cn-probe-refit",
+                "night-shift-forgery",
+                "same-gate-opposite-disposition-contrast",
+                "independent-lif-raster",
+                "sidecar-sim-only",
+                "industrial-process",
+                "research-only",
+            ],
+            "snn_tags": ["race", "refractory", "adaptation", "third-factor", "multi-edge-eligibility", "independent-lif"],
+            "distillation_value": (
+                "A spigot-collapse bed-true certificate is three correct loops looking at six-bay "
+                "header mean, mixed exhaust oxygen, and fan speed that is not the collapsed floor. "
+                "Distill (1) a local compost TC that policy had treated as wet-pocket-nuisance-only, (2) a "
+                "reversible probe that recouples exhaust oxygen only if the spigot row is open, (3) coordinated "
+                "depression of every header-healthy-go edge because rolling back any pair leaves the third "
+                "above threshold, (4) a critic head that can book a process-correct gate against a later "
+                "unmonitored world loss without netting them, and (5) an independent LIF sidecar whose "
+                "excerpt is membrane crossings, not a remap of spike_events."
+            ),
+            "rights": dict(RIGHTS),
+            "batch_position": 1,
+        },
+    }
+    return rec, dict(
+        trace=trace,
+        eta1=etas[0],
+        eta2=etas[1],
+        eta3=etas[2],
+        dw1=dws[0],
+        dw2=dws[1],
+        dw3=dws[2],
+        w1=w1,
+        w2=w2,
+        w3=w3,
+        sim_spikes=sim_spikes,
+        spikes_budget=spikes_budget,
+        lif_seed=lif["seed"],
+    )

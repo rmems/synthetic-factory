@@ -1,0 +1,30 @@
+            ("name", "cruise_hood_fuel"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("fuel_t_h", 1.80),
+                        ("kiln_rpm", 1.15),
+                        ("id_fan_pct", 62.0),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("hood_o2_pct", 4.8),
+                        ("hood_o2_floor_pct", 5.5),
+                        ("predicted_unclamped_next_pct", 4.6),
+                        ("hood_pyro_C", 978.0),
+                        ("race_margin_us", 212),
+                        ("combined_jitter_us", 70),
+                        ("abort_s", 900),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 1.80 t/h fuel cruise at 1.15 rpm: 978 C hood looks like a still-"
+                "oxidizing flame, not a reducing pocket, and the chain curtain is treated as still intact.",
+            ),

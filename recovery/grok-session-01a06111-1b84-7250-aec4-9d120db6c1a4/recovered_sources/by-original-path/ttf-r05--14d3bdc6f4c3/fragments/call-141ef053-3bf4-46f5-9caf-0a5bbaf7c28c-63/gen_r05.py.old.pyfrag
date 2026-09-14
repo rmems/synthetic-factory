@@ -1,0 +1,2 @@
+| ttf-r05-024 | underwater-rov | ACCEPT | correct | simulated | +1.08 | Wrack-Fen WF-3 sim / Sled-W6: tether 155 N and DVL 0.16 m/s already legal |
+| ttf-r05-025 | aerial-swarm | MODIFY | **incorrect (wrong-modify / delayed-clamp)** | designed | -0.79 | Drift-Nacelle DN-7 / Quad-D6: downwash 4.90 > 3.50; climb clamp deferred for baro confirm |

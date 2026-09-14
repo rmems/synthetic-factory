@@ -1,0 +1,22 @@
+        domains.update(re.findall(r'\("domain",\s*"([^"]+)"\)', text))
+        for m in re.finditer(r"(?:MY_DOMAINS|THIS_DOMAINS)\s*=\s*[\{(](.*?)[\})]", text, re.S):
+            domains.update(re.findall(r'"([^"]+)"', m.group(1)))
+        for m in re.finditer(r"(?:MY_PLANTS|THIS_PLANTS)\s*=\s*[\{(](.*?)[\})]", text, re.S):
+            plants.update(re.findall(r'"([^"]+)"', m.group(1)))
+    for p in sorted(Path("/tmp").glob("ttf-r*/_*.py")):
+        try:
+            if p.parent.resolve() == OUT_DIR.resolve():
+                continue
+        except OSError:
+            continue
+        try:
+            text = p.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        domains.update(re.findall(r'\("domain",\s*"([^"]+)"\)', text))
+        for m in re.finditer(r"(?:MY_DOMAINS|THIS_DOMAINS)\s*=\s*[\{(](.*?)[\})]", text, re.S):
+            domains.update(re.findall(r'"([^"]+)"', m.group(1)))
+        for m in re.finditer(r"(?:MY_PLANTS|THIS_PLANTS)\s*=\s*[\{(](.*?)[\})]", text, re.S):
+            plants.update(re.findall(r'"([^"]+)"', m.group(1)))
+    domains.update(PROMPT_POOL)
+    return domains, plants

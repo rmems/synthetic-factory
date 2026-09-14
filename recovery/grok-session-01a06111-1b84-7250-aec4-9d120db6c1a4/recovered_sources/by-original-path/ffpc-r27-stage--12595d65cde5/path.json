@@ -1,0 +1,82 @@
+{
+  "agent_ids": [
+    "01a0640e-7454-77c0-98c8-61e940f89c15"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 2,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 3,
+  "original_basename": "build_chosen.py",
+  "original_path": "/tmp/ffpc-r27-stage/build_chosen.py",
+  "path_key": "ffpc-r27-stage--12595d65cde5",
+  "terminal_event_ids": [
+    "01a0640e-7454-77c0-98c8-61e940f89c15:call-08f6e68b-798d-477d-a371-b067b443fbd7-38",
+    "01a0640e-7454-77c0-98c8-61e940f89c15:call-f7e4df9a-a666-4f86-8ded-e0d9dd910832-70",
+    "01a06410-9662-7e11-ad9a-634de1bedf36:call-1b75d96e-1524-4931-8749-c778e242665f-9"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 2,
+  "versions": [
+    {
+      "agent_id": "01a0640e-7454-77c0-98c8-61e940f89c15",
+      "basename_preserved": true,
+      "bytes": 4512,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 167,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640e-7454-77c0-98c8-61e940f89c15/updates.jsonl",
+      "original_basename": "build_chosen.py",
+      "original_path": "/tmp/ffpc-r27-stage/build_chosen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r27-stage--12595d65cde5/versions/v0001/build_chosen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r27-stage--12595d65cde5/versions/v0001/build_chosen.py",
+      "session_id": "01a0640e-7454-77c0-98c8-61e940f89c15",
+      "sha256": "3e4e5dc27e1a3a987f98a39273a415b63a0f08ffd8b7072d9bece5b8c4b112c8",
+      "source_channel": "structured",
+      "source_event_id": "01a0640e-7454-77c0-98c8-61e940f89c15:call-9179c69d-80f0-4805-8c30-5509c33a39a0-30",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788390681570,
+      "timestamp_utc": "2026-09-02T23:11:21.570Z",
+      "tool_call_id": "call-9179c69d-80f0-4805-8c30-5509c33a39a0-30",
+      "version": 1,
+      "version_id": "ffpc-r27-stage--12595d65cde5:v0001"
+    },
+    {
+      "agent_id": "01a0640e-7454-77c0-98c8-61e940f89c15",
+      "basename_preserved": true,
+      "bytes": 30043,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 388,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640e-7454-77c0-98c8-61e940f89c15/updates.jsonl",
+      "original_basename": "build_chosen.py",
+      "original_path": "/tmp/ffpc-r27-stage/build_chosen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r27-stage--12595d65cde5/versions/v0002/build_chosen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r27-stage--12595d65cde5/versions/v0002/build_chosen.py",
+      "session_id": "01a0640e-7454-77c0-98c8-61e940f89c15",
+      "sha256": "30cd6257958e3d02357acc097ff83b7f77148d9098e372a384b33ab104bad41e",
+      "source_channel": "structured",
+      "source_event_id": "01a0640e-7454-77c0-98c8-61e940f89c15:call-2be1bf71-dfc6-4634-ba9b-3cc7c986934c-69",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788391283561,
+      "timestamp_utc": "2026-09-02T23:21:23.561Z",
+      "tool_call_id": "call-2be1bf71-dfc6-4634-ba9b-3cc7c986934c-69",
+      "version": 2,
+      "version_id": "ffpc-r27-stage--12595d65cde5:v0002"
+    }
+  ]
+}

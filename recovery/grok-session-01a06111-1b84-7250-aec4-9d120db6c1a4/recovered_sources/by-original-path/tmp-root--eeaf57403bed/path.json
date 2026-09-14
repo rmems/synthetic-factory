@@ -1,0 +1,56 @@
+{
+  "agent_ids": [
+    "01a06409-6c70-72c2-b709-21bfa6706cc8"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "ffpc-r17-build-session-a.py",
+  "original_path": "/tmp/ffpc-r17-build-session-a.py",
+  "path_key": "tmp-root--eeaf57403bed",
+  "terminal_event_ids": [
+    "01a06409-6c70-72c2-b709-21bfa6706cc8:call-afe59eae-c43e-4181-83d8-945b9d5fda69-37",
+    "01a06409-6c70-72c2-b709-21cfce1ba4a1:call-220cb88a-4295-4d5e-9e05-69a372b6e0ad-38",
+    "01a06409-6c70-72c2-b709-21cfce1ba4a1:call-c9b51e67-5026-402a-a129-65b1057bb20d-63",
+    "01a0640b-474a-7da1-9cee-3e1eaf4bcb28:call-9e7b824a-7b56-4698-8332-0e7fce21a792-9",
+    "01a0640b-474a-7da1-9cee-3e2eae5a407d:call-5430ad9e-7960-4045-a7d7-2ba80551e042-29"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06409-6c70-72c2-b709-21bfa6706cc8",
+      "basename_preserved": true,
+      "bytes": 46135,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 201,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06409-6c70-72c2-b709-21bfa6706cc8/updates.jsonl",
+      "original_basename": "ffpc-r17-build-session-a.py",
+      "original_path": "/tmp/ffpc-r17-build-session-a.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--eeaf57403bed/versions/v0001/ffpc-r17-build-session-a.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/tmp-root--eeaf57403bed/versions/v0001/ffpc-r17-build-session-a.py",
+      "session_id": "01a06409-6c70-72c2-b709-21bfa6706cc8",
+      "sha256": "9424c1740b1a6574770fcc0da2e006c7d1d12881c013cf92a4b1e875a8553cf6",
+      "source_channel": "structured",
+      "source_event_id": "01a06409-6c70-72c2-b709-21bfa6706cc8:call-194c4173-004c-4797-beda-cd0b20a87a7a-36",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788387100808,
+      "timestamp_utc": "2026-09-02T22:11:40.808Z",
+      "tool_call_id": "call-194c4173-004c-4797-beda-cd0b20a87a7a-36",
+      "version": 1,
+      "version_id": "tmp-root--eeaf57403bed:v0001"
+    }
+  ]
+}

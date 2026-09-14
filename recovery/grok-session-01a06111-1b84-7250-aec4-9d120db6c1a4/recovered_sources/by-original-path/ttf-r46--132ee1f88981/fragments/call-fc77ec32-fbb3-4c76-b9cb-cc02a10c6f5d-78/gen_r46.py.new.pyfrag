@@ -1,0 +1,1 @@
+Gate mix: 1 ACCEPT, 2 MODIFY, 1 correct REJECT, 1 incorrect REJECT (wrong-reject). Provenance: designed×3, simulated×1, hil×1 (Susceptor-HIL SH-2 MOCVD mockup). Intra-batch Jaccard on `state.description` 0.188 (< 0.4).

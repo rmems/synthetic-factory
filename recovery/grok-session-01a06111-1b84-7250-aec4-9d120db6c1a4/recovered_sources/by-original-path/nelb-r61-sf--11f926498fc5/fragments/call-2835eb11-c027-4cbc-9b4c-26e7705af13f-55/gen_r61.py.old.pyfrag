@@ -1,0 +1,4 @@
+        ev(13800000.0, "takt.late", 1.0, code="SURVEY_COST", units="bool"),
+        ev(14400000.0, "s4.held", 1.0, code="S4_HELD", units="bool"),
+    ]
+    assert_stream(events)

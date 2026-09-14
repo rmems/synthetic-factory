@@ -1,0 +1,55 @@
+{
+  "agent_ids": [
+    "01a06405-cc45-7fc3-b332-71f7cdec532c"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "gen.py",
+  "original_path": "/tmp/actf-r13/gen.py",
+  "path_key": "actf-r13--fdcc4ee6be27",
+  "terminal_event_ids": [
+    "01a06405-cc45-7fc3-b332-71f7cdec532c:call-a82b3da3-1f3d-41ad-8d51-edd09ab57776-82",
+    "01a06406-1397-7461-ba26-7a589e735cd8:call-18dd4129-05e7-47f7-9046-b02bb4e42198-41",
+    "01a06406-1397-7461-ba26-7a589e735cd8:call-5876f569-bfcb-49f8-8ac7-3c80f2fc6d7b-35",
+    "01a06408-8cc4-73c3-903a-f4ed9e342ae2:call-0b4486fc-da41-40f7-9a40-35d8e3f68058-20"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06405-cc45-7fc3-b332-71f7cdec532c",
+      "basename_preserved": true,
+      "bytes": 59341,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 436,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06405-cc45-7fc3-b332-71f7cdec532c/updates.jsonl",
+      "original_basename": "gen.py",
+      "original_path": "/tmp/actf-r13/gen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r13--fdcc4ee6be27/versions/v0001/gen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/actf-r13--fdcc4ee6be27/versions/v0001/gen.py",
+      "session_id": "01a06405-cc45-7fc3-b332-71f7cdec532c",
+      "sha256": "a46d42b648021d666993313206eb4f7fa7176801936c7d545075512a830fd966",
+      "source_channel": "structured",
+      "source_event_id": "01a06405-cc45-7fc3-b332-71f7cdec532c:call-35d5dd97-b4ce-421c-b25b-400a08cac027-81",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788385462936,
+      "timestamp_utc": "2026-09-02T21:44:22.936Z",
+      "tool_call_id": "call-35d5dd97-b4ce-421c-b25b-400a08cac027-81",
+      "version": 1,
+      "version_id": "actf-r13--fdcc4ee6be27:v0001"
+    }
+  ]
+}

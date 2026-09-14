@@ -1,0 +1,3 @@
+                                        "MODIFY WF6 42.0 -> 18.0 sccm at t_gate_us=5960; unit_bound=sccm; leave H2 at 180 sccm.",
+                                    ),
+                                    ("correct_actuator", "wf6_mass_flow"),

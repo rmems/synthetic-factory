@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""Census occupancy from diagnosis-*.md Shared-context only.
+
+Never opens rejected JSON. Optional inflight rows come from Session A
+builder source files (*-build-session-a.py), not from rejected scratch.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+WORD = re.compile(r'["\']unit["\']\s*:\s*"([^"]+)"')
+
+
+def extract_shared_plant(path: Path) -> tuple[str, str]:
+    text = path.read_text(encoding="utf-8")
+    i = text.index("## Shared context")
+    j = text.index("## Root cause")
+    block = text[i:j]
+    start = block.index("```json")
+    rest = block[start + len("```json") :]
+    end = rest.index("```")
+    payload = json.loads(rest[:end].strip())
+    state = payload["state"]
+    unit = (state.get("environment") or {}).get("unit", "")
+    plant = unit.split(",")[0].strip() if unit else "?"
+    domain = state.get("domain") or ""
+    return plant, domain
+
+
+def diagnosis_rows() -> list[tuple[str, str, str, str]]:
+    rows = []
+    for round_no in range(11, 41):
+        tag = f"r{round_no:02d}"
+        drop = Path(f"/tmp/ffpc-{tag}")
+        if not drop.is_dir():
+            continue
+        for index in (1, 2, 3):
+            path = drop / f"diagnosis-{index:02d}-{tag}.md"
+            if not path.is_file():
+                continue
+            plant, domain = extract_shared_plant(path)
+            rows.append((tag, path.name, plant, domain))
+    return rows
+
+
+def inflight_rows() -> list[tuple[str, str, str]]:
+    rows = []
+    seen_plants: set[str] = set()
+    for path in sorted(Path("/tmp").glob("ffpc-r*-build-session-a.py")):
+        m = re.search(r"ffpc-(r\d+)-build-session-a\.py$", path.name)
+        if not m:
+            continue
+        tag = m.group(1)
+        drop = Path(f"/tmp/ffpc-{tag}")
+        if drop.is_dir() and any(drop.glob(f"diagnosis-*-{tag}.md")):
+            continue
+        text = path.read_text(encoding="utf-8")
+        for unit in WORD.findall(text):
+            plant = unit.split(",")[0].strip()
+            if not plant or plant in seen_plants:
+                continue
+            seen_plants.add(plant)
+            rows.append((f"{tag}-inflight", plant, unit.split(",", 1)[-1].strip() if "," in unit else ""))
+    return rows
+
+
+def main() -> int:
+    out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/ffpc-r30-stage/occupancy-from-diagnoses.txt")
+    rows = diagnosis_rows()
+    inflight = inflight_rows()
+    plants = [r[2] for r in rows]
+    unique = sorted(set(plants))
+    lines = [
+        "# Occupancy harvested from diagnosis-*.md Shared-context only (never rejected JSON).",
+        "",
+    ]
+    for tag, name, plant, domain in rows:
+        lines.append(f"{tag}\t{name}\t{plant}\t{domain}")
+    lines.append("")
+    lines.append(f"unique_plants={len(unique)}")
+    lines.append(f"diagnosis_rows={len(rows)}")
+    lines.append("")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+    landed = sorted({r[0] for r in rows})
+    missing = []
+    if rows:
+        lo = int(landed[0][1:])
+        hi = int(landed[-1][1:])
+        have = {int(t[1:]) for t in landed}
+        missing = [f"r{n:02d}" for n in range(lo, max(hi, 30) + 1) if n not in have]
+    lines.append(
+        f"# Harvest {now}. Landed {','.join(landed) or '(none)'} "
+        f"({len(unique)} unique plants). Missing drops: {','.join(missing) or '(none)'}."
+    )
+    if inflight:
+        lines.append("# In-flight (not diagnosis-landed). Do not treat as occupancy until diagnosis-*.md lands.")
+        for tag, plant, rest in inflight:
+            lines.append(f"{tag}\t{plant}\t{rest}")
+    lines.append("# Never harvested from rejected JSON.")
+    lines.append("")
+    out.write_text("\n".join(lines), encoding="utf-8")
+    print(f"wrote {out} unique_plants={len(unique)} diagnosis_rows={len(rows)} inflight={len(inflight)}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

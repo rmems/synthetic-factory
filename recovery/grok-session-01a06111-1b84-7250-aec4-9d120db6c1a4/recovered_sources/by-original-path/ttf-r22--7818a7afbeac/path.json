@@ -1,0 +1,126 @@
+{
+  "agent_ids": [
+    "01a06405-cc4a-7032-b379-cb9960d9b859",
+    "01a06492-3974-7941-af72-e2dcb85c8953"
+  ],
+  "classification": "partial",
+  "classification_evidence": [
+    "at least one full version was recovered, but a later successful edit or terminal mutation could not be placed conclusively",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 3,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 4,
+  "original_basename": "gen_r22.py",
+  "original_path": "/tmp/ttf-r22/gen_r22.py",
+  "path_key": "ttf-r22--7818a7afbeac",
+  "terminal_event_ids": [
+    "01a06405-cc4a-7032-b379-cb9960d9b859:call-18e93809-a7a5-4995-9a2e-abf3cd4a178d-79",
+    "01a06405-cc4a-7032-b379-cb9960d9b859:call-5ac52ef4-dce1-4759-9405-0ad0207900f5-84",
+    "01a06408-8ccb-74c2-b68c-f76ee04b7c7f:call-e563bf22-16bd-4a29-8e20-80cc5a66e7e5-19",
+    "01a06409-0d8e-72b0-9bdf-c4d2baaa11ff:call-5f4f6448-4706-4683-8c41-fdb6369a7fec-21",
+    "01a06492-3974-7941-af72-e2dcb85c8953:call-f6adfb96-53de-4af2-be02-02afbdc7090d-24",
+    "01a064a7-40cb-7ef1-bbab-dc8d5c564eb8:call-4ce89307-360e-4f27-ac57-ccedcf96633d-15",
+    "01a064ac-ed8e-75e2-955a-0445f8c40c97:call-d1a2655b-259a-4da6-bef0-029c9573b699-23"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 1,
+  "unresolved_events": [
+    {
+      "channel": "terminal",
+      "event_id": "01a06492-3974-7941-af72-e2dcb85c8953:call-f6adfb96-53de-4af2-be02-02afbdc7090d-24",
+      "journal_line": 127,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06492-3974-7941-af72-e2dcb85c8953/updates.jsonl",
+      "operation": "inline_python_possible_mutation",
+      "reason": "inline_python_possible_mutation was recorded but is not conclusively reproducible without execution",
+      "timestamp_utc": "2026-09-03T00:03:31.330Z"
+    }
+  ],
+  "version_count": 3,
+  "versions": [
+    {
+      "agent_id": "01a06405-cc4a-7032-b379-cb9960d9b859",
+      "basename_preserved": true,
+      "bytes": 94107,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 428,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06405-cc4a-7032-b379-cb9960d9b859/updates.jsonl",
+      "original_basename": "gen_r22.py",
+      "original_path": "/tmp/ttf-r22/gen_r22.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r22--7818a7afbeac/versions/v0001/gen_r22.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r22--7818a7afbeac/versions/v0001/gen_r22.py",
+      "session_id": "01a06405-cc4a-7032-b379-cb9960d9b859",
+      "sha256": "dfcc9b89362ef2f7737a1b603b4e46e2f0b399305eb311b65b57a4d1f6038ee9",
+      "source_channel": "structured",
+      "source_event_id": "01a06405-cc4a-7032-b379-cb9960d9b859:call-f6cf6aa4-7ccf-491b-a354-250bc2e7ea79-78",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788385773357,
+      "timestamp_utc": "2026-09-02T21:49:33.357Z",
+      "tool_call_id": "call-f6cf6aa4-7ccf-491b-a354-250bc2e7ea79-78",
+      "version": 1,
+      "version_id": "ttf-r22--7818a7afbeac:v0001"
+    },
+    {
+      "agent_id": "01a06405-cc4a-7032-b379-cb9960d9b859",
+      "basename_preserved": true,
+      "bytes": 94069,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 455,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06405-cc4a-7032-b379-cb9960d9b859/updates.jsonl",
+      "original_basename": "gen_r22.py",
+      "original_path": "/tmp/ttf-r22/gen_r22.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r22--7818a7afbeac/versions/v0002/gen_r22.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r22--7818a7afbeac/versions/v0002/gen_r22.py",
+      "session_id": "01a06405-cc4a-7032-b379-cb9960d9b859",
+      "sha256": "a5a58628451982e3c9173c19edbd1d5a5c6de1af4844eede4902629a8e5f8b90",
+      "source_channel": "structured",
+      "source_event_id": "01a06405-cc4a-7032-b379-cb9960d9b859:call-3de793c9-130d-4d4c-ad4d-2c4a8d9548ca-82",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788385863306,
+      "timestamp_utc": "2026-09-02T21:51:03.306Z",
+      "tool_call_id": "call-3de793c9-130d-4d4c-ad4d-2c4a8d9548ca-82",
+      "version": 2,
+      "version_id": "ttf-r22--7818a7afbeac:v0002"
+    },
+    {
+      "agent_id": "01a06405-cc4a-7032-b379-cb9960d9b859",
+      "basename_preserved": true,
+      "bytes": 94026,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 458,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06405-cc4a-7032-b379-cb9960d9b859/updates.jsonl",
+      "original_basename": "gen_r22.py",
+      "original_path": "/tmp/ttf-r22/gen_r22.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r22--7818a7afbeac/versions/v0003/gen_r22.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r22--7818a7afbeac/versions/v0003/gen_r22.py",
+      "session_id": "01a06405-cc4a-7032-b379-cb9960d9b859",
+      "sha256": "03e22ad3561e26a6ab4867179042ba9dc72282538e5d428c380549faf7787158",
+      "source_channel": "structured",
+      "source_event_id": "01a06405-cc4a-7032-b379-cb9960d9b859:call-3de793c9-130d-4d4c-ad4d-2c4a8d9548ca-83",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788385863339,
+      "timestamp_utc": "2026-09-02T21:51:03.339Z",
+      "tool_call_id": "call-3de793c9-130d-4d4c-ad4d-2c4a8d9548ca-83",
+      "version": 3,
+      "version_id": "ttf-r22--7818a7afbeac:v0003"
+    }
+  ]
+}

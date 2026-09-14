@@ -1,0 +1,343 @@
+def write_transcript(rec, line):
+    text = f"""# Multi-Agent Ouroboros Swarm — Round 65 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r65-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Swarm: SPUR-HEARTH
+Plant: invented SPUR-HEARTH / Rookspur Flue Barn FB-6 (not TRIAD / Meridian / VANTIS-CADENCE-AEGIS / LYOSHIELD / CINDERWICK / BOGIRON / PUSHERFELL / SKARVOLT / COILSHAW / GIBBSQUERN / SIPHONWOLD / WINDBOXHOLT)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r65.jsonl).
+
+---
+
+# CYCLE 1 — Foundation + injections
+
+## Generator
+
+Design intent: a 6-bay forced-draft flue-cured tobacco barn where three
+correct agents each read a plenum-mean loop because a furnace-flue joint
+rupture under bay 4 partitions local leaf TC from PLN-true header, barn
+RH, and fan speed. The naive playbook raises furnace air into a leaking
+flue. The gate must MODIFY on a numeric furnace floor, not by killing an
+agent. sim_or_real=designed. Reward heads are
+task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Rookspur FB-6, 68.0 C,
+PLN 68.0 C, RH 82 pct, fan 41.0 Hz, proposed RAISE-FURNACE
+78.0 C, safety MODIFY to FURNACE-HOLD, executed hold without the
+fan-step numbers fully specified, outcome "rupture found, barn saved"
+(this last claim is the defect the later cycles will refuse to keep).
+Sixteen spikes, five ticks, raster/gate_snn present but the scar is a
+single edge.
+
+```json
+{{
+  "id": "maos-r65-001-scaffold",
+  "state": {{
+    "sim_or_real": "designed",
+    "domain": "industrial-process",
+    "description": "Barn FB-6 at flue-cured tobacco; three PLN loops in-spec; supervisor proposes raise-furnace.",
+    "t0_us": 1755331680000657,
+    "gate_latency_us": 728,
+    "race_window_us": 500
+  }},
+  "proposed_action": {{"name": "raise_furnace", "parameters": {{"furnace_C": 78.0}}}},
+  "safety_decision": {{"decision": "MODIFY", "rationale": "Hold; do not raise furnace while local leaf TC is high."}},
+  "executed_action": {{"name": "furnace_hold", "executed_as_proposed": false}},
+  "future_outcome": {{"summary": "Rupture found, barn saved."}},
+  "reward_components": {{"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"}},
+  "meta": {{"round": 65, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}}
+}}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "barn saved". If the pre-t0 scorched leaf later
+   culls, booking +0.40 is a lie. Fix: declare `_aggregation`, emit
+   3–8 ticks that sum to task_progress+safety+efficiency+coherence+exploration,
+   and do not call a quarantined barn a save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote
+   furnace <= 68.0 C while bay-4 leaf TC > 78 C AND local dP < 0.35 kPa.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-process` collides with generic MES vocabulary and teaches
+   nothing. Flue-cured tobacco barn (local TC vs PLN mean, local dP as a
+   rupture flag) is absent from prior ouroboros rounds and must be named.
+4. **major — race under-specified.** One flue channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted `t_rel_ms`
+   and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated weight
+   repeats r04's one-edge rollback and is thinner than r14's two-edge.
+   NOTES-r14 item 4 asked for three edges where pair rollback fails.
+6. **minor — raster is a language remap.** Excerpt times matching
+   spike_events * 1000 fail the independent-LIF contract. Fix: LIF
+   population sim, excerpt_source=independent_lif, disjoint timestamps.
+
+Critic does not rewrite the trajectory.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **flue-cured-tobacco-barn**
+(justified novel subdomain of industrial-process / bulk leaf curing;
+explicit tag `flue-cured-tobacco-barn`).
+
+Displaced: the Generator's generic `industrial-process` bucket, and any
+temptation to reuse warehouse-amr, aerial-swarm, district-heating,
+event-camera-traffic-grid, pharmaceutical-lyophilization, water-treatment,
+float-glass, underwater-rov, electrolytic-aluminum, czochralski-pull,
+slot-die coating, pem-water-electrolysis, wind-turbine pitch,
+surgical-assist, optical-fiber-draw, kraft-recovery-boiler,
+steel-continuous-caster, humanoid-locomotion, vacuum-induction melt,
+steam-methane reformer, cement-rotary-kiln-clinker,
+autoclave-composite-cure, geothermal-binary-orc, tire-curing-press,
+chlor-alkali-membrane-electrolysis, delayed-coker-drum-switch,
+lng-mche-mixed-refrigerant, claus-sulfur-recovery,
+ammonia-synthesis-converter, blast-furnace-burden-descent,
+hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil,
+hydroelectric-kaplan-wicket, fcc-riser-regenerator,
+fcc-regenerator-cyclone-dipleg, sulfuric-contact-converter,
+eaf-foamy-slag-water-panel, coke-oven-battery-heating,
+carbon-fiber-oxidation-oven, gibbsite-autoclave-digestion,
+hot-strip-mill-finishing, paper-machine-dryer-section,
+sinter-strand-windbox, continuous-hot-dip-galvanizing,
+autonomous-driving, bioreactor-perfusion, malting-kiln-barn,
+grid-inspection, canal-lock-rail-transshipment, or
+cupola-foundry-slag-sluice.
+mushroom-compost-tunnel is left unused.
+
+Domain-specific constraint: furnace air must remain <= 68.0 C while
+bay-4 leaf TC > 78 C even if PLN mean is inside the healthy band;
+local dP is a rupture flag the header average cannot substitute for.
+
+Sensor delta: +six-bay PLN, +barn RH, +furnace-fan tachometer,
++local leaf TC, +local flue dP; -any mobile robot, -event-camera
+gantries, -DVS, -Pirani/CM, -looper tension, -work-roll IR, -sinter BTP,
+-coke-oven wall-pair, -EAF off-gas H2, -kiln-air header, -live-line UV.
+
+`state.domain` and `meta.domain` both become `flue-cured-tobacco-barn`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Rookspur night-shift flue rupture, not a lyophilizer, not a finishing
+mill, not a malt kiln, not a cupola sluice, not a lock spur, not a
+sinter strand).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **bay 4 furnace-flue
+joint rupture + leaf-scorch certificate**.
+
+- Trigger: B-4 flue-joint rupture plus local leaf-hot under the rack,
+  local TC 94.6 C, local dP 0.22 kPa.
+- Base rate: <1% — 0.34%/campaign from a joint MC (barn-walk
+  visual threshold is designed; flue geometry fitted-style). Visual
+  PASSES because the rupture sits under the rack.
+- Naive failure: FALSE PERMISSION. PB-FB-6 sees three in-spec mean
+  loops, raises 68.0->78.0 C, scorched leaf 7.2 t, $1.4M.
+- Trajectory edit: put the rupture in `state.fault_context`, make each
+  agent's confirm a different PLN-side slice of the same flue-false
+  state (pln-in-band, rh-ok, fan-ok). Local TC is readable but
+  policy-treated as stem-wet-nuisance-only.
+
+Distinct from r64 malt-kiln floor collapse (air-on-floor vs furnace
+flue), r02 cupola slag sluice, r61 sinter grate, and r33 cement kiln.
+
+## Neuromorphic Translator
+
+Cycle-1 temporal densification (16 spikes, 5 ticks, 38 ms independent LIF raster):
+
+| channel | t_rel_ms | amplitude |
+|---|---|---|
+| pln.hot | 0.318 | 0.53 |
+| rh.ok | 1.154 | 0.62 |
+| fan.ok | 2.026 | 0.56 |
+| flue.dP | 3.094 | 0.75 |
+| pln.hot | 4.192 | 0.50 |
+| flue.dP | 4.818 | 0.77 |
+| fan.ok | 5.382 | 0.58 |
+| flue.hot.high | 6.518 | 1.40 |
+| pln.in_band | 6.708 | 1.13 |
+| rh.ok | 6.894 | 0.65 |
+| ctrl.gate | 7.246 | 1.09 |
+| flue.dP | 8.826 | 0.42 |
+| rh.ok | 10.702 | 0.82 |
+| fan.ok | 13.058 | 0.44 |
+| pln.hot | 18.434 | 0.41 |
+| ctrl.gate | 26.122 | 0.86 |
+
+Race: flue-hot 6.518 vs PLN 6.708 (190 us) inside 500 us;
+RH 6.894 is the third channel in-window. Winner/loser flip: reversing
+190 us reshuffles PB-FB-6 triage; floors still MODIFY. Refractory held
+(cycle-1 min same-channel gap 1.724 ms on flue.dP 4.818-3.094;
+pln 4.192-0.318 = 3.874; fan 5.382-2.026 = 3.356). Adaptation:
+flue 0.75->0.77->1.40->0.42; pln 0.53->0.50->0.41; fan
+0.56->0.58->0.44.
+
+Raster cycle-1 seed: independent LIF 38 ms, 144 neurons, 24.5 Hz,
+Loihi-2 23 pJ/spike, third factor acetylcholine tau_e 0.91 s. Single
+scar edge only — cycle 2 must add the second and third edges. Excerpt
+is membrane crossings, not spike_events remapped.
+
+Ticks 1–5 at 4192, 6518, 7246, 7.8e6, 648e6 us; heads not yet the final
+-0.18 (missing the 3.0 h and 4.6 h ticks).
+
+Distillation value this cycle: PLN-side confirms as a permission code
+that is not a flue-true heat code.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain flue-cured-tobacco-barn, tail
+flue rupture, 16 spikes, 5 ticks, MODIFY with numeric floor, raster+gate_snn
+present, sim_or_real=designed, rights stamp on record and meta, no thought
+keys, independent LIF excerpt. Still missing (and therefore not the
+publishable line): high-moisture primed-leaf sub-variant, night-shift tail, second
+and third scar edges, delayed leaf cull as PRIMARY terminal, contrast
+ACCEPT episode, ticks 6–7, spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 500 us window; refractory
+  >= 0.8 ms; raster 38 ms independent LIF; gate_snn MODIFY matches.
+- densification delta vs Generator scaffold: +1 domain, +1 tail, +16 spikes,
+  +5 ticks, +numeric floor, +LIF sidecar.
+- not publishable: cycle 2 injections absent.
+
+---
+
+# CYCLE 2 — Densification
+
+## Generator
+
+Re-emit Cycle-1 expanded. Additive deltas only:
+
+1. Downstream side-effect (immediate): 7.8 s fan-step probe proves rupture
+   (|Delta PLN mean| 0.4 K rupture band) and bay 4 is held after 10.8 min
+   barn-walk ratify. Remaining five bays recover toward 6 K over 3.0 h.
+2. Downstream side-effect (delayed, PRIMARY terminal): +4.6 h leaf cull from
+   the 16 min pre-t0 scorch; 14 h stall; $0.64M. The gate prevented the
+   proposed 7.2 t path and did not prevent this other one.
+3. proposed_action.evidence deepened with observables + units (leaf TC 94.6 C,
+   dP 0.22 kPa, PLN 68.0 C, RH 82 pct, fan 41.0 Hz, race 190 us).
+4. safety_decision.rationale tightened to numeric floor: furnace <= 68.0 C while
+   bay-4 leaf TC > 78 C AND bay-4 dP < 0.35 kPa.
+
+Outcome language "barn saved" is deleted. Total will go negative.
+
+## Critic
+
+Re-audit of the richer trajectory:
+
+1. **blocking if missing — cycle-2 physical sub-variant.** Spec-cure probe
+   numbers must not be implied to port. High-moisture primed leaf (24 pct,
+   1.7x resistance) overshoots a live flue. Fix: 22 s / +1.2 Hz table.
+2. **major — second tail class still absent.** Cycle-1 rupture is accidental
+   joint failure. Need a disjoint human-intent deception (forged leaf-TC CSV)
+   or the two injections collapse into one story.
+3. **major — scar still one edge.** Pair-rollback-fails needs three
+   PLN-healthy-go edges with eligibility arithmetic.
+4. **minor — contrast ACCEPT missing.** Without a sister-barn true-duty
+   ACCEPT, the lesson collapses to "never raise-furnace".
+5. **minor — LIF excerpt must remain independent after densification.**
+   Do not remap new spike times into the 38 ms window.
+
+Critic still does not rewrite JSON.
+
+## Diversity Enforcer
+
+Injected second novel domain (exactly 1 this cycle): **high-moisture
+primed-leaf flue barn** (physical-constraints sub-variant of flue-cured-tobacco-barn;
+explicit tag retained, constraint changed).
+
+This is not a new plant. It changes physics: 1.7x rack resistance, 2.3x
+fan-step gain. The 7.8 s / +3.5 Hz spec-cure pulse overshoots a LIVE intact
+flue to an 8 K false PLN (inside the 78 C trip). Probe must move to 22 s
+at +1.2 Hz. Cycle-1 domain flue-cured-tobacco-barn is preserved.
+
+Displaced: any reuse of high-N barley probe-refit, fluxed-sinter
+numbers, or cement-kiln zirconia tables.
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**night-shift forged leaf-TC CSV**.
+
+- Trigger: shift lead, 02:51, posts a historian export showing
+  TC = 70.0 C at t = 1.1 h to clear a color-set slot.
+- Base rate: ~0.25% of Sunday-night campaigns (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the raise-furnace on the forged confirm
+  and ignores live local TC. Scorched leaf plus a data-integrity write-up.
+- Fence: forged log quantized at 1.0 C (SCADA screenshot rounding); plant
+  historian is 0.1 C (10 bins). Live TC is 94.6 C and local dP is 0.22 kPa
+  at the claimed flue-true, which no live intact flue produces.
+- Trajectory edit: governance CR-T-6508 mandates native 0.1 C CSV
+  exports; the contrast ACCEPT still requires live local TC, not a CSV.
+
+Distinct from cycle-1 rupture (accidental joint vs deliberate deception) and
+from the high-moisture sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 26.122 ms: fan.probe 7800.0, flue.dP 7888.6
+  (adapt 1.40->0.37), pln.in_band 7974.0 (1.13->0.33), human.ratify
+  648000.0, barn.hold 648900.0, leaf.scorch 649800.0, pln.hot
+  10800000.0, flue.dP 10800750.0, fan.ok 10801540.0, leaf.cull
+  16560000.0. Primary train 16 -> 26. Still one key, still sorted,
+  refractory held.
+- +2 ticks (5 -> 7) at 10_800_000_000 us (true intact flue) and
+  16_560_000_000 us (leaf cull). Heads now 0.07, -0.38, -0.13,
+  0.15, 0.11; total -0.18. Inflection is the last tick.
+- Contrast train 8 events, own race 178 us, ACCEPT.
+- Triple-edge third factor: three plenum-healthy-go edges, tau_e 0.91 s = 910 ms,
+  trace {math.exp(-DELAY_S / TAU_E_S):.5f}, eta {0.25 / math.exp(-DELAY_S / TAU_E_S):.5f} /
+  {0.22 / math.exp(-DELAY_S / TAU_E_S):.5f} / {0.21 / math.exp(-DELAY_S / TAU_E_S):.5f},
+  weights 0.50->0.25, 0.44->0.22, 0.41->0.20. Independent LIF excerpt
+  unchanged (decision window is still 38 ms) and remains disjoint from
+  spike_events times.
+
+Winner/loser flip (re-stated, not replaced): reversing 190 us would only
+reorder triage; local-TC floors still MODIFY. Contrast flip of
+178 us similarly cannot turn an intact flue into a rupture.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.18; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms independent LIF, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted and disjoint from language times, tau_e consistent;
+gate_snn.decision matches; meta.round=65,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive.
+
+Densification delta: +1 domain sub-variant (high-moisture primed leaf), +1 tail
+(night-shift forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 triple-edge scar with
+pair-rollback-fails, +1 HITL ratify, +1 surprise (leaf scorch is the
+rupture mechanism), + independent LIF raster retained.
+
+Publishable JSONL line (the only JSONL line; also at batch-r65.jsonl):
+
+```json
+{line}
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r65.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+    return text

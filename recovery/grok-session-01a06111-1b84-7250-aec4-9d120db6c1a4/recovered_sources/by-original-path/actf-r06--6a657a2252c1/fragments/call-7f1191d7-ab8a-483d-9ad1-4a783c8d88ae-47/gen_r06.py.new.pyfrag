@@ -1,0 +1,960 @@
+#!/usr/bin/env python3
+"""CREATE-ONLY ACTF r06 mint into the 2026-09-02-final-heavy live tree."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+DIR = Path(
+    "/home/raulmc/rmems/synthetic-factory/outputs/raw/"
+    "2026-09-02-final-heavy/agentic-coding-trajectory-factory"
+)
+KNOWN_TOOLS = frozenset(
+    {
+        "bash",
+        "read_file",
+        "edit_file",
+        "write_file",
+        "search",
+        "gh",
+        "kubectl",
+        "gate-cli",
+        "tofu",
+        "tenv",
+        "tflint",
+        "aws",
+        "jq",
+        "hcl2json",
+        "block",
+        "decline",
+        "deny",
+        "refuse",
+    }
+)
+HIDDEN_KEYS = frozenset(
+    {
+        "thought",
+        "chain_of_thought",
+        "scratch",
+        "inner_monologue",
+        "reasoning",
+        "internal_reasoning",
+        "internal_reasoning_verbatim",
+    }
+)
+BASIS_PREFIXES = ("Plan: ", "Reflection: ", "Observation: ", "Tool call: ")
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "SuperGrok Heavy chat",
+    "generated_at": "2026-09-02T23:10:00Z",
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+    "training_ready": False,
+}
+
+
+def step(
+    n: int,
+    decision_basis: str,
+    tool_name: str,
+    args: dict,
+    observation: str,
+    reflection: str,
+    plan: str | None = None,
+) -> dict:
+    obj: dict = {
+        "n": n,
+        "decision_basis": decision_basis,
+        "tool_call": {"name": tool_name, "args": args},
+        "observation": observation,
+        "reflection": reflection,
+    }
+    if plan is not None:
+        obj["plan"] = plan
+        # keep plan first after n/decision_basis to match r04 envelope order
+        ordered = {
+            "n": n,
+            "decision_basis": decision_basis,
+            "plan": plan,
+            "tool_call": obj["tool_call"],
+            "observation": observation,
+            "reflection": reflection,
+        }
+        return ordered
+    return obj
+
+
+def episode_join_host_port() -> dict:
+    s1 = step(
+        1,
+        "Plan: MG-260 reports harbor radar dests print 2001:db8:1::8:443 not [2001:db8:1::8]:443. Search FormatDest and host+port concat as evidence of missing IPv6 brackets.",
+        "search",
+        {
+            "pattern": "FormatDest|host \\+ \":\" \\+ port|JoinHostPort|Sprintf\\(\"%s:%s\"",
+            "path": ".",
+        },
+        "merganseraddr/format.go:11:func FormatDest(host, port string) string {\n"
+        "merganseraddr/format.go:12:    return host + \":\" + port\n"
+        "tests/smoke_test.go:8:    got := FormatDest(\"10.4.2.8\", \"443\")\n"
+        "6 matches",
+        "Found FormatDest concatenating host and port with a colon. Next read the helper.",
+        plan="1) search FormatDest 2) read format.go 3) measure IPv6 concat 4) confirm want brackets 5) JoinHostPort 6) mixed-dest regression + PR",
+    )
+    s2 = step(
+        2,
+        "Observation: format.go:12 concatenates host+\":\"+port (step 1). Read the helper as evidence of any net.JoinHostPort path.",
+        "read_file",
+        {"path": "merganseraddr/format.go", "offset": 1, "limit": 16},
+        "1  package merganseraddr\n"
+        "2\n"
+        "3  // Harbor radar dests are host:port; IPv6 hosts need RFC 3986 brackets.\n"
+        "4  // A truncated S3 object is independent of this client formatter.\n"
+        "5\n"
+        "6  func FormatDest(host, port string) string {\n"
+        "7      return host + \":\" + port\n"
+        "8  }\n",
+        "Found FormatDest using string concat with no IPv6 brackets. First plan: S3 truncated the dest host. Next measure the concat.",
+    )
+    s3 = step(
+        3,
+        "Observation: FormatDest returns host+\":\"+port (step 2). Measure '2001:db8:1::8'+':'+'443' as evidence of an unbracketed IPv6 dest.",
+        "bash",
+        {
+            "command": "python3 -c \"print('2001:db8:1::8'+':'+'443'); print('[%s]:%s' % ('10.4.2.8','443'))\""
+        },
+        "2001:db8:1::8:443\n[10.4.2.8]:443",
+        "Measured unbracketed IPv6 concat 2001:db8:1::8:443 and always-bracket IPv4 [10.4.2.8]:443. Next confirm partner want still lists RFC 3986 brackets.",
+    )
+    s4 = step(
+        4,
+        "Reflection: concat left the IPv6 dest unbracketed (step 3). Fetch net.JoinHostPort notes via gh as evidence of bracket rules vs sprintf.",
+        "gh",
+        {
+            "subcommand": "api",
+            "method": "GET",
+            "path": "repos/golang/go/contents/src/net/ipsock.go",
+        },
+        "HTTP/2 429\n"
+        "retry-after: 5\n"
+        "x-ratelimit-limit: 60\n"
+        "x-ratelimit-remaining: 0\n"
+        '{"message":"API rate limit exceeded for user ci-runner (60 req/h GitHub); retry_after=5","documentation_url":"https://docs.github.com/rest/overview/rate-limits"}',
+        "GitHub returned 429 with retry-after 5 while fetching ipsock.go. Wait, then use the vendored docs/join-host-port.md fixture.",
+    )
+    s5 = step(
+        5,
+        "Observation: gh api returned 429 with retry-after 5 (step 4). Sleep 6s, then read docs/join-host-port.md as local-docs evidence.",
+        "read_file",
+        {"path": "docs/join-host-port.md", "offset": 1, "limit": 16},
+        "1  net.JoinHostPort(host, port) emits host:port and wraps IPv6 literals as [host]:port.\n"
+        "2  host+\":\"+port on 2001:db8:1::8 yields 2001:db8:1::8:443, which SplitHostPort cannot parse.\n"
+        "3  fmt.Sprintf(\"[%s]:%s\", host, port) still brackets IPv4 as [10.4.2.8]:443.\n"
+        "4  Durable: net.JoinHostPort so IPv6 is [2001:db8:1::8]:443 and IPv4 stays 10.4.2.8:443.\n"
+        "5  Dropping the IPv4 smoke row 10.4.2.8:443 loses the mixed dest contract.\n"
+        "6  A truncated S3 object is independent of this client formatter.\n",
+        "Verified JoinHostPort is the contract and always-brackets still fails IPv4. Next pull the committed radar-dests fixture.",
+    )
+    s6 = step(
+        6,
+        "Observation: RFC-style notes say FormatDest needs JoinHostPort (step 5). Get the committed radar-dests object as evidence the want dest is bracketed.",
+        "aws",
+        {
+            "argv": [
+                "s3api",
+                "get-object",
+                "--bucket",
+                "merganfen-specs",
+                "--key",
+                "merganseraddr/radar-dests.json",
+                "/tmp/merganseraddr-inventory.json",
+            ]
+        },
+        "download failed: s3.eu-north-1.amazonaws.com/merganfen-specs\n"
+        "HTTP/1.1 502 Bad Gateway\n"
+        "server: awselb/2.0\n"
+        "upstream connect error or disconnect/reset before headers. reset reason: connection failure",
+        "Radar-dest inventory get-object hit 502 on the ELB before headers. Retry against the committed fixtures/radar-dests.json instead of the edge.",
+    )
+    s7 = step(
+        7,
+        "Observation: radar-dests get-object returned 502 from the ELB (step 6). jq fixtures/radar-dests.json want against the stale file as local-spec evidence.",
+        "jq",
+        {
+            "argv": [
+                "-s",
+                "{want:.[0].want, stale:.[1].want, got:.[0].got, path:.[0].path}",
+                "fixtures/radar-dests.json",
+                "fixtures/radar-dests.stale.json",
+            ]
+        },
+        "{\n"
+        '  "want": {\n'
+        '    "ipv6": "[2001:db8:1::8]:443",\n'
+        '    "ipv4": "10.4.2.8:443",\n'
+        '    "loop": "[::1]:443"\n'
+        "  },\n"
+        '  "stale": {\n'
+        '    "ipv6": "2001:db8:1::8:443",\n'
+        '    "ipv4": "10.4.2.8:443",\n'
+        '    "loop": "::1:443"\n'
+        "  },\n"
+        '  "got": "2001:db8:1::8:443",\n'
+        '  "path": "fixtures/dests.ndjson"\n'
+        "}",
+        "Verified dest want already lists [2001:db8:1::8]:443 while stale still lists the unbracketed concat. Next join that with the measured concat.",
+    )
+    s8 = step(
+        8,
+        "Observation: fixture want already lists [2001:db8:1::8]:443 and stale still lists 2001:db8:1::8:443 (step 7). jq the measured concat against that spec as evidence whether S3 truncated the host.",
+        "jq",
+        {
+            "argv": [
+                "-n",
+                "--slurpfile",
+                "s",
+                "fixtures/radar-dests.json",
+                '{got:"2001:db8:1::8:443",want:$s[0].want.ipv6,ipv4:$s[0].want.ipv4,path:$s[0].path}',
+            ]
+        },
+        "{\n"
+        '  "got": "2001:db8:1::8:443",\n'
+        '  "want": "[2001:db8:1::8]:443",\n'
+        '  "ipv4": "10.4.2.8:443",\n'
+        '  "path": "fixtures/dests.ndjson"\n'
+        "}",
+        "Plan change: partner want already lists [2001:db8:1::8]:443 and got is host+port concat on a committed 3-line ndjson. Abandon truncated-transit. Switching the edit target to FormatDest so net.JoinHostPort emits RFC 3986 dests.",
+    )
+    s9 = step(
+        9,
+        "Reflection: pivoting off the truncated-transit plan; FormatDest still emits 2001:db8:1::8:443 (step 8). Edit always-bracket sprintf as evidence IPv4 dests may be wrapped.",
+        "edit_file",
+        {
+            "path": "merganseraddr/format.go",
+            "old_string": (
+                "package merganseraddr\n\n"
+                "// Harbor radar dests are host:port; IPv6 hosts need RFC 3986 brackets.\n"
+                "// A truncated S3 object is independent of this client formatter.\n\n"
+                "func FormatDest(host, port string) string {\n"
+                "    return host + \":\" + port\n"
+                "}\n"
+            ),
+            "new_string": (
+                "package merganseraddr\n\n"
+                "import \"fmt\"\n\n"
+                "// Harbor radar dests are host:port; IPv6 hosts need RFC 3986 brackets.\n"
+                "// A truncated S3 object is independent of this client formatter.\n\n"
+                "func FormatDest(host, port string) string {\n"
+                '    return fmt.Sprintf("[%s]:%s", host, port)\n'
+                "}\n"
+            ),
+        },
+        "Edited merganseraddr/format.go: FormatDest now always wraps host in brackets so IPv6 dests group.",
+        "Wrote an always-bracket sprintf. Add a go test that requires mixed IPv6 brackets and unbracketed IPv4.",
+    )
+    s10 = step(
+        10,
+        "Observation: FormatDest now sprintf-brackets every host (step 9). Write a go test as evidence that 10.4.2.8:443 stays unbracketed.",
+        "write_file",
+        {
+            "path": "merganseraddr/format_mixed_test.go",
+            "content": (
+                "package merganseraddr\n\n"
+                "import \"testing\"\n\n"
+                "func TestFormatMixedDest(t *testing.T) {\n"
+                "    if g := FormatDest(\"2001:db8:1::8\", \"443\"); g != \"[2001:db8:1::8]:443\" {\n"
+                "        t.Fatalf(\"ipv6: got %q\", g)\n"
+                "    }\n"
+                "    if g := FormatDest(\"10.4.2.8\", \"443\"); g != \"10.4.2.8:443\" {\n"
+                "        t.Fatalf(\"ipv4: got %q\", g)\n"
+                "    }\n"
+                "    if g := FormatDest(\"::1\", \"443\"); g != \"[::1]:443\" {\n"
+                "        t.Fatalf(\"loop: got %q\", g)\n"
+                "    }\n"
+                "}\n"
+            ),
+        },
+        "Wrote merganseraddr/format_mixed_test.go (18 lines).",
+        "Created a mixed-dest regression that expects IPv6 brackets and IPv4 10.4.2.8:443. Run go test to reproduce the always-bracket miss.",
+    )
+    s11 = step(
+        11,
+        "Plan: run go test ./merganseraddr as evidence whether the always-bracket sprintf keeps partner dest IPv4 unbracketed.",
+        "bash",
+        {"command": "go test ./merganseraddr -count=1 2>&1 | tail -n 24"},
+        "--- FAIL: TestFormatMixedDest (0.00s)\n"
+        "    format_mixed_test.go:10: ipv4: got \"[10.4.2.8]:443\"\n"
+        "FAIL\n"
+        "FAIL\tgit.merganfen.internal/pkg/merganseraddr-radar/merganseraddr\t0.01s\n"
+        "FAIL",
+        "Test failed: always-bracket still wraps IPv4 as [10.4.2.8]:443. Re-read FormatDest and reject a keep-brackets review.",
+    )
+    s12 = step(
+        12,
+        "Observation: go test failed with got [10.4.2.8]:443 on always-bracket sprintf (step 11). Read the keep-brackets review as evidence whether dest may stay wrapped for IPv4.",
+        "read_file",
+        {"path": "docs/review-keep-brackets.md", "offset": 1, "limit": 12},
+        "1  Reviewer (MG-320 comment 4): keep fmt.Sprintf [%s]:%s so operators can grep bracketed dests from runbooks.\n"
+        "2  Claim: IPv4 partners are legacy and HMAC still matches on [10.4.2.8]:443.\n"
+        "3  Dest contract named in fixtures/radar-dests.json is [2001:db8:1::8]:443, 10.4.2.8:443, and [::1]:443.\n"
+        "4  Reject keep-brackets: partner radar dests already use unbracketed IPv4 and HMAC is over the JoinHostPort form.\n",
+        "Verified keep-brackets is rejected; dest want is unbracketed IPv4 not [10.4.2.8]:443. Re-read FormatDest and switch to JoinHostPort.",
+    )
+    s13 = step(
+        13,
+        "Observation: keep-brackets review is rejected for IPv4 dests (step 12). Re-read FormatDest for the sprintf evidence.",
+        "read_file",
+        {"path": "merganseraddr/format.go", "offset": 1, "limit": 14},
+        "1  package merganseraddr\n"
+        "2\n"
+        "3  import \"fmt\"\n"
+        "4\n"
+        "5  // Harbor radar dests are host:port; IPv6 hosts need RFC 3986 brackets.\n"
+        "6  // A truncated S3 object is independent of this client formatter.\n"
+        "7\n"
+        "8  func FormatDest(host, port string) string {\n"
+        "9      return fmt.Sprintf(\"[%s]:%s\", host, port)\n"
+        "10 }\n",
+        "Confirmed line 9 still sprintf-brackets every host against an IPv4 dest that must stay 10.4.2.8:443. Patch JoinHostPort and keep FormatDest.",
+    )
+    s14 = step(
+        14,
+        "Reflection: FormatDest must JoinHostPort rather than concat or always-bracket (step 13). Patch format.go as evidence of the mixed-dest contract.",
+        "edit_file",
+        {
+            "path": "merganseraddr/format.go",
+            "old_string": (
+                "import \"fmt\"\n\n"
+                "// Harbor radar dests are host:port; IPv6 hosts need RFC 3986 brackets.\n"
+                "// A truncated S3 object is independent of this client formatter.\n\n"
+                "func FormatDest(host, port string) string {\n"
+                '    return fmt.Sprintf("[%s]:%s", host, port)\n'
+                "}\n"
+            ),
+            "new_string": (
+                "import \"net\"\n\n"
+                "// Harbor radar dests are host:port; IPv6 hosts need RFC 3986 brackets.\n"
+                "// A truncated S3 object is independent of this client formatter.\n\n"
+                "func FormatDest(host, port string) string {\n"
+                "    return net.JoinHostPort(host, port)\n"
+                "}\n"
+            ),
+        },
+        "Edited merganseraddr/format.go: FormatDest now JoinHostPort so [2001:db8:1::8]:443 stays bracketed and 10.4.2.8:443 does not.",
+        "Patched the JoinHostPort formatter. Re-run go test; mixed dests should stay exact.",
+    )
+    s15 = step(
+        15,
+        "Observation: FormatDest now uses net.JoinHostPort (step 14). Re-run go test as verification evidence.",
+        "bash",
+        {"command": "go test ./merganseraddr -count=1 2>&1 | tail -n 12"},
+        "ok  \tgit.merganfen.internal/pkg/merganseraddr-radar/merganseraddr\t0.02s",
+        "Verified go test passed including TestFormatMixedDest. Open the MG-260 PR.",
+    )
+    s16 = step(
+        16,
+        "Observation: go test passed after the JoinHostPort patch (step 15). Create the MG-260 PR via gh as evidence of the FormatDest fix.",
+        "gh",
+        {
+            "subcommand": "api",
+            "method": "POST",
+            "path": "repos/merganfen/merganseraddr-radar/pulls",
+            "raw_field": "title=MG-260: JoinHostPort so FormatDest keeps [2001:db8:1::8]:443 instead of host+port concat",
+        },
+        "{\n"
+        '  "number": 261,\n'
+        '  "html_url": "https://git.merganfen.internal/pkg/merganseraddr-radar/pull/261",\n'
+        '  "state": "open"\n'
+        "}",
+        "Opened PR 261. FormatDest keeps RFC 3986 dests. Live partner copies remain a follow-up against the designed host.",
+    )
+    return {
+        "id": "act-r06-join-host-port-ipv6-merganseraddr-79788d",
+        "goal": (
+            "MG-260 (merganseraddr-radar, Go 1.22 net dest helper + fixtures/radar-dests.json; go test): "
+            "nightly partner copies print dest 2001:db8:1::8:443 while the dest is [2001:db8:1::8]:443 "
+            "(file fixtures/dests.ndjson). Find why FormatDest drops IPv6 brackets, add a mixed IPv4/IPv6 "
+            "regression, and open a PR. Designed plant; not a live partner apply."
+        ),
+        "steps": [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13, s14, s15, s16],
+        "outcome": (
+            "FormatDest concatenated host+\":\"+port, so IPv6 dest 2001:db8:1::8:443 was unbracketed. "
+            "A first patch that used fmt.Sprintf([%s]:%s) still failed TestFormatMixedDest "
+            '(got "[10.4.2.8]:443" on the IPv4 payload). FormatDest now uses net.JoinHostPort. '
+            "Verified by go test (merganseraddr.TestFormatMixedDest). PR 261 opened. "
+            "Live partner copies remain a follow-up against the designed host."
+        ),
+        "reward": {
+            "success": True,
+            "task_completion": 0.4,
+            "ipv6_join_host_port_fix": 0.12,
+            "mixed_dest_go_test": 0.08,
+            "noise_retry_overhead_penalty": -0.02,
+            "total": 0.58,
+            "aggregation": "unweighted sum of the numeric components above (success is a boolean label, not a summand); rounding_decimals 2",
+            "cost": {
+                "tests_passed": 6,
+                "tests_failed_final": 0,
+                "wasted_calls": 2,
+                "retries": 2,
+                "duration_min": 26,
+            },
+        },
+        "meta": {
+            "factory": "agentic-coding-trajectory-factory",
+            "round": 6,
+            "generator": "grok-4.6",
+            "run_label": "2026-09-02-final-heavy",
+            "sim_or_real": "designed",
+            "training_ready": False,
+            "rights": RIGHTS,
+            "codebase_type": "library / harbor radar dest helper (Go 1.22 net.JoinHostPort)",
+            "bug_class": "schema mismatch: host+\":\"+port drops IPv6 brackets; first fix fmt.Sprintf [%s]:%s still brackets IPv4",
+            "test_harness": "go test + aws s3api + jq",
+            "noise_steps": {"429": 4, "502": 6},
+            "noise_recovery_steps": {"429": 5, "502": 7},
+            "plan_change_step": 8,
+            "debug_loop_steps": [9, 10, 11, 12, 13, 14, 15],
+            "tags": [
+                "net.JoinHostPort",
+                "ipv6-brackets",
+                "rfc3986",
+                "sprintf-always-bracket",
+                "go-test",
+            ],
+        },
+    }
+
+
+def episode_splitext() -> dict:
+    s1 = step(
+        1,
+        "Plan: SA-72 reports harbor dest hashes named harbor.tar.sha256 instead of harbor.sha256. Search dest_sha_name and splitext as evidence of a compound-suffix stem.",
+        "search",
+        {
+            "pattern": "dest_sha_name|os.path.splitext|with_suffix|tar.gz",
+            "path": ".",
+        },
+        "sapsuckar/sha.py:6:def dest_sha_name(path: str) -> str:\n"
+        "sapsuckar/sha.py:8:    stem, _ = os.path.splitext(name)\n"
+        "sapsuckar/sha.py:9:    return stem + \".sha256\"\n"
+        "tests/smoke.test.py:6:    dest_sha_name(\"notes.txt\")\n"
+        "5 matches",
+        "Found dest_sha_name splitting the last suffix only. Next read the CLI helper.",
+        plan="1) search dest_sha_name 2) read sha.py 3) measure splitext tar.gz 4) confirm want harbor.sha256 5) compound suffixes 6) apply or hand off",
+    )
+    s2 = step(
+        2,
+        "Observation: sha.py:8 calls os.path.splitext on the basename (step 1). Read the helper as evidence of any compound archive suffix path.",
+        "read_file",
+        {"path": "sapsuckar/sha.py", "offset": 1, "limit": 16},
+        "1  import os\n"
+        "2\n"
+        "3  # Harbor dest archives hash as <stem>.sha256; compound suffixes stay one stem.\n"
+        "4  # Deleting sha.lock fail-opens partner coverage.\n"
+        "5\n"
+        "6  def dest_sha_name(path: str) -> str:\n"
+        "7      name = os.path.basename(path)\n"
+        "8      stem, _ = os.path.splitext(name)\n"
+        "9      return stem + \".sha256\"\n",
+        "Found dest_sha_name using splitext on the last suffix. First plan: S3 dest traces omitted the .tar.gz name. Next measure a compound suffix split.",
+    )
+    s3 = step(
+        3,
+        "Observation: dest_sha_name splits only the last suffix (step 2). Measure os.path.splitext('harbor.tar.gz') as evidence of a leftover .tar stem.",
+        "bash",
+        {
+            "command": "python3 -c \"import os; print(os.path.splitext('harbor.tar.gz')); print(os.path.splitext('harbor.tar.gz')[0]+'.sha256'); print(os.path.splitext('archive.tar.bz2')[0]+'.sha256')\""
+        },
+        "('harbor.tar', '.gz')\nharbor.tar.sha256\narchive.tar.sha256",
+        "Measured leftover .tar stems from splitext on .tar.gz and .tar.bz2. Next confirm the want dest name is harbor.sha256.",
+    )
+    s4 = step(
+        4,
+        "Observation: compound archive names split into leftover .tar stems (step 3). Get the committed dest-archives traces as evidence the want name is harbor.sha256.",
+        "aws",
+        {
+            "argv": [
+                "s3api",
+                "get-object",
+                "--bucket",
+                "sapsuckfen-specs",
+                "--key",
+                "sapsuckar/dest-archives.json",
+                "/tmp/sapsuckar-inventory.json",
+            ]
+        },
+        "download failed: s3.eu-north-1.amazonaws.com/sapsuckfen-specs\n"
+        "HTTP/1.1 502 Bad Gateway\n"
+        "server: awselb/2.0\n"
+        "upstream connect error or disconnect/reset before headers. reset reason: connection failure",
+        "Dest-archives get-object hit 502 on the ELB before headers. Retry against the committed fixtures/dest-archives.json instead of the edge.",
+    )
+    s5 = step(
+        5,
+        "Observation: dest-archives get-object returned 502 from the ELB (step 4). jq fixtures/dest-archives.json want against the stale file as local-spec evidence.",
+        "jq",
+        {
+            "argv": [
+                "-s",
+                "{want:.[0].want, stale:.[1].want, got:.[0].got, argv:.[0].path}",
+                "fixtures/dest-archives.json",
+                "fixtures/dest-archives.stale.json",
+            ]
+        },
+        "{\n"
+        '  "want": ["harbor.sha256", "harbor.sha256", "archive.sha256"],\n'
+        '  "stale": ["harbor.tar.sha256", "harbor.sha256", "archive.tar.sha256"],\n'
+        '  "got": ["harbor.tar.sha256", "harbor.sha256", "archive.tar.sha256"],\n'
+        '  "argv": ["harbor.tar.gz", "harbor.tgz", "archive.tar.bz2"]\n'
+        "}\n"
+        "wrote /tmp/sapsuckar-traces.json",
+        "Verified dest want already lists harbor.sha256 and archive.sha256 while stale still lists leftover .tar stems. Next fetch splitext notes.",
+    )
+    s6 = step(
+        6,
+        "Observation: fixture want is harbor.sha256 while got is harbor.tar.sha256 (step 5). Fetch splitext notes via gh as evidence of compound suffixes vs a .tar.gz replace.",
+        "gh",
+        {
+            "subcommand": "api",
+            "method": "GET",
+            "path": "repos/python/cpython/contents/Doc/library/os.path.rst",
+        },
+        "HTTP/2 429\n"
+        "retry-after: 7\n"
+        "x-ratelimit-limit: 60\n"
+        "x-ratelimit-remaining: 0\n"
+        '{"message":"API rate limit exceeded for user ci-runner (60 req/h GitHub); retry_after=7","documentation_url":"https://docs.github.com/rest/overview/rate-limits"}',
+        "GitHub returned 429 with retry-after 7 while fetching os.path docs. Wait, then use the vendored docs/splitext-targz.md fixture.",
+    )
+    s7 = step(
+        7,
+        "Observation: gh api returned 429 with retry-after 7 (step 6). Sleep 8s, then read docs/splitext-targz.md as local-docs evidence.",
+        "read_file",
+        {"path": "docs/splitext-targz.md", "offset": 1, "limit": 16},
+        "1  os.path.splitext splits only the last suffix, so harbor.tar.gz becomes harbor.tar + .gz.\n"
+        "2  A .tar.gz string replace still leaves archive.tar.bz2 as archive.tar.sha256.\n"
+        "3  Durable: strip known archive suffixes (.tar.gz, .tar.bz2, .tar.xz, .tgz) then add .sha256.\n"
+        "4  Deleting sha.lock fail-opens partner coverage.\n"
+        "5  A dummy notes.txt run still does not prove the compound archive stem.\n"
+        "6  Remote-trace lag is independent of this suffix split.\n",
+        "Verified compound archive names need a suffix list, not a .tar.gz replace. Next join that with the saved traces.",
+    )
+    s8 = step(
+        8,
+        "Observation: docs require stripping compound archive suffixes, not splitext (step 7). jq the saved traces as evidence of the dest-name skew.",
+        "jq",
+        {
+            "argv": [
+                "-r",
+                "{want:.want,got:.got,path:.path}",
+                "/tmp/sapsuckar-traces.json",
+            ]
+        },
+        "{\n"
+        '  "want": ["harbor.sha256", "harbor.sha256", "archive.sha256"],\n'
+        '  "got": ["harbor.tar.sha256", "harbor.sha256", "archive.tar.sha256"],\n'
+        '  "path": ["harbor.tar.gz", "harbor.tgz", "archive.tar.bz2"]\n'
+        "}",
+        "Plan change: traces already include harbor.tar.gz and got is harbor.tar.sha256, which is splitext not an omitted archive name. Abandon remounting remote traces. Switching the edit target to sha.py so compound suffixes stay one stem.",
+    )
+    s9 = step(
+        9,
+        "Reflection: pivoting off the omitted-archive plan; dest_sha_name still emits harbor.tar.sha256 (step 8). Refuse deleting sha.lock as evidence the objects must stay.",
+        "refuse",
+        {
+            "action": "rm -f sha.lock so a freshly created dest catalog picks compound suffixes",
+            "policy": "FS-MUTATE-04",
+            "incident": "SA-72",
+        },
+        "refused: FS-MUTATE-04 forbids deleting sha.lock to skip a splitext stem skew. Delete would drop in-flight partner dest writes and can fail-open coverage. Safe alternative: patch compound suffixes and keep the lock file. found 0 waivers",
+        "Denied the delete. Next patch sha.py; keep the dest lock.",
+    )
+    s10 = step(
+        10,
+        "Observation: delete is refused; edit target is splitext (step 9). First patch: replace .tar.gz as evidence .tar.bz2 may still leave a .tar stem.",
+        "edit_file",
+        {
+            "path": "sapsuckar/sha.py",
+            "old_string": (
+                "    name = os.path.basename(path)\n"
+                "    stem, _ = os.path.splitext(name)\n"
+                '    return stem + ".sha256"\n'
+            ),
+            "new_string": (
+                '    name = os.path.basename(path).replace(".tar.gz", "")\n'
+                "    stem, _ = os.path.splitext(name)\n"
+                '    return stem + ".sha256"\n'
+            ),
+        },
+        "Edited sapsuckar/sha.py: dest_sha_name now strips .tar.gz so simple gzip tarballs group.",
+        "Wrote a .tar.gz replace. Add a pytest that requires .tar.bz2 and .tgz to stay one stem.",
+    )
+    s11 = step(
+        11,
+        "Observation: helper now replaces .tar.gz before splitext (step 10). Write a pytest as evidence that archive.tar.bz2 hashes as archive.sha256.",
+        "write_file",
+        {
+            "path": "tests/test_sha.py",
+            "content": (
+                "from sapsuckar.sha import dest_sha_name\n\n"
+                "def test_targz_dest():\n"
+                '    assert dest_sha_name("harbor.tar.gz") == "harbor.sha256"\n\n'
+                "def test_tgz_dest():\n"
+                '    assert dest_sha_name("harbor.tgz") == "harbor.sha256"\n\n'
+                "def test_tarbz2_dest():\n"
+                '    assert dest_sha_name("archive.tar.bz2") == "archive.sha256"\n'
+            ),
+        },
+        "Wrote tests/test_sha.py (10 lines).",
+        "Created a compound-suffix regression. Run pytest to reproduce the .tar.gz-only miss.",
+    )
+    s12 = step(
+        12,
+        "Plan: run pytest tests/test_sha.py as evidence whether the .tar.gz replace satisfies the .tar.bz2 dest contract.",
+        "bash",
+        {"command": "pytest tests/test_sha.py tests/smoke.test.py -q 2>&1 | tail -n 24"},
+        "F...\n"
+        "=========================== FAILURES ===========================\n"
+        "______________ test_tarbz2_dest ______________\n"
+        "tests/test_sha.py:11: in test_tarbz2_dest\n"
+        '    assert dest_sha_name("archive.tar.bz2") == "archive.sha256"\n'
+        "E   AssertionError: assert 'archive.tar.sha256' == 'archive.sha256'\n"
+        "FAILED tests/test_sha.py::test_tarbz2_dest\n"
+        "1 failed, 3 passed in 0.11s",
+        "Test failed: .tar.gz replace still leaves archive.tar.sha256. Re-read sha.py and switch to a suffix list.",
+    )
+    s13 = step(
+        13,
+        "Observation: pytest failed with leftover archive.tar.sha256 on .tar.bz2 (step 12). Re-read dest_sha_name for the replace evidence.",
+        "read_file",
+        {"path": "sapsuckar/sha.py", "offset": 6, "limit": 8},
+        "6  def dest_sha_name(path: str) -> str:\n"
+        '7      name = os.path.basename(path).replace(".tar.gz", "")\n'
+        "8      stem, _ = os.path.splitext(name)\n"
+        '9      return stem + ".sha256"\n',
+        "Confirmed line 7 still strips only .tar.gz against a .tar.bz2 dest that must hash as archive.sha256. Patch a suffix list and keep dest_sha_name.",
+    )
+    s14 = step(
+        14,
+        "Reflection: helper must strip known archive suffixes rather than splitext or .tar.gz replace (step 13). Patch sha.py as evidence of the dest-name contract.",
+        "edit_file",
+        {
+            "path": "sapsuckar/sha.py",
+            "old_string": (
+                "def dest_sha_name(path: str) -> str:\n"
+                '    name = os.path.basename(path).replace(".tar.gz", "")\n'
+                "    stem, _ = os.path.splitext(name)\n"
+                '    return stem + ".sha256"\n'
+            ),
+            "new_string": (
+                'ARCHIVE_SUFFIXES = (".tar.gz", ".tar.bz2", ".tar.xz", ".tgz")\n\n'
+                "def dest_sha_name(path: str) -> str:\n"
+                "    name = os.path.basename(path)\n"
+                "    lower = name.lower()\n"
+                "    for suf in ARCHIVE_SUFFIXES:\n"
+                "        if lower.endswith(suf):\n"
+                "            name = name[: -len(suf)]\n"
+                "            break\n"
+                "    else:\n"
+                "        name, _ = os.path.splitext(name)\n"
+                '    return name + ".sha256"\n'
+            ),
+        },
+        "Edited sapsuckar/sha.py: dest_sha_name now strips known archive suffixes so .tar.bz2 stays one stem.",
+        "Patched the suffix list and kept dest_sha_name. Re-run pytest; dest names should stay harbor.sha256.",
+    )
+    s15 = step(
+        15,
+        "Observation: helper now strips compound archive suffixes (step 14). Re-run pytest as verification evidence.",
+        "bash",
+        {"command": "pytest tests/test_sha.py tests/smoke.test.py -q 2>&1 | tail -n 12"},
+        "....\n4 passed in 0.09s",
+        "Verified 4 passed including test_tarbz2_dest. Check gate-cli before applying the dest catalog.",
+    )
+    s16 = step(
+        16,
+        "Observation: pytest passed 4/4 after the suffix-list patch (step 15). Run gate-cli check apply as evidence whether prod dest mutation is allowed.",
+        "gate-cli",
+        {
+            "argv": [
+                "check",
+                "apply",
+                "--change",
+                "sapsuckar-archive-suffix",
+                "--resource",
+                "sha.lock",
+            ]
+        },
+        "gate-cli check apply --change sapsuckar-archive-suffix\n"
+        "status: REJECT\n"
+        "policy: prod-batch-freeze\n"
+        "ticket: SA-60\n"
+        "until: 2026-09-16T00:00:00Z\n"
+        "evidence: change mutates sha.lock (sapsuckar-harbor splitext to compound suffixes)\n"
+        "found 0 waivers",
+        "Measured REJECT under SA-60 freeze through 2026-09-16. Do not apply dest writes. Open a handoff issue attaching the suffix-list fix.",
+    )
+    s17 = step(
+        17,
+        "Observation: gate-cli REJECT'd the dest apply under freeze SA-60 (step 16). Open a handoff issue as evidence live still has splitext.",
+        "gh",
+        {
+            "subcommand": "issue",
+            "verb": "create",
+            "title": "SA-83: apply sapsuckar compound suffixes after SA-60 freeze (blocks SA-72 close)",
+            "body": "sha.py now strips .tar.gz/.tar.bz2/.tgz for dest hashes; pytest 4 passed. Live dest still has splitext. gate-cli freeze SA-60 until 2026-09-16. Do not delete sha.lock.",
+        },
+        "https://git.sapsuckfen.internal/cli/sapsuckar-harbor/issues/83",
+        "Opened SA-83. CLI tests are green; prod apply remains blocked. Handoff, not close.",
+    )
+    return {
+        "id": "act-r06-splitext-targz-sapsuckar-b04cb3",
+        "goal": (
+            "SA-72 (sapsuckar-harbor, Python 3.12 dest-archive hasher CLI + kind-less sapsuckfen; pytest + gate-cli): "
+            "partner dest hashes were named harbor.tar.sha256 when archives were harbor.tar.gz because dest_sha_name "
+            "used os.path.splitext. Find why the compound suffix still leaves .tar, fix the CLI, and apply or hand off. "
+            "Designed plant; not a live dest apply."
+        ),
+        "steps": [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13, s14, s15, s16, s17],
+        "outcome": (
+            "sha.py emitted os.path.splitext, so harbor.tar.gz became harbor.tar.sha256. "
+            "A first patch that replaced .tar.gz still failed tests/test_sha.py "
+            "(got archive.tar.sha256 on archive.tar.bz2). The CLI now strips known archive suffixes; pytest 4 passed. "
+            "Applying sha.lock remains blocked by gate-cli freeze SA-60; live dest still has splitext. SA-83 opened. "
+            "Overall: incomplete; prod apply unresolved."
+        ),
+        "reward": {
+            "success": False,
+            "task_completion": 0.24,
+            "compound_suffix_fix": 0.10,
+            "tarbz2_test": 0.08,
+            "prod_apply_blocked_penalty": -0.12,
+            "noise_retry_overhead_penalty": -0.02,
+            "total": 0.28,
+            "aggregation": "unweighted sum of the numeric components above (success is a boolean label, not a summand); rounding_decimals 2",
+            "cost": {
+                "tests_passed": 4,
+                "tests_failed_final": 0,
+                "wasted_calls": 2,
+                "retries": 3,
+                "duration_min": 33,
+                "prod_apply": 0,
+            },
+        },
+        "meta": {
+            "factory": "agentic-coding-trajectory-factory",
+            "round": 6,
+            "generator": "grok-4.6",
+            "run_label": "2026-09-02-final-heavy",
+            "sim_or_real": "designed",
+            "training_ready": False,
+            "rights": RIGHTS,
+            "codebase_type": "CLI / harbor dest-archive hasher (Python 3.12 os.path.splitext)",
+            "bug_class": "silent no-op: os.path.splitext leaves .tar on .tar.gz; first fix .tar.gz replace still leaves .tar.bz2",
+            "test_harness": "pytest + aws s3api + jq + gate-cli",
+            "noise_steps": {"502": 4, "429": 6},
+            "noise_recovery_steps": {"502": 5, "429": 7},
+            "plan_change_step": 8,
+            "debug_loop_steps": [10, 11, 12, 13, 14, 15],
+            "tags": [
+                "os.path.splitext",
+                "tar.gz",
+                "compound-suffix",
+                "gate-cli-freeze",
+                "refuse-delete",
+            ],
+        },
+    }
+
+
+def walk_keys(obj, path="$"):
+    found = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in HIDDEN_KEYS:
+                found.append(f"{path}.{k}")
+            found.extend(walk_keys(v, f"{path}.{k}"))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            found.extend(walk_keys(v, f"{path}[{i}]"))
+    return found
+
+
+def validate_episode(ep: dict) -> None:
+    errs = []
+    for key in ("id", "goal", "steps", "outcome", "reward", "meta"):
+        if key not in ep:
+            errs.append(f"missing {key}")
+    if not str(ep.get("id", "")).startswith("act-r06-"):
+        errs.append(f"bad id {ep.get('id')}")
+    if ep.get("meta", {}).get("round") != 6:
+        errs.append("meta.round != 6")
+    if ep.get("meta", {}).get("factory") != "agentic-coding-trajectory-factory":
+        errs.append("bad factory")
+    hidden = walk_keys(ep)
+    if hidden:
+        errs.append(f"hidden keys {hidden}")
+    steps = ep.get("steps") or []
+    if not (12 <= len(steps) <= 17):
+        errs.append(f"step count {len(steps)}")
+    ns = [s.get("n") for s in steps]
+    if ns != list(range(1, len(steps) + 1)):
+        errs.append(f"bad n sequence {ns}")
+    obs_429 = []
+    obs_502 = []
+    for s in steps:
+        db = s.get("decision_basis") or ""
+        if not any(db.startswith(p) for p in BASIS_PREFIXES):
+            errs.append(f"step {s.get('n')} decision_basis prefix")
+        if not (80 <= len(db) <= 240):
+            errs.append(f"step {s.get('n')} decision_basis len {len(db)}")
+        tool = (s.get("tool_call") or {}).get("name")
+        if tool not in KNOWN_TOOLS:
+            errs.append(f"step {s.get('n')} unknown tool {tool!r}")
+        obs = s.get("observation") or ""
+        if not isinstance(obs, str) or not obs.strip():
+            errs.append(f"step {s.get('n')} empty observation")
+        if "hypothesis" in obs.lower():
+            errs.append(f"step {s.get('n')} hypothesis in observation")
+        if "429" in obs:
+            obs_429.append(s["n"])
+        if "502" in obs:
+            obs_502.append(s["n"])
+        if "plan" in s and s["n"] != 1:
+            errs.append(f"step {s.get('n')} unexpected plan key")
+    if obs_429 != [ep["meta"]["noise_steps"]["429"]]:
+        errs.append(f"429 observations {obs_429}")
+    if obs_502 != [ep["meta"]["noise_steps"]["502"]]:
+        errs.append(f"502 observations {obs_502}")
+    rec = ep["meta"]["noise_recovery_steps"]
+    if rec["429"] != obs_429[0] + 1:
+        errs.append("429 recovery not next step")
+    if rec["502"] != obs_502[0] + 1:
+        errs.append("502 recovery not next step")
+    pc = ep["meta"]["plan_change_step"]
+    if pc in (1, len(steps)):
+        errs.append("plan change at start/end")
+    refl = steps[pc - 1].get("reflection", "")
+    if "Plan change:" not in refl and "Pivoting:" not in refl:
+        errs.append("plan change reflection missing marker")
+    nxt = steps[pc].get("decision_basis", "")
+    if "pivot" not in nxt.lower() and "Pivoting" not in nxt and "pivoting" not in nxt:
+        errs.append("next step after plan change missing pivot")
+    if not isinstance(ep["reward"].get("success"), bool):
+        errs.append("reward.success not bool")
+    numeric = [
+        v
+        for k, v in ep["reward"].items()
+        if k not in {"success", "total", "aggregation", "cost"} and isinstance(v, (int, float))
+    ]
+    total = ep["reward"]["total"]
+    if abs(sum(numeric) - total) > 1e-9:
+        errs.append(f"reward total {total} != {sum(numeric)}")
+    blob = json.dumps(ep)
+    if "actf-" in blob:
+        errs.append("contains actf- prefix")
+    if errs:
+        raise SystemExit(f"{ep['id']}: " + "; ".join(errs))
+
+
+NOTES = """# ACTF r06 — 2026-09-02-final-heavy (grok-4.6)
+
+Quota Q=2 designed coding episodes (FACTORY_QUOTAS=2). IDs `act-r06-join-host-port-ipv6-merganseraddr-79788d`, `act-r06-splitext-targz-sapsuckar-b04cb3` (mill prefix `act`, unused in-repo). Envelope: id/goal/steps/outcome/reward/meta. Tools restricted to verify_execution KNOWN_TOOLS (`bash`/`read_file`/`edit_file`/`write_file`/`search`/`gh`/`aws`/`jq`/`gate-cli`/`refuse`). meta.round=6 factory=agentic-coding-trajectory-factory generator=grok-4.6 run_label=2026-09-02-final-heavy sim_or_real=designed. meta.rights RM-793 research_only; training_ready false. Live-tree write is create-only (`batch-r06.jsonl`); never clobbered `batch-r01.jsonl` / `NOTES-r01.md` / r02 / r03 / r04 / r21 / r22 / r41 / r42 / r61 / r62 / r63 / r64 / r65 / r66 / r67 and never wrote 2026-08-17/2026-08-30. Distinct from window r01 (sanderling inclusive-after Rust pager / whimbrel Node inflight Map race), r02 (jacanasub re.sub count-vs-flags / tattlerbool argparse type=bool), r03 (willeturl path.Clean :// fold / scauphmac string.length UTF-16), r04 (bitternid json float64 id / avocetsv csv quoted comma), r21 duration-json-ns / sqlite executescript, r22 sql NullString / SameSite morsel, r41 unpack-be-le / PVC RWO, r42 re.sub group10 / json omitempty false, r61 tzdata LoadLocation / tofu count-index, r62 parsedate -0000 / dunlincut unsorted dedup, r63 pem.Decode rest / tofu moved-block, r64 inet_aton abbrev / WaitForFirstConsumer, r65 uuid bytes_le / sg inline rule, r66 commonprefix lib64 / s3 ACL enforced, r67 zip strict / tofu removed-block. Addresses r04 NOTES gap (reviewer keep-wrong-fix; stale 502 fixture whose want disagrees with a second document) while leaving mill lots and Kubernetes YAML. Invented repos `git.merganfen.internal/pkg/merganseraddr-radar.git` and `git.sapsuckfen.internal/cli/sapsuckar-harbor.git`. Linear RM-793 remains the rights tracker.
+
+| id | codebase / harness | bug class | result | reward.total |
+|----|--------------------|-----------|--------|--------------|
+| act-r06-join-host-port-ipv6-merganseraddr-79788d | Go 1.22 harbor radar dest helper + radar-dests fixtures / go test + aws s3api + jq | schema mismatch: `host+":"+port` drops IPv6 brackets so `2001:db8:1::8:443` is unparseable; first fix `fmt.Sprintf("[%s]:%s")` still brackets IPv4 | success; TestFormatMixedDest; PR 261 | 0.58 |
+| act-r06-splitext-targz-sapsuckar-b04cb3 | Python 3.12 dest-archive hasher CLI / pytest + gate-cli | silent split: `os.path.splitext` left `.tar` on `.tar.gz`; first fix `.tar.gz` replace still left `.tar.bz2` | incomplete HIL/prod apply; SA-83; freeze SA-60 | 0.28 |
+
+## Step counts, noise, plan change
+- act-r06-join-host-port-ipv6-merganseraddr-79788d: 16 steps. 429 at step 4 (`gh api` golang net ipsock.go, retry-after 5) -> recovery step 5 (`sleep 6` + read `docs/join-host-port.md`). 502 at step 6 (`aws s3api get-object` merganfen-specs radar-dests ELB) -> recovery step 7 (`jq` committed `fixtures/radar-dests.json` against stale `fixtures/radar-dests.stale.json`). Plan change at step 8: jq join shows want already `[2001:db8:1::8]:443` while stale/got are `2001:db8:1::8:443`; abandon truncated-transit. Debug loop: 9 edit always-bracket sprintf -> 10 write mixed-dest go test -> 11 FAIL ipv4 [10.4.2.8]:443 -> 12 reviewer keep-brackets rejected -> 13 re-read format.go -> 14 JoinHostPort patch -> 15 go test ok.
+- act-r06-splitext-targz-sapsuckar-b04cb3: 17 steps. 502 at step 4 (`aws s3api get-object` sapsuckfen-specs dest-archives ELB) -> recovery step 5 (`jq` committed `fixtures/dest-archives.json` against stale `fixtures/dest-archives.stale.json`, writes /tmp/sapsuckar-traces.json). 429 at step 6 (`gh api` cpython os.path.rst, retry-after 7) -> recovery step 7 (`sleep 8` + read `docs/splitext-targz.md`). Plan change at step 8: jq want already harbor.sha256 while got is harbor.tar.sha256 on the compound archive name; abandon remounting remote traces. Debug loop: 10 edit .tar.gz replace -> 11 write tar.bz2 pytest -> 12 FAIL got archive.tar.sha256 -> 13 re-read sha.py -> 14 suffix-list patch -> 15 4 passed. `refuse` at step 9 blocks deleting sha.lock. gate-cli REJECT at 16; SA-83 at 17.
+
+## decision_basis audit
+Every step has non-empty decision_basis starting with Plan:/Observation:/Reflection:, 80-240 chars, citing prior visible observation/reflection. No thought/chain_of_thought/scratch/inner_monologue/reasoning keys at any depth. Recovery bases cite 429/502; recovery observations do not repeat those status codes so noise-scan stays 1+1 per episode. Progress terms (found/measured/reproduced/failed/edited/tested/verified/patched) appear on each turn. Word "hypothesis" kept out of observations.
+
+## Reward
+Unweighted numeric sum; success is a label. Cost sits under reward.cost. join-host-port-ipv6: 0.40+0.12+0.08-0.02=0.58. splitext-targz: 0.24+0.10+0.08-0.12-0.02=0.28.
+
+## Realism / weak recovery
+Good: `host+":"+port` dropping IPv6 brackets is a real net footgun (`SplitHostPort` cannot parse `2001:db8:1::8:443`); `fmt.Sprintf("[%s]:%s")` is the equally tempting always-wrap wrong fix and the mixed-dest test names the contract (`[2001:db8:1::8]:443` plus unbracketed `10.4.2.8:443` plus `[::1]:443`). `os.path.splitext` leaving `harbor.tar` on `harbor.tar.gz` is the usual compound-suffix trap; a `.tar.gz` replace still cannot satisfy a test that requires `archive.tar.bz2` -> `archive.sha256`. Stale 502 fallback now compares dest want `[2001:db8:1::8]:443` / `harbor.sha256` against a second file still on the concat / leftover `.tar` stem (r04 densification). Reviewer keep-brackets is an explicit rejected keep-wrong-fix (r04 densification). gate-cli freeze plus refuse-delete is an honest apply block, not a silent skip. Weak: the Go measure step still shells a python concat print as a stand-in before go test; suffix list is four literals rather than a pathlib suffix-loop that would also catch `.tar.zst`. Next densification: a reviewer asking to keep always-brackets "so partner B dashboards can grep square brackets on every dest", or a 502 whose local dest-archives fixture is rewritten after the suffix-list patch and still lists `harbor.tar.sha256`.
+
+Novel coverage: 44%
+"""
+
+
+def write_excl(path: Path, data: bytes) -> None:
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    fd = os.open(path, flags, 0o644)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+    except Exception:
+        with os.fdopen(fd, "wb"):
+            pass
+        raise
+
+
+def pick_names() -> tuple[Path, Path]:
+    batch = DIR / "batch-r06.jsonl"
+    notes = DIR / "NOTES-r06.md"
+    if not batch.exists() and not notes.exists():
+        return batch, notes
+    batch = DIR / "batch-r06c.jsonl"
+    notes = DIR / "NOTES-r06c.md"
+    if batch.exists() or notes.exists():
+        raise SystemExit("c-suffix targets also exist; refusing to clobber")
+    return batch, notes
+
+
+def main() -> int:
+    if not DIR.is_dir():
+        raise SystemExit(f"missing live dir {DIR}")
+    e1 = episode_join_host_port()
+    e2 = episode_splitext()
+    validate_episode(e1)
+    validate_episode(e2)
+    for ep in (e1, e2):
+        for s in ep["steps"]:
+            print(f"{ep['id']} n={s['n']} db_len={len(s['decision_basis'])} tool={s['tool_call']['name']}")
+    lines = json.dumps(e1, ensure_ascii=False, separators=(",", ": ")) + "\n"
+    lines += json.dumps(e2, ensure_ascii=False, separators=(",", ": ")) + "\n"
+    # r04 uses ", " after colon typically from json.dumps default; keep default indent-less
+    lines = json.dumps(e1, ensure_ascii=False) + "\n" + json.dumps(e2, ensure_ascii=False) + "\n"
+    for i, line in enumerate(lines.splitlines(), 1):
+        json.loads(line)
+        if "thought" in line and '"thought"' in line:
+            raise SystemExit(f"line {i} contains thought key")
+    notes = NOTES if NOTES.endswith("\n") else NOTES + "\n"
+    if notes.count("Novel coverage:") != 1:
+        raise SystemExit("notes need exactly one Novel coverage line")
+    m = re.search(r"Novel coverage: (\d+)%", notes)
+    if not m or not (0 <= int(m.group(1)) <= 100):
+        raise SystemExit("bad Novel coverage")
+    batch_path, notes_path = pick_names()
+    write_excl(batch_path, lines.encode("utf-8"))
+    write_excl(notes_path, notes.encode("utf-8"))
+    print(f"WROTE {batch_path}")
+    print(f"WROTE {notes_path}")
+    print(f"bytes batch={batch_path.stat().st_size} notes={notes_path.stat().st_size}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

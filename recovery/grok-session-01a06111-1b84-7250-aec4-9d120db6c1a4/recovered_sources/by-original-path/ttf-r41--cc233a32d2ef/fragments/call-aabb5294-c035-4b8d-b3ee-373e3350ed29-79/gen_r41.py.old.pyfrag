@@ -1,0 +1,46 @@
+                [
+                    "Yankee surface RTD, 5 kHz burst, 26 us jitter",
+                    "crepe IR pickoff, 200 Hz, 32 us jitter",
+                    "hood skin thermocouple (context)",
+                    "HIL lamp-spectrum monitor (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("adhesion_floor_C", 102.0),
+                        ("observed_surface_C", 96.2),
+                        ("crepe_apparent_C", 118.0),
+                        ("proposed_delta_m_min", 120.0),
+                        ("lamp_inject_lead_us", [110, 150]),
+                    ]
+                ),
+            ),
+            (
+                "hil",
+                OrderedDict(
+                    [
+                        ("pad", "Yankee-Crest YC-3 tissue-cylinder mockup"),
+                        ("injected", "cold-shell packet + crepe-IR lamp spectrum"),
+                        (
+                            "note",
+                            "Hardware-in-the-loop Yankee cylinder. Invented plant; not a live tissue machine.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Crepe-Cap CC-6 on the YC-3 HIL cylinder; reel +120 m/min armed.",
+                    "2. Lamp injected 110-150 us before RTD sees the cold-shell packet.",
+                    "3. Hood precursor at 1.380 ms.",
+                    "4. Race window [5.700, 6.080] ms.",
+                    "5. rtd.yankee.C 96.2 C at 5.760 ms (winner).",
+                    "6. ir.crepe.glint 118 C at 5.931 ms (loser by 171 us).",
+                    "7. Gate at 6.860 ms: REJECT hold 0 m/min delta; do not raise 120 m/min.",
+                    "8. Cylinder remains under floor this cycle; adhesion floor held.",
+                    "9. Sheet recycle queued on the pad.",
+                    "10. Delayed (abort_s=600): 10 min cylinder retune and lamp-spectrum retune.",
+                ],

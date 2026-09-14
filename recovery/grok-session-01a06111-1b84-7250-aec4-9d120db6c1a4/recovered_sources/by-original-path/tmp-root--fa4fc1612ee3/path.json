@@ -1,0 +1,54 @@
+{
+  "agent_ids": [
+    "01a06411-a215-7161-80d5-67e270ad3dfc"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 1,
+  "original_basename": "ffpc-r32-splice-plants.py",
+  "original_path": "/tmp/ffpc-r32-splice-plants.py",
+  "path_key": "tmp-root--fa4fc1612ee3",
+  "terminal_event_ids": [
+    "01a06411-a215-7161-80d5-67e270ad3dfc:call-878ba266-3461-45a9-b1b3-e0183060ae39-36",
+    "01a06411-a215-7161-80d5-67e270ad3dfc:call-e22235b3-d92c-4c37-a55f-df15b0f7ecfa-41",
+    "01a06412-d21e-7d03-bfd9-1ad8a5e7756f:call-8ddab44d-1461-48a2-b1bd-eeb66d227051-16"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06411-a215-7161-80d5-67e270ad3dfc",
+      "basename_preserved": true,
+      "bytes": 34778,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 207,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06411-a215-7161-80d5-67e270ad3dfc/updates.jsonl",
+      "original_basename": "ffpc-r32-splice-plants.py",
+      "original_path": "/tmp/ffpc-r32-splice-plants.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--fa4fc1612ee3/versions/v0001/ffpc-r32-splice-plants.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/tmp-root--fa4fc1612ee3/versions/v0001/ffpc-r32-splice-plants.py",
+      "session_id": "01a06411-a215-7161-80d5-67e270ad3dfc",
+      "sha256": "4dbb7d547a8637a359c6cb35ee6f4e7ac3785824d9615cfba31611dcf2827589",
+      "source_channel": "structured",
+      "source_event_id": "01a06411-a215-7161-80d5-67e270ad3dfc:call-bb3347a1-7193-4257-ab61-e351bb02a1cc-35",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788393438493,
+      "timestamp_utc": "2026-09-02T23:57:18.493Z",
+      "tool_call_id": "call-bb3347a1-7193-4257-ab61-e351bb02a1cc-35",
+      "version": 1,
+      "version_id": "tmp-root--fa4fc1612ee3:v0001"
+    }
+  ]
+}

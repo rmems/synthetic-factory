@@ -1,0 +1,10 @@
+        source="thalamic-relay.toeboard-cam",
+        target="spikenaut.policy.speed-clamp",
+        table=[
+            {"from": "relay.ir.toeboard", "to": "policy.speed_clamp", "weight": 0.68},
+            {"from": "relay.cam.occ", "to": "policy.cam_hold", "weight": 0.27},
+            {"from": "relay.pallet.slat", "to": "policy.speed_clamp", "weight": -0.44},
+        ],
+        modulator="noradrenaline",
+        tau_e_s=0.040,
+        eligibility="surprise-gated pre_post_stdp; NA at toeboard win (6.410 ms) opens a 40 ms eligibility trace that still covers the 23.600 ms pallet-slat snap",

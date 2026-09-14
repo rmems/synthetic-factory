@@ -1,0 +1,10 @@
+                    "friction-stir-weld",
+                    [
+                        "reject",
+                        "hil-fsw",
+                        "pin-vs-bar",
+                        "stir-cap",
+                        "hil",
+                    ],
+                    "Teaches that a HIL backing-bar IR lamp under-read can lose to a pin-root TC "
+                    "inside a 380 us window; reversing 171 us would have selected an illegal plunge.",

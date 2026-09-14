@@ -1,0 +1,16 @@
+            ("name", "clamped_hood_fuel"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("fuel_t_h", 1.35),
+                        ("kiln_rpm", 1.15),
+                        ("id_fan_pct", 62.0),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: fuel 1.80 -> 1.35 t/h. Process-correct vs the 5.5 percent O2 floor. "
+                "Chain 11 still shears at 21.200 ms.",
+            ),

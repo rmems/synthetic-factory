@@ -1,0 +1,23 @@
+                            [
+                                "an.slip.ppm 8.4 ppm rising 0.18 ppm/s",
+                                "load.rich.mol 0.28 under 0.42 cap",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Slip-first tempts a weak supervisor to treat a rising precursor as a "
+                            "trip and dump feed. Loading-first would ACCEPT: 0.28 mol/mol is still "
+                            "under 0.42.",
+                        ),
+                        (
+                            "window_derivation",
+                            "340 us = one overhead-analyzer sample minus rich-loading transmitter "
+                            "group delay on this amine-contactor bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 160 us vs combined jitter 62 us (analyzer 30 + loading 32): 2.58x "
+                            "over a 2.0x trust floor. Order is correctly slip-first. The error is "
+                            "clamping before either cap is crossed, not the race and not a wrong "
+                            "actuator.",
+                        ),

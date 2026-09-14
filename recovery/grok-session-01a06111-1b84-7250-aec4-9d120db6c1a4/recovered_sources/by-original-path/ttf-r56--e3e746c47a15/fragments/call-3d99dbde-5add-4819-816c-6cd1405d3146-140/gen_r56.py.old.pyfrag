@@ -1,0 +1,4 @@
+                    "retort wall IR, 2 kHz, 34 us jitter, axis retort_t",
+                    "hysteresis-reset tag, 1 kHz, 38 us jitter, trip_latched false",
+                    "FeSi-charge encoder (context)",
+                    "retort-vacuum PT (context)",

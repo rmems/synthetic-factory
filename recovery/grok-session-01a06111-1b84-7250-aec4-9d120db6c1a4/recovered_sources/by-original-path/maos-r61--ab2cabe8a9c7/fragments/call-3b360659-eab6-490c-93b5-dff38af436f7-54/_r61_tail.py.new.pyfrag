@@ -1,0 +1,716 @@
+def write_notes(rec, aux, pipeline_receipt):
+    gap, gap_ch = min_same_channel_gap(rec["spike_events"])
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 61
+
+Factory: multi-agent-ouroboros-swarm. One scenario (ZG), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r61.jsonl. Full labeled transcript:
+swarm-transcript-r61.md. Quota Q=1. Record id maos-r61-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Create-only writes under the assigned window factory dir plus /tmp/maos-r61/.
+
+ORCHESTRATION NOTE: dispatched AS round 61 of the 2026-09-02-final-heavy
+window. next_round.py on the empty window dir reported next_round=1 /
+batch-r01.jsonl; operator assigned round 61 and zero-padded filenames r61.
+Prior context: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, two newest NOTES (r54 GIBBSQUERN Bayer
+digestion; r56 COILSHAW hot-strip finishing), and occupancy census r14–r57.
+r55 LOOPERQUAY hot-strip builder-only; r57 SIPHONWOLD paper-machine-dryer
+in-flight. Explicitly avoided cloning LYOSHIELD, CINDERWICK, TRIAD /
+Meridian, QUILLFORGE, NIGHTWELL, FERRICLEAVE, CASSITER, OXBOWREEL / MURENA,
+REDHALL, SEEDLATCH, STRIAFOIL, PROTONIL, TORSIONKEY, ORRIS, WHORLSPAR,
+IONSPATE, SKULLGATE, CALXION, MAGNORIL, GORSEFLUE, SODASHARD, CLINKERFELL,
+LINTELPLY, KAOTHARN, TREADNOLL, ANOLITH, DRUMWROTH, RIMEBRAID, BRIMVAULT,
+NITROSTAITH, BOGIRON, CHROMLOOP, ETHYNWOLD, NITREVAULT, RUNNELGATE,
+SPARKHOLT, DIPLEGAR, OLEUMWEIR, SKARVOLT, GOBSPALL, GOBWOLD, GAUZEFELL,
+OSMOLITH, PUSHERFELL, CREELWOLD, LIXIVQUERN, GIBBSQUERN, OSMOQUAY,
+COILSHAW, LOOPERQUAY, SIPHONWOLD, VANTIS-CADENCE-AEGIS, THERMION, OKTAVE,
+STARLING, VERDIGRIS. Plant is invented GRATEHOLT / Palletfen Sinter SS-7.
+Leftover candidates bioreactor-perfusion / autonomous-driving /
+grid-inspection / alkaline-water-electrolysis were left unused.
+
+## What this round produced
+
+Scenario ZG — "GRATEHOLT / Palletfen Sinter SS-7": a 22-windbox grate-strand
+at 2.35 m/min / 540 mm bed. Three heterogeneous, individually-correct
+agents — BTP (last-four-box mean T), O2 (waste-gas zirconia), HDR
+(header suction) — each report their local loop in-spec. The conjunction
+is not a windbox-true certificate. Windbox 19 has collapsed pallet-car
+grate bars. BTP reads 1384 C inside 1320-1450 (twenty-one intact boxes
+dominate the tail). O2 is 8.1 vol% inside 6.0-10.5 (header-true). HDR is
+14.6 kPa inside 12.0-17.0 (header-true). Local IR infers 1648 C (healthy
+< 1480; hold if > 1520) and local suction 4.2 kPa (hold if < 8.0) but is
+policy-treated as a grate-nuisance tag unless BTP mean also trips (2016
+noisy grate-bar nuisance). The coordination-failure CLASS is new to this
+factory: STRAND-MEAN BTP CERTIFICATE OF A LOCAL WIND-BOX COLLAPSE.
+Completes a different family than r01-r04 and staged r14-r56 (including
+r42 blast-furnace burden hang, r52 coke-oven wall-pair, r49 EAF panel,
+r56 work-roll spall). Here every agent is correct, the BTP average is
+looking at strand-mean heat, and the playbook's three BTP confirms are
+not a windbox-true certificate.
+
+The gate is a correct MODIFY (numeric floor: do not raise strand speed
+above 2.35 m/min while windbox-19 IR > 1520 C AND windbox-19 suction
+< 8.0 kPa). TG-SS-7 strips PB-SS-7's raise-speed, holds 2.35 m/min, runs
+a 7.4 s damper-step -5% (collapse keeps |Delta BTP mean| 0.8 <= 1.1 K;
+intact would move >= 4.8), and isolates windbox 19 after a 9.8 min
+strand-side human ratify. Immediate 18 m fused cake is avoided (0 from
+the draft). The PRIMARY episode nonetheless FAILS: 16 min of unmonitored
+pre-t0 grate collapse had already fused 7 m of cake. Cake break at
++4.8 h; 14.2 h stall; $2.21M designed. Reward total -0.17 with process
+heads honest and world loss un-netted.
+
+Triple-edge scar (NOTES-r14 item 4): btp.in_band -> raise_speed
+(0.17 commissioned -> 0.50 at illusion -> 0.25 after ACh-gated
+depression) AND o2.ok -> raise_speed (0.16 -> 0.44 -> 0.22) AND
+hdr.ok.in_band -> raise_speed (0.15 -> 0.41 -> 0.20). Eligibility trace
+e^{{-0.80/0.94}} = {aux['trace']:.5f}; eta {aux['eta1']:.5f} / {aux['eta2']:.5f} /
+{aux['eta3']:.5f}; dw -0.250 / -0.220 / -0.210. Partial rollback of any pair
+leaves the third at 0.50 / 0.44 / 0.41, all > 0.30 fire threshold —
+fitted to fail. Coordinated depression of all three is the cure.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **sinter-strand-windbox** — justified novel subdomain
+  of industrial-process / iron-ore agglomeration, unused across
+  2026-08-17, 2026-08-30, and staged r14-r56. Distinct from r42 blast
+  furnace (stockline), r52 coke oven (flue wall), r33 cement kiln,
+  r49 EAF, r56 hot-strip finishing. autonomous-driving and
+  grid-inspection left unused.
+- Cycle-1 tail: windbox 19 pallet-car grate collapse + fused-cake
+  certificate. Strand-side visual PASSES (collapse under the bed).
+  Fitted-style base rate 0.41%/campaign (grate-bar MC; visual threshold
+  designed, flagged). Naive = FALSE PERMISSION.
+- Cycle-2 domain sub-variant: fluxed / high-basicity, 0.40x melt-window,
+  2.5x damper-step gain; 7.4 s / -5% acid pulse overshoots live intact
+  grate to a 46 K false BTP; probe must move to 22 s / -1.8%.
+- Cycle-2 tail: night-shift forged local-IR CSV at 20 C quantization vs
+  plant 2.0 C (10 bins) plus live IR 1648 C and local suction 4.2 kPa
+  at the claimed grate-true. Human-intent class, disjoint from cycle 1's
+  accidental collapse. Base rate ~0.28% of Sunday-night campaigns,
+  DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+3 d sister strand) with its own 178 us
+  race (demand vs grate-clear) and ACCEPT of the raise-speed the primary
+  MODIFIED away.
+- Learned-weight provenance on THREE edges with pair-rollback-fails.
+- HITL strand-side ratify 9.8 min (gap 4 partial; sim_or_real stays
+  designed — invented plant, not hil).
+- Governance CR-S-6108 prices retire-vs-probe-vs-status-quo and mandates
+  native 2.0 C CSV exports (the fraud fence).
+- Flip-fragility extended to WINDBOX-TRUE CERTIFICATE.
+
+## Self-critique of this round's batch
+
+### Strengths
+- Headline class is mechanistically tight: three locally-true mean loops
+  live on BTP mean, waste-gas O2, and header suction. Conjunction is not
+  a windbox-true heat certificate.
+- Negative-result honesty: the gate does the right thing and the strand
+  still fails for a reason the commissioned sensors could not see.
+  Total -0.17.
+- Triple-edge scar is load-bearing: rolling back any pair fails, with
+  fire threshold 0.30 exhibited on each remaining edge.
+- Contrast ACCEPT on a true intact grate-duty window prevents "never
+  raise-speed" as the lesson.
+- Distinct from r42 BF hang, r52 coke-oven wall, r49 EAF panel, r56
+  finishing-mill spall: grate-strand windbox local IR vs BTP mean.
+
+### Weaknesses (honest)
+- Probe error bands, the 0.41%/campaign collapse rate, the $2.21M /
+  $4.4M figures, the 9.8 min walk latency, and the night-shift 0.28%
+  base rate are DESIGNED constants and are flagged. Closed-loop offsets
+  (header dilution from one collapsed box, fluxed melt-window) are
+  derived from those inputs, not discovered by an unauthored process.
+- Cake-fusion model is a designed 16 min mapping; no full CFD of WB-19
+  shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil. Gap 4
+  remains open as a provenance cell (invented plants stay designed).
+- Cross-record arc is a hook (CR-S-6108 +21 d), not a serial igniter
+  into another round. autonomous-driving and grid-inspection remain
+  unused.
+
+### Realism of noise / latencies
+Ladder: 188 us race / 178 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap {gap:.3f} ms on {gap_ch}) / 500 us race
+window / 716 us gate latency / 20 ms bus epoch / 40 ms raster / 7.4 s
+probe / 9.8 min HITL / 8 min naive raise-speed-ramp counterfactual / 16 min
+pre-t0 collapse / 3.2 h grate recovery / 4.8 h cake break /
++3 d contrast / +21 d governance. Adaptation decay on btp.hot
+(0.53->0.50->0.43->0.30), box.dP (0.77->0.79->1.38->0.44->0.40->0.28),
+hdr.ok (0.56->0.58->0.46->0.25), o2.ok (0.62->0.65->0.81).
+
+### Value for SNN distillation
+- GRATE COLLAPSE = THREE CORRECT LOOPS, WRONG VOLUME.
+- WINDBOX-TRUE IR CHANNEL that policy treated as grate-nuisance-only as
+  the tie-break.
+- REVERSIBLE PROBE that recouples BTP mean iff the grate is intact.
+- TRIPLE-EDGE ELIGIBILITY: coordinated depression; pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum {rec['reward_components']['total']}
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.49 reconciles independently.
+- spike_events: primary {len(rec['spike_events'])} events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap {gap:.3f} ms >= 0.8 ms, 3
+  channels inside race_window_us 500 (box.hot.high 6.512, btp.in_band 6.700,
+  o2.ok 6.888). Contrast 8 events, own race, min same-channel gap well
+  above 0.8 ms.
+- Sidecars: raster spikes 54 == round(168 x 8.0 x 0.040); energy 1242 pJ /
+  0.001242 uJ at 23 pJ/spike; excerpt 16 events inside [0, 40000] us,
+  neuron_id < 168, same-neuron gap N/A (unique ids) / >=1000 us; routing 4
+  entries with three scar edges' before/after pair; third factor tau 0.94 s
+  == 940 ms; gate_snn pools 40/16/4 == round(n x rate x 0.025) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: {pipeline_receipt}
+
+## Novel coverage
+The coordination-failure CLASS (grate-collapse certificate of a
+BTP-true strand), the domain (grate-strand sinter / windbox local IR),
+the damper-step probe discriminant, the triple-edge scar with
+pair-rollback-fails, the primary negative-result (correct MODIFY,
+strand still fails on unmonitored grate fusion), the HITL strand-side
+ratify, the fluxed-sinter probe-duration refit, and the night-shift
+10-bin quantization fence are absent from prior committed ouroboros
+rounds and from staged r14-r56. Repeated elements discounted:
+same-gate contrast, governance-pricing scaffold, flip-fragility series
+(extended to windbox-true certificate, but the move rhymes), sequenced
+recovery shape, third-factor rollback form, negative-result primary.
+Adjacent ironmaking rounds (r42 blast furnace, r52 coke oven, r49 EAF,
+r56 hot-strip) share industrial-process scaffolding but not sinter
+windbox physics. Weighing a new failure family + cure vocabulary +
+unused sub-domain + Palletfen geography against those reused scaffolds:
+
+{NOVEL_LINE}
+
+## What ROUND 62 should add
+1. FIT THE DESIGNED CONSTANTS: grate-bar arrival, probe BTP-jump bands,
+   fusion-to-cake mapping, night-shift claim process.
+2. HIL PROVENANCE CELL: put the strand-side LOTO on a hardware-in-loop
+   grate pendant with fitted latency as state.sim_or_real=hil — only if
+   the plant is no longer purely invented.
+3. CROSS-RECORD ARC: let CR-S-6108's local-IR alarm be the igniter of
+   the next round rather than a dangling +21 d leaf.
+4. Domain candidates (de-collided): bioreactor-perfusion;
+   autonomous-driving; grid-inspection (if distinct from STARLING
+   aerial-swarm); alkaline-water-electrolysis; urea-prilling-tower;
+   wet-fgd-absorber; hrsg-attemperator.
+   AVOID sinter-strand-windbox (now used), hot-strip-mill-finishing
+   (r56), paper-machine-dryer-section (r57), gibbsite-autoclave-digestion
+   (r54), carbon-fiber-oxidation-oven (r53), coke-oven (r52), blast-furnace
+   (r42), eaf-foamy-slag (r49), and any LYOSHIELD / CINDERWICK / TRIAD /
+   SKULLGATE / BOGIRON / SKARVOLT / PUSHERFELL / CREELWOLD / GIBBSQUERN /
+   COILSHAW / LOOPERQUAY / SIPHONWOLD / GRATEHOLT plant.
+"""
+    return notes
+
+
+def write_transcript(rec, line):
+    c1_spikes = [e for e in rec["spike_events"] if e["t_rel_ms"] <= 26.258]
+    text = """# Multi-Agent Ouroboros Swarm — Round 61 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r61-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Plant: invented GRATEHOLT / Palletfen Sinter SS-7 (not TRIAD / Meridian / VANTIS-CADENCE-AEGIS / LYOSHIELD / CINDERWICK / BOGIRON / PUSHERFELL / SKARVOLT / COILSHAW / GIBBSQUERN / SIPHONWOLD)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r61.jsonl).
+
+---
+
+# CYCLE 1 — Foundation + injections
+
+## Generator
+
+Design intent: a 22-windbox grate-strand sinter machine where three correct
+agents each read a strand-mean loop because a pallet-car grate collapse
+on windbox 19 partitions local IR from BTP-true flue, oxygen, and header
+suction. The naive playbook raises strand speed into a collapsed grate.
+The gate must MODIFY on a numeric speed floor, not by killing an agent.
+sim_or_real=designed. Reward heads are
+task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Palletfen SS-7, 2.35 m/min,
+BTP 1384 C, O2 8.1 vol%, header 14.6 kPa, proposed RAISE-SPEED
+2.75 m/min, safety MODIFY to SPEED-HOLD, executed hold without the
+damper-step numbers fully specified, outcome "collapse found, strand saved"
+(this last claim is the defect the later cycles will refuse to keep).
+Sixteen spikes, five ticks, raster/gate_snn present but the scar is a
+single edge.
+
+```json
+{
+  "id": "maos-r61-001",
+  "state": {
+    "sim_or_real": "designed",
+    "domain": "industrial-process",
+    "description": "Strand SS-7 at grate-strand sinter; three BTP loops in-spec; supervisor proposes raise-speed.",
+    "t0_us": 1755333480000071,
+    "gate_latency_us": 716,
+    "race_window_us": 500
+  },
+  "proposed_action": {"name": "raise_speed", "parameters": {"speed_m_min": 2.75}},
+  "safety_decision": {"decision": "MODIFY", "rationale": "Hold; do not raise speed while local IR is high."},
+  "executed_action": {"name": "speed_hold", "executed_as_proposed": false},
+  "future_outcome": {"summary": "Collapse found, strand saved."},
+  "reward_components": {"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"},
+  "meta": {"round": 61, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}
+}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "strand saved". If the pre-t0 fused grate later
+   breaks, booking +0.40 is a lie. Fix: declare `_aggregation`, emit
+   3–8 ticks that sum to task_progress+safety+efficiency+coherence+exploration,
+   and do not call a quarantined strand a save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote
+   speed >= 2.35 m/min while windbox-19 IR > 1520 C AND local suction < 8.0 kPa.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-process` collides with generic MES vocabulary and teaches
+   nothing. Grate-strand sinter (local IR vs BTP mean, local suction as
+   a collapse flag) is absent from prior ouroboros rounds and must be named.
+4. **major — race under-specified.** One box channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted `t_rel_ms`
+   and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated weight
+   repeats r04's one-edge rollback and is thinner than r14's two-edge.
+   NOTES-r14 item 4 asked for three edges where pair rollback fails.
+
+Critic does not rewrite the trajectory.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **sinter-strand-windbox**
+(justified novel subdomain of industrial-process / iron-ore agglomeration;
+explicit tag `sinter-strand-windbox`).
+
+Displaced: the Generator's generic `industrial-process` bucket, and any
+temptation to reuse warehouse-amr, aerial-swarm, district-heating,
+event-camera-traffic-grid, pharmaceutical-lyophilization, water-treatment,
+float-glass, underwater-rov, electrolytic-aluminum, czochralski-pull,
+slot-die coating, pem-water-electrolysis, wind-turbine pitch,
+surgical-assist, optical-fiber-draw, kraft-recovery-boiler,
+steel-continuous-caster, humanoid-locomotion, vacuum-induction melt,
+steam-methane reformer, cement-rotary-kiln-clinker,
+autoclave-composite-cure, geothermal-binary-orc, tire-curing-press,
+chlor-alkali-membrane-electrolysis, delayed-coker-drum-switch,
+lng-mche-mixed-refrigerant, claus-sulfur-recovery,
+ammonia-synthesis-converter, blast-furnace-burden-descent,
+hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil,
+hydroelectric-kaplan-wicket, fcc-riser-regenerator,
+fcc-regenerator-cyclone-dipleg, sulfuric-contact-converter,
+eaf-foamy-slag-water-panel, coke-oven-battery-heating,
+carbon-fiber-oxidation-oven, gibbsite-autoclave-digestion,
+hot-strip-mill-finishing, or paper-machine-dryer-section.
+autonomous-driving is left unused.
+
+Domain-specific constraint: strand speed must remain >= 2.35 m/min while
+windbox-19 IR > 1520 C even if BTP mean is inside the healthy band;
+local suction is a collapse flag the header average cannot substitute for.
+
+Sensor delta: +last-four-box BTP, +waste-gas O2, +header suction,
++local windbox IR, +local suction; -any mobile robot, -event-camera
+gantries, -DVS, -Pirani/CM, -looper tension, -work-roll IR, -sector
+radar, -coke-oven wall-pair, -EAF off-gas H2.
+
+`state.domain` and `meta.domain` both become `sinter-strand-windbox`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Palletfen night-shift grate collapse, not a lyophilizer, not a finishing
+mill, not a coke oven, not a blast furnace, not a Bayer digester, not a
+paper machine).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **windbox 19 pallet-car
+grate collapse + fused-cake certificate**.
+
+- Trigger: WB-19 grate-bar collapse plus local burn-through under the bed,
+  local IR 1648 C, local suction 4.2 kPa.
+- Base rate: <1% — 0.41%/campaign from a grate-bar MC (strand-side
+  visual threshold is designed; pallet-car geometry fitted-style). Visual
+  PASSES because the collapse sits under the bed.
+- Naive failure: FALSE PERMISSION. PB-SS-7 sees three in-spec mean
+  loops, raises 2.35->2.75 m/min, fused cake 18 m, $4.4M.
+- Trajectory edit: put the collapse in `state.fault_context`, make each
+  agent's confirm a different BTP-side slice of the same grate-false
+  state (btp-in-band, o2-ok, hdr-ok). Local IR is readable but
+  policy-treated as grate-nuisance-only.
+
+Distinct from r42 blast-furnace hang (stockline vs windbox), r52 coke-oven
+wall-pair, r49 EAF water-panel, r56 finishing-mill work-roll spall, and
+r54 Bayer blow-off plug.
+
+## Neuromorphic Translator
+
+Cycle-1 temporal densification (16 spikes, 5 ticks, 40 ms raster):
+
+| channel | t_rel_ms | amplitude |
+|---|---|---|
+| btp.hot | 0.318 | 0.53 |
+| o2.ok | 1.142 | 0.62 |
+| hdr.ok | 2.028 | 0.56 |
+| box.dP | 3.174 | 0.77 |
+| btp.hot | 4.164 | 0.50 |
+| box.dP | 4.838 | 0.79 |
+| hdr.ok | 5.358 | 0.58 |
+| box.hot.high | 6.512 | 1.38 |
+| btp.in_band | 6.700 | 1.12 |
+| o2.ok | 6.888 | 0.65 |
+| ctrl.gate | 7.228 | 1.08 |
+| box.dP | 8.858 | 0.44 |
+| o2.ok | 10.738 | 0.81 |
+| hdr.ok | 13.038 | 0.46 |
+| btp.hot | 18.518 | 0.43 |
+| ctrl.gate | 26.258 | 0.85 |
+
+Race: box-hot 6.512 vs BTP 6.700 (188 us) inside 500 us;
+O2 6.888 is the third channel in-window. Winner/loser flip: reversing
+188 us reshuffles PB-SS-7 triage; floors still MODIFY. Refractory held
+(cycle-1 min same-channel gap 1.664 ms on box.dP 4.838-3.174;
+btp 4.164-0.318 = 3.846; hdr 5.358-2.028 = 3.330). Adaptation:
+box 0.77->0.79->1.38->0.44; btp 0.53->0.50->0.43; hdr
+0.56->0.58->0.46.
+
+Raster cycle-1 seed: 40 ms, 168 neurons, 8.0 Hz, 54 spikes, 1242 pJ, third
+factor acetylcholine tau_e 0.94 s. Single scar edge only — cycle 2 must
+add the second and third edges.
+
+Ticks 1–5 at 4580, 6512, 7228, 7.4e6, 588e6 us; heads not yet the final
+-0.17 (missing the 3.2 h and 4.8 h ticks).
+
+Distillation value this cycle: BTP-side confirms as a permission code
+that is not a windbox-true heat code.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain sinter-strand-windbox, tail
+grate collapse, 16 spikes, 5 ticks, MODIFY with numeric floor, raster+gate_snn
+present, sim_or_real=designed, rights stamp on record and meta, no thought
+keys. Still missing (and therefore not the publishable line): fluxed-sinter
+sub-variant, night-shift tail, second and third scar edges,
+delayed cake break as PRIMARY terminal, contrast ACCEPT episode,
+ticks 6–7, spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 500 us window; refractory
+  >= 0.8 ms; rationale quotes 2.35 m/min / 1520 C / 8.0 kPa; domain
+  named; gate_snn.decision MODIFY.
+- checks deferred to cycle 2: triple-edge scar, second tail, second domain
+  constraint, negative-result booking, 7 ticks summing to heads.
+- densification vs Generator v1: +1 domain, +1 tail, +16 spikes, +5 ticks,
+  +numeric floor.
+
+Cycle-1 JSON is retained as the base; it is NOT written to batch-r61.jsonl.
+
+Cycle-1 spike count: __C1_SPIKES__.
+
+---
+
+# CYCLE 2 — Densification
+
+## Generator
+
+Cycle-1 output is the base. Additive expansion (nothing removed):
+
+1. Downstream side-effect (immediate): damper-step probe at +7.4 s stays
+   mean-false (|Delta BTP mean| 0.8 <= 1.1 K) — grate collapse, not
+   true strand-duty. Windbox 19 holds. Fused grate discovered during the isolate.
+2. Delayed side-effect (PRIMARY terminal, not a footnote): at +4.8 h
+   fused-cake break from the pre-t0 grate collapse; 14.2 h stall;
+   $2.21M. The 16 min pre-t0 local burn-through is the mechanism. Correct gate,
+   strand still fails.
+3. Deepened `proposed_action.evidence` with units: IR 1648 C,
+   local suction 4.2 kPa, BTP 1384 C, O2 8.1 vol%, header 14.6 kPa, race 188 us.
+4. Tightened rationale to the numeric floor speed >= 2.35 m/min while
+   windbox-19 IR > 1520 C AND local suction < 8.0 kPa, plus
+   probe bands <= 1.1 vs >= 4.8 K, plus HITL 9.8 min strand-side
+   rule.
+
+Reward retargeted to total -0.17 so the delayed fail is the inflection
+(t_us 17280000000), not the gate. Process heads remain non-zero.
+
+## Critic
+
+Re-audit of the expanded trajectory:
+
+1. **blocking if unfixed — missing second domain constraint.** Acid-sinter
+   probe 7.4 s / -5% is not a universal number. A fluxed high-basicity
+   bed will overshoot live intact BTP. Diversity Enforcer must
+   inject the physical-constraints sub-variant this cycle.
+2. **major — only one tail class.** Grate collapse is accidental
+   infrastructure. A disjoint human-intent tail is still required
+   (night-shift local-IR forgery is the open cell).
+3. **major — scar is still one edge in the cycle-1 raster.** NOTES-r14
+   item 4 is not discharged until three go-edges exist and pair rollback
+   is shown to fail at threshold 0.30.
+4. **minor — contrast episode missing.** Without a same-gate ACCEPT on a
+   true intact grate-duty window the record teaches "never raise-speed". Add +3 d
+   sister-strand contrast with its own race.
+5. **minor — HITL latency mentioned in prose only.** Put 9.8 min in
+   executed_action.parameters.human_ratify and in a tick.
+
+No rewrite; directives only.
+
+## Diversity Enforcer
+
+Injected second novel domain / physical-constraint sub-variant (exactly 1
+this cycle): **fluxed / high-basicity sinter** on a sister charge class.
+
+What it expands: 22-box acid-sinter strand (cycle 1) -> fluxed
+0.40x melt-window. Damper-step gain 2.5x. Bulk density 1.86 vs 1.62 t/m3.
+The 7.4 s -5% pulse moves even a live intact grate to a 46 K false
+BTP, inside the 1520 C trip. Required probe: 22 s at -1.8% (live
+Delta 5.0 K, collapse Delta 0.6).
+
+This is still one domain injection for the cycle (physical-constraints
+clause of the factory prompt). It does not displace
+sinter-strand-windbox; it changes which probe table is legal.
+`future_outcome.subvariant_constraint` carries the refit. Jaccard opening
+stays the Palletfen 22-box sentence; fluxed sinter is additive, not a rewrite.
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**night-shift forged local-IR CSV**.
+
+- Trigger: shift lead, 03:11, posts a historian export showing
+  IR = 1390 C at t = 1.4 h to clear a stockpile slot.
+- Base rate: ~0.28% of Sunday-night campaigns (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the raise-speed on the forged confirm
+  and ignores live local IR. Fused cake plus a data-integrity write-up.
+- Fence: forged log quantized at 20 C (SCADA screenshot rounding); plant
+  historian is 2.0 C (10 bins). Live IR is 1648 C and local suction is
+  4.2 kPa at the claimed grate-true, which no live intact grate
+  produces. Freeze-window overlap with the 16 min collapse.
+- Trajectory edit: governance CR-S-6108 mandates native 2.0 C CSV
+  exports; the contrast ACCEPT still requires live local IR, not a CSV.
+
+Distinct from cycle-1 collapse (accidental grate-bar vs deliberate deception) and
+from the fluxed-sinter sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 26.258 ms: damper.probe 7400.0, box.dP 7488.4
+  (adapt 1.38->0.40), btp.in_band 7572.0 (1.12->0.35), human.ratify
+  588000.0, strand.hold 588900.0, grate.fuse 589700.0, btp.hot
+  11520000.0, box.dP 11520720.0, hdr.ok 11521480.0, cake.break
+  17280000.0. Primary train 16 -> 26. Still one key, still sorted,
+  refractory held.
+- +2 ticks (5 -> 7) at 11_520_000_000 us (true intact grate) and
+  17_280_000_000 us (cake break). Heads now 0.08, -0.36, -0.12,
+  0.14, 0.09; total -0.17. Inflection is the last tick.
+- Contrast train 8 events, own race 178 us, ACCEPT.
+- Triple-edge third factor: three btp-healthy-go edges, tau_e 0.94 s = 940 ms,
+  trace __AUX_TRACE__, eta __AUX_ETA1__ / __AUX_ETA2__ / __AUX_ETA3__,
+  weights 0.50->0.25, 0.44->0.22, 0.41->0.20. Raster excerpt unchanged
+  (decision window is still 40 ms) and remains sorted with unique
+  neuron_ids (same-neuron >=1000 us vacuously).
+
+Winner/loser flip (re-stated, not replaced): reversing 188 us would only
+reorder triage; local-IR floors still MODIFY. Contrast flip of
+178 us similarly cannot turn an intact grate into a collapse.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.17; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted, tau_e consistent; gate_snn.decision matches; meta.round=61,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive.
+
+Densification delta: +1 domain sub-variant (fluxed sinter), +1 tail
+(night-shift forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 triple-edge scar with
+pair-rollback-fails, +1 HITL ratify, +1 surprise (grate fusion is the
+collapse mechanism).
+
+Publishable JSONL line (the only JSONL line; also at batch-r61.jsonl):
+
+```json
+__FINAL_JSONL__
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r61.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+    text = (
+        text.replace("__C1_SPIKES__", str(len(c1_spikes)))
+        .replace("__AUX_TRACE__", f"{math.exp(-DELAY_S / TAU_E_S):.5f}")
+        .replace("__AUX_ETA1__", f"{0.25 / math.exp(-DELAY_S / TAU_E_S):.5f}")
+        .replace("__AUX_ETA2__", f"{0.22 / math.exp(-DELAY_S / TAU_E_S):.5f}")
+        .replace("__AUX_ETA3__", f"{0.21 / math.exp(-DELAY_S / TAU_E_S):.5f}")
+        .replace("__FINAL_JSONL__", line)
+    )
+    return text
+
+
+def create_only(path: Path) -> Path:
+    if not path.exists():
+        return path
+    if path.name.startswith("batch-r61") and path.suffix == ".jsonl":
+        alt = path.with_name("batch-r61c.jsonl")
+        if not alt.exists():
+            return alt
+    raise FileExistsError(f"refuse: {path} already exists")
+
+
+def emit_text(path: Path, text: str) -> Path:
+    dest = create_only(path)
+    dest.write_text(text)
+    return dest
+
+
+def main():
+    rec, aux = build_record()
+    errs = local_checks(rec, aux)
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    OUT_WINDOW.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(rec, ensure_ascii=False, separators=(",", ":"))
+    jsonl_stage = emit_text(OUT / "batch-r61.jsonl", line + "\n")
+    jsonl_window = emit_text(OUT_WINDOW / "batch-r61.jsonl", line + "\n")
+
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import raster_status
+    from verify_execution import verify_record_execution
+
+    e, w, kinds, n = check_jsonl(
+        jsonl_stage,
+        jsonl_stage.name,
+        staging=FactoryStaging(enabled=True),
+    )
+    print("check_jsonl errors", e)
+    print("check_jsonl warnings", w)
+    print("kinds", kinds, "n", n)
+    errs.extend(e)
+
+    st = raster_status(rec)
+    print(
+        "raster_status",
+        {
+            k: st[k]
+            for k in (
+                "raster_present",
+                "raster_valid",
+                "gate_snn_present",
+                "gate_snn_valid",
+                "reason_codes",
+                "routing_table_entries",
+                "third_factor_present",
+                "spikes",
+            )
+            if k in st
+        },
+    )
+    if st.get("reason_codes"):
+        errs.append(f"raster {st['reason_codes']}")
+    if not st.get("raster_valid"):
+        errs.append("raster not valid")
+    if not st.get("gate_snn_valid"):
+        errs.append("gate_snn not valid")
+
+    status, reason = verify_record_execution(rec, RECORD_ID)
+    print("verify_record_execution", status, reason)
+    if status != "verified":
+        errs.append(f"verify {status} {reason}")
+
+    probe = subprocess.run(
+        [
+            sys.executable,
+            f"{ROOT}/pipelines/spike_probe.py",
+            "--strict",
+            str(jsonl_stage),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    print("spike_probe rc", probe.returncode)
+    print(probe.stdout[-2000:] if probe.stdout else "")
+    if probe.returncode != 0:
+        errs.append(f"spike_probe {probe.returncode} {probe.stderr[-500:]}")
+
+    pipeline_receipt = (
+        f"check_jsonl errors={e} warnings={w} kinds={kinds} n={n}; "
+        f"raster_status valid={st.get('raster_valid')} gate={st.get('gate_snn_valid')} "
+        f"reasons={st.get('reason_codes')}; verify_record_execution={status} "
+        f"({reason}); spike_probe --strict rc={probe.returncode}"
+    )
+    notes = write_notes(rec, aux, pipeline_receipt)
+    transcript = write_transcript(rec, line)
+    notes_stage = emit_text(OUT / "NOTES-r61.md", notes)
+    notes_window = emit_text(OUT_WINDOW / "NOTES-r61.md", notes)
+    tr_stage = emit_text(OUT / "swarm-transcript-r61.md", transcript)
+    tr_window = emit_text(OUT_WINDOW / "swarm-transcript-r61.md", transcript)
+
+    heading = subprocess.run(
+        [sys.executable, "/tmp/maos_heading_check.py", str(tr_stage)],
+        capture_output=True,
+        text=True,
+    )
+    print(heading.stdout)
+    if heading.returncode != 0:
+        errs.append(f"heading check {heading.returncode} {heading.stdout}")
+
+    raw_hits = subprocess.run(
+        [
+            "rg",
+            "-l",
+            "maos-r61-001|GRATEHOLT",
+            str(Path(ROOT) / "outputs" / "raw"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if raw_hits.stdout.strip():
+        errs.append(f"raw tree hit {raw_hits.stdout.strip()[:200]}")
+
+    loads_ok = True
+    for p in (jsonl_stage, jsonl_window):
+        for i, raw in enumerate(p.read_text().splitlines(), 1):
+            if not raw.strip():
+                continue
+            try:
+                json.loads(raw)
+            except json.JSONDecodeError as exc:
+                errs.append(f"json.loads {p}:{i} {exc}")
+                loads_ok = False
+    print("json.loads", loads_ok)
+
+    if errs:
+        print("FAIL", errs)
+        return 1
+    print("OK maos-r61-001 staged under", OUT, "and", OUT_WINDOW)
+    print("bytes jsonl", jsonl_window.stat().st_size)
+    print("bytes notes", notes_window.stat().st_size)
+    print("bytes transcript", tr_window.stat().st_size)
+    print("paths", jsonl_window, notes_window, tr_window)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

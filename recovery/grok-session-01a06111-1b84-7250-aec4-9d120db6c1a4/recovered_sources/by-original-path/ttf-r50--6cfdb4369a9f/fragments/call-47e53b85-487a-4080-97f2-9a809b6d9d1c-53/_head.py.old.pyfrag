@@ -1,0 +1,25 @@
+    channels = ["lif.clamp" if t < 21400 else "lif.tear" for t, _ in picked]
+    lif = OrderedDict(
+        [
+            ("model", "leaky_integrate_and_fire"),
+            ("n", 72),
+            ("dt_us", 100),
+            ("tau_m_ms", 18.5),
+            ("v_rest", 0.0),
+            ("v_reset", 0.0),
+            ("v_th", 1.0),
+            ("r_m", 1.0),
+            ("refractory_us", 1000),
+            ("i_bias", 0.90),
+            ("i_stim_peak", 2.50),
+            ("stim_t_us", [21400, 25600]),
+            ("i_clamp_extra", 0.64),
+            ("clamp_n", 14),
+            ("seed", 44236),
+            (
+                "note",
+                "Population sim scoped to this sidecar. Plant remains designed. "
+                "Neurons 0-13 carry +0.64 melt-current-clamp bias; stim 21.4-25.6 ms is the slag-crust tear.",
+            ),
+        ]
+    )

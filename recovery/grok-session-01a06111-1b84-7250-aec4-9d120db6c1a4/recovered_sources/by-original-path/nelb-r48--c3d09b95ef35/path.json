@@ -1,0 +1,70 @@
+{
+  "agent_ids": [
+    "01a0640d-430c-7c12-b564-b4b98e3eb325"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 3,
+  "final_state": "unknown",
+  "hunk_evidence_count": 6,
+  "original_basename": "_envelope.py",
+  "original_path": "/tmp/nelb-r48/_envelope.py",
+  "path_key": "nelb-r48--c3d09b95ef35",
+  "terminal_event_ids": [
+    "01a0640d-430c-7c12-b564-b4b98e3eb325:call-3d3a6373-8388-40e2-ab46-2c6ab6715e80-50",
+    "01a0640d-430c-7c12-b564-b4b98e3eb325:call-43e189ac-e7c1-467d-80a6-3dac5f5288ae-29",
+    "01a0640d-430c-7c12-b564-b4b98e3eb325:call-58c86ec2-7225-4555-b473-04830185c4d5-36",
+    "01a0640d-4322-72e3-beed-79eb980a94bb:call-14cba50e-2540-433c-8f35-59a84671e51a-18",
+    "01a0640e-7446-7c42-8dc2-1b2312159189:call-95a8ddbf-3d6f-45fe-bf0e-a0098afcdb63-13",
+    "01a0640e-7446-7c42-8dc2-1b2312159189:call-a9116949-ba6c-4d00-926e-007edec0d235-10",
+    "01a0640e-7448-75c1-b6d7-ea4568833bd6:call-ce5db3d8-3b26-4643-86c3-9968682fbd06-12"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 4,
+  "unresolved_events": [
+    {
+      "channel": "terminal",
+      "event_id": "01a0640d-430c-7c12-b564-b4b98e3eb325:call-43e189ac-e7c1-467d-80a6-3dac5f5288ae-29",
+      "journal_line": 170,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640d-430c-7c12-b564-b4b98e3eb325/updates.jsonl",
+      "operation": "inline_python_write_text",
+      "reason": "inline_python_write_text was recorded but is not conclusively reproducible without execution",
+      "timestamp_utc": "2026-09-02T22:54:27.786Z"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0640d-430c-7c12-b564-b4b98e3eb325:call-214ef17b-394c-434c-9f39-70d0bc405622-32",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r48--c3d09b95ef35/fragments/call-214ef17b-394c-434c-9f39-70d0bc405622-32/_envelope.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r48--c3d09b95ef35/fragments/call-214ef17b-394c-434c-9f39-70d0bc405622-32/_envelope.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0640d-430c-7c12-b564-b4b98e3eb325:call-214ef17b-394c-434c-9f39-70d0bc405622-33",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r48--c3d09b95ef35/fragments/call-214ef17b-394c-434c-9f39-70d0bc405622-33/_envelope.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r48--c3d09b95ef35/fragments/call-214ef17b-394c-434c-9f39-70d0bc405622-33/_envelope.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0640d-430c-7c12-b564-b4b98e3eb325:call-214ef17b-394c-434c-9f39-70d0bc405622-34",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r48--c3d09b95ef35/fragments/call-214ef17b-394c-434c-9f39-70d0bc405622-34/_envelope.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r48--c3d09b95ef35/fragments/call-214ef17b-394c-434c-9f39-70d0bc405622-34/_envelope.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

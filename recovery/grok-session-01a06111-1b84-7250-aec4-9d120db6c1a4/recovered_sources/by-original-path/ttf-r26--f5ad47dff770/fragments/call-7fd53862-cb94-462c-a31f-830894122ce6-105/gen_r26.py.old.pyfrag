@@ -1,0 +1,22 @@
+                            [
+                                "faraday.beam.uA 14.2 uA",
+                                "rf.vswr 1.12",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Faraday-first latches REJECT hold 0 nA; VSWR-first would commit "
+                            "40 nA on an apparent 1.12 under-read.",
+                        ),
+                        (
+                            "window_derivation",
+                            "380 us = one Faraday electrometer slot versus RF coupler integration "
+                            "on this HIL dee bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 182 us vs combined jitter ~64 us (Faraday 30 + VSWR 34): 2.8x "
+                            "over a 2.0x trust floor. Pad injects the dummy-load reflection 90-130 us "
+                            "before the Faraday volume (geometric lag, not a sensor fault); the "
+                            "apparent VSWR 1.12 packet is still the loser in this 380 us window.",
+                        ),

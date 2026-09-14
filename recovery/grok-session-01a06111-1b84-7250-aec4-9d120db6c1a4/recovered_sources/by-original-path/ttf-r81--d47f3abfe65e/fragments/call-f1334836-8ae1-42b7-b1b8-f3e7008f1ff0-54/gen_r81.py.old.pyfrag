@@ -1,0 +1,23 @@
+        if rec["id"] == "ttf-r81-422":
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["live_tph"] < ev["cap_tph"]):
+                issues.append("422 live HS not under cap")
+            if ev.get("published_unit") != "kg/h" or ev.get("legal_unit") != "t/h":
+                issues.append("422 selector pair missing")
+            if not (ev.get("tag_age_us", 0) > ev.get("max_legal_tag_age_us", 10**9)):
+                issues.append("422 LS not under cap")
+            if ev.get("peak_hold_fresh") is not False:
+                issues.append("422 select_bound not false")
+            if rec["executed_action"]["parameters"].get("bind_lagged_kgh") is not True:
+                issues.append("422 select_bound low not true")
+            if rec["executed_action"]["parameters"].get("nitric_tph") != 0.35:
+                issues.append("422 expected wrong-leg 0.35 t/h nitric")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("422 missing recovery")
+            table_to = {row["to"] for row in rec["raster"]["routing"]["table"]}
+            if "policy.live_hold" in table_to:
+                issues.append("422 routing still has hs_cut")
+            if "policy.wrong_unit_clamp" not in table_to:
+                issues.append("422 routing missing ls_cut")
+            if "wrong-unit" not in rec["meta"]["tags"] or "lagged-bus" not in rec["meta"]["tags"]:
+                issues.append("422 missing selector-wrong-leg tags")

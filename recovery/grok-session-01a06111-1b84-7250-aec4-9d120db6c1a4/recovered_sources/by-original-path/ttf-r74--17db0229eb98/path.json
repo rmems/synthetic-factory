@@ -1,0 +1,66 @@
+{
+  "agent_ids": [
+    "01a0640d-430a-7972-9a86-9edd2b7fe8d0"
+  ],
+  "classification": "partial",
+  "classification_evidence": [
+    "at least one full version was recovered, but a later successful edit or terminal mutation could not be placed conclusively",
+    "a successful recorded terminal delete or move removed the final in-/tmp state",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 3,
+  "final_state": "deleted",
+  "hunk_evidence_count": 3,
+  "original_basename": "_records.py",
+  "original_path": "/tmp/ttf-r74/_records.py",
+  "path_key": "ttf-r74--17db0229eb98",
+  "terminal_event_ids": [
+    "01a0640d-430a-7972-9a86-9edd2b7fe8d0:call-6b09e8b1-6294-4f4e-b0e4-13efc7cb8452-52",
+    "01a0640d-430a-7972-9a86-9edd2b7fe8d0:call-89549ecb-efe1-4380-96bb-71a9abf0cb9a-49"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 1,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a0640d-430a-7972-9a86-9edd2b7fe8d0:call-74fdd375-2e14-4b33-9c4f-152ed239fe54-48",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r74--17db0229eb98/fragments/call-74fdd375-2e14-4b33-9c4f-152ed239fe54-48/_records.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r74--17db0229eb98/fragments/call-74fdd375-2e14-4b33-9c4f-152ed239fe54-48/_records.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "recorded old_string occurrence count was 3, so placement is not provable"
+    }
+  ],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a0640d-430a-7972-9a86-9edd2b7fe8d0",
+      "basename_preserved": true,
+      "bytes": 68532,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 249,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640d-430a-7972-9a86-9edd2b7fe8d0/updates.jsonl",
+      "original_basename": "_records.py",
+      "original_path": "/tmp/ttf-r74/_records.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r74--17db0229eb98/versions/v0001/_records.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r74--17db0229eb98/versions/v0001/_records.py",
+      "session_id": "01a0640d-430a-7972-9a86-9edd2b7fe8d0",
+      "sha256": "771492a855e84a68cc75b7b538b866282c8754c551040c6268605d8df9dd52f6",
+      "source_channel": "structured",
+      "source_event_id": "01a0640d-430a-7972-9a86-9edd2b7fe8d0:call-593e190f-8e2d-490a-bee6-3906c5c7479a-44",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788389802493,
+      "timestamp_utc": "2026-09-02T22:56:42.493Z",
+      "tool_call_id": "call-593e190f-8e2d-490a-bee6-3906c5c7479a-44",
+      "version": 1,
+      "version_id": "ttf-r74--17db0229eb98:v0001"
+    }
+  ]
+}

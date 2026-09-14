@@ -1,0 +1,16 @@
+            ("name", "extract_hold"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("extract_nA", 0.0),
+                        ("hold", True),
+                        ("dee", "DK-3"),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: extract 40 -> 0 nA. Faraday 14.2 uA > 8.0 cap binds beam_hold; VSWR "
+                "1.12 unused as extract_go.",
+            ),

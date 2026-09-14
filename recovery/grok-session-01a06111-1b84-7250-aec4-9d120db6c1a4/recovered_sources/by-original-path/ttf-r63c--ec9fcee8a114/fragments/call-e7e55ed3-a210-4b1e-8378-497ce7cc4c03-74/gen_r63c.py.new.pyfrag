@@ -1,0 +1,17 @@
+                        ("name", "undertrimmed_wf6_mfc"),
+                        (
+                            "parameters",
+                            OrderedDict(
+                                [
+                                    ("wf6_sccm", 40.0),
+                                    ("h2_sccm", 180.0),
+                                    ("unit_bound", "slm_as_sccm"),
+                                    ("bind_slm_as_sccm", True),
+                                    ("lagged_slm", 0.042),
+                                ]
+                            ),
+                        ),
+                        (
+                            "gate_effect",
+                            "MODIFY (incorrect / wrong-unit on lagged bus slm-vs-sccm): WF6 only 42.0 -> 40.0 sccm while live 42.0 > 28.0 and H2 stays 180. Routing relay.mb.lag.slm -> policy.under_trim; no positive weight to policy.ar_cut.",
+                        ),

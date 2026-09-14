@@ -1,0 +1,867 @@
+
+
+def local_checks(rec, aux):
+    errs = []
+    ev = rec["spike_events"]
+    times = [e["t_rel_ms"] for e in ev]
+    if times != sorted(times):
+        errs.append("spikes not sorted")
+    if not (5 <= len(ev) <= 40):
+        errs.append(f"spike count {len(ev)}")
+    rf = check_refractory(ev)
+    if rf:
+        errs.append(rf)
+    lo, hi = rec["state"]["race_window_rel_ms"]
+    in_win = defaultdict(int)
+    for e in ev:
+        if lo <= e["t_rel_ms"] <= hi:
+            in_win[e["channel"]] += 1
+    if sum(1 for _c, n in in_win.items() if n >= 1) < 2:
+        errs.append(f"race window channels {dict(in_win)}")
+    ras = rec["raster"]
+    exp_sp = round(ras["neurons"] * ras["mean_rate_hz"] * ras["window_s"])
+    if abs(ras["spikes"] - exp_sp) > 1:
+        errs.append(f"raster spikes {ras['spikes']} vs {exp_sp}")
+    if abs(ras["energy_pJ"] - ras["spikes"] * 23) > 1e-6:
+        errs.append("energy_pJ")
+    if abs(ras["energy_uJ"] - ras["spikes"] * 23e-6) > 1e-9:
+        errs.append("energy_uJ")
+    if abs(ras["window_s"] - ras["window_ms"] / 1000.0) > 1e-9:
+        errs.append("window_s")
+    if not (20 <= ras["window_ms"] <= 50):
+        errs.append(f"window_ms {ras['window_ms']}")
+    if ras.get("excerpt_source") != "independent_lif":
+        errs.append("excerpt_source")
+    if ras.get("sim_scope") != "sidecar_only":
+        errs.append("sim_scope")
+    ex = check_excerpt(ras["excerpt"], ras["neurons"], ras["window_ms"])
+    if ex:
+        errs.append(f"excerpt {ex}")
+    lang_us = {
+        int(round(e["t_rel_ms"] * 1000.0))
+        for e in ev
+        if e["t_rel_ms"] * 1000.0 <= ras["window_ms"] * 1000
+    }
+    excerpt_us = {item["t_us"] for item in ras["excerpt"]}
+    if excerpt_us & lang_us:
+        errs.append(f"LIF excerpt remaps language times {sorted(excerpt_us & lang_us)}")
+    tf = ras["routing"]["third_factor"]
+    if abs(tf["tau_e_ms"] / 1000.0 - tf["tau_e_s"]) > 1e-9:
+        errs.append("tau_e mismatch")
+    gp = check_gate_pops(rec["gate_snn"])
+    if gp:
+        errs.append(f"gate {gp}")
+    if rec["gate_snn"]["decision"] != rec["safety_decision"]["decision"]:
+        errs.append("gate decision mismatch")
+    if rec["safety_decision"]["decision"] != "MODIFY":
+        errs.append("wrong-ACCEPT or non-MODIFY primary")
+    if rec["safety_decision"].get("correctness") != "correct":
+        errs.append("safety correctness")
+    rc = rec["reward_components"]
+    for h in HEADS:
+        s = sum(t[h] for t in rc["ticks"])
+        if abs(s - rc[h]) > 1e-6:
+            errs.append(f"tick sum {h} {s} vs {rc[h]}")
+    tot = sum(rc[h] for h in HEADS)
+    if abs(tot - rc["total"]) > 1e-6:
+        errs.append(f"total {tot} vs {rc['total']}")
+    inf = rec["future_outcome"]["reward_inflection_t_us"]
+    if inf not in {t["t_us"] for t in rc["ticks"]}:
+        errs.append(f"inflection {inf} not a tick")
+    crc = rec["future_outcome"]["embedded_contrast_decision"]["reward_components"]
+    if abs(sum(crc[h] for h in HEADS) - crc["total"]) > 1e-6:
+        errs.append("contrast reward")
+    cs = rec["future_outcome"]["embedded_contrast_decision"]["spike_events"]
+    ct = [e["t_rel_ms"] for e in cs]
+    if ct != sorted(ct):
+        errs.append("contrast spikes unsorted")
+    crf = check_refractory(cs)
+    if crf:
+        errs.append(f"contrast {crf}")
+    blob = json.dumps(rec)
+    for k in HIDDEN:
+        if re.search(rf'"{k}"\s*:', blob, re.I):
+            errs.append(f"hidden key {k}")
+    for b in BANNED:
+        if b in blob:
+            errs.append(f"banned token {b}")
+    if rec["state"]["sim_or_real"] == "real":
+        errs.append("real")
+    if '"sim_or_real": "real"' in blob or '"kind": "real"' in blob:
+        errs.append("real provenance")
+    if rec["meta"]["round"] != ROUND:
+        errs.append("round")
+    if rec["id"] != RECORD_ID:
+        errs.append("id")
+    if rec["meta"].get("swarm") != SWARM:
+        errs.append("swarm")
+    if rec["rights"]["intended_use"] != "research_only":
+        errs.append("rights")
+    if rec["meta"]["rights"]["linear_issue"] != "RM-793":
+        errs.append("meta.rights")
+    if rec["rights"] != rec["meta"]["rights"]:
+        errs.append("rights stamp mismatch")
+    if not (3 <= len(rc["ticks"]) <= 8):
+        errs.append("tick count")
+    if abs(aux["w1"] - 0.25) > 5e-4 or abs(aux["w2"] - 0.22) > 5e-4 or abs(aux["w3"] - 0.20) > 5e-4:
+        errs.append("scar weights")
+    if rec["executed_action"]["executed_as_proposed"] is not False:
+        errs.append("executed_as_proposed")
+    jac = jaccard(rec["state"]["description"][:280], R14_OPENING)
+    if jac >= 0.4:
+        errs.append(f"jaccard vs r14 opening {jac:.3f}")
+    for src, opening in prior_openings():
+        j = jaccard(rec["state"]["description"][:280], opening)
+        if j >= 0.4:
+            errs.append(f"jaccard vs {src} {j:.3f}")
+    if rec["state"]["domain"] != DOMAIN:
+        errs.append("domain")
+    if PLANT not in rec["state"]["scenario_name"]:
+        errs.append("plant")
+    if not (16 <= len(ras["excerpt"]) <= 40):
+        errs.append(f"excerpt count {len(ras['excerpt'])}")
+    errs.extend(occupancy_collisions())
+    return errs
+
+
+def write_notes(rec, aux, pipeline_receipt):
+    gap, gap_ch = min_same_channel_gap(rec["spike_events"])
+    ras = rec["raster"]
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 23
+
+Factory: multi-agent-ouroboros-swarm. One scenario (SL), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r23.jsonl. Full labeled transcript:
+swarm-transcript-r23.md. Quota Q=1. Record id maos-r23-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Swarm: SPIT-LOCK. Create-only writes under the LIVE factory dir plus
+/tmp/maos-r23-spitlock/. Did not overwrite /tmp/maos-r23 STRIAFOIL.
+
+ORCHESTRATION NOTE: dispatched AS round 23 of the 2026-09-02-final-heavy
+LIVE tree. Operator assigned round 23, swarm SPIT-LOCK, id maos-r23-001,
+Q=1 after 2x6-role cycles. Explicitly avoided 2026-08-17 and 2026-08-30.
+Prior context: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, live NOTES r01/r02/r21/r22/r41/r42/r61-r64
+and occupancy census /tmp/maos-r14–r64. /tmp/maos-r23 CLAIM was STRIAFOIL
+slot-die coating and was not cloned. Explicitly avoided cloning LYOSHIELD,
+CINDERWICK, TRIAD / Meridian, QUILLFORGE, NIGHTWELL, FERRICLEAVE, CASSITER,
+OXBOWREEL, REDHALL, SEEDLATCH, STRIAFOIL, PROTONIL, TORSIONKEY, ORRIS,
+WHORLSPAR, IONSPATE, SKULLGATE, CALXION, MAGNORIL, GORSEFLUE, SODASHARD,
+CLINKERFELL, LINTELPLY, KAOTHARN, TREADNOLL, ANOLITH, DRUMWROTH, RIMEBRAID,
+BRIMVAULT, NITROSTAITH, BOGIRON, CHROMLOOP, ETHYNWOLD, NITREVAULT,
+RUNNELGATE, SPARKHOLT, DIPLEGAR, OLEUMWEIR, SKARVOLT, GOBSPALL, GOBWOLD,
+GAUZEFELL, OSMOLITH, PUSHERFELL, CREELWOLD, LIXIVQUERN, GIBBSQUERN,
+OSMOQUAY, COILSHAW, LOOPERQUAY, SIPHONWOLD, LANCEQUAY, UREASTAITH,
+DRYSTAITH, TITERWEIR, ZINCFELL, GLIMMERAXLE, HOLLOWMERE, WINDBOXHOLT,
+KALYCIRQUE, GYPSUMWEIR, GALVSTAITH, WOLD-BARN, LOCKSPUR, PRILLGHYLL,
+CORONSTAITH, SHEDWOLD, SLUICE-HEARTH, PACKFLUE, VANTIS-CADENCE-AEGIS,
+THERMION, OKTAVE, STARLING, VERDIGRIS. Plant is invented SPIT-LOCK /
+Sprayholt HRSG Attemperator AT-6.
+
+## What this round produced
+
+Scenario SL — "SPIT-LOCK / Sprayholt HRSG Attemperator AT-6": a 4-nozzle
+HP spray attemperator at 541.0 C / 4.8 t/h spray / 620 t/h steam. Three
+heterogeneous, individually-correct agents — STM (four-nozzle header mean T),
+FW (spray-water coriolis), SHP (HP SH outlet pressure) — each report their
+local loop in-spec. The conjunction is not a nozzle-true certificate. Nozzle 4
+is magnetite-plugged (spray-lock). STM reads 541.0 C inside 530-550 (three
+intact nozzles dominate the header). FW is 4.8 t/h inside 3.5-6.5 (header-true).
+SHP is 12.4 MPa inside 11.8-12.8 (drum-true). Local steam TC infers 612.4 C
+(healthy < 560; hold if > 580) and local dP 0.12 MPa (hold if < 0.25) but is
+policy-treated as an EMI-nuisance tag unless STM mean also trips (2016 noisy
+nozzle-TC nuisance). The coordination-failure CLASS is new to this factory:
+HEADER-STEAM MEAN CERTIFICATE OF A LOCAL SPRAY-NOZZLE LOCK. Completes a
+different family than live r01 galvanizing, r02 cupola, r21 CAV, r22 prill,
+r41 perfusion, r42/r62 grid inspection, r61 sinter, r63 canal lock, r64 malt
+kiln, and staged r14-r64 process plants. Here every agent is correct, the STM
+average is looking at header-mean steam, and the playbook's three STM confirms
+are not a nozzle-true certificate.
+
+The gate is a correct MODIFY (numeric floor: do not cut spray below 4.8 t/h
+while nozzle-4 steam TC > 580 C AND nozzle-4 dP < 0.25 MPa). TG-AT-6 strips
+PB-AT-6's cut-spray, holds 4.8 t/h, runs a 7.2 s spray-step +8 pct (lock keeps
+|Delta STM mean| 0.4 <= 0.5 K; intact would move >= 2.8), and isolates nozzle 4
+after a 9.8 min HRSG-gallery human ratify. Immediate 8.4 t overheat is avoided
+(0 from the draft). The PRIMARY episode nonetheless FAILS: 12 min of
+unmonitored pre-t0 spray-lock had already creep-started 2.1 t of HP SH tubes.
+Leak at +4.8 h; 18 h stall; $1.42M designed. Reward total -0.16 with process
+heads honest and world loss un-netted.
+
+Triple-edge scar (NOTES-r14 item 4): stm.in_band -> cut_spray
+(0.17 commissioned -> 0.50 at illusion -> 0.25 after ACh-gated
+depression) AND fw.ok -> cut_spray (0.16 -> 0.44 -> 0.22) AND
+shp.ok.in_band -> cut_spray (0.15 -> 0.41 -> 0.20). Eligibility trace
+e^{{-0.76/0.90}} = {aux['trace']:.5f}; eta {aux['eta1']:.5f} / {aux['eta2']:.5f} /
+{aux['eta3']:.5f}; dw -0.250 / -0.220 / -0.210. Partial rollback of any pair
+leaves the third at 0.50 / 0.44 / 0.41, all > 0.30 fire threshold —
+fitted to fail. Coordinated depression of all three is the cure.
+
+Independent LIF raster: window 38 ms, 168 neurons, 24.5 Hz, spikes
+{ras['spikes']} == round(168 x 24.5 x 0.038), energy {ras['energy_pJ']} pJ
+at 23 pJ/spike. excerpt_source=independent_lif, sim_scope=sidecar_only,
+seed 23001. Excerpt is membrane crossings (lif.hold early vs lif.noz
+21-24.6 ms), disjoint from spike_events timestamps.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **hrsg-hp-spray-attemperator** — justified novel subdomain
+  of industrial-process / combined-cycle steam, unused across live r01/r02/
+  r21/r22/r41/r42/r61-r64 and staged r14-r64. Distinct from r64 malt kiln,
+  r61 sinter strand, r33 cement kiln, r57 paper dryer. alkaline-water-electrolysis
+  and wet-fgd-absorber left unused.
+- Cycle-1 tail: nozzle 4 magnetite spray-lock + tube-overheat
+  certificate. HRSG-gallery visual PASSES (plug inside the lance).
+  Fitted-style base rate 0.36%/campaign (magnetite MC; visual threshold
+  designed, flagged). Naive = FALSE PERMISSION.
+- Cycle-2 domain sub-variant: high-hydrogen co-firing, 1.7x flame-speed,
+  2.3x spray-step gain; 7.2 s / +8 pct NG pulse overshoots live intact
+  nozzles to an 11 K false STM; probe must move to 21 s / +2.2 pct.
+- Cycle-2 tail: night-shift forged nozzle-TC CSV at 1.0 C quantization vs
+  plant 0.1 C (10 bins) plus live TC 612.4 C and local dP 0.12 MPa
+  at the claimed nozzle-true. Human-intent class, disjoint from cycle 1's
+  accidental plug. Base rate ~0.25% of Sunday-night campaigns,
+  DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+3 d sister HRSG) with its own 168 us
+  race (demand vs nozzle-clear) and ACCEPT of the cut-spray the primary
+  MODIFIED away.
+- Learned-weight provenance on THREE edges with pair-rollback-fails.
+- HITL HRSG-gallery ratify 9.8 min (gap 4 partial; sim_or_real stays
+  designed — invented plant, not hil).
+- Governance CR-H-2306 prices retire-vs-probe-vs-status-quo and mandates
+  native 0.1 C CSV exports (the fraud fence).
+- Flip-fragility extended to NOZZLE-TRUE CERTIFICATE.
+- Independent LIF sidecar (not a language-train remap).
+
+## Self-critique of this round's batch
+
+### Strengths
+- Headline class is mechanistically tight: three locally-true mean loops
+  live on STM mean, spray-header flow, and SHP. Conjunction is not a
+  nozzle-true heat certificate.
+- Negative-result honesty: the gate does the right thing and the HRSG
+  still fails for a reason the commissioned sensors could not see.
+  Total -0.16.
+- Triple-edge scar is load-bearing: rolling back any pair fails, with
+  fire threshold 0.30 exhibited on each remaining edge.
+- Contrast ACCEPT on a true intact header-duty window prevents "never
+  cut-spray" as the lesson.
+- Distinct from r64 malt kiln, r61 sinter windbox, r22 prill tower:
+  HP spray-attemperator local TC vs STM mean.
+- Independent LIF excerpt is disjoint from spike_events times.
+
+### Weaknesses (honest)
+- Probe error bands, the 0.36%/campaign lock rate, the $1.42M /
+  $2.6M figures, the 9.8 min walk latency, and the night-shift 0.25%
+  base rate are DESIGNED constants and are flagged. Closed-loop offsets
+  (header dilution from one locked spit, high-H2 flame-speed) are
+  derived from those inputs, not discovered by an unauthored process.
+- Tube-creep model is a designed 12 min mapping; no full CFD of N-4
+  shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil. Gap 4
+  remains open as a provenance cell (invented plants stay designed).
+- Cross-record arc is a hook (CR-H-2306 +21 d), not a serial igniter
+  into another round. wet-fgd-absorber and mushroom-compost-tunnel remain
+  unused.
+
+### Realism of noise / latencies
+Ladder: 192 us race / 168 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap {gap:.3f} ms on {gap_ch}) / 500 us race
+window / 724 us gate latency / 20 ms bus epoch / 38 ms independent LIF
+raster / 7.2 s probe / 9.8 min HITL / 8 min naive cut-spray-ramp
+counterfactual / 12 min pre-t0 lock / 3.1 h nozzle recovery / 4.8 h
+tube creep / +3 d contrast / +21 d governance. Adaptation decay on stm.hot
+(0.51->0.48->0.41->0.28), noz.dP (0.75->0.77->0.44->0.38->0.26),
+shp.ok (0.54->0.56->0.44->0.23), fw.ok (0.62->0.63->0.81).
+
+### Value for SNN distillation
+- SPRAY LOCK = THREE CORRECT LOOPS, WRONG VOLUME.
+- NOZZLE-TRUE TC CHANNEL that policy treated as EMI-nuisance-only as
+  the tie-break.
+- REVERSIBLE PROBE that recouples STM mean iff the spray field is intact.
+- TRIPLE-EDGE ELIGIBILITY: coordinated depression; pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+- INDEPENDENT LIF sidecar whose excerpt is membrane crossings.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum {rec['reward_components']['total']}
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.48 reconciles independently.
+- spike_events: primary {len(rec['spike_events'])} events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap {gap:.3f} ms >= 0.8 ms, 3
+  channels inside race_window_us 500 (noz.hot.high 6.412, stm.in_band 6.604,
+  fw.ok 6.792). Contrast 8 events, own race, min same-channel gap well
+  above 0.8 ms.
+- Sidecars: raster spikes {ras['spikes']} == round({ras['neurons']} x {ras['mean_rate_hz']} x {ras['window_s']}); energy {ras['energy_pJ']} pJ /
+  {ras['energy_uJ']} uJ at 23 pJ/spike; excerpt {len(ras['excerpt'])} events inside [0, {ras['window_ms']*1000}] us,
+  neuron_id < {ras['neurons']}, same-neuron gap >=1000 us; excerpt_source independent_lif;
+  routing 4 entries with three scar edges' before/after pair; third factor tau 0.90 s
+  == 900 ms; gate_snn pools 44/17/4 == round(n x rate x 0.026) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: {pipeline_receipt}
+
+## Novel coverage
+The coordination-failure CLASS (magnetite spray-lock certificate of a
+header-steam-true HP SH pass), the domain (combined-cycle HRSG HP spray
+attemperator), the spray-step probe discriminant, the triple-edge scar with
+pair-rollback-fails, the primary negative-result (correct MODIFY,
+HRSG still fails on unmonitored tube creep), the HITL HRSG-gallery
+ratify, the high-H2 co-fire probe-duration refit, the night-shift
+10-bin quantization fence, and the independent LIF raster (seed 23001,
+not a language-train remap) are absent from prior committed ouroboros
+rounds and from staged r14-r64. Repeated elements discounted:
+same-gate contrast, governance-pricing scaffold, flip-fragility series
+(extended to nozzle-true certificate, but the move rhymes), sequenced
+recovery shape, third-factor rollback form, negative-result primary.
+Adjacent thermal-header rounds (r64 malt kiln, r61 sinter, r22 prill)
+share industrial-process scaffolding but not HRSG spray-lock physics.
+Weighing a new failure family + cure vocabulary + leftover sub-domain +
+Sprayholt geography against those reused scaffolds:
+
+{NOVEL_LINE}
+
+## What ROUND 24 should add
+1. FIT THE DESIGNED CONSTANTS: magnetite arrival, probe STM-jump bands,
+   overheat-to-creep mapping, night-shift claim process.
+2. HIL PROVENANCE CELL: put the HRSG-gallery LOTO on a hardware-in-loop
+   spray pendant with fitted latency as state.sim_or_real=hil — only if
+   the plant is no longer purely invented.
+3. CROSS-RECORD ARC: let CR-H-2306's local-TC alarm be the igniter of
+   the next round rather than a dangling +21 d leaf.
+4. Domain candidates (de-collided): wet-fgd-absorber;
+   mushroom-compost-tunnel; flue-cured-tobacco-barn; farm-ad-biogas.
+   AVOID hrsg-hp-spray-attemperator (now used), malting-kiln-barn (r64),
+   sinter-strand-windbox (r61), urea-prilling-tower (r22),
+   canal-lock-rail-transshipment (r63), and any LYOSHIELD / CINDERWICK /
+   TRIAD / SKULLGATE / BOGIRON / SKARVOLT / PUSHERFELL / CREELWOLD /
+   GIBBSQUERN / COILSHAW / LOOPERQUAY / SIPHONWOLD / WINDBOXHOLT /
+   WOLD-BARN / LOCKSPUR / STRIAFOIL / SPIT-LOCK plant.
+"""
+    return notes
+
+
+def write_transcript(rec, line):
+    text = f"""# Multi-Agent Ouroboros Swarm — Round 23 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r23-001
+Quota Q: 1
+Swarm: SPIT-LOCK
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Plant: invented SPIT-LOCK / Sprayholt HRSG Attemperator AT-6 (not TRIAD / Meridian / VANTIS-CADENCE-AEGIS / LYOSHIELD / CINDERWICK / BOGIRON / PUSHERFELL / SKARVOLT / COILSHAW / GIBBSQUERN / SIPHONWOLD / WINDBOXHOLT / WOLD-BARN / LOCKSPUR / STRIAFOIL)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r23.jsonl).
+
+---
+
+# CYCLE 1 — Foundation + injections
+
+## Generator
+
+Design intent: a 4-nozzle HP spray attemperator where three correct
+agents each read a header-mean loop because a magnetite plug
+on nozzle 4 partitions local steam TC from STM-true header, spray
+flow, and SHP. The naive playbook cuts spray into a locked spit.
+The gate must MODIFY on a numeric spray floor, not by killing an agent.
+sim_or_real=designed. Reward heads are
+task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Sprayholt AT-6, 541.0 C,
+STM 541.0 C, FW 4.8 t/h, SHP 12.4 MPa, proposed CUT-SPRAY
+2.0 t/h, safety MODIFY to SPRAY-HOLD, executed hold without the
+spray-step numbers fully specified, outcome "lock found, HRSG saved"
+(this last claim is the defect the later cycles will refuse to keep).
+Sixteen spikes, five ticks, raster/gate_snn present but the scar is a
+single edge.
+
+```json
+{{
+  "id": "maos-r23-001-scaffold",
+  "state": {{
+    "sim_or_real": "designed",
+    "domain": "industrial-process",
+    "description": "Attemperator AT-6 at Sprayholt HRSG; three STM loops in-spec; supervisor proposes cut-spray.",
+    "t0_us": 1755330480000724,
+    "gate_latency_us": 724,
+    "race_window_us": 500
+  }},
+  "proposed_action": {{"name": "cut_spray", "parameters": {{"spray_tph": 2.0}}}},
+  "safety_decision": {{"decision": "MODIFY", "rationale": "Hold; do not cut spray while local nozzle TC is high."}},
+  "executed_action": {{"name": "spray_hold", "executed_as_proposed": false}},
+  "future_outcome": {{"summary": "Lock found, HRSG saved."}},
+  "reward_components": {{"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"}},
+  "meta": {{"round": 23, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6", "swarm": "SPIT-LOCK"}}
+}}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "HRSG saved". If the pre-t0 overheated pass later
+   creeps, booking +0.40 is a lie. Fix: declare `_aggregation`, emit
+   3–8 ticks that sum to task_progress+safety+efficiency+coherence+exploration,
+   and do not call a quarantined HRSG a save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote
+   spray >= 4.8 t/h while nozzle-4 steam TC > 580 C AND local dP < 0.25 MPa.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-process` collides with generic MES vocabulary and teaches
+   nothing. HRSG HP spray attemperator (local TC vs STM mean, local dP as a
+   lock flag) is absent from prior ouroboros rounds and must be named.
+4. **major — race under-specified.** One nozzle channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted `t_rel_ms`
+   and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated weight
+   repeats r04's one-edge rollback and is thinner than r14's two-edge.
+   NOTES-r14 item 4 asked for three edges where pair rollback fails.
+6. **minor — raster is a language remap.** Excerpt times matching
+   spike_events * 1000 fail the independent-LIF contract. Fix: LIF
+   population sim, excerpt_source=independent_lif, disjoint timestamps.
+
+Critic does not rewrite the trajectory.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **hrsg-hp-spray-attemperator**
+(justified novel subdomain of industrial-process / combined-cycle steam;
+explicit tag `hrsg-hp-spray-attemperator`).
+
+Displaced: the Generator's generic `industrial-process` bucket, and any
+temptation to reuse warehouse-amr, aerial-swarm, district-heating,
+event-camera-traffic-grid, pharmaceutical-lyophilization, water-treatment,
+float-glass, underwater-rov, electrolytic-aluminum, czochralski-pull,
+slot-die coating, pem-water-electrolysis, wind-turbine pitch,
+surgical-assist, optical-fiber-draw, kraft-recovery-boiler,
+steel-continuous-caster, humanoid-locomotion, vacuum-induction melt,
+steam-methane reformer, cement-rotary-kiln-clinker,
+autoclave-composite-cure, geothermal-binary-orc, tire-curing-press,
+chlor-alkali-membrane-electrolysis, delayed-coker-drum-switch,
+lng-mche-mixed-refrigerant, claus-sulfur-recovery,
+ammonia-synthesis-converter, blast-furnace-burden-descent,
+hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil,
+hydroelectric-kaplan-wicket, fcc-riser-regenerator,
+fcc-regenerator-cyclone-dipleg, sulfuric-contact-converter,
+eaf-foamy-slag-water-panel, coke-oven-battery-heating,
+carbon-fiber-oxidation-oven, gibbsite-autoclave-digestion,
+hot-strip-mill-finishing, paper-machine-dryer-section,
+sinter-strand-windbox, continuous-hot-dip-galvanizing,
+autonomous-driving, bioreactor-perfusion, urea-prilling-tower,
+malting-kiln-barn, canal-lock-rail-transshipment, or cupola-foundry.
+wet-fgd-absorber is left unused.
+
+Domain-specific constraint: spray must remain >= 4.8 t/h while
+nozzle-4 steam TC > 580 C even if STM mean is inside the healthy band;
+local dP is a lock flag the header average cannot substitute for.
+
+Sensor delta: +four-nozzle STM, +spray coriolis, +SHP,
++local nozzle TC, +local dP; -any mobile robot, -event-camera
+gantries, -DVS, -Pirani/CM, -looper tension, -work-roll IR, -sinter BTP,
+-coke-oven wall-pair, -EAF off-gas H2, -kiln-air, -bed TC.
+
+`state.domain` and `meta.domain` both become `hrsg-hp-spray-attemperator`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Sprayholt night-shift spray-lock, not a lyophilizer, not a finishing
+mill, not a coke oven, not a blast furnace, not a Bayer digester, not a
+paper machine, not a sinter strand, not a malt kiln, not a canal lock).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **nozzle 4 magnetite
+spray-lock + tube-overheat certificate**.
+
+- Trigger: N-4 magnetite plug plus local steam-hot on the far SH pass,
+  local TC 612.4 C, local dP 0.12 MPa.
+- Base rate: <1% — 0.36%/campaign from a magnetite MC (HRSG-gallery
+  visual threshold is designed; lance geometry fitted-style). Visual
+  PASSES because the plug sits inside the lance.
+- Naive failure: FALSE PERMISSION. PB-AT-6 sees three in-spec mean
+  loops, cuts 4.8->2.0 t/h, overheated tubes 8.4 t, $2.6M.
+- Trajectory edit: put the lock in `state.fault_context`, make each
+  agent's confirm a different STM-side slice of the same nozzle-false
+  state (stm-in-band, fw-ok, shp-ok). Local TC is readable but
+  policy-treated as EMI-nuisance-only.
+
+Distinct from r64 malt-kiln floor collapse (bed vs spray lance), r61
+sinter grate collapse, r22 prill-orifice plug, r63 rail-spur fouling,
+and r14 lyophilizer.
+
+## Neuromorphic Translator
+
+Cycle-1 temporal densification (16 spikes, 5 ticks, 38 ms independent LIF raster):
+
+| channel | t_rel_ms | amplitude |
+|---|---|---|
+| stm.hot | 0.286 | 0.51 |
+| fw.ok | 1.094 | 0.62 |
+| shp.ok | 1.972 | 0.54 |
+| noz.dP | 3.038 | 0.75 |
+| stm.hot | 4.104 | 0.48 |
+| noz.dP | 4.702 | 0.77 |
+| shp.ok | 5.280 | 0.56 |
+| noz.hot.high | 6.412 | 1.38 |
+| stm.in_band | 6.604 | 1.12 |
+| fw.ok | 6.792 | 0.63 |
+| ctrl.gate | 7.136 | 1.06 |
+| noz.dP | 8.710 | 0.44 |
+| fw.ok | 10.602 | 0.81 |
+| shp.ok | 12.880 | 0.44 |
+| stm.hot | 18.192 | 0.41 |
+| ctrl.gate | 25.802 | 0.83 |
+
+Race: nozzle-hot 6.412 vs STM 6.604 (192 us) inside 500 us;
+FW 6.792 is the third channel in-window. Winner/loser flip: reversing
+192 us reshuffles PB-AT-6 triage; floors still MODIFY. Refractory held
+(cycle-1 min same-channel gap 1.664 ms on noz.dP 4.702-3.038;
+stm 4.104-0.286 = 3.818; shp 5.280-1.972 = 3.308). Adaptation:
+noz 0.75->0.77->1.38->0.44; stm 0.51->0.48->0.41; shp
+0.54->0.56->0.44.
+
+Raster cycle-1 seed: independent LIF 38 ms, 168 neurons, 24.5 Hz,
+Loihi-2 23 pJ/spike, third factor acetylcholine tau_e 0.90 s. Single
+scar edge only — cycle 2 must add the second and third edges. Excerpt
+is membrane crossings, not spike_events remapped.
+
+Ticks 1–5 at 4412, 6412, 7136, 7.2e6, 588e6 us; heads not yet the final
+-0.16 (missing the 3.1 h and 4.8 h ticks).
+
+Distillation value this cycle: STM-side confirms as a permission code
+that is not a nozzle-true heat code.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain hrsg-hp-spray-attemperator, tail
+spray-lock, 16 spikes, 5 ticks, MODIFY with numeric floor, raster+gate_snn
+present, sim_or_real=designed, rights stamp on record and meta, no thought
+keys, independent LIF excerpt. Still missing (and therefore not the
+publishable line): high-H2 co-fire sub-variant, night-shift tail, second
+and third scar edges, delayed tube creep as PRIMARY terminal, contrast
+ACCEPT episode, ticks 6–7, spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 500 us window; refractory
+  >= 0.8 ms; raster 38 ms independent LIF; gate_snn MODIFY matches.
+- densification delta vs Generator scaffold: +1 domain, +1 tail, +16 spikes,
+  +5 ticks, +numeric floor, +LIF sidecar.
+- not publishable: cycle 2 injections absent.
+
+---
+
+# CYCLE 2 — Densification
+
+## Generator
+
+Re-emit Cycle-1 expanded. Additive deltas only:
+
+1. Downstream side-effect (immediate): 7.2 s spray-step probe proves lock
+   (|Delta STM mean| 0.4 K lock band) and nozzle 4 is held after 9.8 min
+   HRSG-gallery ratify. Remaining three nozzles recover toward 8 K over 3.1 h.
+2. Downstream side-effect (delayed, PRIMARY terminal): +4.8 h tube creep from
+   the 12 min pre-t0 overheat; 18 h stall; $1.42M. The gate prevented the
+   proposed 8.4 t path and did not prevent this other one.
+3. proposed_action.evidence deepened with observables + units (nozzle TC 612.4 C,
+   dP 0.12 MPa, STM 541.0 C, FW 4.8 t/h, SHP 12.4 MPa, race 192 us).
+4. safety_decision.rationale tightened to numeric floor: spray >= 4.8 t/h while
+   nozzle-4 steam TC > 580 C AND nozzle-4 dP < 0.25 MPa.
+
+Outcome language "HRSG saved" is deleted. Total will go negative.
+
+## Critic
+
+Re-audit of the richer trajectory:
+
+1. **blocking if missing — cycle-2 physical sub-variant.** NG probe
+   numbers must not be implied to port. High-H2 co-fire (30 pct H2, 1.7x
+   flame-speed) overshoots a live nozzle field. Fix: 21 s / +2.2 pct table.
+2. **major — second tail class still absent.** Cycle-1 lock is accidental
+   magnetite. Need a disjoint human-intent deception (forged nozzle-TC CSV)
+   or the two injections collapse into one story.
+3. **major — scar still one edge.** Pair-rollback-fails needs three
+   STM-healthy-go edges with eligibility arithmetic.
+4. **minor — contrast ACCEPT missing.** Without a sister-HRSG true-duty
+   ACCEPT, the lesson collapses to "never cut-spray".
+5. **minor — LIF excerpt must remain independent after densification.**
+   Do not remap new spike times into the 38 ms window.
+
+Critic still does not rewrite JSON.
+
+## Diversity Enforcer
+
+Injected second novel domain (exactly 1 this cycle): **high-hydrogen
+co-fired HRSG attemperator** (physical-constraints sub-variant of
+hrsg-hp-spray-attemperator; explicit tag retained, constraint changed).
+
+This is not a new plant. It changes physics: 1.7x flame-speed, 2.3x
+spray-step gain. The 7.2 s / +8 pct NG pulse overshoots a LIVE intact
+nozzle field to an 11 K false STM (inside the 580 C trip). Probe must move
+to 21 s at +2.2 pct. Cycle-1 domain hrsg-hp-spray-attemperator is preserved.
+
+Displaced: any reuse of high-N barley probe-refit (r64), fluxed-sinter
+probe-refit (r61), or cement-kiln zirconia tables.
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**night-shift forged nozzle-TC CSV**.
+
+- Trigger: shift lead, 02:41, posts a historian export showing
+  TC = 544.0 C at t = 1.1 h to clear a load slot.
+- Base rate: ~0.25% of Sunday-night campaigns (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the cut-spray on the forged confirm
+  and ignores live local TC. Overheated tubes plus a data-integrity write-up.
+- Fence: forged log quantized at 1.0 C (SCADA screenshot rounding); plant
+  historian is 0.1 C (10 bins). Live TC is 612.4 C and local dP is 0.12 MPa
+  at the claimed nozzle-true, which no live intact nozzle field produces.
+- Trajectory edit: governance CR-H-2306 mandates native 0.1 C CSV
+  exports; the contrast ACCEPT still requires live local TC, not a CSV.
+
+Distinct from cycle-1 lock (accidental magnetite vs deliberate deception) and
+from the high-H2 sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 25.802 ms: spray.probe 7200.0, noz.dP 7288.4
+  (adapt 1.38->0.38), stm.in_band 7374.2 (1.12->0.33), human.ratify
+  588000.0, hrsg.hold 588900.0, tube.overheat 589800.0, stm.hot
+  11160000.0, noz.dP 11160740.0, shp.ok 11161520.0, tube.creep
+  17280000.0. Primary train 16 -> 26. Still one key, still sorted,
+  refractory held.
+- +2 ticks (5 -> 7) at 11_160_000_000 us (true intact nozzles) and
+  17_280_000_000 us (tube creep). Heads now 0.08, -0.35, -0.12,
+  0.14, 0.09; total -0.16. Inflection is the last tick.
+- Contrast train 8 events, own race 168 us, ACCEPT.
+- Triple-edge third factor: three stm-healthy-go edges, tau_e 0.90 s = 900 ms,
+  trace {math.exp(-DELAY_S / TAU_E_S):.5f}, eta {0.25 / math.exp(-DELAY_S / TAU_E_S):.5f} /
+  {0.22 / math.exp(-DELAY_S / TAU_E_S):.5f} / {0.21 / math.exp(-DELAY_S / TAU_E_S):.5f},
+  weights 0.50->0.25, 0.44->0.22, 0.41->0.20. Independent LIF excerpt
+  unchanged (decision window is still 38 ms) and remains disjoint from
+  spike_events times.
+
+Winner/loser flip (re-stated, not replaced): reversing 192 us would only
+reorder triage; local-TC floors still MODIFY. Contrast flip of
+168 us similarly cannot turn an intact nozzle field into a lock.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.16; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms independent LIF, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted and disjoint from language times, tau_e consistent;
+gate_snn.decision matches; meta.round=23, meta.swarm=SPIT-LOCK,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive.
+
+Densification delta: +1 domain sub-variant (high-H2 co-fire), +1 tail
+(night-shift forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 triple-edge scar with
+pair-rollback-fails, +1 HITL ratify, +1 surprise (tube creep is the
+lock mechanism), + independent LIF raster retained.
+
+Publishable JSONL line (the only JSONL line; also at batch-r23.jsonl):
+
+```json
+{line}
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r23.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+    return text
+
+
+def plan_names(directory: Path):
+    batch = directory / "batch-r23.jsonl"
+    notes = directory / "NOTES-r23.md"
+    tr = directory / "swarm-transcript-r23.md"
+    if batch.exists() or notes.exists() or tr.exists():
+        batch = directory / "batch-r23c.jsonl"
+        notes = directory / "NOTES-r23c.md"
+        tr = directory / "swarm-transcript-r23c.md"
+    for p in (batch, notes, tr):
+        if p.exists():
+            raise FileExistsError(f"refuse: {p} already exists")
+    return batch, notes, tr
+
+
+def emit_text(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(text)
+    return path
+
+
+def main():
+    rec, aux = build_record()
+    errs = local_checks(rec, aux)
+    if errs:
+        print("FAIL local", errs)
+        return 1
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    if not LIVE.is_dir():
+        print("FAIL live dir missing", LIVE)
+        return 1
+    line = json.dumps(rec, ensure_ascii=False, separators=(",", ":"))
+
+    stage_batch, stage_notes, stage_tr = plan_names(OUT)
+    live_batch, live_notes, live_tr = plan_names(LIVE)
+    for p in (live_batch, live_notes, live_tr):
+        if "2026-08-17" in str(p) or "2026-08-30" in str(p):
+            print("FAIL dated-run path", p)
+            return 1
+
+    jsonl_stage = emit_text(stage_batch, line + "\n")
+    jsonl_live = emit_text(live_batch, line + "\n")
+
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import raster_status
+    from verify_execution import verify_record_execution
+
+    e, w, kinds, n = check_jsonl(
+        jsonl_stage,
+        jsonl_stage.name,
+        staging=FactoryStaging(enabled=True),
+    )
+    print("check_jsonl errors", e)
+    print("check_jsonl warnings", w)
+    print("kinds", kinds, "n", n)
+    errs.extend(e)
+
+    st = raster_status(rec)
+    print(
+        "raster_status",
+        {{
+            k: st[k]
+            for k in (
+                "raster_present",
+                "raster_valid",
+                "gate_snn_present",
+                "gate_snn_valid",
+                "reason_codes",
+                "routing_table_entries",
+                "third_factor_present",
+                "spikes",
+            )
+            if k in st
+        }},
+    )
+    if st.get("reason_codes"):
+        errs.append(f"raster {st['reason_codes']}")
+    if not st.get("raster_valid"):
+        errs.append("raster not valid")
+    if not st.get("gate_snn_valid"):
+        errs.append("gate_snn not valid")
+
+    status, reason = verify_record_execution(rec, RECORD_ID)
+    print("verify_record_execution", status, reason)
+    if status != "verified":
+        errs.append(f"verify {status} {reason}")
+
+    probe = subprocess.run(
+        [
+            sys.executable,
+            f"{{ROOT}}/pipelines/spike_probe.py",
+            "--strict",
+            str(jsonl_stage),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    print("spike_probe rc", probe.returncode)
+    print(probe.stdout[-2000:] if probe.stdout else "")
+    if probe.returncode != 0:
+        errs.append(f"spike_probe {{probe.returncode}} {{probe.stderr[-500:]}}")
+
+    pipeline_receipt = (
+        f"check_jsonl errors={{e}} warnings={{w}} kinds={{kinds}} n={{n}}; "
+        f"raster_status valid={{st.get('raster_valid')}} gate={{st.get('gate_snn_valid')}} "
+        f"reasons={{st.get('reason_codes')}}; verify_record_execution={{status}} "
+        f"({{reason}}); spike_probe --strict rc={{probe.returncode}}"
+    )
+    notes = write_notes(rec, aux, pipeline_receipt)
+    transcript = write_transcript(rec, line)
+    notes_stage = emit_text(stage_notes, notes)
+    notes_live = emit_text(live_notes, notes)
+    tr_stage = emit_text(stage_tr, transcript)
+    tr_live = emit_text(live_tr, transcript)
+
+    heading = subprocess.run(
+        [sys.executable, "/tmp/maos_heading_check.py", str(tr_stage)],
+        capture_output=True,
+        text=True,
+    )
+    print(heading.stdout)
+    if heading.returncode != 0:
+        errs.append(f"heading check {{heading.returncode}} {{heading.stdout}}")
+
+    dated = subprocess.run(
+        [
+            "rg",
+            "-l",
+            "maos-r23-001|SPIT-LOCK",
+            str(Path(ROOT) / "outputs" / "raw" / "2026-08-17"),
+            str(Path(ROOT) / "outputs" / "raw" / "2026-08-30"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if dated.stdout.strip():
+        errs.append(f"dated-run hit {{dated.stdout.strip()[:200]}}")
+
+    loads_ok = True
+    for p in (jsonl_stage, jsonl_live):
+        for i, raw in enumerate(p.read_text().splitlines(), 1):
+            if not raw.strip():
+                continue
+            try:
+                json.loads(raw)
+            except json.JSONDecodeError as exc:
+                errs.append(f"json.loads {{p}}:{{i}} {{exc}}")
+                loads_ok = False
+    print("json.loads", loads_ok)
+
+    if errs:
+        print("FAIL", errs)
+        return 1
+    print("OK maos-r23-001")
+    print("LIVE", jsonl_live)
+    print("LIVE", notes_live)
+    print("LIVE", tr_live)
+    print("bytes jsonl", jsonl_live.stat().st_size)
+    print("bytes notes", notes_live.stat().st_size)
+    print("bytes transcript", tr_live.stat().st_size)
+    print("RECEIPT", pipeline_receipt)
+    print("Q", 1)
+    print("id", RECORD_ID)
+    print("plant", PLANT)
+    print("swarm", SWARM)
+    print("round", ROUND)
+    print("decision", rec["safety_decision"]["decision"])
+    print("gate", rec["gate_snn"]["decision"])
+    print("sim", rec["state"]["sim_or_real"])
+    print("novel", NOVEL_LINE)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

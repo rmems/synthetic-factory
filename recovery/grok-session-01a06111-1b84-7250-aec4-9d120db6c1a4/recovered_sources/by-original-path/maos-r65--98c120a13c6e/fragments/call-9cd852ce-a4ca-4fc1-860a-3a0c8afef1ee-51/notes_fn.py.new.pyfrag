@@ -1,0 +1,226 @@
+def write_notes(rec, aux, pipeline_receipt):
+    gap, gap_ch = min_same_channel_gap(rec["spike_events"])
+    ras = rec["raster"]
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 65
+
+Factory: multi-agent-ouroboros-swarm. One scenario (ZL), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r65.jsonl. Full labeled transcript:
+swarm-transcript-r65.md. Quota Q=1. Record id maos-r65-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Swarm: SPUR-HEARTH. Create-only writes under the LIVE factory dir plus /tmp/maos-r65/.
+
+ORCHESTRATION NOTE: dispatched AS round 65 of the 2026-09-02-final-heavy
+LIVE tree. Operator assigned round 65, plant SPUR-HEARTH, id maos-r65-001,
+Q=1 after 2x6-role cycles. Explicitly avoided 2026-08-17 and 2026-08-30.
+Prior context: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, live NOTES r01/r02/r21/r22/r41/r42/r61-r64
+and occupancy census /tmp/maos-r14–r64. Explicitly avoided cloning
+LYOSHIELD, CINDERWICK, TRIAD / Meridian, QUILLFORGE, NIGHTWELL,
+FERRICLEAVE, CASSITER, OXBOWREEL, REDHALL, SEEDLATCH, STRIAFOIL, PROTONIL,
+TORSIONKEY, ORRIS, WHORLSPAR, IONSPATE, SKULLGATE, CALXION, MAGNORIL,
+GORSEFLUE, SODASHARD, CLINKERFELL, LINTELPLY, KAOTHARN, TREADNOLL,
+ANOLITH, DRUMWROTH, RIMEBRAID, BRIMVAULT, NITROSTAITH, BOGIRON, CHROMLOOP,
+ETHYNWOLD, NITREVAULT, RUNNELGATE, SPARKHOLT, DIPLEGAR, OLEUMWEIR,
+SKARVOLT, GOBSPALL, GOBWOLD, GAUZEFELL, OSMOLITH, PUSHERFELL, CREELWOLD,
+LIXIVQUERN, GIBBSQUERN, OSMOQUAY, COILSHAW, LOOPERQUAY, SIPHONWOLD,
+LANCEQUAY, UREASTAITH, DRYSTAITH, TITERWEIR, ZINCFELL, GLIMMERAXLE,
+HOLLOWMERE, WINDBOXHOLT, KALYCIRQUE, GYPSUMWEIR, GALVSTAITH, LOCKSPUR,
+SLUICE-HEARTH, CORONSTAITH, SHEDWOLD, PRILLGHYLL, PACKFLUE, WOLD-BARN,
+VANTIS-CADENCE-AEGIS, THERMION, OKTAVE, STARLING, VERDIGRIS. Plant is
+invented SPUR-HEARTH / Rookspur Flue Barn FB-6.
+
+## What this round produced
+
+Scenario ZL — "SPUR-HEARTH / Rookspur Flue Barn FB-6": a 6-bay
+forced-draft flue-cured tobacco barn at 68.0 C / 82 pct RH / 10.8 t
+primed leaf. Three heterogeneous, individually-correct agents — PLN
+(six-bay plenum mean T), RH (barn psychrometer), FAN (furnace-fan
+tachometer) — each report their local loop in-spec. The conjunction is
+not a flue-true certificate. Bay 4 has a ruptured furnace-flue joint
+under the rack. PLN reads 68.0 C inside 64-72 (five intact bays dominate
+the header). RH is 82 pct inside 75-88 (gable-true). FAN is 41.0 Hz
+inside 34-48 (shaft-true). Local leaf TC infers 94.6 C (healthy < 74;
+hold if > 78) and local dP 0.22 kPa (hold if < 0.35) but is
+policy-treated as a stem-wet nuisance tag unless PLN mean also trips
+(2013 noisy stem-probe nuisance). The coordination-failure CLASS is new
+to this factory: PLENUM-MEAN CERTIFICATE OF A LOCAL FLUE-JOINT RUPTURE.
+Completes a different family than live r01 galvanizing, r02 cupola
+sluice, r21 CAV, r22 prill, r41 perfusion, r42/r62 grid, r61 sinter,
+r63 lock-spur, r64 malt kiln. Here every agent is correct, the PLN
+average is looking at barn-mean heat, and the playbook's three PLN
+confirms are not a flue-true certificate.
+
+The gate is a correct MODIFY (numeric floor: do not raise furnace air
+above 68.0 C while bay-4 leaf TC > 78 C AND bay-4 dP < 0.35 kPa).
+TG-FB-6 strips PB-FB-6's raise-furnace, holds 68.0 C, runs a 7.8 s
+fan-step +3.5 Hz (rupture keeps |Delta PLN mean| 0.4 <= 0.45 K; intact
+would move >= 2.3), and isolates bay 4 after a 10.8 min barn-walk human
+ratify. Immediate 7.2 t scorch is avoided (0 from the draft). The
+PRIMARY episode nonetheless FAILS: 16 min of unmonitored pre-t0 flue
+rupture had already scorch-killed 2.6 t of primed leaf. Cull at +4.6 h;
+14 h stall; $0.64M designed. Reward total -0.18 with process heads
+honest and world loss un-netted.
+
+Triple-edge scar (NOTES-r14 item 4): pln.in_band -> raise_furnace
+(0.17 commissioned -> 0.50 at illusion -> 0.25 after ACh-gated
+depression) AND rh.ok -> raise_furnace (0.16 -> 0.44 -> 0.22) AND
+fan.ok.in_band -> raise_furnace (0.15 -> 0.41 -> 0.20). Eligibility trace
+e^{{-0.78/0.91}} = {aux['trace']:.5f}; eta {aux['eta1']:.5f} / {aux['eta2']:.5f} /
+{aux['eta3']:.5f}; dw -0.250 / -0.220 / -0.210. Partial rollback of any pair
+leaves the third at 0.50 / 0.44 / 0.41, all > 0.30 fire threshold —
+fitted to fail. Coordinated depression of all three is the cure.
+
+Independent LIF raster: window 38 ms, 144 neurons, 24.5 Hz, spikes
+{ras['spikes']} == round(144 x 24.5 x 0.038), energy {ras['energy_pJ']} pJ
+at 23 pJ/spike. excerpt_source=independent_lif, sim_scope=sidecar_only,
+seed 65001. Excerpt is membrane crossings (lif.hold early vs lif.flue
+21-24.6 ms), disjoint from spike_events timestamps.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **flue-cured-tobacco-barn** — justified novel subdomain
+  of industrial-process / bulk leaf curing, unused across live r01/r02/
+  r21/r22/r41/r42/r61-r64 and staged r14-r64. Distinct from r64 malt
+  kiln, r02 cupola hearth, r61 sinter strand, r33 cement kiln.
+  mushroom-compost-tunnel and farm-ad-biogas left unused.
+- Cycle-1 tail: bay 4 furnace-flue joint rupture + leaf-scorch
+  certificate. Barn-walk visual PASSES (rupture under the rack).
+  Fitted-style base rate 0.34%/campaign (joint MC; visual threshold
+  designed, flagged). Naive = FALSE PERMISSION.
+- Cycle-2 domain sub-variant: high-moisture primed leaf, 1.7x rack
+  resistance, 2.3x fan-step gain; 7.8 s / +3.5 Hz spec-cure pulse
+  overshoots live intact flue to an 8 K false PLN; probe must move to
+  22 s / +1.2 Hz.
+- Cycle-2 tail: night-shift forged leaf-TC CSV at 1.0 C quantization vs
+  plant 0.1 C (10 bins) plus live TC 94.6 C and local dP 0.22 kPa
+  at the claimed flue-true. Human-intent class, disjoint from cycle 1's
+  accidental rupture. Base rate ~0.25% of Sunday-night campaigns,
+  DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+3 d sister barn) with its own 178 us
+  race (demand vs flue-clear) and ACCEPT of the raise-furnace the primary
+  MODIFIED away.
+- Learned-weight provenance on THREE edges with pair-rollback-fails.
+- HITL barn-walk ratify 10.8 min (gap 4 partial; sim_or_real stays
+  designed — invented plant, not hil).
+- Governance CR-T-6508 prices retire-vs-probe-vs-status-quo and mandates
+  native 0.1 C CSV exports (the fraud fence).
+- Flip-fragility extended to FLUE-TRUE CERTIFICATE.
+- Independent LIF sidecar (not a language-train remap).
+
+## Self-critique of this round's batch
+
+### Strengths
+- Headline class is mechanistically tight: three locally-true mean loops
+  live on PLN mean, barn RH, and fan speed. Conjunction is not a
+  flue-true heat certificate.
+- Negative-result honesty: the gate does the right thing and the barn
+  still fails for a reason the commissioned sensors could not see.
+  Total -0.18.
+- Triple-edge scar is load-bearing: rolling back any pair fails, with
+  fire threshold 0.30 exhibited on each remaining edge.
+- Contrast ACCEPT on a true intact yellowing-duty window prevents
+  "never raise-furnace" as the lesson.
+- Distinct from r64 malt kiln, r02 cupola sluice, r61 sinter windbox:
+  flue-cured tobacco local TC vs plenum mean.
+- Independent LIF excerpt is disjoint from spike_events times.
+
+### Weaknesses (honest)
+- Probe error bands, the 0.34%/campaign rupture rate, the $0.64M /
+  $1.4M figures, the 10.8 min walk latency, and the night-shift 0.25%
+  base rate are DESIGNED constants and are flagged. Closed-loop offsets
+  (header dilution from one ruptured joint, high-moisture rack resistance)
+  are derived from those inputs, not discovered by an unauthored process.
+- Leaf-scorch model is a designed 16 min mapping; no full CFD of B-4
+  shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil. Gap 4
+  remains open as a provenance cell (invented plants stay designed).
+- Cross-record arc is a hook (CR-T-6508 +21 d), not a serial igniter
+  into another round. mushroom-compost-tunnel and farm-ad-biogas remain
+  unused.
+- The densifying-loop *shape* (three correct agents / MODIFY / probe /
+  triple-edge / night-shift CSV / sister ACCEPT / negative primary)
+  rhymes with r22/r61/r64. Physics, plant, sensors, and failure class
+  are new; the scaffold is not.
+
+### Realism of noise / latencies
+Ladder: 190 us race / 178 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap {gap:.3f} ms on {gap_ch}) / 500 us race
+window / 728 us gate latency / 20 ms bus epoch / 38 ms independent LIF
+raster / 7.8 s probe / 10.8 min HITL / 8 min naive raise-furnace-ramp
+counterfactual / 16 min pre-t0 rupture / 3.0 h flue recovery / 4.6 h
+leaf cull / +3 d contrast / +21 d governance. Adaptation decay on pln.hot
+(0.53->0.50->0.41->0.28), flue.dP (0.75->0.77->1.40->0.42->0.37->0.26),
+fan.ok (0.56->0.58->0.44->0.23), rh.ok (0.62->0.65->0.82).
+
+### Value for SNN distillation
+- FLUE RUPTURE = THREE CORRECT LOOPS, WRONG VOLUME.
+- FLUE-TRUE TC CHANNEL that policy treated as stem-wet-nuisance-only as
+  the tie-break.
+- REVERSIBLE PROBE that recouples PLN mean iff the flue is intact.
+- TRIPLE-EDGE ELIGIBILITY: coordinated depression; pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+- INDEPENDENT LIF sidecar whose excerpt is membrane crossings.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum {rec['reward_components']['total']}
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.48 reconciles independently.
+- spike_events: primary {len(rec['spike_events'])} events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap {gap:.3f} ms >= 0.8 ms, 3
+  channels inside race_window_us 500 (flue.hot.high 6.518, pln.in_band 6.708,
+  rh.ok 6.894). Contrast 8 events, own race, min same-channel gap well
+  above 0.8 ms.
+- Sidecars: raster spikes {ras['spikes']} == round({ras['neurons']} x {ras['mean_rate_hz']} x {ras['window_s']}); energy {ras['energy_pJ']} pJ /
+  {ras['energy_uJ']} uJ at 23 pJ/spike; excerpt {len(ras['excerpt'])} events inside [0, {ras['window_ms']*1000}] us,
+  neuron_id < {ras['neurons']}, same-neuron gap >=1000 us; excerpt_source independent_lif;
+  routing 4 entries with three scar edges' before/after pair; third factor tau 0.91 s
+  == 910 ms; gate_snn pools 41/17/5 == round(n x rate x 0.024) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: {pipeline_receipt}
+
+## Novel coverage
+The coordination-failure CLASS (flue-joint-rupture certificate of a
+plenum-true tobacco barn), the domain (flue-cured bulk leaf / furnace
+flue), the fan-step probe discriminant, the triple-edge scar with
+pair-rollback-fails, the primary negative-result (correct MODIFY,
+barn still fails on unmonitored leaf scorch), the HITL barn-walk
+ratify, the high-moisture probe-duration refit, the night-shift
+10-bin quantization fence, and the independent LIF raster (seed 65001,
+not a language-train remap) are absent from prior committed ouroboros
+rounds and from staged r14-r64. Repeated elements discounted:
+same-gate contrast, governance-pricing scaffold, flip-fragility series
+(extended to flue-true certificate, but the move rhymes), sequenced
+recovery shape, third-factor rollback form, negative-result primary.
+Adjacent thermal-bed rounds (r64 malt kiln, r61 sinter, r02 cupola)
+share industrial-process scaffolding but not flue-cured tobacco physics.
+Weighing a new failure family + cure vocabulary + unused sub-domain +
+Rookspur geography against those reused scaffolds:
+
+{NOVEL_LINE}
+
+## What ROUND 66 should add
+1. FIT THE DESIGNED CONSTANTS: joint arrival, probe PLN-jump bands,
+   scorch-to-cull mapping, night-shift claim process.
+2. HIL PROVENANCE CELL: put the barn-walk LOTO on a hardware-in-loop
+   flue pendant with fitted latency as state.sim_or_real=hil — only if
+   the plant is no longer purely invented.
+3. CROSS-RECORD ARC: let CR-T-6508's local-TC alarm be the igniter of
+   the next round rather than a dangling +21 d leaf.
+4. Domain candidates (de-collided): mushroom-compost-tunnel;
+   farm-ad-biogas; alkaline-water-electrolysis (if distinct from any
+   later PEM stack).
+   AVOID flue-cured-tobacco-barn (now used), malting-kiln-barn (r64),
+   sinter-strand-windbox (r61), cupola-foundry-slag-sluice (r02),
+   canal-lock-rail-transshipment (r63), grid-inspection (r42/r62),
+   urea-prilling-tower (r22), bioreactor-perfusion (r41),
+   autonomous-driving (r21), continuous-hot-dip-galvanizing (r01),
+   and any LYOSHIELD / CINDERWICK / TRIAD / SKULLGATE / BOGIRON /
+   SKARVOLT / PUSHERFELL / CREELWOLD / GIBBSQUERN / COILSHAW /
+   LOOPERQUAY / SIPHONWOLD / WINDBOXHOLT / WOLD-BARN / LOCKSPUR /
+   SLUICE-HEARTH / CORONSTAITH / SHEDWOLD / PRILLGHYLL / SPUR-HEARTH plant.
+"""
+    return notes

@@ -1,0 +1,34 @@
+    "GALVSTAITH",
+    "WOLD-BARN",
+    "Barleyholt",
+    "LOCKSPUR",
+    "Poundholt",
+    "CORONSTAITH",
+    "Fernholt",
+    "SLUICE-HEARTH",
+    "Wickfen",
+    "PRILLGHYLL",
+    "Ureafen",
+    "SHEDWOLD",
+    "Wickspan",
+    "PACKFLUE",
+    "training_ready",
+)
+R14_OPENING = (
+    "Helixmere Biologics Building C lyophilizer LYO-4 is mid-primary on 8400 "
+    "vials of a monoclonal antibody"
+)
+NOVEL_LINE = "Novel coverage: 48%"
+PLANT = "BARN-SPIT"
+GEO = "Spitcroft"
+CELL = "RT-8"
+DOMAIN = "industrial-rotisserie-spit-oven"
+RECORD_ID = "maos-r66-001"
+ROUND = 66
+DELAY_S = 0.82
+TAU_E_S = 0.96
+LIF_SEED = 66001
+WINDOW_MS = 38
+NEURONS = 152
+MEAN_RATE_HZ = 12.5
+SWARM = "BARN-SPIT"

@@ -1,0 +1,2 @@
+        if rec["meta"]["round"] != 48:
+            issues.append(f"{rid} meta.round")

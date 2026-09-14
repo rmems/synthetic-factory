@@ -1,0 +1,55 @@
+{
+  "agent_ids": [
+    "01a064ab-4284-75b0-92dd-c4f82e7c0a86"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 1,
+  "original_basename": "gen_r72.py",
+  "original_path": "/tmp/ttf-r72-live/gen_r72.py",
+  "path_key": "ttf-r72-live--d95f8fb37739",
+  "terminal_event_ids": [
+    "01a064ab-4284-75b0-92dd-c4f82e7c0a86:call-a705edd4-3beb-4a13-b1f3-0d433eb15982-44",
+    "01a064ae-4000-7f10-83ec-b3c7d7673437:call-631a91d5-c1c9-4570-82e7-bfcae007f893-16",
+    "01a064ae-4000-7f10-83ec-b3c7d7673437:call-670442e5-6e03-478b-a4f2-8163a0b0f445-18",
+    "01a064ae-4000-7f10-83ec-b3c7d7673437:call-8d744b32-84c7-4c80-8f75-e4f7d53e5f50-20"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a064ab-4284-75b0-92dd-c4f82e7c0a86",
+      "basename_preserved": true,
+      "bytes": 83110,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 249,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a064ab-4284-75b0-92dd-c4f82e7c0a86/updates.jsonl",
+      "original_basename": "gen_r72.py",
+      "original_path": "/tmp/ttf-r72-live/gen_r72.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r72-live--d95f8fb37739/versions/v0001/gen_r72.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r72-live--d95f8fb37739/versions/v0001/gen_r72.py",
+      "session_id": "01a064ab-4284-75b0-92dd-c4f82e7c0a86",
+      "sha256": "36cf5ca30686624bc445067f891042a7686537748a98518f749819050592642a",
+      "source_channel": "structured",
+      "source_event_id": "01a064ab-4284-75b0-92dd-c4f82e7c0a86:call-9c3dbb14-e4a5-4e1c-a2f0-36b5e1c4b3a7-43",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788397017302,
+      "timestamp_utc": "2026-09-03T00:56:57.302Z",
+      "tool_call_id": "call-9c3dbb14-e4a5-4e1c-a2f0-36b5e1c4b3a7-43",
+      "version": 1,
+      "version_id": "ttf-r72-live--d95f8fb37739:v0001"
+    }
+  ]
+}

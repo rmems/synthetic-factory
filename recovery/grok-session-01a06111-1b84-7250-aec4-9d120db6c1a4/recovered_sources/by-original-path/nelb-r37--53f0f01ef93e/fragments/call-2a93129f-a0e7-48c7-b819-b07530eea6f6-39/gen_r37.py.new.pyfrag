@@ -1,0 +1,934 @@
+def _exact(a, b, eps=1e-12):
+    if abs(a - b) > eps:
+        raise RuntimeError(f"arith {a} != {b}")
+
+
+# ---------------------------------------------------------------------------
+# Record 112 — mud-pulse MWD + sealed standpipe hydrophone, designed,
+# REJECT / MODIFY
+# ---------------------------------------------------------------------------
+def rec_112():
+    k_p = 0.250
+    dp_psi = 48.00
+    v_bbl = k_p * dp_psi
+    _exact(v_bbl, 12.00)
+    _exact(k_p * 16.00, 4.00)
+    _exact(k_p * 32.00, 8.00)
+    _exact(k_p * 20.00, 5.00)
+    _exact(0.040 / 1.000, 0.040)
+    _exact(6000.0 + 1080.0, 7080.0)
+
+    raster = make_raster(
+        neurons=20,
+        mean_rate_hz=50.0,
+        window_ms=40.0,
+        seed=20260937,
+        source="gk5.hyd.standpipe",
+        target="gorsekettle.kick_stop_core",
+        table=[
+            {"from": "hyd_dP", "to": "kick_estimator", "weight": 1.40},
+            {"from": "hyd_snr", "to": "hydro_lock_core", "weight": 1.15},
+            {"from": "mudveil_flag", "to": "vendor_drill_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "da.collusion_infra_conflict",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": "pre-post coincidence on drill-on synapses; the hydrophone modulator depresses drill-on links when standpipe dP stays high inside tau_e of an SNR lock so a Mudveil decoder comb cannot hide a 12.00 bbl kick",
+        },
+        channel_prefix="hyd.n",
+        anchor="GK-5 sealed hydrophone 40 ms frame at dP 48.00 psi / SNR 12.0 (t_s 3000) reconstructing 12.00 bbl above the 4.00 bbl kick floor",
+    )
+    w_s = 0.040
+    events = [
+        ev(0.0, "hyd.dP", 16.00, code="DP_PSI", units="psi", note="plant-owned sealed standpipe hydrophone on GK-5 ST-9; coded mud-pulse pressure, not DAS phi-OTDR, not infrasound, not SOFAR, not clamp-on transit-time, not N-16 gamma"),
+        ev(300000.0, "hyd.snr", 6.0, code="HYD_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(600000.0, "recon.V", 4.00, code="V_BBL", units="bbl", note="0.250*16.00=4.00 exact; at the 4.00 kick floor"),
+        ev(900000.0, "pit.bbl", 0.40, code="PIT_BBL", units="bbl", note="mud-logger pit series; collusion party; not admissible SoT"),
+        ev(1200000.0, "mudveil.flag", 1.0, code="DRILL_BREAK", units="bool", note="Mudveil decoder cloud; infra owner; 1.000 s Manchester comb"),
+        ev(1800000.0, "hyd.dP", 32.00, code="DP_PSI", units="psi"),
+        ev(2100000.0, "recon.V", 8.00, code="V_BBL", units="bbl", note="0.250*32.00=8.00"),
+        ev(2400000.0, "decoder.cv", 0.040, code="CV", units="1", note="sigma/mean = 0.040/1.000 = 0.040; comb regularity, not formation jitter"),
+        ev(2700000.0, "wob.klbf", 42.00, code="WOB_KLBF", units="klbf", note="weight-on-bit still loaded"),
+        ev(3000000.0, "hyd.dP", 48.00, code="DP_PSI", units="psi", note="kick-floor frame; raster sidecar"),
+        ev(3000001.3, "hyd.snr", 12.0, code="HYD_SNR", units="1", note="1.3 ms SNR lock after dP; 12.0 >= 8.0"),
+        ev(3300000.0, "recon.V", 12.00, code="V_BBL", units="bbl", note="0.250*48.00=12.00 exact; kick floor 4.00"),
+        ev(3600000.0, "pit.bbl", 1.20, code="PIT_BBL", units="bbl", note="logger backfill still 1.20; a pit-only head would drill-on"),
+        ev(3900000.0, "wob.drop", 18.00, code="WOB_DROP", units="klbf", note="hookload drop 18.00 klbf"),
+        ev(4200000.0, "tq.hold", 12.50, code="TQ_KLBF_FT", units="klbf_ft", note="rotary torque did not unload; not a true bit-break"),
+        ev(4800000.0, "ops.prop", 1.0, code="DRILL_ON", units="bool", note="toolpusher Harth Quill: Mudveil DRILL_BREAK plus pit 1.20; drill-on with 20 bbl watch"),
+        ev(5400000.0, "gate.stop", 1.0, code="REJECT", units="decision", note="refuse drill-on; 12.00 bbl and SNR 12.0; Mudveil not SoT"),
+        ev(6000000.0, "choke.start", 1.0, code="CHOKE_START", units="bool", note="bookend 1 of the 18.0 min choke line-up floor"),
+        ev(7080000.0, "choke.floor", 1.0, code="CHOKE_FLOOR", units="bool", note="6000 s + 1080 s = 7080 s = 18.0 min"),
+        ev(7800000.0, "ops.kill", 1.0, code="PAD_ESD", units="bool", note="Quill: ESD the whole pad until day-shift"),
+        ev(8400000.0, "gate.hold", 1.0, code="MODIFY", units="decision", note="companion t2: hard shut-in plus choke manifold; pad ESD refused"),
+        ev(9000000.0, "shutin.set", 1.0, code="HARD_SHUTIN", units="bool"),
+        ev(9600000.0, "hyd.dP", 20.00, code="DP_PSI", units="psi"),
+        ev(10200000.0, "recon.V", 5.00, code="V_BBL", units="bbl", note="0.250*20.00=5.00; still above 4.00 so shut-in holds"),
+        ev(10800000.0, "pit.bbl", 1.10, code="PIT_BBL", units="bbl"),
+        ev(11400000.0, "mudveil.flag", 1.0, code="DRILL_BREAK", units="bool"),
+        ev(12000000.0, "choke.held", 1.0, code="CHOKE_HELD", units="bool"),
+        ev(12600000.0, "pad.esd", 0.0, code="ESD_NOT_TAKEN", units="bool"),
+        ev(13200000.0, "decoder.cv", 0.040, code="CV", units="1"),
+        ev(13800000.0, "tq.hold", 12.40, code="TQ_KLBF_FT", units="klbf_ft"),
+        ev(14400000.0, "wob.drop", 18.00, code="WOB_DROP", units="klbf"),
+        ev(15000000.0, "shutin.held", 1.0, code="HARD_SHUTIN", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r37-112-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "GK-MWD-2026-0902",
+            "domain": "mud_pulse_mwd_hydrophone",
+            "setting": "Gorsekettle Geothermal GK-5 (invented), HPHT sidetrack ST-9, 17,200 ft MD, 12.2 ppg invert. Plant-owned sealed third-party standpipe hydrophone is the kick-volume SoT. Mudveil vendor decoder (infra owner) plus the mud-logger pit series are collusion parties, not witnesses. Invented plant; designed campaign. Not DAS phi-OTDR (r4), not infrasound microbarometry (r7), not SOFAR (r10), not clamp-on transit-time (r18), not N-16 gamma TOF (r24), not Rift-Caldera-3 premises sketch.",
+            "observables_at_decision": {
+                "dP_psi": dp_psi,
+                "k_p": k_p,
+                "V_bbl": v_bbl,
+                "hyd_snr": 12.0,
+                "pit_bbl": 1.20,
+                "decoder_cv": 0.040,
+                "wob_drop_klbf": 18.00,
+                "torque_klbf_ft": 12.50,
+                "kick_floor_bbl": 4.00,
+            },
+            "margin_authority": "GK-5 well-control SOP rev C: if reconstructed V_bbl >= 4.00 AND hydrophone SNR >= 8.0, drill-on is forbidden even if Mudveil flags DRILL_BREAK and the pit series stays under 2.00 bbl. Pad ESD is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "toolpusher Harth Quill, citing Mudveil DRILL_BREAK and pit 1.20 bbl",
+            "summary": "drill-on with a 20 bbl pit-gain watch; 48 psi is decoder comb noise on a healthy pulse train",
+            "basis_claimed": "Mudveil is the only OEM MWD SoT and a night shut-in of an HPHT sidetrack is a casing-point miss",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Drill-on is refused. Serialized reconstruction: V_bbl = k_p * dP_psi = 0.250 * 48.00 = 12.00, above the 4.00 bbl kick floor, and hydrophone SNR is 12.0 >= 8.0. Decoder CV 0.040/1.000 = 0.040 is a 1.000 s comb, not formation jitter. Hookload dropped 18.00 klbf while rotary torque stayed 12.50 klbf-ft, so this is not a true bit-break. Mudveil and the pit series are collusion parties (decoder firmware dropped the hydrophone precursor; logger backfilled the pit). Ordered: refuse drill-on now. Scope: this REJECT does not ESD the pad (that is the companion question) and does not isolate the mud pumps.",
+            "threshold": "V_bbl>=4.00 AND hyd_snr>=8.0 => refuse drill-on; Mudveil is not SoT",
+            "stated_residuals": "hard shut-in still required to hold the 12.00 bbl; 12.00 vs a true influx is a production cut; Mudveil remains the only OEM decoder channel",
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 5400: drill-on refused; Mudveil not SoT; reconstruction locked",
+            "tool": "gk5-hyd-kick-gate-cli",
+            "observation": "V 12.00 bbl recomputes from dP 48.00 psi; hydrophone hashed; Mudveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "hyd dP 48.00 psi; raster frame; V 12.00 bbl"},
+                {"t_s": 4800.0, "event": "ops proposes drill-on"},
+                {"t_s": 5400.0, "event": "REJECT drill-on"},
+                {"t_s": 6000.0, "event": "18 min choke line-up bookend 1"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 8400.0, "event": "companion MODIFY hard shut-in vs pad ESD"},
+            ],
+            "observed_effects": [
+                "kick volume recomputes from the serialized hydrophone model at every recon.V event",
+                "a Mudveil-only head would have drilled on overnight",
+                "18 min choke line-up floor is in the stream (choke.start, choke.floor)",
+            ],
+            "surprises": [
+                "a mid-range pit series and a vendor DRILL_BREAK comb co-existed with a 12.00 bbl hydrophone reconstruction",
+            ],
+            "new_state": {
+                "st9": "drill-on blocked",
+                "mudveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("hydrophone_reconstruction", 0.14),
+                ("conjunctive_kick_floor", 0.12),
+                ("mudveil_nonsubstitution", 0.10),
+                ("three_party_collusion", 0.10),
+                ("choke_time_cost", -0.03),
+            ],
+            "scored for a drill-on REJECT on a recomputable hydrophone kick while refusing a Mudveil comb and a backfilled pit; 18 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "mud-pulse-mwd", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Mud-pulse gate: serialized k_p*dP plus SNR lock beats a vendor decoder comb; companion t2 is the hard shut-in execution, not a referral vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r37-112-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "GK-MWD-2026-0902-exec",
+            "domain": "hard_shutin_choke_execution",
+            "setting": "Same GK-5 after the REJECT. Toolpusher proposes pad ESD. This companion is the operational hard shut-in, space-out, and choke-manifold line-up, not a second kick-volume vote.",
+            "observables_at_decision": {
+                "V_bbl": 5.00,
+                "choke_floor_s": 1080.0,
+                "pad_esd_proposed": True,
+                "shutin_set": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "toolpusher Harth Quill",
+            "summary": "ESD the whole pad until day-shift; 18 min already paid and Mudveil still shows DRILL_BREAK",
+            "basis_claimed": "the REJECT already stopped rotation, so a pad kill is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Hard shut-in plus choke manifold. The 18 min line-up floor is complete and the kick tripwire (V_bbl >= 4.00) is still armed on the plant hydrophone. MODIFY the default soft-shut-in-only SOP into a hard shut-in. Do not ESD the pad. Do not restore drill-on on Mudveil. 5.00 bbl post-stop is still the hydrophone SoT until a new frame clears 4.00.",
+            "threshold": "shutin_hard AND choke_floor_complete AND pad_esd_not_taken AND drill_on_not_restored",
+        },
+        "executed_action": {
+            "summary": "hard shut-in held at t_s 8400; pad ESD not latched; Mudveil restore not taken",
+            "tool": "gk5-choke-shutin-exec",
+            "observation": "recon.V 5.00 bbl after stop; choke line-up complete; Mudveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "choke clock started after REJECT"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 7800.0, "event": "pad ESD proposed"},
+                {"t_s": 8400.0, "event": "MODIFY hard shut-in; pad ESD refused"},
+            ],
+            "observed_effects": [
+                "Mudveil restore did not reopen the kick call",
+                "pad ESD never fired; ST-9 held on the choke",
+            ],
+            "new_state": {"shutin": "hard", "pad": "in service", "st9": "shut in"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("hard_shutin", 0.12),
+                ("no_pad_esd", 0.10),
+                ("mudveil_nonsubstitution", 0.08),
+                ("choke_floor_complete", 0.06),
+                ("held_rop_cost", -0.02),
+            ],
+            "operational execution gate: hard shut-in because Mudveil is not a restore license; not a kick-volume re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "hard-shutin"]),
+    }
+    return {
+        "id": "nelb-r37-112",
+        "spike_events": events,
+        "language_view": {
+            "description": "Gorsekettle Geothermal GK-5. Plant-owned sealed standpipe hydrophone reconstructs 12.00 bbl from 48.00 psi while Mudveil still flags DRILL_BREAK and the pit series reads 1.20 bbl. The gate REJECTs drill-on. An 18 min choke line-up floor is serialized in the stream. Companion t2 MODIFYs a pad ESD into a hard shut-in.",
+            "trajectory": traj,
+            "trajectory_hard_shutin": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "hyd.dP / hyd.snr": "standpipe delta-P and hydrophone SNR; the physics channels the reconstruction consumes",
+                "recon.V": "serialized kick volume bbl",
+                "pit.bbl / mudveil.flag / decoder.cv / wob.drop / tq.hold": "logger pit, vendor decoder, comb CV, hookload drop, and torque hold; the denial and discordance channels",
+                "ops.prop / gate.stop / ops.kill / gate.hold": "drill-on proposal, REJECT, pad-ESD proposal, companion MODIFY",
+                "choke.start / choke.floor / shutin.set / choke.held / pad.esd": "operational companion channels plus the 18 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while hydrophone-over: mudveil.flag 1 next to recon.V 12.00",
+                "reconstruction as event: recon.V 12.00 equals 0.250*48.00",
+                "REJECT then operational MODIFY: gate.stop at 5400 s, gate.hold at 8400 s",
+                "slow floor in-stream: choke.start 6000 s, choke.floor 7080 s (18.0 min)",
+                "tight hydro pair: hyd.dP then hyd.snr +1.3 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Mudveil is DRILL_BREAK' = mudveil.flag 1.0; '12 bbl kick' = recon.V 12.00; 'refuse drill-on' = gate.stop REJECT; 'hard shut-in not pad ESD' = gate.hold MODIFY",
+            "why_high_value": "New mud-pulse MWD family on a geothermal sidetrack (not DAS r4, not infrasound r7, not SOFAR r10, not clamp-on r18, not N-16 r24). Lead REJECT of drill-on on a recomputable hydrophone kick that a vendor decoder comb and a backfilled pit would have cleared. Three-party collusion includes the decoder infra owner. Companion t2 is operational hard shut-in. sim_or_real=designed.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 20260937, "stream_note": "stream amplitudes are authored constants (psi, 1, bbl, klbf, klbf_ft, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "standpipe hydrophone exists at 50 Hz; stream keeps 4 dP points; recon keeps 4 of ~40 solver ticks",
+                "refractory_floors_ms": {
+                    "hyd.dP": 1.3,
+                    "hyd.snr": 1.3,
+                    "recon.V": 60000,
+                    "pit.bbl": 60000,
+                    "mudveil.flag": 60000,
+                    "decoder.cv": 60000,
+                    "wob.klbf": 60000,
+                    "wob.drop": 60000,
+                    "tq.hold": 60000,
+                    "ops.prop": 60000,
+                    "gate.stop": 60000,
+                    "choke.start": 60000,
+                    "choke.floor": 60000,
+                    "ops.kill": 60000,
+                    "gate.hold": 60000,
+                    "shutin.set": 60000,
+                    "choke.held": 60000,
+                    "pad.esd": 60000,
+                    "shutin.held": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T02:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "mud-pulse reconstruction head: V_bbl = k_p * dP_psi",
+                "conjunctive kick floor vs drill-on vs pad ESD",
+                "vendor-decoder nonsubstitution plus three-party collusion including the infra owner",
+                "operational companion: hard shut-in without restoring on Mudveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "mud_pulse_hydrophone_kick_volume",
+            "formula": "V_bbl = k_p * dP_psi; CV = sigma_isi / mean_isi",
+            "parameters": {
+                "k_p": 0.250,
+                "kick_floor_bbl": 4.00,
+                "snr_lock": 8.0,
+                "comb_cv": 0.040,
+                "choke_min": 18.0,
+            },
+            "worked_example": {"dP_psi": 48.00, "V_bbl": 12.00, "CV": 0.040},
+            "check": "0.250 * 48.00 = 12.00 exactly; 0.040 / 1.000 = 0.040 exactly; 6000 s + 1080 s = 7080 s = 18.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 40.0,
+            "decision_window_s": 0.040,
+            "code": "gk5.hyd_kick_gate",
+            "note": "REJECT accumulator wins: hydrophone kick evidence overpowers the Mudveil drill-on advocate",
+            "decode_rule": "reject-drill-on if kick_estimator AND hydro_lock fire; vendor_drill_advocate is below threshold by design",
+            "populations": [
+                gate_pop("kick_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("hydro_lock", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_drill_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("reject_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "gk5.hyd_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "gk5.shutin_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r37-112",
+            clock_domain="gk5-mwd-campaign-relative-ms-t0-2026-09-02T02:00:00Z",
+            tags=["mud-pulse-mwd", "REJECT", "MODIFY", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 113 — magnetic Barkhausen noise on a ground race, hil,
+# MODIFY / ACCEPT
+# ---------------------------------------------------------------------------
+def rec_113():
+    k_b = 4.00
+    v_rms = 6.00
+    i_mag = 2.00
+    ra_pct = k_b * v_rms / i_mag
+    _exact(ra_pct, 12.00)
+    _exact(k_b * 2.00 / i_mag, 4.00)
+    _exact(k_b * 4.00 / i_mag, 8.00)
+    _exact(k_b * 3.00 / i_mag, 6.00)
+    k_d = 5.00
+    d_um = k_d * ra_pct
+    _exact(d_um, 60.0)
+    _exact(k_d * 6.00, 30.0)
+    _exact(2820.0 + 1440.0, 4260.0)
+
+    raster = make_raster(
+        neurons=25,
+        mean_rate_hz=50.0,
+        window_ms=32.0,
+        seed=20260938,
+        source="fg8.mbn.ring",
+        target="flintspit.lot_isolate_core",
+        table=[
+            {"from": "mbn_V", "to": "ra_estimator", "weight": 1.35},
+            {"from": "mbn_I", "to": "current_norm_core", "weight": 1.20},
+            {"from": "dressveil_ra", "to": "vendor_continue_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "na.grind_burn_salience",
+            "tau_e_s": 1.2,
+            "tau_e_ms": 1200.0,
+            "eligibility": "pre-post coincidence on keep-lot synapses; the Barkhausen modulator depresses keep-lot links when RMS stays high inside tau_e of a magnetizing-current sample so a Dressveil hardness corridor cannot hide 12.00 pct residual austenite",
+        },
+        channel_prefix="mbn.n",
+        anchor="FG-8 HIL ring 32 ms frame at V_rms 6.00 mV / I_mag 2.00 A (t_s 1560) reconstructing 12.00 pct RA above the 8.00 isolate floor",
+    )
+    w_s = 0.032
+    events = [
+        ev(0.0, "mbn.V", 2.00, code="V_RMS_MV", units="mV", note="HIL Barkhausen yoke on a 100Cr6 inner ring in Bark-HIL-5; domain-wall avalanche noise, not fluxgate gradiometry, not HV-PD, not MFL, not RUS"),
+        ev(180000.0, "mbn.I", 2.00, code="I_MAG_A", units="A", note="125 Hz magnetizing current; RA = k_b*V/I"),
+        ev(360000.0, "recon.RA", 4.00, code="RA_PCT", units="pct", note="4.00*2.00/2.00=4.00 exact"),
+        ev(540000.0, "hall.mT", 0.70, code="HALL_MT", units="mT", note="DC residual Hall; denial corridor"),
+        ev(720000.0, "dressveil.RA", 2.20, code="VENDOR_RA", units="pct", note="Dressveil last-good dressing cloud; not admissible SoT"),
+        ev(900000.0, "mbn.V", 4.00, code="V_RMS_MV", units="mV"),
+        ev(1080000.0, "recon.RA", 8.00, code="RA_PCT", units="pct", note="4.00*4.00/2.00=8.00; at the 8.00 isolate floor"),
+        ev(1260000.0, "ae.spark", 0.0, code="SPARK_AE", units="bool", note="missing spark-out AE burst; Dressveil UTC vs plant UTC+2 skipped the dress by 120 min"),
+        ev(1440000.0, "hall.mT", 0.80, code="HALL_MT", units="mT"),
+        ev(1560000.0, "mbn.V", 6.00, code="V_RMS_MV", units="mV", note="isolate-floor frame; raster sidecar"),
+        ev(1560001.2, "mbn.I", 2.00, code="I_MAG_A", units="A", note="1.2 ms current-norm after RMS"),
+        ev(1740000.0, "recon.RA", 12.00, code="RA_PCT", units="pct", note="4.00*6.00/2.00=12.00 exact; isolate 8.00, shop-condemn 16.00"),
+        ev(1920000.0, "recon.d", 60.0, code="BURN_UM", units="um", note="5.00*12.00=60.0 exact; burn floor 40 um"),
+        ev(2100000.0, "dressveil.RA", 2.40, code="VENDOR_RA", units="pct"),
+        ev(2280000.0, "ops.prop", 1.0, code="KEEP_LOT_REFER", units="bool", note="night lead Bram Vetch: keep lot FG8-22011..22040 and refer dresser Ryn Callow"),
+        ev(2460000.0, "gate.isol", 1.0, code="MODIFY", units="decision", note="isolate this lot; refuse the person-referral; Dressveil not SoT"),
+        ev(2640000.0, "lot.lock", 1.0, code="LOT_ISOL", units="bool"),
+        ev(2820000.0, "spark.start", 1.0, code="SPARK_START", units="bool", note="bookend 1 of the 24.0 min spark-out plus cool floor"),
+        ev(4260000.0, "spark.floor", 1.0, code="SPARK_FLOOR", units="bool", note="2820 s + 1440 s = 4260 s = 24.0 min"),
+        ev(4440000.0, "ops.refer", 1.0, code="REFER_CALLOW", units="bool", note="Vetch: Callow was last to touch the wheel"),
+        ev(4620000.0, "gate.exec", 1.0, code="ACCEPT", units="decision", note="companion t2: new-wheel restart; person-referral refused; shop-condemn refused"),
+        ev(4800000.0, "wheel.new", 1.0, code="NEW_WHEEL", units="bool"),
+        ev(4980000.0, "mbn.V", 3.00, code="V_RMS_MV", units="mV"),
+        ev(5160000.0, "recon.RA", 6.00, code="RA_PCT", units="pct", note="4.00*3.00/2.00=6.00; under 8.00 isolate so the new wheel may restart"),
+        ev(5340000.0, "dressveil.RA", 2.30, code="VENDOR_RA", units="pct"),
+        ev(5520000.0, "hall.mT", 0.75, code="HALL_MT", units="mT"),
+        ev(5700000.0, "refer.hold", 0.0, code="REFER_NOT_TAKEN", units="bool", note="Callow exonerated; missing spark-out AE precedes the RA walk, not the dresser touch"),
+        ev(5880000.0, "lot.held", 1.0, code="LOT_HELD", units="bool"),
+        ev(6060000.0, "ae.spark", 1.0, code="SPARK_AE", units="bool", note="spark-out restored on the new wheel"),
+        ev(6240000.0, "recon.d", 30.0, code="BURN_UM", units="um", note="5.00*6.00=30.0; under the 40 um burn floor"),
+        ev(6420000.0, "shop.condemn", 0.0, code="SHOP_NOT_TAKEN", units="bool"),
+        ev(6600000.0, "cell.restart", 1.0, code="CELL_RESTART", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r37-113-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "FG-MBN-2026-0718",
+            "domain": "magnetic_barkhausen_race",
+            "setting": "Flintspit Gear Works FG-8 (invented), 62 mm 100Cr6 inner-ring finishing cell. Hardware-in-the-loop spare ring in Bark-HIL-5 supplies the MBN RMS that times the in-service lot isolate. Plant-owned 125 Hz Barkhausen yoke. Dressveil vendor dressing scheduler is a corridor witness, not the lot SoT. Not fluxgate gradiometry (r5), not HV partial discharge (r8), not MFL (r27/r28), not RUS porcelain (r24), not Skarv-Naze GN-14 premises sketch.",
+            "observables_at_decision": {
+                "V_rms_mV": v_rms,
+                "I_mag_A": i_mag,
+                "RA_pct": ra_pct,
+                "d_um": d_um,
+                "dressveil_RA": 2.40,
+                "hall_mT": 0.80,
+                "ae_spark": 0.0,
+                "isolate_floor_pct": 8.00,
+            },
+            "margin_authority": "FG-8 grind SOP rev B: if reconstructed RA_pct >= 8.00, isolate this lot this night. A Dressveil last-good or a quiet Hall residual cannot keep the lot. Shop-condemn tripwire is 16.00 pct. Person-referral is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night lead Bram Vetch, citing Dressveil 2.40 pct RA and Hall 0.80 mT, and naming dresser Ryn Callow as last-to-touch",
+            "summary": "keep lot FG8-22011..22040 in service and refer Callow; 6.00 mV is yoke noise on a healthy race",
+            "basis_claimed": "Dressveil last-good and Hall residual are both under the 8.00 isolate floor and a night isolate of 30 rings is a takt miss",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Keep-lot is refused; the person-referral is also refused. Serialized reconstruction: RA_pct = k_b * V_rms / I_mag = 4.00 * 6.00 / 2.00 = 12.00, which is 4.00 pct above the 8.00 isolate floor and 4.00 pct under the 16.00 shop-condemn tripwire. Burn identity d_um = k_d * RA_pct = 5.00 * 12.00 = 60.0, above the 40 um burn floor. Dressveil 2.40 pct is a last-good dressing stamp and is not an admissible keep-lot witness. The missing spark-out AE burst sits on a Dressveil UTC-vs-UTC+2 skip (120 min), not on Callow's tool-touch, so the easy referral fails command-custody. Ordered: isolate this lot now. Scope: this MODIFY does not condemn the shop (that is the companion question) and does not name Callow.",
+            "threshold": "RA_pct>=8.00 => isolate this lot; Dressveil is not SoT; condemn if RA_pct>=16.00; referral requires tool-touch preceding the RA walk",
+            "stated_residuals": "12.00 vs 16.00 condemn floor is 4.00 pct, not infinite; new-wheel restart still required; Dressveil remains the only OEM dressing channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 2460: lot isolated; Callow not named; Dressveil not SoT; reconstruction locked",
+            "tool": "fg8-mbn-lot-gate-cli",
+            "observation": "RA 12.00 pct recomputes from V 6.00 mV and I 2.00 A; HIL ring hashed; Dressveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 1560.0, "event": "mbn V 6.00 mV; raster frame; RA 12.00 pct"},
+                {"t_s": 2280.0, "event": "ops proposes keep-lot plus Callow referral"},
+                {"t_s": 2460.0, "event": "MODIFY isolate lot; referral refused"},
+                {"t_s": 2820.0, "event": "24 min spark-out bookend 1"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4620.0, "event": "companion ACCEPT new-wheel restart; referral still refused"},
+            ],
+            "observed_effects": [
+                "RA recomputes from the serialized Barkhausen model at every recon.RA event",
+                "a Dressveil-only head would have kept the lot overnight",
+                "24 min spark-out plus cool floor is in the stream (spark.start, spark.floor)",
+            ],
+            "surprises": [
+                "a last-good dressing stamp and a quiet Hall residual co-existed with a 12.00 pct RA reconstruction, and the obvious dresser was not on the causal path",
+            ],
+            "new_state": {
+                "lot_fg8_22011_22040": "isolated",
+                "callow": "exonerated",
+                "dressveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 1500000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("barkhausen_reconstruction", 0.14),
+                ("isolate_floor_lot", 0.12),
+                ("exoneration", 0.10),
+                ("dressveil_nonsubstitution", 0.08),
+                ("cool_time_cost", -0.04),
+            ],
+            "scored for a keep-lot MODIFY on a recomputable RA while refusing a Dressveil 2.40 pct corridor and an easy person-referral; 24 min floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "barkhausen-mbn", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Barkhausen gate: serialized V/I RA plus burn identity beats a green dressing dashboard; companion t2 is the new-wheel restart, not a governance vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r37-113-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "FG-MBN-2026-0718-exec",
+            "domain": "new_wheel_sparkout_execution",
+            "setting": "Same FG-8 after the MODIFY. Night lead proposes referring Callow and condemning the shop. This companion is the operational new-wheel spark-out restart, not a second RA vote.",
+            "observables_at_decision": {
+                "RA_pct": 6.00,
+                "d_um": 30.0,
+                "spark_floor_s": 1440.0,
+                "refer_proposed": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night lead Bram Vetch",
+            "summary": "refer Callow and condemn the finishing shop; 24 min already paid and Dressveil is 2.30 pct",
+            "basis_claimed": "the MODIFY already cut the lot, so a shop kill plus a person file is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Restart the cell on a different wheel after the spark-out floor. The 24 min cool is complete and the shop-condemn tripwire (RA_pct >= 16.00) is still armed on the plant MBN head. ACCEPT the new-wheel restart. Do not refer Callow. Do not condemn the shop. 6.00 pct post-isolate is under the 8.00 isolate floor, so the new wheel may run; the isolated lot stays held.",
+            "threshold": "new_wheel AND spark_floor_complete AND refer_not_taken AND shop_not_condemned AND isolated_lot_held",
+        },
+        "executed_action": {
+            "summary": "new-wheel restart at t_s 4620; Callow not referred; shop not condemned; isolated lot held",
+            "tool": "fg8-sparkout-exec",
+            "observation": "recon.RA 6.00 pct on the new wheel; spark-out AE present; Dressveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 2820.0, "event": "spark-out clock started after MODIFY"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4440.0, "event": "Callow referral re-proposed"},
+                {"t_s": 4620.0, "event": "ACCEPT new-wheel restart; referral refused"},
+            ],
+            "observed_effects": [
+                "Dressveil restore did not reopen the RA call",
+                "shop-condemn never fired; 12.00 vs 16.00 pct floor",
+                "Callow remains unnamed; missing spark-out AE is the causal object",
+            ],
+            "new_state": {"cell": "restarted on new wheel", "callow": "exonerated", "lot": "held", "shop": "in service"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("new_wheel_restart", 0.12),
+                ("no_person_referral", 0.10),
+                ("no_shop_condemn", 0.09),
+                ("spark_floor_complete", 0.06),
+                ("held_lot_takt_cost", -0.02),
+            ],
+            "operational execution gate: restart on a new wheel because Dressveil is not a restore license and Callow is not on the causal path; not an RA re-vote",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "exoneration"]),
+    }
+    return {
+        "id": "nelb-r37-113",
+        "spike_events": events,
+        "language_view": {
+            "description": "Flintspit Gear Works FG-8. HIL Barkhausen yoke reconstructs 12.00 pct residual austenite from 6.00 mV / 2.00 A while Dressveil still shows 2.40 pct and Hall 0.80 mT. The gate MODIFYs lot isolate and refuses the dresser referral. A 24 min spark-out floor is serialized in the stream. Companion t2 ACCEPTs a new-wheel restart and still refuses the referral.",
+            "trajectory": traj,
+            "trajectory_new_wheel": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "mbn.V / mbn.I": "Barkhausen RMS and magnetizing current; the physics channels the reconstruction consumes",
+                "recon.RA / recon.d": "serialized residual austenite pct and burn depth um",
+                "hall.mT / dressveil.RA / ae.spark": "Hall residual, vendor dressing cloud, and spark-out AE; the denial and exoneration channels",
+                "ops.prop / gate.isol / ops.refer / gate.exec": "keep-lot-plus-refer proposal, MODIFY isolate, referral re-proposal, companion ACCEPT",
+                "lot.lock / spark.start / spark.floor / wheel.new / refer.hold / cell.restart": "operational companion channels plus the 24 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while MBN-over: dressveil.RA 2.40 next to recon.RA 12.00",
+                "reconstruction as event: recon.RA 12.00 equals 4.00*6.00/2.00",
+                "MODIFY then operational ACCEPT: gate.isol at 2460 s, gate.exec at 4620 s",
+                "slow floor in-stream: spark.start 2820 s, spark.floor 4260 s (24.0 min)",
+                "tight MBN pair: mbn.V then mbn.I +1.2 ms at the raster frame",
+                "exoneration motif: ae.spark 0 at 1260 s precedes the RA walk; Callow touch is not in the stream as a cause",
+            ],
+            "language_to_spike_mapping": "'Dressveil is 2.40 pct' = dressveil.RA 2.40; '12 pct RA' = recon.RA 12.00; 'isolate this lot not Callow' = gate.isol MODIFY; 'new wheel not referral' = gate.exec ACCEPT",
+            "why_high_value": "New magnetic-Barkhausen family on a ground race (not fluxgate r5, not HV-PD r8, not MFL r27/r28, not RUS r24). Lead MODIFY of keep-lot on a recomputable RA that a vendor dressing dashboard would have cleared, with a resolved-innocent dresser. Companion t2 is operational new-wheel restart. sim_or_real=hil.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 20260938, "stream_note": "stream amplitudes are authored constants (mV, A, pct, mT, um, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "MBN pickup exists at 2-20 kHz; stream keeps 4 V points; recon keeps 4 of ~40 solver ticks",
+                "refractory_floors_ms": {
+                    "mbn.V": 1.2,
+                    "mbn.I": 1.2,
+                    "recon.RA": 60000,
+                    "recon.d": 60000,
+                    "hall.mT": 60000,
+                    "dressveil.RA": 60000,
+                    "ae.spark": 60000,
+                    "ops.prop": 60000,
+                    "gate.isol": 60000,
+                    "lot.lock": 60000,
+                    "spark.start": 60000,
+                    "spark.floor": 60000,
+                    "ops.refer": 60000,
+                    "gate.exec": 60000,
+                    "wheel.new": 60000,
+                    "refer.hold": 60000,
+                    "lot.held": 60000,
+                    "shop.condemn": 60000,
+                    "cell.restart": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-07-18T03:30:00Z HIL night start",
+            },
+            "distillation_targets": [
+                "Barkhausen reconstruction head: RA_pct = k_b * V_rms / I_mag; d_um = k_d * RA_pct",
+                "isolate-floor lot vs keep-whole vs shop-condemn",
+                "exoneration head: missing spark-out AE plus timezone skip, not last-to-touch",
+                "operational companion: new-wheel restart without referring the dresser",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "barkhausen_residual_austenite",
+            "formula": "RA_pct = k_b * V_rms_mV / I_mag_A; d_um = k_d * RA_pct",
+            "parameters": {
+                "k_b": 4.00,
+                "k_d": 5.00,
+                "I_mag_A": 2.00,
+                "isolate_floor_pct": 8.00,
+                "condemn_pct": 16.00,
+                "burn_floor_um": 40.0,
+                "spark_min": 24.0,
+            },
+            "worked_example": {"V_rms_mV": 6.00, "RA_pct": 12.00, "d_um": 60.0},
+            "check": "4.00 * 6.00 / 2.00 = 12.00 exactly; 5.00 * 12.00 = 60.0 exactly; 2820 s + 1440 s = 4260 s = 24.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 32.0,
+            "decision_window_s": 0.032,
+            "code": "fg8.mbn_lot_gate",
+            "note": "MODIFY accumulator wins: Barkhausen RA evidence overpowers the Dressveil continue advocate",
+            "decode_rule": "modify-isolate if ra_estimator AND current_norm fire; vendor_continue_advocate is below threshold by design; referral_latch is not armed",
+            "populations": [
+                gate_pop("ra_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("current_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("modify_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "fg8.mbn_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 32.0},
+                {"check": "fg8.isol_scorer", "neurons": 50, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r37-113",
+            clock_domain="fg8-mbn-hil-relative-ms-t0-2026-07-18T03:30:00Z",
+            tags=["barkhausen-mbn", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 114 — laser-ultrasound / EMAT Lamb-wave weld inspection, simulated,
+# ACCEPT / REJECT
+# ---------------------------------------------------------------------------
+def rec_114():
+    t_nom = 12.00
+    c_g = 5.00
+    dt_us = 1.60
+    t_rem = t_nom - (c_g * dt_us) / 2.0
+    _exact(t_rem, 8.00)
+    _exact(t_nom - (c_g * 0.80) / 2.0, 10.00)
+    _exact(t_nom - (c_g * 1.20) / 2.0, 9.00)
+    _exact(t_nom - (c_g * 1.40) / 2.0, 8.50)
+    _exact(20.00 / 4.00, 5.00)
+    _exact(2.00 * 12.00, 24.00)
+    _exact(6000.0 + 720.0, 6720.0)
+
+    raster = make_raster(
+        neurons=16,
+        mean_rate_hz=62.5,
+        window_ms=36.0,
+        seed=20260939,
+        source="wd11.lamb.weld",
+        target="wharfleck.weld_accept_core",
+        table=[
+            {"from": "lamb_dt", "to": "ligament_estimator", "weight": 1.40},
+            {"from": "lamb_cg", "to": "group_norm_core", "weight": 1.20},
+            {"from": "lambveil_mm", "to": "vendor_skip_advocate", "weight": 0.50},
+        ],
+        third_factor={
+            "modulator": "ach.weld_ligament_conflict",
+            "tau_e_s": 2.0,
+            "tau_e_ms": 2000.0,
+            "eligibility": "pre-post coincidence on skip-scan synapses; the Lamb modulator enables potentiation only while TOF residual and group velocity are co-active inside tau_e so a Lambveil last-good cannot skip bay B-11 on a 8.00 mm ligament",
+        },
+        channel_prefix="lamb.n",
+        anchor="WD-11 Lamb-SIM-3 36 ms frame at dt 1.60 us / c_g 5.00 mm/us (t_s 3000) reconstructing 8.00 mm remaining ligament in band above the 6.00 isolate floor",
+    )
+    w_s = 0.036
+    events = [
+        ev(0.0, "lamb.dt", 0.80, code="DT_US", units="us", note="simulated laser-gen / EMAT-receive S0 Lamb on weld W-17; thermoelastic Lamb-wave NDT, not PAUT TFM, not MsS T(0,1), not SPAD ToF, not THz-TDS, not GPR TWT"),
+        ev(300000.0, "lamb.cg", 5.00, code="CG_MM_US", units="mm_us", note="S0 group; c_g = 20.00 mm / 4.00 us = 5.00"),
+        ev(600000.0, "recon.t", 10.00, code="T_REM_MM", units="mm", note="12.00-(5.00*0.80)/2=10.00 exact"),
+        ev(900000.0, "emat.snr", 14.0, code="EMAT_SNR", units="1"),
+        ev(1200000.0, "lambveil.mm", 12.00, code="VENDOR_MM", units="mm", note="Lambveil last-good TOF cloud; patched residual 0.00 us"),
+        ev(1800000.0, "lamb.dt", 1.20, code="DT_US", units="us"),
+        ev(2100000.0, "recon.t", 9.00, code="T_REM_MM", units="mm", note="12.00-(5.00*1.20)/2=9.00"),
+        ev(2400000.0, "fd.prod", 24.00, code="FD_MHZ_MM", units="MHz_mm", note="2.00 MHz * 12.00 mm = 24.00; table S0 at 5.00 mm/us"),
+        ev(2700000.0, "emat.snr", 16.0, code="EMAT_SNR", units="1"),
+        ev(3000000.0, "lamb.dt", 1.60, code="DT_US", units="us", note="in-band frame; raster sidecar"),
+        ev(3000001.5, "lamb.cg", 5.00, code="CG_MM_US", units="mm_us", note="1.5 ms group-norm after TOF residual"),
+        ev(3300000.0, "recon.t", 8.00, code="T_REM_MM", units="mm", note="12.00-(5.00*1.60)/2=8.00 exact; isolate 6.00, condemn 4.00"),
+        ev(3600000.0, "lambveil.mm", 12.00, code="VENDOR_MM", units="mm"),
+        ev(3900000.0, "weld.id", 17.0, code="WELD", units="id"),
+        ev(4200000.0, "bay.b11", 1.0, code="B11_PRESENT", units="bool", note="adjacent bay is the skip-scan object, not this weld"),
+        ev(4800000.0, "ops.prop", 1.0, code="ACCEPT_AND_SKIP", units="bool", note="NDT lead Sable Wren: W-17 is green on Lambveil 12.00 mm; skip bay B-11 to save takt"),
+        ev(5400000.0, "gate.weld", 1.0, code="ACCEPT", units="decision", note="bounded ACCEPT of weld W-17 only; 8.00 mm in band; B-11 out of scope"),
+        ev(6000000.0, "scan.start", 1.0, code="SCAN_START", units="bool", note="bookend 1 of the 12.0 min scan-complete floor"),
+        ev(6720000.0, "scan.floor", 1.0, code="SCAN_FLOOR", units="bool", note="6000 s + 720 s = 6720 s = 12.0 min"),
+        ev(7200000.0, "ops.skip", 1.0, code="SKIP_B11", units="bool", note="Wren: Lambveil 12.00 mm, skip B-11"),
+        ev(7800000.0, "gate.hold", 1.0, code="REJECT", units="decision", note="companion t2: skip-scan of B-11 refused; W-17 hold stands"),
+        ev(8400000.0, "w17.held", 1.0, code="W17_HELD", units="bool"),
+        ev(9000000.0, "lamb.dt", 1.40, code="DT_US", units="us"),
+        ev(9600000.0, "recon.t", 8.50, code="T_REM_MM", units="mm", note="12.00-(5.00*1.40)/2=8.50; still in band"),
+        ev(10200000.0, "lambveil.mm", 12.00, code="VENDOR_MM", units="mm"),
+        ev(10800000.0, "b11.skip", 0.0, code="B11_NOT_SKIPPED", units="bool"),
+        ev(11400000.0, "condemn.hold", 0.0, code="PANEL_NOT_CONDEMNED", units="bool"),
+        ev(12000000.0, "emat.snr", 15.0, code="EMAT_SNR", units="1"),
+        ev(12600000.0, "fd.prod", 24.00, code="FD_MHZ_MM", units="MHz_mm"),
+        ev(13200000.0, "panel.held", 1.0, code="PANEL_HELD", units="bool"),
+        ev(13800000.0, "takt.late", 1.0, code="TAKT_COST", units="bool"),
+        ev(14400000.0, "w17.held", 1.0, code="W17_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r37-114-t1",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "WD-LAMB-2026-0819",
+            "domain": "lamb_wave_weld_ligament",
+            "setting": "Wharfleck Orthotropic Deck WD-11 (invented), panel line weld W-17. Simulated laser-generation / EMAT-receive S0 Lamb coupon in Lamb-SIM-3 supplies the TOF residual that times the in-band accept. Plant-owned Lamb reconstruction is the ligament SoT. Lambveil vendor last-good TOF cloud is a corridor witness, not the weld SoT. Invented plant; simulated campaign. Not PAUT TFM (r23), not magnetostrictive T(0,1) (r14), not SPAD ToF (r3), not THz-TDS (r20/r21), not GPR TWT (r34), not Orinoco-Span OD-12 premises sketch.",
+            "observables_at_decision": {
+                "dt_us": dt_us,
+                "c_g_mm_us": c_g,
+                "t_nom_mm": t_nom,
+                "t_rem_mm": t_rem,
+                "fd_MHz_mm": 24.00,
+                "lambveil_mm": 12.00,
+                "emat_snr": 16.0,
+                "isolate_floor_mm": 6.00,
+            },
+            "margin_authority": "WD-11 Lamb SOP rev A: if reconstructed t_rem_mm >= 6.00 AND EMAT SNR >= 12.0, this weld is in band and may be accepted. Isolate if t_rem_mm < 6.00. Condemn if t_rem_mm < 4.00. Bay B-11 skip-scan is a different gate. Lambveil last-good cannot skip an unmeasured bay.",
+        },
+        "proposed_action": {
+            "actor": "NDT lead Sable Wren, citing Lambveil 12.00 mm and a late takt",
+            "summary": "stamp W-17 in band and skip bay B-11; 1.60 us is a coupling glitch on a healthy S0",
+            "basis_claimed": "Lambveil last-good is 12.00 mm and a night scan of B-11 is a takt miss",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Weld W-17 is accepted as in-band. Serialized reconstruction: t_rem_mm = t_nom - (c_g * dt_us)/2 = 12.00 - (5.00 * 1.60)/2 = 8.00, which is 2.00 mm above the 6.00 isolate floor and 4.00 mm above the 4.00 condemn tripwire. Group-velocity identity c_g = 20.00 mm / 4.00 us = 5.00 mm/us, and fd = 2.00 MHz * 12.00 mm = 24.00 MHz-mm places S0 on the serialized table. Lambveil 12.00 mm is a patched 0.00 us residual and is not an admissible skip-scan witness. Ordered: ACCEPT this weld only. Scope: this ACCEPT does not skip bay B-11 (that is the companion question) and does not stamp the rest of the panel line.",
+            "threshold": "t_rem_mm>=6.00 AND emat_snr>=12.0 => accept this weld; Lambveil is not SoT; isolate if t_rem_mm<6.00; B-11 is out of scope",
+            "stated_residuals": "8.00 vs 6.00 isolate floor is 2.00 mm, not infinite; B-11 remains unmeasured; Lambveil remains the only OEM TOF channel",
+        },
+        "executed_action": {
+            "summary": "ACCEPT at t_s 5400: W-17 in band; B-11 not skipped; Lambveil not SoT; reconstruction locked",
+            "tool": "wd11-lamb-weld-gate-cli",
+            "observation": "t_rem 8.00 mm recomputes from dt 1.60 us and c_g 5.00 mm/us; Lamb-SIM-3 hashed; Lambveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "lamb dt 1.60 us; raster frame; t_rem 8.00 mm"},
+                {"t_s": 4800.0, "event": "ops proposes accept W-17 and skip B-11"},
+                {"t_s": 5400.0, "event": "ACCEPT W-17 only; B-11 out of scope"},
+                {"t_s": 6000.0, "event": "12 min scan-complete bookend 1"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7800.0, "event": "companion REJECT skip-scan of B-11"},
+            ],
+            "observed_effects": [
+                "ligament recomputes from the serialized Lamb model at every recon.t event",
+                "a Lambveil-only head would have skipped B-11 overnight",
+                "12 min scan-complete floor is in the stream (scan.start, scan.floor)",
+            ],
+            "surprises": [
+                "a last-good 12.00 mm vendor corridor co-existed with an 8.00 mm in-band reconstruction that still forbids skipping the unmeasured bay",
+            ],
+            "new_state": {
+                "w17": "accepted in band",
+                "b11": "not this gate",
+                "lambveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.41,
+            [
+                ("lamb_reconstruction", 0.14),
+                ("in_band_weld_scope", 0.12),
+                ("lambveil_nonsubstitution", 0.09),
+                ("bay_out_of_scope", 0.08),
+                ("takt_cost", -0.02),
+            ],
+            "scored for a bounded ACCEPT of W-17 on a recomputable ligament while refusing a Lambveil skip of B-11; 12 min floor is priced as takt not as a reason to skip",
+        ),
+        "meta": meta_common(
+            tags=["ACCEPT", "lamb-wave-emat", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Lamb-wave gate: serialized (c_g*dt)/2 ligament plus fd-table identity beats a green last-good dashboard; companion t2 is the skip-scan refusal, not a TOF re-vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r37-114-t2",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "WD-LAMB-2026-0819-exec",
+            "domain": "bay_skip_scan_refusal",
+            "setting": "Same WD-11 after the ACCEPT. NDT lead proposes skipping bay B-11 on Lambveil 12.00 mm. This companion is the operational skip refusal, not a second ligament vote.",
+            "observables_at_decision": {
+                "t_rem_mm": 8.50,
+                "lambveil_mm": 12.00,
+                "scan_floor_s": 720.0,
+                "skip_proposed": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "NDT lead Sable Wren",
+            "summary": "skip bay B-11; 12 min already paid and Lambveil is 12.00 mm",
+            "basis_claimed": "the ACCEPT already stamped W-17, so skipping the rest of the bay is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Refuse skip-scan of bay B-11. The 12 min scan-complete floor is done and the isolate tripwire (t_rem_mm < 6.00) is still armed on the plant Lamb head. REJECT the skip. Do not condemn the panel. Do not reopen W-17. 8.50 mm post-accept is still in band for W-17 only; B-11 has no independent TOF.",
+            "threshold": "w17_held AND scan_floor_complete AND b11_not_skipped AND panel_not_condemned",
+        },
+        "executed_action": {
+            "summary": "B-11 skip refused at t_s 7800; W-17 hold stands; panel not condemned",
+            "tool": "wd11-lamb-skip-exec",
+            "observation": "recon.t 8.50 mm on W-17; B-11 remains on the scan list; Lambveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "scan clock started after ACCEPT"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7200.0, "event": "skip B-11 proposed"},
+                {"t_s": 7800.0, "event": "REJECT skip-scan of B-11"},
+            ],
+            "observed_effects": [
+                "Lambveil skip did not reopen the ligament call",
+                "panel-condemn never fired; 8.00 vs 4.00 mm floor",
+            ],
+            "new_state": {"w17": "held in band", "b11": "still to scan", "panel": "in service"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.36,
+            [
+                ("skip_refusal", 0.13),
+                ("lambveil_nonsubstitution", 0.11),
+                ("no_panel_condemn", 0.09),
+                ("scan_floor_complete", 0.05),
+                ("held_scan_takt_cost", -0.02),
+            ],
+            "operational execution gate: refuse skip-scan because last-good freeze is not Lamb TOF; not a ligament re-vote",
+        ),
+        "meta": meta_common(tags=["REJECT", "operational-execution", "skip-scan"]),
+    }
+    return {
+        "id": "nelb-r37-114",
+        "spike_events": events,
+        "language_view": {
+            "description": "Wharfleck Orthotropic Deck WD-11. Simulated laser/EMAT S0 Lamb reconstructs 8.00 mm remaining ligament from 1.60 us / 5.00 mm/us while Lambveil still shows 12.00 mm. The gate ACCEPTs weld W-17 only; a companion execution REJECT refuses skip-scan of bay B-11. The TOF model is serialized so every recon event recomputes.",
+            "trajectory": traj,
+            "trajectory_skip_scan_refusal": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "lamb.dt / lamb.cg": "TOF residual and S0 group velocity; the physics channels the reconstruction consumes",
+                "recon.t / fd.prod": "serialized remaining ligament mm and fd product",
+                "emat.snr / lambveil.mm / weld.id / bay.b11": "EMAT SNR, vendor last-good, weld id, and adjacent-bay presence; the denial and scope channels",
+                "ops.prop / gate.weld / ops.skip / gate.hold": "accept-and-skip proposal, bounded ACCEPT, skip proposal, companion REJECT",
+                "scan.start / scan.floor / w17.held / b11.skip / panel.held": "operational companion channels plus the 12 min floor",
+            },
+            "temporal_motifs": [
+                "last-good-thick while Lamb-in-band: lambveil.mm 12.00 next to recon.t 8.00",
+                "reconstruction as event: recon.t 8.00 equals 12.00-(5.00*1.60)/2",
+                "ACCEPT then operational REJECT: gate.weld at 5400 s, gate.hold at 7800 s",
+                "slow floor in-stream: scan.start 6000 s, scan.floor 6720 s (12.0 min)",
+                "tight Lamb pair: lamb.dt then lamb.cg +1.5 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Lambveil is 12 mm' = lambveil.mm 12.00; '8 mm ligament' = recon.t 8.00; 'this weld not the bay' = gate.weld ACCEPT plus b11.skip 0; 'do not skip B-11' = gate.hold REJECT",
+            "why_high_value": "New laser-ultrasound / EMAT Lamb-wave family on an orthotropic-deck weld (not PAUT TFM r23, not MsS T(0,1) r14, not SPAD ToF r3, not THz-TDS r20/r21, not GPR TWT r34). First c_g*dt/2 ligament reconstruction with an fd-table identity that can sit in band while a last-good corridor wants a bay skip. Companion t2 is operational skip refusal. sim_or_real=simulated.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 20260939, "stream_note": "stream amplitudes are authored constants (us, mm/us, mm, 1, MHz-mm, id, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "EMAT A-scan exists at 2 MHz; stream keeps 4 dt points; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "lamb.dt": 1.5,
+                    "lamb.cg": 1.5,
+                    "recon.t": 60000,
+                    "emat.snr": 60000,
+                    "lambveil.mm": 60000,
+                    "fd.prod": 60000,
+                    "weld.id": 60000,
+                    "bay.b11": 60000,
+                    "ops.prop": 60000,
+                    "gate.weld": 60000,
+                    "scan.start": 60000,
+                    "scan.floor": 60000,
+                    "ops.skip": 60000,
+                    "gate.hold": 60000,
+                    "w17.held": 60000,
+                    "b11.skip": 60000,
+                    "condemn.hold": 60000,
+                    "panel.held": 60000,
+                    "takt.late": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-08-19T04:00:00Z simulated night start",
+            },
+            "distillation_targets": [
+                "Lamb reconstruction head: t_rem = t_nom - (c_g * dt)/2; c_g = dx/dt_path; fd table",
+                "bounded ACCEPT head: in-band ligament AND weld scope AND bay-out-of-scope",
+                "operational companion: refuse skip-scan without re-opening the TOF call",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "lamb_s0_remaining_ligament",
+            "formula": "t_rem_mm = t_nom_mm - (c_g_mm_us * dt_us) / 2; c_g_mm_us = dx_mm / dt_path_us; fd_MHz_mm = f_MHz * t_nom_mm",
+            "parameters": {
+                "t_nom_mm": 12.00,
+                "c_g_mm_us": 5.00,
+                "isolate_floor_mm": 6.00,
+                "condemn_mm": 4.00,
+                "scan_min": 12.0,
+            },
+            "worked_example": {"dt_us": 1.60, "t_rem_mm": 8.00, "c_g_mm_us": 5.00, "fd_MHz_mm": 24.00},
+            "check": "12.00 - (5.00 * 1.60) / 2 = 8.00 exactly; 20.00 / 4.00 = 5.00 exactly; 2.00 * 12.00 = 24.00 exactly; 6000 s + 720 s = 6720 s = 12.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "ACCEPT",
+            "decision_window_ms": 36.0,
+            "decision_window_s": 0.036,
+            "code": "wd11.lamb_weld_gate",
+            "note": "ACCEPT accumulator wins: Lamb ligament evidence overpowers the Lambveil skip advocate",
+            "decode_rule": "accept if ligament_estimator AND group_norm AND weld_margin fire inside the window; vendor_skip_advocate is necessary-but-not-sufficient and cannot release bay B-11",
+            "populations": [
+                gate_pop("ligament_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("group_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("weld_margin", 40, 1.0, 50.0, w_s),
+                gate_pop("vendor_skip_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("accept_latch", 96, 1.8, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "wd11.lamb_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "wd11.lig_scorer", "neurons": 40, "mean_rate_hz": 62.5, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r37-114",
+            clock_domain="wd11-lamb-sim-relative-ms-t0-2026-08-19T04:00:00Z",
+            tags=["lamb-wave-emat", "ACCEPT", "REJECT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }

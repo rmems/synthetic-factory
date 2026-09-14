@@ -1,0 +1,34 @@
+{
+  "agent_ids": [
+    "01a064a7-40ce-71e3-82d4-d0619f7dfd91"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations"
+  ],
+  "event_count": 1,
+  "final_state": "unknown",
+  "hunk_evidence_count": 1,
+  "original_basename": "notes_fn.py",
+  "original_path": "/tmp/maos-r65/notes_fn.py",
+  "path_key": "maos-r65--98c120a13c6e",
+  "terminal_event_ids": [
+    "01a064a7-40ce-71e3-82d4-d0619f7dfd91:call-312e7655-ff21-4b11-a3b1-132c0e8035bb-53"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 1,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a064a7-40ce-71e3-82d4-d0619f7dfd91:call-9cd852ce-a4ca-4fc1-860a-3a0c8afef1ee-51",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r65--98c120a13c6e/fragments/call-9cd852ce-a4ca-4fc1-860a-3a0c8afef1ee-51/notes_fn.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r65--98c120a13c6e/fragments/call-9cd852ce-a4ca-4fc1-860a-3a0c8afef1ee-51/notes_fn.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

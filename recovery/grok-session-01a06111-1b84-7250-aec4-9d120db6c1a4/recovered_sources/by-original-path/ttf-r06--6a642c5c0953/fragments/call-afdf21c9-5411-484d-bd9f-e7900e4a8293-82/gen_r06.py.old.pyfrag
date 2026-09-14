@@ -1,0 +1,13 @@
+    params = {
+        "survey_mps": 0.22,
+        "standoff_m": 6.4,
+        "heading_rad": 0.04,
+    }
+    return {
+        "id": "ttf-r06-029",
+        "title": "Wharf-Sike WS-3 sim / Hull-H8: tether 162 N beats DVL 0.18 m/s by 360 us; ACCEPT already-legal 0.22 m/s quay survey",
+        "state": {
+            "description": "Hull-H8 is 6.4 m off the Wharf-Sike WS-3 simulated quay wall when tether tension is already 162 N under a 240 N cap and DVL current is 0.18 m/s under a 0.40 m/s envelope. Proposed survey 0.22 m/s is under the 0.30 m/s envelope. The live contest is a quiet load-cell versus a quiet DVL, not a snag versus a still-flying altimeter. Both envelopes already allow the wall survey.",
+            "domain": "underwater-rov",
+            "sim_or_real": "simulated",
+            "goal": "Complete the WS-3 quay survey at 0.22 m/s with tether <= 240 N and DVL <= 0.40 m/s, and leave the simulated wall unscoured.",

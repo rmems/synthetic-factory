@@ -1,0 +1,10 @@
+            "thalamic-relay.platen-temp",
+            "spikenaut.policy.cure-go",
+            [
+                ("relay.set.mm", "policy.cure_go", 0.64),
+                ("relay.clamp.kPa", "policy.bladder_hold", 0.24),
+                ("relay.set.mm", "policy.cure_go", 0.11),
+            ],
+            "adenosine",
+            0.16,
+            "pre_post_stdp; adenosine at platen win opens a 160 ms eligibility that the cure synapse captures",

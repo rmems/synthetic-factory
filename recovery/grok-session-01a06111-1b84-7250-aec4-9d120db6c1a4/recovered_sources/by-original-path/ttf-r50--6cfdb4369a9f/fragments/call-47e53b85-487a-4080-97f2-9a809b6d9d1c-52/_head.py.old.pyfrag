@@ -1,0 +1,4 @@
+    take(early, 7)
+    take(burst, 9, label_times=(22800, 23500, 24500))
+    clamp = [(t, nid) for t, nid in picked if t < 21400][:7]
+    tie = [(t, nid) for t, nid in picked if t >= 21400][:9]

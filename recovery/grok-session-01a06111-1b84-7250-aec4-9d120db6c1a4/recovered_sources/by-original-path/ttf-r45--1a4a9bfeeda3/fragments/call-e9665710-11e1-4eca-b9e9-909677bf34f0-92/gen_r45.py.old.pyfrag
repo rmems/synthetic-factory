@@ -1,0 +1,4 @@
+            if rec["state"]["constraints"].get("observed_front_C", 99) >= rec["state"]["constraints"].get("front_trip_C", 0):
+                issues.append("242 front already over trip; not clamp-too-early")
+            if rec["state"]["constraints"].get("observed_bed_dp_kPa", 99) >= rec["state"]["constraints"].get("bed_dp_cap_kPa", 0):
+                issues.append("242 DP already over cap; not clamp-too-early")

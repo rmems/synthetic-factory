@@ -1,0 +1,8 @@
+                        ("winner", "tc.furnace.t (4.220 ms, 1120 C)"),
+                        ("loser", "pt.jacket.bar (4.400 ms, 48 bar)"),
+                        ("margin_us", 180),
+                        (
+                            "counterfactual_if_reversed",
+                            "Jacket-first by < 180 us would still show furnace 1120 C < 1160 C. A "
+                            "correct gate ACCEPTs either way.",
+                        ),

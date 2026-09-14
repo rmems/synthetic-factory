@@ -1,0 +1,28 @@
+    for path in list(Path("/tmp").glob("ttf-r*-occ-*.txt")) + list(
+        Path("/tmp").glob("ttf-r*/occ-*.txt")
+    ):
+        if path.parent.name == "ttf-r118" or "r118" in path.name:
+            continue
+        # Later-round census dumps echo in-flight THIS_DOMAINS/PLANTS. SoT remains
+        # jsonl + NOTES headers + THIS_/MY_ tuples (see docstring).
+        try:
+            rnd = int(re.search(r"ttf-r(\d+)", path.name + str(path.parent.name)).group(1))
+        except (AttributeError, ValueError):
+            rnd = 0
+        if rnd > 118:
+            continue
+        try:
+            lines = [ln.strip() for ln in path.read_text(encoding="utf-8", errors="ignore").splitlines() if ln.strip()]
+        except OSError:
+            continue
+        incoming = {ln for ln in lines if ln}
+        name = path.name.lower()
+        if "plant" in name:
+            if set(THIS_PLANTS) <= incoming:
+                continue
+            plants.update(incoming)
+        else:
+            if set(THIS_DOMAINS) <= incoming:
+                continue
+            domains.update(incoming)
+    return domains, plants

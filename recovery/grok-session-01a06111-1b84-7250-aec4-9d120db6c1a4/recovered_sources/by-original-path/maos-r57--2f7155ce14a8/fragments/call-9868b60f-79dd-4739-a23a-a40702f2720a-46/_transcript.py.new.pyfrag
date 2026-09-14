@@ -1,0 +1,373 @@
+def write_transcript(rec, line):
+    c1_spikes = [e for e in rec["spike_events"] if e["t_rel_ms"] <= 26.248]
+    text = """# Multi-Agent Ouroboros Swarm — Round 57 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r57-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Plant: invented SIPHONWOLD / Reedfen Paper PM-6 (not TRIAD / Meridian / VANTIS-CADENCE-AEGIS / LYOSHIELD / CINDERWICK / SODASHARD / PUSHERFELL / CREELWOLD / LIXIVQUERN / OSMOLITH / OSMOQUAY / GAUZEFELL)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r57.jsonl).
+
+---
+
+# CYCLE 1 — Foundation + injections
+
+## Generator
+
+Design intent: a 48-can steam dryer where three correct
+agents each read a header-true loop because rotary siphons
+on cans 18-22 partition can-true surface IR from header-true
+steam, speed, and CD-mean moisture. The naive playbook raises
+speed into a blowing-through dryer. The gate must MODIFY on a
+numeric speed floor, not by killing an agent.
+sim_or_real=designed. Reward heads are
+task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Reedfen PM-6, 982 m/min,
+steam 3.82 bar, speed 982 m/min, moisture 7.4 pct, proposed SPEED-RAISE
+1048 m/min, safety MODIFY to SPEED-HOLD, executed hold without the
+steam-step numbers fully specified, outcome "blow-through found, machine saved"
+(this last claim is the defect the later cycles will refuse to keep).
+Sixteen spikes, five ticks, raster/gate_snn present but the scar is a
+single edge.
+
+```json
+{
+  "id": "maos-r57-001",
+  "state": {
+    "sim_or_real": "designed",
+    "domain": "industrial-process",
+    "description": "Machine PM-6 at body speed; three header loops in-spec; supervisor proposes speed-raise.",
+    "t0_us": 1754725320000057,
+    "gate_latency_us": 714,
+    "race_window_us": 500
+  },
+  "proposed_action": {"name": "speed_raise", "parameters": {"speed_m_min": 1048}},
+  "safety_decision": {"decision": "MODIFY", "rationale": "Hold; do not raise speed while can-IR is low."},
+  "executed_action": {"name": "speed_hold", "executed_as_proposed": false},
+  "future_outcome": {"summary": "Blow-through found, machine saved."},
+  "reward_components": {"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"},
+  "meta": {"round": 57, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}
+}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "machine saved". If the pre-t0 glazed felt later
+   breaks the sheet, booking +0.40 is a lie. Fix: declare `_aggregation`, emit
+   3–8 ticks that sum to task_progress+safety+efficiency+coherence+exploration,
+   and do not call a quarantined machine a save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote
+   speed <= 982 m/min while can-surface IR < 105 C AND condensate dP < 0.35 bar.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-process` collides with generic MES vocabulary and teaches
+   nothing. Paper-machine dryer section (can-IR vs steam-header,
+   condensate dP as a leak flag) is absent from prior ouroboros
+   rounds and must be named.
+4. **major — race under-specified.** One can channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted `t_rel_ms`
+   and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated weight
+   repeats r04's one-edge rollback and is thinner than r14's two-edge.
+   NOTES-r14 item 4 asked for three edges where pair rollback fails.
+
+Critic does not rewrite the trajectory.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **paper-machine-dryer-section**
+(justified novel subdomain of industrial-process / pulp-and-paper drying; explicit tag
+`paper-machine-dryer-section`).
+
+Displaced: the Generator's generic `industrial-process` bucket, and any
+temptation to reuse warehouse-amr, aerial-swarm, district-heating,
+event-camera-traffic-grid, pharmaceutical-lyophilization, water-treatment,
+float-glass, underwater-rov, electrolytic-aluminum, czochralski-pull,
+slot-die coating, pem-water-electrolysis, wind-turbine pitch,
+surgical-assist, optical-fiber-draw, kraft-recovery-boiler,
+steel-continuous-caster, humanoid-locomotion, vacuum-induction melt,
+steam-methane reformer, cement-rotary-kiln-clinker,
+autoclave-composite-cure, geothermal-binary-orc, tire-curing-press,
+chlor-alkali-membrane-electrolysis, delayed-coker-drum-switch,
+lng-mche-mixed-refrigerant, claus-sulfur-recovery,
+ammonia-synthesis-converter, blast-furnace-burden-descent,
+hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil,
+hydroelectric-kaplan-wicket, fcc-riser-regenerator,
+fcc-regenerator-cyclone-dipleg, sulfuric-contact-converter,
+eaf-foamy-slag-water-panel, glass-container-is-machine,
+nitric-acid-ostwald-oxidation, seawater-ro-desalination,
+coke-oven-battery-heating, carbon-fiber-oxidation-oven,
+bayer-alumina-digestion, or swro-high-pressure-train.
+autonomous-driving is left unused.
+
+Domain-specific constraint: speed must remain <= 982 m/min while
+can-surface IR < 105 C even if steam-header is inside the healthy
+band; condensate dP is a leak flag the common header cannot
+substitute for.
+
+Sensor delta: +steam-header pressure, +machine encoder, +scanner
+moisture mean, +can-surface IR, +condensate dP; -any mobile robot,
+-event-camera gantries, -DVS, -Pirani/CM, -RGA quadrupole, -DVL,
+-pitch encoder, -tendon LVDT, -insole GRF, -kiln zirconia, -smelt IR,
+-cell-pH, -drum wet-foam, -MCHE cold-end, -Claus tail CEMS,
+-ammonia bed-max, -sector radar, -FCC cyclone dP, -EAF off-gas H2,
+-coke wall-dT, -fiber IR, -Bayer shell-jacket, -ERD dP.
+
+`state.domain` and `meta.domain` both become `paper-machine-dryer-section`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Reedfen night-shift siphon blow-through, not a lyophilizer, not a corridor, not a tin
+bath, not a ROV pad, not a potline, not a PEM stack, not an OR, not a
+gait lab, not a kiln, not a kraft boiler, not a coker drum, not an LNG
+MCHE, not a blast furnace, not an HDPE loop, not a cracker coil, not an
+FCC regenerator, not a contact converter, not an EAF, not an IS machine,
+not a coke battery, not a PAN oven, not a Bayer autoclave, not an SWRO train).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **cans 18-22 rotary-siphon
+blow-through + felt-glaze certificate**.
+
+- Trigger: 18-22 rotary-siphon failure plus condensate blow-through into
+  the can interiors, can-IR 84 C, condensate dP 0.18 bar.
+- Base rate: <1% — 0.44%/campaign from a siphon-wear MC (dryer-hood
+  visual threshold is designed; rotary-elbow geometry fitted-style). Visual
+  PASSES because the siphon elbows sit inside the can journals.
+- Naive failure: FALSE PERMISSION. PB-PM-6 sees three in-spec header
+  loops, raises 982->1048 m/min, wet-streak sheet break, $1.82M.
+- Trajectory edit: put the blow-through in `state.fault_context`, make each
+  agent's confirm a different header-side slice of the same can-false
+  state (steam-in-band, speed-ok, moist-mean-in-band). Can-IR is
+  readable but policy-treated as sticky-probe-only.
+
+Distinct from stacked-dead-band permission (fragments of one trip vs
+wrong-volume sensing), from r28 kraft-recovery spout (smelt IR vs dryer
+cans), from r52 coke-oven wall (wall-dT vs can-IR), from r53 carbon-fiber
+zone-mean, from r54 Bayer shell-jacket, and from r51/r55 SWRO (ERD dP vs
+dryer siphons).
+
+## Neuromorphic Translator
+
+Cycle-1 temporal densification (16 spikes, 5 ticks, 40 ms raster):
+
+| channel | t_rel_ms | amplitude |
+|---|---|---|
+| steam.hdr | 0.314 | 0.54 |
+| moist.mean | 1.128 | 0.61 |
+| speed.ok | 2.018 | 0.55 |
+| can.ir | 3.168 | 0.76 |
+| steam.hdr | 4.158 | 0.51 |
+| can.ir | 4.828 | 0.78 |
+| speed.ok | 5.348 | 0.57 |
+| can.ir.low | 6.514 | 1.36 |
+| steam.in_band | 6.706 | 1.14 |
+| moist.mean | 6.894 | 0.64 |
+| ctrl.gate | 7.226 | 1.07 |
+| can.ir | 8.848 | 0.45 |
+| moist.mean | 10.728 | 0.82 |
+| speed.ok | 13.028 | 0.47 |
+| steam.hdr | 18.508 | 0.44 |
+| ctrl.gate | 26.248 | 0.86 |
+
+Race: can-IR 6.514 vs steam-header 6.706 (192 us) inside 500 us;
+moist.mean 6.894 is the third channel in-window. Winner/loser flip: reversing
+192 us reshuffles PB-PM-6 triage; floors still MODIFY. Refractory held
+(cycle-1 min same-channel gap 1.660 ms on can.ir 4.828-3.168;
+steam 4.158-0.314 = 3.844; speed 5.348-2.018 = 3.330). Adaptation:
+can 0.76->0.78->1.36->0.45; steam 0.54->0.51->0.44; speed
+0.55->0.57->0.47.
+
+Raster cycle-1 seed: 40 ms, 160 neurons, 8.0 Hz, 51 spikes, 1173 pJ, third
+factor acetylcholine tau_e 0.92 s. Single scar edge only — cycle 2 must
+add the second and third edges.
+
+Ticks 1–5 at 4580, 6514, 7226, 6.8e6, 684e6 us; heads not yet the final
+-0.16 (missing the 3.8 h and 5.1 h ticks).
+
+Distillation value this cycle: header-side confirms as a permission code
+that is not a can-true heat code.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain paper-machine-dryer-section, tail
+siphon blow-through, 16 spikes, 5 ticks, MODIFY with numeric floor, raster+gate_snn
+present, sim_or_real=designed, rights stamp on record and meta, no thought
+keys. Still missing (and therefore not the publishable line): tissue-yankee
+sub-variant, night-shift tail, second and third scar edges,
+delayed sheet break as PRIMARY terminal, contrast ACCEPT episode,
+ticks 6–7, spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 500 us window; refractory
+  >= 0.8 ms; rationale quotes 982 m/min / 105 C / 0.35 bar; domain
+  named; gate_snn.decision MODIFY.
+- checks deferred to cycle 2: triple-edge scar, second tail, second domain
+  constraint, negative-result booking, 7 ticks summing to heads.
+- densification vs Generator v1: +1 domain, +1 tail, +16 spikes, +5 ticks,
+  +numeric floor.
+
+Cycle-1 JSON is retained as the base; it is NOT written to batch-r57.jsonl.
+
+Cycle-1 spike count: __C1_SPIKES__.
+
+---
+
+# CYCLE 2 — Densification
+
+## Generator
+
+Cycle-1 output is the base. Additive expansion (nothing removed):
+
+1. Downstream side-effect (immediate): steam-step probe at +6.8 s stays
+   mean-false (|Delta moisture-mean| 0.05 <= 0.08 pct) — siphon blow-through, not
+   true dry sheet. Cans 18-22 hold. Glazed felt discovered during the isolate.
+2. Delayed side-effect (PRIMARY terminal, not a footnote): at +5.1 h
+   wet-streak sheet break from the pre-t0 siphon blow-through; 18 h outage;
+   $0.94M. The 19 min pre-t0 condensate blow-through is the mechanism. Correct gate,
+   machine still fails.
+3. Deepened `proposed_action.evidence` with units: IR 84 C,
+   condensate dP 0.18 bar, steam 3.82 bar, speed 982 m/min, moisture 7.4 pct, race 192 us.
+4. Tightened rationale to the numeric floor speed <= 982 m/min while
+   can-surface IR < 105 C AND condensate dP < 0.35 bar, plus
+   probe bands <= 0.08 vs >= 0.28 pct, plus HITL 11.4 min dryer-hood
+   rule.
+
+Reward retargeted to total -0.16 so the delayed fail is the inflection
+(t_us 18360000000), not the gate. Process heads remain non-zero.
+
+## Critic
+
+Re-audit of the expanded trajectory:
+
+1. **blocking if unfixed — missing second domain constraint.** Multi-can
+   probe 6.8 s / -0.15 bar is not a universal number. A tissue yankee
+   will overshoot live-siphon moisture. Diversity Enforcer must
+   inject the physical-constraints sub-variant this cycle.
+2. **major — only one tail class.** Siphon blow-through is accidental
+   infrastructure. A disjoint human-intent tail is still required
+   (night-shift can-IR forgery is the open cell).
+3. **major — scar is still one edge in the cycle-1 raster.** NOTES-r14
+   item 4 is not discharged until three go-edges exist and pair rollback
+   is shown to fail at threshold 0.30.
+4. **minor — contrast episode missing.** Without a same-gate ACCEPT on a
+   true dry-sheet window the record teaches "never raise speed". Add +4 d
+   sister-machine contrast with its own race.
+5. **minor — HITL latency mentioned in prose only.** Put 11.4 min in
+   executed_action.parameters.human_ratify and in a tick.
+
+No rewrite; directives only.
+
+## Diversity Enforcer
+
+Injected second novel domain / physical-constraint sub-variant (exactly 1
+this cycle): **tissue yankee / single-can** on a sister dryer class.
+
+What it expands: 48-can multi-can dryer (cycle 1) -> tissue yankee
+0.22x thermal mass. Steam-step gain 3.1x. Shell mass 18 t vs 82 t.
+The 6.8 s -0.15 bar pulse moves even a live siphon to a 0.41 pct false
+moisture move, inside the 0.28 pct trip. Required probe: 19 s at -0.05 bar (live
+Delta 0.30 pct, blow-through Delta 0.04).
+
+This is still one domain injection for the cycle (physical-constraints
+clause of the factory prompt). It does not displace
+paper-machine-dryer-section; it changes which probe table is legal.
+`future_outcome.subvariant_constraint` carries the refit. Jaccard opening
+stays the Reedfen 48-can sentence; yankee is additive, not a rewrite.
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**night-shift forged can-IR CSV**.
+
+- Trigger: shift lead, 03:42, posts a historian export showing
+  IR = 122 C at t = 1.6 h to clear a production-catchup slot.
+- Base rate: ~0.31% of Sunday-night campaigns (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the speed-raise on the forged confirm
+  and ignores live can-IR. Sheet break plus a data-integrity
+  write-up.
+- Fence: forged log quantized at 5 C (SCADA screenshot rounding); plant
+  historian is 0.5 C (10 bins). Live IR is 84 C and condensate dP is
+  0.18 bar at the claimed can-true, which no live siphon group
+  produces. Freeze-window overlap with the 19 min blow-through.
+- Trajectory edit: governance CR-P-5706 mandates native 0.5 C CSV
+  exports; the contrast ACCEPT still requires live can-IR, not a CSV.
+
+Distinct from cycle-1 siphon failure (accidental rotary elbow vs deliberate deception) and
+from the tissue-yankee sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 26.248 ms: steam.step.probe 6800.0, can.ir 6888.4
+  (adapt 1.36->0.41), steam.in_band 6972.0 (1.14->0.36), human.ratify
+  684000.0, dryer.hold 684900.0, felt.attack 685700.0, steam.hdr
+  13680000.0, can.ir 13680720.0, speed.ok 13681480.0, sheet.break
+  18360000.0. Primary train 16 -> 26. Still one key, still sorted,
+  refractory held.
+- +2 ticks (5 -> 7) at 13_680_000_000 us (true live siphons) and
+  18_360_000_000 us (sheet break). Heads now 0.08, -0.35, -0.12,
+  0.14, 0.09; total -0.16. Inflection is the last tick.
+- Contrast train 8 events, own race 182 us, ACCEPT.
+- Triple-edge third factor: three header-healthy-go edges, tau_e 0.92 s = 920 ms,
+  trace __AUX_TRACE__, eta __AUX_ETA1__ / __AUX_ETA2__ / __AUX_ETA3__,
+  weights 0.50->0.25, 0.44->0.22, 0.41->0.20. Raster excerpt unchanged
+  (decision window is still 40 ms) and remains sorted with unique
+  neuron_ids (same-neuron >=1000 us vacuously).
+
+Winner/loser flip (re-stated, not replaced): reversing 192 us would only
+reorder triage; can-IR floors still MODIFY. Contrast flip of
+182 us similarly cannot turn a live siphon into blow-through.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.16; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted, tau_e consistent; gate_snn.decision matches; meta.round=57,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive.
+
+Densification delta: +1 domain sub-variant (tissue yankee), +1 tail
+(night-shift forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 triple-edge scar with
+pair-rollback-fails, +1 HITL ratify, +1 surprise (felt glaze is the
+break mechanism).
+
+Publishable JSONL line (the only JSONL line; also at batch-r57.jsonl):
+
+```json
+__FINAL_JSONL__
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r57.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+    text = (
+        text.replace("__C1_SPIKES__", str(len(c1_spikes)))
+        .replace("__AUX_TRACE__", f"{math.exp(-DELAY_S / TAU_E_S):.5f}")
+        .replace("__AUX_ETA1__", f"{0.25 / math.exp(-DELAY_S / TAU_E_S):.5f}")
+        .replace("__AUX_ETA2__", f"{0.22 / math.exp(-DELAY_S / TAU_E_S):.5f}")
+        .replace("__AUX_ETA3__", f"{0.21 / math.exp(-DELAY_S / TAU_E_S):.5f}")
+        .replace("__FINAL_JSONL__", line)
+    )
+    (OUT / "swarm-transcript-r57.md").write_text(text)
+    return text

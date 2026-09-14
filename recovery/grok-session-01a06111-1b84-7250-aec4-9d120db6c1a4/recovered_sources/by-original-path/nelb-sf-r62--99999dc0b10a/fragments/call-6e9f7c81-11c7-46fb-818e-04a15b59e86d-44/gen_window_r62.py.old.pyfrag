@@ -1,0 +1,61 @@
+def occupancy_preflight():
+    claimed = (
+        "flintshaw",
+        "brackspire",
+        "tarholt",
+        "copsebrake",
+        "glenbrake",
+        "osierfen",
+        "diffveil",
+        "densveil",
+        "meltveil",
+        "calum brigg",
+        "ivor fenn",
+        "wren solan",
+        "edda pike",
+        "sf6-hil-4",
+        "rheo-sim-6",
+        "nelb-r62-a1",
+        "nelb-r62-a2",
+        "nelb-r62-a3",
+    )
+    steal = (
+        "peatshaw",
+        "woldshaw",
+        "bramblefen",
+        "mirewhin",
+        "lacquerfen",
+        "pitchshaw",
+        "sedgewhin",
+        "brinecrag",
+        "lichenholt",
+        "rushcrag",
+        "copsewick",
+        "peatspire",
+        "nelb-r62-187",
+        "nelb-r62-188",
+        "nelb-r62-189",
+    )
+    hits = []
+    stolen = []
+    roots = list(Path("/tmp").glob("nelb-r[0-9]*"))
+    roots += list(Path("/tmp").glob("nelb-sf*"))
+    roots += [FACTORY]
+    for root in roots:
+        if not root.exists():
+            continue
+        if root.resolve() == STAGING.resolve():
+            continue
+        for n in root.iterdir() if root.is_dir() else []:
+            if n.suffix not in {".py", ".md", ".jsonl"}:
+                continue
+            text = n.read_text(encoding="utf-8", errors="replace").casefold()
+            for b in claimed:
+                if b in text:
+                    hits.append(f"{n}:{b}")
+            for s in steal:
+                if s in text and "nelb-r62-a" in "".join(claimed):
+                    pass
+    if hits:
+        raise RuntimeError(f"occupancy claimed collision {hits[:12]}")
+    _ = stolen

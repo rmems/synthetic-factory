@@ -1,0 +1,291 @@
+# ---------------------------------------------------------------------------
+# Record 094 — CTA hot-wire of an FD-fan inlet, designed, MODIFY / ACCEPT
+# ---------------------------------------------------------------------------
+def rec_094():
+    raster = make_raster(
+        neurons=20,
+        mean_rate_hz=50.0,
+        window_ms=36.0,
+        seed=20260994,
+        source="ah4.cta.probe",
+        target="ashholt.fan_derate_core",
+        table=[
+            {"from": "cta_E", "to": "vel_estimator", "weight": 1.40},
+            {"from": "cta_E0", "to": "king_norm_core", "weight": 1.20},
+            {"from": "anemveil_U", "to": "vendor_continue_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "na.cta_velocity_salience",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": "pre-post coincidence on fan-derate synapses; the CTA modulator enables potentiation only while E0 is co-active inside tau_e so an Anemveil patched-k corridor cannot hide a 15.00 m/s inlet",
+        },
+        channel_prefix="cta.n",
+        anchor="AH-4 CTA 36 ms frame at E 8.00 V / E0 2.00 V (t_s 3000) reconstructing 15.00 m/s above the 12.50 m/s continuous floor",
+    )
+    w_s = 0.036
+    events = [
+        ev(0.0, "cta.E", 4.00, code="E_V", units="V", note="plant-owned constant-temperature hot-wire on FD-fan inlet I-2; not LDV Doppler, not clamp-on ultrasonic, not Coriolis"),
+        ev(300000.0, "cta.E0", 2.00, code="E0_V", units="V", note="U = k_u * (E - E0); linearized King"),
+        ev(600000.0, "recon.U", 5.00, code="U_M_S", units="m_s", note="2.50*(4.00-2.00) = 5.00 exact"),
+        ev(900000.0, "pitot.U", 4.60, code="PITOT_M_S", units="m_s", note="in-duct pitot corridor"),
+        ev(1200000.0, "anemveil.U", 4.80, code="VENDOR_M_S", units="m_s", note="Anemveil vendor CTA cloud; not admissible SoT"),
+        ev(1500000.0, "fan.rpm", 740.0, code="RPM", units="rpm", note="speed corridor is not an inlet-velocity license"),
+        ev(1800000.0, "cta.E", 6.00, code="E_V", units="V"),
+        ev(2100000.0, "recon.U", 10.00, code="U_M_S", units="m_s", note="2.50*(6.00-2.00) = 10.00"),
+        ev(2400000.0, "pitot.U", 8.80, code="PITOT_M_S", units="m_s"),
+        ev(2700000.0, "fan.dp", 1.20, code="DP_KPA", units="kPa"),
+        ev(3000000.0, "cta.E", 8.00, code="E_V", units="V", note="continuous-floor frame; raster sidecar"),
+        ev(3000001.3, "cta.E0", 2.00, code="E0_V", units="V", note="1.3 ms King-norm after E"),
+        ev(3300000.0, "recon.U", 15.00, code="U_M_S", units="m_s", note="2.50*(8.00-2.00) = 15.00 exact; continuous floor 12.50"),
+        ev(3600000.0, "pitot.U", 10.40, code="PITOT_M_S", units="m_s"),
+        ev(3900000.0, "anemveil.U", 12.00, code="VENDOR_M_S", units="m_s", note="Anemveil 2.00*(8.00-2.00) = 12.00 using a patched k"),
+        ev(4200000.0, "fan.rpm", 890.0, code="RPM", units="rpm"),
+        ev(4500000.0, "fan.dp", 1.60, code="DP_KPA", units="kPa"),
+        ev(4800000.0, "ops.prop", 1.0, code="KEEP_RATED", units="bool", note="shift engineer Tess Quill: keep rated FD; Anemveil 12.00 and pitot 10.40"),
+        ev(5400000.0, "gate.derate", 1.0, code="MODIFY", units="decision", note="derate FD fan to 0.80 pu; 15.00 m/s is above 12.50 continuous"),
+        ev(6000000.0, "fan.set", 0.80, code="PU", units="pu"),
+        ev(6600000.0, "soak.start", 1.0, code="SOAK_START", units="bool", note="bookend 1 of the 18.0 min thermal floor"),
+        ev(7200000.0, "cta.lock", 15.00, code="LOCKED_M_S", units="m_s"),
+        ev(7680000.0, "soak.floor", 1.0, code="SOAK_FLOOR", units="bool", note="6600 s + 1080 s = 7680 s = 18.0 min"),
+        ev(8400000.0, "ops.restore", 1.0, code="RESTORE_RATED", units="bool", note="Quill: Anemveil 11.60, restore rated FD"),
+        ev(9000000.0, "gate.exec", 1.0, code="ACCEPT", units="decision", note="companion t2: hold 0.80; Anemveil restore refused"),
+        ev(9600000.0, "fan.set", 0.80, code="PU_HELD", units="pu"),
+        ev(10200000.0, "anemveil.U", 11.60, code="VENDOR_M_S", units="m_s"),
+        ev(10800000.0, "recon.U", 13.00, code="U_M_S", units="m_s", note="post-derate sample 2.50*(7.20-2.00) = 13.00; still above 12.50"),
+        ev(11400000.0, "pitot.U", 9.20, code="PITOT_M_S", units="m_s"),
+        ev(12000000.0, "fan.held", 0.80, code="PU_HELD", units="pu"),
+        ev(12600000.0, "trip.hold", 0.0, code="TRIP_M_S", units="m_s", note="peak 15.00 vs 18.00 isolate floor; fan trip not taken"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r31-094-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "AH-CTA-2026-0614",
+            "domain": "cta_hotwire_fd_fan_inlet",
+            "setting": "Ashholt Station AH-4 (invented), forced-draft fan inlet I-2 12.50 m/s continuous. Plant-owned constant-temperature hot-wire (CTA) on the inlet screen. Anemveil vendor CTA cloud is a corridor witness, not the inlet SoT. Invented plant; designed campaign. Not Kaplan/fiber LDV (r20/r23), not clamp-on transit-time (r18), not Lorentz-force velocimetry (r19), not twin-tube Coriolis (r29), not vibrating-wire viscometer (r26).",
+            "observables_at_decision": {
+                "E_V": 8.00,
+                "E0_V": 2.00,
+                "k_u": 2.50,
+                "U_m_s": 15.00,
+                "pitot_m_s": 10.40,
+                "anemveil_m_s": 12.00,
+                "continuous_floor_m_s": 12.50,
+            },
+            "margin_authority": "AH-4 CTA SOP rev B: if reconstructed U_m_s >= 12.50, derate this FD fan this night to 0.80 pu. A pitot corridor or Anemveil patched-k cannot keep rated FD. Fan isolate tripwire is 18.00 m/s.",
+        },
+        "proposed_action": {
+            "actor": "shift engineer Tess Quill, citing Anemveil 12.00 m/s and pitot 10.40 m/s",
+            "summary": "keep FD fan at rated through the night; 8.00 V is probe fouling",
+            "basis_claimed": "Anemveil and the pitot are both under the 12.50 m/s rating and fan rpm is in band",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Keep-rated FD is refused. Serialized reconstruction: U_m_s = k_u * (E_V - E0_V) = 2.50 * (8.00 - 2.00) = 15.00, which is 2.50 m/s above the 12.50 continuous floor and 1.00 m/s above the 14.00 2-hour rating. Anemveil 12.00 m/s is the same 8.00 V through a patched k_u=2.00 and is not an admissible keep-rated witness. Ordered: derate FD fan to 0.80 pu now. Scope: this MODIFY does not trip the fan (that is the companion question) and does not isolate the boiler.",
+            "threshold": "U_m_s>=12.50 => derate this fan to 0.80 pu; Anemveil is not SoT; isolate if U_m_s>=18.00",
+            "stated_residuals": "15.00 vs 18.00 isolate floor is 3.00 m/s, not infinite; 0.80 pu is a firing cut; Anemveil remains the only OEM CTA channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 5400: FD fan derated to 0.80 pu; Anemveil not SoT; reconstruction locked",
+            "tool": "ah4-cta-fan-gate-cli",
+            "observation": "U 15.00 m/s recomputes from E 8.00 V and E0 2.00 V; CTA remains live as the isolate interlock",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "CTA E 8.00 V; raster frame; U 15.00 m/s"},
+                {"t_s": 4800.0, "event": "ops proposes keep rated FD"},
+                {"t_s": 5400.0, "event": "MODIFY derate FD fan to 0.80 pu"},
+                {"t_s": 6600.0, "event": "18 min soak bookend 1"},
+                {"t_s": 7680.0, "event": "18.0 min floor"},
+                {"t_s": 9000.0, "event": "companion ACCEPT hold 0.80; restore refused"},
+            ],
+            "observed_effects": [
+                "inlet velocity recomputes from the serialized CTA model at every recon.U event",
+                "an Anemveil-only head would have kept rated FD overnight",
+                "18 min soak floor is in the stream (soak.start, soak.floor)",
+            ],
+            "surprises": [
+                "a mid-range vendor CTA and an in-band pitot co-existed with a 15.00 m/s hot-wire reconstruction",
+            ],
+            "new_state": {
+                "ah4_fd_pu": 0.80,
+                "anemveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("cta_reconstruction", 0.14),
+                ("continuous_floor_derate", 0.12),
+                ("vendor_cta_nonsubstitution", 0.10),
+                ("soak_floor_in_stream", 0.08),
+                ("derate_mw_cost", -0.04),
+            ],
+            "scored for a keep-rated MODIFY on a recomputable CTA inlet velocity while refusing an Anemveil 12.00 m/s corridor; 18 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "cta-hotwire", "serialized-reconstruction", "operational-companion"],
+            distillation_note="CTA fan gate: linearized King E-E0 reconstruction beats a green vendor CTA dashboard; companion t2 holds 0.80 pu rather than restoring on Anemveil",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r31-094-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "AH-CTA-2026-0614-exec",
+            "domain": "fd_fan_derate_execution",
+            "setting": "Same AH-4 after the MODIFY. Shift engineer proposes restoring rated FD on Anemveil 11.60 m/s. This companion is the operational 0.80 hold, not a second CTA vote.",
+            "observables_at_decision": {
+                "fan_pu": 0.80,
+                "U_m_s": 13.00,
+                "anemveil_m_s": 11.60,
+                "soak_floor_s": 1080.0,
+            },
+        },
+        "proposed_action": {
+            "actor": "shift engineer Tess Quill",
+            "summary": "restore FD fan to rated; 18 min already paid and Anemveil is 11.60",
+            "basis_claimed": "the MODIFY already cut firing, so restoring on the OEM channel is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Hold 0.80 pu. The soak floor is complete and the isolate tripwire (U_m_s >= 18.00) is still armed on the plant CTA. ACCEPT the hold. Do not restore rated FD on Anemveil. Do not trip the fan. 13.00 m/s post-derate is still the CTA SoT until a new frame clears 12.50.",
+            "threshold": "fan_pu==0.80 AND soak_floor_complete AND isolate_tripwire_armed AND restore_rated_not_taken",
+        },
+        "executed_action": {
+            "summary": "0.80 pu held at t_s 9000; Anemveil restore not latched; fan trip not taken",
+            "tool": "ah4-fan-derate-exec",
+            "observation": "recon.U 13.00 m/s after derate; fan 0.80 pu; Anemveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6600.0, "event": "soak clock started after MODIFY"},
+                {"t_s": 7680.0, "event": "18.0 min floor"},
+                {"t_s": 8400.0, "event": "restore rated FD proposed"},
+                {"t_s": 9000.0, "event": "ACCEPT hold 0.80 pu"},
+            ],
+            "observed_effects": [
+                "Anemveil restore did not reopen the CTA call",
+                "isolate tripwire never fired; 15.00 vs 18.00 floor",
+            ],
+            "new_state": {"fd_pu": 0.80, "restore_rated": "blocked", "fan": "in service"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("hold_0p80", 0.12),
+                ("no_anemveil_restore", 0.10),
+                ("isolate_interlock_live", 0.09),
+                ("soak_complete", 0.06),
+                ("held_mw_cost", -0.02),
+            ],
+            "operational execution gate: hold 0.80 pu because Anemveil is not a restore license; not a CTA re-vote",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "fd-fan-derate"]),
+    }
+    return {
+        "id": "nelb-r31-094",
+        "spike_events": events,
+        "language_view": {
+            "description": "Ashholt Station AH-4. Plant-owned constant-temperature hot-wire reconstructs 15.00 m/s from 2.50*(8.00-2.00) while Anemveil still shows 12.00 m/s and the pitot 10.40 m/s. The gate MODIFYs the FD fan to 0.80 pu. An 18 min thermal soak floor is serialized in the stream. Companion t2 ACCEPTs the 0.80 hold and refuses an Anemveil restore.",
+            "trajectory": traj,
+            "trajectory_fan_derate_execution": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "cta.E / cta.E0": "hot-wire voltage and still-air offset; the physics channels the reconstruction consumes",
+                "recon.U / cta.lock": "serialized inlet velocity m/s",
+                "pitot.U / anemveil.U / fan.rpm / fan.dp": "pitot, vendor CTA cloud, speed, and dp; the denial channels that look healthy",
+                "ops.prop / gate.derate / ops.restore / gate.exec": "keep-rated proposal, MODIFY derate, restore proposal, companion ACCEPT",
+                "fan.set / soak.start / soak.floor / fan.held": "operational companion channels plus the 18 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while CTA-over: anemveil.U 12.00 next to recon.U 15.00",
+                "reconstruction as event: recon.U 15.00 equals 2.50*(8.00-2.00)",
+                "MODIFY then operational ACCEPT: gate.derate at 5400 s, gate.exec at 9000 s",
+                "slow floor in-stream: soak.start 6600 s, soak.floor 7680 s (18.0 min)",
+                "tight CTA pair: cta.E then cta.E0 +1.3 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Anemveil is 12 m/s' = anemveil.U 12.00; '15.00 m/s CTA' = recon.U 15.00; 'derate this fan' = gate.derate MODIFY; 'hold 0.80 not restore' = gate.exec ACCEPT",
+            "why_high_value": "New constant-temperature hot-wire family on an FD-fan inlet (not LDV r20/r23, not clamp-on r18, not LFV r19, not Coriolis r29, not vibrating-wire r26). Lead MODIFY of keep-rated FD on a recomputable inlet velocity that a vendor CTA dashboard would have cleared. Companion t2 is operational 0.80 hold. sim_or_real=designed.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 20260994, "stream_note": "stream amplitudes are authored constants (V, m/s, rpm, kPa, pu, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "CTA bridge exists at 2 kHz; stream keeps 3 E points; recon keeps 4 of ~40 solver ticks",
+                "refractory_floors_ms": {
+                    "cta.E": 1.3,
+                    "cta.E0": 1.3,
+                    "recon.U": 60000,
+                    "pitot.U": 60000,
+                    "anemveil.U": 60000,
+                    "fan.rpm": 60000,
+                    "fan.dp": 60000,
+                    "ops.prop": 60000,
+                    "gate.derate": 60000,
+                    "fan.set": 60000,
+                    "soak.start": 60000,
+                    "cta.lock": 60000,
+                    "soak.floor": 60000,
+                    "ops.restore": 60000,
+                    "gate.exec": 60000,
+                    "fan.held": 60000,
+                    "trip.hold": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-06-14T02:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "CTA reconstruction head: U = k_u * (E - E0)",
+                "continuous-floor derate vs keep-rated vs fan-trip",
+                "vendor-CTA nonsubstitution: patched k is not a keep-rated witness",
+                "operational companion: hold 0.80 without restoring on Anemveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "cta_linearized_king_inlet_velocity",
+            "formula": "U_m_s = k_u * (E_V - E0_V)",
+            "parameters": {
+                "k_u_m_s_per_V": 2.50,
+                "E0_V": 2.00,
+                "continuous_floor_m_s": 12.50,
+                "two_hour_rating_m_s": 14.00,
+                "isolate_m_s": 18.00,
+                "derate_pu": 0.80,
+                "soak_min": 18.0,
+            },
+            "worked_example": {"E_V": 8.00, "U_m_s": 15.00},
+            "check": "2.50 * (8.00 - 2.00) = 15.00 exactly; 2.50 * (7.20 - 2.00) = 13.00 exactly; 6600 s + 1080 s = 7680 s = 18.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 36.0,
+            "decision_window_s": 0.036,
+            "code": "ah4.cta_fan_gate",
+            "note": "MODIFY accumulator wins: CTA inlet-velocity evidence overpowers the Anemveil continue advocate",
+            "decode_rule": "modify-derate if vel_estimator AND king_norm fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("vel_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("king_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("modify_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "ah4.cta_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "ah4.derate_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r31-094",
+            clock_domain="ah4-cta-campaign-relative-ms-t0-2026-06-14T02:00:00Z",
+            tags=["cta-hotwire", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }

@@ -1,0 +1,55 @@
+{
+  "agent_ids": [
+    "01a0640a-368b-76e2-a6bb-2971e7bc1df2"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "verify_receipt.py",
+  "original_path": "/tmp/ffpc-r18-stage/verify_receipt.py",
+  "path_key": "ffpc-r18-stage--c0e27c0a700a",
+  "terminal_event_ids": [
+    "01a0640a-368b-76e2-a6bb-2971e7bc1df2:call-0cf6d134-e32e-40be-a4c8-25a524a70eff-55",
+    "01a0640a-368b-76e2-a6bb-2971e7bc1df2:call-5e7920c2-141e-408c-8000-e2ec9fb5404a-70",
+    "01a0640a-368b-76e2-a6bb-2971e7bc1df2:call-d98ef72a-0100-4b3e-af29-900e20633220-53",
+    "01a0640b-474a-7da1-9cee-3e2eae5a407d:call-659a7c0e-d968-4582-96ab-a4fb26504709-39"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a0640a-368b-76e2-a6bb-2971e7bc1df2",
+      "basename_preserved": true,
+      "bytes": 2994,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 267,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640a-368b-76e2-a6bb-2971e7bc1df2/updates.jsonl",
+      "original_basename": "verify_receipt.py",
+      "original_path": "/tmp/ffpc-r18-stage/verify_receipt.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r18-stage--c0e27c0a700a/versions/v0001/verify_receipt.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r18-stage--c0e27c0a700a/versions/v0001/verify_receipt.py",
+      "session_id": "01a0640a-368b-76e2-a6bb-2971e7bc1df2",
+      "sha256": "a564b8a25e12a096703607e972ff29561f42ec526a8091c041a5b18c3d5ac037",
+      "source_channel": "structured",
+      "source_event_id": "01a0640a-368b-76e2-a6bb-2971e7bc1df2:call-721298dc-1431-4538-8c70-d5aa1618af30-49",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788387334547,
+      "timestamp_utc": "2026-09-02T22:15:34.547Z",
+      "tool_call_id": "call-721298dc-1431-4538-8c70-d5aa1618af30-49",
+      "version": 1,
+      "version_id": "ffpc-r18-stage--c0e27c0a700a:v0001"
+    }
+  ]
+}

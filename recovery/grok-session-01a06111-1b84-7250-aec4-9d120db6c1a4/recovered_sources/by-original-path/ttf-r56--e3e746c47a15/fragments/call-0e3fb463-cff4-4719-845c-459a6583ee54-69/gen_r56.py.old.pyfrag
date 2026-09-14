@@ -1,0 +1,132 @@
+            (
+                "summary",
+                "Wrong-REJECT froze SN-6 at 0 t/h while 2oo3 median stayed 412 C under the "
+                "430 C trip. 13 min residue window missed. Correct gate was ACCEPT of the "
+                "already-legal 18.0 t/h command.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("soaker", "held at 0 t/h; 18.0 t/h abandoned"),
+                        ("median_C", "still 412 C, under 430 C published trip"),
+                        ("coil", "13 min residue window missed"),
+                        ("vote", "no over-temperature; RTD-B false positive"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "The 448 C reading is a vote_failed RTD-B stuck-high, not a published 2oo3 trip.",
+                    "Delayed (13 min): sister soaker SN-7 ran the same 18.0 t/h residue window after QA rebound the median trip; SN-6's slot was already gone.",
+                ],
+            ),
+            (
+                "recovery",
+                OrderedDict(
+                    [
+                        (
+                            "correct_gate",
+                            "ACCEPT: median 412 C < published 430 C trip; leave 18.0 t/h.",
+                        ),
+                        ("correct_trip_C", 430.0),
+                        ("wrong_failed_C", 448.0),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict([("feed_t_h", 0.0), ("hold", True)]),
+                        ),
+                        (
+                            "cost",
+                            "13 min missed residue window (task/efficiency); median never over trip (safety false-positive).",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.median.c (5.280 ms, 412 C)"),
+                        ("loser", "rtd.failed.c (5.510 ms, 448 C RTD-B)"),
+                        ("margin_us", 230),
+                        (
+                            "counterfactual_if_reversed",
+                            "Failed-channel-first by < 230 us would still show median 412 C < 430 C. A "
+                            "correct gate ACCEPTs either way. The wrong REJECT spent the median win "
+                            "on a stuck-high RTD-B.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 6000),
+            (
+                "reward_inflection_note",
+                "Task and efficiency drop at the wrong REJECT (6.000 ms, tick 4). The 13 min "
+                "missed window is delayed surprise, not the inflection.",
+            ),
+            ("delayed_surprise_s", 780.0),
+            ("missed_window_s", 780),
+        ]
+    )
+    ras = raster_core(
+        26,
+        80,
+        30,
+        62,
+        routing(
+            "relay.rtd.failed",
+            "policy.hold_reject",
+            [
+                ("relay.rtd.failed", "policy.hold_reject", 0.71),
+                ("relay.rtd.median", "policy.hold_reject", 0.22),
+            ],
+            "acetylcholine",
+            0.08,
+            "failed_vote_stdp; ACh tags the (wrong) hold_reject bind at the median win",
+        ),
+        excerpt,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.40),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("hold_reject", 48, 0.50, 200.0, 4),
+                    pop("go_accept", 48, 0.80, 10.0, 0),
+                    pop("median_trip_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r48-256",
+        "WRONG-REJECT at Soaker-Naze / SN-6: 2oo3 median 412 C is legal vs "
+        "published 430 C trip; supervisor bound a stuck-high RTD-B 448 C as the vote",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Wrong-reject. Sidecar arithmetic 412 < 430 is true; clamp bound to a "
+        "vote_failed RTD-B 448 C. total -0.36 = -0.18 + 0.06 + -0.22 + -0.08 + 0.06.",
+        ras,
+        gate,
+        "visbreaker-soaker",
+        [
+            "reject",
+            "wrong-gate",
+            "2oo3-failed-high",
+            "median-vs-single",
+            "sidecar-convictable",
+            "designed",
+        ],
+        "Teaches a probe that a correct median<trip read can still be a wrong gate when "
+        "routing.table[0].to is policy.hold_reject and executed feed is zeroed.",
+        1,
+        supervisor_error_type="wrong-reject",
+    )

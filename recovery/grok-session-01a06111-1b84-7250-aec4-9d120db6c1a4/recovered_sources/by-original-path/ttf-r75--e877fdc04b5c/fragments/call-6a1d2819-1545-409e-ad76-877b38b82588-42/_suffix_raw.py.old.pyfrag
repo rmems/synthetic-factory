@@ -1,0 +1,2 @@
+    if ids != [f"ttf-r65-{n}" for n in range(391, 396)]:
+        issues.append(f"ids {ids}")

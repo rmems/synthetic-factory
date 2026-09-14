@@ -1,0 +1,27 @@
+            ("name", "cruise_gacl_feed"),
+            (
+                "parameters",
+                OrderedDict(
+                    [("gacl_slm", 0.42), ("sus_C", 1048.0), ("nh3_slm", 4.8)]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("sus_C", 1048.0),
+                        ("sus_cap_C", 1020.0),
+                        ("predicted_unclamped_next_C", 1056.0),
+                        ("gacl_slm", 0.42),
+                        ("chloride_look_slm", 0.55),
+                        ("race_margin_us", 192),
+                        ("combined_jitter_us", 64),
+                        ("abort_s", 840),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 0.42 slm GaCl because chloride look 0.42 is under 0.55, treating "
+                "the 1048 C susceptor as a still-wet boat rather than a GaN-growth miss.",
+            ),

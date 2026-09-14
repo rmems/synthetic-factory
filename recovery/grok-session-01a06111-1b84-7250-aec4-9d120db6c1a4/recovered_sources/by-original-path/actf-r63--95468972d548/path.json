@@ -1,0 +1,54 @@
+{
+  "agent_ids": [
+    "01a0649c-a50a-75b2-8135-8b3e0a8060a7"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 1,
+  "original_basename": "gen.py",
+  "original_path": "/tmp/actf-r63/gen.py",
+  "path_key": "actf-r63--95468972d548",
+  "terminal_event_ids": [
+    "01a0649c-a50a-75b2-8135-8b3e0a8060a7:call-3845c7f6-1863-4aa9-80e9-c941d3dee76d-47",
+    "01a064a7-40cf-7083-bca5-b385b9e7f7ba:call-524f29e2-51e2-48f5-8366-ae1536aeb761-37",
+    "01a064a9-45b1-7b42-8eff-f6a212a07124:call-cc96785d-40e5-40da-b3d3-f5e37d305627-35"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a0649c-a50a-75b2-8135-8b3e0a8060a7",
+      "basename_preserved": true,
+      "bytes": 64796,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 259,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0649c-a50a-75b2-8135-8b3e0a8060a7/updates.jsonl",
+      "original_basename": "gen.py",
+      "original_path": "/tmp/actf-r63/gen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r63--95468972d548/versions/v0001/gen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/actf-r63--95468972d548/versions/v0001/gen.py",
+      "session_id": "01a0649c-a50a-75b2-8135-8b3e0a8060a7",
+      "sha256": "e052304b32e107e5806450d2b4f02fbc00ef3b4643dc1025ea83764f245c72b1",
+      "source_channel": "structured",
+      "source_event_id": "01a0649c-a50a-75b2-8135-8b3e0a8060a7:call-b3b9e22b-dafd-44a1-9250-9698b8797b6d-46",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788394945528,
+      "timestamp_utc": "2026-09-03T00:22:25.528Z",
+      "tool_call_id": "call-b3b9e22b-dafd-44a1-9250-9698b8797b6d-46",
+      "version": 1,
+      "version_id": "actf-r63--95468972d548:v0001"
+    }
+  ]
+}

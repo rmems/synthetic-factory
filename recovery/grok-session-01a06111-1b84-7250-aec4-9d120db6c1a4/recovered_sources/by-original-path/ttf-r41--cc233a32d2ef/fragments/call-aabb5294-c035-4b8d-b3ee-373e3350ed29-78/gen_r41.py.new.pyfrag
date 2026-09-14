@@ -1,0 +1,24 @@
+                        (
+                            "contenders",
+                            [
+                                "tc.pin.root 412 C",
+                                "ir.bar.glint 298 C apparent",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Root-first latches REJECT hold 0.0 mm/s; bar-first would commit "
+                            "1.8 mm/s plunge on an apparent 298 C under-read of a hot tool.",
+                        ),
+                        (
+                            "window_derivation",
+                            "380 us = one pin-root TC slot versus backing-bar IR integration on "
+                            "this FSW HIL bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 171 us vs combined jitter ~58 us (TC 26 + IR 32): 2.9x over "
+                            "a 2.0x trust floor. Pad injects the lamp 110-150 us before the TC "
+                            "(geometric lag, not a sensor fault); the apparent 298 C packet is "
+                            "still the loser in this 380 us window.",
+                        ),

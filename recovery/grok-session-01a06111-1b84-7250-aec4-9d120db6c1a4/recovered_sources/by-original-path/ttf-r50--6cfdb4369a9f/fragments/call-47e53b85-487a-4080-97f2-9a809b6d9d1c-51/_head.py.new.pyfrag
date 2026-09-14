@@ -1,0 +1,1 @@
+            group = [1 for tt, _ in picked if (tt < 21100) == (pool[0][0] < 21100)]

@@ -1,0 +1,97 @@
+def independent_lif_excerpt(lang_us):
+    n = NEURONS
+    dt_us = 80
+    tau_m_ms = 16.5
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.91
+    i_stim_peak = 2.18
+    stim = (17500, 20800)
+    window_us = WINDOW_MS * 1000
+    i_clamp_extra = 0.61
+    clamp_n = 18
+    rng = random.Random(LIF_SEED)
+    tau_s = tau_m_ms / 1000.0
+    dt_s = dt_us / 1e6
+    decay = math.exp(-dt_s / tau_s)
+    steps = window_us // dt_us
+    voltage = [rng.random() * v_th * 0.97 for _ in range(n)]
+    bias = [i_bias * (1.0 + 0.13 * (rng.random() * 2 - 1)) for _ in range(n)]
+    for i in range(clamp_n):
+        bias[i] += i_clamp_extra
+    ref = [0] * n
+    spikes = []
+    for step in range(steps):
+        t_us = step * dt_us
+        stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+        for i in range(n):
+            if ref[i] > 0:
+                ref[i] -= dt_us
+                voltage[i] = v_reset
+                continue
+            current = bias[i] + stim_i
+            voltage[i] = current + (voltage[i] - current) * decay
+            if voltage[i] >= v_th:
+                spikes.append((t_us, i))
+                voltage[i] = v_reset
+                ref[i] = refractory_us
+    lang = set(lang_us)
+    early = [(t, i) for t, i in spikes if t < 17500 and t not in lang]
+    burst = [(t, i) for t, i in spikes if 17500 <= t < 20800 and t not in lang]
+    late = [(t, i) for t, i in spikes if t >= 20800 and t not in lang]
+    picked = []
+    last = {}
+    for pool, want in ((early, 7), (burst, 6), (late, 3)):
+        stride = max(1, len(pool) // max(want, 1))
+        got = 0
+        for idx in range(0, len(pool), stride):
+            if got >= want:
+                break
+            t, nid = pool[idx]
+            if nid in last and t - last[nid] < 1000:
+                continue
+            picked.append((t, nid))
+            last[nid] = t
+            got += 1
+    if len(picked) < 16:
+        for t, nid in spikes:
+            if t in lang:
+                continue
+            if any(t == pt and nid == pn for pt, pn in picked):
+                continue
+            if nid in last and t - last[nid] < 1000:
+                continue
+            picked.append((t, nid))
+            last[nid] = t
+            if len(picked) >= 16:
+                break
+    picked = sorted(picked, key=lambda item: (item[0], item[1]))[:16]
+    excerpt = []
+    for t, nid in picked:
+        ch = "lif.hold" if t < 17500 else ("lif.spit" if t < 20800 else "lif.late")
+        excerpt.append({"t_us": int(t), "neuron_id": int(nid), "channel": ch})
+    lif = {
+        "model": "leaky_integrate_and_fire",
+        "n": n,
+        "dt_us": dt_us,
+        "tau_m_ms": tau_m_ms,
+        "v_rest": 0.0,
+        "v_reset": v_reset,
+        "v_th": v_th,
+        "r_m": 1.0,
+        "refractory_us": refractory_us,
+        "i_bias": i_bias,
+        "i_stim_peak": i_stim_peak,
+        "stim_t_us": list(stim),
+        "i_clamp_extra": i_clamp_extra,
+        "clamp_n": clamp_n,
+        "seed": LIF_SEED,
+        "sim_spikes": len(spikes),
+        "note": (
+            "Population sim scoped to this sidecar. Plant remains designed. "
+            "Neurons 0-17 carry +0.61 cavity-hold clamp bias; stim 17.5-20.8 ms is the "
+            "spit-5 IR crossing, not a remap of spike_events."
+        ),
+    }
+    return excerpt, lif, len(spikes)

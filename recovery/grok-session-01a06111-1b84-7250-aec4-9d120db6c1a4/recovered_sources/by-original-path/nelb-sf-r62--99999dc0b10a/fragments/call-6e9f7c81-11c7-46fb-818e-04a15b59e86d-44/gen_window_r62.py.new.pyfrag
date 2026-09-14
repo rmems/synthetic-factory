@@ -1,0 +1,41 @@
+def occupancy_preflight():
+    claimed = (
+        "flintshaw",
+        "brackspire",
+        "tarholt",
+        "copsebrake",
+        "glenbrake",
+        "osierfen",
+        "diffveil",
+        "densveil",
+        "meltveil",
+        "calum brigg",
+        "ivor fenn",
+        "wren solan",
+        "edda pike",
+        "sf6-hil-4",
+        "rheo-sim-6",
+        "nelb-r62-a1",
+        "nelb-r62-a2",
+        "nelb-r62-a3",
+    )
+    hits = []
+    skip_names = {BATCH_NAME, NOTES_NAME, "gen_window_r62.py"}
+    roots = list(Path("/tmp").glob("nelb-r[0-9]*"))
+    roots += [FACTORY]
+    for root in roots:
+        if not root.exists() or not root.is_dir():
+            continue
+        if root.resolve() == STAGING.resolve():
+            continue
+        for n in root.iterdir():
+            if n.name in skip_names:
+                continue
+            if n.suffix not in {".py", ".md", ".jsonl"}:
+                continue
+            text = n.read_text(encoding="utf-8", errors="replace").casefold()
+            for b in claimed:
+                if b in text:
+                    hits.append(f"{n}:{b}")
+    if hits:
+        raise RuntimeError(f"occupancy claimed collision {hits[:12]}")

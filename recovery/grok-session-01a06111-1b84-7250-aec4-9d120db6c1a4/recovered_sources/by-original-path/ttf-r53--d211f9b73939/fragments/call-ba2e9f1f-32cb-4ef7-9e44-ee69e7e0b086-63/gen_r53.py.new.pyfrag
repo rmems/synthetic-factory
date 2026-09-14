@@ -1,0 +1,30 @@
+    spikes = [
+        spike("enc.motor.A", 1.360, 0.40),
+        spike("ae.unmelt.pps", 2.680, 0.56),
+        spike("enc.motor.A", 4.100, 0.48),
+        spike("ae.unmelt.pps", 6.840, 1.34),
+        spike("enc.motor.A", 7.020, 1.11),
+        spike("ctrl.gate", 7.620, 0.98),
+        spike("ae.unmelt.pps", 10.200, 0.81),
+        spike("enc.motor.A", 14.600, 0.62),
+        spike("ctrl.gate", 18.000, 0.84),
+        spike("ae.unmelt.pps", 28.200, 0.52),
+        spike("enc.motor.A", 35.800, 0.39),
+        spike("ae.unmelt.pps", 38.400, 0.44),
+    ]
+    excerpt = independent_excerpt(53283, 104, 40000, 15, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Knead-Dene KD-HIL twin-screw X-4 hears unmelt AE at 28 pps while motor current "
+                "sits at 62 A under a 95 A cap. AE-first holds the screws; current-first would keep "
+                "420 rpm because the amps look legal. The HIL compounder bench is the authority, "
+                "not the compounding floor.",
+            ),
+            ("domain", "twin-screw-compounder"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Keep X-4 from holding 420 rpm into an unmelted pellet slug while motor current remains under its own cap.",
+            ),

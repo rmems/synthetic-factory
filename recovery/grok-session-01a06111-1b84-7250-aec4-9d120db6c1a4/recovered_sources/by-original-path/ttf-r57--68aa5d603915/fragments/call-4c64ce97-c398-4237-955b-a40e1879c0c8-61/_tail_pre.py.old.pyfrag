@@ -1,0 +1,3 @@
+        for frag in set(BANNED_PLANT_FRAGMENTS) | prior_p:
+            if frag in blob:
+                issues.append(f"{rec['id']} cloned plant fragment {frag}")

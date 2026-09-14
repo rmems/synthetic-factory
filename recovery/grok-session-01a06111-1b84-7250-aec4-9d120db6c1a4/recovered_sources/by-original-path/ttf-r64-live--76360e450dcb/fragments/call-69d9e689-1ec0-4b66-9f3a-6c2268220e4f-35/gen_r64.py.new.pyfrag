@@ -1,0 +1,16 @@
+THIS_DOMAINS = (
+    "yttrium-oxalate-calciner",
+    "germanium-tetrachloride-hydrolyzer",
+    "gallium-arsenide-lec",
+    "rhenium-perrhenate-elution",
+    "platinum-sponge-reducer",
+)
+THIS_PLANTS = (
+    "Oxal-Keld",
+    "Hydro-Gehm",
+    "Lec-Haugh",
+    "Perrhen-Ost",
+    "Sponge-Plat",
+)
+IDS = [f"ttf-r64-{n}" for n in range(316, 321)]
+ID_PN, ID_WR, ID_HIL, ID_M2, ID_ACC = IDS

@@ -1,0 +1,4 @@
+- IDs: `ttf-r90-466` … `ttf-r90-470`
+- Domains this batch: `acetic-acid-carbonylation`, `ammonium-nitrate-prill`, `silicon-metal-furnace`, `acrylic-acid-oxidizer`, `lithium-hydroxide-crystallizer`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged r13–r74 occupancy (jsonl SoT plus incomplete gens, including r70 aniline / phthalic-switch / anthraquinone / MgCl2 / PET-SSP, r71 silane-CVD / DNT / magnesia-shaft / polyacetal / hypochlorite-dryer, r72 Waelz / ATR / Peirce-Smith / PDH / SiMn, r73 cyclohexane-air / BPA / ladle-arc / PP-gas / Downs-Na, r74 VAM-vapor / HPPO / Andrussow / Cl2-liquefaction / defluor-kiln). All five plants are invented (Cativa-Pightle, Nitram-Outgang, Quartzite-Ing, Acryl-Sough, Lithia-Spout). Do not restack prior TTF plants.

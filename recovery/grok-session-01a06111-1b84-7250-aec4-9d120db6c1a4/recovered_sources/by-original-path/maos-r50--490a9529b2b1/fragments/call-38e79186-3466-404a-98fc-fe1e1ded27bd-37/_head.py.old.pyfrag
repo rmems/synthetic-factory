@@ -1,0 +1,4 @@
+PLANT = "GOBWOLD"
+GEO = "Culletwick"
+CELL = "IS-8"
+DOMAIN = "glass-container-is-forming"

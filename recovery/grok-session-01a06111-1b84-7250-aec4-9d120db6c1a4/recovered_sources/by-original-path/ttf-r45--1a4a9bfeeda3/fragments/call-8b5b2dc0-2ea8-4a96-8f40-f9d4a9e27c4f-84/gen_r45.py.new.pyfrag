@@ -1,0 +1,3 @@
+                "H2S slip 8.4 ppm is rising at 0.18 ppm/s, so the supervisor dumps feed 8.4 -> 2.0 t/h "
+                "to start lean-flash early. Slip-first is treated as a trip. Over-caution on a rising "
+                "precursor is the stated doctrine.",

@@ -1,0 +1,31 @@
+def record_300():
+    ticks = [
+        tick(1608, 0.06, 0.04, 0.03, 0.02, 0.01),
+        tick(4020, 0.10, 0.08, 0.04, 0.02, 0.02),
+        tick(4210, 0.06, 0.04, 0.02, 0.02, 0.01),
+        tick(4800, 0.12, 0.08, 0.05, 0.04, 0.02),
+        tick(5080, 0.06, 0.05, 0.02, 0.01, 0.01),
+        tick(360000000, 0.04, 0.03, 0.02, 0.01, 0.01),
+    ]
+    params = OrderedDict(
+        [
+            ("feed_m3_h", 22.0),
+            ("acid_pct", 88.2),
+            ("contactor_id", 7),
+            ("hold", False),
+        ]
+    )
+    spikes = [
+        spike("enc.io.ctx", 0.880, 0.41),
+        spike("ir.acid.pct", 2.040, 0.60),
+        spike("dp.contactor.smear", 3.000, 0.51),
+        spike("ir.acid.pct", 4.020, 1.30),
+        spike("dp.contactor.smear", 4.210, 1.12),
+        spike("ctrl.gate", 4.800, 0.97),
+        spike("ir.acid.pct", 6.600, 0.78),
+        spike("dp.contactor.smear", 9.000, 0.62),
+        spike("ctrl.gate", 13.200, 0.85),
+        spike("ir.acid.pct", 18.000, 0.54),
+        spike("dp.contactor.smear", 21.000, 0.43),
+    ]
+    excerpt = independent_excerpt(56300, 52, 26000, 11, spike_avoid_us(spikes))

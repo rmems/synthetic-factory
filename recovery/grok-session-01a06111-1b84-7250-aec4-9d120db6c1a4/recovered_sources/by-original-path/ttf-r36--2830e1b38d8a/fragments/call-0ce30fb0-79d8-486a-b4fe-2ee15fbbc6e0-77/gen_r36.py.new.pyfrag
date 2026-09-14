@@ -1,0 +1,33 @@
+                [
+                    "bath thermowell RTD, 2.5 kHz, 32 us jitter",
+                    "dross IR pyrometer, 1 kHz, 38 us jitter",
+                    "crane-speed encoder (context)",
+                    "strip-mass orifice (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("bath_cap_C", 470.0),
+                        ("observed_bath_C", 452.0),
+                        ("dross_cap_C", 455.0),
+                        ("observed_dross_C", 438.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Kettle-K8 latched on ZC-3; galvanize dip in production.",
+                    "2. Bath 452 C; dross IR 438 C under 455 cap.",
+                    "3. Crane precursor at 1.120 ms.",
+                    "4. Race window [4.800, 5.220] ms.",
+                    "5. rtd.bath.C 452 at 4.860 ms (winner).",
+                    "6. ir.dross.C 438 at 5.080 ms (loser by 220 us).",
+                    "7. Gate at 5.340 ms: ACCEPT 1.40 m/min dip.",
+                    "8. Bath 452 C; dross 438 C under 455 cap.",
+                    "9. Production continues; kettle remains latched.",
+                    "10. Delayed (reseq_s=240): sister kettle K9 bath-authoritative under IR-present mode.",
+                ],
+            ),

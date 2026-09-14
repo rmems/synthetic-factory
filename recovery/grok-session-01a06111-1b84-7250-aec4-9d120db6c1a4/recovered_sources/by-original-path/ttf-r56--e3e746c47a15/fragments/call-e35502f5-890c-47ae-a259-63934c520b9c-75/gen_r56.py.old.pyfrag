@@ -1,0 +1,139 @@
+            (
+                "summary",
+                "Process-correct MODIFY held DP at 1.64 kPa. At 22.400 ms stored pack load collapsed "
+                "a mist-eliminator bay. Clamp reduced fan energy; it did not dump the pack charge. "
+                "Partnered negative: process heads stay honest; world loss is named, not netted.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("fan", "clamp executed; DP 1.64 kPa < 2.20"),
+                        ("mist_eliminator", "pack collapse at 22.400 ms"),
+                        ("repair", "16 min emergency isolate + pack pull"),
+                        ("mission", "absorber still scrubbing; pack precursor controlled"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Neither gas DP nor recycle pH predicted the pack charge; ae.mist.pack is a new channel at 22.400 ms, 16.900 ms after the gate, still inside the 40 ms raster.",
+                    "Delayed (16 min): emergency isolate and pack pull close the collapse. Named un-netted loss, not folded into task_progress.",
+                ],
+            ),
+            (
+                "un_netted_loss",
+                "16 min emergency isolate + pack pull after a mist-eliminator collapse. Safety "
+                "head -0.62 prices the precursor; task_progress stays +0.34 because the fan clamp "
+                "completed under the 2.20 kPa cap. World loss is named here, not subtracted from process heads.",
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "dp.gas.kpa (4.620 ms, 2.48 kPa)"),
+                        ("loser", "ph.recycle.su (4.850 ms, 5.60 pH)"),
+                        ("margin_us", 230),
+                        (
+                            "counterfactual_if_reversed",
+                            "pH-first by < 230 us inside the 380 us window would have kept "
+                            "92 percent cruise; predicted next-sample 2.31 kPa would have exceeded the "
+                            "2.20 kPa cap even without the pack charge. The MODIFY is still the "
+                            "correct process. The collapse is a later world charge either way, cheaper "
+                            "with the clamp than without.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 22400),
+            (
+                "reward_inflection_note",
+                "Safety collapses at the 22.400 ms mist-eliminator pack drop (tick t_us=22400), inside the "
+                "40 ms raster. The correct MODIFY at 5.500 ms is in the same excerpt. Do not put "
+                "inflection on the +16 min isolate tick.",
+            ),
+            ("delayed_surprise_s", 960.0),
+            ("abort_s", 960),
+        ]
+    )
+    spikes = [
+        spike("enc.fan.ctx", 1.120, 0.43),
+        spike("dp.gas.kpa", 2.240, 0.62),
+        spike("ph.recycle.su", 3.180, 0.55),
+        spike("dp.gas.kpa", 4.620, 1.34),
+        spike("ph.recycle.su", 4.850, 1.12),
+        spike("ctrl.gate", 5.500, 0.97),
+        spike("dp.gas.kpa", 7.200, 0.81),
+        spike("ph.recycle.su", 10.400, 0.66),
+        spike("ctrl.gate", 15.200, 0.84),
+        spike("ae.mist.pack", 22.400, 1.42),
+        spike("ae.mist.pack", 23.600, 0.91),
+        spike("enc.fan.ctx", 29.800, 0.41),
+        spike("dp.gas.kpa", 36.200, 0.58),
+    ]
+    ras = raster_core(
+        40,
+        84,
+        26,
+        87,
+        routing(
+            "thalamic-relay.dp-fan",
+            "spikenaut.policy.fan-clamp",
+            [
+                ("relay.dp.gas", "policy.fan_clamp", 0.64),
+                ("relay.ph.recycle", "policy.slurry_hold", 0.29),
+                ("relay.ae.mist", "policy.fan_clamp", -0.46),
+            ],
+            "noradrenaline",
+            0.05,
+            "surprise-gated pre_post_stdp; NA at DP win (4.620 ms) opens a 50 ms eligibility "
+            "trace that still covers the 22.400 ms mist-eliminator pack collapse",
+        ),
+        excerpt,
+        extra=extra,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.38),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("fan_clamp", 48, 0.50, 220.0, 4),
+                    pop("slurry_hold", 48, 0.50, 50.0, 1),
+                    pop("dp_cap_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r48-257",
+        "Limestone-Linn absorber / A-2: gas DP beats recycle pH by 230 us; correct "
+        "MODIFY still eats an in-window mist-eliminator pack collapse (partnered negative total -0.44)",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Partnered negative. Process-correct MODIFY; world still charges inside the "
+        "40 ms raster. total -0.44 = 0.34 + -0.62 + -0.16 + 0.04 + -0.04. Named "
+        "isolate+pack-pull loss is not netted into task_progress.",
+        ras,
+        gate,
+        "wet-FGD-absorber",
+        [
+            "modify",
+            "partnered-negative-total",
+            "independent-lif-raster",
+            "sidecar-sim-only",
+            "in-window-world-charge",
+            "designed",
+        ],
+        "A critic can see the world-charge as a LIF burst inside the raster while "
+        "process heads stay honest. Credit assignment is spikes, not prose across a "
+        "16 min gap.",
+        2,
+    )

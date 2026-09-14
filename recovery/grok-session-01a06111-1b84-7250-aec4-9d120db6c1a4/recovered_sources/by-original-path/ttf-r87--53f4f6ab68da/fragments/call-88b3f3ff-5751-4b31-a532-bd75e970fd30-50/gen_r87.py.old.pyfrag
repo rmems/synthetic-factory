@@ -1,0 +1,4 @@
+                "On the Laterite-Dumble HIL stand, RKEF kiln RK-1 shell AE is already 64 pps "
+                "(cap 18) even though the kiln encoder is a quiet 0.72 rpm under 1.20. Laterite at 38 t/h "
+                "is armed; the mockup AE, not the kiln speed, is the dispatch veto. A speed-led "
+                "policy would have poured laterite into a growling rotary kiln.",

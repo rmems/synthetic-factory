@@ -1,0 +1,1161 @@
+#!/usr/bin/env python3
+"""Build create-only MAOS round-22 artifacts. Never overwrites existing paths."""
+from __future__ import annotations
+
+import json
+import math
+import os
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+REPO = Path("/home/raulmc/rmems/synthetic-factory")
+FACTORY = REPO / "outputs/raw/2026-09-02-final-heavy/multi-agent-ouroboros-swarm"
+STAGING = Path("/tmp/maos-r22")
+sys.path.insert(0, str(REPO / "pipelines"))
+
+from check_records import check_jsonl, FactoryStaging  # noqa: E402
+from curate_bridge import raster_status  # noqa: E402
+from verify_execution_shapes import verify_record_execution  # noqa: E402
+
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "SuperGrok Heavy chat",
+    "generated_at": "2026-09-02T19:25:00Z",
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": "RM-793",
+}
+
+SPIKES = [
+    ("head.hot", 0.294, 0.54),
+    ("draft.ok", 1.168, 0.61),
+    ("size.ok", 2.046, 0.55),
+    ("orifice.dP", 3.188, 0.76),
+    ("head.hot", 4.148, 0.51),
+    ("orifice.dP", 4.852, 0.78),
+    ("draft.ok", 5.372, 0.57),
+    ("orifice.hot.high", 6.528, 1.36),
+    ("head.in_band", 6.724, 1.10),
+    ("draft.ok", 6.912, 0.64),
+    ("ctrl.gate", 7.248, 1.06),
+    ("orifice.dP", 8.872, 0.43),
+    ("size.ok", 10.754, 0.80),
+    ("draft.ok", 13.064, 0.45),
+    ("head.hot", 18.534, 0.42),
+    ("ctrl.gate", 26.272, 0.84),
+    ("bucket.probe", 6800.0, 0.95),
+    ("orifice.dP", 6888.6, 0.39),
+    ("head.in_band", 6972.0, 0.34),
+    ("human.ratify", 552000.0, 0.81),
+    ("tower.hold", 552800.0, 0.73),
+    ("urea.fuse", 553600.0, 0.85),
+    ("head.hot", 10800000.0, 0.29),
+    ("orifice.dP", 10800740.0, 0.27),
+    ("draft.ok", 10801520.0, 0.24),
+    ("scraper.crush", 18360000.0, 0.93),
+]
+
+EXCERPT_NEURONS = [12, 94, 110, 52, 15, 59, 101, 48, 18, 97, 140, 64, 118, 114, 22, 148]
+
+CONTRAST_SPIKES = [
+    ("rate.demand", 0.0, 0.82),
+    ("orifice.clear", 0.184, 0.76),
+    ("head.hot", 0.418, 0.22),
+    ("draft.ok", 1.448, 0.38),
+    ("orifice.dP", 4.864, 0.51),
+    ("ctrl.gate", 7.048, 0.90),
+    ("bucket.probe", 3100.0, 0.33),
+    ("rate.raise", 6800.0, 0.11),
+]
+
+TICKS = [
+    {"t_us": 4120, "task_progress": 0.01, "safety": -0.02, "efficiency": -0.01, "coherence": 0.02, "exploration": 0.01},
+    {"t_us": 6528, "task_progress": 0.01, "safety": -0.05, "efficiency": -0.01, "coherence": 0.03, "exploration": 0.02},
+    {"t_us": 7248, "task_progress": 0.02, "safety": -0.06, "efficiency": -0.01, "coherence": 0.02, "exploration": 0.02},
+    {"t_us": 6800000, "task_progress": 0.01, "safety": -0.06, "efficiency": -0.02, "coherence": 0.02, "exploration": 0.02},
+    {"t_us": 552000000, "task_progress": 0.01, "safety": -0.05, "efficiency": -0.02, "coherence": 0.02, "exploration": 0.01},
+    {"t_us": 10800000000, "task_progress": 0.01, "safety": -0.05, "efficiency": -0.03, "coherence": 0.02, "exploration": 0.01},
+    {"t_us": 18360000000, "task_progress": 0.00, "safety": -0.05, "efficiency": -0.03, "coherence": 0.01, "exploration": 0.01},
+]
+
+
+def spike_list(rows):
+    return [{"channel": c, "t_rel_ms": t, "amplitude": a} for c, t, a in rows]
+
+
+def check_refractory(rows, min_ms=0.8):
+    last = {}
+    for ch, t, _a in rows:
+        if ch in last and (t - last[ch]) < min_ms - 1e-12:
+            raise SystemExit(f"refractory fail {ch}: {last[ch]} -> {t}")
+        last[ch] = t
+    times = [t for _c, t, _a in rows]
+    if times != sorted(times):
+        raise SystemExit("spike times not sorted")
+
+
+def build_record():
+    check_refractory(SPIKES)
+    check_refractory(CONTRAST_SPIKES)
+    heads = {
+        "task_progress": 0.07,
+        "safety": -0.34,
+        "efficiency": -0.13,
+        "coherence": 0.14,
+        "exploration": 0.10,
+    }
+    tick_sums = defaultdict(float)
+    for tick in TICKS:
+        for key in heads:
+            tick_sums[key] += tick[key]
+    for key, value in heads.items():
+        if abs(tick_sums[key] - value) > 1e-9:
+            raise SystemExit(f"tick/head mismatch {key}: {tick_sums[key]} vs {value}")
+    total = round(sum(heads.values()), 2)
+    if abs(total - (-0.16)) > 1e-9:
+        raise SystemExit(f"bad total {total}")
+
+    excerpt = []
+    for (ch, t_ms, _a), nid in zip(SPIKES[:16], EXCERPT_NEURONS):
+        excerpt.append({"t_us": int(round(t_ms * 1000)), "neuron_id": nid, "channel": ch})
+    if len({e["neuron_id"] for e in excerpt}) != 16:
+        raise SystemExit("excerpt neuron ids not unique")
+    if any(e["neuron_id"] >= 175 or e["t_us"] > 40000 for e in excerpt):
+        raise SystemExit("excerpt bounds")
+
+    tau_e_s = 0.92
+    dt_s = 0.72
+    trace = math.exp(-dt_s / tau_e_s)
+    dws = (-0.24, -0.21, -0.20)
+    etas = tuple(abs(dw) / trace for dw in dws)
+
+    record = {
+        "id": "maos-r22-001",
+        "title": "PRILLGHYLL UT-4: orifice-27 IR 168 C beats header-in-band by 196 us; correct MODIFY still loses a 2.4 t wall-accretion to a pre-t0 spray-orifice plug",
+        "rights": RIGHTS,
+        "state": {
+            "sim_or_real": "designed",
+            "domain": "urea-prilling-tower",
+            "scenario_name": "PRILLGHYLL / Ureafen Prill Tower UT-4",
+            "timestamp_local": "2026-08-17T01:42:00-05:00",
+            "t0_us": 1755412920000044,
+            "gate_latency_us": 720,
+            "race_window_us": 500,
+            "race_window_rel_ms": [6.528, 7.028],
+            "description": "Ureafen natural-draft prill tower UT-4 is 14 min into a 32.0 t/h 140.2 C melt push through a 36-orifice rotating bucket when three heterogeneous, individually-correct agents jointly report 'header-true, raise rate'. HEAD's 12-bit eight-TC bucket-header mean is 140.2 C inside 138-143. DRAFT's stack induced-draft is 185 Pa inside 160-220. SIZE's base laser-diffraction D50 is 1.82 mm inside 1.60-2.10. The conjunction is not an orifice-true certificate: spray orifice 27 is plugged with biuret polymer, so local rim IR is 168 C (healthy < 146; hold if > 152) and local orifice dP is 12 kPa (healthy 48; hold if < 22) while header mean, stack draft, and mixed-sample D50 still see thirty-five open orifices plus one rope-jet. Local orifice IR infers 168 C and local dP 12 kPa but policy treats the rim tap as a bucket-wobble nuisance tag unless HEAD mean also trips (2017 'noisy bucket-bearing after a turnaround'). Residual-first latches RATE-HOLD plus a bucket-RPM step probe; header-first would have authorized RAISE-RATE 32.0 to 38.0 t/h into a granulator-starve window with orifice 27 already dumping a fused-urea rope onto the tower wall.",
+            "goal": "Hold melt rate at 32.0 t/h without a granulator-starve raise while orifice-27 IR > 152 C AND orifice-27 dP < 22 kPa AND orifice 27 remains unisolated; keep wall-accretion mass at 0 extra t and scraper-crush events at 0 from the draft.",
+            "race": {
+                "contenders": [
+                    "orifice.hot.high 168 C (orifice 27 local IR vs bucket-header mean)",
+                    "head.in_band 140.2 C (eight-TC header mean)",
+                ],
+                "semantics": "Orifice-hot-first latches RATE-HOLD + BUCKET-RPM-STEP-PROBE + ORIFICE-27 hold. Header-first latches RAISE-RATE (32.0 to 38.0 t/h, no isolate).",
+                "window_derivation": "500 us = one 360 us rim-IR ADC slot plus 140 us header publish.",
+                "order_evidence_note": "Margin 196 us vs combined jitter 58 us (orifice 34 + header 24): 3.4x. The 196 us gap sits inside min(500, 500) us, so a sub-flip-bound perturbation reverses triage order. The gate rides the order-invariant floors orifice-27 IR > 152 C and orifice-27 dP < 22 kPa, not the alarm order.",
+            },
+            "topology": {
+                "site": "Ureafen Prill, invented urea campus Ureafen, tower UT-4: 68 m natural-draft, 16.5 m ID, 36-orifice rotating bucket, 32.0 t/h, Grade-B bucket-gallery LOTO",
+                "agents": "HEAD eight-TC bucket-header mean (vendor Meltholt): 20 Hz 12-bit on the melt-inlet cluster. DRAFT stack induced-draft (vendor Stackghyll): 50 Hz on the tower crown dP. SIZE laser-diffraction D50 (vendor Prillscan): 10 Hz on the base mixed-sample chute. ORIF local orifice-27 IR plus local orifice dP (vendor Jetfen) is commissioned as a bucket-wobble nuisance tag, not as an orifice-integrity tag. Heterogeneous stacks, no shared intent schema, one 20 ms tower-bus epoch",
+                "coupling": "All three playbook confirms live on the WRONG volume. HEAD is correct that eight-TC header mean sits at 140.2 C (thirty-five open orifices dominate the melt average). DRAFT is correct that stack draft is 185 Pa (one plugged jet is one of 36). SIZE is correct that mixed-sample D50 is 1.82 mm (the rope-jet is diluted by thirty-five healthy sprays). Playbook PB-UT-4 treats the conjunction as permission to raise melt rate. No agent is faulty; the header average is looking at melt-mean heat, not at orifice 27's plugged spray.",
+            },
+            "sensors": [
+                "eight-TC bucket-header mean 12-bit, 20 Hz, 24 us jitter, 140.2 C (dead-band 138-143)",
+                "stack induced-draft, 50 Hz, 20 us jitter, 185 Pa (band 160-220)",
+                "base laser-diffraction D50, 10 Hz, 28 us jitter, 1.82 mm (band 1.60-2.10)",
+                "orifice-27 local IR, 20 Hz, 34 us jitter, 168 C (healthy < 146; policy floor 152 C is not armed unless HEAD mean also trips)",
+                "orifice-27 local dP 12 kPa (healthy 48; hold if < 22)",
+                "bucket-gallery orifice camera on orifice 27 is NOT commissioned at t0 (installed after this incident)",
+            ],
+            "constraints": {
+                "rate_t_h": 32.0,
+                "rate_hold_floor_t_h": 32.0,
+                "proposed_rate_t_h": 38.0,
+                "head_C": 140.2,
+                "head_deadband_C": [138.0, 143.0],
+                "draft_Pa": 185,
+                "draft_band_Pa": [160, 220],
+                "d50_mm": 1.82,
+                "d50_band_mm": [1.60, 2.10],
+                "orifice_ir_C": 168,
+                "orifice_ir_hold_C": 152,
+                "orifice_ir_healthy_C": 146,
+                "orifice_dP_kPa": 12.0,
+                "orifice_dP_hold_kPa": 22.0,
+                "orifice_dP_healthy_kPa": 48.0,
+                "orifice_count": 36,
+                "fault_orifice": "ORIF-27",
+                "fault_mode": "orifice 27 biuret-polymer plug / rope-jet wall accretion",
+            },
+            "fault_context": {
+                "failure_class": "HEADER-MEAN CERTIFICATE OF A LOCAL SPRAY-ORIFICE PLUG: three individually-correct heterogeneous agents each read a locally-true loop; a biuret-polymer plug on orifice 27 partitions local rim IR and local orifice dP from header mean, stack draft, and mixed-sample D50, so the playbook's HEAD / DRAFT / SIZE conjunction is not an orifice-true certificate",
+                "igniter": "orifice 27 biuret-polymer plug after 14 min of unmonitored rope-jet; bucket-gallery visual PASSES (the plug sits inside the rotating bucket; the fused-urea stalactite is on the far wall)",
+                "naive_failure": "PB-UT-4 RAISE-RATE on three healthy loops: 32.0 to 38.0 t/h into a granulator-starve window with orifice 27 already dumping a fused-urea rope, wall accretion 9 t, $3.7M plus a 44-hour unplanned stall",
+            },
+            "poisoned_context": {
+                "naive_alarm": "Playbook PB-UT-4 (after the 2017 'noisy bucket-bearing after a turnaround') auto-drafts RAISE-RATE whenever header mean is inside 138-143 C AND stack draft inside 160-220 Pa AND mixed D50 inside 1.60-2.10 mm, ignoring the local rim tap unless HEAD mean also trips",
+                "why_poisoned": "The three confirms are locally true and jointly insufficient. The local orifice IR is a commissioned sensor that policy treats as bucket-wobble-only. Independence of 'header mean in band, therefore every orifice is spraying' is the hidden assumption, and it is false across a plug-plus-header-mix path.",
+            },
+            "constraint": "Do not raise melt rate above 32.0 t/h AND do not skip the bucket-RPM step while orifice-27 IR > 152 C AND orifice-27 dP < 22 kPa. Discriminate orifice plug vs true tower-duty with a reversible bucket-RPM step probe before any raise-rate.",
+        },
+        "proposed_action": {
+            "actor": "urea supervisory optimizer USO (auto-playbook PB-UT-4 draft), submitted to gate TG-UT-4",
+            "name": "raise_rate",
+            "action": "RAISE-RATE: 32.0 -> 38.0 t/h, no bucket-RPM step probe, no orifice-27 hold",
+            "summary": "Treat three in-spec loops as a healthy orifice-true tower and raise night-shift melt rate to clear a granulator-starve window.",
+            "parameters": {
+                "rate_t_h": 38.0,
+                "bucket_rpm_step_probe": False,
+                "orifice_hold": False,
+                "human_ratify": False,
+            },
+            "steps": [
+                "assert eight-TC header mean 140.2 C inside 138-143",
+                "assert stack draft 185 Pa inside 160-220",
+                "assert mixed-sample D50 1.82 mm inside 1.60-2.10",
+                "raise melt rate 32.0 to 38.0 t/h over 7 min",
+                "hold orifice-27 IR unread as an orifice-integrity tag",
+            ],
+            "evidence": [
+                {"observable": "orifice-27 local IR", "value": 168, "unit": "C", "source": "ORIF IR vs HEAD mean", "note": "healthy < 146 C; policy floor 152 C is not armed unless HEAD mean also trips"},
+                {"observable": "orifice-27 local dP", "value": 12.0, "unit": "kPa", "source": "ORIF local orifice tap", "note": "healthy 48; hold floor 22; lives on the plugged ORIF-27 jet, not the header"},
+                {"observable": "eight-TC header mean", "value": 140.2, "unit": "C", "source": "HEAD 12-bit", "note": "healthy-load band 138-143 C; thirty-five open orifices still dominate the melt average"},
+                {"observable": "stack induced-draft", "value": 185, "unit": "Pa", "source": "DRAFT crown dP", "note": "band 160-220 Pa; stack-true, orifice-false"},
+                {"observable": "mixed-sample D50", "value": 1.82, "unit": "mm", "source": "SIZE laser-diffraction", "note": "band 1.60-2.10 mm; mixed-true, plugged-jet-false"},
+                {"observable": "race margin", "value": 196, "unit": "us", "source": "orifice.hot.high 6.528 ms vs head.in_band 6.724 ms", "note": "combined jitter 58 us, 3.4x; inside 500 us flip bound"},
+            ],
+            "basis": "PB-UT-4 fires on three locally-true confirms. The draft does not read orifice-27 IR 168 C as a plug residual and does not treat local dP 12 kPa as an orifice-plug discriminant.",
+            "expected_cost_bound": "If the draft executes: wall accretion 9 t on the far wall, $3.7M plus 44-hour unplanned stall. If MODIFIED: probe plus hold, with residual risk from urea fusion already seeded in the 14 min pre-t0 plug.",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "correctness": "correct",
+            "decided_by": "TG-UT-4 thalamic release gate",
+            "decision_t_rel_ms": 7.248,
+            "rationale": "MODIFY the draft: strip the raise-rate, hold 32.0 t/h, run a 6.8 s bucket-RPM step probe (-4% on 180 RPM), and isolate orifice 27 only if the probe stays mean-false. Numeric floor: do not raise melt rate above 32.0 t/h AND do not skip the bucket-RPM step while orifice-27 IR > 152 C AND orifice-27 dP < 22 kPa. Observed IR 168 C and local dP 12 kPa both violate the release predicate, so a raise-rate is forbidden even though all three playbook confirms are numerically true. The three confirms are not an orifice-true certificate: they live on eight-TC header mean, stack draft, and mixed-sample D50 past a plugged ORIF-27 jet, and the playbook's conjunction of header-true loops is not an orifice-true certificate. Probe discriminant: after a 6.8 s -4% RPM step, an orifice plug keeps |Delta D50| <= 0.04 mm (the plugged jet does not recouple the mixed sample); a live intact spray field moves >= 0.18 mm. Order-code discipline: orifice-hot beat header by 196 us inside the 500 us flip bound, so triage order is flip-fragile; the hold rides the order-invariant floors, not the winner tag. Human ratification: orifice-27 hold is bucket-gallery LOTO with fitted 9.2 min dead-man; the gate may hold and probe autonomously but may not break the bucket interlock without the operator confirm.",
+            "constraint_checked": {
+                "rate_t_h": {"observed": 32.0, "floor": 32.0, "proposed_target": 38.0},
+                "orifice_ir_C": {"observed": 168, "hold_if_above": 152},
+                "head_C": {"observed": 140.2, "band": [138.0, 143.0]},
+                "orifice_dP_kPa": {"observed": 12.0, "hold_if_below": 22.0},
+            },
+        },
+        "executed_action": {
+            "name": "rate_hold_bucket_rpm_step_probe_isolate",
+            "action": "RATE-HOLD + BUCKET-RPM-STEP-PROBE + ORIFICE-27-HOLD (gate-mandated modification)",
+            "executed_as_proposed": False,
+            "parameters": {
+                "rate_t_h": 32.0,
+                "bucket_rpm_step_probe": True,
+                "orifice_hold": True,
+                "human_ratify": True,
+                "human_ratify_min": 9.2,
+            },
+            "gate_effect": "MODIFY: raise-rate stripped. Hold 32.0 t/h. 6.8 s bucket-RPM step -4% on 180 RPM. Probe stays mean-false (IR 168 -> 166 C, plug band |Delta D50| 0.03 <= 0.04 mm) so the bucket interlock is broken after 9.2 min human ratify and orifice 27 is held. Setpoint resumes after an intact-spray verify.",
+            "deviations": "PB-UT-4 raise-rate stripped entirely. Bucket RPM is stepped only for the 6.8 s probe then returned. Bucket interlock wait added (9.2 min fitted climb+ratify). Cross-orifice IR survey added during the hold (not in the draft).",
+            "execution_log": [
+                {"t_rel_ms": 7.248, "entry": "TG-UT-4 MODIFY latched 720 us after orifice-hot win; raise-rate stripped; hold+probe authorized"},
+                {"t_rel_ms": 6800.0, "entry": "bucket-RPM step probe: 180 -> 172.8 RPM for 6.8 s; IR 168 -> 166 C (plug band |Delta D50| 0.03 <= 0.04 mm); D50 1.82 -> 1.79 mm; header 140.2 -> 140.1 C"},
+                {"t_rel_ms": 552000.0, "entry": "operator ratifies bucket interlock break after 9.2 min gallery climb (fitted climb+interlock)"},
+                {"t_rel_ms": 552800.0, "entry": "orifice 27 held; local IR slaved off the rate schedule; remaining 35 orifices recovered toward 8 K over 3.0 h"},
+                {"t_rel_ms": 553600.0, "entry": "gallery survey: far-wall fused-urea stalactite already 2.4 t; 14 min pre-t0 plug logged"},
+                {"t_rel_ms": 10800000.0, "entry": "true intact spray on the remaining orifices: local IR delta 8 K, local dP 47 kPa, IR below 152; raise-rate now legal on UT-5 only"},
+                {"t_rel_ms": 18360000.0, "entry": "stalactite detach at far wall from the pre-t0 plug; scraper crushed; tower quarantined 16.8 h"},
+            ],
+        },
+        "future_outcome": {
+            "summary": "Correct MODIFY prevented the 32.0->38.0 t/h raise-rate into a plugged ORIF-27 jet and the immediate 9 t wall-accretion path. The tower still failed: 14 min of unmonitored pre-t0 plug had already fused 2.4 t of urea on the far wall. Process-correct gate, bounded world loss, negative total.",
+            "state_delta": {
+                "rate": "held 32.0 t/h through probe and isolate; later legal raise-rate only on the sister tower after 3.0 h spray recovery",
+                "orifice": "orifice 27 isolated from the rate schedule; remaining spray field recovered toward 8 K local IR delta",
+                "header": "ORIF-27 plug logged and held; eight-TC header mean no longer trusted as orifice-true heat",
+                "tower": "night-shift tower quarantined; ORIF-27 fused rope; stalactite detach at +5.1 h; 16.8 h stall",
+            },
+            "timeline": [
+                {"t_rel_ms": -840000.0, "event": "t0-14 min: orifice 27 biuret-polymer plug begins; local IR crosses 152 C up; rope-jet starts fusing the far-wall urea"},
+                {"t_rel_ms": -420000.0, "event": "t0-7 min: local IR first crosses 152 C; PB-UT-4 ignores it because header mean is 139.8 C"},
+                {"t_rel_ms": 0.0, "event": "t0: orifice-hot vs header race on the tower bus"},
+                {"t_rel_ms": 6.528, "event": "orifice-27 IR at 168 C wins by 196 us"},
+                {"t_rel_ms": 6.724, "event": "header-in-band flag (loser)"},
+                {"t_rel_ms": 7.248, "event": "TG-UT-4 MODIFY"},
+                {"t_rel_ms": 6800.0, "event": "bucket-RPM step probe confirms orifice plug (Delta D50 0.03 mm, plug band)"},
+                {"t_rel_ms": 552000.0, "event": "human ratify 9.2 min; orifice 27 held; fused-urea stalactite logged"},
+                {"t_rel_ms": 10800000.0, "event": "true intact spray after 3.0 h; raise-rate legal only with local-IR slave"},
+                {"t_rel_ms": 18360000.0, "event": "stalactite detach from the pre-t0 plug; scraper crushed; tower quarantined"},
+                {"t_rel_ms": 259200000.0, "event": "+3 d contrast: sister tower UT-5 true orifice-duty; same gate ACCEPTs the raise-rate"},
+                {"t_rel_ms": 1814400000.0, "event": "+21 d CR-U-2206: standing bucket-RPM step probe + triple-edge depression mandate + local-IR armed without HEAD coincidence + header mean declared header-mix-vulnerable"},
+            ],
+            "observed_effects": [
+                "raise-rate avoided: tower never left 32.0 t/h; 0 immediate 9 t wall-accretions from the draft",
+                "plug proven, not asserted: bucket-RPM |Delta D50| 0.03 <= 0.04 mm plug band vs intact-spray control 0.19 mm",
+                "mean slaved: eight-TC header no longer an orifice-true tag without local IR",
+                "tower still failed: fused 2.4 t wall vs 0 accretion campaign allowance; 16.8 h stall, $1.86M (designed $)",
+                "bucket-gallery orifice camera was not a commissioned sensor at t0; the 14 min local fusion was invisible to HEAD/DRAFT/SIZE",
+            ],
+            "surprises": [
+                "Three locally-true loops are not an orifice-true certificate: the local IR lived under header mean, stack draft, and mixed-sample D50. Conjunction of in-spec header loops was the hidden assumption, and it is false across a plug-plus-header-mix path.",
+                "Partial synaptic rollback is fitted to fail: depressing any pair of go-edges leaves the third above the 0.30 fire threshold, so the raise-rate still goes. Coordinated depression of all three edges is required.",
+                "Delayed (5.1 h): correct hold did not undo 14 min of wall fusion. Stalactite still detached and crushed the scraper. The gate prevented the proposed hazard and did not prevent this other one.",
+                "High-biuret / low-moisture sub-variant: a 6.8 s -4% RPM step on a 0.42x crystallization-window high-biuret melt overshoots a LIVE intact spray field to a 0.51 mm false D50 (off-spec fines). High-biuret campaigns must use 19 s at -1.5%.",
+            ],
+            "delayed_side_effects": [
+                {"at": "+5.1 h", "effect": "Fused-urea stalactite detaches from the far wall from the pre-t0 orifice plug; scraper crushed; 16.8 h tower stall booked at $1.86M. This is the primary episode's terminal world state, not a footnote."},
+                {"at": "+3 d", "effect": "Sister tower UT-5 reaches a true orifice-duty window (local IR 141 C, local dP 47 kPa, header mean 140.4 C, D50 1.80 mm). Same gate ACCEPTs the 32.0->38.0 t/h raise-rate the primary MODIFIED away."},
+                {"at": "+21 d", "effect": "CR-U-2206 ships: bucket-RPM step probe is standing configuration; triple-edge coordinated depression is the plasticity rule; orifice local IR is armed without HEAD coincidence; eight-TC header is labeled header-mix-vulnerable with a 152 C local-IR alarm."},
+            ],
+            "subvariant_constraint": {
+                "name": "high-biuret / low-moisture urea melt (cycle-2 physical-constraints sub-variant)",
+                "mechanism": "biuret 1.38 wt% vs spec 0.62, crystallization window 0.42x the spec-urea table (tighter liquidus, 2.4x RPM-step gain), melt viscosity 4.8 mPa.s vs 3.1",
+                "probe_refit": "6.8 s -4% RPM step on the high-biuret unit moves even a live intact spray field to a 0.51 mm false D50 (inside the off-spec fines trip) via stringing. Required probe is 19 s at -1.5% (live Delta 0.19 mm, plug Delta 0.03). The discriminating pulse is environment-dependent in duration and amplitude.",
+                "consequence": "spec-urea probe numbers do not port to high-biuret melts; standing configuration is per-biuret-class, not per-shop",
+            },
+            "embedded_contrast_decision": {
+                "note": "SAME gate (TG-UT-4), OPPOSITE correct disposition, with its own 184 us race. Teaches the boundary: do not treat 'never raise-rate' as the lesson. The discriminant is local IR + local dP + probe, not the three playbook header confirms alone.",
+                "when": "+3 d, sister tower UT-5, true orifice-duty after a delayed granulator-starve window, 36 orifices",
+                "state": {
+                    "sim_or_real": "designed",
+                    "summary": "local IR 141 C, local dP 47 kPa, header mean 140.4 C, D50 1.80 mm. Demand flag vs orifice-clear race: demand at t+0.000, orifice-clear at t+0.184 ms.",
+                    "race_window_us": 500,
+                    "race_flip_narrative": "demand vs orifice-clear 184 us apart inside the 500 us flip bound. Reversing order reshuffles triage minutes; the ACCEPT rides local IR 141 < 152 C and a 4.2 s bucket-RPM verify that moves D50 0.19 mm (live intact spray, no plug).",
+                },
+                "proposed_action": {
+                    "action": "RAISE-RATE 32.0 -> 38.0 t/h",
+                    "summary": "This time the playbook predicate is met AND local IR plus local dP agree the tower is orifice-true, not plug-diluted.",
+                },
+                "safety_decision": {
+                    "decision": "ACCEPT",
+                    "rationale": "ACCEPT the raise-rate: local IR 141 C < 152, local dP 47 kPa with a 4.2 s bucket-RPM verify that moves D50 0.19 mm. Numeric floor that blocked the primary is now clear. Scope: 38.0 t/h, not faster.",
+                },
+                "executed_action": {"action": "raise-rate as proposed", "executed_as_proposed": True},
+                "future_outcome": {
+                    "observed_effects": [
+                        "UT-5 wall accretions 0; local IR 142 C after the raise-rate (no plug)",
+                        "local dP 46 kPa after the raise-rate (no orifice dump)",
+                    ],
+                    "lesson_delta": "Three in-spec header loops are legal release only with local IR armed, local dP as a plug flag, and a probe that can recouple D50. Same gate, opposite disposition.",
+                },
+                "reward_components": {
+                    "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration",
+                    "task_progress": 0.16,
+                    "safety": 0.11,
+                    "efficiency": 0.08,
+                    "coherence": 0.09,
+                    "exploration": 0.04,
+                    "total": 0.48,
+                },
+                "spike_events": spike_list(CONTRAST_SPIKES),
+            },
+            "governance_subgame": {
+                "decision": "CR-U-2206: standing policy for multi-agent urea melt-rate raises",
+                "meta_gate": "priced options: (a) RETIRE playbook mean conjunction, local-IR-only: loses a fast cheap confirm, -1.4 towers/day mean on 2 towers/yr; (b) KEEP + standing bucket-RPM step probe + local-IR armed without HEAD coincidence + header mean labeled header-mix-vulnerable + triple-edge depression; (c) STATUS QUO: fitted orifice-plug pass rate 0.38%/campaign x $3.7M wall-accretion plus the silent fusion load",
+                "outcome": "approved SCOPED option (b) on the 2 36-orifice towers that share the HEAD/DRAFT/SIZE stack; high-biuret campaigns get the 19 s / -1.5% probe table; night-shift CSV exports must carry 0.5 C native resolution (the fraud tail's 5.0 C quantization is 10 bins off plant truth)",
+            },
+            "hazard_avoided": "immediate 9 t fused-urea wall accretion from a 32.0->38.0 t/h raise-rate into plugged orifice 27; $3.7M plus 44-hour unplanned stall and the shop-stop path that would have followed an uncontained increase",
+            "incident": "Stalactite detach on the night-shift tower from the pre-t0 orifice plug; scraper crushed; tower quarantined 16.8 h; $1.86M designed cost. Mechanism is 14 min pre-t0 rope-jet fusion, not the gate's hold.",
+            "latency_ms": 0.720,
+            "reward_inflection_t_us": 18360000000,
+            "reward_inflection_note": "Safety and task dive at stalactite detach (5.1 h) when the pre-t0 fused wall opens. Gate tick at 7248 us is process-correct and is not the inflection.",
+            "counterfactuals": {
+                "execute_draft_as_proposed": "rate hits 38.0 t/h at +7 min; immediate 9 t wall accretion on orifice 27; $3.7M plus 44 h; the orifice-plug story is never found because stall morphology destroys the race evidence",
+                "hold_without_probe": "plug stays; IR stays at 168 C; operator eventually raises on the same three header confirms 2 h later",
+                "rollback_any_pair": "any two go-edges depressed below 0.30 leaves the third at 0.50 / 0.44 / 0.41; the raise-rate still fires. Coordinated depression of all three is the cure",
+            },
+            "race_result": {
+                "winner": "orifice.hot.high (6.528 ms, IR 168 C)",
+                "loser": "head.in_band (6.724 ms, 140.2 C)",
+                "margin_us": 196,
+                "counterfactual_if_reversed": "Header-first by < 196 us inside the 500 us window would have headed the PB-UT-4 raise-rate in the triage queue. The numeric floors still MODIFY. The flip costs seconds of playbook inertia, not the verdict — unless a weak supervisor rides the winner tag instead of local IR and local dP.",
+            },
+        },
+        "reward_components": {
+            "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration",
+            "ticks": TICKS,
+            "task_progress": 0.07,
+            "safety": -0.34,
+            "efficiency": -0.13,
+            "coherence": 0.14,
+            "exploration": 0.10,
+            "total": -0.16,
+            "notes": "Correct MODIFY, tower still failed. total -0.16 = 0.07 + -0.34 + -0.13 + 0.14 + 0.10. Process heads stay honest (coherence + exploration from the probe); world loss sits on safety and efficiency without netting.",
+            "component_notes": "task_progress 0.07: rate held and remaining spray recovered, but the night-shift granulator is one quality unit so the cycle is not a success. safety -0.34: stalactite detach from pre-t0 orifice plug, no 38.0 t/h 9 t wall from the draft. efficiency -0.13: 3.0 h extra recovery + 9.2 min HITL + 16.8 h stall. coherence 0.14: three agents retained, header-mix vs orifice-true diagnosed, triple-edge scar exhibited. exploration 0.10: bucket-RPM step probe is a new reversible discriminant.",
+        },
+        "spike_events": spike_list(SPIKES),
+        "raster": {
+            "window_ms": 40,
+            "window_s": 0.04,
+            "neurons": 175,
+            "mean_rate_hz": 8.0,
+            "spikes": 56,
+            "energy_pJ": 1288,
+            "energy_uJ": 0.001288,
+            "note": "Loihi-2 4-core 23 pJ/spike; populations head 0-43, orifice 44-87, draft/size 88-131, gate 132-174; excerpt is the 40 ms decision window (verdict at 7248 us)",
+            "excerpt": excerpt,
+            "routing": {
+                "source": "head_healthy_pop",
+                "target": "raise_rate_pop",
+                "table": [
+                    {
+                        "from": "head_in_band_pop",
+                        "to": "raise_rate_pop",
+                        "weight": 0.26,
+                        "weight_at_illusion": 0.50,
+                        "weight_commissioned": 0.18,
+                        "note": "scar edge 1: 0.18 commissioned -> 0.50 during the 14 min illusion -> 0.26 after coordinated ACh-gated depression",
+                    },
+                    {
+                        "from": "draft_ok_pop",
+                        "to": "raise_rate_pop",
+                        "weight": 0.23,
+                        "weight_at_illusion": 0.44,
+                        "weight_commissioned": 0.15,
+                        "note": "scar edge 2: depressing edges 1+3 leaves this at 0.44 > 0.30 fire threshold",
+                    },
+                    {
+                        "from": "size_ok_pop",
+                        "to": "raise_rate_pop",
+                        "weight": 0.21,
+                        "weight_at_illusion": 0.41,
+                        "weight_commissioned": 0.14,
+                        "note": "scar edge 3: depressing edges 1+2 leaves this at 0.41 > 0.30. Coordinated depression of all three is required",
+                    },
+                    {
+                        "from": "orifice_ir_pop",
+                        "to": "rate_hold_pop",
+                        "weight": 0.66,
+                        "note": "discriminating edge: orifice-true local IR to hold. Not a scar; this is the pathway the gate potentiates",
+                    },
+                ],
+                "third_factor": {
+                    "modulator": "acetylcholine",
+                    "tau_e_s": tau_e_s,
+                    "tau_e_ms": 920.0,
+                    "eligibility": (
+                        "coordinated pre_post_stdp on ALL THREE header-healthy-go edges; "
+                        "ACh at orifice-hot-win tags head.in_band->push, draft.ok->push, and size.ok->push; "
+                        "negative credit at probe-fail (orifice plug confirmed, +0.72 s) depresses ALL THREE. "
+                        f"trace e^{{-0.72/0.92}}={trace:.5f}; eta {etas[0]:.5f} / {etas[1]:.5f} / {etas[2]:.5f}; "
+                        "dw -0.240 / -0.210 / -0.200; weights 0.50->0.26, 0.44->0.23, 0.41->0.21. "
+                        "Rolling back any pair is fitted to fail (the remaining edge stays > 0.30)."
+                    ),
+                },
+            },
+        },
+        "gate_snn": {
+            "decision_window_ms": 26,
+            "decision_window_s": 0.026,
+            "decision": "MODIFY",
+            "note": "modify_hold integrates orifice-27 IR + local dP against playbook drive; accept_raise and reject_abort stay sub-threshold; decision matches safety_decision.decision",
+            "populations": [
+                {"name": "modify_hold", "neurons": 80, "threshold": 0.55, "mean_rate_hz": 20.0, "spikes": 42},
+                {"name": "accept_raise", "neurons": 80, "threshold": 0.55, "mean_rate_hz": 8.0, "spikes": 17},
+                {"name": "reject_abort", "neurons": 40, "threshold": 0.72, "mean_rate_hz": 5.0, "spikes": 5},
+            ],
+        },
+        "meta": {
+            "round": 22,
+            "factory": "multi-agent-ouroboros-swarm",
+            "generator": "grok-4.6",
+            "run_label": "2026-09-02-final-heavy",
+            "domain": "urea-prilling-tower",
+            "cycles": 2,
+            "scenario": "ZH -- PRILLGHYLL / Ureafen Prill Tower UT-4: header-mean certificate of a local spray-orifice plug; correct MODIFY to hold+bucket-RPM-step+isolate; tower still fails on unmonitored pre-t0 wall fusion",
+            "coordination_failure_class": "HEADER-MEAN CERTIFICATE OF A LOCAL SPRAY-ORIFICE PLUG: three individually-correct heterogeneous agents each read a locally-true loop; a biuret-polymer plug on orifice 27 partitions local rim IR and local orifice dP from header mean, stack draft, and mixed-sample D50, so the playbook's HEAD / DRAFT / SIZE conjunction is not an orifice-true certificate",
+            "injections": {
+                "cycle1_domain": (
+                    "urea-prilling-tower (justified novel subdomain of industrial-process / fertilizer finishing): "
+                    "first rotating-bucket urea prill tower in this factory; displaces warehouse-amr, aerial-swarm, "
+                    "district-heating, event-camera-traffic-grid, pharmaceutical-lyophilization, water-treatment, "
+                    "float-glass, underwater-rov, electrolytic-aluminum, czochralski-pull, slot-die coating, "
+                    "pem-water-electrolysis, wind-turbine pitch, surgical-assist, optical-fiber-draw, kraft-recovery-boiler, "
+                    "steel-continuous-caster, humanoid-locomotion, vacuum-induction melt, steam-methane reformer, "
+                    "cement-rotary-kiln-clinker, autoclave-composite-cure, geothermal-binary-orc, tire-curing-press, "
+                    "chlor-alkali-membrane-electrolysis, delayed-coker-drum-switch, lng-mche-mixed-refrigerant, "
+                    "claus-sulfur-recovery, ammonia-synthesis-converter, blast-furnace-burden-descent, "
+                    "hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil, hydroelectric-kaplan-wicket, "
+                    "fcc-riser-regenerator, sulfuric-contact-converter, eaf-foamy-slag-water-panel, "
+                    "nitric-acid-ostwald-oxidation, seawater-ro-desalination, coke-oven-battery-heating, "
+                    "carbon-fiber-oxidation-oven, gibbsite-autoclave-digestion, hot-strip-mill-finishing, "
+                    "paper-machine-dryer-section, sinter-strand-windbox, continuous-hot-dip-galvanizing, "
+                    "autonomous-driving, and bioreactor-perfusion. Domain constraint: melt-rate floor while "
+                    "orifice-27 IR > 152 C with header mean still inside the healthy band. Sensor delta: "
+                    "+eight-TC header mean, +stack draft, +mixed D50, +local orifice IR, +local orifice dP, "
+                    "-any freeze-dryer / tin-bath / CAV fusion / harvest-bag / grate-strand / air-knife / PEM stack."
+                ),
+                "cycle1_tail": (
+                    "orifice 27 biuret-polymer plug + fused-urea wall certificate (sensor-topology / wrong-volume class): "
+                    "bucket-gallery visual PASSES while the plug sits inside the rotating bucket and the stalactite is on the far wall. "
+                    "Fitted base rate 0.38%/campaign from a biuret-plug MC (designed visual threshold, fitted orifice geometry). "
+                    "Naive failure = FALSE PERMISSION (raise-rate on three header-side non-trips)."
+                ),
+                "cycle2_domain_subvariant": (
+                    "high-biuret / low-moisture urea melt (physical-constraints clause): 0.42x crystallization window, "
+                    "2.4x RPM-step gain; 6.8 s / -4% spec-urea pulse overshoots live intact spray to a 0.51 mm false D50, "
+                    "so the probe must move to 19 s / -1.5%"
+                ),
+                "cycle2_tail": (
+                    "night-shift forged local-IR CSV (human-intent deception, disjoint class): shift lead posts a historian "
+                    "export showing IR = 141 C at t=1.2 h to clear a granulator slot. Plant historian is 0.5 C "
+                    "(10 bins vs the 5.0 C screenshot). Rejected on quantization fingerprint plus live IR 168 C and "
+                    "local dP 12 kPa at the claimed orifice-true. Base rate ~0.27% of Sunday-night campaigns, DESIGNED and flagged."
+                ),
+            },
+            "densification_delta_cycle2": (
+                "+1 physical-constraint sub-variant (high-biuret probe refit), +1 tail (night-shift local-IR forgery), "
+                "+10 primary spikes (16 -> 26) + an 8-event contrast train with its own 184 us race, +2 ticks (5 -> 7), "
+                "+2 delayed side-effects (+5.1 h stalactite detach as PRIMARY terminal, +21 d CR-U-2206), "
+                "+1 triple-edge scar with pair-rollback-fails arithmetic, +1 HITL 9.2 min ratification, "
+                "+ wall fusion as the honest negative-result mechanism"
+            ),
+            "gaps_targeted": [
+                "NOTES-r61 leftover domain: urea-prilling-tower (unused across r01 galvanizing, r21 autonomous-driving, r41 bioreactor-perfusion, r61 sinter-strand-windbox)",
+                "NOTES-r61 residual: primary episode is a correctly-gated intervention that nonetheless FAILS (tower quarantined; total -0.16; 9 t wall avoided is booked separately from the delayed stalactite detach)",
+                "NOTES-r14 item 4: LEARNING-ON-LEARNING DEPTH — three go-edges; rollback of any pair is fitted to fail; coordinated depression of all three exhibited with eligibility arithmetic",
+                "NOTES-r04 gap 4 (partial): human ratification of the bucket interlock, 9.2 min fitted, without switching sim_or_real to hil (plant remains designed)",
+            ],
+            "race_flip_narrative": (
+                "orifice.hot.high @ 6.528 ms vs head.in_band @ 6.724 ms (196 us) inside race_window_us 500. "
+                "Gap < min(500, 500) us so a sub-flip-bound perturbation reverses which alarm heads the PB-UT-4 queue. "
+                "The gate excludes the winner tag and rides orifice-27 IR > 152 C and orifice-27 dP < 22 kPa — order-invariant floors. "
+                "Extends the flip-fragility series to ORIFICE-TRUE CERTIFICATE: when three header-side channels agree, their race does not decide truth; "
+                "a local IR tap that policy treated as bucket-wobble-only does."
+            ),
+            "tags": [
+                "urea-prilling-tower",
+                "orifice-plug",
+                "orifice-true-certificate",
+                "local-ir-discriminant",
+                "bucket-rpm-step-probe",
+                "triple-edge-scar",
+                "pair-rollback-fails",
+                "coordinated-depression",
+                "correct-modify-tower-still-fails",
+                "fused-urea-stalactite",
+                "human-ratify-bucket-gallery",
+                "high-biuret-probe-refit",
+                "night-shift-forgery",
+                "same-gate-opposite-disposition-contrast",
+                "industrial-process",
+                "research-only",
+            ],
+            "snn_tags": ["race", "refractory", "adaptation", "third-factor", "multi-edge-eligibility"],
+            "distillation_value": (
+                "An orifice-plug orifice-true certificate is three correct loops looking at header mean, stack draft, "
+                "and mixed-sample D50 that is not the plugged jet. Distill (1) a local IR tap that policy had treated as "
+                "bucket-wobble-only, (2) a reversible probe that recouples D50 only if the spray field is intact, "
+                "(3) coordinated depression of every header-healthy-go edge because rolling back any pair leaves the third "
+                "above threshold, and (4) a critic head that can book a process-correct gate against a later unmonitored "
+                "world loss without netting them."
+            ),
+            "rights": RIGHTS,
+            "batch_position": 1,
+        },
+    }
+    return record
+
+
+NOTES = r"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 22
+
+Factory: multi-agent-ouroboros-swarm. One scenario (ZH), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r22.jsonl. Full labeled transcript:
+swarm-transcript-r22.md. Quota Q=1. Record id maos-r22-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Create-only writes under the assigned window factory dir plus /tmp/maos-r22/.
+
+ORCHESTRATION NOTE: dispatched AS round 22 of the 2026-09-02-final-heavy
+window. pipelines/next_round.py on the occupied factory dir reported
+next_round=62 / write=batch-r62.jsonl (existing 1, 21, 41, 61). Operator
+assigned round 22 and zero-padded filenames r22; batch-r22.jsonl did not
+exist (no c-suffix). round_txn.py reserve --round 22 was not invoked: it
+would have written .round-marker-mode.json then refused because frontier
+next_round is 62. Prior context: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, two newest NOTES (r61 WINDBOXHOLT sinter
+windbox; r41 HOLLOWMERE CHO perfusion), and occupancy census r01/r21/r41/r61.
+Explicitly avoided cloning LYOSHIELD, CINDERWICK, TRIAD / Meridian,
+QUILLFORGE, NIGHTWELL, FERRICLEAVE, CASSITER, OXBOWREEL / MURENA, REDHALL,
+SEEDLATCH, STRIAFOIL, PROTONIL, TORSIONKEY, ORRIS, WHORLSPAR, IONSPATE,
+SKULLGATE, CALXION, MAGNORIL, GORSEFLUE, SODASHARD, CLINKERFELL, LINTELPLY,
+KAOTHARN, TREADNOLL, ANOLITH, DRUMWROTH, RIMEBRAID, BRIMVAULT, NITROSTAITH,
+BOGIRON, CHROMLOOP, ETHYNWOLD, NITREVAULT, RUNNELGATE, SPARKHOLT, DIPLEGAR,
+OLEUMWEIR, SKARVOLT, GOBSPALL, GOBWOLD, GAUZEFELL, OSMOLITH, PUSHERFELL,
+CREELWOLD, LIXIVQUERN, GIBBSQUERN, OSMOQUAY, COILSHAW, LOOPERQUAY,
+SIPHONWOLD, WINDBOXHOLT, HOLLOWMERE, GLIMMERAXLE, ZINCFELL,
+VANTIS-CADENCE-AEGIS, THERMION, OKTAVE, STARLING, VERDIGRIS. Plant is
+invented PRILLGHYLL / Ureafen Prill Tower UT-4. Leftover candidates
+grid-inspection / alkaline-water-electrolysis / wet-fgd-absorber /
+hrsg-attemperator were left unused.
+
+## What this round produced
+
+Scenario ZH — "PRILLGHYLL / Ureafen Prill Tower UT-4": a 68 m
+natural-draft urea prill tower at 32.0 t/h / 140.2 C melt / 36-orifice
+rotating bucket. Three heterogeneous, individually-correct agents —
+HEAD (eight-TC header mean), DRAFT (stack induced-draft), SIZE
+(mixed-sample D50) — each report their local loop in-spec. The
+conjunction is not an orifice-true certificate. Orifice 27 is plugged
+with biuret polymer. HEAD reads 140.2 C inside 138-143. DRAFT is 185 Pa
+inside 160-220. SIZE is 1.82 mm inside 1.60-2.10. Local IR infers 168 C
+(healthy < 146; hold if > 152) and local dP 12 kPa (hold if < 22) but is
+policy-treated as a bucket-wobble tag unless HEAD mean also trips (2017
+noisy bucket-bearing). The coordination-failure CLASS is new to this
+factory: HEADER-MEAN CERTIFICATE OF A LOCAL SPRAY-ORIFICE PLUG.
+Completes a different family than r01 GI air-knife, r21 CAV clutter-gate,
+r41 harvest-bag pinhole, r61 sinter windbox collapse. Here every agent is
+correct, the header average is looking at melt-mean heat, and the
+playbook's three header confirms are not an orifice-true certificate.
+
+The gate is a correct MODIFY (numeric floor: do not raise melt rate
+above 32.0 t/h while orifice-27 IR > 152 C AND orifice-27 dP < 22 kPa).
+TG-UT-4 strips PB-UT-4's raise-rate, holds 32.0 t/h, runs a 6.8 s
+bucket-RPM step -4% (plug keeps |Delta D50| 0.03 <= 0.04 mm; intact
+would move >= 0.18), and isolates orifice 27 after a 9.2 min gallery
+human ratify. Immediate 9 t wall accretion is avoided (0 from the
+draft). The PRIMARY episode nonetheless FAILS: 14 min of unmonitored
+pre-t0 plug had already fused 2.4 t of urea on the far wall. Stalactite
+detach at +5.1 h; scraper crushed; 16.8 h stall; $1.86M designed.
+Reward total -0.16 with process heads honest and world loss un-netted.
+
+Triple-edge scar (NOTES-r14 item 4): head.in_band -> raise_rate
+(0.18 commissioned -> 0.50 at illusion -> 0.26 after ACh-gated
+depression) AND draft.ok -> raise_rate (0.15 -> 0.44 -> 0.23) AND
+size.ok -> raise_rate (0.14 -> 0.41 -> 0.21). Eligibility trace
+e^{-0.72/0.92} = 0.45721; eta 0.52492 / 0.45931 /
+0.43743; dw -0.240 / -0.210 / -0.200. Partial rollback of any pair
+leaves the third at 0.50 / 0.44 / 0.41, all > 0.30 fire threshold —
+fitted to fail. Coordinated depression of all three is the cure.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **urea-prilling-tower** — justified novel subdomain
+  of industrial-process / fertilizer finishing, unused across
+  2026-08-17, 2026-08-30, and this window's r01/r21/r41/r61. Distinct
+  from r01 galvanizing (air-knife), r21 autonomous-driving, r41
+  bioreactor-perfusion, r61 sinter-strand-windbox. grid-inspection and
+  alkaline-water-electrolysis left unused.
+- Cycle-1 tail: orifice 27 biuret-polymer plug + fused-urea wall
+  certificate. Gallery visual PASSES (plug inside the rotating bucket).
+  Fitted-style base rate 0.38%/campaign (biuret-plug MC; visual
+  threshold designed, flagged). Naive = FALSE PERMISSION.
+- Cycle-2 domain sub-variant: high-biuret / low-moisture, 0.42x
+  crystallization-window, 2.4x RPM-step gain; 6.8 s / -4% spec-urea
+  pulse overshoots live intact spray to a 0.51 mm false D50; probe must
+  move to 19 s / -1.5%.
+- Cycle-2 tail: night-shift forged local-IR CSV at 5.0 C quantization
+  vs plant 0.5 C (10 bins) plus live IR 168 C and local dP 12 kPa at
+  the claimed orifice-true. Human-intent class, disjoint from cycle 1's
+  accidental plug. Base rate ~0.27% of Sunday-night campaigns,
+  DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+3 d sister tower) with its own 184 us
+  race (demand vs orifice-clear) and ACCEPT of the raise-rate the
+  primary MODIFIED away.
+- Learned-weight provenance on THREE edges with pair-rollback-fails.
+- HITL bucket-gallery ratify 9.2 min (gap 4 partial; sim_or_real stays
+  designed — invented plant, not hil).
+- Governance CR-U-2206 prices retire-vs-probe-vs-status-quo and mandates
+  native 0.5 C CSV exports (the fraud fence).
+- Flip-fragility extended to ORIFICE-TRUE CERTIFICATE.
+
+## Self-critique of this round's batch
+
+### Strengths
+- Headline class is mechanistically tight: three locally-true mean loops
+  live on header mean, stack draft, and mixed-sample D50. Conjunction is
+  not an orifice-true spray certificate.
+- Negative-result honesty: the gate does the right thing and the tower
+  still fails for a reason the commissioned header sensors could not
+  see. Total -0.16.
+- Triple-edge scar is load-bearing: rolling back any pair fails, with
+  fire threshold 0.30 exhibited on each remaining edge.
+- Contrast ACCEPT on a true intact spray-duty window prevents "never
+  raise-rate" as the lesson.
+- Distinct from r01 GI knife, r21 CAV stall, r41 harvest-bag pinhole,
+  r61 grate collapse: rotating-bucket orifice IR vs header mean.
+
+### Weaknesses (honest)
+- Probe error bands, the 0.38%/campaign plug rate, the $1.86M / $3.7M
+  figures, the 9.2 min climb latency, and the night-shift 0.27% base
+  rate are DESIGNED constants and are flagged. Closed-loop offsets
+  (header dilution from one plugged jet, high-biuret crystallization
+  window) are derived from those inputs, not discovered by an
+  unauthored process.
+- Wall-fusion model is a designed 14 min mapping; no full tower CFD of
+  ORIF-27 shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil. Gap 4
+  remains open as a provenance cell (invented plants stay designed).
+- Cross-record arc is a hook (CR-U-2206 +21 d), not a serial igniter
+  into another round. grid-inspection, alkaline-water-electrolysis,
+  wet-fgd-absorber, and hrsg-attemperator remain unused.
+- The densifying-loop *shape* (three correct agents / MODIFY / probe /
+  triple-edge / night-shift CSV / sister ACCEPT / negative primary)
+  rhymes with r41 and r61. Physics, plant, sensors, and failure class
+  are new; the scaffold is not.
+
+### Realism of noise / latencies
+Ladder: 196 us race / 184 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap 1.540 ms on draft.ok) / 500 us race
+window / 720 us gate latency / 20 ms bus epoch / 40 ms raster / 6.8 s
+probe / 9.2 min HITL / 7 min naive raise-rate-ramp counterfactual / 14 min
+pre-t0 plug / 3.0 h spray recovery / 5.1 h stalactite detach /
++3 d contrast / +21 d governance. Adaptation decay on head.hot
+(0.54->0.51->0.42->0.29), orifice.dP (0.76->0.78->0.43->0.39->0.27),
+draft.ok (0.61->0.57->0.64->0.45->0.24), size.ok (0.55->0.80).
+
+### Value for SNN distillation
+- ORIFICE PLUG = THREE CORRECT LOOPS, WRONG VOLUME.
+- ORIFICE-TRUE IR CHANNEL that policy treated as bucket-wobble-only as
+  the tie-break.
+- REVERSIBLE PROBE that recouples D50 iff the spray field is intact.
+- TRIPLE-EDGE ELIGIBILITY: coordinated depression; pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum -0.16
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.48 reconciles independently.
+- spike_events: primary 26 events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap 1.540 ms >= 0.8 ms, 3
+  channels inside race_window_us 500 (orifice.hot.high 6.528, head.in_band 6.724,
+  draft.ok 6.912). Contrast 8 events, own race, min same-channel gap well
+  above 0.8 ms.
+- Sidecars: raster spikes 56 == round(175 x 8.0 x 0.040); energy 1288 pJ /
+  0.001288 uJ at 23 pJ/spike; excerpt 16 events inside [0, 40000] us,
+  neuron_id < 175, same-neuron gap N/A (unique ids) / >=1000 us; routing 4
+  entries with three scar edges' before/after pair; third factor tau 0.92 s
+  == 920 ms; gate_snn pools 42/17/5 == round(n x rate x 0.026) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: check_jsonl errors=[] warnings=[] kinds={'thalamic': 1} n=1; raster_status valid=True gate=True reasons=[]; verify_record_execution=verified (thalamic checks pass); spike_probe --strict rc=0
+
+## Novel coverage
+The coordination-failure CLASS (header-mean certificate of a local
+spray-orifice plug), the domain (urea prilling / rotating-bucket orifice
+IR), the bucket-RPM step probe discriminant, the triple-edge scar with
+pair-rollback-fails, the primary negative-result (correct MODIFY, tower
+still fails on unmonitored wall fusion), the HITL gallery ratify, the
+high-biuret probe-duration refit, and the night-shift 10-bin
+quantization fence are absent from prior committed ouroboros rounds in
+this window (r01/r21/r41/r61). Repeated elements discounted:
+same-gate contrast, governance-pricing scaffold, flip-fragility series
+(extended to orifice-true certificate, but the move rhymes), sequenced
+recovery shape, third-factor rollback form, negative-result primary.
+Adjacent finishing rounds (r01 galvanizing air-knife, r61 sinter
+windbox) share industrial-process scaffolding but not urea prill
+physics. Weighing a new failure family + cure vocabulary + leftover
+domain + Ureafen geography against those reused scaffolds:
+
+Novel coverage: 47%
+
+## What ROUND 23 should add
+1. FIT THE DESIGNED CONSTANTS: biuret-plug arrival, probe D50 bands,
+   fusion-to-stalactite mapping, night-shift claim process.
+2. HIL PROVENANCE CELL: put the bucket-gallery LOTO on a
+   hardware-in-loop pendant with fitted latency as state.sim_or_real=hil
+   — only if the plant is no longer purely invented.
+3. CROSS-RECORD ARC: let CR-U-2206's local-IR alarm be the igniter of
+   the next round rather than a dangling +21 d leaf.
+4. Domain candidates (de-collided): grid-inspection (if distinct from
+   STARLING aerial-swarm); alkaline-water-electrolysis; wet-fgd-absorber;
+   hrsg-attemperator.
+   AVOID urea-prilling-tower (now used), sinter-strand-windbox (r61),
+   bioreactor-perfusion (r41), autonomous-driving (r21),
+   continuous-hot-dip-galvanizing (r01), and any LYOSHIELD / CINDERWICK /
+   TRIAD / SKULLGATE / BOGIRON / SKARVOLT / PUSHERFELL / CREELWOLD /
+   GIBBSQUERN / COILSHAW / LOOPERQUAY / SIPHONWOLD / WINDBOXHOLT /
+   HOLLOWMERE / GLIMMERAXLE / ZINCFELL / PRILLGHYLL plant.
+"""
+
+
+def write_exclusive(path: Path, data: bytes) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    fd = os.open(path, flags, 0o644)
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
+
+
+def build_transcript(line: str) -> str:
+    return f"""# Multi-Agent Ouroboros Swarm — Round 22 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r22-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Plant: invented PRILLGHYLL / Ureafen Prill Tower UT-4 (not TRIAD / Meridian / VANTIS-CADENCE-AEGIS / LYOSHIELD / CINDERWICK / BOGIRON / PUSHERFELL / SKARVOLT / COILSHAW / GIBBSQUERN / SIPHONWOLD / WINDBOXHOLT / HOLLOWMERE / GLIMMERAXLE / ZINCFELL)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r22.jsonl).
+
+---
+
+# CYCLE 1 — Foundation + injections
+
+## Generator
+
+Design intent: a 68 m natural-draft urea prill tower where three correct
+agents each read a melt-mean loop because a biuret-polymer plug on
+orifice 27 partitions local rim IR from header-true melt, stack draft,
+and mixed-sample D50. The naive playbook raises melt rate into a plugged
+spray. The gate must MODIFY on a numeric rate floor, not by killing an
+agent. sim_or_real=designed. Reward heads are
+task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Ureafen UT-4, 32.0 t/h,
+header 140.2 C, draft 185 Pa, D50 1.82 mm, proposed RAISE-RATE
+38.0 t/h, safety MODIFY to RATE-HOLD, executed hold without the
+bucket-RPM numbers fully specified, outcome "plug found, tower saved"
+(this last claim is the defect the later cycles will refuse to keep).
+Sixteen spikes, five ticks, raster/gate_snn present but the scar is a
+single edge.
+
+```json
+{{
+  "id": "maos-r22-001",
+  "state": {{
+    "sim_or_real": "designed",
+    "domain": "industrial-process",
+    "description": "Tower UT-4 at urea prill; three header loops in-spec; supervisor proposes raise-rate.",
+    "t0_us": 1755412920000044,
+    "gate_latency_us": 720,
+    "race_window_us": 500
+  }},
+  "proposed_action": {{"name": "raise_rate", "parameters": {{"rate_t_h": 38.0}}}},
+  "safety_decision": {{"decision": "MODIFY", "rationale": "Hold; do not raise rate while local IR is high."}},
+  "executed_action": {{"name": "rate_hold", "executed_as_proposed": false}},
+  "future_outcome": {{"summary": "Plug found, tower saved."}},
+  "reward_components": {{"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"}},
+  "meta": {{"round": 22, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}}
+}}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "tower saved". If the pre-t0 fused wall later
+   detaches, booking +0.40 is a lie. Fix: declare `_aggregation`, emit
+   3–8 ticks that sum to task_progress+safety+efficiency+coherence+exploration,
+   and do not call a quarantined tower a save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote
+   rate >= 32.0 t/h while orifice-27 IR > 152 C AND local dP < 22 kPa.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-process` collides with generic MES vocabulary and teaches
+   nothing. Urea prilling (local orifice IR vs header mean, local dP as
+   a plug flag) is absent from prior ouroboros rounds and must be named.
+4. **major — race under-specified.** One header channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted `t_rel_ms`
+   and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated weight
+   repeats r04's one-edge rollback and is thinner than r14's two-edge.
+
+No rewrite from this role; directives only.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **urea-prilling-tower**.
+
+What it displaced/expanded: generic `industrial-process` (Generator v1)
+and the in-window occupied set continuous-hot-dip-galvanizing (r01),
+autonomous-driving (r21), bioreactor-perfusion (r41), sinter-strand-windbox
+(r61). Urea prilling is a leftover named in NOTES-r61 and is unused as
+`state.domain` in this window.
+
+Domain-specific constraint: do not raise melt rate above 32.0 t/h while
+orifice-27 IR > 152 C AND orifice-27 dP < 22 kPa, even when header mean,
+stack draft, and mixed D50 are in-band.
+
+Sensor delta: +eight-TC header mean, +stack induced-draft, +mixed-sample
+D50, +local orifice IR, +local orifice dP. Not air-knife XRF, not CAV
+radar residual, not harvest-mass, not windbox BTP.
+
+`state.domain` and `meta.domain` named urea-prilling-tower. Jaccard
+opening is the Ureafen 68 m sentence, not the Gratecroft / Marrowfen /
+Brambleford / Spelterholt openings.
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **orifice 27
+biuret-polymer plug + fused-urea wall certificate**.
+
+- Trigger: orifice 27 plugs after 14 min of unmonitored rope-jet. Gallery
+  visual PASSES because the plug sits inside the rotating bucket and the
+  stalactite is on the far wall.
+- Base rate: 0.38%/campaign from a biuret-plug Monte Carlo (designed
+  visual threshold, fitted orifice geometry, flagged, <1%).
+- Naive failure: FALSE PERMISSION — PB-UT-4 RAISE-RATE 32.0 to 38.0 t/h
+  on three header-side non-trips into a granulator-starve window, 9 t
+  wall, $3.7M, 44 h stall.
+- Trajectory edit: local IR 168 C and local dP 12 kPa become the
+  order-invariant floors; a reversible 6.8 s -4% bucket-RPM probe must
+  stay mean-false (|Delta D50| <= 0.04 mm) before any isolate. Distinct
+  from Diversity's domain injection (prill-tower physics vs plug tail).
+
+## Neuromorphic Translator
+
+Cycle-1 temporal densify (additive on the scaffold):
+
+- `t0_us` 1755412920000044, `gate_latency_us` 720, `race_window_us` 500.
+- Race: orifice.hot.high 6.528 ms vs head.in_band 6.724 ms (196 us) with
+  draft.ok 6.912 also inside the window. Three channels, one train,
+  globally sorted `t_rel_ms`.
+- 16 spikes, refractory floor 0.8 ms (tightest same-channel gap 1.540 ms
+  on draft.ok 5.372 -> 6.912). Adaptation on head.hot 0.54->0.51 and
+  orifice.dP 0.76->0.78 (pre-probe).
+- 5 ticks at 4120 / 6528 / 7248 / 6_800_000 / 552_000_000 us. Heads not
+  yet the negative-result booking; cycle 2 will add ticks 6–7.
+- Winner/loser flip: reversing 196 us (< min(500,500)) only reorders
+  triage; floors still MODIFY.
+- Distillation value: a header-mean race is not an orifice-true
+  certificate; the local IR channel is the tie-break.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain urea-prilling-tower, tail
+orifice plug, 16 spikes, 5 ticks, MODIFY with numeric floor, raster+gate_snn
+present, sim_or_real=designed, rights stamp on record and meta, no thought
+keys. Still missing (and therefore not the publishable line): high-biuret
+sub-variant, night-shift tail, second and third scar edges,
+delayed stalactite detach as PRIMARY terminal, contrast ACCEPT episode,
+ticks 6–7, spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 500 us window; refractory
+  >= 0.8 ms; rationale quotes 32.0 t/h / 152 C / 22 kPa; domain
+  named; gate_snn.decision MODIFY.
+- checks deferred to cycle 2: triple-edge scar, second tail, second domain
+  constraint, negative-result booking, 7 ticks summing to heads.
+- densification vs Generator v1: +1 domain, +1 tail, +16 spikes, +5 ticks,
+  +numeric floor.
+
+Cycle-1 JSON is retained as the base; it is NOT written to batch-r22.jsonl.
+
+Cycle-1 spike count: 16.
+
+---
+
+# CYCLE 2 — Densification
+
+## Generator
+
+Cycle-1 output is the base. Additive expansion (nothing removed):
+
+1. Downstream side-effect (immediate): bucket-RPM step probe at +6.8 s stays
+   mean-false (|Delta D50| 0.03 <= 0.04 mm) — orifice plug, not
+   true tower-duty. Orifice 27 holds. Fused-urea stalactite discovered during the isolate.
+2. Delayed side-effect (PRIMARY terminal, not a footnote): at +5.1 h
+   stalactite detach from the pre-t0 orifice plug; scraper crushed; 16.8 h stall;
+   $1.86M. The 14 min pre-t0 rope-jet is the mechanism. Correct gate,
+   tower still fails.
+3. Deepened `proposed_action.evidence` with units: IR 168 C,
+   local dP 12 kPa, header 140.2 C, draft 185 Pa, D50 1.82 mm, race 196 us.
+4. Tightened rationale to the numeric floor rate >= 32.0 t/h while
+   orifice-27 IR > 152 C AND local dP < 22 kPa, plus
+   probe bands <= 0.04 vs >= 0.18 mm, plus HITL 9.2 min gallery
+   rule.
+
+Reward retargeted to total -0.16 so the delayed fail is the inflection
+(t_us 18360000000), not the gate. Process heads remain non-zero.
+
+## Critic
+
+Re-audit of the expanded trajectory:
+
+1. **blocking if unfixed — missing second domain constraint.** Spec-urea
+   probe 6.8 s / -4% is not a universal number. A high-biuret
+   melt will overshoot live intact D50. Diversity Enforcer must
+   inject the physical-constraints sub-variant this cycle.
+2. **major — only one tail class.** Orifice plug is accidental
+   infrastructure. A disjoint human-intent tail is still required
+   (night-shift local-IR forgery is the open cell).
+3. **major — scar is still one edge in the cycle-1 raster.** NOTES-r14
+   item 4 is not discharged until three go-edges exist and pair rollback
+   is shown to fail at threshold 0.30.
+4. **minor — contrast episode missing.** Without a same-gate ACCEPT on a
+   true intact spray-duty window the record teaches "never raise-rate". Add +3 d
+   sister-tower contrast with its own race.
+5. **minor — HITL latency mentioned in prose only.** Put 9.2 min in
+   executed_action.parameters.human_ratify and in a tick.
+
+No rewrite; directives only.
+
+## Diversity Enforcer
+
+Injected second novel domain / physical-constraint sub-variant (exactly 1
+this cycle): **high-biuret / low-moisture urea melt** on a sister charge class.
+
+What it expands: 36-orifice spec-urea tower (cycle 1) -> high-biuret
+0.42x crystallization-window. RPM-step gain 2.4x. Melt viscosity 4.8 vs 3.1 mPa.s.
+The 6.8 s -4% pulse moves even a live intact spray field to a 0.51 mm false
+D50, inside the off-spec fines trip. Required probe: 19 s at -1.5% (live
+Delta 0.19 mm, plug Delta 0.03).
+
+This is still one domain injection for the cycle (physical-constraints
+clause of the factory prompt). It does not displace
+urea-prilling-tower; it changes which probe table is legal.
+`future_outcome.subvariant_constraint` carries the refit. Jaccard opening
+stays the Ureafen 68 m sentence; high-biuret melt is additive, not a rewrite.
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**night-shift forged local-IR CSV**.
+
+- Trigger: shift lead, 02:51, posts a historian export showing
+  IR = 141 C at t = 1.2 h to clear a granulator slot.
+- Base rate: ~0.27% of Sunday-night campaigns (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the raise-rate on the forged confirm
+  and ignores live local IR. Wall accretion plus a data-integrity write-up.
+- Fence: forged log quantized at 5.0 C (SCADA screenshot rounding); plant
+  historian is 0.5 C (10 bins). Live IR is 168 C and local dP is
+  12 kPa at the claimed orifice-true, which no live intact spray
+  produces. Freeze-window overlap with the 14 min plug.
+- Trajectory edit: governance CR-U-2206 mandates native 0.5 C CSV
+  exports; the contrast ACCEPT still requires live local IR, not a CSV.
+
+Distinct from cycle-1 plug (accidental biuret polymer vs deliberate deception) and
+from the high-biuret sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 26.272 ms: bucket.probe 6800.0, orifice.dP 6888.6
+  (adapt 1.36->0.39), head.in_band 6972.0 (1.10->0.34), human.ratify
+  552000.0, tower.hold 552800.0, urea.fuse 553600.0, head.hot
+  10800000.0, orifice.dP 10800740.0, draft.ok 10801520.0, scraper.crush
+  18360000.0. Primary train 16 -> 26. Still one key, still sorted,
+  refractory held.
+- +2 ticks (5 -> 7) at 10_800_000_000 us (true intact spray) and
+  18_360_000_000 us (stalactite detach). Heads now 0.07, -0.34, -0.13,
+  0.14, 0.10; total -0.16. Inflection is the last tick.
+- Contrast train 8 events, own race 184 us, ACCEPT.
+- Triple-edge third factor: three header-healthy-go edges, tau_e 0.92 s = 920 ms,
+  trace 0.45721, eta 0.52492 / 0.45931 / 0.43743,
+  weights 0.50->0.26, 0.44->0.23, 0.41->0.21. Raster excerpt unchanged
+  (decision window is still 40 ms) and remains sorted with unique
+  neuron_ids (same-neuron >=1000 us vacuously).
+
+Winner/loser flip (re-stated, not replaced): reversing 196 us would only
+reorder triage; local-IR floors still MODIFY. Contrast flip of
+184 us similarly cannot turn an intact spray into a plug.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.16; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted, tau_e consistent; gate_snn.decision matches; meta.round=22,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive.
+
+Densification delta: +1 domain sub-variant (high-biuret melt), +1 tail
+(night-shift forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 triple-edge scar with
+pair-rollback-fails, +1 HITL ratify, +1 surprise (wall fusion is the
+plug mechanism).
+
+Publishable JSONL line (the only JSONL line; also at batch-r22.jsonl):
+
+```json
+{line}
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r22.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+
+
+def main():
+    record = build_record()
+    line = json.dumps(record, separators=(",", ":"), ensure_ascii=False)
+    parsed = json.loads(line)
+    if parsed["id"] != "maos-r22-001":
+        raise SystemExit("id mismatch after roundtrip")
+
+    staging_batch = STAGING / "batch-r22.jsonl"
+    if staging_batch.exists():
+        staging_batch.unlink()
+    staging_batch.write_text(line + "\n", encoding="utf-8")
+
+    errors, warnings, kinds, n = check_jsonl(
+        staging_batch,
+        staging_batch.name,
+        staging=FactoryStaging(enabled=True),
+    )
+    print("check_jsonl", {"errors": errors, "warnings": warnings, "kinds": kinds, "n": n})
+    if errors or warnings or n != 1:
+        raise SystemExit("check_jsonl failed")
+
+    status = raster_status(parsed)
+    print("raster_status", {k: status.get(k) for k in ("raster_present", "gate_snn_present", "reason_codes", "routing_table_entries")})
+    if status.get("reason_codes") or not status.get("raster_present") or not status.get("gate_snn_present"):
+        raise SystemExit(f"raster failed: {status}")
+
+    verdict, reason = verify_record_execution(parsed, "batch-r22.jsonl:1")
+    print("verify_record_execution", verdict, reason)
+    if verdict != "verified":
+        raise SystemExit("execution not verified")
+
+    rc = parsed["reward_components"]
+    heads = ["task_progress", "safety", "efficiency", "coherence", "exploration"]
+    head_sum = sum(rc[k] for k in heads)
+    tick_sum = sum(sum(t[k] for k in heads) for t in rc["ticks"])
+    print("reward", rc["total"], head_sum, tick_sum)
+    if abs(head_sum - rc["total"]) > 1e-9 or abs(tick_sum - rc["total"]) > 1e-9:
+        raise SystemExit("reward reconcile failed")
+
+    contrast_rc = parsed["future_outcome"]["embedded_contrast_decision"]["reward_components"]
+    csum = sum(contrast_rc[k] for k in heads)
+    print("contrast", contrast_rc["total"], csum)
+    if abs(csum - contrast_rc["total"]) > 1e-9:
+        raise SystemExit("contrast reward failed")
+
+    race = [e for e in parsed["spike_events"] if 6.528 <= e["t_rel_ms"] <= 7.028]
+    print("race channels", [e["channel"] for e in race])
+    if len({e["channel"] for e in race}) < 2:
+        raise SystemExit("race underpopulated")
+
+    dest_batch = FACTORY / "batch-r22.jsonl"
+    dest_notes = FACTORY / "NOTES-r22.md"
+    dest_tr = FACTORY / "swarm-transcript-r22.md"
+    for path in (dest_batch, dest_notes, dest_tr):
+        if path.exists():
+            raise SystemExit(f"refuse overwrite: {path}")
+
+    transcript = build_transcript(line)
+    write_exclusive(dest_batch, (line + "\n").encode("utf-8"))
+    write_exclusive(dest_notes, NOTES.encode("utf-8"))
+    write_exclusive(dest_tr, transcript.encode("utf-8"))
+    write_exclusive(STAGING / "NOTES-r22.md", NOTES.encode("utf-8"))
+    write_exclusive(STAGING / "swarm-transcript-r22.md", transcript.encode("utf-8"))
+    print("wrote", dest_batch, dest_notes, dest_tr)
+    print("bytes", dest_batch.stat().st_size, dest_notes.stat().st_size, dest_tr.stat().st_size)
+
+
+if __name__ == "__main__":
+    main()

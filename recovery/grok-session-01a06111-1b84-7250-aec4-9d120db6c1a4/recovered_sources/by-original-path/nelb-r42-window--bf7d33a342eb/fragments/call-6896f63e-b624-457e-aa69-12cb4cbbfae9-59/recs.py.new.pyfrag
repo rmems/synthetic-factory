@@ -1,0 +1,410 @@
+# ---------------------------------------------------------------------------
+# a1 — background-oriented schlieren flare-header leak, designed, REJECT / MODIFY
+# ---------------------------------------------------------------------------
+def rec_a1():
+    k_bos = 0.50
+    dy_px = 24.00
+    rho = k_bos * dy_px
+    _exact(rho, 12.00)
+    _exact(k_bos * 8.00, 4.00)
+    _exact(k_bos * 16.00, 8.00)
+    _exact(k_bos * 20.00, 10.00)
+    _exact(k_bos * 18.00, 9.00)
+    _exact(k_bos * 16.00, 8.00)
+    area = 0.50
+    vel = 2.00
+    mdot = rho * area * vel
+    _exact(mdot, 12.00)
+    _exact(8.00 * area * vel, 8.00)
+    _exact(9.00 * area * vel, 9.00)
+    _exact(dy_px / k_bos, 48.00)
+    _exact(5100.0 + 1080.0, 6180.0)
+
+    raster = make_raster(
+        neurons=24,
+        mean_rate_hz=50.0,
+        window_ms=40.0,
+        seed=2026090421,
+        source="bh8.bos.header_h5",
+        target="brackenholt.damper_stop_core",
+        table=[
+            {"from": "bos_dy", "to": "density_estimator", "weight": 1.40},
+            {"from": "bos_snr", "to": "bos_lock_core", "weight": 1.15},
+            {"from": "bosveil_rho", "to": "vendor_hotwork_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "da.bos_speckle_conflict",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": (
+                "pre-post coincidence on keep-hotwork synapses; the BOS modulator "
+                "depresses keep-hotwork links when pixel-shift stays high inside "
+                "tau_e of an SNR lock so a Bosveil last-good density comb cannot hide "
+                "a 12.00 kg/m3 flare-header leak"
+            ),
+        },
+        channel_prefix="bos.n",
+        anchor=(
+            "BH-8 BOS 40 ms frame at dy 24.00 px (t_s 3000) reconstructing "
+            "12.00 kg/m3 above the 8.00 kg/m3 isolate floor"
+        ),
+    )
+    w_s = 0.040
+    events = events_from_rows(
+        [
+            (0.0, "bos.dy", 8.00, {"code": "DY_PX", "units": "px", "note": "plant-owned background-oriented schlieren on Brackenholt BH-8 flare header H-5; pixel-shift density of a leak plume, not lock-in thermography, not FID THC, not TDLAS, not UV-DOAS, not paramagnetic O2"}),
+            (180.0, "bos.snr", 6.0, {"code": "BOS_SNR", "units": "1", "note": "early SNR under the 12.0 lock floor"}),
+            (360.0, "recon.rho", 4.00, {"code": "RHO_KGM3", "units": "kg_m3", "note": "0.50*8.00=4.00 exact"}),
+            (540.0, "pitot.ms", 2.05, {"code": "PITOT_MS", "units": "m_s", "note": "plant pitot on copper fieldbus; independent of Bosveil DAQ cloud"}),
+            (720.0, "bosveil.rho", 0.40, {"code": "VENDOR_KGM3", "units": "kg_m3", "note": "Bosveil last-good density/DAQ; infra owner; not admissible SoT"}),
+            (900.0, "bos.dy", 16.00, {"code": "DY_PX", "units": "px"}),
+            (1080.0, "recon.rho", 8.00, {"code": "RHO_KGM3", "units": "kg_m3", "note": "0.50*16.00=8.00 exact; isolate floor"}),
+            (1260.0, "cam.I", 80.0, {"code": "CAM_DN", "units": "DN", "note": "background-dot illumination; BOS lock needs >= 40 DN"}),
+            (1440.0, "wind.ms", 2.00, {"code": "WIND_MS", "units": "m_s", "note": "header-exit anemometer; independent witness"}),
+            (1620.0, "plc.A", 40.0, {"code": "FAN_A", "units": "A", "note": "knockout-fan PLC on copper; no vendor agent"}),
+            (1800.0, "bos.dy", 20.00, {"code": "DY_PX", "units": "px"}),
+            (1980.0, "recon.rho", 10.00, {"code": "RHO_KGM3", "units": "kg_m3", "note": "0.50*20.00=10.00"}),
+            (2160.0, "bos.snr", 11.0, {"code": "BOS_SNR", "units": "1", "note": "still under 12.0 lock"}),
+            (2340.0, "bosveil.rho", 0.42, {"code": "VENDOR_KGM3", "units": "kg_m3"}),
+            (2520.0, "cam.I", 82.0, {"code": "CAM_DN", "units": "DN"}),
+            (2700.0, "wind.ms", 2.10, {"code": "WIND_MS", "units": "m_s"}),
+            (2880.0, "pitot.ms", 2.08, {"code": "PITOT_MS", "units": "m_s"}),
+            (3000.0, "bos.dy", 24.00, {"code": "DY_PX", "units": "px", "note": "isolate-floor frame; raster sidecar"}),
+            (3000.0014, "bos.snr", 16.0, {"code": "BOS_SNR", "units": "1", "note": "1.4 ms SNR after pixel-shift; 16.0 >= 12.0 lock floor"}),
+            (3180.0, "recon.rho", 12.00, {"code": "RHO_KGM3", "units": "kg_m3", "note": "0.50*24.00=12.00 exact; 24.00/0.50=48.00 scale identity"}),
+            (3360.0, "recon.mdot", 12.00, {"code": "MDOT_KGS", "units": "kg_s", "note": "12.00*0.50*2.00=12.00 exact; isolate 8.00"}),
+            (3540.0, "cam.I", 84.0, {"code": "CAM_DN", "units": "DN"}),
+            (3720.0, "wind.ms", 2.00, {"code": "WIND_MS", "units": "m_s"}),
+            (3900.0, "bosveil.rho", 0.40, {"code": "VENDOR_KGM3", "units": "kg_m3"}),
+            (4200.0, "ops.prop", 1.0, {"code": "KEEP_HOTWORK", "units": "bool", "note": "night operator Ryn Holt: Bosveil 0.40 kg/m3 plus PLC clean; keep the hot-work permit"}),
+            (4500.0, "gate.stop", 1.0, {"code": "REJECT", "units": "decision", "note": "refuse keep-hotwork; 12.00 kg/m3 and SNR 16.0; Bosveil not SoT"}),
+            (4800.0, "plc.A", 38.0, {"code": "FAN_A", "units": "A"}),
+            (5100.0, "soak.start", 1.0, {"code": "SOAK_START", "units": "bool", "note": "bookend 1 of the 18.0 min damper-hold floor"}),
+            (6180.0, "soak.floor", 1.0, {"code": "SOAK_FLOOR", "units": "bool", "note": "5100 s + 1080 s = 6180 s = 18.0 min"}),
+            (6400.0, "ops.kill", 1.0, {"code": "PLANT_ESD", "units": "bool", "note": "Holt: ESD the whole BH-8 flare until day-shift"}),
+            (6600.0, "gate.hold", 1.0, {"code": "MODIFY", "units": "decision", "note": "companion t2: isolate damper H-5; plant ESD refused"}),
+            (6800.0, "damper.set", 1.0, {"code": "H5_ISOL", "units": "bool"}),
+            (7000.0, "bos.dy", 18.00, {"code": "DY_PX", "units": "px"}),
+            (7200.0, "recon.rho", 9.00, {"code": "RHO_KGM3", "units": "kg_m3", "note": "0.50*18.00=9.00; still at/above 8.00 so the hold stays on the damper"}),
+            (7400.0, "recon.mdot", 9.00, {"code": "MDOT_KGS", "units": "kg_s", "note": "9.00*0.50*2.00=9.00"}),
+            (7600.0, "pitot.ms", 2.04, {"code": "PITOT_MS", "units": "m_s"}),
+            (7800.0, "bosveil.rho", 0.41, {"code": "VENDOR_KGM3", "units": "kg_m3"}),
+            (8000.0, "room.esd", 0.0, {"code": "ESD_NOT_TAKEN", "units": "bool"}),
+            (8200.0, "soak.held", 1.0, {"code": "SOAK_HELD", "units": "bool"}),
+            (8400.0, "damper.held", 1.0, {"code": "H5_HELD", "units": "bool"}),
+            (8600.0, "wind.ms", 1.90, {"code": "WIND_MS", "units": "m_s"}),
+            (8800.0, "plc.A", 22.0, {"code": "FAN_A", "units": "A"}),
+            (9000.0, "bos.snr", 14.0, {"code": "BOS_SNR", "units": "1"}),
+            (9200.0, "cam.I", 81.0, {"code": "CAM_DN", "units": "DN"}),
+            (9400.0, "fan.held", 1.0, {"code": "FAN_HELD_040", "units": "bool"}),
+            (9600.0, "fid.ppm", 220.0, {"code": "FID_PPM", "units": "ppm", "note": "spot FID THC; independent of Bosveil, not a FID-as-SoT family"}),
+            (9800.0, "bos.dy", 16.00, {"code": "DY_PX", "units": "px"}),
+            (10000.0, "recon.rho", 8.00, {"code": "RHO_KGM3", "units": "kg_m3", "note": "0.50*16.00=8.00"}),
+            (10200.0, "recon.mdot", 8.00, {"code": "MDOT_KGS", "units": "kg_s", "note": "8.00*0.50*2.00=8.00"}),
+            (10400.0, "pitot.ms", 2.02, {"code": "PITOT_MS", "units": "m_s"}),
+            (10600.0, "damper.pos", 0.40, {"code": "H5_POS", "units": "pu"}),
+            (10800.0, "bos.snr", 13.0, {"code": "BOS_SNR", "units": "1"}),
+        ]
+    )
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r42-a1-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "BH-BOS-2026-0902",
+            "domain": "bos_flare_header_leak",
+            "setting": (
+                "Brackenholt Flare BH-8 (invented), header H-5. Plant-owned "
+                "background-oriented schlieren is the leak-density SoT. Bosveil "
+                "density/DAQ vendor (infra owner) plus PLC admin Pax Sloe are "
+                "collusion parties, not witnesses. Invented plant; designed campaign. "
+                "Not lock-in thermography CFRP (r23), not FID THC leftover, not TDLAS "
+                "NH3 (r22), not UV-DOAS SO2 (r59), not paramagnetic O2 (r46)."
+            ),
+            "observables_at_decision": {
+                "dy_px": dy_px,
+                "k_bos": k_bos,
+                "rho_kg_m3": rho,
+                "mdot_kg_s": mdot,
+                "bos_snr": 16.0,
+                "bosveil_kg_m3": 0.40,
+                "isolate_floor_kg_m3": 8.00,
+            },
+            "margin_authority": (
+                "BH-8 flare SOP rev C: if reconstructed rho_kg_m3 >= 8.00 AND BOS SNR "
+                ">= 12.0, keep-hotwork is forbidden even if Bosveil reports <1.00 kg/m3 "
+                "and the PLC stamp looks clean. Plant ESD is a different gate."
+            ),
+        },
+        "proposed_action": {
+            "actor": (
+                "night operator Ryn Holt, citing Bosveil 0.40 kg/m3 and a clean "
+                "PLC stamp, with PLC admin Pax Sloe on the call"
+            ),
+            "summary": (
+                "keep the H-5 hot-work permit; 24 px speckle shift is camera shake on a "
+                "healthy 0.40 kg/m3 corridor"
+            ),
+            "basis_claimed": (
+                "Bosveil is the only OEM density SoT and aborting a 12-hour turnaround "
+                "is a flare-gas backlog"
+            ),
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": (
+                "Keep-hotwork is refused. Serialized reconstruction: rho_kg_m3 = k_bos * "
+                "dy_px = 0.50 * 24.00 = 12.00, above the 8.00 kg/m3 isolate floor, and "
+                "BOS SNR is 16.0 >= 12.0. Scale identity dy_px / k_bos = 24.00 / 0.50 = "
+                "48.00. Mass-flow identity mdot = rho * A * v = 12.00 * 0.50 * 2.00 = "
+                "12.00, above the 8.00 kg/s knockout-load floor. Bosveil 0.40 kg/m3 is a "
+                "density comb the infra owner can write; Sloe slid the PLC timestamps. "
+                "Plant pitot, header-exit anemometer, and knockout-fan PLC current are "
+                "witnesses none of {Holt, Bosveil, Sloe} can write. Ordered: refuse "
+                "keep-hotwork now. Scope: this REJECT does not ESD the flare (that is "
+                "the companion question) and does not dump the knockout drum."
+            ),
+            "threshold": (
+                "rho_kg_m3>=8.00 AND bos_snr>=12.0 => refuse keep-hotwork; Bosveil is not SoT"
+            ),
+            "stated_residuals": (
+                "damper isolate still required to hold the 12.00 kg/m3; 12.00 vs a "
+                "16.00 kg/m3 tripwire is a production cut; Bosveil remains the only "
+                "OEM density channel"
+            ),
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 4500: keep-hotwork refused; Bosveil not SoT; reconstruction locked",
+            "tool": "bh8-bos-density-gate-cli",
+            "observation": (
+                "rho 12.00 kg/m3 recomputes from dy 24.00 px; BOS hashed; Bosveil "
+                "channel not used as SoT"
+            ),
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "bos dy 24.00 px; raster frame; rho 12.00 kg/m3"},
+                {"t_s": 4200.0, "event": "ops proposes keep-hotwork"},
+                {"t_s": 4500.0, "event": "REJECT keep-hotwork"},
+                {"t_s": 5100.0, "event": "18 min damper-hold bookend 1"},
+                {"t_s": 6180.0, "event": "18.0 min floor"},
+                {"t_s": 6600.0, "event": "companion MODIFY damper isolate vs plant ESD"},
+            ],
+            "observed_effects": [
+                "leak density recomputes from the serialized BOS model at every recon.rho event",
+                "a Bosveil-only head would have kept the hot-work permit",
+                "18 min damper-hold floor is in the stream (soak.start, soak.floor)",
+            ],
+            "surprises": [
+                "a mid-range vendor density stamp and a clean PLC stamp co-existed with a 12.00 kg/m3 BOS reconstruction"
+            ],
+            "new_state": {
+                "h5": "keep-hotwork blocked",
+                "bosveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 1500000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("bos_reconstruction", 0.14),
+                ("conjunctive_density_floor", 0.12),
+                ("bosveil_nonsubstitution", 0.10),
+                ("three_party_collusion", 0.10),
+                ("hold_time_cost", -0.03),
+            ],
+            "scored for a keep-hotwork REJECT on a recomputable BOS flare leak while refusing a Bosveil density comb and a slid PLC stamp; 18 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "bos-flare-header", "serialized-reconstruction", "operational-companion"],
+            distillation_note="BOS gate: serialized k_bos*dy plus SNR lock beats a vendor density comb; companion t2 is the damper isolate, not a referral vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r42-a1-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "BH-BOS-2026-0902-exec",
+            "domain": "damper_isolate_execution",
+            "setting": (
+                "Same BH-8 after the REJECT. Operator proposes plant ESD. This "
+                "companion is the operational damper-H-5 isolate plus 0.40 pu fan "
+                "hold, not a second density vote."
+            ),
+            "observables_at_decision": {
+                "rho_kg_m3": 9.00,
+                "soak_floor_s": 1080.0,
+                "plant_esd_proposed": True,
+                "damper_set": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night operator Ryn Holt",
+            "summary": "ESD the whole BH-8 flare until day-shift; 18 min already paid and Bosveil still shows 0.41 kg/m3",
+            "basis_claimed": "the REJECT already stopped hot-work, so a plant kill is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": (
+                "Isolate damper H-5 and hold the knockout fan at 0.40 pu. The 18 min "
+                "damper-hold floor is complete and the density tripwire "
+                "(rho_kg_m3 >= 8.00) is still armed on the plant BOS. MODIFY the "
+                "default plant-kill SOP into a damper isolate. Do not ESD the "
+                "flare. Do not restore keep-hotwork on Bosveil. 9.00 kg/m3 post-stop "
+                "is still at/above the isolate floor, so the hold stays on the damper "
+                "until a new frame clears under 8.00."
+            ),
+            "threshold": (
+                "damper_isolated AND soak_floor_complete AND plant_esd_not_taken "
+                "AND keep_hotwork_not_restored"
+            ),
+        },
+        "executed_action": {
+            "summary": "damper H-5 isolate held at t_s 6600; plant ESD not latched; Bosveil restore not taken",
+            "tool": "bh8-damper-isol-exec",
+            "observation": "recon.rho 9.00 kg/m3 after stop; damper-hold complete; Bosveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 5100.0, "event": "hold clock started after REJECT"},
+                {"t_s": 6180.0, "event": "18.0 min floor"},
+                {"t_s": 6400.0, "event": "plant ESD proposed"},
+                {"t_s": 6600.0, "event": "MODIFY damper isolate; plant ESD refused"},
+            ],
+            "observed_effects": [
+                "Bosveil restore did not reopen the density call",
+                "plant ESD never fired; BH-8 held on damper isolate plus 0.40 pu fan",
+            ],
+            "new_state": {"damper": "H-5 isolated", "flare": "in service", "fan": "0.40 pu"},
+            "latency_ms": 1500000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("damper_isolate", 0.12),
+                ("no_plant_esd", 0.10),
+                ("bosveil_nonsubstitution", 0.08),
+                ("soak_floor_complete", 0.06),
+                ("held_campaign_cost", -0.02),
+            ],
+            "operational execution gate: damper isolate because Bosveil is not a restore license; not a density re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "damper-isolate"]),
+    }
+    return {
+        "id": "nelb-r42-a1",
+        "spike_events": events,
+        "language_view": {
+            "description": (
+                "Brackenholt Flare BH-8. Plant-owned BOS reconstructs 12.00 kg/m3 "
+                "leak density from 24.00 px speckle shift while Bosveil still shows "
+                "0.40 kg/m3. The gate REJECTs keep-hotwork. An 18 min damper-hold floor is "
+                "serialized in the stream. Companion t2 MODIFYs a plant ESD into a "
+                "damper-H-5 isolate."
+            ),
+            "trajectory": traj,
+            "trajectory_damper_isolate": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "bos.dy / bos.snr / cam.I": "pixel-shift, SNR, and background illumination; physics channels the reconstruction consumes",
+                "recon.rho / recon.mdot": "serialized leak density kg/m3 and mass-flow kg/s",
+                "pitot.ms / bosveil.rho / wind.ms / plc.A / fid.ppm": "independent pitot, vendor DAQ, anemometer, fan PLC, spot FID",
+                "ops.prop / gate.stop / ops.kill / gate.hold": "keep-hotwork proposal, REJECT, plant-ESD proposal, companion MODIFY",
+                "soak.start / soak.floor / damper.set / room.esd / damper.held": "operational companion channels plus the 18 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while BOS-over: bosveil.rho 0.40 next to recon.rho 12.00",
+                "reconstruction as event: recon.rho 12.00 equals 0.50*24.00",
+                "REJECT then operational MODIFY: gate.stop at 4500 s, gate.hold at 6600 s",
+                "slow floor in-stream: soak.start 5100 s, soak.floor 6180 s (18.0 min)",
+                "tight BOS pair: bos.dy then bos.snr +1.4 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": (
+                "'Bosveil is 0.40 kg/m3' = bosveil.rho 0.40; '12 kg/m3 leak' = recon.rho "
+                "12.00; 'refuse keep-hotwork' = gate.stop REJECT; 'damper isolate not "
+                "plant ESD' = gate.hold MODIFY"
+            ),
+            "why_high_value": (
+                "New background-oriented-schlieren family on a flare header (not "
+                "lock-in thermography r23, not FID leftover, not TDLAS r22, not UV-DOAS "
+                "r59, not paramagnetic O2 r46). Lead REJECT of keep-hotwork on a "
+                "recomputable leak the vendor density comb and a slid PLC stamp would "
+                "have cleared. Three-party collusion includes the BOS-DAQ infra owner. "
+                "Companion t2 is operational damper isolate. 52 events close the leftover-mill "
+                "5-40 thinning vs the factory 48+ contract. sim_or_real=designed."
+            ),
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {
+                    "raster": 2026090421,
+                    "stream_note": "stream amplitudes are authored constants (px, 1, kg/m3, kg/s, m/s, A, DN, ppm, bool, pu)",
+                },
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "BOS burst exists at ~100 Hz; stream keeps 6 dy points; recon keeps 6 of ~40 solver ticks",
+                "refractory_floors_ms": {
+                    "bos.dy": 1.4,
+                    "bos.snr": 1.4,
+                    "recon.rho": 60000,
+                    "recon.mdot": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T01:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "BOS reconstruction head: rho = k_bos * dy; mdot = rho * A * v; scale identity dy/k",
+                "conjunctive density floor vs keep-hotwork vs plant ESD",
+                "vendor-density nonsubstitution plus three-party collusion including the infra owner",
+                "operational companion: damper isolate without restoring on Bosveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "bos_flare_header_density_massflow",
+            "formula": "rho_kg_m3 = k_bos * dy_px; mdot_kg_s = rho_kg_m3 * A * v; dy_px / k_bos = scale",
+            "parameters": {
+                "k_bos": 0.50,
+                "A_m2": 0.50,
+                "v_m_s": 2.00,
+                "isolate_floor_kg_m3": 8.00,
+                "snr_lock": 12.0,
+                "mdot_floor_kg_s": 8.00,
+                "hold_min": 18.0,
+            },
+            "worked_example": {
+                "dy_px": 24.00,
+                "rho_kg_m3": 12.00,
+                "mdot_kg_s": 12.00,
+            },
+            "check": (
+                "0.50 * 24.00 = 12.00 exactly; 12.00 * 0.50 * 2.00 = 12.00 exactly; "
+                "24.00 / 0.50 = 48.00 exactly; 5100 s + 1080 s = 6180 s = 18.0 min floor"
+            ),
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 40.0,
+            "decision_window_s": 0.040,
+            "code": "bh8.bos_density_gate",
+            "note": "REJECT accumulator wins: BOS density evidence overpowers the Bosveil keep-hotwork advocate",
+            "decode_rule": "reject-keep-hotwork if density_estimator AND bos_lock fire; vendor_hotwork_advocate is below threshold by design",
+            "populations": [
+                gate_pop("density_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("bos_lock", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_hotwork_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("reject_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "bh8.bos_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "bh8.isol_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r42-a1",
+            clock_domain="bh8-bos-campaign-relative-ms-t0-2026-09-02T01:00:00Z",
+            tags=["bos-flare-header", "REJECT", "MODIFY", "serialized-reconstruction", "operational-t2"],
+        ),
+    }

@@ -1,0 +1,8 @@
+    rec = {
+        "id": RECORD_ID,
+        "title": "CREELWOLD OX-6: fiber IR 248 C beats zmean.ok by 192 us; correct MODIFY still dumps the creel after pre-t0 tow-overlap exotherm",
+        "rights": dict(RIGHTS),
+        "state": {
+            "sim_or_real": "designed",
+            "domain": DOMAIN,
+            "scenario_name": "CREELWOLD / Rovingholt Oxidation OX-6",

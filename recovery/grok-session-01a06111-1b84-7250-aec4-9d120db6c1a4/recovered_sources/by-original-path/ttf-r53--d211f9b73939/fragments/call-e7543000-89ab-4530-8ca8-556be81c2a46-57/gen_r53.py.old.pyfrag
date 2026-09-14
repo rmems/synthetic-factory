@@ -1,0 +1,5 @@
+                "Roaster R-4 inside Gossan-Weald GW-8 is already running a 14.2 kNm3/h air latch while "
+                "bed IR sits at 912 C against a 890 C license. Therm-first drops air 14.2 -> 11.6 "
+                "kNm3/h and holds bed at 878 C; encoder-first would keep 14.2 because the 0.8 percent "
+                "leftover looks like a still-warming pass. A cyclone dipleg already packed with "
+                "calcine does not appear on bed IR or air until the AE collapse.",

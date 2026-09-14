@@ -1,0 +1,9 @@
+STAGING = Path("/tmp/nelb-r23-live")
+PIPELINES = Path("/home/raulmc/rmems/synthetic-factory/pipelines")
+sys.path.insert(0, str(PIPELINES))
+sys.path.insert(0, "/tmp")
+from lif_raster import generate_lif_raster  # noqa: E402
+
+GENERATED_AT = "2026-09-02T22:40:00Z"
+SNN_TAGS = ["race", "refractory", "adaptation"]
+ROUND = 23

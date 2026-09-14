@@ -1,0 +1,10 @@
+                            "permeate_uS",
+                            OrderedDict(
+                                [
+                                    ("cap", 400.0),
+                                    ("observed", 180.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "feed_bar",

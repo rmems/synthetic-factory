@@ -1,0 +1,12 @@
+    for path in sorted(Path("/tmp").glob("ttf-r*/NOTES-r*.md")):
+        rnd = path_round(path)
+        if rnd is None or rnd >= THIS_ROUND:
+            continue
+        try:
+            txt = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        match = re.search(r"Domains this batch:\s*(.*)", txt)
+        if match:
+            domains.update(re.findall(r"`([^`]+)`", match.group(1)))
+        plants.update(PLANT_RE.findall(txt))

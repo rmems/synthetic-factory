@@ -1,0 +1,12 @@
+        if rec["id"] == "ttf-r50-267":
+            if "policy.nh3_go" in table_tos:
+                issues.append("267 routing has nh3_go")
+            if "policy.nh3_hold" not in table_tos:
+                issues.append("267 missing nh3_hold routing")
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["nh3_pct"] < ev["nh3_cap_pct"]):
+                issues.append("267 live not under cap")
+            if ev["unit_live"] != "pct" or ev["unit_shadow"] != "mA":
+                issues.append("267 unit tags")
+            if rec["executed_action"]["parameters"]["nh3_pct"] != 0.0:
+                issues.append("267 executed not held")

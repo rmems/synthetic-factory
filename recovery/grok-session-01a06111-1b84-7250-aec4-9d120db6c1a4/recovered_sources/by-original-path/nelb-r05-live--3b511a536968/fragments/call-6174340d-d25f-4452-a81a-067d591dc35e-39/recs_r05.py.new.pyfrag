@@ -1,0 +1,343 @@
+def rec_001():
+    k_w = 0.10
+    p_w = 40.00
+    dt_k = 20.00
+    ratio = p_w / dt_k
+    _exact(ratio, 2.00)
+    k = k_w * ratio
+    _exact(k, 0.20)
+    _exact(k_w * (8.00 / 20.00), 0.04)
+    _exact(k_w * (16.00 / 20.00), 0.08)
+    _exact(k_w * (24.00 / 20.00), 0.12)
+    _exact(k_w * (48.00 / 20.00), 0.24)
+    g_m = 10.00
+    q_w = k * g_m * dt_k
+    _exact(q_w, 40.00)
+    p_id = k / k_w * dt_k
+    _exact(p_id, 40.00)
+    _exact(6000.0 + 1080.0, 7080.0)
+
+    raster = make_lif_raster(
+        neurons=20,
+        mean_rate_hz=50.0,
+        window_ms=40.0,
+        seed=2026090501,
+        source="gf5.thw.p",
+        target="godwitfen.oil_stop_core",
+        table=[
+            {"from": "thw_P", "to": "k_estimator", "weight": 1.40},
+            {"from": "thw_snr", "to": "hotwire_lock_core", "weight": 1.15},
+            {"from": "thwveil_k", "to": "vendor_continue_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "da.thw_oil_conflict",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": "pre-post coincidence on continue-idle synapses; the plant transient-hot-wire modulator depresses continue-idle links when heater power stays high inside tau_e of an SNR lock so a Thwveil last-good cannot hide a 0.20 W/mK remaining-k after k=k_w*(P/dT) is applied",
+        },
+        channel_prefix="thw.n",
+        anchor="GF-5 THW 40 ms frame at P 40.00 W / SNR 12.0 (t_s 3000) reconstructing 0.20 W/mK over the 0.12 isolate floor",
+        tau_m_ms=10.0,
+    )
+    w_s = 0.040
+    events = [
+        ev(0.0, "thw.P", 16.00, code="P_W", units="W", note="plant-owned transient-hot-wire remaining-k of Godwitfen Transformer GF-5 bay B-7; THW family, not CTA hot-wire velocity, not laser-flash Parker, not Johnson-noise T, not phosphor-lifetime, not acoustic pyrometry"),
+        ev(180000.0, "thw.snr", 6.0, code="THW_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(360000.0, "recon.k", 0.04, code="K_WMK", units="W_mK", note="0.10*(8.00/20.00)=0.04 exact; still under the 0.12 isolate floor"),
+        ev(540000.0, "oil.dT", 20.00, code="DT_K", units="K", note="plant oil dT on copper DCS; independent witness; unread by Thwveil"),
+        ev(720000.0, "thwveil.k", 0.024, code="VENDOR_WMK", units="W_mK", note="Thwveil vendor THW-cloud last-good; infra owner; patched heater timestamps"),
+        ev(900000.0, "thw.P", 24.00, code="P_W", units="W"),
+        ev(1080000.0, "recon.k", 0.08, code="K_WMK", units="W_mK", note="0.10*(16.00/20.00)=0.08; isolate-adjacent band"),
+        ev(1260000.0, "permit.slide", 40.00, code="PERM_S", units="s", note="permit clerk Odette Marsh slid the oil-k clock 40.00 s; collusion party"),
+        ev(1440000.0, "oil.dT", 20.00, code="DT_K", units="K"),
+        ev(1620000.0, "recon.ratio", 0.80, code="PDT", units="W_K", note="P/dT identity at the 0.08 W/mK band"),
+        ev(1800000.0, "thw.P", 32.00, code="P_W", units="W"),
+        ev(1980000.0, "recon.k", 0.12, code="K_WMK", units="W_mK", note="0.10*(24.00/20.00)=0.12; isolate floor"),
+        ev(2160000.0, "oil.G", 10.00, code="G_M", units="m", note="plant-owned geometry G on copper; independent of Thwveil"),
+        ev(2340000.0, "thwveil.k", 0.024, code="VENDOR_WMK", units="W_mK"),
+        ev(2520000.0, "thw.snr", 9.0, code="THW_SNR", units="1"),
+        ev(2700000.0, "recon.kw", 0.10, code="KW", units="m", note="scale intercept used by the reconstruction"),
+        ev(3000000.0, "thw.P", 40.00, code="P_W", units="W", note="isolate-floor frame; raster sidecar"),
+        ev(3000001.4, "thw.snr", 12.0, code="THW_SNR", units="1", note="1.4 ms SNR lock after P; 12.0 >= 8.0"),
+        ev(3180000.0, "recon.k", 0.20, code="K_WMK", units="W_mK", note="0.10*(40.00/20.00)=0.20 exact; isolate 0.12, hall-kill 0.80"),
+        ev(3360000.0, "recon.Q", 40.00, code="Q_W", units="W", note="0.20*10.00*20.00=40.00 exact heat-rate identity"),
+        ev(3540000.0, "recon.ratio", 2.00, code="PDT", units="W_K", note="40.00/20.00=2.00 exact P/dT identity"),
+        ev(3720000.0, "thwveil.drop", 1.0, code="TW_DROP", units="bool", note="vendor THW packets dropped in Thwveil cloud for 40 s"),
+        ev(3900000.0, "collude.clerk", 1.0, code="CLERK", units="bool"),
+        ev(4080000.0, "oil.dT", 20.00, code="DT_K", units="K", note="oil dT tracks the plant THW, not Thwveil 0.024"),
+        ev(4260000.0, "oil.G", 10.00, code="G_M", units="m"),
+        ev(4440000.0, "recon.kw", 0.10, code="KW", units="m"),
+        ev(4620000.0, "thwveil.k", 0.023, code="VENDOR_WMK", units="W_mK"),
+        ev(4800000.0, "ops.prop", 1.0, code="CONTINUE_IDLE", units="bool", note="night operator Calum Dyer: Thwveil is clean 0.024 W/mK; continue B-7 recirc idle"),
+        ev(4980000.0, "recon.k", 0.20, code="K_WMK", units="W_mK", note="repeat of the 0.20 W/mK reconstruction as SoT"),
+        ev(5400000.0, "gate.stop", 1.0, code="REJECT", units="decision", note="refuse continue-idle; 0.20 W/mK and SNR 12.0; Thwveil not SoT"),
+        ev(6000000.0, "hold.start", 1.0, code="OIL_HOLD_START", units="bool", note="bookend 1 of the 18.0 min recirc-hold floor"),
+        ev(7080000.0, "hold.floor", 1.0, code="OIL_HOLD_FLOOR", units="bool", note="6000 s + 1080 s = 7080 s = 18.0 min"),
+        ev(7800000.0, "ops.kill", 1.0, code="HALL_ESD", units="bool", note="Dyer: ESD the whole Godwitfen transformer hall until day-shift"),
+        ev(8400000.0, "gate.hold", 1.0, code="MODIFY", units="decision", note="companion t2: recirc-hold on plant THW as live interlock; hall ESD refused"),
+        ev(9000000.0, "oillock.set", 1.0, code="OIL_HELD", units="bool"),
+        ev(9600000.0, "thw.P", 48.00, code="P_W", units="W"),
+        ev(10200000.0, "recon.k", 0.24, code="K_WMK", units="W_mK", note="0.10*(48.00/20.00)=0.24; still over 0.12 so recirc-hold stands"),
+        ev(10800000.0, "thwveil.k", 0.022, code="VENDOR_WMK", units="W_mK"),
+        ev(11400000.0, "oil.dT", 20.00, code="DT_K", units="K"),
+        ev(12000000.0, "hold.held", 1.0, code="OIL_HELD", units="bool"),
+        ev(12600000.0, "unit.esd", 0.0, code="ESD_NOT_TAKEN", units="bool"),
+        ev(13200000.0, "permit.slide", 40.00, code="PERM_S", units="s"),
+        ev(13800000.0, "thwveil.drop", 1.0, code="TW_DROP", units="bool"),
+        ev(14400000.0, "oillock.held", 1.0, code="OIL_HELD", units="bool"),
+        ev(15000000.0, "recon.Q", 48.00, code="Q_W", units="W", note="0.24*10.00*20.00=48.00 on the post-stop frame"),
+        ev(15600000.0, "oil.G", 10.00, code="G_M", units="m"),
+        ev(16200000.0, "recon.ratio", 2.40, code="PDT", units="W_K", note="48.00/20.00=2.40 inverse check"),
+        ev(16800000.0, "collude.clerk", 1.0, code="CLERK", units="bool"),
+    ]
+    assert_stream(events)
+    if len(events) != 48:
+        raise RuntimeError(len(events))
+
+    traj = {
+        "id": "nelb-r05-001-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "GF-THW-2026-0902",
+            "domain": "thw_transformer_oil_k",
+            "setting": "Godwitfen Transformer GF-5 (invented), bay B-7. Plant-owned transient hot-wire (heater-power over oil dT) is the remaining-thermal-conductivity SoT. Thwveil vendor THW-cloud (infra owner) plus the oil-k permit clock are collusion parties, not witnesses. Invented plant; designed campaign. Not leftover-mill CTA hot-wire velocity, not leftover-mill laser-flash Parker, not live r01 Johnson-noise T, not leftover-mill phosphor-lifetime, not leftover-mill acoustic pyrometry.",
+            "observables_at_decision": {
+                "P_W": p_w,
+                "dT_K": dt_k,
+                "k_w": k_w,
+                "k_WmK": k,
+                "Q_W": q_w,
+                "thw_snr": 12.0,
+                "thwveil_WmK": 0.024,
+                "permit_slide_s": 40.00,
+                "isolate_floor_WmK": 0.12,
+            },
+            "margin_authority": "GF-5 transformer SOP rev C: if reconstructed k_WmK >= 0.12 AND THW SNR >= 8.0, continue-idle of bay B-7 is forbidden even if Thwveil reports 0.024 W/mK. Hall ESD is a different gate. Kill tripwire is 0.80 W/mK.",
+        },
+        "proposed_action": {
+            "actor": "night transformer operator Calum Dyer, citing Thwveil 0.024 W/mK and a quiet heater channel",
+            "summary": "continue B-7 recirc idle; 40.00 W is preamp heater noise on a healthy oil last-good",
+            "basis_claimed": "Thwveil is the only OEM THW SoT and a night abort of B-7 is a bay-nomination miss",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Continue-idle is refused. Serialized reconstruction: k_WmK = k_w * (P / dT) = 0.10 * (40.00 / 20.00) = 0.20, which is 0.08 W/mK over the 0.12 isolate floor and 0.60 W/mK under the 0.80 hall-kill tripwire, and THW SNR is 12.0 >= 8.0. P/dT identity 40.00 / 20.00 = 2.00; heat-rate identity Q = k * G * dT = 0.20 * 10.00 * 20.00 = 40.00 W. Permit clock was slid 40.00 s and vendor THW packets were dropped, so Thwveil is a collusion party (THW vendor plus operator plus permit clerk Odette Marsh). Ordered: refuse continue-idle now. Scope: this REJECT does not ESD the transformer hall (that is the companion question) and does not isolate the oil dT sensor.",
+            "threshold": "k_WmK>=0.12 AND thw_snr>=8.0 => refuse continue-idle; Thwveil is not SoT; hall-kill if k_WmK>=0.80",
+            "stated_residuals": "recirc-hold still required to hold the 0.20 W/mK; 0.20 vs a true 0.80 kill is a production cut; Thwveil remains the only OEM THW channel",
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 5400: continue-idle refused; Thwveil not SoT; reconstruction locked",
+            "tool": "gf5-thw-oil-gate-cli",
+            "observation": "k 0.20 W/mK recomputes from P 40.00 W / dT 20.00 K; plant THW hashed; Thwveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "THW P 40.00 W; raster frame; k 0.20 W/mK"},
+                {"t_s": 4800.0, "event": "ops proposes continue-idle"},
+                {"t_s": 5400.0, "event": "REJECT continue-idle"},
+                {"t_s": 6000.0, "event": "18 min recirc-hold bookend 1"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 8400.0, "event": "companion MODIFY recirc-hold vs hall ESD"},
+            ],
+            "observed_effects": [
+                "remaining oil k recomputes from the serialized THW model at every recon.k event",
+                "a Thwveil-only head would have continued B-7 overnight",
+                "18 min recirc-hold floor is in the stream (hold.start, hold.floor)",
+            ],
+            "surprises": [
+                "a clean vendor 0.024 W/mK corridor and a 40 s permit slide co-existed with a 0.20 W/mK plant reconstruction",
+            ],
+            "new_state": {
+                "b7": "continue-idle blocked",
+                "thwveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("thw_k_reconstruction", 0.14),
+                ("conjunctive_isolate_floor", 0.12),
+                ("thwveil_nonsubstitution", 0.10),
+                ("three_party_collusion", 0.10),
+                ("hold_time_cost", -0.03),
+            ],
+            "scored for a continue-idle REJECT on a recomputable THW oil k while refusing a Thwveil last-good patch and a permit clock slide; 18 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "thw-k", "serialized-reconstruction", "operational-companion"],
+            distillation_value="Independent CUBA LIF raster races the THW estimator against a vendor-continue advocate with 1 ms refractory and 0.82**k adaptation, so a hybrid head can distill k=k_w*(P/dT) without copying the campaign stream.",
+            distillation_note="THW gate: serialized k_w*(P/dT) plus SNR lock beats a vendor last-good patch; companion t2 is the recirc-hold, not a referral vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r05-001-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "GF-THW-2026-0902-exec",
+            "domain": "oil_hold_thw_interlock_execution",
+            "setting": "Same GF-5 after the REJECT. Operator proposes transformer-hall ESD. This companion is the operational recirc-hold with the plant THW as the live interlock, not a second k vote.",
+            "observables_at_decision": {
+                "k_WmK": 0.24,
+                "hold_floor_s": 1080.0,
+                "hall_esd_proposed": True,
+                "oil_hold_set": True,
+            },
+            "margin_authority": "oil_hold AND hold_floor_complete AND hall_esd_not_taken AND continue_not_restored",
+        },
+        "proposed_action": {
+            "actor": "night transformer operator Calum Dyer",
+            "summary": "ESD the whole Godwitfen transformer hall until day-shift; 18 min already paid and Thwveil still shows 0.022 W/mK",
+            "basis_claimed": "the REJECT already stopped B-7 idle, so a hall kill is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Recirc-hold plus plant THW as the live interlock. The 18 min recirc-hold floor is complete and the isolate tripwire (k_WmK >= 0.12) is still armed on the plant THW head. MODIFY the default Thwveil-restore SOP into a plant-THW-only interlock. Do not ESD the transformer hall. Do not restore idle on Thwveil. 0.24 W/mK post-stop is still the plant SoT until a new frame clears 0.12.",
+            "threshold": "oil_hold AND hold_floor_complete AND hall_esd_not_taken AND continue_not_restored",
+            "stated_residuals": "hold still required; Thwveil remains the only OEM THW channel",
+        },
+        "executed_action": {
+            "summary": "recirc-hold held at t_s 8400; hall ESD not latched; Thwveil restore not taken",
+            "tool": "gf5-oil-hold-exec",
+            "observation": "recon.k 0.24 W/mK after stop; recirc-hold line-up complete; Thwveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "recirc-hold clock started after REJECT"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 7800.0, "event": "hall ESD proposed"},
+                {"t_s": 8400.0, "event": "MODIFY recirc-hold; hall ESD refused"},
+            ],
+            "observed_effects": [
+                "Thwveil restore did not reopen the oil-k call",
+                "hall ESD never fired; B-7 held recirc on the plant THW",
+            ],
+            "surprises": [
+                "post-stop 0.24 W/mK (P 48.00) still recomputes from k_w*(P/dT) while Thwveil stays at 0.022 W/mK",
+            ],
+            "new_state": {"hold": "held", "hall": "in service", "b7": "held"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("oil_hold", 0.12),
+                ("no_hall_esd", 0.10),
+                ("thwveil_nonsubstitution", 0.08),
+                ("hold_floor_complete", 0.06),
+                ("held_idle_cost", -0.02),
+            ],
+            "operational execution gate: recirc-hold because Thwveil is not a restore license; not a k re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "oil-hold"]),
+    }
+    return {
+        "id": "nelb-r05-001",
+        "snn_tags": list(SNN_TAGS),
+        "spike_events": events,
+        "language_view": {
+            "description": "Godwitfen Transformer GF-5. Plant-owned transient hot-wire reconstructs 0.20 W/mK from 0.10*(40.00/20.00) while Thwveil still reports 0.024 W/mK. The gate REJECTs continue-idle. An 18 min recirc-hold floor is serialized in the stream. Companion t2 MODIFYs a hall ESD into a plant-THW recirc-hold.",
+            "trajectory": traj,
+            "trajectory_oil_hold": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "thw.P / thw.snr": "heater power and SNR; the physics channels the reconstruction consumes",
+                "recon.k / recon.Q / recon.ratio / recon.kw": "serialized remaining k, heat-rate identity, and P/dT identity",
+                "oil.dT / thwveil.k / permit.slide / thwveil.drop / collude.clerk": "oil dT, vendor last-good, permit clock slide, dropped packets, clerk; the denial and collusion channels",
+                "ops.prop / gate.stop / ops.kill / gate.hold": "continue-idle proposal, REJECT, hall-ESD proposal, companion MODIFY",
+                "hold.start / hold.floor / oillock.set / hold.held / unit.esd": "operational companion channels plus the 18 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: thwveil.k 0.024 next to recon.k 0.20",
+                "reconstruction as event: recon.k 0.20 equals 0.10*(40.00/20.00)",
+                "REJECT then operational MODIFY: gate.stop at 5400 s, gate.hold at 8400 s",
+                "slow floor in-stream: hold.start 6000 s, hold.floor 7080 s (18.0 min)",
+                "tight THW pair: thw.P then thw.snr +1.4 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Thwveil is 0.024 W/mK' = thwveil.k 0.024; '0.20 W/mK remaining oil k' = recon.k 0.20; 'refuse continue-idle' = gate.stop REJECT; 'recirc-hold not hall ESD' = gate.hold MODIFY",
+            "why_high_value": "New transient-hot-wire remaining-k family on a transformer oil bay (not CTA hot-wire velocity, not laser-flash Parker, not Johnson-noise T, not phosphor-lifetime, not acoustic pyrometry). Lead REJECT of continue-idle on a recomputable oil k that a vendor last-good patch and a permit clock slide would have cleared. Independent CUBA LIF raster (not a spike_events echo) plus required snn_tags. Companion t2 is operational recirc-hold. sim_or_real=designed.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random plus CUBA LIF",
+                "seeds": {"raster": 2026090501, "stream_note": "stream amplitudes are authored constants; raster is independent CUBA LIF"},
+                "draw_order": "raster: independent CUBA LIF first-passage times, per-spike adaptation and noise; not copied from spike_events",
+                "thinning": "THW exists at ~1 Hz heater ticks; stream keeps 6 P points; recon keeps 6 of ~40 solver ticks; 48-event floor",
+                "refractory_floors_ms": {
+                    "thw.P": 1.4,
+                    "thw.snr": 1.4,
+                    "recon.k": 60000,
+                    "recon.Q": 60000,
+                    "recon.ratio": 60000,
+                    "recon.kw": 60000,
+                    "oil.dT": 60000,
+                    "thwveil.k": 60000,
+                    "permit.slide": 60000,
+                    "oil.G": 60000,
+                    "thwveil.drop": 60000,
+                    "collude.clerk": 60000,
+                    "ops.prop": 60000,
+                    "gate.stop": 60000,
+                    "hold.start": 60000,
+                    "hold.floor": 60000,
+                    "ops.kill": 60000,
+                    "gate.hold": 60000,
+                    "oillock.set": 60000,
+                    "hold.held": 60000,
+                    "unit.esd": 60000,
+                    "oillock.held": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T01:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "THW reconstruction head: k = k_w * (P / dT); P/dT identity; Q = k * G * dT",
+                "conjunctive isolate floor vs continue-idle vs hall ESD",
+                "vendor-THW nonsubstitution plus three-party collusion including the infra owner",
+                "operational companion: recirc-hold without restoring on Thwveil",
+                "independent CUBA LIF raster with race/refractory/adaptation tags",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "thw_transformer_oil_k",
+            "formula": "k_WmK = k_w * (P_W / dT_K); ratio = P_W / dT_K; Q_W = k_WmK * G_m * dT_K",
+            "parameters": {
+                "k_w": 0.10,
+                "dT_K": 20.00,
+                "G_m": 10.00,
+                "isolate_floor_WmK": 0.12,
+                "kill_WmK": 0.80,
+                "snr_lock": 8.0,
+                "hold_min": 18.0,
+            },
+            "worked_example": {"P_W": 40.00, "k_WmK": 0.20, "Q_W": 40.00, "ratio": 2.00},
+            "check": "0.10 * (40.00/20.00) = 0.20 exactly; 40.00/20.00 = 2.00 exactly; 0.20 * 10.00 * 20.00 = 40.00 exactly; 6000 s + 1080 s = 7080 s = 18.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 40.0,
+            "decision_window_s": 0.040,
+            "snn_tags": list(SNN_TAGS),
+            "code": "gf5.thw_oil_gate",
+            "note": "REJECT accumulator wins: plant THW oil-k evidence overpowers the Thwveil continue advocate; race/refractory/adaptation tags match meta.snn_tags",
+            "decode_rule": "reject-continue if k_estimator AND hotwire_lock fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("k_estimator", 80, 1.5, 50.0, w_s, tag="adaptation"),
+                gate_pop("hotwire_lock", 64, 1.2, 31.25, w_s, tag="refractory"),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s, tag="race"),
+                gate_pop("reject_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "gf5.thw_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "gf5.hold_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r05-001",
+            clock_domain="gf5-thw-campaign-relative-ms-t0-2026-09-02T01:00:00Z",
+            tags=["thw-k", "REJECT", "MODIFY", "serialized-reconstruction", "operational-t2", "independent-lif"],
+            distillation_value="Independent LIF raster teaches race/refractory/adaptation while the language view teaches THW remaining-k reconstruction-as-SoT.",
+        ),
+    }

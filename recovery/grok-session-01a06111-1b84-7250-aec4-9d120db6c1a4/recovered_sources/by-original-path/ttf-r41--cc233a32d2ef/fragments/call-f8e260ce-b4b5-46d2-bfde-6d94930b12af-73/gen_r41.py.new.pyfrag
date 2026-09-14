@@ -1,0 +1,4 @@
+                "Strand-Mat SM-4 is already closing at 28 mm/s when platen-face TC crosses 198 C "
+                "against a 185 C cook cap. Core-staff IR on the same opening still advertises "
+                "142 C as if the mat were cold. Face-first clamps the ram; staff-first would "
+                "keep the 28 mm/s slam.",

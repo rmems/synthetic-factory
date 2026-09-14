@@ -1,0 +1,139 @@
+            (
+                "summary",
+                "Process-correct MODIFY held SG at 1.168. At 22.600 ms stored crystal-bridge load collapsed "
+                "a baffle bay. Clamp reduced recycle energy; it did not dump the bridge charge. "
+                "Partnered negative: process heads stay honest; world loss is named, not netted.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("recycle", "clamp executed; SG 1.168 < 1.220"),
+                        ("crystal_bridge", "baffle collapse at 22.600 ms"),
+                        ("repair", "15 min emergency isolate + bridge pull"),
+                        ("mission", "crystallizer still nucleating; bridge precursor controlled"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Neither mother-liquor density nor agitator rpm predicted the bridge charge; ae.bridge.xtal is a new channel at 22.600 ms, 17.220 ms after the gate, still inside the 42 ms raster.",
+                    "Delayed (15 min): emergency isolate and bridge pull close the collapse. Named un-netted loss, not folded into task_progress.",
+                ],
+            ),
+            (
+                "un_netted_loss",
+                "15 min emergency isolate + bridge pull after a crystal-bridge collapse. Safety "
+                "head -0.62 prices the precursor; task_progress stays +0.34 because the recycle clamp "
+                "completed under the 1.220 SG cap. World loss is named here, not subtracted from process heads.",
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "dens.ml.sg (4.480 ms, 1.284 SG)"),
+                        ("loser", "enc.agit.rpm (4.700 ms, 48 rpm)"),
+                        ("margin_us", 220),
+                        (
+                            "counterfactual_if_reversed",
+                            "Agitator-first by < 220 us inside the 380 us window would have kept "
+                            "42 m3/h cruise; predicted next-sample 1.246 SG would have exceeded the "
+                            "1.220 cap even without the bridge charge. The MODIFY is still the "
+                            "correct process. The collapse is a later world charge either way, cheaper "
+                            "with the clamp than without.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 22600),
+            (
+                "reward_inflection_note",
+                "Safety collapses at the 22.600 ms crystal-bridge drop (tick t_us=22600), inside the "
+                "42 ms raster. The correct MODIFY at 5.380 ms is in the same excerpt. Do not put "
+                "inflection on the +15 min isolate tick.",
+            ),
+            ("delayed_surprise_s", 900.0),
+            ("abort_s", 900),
+        ]
+    )
+    spikes = [
+        spike("enc.recycle.ctx", 1.080, 0.43),
+        spike("dens.ml.sg", 2.160, 0.62),
+        spike("enc.agit.rpm", 3.240, 0.55),
+        spike("dens.ml.sg", 4.480, 1.34),
+        spike("enc.agit.rpm", 4.700, 1.12),
+        spike("ctrl.gate", 5.380, 0.97),
+        spike("dens.ml.sg", 7.100, 0.81),
+        spike("enc.agit.rpm", 10.200, 0.66),
+        spike("ctrl.gate", 15.000, 0.84),
+        spike("ae.bridge.xtal", 22.600, 1.42),
+        spike("ae.bridge.xtal", 23.800, 0.91),
+        spike("enc.recycle.ctx", 30.400, 0.41),
+        spike("dens.ml.sg", 38.200, 0.58),
+    ]
+    ras = raster_core(
+        42,
+        76,
+        24,
+        77,
+        routing(
+            "thalamic-relay.dens-recycle",
+            "spikenaut.policy.recycle-clamp",
+            [
+                ("relay.dens.ml", "policy.recycle_clamp", 0.64),
+                ("relay.enc.agit", "policy.slurry_hold", 0.29),
+                ("relay.ae.bridge", "policy.recycle_clamp", -0.46),
+            ],
+            "noradrenaline",
+            0.05,
+            "surprise-gated pre_post_stdp; NA at density win (4.480 ms) opens a 50 ms eligibility "
+            "trace that still covers the 22.600 ms crystal-bridge collapse",
+        ),
+        excerpt,
+        extra=extra,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.38),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("recycle_clamp", 48, 0.50, 220.0, 4),
+                    pop("slurry_hold", 48, 0.50, 50.0, 1),
+                    pop("sg_cap_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r56-297",
+        "Tereph-Vale crystallizer / CX-3: mother-liquor density beats agitator rpm by 220 us; correct "
+        "MODIFY still eats an in-window crystal-bridge collapse (partnered negative total -0.44)",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Partnered negative. Process-correct MODIFY; world still charges inside the "
+        "42 ms raster. total -0.44 = 0.34 + -0.62 + -0.16 + 0.04 + -0.04. Named "
+        "isolate+bridge-pull loss is not netted into task_progress.",
+        ras,
+        gate,
+        "pta-crystallizer",
+        [
+            "modify",
+            "partnered-negative-total",
+            "independent-lif-raster",
+            "sidecar-sim-only",
+            "in-window-world-charge",
+            "designed",
+        ],
+        "A critic can see the world-charge as a LIF burst inside the raster while "
+        "process heads stay honest. Credit assignment is spikes, not prose across a "
+        "15 min gap.",
+        2,
+    )

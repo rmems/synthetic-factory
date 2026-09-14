@@ -1,0 +1,46 @@
+{
+  "agent_ids": [
+    "01a0640b-476c-7833-9f97-9b8a4e23d592"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 1,
+  "final_state": "unknown",
+  "hunk_evidence_count": 8,
+  "original_basename": "build_chosen.py",
+  "original_path": "/tmp/ffpc-r21-stage/build_chosen.py",
+  "path_key": "ffpc-r21-stage--cea6258c3ea5",
+  "terminal_event_ids": [
+    "01a0640b-476c-7833-9f97-9b8a4e23d592:call-08ce2cdf-cc8f-448c-bda0-ceef13c7accd-73",
+    "01a0640b-476c-7833-9f97-9b8a4e23d592:call-91afe7d7-e031-45d4-bc3c-b50d6163c320-38",
+    "01a0640c-18cb-7a70-84e4-79dc2c14293d:call-6ec80454-109d-43a6-87ee-589d2a880980-66"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 2,
+  "unresolved_events": [
+    {
+      "channel": "terminal",
+      "event_id": "01a0640b-476c-7833-9f97-9b8a4e23d592:call-91afe7d7-e031-45d4-bc3c-b50d6163c320-38",
+      "journal_line": 205,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640b-476c-7833-9f97-9b8a4e23d592/updates.jsonl",
+      "operation": "inline_python_write_text",
+      "reason": "inline_python_write_text was recorded but is not conclusively reproducible without execution",
+      "timestamp_utc": "2026-09-02T22:36:52.505Z"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0640b-476c-7833-9f97-9b8a4e23d592:call-7759658c-be30-4074-97ed-426d62483d4b-72",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r21-stage--cea6258c3ea5/fragments/call-7759658c-be30-4074-97ed-426d62483d4b-72/build_chosen.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r21-stage--cea6258c3ea5/fragments/call-7759658c-be30-4074-97ed-426d62483d4b-72/build_chosen.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

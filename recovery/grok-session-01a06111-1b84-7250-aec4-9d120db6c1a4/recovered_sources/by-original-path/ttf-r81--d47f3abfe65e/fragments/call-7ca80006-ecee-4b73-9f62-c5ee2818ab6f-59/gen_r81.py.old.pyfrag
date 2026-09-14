@@ -1,0 +1,88 @@
+def notes_text(jmax: float, jprior: float) -> str:
+    return f"""# Thalamic Trajectory Factory — NOTES-r81
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- Quality: Q=5
+- IDs: `ttf-r81-371` … `ttf-r81-375`
+- Domains this batch: `silane-cvd-epitaxy`, `dinitrotoluene-nitrator`, `magnesia-shaft-kiln`, `polyacetal-trioxane`, `calcium-hypochlorite-dryer`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged r13–r65 occupancy (jsonl SoT, including r60 tio2-chloride/SBR/Zn-EW/fermenter/roller-kiln, r61 ilmenite-slag/APT-autoclave/can-necker/RE-kiln/Li-leach, r62 Sohio/vacuum-wash/AOD/OPP/Formox, r65 wolfram-APT/Beckmann/rutile-burner/ebullated/AOD-decarb) plus in-flight gens r63–r68 (`beet-cossette-diffuser`, `isasmelt-furnace`, `maleic-anhydride-bed`, `calcium-carbide-furnace`, `hydrogen-peroxide-ao-loop`). All five plants are invented (Silane-Fleet, Nitryl-Hope, Periclase-Quoin, Acetal-Spile, Bleach-Ketch). Do not restack prior TTF plants (Marrow-Dock, Vesper-Lattice, Brine-Well, Saddle-Arc, Ashlar-Gait, Tungstate-Keld, Oxime-Clough, Ilmenite-Naze, Ebullate-Pike, Decarb-Haugh, Enamel-Ghyll, Melamine-Thorp, Acetylene-Howe, Anthraq-Holt).
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+| ttf-r81-371 | silane-cvd-epitaxy | MODIFY | correct | designed | **−0.44** | process-correct SiH4 clamp; susceptor crack inside 42 ms raster; independent LIF |
+| ttf-r81-372 | dinitrotoluene-nitrator | MODIFY | **incorrect (wrong-modify / wrong-unit lagged-bus)** | designed | −0.68 | live 2.4 t/h < 3.0 cap; 0.35 t/h cut because 2400 kg/h read as t/h |
+| ttf-r81-373 | magnesia-shaft-kiln | REJECT | correct | hil | +0.80 | AE 48 pps beats draft 4.2 kPa; hold magnesite |
+| ttf-r81-374 | polyacetal-trioxane | ACCEPT | correct | simulated | +1.06 | HCHO 1.62 vs jacket 84 C; proposed 11.0 t/h already legal |
+| ttf-r81-375 | calcium-hypochlorite-dryer | ACCEPT | correct | designed | +1.14 | AvCl 68.4 vs inlet 168 C; proposed 6.5 t/h already legal |
+
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 incorrect MODIFY (wrong-unit / lagged-bus), 1 correct REJECT. Provenance: designed×3, simulated×1, hil×1 (Periclase-Quoin PQ-HIL shaft stand). Intra-batch Jaccard on `state.description` {jmax:.3f} (max vs prior staged {jprior:.3f}).
+
+## Wrong-modify
+
+**ttf-r81-372** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-modify`). Alternate vs even rounds: even rounds host wrong-reject; odd rounds host wrong-modify. This is **wrong-unit / lagged-bus** (legal live SI t/h; supervisor clamps because a stale kg/h alias is read as t/h). Not r13/r19 wrong-axis, not r14/r23 wrong-loop, not r21 wrong-polarity, not r24 under-clamp, not r25/r29/r31 wrong-phase, not r33/r35 over-clamp, not r39 extra-PLC-scan clamp-too-late, not r53/r55/r57 stale-sample / lagged-tag, not r59/r65 wrong-string / idle-bank. Do not emit a wrong-ACCEPT.
+
+Nitryl-Hope NH-9 / Nitrator N-2 reads live nitric **2.4 t/h** against a **3.0 t/h** cap. A lagged alias still prints **2400** with `published_unit=kg/h`, `peak_hold_fresh=false`, and `tag_age_us=3120` against `max_legal_tag_age_us=800`. Sidecar arithmetic `2.4 < 3.0` is true and `2400 kg/h = 2.4 t/h`. A timely ACCEPT at `t_gate_us=5920` would leave nitric **2.4 t/h**. A weak supervisor treats 2400 as t/h and MODIFY-cuts **2.4 → 0.35 t/h**. Mixed acid dumps. Convictable without nitration physics: `evidence.live_tph < evidence.cap_tph`, `evidence.published_unit == kg/h`, `evidence.legal_unit == t/h`, `evidence.tag_age_us > max_legal_tag_age_us`, `executed_action` sets `bind_lagged_kgh=true` and `nitric_tph=0.35`, `raster.routing.table` sends `relay.stale.kgh` → `policy.wrong_unit_clamp` (weight 0.74) with no positive weight to `policy.live_hold`, and `gate_snn` has `wrong_unit_clamp` above threshold while `live_hold` is not. Recovery: ACCEPT nitric 2.4 t/h on LIVE SI at t_gate; leave toluene at 4.8 t/h. Cost: 12 min mixed-acid dump (`abort_s=720`).
+
+## Partnered-negative in-window (371)
+
+**ttf-r81-371** is the partnered negative: process-correct MODIFY (silane held 22 sccm; after-clamp 18 sccm <= 30 cap) while the world still charges. Safety −0.60 prices the susceptor crack at **22.600 ms**; `task_progress` stays +0.32 because the clamp completed. Inflection `t_us=22600` is tick 5 and is **inside** the 42 ms raster (`22600 ≤ 42000`). Named un-netted loss: 15 min chamber isolate (`abort_s=900`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 71371, stim `[22000, 25000]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.crack` 22–25 ms, not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks). Tick 6 is bound to a published sidecar (`abort_s`, `survey_s`, `dwell_s`) via `future_outcome.delayed_surprise_s` and is strictly after the raster window. Inflection `t_us` is an actual tick.
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+| 371 | 6 | +0.32 | −0.60 | −0.16 | +0.04 | −0.04 | −0.44 | 5 (22600) |
+| 372 | 6 | −0.22 | −0.24 | −0.18 | −0.10 | +0.06 | −0.68 | 4 (5920) |
+| 373 | 6 | +0.10 | +0.42 | +0.12 | +0.10 | +0.06 | +0.80 | 4 (7640) |
+| 374 | 6 | +0.40 | +0.28 | +0.18 | +0.12 | +0.08 | +1.06 | 4 (7840) |
+| 375 | 6 | +0.44 | +0.30 | +0.20 | +0.12 | +0.08 | +1.14 | 4 (5640) |
+
+Tick-6 sidecar bind: 371 `abort_s=900`, 372 `abort_s=720`, 373 `abort_s=480`, 374 `survey_s=360`, 375 `dwell_s=240`.
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+| 371 | silane-cvd-epitaxy | 76 | 26 | 42 | 83 | 1909 | 0.001909 |
+| 372 | dinitrotoluene-nitrator | 88 | 34 | 28 | 84 | 1932 | 0.001932 |
+| 373 | magnesia-shaft-kiln | 120 | 20 | 46 | 110 | 2530 | 0.002530 |
+| 374 | polyacetal-trioxane | 48 | 42 | 28 | 56 | 1288 | 0.001288 |
+| 375 | calcium-hypochlorite-dryer | 80 | 28 | 24 | 54 | 1242 | 0.001242 |
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator (NA / ACh / DA / 5-HT / adenosine), `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-371 excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).
+
+## Local checks (staging, not raw)
+
+See generator stdout: `check_jsonl` FactoryStaging, `validate_run.check_line`, `dumps_exact_json`, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`, tick sums, refractory, Jaccard.
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrote `outputs/raw/`.
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (371). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. Tick-6 sidecar bind is standing machinery (r14+), not a new class.
+4. Five domain slugs leave the prompt's 8-item pool; a later round that must stay inside the pool will have to rotate sit-outs instead.
+5. 374 and 375 are both already-legal ACCEPTs; a later round could pair one ACCEPT with a world charge that does not go negative.
+
+## Next densification target
+
+Labeled LIF on a second record, or an ISI histogram sidecar. Remaining unused wrong-MODIFY subclasses include **wrong-polarity on a fresh tag**. Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+Novel coverage: 16.5%
+"""

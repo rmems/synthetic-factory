@@ -1,0 +1,3 @@
+    head = apply_pairs(
+        head,
+        [

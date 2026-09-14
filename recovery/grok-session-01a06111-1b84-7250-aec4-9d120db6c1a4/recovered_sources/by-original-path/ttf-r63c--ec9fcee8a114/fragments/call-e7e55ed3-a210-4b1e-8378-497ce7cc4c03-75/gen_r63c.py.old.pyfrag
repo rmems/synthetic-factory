@@ -1,0 +1,21 @@
+                            "summary",
+                            "Wrong-MODIFY bound a lagged slm register as if it were sccm. Live 42.0 sccm was over the 28.0 cap at t_gate; 0.042 slm was the same MFC delayed 96 ms, not a 0.042 sccm legal flow. Target over-resputtered. 10 min re-sputter (abort_s=600). Correct gate was MODIFY Ar 42.0 -> 18.0 sccm leaving RF at 180 W.",
+                        ),
+                        (
+                            "state_delta",
+                            OrderedDict(
+                                [
+                                    ("feed", "Ar stays 40.0 sccm after under-trim; RF 180 W on wrong unit"),
+                                    ("plasma", "41.2 sccm still over 28.0 cap; film goes metallic"),
+                                    ("repair", "10 min target re-sputter and chamber re-pump"),
+                                    ("mission", "SrTiO3 stack deferred"),
+                                ]
+                            ),
+                        ),
+                        (
+                            "surprises",
+                            [
+                                "Live-sccm-first was the correct order and the number was over cap; the MODIFY spent that win on a lagged slm publisher of the same MFC.",
+                                "Delayed (abort_s=600): PM-6 holds 10 min while C-3 is re-pumped and the target is re-sputtered; next SrTiO3 stack 12 min late.",
+                            ],
+                        ),

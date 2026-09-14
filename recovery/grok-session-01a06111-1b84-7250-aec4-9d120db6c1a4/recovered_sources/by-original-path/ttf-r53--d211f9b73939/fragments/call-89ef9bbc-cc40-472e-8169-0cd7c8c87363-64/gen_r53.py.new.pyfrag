@@ -1,0 +1,21 @@
+                            [
+                                "ae.unmelt.pps 28 over 8 cap",
+                                "enc.motor.A 62 under 95 cap",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "AE-first latches hold; current-first keeps 420 rpm on a "
+                            "'amps still legal' model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "320 us = one AE puck slot versus the motor-current publisher on this "
+                            "HIL compounder bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 180 us vs combined jitter 58 us (AE 26 + motor 32): 3.10x over "
+                            "a 2.0x trust floor. Reversing order by < 180 us inside the 320 us "
+                            "window would have kept 420 rpm into an unmelted slug.",
+                        ),

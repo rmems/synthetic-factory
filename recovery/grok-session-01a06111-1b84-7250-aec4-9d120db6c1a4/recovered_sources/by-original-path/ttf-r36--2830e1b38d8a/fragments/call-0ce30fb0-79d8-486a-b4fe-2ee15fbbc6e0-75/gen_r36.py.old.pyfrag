@@ -1,0 +1,23 @@
+    params = OrderedDict(
+        [
+            ("melt_t_h", 28.0),
+            ("prill_mm", 1.80),
+            ("hold", False),
+        ]
+    )
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Tower-T6 at Prill-Garth PG-3 holds 1.80 mm mean prill under a 2.40 mm shatter "
+                "cap with a 28 t/h melt already filed under the 34 t/h shower cap. Tower draft "
+                "is 1.80 kPa, still legal. Optic-first ACCEPTS the filed melt; draft-first would "
+                "have extra-cut a legal urea shower.",
+            ),
+            ("domain", "urea-prill-tower"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Hold the 28 t/h melt while mean prill stays <= 2.40 mm and tower draft stays "
+                "<= 2.40 kPa; do not extra-cut a legal urea shower.",
+            ),

@@ -1,0 +1,10 @@
+                    "anode-bake-furnace",
+                    [
+                        "reject",
+                        "hil",
+                        "ae-vs-flue",
+                        "pitch-fire",
+                        "tick6-sidecar-bound",
+                    ],
+                    "Teaches that a legal flue-O2 header can lose to pitch-fire AE inside a 320 us "
+                    "window; reversing 180 us would have pushed a pitch-fired pit.",

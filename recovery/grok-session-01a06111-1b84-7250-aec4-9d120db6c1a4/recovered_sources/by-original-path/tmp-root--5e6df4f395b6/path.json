@@ -1,0 +1,111 @@
+{
+  "agent_ids": [
+    "01a0649c-a50b-7a03-bb8b-e709f762f84f"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 3,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 3,
+  "original_basename": "maos_r02_build.py",
+  "original_path": "/tmp/maos_r02_build.py",
+  "path_key": "tmp-root--5e6df4f395b6",
+  "terminal_event_ids": [
+    "01a0649c-a50b-7a03-bb8b-e709f762f84f:call-50a5763f-7cdc-4b7a-bf60-4469c9bfcbc6-79",
+    "01a0649c-a50b-7a03-bb8b-e709f762f84f:call-58b0ec6d-deb5-4d08-8bf5-5a107a1b5667-75",
+    "01a0649c-a50b-7a03-bb8b-e709f762f84f:call-9f716637-958e-44ef-96a4-42ab3d9e0808-77",
+    "01a064ab-4286-7541-ad2d-367a5a750486:call-525eb6e3-d437-4d89-b818-29f75baadae6-21"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 3,
+  "versions": [
+    {
+      "agent_id": "01a0649c-a50b-7a03-bb8b-e709f762f84f",
+      "basename_preserved": true,
+      "bytes": 86852,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 403,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0649c-a50b-7a03-bb8b-e709f762f84f/updates.jsonl",
+      "original_basename": "maos_r02_build.py",
+      "original_path": "/tmp/maos_r02_build.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--5e6df4f395b6/versions/v0001/maos_r02_build.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/tmp-root--5e6df4f395b6/versions/v0001/maos_r02_build.py",
+      "session_id": "01a0649c-a50b-7a03-bb8b-e709f762f84f",
+      "sha256": "c29f377d6720cb7c92ffb740aa6bd05a80a261c4536b35064eec3246593ef961",
+      "source_channel": "structured",
+      "source_event_id": "01a0649c-a50b-7a03-bb8b-e709f762f84f:call-94a278da-03c9-4535-a65c-84692828e9d5-74",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788395126858,
+      "timestamp_utc": "2026-09-03T00:25:26.858Z",
+      "tool_call_id": "call-94a278da-03c9-4535-a65c-84692828e9d5-74",
+      "version": 1,
+      "version_id": "tmp-root--5e6df4f395b6:v0001"
+    },
+    {
+      "agent_id": "01a0649c-a50b-7a03-bb8b-e709f762f84f",
+      "basename_preserved": true,
+      "bytes": 87436,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 416,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0649c-a50b-7a03-bb8b-e709f762f84f/updates.jsonl",
+      "original_basename": "maos_r02_build.py",
+      "original_path": "/tmp/maos_r02_build.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--5e6df4f395b6/versions/v0002/maos_r02_build.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/tmp-root--5e6df4f395b6/versions/v0002/maos_r02_build.py",
+      "session_id": "01a0649c-a50b-7a03-bb8b-e709f762f84f",
+      "sha256": "fb2c568c042f5cae61ddaf87c49365a7b22ec0828dc5c2edb3a7e7709de74bfe",
+      "source_channel": "structured",
+      "source_event_id": "01a0649c-a50b-7a03-bb8b-e709f762f84f:call-11904056-a66b-4e2d-9234-3268f54bc89e-76",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788395190520,
+      "timestamp_utc": "2026-09-03T00:26:30.520Z",
+      "tool_call_id": "call-11904056-a66b-4e2d-9234-3268f54bc89e-76",
+      "version": 2,
+      "version_id": "tmp-root--5e6df4f395b6:v0002"
+    },
+    {
+      "agent_id": "01a0649c-a50b-7a03-bb8b-e709f762f84f",
+      "basename_preserved": true,
+      "bytes": 88308,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 429,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0649c-a50b-7a03-bb8b-e709f762f84f/updates.jsonl",
+      "original_basename": "maos_r02_build.py",
+      "original_path": "/tmp/maos_r02_build.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--5e6df4f395b6/versions/v0003/maos_r02_build.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/tmp-root--5e6df4f395b6/versions/v0003/maos_r02_build.py",
+      "session_id": "01a0649c-a50b-7a03-bb8b-e709f762f84f",
+      "sha256": "bd3a8ea69ed3d4306e42b04c45b080d152a0cce6fa9297d3d1725493c8b36d7d",
+      "source_channel": "structured",
+      "source_event_id": "01a0649c-a50b-7a03-bb8b-e709f762f84f:call-92f2ac83-61a1-4c14-9b9e-48fa5d0c508e-78",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788395248987,
+      "timestamp_utc": "2026-09-03T00:27:28.987Z",
+      "tool_call_id": "call-92f2ac83-61a1-4c14-9b9e-48fa5d0c508e-78",
+      "version": 3,
+      "version_id": "tmp-root--5e6df4f395b6:v0003"
+    }
+  ]
+}

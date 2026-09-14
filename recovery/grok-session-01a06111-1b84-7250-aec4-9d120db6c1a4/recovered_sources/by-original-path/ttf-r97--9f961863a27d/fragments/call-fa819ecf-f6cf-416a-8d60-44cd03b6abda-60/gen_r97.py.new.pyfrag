@@ -1,0 +1,1 @@
+not r85 ratio-pair invert, not r87 wrong-deadband polarity, not r89 dual-range-wrong-band, not r95 commissioning-lag / lead-lag swap (lag tag was COMMISSIONING; both tags here are LIVE and FRESH). Do not emit a wrong-ACCEPT.

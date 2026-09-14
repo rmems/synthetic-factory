@@ -1,0 +1,7 @@
+        edge = {
+            "ttf-r90-466": "live HART PV 184.0 C < 198.0 trip; leftover HART SV sensor-head treated as process T",
+            "ttf-r90-467": "process-correct melt clamp; shower-head freeze-plug rupture inside 42 ms raster; independent LIF",
+            "ttf-r90-468": "crust AE 52 pps beats slip encoder 4.8 m/h; hold, do not slip",
+            "ttf-r90-469": "salt bath 318 C vs tube IR smear; proposed 18500 Nm3/h already legal",
+            "ttf-r90-470": "liquor 68.4 C vs vapor IR glint 88 C; proposed 3.2 t/h already legal",
+        }[rec["id"]]

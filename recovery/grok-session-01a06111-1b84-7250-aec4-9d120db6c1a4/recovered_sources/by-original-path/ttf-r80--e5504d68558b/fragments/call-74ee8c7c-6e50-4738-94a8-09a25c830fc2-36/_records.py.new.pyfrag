@@ -1,0 +1,5 @@
+                "Cativa carbonylation CR-3 at Cativa-Pightle already holds a HART primary-variable "
+                "reactor temperature of 184.0 C when that analog sample races a HART secondary-variable "
+                "sensor-head temperature still published on the same transmitter. Published trip is "
+                "198.0 C on the HART PV; a weak supervisor treats leftover HART SV as process T and "
+                "zeros a legal 18.0 t/h methanol feed.",

@@ -1,0 +1,4 @@
+                "Silane-Fleet SF-3 chamber C-7 posts a 48 sccm SiH4 overshoot against a 30 sccm "
+                "recipe ceiling, while the 150 mm wafer pyrometer still prints 1080 C (limit 1120). "
+                "MFC-priority clamps 48 -> 22 sccm; a wafer-first policy would leave cruise. A "
+                "cracked susceptor pocket is already seated and only the later AE burst names it.",

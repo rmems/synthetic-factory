@@ -1,0 +1,9 @@
+    for path in list(Path("/tmp").glob("ttf-r*-occ-*.txt")) + list(
+        Path("/tmp").glob("ttf-r*/occ-*.txt")
+    ):
+        if path.parent.name == "ttf-r116" or "r116" in path.name:
+            continue
+        # Later-round census sidecars harvest in-flight gens; they are not a claim.
+        rnd_m = re.search(r"ttf-r(\d+)", f"{path.parent.name} {path.name}")
+        if rnd_m and int(rnd_m.group(1)) >= 116:
+            continue

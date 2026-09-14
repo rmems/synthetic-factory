@@ -1,0 +1,65 @@
+                "Wrong-MODIFY dumped LG-4 feed to 2.0 t/h. Bed DP 18.2 kPa and front 41.0 C were "
+                "both still under cap; predicted next front 44.8 C still < 58.0. A timely gate is "
+                "ACCEPT hold 8.4 t/h. 11 min unused adsorb (abort_s=660). Correct gate was ACCEPT.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("feed", "early-clamped 8.4 -> 2.0 t/h; caps uncrossed"),
+                        ("adsorb", "aborted 420 s remaining"),
+                        ("bed", "forced into regen"),
+                        ("mission", "product window missed"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Front-first was the race order but 41.0 C had not crossed 58.0 C and DP 18.2 had not crossed 28.0 kPa; the MODIFY spent that win on an early dump.",
+                    "Delayed (abort_s=660): LG-4 loses 11 min unused adsorb plus one extra regen.",
+                ],
+            ),
+            (
+                "recovery",
+                OrderedDict(
+                    [
+                        (
+                            "correct_gate",
+                            "ACCEPT hold feed 8.4 t/h; leave regen false until DP or front actually crosses cap.",
+                        ),
+                        ("correct_feed_tph", 8.4),
+                        ("wrong_subclass", "clamp-too-early"),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict([("feed_tph", 2.0), ("regen", True)]),
+                        ),
+                        (
+                            "cost",
+                            "11 min unused adsorb + extra regen (task/efficiency); neither DP nor front ever crossed cap (safety near-miss of a false dump).",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.front.C (5.480 ms, 41.0 C)"),
+                        ("loser", "dp.bed.kPa (5.640 ms, 18.2 kPa)"),
+                        ("margin_us", 160),
+                        (
+                            "counterfactual_if_reversed",
+                            "DP-first by < 160 us would still be under the 28.0 kPa cap; a correct "
+                            "gate ACCEPTs 8.4 t/h either way. The wrong MODIFY spent the front win "
+                            "on a clamp-too-early dump of the same feed actuator.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 6180),
+            (
+                "reward_inflection_note",
+                "Task, efficiency, and coherence drop at the wrong MODIFY (6.180 ms, tick 4). "
+                "The 11 min unused adsorb is delayed surprise, not the inflection.",
+            ),

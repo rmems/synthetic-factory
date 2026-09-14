@@ -1,0 +1,52 @@
+{
+  "agent_ids": [
+    "01a0649c-a52f-7e72-b443-e527db254d84"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 1,
+  "original_basename": "_tail.py",
+  "original_path": "/tmp/nelb-sfw-r22/_tail.py",
+  "path_key": "nelb-sfw-r22--fd4d846f8928",
+  "terminal_event_ids": [
+    "01a0649c-a52f-7e72-b443-e527db254d84:call-52d99094-dd57-4e33-9ec1-74237d0077a0-57"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a0649c-a52f-7e72-b443-e527db254d84",
+      "basename_preserved": true,
+      "bytes": 18382,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 321,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0649c-a52f-7e72-b443-e527db254d84/updates.jsonl",
+      "original_basename": "_tail.py",
+      "original_path": "/tmp/nelb-sfw-r22/_tail.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-sfw-r22--fd4d846f8928/versions/v0001/_tail.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/nelb-sfw-r22--fd4d846f8928/versions/v0001/_tail.py",
+      "session_id": "01a0649c-a52f-7e72-b443-e527db254d84",
+      "sha256": "f4e14a41fd1bbcfa5680f57bc7277f67d83f68b75eade3423b71c60a4fb37163",
+      "source_channel": "structured",
+      "source_event_id": "01a0649c-a52f-7e72-b443-e527db254d84:call-98544a8a-0874-4f5c-ad72-858cc9e2d608-56",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788395287110,
+      "timestamp_utc": "2026-09-03T00:28:07.110Z",
+      "tool_call_id": "call-98544a8a-0874-4f5c-ad72-858cc9e2d608-56",
+      "version": 1,
+      "version_id": "nelb-sfw-r22--fd4d846f8928:v0001"
+    }
+  ]
+}

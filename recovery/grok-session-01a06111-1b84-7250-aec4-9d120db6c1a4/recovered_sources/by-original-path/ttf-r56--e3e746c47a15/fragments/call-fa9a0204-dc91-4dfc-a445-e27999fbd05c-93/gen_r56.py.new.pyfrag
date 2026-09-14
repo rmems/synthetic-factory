@@ -1,0 +1,106 @@
+            (
+                "summary",
+                "Correct ACCEPT left Contactor AC-7 on a 22.0 m3/h / 88.2 percent pass. Contactor DP hitch did not "
+                "justify a hold. 6 min cooldown confirmed I/O still over 6.0.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("contactor", "still 22.0 m3/h / 88.2 percent"),
+                        ("io", "8.4 over 6.0 floor"),
+                        ("train", "on schedule"),
+                        ("hold", "none applied"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Contactor DP hitch is residual, not an acid-ratio trip.",
+                    "Delayed (6 min): cooldown restacks AC-7 without a recovery hold.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "ir.acid.pct (4.020 ms, 88.2 percent)"),
+                        ("loser", "dp.contactor.smear (4.210 ms, hitch claim)"),
+                        ("margin_us", 190),
+                        (
+                            "counterfactual_if_reversed",
+                            "DP-first by < 190 us would only delay confirmation. The pass stays "
+                            "legal either way; ACCEPT is still required.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 4800),
+            (
+                "reward_inflection_note",
+                "Task credit lands at the ACCEPT (4.800 ms, tick 4). Cooldown is delayed surprise.",
+            ),
+            ("delayed_surprise_s", 360.0),
+            ("cooldown_s", 360),
+        ]
+    )
+    ras = raster_core(
+        26,
+        52,
+        40,
+        54,
+        routing(
+            "relay.ir.acid",
+            "policy.go_accept",
+            [
+                ("relay.ir.acid", "policy.go_accept", 0.66),
+                ("relay.dp.contactor", "policy.hitch_hold", 0.20),
+            ],
+            "dopamine",
+            0.04,
+            "legal_pass_stdp; DA tags the go_accept bind at the acid-strength win",
+        ),
+        excerpt,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.28),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("go_accept", 40, 0.50, 160.0, 2),
+                    pop("hitch_hold", 40, 0.80, 10.0, 0),
+                    pop("acid_cap_veto", 20, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r56-300",
+        "Alkylate-Merse contactor / AC-7: acid 88.2 percent beats contactor DP smear by 190 us; "
+        "ACCEPT already-legal 22.0 m3/h pass",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Correct ACCEPT of an already-legal HF-alkylation pass. total +1.14 = "
+        "0.44 + 0.32 + 0.18 + 0.12 + 0.08.",
+        ras,
+        gate,
+        "hf-alkylation-contactor",
+        [
+            "accept",
+            "already-legal",
+            "acid-vs-contactor-dp",
+            "sidecar-convictable",
+            "designed",
+        ],
+        "Teaches that an acid-strength IR under cap can confirm an already-legal pass without "
+        "a contactor-DP hitch becoming a hold.",
+        5,
+    )

@@ -1,0 +1,27 @@
+                "Pin-root 412 C is over the 380 C stir cap. Backing-bar IR apparent 298 C is a "
+                "HIL lamp under-read of a hot tool, not a clearance. REJECT: hold 0.0 mm/s; do "
+                "not commit 1.8 mm/s across the coupon.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "pin_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 380.0),
+                                    ("observed_pin", 412.0),
+                                    ("bar_apparent", 298.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "plunge_mm_s",
+                            OrderedDict(
+                                [
+                                    ("proposed", 1.8),
+                                    ("executed", 0.0),
+                                ]
+                            ),
+                        ),

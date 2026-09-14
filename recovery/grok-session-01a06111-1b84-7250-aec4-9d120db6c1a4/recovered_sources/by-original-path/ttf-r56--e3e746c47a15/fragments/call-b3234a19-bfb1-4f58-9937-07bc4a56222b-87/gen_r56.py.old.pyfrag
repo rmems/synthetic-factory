@@ -1,0 +1,107 @@
+            (
+                "summary",
+                "Correct ACCEPT left Grate G-4 at 2.40 m/min / 1280 C. Hood DP smear did not justify a "
+                "hold. 10 min survey confirmed draft in spec.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("grate", "still 2.40 m/min / 1280 C"),
+                        ("hood", "in spec after survey"),
+                        ("train", "induration continues"),
+                        ("hold", "none applied"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Hood DP smear is a windbox optical claim, not a bed-temperature violation.",
+                    "Delayed (10 min): survey restacks Grate G-4 without a recovery hold.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "ir.bed.c (6.240 ms, 1280 C)"),
+                        ("loser", "dp.hood.smear (6.470 ms, over-draft claim)"),
+                        ("margin_us", 230),
+                        (
+                            "counterfactual_if_reversed",
+                            "Smear-first by < 230 us would only delay confirmation. The pass stays "
+                            "legal either way; ACCEPT is still required.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 7140),
+            (
+                "reward_inflection_note",
+                "Task credit lands at the ACCEPT (7.140 ms, tick 4). Survey is delayed surprise.",
+            ),
+            ("delayed_surprise_s", 600.0),
+            ("survey_s", 600),
+        ]
+    )
+    ras = raster_core(
+        30,
+        56,
+        38,
+        64,
+        routing(
+            "relay.ir.bed",
+            "policy.go_accept",
+            [
+                ("relay.ir.bed", "policy.go_accept", 0.68),
+                ("relay.dp.hood", "policy.smear_hold", 0.21),
+            ],
+            "serotonin",
+            0.07,
+            "legal_grate_stdp; 5-HT tags the go_accept bind at the bed-IR win",
+        ),
+        excerpt,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.36),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("go_accept", 40, 0.50, 180.0, 3),
+                    pop("smear_hold", 40, 0.80, 10.0, 0),
+                    pop("bed_cap_veto", 20, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r48-259",
+        "Taconite-Sill grate / G-4: bed IR 1280 C beats hood DP smear by 230 us; ACCEPT "
+        "already-legal 2.40 m/min pass",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Correct ACCEPT of an already-legal 1D traveling-grate pass. total +1.06 = "
+        "0.42 + 0.28 + 0.18 + 0.10 + 0.08.",
+        ras,
+        gate,
+        "pellet-induration-grate",
+        [
+            "accept",
+            "already-legal",
+            "simulated-grate-train",
+            "ir-vs-dp",
+            "sidecar-convictable",
+            "simulated",
+        ],
+        "Teaches that a bed IR under cap can confirm an already-legal grate pass without "
+        "a hood-draft smear becoming a hold.",
+        4,
+    )

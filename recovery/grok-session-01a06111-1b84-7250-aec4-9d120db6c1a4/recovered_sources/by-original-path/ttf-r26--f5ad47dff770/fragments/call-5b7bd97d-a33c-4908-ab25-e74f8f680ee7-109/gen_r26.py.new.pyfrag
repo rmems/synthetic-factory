@@ -1,0 +1,16 @@
+            ("name", "rf_drive_hold"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("rf_drive_pct", 0.0),
+                        ("hold", True),
+                        ("buncher", "B2"),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: RF drive 18 -> 0 percent. BPM 2.40 mm > 0.80 cap binds steer_hold; "
+                "klystron 18.0 kW unused as rf_go.",
+            ),

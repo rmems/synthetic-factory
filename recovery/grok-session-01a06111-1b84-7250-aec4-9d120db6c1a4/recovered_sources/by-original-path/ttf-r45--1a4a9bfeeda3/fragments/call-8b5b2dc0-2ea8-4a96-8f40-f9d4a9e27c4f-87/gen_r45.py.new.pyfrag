@@ -1,0 +1,66 @@
+                "Wrong-MODIFY dumped LG-4 feed to 2.0 t/h. Rich loading 0.28 mol/mol and H2S slip "
+                "8.4 ppm were both still under cap; predicted next slip 12.1 ppm still < 25.0. A "
+                "timely gate is ACCEPT hold 8.4 t/h. 11 min unused absorb (abort_s=660). Correct "
+                "gate was ACCEPT.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("feed", "early-clamped 8.4 -> 2.0 t/h; caps uncrossed"),
+                        ("absorb", "aborted 420 s remaining"),
+                        ("tower", "forced into lean-flash"),
+                        ("mission", "treated-gas window missed"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Slip-first was the race order but 8.4 ppm had not crossed 25.0 ppm and rich 0.28 had not crossed 0.42 mol/mol; the MODIFY spent that win on an early dump.",
+                    "Delayed (abort_s=660): LG-4 loses 11 min unused absorb plus one extra lean-flash.",
+                ],
+            ),
+            (
+                "recovery",
+                OrderedDict(
+                    [
+                        (
+                            "correct_gate",
+                            "ACCEPT hold feed 8.4 t/h; leave lean_flash false until loading or slip actually crosses cap.",
+                        ),
+                        ("correct_feed_tph", 8.4),
+                        ("wrong_subclass", "clamp-too-early"),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict([("feed_tph", 2.0), ("lean_flash", True)]),
+                        ),
+                        (
+                            "cost",
+                            "11 min unused absorb + extra lean-flash (task/efficiency); neither loading nor slip ever crossed cap (safety near-miss of a false dump).",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "an.slip.ppm (5.480 ms, 8.4 ppm)"),
+                        ("loser", "load.rich.mol (5.640 ms, 0.28 mol/mol)"),
+                        ("margin_us", 160),
+                        (
+                            "counterfactual_if_reversed",
+                            "Loading-first by < 160 us would still be under the 0.42 mol/mol cap; a "
+                            "correct gate ACCEPTs 8.4 t/h either way. The wrong MODIFY spent the slip "
+                            "win on a clamp-too-early dump of the same feed actuator.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 6180),
+            (
+                "reward_inflection_note",
+                "Task, efficiency, and coherence drop at the wrong MODIFY (6.180 ms, tick 4). "
+                "The 11 min unused absorb is delayed surprise, not the inflection.",
+            ),

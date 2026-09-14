@@ -1,0 +1,5 @@
+def spike_avoid_us(events):
+    return {int(round(ev["t_rel_ms"] * 1000.0)) for ev in events}
+
+
+def lif_316_excerpt():

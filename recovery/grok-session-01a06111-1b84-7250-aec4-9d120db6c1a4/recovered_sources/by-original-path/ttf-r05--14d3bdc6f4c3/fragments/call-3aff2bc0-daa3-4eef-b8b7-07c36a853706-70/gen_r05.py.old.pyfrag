@@ -1,0 +1,5 @@
+            "populations": [
+                pop("speed_clamp", 40, 0.5, 280.0, 0.40),
+                pop("lidar_hold", 40, 0.5, 70.0, 0.40),
+                veto("bumper_cap_veto", 20, 0.75),
+            ],

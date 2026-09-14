@@ -1,0 +1,6 @@
+                "Crepe-Cap CC-6 is frozen on Yankee-Crest YC-3's HIL tissue cylinder while a "
+                "surface RTD reports 96.2 C against a 102.0 C adhesion floor. A crepe IR pickoff, "
+                "lit by the pad lamp spectrum, still reads 118 C apparent. Surface-first latches "
+                "REJECT hold; glint-first would commit a reel-speed raise on an under-hot shell.",
+            ),
+            ("domain", "yankee-tissue-dryer"),

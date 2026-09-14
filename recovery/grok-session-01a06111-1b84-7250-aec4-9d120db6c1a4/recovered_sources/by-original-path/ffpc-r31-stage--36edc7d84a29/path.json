@@ -1,0 +1,54 @@
+{
+  "agent_ids": [
+    "01a06410-9669-7a43-a6ec-e10da3deb357"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 4,
+  "original_basename": "build_chosen.py",
+  "original_path": "/tmp/ffpc-r31-stage/build_chosen.py",
+  "path_key": "ffpc-r31-stage--36edc7d84a29",
+  "terminal_event_ids": [
+    "01a06410-9669-7a43-a6ec-e10da3deb357:call-1c3710a1-5662-4235-9a04-671d1d460c3e-36",
+    "01a06410-9669-7a43-a6ec-e10da3deb357:call-8e240ef0-93d0-4b0a-a6c1-f09d8ed9cc6a-43",
+    "01a06410-9669-7a43-a6ec-e10da3deb357:call-a9d03c78-267c-405e-a3f1-68a1122f36bd-55"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06410-9669-7a43-a6ec-e10da3deb357",
+      "basename_preserved": true,
+      "bytes": 30458,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 309,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06410-9669-7a43-a6ec-e10da3deb357/updates.jsonl",
+      "original_basename": "build_chosen.py",
+      "original_path": "/tmp/ffpc-r31-stage/build_chosen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r31-stage--36edc7d84a29/versions/v0001/build_chosen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r31-stage--36edc7d84a29/versions/v0001/build_chosen.py",
+      "session_id": "01a06410-9669-7a43-a6ec-e10da3deb357",
+      "sha256": "1471d218f9ed55b6a791a53642b5e81472cd69ce8afa8041619aeb325496d131",
+      "source_channel": "structured",
+      "source_event_id": "01a06410-9669-7a43-a6ec-e10da3deb357:call-dbfaf256-fc74-4f8a-9347-b72674dfc313-54",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788393135875,
+      "timestamp_utc": "2026-09-02T23:52:15.875Z",
+      "tool_call_id": "call-dbfaf256-fc74-4f8a-9347-b72674dfc313-54",
+      "version": 1,
+      "version_id": "ffpc-r31-stage--36edc7d84a29:v0001"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+        source="thalamic-relay.boom-sonar",
+        target="spikenaut.policy.wall-accept",
+        table=[
+            {"from": "relay.boom.load", "to": "policy.wall_accept", "weight": 0.64},
+            {"from": "relay.sonar.range", "to": "policy.sonar_halt", "weight": 0.26},
+        ],
+        modulator="serotonin",
+        tau_e_s=0.16,
+        eligibility="pre_post_stdp; 5-HT at boom win (8.120 ms) tags the already-legal wall_accept",

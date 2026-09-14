@@ -1,0 +1,5 @@
+                "Trifluor-Yett TY-4 drives KF-2HF melt through medium-temperature NF3 cell NF-3, and "
+                "the NDIR HF cell is already over the off-gas ceiling. Bus voltage remains legal under "
+                "the rectifier cap, so a header-trusting gate would keep cruise kA. The correct HF-first "
+                "clamp cuts current 18.0 to 11.0 kA. Carbon anode-cover brick is silent on both "
+                "publishers until AE dumps later in the raster.",

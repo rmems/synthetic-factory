@@ -1,0 +1,16 @@
+    for opath in sorted(Path("/tmp").glob("ttf-r*-occ-*.txt")):
+        try:
+            txt = opath.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for line in txt.splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if re.match(r"^[A-Z][A-Za-z]+(?:-[A-Z][A-Za-z0-9]+)+$", s):
+                plants.add(s)
+            elif re.match(r"^[a-z][a-z0-9]+(?:-[a-z0-9]+)+$", s):
+                domains.add(s)
+    domains.discard("")
+    plants.discard("")
+    return domains, plants

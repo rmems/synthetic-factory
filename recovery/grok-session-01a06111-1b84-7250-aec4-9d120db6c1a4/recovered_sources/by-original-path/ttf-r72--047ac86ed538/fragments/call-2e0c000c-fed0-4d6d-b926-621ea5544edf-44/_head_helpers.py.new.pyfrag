@@ -1,0 +1,15 @@
+MY_DOMAINS = (
+    "waelz-kiln",
+    "autothermal-reformer",
+    "peirce-smith-converter",
+    "propane-dehydrogenation",
+    "silicomanganese-furnace",
+)
+MY_PLANTS = (
+    "Gahnite-Wyke",
+    "Syngas-Clough",
+    "Chalcocite-Dene",
+    "Propene-Thorp",
+    "Rhodonite-Hurst",
+)
+IDS = [f"ttf-r72-{n}" for n in range(376, 381)]

@@ -1,0 +1,16 @@
+            ("name", "clamped_heater_115"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("heater_kW", 1.15),
+                        ("set_C", 180.0),
+                        ("n2_purge_slpm", 12.0),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: heater 2.00 -> 1.15 kW. Process-correct vs the 8.0 kPa bag cap. "
+                "Ply-4 wrinkle still appears at 21.200 ms.",
+            ),

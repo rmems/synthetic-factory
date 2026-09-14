@@ -1,0 +1,8 @@
+not r59 UV-DOAS SO2 / aluminum-oxide moisture / load-cell hopper. Plants not reused: Nettlewake, Frostlip, Oxbow, Fernwick, Mossfell, Kelpfen, Brackholt, Dewholt, Pebblewick, Hawkmere, Embercrag, Reedwhin, Wexmere, Glaurfen, Rushfen, Rimegait, Spelterfen, Kelpwharf, Yarrowfen, Sorrelwick, Tansyholt, Glimmerholt, Oreholt, Thornmere, Marlfell, Birchfen, plus the r13–r56 plant list carried in NOTES-r56.
+
+This round introduces three unused industrial families (Stern-Volmer luminescence-quenching dissolved oxygen, catalytic-bead pellistor LEL, free-space FMCW tank-radar remaining level) on new invented plants. r13-holes cyclotron/alanine/ADCP and r56 densification leftovers (temperature-dependent IRIS c, slag-window pyrometer map, OIW quenching table) are not restaged.
+
+Adjacencies declared in-pair then kept physically distinct:
+- **184 Stern-Volmer DO** is a water-phase luminescence-lifetime dissolved oxygen of a WWTP aeration basin, not r55/r57 Nernst zirconia gas O2, not r58 zirconia wideband, not r46 paramagnetic O2, not r04 CEMS NDIR, not r59 UV-DOAS SO2, not r52 CLD NOx, not r22 TDLAS NH3, not r15 CRDS HF.
+- **185 pellistor LEL** is a catalytic-bead Wheatstone-bridge %LEL of a solvent-recovery oven, not r57 PID VOC, not r19 QEPAS, not r22 TDLAS, not r15 CRDS, not r26 SPR cyanide, not FID-as-SoT.
+- **186 FMCW tank-radar** is a free-space roof-nozzle beat-frequency remaining level of a crude atmospheric still, not r39 GWR foam, not r44 TDR remaining-length, not r55 magnetostrictive waveguide, not r34 GPR liner, not r33 FMCW BOF lining.

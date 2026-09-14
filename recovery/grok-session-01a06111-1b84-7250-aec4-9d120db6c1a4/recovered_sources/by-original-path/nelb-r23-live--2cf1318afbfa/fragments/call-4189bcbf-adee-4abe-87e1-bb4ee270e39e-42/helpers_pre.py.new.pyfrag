@@ -1,0 +1,7 @@
+"""Generate NELB round-23 live-tree bridge pairs. CREATE-ONLY into outputs/raw/.
+
+Independent CUBA LIF rasters (not a re-encode of spike_events). Required
+snn_tags {race, refractory, adaptation} on record, meta, and matching gate_snn.
+Do not touch 2026-08-17 or 2026-08-30. Do not restage leftover-mill r23
+lock-in thermography / PAUT TFM / electrochemical-noise CUI.
+"""

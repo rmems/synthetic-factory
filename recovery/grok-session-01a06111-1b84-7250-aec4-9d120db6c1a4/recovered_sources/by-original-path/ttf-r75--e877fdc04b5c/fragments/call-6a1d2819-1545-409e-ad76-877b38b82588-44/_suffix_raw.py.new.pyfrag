@@ -1,0 +1,25 @@
+        if rec["id"] == "ttf-r75-392":
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["live_bar"] < ev["shell_cap_bar"]):
+                issues.append("392 live shell not under cap")
+            if ev.get("lagged_unit") != "kPa":
+                issues.append("392 lagged_unit not kPa")
+            if ev.get("lagged_raw") != 48.0:
+                issues.append("392 lagged_raw not 48")
+            if not (ev["lagged_as_bar_if_misread"] > ev["shell_cap_bar"]):
+                issues.append("392 misread lagged not over cap")
+            if rec["executed_action"]["parameters"].get("bind_kpa_as_bar") is not True:
+                issues.append("392 bind_kpa_as_bar not true")
+            if rec["executed_action"]["parameters"].get("benzene_tph") != 3.6:
+                issues.append("392 expected unit-confused 3.6 t/h benzene")
+            if rec["executed_action"]["parameters"].get("unit_bind") != "bar":
+                issues.append("392 executed unit_bind not bar")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("392 missing recovery")
+            table_to = {row["to"] for row in rec["raster"]["routing"]["table"]}
+            if "policy.live_hold" in table_to:
+                issues.append("392 routing still has live_hold")
+            if "policy.unit_clamp" not in table_to:
+                issues.append("392 routing missing unit_clamp")
+            if "wrong-unit" not in rec["meta"]["tags"] or "lagged-bus" not in rec["meta"]["tags"]:
+                issues.append("392 missing wrong-unit/lagged-bus tags")

@@ -1,0 +1,1 @@
+"formula": "T_K = k_n * log2(R0_kOhm / R_kOhm); L = log2(R0_kOhm / R_kOhm)",

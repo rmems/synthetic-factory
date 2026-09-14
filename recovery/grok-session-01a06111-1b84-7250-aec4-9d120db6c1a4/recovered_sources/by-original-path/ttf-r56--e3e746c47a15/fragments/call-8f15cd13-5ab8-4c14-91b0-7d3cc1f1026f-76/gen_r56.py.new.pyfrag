@@ -1,0 +1,24 @@
+def record_298():
+    ticks = [
+        tick(1536, 0.01, 0.04, 0.02, 0.01, 0.01),
+        tick(3840, 0.02, 0.08, 0.02, 0.02, 0.01),
+        tick(4040, 0.01, 0.06, 0.02, 0.01, 0.01),
+        tick(4940, 0.03, 0.12, 0.04, 0.04, 0.02),
+        tick(5200, 0.02, 0.07, 0.01, 0.01, 0.01),
+        tick(480000000, 0.01, 0.03, 0.01, 0.01, 0.00),
+    ]
+    spikes = [
+        spike("enc.pack.ctx", 0.980, 0.44),
+        spike("ir.core.c", 2.040, 0.71),
+        spike("enc.kiloamp", 3.000, 0.52),
+        spike("ir.core.c", 3.840, 1.36),
+        spike("enc.kiloamp", 4.040, 1.14),
+        spike("ctrl.gate", 4.940, 0.98),
+        spike("ir.core.c", 7.200, 0.82),
+        spike("enc.kiloamp", 10.600, 0.61),
+        spike("ctrl.gate", 15.800, 0.86),
+        spike("ir.core.c", 24.200, 0.70),
+        spike("enc.kiloamp", 32.800, 0.48),
+        spike("o2.hood.ctx", 40.400, 0.40),
+    ]
+    excerpt = independent_excerpt(56298, 96, 44000, 13, spike_avoid_us(spikes))

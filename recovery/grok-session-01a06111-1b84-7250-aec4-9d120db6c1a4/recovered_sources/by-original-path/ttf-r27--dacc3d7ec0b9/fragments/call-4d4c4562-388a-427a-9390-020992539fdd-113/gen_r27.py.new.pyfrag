@@ -1,0 +1,34 @@
+                [
+                    "optical diameter micrometer, 20 Hz burst, 44 us jitter, axis melt_diameter",
+                    "pull-encoder, 1 kHz, 42 us jitter",
+                    "seed rpm tachometer (context)",
+                    "heater kW (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("dia_cap_mm", 185.0),
+                        ("observed_dia_mm", 191.4),
+                        ("dia_axis", "melt_diameter"),
+                        ("heater_kW", 48.0),
+                        ("seed_rpm", 12.0),
+                        ("seed_cap_rpm", 18.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Puller-P12 on Boule-Knap BK-4; 200 mm silicon charge molten.",
+                    "2. Cruise heater 48 kW; seed 12 rpm; diameter 191.4 mm.",
+                    "3. Puller-encoder precursor at 2.176 ms.",
+                    "4. Race window [5.380, 5.940] ms.",
+                    "5. dia.opt.mm 191.4 mm at 5.440 ms (winner).",
+                    "6. pull.mm.h 48 mm/h at 5.780 ms (loser by 340 us).",
+                    "7. Gate at 6.180 ms: wrong-MODIFY clamps seed 12 -> 6 rpm; heater stays 48 kW.",
+                    "8. Diameter remains 191.4 mm > 185.0 cap; seed now 6, still not the heater.",
+                    "9. Shoulder freeze-off pocket opens; heater still over cap.",
+                    "10. Delayed (18 min / abort_s=1080): pull abort + boule scrap.",
+                ],

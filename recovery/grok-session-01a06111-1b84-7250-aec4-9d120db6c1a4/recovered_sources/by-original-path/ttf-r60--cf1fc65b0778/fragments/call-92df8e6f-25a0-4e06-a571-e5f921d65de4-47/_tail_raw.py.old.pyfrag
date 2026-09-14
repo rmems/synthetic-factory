@@ -1,0 +1,7 @@
+        edge = {
+            "ttf-r60-316": "2oo3 median 412 C < 430 trip; stuck-high RTD-B 448 C treated as the vote",
+            "ttf-r60-317": "process-correct ID-fan clamp; mist-eliminator pack collapse inside 40 ms raster; independent LIF",
+            "ttf-r60-318": "IR 268 C beats line encoder 18.4 m/min; hold, do not ramp",
+            "ttf-r60-319": "bed 1280 C vs hood DP smear; proposed 2.40 m/min already legal",
+            "ttf-r60-320": "TMT 1048 C vs coil DP 12 kPa; proposed 18.0 t/h already legal",
+        }[rec["id"]]

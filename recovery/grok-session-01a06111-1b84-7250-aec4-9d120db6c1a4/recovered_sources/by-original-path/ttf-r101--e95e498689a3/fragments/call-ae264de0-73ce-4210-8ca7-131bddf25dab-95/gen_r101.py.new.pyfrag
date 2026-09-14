@@ -1,0 +1,5 @@
+                "Optical mist on Scandyl-Cleugh cell S-11 already sits 2.3 vol percent over a 5.5 "
+                "license (reading 7.8) even though bath voltage is a lawful 3.7 V inside a 4.9 V "
+                "envelope. Mist-first latches current 16.8 -> 10.2 kA; a voltage-trusting cruise "
+                "would keep 16.8 kA. Freeze-ring crust already seated on the cathode does not "
+                "publish on mist or bath V until the AE dump.",

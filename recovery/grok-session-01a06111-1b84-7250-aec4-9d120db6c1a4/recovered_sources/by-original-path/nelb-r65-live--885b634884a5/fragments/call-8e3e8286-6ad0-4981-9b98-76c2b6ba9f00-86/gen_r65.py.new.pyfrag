@@ -1,0 +1,12 @@
+            "name": "brookfield_paint_eta",
+            "formula": "eta_cP = k_b * (tau_Nmm / omega); k_id = eta_cP / (tau_Nmm / omega); tau_ratio = tau_Nmm / omega",
+            "parameters": {
+                "k_b": 600.00,
+                "omega": 5.00,
+                "isolate_floor_cP": 400.00,
+                "dump_cP": 800.00,
+                "snr_lock": 12.0,
+                "spindle_min": 24.0,
+            },
+            "worked_example": {"tau_Nmm": 4.00, "eta_cP": 480.00, "k_id": 600.00, "tau_ratio": 0.80},
+            "check": "600.00 * (4.00 / 5.00) = 480.00 exactly; 480.00 / 0.80 = 600.00 exactly; 4.00 / 5.00 = 0.80 exactly; 2820 s + 1440 s = 4260 s = 24.0 min floor",

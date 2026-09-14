@@ -1,0 +1,9 @@
+        if rec["id"] == "ttf-r48-257":
+            tot_s = f"**{tot:+.2f}**"
+        edge = {
+            "ttf-r48-256": "2oo3 median 412 C < 430 trip; stuck-high RTD-B 448 C treated as the vote",
+            "ttf-r48-257": "process-correct ID-fan clamp; mist-eliminator pack collapse inside 40 ms raster; independent LIF",
+            "ttf-r48-258": "IR 268 C beats line encoder 18.4 m/min; hold, do not ramp",
+            "ttf-r48-259": "bed 1280 C vs hood DP smear; proposed 2.40 m/min already legal",
+            "ttf-r48-260": "TMT 1048 C vs coil DP 12 kPa; proposed 18.0 t/h already legal",
+        }[rec["id"]]

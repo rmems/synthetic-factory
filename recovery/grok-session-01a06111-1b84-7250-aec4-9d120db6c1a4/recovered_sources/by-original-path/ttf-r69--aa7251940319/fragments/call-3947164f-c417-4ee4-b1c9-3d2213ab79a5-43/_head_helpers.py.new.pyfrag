@@ -1,0 +1,14 @@
+THIS_DOMAINS = {
+    "peirce-smith-converter",
+    "hydrogen-peroxide-ao",
+    "calcium-carbide-furnace",
+    "polypropylene-gas-phase",
+    "sodium-chlorate-cell",
+}
+THIS_PLANTS = (
+    "Fayalite-Hope",
+    "Anthraq-Force",
+    "Acetylene-Dell",
+    "Propene-Ayre",
+    "Chlorate-Heugh",
+)

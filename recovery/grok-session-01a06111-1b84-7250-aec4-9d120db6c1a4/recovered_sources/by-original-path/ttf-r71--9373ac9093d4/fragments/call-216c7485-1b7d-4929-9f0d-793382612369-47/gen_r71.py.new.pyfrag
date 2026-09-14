@@ -1,0 +1,5 @@
+                "Periclase-Quoin PQ-HIL stand K-5 is a hardware-in-loop shaft whose lining AE is "
+                "48 pps against a 12 pps growl trip, even though induced-draft sits at 4.2 kPa "
+                "below the 6.0 kPa fan limit. Acoustic-priority freezes the 22 t/h magnesite belt; "
+                "a draft-priority push would still send ore because the ID fan looks in-spec. The "
+                "HIL mockup, not the dead-burn plant floor, owns the gate.",

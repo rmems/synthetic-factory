@@ -1,0 +1,5 @@
+    if set(domains) & BANNED_DOMAINS:
+        issues.append(f"banned domains {set(domains) & BANNED_DOMAINS}")
+    if set(domains) != set(THIS_DOMAINS):
+        issues.append(f"THIS_DOMAINS mismatch {set(domains)}")
+    prior_d, prior_p = harvest_occupancy()

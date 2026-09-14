@@ -1,0 +1,10 @@
+1. Only **one** labeled independent LIF (446). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. Tick-6 sidecar bind is a densification of r14/r16, not a new class.
+4. Five domain slugs leave the prompt's 8-item pool; a later round that must stay inside the pool will have to rotate sit-outs instead.
+5. 447 wrong-reject is sidecar-convictable (routing `to` / watchdog_status / watchdog_is_pv) as a **new** error class (watchdog-timeout-as-PV) vs r52 stale-sample, r54 last-good-sub, r76 NAMUR fail-high, r80 PLC SV-as-PV.
+6. 450 ACCEPT is an already-legal proposal confirmed by race order; a later round could pair an ACCEPT with a world charge that does not go negative.
+
+## Next densification target
+
+Labeled LIF on a second record, or an ISI histogram sidecar. Remaining unused even-round wrong-REJECT subclasses include **watchdog-timeout-as-PV** and **burst-mode-status-as-EU**. Wrong-ACCEPT remains structurally absent until a prompt amendment.

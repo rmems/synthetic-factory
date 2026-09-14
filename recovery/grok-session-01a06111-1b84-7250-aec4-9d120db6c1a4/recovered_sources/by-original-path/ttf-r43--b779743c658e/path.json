@@ -1,0 +1,70 @@
+{
+  "agent_ids": [
+    "01a0640a-3684-7d50-a9c6-c67fc333f247"
+  ],
+  "classification": "partial",
+  "classification_evidence": [
+    "at least one full version was recovered, but a later successful edit or terminal mutation could not be placed conclusively",
+    "a successful recorded terminal delete or move removed the final in-/tmp state",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 2,
+  "final_state": "deleted",
+  "hunk_evidence_count": 2,
+  "original_basename": "_records.py",
+  "original_path": "/tmp/ttf-r43/_records.py",
+  "path_key": "ttf-r43--b779743c658e",
+  "terminal_event_ids": [
+    "01a0640a-3684-7d50-a9c6-c67fc333f247:call-3f7bdce0-c770-4454-856b-d25798ee867b-58",
+    "01a0640a-3684-7d50-a9c6-c67fc333f247:call-5af0c33a-1e60-45e4-a30f-f407709dc4c0-56",
+    "01a0640a-3684-7d50-a9c6-c67fc333f247:call-fc6b3827-295a-4e1c-9083-0d4c56454110-51",
+    "01a0640a-3691-7693-8c71-0e1dbb169857:call-1db47b66-77ad-4c15-9d9d-b9571b31d534-23",
+    "01a0640a-3691-7693-8c71-0e1dbb169857:call-9455c6ce-f890-4a77-848d-55e0f166119f-16",
+    "01a0640b-4743-7142-9182-71a6bc3e946d:call-998328f8-0ceb-4bf6-a486-3cae09fb9d26-24",
+    "01a0640b-4743-7142-9182-71b61c27baf8:call-06dd090c-5cdb-47e6-b8a0-434079f0e8fe-21"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 1,
+  "unresolved_events": [
+    {
+      "channel": "terminal",
+      "event_id": "01a0640a-3684-7d50-a9c6-c67fc333f247:call-5af0c33a-1e60-45e4-a30f-f407709dc4c0-56",
+      "journal_line": 327,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640a-3684-7d50-a9c6-c67fc333f247/updates.jsonl",
+      "operation": "inline_python_write_text",
+      "reason": "inline_python_write_text was recorded but is not conclusively reproducible without execution",
+      "timestamp_utc": "2026-09-02T22:23:03.848Z"
+    }
+  ],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a0640a-3684-7d50-a9c6-c67fc333f247",
+      "basename_preserved": true,
+      "bytes": 68699,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 254,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640a-3684-7d50-a9c6-c67fc333f247/updates.jsonl",
+      "original_basename": "_records.py",
+      "original_path": "/tmp/ttf-r43/_records.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r43--b779743c658e/versions/v0001/_records.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r43--b779743c658e/versions/v0001/_records.py",
+      "session_id": "01a0640a-3684-7d50-a9c6-c67fc333f247",
+      "sha256": "ae1922087796b5ef0eaea54cf70d06d3cbb492d7a6a76ff2b857e8351d75e840",
+      "source_channel": "structured",
+      "source_event_id": "01a0640a-3684-7d50-a9c6-c67fc333f247:call-3e01fa0e-8750-446b-97b5-bc64b281d78f-44",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788387560214,
+      "timestamp_utc": "2026-09-02T22:19:20.214Z",
+      "tool_call_id": "call-3e01fa0e-8750-446b-97b5-bc64b281d78f-44",
+      "version": 1,
+      "version_id": "ttf-r43--b779743c658e:v0001"
+    }
+  ]
+}

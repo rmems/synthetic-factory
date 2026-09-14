@@ -1,0 +1,23 @@
+                        (
+                            "contenders",
+                            [
+                                "dens.ml.sg 1.284 mother-liquor",
+                                "enc.agit.rpm 48 rpm still-legal slurry",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Density-first latches recycle clamp 42 -> 34 m3/h; agitator-first keeps "
+                            "cruise recycle on a 'slurry still open' model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "380 us = one mother-liquor density slot minus agitator-encoder group delay on this "
+                            "1 kHz crystallizer bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 220 us vs combined jitter 68 us (density 30 + agitator 38): 3.2x over "
+                            "a 2.0x trust floor. Reversing order by < 220 us inside the 380 us window "
+                            "would have kept 42 m3/h cruise; predicted next-sample SG 1.246 > 1.220 cap.",
+                        ),

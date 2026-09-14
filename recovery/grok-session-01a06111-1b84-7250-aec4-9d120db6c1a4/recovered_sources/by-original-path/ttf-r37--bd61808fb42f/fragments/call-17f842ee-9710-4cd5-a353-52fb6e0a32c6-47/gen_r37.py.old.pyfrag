@@ -1,0 +1,5 @@
+                "Magnet-M3 on the Dewar-Nave DN-HIL pad is armed for a 0.08 T/s field ramp "
+                "while a helium-level packet reads 18 percent against a 25 percent crawl floor. "
+                "An IR magnet-skin camera, lit by the pad lamp, still reads 22 C under a 40 C "
+                "cool-look. Level-first latches REJECT hold; IR-first would commit a 0.08 T/s "
+                "ramp on an under-read dewar.",

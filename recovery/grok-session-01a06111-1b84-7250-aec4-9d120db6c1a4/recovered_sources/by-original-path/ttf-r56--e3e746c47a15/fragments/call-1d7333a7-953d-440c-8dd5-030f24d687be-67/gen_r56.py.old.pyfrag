@@ -1,0 +1,73 @@
+                [
+                    "2oo3 soaker RTD median, 2 kHz, 34 us jitter, axis soaker_t",
+                    "RTD-B failed-high, 1 kHz, 42 us jitter, vote_failed true",
+                    "feed-mass encoder (context)",
+                    "coil-outlet IR (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("median_C", 412.0),
+                        ("trip_C", 430.0),
+                        ("failed_C", 448.0),
+                        ("failed_channel", "RTD-B"),
+                        ("vote_failed", True),
+                        ("proposed_t_h", 18.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Soaker SN-6 indexed on Soaker-Naze; live median 412 C, 18.0 t/h armed.",
+                    "2. Published 2oo3 trip 430 C; RTD-B tagged vote_failed and stuck at 448 C.",
+                    "3. Encoder precursor at 1.205 ms.",
+                    "4. Race window [5.280, 5.680] ms.",
+                    "5. Median 412 C at 5.280 ms (winner).",
+                    "6. Failed RTD-B 448 C at 5.510 ms (loser by 230 us).",
+                    "7. Gate at 6.000 ms: wrong REJECT holds 0 t/h on the failed channel.",
+                    "8. Feed idle; median never crossed 430 C.",
+                    "9. 13 min residue window missed.",
+                    "10. QA: correct gate was ACCEPT; leave 18.0 t/h; bind median 412 vs 430 C trip.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "soaker_18_hold"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("feed_t_h", 18.0),
+                        ("median_C", 412.0),
+                        ("hold", False),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("median_C", 412.0),
+                        ("trip_C", 430.0),
+                        ("failed_C", 448.0),
+                        ("failed_channel", "RTD-B"),
+                        ("vote_failed", True),
+                        ("ft_axis", "soaker_t"),
+                        ("race_margin_us", 230),
+                        ("combined_jitter_us", 76),
+                        ("t_gate_us", 6000),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 18.0 t/h because 2oo3 median 412 C is 18 C under the published "
+                "430 C trip and the 448 C reading is a vote_failed RTD-B stuck-high.",
+            ),
+        ]
+    )

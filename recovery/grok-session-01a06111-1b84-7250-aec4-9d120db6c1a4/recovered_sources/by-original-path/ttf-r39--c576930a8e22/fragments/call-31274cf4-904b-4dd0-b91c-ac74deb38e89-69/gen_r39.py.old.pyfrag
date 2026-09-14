@@ -1,0 +1,4 @@
+    return excerpt_items(picked[:n_events])
+
+
+def lif_211_excerpt():

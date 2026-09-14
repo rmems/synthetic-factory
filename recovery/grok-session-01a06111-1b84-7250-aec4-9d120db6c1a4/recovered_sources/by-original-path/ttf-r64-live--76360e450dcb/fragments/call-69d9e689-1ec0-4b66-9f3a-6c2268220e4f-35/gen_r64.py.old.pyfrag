@@ -1,0 +1,15 @@
+THIS_DOMAINS = (
+    "isasmelt-furnace",
+    "phenol-acetone-cleavage",
+    "erw-pipe-mill",
+    "gold-cil-tank",
+    "butyl-rubber-reactor",
+)
+THIS_PLANTS = (
+    "Matte-Lynchet",
+    "Cumox-Pike",
+    "Skelp-Fen",
+    "Leach-Croft",
+    "Butyl-Mear",
+)
+IDS = [f"ttf-r64-{n}" for n in range(336, 341)]

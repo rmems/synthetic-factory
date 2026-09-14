@@ -1,0 +1,21 @@
+                            [
+                                "rtd.sus.C 1048 over 1020 GaN-growth cap",
+                                "ft.gacl.slm 0.42 with chloride look still under 0.55",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Temperature-first latches GaCl clamp 0.42 -> 0.26 slm; chloride-first "
+                            "keeps 0.42 slm on a 'still-wet boat' model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "400 us = one susceptor RTD slot versus the GaCl-mass FT publisher "
+                            "on this HVPE skid bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 192 us vs combined jitter 64 us (RTD 30 + FT 34): 3.0x over a "
+                            "2.0x trust floor. Reversing order by < 192 us inside the 400 us window "
+                            "would have kept 0.42 slm; predicted next-sample 1056 C > 1020 GaN-growth cap.",
+                        ),

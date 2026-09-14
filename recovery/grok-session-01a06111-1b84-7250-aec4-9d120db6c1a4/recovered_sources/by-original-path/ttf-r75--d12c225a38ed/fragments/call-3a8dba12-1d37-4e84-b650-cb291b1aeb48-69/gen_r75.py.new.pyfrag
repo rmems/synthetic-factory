@@ -1,0 +1,3 @@
+                "Kettle D-2 at Fluoro-Kist FK-6 publishes 4.8 bar on the live PT (limit 6.0). "
+                "A lagged kPa-scaled PI still shows 48. Binding 48 as bar would dump 18 t/h TFE; "
+                "the legal gate is ACCEPT.",

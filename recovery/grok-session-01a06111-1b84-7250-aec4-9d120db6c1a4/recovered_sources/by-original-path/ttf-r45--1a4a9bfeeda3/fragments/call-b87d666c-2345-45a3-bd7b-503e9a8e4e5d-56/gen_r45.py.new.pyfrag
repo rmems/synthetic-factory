@@ -1,0 +1,73 @@
+def meta_block(
+    domain,
+    tags,
+    distillation_value,
+    batch_position,
+    supervisor_error_type=None,
+) -> OrderedDict:
+    body = OrderedDict(
+        [
+            ("round", 45),
+            ("factory", "thalamic-trajectory-factory"),
+            ("generator", "grok-4.6"),
+            ("run_label", "2026-09-02-final-heavy"),
+            ("domain", domain),
+        ]
+    )
+    if supervisor_error_type:
+        body["supervisor_error_type"] = supervisor_error_type
+    body["tags"] = tags
+    body["snn_tags"] = ["race", "refractory", "adaptation"]
+    body["distillation_value"] = distillation_value
+    body["rights"] = RIGHTS
+    body["batch_position"] = batch_position
+    return body
+
+
+def reward_block(ticks, notes) -> OrderedDict:
+    heads = ["task_progress", "safety", "efficiency", "coherence", "exploration"]
+    sums = {h: Decimal("0") for h in heads}
+    for item in ticks:
+        for h in heads:
+            sums[h] += Decimal(str(item[h]))
+    total = sum(sums.values(), Decimal("0"))
+    return OrderedDict(
+        [
+            ("_aggregation", AGG),
+            ("ticks", ticks),
+            ("task_progress", float(sums["task_progress"])),
+            ("safety", float(sums["safety"])),
+            ("efficiency", float(sums["efficiency"])),
+            ("coherence", float(sums["coherence"])),
+            ("exploration", float(sums["exploration"])),
+            ("total", float(total)),
+            ("notes", notes),
+        ]
+    )
+
+
+def pop(name, neurons, threshold, rate=None, spikes=None) -> OrderedDict:
+    body = OrderedDict(
+        [("name", name), ("neurons", neurons), ("threshold", threshold)]
+    )
+    if rate is not None:
+        if spikes is None:
+            raise ValueError("rate requires spikes")
+        body["mean_rate_hz"] = rate
+        body["spikes"] = spikes
+    return body
+
+
+def pop_budget(name, neurons, threshold, rate, dw_ms, extra=None):
+    spikes = round(neurons * rate * (dw_ms / 1000.0))
+    body = pop(name, neurons, threshold, rate, spikes)
+    if extra:
+        body.update(extra)
+    return body
+
+
+def spike_avoid_us(events):
+    return {int(round(ev["t_rel_ms"] * 1000.0)) for ev in events}
+
+
+def lif_241_excerpt():

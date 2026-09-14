@@ -1,0 +1,64 @@
+                [
+                    "tube-metal IR, 28 us jitter",
+                    "coil DP, 30 us jitter",
+                    "feed encoder (context)",
+                    "COT pyrometer (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("tmt_cap_C", 1080.0),
+                        ("observed_tmt_C", 1048.0),
+                        ("feed_floor_t_h", 16.0),
+                        ("proposed_feed_t_h", 18.0),
+                        ("dp_cap_kPa", 25.0),
+                        ("observed_dp_kPa", 12.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Coil C-12 indexed on Ethene-Veld furnace 3; feed armed 18.0 t/h pass.",
+                    "2. Caps: TMT 1080 C, coil DP 25 kPa, feed floor 16.0 t/h.",
+                    "3. Encoder precursor at 0.920 ms.",
+                    "4. Race window [4.180, 4.480] ms.",
+                    "5. TMT IR 1048 C at 4.180 ms (winner).",
+                    "6. Coil DP 12 kPa at 4.360 ms (loser by 180 us).",
+                    "7. Gate at 4.940 ms: ACCEPT 18.0 t/h / 1048 C already legal.",
+                    "8. Pass continues; no extra hold.",
+                    "9. 7 min cooldown confirms coil DP still under 25 kPa.",
+                    "10. QA: ACCEPT params identical to proposed.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "pass_18th"),
+            ("parameters", params),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("tmt_C", 1048.0),
+                        ("tmt_cap_C", 1080.0),
+                        ("feed_t_h", 18.0),
+                        ("feed_floor_t_h", 16.0),
+                        ("dp_kPa", 12.0),
+                        ("dp_cap_kPa", 25.0),
+                        ("race_margin_us", 180),
+                        ("combined_jitter_us", 58),
+                        ("t_gate_us", 4940),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes an 18.0 t/h pass because TMT 1048 C is 32 C under the 1080 C "
+                "cap and coil DP 12 kPa is under 25 kPa.",
+            ),
+        ]
+    )

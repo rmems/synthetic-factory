@@ -1,0 +1,3 @@
+    domains.discard("")
+    plants.discard("")
+    return domains, plants

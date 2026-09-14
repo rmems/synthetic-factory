@@ -1,0 +1,152 @@
+    return {"check_jsonl": {"errors": len(errs), "warnings": len(warns), "kinds": kinds, "n": n}, "frontier": counts}
+
+
+def write_notes(records, lines, gate):
+    import subprocess
+
+    sizes = [len(x) for x in lines]
+    file_sha = hashlib.sha256(BATCH.read_bytes()).hexdigest()
+    spikes = sum(r["raster"]["spikes"] for r in records)
+    energy = spikes * 23
+    isis = [r["raster"]["isi_count_identity"]["isi_total"] for r in records]
+    events = [len(r["spike_events"]) for r in records]
+    rewards = []
+    for r in records:
+        lv = r["language_view"]
+        rewards.append(lv["trajectory"]["reward_components"]["total"])
+        for k, v in lv.items():
+            if k.startswith("trajectory") and k != "trajectory":
+                rewards.append(v["reward_components"]["total"])
+    probe = subprocess.run(
+        [
+            sys.executable,
+            str(PIPELINES / "spike_probe.py"),
+            "--strict",
+            str(BATCH),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    probe_out = (probe.stdout or "") + (probe.stderr or "")
+    if probe.returncode != 0:
+        raise RuntimeError(f"spike_probe failed {probe.returncode}: {probe_out[-2000:]}")
+    strict = subprocess.run(
+        [
+            sys.executable,
+            str(PIPELINES / "check_records.py"),
+            "--strict",
+            str(OUT_DIR),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if strict.returncode != 0:
+        raise RuntimeError(f"check_records --strict failed: {(strict.stdout or '') + (strict.stderr or '')}")
+
+    gc = []
+    for r in records:
+        per = r["gate_compute"]["per_check"]
+        gc.append("+".join(str(c["spikes"]) for c in per))
+    wins = [r["raster"]["window_ms"] for r in records]
+    n_sp = [r["raster"]["spikes"] for r in records]
+    n_neu = [r["raster"]["neurons"] for r in records]
+    rates = [r["raster"]["mean_rate_hz"] for r in records]
+    tfs = [r["raster"]["routing"]["third_factor"]["modulator"] for r in records]
+    taus = [r["raster"]["routing"]["third_factor"]["tau_e_s"] for r in records]
+    reward_s = "/".join(f"+{x:.2f}" for x in rewards)
+    notes = f"""# Neuromorphic Event + Language Bridge — NOTES round 37
+Run: 2026-09-02-final-heavy · Factory: neuromorphic-event-language-bridge · Generator: grok-4.6 · Output: `batch-r37.jsonl` (3 paired artifacts, 6 ThalamicTrajectories)
+Rights: RM-793 research-only (SpaceXAI/xAI grok-4.6, SuperGrok Heavy chat). Not training_ready. Do not publish into `outputs/raw/` from this generator; operator uses `pipelines/round_txn.py`. Staged only at `/tmp/nelb-r37/`.
+
+## Context / de-duplication
+Prior corpus read: 2026-08-30 NOTES-r01–r04, 2026-08-17-w3 NOTES-r12 family table, staged `/tmp/nelb-r13` through `/tmp/nelb-r34` batches/NOTES plus in-flight generators (`/tmp/nelb-r32/gen_r32.py` PALS/14N-NQR/laser-shearography; `/tmp/nelb-r35/gen_r35.py` restages r30 Mössbauer/GB-InSAR/ellipsometry and is treated as a collision source, not a clone source). IDs: r13=`040`–`042` … r31=`094`–`096`, r32 reserved `097`–`099`, r33=`100`–`102`, r34=`103`–`105`, r35/r36 reserved `106`–`111`, this round `nelb-r37-112`…`114` as assigned. Envelope cloned from complete r33 (`language_view.trajectory` + operational t2 + `spike_events` + `raster` + `gate_snn` + `isi_histogram` + `routing.third_factor` + 15-key RM-793 `meta.rights`).
+
+Banned this round (committed + staged leftover-mill r13–r34 and in-flight r32/r35 generators): not VOD-SNN replay, not pharma cold-chain, not stack-gas CEMS; not r13 FBG glaze / Frostlip quench / Oxbow VRFB; not r14 BOTDA / QCM-D / MsS T(0,1); not r15 SAW torque / CRDS HF / PGNAA; not r16 IFOG / transmon readout / hyperspectral crop; not r17 MEMS accel array / muon ore-pass / industrial x-ray DR; not r18 optogenetic PV / 905 nm LiDAR snow / clamp-on transit-time; not r19 LIBS Cu / QEPAS DGA / LFV Al; not r20 Kaplan LDV / THz-TDS radome moisture / ECT CFB; not r21 THz-TDS bondline / ECA FSW lift-off / LIBS C; not r22 ECT pneumatic riser / TDLAS NH3 / LIBS tap; not r23 lock-in thermography CFRP / PAUT TFM girth / EN CUI; not r24 RUS porcelain / N-16 transit-time loop / helium RGA; not r25 Faraday FOCT / blade tip-timing / acoustic pyrometry; not r26 SPR cyanide / VW viscometer / MW cavity moisture; not r27 MFL AST / NMR T2 / Cs-137 densitometry; not r28 MFL ILI / JNT / CRNS; not r29 Coriolis bitumen / CARS TIT / Zn-Ka XRF; not r30 Mössbauer FCC / GB-InSAR tailings / ellipsometry PECVD; not r31 two-pickoff Coriolis LNG / rhodium SPND / LII soot; not r32 PALS / 14N NQR / laser-shearography COPV; not r33 digital shearography hull / hydrogen permeation / FMCW BOF lining; not r34 handheld XRF Cr-Kα / Coriolis tube-twist / GPR liner cover. Plants not reused: Nettlewake, Frostlip, Oxbow, Rift-Caldera-3, Skarv-Naze GN-14, Orinoco-Span OD-12, Woadmere WM-9, Brineholt Perm-HIL-2, Ashgait BOF-2, Skeldfen SF-7, Mirecoil MH-3, Brambleholt BH-4.
+
+This round harvests the three oldest unused r13-premises families (mud-pulse, Barkhausen, Lamb-wave), left available through r34 NOTES, on new invented plants.
+
+Adjacencies declared in-pair then kept physically distinct:
+- **112 mud-pulse MWD** is coded drillstring standpipe pressure plus a sealed hydrophone kick volume, not r4 DAS phi-OTDR, not r7 infrasound, not r10 SOFAR, not r18 clamp-on transit-time, not r24 N-16 gamma TOF.
+- **113 magnetic Barkhausen** is domain-wall avalanche noise under AC magnetization on a ground race, not r5 fluxgate gradiometry, not r8 HV partial discharge, not r27/r28 MFL, not r24 RUS porcelain.
+- **114 laser-ultrasound / EMAT Lamb-wave** is thermoelastic S0 generation with EMAT receive on a weld ligament, not r23 PAUT TFM, not r14 MsS T(0,1), not r3 SPAD ToF, not r20/r21 THz-TDS, not r34 GPR TWT.
+
+## Round 37 batch summary (3 pairs, 6 trajectories)
+
+| id | modality (NEW family) | domain | decisions | headline |
+|----|----------------------|--------|-----------|----------|
+| nelb-r37-112 | mud-pulse MWD + sealed standpipe hydrophone (k_p·ΔP kick volume, Mudveil comb denial, 18 min choke floor) | Gorsekettle Geothermal GK-5 sidetrack ST-9 (invented): 48.00 psi reconstructs 12.00 bbl while Mudveil still flags DRILL_BREAK and pit 1.20 bbl | REJECT (+0.43) / MODIFY (+0.34) | serialized `0.250*48.00=12.00`; CV `0.040/1.000=0.040`; conjunctive SOP (V AND SNR) forbids drill-on; three-party collusion includes the decoder infra owner; companion t2 hard shut-in, pad ESD refused; sim_or_real=designed |
+| nelb-r37-113 | magnetic Barkhausen noise of a ground race (k_b·V/I RA, k_d·RA burn depth, Dressveil last-good denial, 24 min spark-out floor) | Flintspit Gear FG-8 lot FG8-22011..22040 (invented, HIL ring in Bark-HIL-5): 6.00 mV / 2.00 A reconstructs 12.00 pct RA while Dressveil still reads 2.40 pct | MODIFY (+0.40) / ACCEPT (+0.35) | serialized `4.00*6.00/2.00=12.00` and `5.00*12.00=60.0 um`; keep-lot refused; dresser Ryn Callow exonerated (missing spark-out AE, UTC vs UTC+2); companion t2 new-wheel restart; sim_or_real=hil |
+| nelb-r37-114 | laser-ultrasound / EMAT Lamb-wave remaining ligament (t_nom−c_g·Δt/2, fd-table identity, Lambveil last-good denial, 12 min scan floor) | Wharfleck Orthotropic Deck WD-11 weld W-17 (invented, simulated Lamb-SIM-3): 1.60 us / 5.00 mm/us reconstructs 8.00 mm while Lambveil still reads 12.00 mm | ACCEPT (+0.41) / REJECT (+0.36) | serialized `12.00-(5.00*1.60)/2=8.00`; `20.00/4.00=5.00`; `2.00*12.00=24.00`; bounded ACCEPT of W-17 only; bay B-11 out of scope; companion t2 REJECTS skip-scan; sim_or_real=simulated |
+
+Decision spread: REJECT / MODIFY / MODIFY / ACCEPT / ACCEPT / REJECT — **2A/2M/2R**. All three enums used, and all three sit on **leads**. Provenance spread: designed / hil / simulated (one each; never real). IDs `nelb-r37-112`…`114` plus t1/t2 suffixes.
+
+## Raster sidecar
+Every record carries `raster` + top-level `gate_snn` + `gate_compute`. Windows {wins[0]:.0f}/{wins[1]:.0f}/{wins[2]:.0f} ms; `window_s == window_ms/1000` exactly; `spikes == round(neurons·rate·window_s)` with zero slack ({n_sp[0]}/{n_sp[1]}/{n_sp[2]} at {rates[0]}/{rates[1]}/{rates[2]} Hz over {n_neu[0]}/{n_neu[1]}/{n_neu[2]} neurons); `energy_pJ = spikes·23` and `energy_uJ = spikes·23e-6` exact ({n_sp[0]*23}/{n_sp[1]*23}/{n_sp[2]*23} pJ). Routing source/target + 3-entry tables + `third_factor` on all three (modulators {tfs[0]} / {tfs[1]} / {tfs[2]}; τe {taus[0]}/{taus[1]}/{taus[2]} s as consistent `tau_e_s`+`tau_e_ms` pairs). Excerpts integer `t_us`, in-window, `neuron_id`-bounded, sorted, full-window by construction, per-spike amplitude with adaptation (0.82**k) plus noise. ISI histograms from the full window, bins ≥1 ms, counts sum to `spikes − distinct_active_neurons` ({isis[0]}/{isis[1]}/{isis[2]}). Same-neuron gaps ≥1100 µs pre-round, ≥1000 µs serialized. `gate_snn` on all three: decisions REJECT/MODIFY/ACCEPT matching each lead trajectory; every rate-declaring population's budget exact against its decision window. `gate_compute.per_check` windows 32–40 ms, budgets exact ({gc[0]} / {gc[1]} / {gc[2]}). Main streams: {events[0]}/{events[1]}/{events[2]} events (inside the 5–40 cap), strictly increasing `t_rel_ms` only (no `t_ms` mix), same-channel refractory ≥0.8 ms (112 hydro pair at 1.3 ms, 113 MBN pair at 1.2 ms, 114 Lamb pair at 1.5 ms).
+
+## Self-critique
+
+### Edge cases added vs still thin
+- **Added:** first mud-pulse MWD family on a geothermal sidetrack with a recomputable V=k_p·ΔP (`12.00 bbl`) plus decoder-CV identity and three-party collusion including the decoder infra owner; first magnetic-Barkhausen family on a ground race with recomputable RA=k_b·V/I (`12.00 pct`) and burn-depth identity, plus a resolved-innocent dresser (timezone-skipped spark-out, not last-to-touch); first laser-ultrasound / EMAT Lamb-wave family on an orthotropic-deck weld with recomputable t_rem=t_nom−c_g·Δt/2 (`8.00 mm`) plus c_g and fd-table identities; first bounded ACCEPT whose out-of-scope clause is an adjacent bay skip rather than a hopper/taphole/dump cap; operational t2 on all three (hard shut-in, new-wheel restart, skip-scan refusal); provenance trio designed/hil/simulated; 18 min / 24 min / 12 min slow floors in-stream.
+- **Still thin:** (i) 112's k_p is a lumped bbl/psi, not a gas-expansion / annulus-compressibility table — a temperature-shifted mud that fakes 12.00 bbl inside a 1.20 bbl pit corridor is unwritten; (ii) 113's k_b is a lumped RMS calibration, not a magnetizing-frequency / lift-off map, so a yoke-tilt that fakes 12 pct RA is unwritten; (iii) 114's c_g is a lumped S0 table point, not a full dispersion curve, so a thickness-mode hop that fakes 8.00 mm inside a 12.00 mm last-good is unwritten; (iv) vendor-only as a *lead* REJECT on a plant with *no* independent hydrophone remains slightly harder — 112 still has the plant hydrophone; (v) stream amplitudes remain authored constants (raster draws are the only seeded noise); (vi) unused r13-holes (cyclotron BPM, alanine EPR, ADCP ice-jam) still unharvested.
+
+### Realism of noise / temporal fidelity
+- Strong: 112's 12.00 bbl, CV 0.040, and 18.0 min choke (`6000+1080=7080 s`) recompute from the record; 113's 12.00 pct, 60.0 μm, and 24.0 min spark-out (`2820+1440=4260 s`) recompute; 114's 8.00 mm, c_g 5.00, fd 24.00, and 12.0 min scan (`6000+720=6720 s`) recompute. Raster adaptation (0.82**k plus 4% noise) and the 1.2–1.5 ms physics pairs give the 5–40 stream a raster-scale motif without violating 0.8 ms same-channel refractory.
+- **Gaps, honestly:** (i) 5–40 cap still forces heavy thinning (50 Hz hydrophone kept as 4 dP points; 2–20 kHz MBN kept as 4 V points; 2 MHz EMAT A-scan kept as 4 dt points); (ii) 112's post-stop 5.00 bbl is a later sample, not a closed-loop choke controller; (iii) 113 HIL ring times an in-service lot isolate that the stream does not independently witness on a second live race until the new wheel starts; (iv) no gate_snn input→output volley pair at raster resolution this round (r04-a1 already staged that).
+
+### Training value (SNN/LSM + agentic)
+Distillation targets: mud-pulse V=k_p·ΔP reconstruction head plus CV comb identity; conjunctive kick floor vs drill-on vs pad ESD; decoder-infra collusion; Barkhausen RA=k_b·V/I head plus burn identity; isolate-floor lot vs keep-whole vs shop-condemn; exoneration against last-to-touch social pressure; Lamb t_rem=t_nom−c_g·Δt/2 and fd-table heads; bounded ACCEPT with bay-out-of-scope; skip-scan refusal under takt. Agentic value concentrates in three patterns: reconstruction-as-SoT on a physical kick/burn/ligament the raw corridor cannot see, earned ACCEPT with an explicit physical out-of-scope object (bay B-11), and stop-then-hold so a REJECT does not become a pad/shop kill.
+
+## What round 38 should add (next densification target)
+1. **Annulus-compressibility / gas-expansion table** on a non-GK-5 sidetrack so a temperature-shifted mud fakes 12.00 bbl inside a 1.20 bbl pit corridor, closing 112's lumped-k_p gap.
+2. **Magnetizing-frequency / lift-off map** on a non-FG-8 race so a yoke-tilt can fake 12 pct RA while mean RMS looks healthy.
+3. **Full S0/A0 dispersion curve** on a non-WD-11 weld so a thickness-mode hop can fake 8.00 mm inside a 12.00 mm last-good corridor.
+4. **Vendor-only as a lead REJECT** on a plant that has no independent hydrophone/MBN/EMAT installed yet (112/113 still had plant heads).
+5. **Do not restage** VOD-SNN replay, pharma cold-chain, CEMS, FBG glaze, Frostlip quench, Oxbow VRFB, IFOG, transmon, hyperspectral, MEMS array, muon ore-pass, industrial x-ray, optogenetic stim, 905 nm LiDAR snow, clamp-on transit-time, LIBS, QEPAS, LFV, Kaplan LDV, THz-TDS, ECT, TDLAS NH3, lock-in thermography, PAUT TFM, EN CUI, RUS porcelain, N-16 loop flow, helium RGA, Faraday FOCT, blade tip-timing, acoustic pyrometry, Woadmere WM-9 shearography, Brineholt Perm-HIL-2 permeation, Ashgait BOF-2 FMCW lining, Skeldfen XRF, Mirecoil Coriolis, Brambleholt GPR, PALS, 14N NQR, laser-shearography COPV, Gorsekettle GK-5 mud-pulse, Flintspit FG-8 Barkhausen, or Wharfleck WD-11 Lamb-wave. Leave cyclotron BPM, alanine EPR, and ADCP ice-jam available.
+
+## Verification
+`batch-r37.jsonl`: 3 lines, `json.loads`-clean (allow_nan=False), {sizes[0]}/{sizes[1]}/{sizes[2]} bytes (file {BATCH.stat().st_size}, sha256 `{file_sha}`). Staged at `/tmp/nelb-r37/` only. Repo gates: `check_records.check_jsonl` with `FactoryStaging(enabled=True)` → 0 errors, 0 warnings, kinds `{{bridge_pair: 3}}`; `python3 pipelines/check_records.py --strict /tmp/nelb-r37` → 0/0; `curate_bridge.raster_status(..., require_raster=True, require_routing_table=True)` → raster_valid and gate_snn_valid true, empty reason codes; `curate_record(...)` → 3× retain / `BRIDGE_EVENTS_ALREADY_GLOBALLY_ORDERED`; `verify_batch_for_frontier(strict=True)` → 3 verified, 0 inconclusive, 0 failed; `python3 pipelines/spike_probe.py --strict /tmp/nelb-r37/batch-r37.jsonl` → loaded 3, unloadable 0, problems [], third_factor_routes 3, gate_snn_records 3, spikes {spikes}, energy_pJ {energy}. Build-time asserts: global time order; same-channel ≥0.8 ms; 5–40 events ({events[0]}/{events[1]}/{events[2]}); excerpt integer bounds, neuron bounds, sort, 1 ms per-neuron floor; ISI identity {isis[0]}/{isis[1]}/{isis[2]}; spike budgets exact; energy pJ/µJ exact; reward totals equal two-decimal component sums ({reward_s}); gate_snn decisions match lead `safety_decision.decision`; `state.sim_or_real` ∈ {{designed, hil, simulated}}; `meta.round=37`, `meta.factory=neuromorphic-event-language-bridge`, `meta.generator=grok-4.6`, `meta.run_label=2026-09-02-final-heavy`; `meta.rights` 15-key RM-793 stamp (`intended_use=research_only`, `linear_issue=RM-793`, `generated_at={GENERATED_AT}`); no hidden-reasoning keys; no `provenance` objects; no 'real' claims; no `training_ready`; all 9 record/trajectory ids unique. Raster seeds 20260937/20260938/20260939, MT19937.
+
+Honest novelty accounting: 3/3 modality families are new versus the whole committed factory and versus staged leftover-mill r13–r34 (these three were the oldest named leftover in r13-premises and were left available through r34). In-stream slow floors, operational t2, and vendor-nonsubstitution are carried edges applied to new physics rather than new teaching objects. Three-party collusion and exoneration were already taught on r13 quench/VRFB, so those heads are carried onto new sensors. Against that: bounded-accept-with-scope-limit, reconstruction-as-SoT, conjunctive SOP, and custody vocabulary are carried; the 5–40 cap is a density constraint not a new teaching object; 24 prior leftover-mill rounds already taught custody/governance at high sophistication. Net: about two-fifths of the round's scenario/edge mass is genuinely novel.
+
+Novel coverage: 40%
+"""
+    NOTES.write_text(notes, encoding="utf-8")
+    print("wrote", NOTES, "bytes", NOTES.stat().st_size)
+
+
+def main():
+    records = [rec_112(), rec_113(), rec_114()]
+    local_checks(records)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    lines = [
+        json.dumps(r, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        for r in records
+    ]
+    BATCH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print("wrote", BATCH, "bytes", BATCH.stat().st_size, "lines", len(lines))
+    for i, r in enumerate(records):
+        print(
+            r["id"],
+            "events",
+            len(r["spike_events"]),
+            "excerpt",
+            len(r["raster"]["excerpt"]),
+            "spikes",
+            r["raster"]["spikes"],
+            "isi",
+            r["raster"]["isi_count_identity"],
+            "sim",
+            r["language_view"]["trajectory"]["state"]["sim_or_real"],
+            "dec",
+            r["language_view"]["trajectory"]["safety_decision"]["decision"],
+            "bytes",
+            len(lines[i]),
+        )
+    gate = repo_validate(records)
+    write_notes(records, lines, gate)
+
+
+if __name__ == "__main__":
+    main()

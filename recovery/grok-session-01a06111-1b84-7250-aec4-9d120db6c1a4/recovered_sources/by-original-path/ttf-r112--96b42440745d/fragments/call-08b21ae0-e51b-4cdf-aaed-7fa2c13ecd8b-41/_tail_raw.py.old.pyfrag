@@ -1,0 +1,3 @@
+                issues.append("527 routing has go_accept")
+            if "policy.hold_reject" not in table_tos:
+                issues.append("527 missing hold_reject routing")

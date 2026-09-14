@@ -1,0 +1,520 @@
+    (OUT / "NOTES-r38.md").write_text(notes)
+    return notes
+
+
+def write_transcript(rec, line):
+    c1_spikes = [e for e in rec["spike_events"] if e["t_rel_ms"] <= 26.160]
+    text = """# Multi-Agent Ouroboros Swarm — Round 38 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r38-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Plant: invented DRUMWROTH / Pitchfen Coking DC-4 (not LYOSHIELD / CINDERWICK / TRIAD / QUILLFORGE / NIGHTWELL / FERRICLEAVE / CASSITER / OXBOWREEL / REDHALL / SEEDLATCH / STRIAFOIL / PROTONIL / TORSIONKEY / ORRIS / WHORLSPAR / IONSPATE / SKULLGATE / CALXION / BRACEGILT / MAGNORIL / GORSEFLUE / CLINKERFELL / LINTELPLY / KAOTHARN / TREADNOLL / ANOLITH)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r38.jsonl).
+
+---
+
+# Cycle 1 — Foundation + injections
+
+## Generator
+
+Design intent: a delayed-coker drum pair where three correct
+agents agree the hold is switch-legal because a gamma-vapor
+model maps a wet-foam over into a still-in-band drum. The naive
+playbook switches a foaming 28 ft drum into the vapor line.
+The gate must MODIFY on a numeric switch ceiling, not by killing an agent.
+sim_or_real=designed. Reward heads are
+task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Pitchfen DC-4, 1100 t/d delayed-coker,
+r_foam 0.31, PRES 1.42 bar, proposed SWITCH-DRUM, safety MODIFY to SWITCH-HOLD,
+executed hold without the antifoam-pulse numbers fully specified,
+outcome "foam found, drum saved" (this last claim is the defect
+the later cycles will refuse to keep). Sixteen spikes, five ticks,
+raster/gate_snn present but the scar is a single edge.
+
+```json
+{
+  "id": "maos-r38-001",
+  "state": {
+    "sim_or_real": "designed",
+    "domain": "industrial-assembly",
+    "description": "Drum DC-4 mid-hold; three loops in spec; supervisor proposes switch-drum.",
+    "t0_us": 1742000220000038,
+    "gate_latency_us": 680,
+    "race_window_us": 480
+  },
+  "proposed_action": {"name": "switch_drum", "parameters": {"switch_drum": true}},
+  "safety_decision": {"decision": "MODIFY", "rationale": "Hold; do not switch while the foam residual is open."},
+  "executed_action": {"name": "switch_hold", "executed_as_proposed": false},
+  "future_outcome": {"summary": "Foam found, drum saved."},
+  "reward_components": {"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"},
+  "meta": {"round": 38, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}
+}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "drum saved". If coke later assays +6.4 mm, booking
+   +0.40 is a lie. Fix: declare `_aggregation`, emit 3–8 ticks that sum to
+   the five heads, and do not call a missed recovery a save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote no
+   switch while r_foam > 0.04 AND r_dp < 0.92.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-assembly` collides with r16 QUILLFORGE and teaches nothing.
+   Delayed-coker physics (overhead PT, gamma foam, neutron residual) is
+   absent from prior ouroboros rounds and must be named.
+4. **major — race under-specified.** One gamma channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted
+   `t_rel_ms` and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated
+   weight repeats r14's two-edge form without the third. NOTES-r14 item 4
+   asked for three-edge where any-pair rollback fails.
+
+Critic does not rewrite the trajectory.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **delayed-coker-drum-switch**
+(justified novel sub-domain; explicit tag `delayed-coker-drum-switch`).
+
+Displaced: the Generator's generic `industrial-assembly` bucket, and any
+temptation to reuse warehouse-amr (r01), aerial-swarm (r02),
+district-heating (r03), event-camera grid (r04), lyophilization (r14),
+stator-weld (r16), air-separation (r17), water-treatment dosing (r18),
+float-glass tin-bath (r19), underwater-rov (r20), potline (r21),
+czochralski (r22), slot-die coating (r23), PEM electrolysis (r24),
+wind-turbine-pitch (r25), surgical-assist (r26), optical-fiber-draw
+(r27), kraft-recovery (r28), caster-mold-level (r29),
+humanoid-locomotion (r30), vacuum-induction-melt (r31),
+steam-methane-reformer (r32), cement-rotary-kiln (r33),
+autoclave-composite-cure (r34), geothermal-binary-orc (r35),
+tire-curing-press (r36), or chlor-alkali-membrane (r37). Not LYOSHIELD,
+not CINDERWICK, not TRIAD, not FERRICLEAVE, not CASSITER, not SEEDLATCH,
+not STRIAFOIL, not PROTONIL, not TORSIONKEY, not ORRIS, not WHORLSPAR,
+not SKULLGATE, not CALXION, not BRACEGILT, not MAGNORIL, not GORSEFLUE,
+not CLINKERFELL, not LINTELPLY, not KAOTHARN, not TREADNOLL, not ANOLITH.
+
+Domain-specific constraint: switch must remain closed while r_foam > 0.04;
+the gamma-radar window is not a dry-headspace certificate.
+
+Sensor delta: +overhead PT, +vapor TC, +gamma foam radar, +neutron
+residual, +overhead dP; -any mobile robot, -event-camera gantries, -DVS,
+-Pirani-as-shelf, -scanning beta, -crucible-as-CZ-puller, -clip applier,
+-fiber micrometers, -TMT optical, -kiln hood O2, -ORC NCG, -cure bladder,
+-membrane cell voltage.
+
+`state.domain` and `meta.domain` both become `delayed-coker-drum-switch`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Pitchfen estuary-refinery drum alley DC-4, not a corridor, not a
+freeze-dryer, not a tin bath, not a cold box, not a coater, not a puller,
+not a fiber tower, not a PEM stack, not an SMR box, not a kiln, not an
+ORC kettle, not a cure press, not a membrane row).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **0.31 wet-foam over
+under a gamma-vapor model**.
+
+- Trigger: weekend antifoam leaves 0.02 already-open residual; 32 min of
+  hold writes 0.31 wet-foam residual; gamma stays 12 pct.
+- Base rate: <1% — 0.44%/hold from a wet-foam MC (nozzle spec designed;
+  foam fitted-style).
+- Naive failure: FALSE PERMISSION. PB-CK-12 sees PRES 1.42 bar, TEMP
+  418 C, FOAM 12 pct, switches, ships foam-over, $2.18M.
+- Trajectory edit: put the foam in `state.fault_context`, make the
+  gamma-vapor model the mechanism that keeps all three confirms
+  green, and force the gate to refuse the switch on r_foam 0.31 even though
+  all three playbook confirms are numerically true.
+
+Distinct from the domain injection: the domain is the delayed-coker drum;
+the tail is the accidental model-nullspace compound.
+
+## Neuromorphic Translator
+
+Race window [6.760, 7.240] ms = 480 us. Winner foam.n @ 6.820 ms
+(amplitude 1.26, 0.31). Loser foam.ok @ 7.012 ms (amplitude
+1.10, 12 pct). Margin 192 us vs combined jitter 62 us (3.10x).
+dp.oh @ 7.164 ms is a third race-window channel. Gate @ 7.500 ms
+= winner + 680 us.
+
+Flip narrative: 192 us < min(500, 480) us, so order is flip-fragile. If
+gamma-ok wins, PB-CK-12 heads the triage queue. The hold must ride
+order-invariant floors (r_foam, r_dp), not the winner tag.
+
+Cycle-1 spike patch (16 events, globally sorted, refractory >= 0.8 ms;
+tightest same-channel gap foam.n 4.620 -> 6.820 = 2.200 ms):
+
+| t_rel_ms | channel | amplitude |
+|---------:|---------|----------:|
+| 0.240 | drum.pt | 0.54 |
+| 1.060 | vap.tc | 0.61 |
+| 1.880 | foam.g | 0.55 |
+| 3.120 | drum.pt | 0.50 |
+| 4.620 | foam.n | 0.72 |
+| 5.100 | vap.tc | 0.64 |
+| 5.540 | foam.g | 0.52 |
+| 6.820 | foam.n | 1.26 |
+| 7.012 | foam.ok | 1.10 |
+| 7.164 | dp.oh | 0.66 |
+| 7.500 | ctrl.gate | 1.06 |
+| 8.920 | drum.pt | 0.45 |
+| 10.780 | vap.tc | 0.46 |
+| 12.660 | foam.n | 0.86 |
+| 18.400 | foam.g | 0.44 |
+| 26.160 | ctrl.gate | 0.84 |
+
+Ticks (5): t_us 4620, 6820, 7500, 6000000, 576000000. Distillation
+value: the gamma-ok spike is not a dry-headspace spike; the neutron
+spike is the one that licenses hold.
+
+Raster cycle-1 seed: 40 ms, 168 neurons, 8.0 Hz, 54 spikes, 1242 pJ,
+third factor acetylcholine tau_e 6.0 s. Single scar edge only — cycle 2
+must add the second and third edges.
+
+Cycle-1 spike count: __C1_SPIKES__.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain delayed-coker-drum-switch, tail
+wet-foam over, 16 spikes, 5 ticks, MODIFY with numeric floor,
+raster+gate_snn present, sim_or_real=designed, rights stamp on record and
+meta, no thought keys. Still missing (and therefore not the publishable
+line): 16 ft small-drum sub-variant, Sunday-night gamma-foam tail, second
+and third scar edges, delayed coke assay as PRIMARY terminal, contrast
+ACCEPT episode, ticks 6–7, spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 480 us window;
+  refractory 2.200 ms; rationale quotes r_foam 0.04 / r_dp 0.92;
+  domain named; gate_snn.decision MODIFY.
+- checks deferred to cycle 2: three-edge scar, second tail, second
+  domain constraint, negative-result booking, 7 ticks summing to heads.
+- densification vs Generator v1: +1 domain, +1 tail, +16 spikes, +5
+  ticks, +numeric floor.
+
+Cycle-1 JSON is retained as the base; it is NOT written to
+batch-r38.jsonl.
+
+---
+
+# Cycle 2 — Densification
+
+## Generator
+
+Cycle-1 output is the base. Additive expansion (nothing removed):
+
+1. Downstream side-effect (immediate): antifoam probe at +6.0 s
+   dumps the foam (88 mbar in 2.3 s, wet-foam band >= 70) — foam, not noise.
+   Vapor isolate r_foam 0.31 -> 0.03. Coke inventory discovered during
+   the isolate.
+2. Delayed side-effect (PRIMARY terminal, not a footnote): at +3.4 h,
+   dumped-hold coke +6.4 mm; $1.12M. The 32 min pre-t0 foam is the
+   mechanism. Correct gate, campaign still misses.
+3. Deepened `proposed_action.evidence` with units: r_foam 0.31,
+   r_dp 0.62, PRES 1.42 bar, TEMP 418 C, FOAM 12 pct, race
+   192 us.
+4. Tightened rationale to the numeric floor no switch while r_foam >
+   0.04 AND r_dp < 0.92, plus probe bands
+   >=70 vs <=8 mbar, plus HITL 9.6 min vapor-line-interlock LOTO rule.
+
+Reward retargeted to total -0.14 so the delayed miss is the inflection
+(t_us 12240000000), not the gate. Process heads remain non-zero.
+
+## Critic
+
+Re-audit of the expanded trajectory:
+
+1. **blocking if unfixed — missing second domain constraint.** Production
+   28 ft probe 6.0 s / 12 pct is not a universal number. A 16 ft small
+   drum will overcool. Diversity Enforcer must inject the
+   physical-constraints sub-variant this cycle.
+2. **major — only one tail class.** Wet foam is accidental
+   infrastructure. A disjoint human-intent tail is still required
+   (Sunday-night gamma-foam forgery is the open cell).
+3. **major — scar is still one edge in the cycle-1 raster.** NOTES-r14
+   item 4 is not discharged until three switch-go edges exist and
+   any-pair rollback is shown to fail at threshold 0.30.
+4. **minor — contrast episode missing.** Without a same-gate ACCEPT on
+   a true dry headspace the record teaches "never switch". Add +3 d
+   sister-cell contrast with its own race.
+5. **minor — HITL latency mentioned in prose only.** Put 9.6 min in
+   executed_action.parameters.human_ratify and in a tick.
+
+No rewrite; directives only.
+
+## Diversity Enforcer
+
+Injected second novel domain / physical-constraint sub-variant (exactly 1
+this cycle): **16 ft small drum** on the same DC-4 pair.
+
+What it expands: 28 ft production drum (cycle 1) -> 16 ft small drum.
+Holdup 0.22x smaller. The 6.0 s 12 pct pulse overcools 14 K.
+Required probe: 18 s at 3 pct (drop 1.6 K).
+
+This is still one domain injection for the cycle (physical-constraints
+clause of the factory prompt). It does not displace
+delayed-coker-drum-switch; it changes which probe table is legal.
+`future_outcome.subvariant_constraint` carries the refit. Jaccard opening
+stays the Pitchfen estuary-refinery alley sentence; small-drum internals
+are additive, not a rewrite.
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**Sunday-night forged gamma foam CSV**.
+
+- Trigger: shift lead, night charge window, posts a historian export
+  showing r_foam 0.02 and r_dp 0.96 at the claimed dry-headspace instant.
+- Base rate: ~0.31% of Sunday-night holds (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the switch on the forged
+  confirm and ignores live r_foam. Coke-scrap plus a data-integrity 483.
+- Fence: forged log quantized at 0.5 pct (screenshot rounding); plant
+  historian is 0.01 pct (50 bins). Live r_foam is 0.31 at the claimed
+  dry-headspace, which no true dry drum produces.
+- Trajectory edit: governance CR-C-3804 mandates native 0.01 pct
+  exports; the contrast ACCEPT still requires live r_foam, not a CSV.
+
+Distinct from cycle-1 foam (accidental geometry vs deliberate deception)
+and from the small-drum sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 26.160 ms: foam.probe 6000.0, foam.n 6120.4 (adapt
+  1.26->0.40), foam.ok 6210.2 (1.10->0.36), human.ratify 576000.0,
+  vap.isolate 576800.0, line.coke.inventory 577400.0,
+  drum.pt 9000000.0, vap.tc 9000440.0, foam.n 9000900.0,
+  line.coke 12240000.0. Primary train 16 -> 26. Still one key,
+  still sorted, refractory held (min 2.200 ms).
+- +2 ticks (5 -> 7) at 9_000_000_000 us (dry-legal hold) and
+  12_240_000_000 us (coke assay). Heads now 0.09, -0.33, -0.10, 0.14,
+  0.06; total -0.14. Inflection is the last tick.
+- Contrast train 8 events, own race 196 us, ACCEPT.
+- Three-edge third factor: three switch-go edges, tau_e 6.0 s = 6000 ms,
+  trace __AUX_TRACE__, eta __AUX_ETA1__ / __AUX_ETA2__ / __AUX_ETA3__,
+  weights 0.44->0.21, 0.40->0.19, 0.37->0.17. Raster excerpt unchanged
+  (decision window is still 40 ms) and remains sorted with unique
+  neuron_ids (same-neuron >=1000 us vacuously).
+
+Winner/loser flip (re-stated, not replaced): reversing 192 us would only
+reorder triage; r_foam and r_dp floors still MODIFY. Contrast flip of
+196 us similarly cannot turn a dry headspace into a wet foam.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.14; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted, tau_e consistent; gate_snn.decision matches; meta.round=38,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive; plant is not
+LYOSHIELD, not CINDERWICK, not TRIAD, not FERRICLEAVE, not CASSITER, not
+SEEDLATCH, not STRIAFOIL, not PROTONIL, not TORSIONKEY, not ORRIS, not
+WHORLSPAR, not SKULLGATE, not CALXION, not BRACEGILT, not MAGNORIL, not
+GORSEFLUE, not CLINKERFELL, not LINTELPLY, not KAOTHARN, not TREADNOLL,
+not ANOLITH.
+
+Densification delta: +1 domain sub-variant (16 ft small drum), +1 tail
+(Sunday-night forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 three-edge scar with
+any-pair-rollback-fails, +1 HITL ratify, +1 surprise (vapor-line coke is
+the campaign-miss mechanism).
+
+Publishable JSONL line (the only JSONL line; also at batch-r38.jsonl):
+
+```json
+__FINAL_JSONL__
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r38.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+    text = (
+        text.replace("__C1_SPIKES__", str(len(c1_spikes)))
+        .replace("__AUX_TRACE__", f"{math.exp(-6.0/6.0):.5f}")
+        .replace("__AUX_ETA1__", f"{0.23/math.exp(-6.0/6.0):.5f}")
+        .replace("__AUX_ETA2__", f"{0.21/math.exp(-6.0/6.0):.5f}")
+        .replace("__AUX_ETA3__", f"{0.20/math.exp(-6.0/6.0):.5f}")
+        .replace("__FINAL_JSONL__", line)
+    )
+    (OUT / "swarm-transcript-r38.md").write_text(text)
+    return text
+
+
+def heads_summary(rec):
+    rc = rec["reward_components"]
+    return {
+        "id": rec["id"],
+        "total": rc["total"],
+        "decision": rec["safety_decision"]["decision"],
+        "sim": rec["state"]["sim_or_real"],
+        "domain": rec["state"]["domain"],
+        "spikes": len(rec["spike_events"]),
+        "ticks": len(rc["ticks"]),
+        "plant": rec["state"]["scenario_name"],
+    }
+
+
+def main():
+    rec, aux = build_record()
+    errs = local_checks(rec, aux)
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(rec, ensure_ascii=False, separators=(",", ":"))
+    (OUT / "batch-r38.jsonl").write_text(line + "\n")
+
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import raster_status
+    from verify_execution import verify_record_execution
+
+    e, w, kinds, n = check_jsonl(
+        OUT / "batch-r38.jsonl",
+        "batch-r38.jsonl",
+        staging=FactoryStaging(enabled=True),
+    )
+    print("check_jsonl errors", e)
+    print("check_jsonl warnings", w)
+    print("kinds", kinds, "n", n)
+    errs.extend(e)
+
+    st = raster_status(rec)
+    print(
+        "raster_status",
+        {
+            k: st[k]
+            for k in (
+                "raster_present",
+                "raster_valid",
+                "gate_snn_present",
+                "gate_snn_valid",
+                "reason_codes",
+                "routing_table_entries",
+                "third_factor_present",
+                "spikes",
+            )
+            if k in st
+        },
+    )
+    if st.get("reason_codes"):
+        errs.append(f"raster {st['reason_codes']}")
+    if not st.get("raster_valid"):
+        errs.append("raster not valid")
+    if not st.get("gate_snn_valid"):
+        errs.append("gate_snn not valid")
+
+    status, reason = verify_record_execution(rec, "maos-r38-001")
+    print("verify_record_execution", status, reason)
+    if status != "verified":
+        errs.append(f"verify {status}: {reason}")
+
+    probe = subprocess.run(
+        [
+            sys.executable,
+            f"{ROOT}/pipelines/spike_probe.py",
+            "--strict",
+            str(OUT / "batch-r38.jsonl"),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    print("spike_probe rc", probe.returncode)
+    print(probe.stdout)
+    if probe.stderr:
+        print("spike_probe stderr", probe.stderr)
+    if probe.returncode != 0:
+        errs.append(f"spike_probe rc {probe.returncode}")
+
+    receipt = (
+        f"check_jsonl errors={e} warnings={w} kinds={kinds} n={n}; "
+        f"raster_status valid={st.get('raster_valid')} gate={st.get('gate_snn_valid')} "
+        f"reasons={st.get('reason_codes')}; verify_record_execution={status} ({reason}); "
+        f"spike_probe --strict rc={probe.returncode}"
+    )
+    write_notes(rec, aux, receipt)
+    write_transcript(rec, line)
+
+    headings = re.findall(
+        r"^## .+$", (OUT / "swarm-transcript-r38.md").read_text(), re.M
+    )
+    print("headings", headings)
+    expected = [
+        "## Generator",
+        "## Critic",
+        "## Diversity Enforcer",
+        "## Edge-Case Hunter",
+        "## Neuromorphic Translator",
+        "## Trajectory Builder",
+        "## Generator",
+        "## Critic",
+        "## Diversity Enforcer",
+        "## Edge-Case Hunter",
+        "## Neuromorphic Translator",
+        "## Trajectory Builder",
+    ]
+    if headings != expected:
+        errs.append(f"heading sequence {headings}")
+
+    notes = (OUT / "NOTES-r38.md").read_text()
+    cov = re.findall(r"^Novel coverage: .+$", notes, re.M)
+    if cov != [NOVEL_LINE]:
+        errs.append(f"novel coverage lines {cov}")
+
+    hchk = subprocess.run(
+        [
+            sys.executable,
+            "/tmp/maos_heading_check.py",
+            str(OUT / "swarm-transcript-r38.md"),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    print(hchk.stdout)
+    if hchk.returncode != 0:
+        errs.append(f"heading_check rc {hchk.returncode}: {hchk.stdout}")
+
+    raw_guard = subprocess.run(
+        ["git", "-C", ROOT, "status", "--porcelain", "--", "outputs/raw"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if raw_guard.stdout.strip():
+        errs.append(f"outputs/raw dirty: {raw_guard.stdout.strip()}")
+
+    print("bytes jsonl", (OUT / "batch-r38.jsonl").stat().st_size)
+    print("bytes notes", (OUT / "NOTES-r38.md").stat().st_size)
+    print("bytes transcript", (OUT / "swarm-transcript-r38.md").stat().st_size)
+    print("HEADS", heads_summary(rec))
+    if errs:
+        print("ERRS:")
+        for x in errs:
+            print(" -", x)
+        sys.exit(1)
+    print("OK", OUT / "batch-r38.jsonl")
+
+
+if __name__ == "__main__":
+    main()

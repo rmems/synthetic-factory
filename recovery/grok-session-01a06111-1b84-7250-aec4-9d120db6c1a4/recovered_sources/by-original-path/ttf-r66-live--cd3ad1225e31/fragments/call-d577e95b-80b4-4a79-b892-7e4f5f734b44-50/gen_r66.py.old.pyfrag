@@ -1,0 +1,123 @@
+def lif_106_excerpt():
+    n = 72
+    dt_us = 100
+    tau_m_ms = 19.5
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.90
+    i_stim_peak = 2.36
+    stim = (22000, 25600)
+    seed = 22106
+    window_us = 42000
+    i_clamp_extra = 0.64
+    clamp_n = 14
+    rng = random.Random(seed)
+    tau_s = tau_m_ms / 1000.0
+    dt_s = dt_us / 1e6
+    decay = math.exp(-dt_s / tau_s)
+    steps = window_us // dt_us
+    voltage = [rng.random() * v_th * 0.98 for _ in range(n)]
+    bias = [i_bias * (1.0 + 0.12 * (rng.random() * 2 - 1)) for _ in range(n)]
+    for i in range(clamp_n):
+        bias[i] += i_clamp_extra
+    ref = [0] * n
+    spikes = []
+    for step in range(steps):
+        t_us = step * dt_us
+        stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+        for i in range(n):
+            if ref[i] > 0:
+                ref[i] -= dt_us
+                voltage[i] = v_reset
+                continue
+            current = bias[i] + stim_i
+            voltage[i] = current + (voltage[i] - current) * decay
+            if voltage[i] >= v_th:
+                spikes.append((t_us, i))
+                voltage[i] = v_reset
+                ref[i] = refractory_us
+    early = [(t, nid) for t, nid in spikes if t < 22000]
+    burst = [(t, nid) for t, nid in spikes if 22000 <= t < 25600]
+    used = set()
+    last = {}
+    picked = []
+
+    def take(pool, want, label_times=None):
+        if not pool:
+            return
+        chosen_idx = set()
+        if label_times:
+            for target in label_times:
+                best = None
+                for idx, (t, nid) in enumerate(pool):
+                    if idx in chosen_idx or nid in used:
+                        continue
+                    if nid in last and t - last[nid] < 1000:
+                        continue
+                    if best is None or abs(t - target) < abs(best[0] - target):
+                        best = (t, nid, idx)
+                if best is not None:
+                    t, nid, idx = best
+                    picked.append((t, nid))
+                    used.add(nid)
+                    last[nid] = t
+                    chosen_idx.add(idx)
+        stride = max(1, len(pool) // max(want, 1))
+        for idx in range(0, len(pool), stride):
+            early_flag = pool[0][0] < 22000
+            have = len([1 for t, _ in picked if (t < 22000) == early_flag])
+            if have >= want:
+                break
+            t, nid = pool[idx]
+            if nid in used:
+                continue
+            if nid in last and t - last[nid] < 1000:
+                continue
+            picked.append((t, nid))
+            used.add(nid)
+            last[nid] = t
+
+    take(early, 7)
+    take(burst, 9, label_times=(23400, 24100, 24800))
+    picked.sort(key=lambda item: (item[0], item[1]))
+    clamp = [(t, n) for t, n in picked if t < 22000][:7]
+    slump = [(t, n) for t, n in picked if t >= 22000][:9]
+    picked = sorted(clamp + slump, key=lambda item: (item[0], item[1]))
+    if len(picked) < 8:
+        raise RuntimeError(f"LIF excerpt too short: {len(picked)}")
+    channels = ["lif.clamp" if t < 22000 else "lif.rack" for t, _ in picked]
+    lif = OrderedDict(
+        [
+            ("model", "leaky_integrate_and_fire"),
+            ("n", 72),
+            ("dt_us", 100),
+            ("tau_m_ms", 19.5),
+            ("v_rest", 0.0),
+            ("v_reset", 0.0),
+            ("v_th", 1.0),
+            ("r_m", 1.0),
+            ("refractory_us", 1000),
+            ("i_bias", 0.90),
+            ("i_stim_peak", 2.36),
+            ("stim_t_us", [22000, 25600]),
+            ("i_clamp_extra", 0.64),
+            ("clamp_n", 14),
+            ("seed", 22106),
+            (
+                "note",
+                "Population sim scoped to this sidecar. Plant remains designed. "
+                "Neurons 0-13 carry +0.64 aisle-clamp bias; stim 22.0-25.6 ms is the rack-leg collapse.",
+            ),
+        ]
+    )
+    extra = OrderedDict(
+        [
+            ("excerpt_source", "independent_lif"),
+            ("sim_scope", "sidecar_only"),
+            ("lif", lif),
+            ("abort_s", 720),
+            ("delayed_surprise_s", 720),
+        ]
+    )
+    return excerpt_items(picked, channels), extra

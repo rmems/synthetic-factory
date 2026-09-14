@@ -1,0 +1,21 @@
+                            [
+                                "opt.prill.mm 1.80 vs 2.40 cap",
+                                "pt.tower.kPa 1.80 under 2.40 cap",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Optic-first latches ACCEPT of the 28 t/h melt; draft-first "
+                            "would extra-cut a legal shower.",
+                        ),
+                        (
+                            "window_derivation",
+                            "420 us = one optical-sizer slot versus tower-draft PT on this "
+                            "prill-shower bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 220 us vs combined jitter 70 us (opt 32 + PT 38): 3.1x over a "
+                            "2.0x trust floor. Reversing order by < 220 us would have extra-cut "
+                            "a legal 28 t/h melt.",
+                        ),

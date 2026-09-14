@@ -1,0 +1,33 @@
+                [
+                    "hood zirconia O2, 2 kHz, 32 us timestamp jitter",
+                    "hood two-color pyrometer 800-1200 C, 38 us jitter",
+                    "hanging-chain AE puck on zone 3, 50 kHz (context)",
+                    "fuel-train Coriolis (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("hood_o2_floor_pct", 5.5),
+                        ("hood_o2_pct", 4.8),
+                        ("hood_pyro_C", 978.0),
+                        ("proposed_fuel_t_h", 1.80),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Hood-Pike HP-8 indexed onto MK-4 lime; fuel 1.80 t/h, hood O2 4.8 percent.",
+                    "2. Reducing-floor 5.5 percent armed; hood pyrometer 978 C residual.",
+                    "3. Fuel-train precursor at 1.210 ms; zirconia warm-start 4.8 percent.",
+                    "4. Race window [5.000, 5.450] ms opens on the burner bus.",
+                    "5. o2.hood.pct 4.8 percent at 5.180 ms (winner).",
+                    "6. pyro.hood.C 978 C at 5.392 ms (loser by 212 us).",
+                    "7. Gate at 5.860 ms (winner + 680 us): MODIFY clamp 1.80 -> 1.35 t/h.",
+                    "8. Clamp executes; next-sample O2 5.7 percent >= 5.5 floor.",
+                    "9. At 21.200 ms hanging chain 11 shears; AE burst.",
+                    "10. 15 min chain swap (abort_s=900); named un-netted loss, not folded into process heads.",
+                ],
+            ),

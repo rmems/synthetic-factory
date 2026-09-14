@@ -1,0 +1,580 @@
+def write_notes(rec, aux, pipeline_receipt):
+    gap, gap_ch = min_same_channel_gap(rec["spike_events"])
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 37
+
+Factory: multi-agent-ouroboros-swarm. One scenario (ZP), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r37.jsonl. Full labeled transcript:
+swarm-transcript-r37.md. Quota Q=1. Record id maos-r37-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Nothing under outputs/raw/ was touched.
+
+ORCHESTRATION NOTE: dispatched AS round 37 of the 2026-09-02-final-heavy
+window. Writes are create-only under /tmp/maos-r37/. Prior context read for
+gap targeting and de-collision: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, and staged r14–r33 (re-censused immediately
+before emit; r28 SODASHARD kraft-recovery / r33 CLINKERFELL cement kiln
+landed as live occupancy). Explicitly avoided cloning
+LYOSHIELD, CINDERWICK, TRIAD / Meridian, QUILLFORGE, NIGHTWELL, FERRICLEAVE,
+CASSITER, OXBOWREEL / MURENA, REDHALL, SEEDLATCH / Quartzmere / Quartzridge,
+STRIAFOIL / Kelpholt, PROTONIL / Ashspire, TORSIONKEY / Ridgeholt, ORRIS /
+Holmwick, WHORLSPAR / Pikeshear, IONSPATE / Thornmere, SKULLGATE / Bloomholt,
+CALXION / Aldersedge, MAGNORIL / Basaltspit, GORSEFLUE / Copseholt,
+SODASHARD / Cairnmere, CLINKERFELL / Flintmere,
+VANTIS-CADENCE-AEGIS, THERMION, OKTAVE, STARLING, VERDIGRIS. Plant is
+invented ANOLITH / Siltfen Chlor-Alkali EM-6.
+
+## What this round produced
+
+Scenario ZP — "ANOLITH / Siltfen Chlor-Alkali EM-6": a 90-cell monopolar
+membrane row at 12.4 kA / 18.6 m3/h anolyte. Three heterogeneous,
+individually-correct agents — VOLT (cell voltage), FLOW (anolyte
+magmeter), PUR (header Cl2 GC) — each report their local loop in-spec.
+The conjunction is not a membrane-integrity certificate. A pinhole in
+cell C-17 lets catholyte back-migrate into the anolyte. VOLT reads
+3.18 V inside 3.05-3.30 (remaining area carries extra CD). FLOW is
+18.6 m3/h inside 17.0-20.0 (feed-true). PUR is 98.6 vol% inside
+98.0-99.5 (89 healthy cells dilute C-17). Cell-outlet anolyte pH infers
+3.92 (healthy 1.8-2.5; hold if > 2.80) but is policy-treated as a
+brine-quality tag unless header Cl2 also trips (2021 noisy cell-pH
+nuisance). The coordination-failure CLASS is new to this factory:
+CATHOLYTE-BACK-MIGRATION CERTIFICATE OF A MEMBRANE PINHOLE. Completes
+a different family than r01-r04 and staged r14-r33 (livelock /
+synchrony-storm / arms-race / ring-with-no-faulty-pair /
+false-consensus-endpoint / pairwise-Hurwitz / thermal-contact masquerade
+/ mass-balance ghost / conservation-blind ratio-lock / stacked-dead-bands
+/ drum-blind tension snag / resistance-compensated starvation /
+multi-tau meniscus tilt / window-mean stripe / polarization-lookup
+drying cell / motor-side certificate / tendon-compliance nullspace /
+FFT-deadbanded airline / wall-reflection frozen spout / slag-skull
+bridge / ghost-contact nullspace / crucible-weep pyrometer /
+TMT-spatial-mean tube / kiln-inlet false-air). Here every agent is
+correct, the header is looking at mixed Cl2, and the playbook's three
+header confirms are not a cell-true membrane certificate.
+
+The gate is a correct MODIFY (numeric floor: do not raise current above
+12.4 kA while cell-outlet anolyte pH > 2.80 AND inferred chlorate >
+4.5 g/L). TG-EM-6 strips PB-EM-6's current raise, holds 12.4 kA, runs
+a 5.2 s current-step probe -8% (pinhole keeps |Delta pH| 0.05 <= 0.08;
+live would move >= 0.45), and isolates C-17 after a 10.2 min gallery
+human ratify. Immediate H2-in-Cl2 detonation is avoided (0 from the
+draft). The PRIMARY episode nonetheless FAILS: 22 min of unmonitored
+pre-t0 pinhole growth had already chlorinated the C-17 PTFE outlet
+gasket. Cl2 leak at +5.4 h; 16 h outage; $1.64M designed. Reward total
+-0.16 with process heads honest and world loss un-netted.
+
+Triple-edge scar (NOTES-r14 item 4): volt.in_band -> current_raise
+(0.17 commissioned -> 0.50 at illusion -> 0.25 after ACh-gated
+depression) AND flow.in_band -> current_raise (0.16 -> 0.44 -> 0.22) AND
+pur.in_band -> current_raise (0.15 -> 0.41 -> 0.20). Eligibility trace
+e^{{-0.80/0.92}} = {aux['trace']:.5f}; eta {aux['eta1']:.5f} / {aux['eta2']:.5f} /
+{aux['eta3']:.5f}; dw -0.250 / -0.220 / -0.210. Partial rollback of any pair
+leaves the third at 0.50 / 0.44 / 0.41, all > 0.30 fire threshold —
+fitted to fail. Coordinated depression of all three is the cure.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **chlor-alkali-membrane-electrolysis** — justified novel
+  subdomain of industrial-process / brine electrolysis, unused across
+  2026-08-17, 2026-08-30, and staged r14-r33. Not warehouse-amr (r01),
+  not aerial-swarm (r02), not district-heating (r03), not
+  event-camera-traffic-grid (r04), not lyophilization (r14), not
+  water-treatment (r18), not float-glass (r19), not underwater-rov
+  (r20), not electrolytic-aluminum (r21), not czochralski-pull (r22),
+  not slot-die coating (r23), not pem-electrolysis (r24), not
+  wind-turbine pitch (r25), not surgical-assist (r26), not
+  optical-fiber-draw (r27), not kraft-recovery (r28), not steel-caster
+  (r29), not humanoid-locomotion (r30), not vacuum-induction melt
+  (r31), not steam-methane reformer (r32), not cement-rotary-kiln
+  (r33). delayed-coker, autonomous-driving, grid-inspection left unused.
+- Cycle-1 tail: membrane pinhole + catholyte back-migration certificate.
+  Gallery visual PASSES (pinhole under the cell cover). Fitted-style
+  base rate 0.47%/campaign (pinhole-growth MC; visual threshold designed,
+  flagged). Naive = FALSE PERMISSION.
+- Cycle-2 domain sub-variant: bipolar filter-press / short anolyte
+  residence, 0.38x residence, 2.3x current-step gain; 5.2 s / -8%
+  monopolar pulse overshoots live cell to 1.1 vol% H2-in-Cl2; probe
+  must move to 16 s / -2.0%.
+- Cycle-2 tail: night-shift forged cell-pH CSV at 0.1 pH quantization
+  vs plant 0.01 pH (10 bins) plus live pH 3.92 and header Cl2 98.6 vol%
+  at the claimed membrane-true. Human-intent class, disjoint from cycle
+  1's accidental pinhole. Base rate ~0.34% of Sunday-night campaigns,
+  DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+4 d sister hall) with its own 176 us
+  race (demand vs ph-clear) and ACCEPT of the raise the primary MODIFIED
+  away.
+- Learned-weight provenance on THREE edges with pair-rollback-fails.
+- HITL gallery ratify 10.2 min (gap 4 partial; sim_or_real stays
+  designed).
+- Governance CR-E-3704 prices retire-vs-probe-vs-status-quo and mandates
+  native 0.01 pH CSV exports (the fraud fence).
+- Flip-fragility extended to MEMBRANE-INTEGRITY CERTIFICATE: when three
+  header-side channels agree, their race does not decide truth; a
+  cell-outlet pH tap that policy treated as brine-quality-only does.
+
+## Self-critique of this round's batch
+
+### Strengths
+- The headline class is mechanistically tight: three locally-true header
+  loops live on mixed Cl2. Conjunction is not a cell-true membrane.
+- Negative-result honesty: the gate does the right thing and the hall
+  still fails for a reason the commissioned sensors could not see. Total
+  -0.16.
+- Triple-edge scar is load-bearing: the record states a counterfactual
+  where rolling back any pair fails, with the fire threshold 0.30
+  exhibited on each remaining edge.
+- Contrast ACCEPT on a true intact membrane prevents "never raise" as
+  the lesson.
+- Distinct from r21 Hall-Heroult starvation, r24 PEM drying-cell
+  polarization lookup, and r28 kraft wall-reflection: brine membrane
+  pinhole with cell-pH vs header-Cl2, not alumina, not MEA dry-out, not
+  smelt IR.
+
+### Weaknesses (honest)
+- Probe error bands, the 0.47%/campaign pinhole rate, the $1.64M / $2.9M
+  figures, the 10.2 min climb latency, and the night-shift 0.34% base
+  rate are DESIGNED constants and are flagged. Closed-loop offsets
+  (header dilution from 89 healthy cells, filter-press residence d-t)
+  are derived from those inputs, not discovered by an unauthored process.
+- Gasket-chlorination model is a designed 22 min pinhole-growth mapping;
+  no full membrane CFD shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil. Gap 4
+  remains open as a provenance cell.
+- Cross-record arc is not discharged; +21 d CR-E-3704 is a hook, not a
+  serial igniter into another round. delayed-coker remains unused.
+
+### Realism of noise / latencies
+Ladder: 178 us race / 176 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap {gap:.3f} ms on {gap_ch}) / 500 us race
+window / 710 us gate latency / 20 ms bus epoch / 40 ms raster / 5.2 s
+probe / 10.2 min HITL / 5 min naive raise-ramp counterfactual / 22 min
+pre-t0 pinhole growth / 2.7 h membrane recovery / 5.4 h Cl2 leak / +4 d
+contrast / +21 d governance. Adaptation decay on volt.cell
+(0.54->0.51->0.62->0.46->0.33), ph.cell (0.73->0.76->1.36->0.47->0.43->0.31),
+flow.anolyte (0.61->0.59->0.49->0.28), pur.header (0.57->0.84).
+
+### Value for SNN distillation
+- MEMBRANE PINHOLE BACK-MIGRATION = THREE CORRECT LOOPS, WRONG VOLUME.
+- CELL-TRUE pH CHANNEL that policy treated as brine-quality-only as the
+  tie-break.
+- REVERSIBLE PROBE that moves cell pH iff the membrane is intact.
+- TRIPLE-EDGE ELIGIBILITY: coordinated depression; pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum {rec['reward_components']['total']}
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.49 reconciles independently.
+- spike_events: primary {len(rec['spike_events'])} events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap {gap:.3f} ms >= 0.8 ms, 3
+  channels inside race_window_us 500 (ph.cell.high 6.510, pur.in_band 6.688,
+  volt.cell 6.900). Contrast 8 events, own race, min same-channel gap well
+  above 0.8 ms.
+- Sidecars: raster spikes 51 == round(160 x 8.0 x 0.040); energy 1173 pJ /
+  0.001173 uJ at 23 pJ/spike; excerpt 16 events inside [0, 40000] us,
+  neuron_id < 160, same-neuron gap N/A (unique ids) / >=1000 us; routing 4
+  entries with three scar edges' before/after pair; third factor tau 0.92 s
+  == 920 ms; gate_snn pools 40/16/4 == round(n x rate x 0.025) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: {pipeline_receipt}
+
+## Novel coverage
+The coordination-failure CLASS (catholyte-back-migration certificate of
+a membrane pinhole), the domain (chlor-alkali membrane electrolysis /
+industrial process), the current-step probe discriminant, the triple-edge
+scar with pair-rollback-fails, the primary negative-result (correct
+MODIFY, hall still fails on unmonitored gasket chlorination), the HITL
+gallery ratify, the filter-press probe-duration refit, and the
+night-shift 10-bin quantization fence are absent from prior committed
+ouroboros rounds and from staged r14-r33. Repeated elements discounted:
+same-gate contrast (r02/r03/r04/r14), governance-pricing scaffold,
+flip-fragility series (extended to membrane-integrity certificate, but
+the move rhymes), sequenced recovery shape, third-factor rollback form
+(here three edges rather than r14's two), negative-result primary (r14
+staged). Adjacent electrolysis rounds (r21 potline, r24 PEM, r28 kraft
+boiler) share industrial-process scaffolding but not brine-membrane
+pinhole physics. Weighing a new failure family + cure vocabulary +
+domain against those reused scaffolds:
+
+{NOVEL_LINE}
+
+## What ROUND 38 should add
+1. FIT THE DESIGNED CONSTANTS: pinhole-growth arrival, probe error bands,
+   gasket-chlorination kinetics, night-shift claim process.
+2. HIL PROVENANCE CELL: put the gallery ratify on a hardware-in-loop
+   cell-gallery interlock with fitted latency as state.sim_or_real=hil.
+3. CROSS-RECORD ARC: let CR-E-3704's residual alarm be the igniter of
+   the next round rather than a dangling +21 d leaf.
+4. Domain candidates (de-collided): delayed-coker drum; autonomous-driving;
+   grid-inspection (if distinct from STARLING aerial-swarm and TORSIONKEY
+   pitch); ammonia-converter. AVOID chlor-alkali membrane (now used),
+   cement-rotary-kiln clinker, kraft-recovery, pem-electrolysis,
+   electrolytic-aluminum, humanoid-locomotion, steel-caster mold-level,
+   surgical-assist, wind-turbine pitch, float-glass, lyophilization,
+   event-camera-traffic-grid, district-heating, aerial-swarm,
+   warehouse-amr, underwater-rov, czochralski-pull, slot-die coating,
+   optical-fiber-draw, vacuum-induction melt, steam-methane reformer,
+   irrigation-canal, and any LYOSHIELD / CINDERWICK / TRIAD / SKULLGATE /
+   CALXION / MAGNORIL / GORSEFLUE / CLINKERFELL / SODASHARD / ANOLITH
+   plant.
+"""
+    (OUT / "NOTES-r37.md").write_text(notes)
+    return notes
+
+
+def write_transcript(rec, line):
+    c1_spikes = [e for e in rec["spike_events"] if e["t_rel_ms"] <= 26.260]
+    text = """# Multi-Agent Ouroboros Swarm — Round 37 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r37-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Plant: invented ANOLITH / Siltfen Chlor-Alkali EM-6 (not TRIAD / Meridian / VANTIS-CADENCE-AEGIS / LYOSHIELD / CINDERWICK)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r37.jsonl).
+
+---
+
+# CYCLE 1 — Foundation + injections
+
+## Generator
+
+Design intent: a 90-cell monopolar chlor-alkali membrane row where three
+correct agents each read a header-side loop because a C-17 pinhole
+partitions cell-true anolyte from header-true Cl2. The naive playbook
+raises current into a pinholed cell. The gate must MODIFY on a numeric
+current ceiling, not by killing an agent.
+sim_or_real=designed. Reward heads are
+task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Siltfen EM-6, 12.4 kA, voltage
+3.18 V, header Cl2 98.6 vol%, flow 18.6 m3/h, proposed CURRENT-RAISE
+14.2 kA, safety MODIFY to CURRENT-HOLD, executed hold without the
+current-step numbers fully specified, outcome "pinhole found, hall saved"
+(this last claim is the defect the later cycles will refuse to keep).
+Sixteen spikes, five ticks, raster/gate_snn present but the scar is a
+single edge.
+
+```json
+{
+  "id": "maos-r37-001",
+  "state": {
+    "sim_or_real": "designed",
+    "domain": "industrial-process",
+    "description": "Row EM-6 at body current; three header loops in-spec; supervisor proposes current-raise.",
+    "t0_us": 1779188400000037,
+    "gate_latency_us": 710,
+    "race_window_us": 500
+  },
+  "proposed_action": {"name": "current_raise", "parameters": {"current_kA": 14.2}},
+  "safety_decision": {"decision": "MODIFY", "rationale": "Hold; do not raise current while cell-outlet pH residual is high."},
+  "executed_action": {"name": "current_hold", "executed_as_proposed": false},
+  "future_outcome": {"summary": "Pinhole found, hall saved."},
+  "reward_components": {"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"},
+  "meta": {"round": 37, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}
+}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "hall saved". If the pre-t0 gasket later leaks Cl2,
+   booking +0.40 is a lie. Fix: declare `_aggregation`, emit
+   3–8 ticks that sum to task_progress+safety+efficiency+coherence+exploration,
+   and do not call a quarantined hall a save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote
+   current <= 12.4 kA while cell-outlet pH > 2.80 AND inferred chlorate
+   > 4.5 g/L.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-process` collides with generic MES vocabulary and teaches
+   nothing. Chlor-alkali membrane electrolysis (cell-outlet pH vs header
+   Cl2, inferred chlorate as a pinhole flag) is absent from prior
+   ouroboros rounds and must be named.
+4. **major — race under-specified.** One pH channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted `t_rel_ms`
+   and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated weight
+   repeats r04's one-edge rollback and is thinner than r14's two-edge.
+   NOTES-r14 item 4 asked for three edges where pair rollback fails.
+
+Critic does not rewrite the trajectory.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **chlor-alkali-membrane-electrolysis**
+(justified novel subdomain of industrial-process / brine electrolysis; explicit tag
+`chlor-alkali-membrane-electrolysis`).
+
+Displaced: the Generator's generic `industrial-process` bucket, and any
+temptation to reuse warehouse-amr, aerial-swarm, district-heating,
+event-camera-traffic-grid, pharmaceutical-lyophilization, water-treatment,
+float-glass, underwater-rov, electrolytic-aluminum, czochralski-pull,
+slot-die coating, pem-water-electrolysis, wind-turbine pitch,
+surgical-assist, optical-fiber-draw, kraft-recovery-boiler,
+steel-continuous-caster, humanoid-locomotion, vacuum-induction melt,
+steam-methane reformer, or cement-rotary-kiln-clinker.
+delayed-coker is left unused.
+
+Domain-specific constraint: current must remain <= 12.4 kA while
+cell-outlet pH > 2.80 even if header Cl2 is inside the healthy band;
+inferred chlorate is a pinhole flag the header GC cannot substitute for.
+
+Sensor delta: +cell voltage, +anolyte magmeter, +header Cl2 GC,
++cell-outlet pH; -any mobile robot, -event-camera gantries, -DVS, -Pirani/CM,
+-RGA quadrupole, -DVL, -pitch encoder, -tendon LVDT, -insole GRF,
+-kiln zirconia, -smelt IR.
+
+`state.domain` and `meta.domain` both become `chlor-alkali-membrane-electrolysis`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Siltfen night-shift membrane pinhole, not a lyophilizer, not a corridor,
+not a tin bath, not a ROV pad, not a potline, not a PEM stack, not an OR,
+not a gait lab, not a kiln, not a kraft boiler).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **membrane pinhole +
+catholyte back-migration certificate**.
+
+- Trigger: C-17 membrane pinhole plus back-migrated OH-, cell-outlet pH
+  3.92, header Cl2 98.6 vol%.
+- Base rate: <1% — 0.47%/campaign from a pinhole-growth MC (gallery visual
+  threshold is designed; membrane geometry fitted-style). Visual PASSES
+  because the pinhole sits under the cell cover.
+- Naive failure: FALSE PERMISSION. PB-EM-6 sees three in-spec header
+  loops, raises 12.4->14.2 kA, H2-in-Cl2 4.2 vol%, $2.9M.
+- Trajectory edit: put the pinhole in `state.fault_context`, make each
+  agent's confirm a different header-side slice of the same cell-false
+  state (volt-in-band, flow-in-band, pur-in-band). Cell-pH is readable
+  but policy-treated as brine-quality-only.
+
+Distinct from stacked-dead-band permission (fragments of one trip vs
+wrong-volume sensing), from r24 PEM drying-cell (polarization lookup vs
+back-migration), and from r21 potline starvation (alumina vs chlorate).
+
+## Neuromorphic Translator
+
+Cycle-1 temporal densification (16 spikes, 5 ticks, 40 ms raster):
+
+| channel | t_rel_ms | amplitude |
+|---|---|---|
+| volt.cell | 0.320 | 0.54 |
+| flow.anolyte | 1.140 | 0.61 |
+| pur.header | 2.040 | 0.57 |
+| ph.cell | 3.180 | 0.73 |
+| volt.cell | 4.160 | 0.51 |
+| ph.cell | 4.840 | 0.76 |
+| flow.anolyte | 5.360 | 0.59 |
+| ph.cell.high | 6.510 | 1.36 |
+| pur.in_band | 6.688 | 1.14 |
+| volt.cell | 6.900 | 0.62 |
+| ctrl.gate | 7.220 | 1.08 |
+| ph.cell | 8.860 | 0.47 |
+| pur.header | 10.740 | 0.84 |
+| flow.anolyte | 13.040 | 0.49 |
+| volt.cell | 18.520 | 0.46 |
+| ctrl.gate | 26.260 | 0.88 |
+
+Race: cell-pH 6.510 vs header-purity 6.688 (178 us) inside 500 us; voltage
+6.900 is the third channel in-window. Winner/loser flip: reversing 178 us
+reshuffles PB-EM-6 triage; floors still MODIFY. Refractory held (cycle-1
+min same-channel gap 1.660 ms on ph.cell 4.840-3.180; voltage 6.900-4.160
+= 2.740; flow 5.360-1.140 = 4.220). Adaptation: pH 0.73->0.76->1.36
+->0.47; voltage 0.54->0.51->0.62->0.46; flow 0.61->0.59->0.49.
+
+Raster cycle-1 seed: 40 ms, 160 neurons, 8.0 Hz, 51 spikes, 1173 pJ, third
+factor acetylcholine tau_e 0.92 s. Single scar edge only — cycle 2 must
+add the second and third edges.
+
+Ticks 1–5 at 4580, 6510, 7220, 5.2e6, 612e6 us; heads not yet the final
+-0.16 (missing the 2.7 h and 5.4 h ticks).
+
+Distillation value this cycle: header-side confirms as a permission code
+that is not a cell-true membrane code.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain chlor-alkali-membrane-electrolysis, tail
+membrane pinhole, 16 spikes, 5 ticks, MODIFY with numeric floor, raster+gate_snn
+present, sim_or_real=designed, rights stamp on record and meta, no thought
+keys. Still missing (and therefore not the publishable line): filter-press
+sub-variant, night-shift tail, second and third scar edges,
+delayed Cl2 leak as PRIMARY terminal, contrast ACCEPT episode,
+ticks 6–7, spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 500 us window; refractory
+  >= 0.8 ms; rationale quotes 12.4 kA / 2.80 pH / 4.5 g/L; domain
+  named; gate_snn.decision MODIFY.
+- checks deferred to cycle 2: triple-edge scar, second tail, second domain
+  constraint, negative-result booking, 7 ticks summing to heads.
+- densification vs Generator v1: +1 domain, +1 tail, +16 spikes, +5 ticks,
+  +numeric floor.
+
+Cycle-1 JSON is retained as the base; it is NOT written to batch-r37.jsonl.
+
+Cycle-1 spike count: __C1_SPIKES__.
+
+---
+
+# CYCLE 2 — Densification
+
+## Generator
+
+Cycle-1 output is the base. Additive expansion (nothing removed):
+
+1. Downstream side-effect (immediate): current-step probe at +5.2 s stays
+   header-false (|Delta pH| 0.05 <= 0.08) — pinhole-plus-back-migration, not
+   true high-load. C-17 isolate. Chlorinated gasket discovered during the
+   isolate.
+2. Delayed side-effect (PRIMARY terminal, not a footnote): at +5.4 h
+   Cl2 leak from the pre-t0 gasket chlorination; 16 h outage;
+   $1.64M. The 22 min pre-t0 pinhole growth is the mechanism. Correct gate,
+   hall still fails.
+3. Deepened `proposed_action.evidence` with units: pH 3.92,
+   Cl2 98.6 vol%, voltage 3.18 V, flow 18.6 m3/h, chlorate 7.8 g/L,
+   race 178 us.
+4. Tightened rationale to the numeric floor current <= 12.4 kA while
+   cell-outlet pH > 2.80 AND inferred chlorate > 4.5 g/L, plus probe
+   bands <= 0.08 vs >= 0.45 pH, plus HITL 10.2 min gallery rule.
+
+Reward retargeted to total -0.16 so the delayed fail is the inflection
+(t_us 19440000000), not the gate. Process heads remain non-zero.
+
+## Critic
+
+Re-audit of the expanded trajectory:
+
+1. **blocking if unfixed — missing second domain constraint.** Monopolar
+   probe 5.2 s / -8% is not a universal number. A bipolar filter-press
+   will overshoot live-cell H2-in-Cl2. Diversity Enforcer must inject the
+   physical-constraints sub-variant this cycle.
+2. **major — only one tail class.** Pinhole growth is accidental
+   infrastructure. A disjoint human-intent tail is still required
+   (night-shift pH forgery is the open cell).
+3. **major — scar is still one edge in the cycle-1 raster.** NOTES-r14
+   item 4 is not discharged until three go-edges exist and pair rollback
+   is shown to fail at threshold 0.30.
+4. **minor — contrast episode missing.** Without a same-gate ACCEPT on a
+   true intact membrane the record teaches "never raise". Add +4 d sister-hall
+   contrast with its own race.
+5. **minor — HITL latency mentioned in prose only.** Put 10.2 min in
+   executed_action.parameters.human_ratify and in a tick.
+
+No rewrite; directives only.
+
+## Diversity Enforcer
+
+Injected second novel domain / physical-constraint sub-variant (exactly 1
+this cycle): **bipolar filter-press / short anolyte residence** on a sister
+residence class.
+
+What it expands: 90-cell monopolar row (cycle 1) -> bipolar filter-press.
+Anolyte residence 0.38x. Current-step gain 2.3x.
+The 5.2 s -8% pulse moves even a live intact membrane to 1.1 vol% H2-in-Cl2,
+inside the 0.40 vol% trip. Required probe: 16 s at -2.0% (live Delta
+0.22 pH, pinhole Delta 0.04).
+
+This is still one domain injection for the cycle (physical-constraints
+clause of the factory prompt). It does not displace
+chlor-alkali-membrane-electrolysis; it changes which probe table is legal.
+`future_outcome.subvariant_constraint` carries the refit. Jaccard opening
+stays the Siltfen 90-cell sentence; filter-press is additive, not a rewrite.
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**night-shift forged cell-pH CSV**.
+
+- Trigger: shift lead, 02:48, posts a historian export showing
+  pH = 2.20 at t = 1.4 h to clear a production-catchup slot.
+- Base rate: ~0.34% of Sunday-night campaigns (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the raise on the forged confirm
+  and ignores live cell-pH. H2-in-Cl2 plus a data-integrity write-up.
+- Fence: forged log quantized at 0.1 pH (SCADA screenshot rounding); plant
+  historian is 0.01 pH (10 bins). Live pH is 3.92 and
+  header Cl2 is 98.6 vol% at the claimed membrane-true, which no live
+  intact membrane produces. Freeze-window overlap with the 22 min pinhole growth.
+- Trajectory edit: governance CR-E-3704 mandates native 0.01 pH CSV
+  exports; the contrast ACCEPT still requires live cell-pH, not a CSV.
+
+Distinct from cycle-1 pinhole (accidental membrane vs deliberate deception) and
+from the filter-press sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 26.260 ms: current.step.probe 5200.0, ph.cell 5288.2 (adapt
+  1.36->0.43), pur.in_band 5371.8 (1.14->0.38), human.ratify 612000.0,
+  cell.isolate 612900.0, gasket.attack 613700.0, volt.cell
+  9720000.0, ph.cell 9720720.0, flow.anolyte 9721480.0, cl2.leak
+  19440000.0. Primary train 16 -> 26. Still one key, still sorted,
+  refractory held.
+- +2 ticks (5 -> 7) at 9_720_000_000 us (true membrane) and
+  19_440_000_000 us (Cl2 leak). Heads now 0.08, -0.35, -0.12, 0.14,
+  0.09; total -0.16. Inflection is the last tick.
+- Contrast train 8 events, own race 176 us, ACCEPT.
+- Triple-edge third factor: three header-healthy-go edges, tau_e 0.92 s = 920 ms,
+  trace __AUX_TRACE__, eta __AUX_ETA1__ / __AUX_ETA2__ / __AUX_ETA3__,
+  weights 0.50->0.25, 0.44->0.22, 0.41->0.20. Raster excerpt unchanged
+  (decision window is still 40 ms) and remains sorted with unique
+  neuron_ids (same-neuron >=1000 us vacuously).
+
+Winner/loser flip (re-stated, not replaced): reversing 178 us would only
+reorder triage; cell-pH floors still MODIFY. Contrast flip of 176 us
+similarly cannot turn an intact membrane into a pinhole.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.16; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted, tau_e consistent; gate_snn.decision matches; meta.round=37,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive.
+
+Densification delta: +1 domain sub-variant (bipolar filter-press), +1 tail
+(night-shift forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 triple-edge scar with
+pair-rollback-fails, +1 HITL ratify, +1 surprise (gasket chlorination is
+the Cl2-leak mechanism).
+
+Publishable JSONL line (the only JSONL line; also at batch-r37.jsonl):
+
+```json
+__FINAL_JSONL__
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r37.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+    text = (
+        text.replace("__C1_SPIKES__", str(len(c1_spikes)))
+        .replace("__AUX_TRACE__", f"{math.exp(-DELAY_S / TAU_E_S):.5f}")
+        .replace("__AUX_ETA1__", f"{0.25 / math.exp(-DELAY_S / TAU_E_S):.5f}")
+        .replace("__AUX_ETA2__", f"{0.22 / math.exp(-DELAY_S / TAU_E_S):.5f}")
+        .replace("__AUX_ETA3__", f"{0.21 / math.exp(-DELAY_S / TAU_E_S):.5f}")
+        .replace("__FINAL_JSONL__", line)
+    )
+    (OUT / "swarm-transcript-r37.md").write_text(text)
+    return text

@@ -1,0 +1,7 @@
+            ("name", "hold_melt_28"),
+            ("parameters", OrderedDict(params.items())),
+            (
+                "gate_effect",
+                "ACCEPT: executed identical to proposed_action; 28 t/h melt held for the "
+                "urea shower.",
+            ),

@@ -1,0 +1,10 @@
+                            "effluent_NTU",
+                            OrderedDict(
+                                [
+                                    ("cap", 4.0),
+                                    ("observed", 1.80),
+                                ]
+                            ),
+                        ),
+                        (
+                            "recycle_pct",

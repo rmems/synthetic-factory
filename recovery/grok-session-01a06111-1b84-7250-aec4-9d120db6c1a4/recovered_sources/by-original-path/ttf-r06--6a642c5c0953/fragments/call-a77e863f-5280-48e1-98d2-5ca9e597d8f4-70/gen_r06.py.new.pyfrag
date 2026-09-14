@@ -1,0 +1,6 @@
+        "title": "Cask-Hythe CH-5 / Tote-T8: caster-yaw torque beats mag-tape heading by 260 us; correct MODIFY still eats an in-window frost-heaved dock-plate snap (partnered negative total -0.42)",
+        "state": {
+            "description": "Cask-Hythe CH-5 cold-store dock already has Tote-T8 half-on the steel dock plate when left-caster yaw torque sits at 38 N-m against a 24 N-m dock-lip cap. Magnetic-tape heading still reports 1.6 deg under the 6.0 deg trip, so a heading-first planner would keep 0.36 m/s dock-crawl. The live contest is caster torque versus tape heading, not bumper versus lidar. A frost-heaved dock plate is off both buses until the later snap.",
+            "domain": "warehouse-amr",
+            "sim_or_real": "designed",
+            "goal": "Finish the CH-5 cold-store dock-on with caster yaw <= 24 N-m, leave planned heading 0.04 rad/s, and keep mag-tape heading under 6.0 deg.",

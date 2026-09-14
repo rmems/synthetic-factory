@@ -1,0 +1,80 @@
+{
+  "agent_ids": [
+    "01a0647a-2ddd-7ce1-9a15-de99042f5573"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 2,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "build_r21.py",
+  "original_path": "/tmp/maos-r21-window/build_r21.py",
+  "path_key": "maos-r21-window--741bb090c8e6",
+  "terminal_event_ids": [
+    "01a0647a-2ddd-7ce1-9a15-de99042f5573:call-763f8ff1-7995-4dbf-a200-ecf7a4e75502-44"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 2,
+  "versions": [
+    {
+      "agent_id": "01a0647a-2ddd-7ce1-9a15-de99042f5573",
+      "basename_preserved": true,
+      "bytes": 79374,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 244,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0647a-2ddd-7ce1-9a15-de99042f5573/updates.jsonl",
+      "original_basename": "build_r21.py",
+      "original_path": "/tmp/maos-r21-window/build_r21.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r21-window--741bb090c8e6/versions/v0001/build_r21.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/maos-r21-window--741bb090c8e6/versions/v0001/build_r21.py",
+      "session_id": "01a0647a-2ddd-7ce1-9a15-de99042f5573",
+      "sha256": "1e0d116791edc51488ec73f2602a273a5404b886dec1e4da15198030e23a6eba",
+      "source_channel": "structured",
+      "source_event_id": "01a0647a-2ddd-7ce1-9a15-de99042f5573:call-bdf1c774-d3c4-4674-9095-c1576c724fb3-42",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788393088292,
+      "timestamp_utc": "2026-09-02T23:51:28.292Z",
+      "tool_call_id": "call-bdf1c774-d3c4-4674-9095-c1576c724fb3-42",
+      "version": 1,
+      "version_id": "maos-r21-window--741bb090c8e6:v0001"
+    },
+    {
+      "agent_id": "01a0647a-2ddd-7ce1-9a15-de99042f5573",
+      "basename_preserved": true,
+      "bytes": 79361,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 250,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0647a-2ddd-7ce1-9a15-de99042f5573/updates.jsonl",
+      "original_basename": "build_r21.py",
+      "original_path": "/tmp/maos-r21-window/build_r21.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r21-window--741bb090c8e6/versions/v0002/build_r21.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/maos-r21-window--741bb090c8e6/versions/v0002/build_r21.py",
+      "session_id": "01a0647a-2ddd-7ce1-9a15-de99042f5573",
+      "sha256": "225533a52c48b26b747cb4a3f94aee2b45c55cd19ee1060a3a44db3e7f9012ff",
+      "source_channel": "structured",
+      "source_event_id": "01a0647a-2ddd-7ce1-9a15-de99042f5573:call-4e4600bf-81ee-4b8f-bc52-80e7a42f85bc-43",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788393131616,
+      "timestamp_utc": "2026-09-02T23:52:11.616Z",
+      "tool_call_id": "call-4e4600bf-81ee-4b8f-bc52-80e7a42f85bc-43",
+      "version": 2,
+      "version_id": "maos-r21-window--741bb090c8e6:v0002"
+    }
+  ]
+}

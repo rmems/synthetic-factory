@@ -1,0 +1,14 @@
+THIS_DOMAINS = {
+    "nitrogen-trifluoride-cell",
+    "toluene-diisocyanate-phosgenator",
+    "synthetic-cryolite-kettle",
+    "ammonium-perchlorate-crystallizer",
+    "trimethylaluminum-still",
+}
+THIS_PLANTS = (
+    "Trifluor-Yett",
+    "Tolylene-Swale",
+    "Cryolith-Brae",
+    "Ammperch-Stoup",
+    "Alkylal-Voe",
+)

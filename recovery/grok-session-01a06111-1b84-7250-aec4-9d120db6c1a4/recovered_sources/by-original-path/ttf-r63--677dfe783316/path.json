@@ -1,0 +1,54 @@
+{
+  "agent_ids": [
+    "01a0640c-18bc-7b83-bc01-0db9678d8a5b"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "_head.py",
+  "original_path": "/tmp/ttf-r63/_head.py",
+  "path_key": "ttf-r63--677dfe783316",
+  "terminal_event_ids": [
+    "01a0640c-18c7-7cb0-99d4-d80c6f5327f7:call-a0280a6d-007f-4fce-887f-239c6ab1d682-33",
+    "01a0640d-4307-7123-aee2-801f4eaa6284:call-dc1f4fc3-25d5-42dd-a436-aaf5ac3a2b22-31",
+    "01a0640d-4309-73f0-b472-d54337aff273:call-1f7ebda5-c380-4885-b5eb-2a2ea1f5c60a-22"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a0640c-18bc-7b83-bc01-0db9678d8a5b",
+      "basename_preserved": true,
+      "bytes": 1945,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 251,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640c-18bc-7b83-bc01-0db9678d8a5b/updates.jsonl",
+      "original_basename": "_head.py",
+      "original_path": "/tmp/ttf-r63/_head.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r63--677dfe783316/versions/v0001/_head.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r63--677dfe783316/versions/v0001/_head.py",
+      "session_id": "01a0640c-18bc-7b83-bc01-0db9678d8a5b",
+      "sha256": "231f7103de7133c11e8da710e74e014c8daa090514be3d33f63b986d2c0a2b56",
+      "source_channel": "structured",
+      "source_event_id": "01a0640c-18bc-7b83-bc01-0db9678d8a5b:call-29c71c15-b709-4f41-8eb1-b1a7da5fbe10-44",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788389155559,
+      "timestamp_utc": "2026-09-02T22:45:55.559Z",
+      "tool_call_id": "call-29c71c15-b709-4f41-8eb1-b1a7da5fbe10-44",
+      "version": 1,
+      "version_id": "ttf-r63--677dfe783316:v0001"
+    }
+  ]
+}

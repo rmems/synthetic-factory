@@ -1,0 +1,3 @@
+                "DNT nitrator N-2 at Nitryl-Hope NH-9 reads live nitric 2.4 t/h under a 3.0 t/h "
+                "cap, yet a lagged bus still publishes 2400 kg/h with tag_age_us=3120. Live-SI "
+                "should ACCEPT 2.4 t/h; a weak supervisor treats 2400 as t/h and slams the feed.",

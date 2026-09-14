@@ -1,0 +1,11 @@
+1. Only **one** labeled independent LIF (377). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. 379 ACCEPT is a new plant/solver (Catofin 1-D bed + coke-make kernel), not a new gate class.
+4. 376 wrong-reject is convictable from analog vs NAMUR tags; a later round could bind `namur_failsafe_high` as the only critic boolean so a probe never has to know "21.5 mA".
+5. ISI histogram is still optional densification, not an r72 requirement.
+
+## Next densification target
+
+Publish the NAMUR diagnostic freshness predicate as a sidecar boolean (`namur_diag_fresh`) so a fail-safe-as-EU REJECT is convictable without the 4-20 span story. Optional: labeled LIF on a second record, or an ISI histogram sidecar. Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+Novel coverage: 16.5%

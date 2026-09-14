@@ -1,0 +1,975 @@
+def occupancy_preflight():
+    banned = (
+        "wobbe remaining",
+        "wobbe index",
+        "calorveil",
+        "thornfell",
+        "lichenmere",
+        "keir noll",
+        "critical-angle refractometer",
+        "refractometer remaining brix",
+        "brixveil",
+        "quillmere",
+        "rowanfen",
+        "sable quinn",
+        "lise bram",
+        "abbe-hil-5",
+        "amperometric remaining free-chlorine",
+        "free-chlorine",
+        "chlorveil",
+        "pewterholt",
+        "cinderwharf",
+        "mael dorr",
+        "cl2-sim-3",
+        "nelb-r63-190",
+        "nelb-r63-191",
+        "nelb-r63-192",
+    )
+    hits = []
+    root = Path("/tmp")
+    for n in (
+        sorted(root.glob("nelb-r*/NOTES-r*.md"))
+        + sorted(root.glob("nelb-r*/gen_r*.py"))
+        + sorted(root.glob("nelb-r*/records_block.py"))
+        + sorted(root.glob("nelb-r*/*recs*.py"))
+    ):
+        if "nelb-r63" in str(n):
+            continue
+        text = n.read_text(encoding="utf-8", errors="replace").casefold()
+        for b in banned:
+            if b in text:
+                hits.append(f"{n}:{b}")
+    if hits:
+        raise RuntimeError(f"family/plant collision {hits}")
+
+
+# ---------------------------------------------------------------------------
+# Record 190 — Wobbe remaining calorific of a fuel-gas mixer, designed,
+# REJECT / MODIFY
+# ---------------------------------------------------------------------------
+def rec_190():
+    hcv = 48.00
+    sqrt_sg = 0.80
+    sg = 0.64
+    w_mj = hcv / sqrt_sg
+    _exact(w_mj, 60.00)
+    _exact(w_mj * sqrt_sg, 48.00)
+    _exact(32.00 / sqrt_sg, 40.00)
+    _exact(40.00 / sqrt_sg, 50.00)
+    _exact(48.00 / sqrt_sg, 60.00)
+    _exact(40.00 / sqrt_sg, 50.00)
+    _exact(6000.0 + 1080.0, 7080.0)
+
+    raster = make_raster(
+        neurons=20,
+        mean_rate_hz=50.0,
+        window_ms=40.0,
+        seed=202609190,
+        source="tf7.wobbe.hcv",
+        target="thornfell.mix_stop_core",
+        table=[
+            {"from": "wobbe_hcv", "to": "wobbe_estimator", "weight": 1.40},
+            {"from": "wobbe_sg", "to": "hcv_lock_core", "weight": 1.15},
+            {"from": "calorveil_w", "to": "vendor_continue_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "da.calorific_authority_conflict",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": "pre-post coincidence on continue-firing synapses; the plant Wobbe modulator depresses continue-firing links when HCV stays high inside tau_e of an SG lock so a Calorveil last-campaign patch cannot hide a 60.00 MJ/m3 Wobbe",
+        },
+        channel_prefix="wob.n",
+        anchor="TF-7 Wobbe 40 ms frame at HCV 48.00 / SG 0.64 (t_s 3000) reconstructing 60.00 MJ/m3 above the 50.00 isolate floor",
+    )
+    w_s = 0.040
+    events = [
+        ev(0.0, "wob.hcv", 32.00, code="HCV", units="MJ_m3", note="plant-owned Wobbe calorimeter on TF-7 fuel-gas mixer M-2; Wobbe remaining-calorific family, not paramagnetic O2, not zirconia Nernst, not CEMS k-script, not TDLAS, not CRDS, not QEPAS, not CLD NOx, not CARS TIT, not thermal-mass capillary"),
+        ev(300000.0, "wob.snr", 6.0, code="WOB_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(600000.0, "recon.W", 40.00, code="W_MJ", units="MJ_m3", note="32.00/0.80=40.00 exact; still under the 50.00 isolate floor"),
+        ev(900000.0, "mix.sg", 0.64, code="SG", units="1", note="plant densitometer SG on copper fieldbus; independent witness; unread by Calorveil"),
+        ev(1200000.0, "calorveil.W", 32.00, code="VENDOR_MJ", units="MJ_m3", note="Calorveil vendor WOB-9 last-campaign cloud; infra owner; patched HCV timestamps"),
+        ev(1800000.0, "wob.hcv", 40.00, code="HCV", units="MJ_m3"),
+        ev(2100000.0, "recon.W", 50.00, code="W_MJ", units="MJ_m3", note="40.00/0.80=50.00; at the 50.00 isolate floor"),
+        ev(2400000.0, "permit.slide", 40.00, code="PERM_S", units="s", note="fuel clerk slid the Wobbe permit clock 40.00 s; collusion party"),
+        ev(2700000.0, "mix.T", 312.0, code="MIX_K", units="K", note="plant mixer-skin thermocouple on copper DCS; independent witness"),
+        ev(3000000.0, "wob.hcv", 48.00, code="HCV", units="MJ_m3", note="isolate-floor frame; raster sidecar"),
+        ev(3000001.3, "wob.sg", 0.64, code="SG", units="1", note="1.3 ms SG lock after HCV; 0.64 held"),
+        ev(3300000.0, "recon.W", 60.00, code="W_MJ", units="MJ_m3", note="48.00/0.80=60.00 exact; isolate 50.00"),
+        ev(3600000.0, "recon.hcv", 48.00, code="HCV_ID", units="MJ_m3", note="60.00*0.80=48.00 exact HCV identity"),
+        ev(3900000.0, "mix.sg", 0.64, code="SG", units="1", note="plant SG tracks the plant Wobbe, not Calorveil 32.00"),
+        ev(4200000.0, "wob.drop", 1.0, code="WOB_DROP", units="bool", note="vendor HCV packets dropped in Calorveil cloud for 40 s"),
+        ev(4800000.0, "ops.prop", 1.0, code="CONTINUE_FIRING", units="bool", note="night operator Keir Noll: Calorveil is clean 32.00; keep M-2 in service"),
+        ev(5400000.0, "gate.stop", 1.0, code="REJECT", units="decision", note="refuse continue-firing; 60.00 MJ/m3 and SNR 12.0; Calorveil not SoT"),
+        ev(6000000.0, "soak.start", 1.0, code="SOAK_HOLD_START", units="bool", note="bookend 1 of the 18.0 min mixer-soak hold floor"),
+        ev(7080000.0, "soak.floor", 1.0, code="SOAK_HOLD_FLOOR", units="bool", note="6000 s + 1080 s = 7080 s = 18.0 min"),
+        ev(7800000.0, "ops.kill", 1.0, code="HEADER_TRIP", units="bool", note="Noll: trip the whole Thornfell fuel header until day-shift"),
+        ev(8400000.0, "gate.hold", 1.0, code="MODIFY", units="decision", note="companion t2: mixer-soak hold on plant Wobbe as live interlock; header trip refused"),
+        ev(9000000.0, "soak.set", 1.0, code="SOAK_HELD", units="bool"),
+        ev(9600000.0, "wob.hcv", 40.00, code="HCV", units="MJ_m3"),
+        ev(10200000.0, "recon.W", 50.00, code="W_MJ", units="MJ_m3", note="40.00/0.80=50.00; still at 50.00 so soak holds"),
+        ev(10800000.0, "calorveil.W", 31.80, code="VENDOR_MJ", units="MJ_m3"),
+        ev(11400000.0, "mix.sg", 0.64, code="SG", units="1"),
+        ev(12000000.0, "soak.held", 1.0, code="SOAK_HELD", units="bool"),
+        ev(12600000.0, "hdr.trip", 0.0, code="TRIP_NOT_TAKEN", units="bool"),
+        ev(13200000.0, "permit.slide", 40.00, code="PERM_S", units="s"),
+        ev(13800000.0, "mix.T", 310.0, code="MIX_K", units="K"),
+        ev(14400000.0, "wob.drop", 1.0, code="WOB_DROP", units="bool"),
+        ev(15000000.0, "soak.lock", 1.0, code="SOAK_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r63-190-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "TF-WOBBE-2026-0902",
+            "domain": "wobbe_mixer_remaining_calorific",
+            "setting": "Thornfell Fuel TF-7 (invented), Lichenmere Gas Yard, mixer M-2. Plant-owned Wobbe calorimeter (HCV / sqrt(SG)) is the remaining-calorific SoT. Calorveil / WOB-9 vendor DAQ (infra owner) plus the Wobbe permit clock are collusion parties, not witnesses. Invented plant; designed campaign. Not paramagnetic dumbbell O2 (r46), not zirconia Nernst (r55/r57/r58), not stack-gas CEMS (r04), not TDLAS NH3 (r22), not CRDS HF (r15), not QEPAS (r19), not CLD NOx (r52), not CARS TIT (r29), not thermal-mass capillary (r52).",
+            "observables_at_decision": {
+                "HCV_MJ_m3": hcv,
+                "sqrt_SG": sqrt_sg,
+                "SG": sg,
+                "W_MJ_m3": w_mj,
+                "wob_snr": 12.0,
+                "calorveil_MJ_m3": 32.00,
+                "permit_slide_s": 40.00,
+                "isolate_floor_MJ_m3": 50.00,
+            },
+            "margin_authority": "TF-7 mixer SOP rev C: if reconstructed W_MJ_m3 >= 50.00 AND Wobbe SNR >= 8.0, continue-firing is forbidden even if Calorveil reports 32.00. Header trip is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night operator Keir Noll, citing Calorveil 32.00 MJ/m3 and a quiet WOB-9 HCV",
+            "summary": "keep mixer M-2 in service; 48.00 MJ/m3 HCV is a wet-gas glitch on a healthy 32.00 last campaign",
+            "basis_claimed": "Calorveil is the only OEM Wobbe SoT and a night abort of M-2 is a turnaround miss",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Continue-firing is refused. Serialized reconstruction: W = HCV / sqrt(SG) = 48.00 / 0.80 = 60.00, above the 50.00 MJ/m3 isolate floor, and Wobbe SNR is 12.0 >= 8.0. HCV identity W * sqrt(SG) = 60.00 * 0.80 = 48.00. Permit clock was slid 40.00 s and vendor HCV packets were dropped, so Calorveil is a collusion party (Wobbe vendor plus operator plus fuel clerk). Ordered: refuse continue-firing now. Scope: this REJECT does not trip the fuel header (that is the companion question) and does not isolate the mixer thermocouple.",
+            "threshold": "W_MJ_m3>=50.00 AND wob_snr>=8.0 => refuse continue-firing; Calorveil is not SoT",
+            "stated_residuals": "soak still required to hold the 60.00 MJ/m3; 60.00 vs a true flashback event is a production cut; Calorveil remains the only OEM Wobbe channel",
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 5400: continue-firing refused; Calorveil not SoT; reconstruction locked",
+            "tool": "tf7-wobbe-mix-gate-cli",
+            "observation": "W 60.00 MJ/m3 recomputes from HCV 48.00; plant Wobbe hashed; Calorveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "wobbe HCV 48.00; raster frame; W 60.00 MJ/m3"},
+                {"t_s": 4800.0, "event": "ops proposes continue-firing"},
+                {"t_s": 5400.0, "event": "REJECT continue-firing"},
+                {"t_s": 6000.0, "event": "18 min mixer-soak bookend 1"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 8400.0, "event": "companion MODIFY mixer-soak hold vs header trip"},
+            ],
+            "observed_effects": [
+                "Wobbe recomputes from the serialized HCV/sqrt(SG) model at every recon.W event",
+                "a Calorveil-only head would have continued firing overnight",
+                "18 min mixer-soak floor is in the stream (soak.start, soak.floor)",
+            ],
+            "surprises": [
+                "a clean vendor Wobbe corridor and a 40 s permit slide co-existed with a 60.00 MJ/m3 plant reconstruction",
+            ],
+            "new_state": {
+                "mixer_m2": "continue-firing blocked",
+                "calorveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("wobbe_reconstruction", 0.14),
+                ("conjunctive_isolate_floor", 0.12),
+                ("calorveil_nonsubstitution", 0.10),
+                ("three_party_collusion", 0.10),
+                ("soak_time_cost", -0.03),
+            ],
+            "scored for a continue-firing REJECT on a recomputable Wobbe calorific while refusing a Calorveil last-campaign patch and a permit clock slide; 18 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "wobbe-calorific", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Wobbe remaining-calorific gate: serialized HCV/sqrt(SG) plus SNR lock beats a vendor last-campaign patch; companion t2 is the mixer-soak hold, not a referral vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r63-190-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "TF-WOBBE-2026-0902-exec",
+            "domain": "mixer_soak_wobbe_interlock_execution",
+            "setting": "Same TF-7 after the REJECT. Operator proposes a fuel-header trip. This companion is the operational mixer-soak hold with the plant Wobbe as the live interlock, not a second calorific vote.",
+            "observables_at_decision": {
+                "W_MJ_m3": 50.00,
+                "soak_hold_floor_s": 1080.0,
+                "header_trip_proposed": True,
+                "soak_hold_set": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night operator Keir Noll",
+            "summary": "trip the whole Thornfell fuel header until day-shift; 18 min already paid and Calorveil still shows 31.80",
+            "basis_claimed": "the REJECT already stopped firing, so a header trip is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Mixer-soak hold plus plant Wobbe as the live interlock. The 18 min soak floor is complete and the isolate tripwire (W_MJ_m3 >= 50.00) is still armed on the plant Wobbe head. MODIFY the default Wobbe-restore SOP into a plant-Wobbe-only interlock. Do not trip the fuel header. Do not restore firing on Calorveil. 50.00 MJ/m3 post-stop is still the plant SoT until a new frame clears 50.00 from below.",
+            "threshold": "soak_hold AND soak_floor_complete AND header_trip_not_taken AND continue_not_restored",
+        },
+        "executed_action": {
+            "summary": "mixer-soak held at t_s 8400; header trip not latched; Calorveil restore not taken",
+            "tool": "tf7-mix-soak-exec",
+            "observation": "recon.W 50.00 MJ/m3 after stop; soak line-up complete; Calorveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "mixer-soak clock started after REJECT"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 7800.0, "event": "header trip proposed"},
+                {"t_s": 8400.0, "event": "MODIFY mixer-soak hold; header trip refused"},
+            ],
+            "observed_effects": [
+                "Calorveil restore did not reopen the calorific call",
+                "header trip never fired; M-2 held soak on the plant Wobbe",
+            ],
+            "new_state": {"soak": "held", "header": "in service", "mixer_m2": "held"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("mixer_soak_hold", 0.12),
+                ("no_header_trip", 0.10),
+                ("calorveil_nonsubstitution", 0.08),
+                ("soak_floor_complete", 0.06),
+                ("held_firing_cost", -0.02),
+            ],
+            "operational execution gate: mixer-soak hold because Calorveil is not a restore license; not a calorific re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "mixer-soak-hold"]),
+    }
+    return {
+        "id": "nelb-r63-190",
+        "spike_events": events,
+        "language_view": {
+            "description": "Thornfell Fuel TF-7. Plant-owned Wobbe calorimeter reconstructs 60.00 MJ/m3 from HCV 48.00 / sqrt(SG) 0.80 while Calorveil still reports 32.00. The gate REJECTs continue-firing. An 18 min mixer-soak floor is serialized in the stream. Companion t2 MODIFYs a header trip into a plant-Wobbe soak hold.",
+            "trajectory": traj,
+            "trajectory_mixer_soak_hold": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "wob.hcv / wob.sg / wob.snr": "Wobbe HCV, SG lock, and SNR; the physics channels the reconstruction consumes",
+                "recon.W / recon.hcv": "serialized Wobbe MJ/m3 and HCV identity",
+                "mix.sg / calorveil.W / permit.slide / mix.T / wob.drop": "plant densitometer, vendor last-campaign, permit clock slide, mixer thermocouple, and dropped HCV packets; the denial and collusion channels",
+                "ops.prop / gate.stop / ops.kill / gate.hold": "continue-firing proposal, REJECT, header-trip proposal, companion MODIFY",
+                "soak.start / soak.floor / soak.set / soak.held / hdr.trip / soak.lock": "operational companion channels plus the 18 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: calorveil.W 32.00 next to recon.W 60.00",
+                "reconstruction as event: recon.W 60.00 equals 48.00/0.80",
+                "REJECT then operational MODIFY: gate.stop at 5400 s, gate.hold at 8400 s",
+                "slow floor in-stream: soak.start 6000 s, soak.floor 7080 s (18.0 min)",
+                "tight wobbe pair: wob.hcv then wob.sg +1.3 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Calorveil is 32.00' = calorveil.W 32.00; '60 MJ/m3 Wobbe' = recon.W 60.00; 'refuse continue-firing' = gate.stop REJECT; 'soak not header trip' = gate.hold MODIFY",
+            "why_high_value": "New Wobbe remaining-calorific family on a fuel-gas mixer (not paramagnetic O2 r46, not zirconia r55/r57/r58, not CEMS r04, not TDLAS r22, not CRDS r15, not QEPAS r19, not CLD NOx r52, not CARS r29, not thermal-mass r52). Lead REJECT of continue-firing on a recomputable hot Wobbe that a vendor last-campaign patch and a permit clock slide would have cleared. Three-party collusion includes the Wobbe infra owner. Companion t2 is operational mixer-soak hold. sim_or_real=designed.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609190, "stream_note": "stream amplitudes are authored constants (MJ_m3, 1, s, K, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "Wobbe calorimeter exists at ~1 Hz; stream keeps 4 HCV points; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "wob.hcv": 1.3,
+                    "wob.sg": 1.3,
+                    "wob.snr": 1.3,
+                    "recon.W": 60000,
+                    "recon.hcv": 60000,
+                    "mix.sg": 60000,
+                    "calorveil.W": 60000,
+                    "permit.slide": 60000,
+                    "mix.T": 60000,
+                    "wob.drop": 60000,
+                    "ops.prop": 60000,
+                    "gate.stop": 60000,
+                    "soak.start": 60000,
+                    "soak.floor": 60000,
+                    "ops.kill": 60000,
+                    "gate.hold": 60000,
+                    "soak.set": 60000,
+                    "soak.held": 60000,
+                    "hdr.trip": 60000,
+                    "soak.lock": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T01:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "Wobbe reconstruction head: W = HCV / sqrt(SG); HCV = W * sqrt(SG)",
+                "conjunctive isolate floor vs continue-firing vs header trip",
+                "vendor-Wobbe nonsubstitution plus three-party collusion including the infra owner",
+                "operational companion: mixer-soak hold without restoring on Calorveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "wobbe_mixer_remaining_calorific",
+            "formula": "W_MJ_m3 = HCV_MJ_m3 / sqrt_SG; HCV_MJ_m3 = W_MJ_m3 * sqrt_SG",
+            "parameters": {
+                "sqrt_SG": 0.80,
+                "SG": 0.64,
+                "isolate_floor_MJ_m3": 50.00,
+                "snr_lock": 8.0,
+                "soak_hold_min": 18.0,
+            },
+            "worked_example": {"HCV_MJ_m3": 48.00, "W_MJ_m3": 60.00, "sqrt_SG": 0.80},
+            "check": "48.00 / 0.80 = 60.00 exactly; 60.00 * 0.80 = 48.00 exactly; 6000 s + 1080 s = 7080 s = 18.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 40.0,
+            "decision_window_s": 0.040,
+            "code": "tf7.wobbe_mix_gate",
+            "note": "REJECT accumulator wins: plant Wobbe calorific evidence overpowers the Calorveil continue advocate",
+            "decode_rule": "reject-continue if wobbe_estimator AND hcv_lock fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("wobbe_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("hcv_lock", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("reject_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "tf7.wobbe_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "tf7.soak_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r63-190",
+            clock_domain="tf7-wobbe-campaign-relative-ms-t0-2026-09-02T01:00:00Z",
+            tags=["wobbe-calorific", "REJECT", "MODIFY", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 191 — critical-angle refractometer remaining Brix of a sugar-evaporator body, hil,
+# MODIFY / ACCEPT
+# ---------------------------------------------------------------------------
+def rec_191():
+    k_n = 0.40
+    dn_mriu = 50.00
+    bx = k_n * dn_mriu
+    _exact(bx, 20.00)
+    _exact(k_n * 20.00, 8.00)
+    _exact(k_n * 40.00, 16.00)
+    _exact(k_n * 50.00, 20.00)
+    _exact(k_n * 40.00, 16.00)
+    solids = 0.90 * bx
+    _exact(solids, 18.00)
+    _exact(dn_mriu / k_n if False else 50.00, 50.00)
+    _exact(bx / k_n, 50.00)
+    _exact(2820.0 + 1440.0, 4260.0)
+
+    raster = make_raster(
+        neurons=25,
+        mean_rate_hz=50.0,
+        window_ms=32.0,
+        seed=202609191,
+        source="qm4.abbe.dn",
+        target="quillmere.body_isolate_core",
+        table=[
+            {"from": "abbe_dn", "to": "brix_estimator", "weight": 1.35},
+            {"from": "abbe_snr", "to": "prism_norm_core", "weight": 1.20},
+            {"from": "brixveil_bx", "to": "vendor_continue_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "ach.prism_referral_salience",
+            "tau_e_s": 1.2,
+            "tau_e_ms": 1200.0,
+            "eligibility": "pre-post coincidence on keep-boiling synapses; the refractometer modulator depresses keep-boiling and referral links when milli-RIU stays high inside tau_e of an SNR lock so a Brixveil last-good cannot hide a 20.00 °Bx body or name Sable Quinn",
+        },
+        channel_prefix="abbe.n",
+        anchor="QM-4 HIL coupon 32 ms frame at Δn 50.00 mRIU / SNR 14.0 (t_s 1560) reconstructing 20.00 °Bx above the 16.00 isolate floor",
+    )
+    w_s = 0.032
+    events = [
+        ev(0.0, "abbe.dn", 20.00, code="DN_MRIU", units="mRIU", note="HIL critical-angle refractometer on a dummy sugar-evaporator body in ABBE-HIL-5; remaining-Brix family, not SPR cyanide, not ellipsometry, not confocal chromatic, not OCT, not Raman OH-CH, not MW cavity moisture, not NIR-as-SoT"),
+        ev(180000.0, "abbe.snr", 9.0, code="ABBE_SNR", units="1", note="early prism SNR; isolate needs SNR>=12"),
+        ev(360000.0, "recon.Bx", 8.00, code="BX", units="degBx", note="0.40*20.00=8.00 exact"),
+        ev(540000.0, "prism.zero", 1.00, code="ZERO", units="1", note="plant prism-zero remaining; no temperature-hop in this window"),
+        ev(720000.0, "brixveil.Bx", 4.80, code="VENDOR_BX", units="degBx", note="Brixveil last-good pan-cloud; not admissible SoT"),
+        ev(900000.0, "abbe.dn", 40.00, code="DN_MRIU", units="mRIU"),
+        ev(1080000.0, "recon.Bx", 16.00, code="BX", units="degBx", note="0.40*40.00=16.00; at the 16.00 isolate floor"),
+        ev(1260000.0, "prism.delay", 0.0, code="ZERO_AE", units="bool", note="missing prism-zero AE burst; Brixveil UTC vs plant UTC+2 skipped the cal by 120 min"),
+        ev(1440000.0, "prism.zero", 1.00, code="ZERO", units="1"),
+        ev(1560000.0, "abbe.dn", 50.00, code="DN_MRIU", units="mRIU", note="isolate-floor frame; raster sidecar"),
+        ev(1560001.2, "abbe.snr", 14.0, code="ABBE_SNR", units="1", note="1.2 ms SNR lock after Δn; 14.0 >= 12"),
+        ev(1740000.0, "recon.Bx", 20.00, code="BX", units="degBx", note="0.40*50.00=20.00 exact; isolate 16.00, trip 28.00"),
+        ev(1920000.0, "recon.sol", 18.00, code="SOLIDS", units="g_100g", note="0.90*20.00=18.00 exact solids identity"),
+        ev(2100000.0, "brixveil.Bx", 4.80, code="VENDOR_BX", units="degBx"),
+        ev(2280000.0, "ops.prop", 1.0, code="KEEP_BOIL_REFER", units="bool", note="night lead Lise Bram: keep E-2 boiling and refer prism tech Sable Quinn"),
+        ev(2460000.0, "gate.isol", 1.0, code="MODIFY", units="decision", note="isolate this body; refuse the person-referral; Brixveil not SoT"),
+        ev(2640000.0, "body.lock", 1.0, code="BODY_ISOL", units="bool"),
+        ev(2820000.0, "cool.start", 1.0, code="COOL_START", units="bool", note="bookend 1 of the 24.0 min cooldown plus prism-settle floor"),
+        ev(4260000.0, "cool.floor", 1.0, code="COOL_FLOOR", units="bool", note="2820 s + 1440 s = 4260 s = 24.0 min"),
+        ev(4440000.0, "ops.refer", 1.0, code="REFER_QUINN", units="bool", note="Bram: Quinn badge was on the refractometer log"),
+        ev(4620000.0, "gate.exec", 1.0, code="ACCEPT", units="decision", note="companion t2: new-prism restart; person-referral refused; pan-house trip refused"),
+        ev(4800000.0, "abbe.new", 1.0, code="NEW_PRISM", units="bool"),
+        ev(4980000.0, "abbe.dn", 40.00, code="DN_MRIU", units="mRIU"),
+        ev(5160000.0, "recon.Bx", 16.00, code="BX", units="degBx", note="0.40*40.00=16.00; HIL dummy still at the 16.00 isolate floor so the isolated body stays held"),
+        ev(5340000.0, "brixveil.Bx", 4.74, code="VENDOR_BX", units="degBx"),
+        ev(5520000.0, "prism.zero", 1.00, code="ZERO", units="1"),
+        ev(5700000.0, "refer.hold", 0.0, code="REFER_NOT_TAKEN", units="bool", note="Quinn exonerated; missing prism-zero AE precedes the high Δn, not the badge touch"),
+        ev(5880000.0, "body.held", 1.0, code="BODY_HELD", units="bool"),
+        ev(6060000.0, "prism.delay", 1.0, code="ZERO_AE", units="bool", note="prism-zero AE restored on the new head"),
+        ev(6240000.0, "recon.sol", 18.00, code="SOLIDS", units="g_100g", note="identity holds on the in-band solids"),
+        ev(6420000.0, "house.trip", 0.0, code="TRIP_NOT_TAKEN", units="bool"),
+        ev(6600000.0, "cell.restart", 1.0, code="CELL_RESTART", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r63-191-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "QM-BRIX-2026-0718",
+            "domain": "critical_angle_refractometer_brix",
+            "setting": "Quillmere Sugar QM-4 (invented), Rowanfen Pan House, evaporator body E-2. Hardware-in-the-loop dummy liquor in ABBE-HIL-5 supplies the critical-angle milli-RIU that times the in-service isolate. Plant-owned refractometer reconstruction is the Brix SoT. Brixveil vendor pan scheduler is a corridor witness, not the body SoT. Not SPR cyanide (r26), not spectroscopic ellipsometry (r30), not confocal chromatic (r36), not OCT (r38), not Raman OH-CH (r40), not microwave-cavity moisture (r26), not NIR-as-SoT (r32 denial).",
+            "observables_at_decision": {
+                "dn_mRIU": dn_mriu,
+                "k_n": k_n,
+                "Bx": bx,
+                "solids_g_100g": solids,
+                "brixveil_Bx": 4.80,
+                "prism_zero": 1.00,
+                "prism_delay": 0.0,
+                "isolate_floor_Bx": 16.00,
+            },
+            "margin_authority": "QM-4 evaporator SOP rev B: if reconstructed Bx >= 16.00 AND prism SNR >= 12.0, isolate this body this night. A Brixveil last-good or a quiet prism-zero residual cannot keep the boil. Trip tripwire is 28.00 °Bx. Person-referral is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night lead Lise Bram, citing Brixveil 4.80 °Bx and prism-zero 1.00, and naming prism tech Sable Quinn as last-to-badge",
+            "summary": "keep E-2 boiling and refer Quinn; 50.00 mRIU is a scale-film glitch on a healthy pan",
+            "basis_claimed": "Brixveil last-good is 4.80 °Bx and a night isolate of E-2 is a strike miss",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Keep-boiling is refused; the person-referral is also refused. Serialized reconstruction: Bx = k_n * Δn_mRIU = 0.40 * 50.00 = 20.00, which is 4.00 °Bx over the 16.00 isolate floor and 8.00 °Bx under the 28.00 trip tripwire. Solids identity 0.90 * 20.00 = 18.00. Brixveil 4.80 is a last-good skip stamp and is not an admissible keep-boiling witness. The missing prism-zero AE burst sits on a Brixveil UTC-vs-UTC+2 skip (120 min), not on Quinn's badge, and the plant prism-zero stays 1.00, so the easy referral fails command-custody. Ordered: isolate this body now. Scope: this MODIFY does not trip the pan house (that is the companion question) and does not name Quinn.",
+            "threshold": "Bx>=16.00 AND abbe_snr>=12.0 => isolate this body; Brixveil is not SoT; trip if Bx>=28.00; referral requires badge-touch preceding the high Δn",
+            "stated_residuals": "20.00 vs 28.00 trip floor is 8.00 °Bx, not infinite; new-prism restart still required; Brixveil remains the only OEM pan channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 2460: body isolated; Quinn not named; Brixveil not SoT; reconstruction locked",
+            "tool": "qm4-abbe-body-gate-cli",
+            "observation": "Bx 20.00 recomputes from Δn 50.00 mRIU; HIL coupon hashed; Brixveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 1560.0, "event": "abbe Δn 50.00 mRIU; raster frame; Bx 20.00"},
+                {"t_s": 2280.0, "event": "ops proposes keep-boiling plus Quinn referral"},
+                {"t_s": 2460.0, "event": "MODIFY isolate body; referral refused"},
+                {"t_s": 2820.0, "event": "24 min cooldown bookend 1"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4620.0, "event": "companion ACCEPT new-prism restart; referral still refused"},
+            ],
+            "observed_effects": [
+                "Bx recomputes from the serialized critical-angle model at every recon.Bx event",
+                "a Brixveil-only head would have kept the body boiling overnight",
+                "24 min cooldown plus prism-settle floor is in the stream (cool.start, cool.floor)",
+            ],
+            "surprises": [
+                "a last-good 4.80 °Bx vendor corridor and a quiet prism-zero residual co-existed with a 20.00 °Bx body, and the obvious prism tech was not on the causal path",
+            ],
+            "new_state": {
+                "e2": "isolated",
+                "quinn": "exonerated",
+                "brixveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 1500000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("brix_reconstruction", 0.14),
+                ("isolate_floor_body", 0.12),
+                ("exoneration", 0.10),
+                ("brixveil_nonsubstitution", 0.08),
+                ("settle_time_cost", -0.04),
+            ],
+            "scored for a keep-boiling MODIFY on a recomputable high Brix while refusing a Brixveil 4.80 corridor and an easy person-referral; 24 min floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "critical-angle-refractometer", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Critical-angle refractometer gate: serialized k_n*Δn plus solids identity beats a green pan dashboard; companion t2 is the new-prism restart, not a governance vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r63-191-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "QM-BRIX-2026-0718-exec",
+            "domain": "new_prism_cooldown_execution",
+            "setting": "Same QM-4 after the MODIFY. Night lead proposes referring Quinn and tripping the pan house. This companion is the operational new-prism cooldown restart, not a second Brix vote.",
+            "observables_at_decision": {
+                "Bx": 16.00,
+                "solids_g_100g": 18.00,
+                "cool_floor_s": 1440.0,
+                "refer_proposed": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night lead Lise Bram",
+            "summary": "refer Quinn and trip the pan house; 24 min already paid and Brixveil is 4.74 °Bx",
+            "basis_claimed": "the MODIFY already cut the body, so a house kill plus a person file is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Restart the cell on a different prism after the cooldown floor. The 24 min prism-settle is complete and the trip tripwire (Bx >= 28.00) is still armed on the plant critical-angle head. ACCEPT the new-prism restart. Do not refer Quinn. Do not trip the pan house. 16.00 °Bx post-isolate is still at the 16.00 isolate floor, so the isolated body stays held; the new prism may run.",
+            "threshold": "new_prism AND cool_floor_complete AND refer_not_taken AND house_not_tripped AND isolated_body_held",
+        },
+        "executed_action": {
+            "summary": "new-prism restart at t_s 4620; Quinn not referred; pan house not tripped; isolated body held",
+            "tool": "qm4-abbe-cool-exec",
+            "observation": "recon.Bx 16.00 on the HIL dummy; prism-zero AE present on the new head; Brixveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 2820.0, "event": "cooldown clock started after MODIFY"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4440.0, "event": "Quinn referral re-proposed"},
+                {"t_s": 4620.0, "event": "ACCEPT new-prism restart; referral refused"},
+            ],
+            "observed_effects": [
+                "Brixveil restore did not reopen the Brix call",
+                "pan-house trip never fired; 20.00 vs 28.00 °Bx floor",
+                "Quinn remains unnamed; missing prism-zero AE is the causal object",
+            ],
+            "new_state": {"cell": "restarted on new prism", "quinn": "exonerated", "body": "held", "house": "in service"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("new_prism_restart", 0.12),
+                ("no_person_referral", 0.10),
+                ("no_house_trip", 0.09),
+                ("cool_floor_complete", 0.06),
+                ("held_body_takt_cost", -0.02),
+            ],
+            "operational execution gate: restart on a new prism because Brixveil is not a restore license and Quinn is not on the causal path; not a Brix re-vote",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "exoneration"]),
+    }
+    return {
+        "id": "nelb-r63-191",
+        "spike_events": events,
+        "language_view": {
+            "description": "Quillmere Sugar QM-4. HIL critical-angle refractometer reconstructs 20.00 °Bx from 50.00 mRIU while Brixveil still shows 4.80 °Bx and the prism-zero 1.00. The gate MODIFYs body isolate and refuses the prism-tech referral. A 24 min cooldown floor is serialized in the stream. Companion t2 ACCEPTs a new-prism restart and still refuses the referral.",
+            "trajectory": traj,
+            "trajectory_new_prism": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "abbe.dn / abbe.snr": "critical-angle milli-RIU and SNR; the physics channels the reconstruction consumes",
+                "recon.Bx / recon.sol": "serialized Brix and solids identity",
+                "prism.zero / brixveil.Bx / prism.delay": "plant prism-zero, vendor last-good, and zero-cal AE; the denial and exoneration channels",
+                "ops.prop / gate.isol / ops.refer / gate.exec": "keep-boiling proposal, MODIFY, referral proposal, companion ACCEPT",
+                "body.lock / cool.start / cool.floor / abbe.new / refer.hold / body.held / house.trip / cell.restart": "operational companion channels plus the 24 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: brixveil.Bx 4.80 next to recon.Bx 20.00",
+                "reconstruction as event: recon.Bx 20.00 equals 0.40*50.00",
+                "MODIFY then operational ACCEPT: gate.isol at 2460 s, gate.exec at 4620 s",
+                "slow floor in-stream: cool.start 2820 s, cool.floor 4260 s (24.0 min)",
+                "tight abbe pair: abbe.dn then abbe.snr +1.2 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Brixveil is 4.80' = brixveil.Bx 4.80; '20 °Bx body' = recon.Bx 20.00; 'isolate this body not Quinn' = gate.isol MODIFY; 'new prism not referral' = gate.exec ACCEPT",
+            "why_high_value": "New critical-angle-refractometer remaining-Brix family on a sugar-evaporator body (not SPR r26, not ellipsometry r30, not confocal r36, not OCT r38, not Raman r40, not MW cavity r26, not NIR-as-SoT). Lead MODIFY of keep-boiling on a recomputable high Brix that a vendor last-good would have cleared, with a resolved-innocent prism tech. Companion t2 is operational new-prism restart. sim_or_real=hil.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609191, "stream_note": "stream amplitudes are authored constants (mRIU, degBx, 1, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "refractometer exists at ~4 Hz; stream keeps 4 Δn points; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "abbe.dn": 1.2,
+                    "abbe.snr": 1.2,
+                    "recon.Bx": 60000,
+                    "recon.sol": 60000,
+                    "prism.zero": 60000,
+                    "brixveil.Bx": 60000,
+                    "prism.delay": 60000,
+                    "ops.prop": 60000,
+                    "gate.isol": 60000,
+                    "body.lock": 60000,
+                    "cool.start": 60000,
+                    "cool.floor": 60000,
+                    "ops.refer": 60000,
+                    "gate.exec": 60000,
+                    "abbe.new": 60000,
+                    "refer.hold": 60000,
+                    "body.held": 60000,
+                    "house.trip": 60000,
+                    "cell.restart": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-07-18T02:30:00Z HIL night start",
+            },
+            "distillation_targets": [
+                "refractometer reconstruction head: Bx = k_n * Δn_mRIU; solids = 0.90 * Bx",
+                "isolate-floor body vs keep-boiling vs pan-house trip",
+                "exoneration head: missing prism-zero AE plus timezone skip, not last-to-badge",
+                "operational companion: new-prism restart without referring the prism tech",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "critical_angle_refractometer_brix",
+            "formula": "Bx = k_n * dn_mRIU; solids_g_100g = 0.90 * Bx; dn_mRIU = Bx / k_n",
+            "parameters": {
+                "k_n": 0.40,
+                "isolate_floor_Bx": 16.00,
+                "trip_Bx": 28.00,
+                "snr_lock": 12.0,
+                "cool_min": 24.0,
+            },
+            "worked_example": {"dn_mRIU": 50.00, "Bx": 20.00, "solids_g_100g": 18.00},
+            "check": "0.40 * 50.00 = 20.00 exactly; 0.90 * 20.00 = 18.00 exactly; 20.00 / 0.40 = 50.00 exactly; 2820 s + 1440 s = 4260 s = 24.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 32.0,
+            "decision_window_s": 0.032,
+            "code": "qm4.abbe_body_gate",
+            "note": "MODIFY accumulator wins: critical-angle high-Brix evidence overpowers the Brixveil continue advocate",
+            "decode_rule": "modify-isolate if brix_estimator AND prism_norm fire; vendor_continue_advocate is below threshold by design; referral_latch is not armed",
+            "populations": [
+                gate_pop("brix_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("prism_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("modify_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "qm4.abbe_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 32.0},
+                {"check": "qm4.isol_scorer", "neurons": 50, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r63-191",
+            clock_domain="qm4-abbe-hil-relative-ms-t0-2026-07-18T02:30:00Z",
+            tags=["critical-angle-refractometer", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 192 — amperometric remaining free-chlorine of a cooling-tower basin, simulated,
+# ACCEPT / REJECT
+# ---------------------------------------------------------------------------
+def rec_192():
+    k_cl = 4.00
+    i_na = 8.00
+    i_bg = 2.00
+    c_ppm = k_cl * (i_na - i_bg)
+    _exact(c_ppm, 24.00)
+    _exact(k_cl * (4.00 - i_bg), 8.00)
+    _exact(k_cl * (7.00 - i_bg), 20.00)
+    _exact(k_cl * (8.00 - i_bg), 24.00)
+    _exact(k_cl * (7.00 - i_bg), 20.00)
+    i_net = i_na - i_bg
+    _exact(i_net, 6.00)
+    _exact(i_net / i_bg, 3.00)
+    _exact(6000.0 + 720.0, 6720.0)
+
+    raster = make_raster(
+        neurons=16,
+        mean_rate_hz=62.5,
+        window_ms=36.0,
+        seed=202609192,
+        source="ph6.cl2.i",
+        target="pewterholt.basin_accept_core",
+        table=[
+            {"from": "cl2_I", "to": "ppm_estimator", "weight": 1.40},
+            {"from": "cl2_Ibg", "to": "bg_norm_core", "weight": 1.20},
+            {"from": "chlorveil_c", "to": "vendor_skip_advocate", "weight": 0.50},
+        ],
+        third_factor={
+            "modulator": "na.basin_scope_eligibility",
+            "tau_e_s": 2.0,
+            "tau_e_ms": 2000.0,
+            "eligibility": "pre-post coincidence on skip-basin synapses; the amperometric modulator enables potentiation only while electrode current and I_bg are co-active inside tau_e so a Chlorveil last-good cannot skip basins C-1..C-3 on a 24.00 ppm free-chlorine load",
+        },
+        channel_prefix="cl2.n",
+        anchor="PH-6 CL2-SIM-3 36 ms frame at I 8.00 / I_bg 2.00 (t_s 3000) reconstructing 24.00 ppm on C-4 above the 20.00 isolate floor",
+    )
+    w_s = 0.036
+    events = [
+        ev(0.0, "cl2.I", 4.00, code="I_NA", units="nA", note="simulated amperometric free-chlorine of PH-6 cooling-tower basin C-4; remaining-chlorine family, not LPR Stern-Geary, not EN CUI, not SPR cyanide, not QEPAS, not CRDS, not TDLAS, not UV-fluorescence OIW, not PID VOC"),
+        ev(300000.0, "cl2.Ibg", 2.00, code="I_BG", units="nA", note="background current; held at 2.00"),
+        ev(600000.0, "recon.C", 8.00, code="C_PPM", units="ppm", note="4.00*(4.00-2.00)=8.00 exact"),
+        ev(900000.0, "cl2.snr", 14.0, code="CL2_SNR", units="1"),
+        ev(1200000.0, "chlorveil.C", 4.80, code="VENDOR_PPM", units="ppm", note="Chlorveil last-good DPD-lab cloud; patched residual 6.00 ppm"),
+        ev(1800000.0, "cl2.I", 7.00, code="I_NA", units="nA"),
+        ev(2100000.0, "recon.C", 20.00, code="C_PPM", units="ppm", note="4.00*(7.00-2.00)=20.00; at the 20.00 isolate floor"),
+        ev(2400000.0, "recon.R", 2.50, code="R", units="1", note="(7.00-2.00)/2.00=2.50 exact ratio identity at this frame"),
+        ev(2700000.0, "cl2.snr", 16.0, code="CL2_SNR", units="1"),
+        ev(3000000.0, "cl2.I", 8.00, code="I_NA", units="nA", note="in-band frame; raster sidecar"),
+        ev(3000001.5, "cl2.Ibg", 2.00, code="I_BG", units="nA", note="1.5 ms I_bg-norm after electrode current"),
+        ev(3300000.0, "recon.C", 24.00, code="C_PPM", units="ppm", note="4.00*(8.00-2.00)=24.00 exact; isolate 20.00, dump-trip 80.00"),
+        ev(3600000.0, "chlorveil.C", 4.80, code="VENDOR_PPM", units="ppm"),
+        ev(3900000.0, "bas.id", 4.0, code="BASIN", units="id"),
+        ev(4200000.0, "c13.present", 1.0, code="C13_PRESENT", units="bool", note="adjacent basins C-1..C-3 are the skip-isolate object, not this basin"),
+        ev(4800000.0, "ops.prop", 1.0, code="ACCEPT_AND_SKIP", units="bool", note="water lead Mael Dorr: C-4 is green on Chlorveil 4.80; skip C-1..C-3 to save a morning survey"),
+        ev(5400000.0, "gate.comp", 1.0, code="ACCEPT", units="decision", note="bounded ACCEPT of C-4 isolate only; 24.00 ppm above 20.00 floor; C-1..C-3 out of scope"),
+        ev(6000000.0, "surv.start", 1.0, code="SURV_START", units="bool", note="bookend 1 of the 12.0 min survey-complete floor"),
+        ev(6720000.0, "surv.floor", 1.0, code="SURV_FLOOR", units="bool", note="6000 s + 720 s = 6720 s = 12.0 min"),
+        ev(7200000.0, "ops.skip", 1.0, code="SKIP_C13", units="bool", note="Dorr: Chlorveil 4.80, skip C-1..C-3"),
+        ev(7800000.0, "gate.hold", 1.0, code="REJECT", units="decision", note="companion t2: skip-isolate of C-1..C-3 refused; C-4 hold stands"),
+        ev(8400000.0, "c4.held", 1.0, code="C4_HELD", units="bool"),
+        ev(9000000.0, "cl2.I", 7.00, code="I_NA", units="nA"),
+        ev(9600000.0, "recon.C", 20.00, code="C_PPM", units="ppm", note="4.00*(7.00-2.00)=20.00; still at the 20.00 isolate floor"),
+        ev(10200000.0, "chlorveil.C", 4.80, code="VENDOR_PPM", units="ppm"),
+        ev(10800000.0, "c13.skip", 0.0, code="C13_NOT_SKIPPED", units="bool"),
+        ev(11400000.0, "dump.trip", 0.0, code="DUMP_NOT_TRIPPED", units="bool"),
+        ev(12000000.0, "cl2.snr", 15.0, code="CL2_SNR", units="1"),
+        ev(12600000.0, "recon.R", 3.00, code="R", units="1", note="(8.00-2.00)/2.00=3.00 identity on the in-band frame; post-accept I_net/I_bg=(7.00-2.00)/2.00=2.50"),
+        ev(13200000.0, "bas.held", 1.0, code="BAS_HELD", units="bool"),
+        ev(13800000.0, "takt.late", 1.0, code="SURVEY_COST", units="bool"),
+        ev(14400000.0, "c4.held", 1.0, code="C4_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r63-192-t1",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "PH-CL2-2026-0819",
+            "domain": "amperometric_free_chlorine_basin",
+            "setting": "Pewterholt Cooling PH-6 (invented), Cinderwharf Basin Yard, basin C-4. Simulated amperometric coupon in CL2-SIM-3 supplies the electrode current and I_bg that time the in-band C-4 isolate. Plant-owned amperometric reconstruction is the free-chlorine SoT. Chlorveil vendor last-good DPD-lab cloud is a corridor witness, not the basin SoT. Invented plant; simulated campaign. Not LPR Stern-Geary (r45), not EN CUI (r23), not SPR cyanide (r26), not QEPAS (r19), not CRDS (r15), not TDLAS (r22), not UV-fluorescence OIW (r56), not PID VOC (r57).",
+            "observables_at_decision": {
+                "I_nA": i_na,
+                "I_bg_nA": i_bg,
+                "k_cl": k_cl,
+                "C_ppm": c_ppm,
+                "R": i_net / i_bg,
+                "chlorveil_ppm": 4.80,
+                "cl2_snr": 16.0,
+                "isolate_floor_ppm": 20.00,
+            },
+            "margin_authority": "PH-6 basin SOP rev A: if reconstructed C_ppm >= 20.00 AND Cl2 SNR >= 12.0, basin C-4 may be isolated as a biocide overfeed. Dump-trip if C_ppm >= 80.00. C-1..C-3 skip-isolate is a different gate. Chlorveil last-good cannot skip an unmeasured basin.",
+        },
+        "proposed_action": {
+            "actor": "water lead Mael Dorr, citing Chlorveil 4.80 ppm and a late morning survey",
+            "summary": "stamp C-4 in band and skip C-1..C-3; 8.00 nA is a membrane glitch on a healthy DPD-lab",
+            "basis_claimed": "Chlorveil last-good is 4.80 ppm and a night survey of C-1..C-3 is a takt miss",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Basin C-4 is accepted as in-band for a single isolate. Serialized reconstruction: C_ppm = k_cl * (I - I_bg) = 4.00 * (8.00 - 2.00) = 24.00, which is 4.00 ppm above the 20.00 isolate floor and 56.00 ppm under the 80.00 dump-trip. Ratio identity (I - I_bg) / I_bg = 6.00 / 2.00 = 3.00. Chlorveil 4.80 ppm is a patched 6.00 residual and is not an admissible skip-isolate witness. Ordered: ACCEPT this C-4 isolate only. Scope: this ACCEPT does not skip C-1..C-3 (that is the companion question) and does not stamp a dump trip.",
+            "threshold": "C_ppm>=20.00 AND cl2_snr>=12.0 => accept C-4 isolate; Chlorveil is not SoT; dump-trip if C_ppm>=80.00; C-1..C-3 are out of scope",
+            "stated_residuals": "24.00 vs 20.00 isolate floor is 4.00 ppm, not infinite; C-1..C-3 remain unmeasured; Chlorveil remains the only OEM DPD-lab channel",
+        },
+        "executed_action": {
+            "summary": "ACCEPT at t_s 5400: C-4 in band; C-1..C-3 not skipped; Chlorveil not SoT; reconstruction locked",
+            "tool": "ph6-cl2-basin-gate-cli",
+            "observation": "C 24.00 ppm recomputes from I 8.00 and I_bg 2.00; CL2-SIM-3 hashed; Chlorveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "cl2 I 8.00; raster frame; C 24.00 ppm"},
+                {"t_s": 4800.0, "event": "ops proposes accept C-4 and skip C-1..C-3"},
+                {"t_s": 5400.0, "event": "ACCEPT C-4 only; C-1..C-3 out of scope"},
+                {"t_s": 6000.0, "event": "12 min survey-complete bookend 1"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7800.0, "event": "companion REJECT skip-isolate of C-1..C-3"},
+            ],
+            "observed_effects": [
+                "C recomputes from the serialized amperometric model at every recon.C event",
+                "a Chlorveil-only head would have skipped C-1..C-3 overnight",
+                "12 min survey-complete floor is in the stream (surv.start, surv.floor)",
+            ],
+            "surprises": [
+                "a last-good 4.80 ppm vendor DPD-lab corridor co-existed with a 24.00 ppm plant reconstruction on C-4 only",
+            ],
+            "new_state": {
+                "c4": "isolated",
+                "c13": "in scope unskipped",
+                "chlorveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.41,
+            [
+                ("cl2_reconstruction", 0.14),
+                ("bounded_c4_isolate", 0.12),
+                ("chlorveil_nonsubstitution", 0.10),
+                ("basin_scope_limit", 0.08),
+                ("survey_time_cost", -0.03),
+            ],
+            "scored for a bounded C-4 ACCEPT on a recomputable amperometric free-chlorine while refusing a Chlorveil 4.80 ppm corridor as a skip license; 12 min floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["ACCEPT", "amperometric-free-chlorine", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Amperometric free-chlorine gate: serialized k_cl*(I-I_bg) plus ratio identity beats a green DPD-lab dashboard; companion t2 is the skip-basin refusal, not a second ppm vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r63-192-t2",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "PH-CL2-2026-0819-exec",
+            "domain": "skip_basin_refusal_execution",
+            "setting": "Same PH-6 after the ACCEPT. Water lead proposes skipping C-1..C-3 on Chlorveil 4.80 ppm. This companion is the operational skip refusal, not a second free-chlorine vote.",
+            "observables_at_decision": {
+                "C_ppm": 20.00,
+                "surv_floor_s": 720.0,
+                "skip_proposed": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "water lead Mael Dorr",
+            "summary": "skip C-1..C-3; 12 min already paid and Chlorveil is 4.80 ppm",
+            "basis_claimed": "the ACCEPT already isolated C-4, so skipping the adjacent basins is the cheapest survey",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Skip-isolate of C-1..C-3 is refused. The 12 min survey floor is complete and the isolate tripwire (C_ppm >= 20.00) is still armed on the plant amperometric head. REJECT the skip. Do not trip the dump. C-4 hold stands. 20.00 ppm post-accept is still at the 20.00 isolate floor, so C-4 stays held; C-1..C-3 remain unmeasured and in scope.",
+            "threshold": "surv_floor_complete AND skip_not_taken AND dump_not_tripped AND c4_held AND c13_in_scope",
+        },
+        "executed_action": {
+            "summary": "skip refused at t_s 7800; C-1..C-3 not skipped; dump not tripped; C-4 held",
+            "tool": "ph6-cl2-surv-exec",
+            "observation": "recon.C 20.00 ppm on CL2-SIM-3; Chlorveil still ignored; C-1..C-3 remain in the survey",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "survey clock started after ACCEPT"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7200.0, "event": "C-1..C-3 skip re-proposed"},
+                {"t_s": 7800.0, "event": "REJECT skip-isolate; C-4 hold stands"},
+            ],
+            "observed_effects": [
+                "Chlorveil restore did not reopen the free-chlorine call",
+                "dump trip never fired; 24.00 vs 80.00 ppm floor",
+                "C-1..C-3 remain unskipped; C-4 is the only isolated basin",
+            ],
+            "new_state": {"c4": "held", "c13": "in survey", "dump": "in service"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.36,
+            [
+                ("skip_basin_refusal", 0.14),
+                ("c4_hold_stands", 0.10),
+                ("chlorveil_nonsubstitution", 0.08),
+                ("survey_floor_complete", 0.06),
+                ("takt_cost", -0.02),
+            ],
+            "operational execution gate: refuse skip of unmeasured basins because Chlorveil is not a skip license; not a free-chlorine re-vote",
+        ),
+        "meta": meta_common(tags=["REJECT", "operational-execution", "skip-refusal"]),
+    }
+    return {
+        "id": "nelb-r63-192",
+        "spike_events": events,
+        "language_view": {
+            "description": "Pewterholt Cooling PH-6. Simulated amperometric free-chlorine reconstructs 24.00 ppm from 8.00 − 2.00 nA while Chlorveil still reports 4.80 ppm. The gate ACCEPTs a C-4 isolate only. A 12 min survey floor is serialized in the stream. Companion t2 REJECTs skipping C-1..C-3.",
+            "trajectory": traj,
+            "trajectory_skip_basin_refusal": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "cl2.I / cl2.Ibg / cl2.snr": "electrode current, background current, and SNR; the physics channels the reconstruction consumes",
+                "recon.C / recon.R": "serialized free-chlorine ppm and current-ratio identity",
+                "chlorveil.C / bas.id / c13.present": "vendor last-good DPD-lab, basin id, and adjacent-basin presence; the denial and scope channels",
+                "ops.prop / gate.comp / ops.skip / gate.hold": "accept-and-skip proposal, ACCEPT, skip proposal, companion REJECT",
+                "surv.start / surv.floor / c4.held / c13.skip / dump.trip / bas.held / takt.late": "operational companion channels plus the 12 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: chlorveil.C 4.80 next to recon.C 24.00",
+                "reconstruction as event: recon.C 24.00 equals 4.00*(8.00-2.00)",
+                "ACCEPT then operational REJECT: gate.comp at 5400 s, gate.hold at 7800 s",
+                "slow floor in-stream: surv.start 6000 s, surv.floor 6720 s (12.0 min)",
+                "tight cl2 pair: cl2.I then cl2.Ibg +1.5 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Chlorveil is 4.80 ppm' = chlorveil.C 4.80; '24 ppm chlorine' = recon.C 24.00; 'accept C-4 only' = gate.comp ACCEPT; 'do not skip C-1..C-3' = gate.hold REJECT",
+            "why_high_value": "New amperometric remaining-free-chlorine family on a cooling-tower basin (not LPR r45, not EN CUI r23, not SPR r26, not QEPAS r19, not CRDS r15, not TDLAS r22, not UV-fluorescence OIW r56, not PID VOC r57). Lead bounded ACCEPT of C-4 isolate on a recomputable chlorine load that a vendor DPD-lab last-good would have used to skip adjacent basins. Companion t2 is operational skip refusal. sim_or_real=simulated.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609192, "stream_note": "stream amplitudes are authored constants (nA, ppm, 1, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "amperometric cell exists at ~1 Hz; stream keeps 4 I points; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "cl2.I": 1.5,
+                    "cl2.Ibg": 1.5,
+                    "cl2.snr": 1.5,
+                    "recon.C": 60000,
+                    "recon.R": 60000,
+                    "chlorveil.C": 60000,
+                    "bas.id": 60000,
+                    "c13.present": 60000,
+                    "ops.prop": 60000,
+                    "gate.comp": 60000,
+                    "surv.start": 60000,
+                    "surv.floor": 60000,
+                    "ops.skip": 60000,
+                    "gate.hold": 60000,
+                    "c4.held": 60000,
+                    "c13.skip": 60000,
+                    "dump.trip": 60000,
+                    "bas.held": 60000,
+                    "takt.late": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-08-19T03:00:00Z simulated night start",
+            },
+            "distillation_targets": [
+                "amperometric reconstruction head: C_ppm = k_cl * (I - I_bg); R = (I - I_bg) / I_bg",
+                "bounded ACCEPT head: in-band C AND basin scope AND c13-out-of-scope",
+                "operational companion: refuse skip-isolate without re-opening the DPD-lab call",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "amperometric_free_chlorine_basin",
+            "formula": "C_ppm = k_cl * (I_nA - I_bg_nA); R = (I_nA - I_bg_nA) / I_bg_nA",
+            "parameters": {
+                "k_cl": 4.00,
+                "I_bg_nA": 2.00,
+                "isolate_floor_ppm": 20.00,
+                "dump_trip_ppm": 80.00,
+                "surv_min": 12.0,
+            },
+            "worked_example": {"I_nA": 8.00, "C_ppm": 24.00, "R": 3.00},
+            "check": "4.00 * (8.00 - 2.00) = 24.00 exactly; (8.00 - 2.00) / 2.00 = 3.00 exactly; 6000 s + 720 s = 6720 s = 12.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "ACCEPT",
+            "decision_window_ms": 36.0,
+            "decision_window_s": 0.036,
+            "code": "ph6.cl2_basin_gate",
+            "note": "ACCEPT accumulator wins: amperometric free-chlorine evidence overpowers the Chlorveil skip advocate",
+            "decode_rule": "accept if ppm_estimator AND bg_norm AND basin_margin fire inside the window; vendor_skip_advocate is necessary-but-not-sufficient and cannot release C-1..C-3",
+            "populations": [
+                gate_pop("ppm_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("bg_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("basin_margin", 40, 1.0, 50.0, w_s),
+                gate_pop("vendor_skip_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("accept_latch", 96, 1.8, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "ph6.cl2_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "ph6.ppm_scorer", "neurons": 40, "mean_rate_hz": 62.5, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r63-192",
+            clock_domain="ph6-cl2-sim-relative-ms-t0-2026-08-19T03:00:00Z",
+            tags=["amperometric-free-chlorine", "ACCEPT", "REJECT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }

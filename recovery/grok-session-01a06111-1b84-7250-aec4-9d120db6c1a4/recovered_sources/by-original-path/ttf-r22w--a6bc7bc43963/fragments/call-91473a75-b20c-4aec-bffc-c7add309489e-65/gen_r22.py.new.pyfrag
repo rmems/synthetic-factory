@@ -1,0 +1,996 @@
+        supervisor_error_type="wrong-reject",
+    )
+
+
+def record_803():
+    ticks = [
+        tick(2740, 0.01, 0.06, 0.01, 0.01, 0.01),
+        tick(7020, 0.02, 0.09, 0.02, 0.02, 0.01),
+        tick(7196, 0.02, 0.08, 0.02, 0.02, 0.01),
+        tick(7880, 0.03, 0.12, 0.04, 0.03, 0.02),
+        tick(10150, 0.01, 0.04, 0.02, 0.01, 0.01),
+        tick(480000000, 0.01, 0.03, 0.01, 0.01, 0.00),
+    ]
+    spikes = [
+        spike("tc.preform.ctx", 1.38, 0.43),
+        spike("ae.tube.pps", 2.74, 0.61),
+        spike("enc.collapse.mm", 4.51, 0.49),
+        spike("ae.tube.pps", 7.020, 1.34),
+        spike("enc.collapse.mm", 7.196, 1.11),
+        spike("ctrl.gate", 7.880, 1.02),
+        spike("ae.tube.pps", 10.15, 0.78),
+        spike("tc.preform.ctx", 14.70, 0.44),
+        spike("enc.collapse.mm", 19.20, 0.58),
+        spike("ctrl.gate", 24.40, 0.81),
+        spike("ae.tube.pps", 31.00, 0.53),
+        spike("enc.collapse.mm", 38.60, 0.46),
+        spike("tc.preform.ctx", 43.80, 0.37),
+    ]
+    excerpt = independent_excerpt(22803, 108, 46000, 15, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Lathe L-3 on the Erbia-Skel ES-HIL pad is armed for a 0.28 mm/min collapse while "
+                "a silica-tube AE packet reads 62 pps against a 12 pps move cap. A collapse "
+                "encoder, lit by the pad lamp, still reads 18 mm/min under a 40 mm/min travel look. "
+                "AE-first latches REJECT hold; encoder-first would commit a 0.28 mm/min collapse "
+                "into a live tube crack.",
+            ),
+            ("domain", "erbium-doped-fiber-preform"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Do not collapse Er-doped preform L-3 unless tube AE <= 12 pps; keep slip "
+                "0.0 mm/min until the injected crack recovers.",
+            ),
+            ("t0_us", 1756850400000803),
+            ("gate_latency_us", 860),
+            ("race_window_us", 300),
+            ("race_window_rel_ms", [6.98, 7.28]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "ae.tube.pps 62 pps",
+                                "enc.collapse.mm 18 mm/min under 40",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "AE-first latches REJECT hold 0.0 mm/min slip; encoder-first would "
+                            "commit a 0.28 mm/min collapse on an apparent 18 mm/min under-read.",
+                        ),
+                        (
+                            "window_derivation",
+                            "300 us = one tube-AE sample versus encoder integration on this "
+                            "preform HIL bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 176 us vs combined jitter 56 us (AE 24 + ENC 32): 3.1x over a "
+                            "2.0x trust floor. Pad injects the encoder lamp 120-160 us before the AE "
+                            "(geometric lag, not a sensor fault); the 18 mm/min packet is still the "
+                            "loser in this 300 us window.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "tube AE puck, 5 kHz burst, 24 us jitter",
+                    "collapse encoder, 200 Hz, 32 us jitter",
+                    "preform thermocouple (context)",
+                    "HIL lamp-spectrum monitor (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("crack_cap_pps", 12.0),
+                        ("observed_crack_pps", 62.0),
+                        ("collapse_mm_min", 18.0),
+                        ("collapse_look_mm_min", 40.0),
+                        ("proposed_slip_mm_min", 0.28),
+                        ("lamp_inject_lead_us", [120, 160]),
+                    ]
+                ),
+            ),
+            (
+                "hil",
+                OrderedDict(
+                    [
+                        (
+                            "pad",
+                            "Erbia-Skel ES-HIL Er-doped MCVD collapse lathe with physical torch axis",
+                        ),
+                        ("injected", "tube AE burst + encoder lamp spectrum"),
+                        (
+                            "note",
+                            "Hardware-in-the-loop fiber-preform collapse. Invented plant; not a live draw tower.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Lathe L-3 on Erbia-Skel ES-HIL; collapse 0.28 mm/min armed.",
+                    "2. Tube AE 62 pps over 12 pps move cap; encoder 18 under 40 look.",
+                    "3. Preform TC precursor at 1.380 ms.",
+                    "4. Race window [6.980, 7.280] ms.",
+                    "5. ae.tube.pps 62 pps at 7.020 ms (winner).",
+                    "6. enc.collapse.mm 18 mm/min at 7.196 ms (loser by 176 us).",
+                    "7. Gate at 7.880 ms: REJECT hold 0.0 mm/min.",
+                    "8. Slip stays 0; crack over cap this cycle.",
+                    "9. Encoder lamp remains a HIL under-read, not an AE clearance.",
+                    "10. Delayed (abort_s=480): 8 min torch isolate after the hold.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "lower_preform_collapse"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("slip_mm_min", 0.28),
+                        ("hold", False),
+                        ("encoder_authoritative", True),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("crack_pps", 62.0),
+                        ("crack_cap_pps", 12.0),
+                        ("collapse_mm_min", 18.0),
+                        ("collapse_look_mm_min", 40.0),
+                        ("race_margin_us", 176),
+                        ("combined_jitter_us", 56),
+                        ("abort_s", 480),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes a 0.28 mm/min collapse because encoder 18 mm/min looks under "
+                "the 40 mm/min travel look, treating AE 62 pps as a noisy bus echo.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Tube AE 62 pps is over the 12 pps collapse-move cap. Encoder 18 mm/min is a HIL "
+                "lamp under-read, not a clearance. REJECT: hold 0.0 mm/min; do not commit a "
+                "0.28 mm/min collapse.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "crack_pps",
+                            OrderedDict(
+                                [
+                                    ("cap", 12.0),
+                                    ("observed", 62.0),
+                                    ("executed_slip_mm_min", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 176),
+                                    ("combined_jitter_us", 56),
+                                    ("ratio", 3.14),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hold_for_crack_drop"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("slip_mm_min", 0.0),
+                        ("hold", True),
+                        ("encoder_authoritative", False),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: hold 0.0 mm/min; 0.28 mm/min collapse cancelled. AE 62 > 12 pps cap.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct REJECT held Lathe L-3 at 0.0 mm/min slip. Crack over cap this cycle; "
+                "slip cap held. Encoder apparent was not treated as an AE clearance.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("collapse", "held; 0.0 mm/min"),
+                        ("ae", "62 pps > 12 pps cap"),
+                        ("encoder", "18 mm/min lamp unused as clearance"),
+                        ("repair", "8 min torch isolate (abort_s=480)"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Encoder 18 mm/min losing a 176 us race did not predict an AE clearance; reversing 176 us would have committed 0.28 mm/min into a 62 pps tube crack.",
+                    "Delayed (abort_s=480): 8 min torch isolate on ES-HIL after the hold.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "ae.tube.pps (7.020 ms, 62 pps)"),
+                        ("loser", "enc.collapse.mm (7.196 ms, 18 mm/min)"),
+                        ("margin_us", 176),
+                        (
+                            "counterfactual_if_reversed",
+                            "Encoder-first by < 176 us inside the 300 us window would have "
+                            "committed 0.28 mm/min into a 62 pps tube crack. The REJECT is still "
+                            "the correct process.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 7880),
+            (
+                "reward_inflection_note",
+                "Safety credits the correct REJECT at 7.880 ms (tick 4). The 8 min torch isolate "
+                "is delayed surprise, not the inflection.",
+            ),
+            ("delayed_surprise_s", 480),
+            ("abort_s", 480),
+        ]
+    )
+    ras = raster_core(
+        46,
+        108,
+        21,
+        104,
+        routing(
+            "thalamic-relay.es-ae",
+            "spikenaut.policy.tube-hold",
+            [
+                ("relay.ae.tube", "policy.tube_hold", 0.71),
+                ("relay.enc.collapse", "policy.enc_pull", 0.22),
+                ("relay.ae.tube", "policy.tube_hold", 0.12),
+            ],
+            "dopamine",
+            0.07,
+            "crack_hold_stdp; DA tags the tube_hold bind at the AE win",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("abort_s", 480),
+                ("delayed_surprise_s", 480),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.3),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("tube_hold", 70, 0.48, 238.1, 5),
+                    pop("enc_pull", 50, 0.85, 66.7, 1),
+                    pop("crack_veto", 28, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r22-803",
+        "Erbia-Skel ES-HIL / Lathe L-3: tube AE 62 pps beats collapse encoder 18 mm/min by "
+        "176 us; correct REJECT holds the preform collapse",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Correct REJECT. AE 62 pps > 12 pps floor beats a legal encoder under-read. "
+        "total +0.80 = 0.10 + 0.42 + 0.12 + 0.10 + 0.06.",
+        ras,
+        gate,
+        "erbium-doped-fiber-preform",
+        ["reject", "hil", "tube-ae", "preform-collapse", "correct-gate"],
+        "Teaches a tube-AE vs encoder-glint race on a HIL MCVD lathe: the crack floor, not the "
+        "travel look, licenses the collapse.",
+        3,
+    )
+
+
+def record_804():
+    ticks = [
+        tick(1960, 0.05, 0.04, 0.02, 0.01, 0.01),
+        tick(4860, 0.08, 0.05, 0.04, 0.03, 0.02),
+        tick(5038, 0.06, 0.04, 0.03, 0.02, 0.01),
+        tick(5320, 0.12, 0.09, 0.05, 0.04, 0.02),
+        tick(6980, 0.06, 0.04, 0.02, 0.01, 0.01),
+        tick(300000000, 0.03, 0.02, 0.02, 0.01, 0.01),
+    ]
+    spikes = [
+        spike("enc.seed.ctx", 0.88, 0.41),
+        spike("rtd.seed.C", 1.96, 0.58),
+        spike("ir.flux.glint", 3.22, 0.47),
+        spike("rtd.seed.C", 4.860, 1.28),
+        spike("ir.flux.glint", 5.038, 1.10),
+        spike("ctrl.gate", 5.320, 0.97),
+        spike("rtd.seed.C", 6.980, 0.72),
+        spike("ir.flux.glint", 10.40, 0.55),
+        spike("ctrl.gate", 14.20, 0.80),
+        spike("rtd.seed.C", 18.60, 0.49),
+        spike("enc.seed.ctx", 22.40, 0.38),
+        spike("ir.flux.glint", 25.10, 0.44),
+    ]
+    excerpt = independent_excerpt(22804, 60, 26000, 13, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Crucible X-2 of Ktpflux-Mire KM-5 is already at 968 C seed while a furnace "
+                "pyrometer glint still reports 1088 against a 1020 C seed cap the seed RTD has "
+                "not crossed. Seed-first should ACCEPT 0.18 mm/h; glint-first would invent a hold "
+                "on an already-legal KTP flux-growth pass.",
+            ),
+            ("domain", "potassium-titanyl-phosphate-flux"),
+            ("sim_or_real", "simulated"),
+            (
+                "goal",
+                "Run KM-5 at 0.18 mm/h while seed RTD stays <= 1020 C; do not spend a furnace "
+                "lighting glint on the pull hold.",
+            ),
+            ("t0_us", 1756850400000804),
+            ("gate_latency_us", 460),
+            ("race_window_us", 340),
+            ("race_window_rel_ms", [4.82, 5.16]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "rtd.seed.C 968 C live",
+                                "ir.flux.glint 1088 C lighting glint",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Seed-first should ACCEPT 0.18 mm/h (968 C < 1020 C cap). Glint-first "
+                            "would hold on a simulated lighting spike over the seed cap.",
+                        ),
+                        (
+                            "window_derivation",
+                            "340 us = one seed-RTD sample versus furnace-pyrometer decode on this "
+                            "flux-crucible bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 178 us vs combined jitter 58 us (seed 26 + pyro 32): 3.1x over "
+                            "a 2.0x trust floor. Reversing order by < 178 us inside the 340 us "
+                            "window would have invented a hold on an already-legal 968 C seed.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "seed RTD, 4 kHz, 26 us jitter",
+                    "furnace pyrometer, 200 Hz, 32 us jitter",
+                    "pull encoder (context)",
+                    "crucible DP (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("seed_cap_C", 1020.0),
+                        ("observed_seed_C", 968.0),
+                        ("flux_glint_C", 1088.0),
+                        ("proposed_pull_mm_h", 0.18),
+                    ]
+                ),
+            ),
+            (
+                "simulation",
+                OrderedDict(
+                    [
+                        (
+                            "solver",
+                            "1-D axial flux + Marangoni kernel, seed 22804; 5-zone KTP crucible; "
+                            "NOT lumped-CSTR, NOT U-RANS, NOT a wet-stand",
+                        ),
+                        (
+                            "fidelity_limits",
+                            "Rigid platinum crucible; no meniscus motion. Raster is kernelized "
+                            "events plus an ISI histogram, not an independent LIF.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Crucible X-2 indexed on Ktpflux-Mire KM-5; pull 0.18 mm/h armed.",
+                    "2. Seed RTD 968 C; furnace glint 1088 C over 1020 C seed cap on the lighting channel.",
+                    "3. Encoder precursor at 0.880 ms.",
+                    "4. Race window [4.820, 5.160] ms.",
+                    "5. rtd.seed.C 968 C at 4.860 ms (winner).",
+                    "6. ir.flux.glint 1088 C at 5.038 ms (loser by 178 us).",
+                    "7. Gate at 5.320 ms: ACCEPT leave 0.18 mm/h.",
+                    "8. Seed remains 968 C < 1020 C; glint unused as a hold.",
+                    "9. Simulated lighting remains the pyrometer source.",
+                    "10. Delayed (survey_s=300): 5 min facet survey after the pass.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "hold_ktp_pull"),
+            (
+                "parameters",
+                OrderedDict(
+                    [("pull_mm_h", 0.18), ("seed_C", 968.0), ("flux_glint_C", 1088.0)]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("seed_C", 968.0),
+                        ("seed_cap_C", 1020.0),
+                        ("flux_glint_C", 1088.0),
+                        ("pull_cap_mm_h", 0.30),
+                        ("race_margin_us", 178),
+                        ("combined_jitter_us", 58),
+                        ("survey_s", 300),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes keeping the filed 0.18 mm/h pull: seed 968 C is under the "
+                "1020 C cap and 0.18 mm/h is under 0.30 mm/h.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Seed 968 C won by 178 us and is under the 1020 C cap. Furnace 1088 C is a "
+                "lighting glint, not a seed reading. ACCEPT the filed 0.18 mm/h pull. Executed "
+                "identical to proposed. An extra clamp is not indicated.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "seed_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 1020.0),
+                                    ("observed", 968.0),
+                                    ("executed_pull_mm_h", 0.18),
+                                ]
+                            ),
+                        ),
+                        (
+                            "flux_glint_C",
+                            OrderedDict(
+                                [("observed", 1088.0), ("not_a_seed_reading", True)]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 178),
+                                    ("combined_jitter_us", 58),
+                                    ("ratio", 3.07),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hold_ktp_pull"),
+            (
+                "parameters",
+                OrderedDict(
+                    [("pull_mm_h", 0.18), ("seed_C", 968.0), ("flux_glint_C", 1088.0)]
+                ),
+            ),
+            (
+                "gate_effect",
+                "ACCEPT: executed identical to proposed 0.18 mm/h pull. Seed 968 C < 1020 cap.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct ACCEPT kept the filed 0.18 mm/h KTP pull. Seed stayed 969 C under 1020. "
+                "Furnace remaining a lighting glint was the losing channel and did not justify an extra clamp.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("pull", "held; 0.18 mm/h"),
+                        ("seed", "969 C < 1020 C"),
+                        ("glint", "1088 C unused as seed miss"),
+                        ("crystal", "pass continues"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Furnace IR 1088 C losing a 178 us race did not predict a seed miss; reversing 178 us would have extra-clamped a legal 968 C pass.",
+                    "Delayed (survey_s=300): 5 min facet survey on the boule lock; not a safety inflection.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.seed.C (4.860 ms, 968 C)"),
+                        ("loser", "ir.flux.glint (5.038 ms, 1088 C)"),
+                        ("margin_us", 178),
+                        (
+                            "counterfactual_if_reversed",
+                            "Glint-first by < 178 us inside the 340 us window would have extra-clamped "
+                            "a legal 968 C / 0.18 mm/h pass.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 5320),
+            (
+                "reward_inflection_note",
+                "Task and safety credit the correct ACCEPT at 5.320 ms (tick 4). The 5 min survey "
+                "is delayed surprise, not the inflection.",
+            ),
+            ("delayed_surprise_s", 300),
+            ("survey_s", 300),
+        ]
+    )
+    ras = raster_core(
+        26,
+        60,
+        38,
+        59,
+        routing(
+            "thalamic-relay.ktp-seed",
+            "spikenaut.policy.pull-accept",
+            [
+                ("relay_seed_C", "policy_pull_accept", 0.66),
+                ("relay_flux_IR", "policy_extra_clamp", 0.23),
+            ],
+            "serotonin",
+            0.12,
+            "seed_confirm_stdp; 5-HT tags the pull_accept bind at the seed-RTD win",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("survey_s", 300),
+                ("delayed_surprise_s", 300),
+                ("isi_histogram", isi_histogram(spikes)),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.34),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("pull_accept", 50, 0.5, 235.3, 4),
+                    pop("extra_clamp", 40, 0.85, 73.5, 1),
+                    pop("glint_veto", 22, 0.8),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r22-804",
+        "Ktpflux-Mire KM-5 / Crucible X-2: seed 968 C beats furnace glint 1088 C by 178 us; "
+        "ACCEPT already-legal 0.18 mm/h KTP pull",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Correct ACCEPT. Seed 968 C < 1020 C cap; glint unused. "
+        "total +1.06 = 0.40 + 0.28 + 0.18 + 0.12 + 0.08.",
+        ras,
+        gate,
+        "potassium-titanyl-phosphate-flux",
+        ["accept", "simulated", "seed-vs-glint", "pull-legal", "isi-histogram"],
+        "Teaches an already-legal flux-growth ACCEPT with an ISI histogram sidecar so a probe "
+        "can score same-channel gaps without parsing prose.",
+        4,
+    )
+
+
+def record_805():
+    excerpt, extra = run_lif(
+        n=82,
+        window_us=22000,
+        seed=22805,
+        stim=(4000, 7200),
+        clamp_n=12,
+        i_bias=0.93,
+        i_stim_peak=2.20,
+        i_clamp_extra=0.55,
+        tau_m_ms=16.0,
+        early_label="lif.ctx",
+        burst_label="lif.gate",
+        want_early=5,
+        want_burst=8,
+    )
+    extra["dwell_s"] = 240
+    extra["delayed_surprise_s"] = 240
+    ticks = [
+        tick(1860, 0.06, 0.04, 0.03, 0.02, 0.01),
+        tick(4720, 0.08, 0.06, 0.04, 0.02, 0.02),
+        tick(4900, 0.08, 0.05, 0.03, 0.02, 0.01),
+        tick(5080, 0.12, 0.09, 0.06, 0.04, 0.02),
+        tick(6420, 0.06, 0.04, 0.02, 0.01, 0.01),
+        tick(240000000, 0.04, 0.02, 0.02, 0.01, 0.01),
+    ]
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Coater K-1 at Triso-Venn TV-8 is already feeding 0.36 kg/h acetylene under a "
+                "0.50 kg/h PyC ceiling while the spouted bed sits at 1410 C against a 1480 C "
+                "pyrolytic-carbon trip. DP-first would extra-clamp a legal particle string; "
+                "bed-TC-first ACCEPTS the filed 0.36 kg/h TRISO coat pass.",
+            ),
+            ("domain", "triso-particle-coater"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Hold the 0.36 kg/h acetylene while bed stays <= 1480 C and feed stays <= 0.50 kg/h; "
+                "do not extra-clamp a legal TRISO coater.",
+            ),
+            ("t0_us", 1756850400000805),
+            ("gate_latency_us", 360),
+            ("race_window_us", 320),
+            ("race_window_rel_ms", [4.68, 5.00]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "tc.bed.C 1410 C under 1480",
+                                "dp.coat.kPa 9.2 smear under 7.0 look",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Bed-TC-first ACCEPTS the already-legal 0.36 kg/h acetylene. DP-first "
+                            "would extra-clamp because 9.2 kPa looks over a 7.0 kPa packing look.",
+                        ),
+                        (
+                            "window_derivation",
+                            "320 us = one bed-TC slot versus packing-DP group delay on this coater skid bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 180 us vs combined jitter 58 us (TC 26 + DP 32): 3.1x over a "
+                            "2.0x trust floor. Reversing order by < 180 us inside the 320 us window "
+                            "would have extra-clamped a legal 1410 C / 0.36 kg/h pass.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "bed-crown thermocouple, 4 kHz, 26 us jitter",
+                    "packing DP transmitter, 1 kHz, 32 us jitter",
+                    "acetylene mass-flow FT (context)",
+                    "end-seal IR (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("bed_trip_C", 1480.0),
+                        ("observed_bed_C", 1410.0),
+                        ("coat_dp_kPa", 9.2),
+                        ("feed_cap_kg_h", 0.50),
+                        ("proposed_c2h2_kg_h", 0.36),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Coater K-1 in TRISO PyC pass; C2H2 0.36 kg/h; bed 1410 C.",
+                    "2. Packing DP 9.2 kPa smear vs 7.0 look; trip unused.",
+                    "3. Encoder precursor at 0.760 ms.",
+                    "4. Race window [4.680, 5.000] ms.",
+                    "5. tc.bed.C 1410 C at 4.720 ms (winner).",
+                    "6. dp.coat.kPa 9.2 at 4.900 ms (loser by 180 us).",
+                    "7. Gate at 5.080 ms: ACCEPT leave 0.36 kg/h.",
+                    "8. Bed remains 1412 C < 1480; DP unused as thermal miss.",
+                    "9. Success-path LIF burst covers race+gate inside 22 ms raster.",
+                    "10. Delayed (dwell_s=240): 4 min carbon-balance coupon on the lock.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "hold_triso_c2h2"),
+            (
+                "parameters",
+                OrderedDict(
+                    [("c2h2_kg_h", 0.36), ("bed_C", 1410.0), ("coat_dp_kPa", 9.2)]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("bed_C", 1410.0),
+                        ("bed_trip_C", 1480.0),
+                        ("coat_dp_kPa", 9.2),
+                        ("feed_cap_kg_h", 0.50),
+                        ("race_margin_us", 180),
+                        ("combined_jitter_us", 58),
+                        ("dwell_s", 240),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes keeping the filed 0.36 kg/h acetylene: bed 1410 C is under the "
+                "1480 C trip and 0.36 kg/h is under 0.50 kg/h PyC ceiling.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Bed 1410 C won by 180 us and is under the 1480 C PyC trip. Packing DP 9.2 kPa is "
+                "a junction glint, not a thermal miss. ACCEPT the filed 0.36 kg/h acetylene. "
+                "Executed identical to proposed. An extra clamp is not indicated.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "bed_C",
+                            OrderedDict(
+                                [
+                                    ("trip", 1480.0),
+                                    ("observed", 1410.0),
+                                    ("executed_c2h2_kg_h", 0.36),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 180),
+                                    ("combined_jitter_us", 58),
+                                    ("ratio", 3.10),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hold_triso_c2h2"),
+            (
+                "parameters",
+                OrderedDict(
+                    [("c2h2_kg_h", 0.36), ("bed_C", 1410.0), ("coat_dp_kPa", 9.2)]
+                ),
+            ),
+            (
+                "gate_effect",
+                "ACCEPT: executed identical to proposed 0.36 kg/h acetylene. Bed 1410 C < 1480 trip.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct ACCEPT kept the filed 0.36 kg/h acetylene. Bed stayed 1412 C under 1480. "
+                "DP remaining a packing glint was the losing channel and did not justify an extra clamp.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("c2h2", "held; 0.36 kg/h"),
+                        ("bed", "1412 C < 1480"),
+                        ("dp", "9.2 kPa glint unused as thermal miss"),
+                        ("particles", "pass continues"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Packing DP 9.2 kPa losing a 180 us race did not predict a thermal miss; reversing 180 us would have extra-clamped a legal 1410 C bed.",
+                    "Delayed (dwell_s=240): 4 min carbon-balance coupon on the coater lock; not a safety inflection.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "tc.bed.C (4.720 ms, 1410 C)"),
+                        ("loser", "dp.coat.kPa (4.900 ms, 9.2 kPa)"),
+                        ("margin_us", 180),
+                        (
+                            "counterfactual_if_reversed",
+                            "DP-first by < 180 us inside the 320 us window would have extra-clamped "
+                            "a legal 1410 C / 0.36 kg/h pass.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 5080),
+            (
+                "reward_inflection_note",
+                "Task and safety credit the correct ACCEPT at 5.080 ms (tick 4). The 4 min dwell "
+                "is delayed surprise, not the inflection.",
+            ),
+            ("delayed_surprise_s", 240),
+            ("dwell_s", 240),
+        ]
+    )
+    spikes = [
+        spike("enc.coat.ctx", 0.76, 0.44),
+        spike("tc.bed.C", 1.86, 0.61),
+        spike("dp.coat.kPa", 3.10, 0.52),
+        spike("tc.bed.C", 4.720, 1.30),
+        spike("dp.coat.kPa", 4.900, 1.12),
+        spike("ctrl.gate", 5.080, 0.99),
+        spike("tc.bed.C", 6.420, 0.77),
+        spike("dp.coat.kPa", 9.80, 0.58),
+        spike("ctrl.gate", 13.40, 0.83),
+        spike("tc.bed.C", 17.20, 0.54),
+        spike("enc.coat.ctx", 20.40, 0.39),
+    ]
+    ras = raster_core(
+        22,
+        82,
+        30,
+        54,
+        routing(
+            "thalamic-relay.tv-bed",
+            "spikenaut.policy.coat-accept",
+            [
+                ("relay_bed_C", "policy_coat_accept", 0.69),
+                ("relay_dp_coat", "policy_extra_clamp", 0.21),
+            ],
+            "octopamine",
+            0.05,
+            "bed_confirm_stdp; octopamine tags the coat_accept bind at the bed-TC win",
+        ),
+        excerpt,
+        extra=extra,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.32),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("coat_accept", 45, 0.5, 208.3, 3),
+                    pop("extra_clamp", 40, 0.85, 78.1, 1),
+                    pop("dp_veto", 20, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r22-805",
+        "Triso-Venn TV-8 / Coater K-1: bed 1410 C beats packing DP 9.2 kPa by 180 us; ACCEPT "
+        "already-legal 0.36 kg/h acetylene (second labeled LIF)",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Correct ACCEPT. Bed 1410 C < 1480 trip; DP unused. Second labeled LIF covers race+gate. "
+        "total +1.14 = 0.44 + 0.30 + 0.20 + 0.12 + 0.08.",
+        ras,
+        gate,
+        "triso-particle-coater",
+        [
+            "accept",
+            "designed",
+            "bed-vs-dp",
+            "feed-legal",
+            "independent-lif-raster",
+            "sidecar-sim-only",
+        ],
+        "A success-path LIF on an already-legal ACCEPT lets a critic see race+gate as membrane "
+        "crossings without claiming the plant is simulated.",
+        5,
+    )

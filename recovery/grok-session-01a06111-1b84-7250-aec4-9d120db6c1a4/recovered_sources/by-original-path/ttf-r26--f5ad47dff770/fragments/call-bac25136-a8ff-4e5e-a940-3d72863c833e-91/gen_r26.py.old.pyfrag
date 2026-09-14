@@ -1,0 +1,29 @@
+                "Process-correct MODIFY held hood O2 at 5.7 percent. At 21.200 ms a hanging chain "
+                "already fatigued in zone 3 sheared. Clamp reduced dump energy; it did not prevent "
+                "the shear. Partnered negative: process heads stay honest; world loss is named, "
+                "not netted.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("hood", "clamp executed; O2 peak 5.7 percent >= 5.5 floor"),
+                        ("chain_11", "sheared at 21.200 ms"),
+                        ("repair", "15 min chain swap (abort_s=900)"),
+                        ("mission", "MK-4 pass incomplete this circuit"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Neither hood O2 nor pyrometer predicted the fatigued chain; ae.chain.fall is a new channel at 21.200 ms, 15.340 ms after the gate, still inside the 42 ms raster.",
+                    "Delayed (abort_s=900): 15 min hanging-chain swap. Named un-netted loss, not folded into task_progress.",
+                ],
+            ),
+            (
+                "un_netted_loss",
+                "15 min chain swap after chain 11 shear. Safety head -0.56 prices the shear; "
+                "task_progress stays +0.34 because the fuel clamp completed under the 5.5 percent "
+                "floor. World loss is named here, not subtracted from process heads.",
+            ),

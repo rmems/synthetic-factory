@@ -1,0 +1,1 @@
+Gate mix: 1 ACCEPT, 2 correct MODIFY (941 partnered-neg in-window; 944 process-correct, no world charge), 1 incorrect MODIFY (wrong-unit on lagged bus), 1 correct REJECT. Provenance: designed×3, simulated×1, hil×1 (Diboride-Croft DC-HIL press pad). Intra-batch Jaccard on `state.description` < 0.4 (max vs prior live {max_prior:.3f}). Not all-positive: 941 −0.47 and 942 −0.68.

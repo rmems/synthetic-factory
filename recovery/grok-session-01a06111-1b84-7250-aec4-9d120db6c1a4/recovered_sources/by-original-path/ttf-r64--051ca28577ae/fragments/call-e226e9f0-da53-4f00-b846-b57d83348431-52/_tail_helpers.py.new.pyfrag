@@ -1,0 +1,5 @@
+        if rec["id"] == "ttf-r64-337":
+            if "policy.go_accept" in table_tos:
+                issues.append("337 routing has go_accept")
+            if "policy.hold_reject" not in table_tos:
+                issues.append("337 missing hold_reject routing")

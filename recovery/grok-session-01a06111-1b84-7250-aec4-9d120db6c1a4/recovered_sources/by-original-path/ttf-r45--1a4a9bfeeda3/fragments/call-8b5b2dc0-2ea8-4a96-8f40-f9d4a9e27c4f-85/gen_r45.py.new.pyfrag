@@ -1,0 +1,24 @@
+                        (
+                            "slip_ppm",
+                            OrderedDict(
+                                [
+                                    ("trip", 25.0),
+                                    ("observed", 8.4),
+                                    ("predicted_next", 12.1),
+                                    ("crossed", False),
+                                    ("executed_feed_tph", 2.0),
+                                    ("correct_feed_tph", 8.4),
+                                ]
+                            ),
+                        ),
+                        (
+                            "rich_mol",
+                            OrderedDict(
+                                [
+                                    ("cap", 0.42),
+                                    ("observed", 0.28),
+                                    ("crossed", False),
+                                    ("misbound_as", "lean_flash_dump"),
+                                ]
+                            ),
+                        ),

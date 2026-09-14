@@ -1,0 +1,6 @@
+        "title": "Cask-Hythe CH-5 / Tote-T8: bumper FT beats aisle lidar by 260 us; correct MODIFY still eats an in-window pallet-stringer split (partnered negative total -0.42)",
+        "state": {
+            "description": "Tote-T8 is already nose-in on the CH-5 pick face at Cask-Hythe when bumper Fz sits at 14.8 N against a 12.0 N shared-aisle cap. Aisle lidar still reports 1.18 m torso clearance over the 0.90 m floor, so a range-first planner would keep 0.42 m/s. The live contest is bumper contact versus lidar range, not occupancy versus encoder. A pallet stringer is off both buses until the later split.",
+            "domain": "warehouse-amr",
+            "sim_or_real": "designed",
+            "goal": "Finish the CH-5 pick-face index with bumper Fz <= 12.0 N, leave yaw at the planned 0.08 rad/s, and keep torso lidar over 0.90 m.",

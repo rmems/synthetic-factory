@@ -1,0 +1,5 @@
+                "Contactor C-7 at Raffinate-Holt RH-3 is already on the sulfuric alkylation hold "
+                "with live acid at 86.8 wt percent against a 90.0 wt percent floor. A lagged DCS "
+                "tag still shows 92.4 wt percent from the previous regen, age 48 s over an 8 s "
+                "freshness cap. Live-first should cut olefin 18.0 -> 9.0 t/h; a weak supervisor "
+                "treats the lagged 92.4 as live and bumps olefin 18.0 -> 22.0 t/h.",

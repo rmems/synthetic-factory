@@ -1,0 +1,2 @@
+| ttf-r05-024 | underwater-rov | ACCEPT | correct | simulated | +1.08 | Wrack-Fen WF-3 sim / Sled-W6: boom 92 N and sonar 1.80 m already legal |
+| ttf-r05-025 | aerial-swarm | MODIFY | **incorrect (wrong-modify / delayed-clamp)** | designed | -0.79 | Drift-Nacelle DN-7 / Quad-D6: hangar vortex 6.4 > 4.2; climb clamp deferred for door confirm |

@@ -1,0 +1,4 @@
+PLANT = "LOOPERQUAY"
+GEO = "Roughmere"
+CELL = "HSM-5"
+DOMAIN = "hot-strip-mill-finishing"

@@ -1,0 +1,34 @@
+                [
+                    "extraction Faraday cup, 5 kHz, 30 us jitter (HIL live)",
+                    "RF directional coupler VSWR, 2 kHz, 34 us jitter (HIL live)",
+                    "dee coolant RTD (context)",
+                    "dummy-load calorimeter (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("extract_cap_uA", 8.0),
+                        ("faraday_uA", 14.2),
+                        ("vswr_trip", 1.50),
+                        ("vswr", 1.12),
+                        ("proposed_extract_nA", 40.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. DK-3 parked on K-shell HIL pad; 40 nA extraction ramp armed.",
+                    "2. Faraday 14.2 uA; VSWR 1.12 on dummy-load reflection.",
+                    "3. Dee-coolant precursor at 0.880 ms.",
+                    "4. Race window [6.100, 6.480] ms.",
+                    "5. faraday.beam.uA 14.2 uA at 6.140 ms (winner).",
+                    "6. rf.vswr 1.12 at 6.322 ms (loser by 182 us).",
+                    "7. Gate at 6.860 ms: REJECT hold 0 nA (correct).",
+                    "8. Ramp cancelled; Faraday remains 14.2 uA > 8.0 cap.",
+                    "9. VSWR 1.12 unused as a go signal.",
+                    "10. Delayed reclear_s=480 (8 min pad reclear) after dummy-load swap.",
+                ],
+            ),

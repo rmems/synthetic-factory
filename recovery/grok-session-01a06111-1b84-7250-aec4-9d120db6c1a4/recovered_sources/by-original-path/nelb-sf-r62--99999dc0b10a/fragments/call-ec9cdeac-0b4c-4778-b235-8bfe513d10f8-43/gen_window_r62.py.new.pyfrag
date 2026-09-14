@@ -1,0 +1,349 @@
+            tags=["quartz-sf6-density", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+def rec_a3():
+    k_eta = 2.00
+    dp = 16.00
+    q = 4.00
+    eta = k_eta * dp / q
+    _exact(eta, 8.00)
+    ratio = dp / q
+    _exact(ratio, 4.00)
+    tau = eta * 50.00
+    _exact(tau, 400.00)
+    _exact(k_eta * 8.00 / 4.00, 4.00)
+    _exact(k_eta * 12.00 / 4.00, 6.00)
+    _exact(k_eta * 20.00 / 4.00, 10.00)
+    _exact(6000.0 + 720.0, 6720.0)
+
+    raster = make_raster(
+        neurons=16,
+        mean_rate_hz=62.5,
+        window_ms=36.0,
+        seed=202609623,
+        source="th3.rheo.dP",
+        target="tarholt.extruder_accept_core",
+        table=[
+            {"from": "rheo_dP", "to": "eta_estimator", "weight": 1.40},
+            {"from": "rheo_snr", "to": "capillary_norm_core", "weight": 1.20},
+            {"from": "meltveil_eta", "to": "vendor_skip_advocate", "weight": 0.50},
+        ],
+        third_factor={
+            "modulator": "na.extruder_scope_eligibility",
+            "tau_e_s": 2.0,
+            "tau_e_ms": 2000.0,
+            "eligibility": (
+                "pre-post coincidence on skip-extruder synapses; the capillary-rheometer modulator "
+                "enables potentiation only while dP and SNR are co-active inside tau_e so a Meltveil "
+                "last-good cannot skip extruders E-1 and E-3 on an 8.00 Pa.s remaining viscosity"
+            ),
+        },
+        channel_prefix="rheo.n",
+        anchor=(
+            "TH-3 capillary-rheometer 36 ms frame at dP 16.00 bar / Q 4.00 cm3/s / SNR 12.0 (t_s 3000) "
+            "reconstructing 8.00 Pa.s remaining viscosity inside the 6.00-24.00 isolate band"
+        ),
+    )
+    w_s = 0.036
+    events = [
+        ev(0.0, "rheo.dP", 8.00, code="DP_BAR", units="bar", note="simulated capillary-rheometer of TH-3 extruder E-2; remaining-melt-viscosity family, not Ubbelohde kinematic, not vibrating-wire viscometer, not Mooney ML, not Coriolis, not VW viscometer, not FBRM"),
+        ev(300000.0, "rheo.snr", 6.0, code="RHEO_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(600000.0, "recon.eta", 4.00, code="ETA_PAS", units="Pa_s", note="2.00*8.00/4.00=4.00 exact; still below the 6.00 isolate floor"),
+        ev(900000.0, "ext.kW", 40.0, code="EXT_KW", units="kW", note="plant extruder PLC on copper fieldbus; independent witness; unread by Meltveil"),
+        ev(1200000.0, "meltveil.eta", 1.20, code="VENDOR_PAS", units="Pa_s", note="Meltveil vendor RHEO-9 last-good cloud; corridor witness, not SoT"),
+        ev(1500000.0, "rheo.dP", 12.00, code="DP_BAR", units="bar", note="mid-rise dP; 2.00*12.00/4.00=6.00 exact"),
+        ev(1500001.5, "rheo.Q", 4.00, code="Q_CM3S", units="cm3_s", note="1.5 ms Q after dP 12.00; Q identity 4.00"),
+        ev(1560000.0, "recon.eta", 6.00, code="ETA_PAS", units="Pa_s", note="2.00*12.00/4.00=6.00; at the 6.00 isolate floor"),
+        ev(1800000.0, "rheo.dP", 12.00, code="DP_BAR", units="bar"),
+        ev(2100000.0, "e13.present", 1.0, code="E13_PRESENT", units="bool", note="E-1 and E-3 are in service and out of this gate's scope"),
+        ev(2400000.0, "ops.skip", 0.0, code="SKIP_ISOL", units="bool", note="survey takt not yet arguing skip"),
+        ev(2700000.0, "ext.kW", 42.0, code="EXT_KW", units="kW", note="kW tracks the plant capillary, not Meltveil"),
+        ev(3000000.0, "rheo.dP", 16.00, code="DP_BAR", units="bar", note="in-band frame; raster sidecar"),
+        ev(3000001.5, "rheo.Q", 4.00, code="Q_CM3S", units="cm3_s", note="1.5 ms Q after dP; ratio 4.00"),
+        ev(3300000.0, "recon.eta", 8.00, code="ETA_PAS", units="Pa_s", note="2.00*16.00/4.00=8.00 exact; isolate 6.00, trip 24.00"),
+        ev(3450000.0, "rheo.snr", 12.0, code="RHEO_SNR", units="1", note="SNR lock 12.0 >= 8.0"),
+        ev(3600000.0, "recon.R", 4.00, code="R", units="bar_s_cm3", note="16.00/4.00=4.00 exact dP/Q identity"),
+        ev(3750000.0, "recon.tau", 400.00, code="TAU_PA", units="Pa", note="8.00*50.00=400.00 exact shear identity"),
+        ev(3900000.0, "ext.kW", 48.0, code="EXT_KW", units="kW", note="extruder PLC tracks the plant capillary, not Meltveil 1.20"),
+        ev(4200000.0, "meltveil.eta", 1.20, code="VENDOR_PAS", units="Pa_s"),
+        ev(4500000.0, "e13.present", 1.0, code="E13_PRESENT", units="bool"),
+        ev(4800000.0, "ops.prop", 1.0, code="ISOLATE_E2", units="bool", note="survey lead Edda Pike: isolate E-2 on the plant capillary; Meltveil 1.20 is a skip stamp"),
+        ev(5100000.0, "rheo.dP", 16.00, code="DP_BAR", units="bar"),
+        ev(5400000.0, "gate.comp", 1.0, code="ACCEPT", units="decision", note="bounded ACCEPT of E-2 only; E-1 and E-3 out of scope; Meltveil not SoT"),
+        ev(5700000.0, "e2.lock", 1.0, code="E2_ISOL", units="bool"),
+        ev(6000000.0, "surv.start", 1.0, code="SURVEY_START", units="bool", note="bookend 1 of the 12.0 min survey floor"),
+        ev(6300000.0, "rheo.snr", 12.1, code="RHEO_SNR", units="1"),
+        ev(6600000.0, "meltveil.eta", 1.18, code="VENDOR_PAS", units="Pa_s", note="vendor last-good still green through the survey bookend"),
+        ev(6720000.0, "surv.floor", 1.0, code="SURVEY_FLOOR", units="bool", note="6000 s + 720 s = 6720 s = 12.0 min"),
+        ev(7200000.0, "ops.skip", 1.0, code="SKIP_ISOL", units="bool", note="Pike under survey takt: skip the isolate, Meltveil is 1.18"),
+        ev(7500000.0, "ext.kW", 46.0, code="EXT_KW", units="kW"),
+        ev(7800000.0, "gate.skip", 1.0, code="REJECT", units="decision", note="companion t2: REJECT skip-isolate; E-2 stays held; dump trip refused"),
+        ev(8100000.0, "recon.eta", 8.00, code="ETA_PAS", units="Pa_s", note="2.00*16.00/4.00=8.00 still in band when skip is proposed"),
+        ev(8400000.0, "e2.held", 1.0, code="E2_HELD", units="bool"),
+        ev(8700000.0, "rheo.dP", 12.00, code="DP_BAR", units="bar"),
+        ev(9000000.0, "surv.set", 1.0, code="SURVEY_HELD", units="bool"),
+        ev(9300000.0, "recon.R", 3.00, code="R", units="bar_s_cm3", note="12.00/4.00=3.00 on the post-hold dP 12.00 frame"),
+        ev(9600000.0, "rheo.Q", 4.00, code="Q_CM3S", units="cm3_s"),
+        ev(9900000.0, "recon.tau", 300.00, code="TAU_PA", units="Pa", note="6.00*50.00=300.00; eta 6.00 still at the isolate floor so E-2 stays held"),
+        ev(10200000.0, "recon.eta", 6.00, code="ETA_PAS", units="Pa_s", note="2.00*12.00/4.00=6.00; still at 6.00 so isolate stands"),
+        ev(10800000.0, "meltveil.eta", 1.16, code="VENDOR_PAS", units="Pa_s"),
+        ev(11400000.0, "ext.kW", 44.0, code="EXT_KW", units="kW", note="held extruder; PLC tracks the plant capillary"),
+        ev(12000000.0, "e2.held", 1.0, code="E2_HELD", units="bool"),
+        ev(12600000.0, "dump.trip", 0.0, code="TRIP_NOT_TAKEN", units="bool"),
+        ev(13200000.0, "ops.skip", 1.0, code="SKIP_ISOL", units="bool"),
+        ev(13800000.0, "e13.present", 1.0, code="E13_PRESENT", units="bool"),
+        ev(14400000.0, "surv.held", 1.0, code="SURVEY_HELD", units="bool"),
+        ev(14700000.0, "gate.skip", 1.0, code="REJECT", units="decision", note="skip-isolate remains refused after the survey floor"),
+        ev(15000000.0, "rheo.snr", 12.0, code="RHEO_SNR", units="1"),
+        ev(15300000.0, "recon.eta", 6.00, code="ETA_PAS", units="Pa_s"),
+        ev(15600000.0, "e2.lock", 1.0, code="E2_ISOL", units="bool"),
+        ev(15900000.0, "s23.held", 1.0, code="E2_HELD", units="bool"),
+    ]
+    assert_stream(events)
+    _exact(len(events), 52)
+
+    traj = {
+        "id": "nelb-r62-a3-t1",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "TH-RHEO-2026-0819",
+            "domain": "capillary_rheometer_polymer_melt",
+            "setting": "Tarholt Polymer TH-3 (invented), Osierfen Compounding Cellar, extruder E-2. Simulated capillary coupon in RHEO-SIM-6 supplies the dP that times the in-band E-2 isolate. Plant-owned capillary-rheometer reconstruction is the remaining-viscosity SoT. Meltveil vendor last-good melt cloud is a corridor witness, not the extruder SoT. Invented plant; simulated campaign. Not Ubbelohde kinematic (r66), not vibrating-wire viscometer (r26), not Coriolis (r29/r34), not FBRM D50 (r49), not vibrating-tube density (r65).",
+            "observables_at_decision": {
+                "dP_bar": dp,
+                "Q_cm3_s": q,
+                "k_eta": k_eta,
+                "eta_Pa_s": eta,
+                "R": ratio,
+                "tau_Pa": tau,
+                "rheo_snr": 12.0,
+                "meltveil_Pa_s": 1.20,
+                "isolate_floor_Pa_s": 6.00,
+                "trip_Pa_s": 24.00,
+                "e1_e3_in_scope": False,
+            },
+            "margin_authority": "TH-3 extruder SOP rev C: if reconstructed eta_Pa_s >= 6.00 AND capillary SNR >= 8.0, isolate E-2 this shift. Meltveil 1.20 is not a skip license. E-1 and E-3 are out of scope. Trip tripwire is 24.00 Pa.s.",
+        },
+        "proposed_action": {
+            "actor": "survey lead Edda Pike, citing plant capillary 8.00 Pa.s in band and Meltveil 1.20 as a skip stamp",
+            "summary": "isolate extruder E-2 only; do not touch E-1 or E-3; Meltveil is not SoT",
+            "basis_claimed": "serialized capillary reconstruction is the remaining-viscosity SoT and the isolate band is 6.00-24.00 Pa.s",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Bounded ACCEPT of E-2 isolate. Serialized reconstruction: eta = k_eta * dP / Q = 2.00 * 16.00 / 4.00 = 8.00, inside the 6.00-24.00 isolate band, and capillary SNR is 12.0 >= 8.0. Ratio identity dP/Q = 16.00/4.00 = 4.00. Shear identity tau = eta * gammadot = 8.00 * 50.00 = 400.00 Pa. Meltveil 1.20 Pa.s is a last-good skip stamp and is not an admissible skip-isolate witness. Ordered: isolate E-2 now. Scope: this ACCEPT does not isolate E-1 or E-3 (explicitly out of scope) and does not dump the compounding cellar (that is the companion question).",
+            "threshold": "eta_Pa_s>=6.00 AND rheo_snr>=8.0 => isolate E-2 only; Meltveil is not SoT; trip if eta_Pa_s>=24.00; E-1 and E-3 out of scope",
+            "stated_residuals": "8 vs 24 trip floor is 16 Pa.s, not infinite; survey still required to hold E-2; Meltveil remains the only OEM melt channel; E-1 and E-3 were not measured",
+        },
+        "executed_action": {
+            "summary": "ACCEPT at t_s 5400: E-2 isolated; E-1 and E-3 untouched; Meltveil not SoT; reconstruction locked",
+            "tool": "th3-rheo-extruder-gate-cli",
+            "observation": "eta 8.00 Pa.s recomputes from dP 16.00 and Q 4.00; simulated coupon hashed; Meltveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "rheo dP 16.00 Q 4.00; raster frame; eta 8.00 Pa.s"},
+                {"t_s": 4800.0, "event": "ops proposes isolate E-2"},
+                {"t_s": 5400.0, "event": "ACCEPT isolate E-2; E-1 and E-3 out of scope"},
+                {"t_s": 6000.0, "event": "12 min survey bookend 1"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7800.0, "event": "companion REJECT skip-isolate"},
+            ],
+            "observed_effects": [
+                "remaining viscosity recomputes from the serialized capillary model at every recon.eta event",
+                "a Meltveil-only head would have skipped the isolate overnight",
+                "12 min survey floor is in the stream (surv.start, surv.floor)",
+            ],
+            "surprises": [
+                "a clean vendor melt corridor co-existed with an 8.00 Pa.s plant reconstruction in band"
+            ],
+            "new_state": {
+                "extruder_e2": "isolated",
+                "extruder_e1_e3": "untouched",
+                "meltveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.41,
+            [
+                ("rheo_reconstruction", 0.14),
+                ("bounded_e2_isolate", 0.12),
+                ("meltveil_nonsubstitution", 0.10),
+                ("extruder_scope_limit", 0.08),
+                ("survey_time_cost", -0.03),
+            ],
+            "scored for a bounded E-2 ACCEPT on a recomputable capillary-rheometer remaining viscosity while refusing a Meltveil 1.20 Pa.s corridor as a skip license; 12 min floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["ACCEPT", "capillary-rheometer", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Capillary-rheometer gate: serialized k_eta*dP/Q plus shear identity beats a green last-good dashboard; companion t2 is the skip-isolate refusal, not a second viscosity vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r62-a3-t2",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "TH-RHEO-2026-0819-exec",
+            "domain": "skip_extruder_refusal_execution",
+            "setting": "Same TH-3 after the ACCEPT. Survey takt proposes skip-isolate. This companion is the operational skip refusal with the plant capillary as the live interlock, not a second viscosity vote.",
+            "observables_at_decision": {
+                "eta_Pa_s": 6.00,
+                "survey_floor_s": 720.0,
+                "skip_proposed": True,
+                "e2_held": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "survey lead Edda Pike",
+            "summary": "skip the E-2 isolate and restore compounding; 12 min already paid and Meltveil still shows 1.16 Pa.s",
+            "basis_claimed": "the ACCEPT already isolated E-2, so a skip is the cheapest way back onto takt",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Skip-isolate is refused. The 12 min survey floor is complete and the isolate tripwire (eta >= 6.00) is still armed on the plant capillary head. REJECT the skip. Do not dump the compounding cellar. Do not restore E-2 on Meltveil. Do not expand scope onto E-1 or E-3. 6.00 Pa.s post-isolate is still the plant SoT until a new frame clears 6.00.",
+            "threshold": "survey_held AND survey_floor_complete AND skip_not_taken AND dump_trip_not_taken AND e1_e3_untouched",
+        },
+        "executed_action": {
+            "summary": "skip-isolate rejected at t_s 7800; dump trip not latched; Meltveil restore not taken; E-1 and E-3 untouched",
+            "tool": "th3-rheo-survey-exec",
+            "observation": "recon.eta 6.00 Pa.s after isolate; survey line-up complete; Meltveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "survey clock started after ACCEPT"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7200.0, "event": "skip-isolate proposed"},
+                {"t_s": 7800.0, "event": "REJECT skip-isolate; dump trip refused"},
+            ],
+            "observed_effects": [
+                "Meltveil restore did not reopen the remaining-viscosity call",
+                "dump trip never fired; E-2 held isolate on the plant capillary",
+                "E-1 and E-3 remained out of scope",
+            ],
+            "new_state": {"survey": "held", "cellar": "in service", "extruder_e2": "held"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.36,
+            [
+                ("skip_refusal", 0.12),
+                ("no_dump_trip", 0.10),
+                ("meltveil_nonsubstitution", 0.08),
+                ("scope_limit_held", 0.08),
+                ("held_extrude_cost", -0.02),
+            ],
+            "operational execution gate: skip-isolate refused because Meltveil is not a restore license; not a remaining-viscosity re-vote",
+        ),
+        "meta": meta_common(tags=["REJECT", "operational-execution", "skip-isolate-refusal"]),
+    }
+    return {
+        "id": "nelb-r62-a3",
+        "spike_events": events,
+        "language_view": {
+            "description": "Tarholt Polymer TH-3. Simulated capillary-rheometer reconstructs 8.00 Pa.s remaining melt viscosity from 16.00 bar while Meltveil still reports 1.20 Pa.s. The gate ACCEPTs a bounded E-2 isolate. A 12 min survey floor is serialized in the stream. Companion t2 REJECTs a skip-isolate.",
+            "trajectory": traj,
+            "trajectory_skip_extruder_refusal": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "rheo.dP / rheo.Q / rheo.snr": "capillary dP, volumetric Q, and SNR; the physics channels the reconstruction consumes",
+                "recon.eta / recon.R / recon.tau": "serialized remaining viscosity, dP/Q identity, and shear identity",
+                "ext.kW / meltveil.eta / e13.present": "extruder kW, vendor last-good, and out-of-scope E-1/E-3 presence; the denial and scope channels",
+                "ops.prop / gate.comp / ops.skip / gate.skip": "isolate-E-2 proposal, ACCEPT, skip-isolate proposal, companion REJECT",
+                "surv.start / surv.floor / surv.set / surv.held / e2.lock / e2.held / dump.trip": "operational companion channels plus the 12 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-in-band: meltveil.eta 1.20 next to recon.eta 8.00",
+                "reconstruction as event: recon.eta 8.00 equals 2.00*16.00/4.00",
+                "ACCEPT then operational REJECT: gate.comp at 5400 s, gate.skip at 7800 s",
+                "slow floor in-stream: surv.start 6000 s, surv.floor 6720 s (12.0 min)",
+                "tight rheo pair: rheo.dP then rheo.Q +1.5 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Meltveil is 1.20 Pa.s' = meltveil.eta 1.20; '8 Pa.s melt' = recon.eta 8.00; 'isolate E-2 only' = gate.comp ACCEPT; 'do not skip' = gate.skip REJECT",
+            "why_high_value": "New capillary-rheometer remaining-melt-viscosity family on a polymer extruder (not Ubbelohde kinematic r66, not vibrating-wire viscometer r26, not Coriolis r29/r34, not FBRM D50 r49, not vibrating-tube density r65). First k_eta*dP/Q reconstruction with shear identity that can sit in band while a last-good corridor wants an extruder skip. Bounded ACCEPT with E-1 and E-3 out of scope. Companion t2 is operational skip refusal. sim_or_real=simulated.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {
+                    "raster": 202609623,
+                    "stream_note": "stream amplitudes are authored constants (bar, cm3/s, 1, Pa.s, Pa, kW, bool)",
+                },
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "capillary rheometer exists at ~1 Hz; stream keeps 6 dP points plus Q pairs; recon keeps 6 of ~20 solver ticks; 52-event floor densifies leftover-mill r62's 32-event thinning",
+                "refractory_floors_ms": {
+                    "rheo.dP": 1.5,
+                    "rheo.Q": 1.5,
+                    "rheo.snr": 1.5,
+                    "recon.eta": 60000,
+                    "recon.R": 60000,
+                    "recon.tau": 60000,
+                    "ext.kW": 60000,
+                    "meltveil.eta": 60000,
+                    "e13.present": 60000,
+                    "ops.skip": 60000,
+                    "ops.prop": 60000,
+                    "gate.comp": 60000,
+                    "e2.lock": 60000,
+                    "surv.start": 60000,
+                    "surv.floor": 60000,
+                    "gate.skip": 60000,
+                    "e2.held": 60000,
+                    "surv.set": 60000,
+                    "dump.trip": 60000,
+                    "surv.held": 60000,
+                    "s23.held": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-08-19T03:00:00Z sim start",
+            },
+            "distillation_targets": [
+                "capillary-rheometer reconstruction head: eta = k_eta * dP / Q; R = dP / Q; tau = eta * gammadot",
+                "bounded ACCEPT with extruder-out-of-scope",
+                "vendor-melt nonsubstitution",
+                "operational companion: skip-isolate refusal under survey takt",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "capillary_rheometer_melt_viscosity",
+            "formula": "eta_Pa_s = k_eta * dP_bar / Q_cm3_s; R = dP_bar / Q_cm3_s; tau_Pa = eta_Pa_s * gammadot_s",
+            "parameters": {
+                "k_eta": 2.00,
+                "Q_cm3_s": 4.00,
+                "gammadot_s": 50.00,
+                "isolate_floor_Pa_s": 6.00,
+                "trip_Pa_s": 24.00,
+                "snr_lock": 8.0,
+                "survey_hold_min": 12.0,
+            },
+            "worked_example": {"dP_bar": 16.00, "eta_Pa_s": 8.00, "R": 4.00, "tau_Pa": 400.00},
+            "check": "2.00 * 16.00 / 4.00 = 8.00 exactly; 16.00 / 4.00 = 4.00; 8.00 * 50.00 = 400.00; 6000 s + 720 s = 6720 s = 12.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "ACCEPT",
+            "decision_window_ms": 36.0,
+            "decision_window_s": 0.036,
+            "code": "th3.rheo_extruder_gate",
+            "note": "ACCEPT accumulator wins: plant capillary remaining-viscosity evidence overpowers the Meltveil skip advocate",
+            "decode_rule": "accept-isolate-E2 if eta_estimator AND capillary_lock fire; vendor_skip_advocate is below threshold by design",
+            "populations": [
+                gate_pop("eta_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("capillary_lock", 40, 1.2, 62.5, w_s),
+                gate_pop("vendor_skip_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("accept_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "th3.rheo_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "th3.eta_scorer", "neurons": 40, "mean_rate_hz": 62.5, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r62-a3",
+            clock_domain="th3-rheo-sim-relative-ms-t0-2026-08-19T03:00:00Z",
+            tags=["capillary-rheometer", "ACCEPT", "REJECT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }

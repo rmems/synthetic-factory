@@ -1,0 +1,52 @@
+{
+  "agent_ids": [
+    "01a06406-1394-7980-ae37-05a61ff3ad6c"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "gen.py",
+  "original_path": "/tmp/actf-r15/gen.py",
+  "path_key": "actf-r15--5737bd146ce6",
+  "terminal_event_ids": [
+    "01a06406-1394-7980-ae37-05a61ff3ad6c:call-882dcfd1-8459-4e02-9fac-d3499fa7dcb2-69"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06406-1394-7980-ae37-05a61ff3ad6c",
+      "basename_preserved": true,
+      "bytes": 58359,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 370,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06406-1394-7980-ae37-05a61ff3ad6c/updates.jsonl",
+      "original_basename": "gen.py",
+      "original_path": "/tmp/actf-r15/gen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r15--5737bd146ce6/versions/v0001/gen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/actf-r15--5737bd146ce6/versions/v0001/gen.py",
+      "session_id": "01a06406-1394-7980-ae37-05a61ff3ad6c",
+      "sha256": "9c02ab4638f9b14f290ad052a3e54884b86a610a9351e96636d8211d4ec357c7",
+      "source_channel": "structured",
+      "source_event_id": "01a06406-1394-7980-ae37-05a61ff3ad6c:call-b61f78be-d6af-4526-9c15-4404d04396cd-68",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788385816941,
+      "timestamp_utc": "2026-09-02T21:50:16.941Z",
+      "tool_call_id": "call-b61f78be-d6af-4526-9c15-4404d04396cd-68",
+      "version": 1,
+      "version_id": "actf-r15--5737bd146ce6:v0001"
+    }
+  ]
+}

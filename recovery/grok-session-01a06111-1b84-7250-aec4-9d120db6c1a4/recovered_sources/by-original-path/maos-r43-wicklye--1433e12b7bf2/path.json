@@ -1,0 +1,52 @@
+{
+  "agent_ids": [
+    "01a064b3-7404-73d3-be19-fcf8a1cc69d6"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 1,
+  "original_basename": "build.py",
+  "original_path": "/tmp/maos-r43-wicklye/build.py",
+  "path_key": "maos-r43-wicklye--1433e12b7bf2",
+  "terminal_event_ids": [
+    "01a064b3-7404-73d3-be19-fcf8a1cc69d6:call-912c8a42-4659-43db-9645-89697baa4ff8-51"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a064b3-7404-73d3-be19-fcf8a1cc69d6",
+      "basename_preserved": true,
+      "bytes": 81988,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 280,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a064b3-7404-73d3-be19-fcf8a1cc69d6/updates.jsonl",
+      "original_basename": "build.py",
+      "original_path": "/tmp/maos-r43-wicklye/build.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r43-wicklye--1433e12b7bf2/versions/v0001/build.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/maos-r43-wicklye--1433e12b7bf2/versions/v0001/build.py",
+      "session_id": "01a064b3-7404-73d3-be19-fcf8a1cc69d6",
+      "sha256": "5ca0026bb95d745a715fdad51e8dfe643238a0bb9a79428b0d45bacf1549b1f4",
+      "source_channel": "structured",
+      "source_event_id": "01a064b3-7404-73d3-be19-fcf8a1cc69d6:call-ac9eee6f-71ce-490b-b381-ebd14441aa42-50",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788396718524,
+      "timestamp_utc": "2026-09-03T00:51:58.524Z",
+      "tool_call_id": "call-ac9eee6f-71ce-490b-b381-ebd14441aa42-50",
+      "version": 1,
+      "version_id": "maos-r43-wicklye--1433e12b7bf2:v0001"
+    }
+  ]
+}

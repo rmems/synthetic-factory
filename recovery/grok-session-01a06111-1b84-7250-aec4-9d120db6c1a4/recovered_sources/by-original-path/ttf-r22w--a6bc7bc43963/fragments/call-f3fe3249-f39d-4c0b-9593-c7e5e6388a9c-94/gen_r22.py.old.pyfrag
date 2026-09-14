@@ -1,0 +1,4 @@
+                        ("susceptor", "clamp executed; peak 608 C <= 620 cap"),
+                        ("injector", "clog dump at 23.400 ms; alkyl on showerhead"),
+                        ("repair", "14 min showerhead isolate (abort_s=840)"),
+                        ("mission", "PW-4 InP pass incomplete this cycle"),

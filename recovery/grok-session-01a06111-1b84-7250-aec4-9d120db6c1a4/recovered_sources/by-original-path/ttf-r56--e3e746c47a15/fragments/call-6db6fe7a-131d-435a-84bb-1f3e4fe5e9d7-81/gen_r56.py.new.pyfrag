@@ -1,0 +1,108 @@
+            (
+                "summary",
+                "Correct REJECT held Furnace F-6 at 0 kA while core 2840 C decayed. Encoder-as-clearance "
+                "would have ramped 18.6 kA into the flare. Pad recycle 8 min.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("furnace", "held at 0 kA"),
+                        ("pack", "IR flare decaying under trip after hold"),
+                        ("atmosphere", "unignited"),
+                        ("pad", "8 min recycle"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Pad injects encoder 90-130 us before IR envelope finish; that is pyrometer lag, not a false IR.",
+                    "Delayed (8 min): pad recycle restacks the pack after core < 2650 C.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "ir.core.c (3.840 ms, 2840 C)"),
+                        ("loser", "enc.kiloamp (4.040 ms, 18.6 kA)"),
+                        ("margin_us", 200),
+                        (
+                            "counterfactual_if_reversed",
+                            "Encoder-first by < 200 us would have treated 18.6 kA as clearance and "
+                            "ramped into the 2840 C flare. The REJECT is still required; reversal "
+                            "only delays the IR bind.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 4940),
+            (
+                "reward_inflection_note",
+                "Safety credit lands at the correct REJECT (4.940 ms, tick 4). Pad recycle is delayed surprise.",
+            ),
+            ("delayed_surprise_s", 480.0),
+            ("pad_recycle_s", 480),
+        ]
+    )
+    ras = raster_core(
+        44,
+        96,
+        22,
+        93,
+        routing(
+            "relay.ir.core",
+            "policy.hold_reject",
+            [
+                ("relay.ir.core", "policy.hold_reject", 0.74),
+                ("relay.enc.kiloamp", "policy.ramp_go", 0.18),
+            ],
+            "dopamine",
+            0.06,
+            "ir_trip_stdp; DA tags the hold_reject bind at the IR win",
+        ),
+        excerpt,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.26),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("hold_reject", 64, 0.50, 180.0, 3),
+                    pop("ramp_go", 64, 0.80, 8.0, 0),
+                    pop("core_trip_veto", 32, 0.70),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r56-298",
+        "Petcoke-Rigg Acheson HIL / Furnace F-6: IR 2840 C beats kiloamp encoder 18.6 kA by 200 us; "
+        "correct REJECT holds the pack",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Correct REJECT. Core 2840 > 2650 trip beats in-band current. total +0.78 = "
+        "0.10 + 0.40 + 0.12 + 0.10 + 0.06.",
+        ras,
+        gate,
+        "acheson-graphite-furnace",
+        [
+            "reject",
+            "hil-pad",
+            "ir-vs-encoder",
+            "pack-flare-hold",
+            "sidecar-convictable",
+            "hil",
+        ],
+        "Teaches a probe that an in-band kiloamp encoder is not pack clearance when "
+        "IR is over trip and routing.table[0].to is policy.hold_reject.",
+        3,
+    )

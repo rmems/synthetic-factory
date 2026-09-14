@@ -1,0 +1,42 @@
+    take(early, 7)
+    take(burst, 9, label_times=(22600, 23200, 24000))
+    clamp = [(t, nid) for t, nid in picked if t < 21200][:7]
+    bridge = [(t, nid) for t, nid in picked if t >= 21200][:9]
+    picked = sorted(clamp + bridge, key=lambda item: (item[0], item[1]))
+    if len(picked) < 8:
+        raise RuntimeError(f"LIF excerpt too short: {len(picked)}")
+    channels = ["lif.clamp" if t < 21200 else "lif.bridge" for t, _ in picked]
+    lif = OrderedDict(
+        [
+            ("model", "leaky_integrate_and_fire"),
+            ("n", 76),
+            ("dt_us", 100),
+            ("tau_m_ms", 20.0),
+            ("v_rest", 0.0),
+            ("v_reset", 0.0),
+            ("v_th", 1.0),
+            ("r_m", 1.0),
+            ("refractory_us", 1000),
+            ("i_bias", 0.92),
+            ("i_stim_peak", 2.45),
+            ("stim_t_us", [21200, 25400]),
+            ("i_clamp_extra", 0.68),
+            ("clamp_n", 14),
+            ("seed", 56297),
+            (
+                "note",
+                "Population sim scoped to this sidecar. Plant remains designed. "
+                "Neurons 0-13 carry +0.68 recycle-clamp bias; stim 21.2-25.4 ms is the crystal-bridge collapse.",
+            ),
+        ]
+    )
+    extra = OrderedDict(
+        [
+            ("excerpt_source", "independent_lif"),
+            ("sim_scope", "sidecar_only"),
+            ("lif", lif),
+            ("abort_s", 900),
+            ("delayed_surprise_s", 900),
+        ]
+    )
+    return excerpt_items(picked, channels), extra

@@ -1,0 +1,1 @@
+            "language_to_spike_mapping": "'Brookveil is 120 cP' = brookveil.eta 120.00; '480 remaining cP' = recon.eta 480.00; 'isolate kettle' = gate.isol MODIFY; 'new-spindle restart' = gate.restart ACCEPT",

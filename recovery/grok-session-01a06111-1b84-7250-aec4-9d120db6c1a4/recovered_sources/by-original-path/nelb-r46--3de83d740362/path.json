@@ -1,0 +1,46 @@
+{
+  "agent_ids": [
+    "01a0640d-430b-71c3-b2ca-c42abbb8cb48"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations",
+    "a successful recorded terminal delete or move removed the final in-/tmp state"
+  ],
+  "event_count": 3,
+  "final_state": "deleted",
+  "hunk_evidence_count": 3,
+  "original_basename": "_tail.py",
+  "original_path": "/tmp/nelb-r46/_tail.py",
+  "path_key": "nelb-r46--3de83d740362",
+  "terminal_event_ids": [
+    "01a0640d-430b-71c3-b2ca-c42abbb8cb48:call-5ac8e9f2-2161-487b-9358-0a04fe674fbb-39",
+    "01a0640d-430b-71c3-b2ca-c42abbb8cb48:call-c45dc2d5-9d8d-4b8e-8f41-faec89448707-43"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 2,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a0640d-430b-71c3-b2ca-c42abbb8cb48:call-5d40c6d6-d627-4fd0-8b4a-0615411e0f2c-37",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r46--3de83d740362/fragments/call-5d40c6d6-d627-4fd0-8b4a-0615411e0f2c-37/_tail.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r46--3de83d740362/fragments/call-5d40c6d6-d627-4fd0-8b4a-0615411e0f2c-37/_tail.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0640d-430b-71c3-b2ca-c42abbb8cb48:call-5ac8e9f2-2161-487b-9358-0a04fe674fbb-38",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r46--3de83d740362/fragments/call-5ac8e9f2-2161-487b-9358-0a04fe674fbb-38/_tail.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r46--3de83d740362/fragments/call-5ac8e9f2-2161-487b-9358-0a04fe674fbb-38/_tail.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

@@ -1,0 +1,21 @@
+                            "summary",
+                            "Wrong-MODIFY bound a lagged slm register as if it were sccm. Live 42.0 sccm was over the 28.0 cap at t_gate; 0.042 slm was the same MFC delayed 96 ms, not a 0.042 sccm legal flow. W film went powdery. 10 min bubbler re-charge (abort_s=600). Correct gate was MODIFY WF6 42.0 -> 18.0 sccm leaving H2 at 180 sccm.",
+                        ),
+                        (
+                            "state_delta",
+                            OrderedDict(
+                                [
+                                    ("feed", "WF6 stays 40.0 sccm after under-trim; H2 180 sccm on wrong unit"),
+                                    ("film", "41.2 sccm still over 28.0 cap; W film goes powdery"),
+                                    ("repair", "10 min bubbler re-charge and line re-pump"),
+                                    ("mission", "WF6 WNx stack deferred"),
+                                ]
+                            ),
+                        ),
+                        (
+                            "surprises",
+                            [
+                                "Live-sccm-first was the correct order and the number was over cap; the MODIFY spent that win on a lagged slm publisher of the same MFC.",
+                                "Delayed (abort_s=600): HL-7 holds 10 min while U-4 is re-charged and the line is re-pumped; next WNx stack 12 min late.",
+                            ],
+                        ),

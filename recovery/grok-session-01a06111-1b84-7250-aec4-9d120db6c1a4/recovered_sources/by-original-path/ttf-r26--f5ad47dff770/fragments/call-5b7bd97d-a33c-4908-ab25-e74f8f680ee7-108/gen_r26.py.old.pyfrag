@@ -1,0 +1,28 @@
+                "Faraday 14.2 uA won by 182 us, so beam current is over the 8.0 uA extraction "
+                "cap. VSWR 1.12 is dummy-load reflection, not a matched go. REJECT: hold extract "
+                "at 0 nA. A MODIFY ramp is not indicated while Faraday stays over cap.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "faraday_uA",
+                            OrderedDict(
+                                [
+                                    ("cap", 8.0),
+                                    ("observed", 14.2),
+                                    ("executed_extract_nA", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "vswr",
+                            OrderedDict(
+                                [
+                                    ("trip", 1.50),
+                                    ("observed", 1.12),
+                                    ("role", "loser_underread"),
+                                ]
+                            ),
+                        ),

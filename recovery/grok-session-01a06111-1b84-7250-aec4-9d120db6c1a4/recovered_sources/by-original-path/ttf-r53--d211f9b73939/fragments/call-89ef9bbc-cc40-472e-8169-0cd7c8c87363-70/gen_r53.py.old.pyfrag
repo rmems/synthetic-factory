@@ -1,0 +1,35 @@
+                "Correct REJECT held F-11. AE 36 pps beat flue O2 3.1 percent by 180 us. Flue was "
+                "legal; the pit was not. 8 min pit cooldown (abort_s=480) is delayed survey, "
+                "not a process miss.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("ram", "held; no push"),
+                        ("flue", "left 3.1 percent < 5.0 cap"),
+                        ("pit", "8 min cooldown (abort_s=480)"),
+                        ("mission", "HIL green anode not pushed"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Flue-O2 never crossed its cap; AE was the only over-cap channel.",
+                    "Delayed (abort_s=480): 8 min pit cooldown on the HIL stand.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "ae.pitch.pps (6.840 ms, 36 pps)"),
+                        ("loser", "enc.flue.o2 (7.020 ms, 3.1 percent)"),
+                        ("margin_us", 180),
+                        (
+                            "counterfactual_if_reversed",
+                            "Flue-first by < 180 us inside the 320 us window would have pushed "
+                            "the next green anode into a pitch-fired pit. The REJECT is still "
+                            "the correct gate.",
+                        ),

@@ -1,0 +1,5 @@
+                "On Mibk-Grain MG-3, MIBK-still ST-4 wants 4.2 t/h of MIBK while the live "
+                "kettle prints 2.80 bar from a healthy 8.48 mA loop, well under the 6.40 bar trip. "
+                "A leftover PLC watchdog-timeout freeze still republishes 7.10 bar at watchdog_age_ms=8400. "
+                "Binding the live bar should release feed; treating the stale watchdog freeze as PV "
+                "would park a legal ketone still.",

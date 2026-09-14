@@ -1,0 +1,64 @@
+{
+  "agent_ids": [
+    "01a06406-1397-7461-ba26-7a589e735cd8"
+  ],
+  "classification": "partial",
+  "classification_evidence": [
+    "at least one full version was recovered, but a later successful edit or terminal mutation could not be placed conclusively",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 2,
+  "final_state": "unknown",
+  "hunk_evidence_count": 2,
+  "original_basename": "ep2_fn.py",
+  "original_path": "/tmp/actf-r16/ep2_fn.py",
+  "path_key": "actf-r16--59f1d08540ac",
+  "terminal_event_ids": [
+    "01a06406-1397-7461-ba26-7a589e735cd8:call-11d5d06c-8753-4cd9-9d9c-b396d67f2a85-92",
+    "01a06406-1397-7461-ba26-7a589e735cd8:call-a3e8326c-ce77-40d3-9f83-29729122b473-81"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 1,
+  "unresolved_events": [
+    {
+      "channel": "terminal",
+      "event_id": "01a06406-1397-7461-ba26-7a589e735cd8:call-11d5d06c-8753-4cd9-9d9c-b396d67f2a85-92",
+      "journal_line": 498,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06406-1397-7461-ba26-7a589e735cd8/updates.jsonl",
+      "operation": "inline_python_possible_mutation",
+      "reason": "inline_python_possible_mutation was recorded but is not conclusively reproducible without execution",
+      "timestamp_utc": "2026-09-02T22:00:28.848Z"
+    }
+  ],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06406-1397-7461-ba26-7a589e735cd8",
+      "basename_preserved": true,
+      "bytes": 23357,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 420,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06406-1397-7461-ba26-7a589e735cd8/updates.jsonl",
+      "original_basename": "ep2_fn.py",
+      "original_path": "/tmp/actf-r16/ep2_fn.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r16--59f1d08540ac/versions/v0001/ep2_fn.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/actf-r16--59f1d08540ac/versions/v0001/ep2_fn.py",
+      "session_id": "01a06406-1397-7461-ba26-7a589e735cd8",
+      "sha256": "10ca143c38e834ab9e2651414c7944c153ce665140cec3645a347cf8332c151c",
+      "source_channel": "structured",
+      "source_event_id": "01a06406-1397-7461-ba26-7a589e735cd8:call-3e17ef54-dd2e-4381-92ab-e7d57d562e54-76",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788386280670,
+      "timestamp_utc": "2026-09-02T21:58:00.670Z",
+      "tool_call_id": "call-3e17ef54-dd2e-4381-92ab-e7d57d562e54-76",
+      "version": 1,
+      "version_id": "actf-r16--59f1d08540ac:v0001"
+    }
+  ]
+}

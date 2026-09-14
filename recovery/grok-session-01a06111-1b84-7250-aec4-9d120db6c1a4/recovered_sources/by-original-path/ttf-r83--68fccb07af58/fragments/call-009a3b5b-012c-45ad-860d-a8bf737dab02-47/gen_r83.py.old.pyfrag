@@ -1,0 +1,4 @@
+                "Electrowin bank EW-A at Catholyte-Ingle CI-9 still reads a legal 14.2 kA "
+                "under a 16.0 kA cap with cathode-negative polarity, while idle sibling EW-B "
+                "prints a leftover -14.2 kA on a reversed CT. Live-bank-first should ACCEPT; "
+                "a weak supervisor inverts EW-B polarity as if the idle mimic were the live bus.",

@@ -1,0 +1,1051 @@
+def record_398():
+    ticks = [
+        tick(2680, 0.01, 0.05, 0.01, 0.01, 0.01),
+        tick(5760, 0.02, 0.08, 0.02, 0.02, 0.01),
+        tick(5931, 0.02, 0.07, 0.02, 0.02, 0.01),
+        tick(6860, 0.03, 0.12, 0.04, 0.03, 0.02),
+        tick(9020, 0.01, 0.05, 0.02, 0.01, 0.01),
+        tick(480000000, 0.01, 0.03, 0.01, 0.01, 0.00),
+    ]
+    spikes = [
+        spike("tc.bed.ctx", 1.380, 0.43),
+        spike("rtd.bed.C", 2.680, 0.62),
+        spike("ir.wall.glint", 4.180, 0.49),
+        spike("rtd.bed.C", 5.760, 1.35),
+        spike("ir.wall.glint", 5.931, 1.12),
+        spike("ctrl.gate", 6.860, 1.03),
+        spike("rtd.bed.C", 9.020, 0.77),
+        spike("tc.bed.ctx", 13.200, 0.44),
+        spike("ir.wall.glint", 17.100, 0.58),
+        spike("ctrl.gate", 23.400, 0.81),
+        spike("rtd.bed.C", 30.000, 0.54),
+        spike("tc.bed.ctx", 36.600, 0.38),
+        spike("ir.wall.glint", 39.100, 0.46),
+    ]
+    excerpt = independent_excerpt(76398, 108, 40000, 15, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "On the Nitridor-Linch NL-HIL nitrider mockup, Boat BT-8 sits with bed RTD "
+                "612 C under a 640 C nitridation floor while the wall pyrometer, painted by "
+                "the pad lamp, claims 671 C. Binding the RTD first holds silicon powder; "
+                "binding the wall first would walk 2.6 t/h across a cold boat.",
+            ),
+            ("domain", "silicon-nitride-nitrider"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Do not walk silicon powder unless bed >= 640 C; keep Si 0.0 t/h until the "
+                "injected cold-packet drops.",
+            ),
+            ("t0_us", 1756850400000398),
+            ("gate_latency_us", 1100),
+            ("race_window_us", 380),
+            ("race_window_rel_ms", [5.7, 6.08]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "rtd.bed.C 612 C",
+                                "ir.wall.glint 671 C apparent",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Bed-first latches REJECT hold 0.0 t/h; glint-first would commit "
+                            "2.6 t/h on an apparent 671 C under-read of a cold-packet.",
+                        ),
+                        (
+                            "window_derivation",
+                            "380 us = one bed-RTD slot versus wall-IR integration on this "
+                            "silicon-nitride HIL bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 171 us vs combined jitter ~58 us (bed 26 + IR 32): 2.9x "
+                            "over a 2.0x trust floor. Pad injects the wall 110-150 us before the "
+                            "bed RTD (geometric lag, not a sensor fault); the apparent "
+                            "671 C packet is still the loser in this 380 us window.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "bed RTD, 5 kHz burst, 26 us jitter",
+                    "wall pyrometer, 200 Hz, 32 us jitter",
+                    "N2 thermocouple (context)",
+                    "HIL wall-spectrum monitor (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("nitridation_floor_C", 640.0),
+                        ("observed_bed_C", 612.0),
+                        ("wall_apparent_C", 671.0),
+                        ("proposed_si_tph", 2.6),
+                        ("wall_inject_lead_us", [110, 150]),
+                    ]
+                ),
+            ),
+            (
+                "hil",
+                OrderedDict(
+                    [
+                        ("pad", "Nitridor-Linch NL-HIL nitrider mockup"),
+                        ("injected", "cold-bed packet + wall-spectrum"),
+                        (
+                            "note",
+                            "Hardware-in-the-loop silicon-nitride nitrider. Invented plant; not a live kiln.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Boat BT-8 on the NL-HIL pad; silicon powder 2.6 t/h armed.",
+                    "2. Wall injected 110-150 us before bed RTD sees the cold packet.",
+                    "3. N2 precursor at 1.380 ms.",
+                    "4. Race window [5.700, 6.080] ms.",
+                    "5. rtd.bed.C 612 C at 5.760 ms (winner).",
+                    "6. ir.wall.glint 671 C at 5.931 ms (loser by 171 us).",
+                    "7. Gate at 6.860 ms: REJECT hold 0.0 t/h; do not walk 2.6 t/h.",
+                    "8. Bed remains under floor this cycle; nitridation floor held.",
+                    "9. Seed recycle queued on the pad.",
+                    "10. Delayed (abort_s=480): 8 min pad retune and wall-spectrum retune.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "walk_si_26"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("si_tph", 2.6),
+                        ("hold", False),
+                        ("wall_authoritative", True),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("bed_C", 612.0),
+                        ("nitridation_floor_C", 640.0),
+                        ("wall_apparent_C", 671.0),
+                        ("race_margin_us", 171),
+                        ("combined_jitter_us", 58),
+                        ("abort_s", 480),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 2.6 t/h silicon powder because wall apparent 671 C looks "
+                "over the 640 C floor, treating bed 612 C as a noisy sheath echo.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Bed 612 C is under the 640 C nitridation floor. Wall apparent 671 C is a HIL "
+                "wall under-read of a cold packet, not a clearance. REJECT: hold 0.0 t/h; do "
+                "not commit 2.6 t/h across the nitrider boat.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "bed_C",
+                            OrderedDict(
+                                [
+                                    ("floor", 640.0),
+                                    ("observed_bed", 612.0),
+                                    ("wall_apparent", 671.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "si_tph",
+                            OrderedDict(
+                                [
+                                    ("proposed", 2.6),
+                                    ("executed", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 171),
+                                    ("combined_jitter_us", 58),
+                                    ("ratio", 2.95),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "hold_for_nitridation"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("si_tph", 0.0),
+                        ("hold", True),
+                        ("wall_authoritative", False),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT: hold 0.0 t/h; 2.6 t/h silicon cancelled. Bed 612 < 640 floor.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct REJECT held Boat BT-8 at 0.0 t/h. Bed under floor this cycle; "
+                "nitridation floor held. Wall apparent was not treated as a bed clearance.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("boat", "held; Si 0.0 t/h"),
+                        ("bed", "still under 640 C this cycle"),
+                        ("wall_ir", "671 C unused as clearance"),
+                        ("mission", "silicon walk deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Geometric lag: wall was injected 110-150 us before the bed RTD, yet bed still won the 380 us race.",
+                    "Delayed (abort_s=480): pad policy update forbids treating wall apparent as a bed substitute after an 8 min retune.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.bed.C (5.760 ms, 612 C)"),
+                        ("loser", "ir.wall.glint (5.931 ms, 671 C apparent)"),
+                        ("margin_us", 171),
+                        (
+                            "counterfactual_if_reversed",
+                            "Glint-first by < 171 us inside the 380 us window would have committed "
+                            "2.6 t/h with bed 612 < 640 floor. Order, not amplitude, selected the hold.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 6860),
+            (
+                "reward_inflection_note",
+                "Safety and coherence step up at the REJECT gate (6.860 ms, tick 4) as the hold "
+                "locks in over the illegal silicon walk.",
+            ),
+            ("delayed_surprise_s", 480.0),
+            ("abort_s", 480),
+        ]
+    )
+    ras = raster_core(
+        40,
+        108,
+        21,
+        91,
+        routing(
+            "thalamic-relay.si3n4-bed",
+            "spikenaut.policy.si-hold",
+            [
+                ("relay.rtd.bed", "policy.si_hold", 0.69),
+                ("relay.ir.wall", "policy.si_commit", 0.27),
+                ("relay.tc.bed", "policy.si_hold", 0.11),
+            ],
+            "dopamine",
+            0.09,
+            "nitridation_stdp; DA at bed win (5.760 ms) tags si_hold over si_commit",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("abort_s", 480),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.38),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("si_hold", 52, 0.50, 253.0, 5),
+                    pop("si_commit", 40, 0.50, 65.8, 1),
+                    pop("bed_veto", 32, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r76-398"),
+            (
+                "title",
+                "Nitridor-Linch NL-HIL / Boat BT-8: bed 612 C beats wall 671; "
+                "correct REJECT holds the silicon-nitride powder walk",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct REJECT. Bed under floor; wall under-read unused as clearance. "
+                    "total +0.78 = 0.10 + 0.40 + 0.12 + 0.10 + 0.06.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "silicon-nitride-nitrider",
+                    [
+                        "reject",
+                        "hil-zone",
+                        "bed-vs-wall",
+                        "nitridation-floor",
+                        "hil",
+                    ],
+                    "Teaches that a HIL wall under-read can lose to bed RTD inside a "
+                    "380 us window; reversing 171 us would have selected an illegal silicon walk.",
+                    3,
+                ),
+            ),
+        ]
+    )
+
+
+def record_399():
+    ticks = [
+        tick(3040, 0.04, 0.03, 0.02, 0.01, 0.00),
+        tick(6840, 0.08, 0.07, 0.03, 0.02, 0.01),
+        tick(7058, 0.05, 0.05, 0.02, 0.02, 0.01),
+        tick(7280, 0.11, 0.09, 0.04, 0.03, 0.01),
+        tick(9480, 0.04, 0.04, 0.02, 0.01, 0.01),
+        tick(360000000, 0.02, 0.02, 0.01, 0.01, 0.00),
+    ]
+    spikes = [
+        spike("pt.loop.ctx", 1.540, 0.42),
+        spike("an.cl.ppm", 3.040, 0.59),
+        spike("ir.loop.glint", 4.980, 0.48),
+        spike("an.cl.ppm", 6.840, 1.31),
+        spike("ir.loop.glint", 7.058, 1.09),
+        spike("ctrl.gate", 7.280, 0.96),
+        spike("an.cl.ppm", 9.480, 0.73),
+        spike("pt.loop.ctx", 13.700, 0.45),
+        spike("ir.loop.glint", 18.200, 0.57),
+        spike("ctrl.gate", 22.500, 0.80),
+        spike("an.cl.ppm", 26.700, 0.51),
+        spike("pt.loop.ctx", 29.200, 0.38),
+    ]
+    excerpt = independent_excerpt(76399, 64, 30000, 13, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Glycid-Slack GS-4 / Allyl-Loop AL-1 is injecting 22 ppm chlorine into circulating "
+                "allyl alcohol whose cap is 14 ppm; the canopy IR still whispers 8 ppm as if the "
+                "hypochlorous header were cold. Binding the analyzer first cuts injection; binding "
+                "the IR first would ride 22 ppm through close-out.",
+            ),
+            ("domain", "epichlorohydrin-allyl"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Step AL-1 only if chlorine <= 14 ppm; otherwise clamp injection so the "
+                "allyl chlorohydrin make is not run at 22 ppm.",
+            ),
+            ("t0_us", 1756850400000399),
+            ("gate_latency_us", 440),
+            ("race_window_us", 520),
+            ("race_window_rel_ms", [6.75, 7.27]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "an.cl.ppm 22 ppm",
+                                "ir.loop.glint 8 ppm cool-glint",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Analyzer-first latches chlorine clamp 22 -> 11 ppm; glint-first keeps "
+                            "22 ppm on a false-cool loop IR.",
+                        ),
+                        (
+                            "window_derivation",
+                            "520 us = one 2 kHz chlorine-analyzer sample versus loop-IR decode on "
+                            "this epichlorohydrin bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 218 us vs combined jitter ~71 us (Cl 33 + loop 38): 3.1x over "
+                            "a 2.0x trust floor. Reversing order by < 218 us inside the 520 us "
+                            "window would have kept 22 ppm into a 14 ppm cap miss.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "loop chlorine analyzer, 2 kHz, 33 us jitter",
+                    "loop IR camera, 200 Hz, 38 us jitter",
+                    "allyl-alcohol PT (context)",
+                    "hypochlorous load cell (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("cl_cap_ppm", 14.0),
+                        ("observed_cl_ppm", 22.0),
+                        ("proposed_cl_ppm", 22.0),
+                        ("loop_glint_ppm", 8.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Allyl-Loop indexed onto GS-4; AL-1 armed at 22 ppm chlorine.",
+                    "2. Loop IR reports 8 ppm cool-glint; analyzer already sees 22 ppm.",
+                    "3. Loop-PT precursor at 1.540 ms.",
+                    "4. Race window [6.750, 7.270] ms.",
+                    "5. an.cl.ppm 22 at 6.840 ms (winner).",
+                    "6. ir.loop.glint 8 ppm at 7.058 ms (loser by 218 us).",
+                    "7. Gate at 7.280 ms: MODIFY chlorine 22 -> 11 ppm.",
+                    "8. Injection applies; next-sample Cl 12.6 ppm < 14 cap.",
+                    "9. Allyl occupies; next header queued.",
+                    "10. Delayed (eph_reseq_s=360): dispatcher resequences the following header +6 min.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cl_22"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("cl_ppm", 22.0),
+                        ("allyl_tph", 7.1),
+                        ("loop_id", 1),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("cl_ppm", 22.0),
+                        ("cl_cap_ppm", 14.0),
+                        ("loop_cool", True),
+                        ("race_margin_us", 218),
+                        ("combined_jitter_us", 71),
+                        ("eph_reseq_s", 360),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 22 ppm chlorine because the loop IR claims the canopy "
+                "is cool, treating analyzer 22 ppm as a sidelobe.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Chlorine 22 ppm won by 218 us, so the pulse is inside the 14 ppm allyl cap. "
+                "Loop-IR cool-glint is not a dissolved chlorine. MODIFY: Cl 22 -> 11 ppm. "
+                "A full REJECT (kill the header) is not indicated: 11 ppm is a legal catch-and-pass.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "cl_ppm",
+                            OrderedDict(
+                                [
+                                    ("cap", 14.0),
+                                    ("observed", 22.0),
+                                    ("loop_cool", True),
+                                    ("observed_after_clamp", 12.6),
+                                ]
+                            ),
+                        ),
+                        (
+                            "cl_ppm_set",
+                            OrderedDict(
+                                [
+                                    ("proposed", 22.0),
+                                    ("clamped", 11.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 218),
+                                    ("combined_jitter_us", 71),
+                                    ("ratio", 3.07),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_cl_11"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("cl_ppm", 11.0),
+                        ("allyl_tph", 7.1),
+                        ("loop_id", 1),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: chlorine 22 -> 11 ppm. Process-correct vs the 14 ppm allyl cap.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct MODIFY held AL-1 at 11 ppm. Next-sample chlorine 12.6 ppm under the "
+                "14 ppm cap. Loop 8 ppm cool-glint was not treated as a dissolved-chlorine clearance.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("chlorine", "clamped 22 -> 11 ppm"),
+                        ("analyzer", "12.6 ppm < 14 cap after clamp"),
+                        ("ir", "8 ppm unused as clearance"),
+                        ("mission", "header completed under cap"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Loop-IR cool-glint lagged the chlorine pulse by 218 us; order, not amplitude, selected the clamp.",
+                    "Delayed (eph_reseq_s=360): dispatcher resequences the following header +6 min. Not a safety inflection.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "an.cl.ppm (6.840 ms, 22 ppm)"),
+                        ("loser", "ir.loop.glint (7.058 ms, 8 ppm)"),
+                        ("margin_us", 218),
+                        (
+                            "counterfactual_if_reversed",
+                            "Glint-first by < 218 us inside the 520 us window would have kept "
+                            "22 ppm into a 14 ppm cap miss. The MODIFY is the correct process "
+                            "either way once the analyzer is bound.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 7280),
+            (
+                "reward_inflection_note",
+                "Task and safety step up at the MODIFY gate (7.280 ms, tick 4). Tick 6 is "
+                "eph_reseq_s=360.",
+            ),
+            ("delayed_surprise_s", 360.0),
+            ("eph_reseq_s", 360),
+        ]
+    )
+    ras = raster_core(
+        30,
+        64,
+        42,
+        81,
+        routing(
+            "thalamic-relay.eph-cl",
+            "spikenaut.policy.cl-clamp",
+            [
+                ("relay.an.cl", "policy.cl_clamp", 0.64),
+                ("relay.ir.loop", "policy.glint_hold", 0.29),
+                ("relay.pt.loop", "policy.cl_clamp", 0.12),
+            ],
+            "serotonin",
+            0.07,
+            "chloride_stdp; 5-HT at analyzer win (6.840 ms) tags cl_clamp over glint_hold",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("eph_reseq_s", 360),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.52),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("cl_clamp", 30, 0.50, 256.4, 4),
+                    pop("glint_hold", 30, 0.50, 64.1, 1),
+                    pop("cl_veto", 20, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r76-399"),
+            (
+                "title",
+                "Glycid-Slack GS-4 / Allyl-Loop AL-1: chlorine 22 ppm beats loop cool-glint; "
+                "correct MODIFY clamps Cl 22 -> 11 ppm",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct MODIFY. Chlorine over cap; loop cool-glint unused. total +0.92 = "
+                    "0.34 + 0.30 + 0.14 + 0.10 + 0.04.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "epichlorohydrin-allyl",
+                    [
+                        "modify",
+                        "designed",
+                        "cl-vs-loop",
+                        "allyl-cap",
+                    ],
+                    "Teaches that a cool-glint loop IR can lose to a legal chlorine analyzer "
+                    "inside a 520 us window; reversing 218 us would have kept an illegal 22 ppm injection.",
+                    4,
+                ),
+            ),
+        ]
+    )
+
+
+def record_400():
+    ticks = [
+        tick(1580, 0.05, 0.04, 0.02, 0.01, 0.01),
+        tick(3740, 0.10, 0.08, 0.04, 0.03, 0.02),
+        tick(3858, 0.06, 0.05, 0.03, 0.02, 0.01),
+        tick(4300, 0.14, 0.10, 0.05, 0.04, 0.02),
+        tick(6120, 0.06, 0.04, 0.02, 0.01, 0.01),
+        tick(300000000, 0.03, 0.03, 0.02, 0.01, 0.01),
+    ]
+    spikes = [
+        spike("pt.raff.ctx", 0.700, 0.39),
+        spike("rtd.raff.C", 1.580, 0.57),
+        spike("ir.still.glint", 2.400, 0.48),
+        spike("rtd.raff.C", 3.740, 1.29),
+        spike("ir.still.glint", 3.858, 1.10),
+        spike("ctrl.gate", 4.300, 0.97),
+        spike("rtd.raff.C", 6.120, 0.76),
+        spike("ir.still.glint", 8.800, 0.61),
+        spike("ctrl.gate", 12.200, 0.83),
+        spike("pt.raff.ctx", 15.900, 0.41),
+        spike("rtd.raff.C", 19.400, 0.54),
+        spike("ir.still.glint", 21.200, 0.46),
+    ]
+    excerpt = independent_excerpt(76400, 80, 22000, 12, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Furfurol-Combe FC-2 / Extractive-Still ES-7 carries 41.6 C furfural raffinate, "
+                "well under the 58 C fouling trip, yet the crown lamp still flashes 73 C. "
+                "Binding the raffinate RTD first keeps the 5.2 t/h feed; binding the crown lamp "
+                "first would park a legal extractive still.",
+            ),
+            ("domain", "furfural-extractive-still"),
+            ("sim_or_real", "simulated"),
+            (
+                "goal",
+                "Run ES-7 when raffinate RTD is <= 58 C; do not spend a still-top pyrometer "
+                "glint on a hold.",
+            ),
+            ("t0_us", 1756850400000400),
+            ("gate_latency_us", 560),
+            ("race_window_us", 240),
+            ("race_window_rel_ms", [3.7, 3.94]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "rtd.raff.C 41.6 C",
+                                "ir.still.glint 73 lighting",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Raffinate-first ACCEPTS the already-legal 41.6 C feed. Glint-first "
+                            "would REJECT a legal extractive still on a 73 C lighting.",
+                        ),
+                        (
+                            "window_derivation",
+                            "240 us = one raffinate-RTD sample minus still-pyrometer integration on "
+                            "this furfural simulation.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 118 us vs combined jitter ~50 us (RTD 22 + IR 28): 2.4x over "
+                            "a 2.0x trust floor. Reversing order by < 118 us inside the 240 us "
+                            "window would have invented a fouling hold on an already-legal 41.6 C raffinate.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "raffinate RTD, 2 kHz, 22 us jitter",
+                    "still-top pyrometer, 200 Hz, 28 us jitter",
+                    "raffinate PT (context)",
+                    "steam orifice (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("foul_cap_C", 58.0),
+                        ("observed_raff_C", 41.6),
+                        ("still_glint_C", 73.0),
+                        ("proposed_feed_t_h", 5.2),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. ES-7 seeded; raffinate at 41.6 C under 58 fouling cap.",
+                    "2. Still-top pyrometer glint 73 from lighting, not furfural fouling.",
+                    "3. Raffinate-PT precursor at 0.700 ms.",
+                    "4. Race window [3.700, 3.940] ms.",
+                    "5. rtd.raff.C 41.6 C at 3.740 ms (winner).",
+                    "6. ir.still.glint 73 at 3.858 ms (loser by 118 us).",
+                    "7. Gate at 4.300 ms: ACCEPT 5.2 t/h as proposed.",
+                    "8. Feed executes; raffinate remains 41.6 C < 58.",
+                    "9. Charge emptied; next pass queued.",
+                    "10. Delayed (survey_hold_s=300): 5 min furfural survey. Not a safety inflection.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "feed_52"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("feed_t_h", 5.2),
+                        ("hold", False),
+                        ("raff_kPa", 18.0),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("raff_C", 41.6),
+                        ("foul_cap_C", 58.0),
+                        ("still_glint_C", 73.0),
+                        ("race_margin_us", 118),
+                        ("combined_jitter_us", 50),
+                        ("survey_hold_s", 300),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 5.2 t/h because raffinate RTD 41.6 C is under the 58 C "
+                "fouling cap; still 73 C is lighting, not fouling.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "ACCEPT"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Raffinate RTD 41.6 C is under the 58 C fouling cap. Still 73 C is a lighting "
+                "glint, not furfural load. ACCEPT the proposed 5.2 t/h; do not invent a hold.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "raff_C",
+                            OrderedDict(
+                                [
+                                    ("cap", 58.0),
+                                    ("observed", 41.6),
+                                    ("still_glint_C", 73.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "feed_t_h",
+                            OrderedDict(
+                                [
+                                    ("proposed", 5.2),
+                                    ("executed", 5.2),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 118),
+                                    ("combined_jitter_us", 50),
+                                    ("ratio", 2.36),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "feed_52"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("feed_t_h", 5.2),
+                        ("hold", False),
+                        ("raff_kPa", 18.0),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "ACCEPT: proposed 5.2 t/h executed unchanged. Raffinate 41.6 C < 58; still glint unused.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Correct ACCEPT ran ES-7 at 41.6 C raffinate. Still 73 C was lighting, not fouling. "
+                "The proposal was already legal; reversing 118 us would have invented a hold.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("still", "feed executed; raffinate 41.6 C < 58"),
+                        ("still_ir", "73 C glint unused as fouling"),
+                        ("raffinate", "held 18.0 kPa through the pass"),
+                        ("mission", "feed committed"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Still 73 C is a legal lighting glint, not a high-raffinate alarm; raffinate-first discarded a false hold.",
+                    "Delayed (5 min / survey_hold_s=300): furfural survey. Not a safety inflection.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.raff.C (3.740 ms, 41.6 C)"),
+                        ("loser", "ir.still.glint (3.858 ms, 73 lighting)"),
+                        ("margin_us", 118),
+                        (
+                            "counterfactual_if_reversed",
+                            "Glint-first by < 118 us inside the 240 us window would have held "
+                            "the extractive still on a false high-raffinate story. The proposal was already "
+                            "under the 58 cap, so the correct gate is still ACCEPT.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 4300),
+            (
+                "reward_inflection_note",
+                "Task and safety step up at the ACCEPT gate (4.300 ms, tick 4). Tick 6 is "
+                "survey_hold_s=300.",
+            ),
+            ("delayed_surprise_s", 300.0),
+            ("survey_hold_s", 300),
+        ]
+    )
+    ras = raster_core(
+        22,
+        80,
+        34,
+        60,
+        routing(
+            "thalamic-relay.raff-rtd",
+            "spikenaut.policy.feed-accept",
+            [
+                ("relay.rtd.raff", "policy.feed_go", 0.62),
+                ("relay.ir.still", "policy.glint_hold", 0.28),
+                ("relay.pt.raff", "policy.feed_go", 0.14),
+            ],
+            "adenosine",
+            0.16,
+            "pre_post_stdp; adenosine at raffinate win (3.740 ms) opens 160 ms eligibility covering the 4.300 ms accept",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+                ("survey_hold_s", 300),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.24),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("feed_go", 42, 0.50, 297.6, 3),
+                    pop("glint_hold", 42, 0.50, 19.8, 0),
+                    pop("foul_veto", 20, 0.80),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r76-400"),
+            (
+                "title",
+                "Furfurol-Combe FC-2 / Extractive-Still ES-7: raffinate 41.6 C beats still glint; "
+                "correct ACCEPT of an already-legal 5.2 t/h (total +1.16)",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Correct ACCEPT. Raffinate 41.6 C < 58; still glint is lighting, not fouling. "
+                    "total +1.16 = 0.44 + 0.34 + 0.18 + 0.12 + 0.08.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "furfural-extractive-still",
+                    [
+                        "accept",
+                        "simulated-lighting",
+                        "raffinate-vs-still",
+                        "furfural",
+                        "simulated",
+                    ],
+                    "Teaches that a still lighting glint can lose to a legal raffinate RTD "
+                    "inside a 240 us window; reversing 118 us would have invented a hold on an "
+                    "already-legal furfural feed.",
+                    5,
+                ),
+            ),
+        ]
+    )

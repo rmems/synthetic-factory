@@ -1,0 +1,79 @@
+- IDs: `ttf-r45-241` … `ttf-r45-245`
+- Domains this batch: `geothermal-binary-ORC`, `ammonia-converter`, `foundry-core-shooter`, `photovoltaic-laminator`, `urea-prill-tower`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged r13–r28 occupancy (including r23 `lng-open-rack` / `metro-psd`, r24 `electrolyzer-stack` / `hvdc-thyristor-valve`, r25 `salt-cavern-CAES` / `tire-curing-press`, r26 `lime-rotary-kiln` / `ferry-linkspan`, r28 `rotary-kiln-cement` / `submarine-cable-lay`, and gen_r30 sit-ins `wind-nacelle-yaw` / `steel-caster-mold` / `cement-precalciner`). All five plants are invented. Do not restack r12–r28 plants (Marrow-Dock, Vesper-Lattice, Brine-Well, Saddle-Arc, Ashlar-Gait, Nacre-Well, Quern-Forge, Tinder-Box, Whimbrel-Stack, Cinder-Loft, Suture-Isle, Kiln-Spur, Oxbow-Switch, Pitch-Kettle, Shale-Quay, Polder-Rye, Flint-Mask, Gyre-Tokamak, Quarry-Bowl, Orpiment, Apside-Yard, Sump-Drift, Felt-Reach, Frost-Cist, Clothoid-Bowl, Wort-Cairn, Firn-Span, Sleet-Row, Oxbow-Pound, Tuyere-Holt, Bracken-Wire, Cullet-Reach, Rime-Causeway, Abyss-Joint, Gnomon-Well, Scree-Hitch, Flux-Kettle, Mire-Cask, Slack-Firth, Chaff-Rise, Sinter-Ridge, Chaff-Mere, Caisson-Forge, Crumb-Vault, Caliche-Drift, Thaw-Reach, Kipple-Gate, Anode-Fen, Vial-Rime, Tern-Apron, Sedge-Cell, Fjord-Convert, Retort-Fen, Skerries-Trench, Iodine-Well, Halite-Keel, Caldera-Mold, Isotope-Pad, Lay-Sound, Drupe-Press, Marl-Knap, Gull-Pontoon, Sprue-Nook, Osmia-Reach, Marl-Rake, Bight-Lay, Cryolite-Hall, Surge-Adit, Massecuite-Kettle).
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+| ttf-r45-241 | geothermal-binary-ORC | MODIFY | correct | designed | **−0.46** | process-correct isobutane clamp; silica-plate part inside 40 ms raster; independent LIF |
+| ttf-r45-242 | ammonia-converter | MODIFY | **incorrect (wrong-modify / over-clamp)** | designed | −0.68 | bed 518 C > 505 C cap; quench dumped 12→42 t/h instead of trimmed 12→18 t/h |
+| ttf-r45-243 | foundry-core-shooter | REJECT | correct | hil | +0.78 | blow 6.80 bar beats binder IR 42 C; hold shot |
+| ttf-r45-244 | photovoltaic-laminator | ACCEPT | correct | simulated | +1.08 | gel 118 C vs vacuum 0.80 mbar; proposed 8.0 min dwell already legal |
+| ttf-r45-245 | urea-prill-tower | ACCEPT | correct | designed | +1.16 | melt 138 C vs visc film 4.2 cP; proposed 0.42 kg/s already legal |
+
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 incorrect MODIFY (over-clamp), 1 correct REJECT. Provenance: designed×3, simulated×1, hil×1 (Loam-Hurst LH-HIL shooter bench). Intra-batch Jaccard on `state.description` {jmax:.3f} (max vs prior staged {jprior:.3f}).
+
+## Wrong-modify
+
+**ttf-r45-242** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-modify`). Alternate vs even rounds: r12/r14/r16/r18/r20/r22/r26/r28 host wrong-reject; odd rounds host wrong-modify. This is **over-clamp** (correct actuator, magnitude past the recovery setpoint), not r13/r19 wrong-axis, not r14/r23 wrong-loop, not r15 clamp-too-late, not r21 wrong-polarity, not r24 under-clamp, not r25 wrong-phase. Do not emit a wrong-ACCEPT.
+
+Haber-Knoll HN-5 / Bed-2 reads converter RTD **518 C** against a **505 C** quench cap. Interbed quench **12 t/h** is under its own **48 t/h** header. Sidecar arithmetic `518 > 505` is true. A timely trim is quench **12 → 18 t/h** (predicted 498 C). A weak supervisor dumps **12 → 42 t/h**, driving the bed to **448 C** under the **470 C** quench-kill floor. Convictable without Haber physics: `evidence.bed_C > evidence.bed_cap_C`, `executed_action` sets `quench_tph=42` ≠ `correct_quench_tph=18`, `observed_after_overclamp_C=448 < quench_kill_floor_C=470`, `raster.routing.table` sends `relay.rtd.bed` → `policy.quench_over` (weight 0.76) with no positive weight to `policy.quench_trim`, and `gate_snn` has `quench_over` above threshold while `quench_trim` is not. Recovery: MODIFY quench 12 → 18 t/h; leave feed at 82 t/h. Cost: 12 min quench-kill restart (`abort_s=720`).
+
+## Partnered-negative in-window (191)
+
+**ttf-r45-241** is the partnered negative: process-correct MODIFY (isobutane held 28 kg/s; evaporator 12.1 bar < 12.5 cap) while the world still charges. Safety −0.62 prices the plate P-11 part at **21.400 ms**; `task_progress` stays +0.32 because the clamp completed. Inflection `t_us=21400` is tick 5 and is **inside** the 40 ms raster (`21400 ≤ 40000`). Named un-netted loss: 16 min plate swap (`abort_s=960`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 35191, stim `[20000, 23000]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.silica` 20–23 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks). Tick 6 is bound to a published sidecar (`abort_s`, `survey_s`, `qc_s`) via `future_outcome.delayed_surprise_s` and is strictly after the raster window. Inflection `t_us` is an actual tick.
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+| 191 | 6 | +0.32 | −0.62 | −0.16 | +0.04 | −0.04 | −0.46 | 5 (21400) |
+| 192 | 6 | −0.22 | −0.16 | −0.24 | −0.12 | +0.06 | −0.68 | 4 (6260) |
+| 193 | 6 | +0.10 | +0.40 | +0.12 | +0.10 | +0.06 | +0.78 | 4 (7170) |
+| 194 | 6 | +0.42 | +0.30 | +0.16 | +0.12 | +0.08 | +1.08 | 4 (6120) |
+| 195 | 6 | +0.44 | +0.34 | +0.18 | +0.12 | +0.08 | +1.16 | 4 (4800) |
+
+Tick-6 sidecar bind: 191 `abort_s=960`, 192 `abort_s=720`, 193 `abort_s=420`, 194 `survey_s=300`, 195 `qc_s=240`.
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+| 191 | geothermal-binary-ORC | 72 | 28 | 40 | 81 | 1863 | 0.001863 |
+| 192 | ammonia-converter | 64 | 40 | 26 | 67 | 1541 | 0.001541 |
+| 193 | foundry-core-shooter | 120 | 20 | 48 | 115 | 2645 | 0.002645 |
+| 194 | photovoltaic-laminator | 52 | 36 | 28 | 52 | 1196 | 0.001196 |
+| 195 | urea-prill-tower | 84 | 30 | 22 | 55 | 1265 | 0.001265 |
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator, `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-191 excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).
+
+## Local checks (staging, not raw)
+
+See generator stdout: `check_jsonl` FactoryStaging, `validate_run.check_line`, `dumps_exact_json`, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`, tick sums, refractory, Jaccard.
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrote `outputs/raw/`.
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (191). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. Tick-6 sidecar bind is a densification of r14/r23, not a new class.
+4. Five domain slugs leave the prompt's 8-item pool; a later round that must stay inside the pool will have to rotate sit-outs instead.
+5. 194/195 ACCEPT are already-legal proposals confirmed by race order; a later round could pair an ACCEPT with a world charge that does not go negative.
+
+## Next densification target
+
+Labeled LIF on a second record, or an ISI histogram sidecar. If a later round returns to the 8-item pool, sit out the r12 five again. Remaining unused wrong-MODIFY subclasses include **stale-sample / lagged-tag** (not over-clamp, not wrong-phase, not wrong-axis). Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+Novel coverage: 19.0%
+"""

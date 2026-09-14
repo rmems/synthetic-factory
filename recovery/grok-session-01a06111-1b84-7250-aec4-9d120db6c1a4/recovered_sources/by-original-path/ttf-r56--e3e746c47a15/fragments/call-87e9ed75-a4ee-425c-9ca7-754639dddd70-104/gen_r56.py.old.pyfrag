@@ -1,0 +1,15 @@
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 correct REJECT, 1 incorrect REJECT (2oo3-failed-high). Provenance: designed×3, simulated×1, hil×1 (Precursor-Oxle PO-HIL pad). Jaccard on `state.description` all ≤ {jmax:.3f}.
+
+## Wrong-reject
+
+**ttf-r48-256** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-reject`). Alternate vs odd rounds: even rounds host wrong-reject. Do not emit a wrong-ACCEPT.
+
+Soaker-Naze / SN-6 reads 2oo3 median `T=412 C` against a published **430 C** trip. Stuck-high RTD-B prints **448 C** with `vote_failed=true`. Sidecar arithmetic `412 < 430` is true. A weak supervisor binds the failed channel as the vote, REJECT-holds 18.0 → 0 t/h, and leaves a legal soaker idle. Convictable without visbreaker physics: `evidence.median_C < evidence.trip_C`, `evidence.failed_channel == RTD-B`, `evidence.vote_failed == true`, `executed_action` sets `feed_t_h=0`, `raster.routing.table` sends `relay.rtd.failed` → `policy.hold_reject` (weight 0.71) with no positive weight to `policy.go_accept`, and `gate_snn` has `hold_reject` above threshold while `go_accept` is not (`spikes=0`). Recovery: ACCEPT; leave 18.0 t/h; bind the published 2oo3 430 C trip. Cost: 13 min missed residue window.
+
+This is **2oo3-failed-high / median-vs-single**, not r12-079 (induced-kV treated as sensor fault), not r16-097 (reticle-as-wafer), not r18-109 (empty-tank class), not r20-118 (oscillation-as-PSV), not r22-126 (class-transplant floor), not r30-166 (stale-firmware floor), not r32 (stale-peak-hold), not r34-187 (header-as-cell wrong-loop), not r36-196 (unit-mismatch leftover-bar), not r38-206 (LOOP_TEST inject-as-live).
+
+## Partnered-negative in-window (257)
+
+**ttf-r48-257** is the partnered negative: process-correct MODIFY (ID-fan held 78 percent, DP 1.64 kPa < 2.20 cap) while the world still charges. Safety −0.62 prices the mist-eliminator pack collapse at **22.400 ms**; `task_progress` stays +0.34 because the clamp completed. Inflection `t_us=22400` is tick 5 and is **inside** the 40 ms raster (`22400 ≤ 40000`). Named un-netted loss: 16 min emergency isolate + pack pull (`abort_s=960`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 48257, stim `[21000, 25000]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.mist` 21–25 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.

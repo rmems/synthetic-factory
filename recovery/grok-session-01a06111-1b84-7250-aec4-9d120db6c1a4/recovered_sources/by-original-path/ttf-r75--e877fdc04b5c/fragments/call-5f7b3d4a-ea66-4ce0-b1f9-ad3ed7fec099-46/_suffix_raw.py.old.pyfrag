@@ -1,0 +1,88 @@
+def notes_text(jmax: float, jprior: float) -> str:
+    return f"""# Thalamic Trajectory Factory — NOTES-r75
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- Quality: Q=5
+- IDs: `ttf-r75-391` … `ttf-r75-395`
+- Domains this batch: `wolfram-APT-calciner`, `caprolactam-beckmann`, `rutile-chloride-burner`, `ebullated-hydrocracker`, `argon-oxygen-decarb`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged r13–r60 occupancy (jsonl SoT, including r50 kamyr/SCR/reheat/LDPE/coke-quench, r51 anode-bake/styrene/FT/viscose, r52 phosphoric/methanol/anneal/nitric, r53 roaster/alkylation/blown-film/SX, r54 Kroll/alumina-calciner/float-zone/supercalender/slaker, r55 kamyr/contact-bed/IS-glass/RH/oxi-oven, r60 `tio2-chloride-oxidizer` / SBR / Zn-EW / fermenter / roller-kiln) plus in-flight gens r56–r64 (`pidgeon-magnesium-retort`, `parex-xylene-adsorber`, `fiber-cement-hatschek`, `depyrogenation-tunnel`, `ngl-turboexpander`, `aod-argon-converter`, `hydrocracker-reactor`). `rutile-chloride-burner` is a distinct slug from r60 `tio2-chloride-oxidizer`; `argon-oxygen-decarb` is distinct from the r62 draft `aod-argon-converter`. All five plants are invented (Tungstate-Keld, Oxime-Clough, Ilmenite-Naze, Ebullate-Pike, Decarb-Haugh). Do not restack prior TTF plants (Marrow-Dock, Vesper-Lattice, Brine-Well, Saddle-Arc, Ashlar-Gait, Lignin-Naze, Oleum-Howe, Goblet-Fen, Snorkel-Weir, Panox-Holt, Chip-Toft, Grate-Howe, Aromatics-Knap, Ampoule-Kame, Turbo-Haugh, Pigment-Shaw).
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+| ttf-r75-391 | wolfram-APT-calciner | MODIFY | correct | designed | **−0.44** | process-correct kiln-RPM clamp; tube-sheet leak inside 42 ms raster; independent LIF |
+| ttf-r75-392 | caprolactam-beckmann | MODIFY | **incorrect (wrong-modify / wrong-string idle-bank)** | designed | −0.68 | live K-A 168 C > 155 cap; 1.1 t/h steam cut applied to IDLE K-B |
+| ttf-r75-393 | rutile-chloride-burner | REJECT | correct | hil | +0.80 | AE 52 pps beats O2 8.4 bar; hold TiCl4 |
+| ttf-r75-394 | ebullated-hydrocracker | ACCEPT | correct | simulated | +1.06 | holdup 0.62 vs bed 418 C; proposed 14.0 t/h already legal |
+| ttf-r75-395 | argon-oxygen-decarb | ACCEPT | correct | designed | +1.14 | C 0.042 vs N2/Ar 0.32; proposed 8.0 Nm3/min Ar already legal |
+
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 incorrect MODIFY (wrong-string / idle-bank), 1 correct REJECT. Provenance: designed×3, simulated×1, hil×1 (Ilmenite-Naze IN-HIL oxidizer stand). Intra-batch Jaccard on `state.description` {jmax:.3f} (max vs prior staged {jprior:.3f}).
+
+## Wrong-modify
+
+**ttf-r75-392** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-modify`). Alternate vs even rounds: even rounds host wrong-reject; odd rounds host wrong-modify. This is **wrong-string / idle-bank** (correct magnitude steam cut applied to the IDLE parallel kettle because the mimic still has K-B selected). Not r13/r19 wrong-axis, not r14/r23 wrong-loop, not r21 wrong-polarity, not r24 under-clamp, not r25/r29/r31 wrong-phase, not r33/r35 over-clamp, not r39 extra-PLC-scan clamp-too-late, not r53/r55 stale-sample / lagged-tag. Do not emit a wrong-ACCEPT.
+
+Oxime-Clough OC-4 / Kettle K-A (LIVE) reads jacket **168 C** against a **155 C** cap. Parallel kettle K-B is IDLE at **92 C**; mimic `selected_string_tag=K-B`. Sidecar arithmetic `168 > 155` is true and `92 < 155` is true. A timely MODIFY at `t_gate_us=5920` cuts steam **3.6 → 1.1 t/h on LIVE K-A**. A weak supervisor applies the same 1.1 t/h cut to **IDLE K-B**. Live jacket peaks **176 C** and dumps the oxime. Convictable without Beckmann physics: `evidence.live_C > evidence.jacket_cap_C`, `evidence.idle_C < evidence.jacket_cap_C`, `evidence.live_status == LIVE`, `evidence.idle_status == IDLE`, `executed_action` sets `bind_idle_string=true` and `target_string=K-B`, `raster.routing.table` sends `relay.tc.idle` → `policy.idle_clamp` (weight 0.74) with no positive weight to `policy.live_clamp`, and `gate_snn` has `idle_clamp` above threshold while `live_clamp` is not. Recovery: MODIFY steam 3.6 → 1.1 t/h on LIVE K-A at t_gate; leave oxime at 9.0 t/h. Cost: 12 min kettle dump (`abort_s=720`).
+
+## Partnered-negative in-window (341)
+
+**ttf-r75-391** is the partnered negative: process-correct MODIFY (kiln held 1.1 rpm; off-gas NH3 68 ppm <= 90 cap) while the world still charges. Safety −0.60 prices the tube-sheet leak at **22.600 ms**; `task_progress` stays +0.32 because the clamp completed. Inflection `t_us=22600` is tick 5 and is **inside** the 42 ms raster (`22600 ≤ 42000`). Named un-netted loss: 15 min hood isolate (`abort_s=900`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 65341, stim `[22000, 25000]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.leak` 22–25 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks). Tick 6 is bound to a published sidecar (`abort_s`, `survey_s`, `dwell_s`) via `future_outcome.delayed_surprise_s` and is strictly after the raster window. Inflection `t_us` is an actual tick.
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+| 341 | 6 | +0.32 | −0.60 | −0.16 | +0.04 | −0.04 | −0.44 | 5 (22600) |
+| 342 | 6 | −0.22 | −0.24 | −0.18 | −0.10 | +0.06 | −0.68 | 4 (5920) |
+| 343 | 6 | +0.10 | +0.42 | +0.12 | +0.10 | +0.06 | +0.80 | 4 (7640) |
+| 344 | 6 | +0.40 | +0.28 | +0.18 | +0.12 | +0.08 | +1.06 | 4 (7840) |
+| 345 | 6 | +0.44 | +0.30 | +0.20 | +0.12 | +0.08 | +1.14 | 4 (5640) |
+
+Tick-6 sidecar bind: 341 `abort_s=900`, 342 `abort_s=720`, 343 `abort_s=480`, 344 `survey_s=360`, 345 `dwell_s=240`.
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+| 341 | wolfram-APT-calciner | 76 | 26 | 42 | 83 | 1909 | 0.001909 |
+| 342 | caprolactam-beckmann | 88 | 34 | 28 | 84 | 1932 | 0.001932 |
+| 343 | rutile-chloride-burner | 120 | 20 | 46 | 110 | 2530 | 0.002530 |
+| 344 | ebullated-hydrocracker | 48 | 42 | 28 | 56 | 1288 | 0.001288 |
+| 345 | argon-oxygen-decarb | 80 | 28 | 24 | 54 | 1242 | 0.001242 |
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator (NA / ACh / DA / 5-HT / adenosine), `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-341 excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).
+
+## Local checks (staging, not raw)
+
+See generator stdout: `check_jsonl` FactoryStaging, `validate_run.check_line`, `dumps_exact_json`, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`, tick sums, refractory, Jaccard.
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrote `outputs/raw/`.
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (341). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. Tick-6 sidecar bind is standing machinery (r14+), not a new class.
+4. Five domain slugs leave the prompt's 8-item pool; a later round that must stay inside the pool will have to rotate sit-outs instead.
+5. 344 and 345 are both already-legal ACCEPTs; a later round could pair one ACCEPT with a world charge that does not go negative.
+
+## Next densification target
+
+Labeled LIF on a second record, or an ISI histogram sidecar. Remaining unused wrong-MODIFY subclasses include **wrong-unit on a lagged bus**. Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+Novel coverage: 17.0%
+"""

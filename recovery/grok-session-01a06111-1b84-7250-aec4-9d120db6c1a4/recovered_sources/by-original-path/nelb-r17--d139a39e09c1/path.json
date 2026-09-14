@@ -1,0 +1,83 @@
+{
+  "agent_ids": [
+    "01a06405-cc43-7190-9824-88606fc5955f"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 2,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 3,
+  "original_basename": "gen_r17.py",
+  "original_path": "/tmp/nelb-r17/gen_r17.py",
+  "path_key": "nelb-r17--d139a39e09c1",
+  "terminal_event_ids": [
+    "01a06405-cc43-7190-9824-88606fc5955f:call-01daf623-fc2f-45ca-8082-80f336f91266-85",
+    "01a06406-1395-7103-ac34-c3bab99bd606:call-c568c0b6-9dbf-48bf-a456-a491398fc29e-40",
+    "01a06406-1395-7103-ac34-c3bab99bd606:call-f8292db2-8da1-4850-9b67-8ef93a149aac-46",
+    "01a06408-8cc3-7e30-bbd4-ebb4a901db34:call-731237ed-da35-4038-b572-45288b189595-28"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 2,
+  "versions": [
+    {
+      "agent_id": "01a06405-cc43-7190-9824-88606fc5955f",
+      "basename_preserved": true,
+      "bytes": 66458,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 450,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06405-cc43-7190-9824-88606fc5955f/updates.jsonl",
+      "original_basename": "gen_r17.py",
+      "original_path": "/tmp/nelb-r17/gen_r17.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r17--d139a39e09c1/versions/v0001/gen_r17.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/nelb-r17--d139a39e09c1/versions/v0001/gen_r17.py",
+      "session_id": "01a06405-cc43-7190-9824-88606fc5955f",
+      "sha256": "1268849bb467388605ecc0768f1662d4a330e7c179b2907aac00b304cffb881e",
+      "source_channel": "structured",
+      "source_event_id": "01a06405-cc43-7190-9824-88606fc5955f:call-49bb2325-b387-4bd6-9208-b92664514adc-83",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788385513284,
+      "timestamp_utc": "2026-09-02T21:45:13.284Z",
+      "tool_call_id": "call-49bb2325-b387-4bd6-9208-b92664514adc-83",
+      "version": 1,
+      "version_id": "nelb-r17--d139a39e09c1:v0001"
+    },
+    {
+      "agent_id": "01a06405-cc43-7190-9824-88606fc5955f",
+      "basename_preserved": true,
+      "bytes": 66458,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 456,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06405-cc43-7190-9824-88606fc5955f/updates.jsonl",
+      "original_basename": "gen_r17.py",
+      "original_path": "/tmp/nelb-r17/gen_r17.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r17--d139a39e09c1/versions/v0002/gen_r17.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/nelb-r17--d139a39e09c1/versions/v0002/gen_r17.py",
+      "session_id": "01a06405-cc43-7190-9824-88606fc5955f",
+      "sha256": "c0cdf07083a451a3932864ce1beeea8c4e033a168e0cd3e6c7d56b7f8e3ff4ba",
+      "source_channel": "structured",
+      "source_event_id": "01a06405-cc43-7190-9824-88606fc5955f:call-cb6d33d1-33bb-4efd-b900-681257a2848c-84",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788385534762,
+      "timestamp_utc": "2026-09-02T21:45:34.762Z",
+      "tool_call_id": "call-cb6d33d1-33bb-4efd-b900-681257a2848c-84",
+      "version": 2,
+      "version_id": "nelb-r17--d139a39e09c1:v0002"
+    }
+  ]
+}

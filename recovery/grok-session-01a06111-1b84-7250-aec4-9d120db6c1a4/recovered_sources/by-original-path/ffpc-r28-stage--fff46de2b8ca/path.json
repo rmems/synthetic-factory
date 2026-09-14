@@ -1,0 +1,55 @@
+{
+  "agent_ids": [
+    "01a0640f-7973-7d53-ad34-a98eeb85cb1d"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 1,
+  "original_basename": "extract_diagnosis_brief.py",
+  "original_path": "/tmp/ffpc-r28-stage/extract_diagnosis_brief.py",
+  "path_key": "ffpc-r28-stage--fff46de2b8ca",
+  "terminal_event_ids": [
+    "01a0640f-7973-7d53-ad34-a98eeb85cb1d:call-9363fe1a-c425-40d7-a296-8527cf06e4c3-95",
+    "01a0640f-7973-7d53-ad34-a98eeb85cb1d:call-aa2d9ce5-0131-45cd-ba88-bcd0addf7562-88",
+    "01a0640f-797d-7e53-ac34-6e71a4cd22d9:call-31922cb0-3166-4587-a06a-27d6bd25b64f-37",
+    "01a06410-9662-7e11-ad9a-634de1bedf36:call-27dd3348-7ced-4f77-9411-7808773a76e2-20"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a0640f-7973-7d53-ad34-a98eeb85cb1d",
+      "basename_preserved": true,
+      "bytes": 2557,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 477,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640f-7973-7d53-ad34-a98eeb85cb1d/updates.jsonl",
+      "original_basename": "extract_diagnosis_brief.py",
+      "original_path": "/tmp/ffpc-r28-stage/extract_diagnosis_brief.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r28-stage--fff46de2b8ca/versions/v0001/extract_diagnosis_brief.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r28-stage--fff46de2b8ca/versions/v0001/extract_diagnosis_brief.py",
+      "session_id": "01a0640f-7973-7d53-ad34-a98eeb85cb1d",
+      "sha256": "fe4f23a977dac87851069d14e8a5e7263072326e52d5a331e604be5443ac1324",
+      "source_channel": "structured",
+      "source_event_id": "01a0640f-7973-7d53-ad34-a98eeb85cb1d:call-b2a2f3ad-2eae-4e92-9839-5a239d44dfb1-87",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788391235286,
+      "timestamp_utc": "2026-09-02T23:20:35.286Z",
+      "tool_call_id": "call-b2a2f3ad-2eae-4e92-9839-5a239d44dfb1-87",
+      "version": 1,
+      "version_id": "ffpc-r28-stage--fff46de2b8ca:v0001"
+    }
+  ]
+}

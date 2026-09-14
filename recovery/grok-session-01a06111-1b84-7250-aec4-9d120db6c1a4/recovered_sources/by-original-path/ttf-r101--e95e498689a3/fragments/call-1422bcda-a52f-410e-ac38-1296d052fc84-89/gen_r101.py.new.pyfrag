@@ -1,0 +1,42 @@
+def tokenize(text: str) -> set[str]:
+    return {tok for tok in re.split(r"[^a-z0-9]+", text.lower()) if tok}
+
+
+def jaccard(a: str, b: str) -> float:
+    sa, sb = tokenize(a), tokenize(b)
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+
+def check_refractory(events, min_ms=0.8):
+    last = {}
+    for ev in events:
+        ch, t = ev["channel"], ev["t_rel_ms"]
+        if ch in last and t - last[ch] < min_ms - 1e-12:
+            return f"{ch} gap {t - last[ch]} ms"
+        last[ch] = t
+    return None
+
+
+def check_race(rec):
+    start, end = rec["state"]["race_window_rel_ms"]
+    in_win = {}
+    for ev in rec["spike_events"]:
+        if start <= ev["t_rel_ms"] <= end:
+            in_win.setdefault(ev["channel"], 0)
+            in_win[ev["channel"]] += 1
+    if len(in_win) < 2:
+        return f"race window has {len(in_win)} channels: {in_win}"
+    return None
+
+
+def excerpt_vs_spikes(rec):
+    spike_us = {int(round(ev["t_rel_ms"] * 1000.0)) for ev in rec["spike_events"]}
+    ex_us = {item["t_us"] for item in rec["raster"]["excerpt"]}
+    if not spike_us:
+        return 0.0
+    return len(spike_us & ex_us) / len(spike_us)
+
+
+def expected_m6_prefix(rec):

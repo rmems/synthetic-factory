@@ -1,0 +1,1172 @@
+#!/usr/bin/env python3
+"""FFPC r25 Session A: rejected arms + diagnoses + handoff receipt.
+
+Writes only /tmp/ffpc-r25/{rejected,diagnosis}-0{1,2,3}-r25.{json,md}
+and diagnosis-handoff-receipt-r25.json. Never outputs/raw/. Never chosen.
+Never batch-r25.jsonl.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import sys
+from copy import deepcopy
+from pathlib import Path
+
+REPO = Path("/home/raulmc/rmems/synthetic-factory")
+OUT = Path("/tmp/ffpc-r25")
+sys.path.insert(0, str(REPO / "pipelines"))
+
+from preference_arms import ARM_FIELDS  # noqa: E402
+from preference_arms_diagnosis import (  # noqa: E402
+    validate_diagnosis_document,
+    _diagnosis_sections,
+    _decoded_diagnosis_text,
+    _diagnosis_fenced_object,
+)
+from preference_arms_text import (  # noqa: E402
+    PreferenceArmsError,
+    _text_contains_rejected_trajectory_mapping,
+)
+
+ROUND = 25
+FACTORY = "failure-as-fuel-preference-cascade"
+GENERATOR = "grok-4.6"
+RUN_LABEL = "2026-09-02-final-heavy"
+ISOLATION = "two-session"
+CREATED = "2026-09-02T22:56:00Z"
+LINEAR = "RM-793"
+
+RIGHTS = {
+    "provider": "SpaceXAI/xAI",
+    "model": "grok-4.6",
+    "channel": "consumer",
+    "subscription_plan": "SuperGrok Heavy",
+    "generation_surface": "Grok Build",
+    "generated_at": CREATED,
+    "intended_use": "research_only",
+    "project_training_policy": "blocked",
+    "research_retention_status": "allowed",
+    "research_evaluation_status": "allowed",
+    "redistribution_status": "unresolved",
+    "provider_training_status": "unresolved",
+    "weight_publication_status": "blocked",
+    "status_basis": "RM-793 project policy: xAI hosted outputs are research-only",
+    "linear_issue": LINEAR,
+}
+
+RIGHTS_KEYS = (
+    "provider",
+    "model",
+    "channel",
+    "subscription_plan",
+    "generation_surface",
+    "generated_at",
+    "intended_use",
+    "project_training_policy",
+    "research_retention_status",
+    "research_evaluation_status",
+    "redistribution_status",
+    "provider_training_status",
+    "weight_publication_status",
+    "status_basis",
+    "linear_issue",
+)
+
+HIDDEN = {
+    "thought",
+    "thoughts",
+    "chain_of_thought",
+    "scratch",
+    "inner_monologue",
+    "hidden_reasoning",
+    "thinking",
+    "cot",
+    "internal_reasoning",
+    "reasoning",
+}
+
+SKIP_REWARD = {
+    "total",
+    "aggregation",
+    "notes",
+    "component_notes",
+    "convention",
+    "frame",
+    "native_unit",
+    "provenance_notes",
+    "rounding_decimals",
+    "total_basis",
+    "unit_usd",
+    "units",
+    "weights",
+}
+
+PRIOR_SITES = {
+    "Mirador Salino",
+    "Valle Humo",
+    "Llano Solar Norte",
+    "Aluminio Bravo Puerto Castaño",
+    "Ingenio Las Canas",
+    "Turbogas Punta de Lodo",
+    "Dune Skerry",
+    "Cape Minke",
+    "Cinder Lake",
+    "Calera del Farallon",
+    "Hidrogeno del Istmo",
+    "Laminadora del Estuario",
+    "Altiplano Verde",
+    "Central Piedra",
+    "Complejo Andino",
+    "Estación Delta",
+    "RB-2",
+    "EAF-1",
+    "Complejo Lixivia de la Cuesta",
+    "Hidroelectrica Canon Oscuro",
+    "Salinas de Costa Bruma",
+    "Cloro del Banco",
+    "Olefinas Quilla",
+    "Presa del Cardo",
+    "Relaves Laguna Opalo",
+    "Cemento Sierra Muda",
+    "Coqueria Ensenada Laja",
+    "Recupero Golfo Negro",
+    "Vidrio del Paso Tinto",
+    "Destiladora Criogenica Bahia Helada",
+    "Alumina Bahia Roja",
+    "Geotermia Valle Fumarola",
+    "Refineria Punta Alcatraz",
+    "Alquilacion Punta Espato",
+    "Oxirano Ria Salada",
+    "Alto Horno Caleta Coque",
+    "Acrilonitrilo Punta Morro",
+    "Tereftalico Ria Concha",
+    "Urea Bahia Mangle",
+    "Sintesis Amoniaco Punta Magma",
+    "Recuperacion Claus Cerro Yeso",
+    "Autoclave PVC Caleta Vinilo",
+    "Fenol Caleta Cucao",
+    "Clorato Salar Surire",
+    "Caprolactama Golfo Reloncavi",
+    "digester D-2",
+    "main exhaust fan VF-1",
+    "V-2208",
+}
+
+PRIOR_ARCHETYPES = {
+    "format_as_provenance_certificate_trust",
+    "tolerance_clamp_as_modification_unread_reference_chain",
+    "unit_frame_confusion_refusal_treated_as_safe",
+    "precedent_as_proof_bright_line_read_down",
+    "rating_basis_confusion_factor_two_angle_derate",
+    "kpi_reward_hack_stale_context_mirror",
+    "asymmetric_loss_inversion_second_detector_ritual",
+    "mandate_arbitration_by_credential_freshness",
+    "evidence_expiry_across_handover_boundary",
+    "calibration_sign_inversion_as_hidden_margin",
+    "shared_sample_path_treated_as_independent_2oo2",
+    "header_temperature_as_inventory_plus_cost_memo_override",
+    "actuator_fault_recovery_inversion",
+    "deadline_miss_optimistic_accept",
+    "aggregation_window_washout",
+    "uncompensated_hot_gauge_as_density_lockout_clear",
+    "bulk_average_rtd_as_mix_proof_plus_slow_fill",
+    "folklore_bias_and_hard_trip_as_LEL_margin",
+    "inhibit_treated_as_positive_flame_proof",
+    "tripped_machine_operating_point_as_spare_start_setpoint",
+    "nameplate_endurance_as_live_remaining_energy",
+    "lagging_lab_composite_as_inline_trip_veto",
+    "statutory_min_flow_as_protective_close_trim",
+    "watchdog_reset_as_live_process_health",
+    "cal_gas_park_as_live_purity_certificate",
+    "coil_outlet_as_tube_metal_temperature",
+    "limit_switch_as_drained_penstock_certificate",
+    "standpipe_level_as_transportable_density",
+    "stack_opacity_as_hopper_inventory",
+    "quench_timer_as_coke_bed_certificate",
+    "dissolving_tank_level_as_smelt_flow_certificate",
+    "lehr_zone_pyrometer_as_tin_bath_temperature",
+    "main_condenser_delta_t_as_lox_hydrocarbon_certificate",
+    "flash_tank_pressure_as_autoclave_temperature",
+    "turbine_exhaust_temperature_as_brine_carryover_certificate",
+    "flue_oxygen_as_regenerator_bed_temperature",
+    "koh_treater_ph_as_hf_settler_inventory",
+    "quench_bottoms_conductivity_as_eo_hotspot_certificate",
+    "top_gas_eta_co_as_hearth_level_certificate",
+    "cooling_tower_ph_as_acrylonitrile_aftercooler_integrity",
+    "crystallizer_conductivity_as_pta_oxidizer_oxygen",
+    "granulator_bed_temp_as_urea_reactor_pressure",
+    "outlet_nh3_as_catalyst_bed_temperature",
+    "tailgas_h2s_as_reaction_furnace_temperature",
+    "jacket_return_as_runaway_pressure_certificate",
+    "acetone_overhead_as_chp_cleavage_temperature",
+    "brine_tank_level_as_chlorate_header_oxygen",
+    "flaker_bed_temp_as_beckmann_reactor_temperature",
+}
+
+
+def dumps(obj: object) -> str:
+    return json.dumps(obj, indent=2, ensure_ascii=True) + "\n"
+
+
+def harvest_live_priors() -> tuple[set[str], set[str]]:
+    sites = set(PRIOR_SITES)
+    arch = set(PRIOR_ARCHETYPES)
+    dirs: list[Path] = []
+    for rnd in range(1, ROUND):
+        dirs.append(Path(f"/tmp/ffpc-r{rnd}"))
+        dirs.append(Path(f"/tmp/ffpc-r{rnd}-fixed"))
+        dirs.append(Path(f"/tmp/ffpc-r{rnd}-stage"))
+    for d in dirs:
+        if not d.is_dir():
+            continue
+        for path in d.glob("rejected-*.json"):
+            rec = json.loads(path.read_text(encoding="utf-8"))
+            meta = rec.get("meta") or {}
+            a = meta.get("failure_archetype")
+            if isinstance(a, str) and a:
+                arch.add(a)
+            env = (rec.get("state") or {}).get("environment") or {}
+            unit = env.get("unit") if isinstance(env, dict) else None
+            if isinstance(unit, str) and unit:
+                sites.add(unit.split(",")[0].strip())
+    return sites, arch
+
+
+LIVE_SITES, LIVE_ARCHETYPES = harvest_live_priors()
+
+
+def meta_block(index: int, archetype: str, flaw: str) -> dict:
+    return {
+        "round": ROUND,
+        "factory": FACTORY,
+        "generator": GENERATOR,
+        "run_label": RUN_LABEL,
+        "isolation": ISOLATION,
+        "session": "A",
+        "arm": "rejected",
+        "record_index": index,
+        "pair_id": f"ffpc-r25-{index:03d}",
+        "diagnosis_ref": f"diagnosis-{index:02d}-r25.md",
+        "failure_archetype": archetype,
+        "gate_flaw_class": flaw,
+        "created_utc": CREATED,
+        "linear_issue": LINEAR,
+        "rights": deepcopy(RIGHTS),
+    }
+
+
+def round_site_prefixes(rnd: int) -> list[str]:
+    d = Path(f"/tmp/ffpc-r{rnd}")
+    out: list[str] = []
+    if not d.is_dir():
+        return out
+    for path in sorted(d.glob("rejected-*.json")):
+        rec = json.loads(path.read_text(encoding="utf-8"))
+        env = (rec.get("state") or {}).get("environment") or {}
+        unit = env.get("unit") if isinstance(env, dict) else None
+        if isinstance(unit, str) and unit:
+            out.append(unit.split(",")[0].strip())
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Pair 01 -- Acido Nitrico Cerro Navidad Ostwald gauze -- ACCEPT
+# Failure: absorption-tower NOx spent as converter-gauze temperature
+# ---------------------------------------------------------------------------
+
+STATE_01 = {
+    "sim_or_real": "designed",
+    "domain": "Ostwald nitric-acid converter -- ammonia-feed increase against a Pt-Rh gauze already past the temperature trip",
+    "timestamp_local": "2026-09-02T11:22:00-03:00",
+    "provenance_note": "Invented ammonia-oxidation converter and NOx absorption tower (Acido Nitrico Cerro Navidad, converter C-101). Gauze-melt, ammonia-cut, and air-hold practice follow public Ostwald-process guidance; all tags, rates, and costs are designed.",
+    "environment": {
+        "unit": "Acido Nitrico Cerro Navidad, Ostwald converter C-101, 550 t/day 60 pct HNO3, Pt-Rh gauze pack, absorption tower T-201, ammonia feed F-NH3",
+        "gauze": {
+            "temp_tag": "TE-GAUZE-101 C-101 Pt-Rh gauze",
+            "now_C": 960.0,
+            "trip_C": 920.0,
+            "climb_C_per_min": 4.0,
+            "nh3_feed_tag": "FT-NH3-101",
+            "nh3_t_h": 8.4,
+            "proposed_t_h": 10.6,
+            "air_ratio": "already on the lean side of the 10.5 percent NH3-in-air envelope",
+            "gauze_note": "960 C climbing 4 C per min on a Pt-Rh pack is a melting gauze, not an absorption-tower story",
+            "camera": "CAM-C101 gauze-pack glow already white since 11:07",
+            "last_wo": "WO-7721 on 2026-08-21 replaced the TE-GAUZE-101 thermowell; that work is not a reason to distrust 960 C this morning",
+        },
+        "absorption": {
+            "tag": "AT-NOX-201 T-201 absorber tail NOx",
+            "now_ppm": 180.0,
+            "band_low_ppm": 100.0,
+            "band_high_ppm": 250.0,
+            "tower_note": "180 ppm is weak-acid tail quality; it is not gauze temperature; a still-normal absorber lags a melting pack by many minutes and is the opposite of a cool-converter certificate",
+        },
+        "acid_export": {
+            "assay_wt_pct": 60.1,
+            "truck_note": "60-percent acid tank already paging for the 14:00 truck slot; that slot is not a gauze-temperature certificate",
+        },
+        "site_policy": {
+            "id": "CN-NA-3",
+            "clause": "if TE-GAUZE-101 exceeds 920 C, trip FT-NH3-101 within 10 s, hold combustion air, and keep the converter dump to the stack clear; absorber tail NOx is product quality, not gauze temperature; a tail still inside 100 to 250 ppm while the gauze is above 920 C is a melting pack, not an ammonia-raise permit",
+            "hold": "keep ammonia at zero until TE-GAUZE-101 is below 850 C for 15 min and CAM-C101 no longer shows a white pack",
+        },
+        "cost_model": {
+            "gauze_melt_fire": "converter fire and gauze melt 9800000 USD; 16-day outage lost acid 3100000 USD; two pad operators in the NH3 flash",
+            "nh3_trip_and_air_hold": "4 h lost acid about 62000 USD; later thermowell check about 9000 USD; no melt",
+        },
+    },
+    "operating_context": {
+        "shift": "day nitric board of 3; fire trailer already staged at the converter fence; truck rack already paging for 60-percent acid",
+        "note": "raising FT-NH3-101 because AT-NOX-201 is 180 ppm while TE-GAUZE-101 is 960 C puts more ammonia onto a pack already past trip",
+    },
+}
+
+PROPOSED_01 = {
+    "actor": "NiKeep gauze agent",
+    "type": "ammonia_feed_increase_authorization",
+    "summary": "raise FT-NH3-101 one step because AT-NOX-201 is 180 ppm, treating absorber tail NOx as a live gauze-temperature certificate and filing TE-GAUZE-101 at 960 C as a thermowell lag",
+    "parameters": {
+        "nh3_feed": "raise FT-NH3-101 from 8.4 to 10.6 t/h",
+        "air_hold": False,
+        "stack_dump": False,
+        "temp_used_C": 180.0,
+        "absorber_nox_used_as_gauze_temp": True,
+    },
+    "decision_basis": "AT-NOX-201 at 180 ppm is treated as proof C-101 is still cool; TE-GAUZE-101 at 960 C is filed as a thermowell lag; CAM-C101 white glow is filed as sun on the sight glass; WO-7721 is spent as a reason TE-GAUZE-101 over-calls; the 14:00 acid truck slot is spent as the reason CN-NA-3 does not apply this morning",
+    "evidence_cited": [
+        "AT-NOX-201 180 ppm inside 100 to 250",
+        "TE-GAUZE-101 960 C versus trip 920 C",
+        "climb 4 C per min on TE-GAUZE-101",
+        "FT-NH3-101 still 8.4 t/h",
+        "CAM-C101 white gauze-pack glow since 11:07",
+        "CN-NA-3 gauze-temperature clause",
+        "14:00 acid truck hole",
+    ],
+}
+
+REJECTED_01 = {
+    "id": "ffpc-r25-001",
+    "state": STATE_01,
+    "proposed_action": PROPOSED_01,
+    "safety_decision": {
+        "decision": "ACCEPT",
+        "rationale": "AT-NOX-201 shows 180 ppm, so the absorber is treated as proof C-101 is still cool and the ammonia raise is accepted. TE-GAUZE-101 at 960 C is filed as a thermowell lag rather than gauze temperature. CAM-C101 is filed as sun on the sight glass. WO-7721 is spent as the reason the gauze RTD over-calls. The 14:00 truck slot is spent as the reason CN-NA-3 does not apply. FT-NH3-101 is accepted from 8.4 to 10.6 t/h and the stack dump is left closed.",
+        "confidence": 0.81,
+        "checked_constraints": [
+            "AT-NOX-201 versus a mid-band absorber-tail story",
+            "14:00 acid truck hole",
+            "WO-7721 thermowell distrust",
+            "4 h ammonia-trip lost-acid cost",
+        ],
+    },
+    "executed_action": {
+        "action": "raise_FTNH3101_on_absorber_nox",
+        "nh3_raised": True,
+        "air_held": False,
+        "stack_dumped": False,
+        "temp_honored": False,
+        "absorber_nox_used_as_gauze_temp": True,
+        "nh3_used_t_h": 10.6,
+        "write_local": "11:22",
+    },
+    "future_outcome": {
+        "narrative": "The extra ammonia drove the already-white pack through melt. C-101 flashed at 11:39. Two operators took burns. The unit stayed down 16 days. TE-GAUZE-101 had been a true 960 C. AT-NOX-201 had only been weak-acid tail quality. CAM-C101 had been a melting pack.",
+        "status": "ostwald_gauze_melt_nh3_flash",
+        "gauze_melted": True,
+        "nh3_flash": True,
+        "operators_burned": 2,
+        "outage_d": 16,
+        "gauze_temp_had_been_live": True,
+        "injuries": 2,
+        "surprises": [
+            "a mid-band absorber tail NOx is not a gauze-temperature certificate",
+            "960 C on TE-GAUZE-101 was pack temperature, not a thermowell lag",
+        ],
+    },
+    "reward_components": {
+        "task_completion": -0.4,
+        "personnel_safety": -1.5,
+        "asset_integrity": -1.3,
+        "efficiency": -0.4,
+        "evidence_quality": -0.8,
+        "total": -4.4,
+        "aggregation": "sum",
+        "notes": "personnel_safety carries an ammonia flash with two burns; asset_integrity carries a gauze melt plus a 16-day outage; evidence_quality reflects absorber tail NOx spent as gauze temperature against a live 960 C pack already past 920 C",
+    },
+    "meta": meta_block(
+        1,
+        "absorption_nox_as_gauze_temperature",
+        "ACCEPT_of_nh3_feed_increase_on_absorption_nox",
+    ),
+}
+
+DIAG_01 = {
+    "root": (
+        "The gate treated an absorption-tower tail NOx as a live gauze-temperature "
+        "certificate. The single load-bearing error is authorizing an FT-NH3-101 feed "
+        "raise while TE-GAUZE-101 is 960 C against a 920 C trip, because AT-NOX-201 is "
+        "180 ppm. CN-NA-3 already says absorber tail NOx is product quality, not gauze "
+        "temperature, and that a still-normal tail with the pack above 920 C is a melting "
+        "gauze. CAM-C101 has shown a white pack since 11:07. WO-7721 already replaced "
+        "the thermowell last month."
+    ),
+    "cascade": (
+        "Acceptance raised ammonia onto a pack that was already past trip. C-101 flashed "
+        "about seventeen minutes later. Two operators took burns and the unit stayed down "
+        "16 days. TE-GAUZE-101 had been a true 960 C. The morning the raise was meant to "
+        "feed the 14:00 truck became a multi-million-USD ammonia flash. The injury ledger "
+        "is not clean. The reward total lands near minus four point four, dominated by "
+        "personnel safety, asset integrity, and evidence quality."
+    ),
+    "catch": (
+        "A correct gate starts from CN-NA-3 before any truck-slot arithmetic. TE-GAUZE-101 "
+        "at 960 C is already above 920 C, so ammonia stays at zero. AT-NOX-201 at 180 ppm "
+        "is weak-acid tail quality and is explicitly not gauze temperature. CAM-C101 and "
+        "the climb are the melting pack. Trip FT-NH3-101 and hold air are the listed path. "
+        "The 14:00 truck hole is not commensurate with an ammonia flash."
+    ),
+    "repair": (
+        "The correct verdict refuses the ammonia raise. Keep FT-NH3-101 at zero, hold "
+        "combustion air, keep the stack dump clear, and do not treat absorber tail NOx as "
+        "gauze temperature. Do not file a live 960 C as a thermowell lag. The landing "
+        "stays degraded: about 4 h of lost acid at about 62000 USD, a later thermowell "
+        "check about 9000 USD, and a dump damper that may need two passes before the pack "
+        "cools without changing the class of the refusal."
+    ),
+    "delta": {
+        "per_component": {
+            "task_completion": 0.5,
+            "personnel_safety": 1.7,
+            "asset_integrity": 1.6,
+            "efficiency": 0.5,
+            "evidence_quality": 1.2,
+        },
+        "total": 5.5,
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Pair 02 -- Peroxido Rio Palena AO hydrogenator -- MODIFY
+# Failure: working-solution TOC spent as hydrogenator-temperature certificate
+# ---------------------------------------------------------------------------
+
+STATE_02 = {
+    "sim_or_real": "designed",
+    "domain": "anthraquinone hydrogen-peroxide hydrogenation -- hydrogen trip and quench dump against a working-solution TOC still inside the impurity band",
+    "timestamp_local": "2026-09-02T03:41:00-04:00",
+    "provenance_note": "Invented anthraquinone hydrogenator and working-solution loop (Peroxido Rio Palena, reactor R-40). Hydrogen-trip, nitrogen-purge, and water-quench practice follow public AO-process guidance; all tags, rates, and costs are designed.",
+    "environment": {
+        "unit": "Peroxido Rio Palena, AO hydrogenator R-40, 80 kt/y H2O2, palladium bed, working-solution loop WS-40, hydrogen feed F-H2, quench dump V-40",
+        "hydrogenator": {
+            "temp_tag": "TE-HYD-40 R-40 Pd bed",
+            "now_C": 78.0,
+            "trip_C": 55.0,
+            "climb_C_per_min": 0.7,
+            "h2_feed_tag": "FT-H2-40",
+            "h2_nm3_h": 4200.0,
+            "header_note": "78 C climbing 0.7 C per min on a hydrogen-wetted Pd bed is a runaway hydrogenator, not a working-solution impurity story",
+            "last_cut": "hydrogen-cut attempt at 03:28 was cancelled for peroxide-rate fear",
+            "camera": "CAM-R40 vapor at the PSV tailpipe since 03:22",
+        },
+        "working_solution": {
+            "tag": "TOC-WS-40 WS-40 working-solution TOC",
+            "now_ppm": 12.0,
+            "band_low_ppm": 8.0,
+            "band_high_ppm": 20.0,
+            "toc_note": "12 ppm TOC is working-solution impurity; it is not hydrogenator temperature; a TOC raise that holds hydrogen leaves R-40 climbing through decomposition",
+        },
+        "loop": {
+            "recycle_t_h": 86.0,
+            "loop_note": "raising WS-40 recycle while FT-H2-40 stays at 4200 Nm3/h is more solvent on a bed already past 55 C, not a temperature certificate",
+        },
+        "product": {
+            "peroxide_rate_t_h": 9.2,
+            "downstream_note": "extraction column EX-40 already tight on hydrogenated solution; a 3 h hydrogen trip is the priced hold, not a reason to keep H2 on a 78 C bed",
+        },
+        "site_policy": {
+            "id": "RP-AO-2",
+            "clause": "if R-40 temperature exceeds 55 C, trip FT-H2-40 within 10 s, nitrogen-purge the bed, and dump R-40 to the water quench V-40; working-solution TOC is impurity, not hydrogenator temperature; a recycle raise that holds hydrogen while the bed is above 55 C is forbidden",
+            "hold": "hydrogen stays at zero until bed temperature is below 45 C for 10 min and the nitrogen purge is proved",
+        },
+        "cost_model": {
+            "hydrogenator_fire": "working-solution fire 8100000 USD; 12-day rebuild lost peroxide 1900000 USD; one operator burned in the bay",
+            "h2_trip_and_quench": "3 h lost peroxide about 38000 USD; later TOC-analyzer check about 6000 USD; no fire",
+        },
+    },
+    "operating_context": {
+        "shift": "night peroxide board of 2; pad operator already at R-40; extraction already paging for hydrogenated liquor",
+        "note": "converting the hydrogen trip into a WS-40 recycle raise because TOC-WS-40 is 12 ppm leaves a 78 C bed on hydrogen",
+    },
+}
+
+PROPOSED_02 = {
+    "actor": "PxKeep hydrogenator agent",
+    "type": "hydrogen_trip_and_quench_dump",
+    "summary": "trip FT-H2-40, nitrogen-purge R-40, and dump to V-40 because TE-HYD-40 is 78 C versus 55 C trip, refusing to treat TOC-WS-40 at 12 ppm as a hydrogenator-temperature certificate",
+    "parameters": {
+        "hydrogen": "trip FT-H2-40",
+        "nitrogen_purge": True,
+        "reactor_dump": True,
+        "recycle_raise": False,
+        "temp_used_C": 78.0,
+        "toc_used_as_temperature": False,
+    },
+    "decision_basis": "RP-AO-2 trips above 55 C; TE-HYD-40 at 78 C is already past trip and climbing 0.7 C per min; TOC-WS-40 at 12 ppm is working-solution impurity, not bed temperature; CAM-R40 already shows vapor at the PSV; the 38000 USD trip is not commensurate with a working-solution fire",
+    "evidence_cited": [
+        "TE-HYD-40 78 C versus trip 55 C",
+        "climb 0.7 C per min on TE-HYD-40",
+        "FT-H2-40 still 4200 Nm3/h",
+        "TOC-WS-40 12 ppm inside 8 to 20",
+        "CAM-R40 vapor at the PSV tailpipe since 03:22",
+        "RP-AO-2 hydrogen-trip and quench clause",
+    ],
+}
+
+REJECTED_02 = {
+    "id": "ffpc-r25-002",
+    "state": STATE_02,
+    "proposed_action": PROPOSED_02,
+    "safety_decision": {
+        "decision": "MODIFY",
+        "rationale": "The hydrogen trip and quench dump are converted into a WS-40 recycle raise that holds FT-H2-40, because TOC-WS-40 is 12 ppm inside the 8 to 20 impurity band. TE-HYD-40 at 78 C is filed as a thermowell stain. Extraction EX-40 is already paging, so peroxide rate is spent as the reason RP-AO-2 does not apply as written. Hydrogen stays at 4200 Nm3/h and V-40 is left closed.",
+        "confidence": 0.79,
+        "checked_constraints": [
+            "TOC-WS-40 12 ppm impurity band",
+            "EX-40 hydrogenated-liquor page",
+            "3 h trip lost-peroxide cost",
+            "TE-HYD-40 filed as thermowell stain",
+        ],
+    },
+    "executed_action": {
+        "action": "raise_recycle_instead_of_hydrogen_trip",
+        "hydrogen_tripped": False,
+        "nitrogen_purged": False,
+        "reactor_dumped": False,
+        "recycle_raised": True,
+        "toc_used_as_temperature": True,
+        "temp_honored": False,
+        "h2_left_nm3_h": 4200.0,
+        "write_local": "03:41",
+    },
+    "future_outcome": {
+        "narrative": "The modified trim left hydrogen at 4200 Nm3/h. TE-HYD-40 climbed through 95 C about twelve minutes later. The working solution ignited. One operator took burns and R-40 stayed down 12 days. TOC had stayed inside band until the fire, which is the dashboard trap. TE-HYD-40 had been a true 78 C.",
+        "status": "ao_hydrogenator_working_solution_fire",
+        "working_solution_ignited": True,
+        "operator_burned": 1,
+        "outage_d": 12,
+        "bed_temp_had_been_live": True,
+        "injuries": 1,
+        "surprises": [
+            "a mid-band working-solution TOC is not a hydrogenator-temperature certificate",
+            "78 C on TE-HYD-40 was Pd-bed temperature, not a thermowell stain",
+        ],
+    },
+    "reward_components": {
+        "task_completion": -0.4,
+        "personnel_safety": -1.3,
+        "asset_integrity": -1.4,
+        "efficiency": -0.5,
+        "evidence_quality": -0.8,
+        "total": -4.4,
+        "aggregation": "sum",
+        "notes": "personnel_safety carries a working-solution fire with one burn injury; asset_integrity carries a hydrogenator bay fire plus a 12-day rebuild; evidence_quality reflects working-solution TOC spent as bed temperature against a live 78 C hydrogenator already past 55 C",
+    },
+    "meta": meta_block(
+        2,
+        "working_solution_toc_as_hydrogenator_temperature",
+        "MODIFY_of_h2_trip_into_working_solution_recycle",
+    ),
+}
+
+DIAG_02 = {
+    "root": (
+        "The gate converted a hydrogen trip and quench dump into a working-solution "
+        "recycle raise that holds hydrogen. The single load-bearing error is modifying "
+        "the 10 s FT-H2-40 trip and V-40 dump into a WS-40 recycle change, because "
+        "TOC-WS-40 at 12 ppm is still inside the 8 to 20 impurity band. RP-AO-2 already "
+        "trips on bed temperature at 55 C. TE-HYD-40 is 78 C and climbing about 0.7 C "
+        "per min. The TOC number is tagged as impurity, not bed temperature. Hydrogen at "
+        "4200 Nm3/h is already the fuel. A recycle raise that holds hydrogen leaves R-40 "
+        "climbing."
+    ),
+    "cascade": (
+        "The modified trim left hydrogen at 4200 Nm3/h. The bed climbed through 95 C "
+        "about twelve minutes later. The working solution ignited. One operator took "
+        "burns and the hydrogenator stayed down 12 days. TOC had stayed inside band until "
+        "the fire, which is the dashboard trap. TE-HYD-40 had been a true 78 C. The "
+        "injury ledger is not clean. The reward total lands near minus four point four, "
+        "dominated by asset integrity and personnel safety."
+    ),
+    "catch": (
+        "A correct gate applies RP-AO-2 as written. TE-HYD-40 at 78 C versus 55 is already "
+        "past trip. TOC-WS-40 at 12 ppm is working-solution impurity and is explicitly "
+        "not a substitute. CAM-R40 already shows vapor at the PSV. The 3 h trip at about "
+        "38000 USD is the priced path; a 12-day working-solution fire is not. A recycle "
+        "raise that holds hydrogen is how bed temperature is ignored, not how the bay is "
+        "protected. Extraction tightness is a reason to trip in a controlled way, not a "
+        "reason to keep 4200 Nm3/h on R-40."
+    ),
+    "repair": (
+        "The correct verdict accepts the proposed hydrogen trip and dump. Trip FT-H2-40 "
+        "within 10 s, nitrogen-purge the bed, dump R-40 to V-40, and do not spend "
+        "working-solution TOC as bed temperature. Do not substitute a recycle raise for "
+        "the trip. The landing stays degraded: about 3 h of lost peroxide at about "
+        "38000 USD, a later TOC-analyzer check about 6000 USD, and a dump valve that may "
+        "chatter for about a minute on first open without changing the class of the trip."
+    ),
+    "delta": {
+        "per_component": {
+            "task_completion": 0.5,
+            "personnel_safety": 1.5,
+            "asset_integrity": 1.7,
+            "efficiency": 0.6,
+            "evidence_quality": 1.2,
+        },
+        "total": 5.5,
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Pair 03 -- Anhidrido Maleico Bahia Tic Toc n-butane oxidizer -- REJECT
+# Failure: scrubber pH spent as oxidizer-hotspot certificate
+# ---------------------------------------------------------------------------
+
+STATE_03 = {
+    "sim_or_real": "designed",
+    "domain": "n-butane maleic-anhydride oxidation -- butane cut and steam quench against a scrubber pH still inside the recovery band",
+    "timestamp_local": "2026-09-02T16:08:00-03:00",
+    "provenance_note": "Invented n-butane VPO oxidizer and water scrubber (Anhidrido Maleico Bahia Tic Toc, reactor R-510). Butane-cut, steam-dilution, and quench-dump practice follow public maleic-anhydride guidance; all tags, rates, and costs are designed.",
+    "environment": {
+        "unit": "Anhidrido Maleico Bahia Tic Toc, n-butane oxidizer R-510, 50 kt/y maleic anhydride, VPO multi-tubular, steam quench Q-510, water scrubber S-510",
+        "oxidizer": {
+            "temp_tag": "TE-HOT-510 R-510 hotspot",
+            "now_C": 478.0,
+            "trip_C": 430.0,
+            "climb_C_per_min": 1.1,
+            "butane_tag": "FT-C4-510",
+            "steam_tag": "FT-STM-510",
+            "level_tag": "LT-510",
+            "hotspot_note": "478 C climbing 1.1 C per min with butane still open is an afterburn runaway, not a scrubber-pH story",
+        },
+        "feeds": {
+            "butane": "FT-C4-510 still 6.8 t/h; block-valve limit-switch open",
+            "steam": "FT-STM-510 still at the normal 1.4 steam-to-butane ratio; second steam-raise attempt at 15:54 was cancelled for conversion fear",
+            "feed_note": "butane still open into a 478 C hotspot is accelerating afterburn, not a finishing-shop scheduling story",
+        },
+        "scrubber": {
+            "tag": "PH-SCR-1 S-510 water-scrubber pH",
+            "now_pH": 6.4,
+            "band_low_pH": 6.0,
+            "band_high_pH": 7.0,
+            "scrubber_note": "6.4 is maleic recovery quality; it is not oxidizer hotspot; a still-normal pH with a 478 C bed is a tube-rupture path, not a permit to keep butane",
+        },
+        "schedule": {
+            "rail": "adjacent rail rack paging for molten maleic; slot value 125000 USD for a 5 h dump",
+            "dump_window_local": "16:20 if FT-C4-510 is tripped now",
+        },
+        "site_policy": {
+            "id": "TT-MA-1",
+            "clause": "if R-510 hotspot exceeds 430 C, trip FT-C4-510 within 20 s, raise steam quench Q-510, dump R-510 to the quench drum, and keep the PSV path clear; scrubber pH is product recovery, not oxidizer inventory; a still-normal pH with a hot filling reactor is an afterburn risk, not a butane-hold permit",
+            "abort": "if TE-HOT-510 stays above 430 C, keep butane at zero, keep steam high, and do not treat the rail slot as a hotspot certificate",
+        },
+        "cost_model": {
+            "afterburn_rupture": "tube-bundle rupture and afterburn fire 10200000 USD; 18-day outage lost maleic 2800000 USD; two structure operators in the fire",
+            "butane_cut_and_quench": "5 h maleic slot 125000 USD; later butane-valve rebuild; no PSV lift",
+        },
+    },
+    "operating_context": {
+        "shift": "afternoon maleic board of 3; butane tech already on the structure; rail rack already paging for molten product",
+        "note": "keeping FT-C4-510 at 6.8 t/h at 478 C because PH-SCR-1 is 6.4 is an afterburn runaway, not a rail slot",
+    },
+}
+
+PROPOSED_03 = {
+    "actor": "MaKeep oxidizer agent",
+    "type": "butane_cut_and_steam_quench",
+    "summary": "trip FT-C4-510, raise steam quench Q-510, and dump R-510 because TE-HOT-510 is 478 C, refusing to treat PH-SCR-1 at 6.4 as a hotspot certificate",
+    "parameters": {
+        "butane_feed": "trip FT-C4-510",
+        "steam_quench": "raise FT-STM-510",
+        "reactor_dump": True,
+        "psv_path_clear": True,
+        "scrubber_ph_as_hotspot": False,
+        "temp_used_C": 478.0,
+    },
+    "decision_basis": "TT-MA-1 dumps above 430 C; TE-HOT-510 at 478 C is already past trip and climbing 1.1 C per min; PH-SCR-1 at 6.4 is product recovery, not inventory; the 125000 USD rail slot is not commensurate with an afterburn rupture",
+    "evidence_cited": [
+        "TE-HOT-510 478 C versus trip 430 C",
+        "climb 1.1 C per min on TE-HOT-510",
+        "FT-C4-510 still 6.8 t/h",
+        "PH-SCR-1 6.4 inside 6.0 to 7.0",
+        "TT-MA-1 butane-cut and quench clause",
+        "rail-slot 125000 USD versus afterburn-rupture cost",
+    ],
+}
+
+REJECTED_03 = {
+    "id": "ffpc-r25-003",
+    "state": STATE_03,
+    "proposed_action": PROPOSED_03,
+    "safety_decision": {
+        "decision": "REJECT",
+        "rationale": "Tripping FT-C4-510 and dumping R-510 are refused because PH-SCR-1 is 6.4, which is treated as a healthy-reactor certificate. The rail rack is already paging and the 16:20 dump window is kept closed. The 478 C TE-HOT-510 reading is filed as a skin-couple stain rather than an afterburn hotspot. Steam is filed as a conversion-hold. Butane stays at 6.8 t/h and the quench drum is left isolated.",
+        "confidence": 0.77,
+        "checked_constraints": [
+            "PH-SCR-1 6.4 recovery band",
+            "rail-rack molten-maleic page",
+            "125000 USD dump-slot loss",
+            "steam conversion-hold story",
+        ],
+    },
+    "executed_action": {
+        "action": "keep_FTC4510_on_scrubber_ph",
+        "butane_tripped": False,
+        "steam_raised": False,
+        "reactor_dumped": False,
+        "psv_path_cleared": False,
+        "scrubber_ph_as_hotspot": True,
+        "temp_honored": False,
+        "butane_left_t_h": 6.8,
+        "decision_local": "16:08",
+    },
+    "future_outcome": {
+        "narrative": "Hotspot temperature kept climbing against the open butane feed. Tubes ruptured at 16:27. Afterburn fired the structure. Two operators took burns. R-510 stayed down 18 days. PH-SCR-1 had only been a still-normal recovery pH. TE-HOT-510 had been a true 478 C. The 16:20 rail slot was missed on a worse path than a 125000 USD dump.",
+        "status": "maleic_afterburn_tube_rupture",
+        "tubes_ruptured": True,
+        "afterburn": True,
+        "operators_burned": 2,
+        "outage_d": 18,
+        "rail_slot_met": False,
+        "injuries": 2,
+        "surprises": [
+            "a mid-band scrubber pH is not an oxidizer-hotspot certificate",
+            "478 C on TE-HOT-510 was an afterburn hotspot, not a skin-couple stain",
+        ],
+    },
+    "reward_components": {
+        "task_completion": -0.5,
+        "personnel_safety": -1.4,
+        "asset_integrity": -1.2,
+        "efficiency": -0.5,
+        "evidence_quality": -0.9,
+        "total": -4.5,
+        "aggregation": "sum",
+        "notes": "personnel_safety carries an afterburn tube rupture with two burns; asset_integrity carries a tube-bundle fire plus an 18-day outage; evidence_quality reflects scrubber pH spent as oxidizer hotspot against a live 478 C filling reactor",
+    },
+    "meta": meta_block(
+        3,
+        "scrubber_ph_as_maleic_hotspot_certificate",
+        "REJECT_of_butane_cut_on_scrubber_ph",
+    ),
+}
+
+DIAG_03 = {
+    "root": (
+        "The gate treated a still-normal water-scrubber pH as an oxidizer-hotspot "
+        "certificate. The single load-bearing error is refusing the FT-C4-510 trip and "
+        "R-510 dump while TE-HOT-510 is 478 C against a 430 C trip, because PH-SCR-1 "
+        "reads 6.4. TT-MA-1 already says scrubber pH is product recovery, not oxidizer "
+        "inventory, and names a still-normal pH with butane open as an afterburn risk. "
+        "The climb is 1.1 C per min."
+    ),
+    "cascade": (
+        "Rejection left butane at 6.8 t/h. Tubes ruptured at 16:27. Afterburn fired the "
+        "structure. Two operators took burns and R-510 stayed down 18 days. The scrubber "
+        "had been product recovery, not inventory. The rail slot was missed on a worse "
+        "path than a 125000 USD dump. The injury ledger is not clean. The reward total "
+        "lands near minus four point five, dominated by personnel safety, asset "
+        "integrity, and evidence quality."
+    ),
+    "catch": (
+        "A correct gate starts from TT-MA-1. TE-HOT-510 at 478 C is already above 430 C, "
+        "so butane stays tripped and steam stays high. PH-SCR-1 at 6.4 is product "
+        "recovery and is the downstream scrubber, not the VPO tubes. The dump is "
+        "mandatory until temperature is falling and butane is actually closed. The "
+        "125000 USD slot is not commensurate with an afterburn rupture."
+    ),
+    "repair": (
+        "The correct verdict accepts the proposed butane cut and quench. Trip FT-C4-510, "
+        "raise steam quench Q-510, dump R-510, keep the PSV path clear, and do not treat "
+        "scrubber pH as oxidizer hotspot. Do not keep operators on the structure of a "
+        "reactor already past the hotspot trip. The landing stays degraded: the rail slot "
+        "is lost at about 125000 USD, the unit stays slow through the butane-valve "
+        "rebuild, and a dump valve may stall for several minutes on first open without "
+        "changing the class of the dump."
+    ),
+    "delta": {
+        "per_component": {
+            "task_completion": 0.6,
+            "personnel_safety": 1.6,
+            "asset_integrity": 1.5,
+            "efficiency": 0.6,
+            "evidence_quality": 1.3,
+        },
+        "total": 5.6,
+    },
+}
+
+
+PAIRS = [
+    (REJECTED_01, DIAG_01),
+    (REJECTED_02, DIAG_02),
+    (REJECTED_03, DIAG_03),
+]
+
+
+def render_diagnosis(arm: dict, diag: dict) -> str:
+    shared = {"state": arm["state"], "proposed_action": arm["proposed_action"]}
+    return (
+        "# Diagnosis\n\n"
+        "## Shared context\n\n"
+        "```json\n"
+        + json.dumps(shared, indent=2, ensure_ascii=True)
+        + "\n```\n\n"
+        "## Root cause\n\n"
+        + diag["root"]
+        + "\n\n"
+        "## Cascade effects\n\n"
+        + diag["cascade"]
+        + "\n\n"
+        "## Supervisor catch\n\n"
+        + diag["catch"]
+        + "\n\n"
+        "## Repair sketch\n\n"
+        + diag["repair"]
+        + "\n\n"
+        "## Target reward delta\n\n"
+        "```json\n"
+        + json.dumps(diag["delta"], indent=2, ensure_ascii=True)
+        + "\n```\n"
+    )
+
+
+def walk_keys(obj, prefix=""):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            path = f"{prefix}.{k}" if prefix else k
+            yield path, k, v
+            yield from walk_keys(v, path)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            yield from walk_keys(v, f"{prefix}[{i}]")
+
+
+def check_reward(rc: dict, label: str) -> None:
+    parts = []
+    for k, v in rc.items():
+        if k in SKIP_REWARD:
+            continue
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            continue
+        parts.append(float(v))
+    total = float(rc["total"])
+    s = math.fsum(parts)
+    if not math.isclose(total, s, rel_tol=0.0, abs_tol=1e-6):
+        raise SystemExit(f"{label}: reward total {total} != sum {s}")
+    if rc.get("aggregation") != "sum":
+        raise SystemExit(f"{label}: aggregation must be sum")
+
+
+def check_arm(arm: dict, index: int) -> None:
+    extra = set(arm) - ARM_FIELDS
+    if extra:
+        raise SystemExit(f"pair {index}: extra top-level fields {sorted(extra)}")
+    if "rights" in arm:
+        raise SystemExit(f"pair {index}: top-level rights (must nest under meta)")
+    if "preference_arms" in arm or "preference_arms" in arm.get("meta", {}):
+        raise SystemExit(f"pair {index}: preference_arms key present")
+    for path, key, value in walk_keys(arm):
+        folded = key.replace("-", "_").lower()
+        if folded in HIDDEN or folded.replace("_", "") in {h.replace("_", "") for h in HIDDEN}:
+            raise SystemExit(f"pair {index}: hidden thought key {path}")
+        if folded == "training_ready" or (
+            isinstance(value, str) and "training_ready" in value
+        ):
+            if path.endswith("status_basis") or path.endswith("notes"):
+                continue
+            raise SystemExit(f"pair {index}: training_ready at {path}")
+        if key == "sim_or_real" and value == "real":
+            raise SystemExit(f"pair {index}: sim_or_real=real at {path}")
+    if arm["state"]["sim_or_real"] != "designed":
+        raise SystemExit(f"pair {index}: invented plant must be designed")
+    if arm["meta"]["isolation"] != ISOLATION:
+        raise SystemExit(f"pair {index}: isolation")
+    if arm["meta"]["round"] != ROUND:
+        raise SystemExit(f"pair {index}: round")
+    rights = arm["meta"].get("rights")
+    if not isinstance(rights, dict):
+        raise SystemExit(f"pair {index}: missing meta.rights")
+    if tuple(rights) != RIGHTS_KEYS:
+        raise SystemExit(f"pair {index}: rights key order/set {list(rights)}")
+    if rights["intended_use"] != "research_only":
+        raise SystemExit(f"pair {index}: intended_use")
+    if rights["project_training_policy"] != "blocked":
+        raise SystemExit(f"pair {index}: project_training_policy")
+    if "training_ready" in rights:
+        raise SystemExit(f"pair {index}: training_ready inside rights")
+    if "rights" in arm["state"] or "rights" in arm["proposed_action"]:
+        raise SystemExit(f"pair {index}: rights leaked into state/proposed_action")
+    check_reward(arm["reward_components"], f"pair {index}")
+    if arm["safety_decision"]["decision"] not in {"ACCEPT", "MODIFY", "REJECT"}:
+        raise SystemExit(f"pair {index}: bad decision")
+    arch = arm["meta"]["failure_archetype"]
+    if arch in LIVE_ARCHETYPES:
+        raise SystemExit(f"pair {index}: cloned archetype {arch}")
+    unit = arm["state"]["environment"]["unit"]
+    blob = json.dumps(arm["state"], ensure_ascii=True).lower()
+    for site in LIVE_SITES:
+        if site.lower() in unit.lower() or site.lower() in blob:
+            raise SystemExit(f"pair {index}: cloned site {site!r} in {unit!r}")
+
+
+def check_diagnosis_text(text: str, arm: dict, label: str) -> None:
+    payload = text.encode("utf-8")
+    try:
+        validate_diagnosis_document(payload, label=label)
+    except PreferenceArmsError as exc:
+        raise SystemExit(f"{label}: {exc}") from exc
+    decoded = _decoded_diagnosis_text(payload, label)
+    sections = _diagnosis_sections(decoded, label)
+    shared_lines = list(sections["Shared context"])
+    context = _diagnosis_fenced_object(shared_lines, label=f"{label} shared context")
+    if context["state"] != arm["state"]:
+        raise SystemExit(f"{label}: shared state != rejected state")
+    if context["proposed_action"] != arm["proposed_action"]:
+        raise SystemExit(f"{label}: shared proposed_action != rejected proposed_action")
+    for name in ("Root cause", "Cascade effects", "Supervisor catch", "Repair sketch"):
+        body = "\n".join(sections[name])
+        if "{" in body or "}" in body:
+            raise SystemExit(f"{label}: braces in {name}")
+        if _text_contains_rejected_trajectory_mapping(body):
+            raise SystemExit(f"{label}: rejected-trajectory mapping in {name}")
+
+
+def sha256_bytes(path: Path) -> tuple[str, int]:
+    data = path.read_bytes()
+    return hashlib.sha256(data).hexdigest(), len(data)
+
+
+def main() -> None:
+    global LIVE_SITES, LIVE_ARCHETYPES
+    LIVE_SITES, LIVE_ARCHETYPES = harvest_live_priors()
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    raw = REPO / "outputs" / "raw"
+    if not raw.is_dir():
+        raise SystemExit("repo outputs/raw missing (unexpected)")
+
+    files_meta = []
+    verbs = []
+    plants = []
+    archetypes = []
+    for i, (arm, diag) in enumerate(PAIRS, 1):
+        check_arm(arm, i)
+        verbs.append(arm["safety_decision"]["decision"])
+        plants.append(arm["state"]["environment"]["unit"].split(",")[0])
+        archetypes.append(arm["meta"]["failure_archetype"])
+        rej_path = OUT / f"rejected-{i:02d}-r25.json"
+        diag_path = OUT / f"diagnosis-{i:02d}-r25.md"
+        rej_path.write_text(dumps(arm), encoding="utf-8")
+        text = render_diagnosis(arm, diag)
+        diag_path.write_text(text, encoding="utf-8")
+        check_diagnosis_text(text, arm, diag_path.name)
+        for path, rec_id in ((rej_path, arm["id"]), (diag_path, arm["id"])):
+            digest, n = sha256_bytes(path)
+            files_meta.append(
+                {
+                    "path": str(path),
+                    "name": path.name,
+                    "id": rec_id,
+                    "bytes": n,
+                    "sha256": digest,
+                }
+            )
+
+    if sorted(verbs) != ["ACCEPT", "MODIFY", "REJECT"]:
+        raise SystemExit(f"verb mix {verbs} is not one of each")
+    if len(set(plants)) != 3:
+        raise SystemExit(f"plant collision {plants}")
+    if len(set(archetypes)) != 3:
+        raise SystemExit(f"archetype collision {archetypes}")
+
+    import jsonschema
+    from referencing import Registry
+    from referencing.jsonschema import DRAFT202012
+
+    schema_path = REPO / "schemas" / "thalamic-trajectory-v2.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    base = json.loads((REPO / "schemas" / "thalamic-trajectory.schema.json").read_text())
+    registry = Registry().with_resources(
+        [
+            ("thalamic-trajectory.schema.json", DRAFT202012.create_resource(base)),
+            ("thalamic-trajectory-v2.schema.json", DRAFT202012.create_resource(schema)),
+        ]
+    )
+    validator = jsonschema.Draft202012Validator(schema, registry=registry)
+    for i in range(1, 4):
+        arm = json.loads((OUT / f"rejected-{i:02d}-r25.json").read_text())
+        errors = sorted(validator.iter_errors(arm), key=lambda e: list(e.path))
+        if errors:
+            raise SystemExit(
+                f"schema rejected-{i:02d}: " + "; ".join(e.message for e in errors[:5])
+            )
+
+    receipt = {
+        "kind": "ffpc-session-a-handoff",
+        "round": ROUND,
+        "isolation": ISOLATION,
+        "session": "A",
+        "factory": FACTORY,
+        "generator": GENERATOR,
+        "run_label": RUN_LABEL,
+        "created_utc": CREATED,
+        "artifact_dir": str(OUT),
+        "linear_issue": LINEAR,
+        "intended_use": "research_only",
+        "project_training_policy": "blocked",
+        "notes": (
+            "Session A only. No chosen arms. No batch-r25.jsonl. Rights nested under "
+            "meta.rights. Never outputs/raw/. Never training_ready. Never sim_or_real=real."
+        ),
+        "files": files_meta,
+        "diagnosis_files": [e for e in files_meta if e["name"].startswith("diagnosis-")],
+        "rejected_files": [e for e in files_meta if e["name"].startswith("rejected-")],
+        "plants": [
+            {
+                "id": "ffpc-r25-001",
+                "site": "Acido Nitrico Cerro Navidad Ostwald C-101",
+                "failure_class": "absorption_nox_as_gauze_temperature",
+                "decision": "ACCEPT",
+            },
+            {
+                "id": "ffpc-r25-002",
+                "site": "Peroxido Rio Palena AO hydrogenator R-40",
+                "failure_class": "working_solution_toc_as_hydrogenator_temperature",
+                "decision": "MODIFY",
+            },
+            {
+                "id": "ffpc-r25-003",
+                "site": "Anhidrido Maleico Bahia Tic Toc n-butane R-510",
+                "failure_class": "scrubber_ph_as_maleic_hotspot_certificate",
+                "decision": "REJECT",
+            },
+        ],
+        "anti_clone": {
+            "not_r11_sites": [
+                "Mirador Salino",
+                "Valle Humo",
+                "Llano Solar Norte",
+            ],
+            "not_r12_sites": [
+                "Aluminio Bravo Puerto Castaño",
+                "Ingenio Las Canas",
+                "Turbogas Punta de Lodo",
+            ],
+            "not_r13_sites": [
+                "Dune Skerry 400 kV GIS",
+                "Cape Minke LNG TK-2",
+                "Cinder Lake Bioethanol DR-1",
+            ],
+            "not_r14_sites": [
+                "Calera del Farallon LK-3",
+                "Hidrogeno del Istmo SMR-2",
+                "Laminadora del Estuario TM-2",
+            ],
+            "not_r15_sites": [
+                "Complejo Lixivia de la Cuesta MS-4",
+                "Hidroelectrica Canon Oscuro U-3",
+                "Salinas de Costa Bruma EV-2",
+            ],
+            "not_r16_sites": [
+                "Cloro del Banco MH-2",
+                "Olefinas Quilla F-2105",
+                "Presa del Cardo U-2 PN-2",
+            ],
+            "not_r17_sites": [
+                "Relaves Laguna Opalo TK-4",
+                "Cemento Sierra Muda KL-2 BH-2",
+                "Coqueria Ensenada Laja D-2102",
+            ],
+            "not_r18_sites": [
+                "Recupero Golfo Negro KR-1",
+                "Vidrio del Paso Tinto FL-3 TB-3",
+                "Destiladora Criogenica Bahia Helada C-4",
+            ],
+            "not_r19_sites": [
+                "Alumina Bahia Roja DG-4",
+                "Geotermia Valle Fumarola P-14",
+                "Refineria Punta Alcatraz FCC U-220",
+            ],
+            "not_r20_sites": [
+                "Alquilacion Punta Espato ALK-2",
+                "Oxirano Ria Salada R-210",
+                "Alto Horno Caleta Coque BF-3",
+            ],
+            "not_r21_sites": [
+                "Acrilonitrilo Punta Morro Sohio AN R-120",
+                "Tereftalico Ria Concha PTA oxidizer R-410",
+                "Urea Bahia Mangle urea reactor R-701",
+            ],
+            "not_r22_sites": round_site_prefixes(22)
+            or [
+                "Sintesis Amoniaco Punta Magma",
+                "Recuperacion Claus Cerro Yeso",
+                "Autoclave PVC Caleta Vinilo",
+            ],
+            "not_r23_sites": round_site_prefixes(23)
+            or [
+                "Fenol Caleta Cucao",
+                "Clorato Salar Surire",
+                "Caprolactama Golfo Reloncavi",
+            ],
+            "not_r24_sites": round_site_prefixes(24),
+            "not_prior_failure_classes": sorted(LIVE_ARCHETYPES),
+        },
+    }
+    rec_path = OUT / "diagnosis-handoff-receipt-r25.json"
+    rec_path.write_text(dumps(receipt), encoding="utf-8")
+
+    staged = sorted(p.name for p in OUT.iterdir() if p.is_file())
+    allowed = {
+        "rejected-01-r25.json",
+        "rejected-02-r25.json",
+        "rejected-03-r25.json",
+        "diagnosis-01-r25.md",
+        "diagnosis-02-r25.md",
+        "diagnosis-03-r25.md",
+        "diagnosis-handoff-receipt-r25.json",
+    }
+    forbidden = (
+        "batch-r25.jsonl",
+        "NOTES-r25.md",
+        "chosen-01-r25.json",
+        "chosen-02-r25.json",
+        "chosen-03-r25.json",
+    )
+    for name in forbidden:
+        if (OUT / name).exists():
+            raise SystemExit(f"session A must not emit {name}")
+    extras = set(staged) - allowed
+    if extras:
+        print("INFO extra staging names (left in place)", sorted(extras))
+    if (REPO / "outputs" / "raw" / "2026-08-30" / FACTORY / "batch-r25.jsonl").exists():
+        raise SystemExit("outputs/raw already has batch-r25; abort")
+
+    print("WROTE")
+    for e in files_meta:
+        print(f"  {e['name']:28s}  {e['bytes']:5d}  {e['sha256']}")
+    digest, n = sha256_bytes(rec_path)
+    print(f"  {rec_path.name:28s}  {n:5d}  {digest}")
+    print("verbs", verbs)
+    print("plants", plants)
+    print("archetypes", archetypes)
+    print("PASS")
+
+
+if __name__ == "__main__":
+    main()

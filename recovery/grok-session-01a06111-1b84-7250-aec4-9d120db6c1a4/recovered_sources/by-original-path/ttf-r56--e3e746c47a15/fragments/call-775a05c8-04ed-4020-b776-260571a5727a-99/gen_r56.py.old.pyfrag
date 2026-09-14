@@ -1,0 +1,15 @@
+        if rid == "ttf-r48-256":
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["median_C"] < ev["trip_C"]):
+                issues.append("256 median not under trip")
+            if ev.get("failed_channel") != "RTD-B" or ev.get("vote_failed") is not True:
+                issues.append("256 failed vote not tagged RTD-B")
+            if rec["executed_action"]["parameters"]["feed_t_h"] != 0.0:
+                issues.append("256 executed feed not zero")
+            tos = {row["to"] for row in rec["raster"]["routing"]["table"]}
+            if "policy.go_accept" in tos:
+                issues.append("256 routing contains go_accept")
+            if "policy.hold_reject" not in tos:
+                issues.append("256 routing missing hold_reject")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("256 missing recovery")

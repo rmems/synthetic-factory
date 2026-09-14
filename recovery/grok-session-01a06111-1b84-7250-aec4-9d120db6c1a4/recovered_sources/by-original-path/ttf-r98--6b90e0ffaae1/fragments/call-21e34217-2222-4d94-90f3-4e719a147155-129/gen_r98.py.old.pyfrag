@@ -1,0 +1,3 @@
+        "ttf-r*/_banned_src.py",
+        "ttf-r*/occ-*.txt",
+    ):

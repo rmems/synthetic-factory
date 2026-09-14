@@ -1,0 +1,1263 @@
+# ---------------------------------------------------------------------------
+# Record 139 — magnetodynamic paramagnetic O2 of a flare knockout, designed,
+# REJECT / MODIFY
+# ---------------------------------------------------------------------------
+def rec_139():
+    k_m = 0.400
+    i_mA = 12.50
+    t_k = 320.0
+    t0_k = 320.0
+    p_bar = 1.000
+    p0_bar = 1.000
+    t_ratio = t_k / t0_k
+    p_ratio = p0_bar / p_bar
+    x_vol = k_m * i_mA * t_ratio * p_ratio
+    _exact(t_ratio, 1.000)
+    _exact(p_ratio, 1.000)
+    _exact(x_vol, 5.00)
+    _exact(k_m * 5.00 * t_ratio * p_ratio, 2.00)
+    _exact(k_m * 10.00 * t_ratio * p_ratio, 4.00)
+    _exact(k_m * 8.00 * t_ratio * p_ratio, 3.20)
+    k_chi = 0.080
+    chi = k_chi * i_mA
+    _exact(chi, 1.00)
+    _exact(0.080 * 12.50, 1.00)
+    _exact(6000.0 + 1080.0, 7080.0)
+
+    raster = make_raster(
+        neurons=20,
+        mean_rate_hz=50.0,
+        window_ms=40.0,
+        seed=202609139,
+        source="ws8.para.dumbbell",
+        target="wickspire.ko_stop_core",
+        table=[
+            {"from": "para_I", "to": "o2_estimator", "weight": 1.40},
+            {"from": "para_snr", "to": "para_lock_core", "weight": 1.15},
+            {"from": "oxyveil_x", "to": "vendor_continue_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "da.cross_authority_conflict",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": "pre-post coincidence on continue-hotwork synapses; the plant paramagnetic modulator depresses continue-hotwork links when restoring current stays high inside tau_e of an SNR lock so an Oxyveil Magdyn-7 patch cannot hide a 5.00 volpct O2 KO drum",
+        },
+        channel_prefix="para.n",
+        anchor="WS-8 magnetodynamic dumbbell 40 ms frame at I 12.50 mA / SNR 12.0 (t_s 3000) reconstructing 5.00 volpct O2 above the 2.00 inert floor",
+    )
+    w_s = 0.040
+    events = [
+        ev(0.0, "para.I", 5.00, code="I_MA", units="mA", note="plant-owned magnetodynamic dumbbell on WS-8 KO-2; paramagnetic O2 family, not CEMS FTIR k-script, not TDLAS, not CRDS, not QEPAS, not zirconia cell"),
+        ev(300000.0, "para.snr", 6.0, code="PARA_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(600000.0, "recon.x", 2.00, code="X_VOLPCT", units="volpct", note="0.400*5.00*1.000*1.000=2.00 exact; at the 2.00 inert floor"),
+        ev(900000.0, "gc.O2", 0.80, code="GC_VOLPCT", units="volpct", note="serial-only GC-TCD cart; independent witness; unread by Magdyn-7"),
+        ev(1200000.0, "oxyveil.x", 0.40, code="VENDOR_VOLPCT", units="volpct", note="Oxyveil vendor Magdyn-7 cloud; infra owner; patched restoring-current timestamps"),
+        ev(1800000.0, "para.I", 10.00, code="I_MA", units="mA"),
+        ev(2100000.0, "recon.x", 4.00, code="X_VOLPCT", units="volpct", note="0.400*10.00=4.00"),
+        ev(2400000.0, "permit.slide", 40.00, code="PERM_S", units="s", note="permit clerk slid hot-work clock 40.00 s; collusion party"),
+        ev(2700000.0, "ko.T", 320.0, code="KO_K", units="K", note="plant KO thermocouple on copper DCS; independent witness"),
+        ev(3000000.0, "para.I", 12.50, code="I_MA", units="mA", note="inert-floor frame; raster sidecar"),
+        ev(3000001.3, "para.snr", 12.0, code="PARA_SNR", units="1", note="1.3 ms SNR lock after I; 12.0 >= 8.0"),
+        ev(3300000.0, "recon.x", 5.00, code="X_VOLPCT", units="volpct", note="0.400*12.50*1.000*1.000=5.00 exact; inert floor 2.00"),
+        ev(3600000.0, "recon.chi", 1.00, code="CHI_REL", units="1", note="0.080*12.50=1.00 exact susceptibility identity"),
+        ev(3900000.0, "gc.O2", 5.10, code="GC_VOLPCT", units="volpct", note="GC-TCD tracks the plant dumbbell, not Oxyveil 0.40"),
+        ev(4200000.0, "magdyn.drop", 1.0, code="MAG_DROP", units="bool", note="vendor restoring-current packets dropped in Oxyveil cloud for 40 s"),
+        ev(4800000.0, "ops.prop", 1.0, code="CONTINUE_HW", units="bool", note="night operator Ned Quillan: Oxyveil is clean 0.40 volpct; continue KO-2 hot-work"),
+        ev(5400000.0, "gate.stop", 1.0, code="REJECT", units="decision", note="refuse continue-hot-work; 5.00 volpct and SNR 12.0; Oxyveil not SoT"),
+        ev(6000000.0, "n2.start", 1.0, code="N2_PURGE_START", units="bool", note="bookend 1 of the 18.0 min N2-purge floor"),
+        ev(7080000.0, "n2.floor", 1.0, code="N2_PURGE_FLOOR", units="bool", note="6000 s + 1080 s = 7080 s = 18.0 min"),
+        ev(7800000.0, "ops.kill", 1.0, code="FLARE_ESD", units="bool", note="Quillan: ESD the whole Wickspire flare until day-shift"),
+        ev(8400000.0, "gate.hold", 1.0, code="MODIFY", units="decision", note="companion t2: N2-purge hold on plant dumbbell as live interlock; flare ESD refused"),
+        ev(9000000.0, "n2lock.set", 1.0, code="N2_PURGE_HELD", units="bool"),
+        ev(9600000.0, "para.I", 8.00, code="I_MA", units="mA"),
+        ev(10200000.0, "recon.x", 3.20, code="X_VOLPCT", units="volpct", note="0.400*8.00=3.20; still above 2.00 so N2-purge holds"),
+        ev(10800000.0, "oxyveil.x", 0.38, code="VENDOR_VOLPCT", units="volpct"),
+        ev(11400000.0, "gc.O2", 3.30, code="GC_VOLPCT", units="volpct"),
+        ev(12000000.0, "n2.held", 1.0, code="N2_PURGE_HELD", units="bool"),
+        ev(12600000.0, "flare.esd", 0.0, code="ESD_NOT_TAKEN", units="bool"),
+        ev(13200000.0, "permit.slide", 40.00, code="PERM_S", units="s"),
+        ev(13800000.0, "ko.T", 318.0, code="KO_K", units="K"),
+        ev(14400000.0, "magdyn.drop", 1.0, code="MAG_DROP", units="bool"),
+        ev(15000000.0, "n2lock.held", 1.0, code="N2_PURGE_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r46-139-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "WS-PARA-2026-0902",
+            "domain": "paramagnetic_o2_flare_ko",
+            "setting": "Wickspire Flare WS-8 (invented), Gullfen Petrochem Yard, knockout drum KO-2. Plant-owned magnetodynamic dumbbell is the O2 SoT. Oxyveil / Magdyn-7 vendor DAQ (infra owner) plus the hot-work permit clock are collusion parties, not witnesses. Invented plant; designed campaign. Not stack-gas CEMS k-script (r04), not TDLAS NH3 (r22), not CRDS HF (r15), not QEPAS (r19), not zirconia electrochemical O2.",
+            "observables_at_decision": {
+                "I_mA": i_mA,
+                "T_K": t_k,
+                "T0_K": t0_k,
+                "P_bar": p_bar,
+                "P0_bar": p0_bar,
+                "k_m": k_m,
+                "x_volpct": x_vol,
+                "chi_rel": chi,
+                "para_snr": 12.0,
+                "oxyveil_volpct": 0.40,
+                "permit_slide_s": 40.00,
+                "inert_floor_volpct": 2.00,
+            },
+            "margin_authority": "WS-8 KO SOP rev C: if reconstructed x_volpct >= 2.00 AND para SNR >= 8.0, continue-hot-work is forbidden even if Oxyveil reports 0.40 volpct. Flare ESD is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night flare operator Ned Quillan, citing Oxyveil 0.40 volpct and a quiet Magdyn-7 restoring current",
+            "summary": "continue the KO-2 hot-work; 12.50 mA is dumbbell noise on a healthy inert train",
+            "basis_claimed": "Oxyveil is the only OEM Magdyn SoT and a night abort of KO-2 hot-work is a turnaround miss",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Continue-hot-work is refused. Serialized reconstruction: x_volpct = k_m * I_mA * (T/T0) * (P0/P) = 0.400 * 12.50 * 1.000 * 1.000 = 5.00, above the 2.00 volpct inert floor, and para SNR is 12.0 >= 8.0. Susceptibility identity chi = 0.080 * 12.50 = 1.00. Permit clock was slid 40.00 s and vendor restoring-current packets were dropped, so Oxyveil is a collusion party (Magdyn vendor plus operator plus permit clerk). Ordered: refuse continue-hot-work now. Scope: this REJECT does not ESD the flare (that is the companion question) and does not isolate the KO thermocouple.",
+            "threshold": "x_volpct>=2.00 AND para_snr>=8.0 => refuse continue-hot-work; Oxyveil is not SoT",
+            "stated_residuals": "N2-purge still required to hold the 5.00 volpct; 5.00 vs a true KO air-ingress is a production cut; Oxyveil remains the only OEM Magdyn channel",
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 5400: continue-hot-work refused; Oxyveil not SoT; reconstruction locked",
+            "tool": "ws8-para-ko-gate-cli",
+            "observation": "x 5.00 volpct recomputes from I 12.50 mA; plant dumbbell hashed; Oxyveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "para I 12.50 mA; raster frame; x 5.00 volpct"},
+                {"t_s": 4800.0, "event": "ops proposes continue-hot-work"},
+                {"t_s": 5400.0, "event": "REJECT continue-hot-work"},
+                {"t_s": 6000.0, "event": "18 min N2-purge bookend 1"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 8400.0, "event": "companion MODIFY N2-purge hold vs flare ESD"},
+            ],
+            "observed_effects": [
+                "KO O2 recomputes from the serialized paramagnetic model at every recon.x event",
+                "an Oxyveil-only head would have continued the hot-work overnight",
+                "18 min N2-purge floor is in the stream (n2.start, n2.floor)",
+            ],
+            "surprises": [
+                "a clean vendor Magdyn corridor and a 40 s permit slide co-existed with a 5.00 volpct plant reconstruction",
+            ],
+            "new_state": {
+                "ko2": "continue-hot-work blocked",
+                "oxyveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("para_reconstruction", 0.14),
+                ("conjunctive_inert_floor", 0.12),
+                ("oxyveil_nonsubstitution", 0.10),
+                ("three_party_collusion", 0.10),
+                ("n2_purge_time_cost", -0.03),
+            ],
+            "scored for a continue-hot-work REJECT on a recomputable paramagnetic O2 while refusing an Oxyveil Magdyn patch and a permit clock slide; 18 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "paramagnetic-o2", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Paramagnetic O2 gate: serialized k_m*I*(T/T0)*(P0/P) plus SNR lock beats a vendor Magdyn patch; companion t2 is the N2-purge hold, not a referral vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r46-139-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "WS-PARA-2026-0902-exec",
+            "domain": "n2_purge_para_interlock_execution",
+            "setting": "Same WS-8 after the REJECT. Operator proposes flare ESD. This companion is the operational N2-purge hold with the plant dumbbell as the live interlock, not a second O2 vote.",
+            "observables_at_decision": {
+                "x_volpct": 3.20,
+                "n2_purge_floor_s": 1080.0,
+                "flare_esd_proposed": True,
+                "n2_purge_set": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night flare operator Ned Quillan",
+            "summary": "ESD the whole Wickspire flare until day-shift; 18 min already paid and Oxyveil still shows 0.38 volpct",
+            "basis_claimed": "the REJECT already stopped hot-work, so a flare kill is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "N2-purge hold plus plant dumbbell as the live interlock. The 18 min N2-purge floor is complete and the inert tripwire (x_volpct >= 2.00) is still armed on the plant paramagnetic head. MODIFY the default Magdyn-restore SOP into a plant-dumbbell-only interlock. Do not ESD the flare. Do not restore the hot-work on Oxyveil. 3.20 volpct post-stop is still the plant SoT until a new frame clears 2.00.",
+            "threshold": "n2_purge AND n2_floor_complete AND flare_esd_not_taken AND continue_not_restored",
+        },
+        "executed_action": {
+            "summary": "N2-purge held at t_s 8400; flare ESD not latched; Oxyveil restore not taken",
+            "tool": "ws8-n2-purge-exec",
+            "observation": "recon.x 3.20 volpct after stop; N2-purge line-up complete; Oxyveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "N2-purge clock started after REJECT"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 7800.0, "event": "flare ESD proposed"},
+                {"t_s": 8400.0, "event": "MODIFY N2-purge hold; flare ESD refused"},
+            ],
+            "observed_effects": [
+                "Oxyveil restore did not reopen the O2 call",
+                "flare ESD never fired; KO-2 held N2-purge on the plant dumbbell",
+            ],
+            "new_state": {"n2": "purging", "flare": "in service", "ko2": "held"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("n2_purge_hold", 0.12),
+                ("no_flare_esd", 0.10),
+                ("oxyveil_nonsubstitution", 0.08),
+                ("n2_floor_complete", 0.06),
+                ("held_hotwork_cost", -0.02),
+            ],
+            "operational execution gate: N2-purge hold because Oxyveil is not a restore license; not an O2 re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "n2-purge-hold"]),
+    }
+    return {
+        "id": "nelb-r46-139",
+        "spike_events": events,
+        "language_view": {
+            "description": "Wickspire Flare WS-8. Plant-owned magnetodynamic dumbbell reconstructs 5.00 volpct O2 from 12.50 mA while Oxyveil still reports 0.40 volpct. The gate REJECTs continue-hot-work. An 18 min N2-purge floor is serialized in the stream. Companion t2 MODIFYs a flare ESD into a plant-dumbbell N2-purge hold.",
+            "trajectory": traj,
+            "trajectory_n2_purge_hold": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "para.I / para.snr": "magnetodynamic restoring current and SNR; the physics channels the reconstruction consumes",
+                "recon.x / recon.chi": "serialized O2 volpct and susceptibility identity",
+                "gc.O2 / oxyveil.x / permit.slide / ko.T / magdyn.drop": "GC-TCD, vendor O2 cloud, permit clock slide, KO thermocouple, and dropped Magdyn packets; the denial and collusion channels",
+                "ops.prop / gate.stop / ops.kill / gate.hold": "continue-hot-work proposal, REJECT, flare-ESD proposal, companion MODIFY",
+                "n2.start / n2.floor / n2lock.set / n2.held / flare.esd": "operational companion channels plus the 18 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: oxyveil.x 0.40 next to recon.x 5.00",
+                "reconstruction as event: recon.x 5.00 equals 0.400*12.50*1.000*1.000",
+                "REJECT then operational MODIFY: gate.stop at 5400 s, gate.hold at 8400 s",
+                "slow floor in-stream: n2.start 6000 s, n2.floor 7080 s (18.0 min)",
+                "tight para pair: para.I then para.snr +1.3 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Oxyveil is 0.40 volpct' = oxyveil.x 0.40; '5 volpct O2' = recon.x 5.00; 'refuse continue-hot-work' = gate.stop REJECT; 'N2-purge not flare ESD' = gate.hold MODIFY",
+            "why_high_value": "New magnetodynamic paramagnetic-O2 family on a flare knockout (not CEMS r04, not TDLAS r22, not CRDS r15, not QEPAS r19, not zirconia cell). Lead REJECT of continue-hot-work on a recomputable O2 that a vendor Magdyn patch and a permit clock slide would have cleared. Three-party collusion includes the Magdyn infra owner. Companion t2 is operational N2-purge hold. sim_or_real=designed.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609139, "stream_note": "stream amplitudes are authored constants (mA, 1, volpct, s, K, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "dumbbell restoring current exists at ~10 Hz; stream keeps 4 I points; recon keeps 4 of ~40 solver ticks",
+                "refractory_floors_ms": {
+                    "para.I": 1.3,
+                    "para.snr": 1.3,
+                    "recon.x": 60000,
+                    "recon.chi": 60000,
+                    "gc.O2": 60000,
+                    "oxyveil.x": 60000,
+                    "permit.slide": 60000,
+                    "ko.T": 60000,
+                    "magdyn.drop": 60000,
+                    "ops.prop": 60000,
+                    "gate.stop": 60000,
+                    "n2.start": 60000,
+                    "n2.floor": 60000,
+                    "ops.kill": 60000,
+                    "gate.hold": 60000,
+                    "n2lock.set": 60000,
+                    "n2.held": 60000,
+                    "flare.esd": 60000,
+                    "n2lock.held": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T01:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "paramagnetic reconstruction head: x_volpct = k_m * I_mA * (T/T0) * (P0/P); chi = k_chi * I_mA",
+                "conjunctive inert floor vs continue-hot-work vs flare ESD",
+                "vendor-Magdyn nonsubstitution plus three-party collusion including the infra owner",
+                "operational companion: N2-purge hold without restoring on Oxyveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "paramagnetic_magnetodynamic_o2",
+            "formula": "x_volpct = k_m * I_mA * (T_K / T0_K) * (P0_bar / P_bar); chi_rel = k_chi * I_mA",
+            "parameters": {
+                "k_m": 0.400,
+                "k_chi": 0.080,
+                "T0_K": 320.0,
+                "P0_bar": 1.000,
+                "inert_floor_volpct": 2.00,
+                "snr_lock": 8.0,
+                "n2_purge_min": 18.0,
+            },
+            "worked_example": {"I_mA": 12.50, "x_volpct": 5.00, "chi_rel": 1.00},
+            "check": "0.400 * 12.50 * 1.000 * 1.000 = 5.00 exactly; 0.080 * 12.50 = 1.00 exactly; 6000 s + 1080 s = 7080 s = 18.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 40.0,
+            "decision_window_s": 0.040,
+            "code": "ws8.para_ko_gate",
+            "note": "REJECT accumulator wins: plant paramagnetic O2 evidence overpowers the Oxyveil continue advocate",
+            "decode_rule": "reject-continue if o2_estimator AND para_lock fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("o2_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("para_lock", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("reject_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "ws8.para_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "ws8.n2_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r46-139",
+            clock_domain="ws8-para-campaign-relative-ms-t0-2026-09-02T01:00:00Z",
+            tags=["paramagnetic-o2", "REJECT", "MODIFY", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 140 — ultrasonic TOFD remaining ligament of a hydrocracker weld, hil,
+# MODIFY / ACCEPT
+# ---------------------------------------------------------------------------
+def rec_140():
+    t_nom = 20.00
+    c_mmus = 5.00
+    dt_us = 4.00
+    d_rem = t_nom - c_mmus * dt_us / 2.0
+    _exact(d_rem, 10.00)
+    _exact(t_nom - c_mmus * 2.00 / 2.0, 15.00)
+    _exact(t_nom - c_mmus * 3.20 / 2.0, 12.00)
+    _exact(t_nom - c_mmus * 3.60 / 2.0, 11.00)
+    c_id = 2.0 * (t_nom - d_rem) / dt_us
+    _exact(c_id, 5.00)
+    _exact(2.0 * (20.00 - 10.00) / 4.00, 5.00)
+    fd = 2.00 * d_rem
+    _exact(fd, 20.00)
+    _exact(2820.0 + 1440.0, 4260.0)
+
+    raster = make_raster(
+        neurons=25,
+        mean_rate_hz=50.0,
+        window_ms=32.0,
+        seed=202609140,
+        source="bx5.tofd.tippair",
+        target="bitternex.weld_isolate_core",
+        table=[
+            {"from": "tofd_dt", "to": "ligament_estimator", "weight": 1.35},
+            {"from": "tofd_snr", "to": "tip_norm_core", "weight": 1.20},
+            {"from": "difveil_d", "to": "vendor_continue_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "ach.referral_pressure_salience",
+            "tau_e_s": 1.2,
+            "tau_e_ms": 1200.0,
+            "eligibility": "pre-post coincidence on keep-weld synapses; the TOFD modulator depresses keep-weld and referral links when tip-pair delay stays long inside tau_e of an SNR lock so a Difveil last-good cannot hide a 10.00 mm ligament or name Tamsin Quayle",
+        },
+        channel_prefix="tofd.n",
+        anchor="BX-5 HIL coupon 32 ms frame at dt 4.00 us / SNR 14.0 (t_s 1560) reconstructing 10.00 mm remaining ligament below the 14.00 mm isolate floor",
+    )
+    w_s = 0.032
+    events = [
+        ev(0.0, "tofd.dt", 2.00, code="DT_US", units="us", note="HIL TOFD crack-tip pair on a dummy coupon in TOFD-HIL-6; hydrocracker weld ligament, not PAUT TFM girth, not Lamb-wave LUT, not DCPD, not MsS T(0,1), not ECA FSW"),
+        ev(180000.0, "tofd.snr", 9.0, code="TOFD_SNR", units="1", note="early tip-pair SNR; isolate needs SNR>=12"),
+        ev(360000.0, "recon.d", 15.00, code="D_MM", units="mm", note="20.00-(5.00*2.00)/2=15.00 exact"),
+        ev(540000.0, "cal.block", 20.00, code="CAL_MM", units="mm", note="plant cal-block remaining; no skip-distance hop in this window"),
+        ev(720000.0, "difveil.d", 18.40, code="VENDOR_MM", units="mm", note="Difveil last-good UT cloud; not admissible SoT"),
+        ev(900000.0, "tofd.dt", 3.20, code="DT_US", units="us"),
+        ev(1080000.0, "recon.d", 12.00, code="D_MM", units="mm", note="20.00-(5.00*3.20)/2=12.00; still under the 14.00 isolate floor"),
+        ev(1260000.0, "wedge.delay", 0.0, code="WEDGE_AE", units="bool", note="missing wedge-delay AE burst; Difveil UTC vs plant UTC+2 skipped the cal by 120 min"),
+        ev(1440000.0, "cal.block", 20.00, code="CAL_MM", units="mm"),
+        ev(1560000.0, "tofd.dt", 4.00, code="DT_US", units="us", note="isolate-floor frame; raster sidecar"),
+        ev(1560001.2, "tofd.snr", 14.0, code="TOFD_SNR", units="1", note="1.2 ms tip-norm after delay"),
+        ev(1740000.0, "recon.d", 10.00, code="D_MM", units="mm", note="20.00-(5.00*4.00)/2=10.00 exact; isolate 14.00, cut-out 6.00"),
+        ev(1920000.0, "recon.c", 5.00, code="C_MMUS", units="mm_us", note="2*(20.00-10.00)/4.00=5.00 exact; speed identity"),
+        ev(2100000.0, "difveil.d", 18.40, code="VENDOR_MM", units="mm"),
+        ev(2280000.0, "ops.prop", 1.0, code="KEEP_WELD_REFER", units="bool", note="night lead Orrin Vetch: keep weld W-9 and refer scanner Tamsin Quayle"),
+        ev(2460000.0, "gate.isol", 1.0, code="MODIFY", units="decision", note="isolate this weld; refuse the person-referral; Difveil not SoT"),
+        ev(2640000.0, "weld.lock", 1.0, code="WELD_ISOL", units="bool"),
+        ev(2820000.0, "cool.start", 1.0, code="COOL_START", units="bool", note="bookend 1 of the 24.0 min cooldown plus recouplant floor"),
+        ev(4260000.0, "cool.floor", 1.0, code="COOL_FLOOR", units="bool", note="2820 s + 1440 s = 4260 s = 24.0 min"),
+        ev(4440000.0, "ops.refer", 1.0, code="REFER_QUAYLE", units="bool", note="Vetch: Quayle badge was on the scanner log"),
+        ev(4620000.0, "gate.exec", 1.0, code="ACCEPT", units="decision", note="companion t2: new-wedge restart; person-referral refused; cut-out refused"),
+        ev(4800000.0, "wedge.new", 1.0, code="NEW_WEDGE", units="bool"),
+        ev(4980000.0, "tofd.dt", 3.60, code="DT_US", units="us"),
+        ev(5160000.0, "recon.d", 11.00, code="D_MM", units="mm", note="20.00-(5.00*3.60)/2=11.00; HIL dummy still under 14.00 so the isolated weld stays held"),
+        ev(5340000.0, "difveil.d", 18.30, code="VENDOR_MM", units="mm"),
+        ev(5520000.0, "cal.block", 20.00, code="CAL_MM", units="mm"),
+        ev(5700000.0, "refer.hold", 0.0, code="REFER_NOT_TAKEN", units="bool", note="Quayle exonerated; missing wedge-delay AE precedes the short ligament, not the badge touch"),
+        ev(5880000.0, "weld.held", 1.0, code="WELD_HELD", units="bool"),
+        ev(6060000.0, "wedge.delay", 1.0, code="WEDGE_AE", units="bool", note="wedge-delay restored on the new wedge"),
+        ev(6240000.0, "recon.c", 5.00, code="C_MMUS", units="mm_us", note="identity holds on the post-isolate tip pair"),
+        ev(6420000.0, "cut.condemn", 0.0, code="CUT_NOT_TAKEN", units="bool"),
+        ev(6600000.0, "cell.restart", 1.0, code="CELL_RESTART", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r46-140-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "BX-TOFD-2026-0718",
+            "domain": "tofd_weld_ligament",
+            "setting": "Bitternex Hydrocracker BX-5 (invented), Tarfen Pressure Circuit, outlet weld W-9. Hardware-in-the-loop dummy coupon in TOFD-HIL-6 supplies the tip-pair delay that times the in-service weld isolate. Plant-owned TOFD reconstruction is the remaining-ligament SoT. Difveil vendor UT scheduler is a corridor witness, not the weld SoT. Not PAUT TFM girth (r23), not Lamb-wave LUT (r35/r37), not DCPD (r38), not MsS T(0,1) (r14), not ECA FSW (r21).",
+            "observables_at_decision": {
+                "dt_us": dt_us,
+                "t_nom_mm": t_nom,
+                "c_mm_us": c_mmus,
+                "d_rem_mm": d_rem,
+                "fd_mhz_mm": fd,
+                "difveil_mm": 18.40,
+                "cal_block_mm": 20.00,
+                "wedge_delay": 0.0,
+                "isolate_floor_mm": 14.00,
+            },
+            "margin_authority": "BX-5 weld SOP rev B: if reconstructed d_rem_mm < 14.00 AND TOFD SNR >= 12.0, isolate this weld this night. A Difveil last-good or a quiet cal-block residual cannot keep the weld. Cut-out tripwire is 6.00 mm. Person-referral is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night lead Orrin Vetch, citing Difveil 18.40 mm and cal-block 20.00 mm, and naming scanner Tamsin Quayle as last-to-badge",
+            "summary": "keep weld W-9 in service and refer Quayle; 4.00 us is wedge noise on a healthy skip distance",
+            "basis_claimed": "Difveil last-good is 18.40 mm and a night isolate of the outlet weld is a turnaround miss",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Keep-weld is refused; the person-referral is also refused. Serialized reconstruction: d_rem = t_nom - c * dt / 2 = 20.00 - 5.00 * 4.00 / 2 = 10.00, which is 4.00 mm under the 14.00 isolate floor and 4.00 mm above the 6.00 cut-out tripwire. Speed identity c = 2*(20.00-10.00)/4.00 = 5.00 mm/us; fd identity 2.00 * 10.00 = 20.00. Difveil 18.40 mm is a last-good skip stamp and is not an admissible keep-weld witness. The missing wedge-delay AE burst sits on a Difveil UTC-vs-UTC+2 skip (120 min), not on Quayle's badge, and the plant cal-block stays 20.00 mm, so the easy referral fails command-custody. Ordered: isolate this weld now. Scope: this MODIFY does not cut out the spool (that is the companion question) and does not name Quayle.",
+            "threshold": "d_rem_mm<14.00 AND tofd_snr>=12.0 => isolate this weld; Difveil is not SoT; cut-out if d_rem_mm<6.00; referral requires badge-touch preceding the short ligament",
+            "stated_residuals": "10.00 vs 6.00 cut-out floor is 4.00 mm, not infinite; new-wedge restart still required; Difveil remains the only OEM skip channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 2460: weld isolated; Quayle not named; Difveil not SoT; reconstruction locked",
+            "tool": "bx5-tofd-weld-gate-cli",
+            "observation": "d 10.00 mm recomputes from dt 4.00 us; HIL coupon hashed; Difveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 1560.0, "event": "tofd dt 4.00 us; raster frame; d 10.00 mm"},
+                {"t_s": 2280.0, "event": "ops proposes keep-weld plus Quayle referral"},
+                {"t_s": 2460.0, "event": "MODIFY isolate weld; referral refused"},
+                {"t_s": 2820.0, "event": "24 min cooldown bookend 1"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4620.0, "event": "companion ACCEPT new-wedge restart; referral still refused"},
+            ],
+            "observed_effects": [
+                "ligament recomputes from the serialized TOFD model at every recon.d event",
+                "a Difveil-only head would have kept the weld overnight",
+                "24 min cooldown plus recouplant floor is in the stream (cool.start, cool.floor)",
+            ],
+            "surprises": [
+                "a last-good 18.40 mm vendor corridor and a quiet cal-block residual co-existed with a 10.00 mm ligament, and the obvious scanner was not on the causal path",
+            ],
+            "new_state": {
+                "weld_w9": "isolated",
+                "quayle": "exonerated",
+                "difveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 1500000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("tofd_reconstruction", 0.14),
+                ("isolate_floor_weld", 0.12),
+                ("exoneration", 0.10),
+                ("difveil_nonsubstitution", 0.08),
+                ("cool_time_cost", -0.04),
+            ],
+            "scored for a keep-weld MODIFY on a recomputable short ligament while refusing a Difveil 18.40 mm corridor and an easy person-referral; 24 min floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "tofd-ligament", "serialized-reconstruction", "operational-companion"],
+            distillation_note="TOFD gate: serialized t_nom-c*dt/2 plus speed identity beats a green UT dashboard; companion t2 is the new-wedge restart, not a governance vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r46-140-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "BX-TOFD-2026-0718-exec",
+            "domain": "new_wedge_cooldown_execution",
+            "setting": "Same BX-5 after the MODIFY. Night lead proposes referring Quayle and cutting out the spool. This companion is the operational new-wedge cooldown restart, not a second ligament vote.",
+            "observables_at_decision": {
+                "d_rem_mm": 11.00,
+                "c_mm_us": 5.00,
+                "cool_floor_s": 1440.0,
+                "refer_proposed": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night lead Orrin Vetch",
+            "summary": "refer Quayle and cut out the outlet spool; 24 min already paid and Difveil is 18.30 mm",
+            "basis_claimed": "the MODIFY already cut the weld, so a spool kill plus a person file is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Restart the cell on a different wedge after the cooldown floor. The 24 min recouplant is complete and the cut-out tripwire (d_rem_mm < 6.00) is still armed on the plant TOFD head. ACCEPT the new-wedge restart. Do not refer Quayle. Do not cut out the spool. 11.00 mm post-isolate is still under the 14.00 isolate floor, so the isolated weld stays held; the new wedge may run.",
+            "threshold": "new_wedge AND cool_floor_complete AND refer_not_taken AND spool_not_cut AND isolated_weld_held",
+        },
+        "executed_action": {
+            "summary": "new-wedge restart at t_s 4620; Quayle not referred; spool not cut; isolated weld held",
+            "tool": "bx5-tofd-cool-exec",
+            "observation": "recon.d 11.00 mm on the HIL dummy; wedge-delay AE present on the new wedge; Difveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 2820.0, "event": "cooldown clock started after MODIFY"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4440.0, "event": "Quayle referral re-proposed"},
+                {"t_s": 4620.0, "event": "ACCEPT new-wedge restart; referral refused"},
+            ],
+            "observed_effects": [
+                "Difveil restore did not reopen the ligament call",
+                "spool cut-out never fired; 10.00 vs 6.00 mm floor",
+                "Quayle remains unnamed; missing wedge-delay AE is the causal object",
+            ],
+            "new_state": {"cell": "restarted on new wedge", "quayle": "exonerated", "weld": "held", "spool": "in service"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("new_wedge_restart", 0.12),
+                ("no_person_referral", 0.10),
+                ("no_spool_cut", 0.09),
+                ("cool_floor_complete", 0.06),
+                ("held_weld_takt_cost", -0.02),
+            ],
+            "operational execution gate: restart on a new wedge because Difveil is not a restore license and Quayle is not on the causal path; not a ligament re-vote",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "exoneration"]),
+    }
+    return {
+        "id": "nelb-r46-140",
+        "spike_events": events,
+        "language_view": {
+            "description": "Bitternex Hydrocracker BX-5. HIL TOFD tip-pair reconstructs 10.00 mm remaining ligament from 4.00 us while Difveil still shows 18.40 mm and the cal-block 20.00 mm. The gate MODIFYs weld isolate and refuses the scanner referral. A 24 min cooldown floor is serialized in the stream. Companion t2 ACCEPTs a new-wedge restart and still refuses the referral.",
+            "trajectory": traj,
+            "trajectory_new_wedge": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "tofd.dt / tofd.snr": "tip-pair delay and SNR; the physics channels the reconstruction consumes",
+                "recon.d / recon.c": "serialized remaining ligament mm and speed identity",
+                "cal.block / difveil.d / wedge.delay": "plant cal-block, vendor last-good, and wedge-delay AE; the denial and exoneration channels",
+                "ops.prop / gate.isol / ops.refer / gate.exec": "keep-weld-plus-refer proposal, MODIFY isolate, referral re-proposal, companion ACCEPT",
+                "weld.lock / cool.start / cool.floor / wedge.new / refer.hold / cell.restart": "operational companion channels plus the 24 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while TOFD-under: difveil.d 18.40 next to recon.d 10.00",
+                "reconstruction as event: recon.d 10.00 equals 20.00-(5.00*4.00)/2",
+                "MODIFY then operational ACCEPT: gate.isol at 2460 s, gate.exec at 4620 s",
+                "slow floor in-stream: cool.start 2820 s, cool.floor 4260 s (24.0 min)",
+                "tight TOFD pair: tofd.dt then tofd.snr +1.2 ms at the raster frame",
+                "exoneration motif: wedge.delay 0 at 1260 s precedes the short ligament; Quayle badge is not in the stream as a cause",
+            ],
+            "language_to_spike_mapping": "'Difveil is 18.40 mm' = difveil.d 18.40; '10 mm ligament' = recon.d 10.00; 'isolate this weld not Quayle' = gate.isol MODIFY; 'new wedge not referral' = gate.exec ACCEPT",
+            "why_high_value": "New ultrasonic TOFD remaining-ligament family on a hydrocracker weld (not PAUT TFM r23, not Lamb-wave r35/r37, not DCPD r38, not MsS r14, not ECA FSW r21). Lead MODIFY of keep-weld on a recomputable short ligament that a vendor last-good would have cleared, with a resolved-innocent scanner. Companion t2 is operational new-wedge restart. sim_or_real=hil.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609140, "stream_note": "stream amplitudes are authored constants (us, 1, mm, mm/us, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "TOFD A-scan exists at ~5 MHz; stream keeps 4 dt points; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "tofd.dt": 1.2,
+                    "tofd.snr": 1.2,
+                    "recon.d": 60000,
+                    "recon.c": 60000,
+                    "cal.block": 60000,
+                    "difveil.d": 60000,
+                    "wedge.delay": 60000,
+                    "ops.prop": 60000,
+                    "gate.isol": 60000,
+                    "weld.lock": 60000,
+                    "cool.start": 60000,
+                    "cool.floor": 60000,
+                    "ops.refer": 60000,
+                    "gate.exec": 60000,
+                    "wedge.new": 60000,
+                    "refer.hold": 60000,
+                    "weld.held": 60000,
+                    "cut.condemn": 60000,
+                    "cell.restart": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-07-18T02:30:00Z HIL night start",
+            },
+            "distillation_targets": [
+                "TOFD reconstruction head: d_rem = t_nom - c * dt / 2; c = 2*(t_nom-d_rem)/dt",
+                "isolate-floor weld vs keep-whole vs spool-cut",
+                "exoneration head: missing wedge-delay AE plus timezone skip, not last-to-badge",
+                "operational companion: new-wedge restart without referring the scanner",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "tofd_crack_tip_ligament",
+            "formula": "d_rem_mm = t_nom_mm - c_mm_us * dt_us / 2; c_mm_us = 2 * (t_nom_mm - d_rem_mm) / dt_us; fd = f_mhz * d_rem_mm",
+            "parameters": {
+                "t_nom_mm": 20.00,
+                "c_mm_us": 5.00,
+                "f_mhz": 2.00,
+                "isolate_floor_mm": 14.00,
+                "cut_mm": 6.00,
+                "snr_lock": 12.0,
+                "cool_min": 24.0,
+            },
+            "worked_example": {"dt_us": 4.00, "d_rem_mm": 10.00, "c_mm_us": 5.00, "fd_mhz_mm": 20.00},
+            "check": "20.00 - (5.00 * 4.00) / 2 = 10.00 exactly; 2 * (20.00 - 10.00) / 4.00 = 5.00 exactly; 2.00 * 10.00 = 20.00 exactly; 2820 s + 1440 s = 4260 s = 24.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 32.0,
+            "decision_window_s": 0.032,
+            "code": "bx5.tofd_weld_gate",
+            "note": "MODIFY accumulator wins: TOFD short-ligament evidence overpowers the Difveil continue advocate",
+            "decode_rule": "modify-isolate if ligament_estimator AND tip_norm fire; vendor_continue_advocate is below threshold by design; referral_latch is not armed",
+            "populations": [
+                gate_pop("ligament_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("tip_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("modify_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "bx5.tofd_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 32.0},
+                {"check": "bx5.isol_scorer", "neurons": 50, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r46-140",
+            clock_domain="bx5-tofd-hil-relative-ms-t0-2026-07-18T02:30:00Z",
+            tags=["tofd-ligament", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Record 141 — TEOM baghouse PM of a kiln stack, simulated,
+# ACCEPT / REJECT
+# ---------------------------------------------------------------------------
+def rec_141():
+    k_t = 4.00
+    df_hz = 12.00
+    q_m3min = 2.00
+    c_mgm3 = k_t * df_hz / q_m3min
+    _exact(c_mgm3, 24.00)
+    _exact(k_t * 4.00 / q_m3min, 8.00)
+    _exact(k_t * 8.00 / q_m3min, 16.00)
+    _exact(k_t * 10.00 / q_m3min, 20.00)
+    mdot = k_t * df_hz
+    _exact(mdot, 48.00)
+    _exact(24.00 * 2.00, 48.00)
+    f0 = 6000.00
+    r = df_hz / f0
+    _exact(r, 0.002)
+    k_f = 24000.00
+    _exact(k_f * r / q_m3min, 24.00)
+    _exact(6000.0 + 720.0, 6720.0)
+
+    raster = make_raster(
+        neurons=16,
+        mean_rate_hz=62.5,
+        window_ms=36.0,
+        seed=202609141,
+        source="ck3.teom.taper",
+        target="clinkerfell.comp_accept_core",
+        table=[
+            {"from": "teom_df", "to": "pm_estimator", "weight": 1.40},
+            {"from": "teom_q", "to": "flow_norm_core", "weight": 1.20},
+            {"from": "bagveil_c", "to": "vendor_skip_advocate", "weight": 0.50},
+        ],
+        third_factor={
+            "modulator": "na.stage_rate_eligibility",
+            "tau_e_s": 2.0,
+            "tau_e_ms": 2000.0,
+            "eligibility": "pre-post coincidence on skip-pulse synapses; the TEOM modulator enables potentiation only while frequency residual and flow are co-active inside tau_e so a Bagveil last-good cannot skip compartments C-1..C-3 on a 24.00 mg/m3 load",
+        },
+        channel_prefix="teom.n",
+        anchor="CK-3 TEOM-SIM-2 36 ms frame at df 12.00 Hz / Q 2.00 m3/min (t_s 3000) reconstructing 24.00 mg/m3 on C-4 above the 20.00 pulse-clean floor",
+    )
+    w_s = 0.036
+    events = [
+        ev(0.0, "teom.df", 4.00, code="DF_HZ", units="Hz", note="simulated TEOM tapered-element of CK-3 baghouse C-4; stack PM family, not QCM-D Sauerbrey, not Kr-85 beta gsm, not MW-cavity moisture, not Cs-137 densitometry, not LII soot"),
+        ev(300000.0, "teom.Q", 2.00, code="Q_M3MIN", units="m3_min", note="sample flow; held at 2.00"),
+        ev(600000.0, "recon.C", 8.00, code="C_MGM3", units="mg_m3", note="4.00*4.00/2.00=8.00 exact"),
+        ev(900000.0, "teom.snr", 14.0, code="TEOM_SNR", units="1"),
+        ev(1200000.0, "bagveil.C", 4.80, code="VENDOR_MGM3", units="mg_m3", note="Bagveil last-good opacity cloud; patched residual 0.00 mg/m3"),
+        ev(1800000.0, "teom.df", 8.00, code="DF_HZ", units="Hz"),
+        ev(2100000.0, "recon.C", 16.00, code="C_MGM3", units="mg_m3", note="4.00*8.00/2.00=16.00"),
+        ev(2400000.0, "recon.mdot", 32.00, code="MDOT_MGMIN", units="mg_min", note="4.00*8.00=32.00; mass-flow identity at this frame"),
+        ev(2700000.0, "teom.snr", 16.0, code="TEOM_SNR", units="1"),
+        ev(3000000.0, "teom.df", 12.00, code="DF_HZ", units="Hz", note="in-band frame; raster sidecar"),
+        ev(3000001.5, "teom.Q", 2.00, code="Q_M3MIN", units="m3_min", note="1.5 ms flow-norm after frequency residual"),
+        ev(3300000.0, "recon.C", 24.00, code="C_MGM3", units="mg_m3", note="4.00*12.00/2.00=24.00 exact; pulse-clean 20.00, kiln-trip 80.00"),
+        ev(3600000.0, "bagveil.C", 4.80, code="VENDOR_MGM3", units="mg_m3"),
+        ev(3900000.0, "comp.id", 4.0, code="COMP", units="id"),
+        ev(4200000.0, "c13.present", 1.0, code="C13_PRESENT", units="bool", note="adjacent compartments C-1..C-3 are the skip-pulse object, not this compartment"),
+        ev(4800000.0, "ops.prop", 1.0, code="ACCEPT_AND_SKIP", units="bool", note="baghouse lead Lila Thorne: C-4 is green on Bagveil 4.80; skip C-1..C-3 to save a morning pulse"),
+        ev(5400000.0, "gate.comp", 1.0, code="ACCEPT", units="decision", note="bounded ACCEPT of C-4 pulse-clean only; 24.00 mg/m3 above 20.00 floor; C-1..C-3 out of scope"),
+        ev(6000000.0, "surv.start", 1.0, code="SURV_START", units="bool", note="bookend 1 of the 12.0 min survey-complete floor"),
+        ev(6720000.0, "surv.floor", 1.0, code="SURV_FLOOR", units="bool", note="6000 s + 720 s = 6720 s = 12.0 min"),
+        ev(7200000.0, "ops.skip", 1.0, code="SKIP_C13", units="bool", note="Thorne: Bagveil 4.80, skip C-1..C-3"),
+        ev(7800000.0, "gate.hold", 1.0, code="REJECT", units="decision", note="companion t2: skip-pulse of C-1..C-3 refused; C-4 hold stands"),
+        ev(8400000.0, "c4.held", 1.0, code="C4_HELD", units="bool"),
+        ev(9000000.0, "teom.df", 10.00, code="DF_HZ", units="Hz"),
+        ev(9600000.0, "recon.C", 20.00, code="C_MGM3", units="mg_m3", note="4.00*10.00/2.00=20.00; still at the 20.00 pulse-clean floor"),
+        ev(10200000.0, "bagveil.C", 4.80, code="VENDOR_MGM3", units="mg_m3"),
+        ev(10800000.0, "c13.skip", 0.0, code="C13_NOT_SKIPPED", units="bool"),
+        ev(11400000.0, "kiln.trip", 0.0, code="KILN_NOT_TRIPPED", units="bool"),
+        ev(12000000.0, "teom.snr", 15.0, code="TEOM_SNR", units="1"),
+        ev(12600000.0, "recon.mdot", 40.00, code="MDOT_MGMIN", units="mg_min", note="4.00*10.00=40.00 on the post-accept frame"),
+        ev(13200000.0, "bag.held", 1.0, code="BAG_HELD", units="bool"),
+        ev(13800000.0, "takt.late", 1.0, code="SURVEY_COST", units="bool"),
+        ev(14400000.0, "c4.held", 1.0, code="C4_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r46-141-t1",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "CK-TEOM-2026-0819",
+            "domain": "teom_baghouse_pm",
+            "setting": "Clinkerfell Kiln CK-3 (invented), Chalkmere Works baghouse. Simulated TEOM coupon in TEOM-SIM-2 supplies the tapered-element frequency residual that times the in-band C-4 pulse-clean. Plant-owned TEOM reconstruction is the PM SoT. Bagveil vendor last-good opacity cloud is a corridor witness, not the baghouse SoT. Invented plant; simulated campaign. Not QCM-D (r14), not Kr-85 beta gsm (r40 in-flight), not MW-cavity moisture (r26), not Cs-137 densitometry (r27), not LII soot (r31).",
+            "observables_at_decision": {
+                "df_hz": df_hz,
+                "Q_m3min": q_m3min,
+                "k_t": k_t,
+                "C_mgm3": c_mgm3,
+                "mdot_mgmin": mdot,
+                "bagveil_mgm3": 4.80,
+                "teom_snr": 16.0,
+                "pulse_floor_mgm3": 20.00,
+            },
+            "margin_authority": "CK-3 baghouse SOP rev A: if reconstructed C_mgm3 >= 20.00 AND TEOM SNR >= 12.0, compartment C-4 may be pulse-cleaned. Kiln-trip if C_mgm3 >= 80.00. C-1..C-3 skip-pulse is a different gate. Bagveil last-good cannot skip an unmeasured compartment.",
+        },
+        "proposed_action": {
+            "actor": "baghouse lead Lila Thorne, citing Bagveil 4.80 mg/m3 and a late morning pulse",
+            "summary": "stamp C-4 in band and skip C-1..C-3; 12.00 Hz is a filter glitch on a healthy opacity",
+            "basis_claimed": "Bagveil last-good is 4.80 mg/m3 and a night survey of C-1..C-3 is a takt miss",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "Compartment C-4 is accepted as in-band for a single pulse-clean. Serialized reconstruction: C_mgm3 = k_t * df_hz / Q = 4.00 * 12.00 / 2.00 = 24.00, which is 4.00 mg/m3 above the 20.00 pulse-clean floor and 56.00 mg/m3 under the 80.00 kiln-trip. Mass-flow identity mdot = k_t * df = 4.00 * 12.00 = 48.00 mg/min, and df/f0 = 12.00/6000.00 = 0.002 with C = 24000 * 0.002 / 2.00 = 24.00. Bagveil 4.80 mg/m3 is a patched 0.00 residual and is not an admissible skip-pulse witness. Ordered: ACCEPT this C-4 pulse-clean only. Scope: this ACCEPT does not skip C-1..C-3 (that is the companion question) and does not stamp a kiln trip.",
+            "threshold": "C_mgm3>=20.00 AND teom_snr>=12.0 => accept C-4 pulse-clean; Bagveil is not SoT; kiln-trip if C_mgm3>=80.00; C-1..C-3 are out of scope",
+            "stated_residuals": "24.00 vs 20.00 pulse-clean floor is 4.00 mg/m3, not infinite; C-1..C-3 remain unmeasured; Bagveil remains the only OEM opacity channel",
+        },
+        "executed_action": {
+            "summary": "ACCEPT at t_s 5400: C-4 in band; C-1..C-3 not skipped; Bagveil not SoT; reconstruction locked",
+            "tool": "ck3-teom-comp-gate-cli",
+            "observation": "C 24.00 mg/m3 recomputes from df 12.00 Hz and Q 2.00; TEOM-SIM-2 hashed; Bagveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "teom df 12.00 Hz; raster frame; C 24.00 mg/m3"},
+                {"t_s": 4800.0, "event": "ops proposes accept C-4 and skip C-1..C-3"},
+                {"t_s": 5400.0, "event": "ACCEPT C-4 only; C-1..C-3 out of scope"},
+                {"t_s": 6000.0, "event": "12 min survey-complete bookend 1"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7800.0, "event": "companion REJECT skip-pulse of C-1..C-3"},
+            ],
+            "observed_effects": [
+                "PM recomputes from the serialized TEOM model at every recon.C event",
+                "a Bagveil-only head would have skipped C-1..C-3 overnight",
+                "12 min survey-complete floor is in the stream (surv.start, surv.floor)",
+            ],
+            "surprises": [
+                "a last-good 4.80 mg/m3 vendor corridor co-existed with a 24.00 mg/m3 in-band reconstruction that still forbids skipping the unmeasured compartments",
+            ],
+            "new_state": {
+                "c4": "accepted in band",
+                "c13": "not this gate",
+                "bagveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.41,
+            [
+                ("teom_reconstruction", 0.14),
+                ("in_band_comp_scope", 0.12),
+                ("bagveil_nonsubstitution", 0.09),
+                ("c13_out_of_scope", 0.08),
+                ("survey_cost", -0.02),
+            ],
+            "scored for a bounded ACCEPT of C-4 on a recomputable PM load while refusing a Bagveil skip of C-1..C-3; 12 min floor is priced as survey takt not as a reason to skip",
+        ),
+        "meta": meta_common(
+            tags=["ACCEPT", "teom-pm", "serialized-reconstruction", "operational-companion"],
+            distillation_note="TEOM PM gate: serialized k_t*df/Q plus mdot identity beats a green last-good dashboard; companion t2 is the skip-pulse refusal, not an opacity re-vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r46-141-t2",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "CK-TEOM-2026-0819-exec",
+            "domain": "comp_skip_pulse_refusal",
+            "setting": "Same CK-3 after the ACCEPT. Baghouse lead proposes skipping C-1..C-3 on Bagveil 4.80 mg/m3. This companion is the operational skip refusal, not a second PM vote.",
+            "observables_at_decision": {
+                "C_mgm3": 20.00,
+                "bagveil_mgm3": 4.80,
+                "surv_floor_s": 720.0,
+                "skip_proposed": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "baghouse lead Lila Thorne",
+            "summary": "skip C-1..C-3; 12 min already paid and Bagveil is 4.80 mg/m3",
+            "basis_claimed": "the ACCEPT already stamped C-4, so skipping the rest of the baghouse is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": "Refuse skip-pulse of C-1..C-3. The 12 min survey-complete floor is done and the kiln-trip (C_mgm3 >= 80.00) is still armed on the plant TEOM head. REJECT the skip. Do not trip the kiln. Do not reopen C-4. 20.00 mg/m3 post-accept is still in band for C-4 only; C-1..C-3 have no independent TEOM.",
+            "threshold": "c4_held AND surv_floor_complete AND c13_not_skipped AND kiln_not_tripped",
+        },
+        "executed_action": {
+            "summary": "C-1..C-3 skip refused at t_s 7800; C-4 hold stands; kiln not tripped",
+            "tool": "ck3-teom-skip-exec",
+            "observation": "recon.C 20.00 mg/m3 on C-4; C-1..C-3 remain on the survey list; Bagveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "survey clock started after ACCEPT"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7200.0, "event": "skip C-1..C-3 proposed"},
+                {"t_s": 7800.0, "event": "REJECT skip-pulse of C-1..C-3"},
+            ],
+            "observed_effects": [
+                "Bagveil skip did not reopen the PM call",
+                "kiln trip never fired; 24.00 vs 80.00 mg/m3 floor",
+            ],
+            "new_state": {"c4": "held in band", "c13": "still to survey", "kiln": "in service"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.36,
+            [
+                ("skip_refusal", 0.13),
+                ("bagveil_nonsubstitution", 0.11),
+                ("no_kiln_trip", 0.09),
+                ("surv_floor_complete", 0.05),
+                ("held_survey_takt_cost", -0.02),
+            ],
+            "operational execution gate: refuse skip-pulse because last-good freeze is not TEOM PM; not an opacity re-vote",
+        ),
+        "meta": meta_common(tags=["REJECT", "operational-execution", "skip-pulse"]),
+    }
+    return {
+        "id": "nelb-r46-141",
+        "spike_events": events,
+        "language_view": {
+            "description": "Clinkerfell Kiln CK-3. Simulated TEOM reconstructs 24.00 mg/m3 from 12.00 Hz / 2.00 m3/min * 4.00 while Bagveil still shows 4.80 mg/m3. The gate ACCEPTs C-4 pulse-clean only; a companion execution REJECT refuses skip-pulse of C-1..C-3. The frequency-to-PM model is serialized so every recon event recomputes.",
+            "trajectory": traj,
+            "trajectory_skip_pulse_refusal": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "teom.df / teom.Q": "tapered-element frequency residual and sample flow; the physics channels the reconstruction consumes",
+                "recon.C / recon.mdot": "serialized PM mg/m3 and mass-flow identity",
+                "teom.snr / bagveil.C / comp.id / c13.present": "TEOM SNR, vendor last-good, compartment id, and adjacent-compartment presence; the denial and scope channels",
+                "ops.prop / gate.comp / ops.skip / gate.hold": "accept-and-skip proposal, bounded ACCEPT, skip proposal, companion REJECT",
+                "surv.start / surv.floor / c4.held / c13.skip / bag.held": "operational companion channels plus the 12 min floor",
+            },
+            "temporal_motifs": [
+                "last-good-low while TEOM-over: bagveil.C 4.80 next to recon.C 24.00",
+                "reconstruction as event: recon.C 24.00 equals 4.00*12.00/2.00",
+                "ACCEPT then operational REJECT: gate.comp at 5400 s, gate.hold at 7800 s",
+                "slow floor in-stream: surv.start 6000 s, surv.floor 6720 s (12.0 min)",
+                "tight TEOM pair: teom.df then teom.Q +1.5 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Bagveil is 4.80 mg/m3' = bagveil.C 4.80; '24 mg/m3 PM' = recon.C 24.00; 'this compartment not C-1..C-3' = gate.comp ACCEPT plus c13.skip 0; 'do not skip C-1..C-3' = gate.hold REJECT",
+            "why_high_value": "New TEOM baghouse-PM family on a kiln stack (not QCM-D r14, not Kr-85 beta r40 in-flight, not MW-cavity r26, not Cs-137 r27, not LII r31). First k_t*df/Q concentration reconstruction with mdot identity that can sit in band while a last-good corridor wants a compartment skip. Companion t2 is operational skip refusal. sim_or_real=simulated.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {"raster": 202609141, "stream_note": "stream amplitudes are authored constants (Hz, m3/min, mg/m3, mg/min, 1, id, bool)"},
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "TEOM frequency exists at ~1 Hz; stream keeps 4 df points; recon keeps 4 of ~20 solver ticks",
+                "refractory_floors_ms": {
+                    "teom.df": 1.5,
+                    "teom.Q": 1.5,
+                    "recon.C": 60000,
+                    "teom.snr": 60000,
+                    "bagveil.C": 60000,
+                    "recon.mdot": 60000,
+                    "comp.id": 60000,
+                    "c13.present": 60000,
+                    "ops.prop": 60000,
+                    "gate.comp": 60000,
+                    "surv.start": 60000,
+                    "surv.floor": 60000,
+                    "ops.skip": 60000,
+                    "gate.hold": 60000,
+                    "c4.held": 60000,
+                    "c13.skip": 60000,
+                    "kiln.trip": 60000,
+                    "bag.held": 60000,
+                    "takt.late": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-08-19T03:00:00Z simulated night start",
+            },
+            "distillation_targets": [
+                "TEOM reconstruction head: C = k_t * df / Q; mdot = k_t * df; C = k_f * (df/f0) / Q",
+                "bounded ACCEPT head: in-band PM AND compartment scope AND c13-out-of-scope",
+                "operational companion: refuse skip-pulse without re-opening the opacity call",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "teom_baghouse_pm",
+            "formula": "C_mgm3 = k_t * df_hz / Q_m3min; mdot_mgmin = k_t * df_hz; C_mgm3 = k_f * (df_hz / f0_hz) / Q_m3min",
+            "parameters": {
+                "k_t": 4.00,
+                "Q_m3min": 2.00,
+                "f0_hz": 6000.00,
+                "k_f": 24000.00,
+                "pulse_floor_mgm3": 20.00,
+                "kiln_trip_mgm3": 80.00,
+                "surv_min": 12.0,
+            },
+            "worked_example": {"df_hz": 12.00, "C_mgm3": 24.00, "mdot_mgmin": 48.00, "df_over_f0": 0.002},
+            "check": "4.00 * 12.00 / 2.00 = 24.00 exactly; 4.00 * 12.00 = 48.00 exactly; 12.00 / 6000.00 = 0.002 exactly; 24000 * 0.002 / 2.00 = 24.00 exactly; 6000 s + 720 s = 6720 s = 12.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "ACCEPT",
+            "decision_window_ms": 36.0,
+            "decision_window_s": 0.036,
+            "code": "ck3.teom_comp_gate",
+            "note": "ACCEPT accumulator wins: TEOM PM evidence overpowers the Bagveil skip advocate",
+            "decode_rule": "accept if pm_estimator AND flow_norm AND baghouse_margin fire inside the window; vendor_skip_advocate is necessary-but-not-sufficient and cannot release C-1..C-3",
+            "populations": [
+                gate_pop("pm_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("flow_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("baghouse_margin", 40, 1.0, 50.0, w_s),
+                gate_pop("vendor_skip_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("accept_latch", 96, 1.8, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "ck3.teom_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "ck3.pm_scorer", "neurons": 40, "mean_rate_hz": 62.5, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r46-141",
+            clock_domain="ck3-teom-sim-relative-ms-t0-2026-08-19T03:00:00Z",
+            tags=["teom-pm", "ACCEPT", "REJECT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+def walk_banned(obj, path=""):
+    hits = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            p = f"{path}.{k}" if path else k
+            nk = str(k).casefold().replace("-", "_").replace(" ", "_")
+            if nk in HIDDEN or nk in {"thought", "scratch", "inner_monologue", "chain_of_thought"}:
+                hits.append(p)
+            hits.extend(walk_banned(v, p))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            hits.extend(walk_banned(v, f"{path}[{i}]"))
+    return hits
+
+
+def local_checks(records):
+    ids = []
+    decisions = []
+    sims = []
+    for rec in records:
+        hits = walk_banned(rec)
+        if hits:
+            raise RuntimeError(f"banned keys {hits}")
+        blob = json.dumps(rec, ensure_ascii=False, allow_nan=False)
+        if "training_ready" in blob:
+            raise RuntimeError("training_ready claimed")
+        if '"provenance"' in blob:
+            raise RuntimeError("provenance object present")
+        ids.append(rec["id"])
+        lv = rec["language_view"]
+        ids.append(lv["trajectory"]["id"])
+        for k, v in lv.items():
+            if k.startswith("trajectory") and k != "trajectory" and isinstance(v, dict) and "id" in v:
+                ids.append(v["id"])
+                sim2 = v["state"]["sim_or_real"]
+                if sim2 not in {"designed", "simulated", "hil"}:
+                    raise RuntimeError(sim2)
+                if v["safety_decision"]["decision"] not in {"ACCEPT", "MODIFY", "REJECT"}:
+                    raise RuntimeError(v["safety_decision"]["decision"])
+        n = len(rec["spike_events"])
+        if not (5 <= n <= 40):
+            raise RuntimeError(f"{rec['id']} events {n}")
+        gdec = rec["gate_snn"]["decision"]
+        tdec = lv["trajectory"]["safety_decision"]["decision"]
+        if gdec != tdec:
+            raise RuntimeError(f"gate {gdec} != traj {tdec}")
+        decisions.append(tdec)
+        for k, v in lv.items():
+            if k.startswith("trajectory") and isinstance(v, dict) and "safety_decision" in v:
+                if k != "trajectory":
+                    decisions.append(v["safety_decision"]["decision"])
+        rast = rec["raster"]
+        exp = int(round(rast["neurons"] * rast["mean_rate_hz"] * rast["window_s"]))
+        if abs(rast["spikes"] - exp) > 0:
+            raise RuntimeError("raster budget")
+        if abs(rast["energy_pJ"] - rast["spikes"] * 23) > 1e-6:
+            raise RuntimeError("energy pJ")
+        if abs(rast["energy_uJ"] - rast["spikes"] * 23e-6) > 1e-9:
+            raise RuntimeError("energy uJ")
+        isi = rast["isi_count_identity"]
+        if isi["isi_total"] != isi["spikes"] - isi["distinct_active_neurons"]:
+            raise RuntimeError("ISI identity")
+        if sum(b["count"] for b in rast["isi_histogram"]) != isi["isi_total"]:
+            raise RuntimeError("ISI hist sum")
+        if "isi_histogram" not in rast:
+            raise RuntimeError("missing isi_histogram")
+        tf = rast["routing"]["third_factor"]
+        if abs(tf["tau_e_ms"] / 1000.0 - tf["tau_e_s"]) > 1e-9:
+            raise RuntimeError("tau pair")
+        sim = lv["trajectory"]["state"]["sim_or_real"]
+        if sim not in {"designed", "simulated", "hil"}:
+            raise RuntimeError(sim)
+        sims.append(sim)
+        gc = rec["gate_compute"]
+        sp_sum = sum(c["spikes"] for c in gc["per_check"])
+        if sp_sum != gc["total_spikes"]:
+            raise RuntimeError("gate_compute spikes")
+        if abs(gc["total_energy_pJ"] - sp_sum * 23) > 1e-6:
+            raise RuntimeError("gate_compute pJ")
+        dw = rec["gate_snn"]["decision_window_s"]
+        for pop in rec["gate_snn"]["populations"]:
+            exp_p = int(round(pop["neurons"] * pop["mean_rate_hz"] * dw))
+            if pop["spikes"] != exp_p:
+                raise RuntimeError(f"gate_snn pop {pop['name']}")
+        for e in rec["spike_events"]:
+            if any(k in e for k in ("t_ms", "burst_id", "sequence_id", "event_order", "causal_group")):
+                raise RuntimeError("forbidden event key")
+        rights = rec["meta"]["rights"]
+        if rights.get("linear_issue") != "RM-793":
+            raise RuntimeError("RM-793 missing")
+        if len(rights) != 15:
+            raise RuntimeError(f"rights {len(rights)}")
+    if len(ids) != len(set(ids)):
+        raise RuntimeError(f"dup ids {ids}")
+    if set(sims) != {"designed", "simulated", "hil"}:
+        raise RuntimeError(f"sim mix {sims}")
+    if set(decisions) != {"ACCEPT", "MODIFY", "REJECT"}:
+        raise RuntimeError(f"decision mix {decisions}")
+    print("local_checks ok", [r["id"] for r in records], "ids", len(ids))
+    print("decisions", decisions, "sims", sims)
+
+
+def repo_validate(records):
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import curate_record, raster_status
+    from verify_execution import verify_batch_for_frontier
+
+    errs, warns, kinds, n = check_jsonl(
+        BATCH, "batch-r46.jsonl", staging=FactoryStaging(enabled=True)
+    )
+    print("check_jsonl", {"errors": len(errs), "warnings": len(warns), "kinds": kinds, "n": n})
+    for e in errs:
+        print("ERROR", e)
+    for w in warns:
+        print("WARN", w)
+    if errs or warns:
+        raise RuntimeError("check_jsonl failed")
+
+    for i, rec in enumerate(records, 1):
+        st = raster_status(rec, require_raster=True, require_routing_table=True)
+        print(
+            rec["id"],
+            "raster_valid",
+            st["raster_valid"],
+            "gate_snn_valid",
+            st["gate_snn_valid"],
+            "reasons",
+            st["reason_codes"],
+            "isi",
+            rec["raster"]["isi_count_identity"],
+        )
+        if not st["raster_valid"] or not st["gate_snn_valid"] or st["reason_codes"]:
+            raise RuntimeError(f"raster_status {rec['id']} {st}")
+        blob = json.dumps(rec, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        h = hashlib.sha256(blob.encode("utf-8")).hexdigest()
+        dec = curate_record(
+            rec,
+            source_path="batch-r46.jsonl",
+            source_line=i,
+            source_hash=h,
+            require_raster=True,
+            require_routing_table=True,
+        )
+        reasons = dec.manifest.get("reason_codes")
+        print(rec["id"], "curate", dec.action, reasons)
+        if dec.action != "retain":
+            raise RuntimeError(f"curate {rec['id']} {dec.action} {reasons}")
+
+    counts, findings, blocked = verify_batch_for_frontier(BATCH, strict=True)
+    print("frontier", counts, "blocked", blocked, "findings", findings)
+    if blocked or counts["verified"] != 3:
+        raise RuntimeError(f"frontier {counts} {findings}")
+    return {"check_jsonl": {"errors": len(errs), "warnings": len(warns), "kinds": kinds, "n": n}, "frontier": counts}
+
+
+def write_notes(records, lines, gate):
+    import subprocess
+
+    sizes = [len(x) for x in lines]
+    file_sha = hashlib.sha256(BATCH.read_bytes()).hexdigest()
+    spikes = sum(r["raster"]["spikes"] for r in records)
+    energy = spikes * 23
+    isis = [r["raster"]["isi_count_identity"]["isi_total"] for r in records]
+    events = [len(r["spike_events"]) for r in records]
+    rewards = []
+    for r in records:
+        lv = r["language_view"]
+        rewards.append(lv["trajectory"]["reward_components"]["total"])
+        for k, v in lv.items():
+            if k.startswith("trajectory") and k != "trajectory":
+                rewards.append(v["reward_components"]["total"])
+    probe = subprocess.run(
+        [
+            sys.executable,
+            str(PIPELINES / "spike_probe.py"),
+            "--strict",
+            str(BATCH),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    probe_out = (probe.stdout or "") + (probe.stderr or "")
+    if probe.returncode != 0:
+        raise RuntimeError(f"spike_probe failed {probe.returncode}: {probe_out[-2000:]}")
+    strict = subprocess.run(
+        [
+            sys.executable,
+            str(PIPELINES / "check_records.py"),
+            "--strict",
+            str(OUT_DIR),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if strict.returncode != 0:
+        raise RuntimeError(
+            f"check_records --strict failed: {(strict.stdout or '') + (strict.stderr or '')}"
+        )
+
+    gc = []
+    for r in records:
+        per = r["gate_compute"]["per_check"]
+        gc.append("+".join(str(c["spikes"]) for c in per))
+    wins = [r["raster"]["window_ms"] for r in records]
+    n_sp = [r["raster"]["spikes"] for r in records]
+    n_neu = [r["raster"]["neurons"] for r in records]
+    rates = [r["raster"]["mean_rate_hz"] for r in records]
+    tfs = [r["raster"]["routing"]["third_factor"]["modulator"] for r in records]
+    taus = [r["raster"]["routing"]["third_factor"]["tau_e_s"] for r in records]
+    reward_s = "/".join(f"+{x:.2f}" for x in rewards)
+    notes = f"""# Neuromorphic Event + Language Bridge — NOTES round 46
+Run: 2026-09-02-final-heavy · Factory: neuromorphic-event-language-bridge · Generator: grok-4.6 · Output: `batch-r46.jsonl` (3 paired artifacts, 6 ThalamicTrajectories)
+Rights: RM-793 research-only (SpaceXAI/xAI grok-4.6, SuperGrok Heavy chat). Not training_ready. Do not publish into `outputs/raw/` from this generator; operator uses `pipelines/round_txn.py`. Staged only at `/tmp/nelb-r46/`.
+
+## Context / de-duplication
+Prior corpus read: 2026-08-30 NOTES-r01–r04, 2026-08-17-w3 NOTES-r12 family table, `/tmp/nelb-r13-holes.md` + `/tmp/nelb-r13-premises.md`, staged `/tmp/nelb-r13` through `/tmp/nelb-r42` batches/NOTES plus in-flight `/tmp/nelb-r39` (alanine EPR / vortex-shedding / impact-echo plus phosphor-lifetime and guided-wave-radar fragments), `/tmp/nelb-r40` (impact-echo / Kr-85 beta / 532 nm Raman plus cyclotron BPM fragment), `/tmp/nelb-r43` (incomplete r37 copy). IDs: r13=`040`–`042` … r42=`127`–`129`, reserved r43–r45=`130`–`138`, this round `nelb-r46-139`…`141` as assigned. Envelope cloned from complete r42 (`language_view.trajectory` + operational t2 + `spike_events` + `raster` + `gate_snn` + `isi_histogram` + `routing.third_factor` + 15-key RM-793 `meta.rights`).
+
+Banned this round (committed + staged leftover-mill r13–r42 and in-flight r39/r40/r43 generators): not VOD-SNN replay, not pharma cold-chain, not stack-gas CEMS; not r13 FBG glaze / Frostlip quench / Oxbow VRFB; not r14 BOTDA / QCM-D / MsS T(0,1); not r15 SAW torque / CRDS HF / PGNAA; not r16 IFOG / transmon readout / hyperspectral crop; not r17 MEMS accel array / muon ore-pass / industrial x-ray DR; not r18 optogenetic PV / 905 nm LiDAR snow / clamp-on transit-time; not r19 LIBS Cu / QEPAS DGA / LFV Al; not r20 Kaplan LDV / THz-TDS radome moisture / ECT CFB; not r21 THz-TDS bondline / ECA FSW lift-off / LIBS C; not r22 ECT pneumatic riser / TDLAS NH3 / LIBS tap; not r23 lock-in thermography CFRP / PAUT TFM girth / EN CUI; not r24 RUS porcelain / N-16 transit-time loop / helium RGA; not r25 Faraday FOCT / blade tip-timing / acoustic pyrometry; not r26 SPR cyanide / VW viscometer / MW cavity moisture; not r27 MFL AST / NMR T2 / Cs-137 densitometry; not r28 MFL ILI / JNT / CRNS; not r29 Coriolis bitumen / CARS TIT / Zn-Ka XRF; not r30 Mössbauer FCC / GB-InSAR tailings / ellipsometry PECVD; not r31 CTA hot-wire / rhodium SPND / LII soot; not r32 PALS / 14N NQR / SFRA; not r33 digital shearography hull / hydrogen permeation / FMCW BOF lining; not r34 handheld XRF Cr-Kα / Coriolis tube-twist / GPR liner cover; not r35/r37 mud-pulse MWD / Barkhausen / Lamb-wave; not r36 Pockels GIS / PEC coated riser / confocal chromatic; not r38 OCT TBC / DCPD girth / impact-echo containment; not r39 alanine EPR / vortex-shedding / impact-echo PT grout / phosphor-lifetime / GWR foam; not r40 impact-echo pier / Kr-85 beta / 532 nm Raman; not r41/r42 cyclotron BPM / alanine EPR / ADCP ice-jam. Plants not reused: Nettlewake, Frostlip, Oxbow, Rift-Caldera-3, Skarv-Naze GN-14, Orinoco-Span OD-12, Kilncrag KC-8, Rookspit RS-4, Spindrift SD-12, Gorsekettle GK-5, Flintspit FG-8, Wharfleck WD-11, Thistlemere TM-6, Murkspit MS-6, Culmholt CH-5, Cobblemere CM-5, Vellumkettle VK-4, Lanternfell LF-6, Greyfen KCTC-7, Pellucid IRRAD-P4, Whitefork WF-9, Sloebrake STC-4, Brinewharf IRRAD-B6, Fernspit FR-6, Slatefen ST-3, Brinecairn BC-6, Mossferry MF-4, Groutfen GF-3, Peatholt PH-7, Drizzlewick DW-5, Cloughmere CM-6, Gritfen GV-9, Felltide FT-6, Mashholt MH-8.
+
+This round introduces three unused industrial families (magnetodynamic paramagnetic O2, ultrasonic TOFD ligament, TEOM baghouse PM) on new invented plants. r13-holes cyclotron/alanine/ADCP were already harvested by r41/r42 (and claimed in-flight by r39/r40) and are not restaged.
+
+Adjacencies declared in-pair then kept physically distinct:
+- **139 paramagnetic O2** is magnetodynamic dumbbell restoring current of a flare knockout, not r04 CEMS FTIR k-script, not r22 TDLAS NH3, not r15 CRDS HF, not r19 QEPAS, not a zirconia electrochemical cell.
+- **140 TOFD ligament** is a diffracted crack-tip pair remaining wall on a hydrocracker weld, not r23 PAUT TFM girth, not r35/r37 Lamb-wave LUT, not r38 DCPD, not r14 MsS T(0,1), not r21 ECA FSW.
+- **141 TEOM PM** is tapered-element oscillating-microbalance stack dust of a kiln baghouse, not r14 QCM-D Sauerbrey, not r40 Kr-85 beta gsm, not r26 MW-cavity moisture, not r27 Cs-137 densitometry, not r31 LII soot.
+
+## Round 46 batch summary (3 pairs, 6 trajectories)
+
+| id | modality (NEW family) | domain | decisions | headline |
+|----|----------------------|--------|-----------|----------|
+| nelb-r46-139 | magnetodynamic paramagnetic O2 of a flare knockout (k_m·I·(T/T0)·(P0/P) volpct, Oxyveil Magdyn denial, 18 min N2-purge floor) | Wickspire Flare WS-8 KO-2 (invented): 12.50 mA reconstructs 5.00 volpct while Oxyveil still reads 0.40 volpct | REJECT (+0.43) / MODIFY (+0.34) | serialized `0.400*12.50*1.000*1.000=5.00`; `0.080*12.50=1.00`; conjunctive SOP (x AND SNR) forbids continue-hot-work; three-party collusion includes the Magdyn infra owner; companion t2 N2-purge hold, flare ESD refused; sim_or_real=designed |
+| nelb-r46-140 | ultrasonic TOFD remaining ligament of a hydrocracker weld (t_nom−c·Δt/2 mm, Difveil last-good denial, 24 min cooldown floor) | Bitternex Hydrocracker BX-5 weld W-9 (invented, HIL dummy in TOFD-HIL-6): 4.00 us reconstructs 10.00 mm while Difveil still reads 18.40 mm | MODIFY (+0.40) / ACCEPT (+0.35) | serialized `20.00-(5.00*4.00)/2=10.00` and `2*(20.00-10.00)/4.00=5.00`; keep-weld refused; scanner Tamsin Quayle exonerated (missing wedge-delay AE, UTC vs UTC+2); companion t2 new-wedge restart; sim_or_real=hil |
+| nelb-r46-141 | TEOM baghouse PM of a kiln stack (k_t·Δf/Q mg/m3, Bagveil last-good denial, 12 min survey floor) | Clinkerfell Kiln CK-3 compartment C-4 (invented, simulated TEOM-SIM-2): 12.00 Hz / 2.00 reconstructs 24.00 mg/m3 while Bagveil still reads 4.80 mg/m3 | ACCEPT (+0.41) / REJECT (+0.36) | serialized `4.00*12.00/2.00=24.00`; `4.00*12.00=48.00`; `24000*0.002/2.00=24.00`; bounded ACCEPT of C-4 only; C-1..C-3 out of scope; companion t2 REJECTS skip-pulse; sim_or_real=simulated |
+
+Decision spread: REJECT / MODIFY / MODIFY / ACCEPT / ACCEPT / REJECT — **2A/2M/2R**. All three enums used, and all three sit on **leads**. Provenance spread: designed / hil / simulated (one each; never live-plant). IDs `nelb-r46-139`…`141` plus t1/t2 suffixes.
+
+## Raster sidecar
+Every record carries `raster` + top-level `gate_snn` + `gate_compute`. Windows {wins[0]:.0f}/{wins[1]:.0f}/{wins[2]:.0f} ms; `window_s == window_ms/1000` exactly; `spikes == round(neurons·rate·window_s)` with zero slack ({n_sp[0]}/{n_sp[1]}/{n_sp[2]} at {rates[0]}/{rates[1]}/{rates[2]} Hz over {n_neu[0]}/{n_neu[1]}/{n_neu[2]} neurons); `energy_pJ = spikes·23` and `energy_uJ = spikes·23e-6` exact ({n_sp[0]*23}/{n_sp[1]*23}/{n_sp[2]*23} pJ). Routing source/target + 3-entry tables + `third_factor` on all three (modulators {tfs[0]} / {tfs[1]} / {tfs[2]}; τe {taus[0]}/{taus[1]}/{taus[2]} s as consistent `tau_e_s`+`tau_e_ms` pairs). Excerpts integer `t_us`, in-window, `neuron_id`-bounded, sorted, full-window by construction, per-spike amplitude with adaptation (0.82**k) plus noise. ISI histograms from the full window, bins ≥1 ms, counts sum to `spikes − distinct_active_neurons` ({isis[0]}/{isis[1]}/{isis[2]}). Same-neuron gaps ≥1100 µs pre-round, ≥1000 µs serialized. `gate_snn` on all three: decisions REJECT/MODIFY/ACCEPT matching each lead trajectory; every rate-declaring population's budget exact against its decision window. `gate_compute.per_check` windows 32–40 ms, budgets exact ({gc[0]} / {gc[1]} / {gc[2]}). Main streams: {events[0]}/{events[1]}/{events[2]} events (inside the 5–40 cap), strictly increasing `t_rel_ms` only (no `t_ms` mix), same-channel refractory ≥0.8 ms (139 para pair at 1.3 ms, 140 TOFD pair at 1.2 ms, 141 TEOM pair at 1.5 ms).
+
+## Self-critique
+
+### Edge cases added vs still thin
+- **Added:** first magnetodynamic paramagnetic-O2 family on a flare knockout with a recomputable x=k_m·I·(T/T0)·(P0/P) (`5.00 volpct`) plus susceptibility identity and three-party collusion including the Magdyn infra owner; first ultrasonic-TOFD remaining-ligament family on a hydrocracker weld with recomputable d=t_nom−c·Δt/2 (`10.00 mm`) and speed/fd identities, plus a resolved-innocent scanner (timezone-skipped wedge-delay, not last-to-badge); first TEOM baghouse-PM family on a kiln stack with recomputable C=k_t·Δf/Q (`24.00 mg/m3`) plus mdot and df/f0 identities; first bounded ACCEPT whose out-of-scope clause is adjacent baghouse compartments rather than a hopper/taphole/dump cap; operational t2 on all three (N2-purge hold, new-wedge restart, skip-pulse refusal); provenance trio designed/hil/simulated; 18 min / 24 min / 12 min slow floors in-stream.
+- **Still thin:** (i) 139's k_m is a lumped mA→volpct gain, not a T/P-dependent susceptibility table — a thermal hop that fakes 5.00 volpct inside a 0.40 volpct Oxyveil corridor is unwritten; (ii) 140's c is a lumped skip-distance speed, not a wedge-delay / mode-converted map, so a skip hop that fakes 10.00 mm is unwritten; (iii) 141's k_t is a lumped flow-split factor, not a filter-loading / Q-bias table, so a flow hop that fakes 24.00 mg/m3 inside a 4.80 last-good is unwritten; (iv) vendor-only as a *lead* REJECT on a plant with *no* independent dumbbell/TOFD/TEOM installed yet remains slightly harder — 139/140 still have plant heads; (v) stream amplitudes remain authored constants (raster draws are the only seeded noise); (vi) r38 densification leftovers (OCT group-index table, DCPD current-spread map, moisture-corrected impact-echo) were left for that round's owner.
+
+### Realism of noise / temporal fidelity
+- Strong: 139's 5.00 volpct, chi 1.00, and 18.0 min N2-purge (`6000+1080=7080 s`) recompute from the record; 140's 10.00 mm, c 5.00, and 24.0 min cooldown (`2820+1440=4260 s`) recompute; 141's 24.00 mg/m3, mdot 48.00, and 12.0 min survey (`6000+720=6720 s`) recompute. Raster adaptation (0.82**k plus 4% noise) and the 1.2–1.5 ms physics pairs give the 5–40 stream a raster-scale motif without violating 0.8 ms same-channel refractory.
+- **Gaps, honestly:** (i) 5–40 cap still forces heavy thinning (10 Hz dumbbell kept as 4 I points; 5 MHz TOFD A-scan kept as 4 dt points; 1 Hz TEOM frequency kept as 4 df points); (ii) 139's post-stop 3.20 volpct is a later sample, not a closed-loop N2 controller; (iii) 140 HIL coupon times an in-service weld isolate that the stream does not independently witness on a second live weld until the new wedge starts; (iv) no gate_snn input→output volley pair at raster resolution this round (r04-a1 already staged that).
+
+### Training value (SNN/LSM + agentic)
+Distillation targets: paramagnetic x=k_m·I·(T/T0)·(P0/P) reconstruction head plus chi identity; conjunctive inert floor vs continue-hot-work vs flare ESD; Magdyn-infra collusion; TOFD d=t_nom−c·Δt/2 head plus speed identity; isolate-floor weld vs keep-whole vs spool-cut; exoneration against last-to-badge social pressure; TEOM C=k_t·Δf/Q and mdot identities; bounded ACCEPT with compartment-out-of-scope; skip-pulse refusal under survey takt. Agentic value concentrates in three patterns: reconstruction-as-SoT on a physical O2/ligament/PM load the raw corridor cannot see, earned ACCEPT with an explicit physical out-of-scope object (C-1..C-3), and stop-then-hold so a REJECT does not become a flare/spool/kiln kill.
+
+## What round 47 should add (next densification target)
+1. **T/P-dependent susceptibility table** on a non-WS-8 knockout so a thermal hop fakes 5.00 volpct inside a 0.40 volpct Oxyveil corridor, closing 139's lumped-k_m gap.
+2. **Wedge-delay / mode-converted map** on a non-BX-5 weld so a skip-distance hop can fake 10.00 mm while mean delay looks healthy.
+3. **Filter-loading / Q-bias table** on a non-CK-3 baghouse so a flow hop can fake 24.00 mg/m3 inside a 4.80 last-good corridor.
+4. **Vendor-only as a lead REJECT** on a plant that has no independent dumbbell/TOFD/TEOM installed yet (139/140 still had plant heads).
+5. **Do not restage** VOD-SNN replay, pharma cold-chain, CEMS, FBG glaze, Frostlip quench, Oxbow VRFB, IFOG, transmon, hyperspectral, MEMS array, muon ore-pass, industrial x-ray, optogenetic stim, 905 nm LiDAR snow, clamp-on transit-time, LIBS, QEPAS, LFV, Kaplan LDV, THz-TDS, ECT, TDLAS NH3, lock-in thermography, PAUT TFM, EN CUI, RUS porcelain, N-16 loop flow, helium RGA, Faraday FOCT, blade tip-timing, acoustic pyrometry, SPR, vibrating-wire, microwave-cavity, MFL, NMR T2, nucleonic densitometry, JNT, CRNS, Coriolis, CARS, XRF, Mössbauer, GB-InSAR, ellipsometry, CTA, SPND, LII, PALS, NQR, SFRA, digital shearography, hydrogen permeation, FMCW lining, GPR, Pockels, PEC, confocal, mud-pulse, Barkhausen, Lamb-wave, OCT, DCPD, impact-echo, cyclotron BPM, alanine EPR, ADCP, vortex-shedding, Kr-85 beta, 532 nm Raman, phosphor-lifetime, guided-wave-radar, Wickspire WS-8 paramagnetic, Bitternex TOFD-HIL-6, or Clinkerfell CK-3 TEOM. Leave r38 densification leftovers (OCT group-index, DCPD current-spread, moisture-corrected impact-echo) for that round's owner. Do not steal r38–r45 IDs `115`–`138`.
+
+## Verification
+`batch-r46.jsonl`: 3 lines, `json.loads`-clean (allow_nan=False), {sizes[0]}/{sizes[1]}/{sizes[2]} bytes (file {{BATCH.stat().st_size}}, sha256 `{file_sha}`). Staged at `/tmp/nelb-r46/` only. Repo gates: `check_records.check_jsonl` with `FactoryStaging(enabled=True)` → 0 errors, 0 warnings, kinds `{{bridge_pair: 3}}`; `python3 pipelines/check_records.py --strict /tmp/nelb-r46` → 0/0; `curate_bridge.raster_status(..., require_raster=True, require_routing_table=True)` → raster_valid and gate_snn_valid true, empty reason codes; `curate_record(...)` → 3× retain / `BRIDGE_EVENTS_ALREADY_GLOBALLY_ORDERED`; `verify_batch_for_frontier(strict=True)` → 3 verified, 0 inconclusive, 0 failed; `python3 pipelines/spike_probe.py --strict /tmp/nelb-r46/batch-r46.jsonl` → loaded 3, unloadable 0, problems [], third_factor_routes 3, gate_snn_records 3, spikes {spikes}, energy_pJ {energy}. Build-time asserts: global time order; same-channel ≥0.8 ms; 5–40 events ({events[0]}/{events[1]}/{events[2]}); excerpt integer bounds, neuron bounds, sort, 1 ms per-neuron floor; ISI identity {isis[0]}/{isis[1]}/{isis[2]}; spike budgets exact; energy pJ/µJ exact; reward totals equal two-decimal component sums ({reward_s}); gate_snn decisions match lead `safety_decision.decision`; `state.sim_or_real` ∈ {{designed, hil, simulated}}; `meta.round=46`, `meta.factory=neuromorphic-event-language-bridge`, `meta.generator=grok-4.6`, `meta.run_label=2026-09-02-final-heavy`; `meta.rights` 15-key RM-793 stamp (`intended_use=research_only`, `linear_issue=RM-793`, `generated_at={GENERATED_AT}`); no hidden-reasoning keys; no `provenance` objects; no live-plant claims; no `training_ready`; all 9 record/trajectory ids unique. Raster seeds 202609139/202609140/202609141, MT19937. Beads `bd create` for this round failed on Dolt `events.id` default (1105) — staging is still the `/tmp` pair, not a beads close-out.
+
+Honest novelty accounting: 3/3 modality families are new versus the whole committed factory and versus staged leftover-mill r13–r42 (and in-flight r39/r40 claims). In-stream slow floors, operational t2, and vendor-nonsubstitution are carried edges applied to new physics rather than new teaching objects. Three-party collusion and exoneration were already taught on r13 quench/VRFB and r37/r42 Barkhausen/alanine, so those heads are carried onto new sensors. Against that: bounded-accept-with-scope-limit, reconstruction-as-SoT, conjunctive SOP, and custody vocabulary are carried; the 5–40 cap is a density constraint not a new teaching object; 33 prior leftover-mill rounds already taught custody/governance at high sophistication. Net: about two-fifths of the round's scenario/edge mass is genuinely novel.
+
+Novel coverage: 40%
+"""
+    NOTES.write_text(notes, encoding="utf-8")
+    print("wrote", NOTES, "bytes", NOTES.stat().st_size)
+
+
+def main():
+    records = [rec_139(), rec_140(), rec_141()]
+    local_checks(records)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    lines = [
+        json.dumps(r, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        for r in records
+    ]
+    BATCH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print("wrote", BATCH, "bytes", BATCH.stat().st_size, "lines", len(lines))
+    for i, r in enumerate(records):
+        print(
+            r["id"],
+            "events",
+            len(r["spike_events"]),
+            "excerpt",
+            len(r["raster"]["excerpt"]),
+            "spikes",
+            r["raster"]["spikes"],
+            "isi",
+            r["raster"]["isi_count_identity"],
+            "sim",
+            r["language_view"]["trajectory"]["state"]["sim_or_real"],
+            "dec",
+            r["language_view"]["trajectory"]["safety_decision"]["decision"],
+            "bytes",
+            len(lines[i]),
+        )
+    gate = repo_validate(records)
+    write_notes(records, lines, gate)
+
+
+if __name__ == "__main__":
+    main()

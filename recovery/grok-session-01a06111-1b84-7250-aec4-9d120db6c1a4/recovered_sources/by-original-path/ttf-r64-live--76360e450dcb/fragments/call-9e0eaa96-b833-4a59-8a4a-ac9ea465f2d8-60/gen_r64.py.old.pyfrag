@@ -1,0 +1,14 @@
+THIS_DOMAINS = (
+    "yttrium-oxalate-calciner",
+    "germanium-tetrachloride-hydrolyzer",
+    "gallium-arsenide-lec",
+    "rhenium-perrhenate-elution",
+    "platinum-sponge-reducer",
+)
+THIS_PLANTS = (
+    "Oxal-Keld",
+    "Hydro-Gehm",
+    "Lec-Haugh",
+    "Perrhen-Ost",
+    "Sponge-Plat",
+)

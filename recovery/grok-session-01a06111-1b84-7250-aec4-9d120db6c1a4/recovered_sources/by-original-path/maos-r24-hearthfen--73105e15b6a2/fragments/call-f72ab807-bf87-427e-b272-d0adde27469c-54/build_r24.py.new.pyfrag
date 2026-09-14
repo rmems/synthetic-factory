@@ -1,0 +1,899 @@
+        sim_spikes=sim_spikes,
+        spikes_budget=spikes_budget,
+        lif_seed=lif["seed"],
+    )
+
+
+def local_checks(rec, aux):
+    errs = []
+    ev = rec["spike_events"]
+    times = [e["t_rel_ms"] for e in ev]
+    if times != sorted(times):
+        errs.append("spikes not sorted")
+    if not (5 <= len(ev) <= 40):
+        errs.append(f"spike count {len(ev)}")
+    rf = check_refractory(ev)
+    if rf:
+        errs.append(rf)
+    lo, hi = rec["state"]["race_window_rel_ms"]
+    in_win = defaultdict(int)
+    for e in ev:
+        if lo <= e["t_rel_ms"] <= hi:
+            in_win[e["channel"]] += 1
+    if sum(1 for _c, n in in_win.items() if n >= 1) < 2:
+        errs.append(f"race window channels {dict(in_win)}")
+    ras = rec["raster"]
+    exp_sp = round(ras["neurons"] * ras["mean_rate_hz"] * ras["window_s"])
+    if abs(ras["spikes"] - exp_sp) > 1:
+        errs.append(f"raster spikes {ras['spikes']} vs {exp_sp}")
+    if abs(ras["energy_pJ"] - ras["spikes"] * 23) > 1e-6:
+        errs.append("energy_pJ")
+    if abs(ras["energy_uJ"] - ras["spikes"] * 23e-6) > 1e-9:
+        errs.append("energy_uJ")
+    if abs(ras["window_s"] - ras["window_ms"] / 1000.0) > 1e-9:
+        errs.append("window_s")
+    if not (20 <= ras["window_ms"] <= 50):
+        errs.append(f"window_ms {ras['window_ms']}")
+    if ras.get("excerpt_source") != "independent_lif":
+        errs.append("excerpt_source")
+    if ras.get("sim_scope") != "sidecar_only":
+        errs.append("sim_scope")
+    ex = check_excerpt(ras["excerpt"], ras["neurons"], ras["window_ms"])
+    if ex:
+        errs.append(f"excerpt {ex}")
+    lang_us = {
+        int(round(e["t_rel_ms"] * 1000.0))
+        for e in ev
+        if e["t_rel_ms"] * 1000.0 <= ras["window_ms"] * 1000
+    }
+    excerpt_us = {item["t_us"] for item in ras["excerpt"]}
+    if excerpt_us & lang_us:
+        errs.append(f"LIF excerpt remaps language times {sorted(excerpt_us & lang_us)}")
+    tf = ras["routing"]["third_factor"]
+    if abs(tf["tau_e_ms"] / 1000.0 - tf["tau_e_s"]) > 1e-9:
+        errs.append("tau_e mismatch")
+    gp = check_gate_pops(rec["gate_snn"])
+    if gp:
+        errs.append(f"gate {gp}")
+    if rec["gate_snn"]["decision"] != rec["safety_decision"]["decision"]:
+        errs.append("gate decision mismatch")
+    if rec["safety_decision"]["decision"] != "MODIFY":
+        errs.append("wrong-ACCEPT or non-MODIFY primary")
+    rc = rec["reward_components"]
+    for h in HEADS:
+        s = sum(t[h] for t in rc["ticks"])
+        if abs(s - rc[h]) > 1e-6:
+            errs.append(f"tick sum {h} {s} vs {rc[h]}")
+    tot = sum(rc[h] for h in HEADS)
+    if abs(tot - rc["total"]) > 1e-6:
+        errs.append(f"total {tot} vs {rc['total']}")
+    inf = rec["future_outcome"]["reward_inflection_t_us"]
+    if inf not in {t["t_us"] for t in rc["ticks"]}:
+        errs.append(f"inflection {inf} not a tick")
+    crc = rec["future_outcome"]["embedded_contrast_decision"]["reward_components"]
+    if abs(sum(crc[h] for h in HEADS) - crc["total"]) > 1e-6:
+        errs.append("contrast reward")
+    cs = rec["future_outcome"]["embedded_contrast_decision"]["spike_events"]
+    ct = [e["t_rel_ms"] for e in cs]
+    if ct != sorted(ct):
+        errs.append("contrast spikes unsorted")
+    crf = check_refractory(cs)
+    if crf:
+        errs.append(f"contrast {crf}")
+    blob = json.dumps(rec)
+    for k in HIDDEN:
+        if re.search(rf'"{k}"\s*:', blob, re.I):
+            errs.append(f"hidden key {k}")
+    for b in BANNED:
+        if b in blob:
+            errs.append(f"banned token {b}")
+    if rec["state"]["sim_or_real"] == "real":
+        errs.append("real")
+    if '"sim_or_real": "real"' in blob or '"kind": "real"' in blob:
+        errs.append("real provenance")
+    if rec["meta"]["round"] != ROUND:
+        errs.append("round")
+    if rec["id"] != RECORD_ID:
+        errs.append("id")
+    if rec["rights"]["intended_use"] != "research_only":
+        errs.append("rights")
+    if rec["meta"]["rights"]["linear_issue"] != "RM-793":
+        errs.append("meta.rights")
+    if rec["rights"] != rec["meta"]["rights"]:
+        errs.append("rights stamp mismatch")
+    if not (3 <= len(rc["ticks"]) <= 8):
+        errs.append("tick count")
+    if abs(aux["w1"] - 0.25) > 5e-4 or abs(aux["w2"] - 0.22) > 5e-4 or abs(aux["w3"] - 0.20) > 5e-4:
+        errs.append("scar weights")
+    if rec["executed_action"]["executed_as_proposed"] is not False:
+        errs.append("executed_as_proposed")
+    jac = jaccard(rec["state"]["description"][:280], R14_OPENING)
+    if jac >= 0.4:
+        errs.append(f"jaccard vs r14 opening {jac:.3f}")
+    for src, opening in prior_openings():
+        j = jaccard(rec["state"]["description"][:280], opening)
+        if j >= 0.4:
+            errs.append(f"jaccard vs {src} {j:.3f}")
+    if rec["state"]["domain"] != DOMAIN:
+        errs.append("domain")
+    if PLANT not in rec["state"]["scenario_name"]:
+        errs.append("plant")
+    if rec["meta"].get("swarm") != PLANT:
+        errs.append("swarm")
+    errs.extend(occupancy_collisions())
+    return errs
+
+
+def write_notes(rec, aux, pipeline_receipt):
+    gap, gap_ch = min_same_channel_gap(rec["spike_events"])
+    ras = rec["raster"]
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 24
+
+Factory: multi-agent-ouroboros-swarm. One scenario (HF), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r24.jsonl. Full labeled transcript:
+swarm-transcript-r24.md. Quota Q=1. Record id maos-r24-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Swarm: HEARTH-FEN. Create-only writes under the LIVE factory dir plus /tmp/maos-r24-hearthfen/.
+
+ORCHESTRATION NOTE: dispatched AS round 24 of the 2026-09-02-final-heavy
+LIVE tree. Operator assigned round 24, swarm HEARTH-FEN, id maos-r24-001,
+Q=1 after 2x6-role cycles. Explicitly avoided 2026-08-17 and 2026-08-30.
+Prior context: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, live occupancy r01-r04/r21/r22/r41/r42/r61-r67.
+/tmp/maos-r24 already claimed r24 as PROTONIL / Ashspire; live r24 uses
+HEARTH-FEN instead. Explicitly avoided cloning LYOSHIELD, CINDERWICK,
+TRIAD / Meridian, QUILLFORGE, NIGHTWELL, FERRICLEAVE, CASSITER, OXBOWREEL,
+REDHALL, SEEDLATCH, STRIAFOIL, PROTONIL, TORSIONKEY, ORRIS, WHORLSPAR, IONSPATE,
+SKULLGATE, CALXION, MAGNORIL, GORSEFLUE, SODASHARD, CLINKERFELL,
+LINTELPLY, KAOTHARN, TREADNOLL, ANOLITH, DRUMWROTH, RIMEBRAID, BRIMVAULT,
+NITROSTAITH, BOGIRON, CHROMLOOP, ETHYNWOLD, NITREVAULT, RUNNELGATE,
+SPARKHOLT, DIPLEGAR, OLEUMWEIR, SKARVOLT, GOBSPALL, GOBWOLD, GAUZEFELL,
+OSMOLITH, PUSHERFELL, CREELWOLD, LIXIVQUERN, GIBBSQUERN, OSMOQUAY,
+COILSHAW, LOOPERQUAY, SIPHONWOLD, LANCEQUAY, UREASTAITH, DRYSTAITH,
+TITERWEIR, ZINCFELL, GLIMMERAXLE, HOLLOWMERE, WINDBOXHOLT, KALYCIRQUE,
+GYPSUMWEIR, GALVSTAITH, SLUICE-HEARTH, PRILLGHYLL, SHEDWOLD, CORONSTAITH,
+LOCKSPUR, WOLD-BARN, QUAY-FEN, FEN-SPIT, SPUR-HEARTH, LOCK-FEN, BARN-SPIT,
+PACKFLUE, VANTIS-CADENCE-AEGIS, THERMION, OKTAVE, STARLING, VERDIGRIS.
+Plant is invented HEARTH-FEN / Mosshearth Compost Tunnel CT-6.
+Leftover candidate hrsg-attemperator was left unused.
+
+## What this round produced
+
+Scenario HF — "HEARTH-FEN / Mosshearth Compost Tunnel CT-6": an 8-tunnel
+Phase-II mushroom compost pasteurization block at 58.0 C / 16 pct moisture /
+peat-straw-gypsum, 42 t. Three heterogeneous, individually-correct agents —
+PLN (8-tunnel plenum-mean RTD), NH3 (header ammonia), FAN (recirculation
+tach) — each report their local loop in-spec. The conjunction is not a
+core-true certificate. Tunnel T-5 has a collapsed air-spigot packed by
+peat-gypsum sludge. PLN reads 58.0 C inside 54-62 (seven mixed tunnels
+dominate the header). NH3 is 180 ppm inside 80-350 (header-true). FAN is
+41.0 Hz inside 34-48 (shaft-true). Local core TC infers 78.4 C (healthy <
+62; hold if > 66) and local O2 8.2 vol% (hold if < 12) but is
+policy-treated as a probe-nuisance tag unless PLN mean also trips (2014
+noisy core-probe after a fill). The coordination-failure CLASS is new to
+this factory: PLENUM-MEAN CERTIFICATE OF A LOCAL COMPOST-CORE SMOLDER.
+Completes a different family than live r01 galvanizing, r02 cupola sluice,
+r03 alkaline quay, r04 fen-polder, r21 CAV, r22 urea prill, r41 perfusion,
+r42/r62 grid-inspection, r61 sinter, r63 canal-lock, r64 malt kiln, r65
+tobacco barn, r66 rotisserie, r67 farm AD. Here every agent is correct,
+the PLN average is looking at plenum-mean air, and the playbook's three
+PLN confirms are not a core-true certificate.
+
+The gate is a correct MODIFY (numeric floor: do not raise steam/hearth
+above 58.0 C while T-5 core TC > 66 C AND T-5 O2 < 12 vol%). TG-CT-6
+strips PB-CT-6's raise-steam, holds 58.0 C, runs a 7.4 s reverse-air
+pulse +4 Pa (smolder keeps |Delta PLN| 0.3 <= 0.6 K; mixed would move
+>= 2.4), and isolates T-5 after a 9.6 min tunnel-gallery human ratify.
+Immediate extra 9.4 t carbonization is avoided (0 from the draft). The
+PRIMARY episode nonetheless FAILS: 12 min of unmonitored pre-t0 smolder
+had already carbonized 9.4 t of compost. Tunnel fire at +4.8 h; 14 h
+stall; $0.86M designed. Reward total -0.16 with process heads honest
+and world loss un-netted.
+
+Triple-edge scar (NOTES-r14 item 4): pln.in_band -> raise_steam
+(0.17 commissioned -> 0.50 at illusion -> 0.25 after ACh-gated
+depression) AND nh3.ok -> raise_steam (0.16 -> 0.44 -> 0.22) AND
+fan.ok -> raise_steam (0.15 -> 0.41 -> 0.20). Eligibility trace
+e^{{-0.74/0.88}} = {aux['trace']:.5f}; eta {aux['eta1']:.5f} / {aux['eta2']:.5f} /
+{aux['eta3']:.5f}; dw -0.250 / -0.220 / -0.210. Partial rollback of any pair
+leaves the third at 0.50 / 0.44 / 0.41, all > 0.30 fire threshold —
+fitted to fail. Coordinated depression of all three is the cure.
+
+Independent LIF raster: window 36 ms, 140 neurons, 19.5 Hz, spikes
+98 == round(140 x 19.5 x 0.036), energy 2254 pJ
+at 23 pJ/spike. excerpt_source=independent_lif, sim_scope=sidecar_only,
+seed {aux['lif_seed']}. Excerpt is membrane crossings (lif.hold early vs
+lif.core 16.8-20.4 ms), disjoint from spike_events timestamps.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **mushroom-compost-tunnel** — justified novel
+  subdomain of industrial-process / fenland Phase-II pasteurization, unused
+  across live r01-r04/r21/r22/r41/r42/r61-r67. Distinct from r64 malt kiln,
+  r65 tobacco barn, r67 farm AD, r02 cupola hearth. hrsg-attemperator left unused.
+- Cycle-1 tail: T-5 collapsed air-spigot + compost-core smolder
+  certificate. Tunnel-gallery visual PASSES (sludge under the floor grating).
+  Fitted-style base rate 0.31%/campaign (collapsed-spigot MC; visual threshold
+  designed, flagged). Naive = FALSE PERMISSION.
+- Cycle-2 domain sub-variant: high-moisture fen-peat amendment,
+  1.35x thermal mass, 2.2x reverse-air gain; 7.4 s / +4 Pa spec-straw
+  pulse overshoots live mixed tunnel to a 5.1 K false PLN jump; probe
+  must move to 22 s / +1.2 Pa.
+- Cycle-2 tail: night-shift forged local-TC CSV at 1.0 C quantization vs
+  plant 0.1 C (10 bins) plus live TC 78.4 C and local O2 8.2 vol% at
+  the claimed core-true. Human-intent class, disjoint from cycle 1's
+  accidental collapsed spigot. Base rate ~0.27% of Sunday-night campaigns,
+  DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+3 d sister tunnel) with its own 206 us
+  race (demand vs core-clear) and ACCEPT of the raise-steam the primary
+  MODIFIED away.
+- Learned-weight provenance on THREE edges with pair-rollback-fails.
+- HITL tunnel-gallery ratify 9.6 min (gap 4 partial; sim_or_real stays
+  designed — invented plant, not hil).
+- Governance CR-C-2406 prices retire-vs-probe-vs-status-quo and mandates
+  native 0.1 C CSV exports (the fraud fence).
+- Flip-fragility extended to CORE-TRUE CERTIFICATE.
+- Independent LIF sidecar (not a language-train remap).
+
+## Self-critique of this round's batch
+
+### Strengths
+- Headline class is mechanistically tight: three locally-true mean loops
+  live on plenum mean, header ammonia, and fan tach. Conjunction is not a
+  core-true compost certificate.
+- Negative-result honesty: the gate does the right thing and the tunnel
+  still fails for a reason the commissioned sensors could not see.
+  Total -0.16.
+- Triple-edge scar is load-bearing: rolling back any pair fails, with
+  fire threshold 0.30 exhibited on each remaining edge.
+- Contrast ACCEPT on a true mixed-duty window prevents "never raise-steam"
+  as the lesson.
+- Distinct from r64 malt kiln (air-on-floor vs collapsed spigot), r65
+  tobacco barn (flue joint vs peat-gypsum sludge), r67 farm AD (CSTR crust
+  vs Phase-II tunnel), r04 fen-polder (intake screen vs compost core):
+  compost-tunnel local TC vs plenum mean.
+- Independent LIF excerpt is disjoint from spike_events times.
+
+### Weaknesses (honest)
+- Probe error bands, the 0.31%/campaign collapsed-spigot rate, the $0.86M /
+  $2.6M figures, the 9.6 min walk latency, and the night-shift 0.27%
+  base rate are DESIGNED constants and are flagged. Closed-loop offsets
+  (header dilution from one collapsed spigot, high-peat thermal mass) are
+  derived from those inputs, not discovered by an unauthored process.
+- Carbonization-to-fire model is a designed 12 min mapping; no full
+  CFD of T-5 shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil. Gap 4
+  remains open as a provenance cell (invented plants stay designed).
+- Cross-record arc is a hook (CR-C-2406 +21 d), not a serial igniter
+  into another round. hrsg-attemperator remains unused.
+- The densifying-loop *shape* (three correct agents / MODIFY / probe /
+  triple-edge / night-shift CSV / sister ACCEPT / negative primary)
+  rhymes with r22/r61/r64. Physics, plant, sensors, and failure class
+  are new; the scaffold is not.
+
+### Realism of noise / latencies
+Ladder: 214 us race / 206 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap {gap:.3f} ms on {gap_ch}) / 500 us race
+window / 714 us gate latency / 20 ms bus epoch / 36 ms independent LIF
+raster / 7.4 s probe / 9.6 min HITL / 8 min naive raise-steam-ramp
+counterfactual / 12 min pre-t0 smolder / 3.1 h mixed recovery / 4.8 h
+tunnel fire / +3 d contrast / +21 d governance. Adaptation decay on core.hot
+(0.51->0.48->0.42->0.29), core.o2 (0.76->0.78->0.43->0.39->0.27),
+nh3.ok (0.61->0.57->0.45->0.24), fan.ok (0.55->0.64->0.80).
+
+### Value for SNN distillation
+- COLLAPSED SPIGOT = THREE CORRECT LOOPS, WRONG VOLUME.
+- CORE-TRUE TC CHANNEL that policy treated as probe-nuisance-only as
+  the tie-break.
+- REVERSIBLE PROBE that recouples plenum mean iff the tunnel is mixed.
+- TRIPLE-EDGE ELIGIBILITY: coordinated depression; pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+- INDEPENDENT LIF sidecar whose excerpt is membrane crossings.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum -0.16
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.48 reconciles independently.
+- spike_events: primary 26 events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap {gap:.3f} ms >= 0.8 ms, 3
+  channels inside race_window_us 500 (core.hot.high 6.418, pln.in_band 6.632,
+  fan.ok 6.804). Contrast 8 events, own race, min same-channel gap well
+  above 0.8 ms.
+- Sidecars: raster spikes 98 == round(140 x 19.5 x 0.036); energy 2254 pJ /
+  0.002254 uJ at 23 pJ/spike; excerpt 16 events inside [0, 36000] us,
+  neuron_id < {ras['neurons']}, same-neuron gap >=1000 us; excerpt_source independent_lif;
+  routing 4 entries with three scar edges' before/after pair; third factor tau 0.88 s
+  == 880 ms; gate_snn pools 38/14/4 == round(n x rate x 0.027) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: {pipeline_receipt}
+
+## Novel coverage
+The coordination-failure CLASS (plenum-mean certificate of a local
+compost-core smolder), the domain (mushroom-compost-tunnel / fenland Phase-II),
+the reverse-air pulse probe discriminant, the triple-edge scar with
+pair-rollback-fails, the primary negative-result (correct MODIFY, tunnel
+still fails on unmonitored carbonization), the HITL tunnel-gallery
+ratify, the high-peat probe-duration refit, the night-shift 10-bin
+quantization fence, and the independent LIF raster (seed {aux['lif_seed']},
+not a language-train remap) are absent from prior committed ouroboros
+rounds in this window. Repeated elements discounted: same-gate contrast,
+governance-pricing scaffold, flip-fragility series (extended to core-true
+certificate, but the move rhymes), sequenced recovery shape, third-factor
+rollback form, negative-result primary. Adjacent heat-mean rounds (r64 malt
+kiln, r65 tobacco barn, r67 farm AD) share industrial-process scaffolding but
+not Phase-II compost-core physics. Weighing a new failure family + cure
+vocabulary + unused sub-domain + Mosshearth geography against those reused
+scaffolds:
+
+{NOVEL_LINE}
+
+## What ROUND 25 should add
+1. FIT THE DESIGNED CONSTANTS: collapsed-spigot arrival, probe PLN-jump bands,
+   carbonization-to-fire mapping, night-shift claim process.
+2. HIL PROVENANCE CELL: put the tunnel-gallery LOTO on a hardware-in-loop
+   steam pendant with fitted latency as state.sim_or_real=hil — only if
+   the plant is no longer purely invented.
+3. CROSS-RECORD ARC: let CR-C-2406's local-TC alarm be the igniter of
+   the next round rather than a dangling +21 d leaf.
+4. Domain candidates (de-collided): hrsg-attemperator;
+   constructed-wetland-polishing.
+   AVOID mushroom-compost-tunnel (now used), malting-kiln-barn (r64),
+   flue-cured-tobacco-barn (r65), farm-ad-biogas (r67), fen-polder-land-drain (r04),
+   alkaline-stack-hydrogen-quay (r03), cupola-foundry-slag-sluice (r02), and any
+   LYOSHIELD / CINDERWICK / TRIAD / SKULLGATE / BOGIRON / SKARVOLT /
+   PUSHERFELL / CREELWOLD / GIBBSQUERN / COILSHAW / LOOPERQUAY /
+   SIPHONWOLD / WINDBOXHOLT / WOLD-BARN / LOCKSPUR / SLUICE-HEARTH /
+   QUAY-FEN / FEN-SPIT / SPUR-HEARTH / LOCK-FEN / HEARTH-FEN plant.
+"""
+    return notes
+
+
+def write_transcript(rec, line):
+    ras = rec["raster"]
+    text = f"""# Multi-Agent Ouroboros Swarm — Round 24 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r24-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Swarm: HEARTH-FEN
+Plant: invented HEARTH-FEN / Mosshearth Compost Tunnel CT-6 (not TRIAD / Meridian / VANTIS-CADENCE-AEGIS / LYOSHIELD / CINDERWICK / BOGIRON / PUSHERFELL / SKARVOLT / COILSHAW / GIBBSQUERN / SIPHONWOLD / WINDBOXHOLT / LOCKSPUR / SLUICE-HEARTH / WOLD-BARN / QUAY-FEN / FEN-SPIT / SPUR-HEARTH / LOCK-FEN / PROTONIL)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r24.jsonl).
+
+---
+
+# CYCLE 1 — Foundation + injections
+
+## Generator
+
+Design intent: an 8-tunnel Phase-II mushroom compost pasteurization block
+where three correct agents each read a plenum-mean loop because a collapsed
+air-spigot on tunnel T-5 partitions local core TC from plenum-true air,
+header ammonia, and fan tach. The naive playbook raises steam into a
+smoldering core. The gate must MODIFY on a numeric steam floor, not by
+killing an agent. sim_or_real=designed. Reward heads are
+task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Mosshearth CT-6, 58.0 C,
+PLN 58.0 C, NH3 180 ppm, FAN 41.0 Hz, proposed RAISE-STEAM
+64.0 C, safety MODIFY to STEAM-HOLD, executed hold without the
+reverse-air-pulse numbers fully specified, outcome "spigot found, tunnel
+saved" (this last claim is the defect the later cycles will refuse to
+keep). Sixteen spikes, five ticks, raster/gate_snn present but the scar
+is a single edge.
+
+```json
+{{
+  "id": "maos-r24-001-scaffold",
+  "state": {{
+    "sim_or_real": "designed",
+    "domain": "industrial-process",
+    "description": "Tunnel CT-6 at fen compost hearth; three PLN loops in-spec; supervisor proposes raise-steam.",
+    "t0_us": 1755588120000024,
+    "gate_latency_us": 714,
+    "race_window_us": 500
+  }},
+  "proposed_action": {{"name": "raise_steam", "parameters": {{"steam_C": 64.0}}}},
+  "safety_decision": {{"decision": "MODIFY", "rationale": "Hold; do not raise steam while local core TC is high."}},
+  "executed_action": {{"name": "steam_hold", "executed_as_proposed": false}},
+  "future_outcome": {{"summary": "Spigot found, tunnel saved."}},
+  "reward_components": {{"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"}},
+  "meta": {{"round": 24, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}}
+}}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "tunnel saved". If the pre-t0 carbonized core later
+   ignites, booking +0.40 is a lie. Fix: declare `_aggregation`, emit
+   3–8 ticks that sum to task_progress+safety+efficiency+coherence+exploration,
+   and do not call a quarantined tunnel a save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote
+   steam <= 58.0 C while T-5 core TC > 66 C AND local O2 < 12 vol%.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-process` collides with generic MES vocabulary and teaches
+   nothing. Mushroom compost tunnel (local core TC vs plenum mean, local O2
+   as a smolder flag) is absent from prior ouroboros rounds and must be named.
+4. **major — race under-specified.** One core channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted `t_rel_ms`
+   and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated weight
+   repeats r04's one-edge rollback and is thinner than r14's two-edge.
+   NOTES-r14 item 4 asked for three edges where pair rollback fails.
+6. **minor — raster is a language remap.** Excerpt times matching
+   spike_events * 1000 fail the independent-LIF contract. Fix: LIF
+   population sim, excerpt_source=independent_lif, disjoint timestamps.
+
+Critic does not rewrite the trajectory.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **mushroom-compost-tunnel**
+(justified novel subdomain of industrial-process / fenland Phase-II
+pasteurization; explicit tag `mushroom-compost-tunnel`).
+
+Displaced: the Generator's generic `industrial-process` bucket, and any
+temptation to reuse warehouse-amr, aerial-swarm, district-heating,
+event-camera-traffic-grid, pharmaceutical-lyophilization, water-treatment,
+float-glass, underwater-rov, electrolytic-aluminum, czochralski-pull,
+slot-die coating, pem-water-electrolysis, wind-turbine pitch,
+surgical-assist, optical-fiber-draw, kraft-recovery-boiler,
+steel-continuous-caster, humanoid-locomotion, vacuum-induction melt,
+steam-methane reformer, cement-rotary-kiln-clinker,
+autoclave-composite-cure, geothermal-binary-orc, tire-curing-press,
+chlor-alkali-membrane-electrolysis, delayed-coker-drum-switch,
+lng-mche-mixed-refrigerant, claus-sulfur-recovery,
+ammonia-synthesis-converter, blast-furnace-burden-descent,
+hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil,
+hydroelectric-kaplan-wicket, fcc-riser-regenerator,
+sulfuric-contact-converter, eaf-foamy-slag-water-panel,
+coke-oven-battery-heating, carbon-fiber-oxidation-oven,
+gibbsite-autoclave-digestion, hot-strip-mill-finishing,
+paper-machine-dryer-section, sinter-strand-windbox,
+continuous-hot-dip-galvanizing, autonomous-driving, bioreactor-perfusion,
+urea-prilling-tower, cupola-foundry-slag-sluice,
+canal-lock-rail-transshipment, malting-kiln-barn, flue-cured-tobacco-barn,
+farm-ad-biogas, industrial-rotisserie-spit-oven, alkaline-stack-hydrogen-quay,
+fen-polder-land-drain, or grid-inspection. hrsg-attemperator is left unused.
+
+Domain-specific constraint: steam/hearth must remain <= 58.0 C
+while T-5 core TC > 66 C even if plenum mean is inside the healthy band;
+local O2 is a smolder flag the header average cannot substitute for.
+
+Sensor delta: +8-tunnel plenum mean, +header ammonia, +recirc tach,
++local core TC, +local O2; -any mobile robot, -event-camera gantries,
+-DVS, -Pirani/CM, -looper tension, -work-roll IR, -sinter BTP,
+-coke-oven wall-pair, -EAF off-gas H2, -cupola blast, -lock chamber,
+-farm CSTR TMP.
+
+`state.domain` and `meta.domain` both become `mushroom-compost-tunnel`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Mosshearth Sunday-night collapsed spigot, not a lyophilizer, not a finishing
+mill, not a coke oven, not a blast furnace, not a Bayer digester, not a
+paper machine, not a sinter strand, not a malt kiln, not a canal lock,
+not a tobacco barn, not a farm AD).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **T-5 collapsed
+air-spigot + compost-core smolder certificate**.
+
+- Trigger: T-5 floor nozzle packed by peat-gypsum sludge plus local
+  compost-core smolder, local core TC 78.4 C, local O2 8.2 vol%.
+- Base rate: <1% — 0.31%/campaign from a collapsed-spigot MC (tunnel-gallery
+  visual threshold is designed; floor geometry fitted-style). Visual
+  PASSES because the sludge sits under the floor grating.
+- Naive failure: FALSE PERMISSION. PB-CT-6 sees three in-spec mean
+  loops, raises 58.0->64.0 C, extra 9.4 t carbonization, $2.6M.
+- Trajectory edit: put the collapsed spigot in `state.fault_context`, make each
+  agent's confirm a different plenum-side slice of the same core-false
+  state (pln-in-band, nh3-ok, fan-ok). Local core TC is readable but
+  policy-treated as probe-nuisance-only.
+
+Distinct from r02 cupola slag sluice, r63 canal-lock transshipment, r01
+GI air-knife, r64 malt-kiln floor collapse, r65 tobacco-barn flue joint,
+r67 farm-AD crust lock, and r04 fen-polder peat intake.
+
+## Neuromorphic Translator
+
+Cycle-1 temporal densification (16 spikes, 5 ticks, 36 ms independent LIF raster):
+
+| channel | t_rel_ms | amplitude |
+|---|---|---|
+| core.hot | 0.294 | 0.51 |
+| nh3.ok | 1.118 | 0.61 |
+| fan.ok | 1.986 | 0.55 |
+| core.o2 | 3.142 | 0.76 |
+| core.hot | 4.156 | 0.48 |
+| core.o2 | 4.816 | 0.78 |
+| nh3.ok | 5.328 | 0.57 |
+| core.hot.high | 6.418 | 1.36 |
+| pln.in_band | 6.632 | 1.10 |
+| fan.ok | 6.804 | 0.64 |
+| ctrl.gate | 7.132 | 1.07 |
+| core.o2 | 8.876 | 0.43 |
+| fan.ok | 10.654 | 0.80 |
+| nh3.ok | 12.992 | 0.45 |
+| core.hot | 18.388 | 0.42 |
+| ctrl.gate | 25.864 | 0.84 |
+
+Race: core-hot 6.418 vs PLN 6.632 (214 us) inside 500 us;
+FAN 6.804 is the third channel in-window. Winner/loser flip: reversing
+214 us reshuffles PB-CT-6 triage; floors still MODIFY. Refractory held
+(cycle-1 min same-channel gap 1.674 ms on core.o2 4.816-3.142;
+core.hot 4.156-0.294 = 3.862; nh3 5.328-1.118 = 4.210). Adaptation:
+core.o2 0.76->0.78->0.43; core.hot 0.51->0.48->0.42; nh3
+0.61->0.57->0.45.
+
+Raster cycle-1 seed: independent LIF 36 ms, 140 neurons, 19.5 Hz,
+Loihi-2 23 pJ/spike, third factor acetylcholine tau_e 0.88 s. Single
+scar edge only — cycle 2 must add the second and third edges. Excerpt
+is membrane crossings, not spike_events remapped.
+
+Ticks 1–5 at 4180, 6418, 7132, 7.4e6, 576e6 us; heads not yet the final
+-0.16 (missing the 3.1 h and 4.8 h ticks).
+
+Distillation value this cycle: plenum-side confirms as a permission code
+that is not a core-true compost-core code.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain mushroom-compost-tunnel, tail
+collapsed air-spigot, 16 spikes, 5 ticks, MODIFY with numeric floor, raster+gate_snn
+present, sim_or_real=designed, rights stamp on record and meta, no thought
+keys, independent LIF excerpt. Still missing (and therefore not the
+publishable line): high-peat sub-variant, night-shift tail, second
+and third scar edges, delayed tunnel fire as PRIMARY terminal, contrast
+ACCEPT episode, ticks 6–7, spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 500 us window; refractory
+  >= 0.8 ms; raster 36 ms independent LIF; gate_snn MODIFY matches.
+- densification delta vs Generator scaffold: +1 domain, +1 tail, +16 spikes,
+  +5 ticks, +numeric floor, +LIF sidecar.
+- not publishable: cycle 2 injections absent.
+
+---
+
+# CYCLE 2 — Densification
+
+## Generator
+
+Re-emit Cycle-1 expanded. Additive deltas only:
+
+1. Downstream side-effect (immediate): 7.4 s reverse-air pulse probe proves
+   smolder (|Delta PLN| 0.3 K smolder band) and T-5 is held after 9.6 min
+   tunnel-gallery ratify. Remaining 7 tunnels recover toward 4 K over 3.1 h.
+2. Downstream side-effect (delayed, PRIMARY terminal): +4.8 h tunnel fire from
+   the 12 min pre-t0 carbonization; 14 h stall; $0.86M. The gate prevented the
+   proposed extra 9.4 t path and did not prevent this other one.
+3. proposed_action.evidence deepened with observables + units (core TC 78.4 C,
+   O2 8.2 vol%, PLN 58.0 C, NH3 180 ppm, FAN 41.0 Hz, race 214 us).
+4. safety_decision.rationale tightened to numeric floor: steam <= 58.0 C
+   while T-5 core TC > 66 C AND T-5 O2 < 12 vol%.
+
+Outcome language "tunnel saved" is deleted. Total will go negative.
+
+## Critic
+
+Re-audit of the richer trajectory:
+
+1. **blocking if missing — cycle-2 physical sub-variant.** Spec-straw probe
+   numbers must not be implied to port. High-moisture fen-peat amendment (1.35x
+   thermal mass) overshoots a live tunnel. Fix: 22 s / +1.2 Pa table.
+2. **major — second tail class still absent.** Cycle-1 collapsed spigot is accidental
+   floor failure. Need a disjoint human-intent deception (forged core-TC CSV)
+   or the two injections collapse into one story.
+3. **major — scar still one edge.** Pair-rollback-fails needs three
+   plenum-healthy-go edges with eligibility arithmetic.
+4. **minor — contrast ACCEPT missing.** Without a sister-tunnel true-duty
+   ACCEPT, the lesson collapses to "never raise-steam".
+5. **minor — LIF excerpt must remain independent after densification.**
+   Do not remap new spike times into the 36 ms window.
+
+Critic still does not rewrite JSON.
+
+## Diversity Enforcer
+
+Injected second novel domain (exactly 1 this cycle): **high-moisture
+fen-peat compost amendment** (physical-constraints sub-variant of
+mushroom-compost-tunnel; explicit tag retained, constraint changed).
+
+This is not a new plant. It changes physics: 1.35x thermal mass, 2.2x
+reverse-air gain. The 7.4 s / +4 Pa spec-straw pulse overshoots a LIVE mixed
+tunnel to a 5.1 K false PLN jump (inside the over-temp trip). Probe must
+move to 22 s at +1.2 Pa. Cycle-1 domain mushroom-compost-tunnel is preserved.
+
+Displaced: any reuse of fluxed-sinter probe-refit (r61), high-N barley
+fan-step (r64), or high-P KOH current-step (r03).
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**night-shift forged local-TC CSV**.
+
+- Trigger: shift lead, 02:24, posts a historian export showing
+  TC = 60.0 C at t = 1.1 h to clear a spawn-fill slot.
+- Base rate: ~0.27% of Sunday-night campaigns (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the raise-steam on the forged confirm
+  and ignores live local core TC. Extra carbonization plus a data-integrity write-up.
+- Fence: forged log quantized at 1.0 C (SCADA screenshot rounding); plant
+  historian is 0.1 C (10 bins). Live TC is 78.4 C and local O2 is 8.2 vol%
+  at the claimed core-true, which no live mixed tunnel produces.
+- Trajectory edit: governance CR-C-2406 mandates native 0.1 C CSV
+  exports; the contrast ACCEPT still requires live local core TC, not a CSV.
+
+Distinct from cycle-1 collapsed spigot (accidental floor vs deliberate deception) and
+from the high-peat sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 25.864 ms: tunnel.probe 7400.0, core.o2 7486.2
+  (adapt 0.43->0.39), pln.in_band 7568.0 (1.10->0.34), human.ratify
+  576000.0, tunnel.hold 576800.0, co.mix 577600.0, core.hot
+  11520000.0, core.o2 11520720.0, nh3.ok 11521480.0, tunnel.fire
+  17280000.0. Primary train 16 -> 26. Still one key, still sorted,
+  refractory held.
+- +2 ticks (5 -> 7) at 11_520_000_000 us (true mixed core) and
+  17_280_000_000 us (tunnel fire). Heads now 0.07, -0.34, -0.13,
+  0.14, 0.10; total -0.16. Inflection is the last tick.
+- Contrast train 8 events, own race 206 us, ACCEPT.
+- Triple-edge third factor: three plenum-healthy-go edges, tau_e 0.88 s = 880 ms,
+  trace {math.exp(-DELAY_S / TAU_E_S):.5f}, eta {0.25 / math.exp(-DELAY_S / TAU_E_S):.5f} /
+  {0.22 / math.exp(-DELAY_S / TAU_E_S):.5f} / {0.21 / math.exp(-DELAY_S / TAU_E_S):.5f},
+  weights 0.50->0.25, 0.44->0.22, 0.41->0.20. Independent LIF excerpt
+  unchanged (decision window is still 36 ms) and remains disjoint from
+  spike_events times.
+
+Winner/loser flip (re-stated, not replaced): reversing 214 us would only
+reorder triage; local-TC floors still MODIFY. Contrast flip of
+206 us similarly cannot turn a mixed tunnel into a smolder.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.16; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms independent LIF, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted and disjoint from language times, tau_e consistent;
+gate_snn.decision matches; meta.round=24,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy, swarm=HEARTH-FEN; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive.
+
+Densification delta: +1 domain sub-variant (high-peat amendment), +1 tail
+(night-shift forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 triple-edge scar with
+pair-rollback-fails, +1 HITL ratify, +1 surprise (compost-core carbonization is the
+smolder mechanism), + independent LIF raster retained.
+
+Publishable JSONL line (the only JSONL line; also at batch-r24.jsonl):
+
+```json
+{line}
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r24.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+    return text
+
+
+def plan_names(directory: Path):
+    batch = directory / "batch-r24.jsonl"
+    notes = directory / "NOTES-r24.md"
+    tr = directory / "swarm-transcript-r24.md"
+    if batch.exists() or notes.exists() or tr.exists():
+        batch = directory / "batch-r24c.jsonl"
+        notes = directory / "NOTES-r24c.md"
+        tr = directory / "swarm-transcript-r24c.md"
+    for p in (batch, notes, tr):
+        if p.exists():
+            raise FileExistsError(f"refuse: {p} already exists")
+    return batch, notes, tr
+
+
+def emit_text(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(text)
+    return path
+
+
+def main():
+    rec, aux = build_record()
+    errs = local_checks(rec, aux)
+    if errs:
+        print("FAIL local", errs)
+        return 1
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    if not LIVE.is_dir():
+        print("FAIL live dir missing", LIVE)
+        return 1
+    for dated in ("2026-08-17", "2026-08-30"):
+        if dated in str(LIVE):
+            print("FAIL dated-run path", LIVE)
+            return 1
+
+    line = json.dumps(rec, ensure_ascii=False, separators=(",", ":"))
+    stage_batch, stage_notes, stage_tr = plan_names(OUT)
+    jsonl_stage = emit_text(stage_batch, line + "\n")
+
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import raster_status
+    from verify_execution import verify_record_execution
+
+    e, w, kinds, n = check_jsonl(
+        jsonl_stage,
+        jsonl_stage.name,
+        staging=FactoryStaging(enabled=True),
+    )
+    print("check_jsonl errors", e)
+    print("check_jsonl warnings", w)
+    print("kinds", kinds, "n", n)
+    errs.extend(e)
+
+    st = raster_status(rec)
+    print(
+        "raster_status",
+        {
+            k: st[k]
+            for k in (
+                "raster_present",
+                "raster_valid",
+                "gate_snn_present",
+                "gate_snn_valid",
+                "reason_codes",
+                "routing_table_entries",
+                "third_factor_present",
+                "spikes",
+            )
+            if k in st
+        },
+    )
+    if st.get("reason_codes"):
+        errs.append(f"raster {st['reason_codes']}")
+    if not st.get("raster_valid"):
+        errs.append("raster not valid")
+    if not st.get("gate_snn_valid"):
+        errs.append("gate_snn not valid")
+
+    status, reason = verify_record_execution(rec, RECORD_ID)
+    print("verify_record_execution", status, reason)
+    if status != "verified":
+        errs.append(f"verify {status} {reason}")
+
+    probe = subprocess.run(
+        [
+            sys.executable,
+            f"{ROOT}/pipelines/spike_probe.py",
+            "--strict",
+            str(jsonl_stage),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    print("spike_probe rc", probe.returncode)
+    print(probe.stdout[-2000:] if probe.stdout else "")
+    if probe.returncode != 0:
+        errs.append(f"spike_probe {probe.returncode} {probe.stderr[-500:]}")
+
+    pipeline_receipt = (
+        f"check_jsonl errors={e} warnings={w} kinds={kinds} n={n}; "
+        f"raster_status valid={st.get('raster_valid')} gate={st.get('gate_snn_valid')} "
+        f"reasons={st.get('reason_codes')}; verify_record_execution={status} "
+        f"({reason}); spike_probe --strict rc={probe.returncode}"
+    )
+    notes = write_notes(rec, aux, pipeline_receipt)
+    transcript = write_transcript(rec, line)
+    notes_stage = emit_text(stage_notes, notes)
+    tr_stage = emit_text(stage_tr, transcript)
+
+    heading = subprocess.run(
+        [sys.executable, "/tmp/maos_heading_check.py", str(tr_stage)],
+        capture_output=True,
+        text=True,
+    )
+    print(heading.stdout)
+    if heading.returncode != 0:
+        errs.append(f"heading check {heading.returncode} {heading.stdout} {heading.stderr}")
+
+    dated = subprocess.run(
+        [
+            "rg",
+            "-l",
+            "maos-r24-001|HEARTH-FEN",
+            str(Path(ROOT) / "outputs" / "raw" / "2026-08-17"),
+            str(Path(ROOT) / "outputs" / "raw" / "2026-08-30"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if dated.stdout.strip():
+        errs.append(f"dated-run hit {dated.stdout.strip()[:200]}")
+
+    loads_ok = True
+    for i, raw in enumerate(jsonl_stage.read_text().splitlines(), 1):
+        if not raw.strip():
+            continue
+        try:
+            json.loads(raw)
+        except json.JSONDecodeError as exc:
+            errs.append(f"json.loads {jsonl_stage}:{i} {exc}")
+            loads_ok = False
+    print("json.loads", loads_ok)
+
+    if errs:
+        print("FAIL staging", errs)
+        return 1
+
+    live_batch, live_notes, live_tr = plan_names(LIVE)
+    for p in (live_batch, live_notes, live_tr):
+        if "2026-08-17" in str(p) or "2026-08-30" in str(p):
+            print("FAIL dated-run path", p)
+            return 1
+    jsonl_live = emit_text(live_batch, line + "\n")
+    notes_live = emit_text(live_notes, notes)
+    tr_live = emit_text(live_tr, transcript)
+
+    print("OK maos-r24-001")
+    print("LIVE", jsonl_live)
+    print("LIVE", notes_live)
+    print("LIVE", tr_live)
+    print("bytes jsonl", jsonl_live.stat().st_size)
+    print("bytes notes", notes_live.stat().st_size)
+    print("bytes transcript", tr_live.stat().st_size)
+    print("RECEIPT", pipeline_receipt)
+    print("Q", 1)
+    print("id", RECORD_ID)
+    print("plant", PLANT)
+    print("round", ROUND)
+    print("decision", rec["safety_decision"]["decision"])
+    print("gate", rec["gate_snn"]["decision"])
+    print("sim", rec["state"]["sim_or_real"])
+    print("novel", NOVEL_LINE)
+    print("lif_seed", aux["lif_seed"])
+    print("raster", ras_summary(rec))
+    return 0
+
+
+def ras_summary(rec):
+    ras = rec["raster"]
+    return {
+        "window_ms": ras["window_ms"],
+        "neurons": ras["neurons"],
+        "mean_rate_hz": ras["mean_rate_hz"],
+        "spikes": ras["spikes"],
+        "energy_pJ": ras["energy_pJ"],
+        "excerpt_n": len(ras["excerpt"]),
+        "excerpt_source": ras["excerpt_source"],
+        "lif_seed": ras["lif"]["seed"],
+    }
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

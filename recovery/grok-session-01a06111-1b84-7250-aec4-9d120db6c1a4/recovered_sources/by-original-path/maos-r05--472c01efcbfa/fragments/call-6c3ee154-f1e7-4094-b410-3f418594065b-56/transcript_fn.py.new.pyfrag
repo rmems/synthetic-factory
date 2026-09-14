@@ -1,0 +1,347 @@
+def write_transcript(rec, line):
+    ras = rec["raster"]
+    text = f"""# Multi-Agent Ouroboros Swarm — Round 05 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r05-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Swarm: BARN-FEN
+Plant: invented BARN-FEN / Mirelatch Compost Tunnel CT-5 (not TRIAD / Meridian / VANTIS-CADENCE-AEGIS / LYOSHIELD / CINDERWICK / BOGIRON / PUSHERFELL / SKARVOLT / COILSHAW / GIBBSQUERN / SIPHONWOLD / WINDBOXHOLT / LOCKSPUR / SLUICE-HEARTH / WOLD-BARN / QUAY-FEN / LOCK-FEN / FEN-SPIT / BARN-SPIT / SPUR-HEARTH / SPIT-LOCK)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r05.jsonl).
+
+---
+
+# CYCLE 1 — Foundation + injections
+
+## Generator
+
+Design intent: an 86 m six-bay Phase-II mushroom compost tunnel where three
+correct agents each read a header-mean loop because a collapsed floor-spigot
+row on bay 6 partitions local compost TC from header-true air, mixed exhaust
+oxygen, and fan speed. The naive playbook raises air into an anaerobic pocket.
+The gate must MODIFY on a numeric air floor, not by killing an agent.
+sim_or_real=designed. Reward heads are
+task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Mirelatch CT-5, 46.0 C,
+AIR 46.0 C, OXY 14.8 vol%, FAN 38.0 Hz, proposed RAISE-AIR
+56.0 C, safety MODIFY to AIR-HOLD, executed hold without the
+fan-step numbers fully specified, outcome "collapse found, tunnel
+saved" (this last claim is the defect the later cycles will refuse to
+keep). Sixteen spikes, five ticks, raster/gate_snn present but the scar
+is a single edge.
+
+```json
+{{
+  "id": "maos-r05-001-scaffold",
+  "state": {{
+    "sim_or_real": "designed",
+    "domain": "industrial-process",
+    "description": "Tunnel CT-5 at compost barn; three AIR loops in-spec; supervisor proposes raise-air.",
+    "t0_us": 1755413520000005,
+    "gate_latency_us": 704,
+    "race_window_us": 500
+  }},
+  "proposed_action": {{"name": "raise_air", "parameters": {{"air_C": 56.0}}}},
+  "safety_decision": {{"decision": "MODIFY", "rationale": "Hold; do not raise air while local compost TC is high."}},
+  "executed_action": {{"name": "air_hold", "executed_as_proposed": false}},
+  "future_outcome": {{"summary": "Collapse found, tunnel saved."}},
+  "reward_components": {{"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"}},
+  "meta": {{"round": 5, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}}
+}}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "tunnel saved". If the pre-t0 ammonia-kill later
+   culls, booking +0.40 is a lie. Fix: declare `_aggregation`, emit
+   3–8 ticks that sum to task_progress+safety+efficiency+coherence+exploration,
+   and do not call a quarantined tunnel a save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote
+   air <= 46.0 C while bay-6 TC > 58 C AND local dP < 0.30 kPa.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-process` collides with generic MES vocabulary and teaches
+   nothing. Mushroom compost tunnel (local TC vs header mean, local dP
+   as a collapse flag) is absent from prior ouroboros rounds and must be named.
+4. **major — race under-specified.** One bed channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted `t_rel_ms`
+   and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated weight
+   repeats r04's one-edge rollback and is thinner than r14's two-edge.
+   NOTES-r14 item 4 asked for three edges where pair rollback fails.
+6. **minor — raster is a language remap.** Excerpt times matching
+   spike_events * 1000 fail the independent-LIF contract. Fix: LIF
+   population sim, excerpt_source=independent_lif, disjoint timestamps.
+
+Critic does not rewrite the trajectory.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **mushroom-compost-tunnel**
+(justified novel subdomain of industrial-process / in-vessel composting;
+explicit tag `mushroom-compost-tunnel`).
+
+Displaced: the Generator's generic `industrial-process` bucket, and any
+temptation to reuse warehouse-amr, aerial-swarm, district-heating,
+event-camera-traffic-grid, pharmaceutical-lyophilization, water-treatment,
+float-glass, underwater-rov, electrolytic-aluminum, czochralski-pull,
+slot-die coating, pem-water-electrolysis, wind-turbine pitch,
+surgical-assist, optical-fiber-draw, kraft-recovery-boiler,
+steel-continuous-caster, humanoid-locomotion, vacuum-induction melt,
+steam-methane reformer, cement-rotary-kiln-clinker,
+autoclave-composite-cure, geothermal-binary-orc, tire-curing-press,
+chlor-alkali-membrane-electrolysis, delayed-coker-drum-switch,
+lng-mche-mixed-refrigerant, claus-sulfur-recovery,
+ammonia-synthesis-converter, blast-furnace-burden-descent,
+hdpe-slurry-loop-polymerization, ethylene-steam-cracker-coil,
+hydroelectric-kaplan-wicket, fcc-riser-regenerator,
+sulfuric-contact-converter, eaf-foamy-slag-water-panel,
+coke-oven-battery-heating, carbon-fiber-oxidation-oven,
+gibbsite-autoclave-digestion, hot-strip-mill-finishing,
+paper-machine-dryer-section, sinter-strand-windbox,
+continuous-hot-dip-galvanizing, autonomous-driving, bioreactor-perfusion,
+urea-prilling-tower, cupola-foundry-slag-sluice,
+canal-lock-rail-transshipment, malting-kiln-barn, flue-cured-tobacco-barn,
+farm-ad-biogas, industrial-rotisserie-spit-oven, alkaline-stack-hydrogen-quay,
+fen-polder-drainage-pumping, hrsg-hp-spray-attemperator, or grid-inspection.
+constructed-wetland-polishing is left unused.
+
+Domain-specific constraint: header air must remain <= 46.0 C
+while bay-6 TC > 58 C even if header mean is inside the healthy band;
+local dP is a collapse flag the header average cannot substitute for.
+
+Sensor delta: +six-bay header mean, +exhaust oxygen, +fan tachometer,
++local compost TC, +local dP; -any mobile robot, -event-camera gantries,
+-DVS, -Pirani/CM, -looper tension, -work-roll IR, -sinter BTP,
+-coke-oven wall-pair, -EAF off-gas H2, -cupola blast, -lock chamber,
+-malt kiln AIR, -tobacco plenum, -AD tank mean.
+
+`state.domain` and `meta.domain` both become `mushroom-compost-tunnel`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Mirelatch night-shift spigot collapse, not a lyophilizer, not a finishing
+mill, not a coke oven, not a blast furnace, not a Bayer digester, not a
+paper machine, not a sinter strand, not a malt kiln, not a tobacco barn).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **bay 6 collapsed
+floor-spigot row + ammonia-kill certificate**.
+
+- Trigger: B-6 spigot collapse plus local anaerobic ammonia-kill under the fill,
+  local TC 81.4 C, local dP 0.14 kPa.
+- Base rate: <1% — 0.31%/campaign from a spigot-collapse MC (tunnel-gallery
+  visual threshold is designed; floor geometry fitted-style). Visual
+  PASSES because the collapse sits under the 2.6 m fill.
+- Naive failure: FALSE PERMISSION. PB-CT-5 sees three in-spec mean
+  loops, raises 46.0->56.0 C, ammonia-kill 42 t, $1.64M.
+- Trajectory edit: put the collapse in `state.fault_context`, make each
+  agent's confirm a different header-side slice of the same bed-false
+  state (air-in-band, oxy-ok, fan-ok). Local TC is readable but
+  policy-treated as wet-pocket-nuisance-only.
+
+Distinct from r02 cupola slag sluice, r63 canal-lock transshipment, r01
+GI air-knife, r64 malt-kiln floor collapse, r65 tobacco flue rupture, and
+r67 farm-AD crust lock.
+
+## Neuromorphic Translator
+
+Cycle-1 temporal densification (16 spikes, 5 ticks, 44 ms independent LIF raster):
+
+| channel | t_rel_ms | amplitude |
+|---|---|---|
+| bed.hot | 0.312 | 0.52 |
+| oxy.ok | 1.148 | 0.61 |
+| fan.ok | 2.024 | 0.55 |
+| bed.dP | 3.168 | 0.76 |
+| bed.hot | 4.176 | 0.49 |
+| bed.dP | 4.836 | 0.78 |
+| oxy.ok | 5.364 | 0.57 |
+| bed.hot.high | 6.428 | 1.36 |
+| air.in_band | 6.624 | 1.10 |
+| fan.ok | 6.812 | 0.64 |
+| ctrl.gate | 7.132 | 1.07 |
+| bed.dP | 8.912 | 0.43 |
+| fan.ok | 10.696 | 0.80 |
+| oxy.ok | 13.036 | 0.45 |
+| bed.hot | 18.420 | 0.42 |
+| ctrl.gate | 26.116 | 0.84 |
+
+Race: bed-hot 6.428 vs AIR 6.624 (196 us) inside 500 us;
+FAN 6.812 is the third channel in-window. Winner/loser flip: reversing
+196 us reshuffles PB-CT-5 triage; floors still MODIFY. Refractory held
+(cycle-1 min same-channel gap 1.668 ms on bed.dP 4.836-3.168;
+bed.hot 4.176-0.312 = 3.864; oxy 5.364-1.148 = 4.216). Adaptation:
+bed.dP 0.76->0.78->1.36->0.43; bed.hot 0.52->0.49->0.42; oxy
+0.61->0.57->0.45.
+
+Raster cycle-1 seed: independent LIF 44 ms, 144 neurons, 24.5 Hz,
+Loihi-2 23 pJ/spike, third factor acetylcholine tau_e 0.88 s. Single
+scar edge only — cycle 2 must add the second and third edges. Excerpt
+is membrane crossings, not spike_events remapped.
+
+Ticks 1–5 at 4120, 6428, 7132, 8.2e6, 612e6 us; heads not yet the final
+-0.16 (missing the 3.4 h and 4.8 h ticks).
+
+Distillation value this cycle: header-side confirms as a permission code
+that is not a bed-true spigot code.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain mushroom-compost-tunnel, tail
+spigot collapse, 16 spikes, 5 ticks, MODIFY with numeric floor, raster+gate_snn
+present, sim_or_real=designed, rights stamp on record and meta, no thought
+keys, independent LIF excerpt. Still missing (and therefore not the
+publishable line): high-C/N poultry sub-variant, night-shift tail, second
+and third scar edges, delayed spawn cull as PRIMARY terminal, contrast
+ACCEPT episode, ticks 6–7, spikes 17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 500 us window; refractory
+  >= 0.8 ms; raster 44 ms independent LIF; gate_snn MODIFY matches.
+- densification delta vs Generator scaffold: +1 domain, +1 tail, +16 spikes,
+  +5 ticks, +numeric floor, +LIF sidecar.
+- not publishable: cycle 2 injections absent.
+
+---
+
+# CYCLE 2 — Densification
+
+## Generator
+
+Re-emit Cycle-1 expanded. Additive deltas only:
+
+1. Downstream side-effect (immediate): 8.2 s fan-step probe proves
+   collapse (|Delta O2| 0.12 vol% collapse band) and bay 6 is held after 10.2 min
+   tunnel-gallery ratify. Remaining 5 bays recover toward 5 K over 3.4 h.
+2. Downstream side-effect (delayed, PRIMARY terminal): +4.8 h spawn cull from
+   the 13 min pre-t0 kill; 18 h stall; $0.72M. The gate prevented the
+   proposed 42 t path and did not prevent this other one.
+3. proposed_action.evidence deepened with observables + units (bed TC 81.4 C,
+   dP 0.14 kPa, AIR 46.0 C, OXY 14.8 vol%, FAN 38.0 Hz, race 196 us).
+4. safety_decision.rationale tightened to numeric floor: air <= 46.0 C
+   while bay-6 TC > 58 C AND bay-6 dP < 0.30 kPa.
+
+Outcome language "tunnel saved" is deleted. Total will go negative.
+
+## Critic
+
+Re-audit of the richer trajectory:
+
+1. **blocking if missing — cycle-2 physical sub-variant.** Horse-manure probe
+   numbers must not be implied to port. Poultry-litter-heavy high-C/N (1.9x
+   bed resistance) overshoots a live tunnel. Fix: 22 s / +1.1 Hz table.
+2. **major — second tail class still absent.** Cycle-1 collapse is accidental
+   floor failure. Need a disjoint human-intent deception (forged compost-TC CSV)
+   or the two injections collapse into one story.
+3. **major — scar still one edge.** Pair-rollback-fails needs three
+   header-healthy-go edges with eligibility arithmetic.
+4. **minor — contrast ACCEPT missing.** Without a sister-tunnel true-duty
+   ACCEPT, the lesson collapses to "never raise-air".
+5. **minor — LIF excerpt must remain independent after densification.**
+   Do not remap new spike times into the 44 ms window.
+
+Critic still does not rewrite JSON.
+
+## Diversity Enforcer
+
+Injected second novel domain (exactly 1 this cycle): **poultry-litter-heavy
+high-C/N compost tunnel** (physical-constraints sub-variant of
+mushroom-compost-tunnel; explicit tag retained, constraint changed).
+
+This is not a new plant. It changes physics: 1.9x bed resistance, 2.3x
+fan-step gain. The 8.2 s / +3 Hz horse-manure pulse overshoots a LIVE intact
+poultry tunnel to a 6.4 K false AIR jump (inside the pasteurization trip). Probe must
+move to 22 s at +1.1 Hz. Cycle-1 domain mushroom-compost-tunnel is preserved.
+
+Displaced: any reuse of fluxed-sinter probe-refit (r61), high-N barley
+fan-step (r64), galvalume knife-gain (r01), or high-P KOH tables (r03).
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**night-shift forged local-TC CSV**.
+
+- Trigger: shift lead, 03:12, posts a historian export showing
+  TC = 48.0 C at t = 1.1 h to clear a pasteurization slot.
+- Base rate: ~0.27% of Sunday-night campaigns (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the raise-air on the forged confirm
+  and ignores live local TC. Ammonia-kill plus a data-integrity write-up.
+- Fence: forged log quantized at 1.0 C (SCADA screenshot rounding); plant
+  historian is 0.1 C (10 bins). Live TC is 81.4 C and local dP is 0.14 kPa
+  at the claimed bed-true, which no live intact floor produces.
+- Trajectory edit: governance CR-C-0506 mandates native 0.1 C CSV
+  exports; the contrast ACCEPT still requires live local TC, not a CSV.
+
+Distinct from cycle-1 collapse (accidental floor vs deliberate deception) and
+from the high-C/N sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 26.116 ms: tunnel.probe 8200.0, bed.dP 8288.4
+  (adapt 1.36->0.39), air.in_band 8372.0 (1.10->0.34), human.ratify
+  612000.0, tunnel.hold 612800.0, nh3.kill 613600.0, bed.hot
+  12240000.0, bed.dP 12240740.0, oxy.ok 12241520.0, compost.cull
+  17280000.0. Primary train 16 -> 26. Still one key, still sorted,
+  refractory held.
+- +2 ticks (5 -> 7) at 12_240_000_000 us (true intact spigots) and
+  17_280_000_000 us (spawn cull). Heads now 0.07, -0.34, -0.13,
+  0.14, 0.10; total -0.16. Inflection is the last tick.
+- Contrast train 8 events, own race 184 us, ACCEPT.
+- Triple-edge third factor: three header-healthy-go edges, tau_e 0.88 s = 880 ms,
+  trace {math.exp(-DELAY_S / TAU_E_S):.5f}, eta {0.24 / math.exp(-DELAY_S / TAU_E_S):.5f} /
+  {0.21 / math.exp(-DELAY_S / TAU_E_S):.5f} / {0.20 / math.exp(-DELAY_S / TAU_E_S):.5f},
+  weights 0.50->0.26, 0.44->0.23, 0.41->0.21. Independent LIF excerpt
+  unchanged (decision window is still 44 ms) and remains disjoint from
+  spike_events times.
+
+Winner/loser flip (re-stated, not replaced): reversing 196 us would only
+reorder triage; local-TC floors still MODIFY. Contrast flip of
+184 us similarly cannot turn an intact floor into a collapse.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.16; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms independent LIF, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted and disjoint from language times, tau_e consistent;
+gate_snn.decision matches; meta.round=5,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy, swarm=BARN-FEN; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive.
+
+Densification delta: +1 domain sub-variant (high-C/N poultry), +1 tail
+(night-shift forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 triple-edge scar with
+pair-rollback-fails, +1 HITL ratify, +1 surprise (ammonia-kill is the
+collapse mechanism), + independent LIF raster retained.
+
+Publishable JSONL line (the only JSONL line; also at batch-r05.jsonl):
+
+```json
+{line}
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r05.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+    return text

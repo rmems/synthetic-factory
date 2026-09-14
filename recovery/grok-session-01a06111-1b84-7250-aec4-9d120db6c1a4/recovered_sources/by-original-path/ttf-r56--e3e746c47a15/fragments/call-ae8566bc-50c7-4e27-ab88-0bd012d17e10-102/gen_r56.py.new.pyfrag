@@ -1,0 +1,9 @@
+        if rec["id"] == "ttf-r56-297":
+            tot_s = f"**{tot:+.2f}**"
+        edge = {
+            "ttf-r56-296": "live wall 1204 C < 1220 trip; 1190 C hysteresis reset treated as a latched trip",
+            "ttf-r56-297": "process-correct recycle clamp; crystal-bridge collapse inside 42 ms raster; independent LIF",
+            "ttf-r56-298": "IR 2840 C beats kiloamp encoder 18.6 kA; hold, do not ramp",
+            "ttf-r56-299": "specific press 4.20 N/mm2 vs gap DP smear; proposed 18.0 mm already legal",
+            "ttf-r56-300": "acid 88.2 percent vs contactor DP smear; proposed 22.0 m3/h already legal",
+        }[rec["id"]]

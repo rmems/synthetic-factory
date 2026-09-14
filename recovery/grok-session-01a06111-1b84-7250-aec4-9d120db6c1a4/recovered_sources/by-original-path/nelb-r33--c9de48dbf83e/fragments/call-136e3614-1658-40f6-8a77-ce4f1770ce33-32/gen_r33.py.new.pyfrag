@@ -1,0 +1,12 @@
+import hashlib
+import json
+import math
+import random
+import sys
+from collections import defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
+
+OUT_DIR = Path("/tmp/nelb-r33")
+BATCH = OUT_DIR / "batch-r33.jsonl"
+NOTES = OUT_DIR / "NOTES-r33.md"

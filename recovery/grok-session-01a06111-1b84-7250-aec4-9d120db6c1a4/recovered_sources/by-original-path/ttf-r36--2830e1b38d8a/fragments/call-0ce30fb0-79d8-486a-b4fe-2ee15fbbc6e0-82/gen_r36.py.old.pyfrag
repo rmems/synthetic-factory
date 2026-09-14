@@ -1,0 +1,9 @@
+                        ("winner", "opt.prill.mm (4.860 ms, 1.80 mm)"),
+                        ("loser", "pt.tower.kPa (5.080 ms, 1.80 kPa)"),
+                        ("margin_us", 220),
+                        (
+                            "counterfactual_if_reversed",
+                            "Draft-first by < 220 us inside the 420 us window would have extra-cut "
+                            "a legal 28 t/h melt on a 1.80 mm prill that is still under the "
+                            "2.40 mm cap.",
+                        ),

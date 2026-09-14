@@ -1,0 +1,24 @@
+def occupancy_preflight():
+    banned = (
+        "ospreyfen",
+        "dunlinmire",
+        "whimbrelshaw",
+        "ionveil",
+        "aeveil",
+        "rtdveil",
+        "nelb-r06-001",
+        "nelb-r06-002",
+        "nelb-r06-003",
+        "bayard-alpert remaining",
+        "acoustic-emission remaining leak",
+        "pt100 remaining",
+    )
+    hits = []
+    if LIVE.is_dir():
+        for n in sorted(LIVE.glob("batch-r*.jsonl")):
+            text = n.read_text(encoding="utf-8", errors="replace").casefold()
+            for b in banned:
+                if b in text:
+                    hits.append(f"{n.name}:{b}")
+    if hits:
+        raise RuntimeError(f"family/plant collision {hits}")

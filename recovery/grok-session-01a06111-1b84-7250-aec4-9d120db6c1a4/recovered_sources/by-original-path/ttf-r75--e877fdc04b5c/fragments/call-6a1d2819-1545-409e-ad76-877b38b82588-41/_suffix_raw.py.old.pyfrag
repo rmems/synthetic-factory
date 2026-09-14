@@ -1,0 +1,4 @@
+            desc = rec.get("state", {}).get("description")
+            if isinstance(desc, str):
+                descs.append(desc)
+    return domains, descs, "\n".join(blobs)

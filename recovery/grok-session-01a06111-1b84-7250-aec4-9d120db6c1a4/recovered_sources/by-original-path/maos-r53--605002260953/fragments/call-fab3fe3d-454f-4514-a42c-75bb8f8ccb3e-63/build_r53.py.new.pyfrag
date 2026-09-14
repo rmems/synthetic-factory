@@ -1,0 +1,83 @@
+    text = """# Multi-Agent Ouroboros Swarm — Round 53 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r53-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Plant: invented CREELWOLD / Rovingholt Oxidation OX-6 (not LYOSHIELD / CINDERWICK / TRIAD / QUILLFORGE / NIGHTWELL / FERRICLEAVE / CASSITER / OXBOWREEL / REDHALL / SEEDLATCH / STRIAFOIL / PROTONIL / TORSIONKEY / ORRIS / WHORLSPAR / IONSPATE / SKULLGATE / CALXION / BRACEGILT / MAGNORIL / GORSEFLUE / CLINKERFELL / SODASHARD / LINTELPLY / KAOTHARN / TREADNOLL / ANOLITH / DRUMWROTH / RIMEBRAID / PITCHSTAITH / BRIMVAULT / NITROSTAITH / BOGIRON / CHROMLOOP / ETHYNWOLD / NITREVAULT / RUNNELGATE / SPARKHOLT / DIPLEGAR / OLEUMWEIR / SKARVOLT / GOBWOLD)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r53.jsonl).
+
+---
+
+# Cycle 1 — Foundation + injections
+
+## Generator
+
+Design intent: a 24k PAN oxidation-oven hold where three correct agents
+agree the hold is speed-raise-legal because a zone-mean model maps a
+creel-4 tow overlap into a still-in-band plenum temperature. The naive
+playbook raises 1.80 to 2.20 m/min into an overlapped exotherm. The
+gate must MODIFY on a numeric raise ceiling, not by killing an agent.
+sim_or_real=designed. Reward heads are
+task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Rovingholt OX-6, 24k PAN tow,
+r_hot 248 C, ZMEAN 218 C, proposed RAISE-SPEED, safety MODIFY to
+SPEED-HOLD, executed hold without the speed-cut numbers fully specified,
+outcome "overlap found, creel saved" (this last claim is the defect
+the later cycles will refuse to keep). Sixteen spikes, five ticks,
+raster/gate_snn present but the scar is a single edge.
+
+```json
+{
+  "id": "maos-r53-001",
+  "state": {
+    "sim_or_real": "designed",
+    "domain": "industrial-assembly",
+    "description": "OX-6 mid-hold; three loops in spec; supervisor proposes raise-speed.",
+    "t0_us": 1780003530000531,
+    "gate_latency_us": 700,
+    "race_window_us": 500
+  },
+  "proposed_action": {"name": "raise_speed", "parameters": {"raise_speed": true}},
+  "safety_decision": {"decision": "MODIFY", "rationale": "Hold; do not raise while the overlap residual is open."},
+  "executed_action": {"name": "speed_hold", "executed_as_proposed": false},
+  "future_outcome": {"summary": "Overlap found, creel saved."},
+  "reward_components": {"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"},
+  "meta": {"round": 53, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}
+}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "creel saved". If strand tensile later assays
+   4.8 GPa, booking +0.40 is a lie. Fix: declare `_aggregation`, emit 3–8
+   ticks that sum to the five heads, and do not call a missed recovery a
+   save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote no
+   raise while r_hot > 230 C AND r_overlap > 2.0 pct.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-assembly` collides with r16 QUILLFORGE and teaches nothing.
+   Oxidation-oven physics (plenum TC, tow load cell, bulk O2, fiber IR)
+   is absent from prior ouroboros rounds and must be named. Do not recycle
+   r34 autoclave, r36 tire press, or r27 fiber draw.
+4. **major — race under-specified.** One zone channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted
+   `t_rel_ms` and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated
+   weight repeats r14's two-edge form without the third. NOTES-r14 item 4
+   asked for three-edge where any-pair rollback fails.
+
+Critic does not rewrite the trajectory.

@@ -1,0 +1,81 @@
+{
+  "agent_ids": [
+    "01a0640d-430d-7241-ace9-e9e155c39e8d"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 2,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 3,
+  "original_basename": "gen.py",
+  "original_path": "/tmp/actf-r39/gen.py",
+  "path_key": "actf-r39--c179d0ca6385",
+  "terminal_event_ids": [
+    "01a0640d-430d-7241-ace9-e9e155c39e8d:call-500ded41-7647-41a6-91c0-61f4023bacd3-51",
+    "01a0640e-7448-75c1-b6d7-ea6560da7abe:call-cdbf3d3e-ec53-4454-87df-042038700216-12"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 2,
+  "versions": [
+    {
+      "agent_id": "01a0640d-430d-7241-ace9-e9e155c39e8d",
+      "basename_preserved": true,
+      "bytes": 59062,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 283,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640d-430d-7241-ace9-e9e155c39e8d/updates.jsonl",
+      "original_basename": "gen.py",
+      "original_path": "/tmp/actf-r39/gen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r39--c179d0ca6385/versions/v0001/gen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/actf-r39--c179d0ca6385/versions/v0001/gen.py",
+      "session_id": "01a0640d-430d-7241-ace9-e9e155c39e8d",
+      "sha256": "bcae610f6f9426594c3261c62a0f71cc5f3fbc00c2a8849ef4ac22c425e15b72",
+      "source_channel": "structured",
+      "source_event_id": "01a0640d-430d-7241-ace9-e9e155c39e8d:call-67ca0d5f-e216-466a-9747-be2eccd5b4c9-50",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788390139382,
+      "timestamp_utc": "2026-09-02T23:02:19.382Z",
+      "tool_call_id": "call-67ca0d5f-e216-466a-9747-be2eccd5b4c9-50",
+      "version": 1,
+      "version_id": "actf-r39--c179d0ca6385:v0001"
+    },
+    {
+      "agent_id": "01a0640d-430d-7241-ace9-e9e155c39e8d",
+      "basename_preserved": true,
+      "bytes": 59089,
+      "classification": "exact",
+      "classification_evidence": [
+        "structured search_replace outcome was Completed",
+        "recorded old_string occurred exactly once in the reconstructed prior state",
+        "prior state classification was exact"
+      ],
+      "file_mode": "0400",
+      "journal_line": 317,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0640d-430d-7241-ace9-e9e155c39e8d/updates.jsonl",
+      "original_basename": "gen.py",
+      "original_path": "/tmp/actf-r39/gen.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/actf-r39--c179d0ca6385/versions/v0002/gen.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/actf-r39--c179d0ca6385/versions/v0002/gen.py",
+      "session_id": "01a0640d-430d-7241-ace9-e9e155c39e8d",
+      "sha256": "8a29138e5b9dab4dbe0011c9692b51d946ffcf6509ac6ad63914ba7b1f892361",
+      "source_channel": "structured",
+      "source_event_id": "01a0640d-430d-7241-ace9-e9e155c39e8d:call-0067e62f-85e9-48cd-bd00-9dd1d10fcb96-56",
+      "source_operation": "search_replace",
+      "timestamp_ms": 1788390209663,
+      "timestamp_utc": "2026-09-02T23:03:29.663Z",
+      "tool_call_id": "call-0067e62f-85e9-48cd-bd00-9dd1d10fcb96-56",
+      "version": 2,
+      "version_id": "actf-r39--c179d0ca6385:v0002"
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "agent_ids": [
+    "01a0649c-a50a-75b2-8135-8ae77a08a1e0",
+    "01a064a9-45ae-7700-805d-dd7704304e1b"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 1,
+  "original_basename": "gen_r65.py",
+  "original_path": "/tmp/ttf-r65-live/gen_r65.py",
+  "path_key": "ttf-r65-live--ce6b3cd6aeaf",
+  "terminal_event_ids": [
+    "01a0649c-a50a-75b2-8135-8ae77a08a1e0:call-caae397f-21cb-4e65-8471-fcfb59b38000-69",
+    "01a064a9-45ae-7700-805d-dd7704304e1b:call-04e772f2-da9f-457b-baf0-0a6aebff3c3e-28",
+    "01a064a9-45ae-7700-805d-dd7704304e1b:call-977c39f5-ed65-44a6-9b8a-fb951e9f34a3-38",
+    "01a064a9-45ae-7700-805d-dd7704304e1b:call-e04eac03-da2e-426f-a519-72b3e113d2f3-37"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a0649c-a50a-75b2-8135-8ae77a08a1e0",
+      "basename_preserved": true,
+      "bytes": 108630,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 380,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0649c-a50a-75b2-8135-8ae77a08a1e0/updates.jsonl",
+      "original_basename": "gen_r65.py",
+      "original_path": "/tmp/ttf-r65-live/gen_r65.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r65-live--ce6b3cd6aeaf/versions/v0001/gen_r65.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ttf-r65-live--ce6b3cd6aeaf/versions/v0001/gen_r65.py",
+      "session_id": "01a0649c-a50a-75b2-8135-8ae77a08a1e0",
+      "sha256": "b432a43cdfd427f439934fd418e2b11eed247b9448cd3a71ecaf7c3f110f9b12",
+      "source_channel": "structured",
+      "source_event_id": "01a0649c-a50a-75b2-8135-8ae77a08a1e0:call-40a8f549-a319-43ec-a114-2e33aac93af4-68",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788395270726,
+      "timestamp_utc": "2026-09-03T00:27:50.726Z",
+      "tool_call_id": "call-40a8f549-a319-43ec-a114-2e33aac93af4-68",
+      "version": 1,
+      "version_id": "ttf-r65-live--ce6b3cd6aeaf:v0001"
+    }
+  ]
+}

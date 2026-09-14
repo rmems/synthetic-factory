@@ -1,0 +1,29 @@
+def main() -> int:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    records = [record_336(), record_337(), record_338(), record_339(), record_340()]
+    # jmax needed for notes; compute once
+    descs = [r["state"]["description"] for r in records]
+    jmax = 0.0
+    for i in range(5):
+        for j in range(i + 1, 5):
+            jmax = max(jmax, jaccard(descs[i], descs[j]))
+    notes = notes_text(jmax)
+    issues, jmax2 = self_check(records, notes)
+    jmax = max(jmax, jmax2)
+    notes = notes_text(jmax)
+    issues, _ = self_check(records, notes)
+    lines = [
+        json.dumps(rec, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        for rec in records
+    ]
+    BATCH_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    NOTES_PATH.write_text(notes, encoding="utf-8")
+    print(f"wrote {BATCH_PATH} lines={len(lines)} jmax={jmax:.3f}")
+    print(f"wrote {NOTES_PATH}")
+    if issues:
+        print("SELF_CHECK_ISSUES:")
+        for item in issues:
+            print(" -", item)
+        return 1
+    print("SELF_CHECK_OK")
+    report = run_pipelines(records)

@@ -1,0 +1,25 @@
+        ev(6420000.0, "shop.trip", 0.0, code="TRIP_NOT_TAKEN", units="bool"),
+        ev(6600000.0, "cell.restart", 1.0, code="CELL_RESTART", units="bool"),
+    ]
+    events.extend(
+        [
+            ev(450000.0, "pell.I", 3.50, code="I_MA", units="mA", note="4.00*(3.50-2.00)=6.00 exact; still under the 8.00 isolate floor"),
+            ev(450001.2, "pell.snr", 10.0, code="PELL_SNR", units="1", note="1.2 ms SNR after I 3.50; isolate still needs SNR>=12"),
+            ev(468000.0, "recon.LEL", 6.00, code="LEL_PCT", units="pct_lel", note="4.00*(3.50-2.00)=6.00 exact"),
+            ev(1560002.5, "pell.snr", 14.0, code="PELL_SNR", units="1", note="1.3 ms after I0; isolate-frame SNR 14.0 >= 12.0"),
+            ev(1620000.0, "oven.T", 180.0, code="OVEN_C", units="C", note="plant oven thermocouple on copper DCS; independent witness; unread by Pellveil"),
+            ev(1860000.0, "pellveil.LEL", 2.40, code="VENDOR_PCT", units="pct_lel"),
+            ev(2160000.0, "bead.zero", 0.00, code="ZERO_MA", units="mA"),
+            ev(3000000.0, "pell.snr", 14.2, code="PELL_SNR", units="1"),
+            ev(3300000.0, "recon.dI", 3.00, code="DI_MA", units="mA", note="5.00-2.00=3.00 identity held through cooldown start"),
+            ev(3600000.0, "oven.T", 95.0, code="OVEN_C", units="C", note="cooldown ramp; plant thermocouple tracks isolate, not Pellveil"),
+            ev(3900000.0, "pell.I", 4.50, code="I_MA", units="mA"),
+            ev(4080000.0, "recon.LEL", 10.00, code="LEL_PCT", units="pct_lel", note="4.00*(4.50-2.00)=10.00 exact; still over the 8.00 isolate floor"),
+            ev(5040000.0, "pell.snr", 13.0, code="PELL_SNR", units="1"),
+            ev(5400000.0, "oven.T", 48.0, code="OVEN_C", units="C"),
+            ev(6180000.0, "pellveil.LEL", 2.28, code="VENDOR_PCT", units="pct_lel"),
+            ev(6360000.0, "recon.dI", 2.00, code="DI_MA", units="mA", note="4.00-2.00=2.00 on the post-isolate HIL dummy; 4.00*(4.00-2.00)=8.00"),
+        ]
+    )
+    events.sort(key=lambda e: (e["t_rel_ms"], e["channel"]))
+    assert_stream(events)

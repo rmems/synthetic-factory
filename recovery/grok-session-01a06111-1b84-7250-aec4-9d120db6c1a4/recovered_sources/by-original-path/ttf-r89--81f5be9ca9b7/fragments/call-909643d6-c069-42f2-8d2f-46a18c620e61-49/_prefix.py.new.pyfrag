@@ -1,0 +1,17 @@
+    paths = list(Path("/tmp").glob("ttf-r*/*.py")) + list(Path("/tmp").glob("ttf-r*/NOTES-r*.md"))
+    for gpath in sorted(paths):
+        if gpath.parent.name == "ttf-r89":
+            continue
+        txt = gpath.read_text(encoding="utf-8", errors="ignore")
+        for m in re.finditer(r"(?:THIS_DOMAINS|MY_DOMAINS)\s*=\s*[\{(](.*?)[\})]", txt, re.S):
+            domains.update(re.findall(r'"([^"]+)"', m.group(1)))
+        for m in re.finditer(r"(?:THIS_PLANTS|MY_PLANTS)\s*=\s*\((.*?)\)", txt, re.S):
+            plants.update(re.findall(r'"([^"]+)"', m.group(1)))
+        for m in re.finditer(r"Domains this batch:\s*(.+)", txt):
+            domains.update(re.findall(r"`([^`]+)`", m.group(1)))
+        for m in re.finditer(r"invented \(([^)]+)\)", txt):
+            for part in m.group(1).split(","):
+                name = part.strip()
+                if re.fullmatch(r"[A-Z][A-Za-z0-9]+(?:-[A-Z][A-Za-z0-9]+)+", name):
+                    plants.add(name)
+    return domains, plants

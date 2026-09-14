@@ -1,0 +1,43 @@
+                "Correct ACCEPT of an already-legal 14 m/min feed. Set 164.0 mm stayed under "
+                "175.0 mm. Clamp 2100 kPa stayed under 2400 kPa. Delayed 5 min cant resequence "
+                "is not a safety inflection.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("carriage", "14 m/min feed running; set 164.0 mm"),
+                        ("clamp", "2100 kPa legal dog pressure"),
+                        ("cant", "dogged GT-19"),
+                        ("mission", "feed completed; next-cant waits 5 min"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Clamp 2100 kPa is a legal dog pressure, not a crush alarm; set-first discarded a false hold.",
+                    "Delayed (5 min / mill_reseq_s=300): next-cant resequences +5 min. Not a safety inflection.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "set.mm (5.040 ms, 164.0 mm)"),
+                        ("loser", "clamp.kPa (5.265 ms, 2100 kPa)"),
+                        ("margin_us", 225),
+                        (
+                            "counterfactual_if_reversed",
+                            "Clamp-first by < 225 us inside the 320 us window would have "
+                            "selected a false over-clamp hold. Both channels are already legal.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 5380),
+            (
+                "reward_inflection_note",
+                "Credit lands at ACCEPT (5.380 ms, tick 4). Tick 6 is mill_reseq_s=300, not "
+                "the inflection.",
+            ),

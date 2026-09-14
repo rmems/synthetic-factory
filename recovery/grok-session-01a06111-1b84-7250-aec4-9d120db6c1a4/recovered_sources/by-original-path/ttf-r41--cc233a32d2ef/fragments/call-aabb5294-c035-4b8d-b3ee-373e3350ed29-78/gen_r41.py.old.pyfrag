@@ -1,0 +1,24 @@
+                        (
+                            "contenders",
+                            [
+                                "rtd.yankee.C 96.2 C",
+                                "ir.crepe.glint 118 C apparent",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Surface-first latches REJECT hold 0 m/min delta; glint-first would "
+                            "commit +120 m/min on an apparent 118 C under-read of a cold shell.",
+                        ),
+                        (
+                            "window_derivation",
+                            "380 us = one Yankee-RTD slot versus crepe-IR integration on this "
+                            "tissue-cylinder HIL bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 171 us vs combined jitter ~58 us (RTD 26 + IR 32): 2.9x over "
+                            "a 2.0x trust floor. Pad injects the lamp 110-150 us before the RTD "
+                            "(geometric lag, not a sensor fault); the apparent 118 C packet is "
+                            "still the loser in this 380 us window.",
+                        ),

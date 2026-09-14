@@ -1,0 +1,6 @@
+            "thalamic-relay.unmelt-ae",
+            "spikenaut.policy.screw-hold",
+            [
+                ("relay.ae.unmelt", "policy.screw_hold", 0.71),
+                ("relay.enc.motor", "policy.rpm_go", 0.23),
+            ],

@@ -1,0 +1,2 @@
+        if path.parent.name in {"ttf-r64", "ttf-r64-live"}:
+            continue

@@ -1,0 +1,34 @@
+                [
+                    "bag vacuum transducer, 2 kHz, 32 us timestamp jitter",
+                    "part-embedded type-K 20-220 C, 38 us jitter",
+                    "ply-4 AE puck on bag, 50 kHz (context)",
+                    "heater current shunt (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("bag_cap_kPa_abs", 8.0),
+                        ("bag_kPa_abs", 18.4),
+                        ("part_C", 178.0),
+                        ("soak_C", 190.0),
+                        ("proposed_heater_kW", 2.00),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Vessel-V8 indexed onto TN-5 cure; heater 2.00 kW, bag 18.4 kPa abs.",
+                    "2. Vacuum cap 8.0 kPa armed; part TC 178 C residual.",
+                    "3. Heater-shunt precursor at 1.210 ms; bag transducer warm-start 18.4 kPa.",
+                    "4. Race window [5.000, 5.450] ms opens on the autoclave bus.",
+                    "5. vac.bag.kPa 18.4 kPa at 5.180 ms (winner).",
+                    "6. tc.part.C 178 C at 5.392 ms (loser by 212 us).",
+                    "7. Gate at 5.860 ms (winner + 680 us): MODIFY clamp 2.00 -> 1.15 kW.",
+                    "8. Clamp executes; next-sample bag 7.2 kPa abs < 8.0 cap.",
+                    "9. At 21.200 ms ply-4 bag wrinkle; AE burst.",
+                    "10. 15 min bag swap (abort_s=900); named un-netted loss, not folded into process heads.",
+                ],
+            ),

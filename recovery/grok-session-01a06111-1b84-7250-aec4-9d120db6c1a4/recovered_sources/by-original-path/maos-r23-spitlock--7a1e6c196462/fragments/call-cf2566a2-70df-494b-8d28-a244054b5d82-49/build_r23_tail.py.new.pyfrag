@@ -1,0 +1,1 @@
+        errs.append(f"dated-run hit {dated.stdout.strip()[:200]}")

@@ -1,0 +1,1 @@
+Main streams: 32/32/32 events (inside the 5–40 cap), strictly increasing `t_rel_ms` only (no `t_ms` mix), same-channel refractory ≥0.8 ms (184 DO pair at 1.3 ms, 185 pellistor pair at 1.2 ms, 186 radar pair at 1.5 ms).

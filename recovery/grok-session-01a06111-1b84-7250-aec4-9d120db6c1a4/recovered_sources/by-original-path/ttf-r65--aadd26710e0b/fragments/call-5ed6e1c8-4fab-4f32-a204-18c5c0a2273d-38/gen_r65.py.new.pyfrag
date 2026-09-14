@@ -1,0 +1,14 @@
+THIS_DOMAINS = {
+    "wolfram-APT-calciner",
+    "caprolactam-beckmann",
+    "chloride-TiO2-oxidizer",
+    "ebullated-hydrocracker",
+    "aod-converter",
+}
+THIS_PLANTS = (
+    "Tungstate-Keld",
+    "Oxime-Clough",
+    "Ilmenite-Naze",
+    "Ebullate-Pike",
+    "Decarb-Haugh",
+)

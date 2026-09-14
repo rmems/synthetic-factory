@@ -1,0 +1,50 @@
+def occupancy_preflight():
+    banned = (
+        "stern-volmer",
+        "luminescence-quenching",
+        "mirewhin",
+        "sternveil",
+        "pellistor",
+        "catalytic-bead",
+        "lacquerfen",
+        "pellveil",
+        "pell-hil-5",
+        "free-space radar",
+        "tank-radar",
+        "pitchshaw",
+        "rangveil",
+        "rad-sim-3",
+        "bram cole",
+        "iona beck",
+        "tamsin rowe",
+        "ned harl",
+        "osierbend",
+        "enamelholt",
+        "slagbarn",
+        "electrochemical remaining h2s",
+        "transient-earth-voltage",
+        "dielectric remaining water-cut",
+        "rowanholt",
+        "sloefern",
+        "hagholt",
+    )
+    hits = []
+    roots = [Path("/tmp"), Path("/tmp/sf-window/outputs/raw")]
+    batches = []
+    for root in roots:
+        batches.extend(sorted(root.glob("**/batch-r*.jsonl")))
+        batches.extend(sorted(root.glob("nelb-r*/batch-r*.jsonl")))
+    seen = set()
+    for n in batches:
+        sp = str(n)
+        if sp in seen:
+            continue
+        seen.add(sp)
+        if "nelb-r61" in sp or "neuromorphic-event-language-bridge/batch-r61" in sp:
+            continue
+        text = n.read_text(encoding="utf-8", errors="replace").casefold()
+        for b in banned:
+            if b in text:
+                hits.append(f"{n}:{b}")
+    if hits:
+        raise RuntimeError(f"family/plant collision {hits}")

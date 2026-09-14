@@ -1,0 +1,51 @@
+    st = raster_status(rec)
+    print(
+        "raster_status",
+        {{
+            k: st[k]
+            for k in (
+                "raster_present",
+                "raster_valid",
+                "gate_snn_present",
+                "gate_snn_valid",
+                "reason_codes",
+                "routing_table_entries",
+                "third_factor_present",
+                "spikes",
+            )
+            if k in st
+        }},
+    )
+    if st.get("reason_codes"):
+        errs.append(f"raster {st['reason_codes']}")
+    if not st.get("raster_valid"):
+        errs.append("raster not valid")
+    if not st.get("gate_snn_valid"):
+        errs.append("gate_snn not valid")
+
+    status, reason = verify_record_execution(rec, RECORD_ID)
+    print("verify_record_execution", status, reason)
+    if status != "verified":
+        errs.append(f"verify {status} {reason}")
+
+    probe = subprocess.run(
+        [
+            sys.executable,
+            f"{{ROOT}}/pipelines/spike_probe.py",
+            "--strict",
+            str(jsonl_stage),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    print("spike_probe rc", probe.returncode)
+    print(probe.stdout[-2000:] if probe.stdout else "")
+    if probe.returncode != 0:
+        errs.append(f"spike_probe {{probe.returncode}} {{probe.stderr[-500:]}}")
+
+    pipeline_receipt = (
+        f"check_jsonl errors={{e}} warnings={{w}} kinds={{kinds}} n={{n}}; "
+        f"raster_status valid={{st.get('raster_valid')}} gate={{st.get('gate_snn_valid')}} "
+        f"reasons={{st.get('reason_codes')}}; verify_record_execution={{status}} "
+        f"({{reason}}); spike_probe --strict rc={{probe.returncode}}"
+    )

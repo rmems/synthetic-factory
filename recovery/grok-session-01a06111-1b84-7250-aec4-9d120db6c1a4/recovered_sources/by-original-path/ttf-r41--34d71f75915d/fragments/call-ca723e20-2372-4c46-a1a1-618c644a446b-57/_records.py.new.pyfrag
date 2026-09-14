@@ -1,0 +1,859 @@
+def lif_221_excerpt():
+    n = 72
+    dt_us = 100
+    tau_m_ms = 18.5
+    v_th = 1.0
+    v_reset = 0.0
+    refractory_us = 1000
+    i_bias = 0.90
+    i_stim_peak = 2.50
+    stim = (21000, 25000)
+    seed = 41221
+    window_us = 42000
+    i_clamp_extra = 0.64
+    clamp_n = 14
+    rng = random.Random(seed)
+    tau_s = tau_m_ms / 1000.0
+    dt_s = dt_us / 1e6
+    decay = math.exp(-dt_s / tau_s)
+    steps = window_us // dt_us
+    voltage = [rng.random() * v_th * 0.97 for _ in range(n)]
+    bias = [i_bias * (1.0 + 0.13 * (rng.random() * 2 - 1)) for _ in range(n)]
+    for i in range(clamp_n):
+        bias[i] += i_clamp_extra
+    ref = [0] * n
+    spikes = []
+    for step in range(steps):
+        t_us = step * dt_us
+        stim_i = i_stim_peak if stim[0] <= t_us < stim[1] else 0.0
+        for i in range(n):
+            if ref[i] > 0:
+                ref[i] -= dt_us
+                voltage[i] = v_reset
+                continue
+            current = bias[i] + stim_i
+            voltage[i] = current + (voltage[i] - current) * decay
+            if voltage[i] >= v_th:
+                spikes.append((t_us, i))
+                voltage[i] = v_reset
+                ref[i] = refractory_us
+    early = [(t, nid) for t, nid in spikes if t < 21000]
+    burst = [(t, nid) for t, nid in spikes if 21000 <= t < 25000]
+    used = set()
+    last = {}
+    picked = []
+
+    def take(pool, want, label_times=None):
+        if not pool:
+            return
+        chosen_idx = set()
+        if label_times:
+            for target in label_times:
+                best = None
+                for idx, (t, nid) in enumerate(pool):
+                    if idx in chosen_idx or nid in used:
+                        continue
+                    if nid in last and t - last[nid] < 1000:
+                        continue
+                    if best is None or abs(t - target) < abs(best[0] - target):
+                        best = (t, nid, idx)
+                if best is not None:
+                    t, nid, idx = best
+                    picked.append((t, nid))
+                    used.add(nid)
+                    last[nid] = t
+                    chosen_idx.add(idx)
+        stride = max(1, len(pool) // max(want, 1))
+        for idx in range(0, len(pool), stride):
+            group = [1 for tt, _ in picked if (tt < 21000) == (pool[0][0] < 21000)]
+            if len(group) >= want:
+                break
+            t, nid = pool[idx]
+            if nid in used:
+                continue
+            if nid in last and t - last[nid] < 1000:
+                continue
+            picked.append((t, nid))
+            used.add(nid)
+            last[nid] = t
+
+    take(early, 7)
+    take(burst, 9, label_times=(22400, 23100, 24100))
+    clamp = [(t, nid) for t, nid in picked if t < 21000][:7]
+    axle = [(t, nid) for t, nid in picked if t >= 21000][:9]
+    picked = sorted(clamp + axle, key=lambda item: (item[0], item[1]))
+    if len(picked) < 8:
+        raise ValueError(
+            f"LIF excerpt too short {len(picked)} (early={len(early)} burst={len(burst)})"
+        )
+    channels = ["lif.clamp" if t < 21000 else "lif.axle" for t, _ in picked]
+    lif = OrderedDict(
+        [
+            ("model", "leaky_integrate_and_fire"),
+            ("n", 72),
+            ("dt_us", 100),
+            ("tau_m_ms", 18.5),
+            ("v_rest", 0.0),
+            ("v_reset", 0.0),
+            ("v_th", 1.0),
+            ("r_m", 1.0),
+            ("refractory_us", 1000),
+            ("i_bias", 0.90),
+            ("i_stim_peak", 2.50),
+            ("stim_t_us", [21000, 25000]),
+            ("i_clamp_extra", 0.64),
+            ("clamp_n", 14),
+            ("seed", 41221),
+            (
+                "note",
+                "Population sim scoped to this sidecar. Plant remains designed. "
+                "Neurons 0-13 carry +0.64 fan-clamp bias; stim 21-25 ms is the pallet-axle shear.",
+            ),
+        ]
+    )
+    extra = OrderedDict(
+        [
+            ("excerpt_source", "independent_lif"),
+            ("sim_scope", "sidecar_only"),
+            ("lif", lif),
+            ("abort_s", 840),
+            ("delayed_surprise_s", 840),
+        ]
+    )
+    return excerpt_items(picked, channels), extra
+
+
+def record_221():
+    excerpt, extra = lif_221_excerpt()
+    ticks = [
+        tick(2480, 0.05, -0.02, -0.02, 0.01, 0.00),
+        tick(6240, 0.07, -0.04, -0.03, 0.01, -0.01),
+        tick(6448, 0.04, -0.03, -0.02, 0.00, 0.00),
+        tick(7120, 0.08, -0.06, -0.03, 0.02, -0.02),
+        tick(22400, 0.06, -0.40, -0.03, -0.01, -0.02),
+        tick(840000000, 0.02, -0.05, -0.01, 0.01, -0.01),
+    ]
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Pallet-Rigg PR-6 already has Ignite-Car IC-2 over windbox 7 when a 4.86 kPa "
+                "suction pulse sits over a 4.20 kPa grate-wind cap. Fan-first would keep a "
+                "1480 rpm cruise; windbox-first latches a fan clamp. Stored torsion in the "
+                "pallet axle is not yet an observable of either race channel.",
+            ),
+            ("domain", "sinter-strand"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Finish the IC-2 ignition pass, keep windbox suction <= 4.20 kPa, and leave "
+                "the pallet axle unmarked.",
+            ),
+            ("t0_us", 1756794621000221),
+            ("gate_latency_us", 880),
+            ("race_window_us", 500),
+            ("race_window_rel_ms", [6.15, 6.65]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "wb.dp.kPa 4.86 kPa pulse",
+                                "enc.fan.rpm 1480 rpm cruise",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Windbox-first latches fan 1480 -> 1120 rpm; fan-first keeps cruise "
+                            "on a still-sealing grate model.",
+                        ),
+                        (
+                            "window_derivation",
+                            "500 us = one 1 kHz windbox-PT sample minus fan-encoder group delay "
+                            "on this sinter-strand bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 208 us vs combined jitter ~66 us (windbox 30 + fan 36): 3.2x "
+                            "over a 2.0x trust floor. Reversing order by < 208 us inside the 500 us "
+                            "window would have kept 1480 rpm; predicted next-sample 4.38 kPa > 4.20 cap.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "windbox suction PT, 1 kHz, 30 us timestamp jitter",
+                    "fan-speed encoder, 500 Hz, 36 us jitter",
+                    "pallet-axle AE puck (context until the shear)",
+                    "hood-gas analyzer (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("windbox_cap_kPa", 4.20),
+                        ("observed_wb_kPa", 4.86),
+                        ("proposed_fan_rpm", 1480.0),
+                        ("hood_o2_pct", 6.4),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Pallet-Rigg PR-6 indexed Ignite-Car IC-2 onto windbox 7; fan armed at 1480 rpm.",
+                    "2. Cruise 1480 rpm; windbox 4.86 kPa against 4.20 kPa grate-wind cap.",
+                    "3. Fan precursor at 1.180 ms; windbox warm-start 4.86 kPa.",
+                    "4. Race window [6.150, 6.650] ms opens on the sinter-strand bus.",
+                    "5. wb.dp.kPa 4.86 kPa at 6.240 ms (winner).",
+                    "6. enc.fan.rpm 1480 rpm at 6.448 ms (loser by 208 us).",
+                    "7. Gate at 7.120 ms (winner + 880 us): MODIFY clamp 1480 -> 1120 rpm.",
+                    "8. Clamp executes; next-sample windbox 3.94 kPa < 4.20 cap.",
+                    "9. At 22.400 ms stored torsion still shears a pallet axle; AE burst.",
+                    "10. Strand isolate 14 min (abort_s=840); named un-netted loss, not folded into process heads.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_sinter_fan"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("fan_rpm", 1480.0),
+                        ("hood_o2_pct", 6.4),
+                        ("strand_m_min", 2.8),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("wb_kPa", 4.86),
+                        ("windbox_cap_kPa", 4.20),
+                        ("predicted_unclamped_next_kPa", 4.38),
+                        ("fan_rpm", 1480.0),
+                        ("race_margin_us", 208),
+                        ("combined_jitter_us", 66),
+                        ("abort_s", 840),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 1480 rpm cruise: 4.86 kPa looks like a hood-gas spike, not "
+                "grate leak, and IC-2 volume is treated as still sealing.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "MODIFY"),
+            ("correctness", "correct"),
+            (
+                "rationale",
+                "Windbox 4.86 kPa won by 208 us, so the grate is pulling air, not still sealing. "
+                "Holding 1480 rpm predicts next-sample 4.38 kPa > 4.20 cap. MODIFY: fan 1480 -> "
+                "1120 rpm. Observed after clamp 3.94 kPa < 4.20. A full REJECT is not indicated: "
+                "a sound ignition pass accepts 1120 rpm.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "windbox_kPa",
+                            OrderedDict(
+                                [
+                                    ("cap", 4.20),
+                                    ("observed", 4.86),
+                                    ("predicted_unclamped_next", 4.38),
+                                    ("clamped_fan_rpm", 1120.0),
+                                    ("observed_after_clamp", 3.94),
+                                ]
+                            ),
+                        ),
+                        (
+                            "fan_rpm",
+                            OrderedDict(
+                                [
+                                    ("proposed", 1480.0),
+                                    ("clamped", 1120.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 208),
+                                    ("combined_jitter_us", 66),
+                                    ("ratio", 3.15),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "clamped_sinter_fan"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("fan_rpm", 1120.0),
+                        ("hood_o2_pct", 6.4),
+                        ("strand_m_min", 2.8),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: fan 1480 -> 1120 rpm. Process-correct vs the 4.20 kPa grate-wind cap. "
+                "Pallet-axle shear still occurs at 22.400 ms.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Process-correct MODIFY held windbox suction at 3.94 kPa. At 22.400 ms stored "
+                "torsion in the pallet axle still sheared. Clamp reduced dump energy; it did not "
+                "prevent the split. Partnered negative: process heads stay honest; world loss is "
+                "named, not netted.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("fan", "clamp executed; peak 3.94 kPa < 4.20"),
+                        ("pallet_axle", "shear at 22.400 ms"),
+                        ("repair", "14 min strand isolate (abort_s=840)"),
+                        ("mission", "IC-2 ignition pass incomplete this circuit"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Neither windbox PT nor fan encoder predicted the torsion charge; ae.axle.shear is a new channel at 22.400 ms, 15.280 ms after the gate, still inside the 42 ms raster.",
+                    "Delayed (abort_s=840): 14 min strand isolate. Named un-netted loss, not folded into task_progress.",
+                ],
+            ),
+            (
+                "un_netted_loss",
+                "14 min strand isolate after a pallet-axle shear. Safety head -0.60 prices the "
+                "split; task_progress stays +0.32 because the fan clamp completed under the 4.20 "
+                "kPa cap. World loss is named here, not subtracted from process heads.",
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "wb.dp.kPa (6.240 ms, 4.86 kPa)"),
+                        ("loser", "enc.fan.rpm (6.448 ms, 1480 rpm)"),
+                        ("margin_us", 208),
+                        (
+                            "counterfactual_if_reversed",
+                            "Fan-first by < 208 us inside the 500 us window would have kept "
+                            "1480 rpm cruise; predicted next-sample 4.38 kPa would have exceeded "
+                            "the 4.20 cap even without the torsion charge. The MODIFY is still the "
+                            "correct process. The shear is a later world charge either way, cheaper "
+                            "with the clamp than without.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 22400),
+            (
+                "reward_inflection_note",
+                "Safety collapses at the 22.400 ms pallet-axle shear (tick t_us=22400), inside "
+                "the 42 ms raster. The correct MODIFY at 7.120 ms is in the same excerpt. Do "
+                "not put inflection on the abort_s=840 isolate tick.",
+            ),
+            ("delayed_surprise_s", 840),
+        ]
+    )
+    spikes = [
+        spike("enc.pallet.ctx", 1.180, 0.42),
+        spike("wb.dp.kPa", 2.480, 0.61),
+        spike("enc.fan.rpm", 3.760, 0.50),
+        spike("wb.dp.kPa", 6.240, 1.31),
+        spike("enc.fan.rpm", 6.448, 1.14),
+        spike("ctrl.gate", 7.120, 0.98),
+        spike("wb.dp.kPa", 8.520, 0.80),
+        spike("enc.fan.rpm", 11.400, 0.62),
+        spike("ctrl.gate", 14.900, 0.84),
+        spike("ae.axle.shear", 22.400, 1.46),
+        spike("ae.axle.shear", 24.180, 0.91),
+        spike("enc.pallet.ctx", 31.200, 0.41),
+        spike("wb.dp.kPa", 38.100, 0.53),
+    ]
+    ras = raster_core(
+        42,
+        72,
+        28,
+        85,
+        routing(
+            "thalamic-relay.sinter-wb",
+            "spikenaut.policy.fan-clamp",
+            [
+                ("relay.wb.dp", "policy.fan_clamp", 0.66),
+                ("relay.enc.fan", "policy.fan_hold", 0.30),
+                ("relay.ae.axle", "policy.fan_clamp", -0.45),
+            ],
+            "noradrenaline",
+            0.05,
+            "surprise-gated pre_post_stdp; NA at windbox win (6.240 ms) opens a 50 ms "
+            "eligibility trace that still covers the 22.400 ms pallet-axle shear",
+        ),
+        excerpt,
+        extra=extra,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.50),
+            ("decision", "MODIFY"),
+            (
+                "populations",
+                [
+                    pop("fan_clamp", 36, 0.50, 278.0, 5),
+                    pop("fan_hold", 36, 0.50, 55.6, 1),
+                    pop("wb_veto", 24, 0.75),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r41-221"),
+            (
+                "title",
+                "Pallet-Rigg PR-6 / Ignite-Car IC-2: windbox beats fan by 208 us; correct "
+                "MODIFY still eats an in-window pallet-axle shear (partnered negative total -0.44)",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Partnered negative. Process-correct MODIFY; world still charges inside the "
+                    "42 ms raster. total -0.44 = 0.32 + -0.60 + -0.14 + 0.04 + -0.06. Named strand "
+                    "isolate (abort_s=840) is not netted into task_progress.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "sinter-strand",
+                    [
+                        "modify",
+                        "partnered-negative-total",
+                        "independent-lif-raster",
+                        "sidecar-sim-only",
+                        "in-window-world-charge",
+                        "designed",
+                    ],
+                    "A critic can see the world-charge as a LIF burst inside the raster while "
+                    "process heads stay honest. Credit assignment is spikes, not prose across a "
+                    "14 min strand isolate.",
+                    1,
+                ),
+            ),
+        ]
+    )
+
+
+def record_222():
+    ticks = [
+        tick(1760, -0.02, -0.01, -0.02, -0.01, 0.01),
+        tick(4180, -0.04, -0.02, -0.04, -0.02, 0.01),
+        tick(4332, -0.03, -0.01, -0.03, -0.02, 0.01),
+        tick(4920, -0.07, -0.03, -0.09, -0.04, 0.02),
+        tick(6410, -0.02, -0.01, -0.02, -0.01, 0.01),
+        tick(1080000000, 0.00, 0.00, -0.02, 0.00, 0.00),
+    ]
+    spikes = [
+        spike("enc.feed.ctx", 0.880, 0.40),
+        spike("vote.od.mm", 1.760, 0.58),
+        spike("lvdt.b.mm", 2.520, 0.51),
+        spike("vote.od.mm", 4.180, 1.32),
+        spike("lvdt.b.mm", 4.332, 1.15),
+        spike("ctrl.gate", 4.920, 1.00),
+        spike("vote.od.mm", 6.410, 0.74),
+        spike("lvdt.b.mm", 8.100, 0.61),
+        spike("ctrl.gate", 12.000, 0.82),
+        spike("enc.feed.ctx", 16.200, 0.42),
+        spike("vote.od.mm", 20.600, 0.53),
+        spike("lvdt.b.mm", 23.200, 0.47),
+    ]
+    excerpt = independent_excerpt(41222, 88, 24000, 14, spike_avoid_us(spikes))
+    state = OrderedDict(
+        [
+            (
+                "description",
+                "Mandrel-Sike MS-7 is armed for an 18.0 m/min cold-pilger stroke with 1oo3 "
+                "voted tube OD 38.4 mm against a 42.0 mm wall-growth trip. LVDT-B still prints "
+                "a 44.8 mm singleton. Vote-first should ACCEPT the stroke; a weak supervisor "
+                "that binds the singleton as the trip will REJECT a legal mill.",
+            ),
+            ("domain", "cold-pilger-mill"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Execute the 18.0 m/min pilger stroke while voted OD stays <= 42.0 mm; do not "
+                "spend a 1oo3 singleton on the mill hold.",
+            ),
+            ("t0_us", 1756794621000222),
+            ("gate_latency_us", 740),
+            ("race_window_us", 320),
+            ("race_window_rel_ms", [4.12, 4.44]),
+            (
+                "race",
+                OrderedDict(
+                    [
+                        (
+                            "contenders",
+                            [
+                                "vote.od.mm 38.4 mm median",
+                                "lvdt.b.mm 44.8 mm singleton",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "Vote-first should ACCEPT 18.0 m/min (38.4 mm < 42.0 mm trip). "
+                            "Singleton-first tempts a weak supervisor to treat 44.8 mm as the trip.",
+                        ),
+                        (
+                            "window_derivation",
+                            "320 us = one voted-median publisher slot minus LVDT-B encoder group "
+                            "delay on this 1oo3 pilger skid.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 152 us vs combined jitter ~54 us (vote 24 + lvdt 30): 2.8x over "
+                            "a 2.0x trust floor. Order is correctly vote-first. The error is which "
+                            "channel the REJECT is bound to, not the race.",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "sensors",
+                [
+                    "1oo3 OD LVDT voter, 4 kHz, 24 us jitter",
+                    "LVDT-B singleton, 4 kHz, 30 us jitter",
+                    "feed-carriage encoder (context)",
+                    "mandrel hydraulic PT (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("od_trip_mm", 42.0),
+                        ("voted_od_mm", 38.4),
+                        ("singleton_od_mm", 44.8),
+                        ("voter_n", 3),
+                        ("proposed_speed_m_min", 18.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. MS-7 mandrel latched; 18.0 m/min stroke armed.",
+                    "2. Voted OD 38.4 mm; LVDT-B singleton 44.8 mm on the same tube.",
+                    "3. Feed precursor at 0.880 ms.",
+                    "4. Race window [4.120, 4.440] ms.",
+                    "5. vote.od.mm 38.4 mm at 4.180 ms (winner).",
+                    "6. lvdt.b.mm 44.8 mm at 4.332 ms (loser by 152 us).",
+                    "7. Gate at 4.920 ms: REJECT hold 0.00 m/min (incorrect).",
+                    "8. Legal stroke cancelled; voted OD still 38.4 mm < 42.0 mm trip.",
+                    "9. LVDT-B singleton remains a 1oo3 out-vote, not a trip.",
+                    "10. Delayed missed_window_s=1080 (18 min pilger-size window) while the mill waits.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "pilger_stroke_18"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("speed_m_min", 18.0),
+                        ("hold", False),
+                        ("bind_channel", "voted_median"),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("voted_od_mm", 38.4),
+                        ("od_trip_mm", 42.0),
+                        ("vote_legal", True),
+                        ("singleton_od_mm", 44.8),
+                        ("singleton_id", "lvdt_b"),
+                        ("voter_n", 3),
+                        ("proposed_speed_m_min", 18.0),
+                        ("race_margin_us", 152),
+                        ("combined_jitter_us", 54),
+                        ("missed_window_s", 1080),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 18.0 m/min because voted OD 38.4 mm is under the 42.0 mm "
+                "trip; LVDT-B 44.8 mm is a 1oo3 singleton, not the trip.",
+            ),
+        ]
+    )
+    safety = OrderedDict(
+        [
+            ("decision", "REJECT"),
+            ("correctness", "incorrect"),
+            (
+                "rationale",
+                "LVDT-B 44.8 mm looks like wall growth over a 42.0 mm trip, so the supervisor "
+                "holds the stroke at 0.00 m/min. Vote-first is treated as a noisy echo of the "
+                "same loop. Over-caution on a 1oo3 skid is the stated doctrine.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "voted_od_mm",
+                            OrderedDict(
+                                [
+                                    ("trip", 42.0),
+                                    ("observed", 38.4),
+                                    ("executed_speed_m_min", 0.0),
+                                    ("bind_channel", "lvdt_b"),
+                                ]
+                            ),
+                        ),
+                        (
+                            "singleton_od_mm",
+                            OrderedDict(
+                                [
+                                    ("observed", 44.8),
+                                    ("misbound_as", "trip"),
+                                    ("singleton_id", "lvdt_b"),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 152),
+                                    ("combined_jitter_us", 54),
+                                    ("ratio", 2.81),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "pilger_hold_wrong_channel"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("speed_m_min", 0.0),
+                        ("hold", True),
+                        ("bind_channel", "lvdt_b"),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT (incorrect): speed 18.0 -> 0.00 m/min. Routing relay.lvdt.b -> "
+                "policy.hold_reject; voted 38.4 mm left unused as a go signal.",
+            ),
+        ]
+    )
+    future = OrderedDict(
+        [
+            (
+                "summary",
+                "Wrong-REJECT held MS-7 at 0.00 m/min. Voted OD 38.4 mm was under the 42.0 mm "
+                "trip; LVDT-B 44.8 mm was a 1oo3 singleton. 18 min pilger-size window missed "
+                "(missed_window_s=1080). Correct gate was ACCEPT of the 18.0 m/min stroke.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("mill", "held; speed 0.00 m/min; voted OD still 38.4 mm < 42.0"),
+                        ("singleton", "44.8 mm unused as trip, still a 1oo3 out-vote"),
+                        ("bay", "18 min pilger-size window missed"),
+                        ("mission", "stroke deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Vote-first was the correct order and the voted number was legal; the REJECT spent that win on LVDT-B.",
+                    "Delayed (missed_window_s=1080): MS-7 loses the 18 min pilger-size window; next window 4.8 h.",
+                ],
+            ),
+            (
+                "recovery",
+                OrderedDict(
+                    [
+                        (
+                            "correct_gate",
+                            "ACCEPT the 18.0 m/min stroke; bind voted_median, not lvdt_b.",
+                        ),
+                        ("correct_channel", "voted_median"),
+                        ("wrong_channel", "lvdt_b"),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict([("speed_m_min", 0.0), ("hold", True)]),
+                        ),
+                        (
+                            "cost",
+                            "Missed 18 min pilger-size window (task/efficiency); mill never exceeded 38.4 mm voted OD (safety near-miss of a false hold).",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "vote.od.mm (4.180 ms, 38.4 mm)"),
+                        ("loser", "lvdt.b.mm (4.332 ms, 44.8 mm)"),
+                        ("margin_us", 152),
+                        (
+                            "counterfactual_if_reversed",
+                            "Singleton-first by < 152 us would still be a 1oo3 out-vote; a correct "
+                            "gate binds vote.od.mm to go_accept either way. The wrong REJECT spent "
+                            "the vote win on the singleton.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 4920),
+            (
+                "reward_inflection_note",
+                "Task, efficiency, and coherence drop at the wrong REJECT (4.920 ms, tick 4). "
+                "The 18 min missed window is delayed surprise, not the inflection.",
+            ),
+            ("delayed_surprise_s", 1080),
+            ("missed_window_s", 1080),
+        ]
+    )
+    ras = raster_core(
+        24,
+        88,
+        36,
+        76,
+        routing(
+            "relay.lvdt.b",
+            "policy.hold_reject",
+            [
+                ("relay.lvdt.b", "policy.hold_reject", 0.73),
+                ("relay.vote.od", "policy.hold_reject", 0.21),
+            ],
+            "acetylcholine",
+            0.06,
+            "voter_stdp; ACh tags the (wrong) hold_reject bind at the LVDT-B singleton",
+        ),
+        excerpt,
+        extra=OrderedDict(
+            [
+                ("excerpt_source", "kernelized_events"),
+                ("sim_scope", "none"),
+            ]
+        ),
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.32),
+            ("decision", "REJECT"),
+            (
+                "populations",
+                [
+                    pop("hold_reject", 48, 0.50, 260.4, 4),
+                    pop("go_accept", 48, 0.80, 6.5, 0),
+                    pop("lvdt_ctx", 32, 0.55, 97.7, 1),
+                ],
+            ),
+        ]
+    )
+    return OrderedDict(
+        [
+            ("id", "ttf-r41-222"),
+            (
+                "title",
+                "WRONG-REJECT at Mandrel-Sike MS-7: voted OD 38.4 mm < 42.0 mm trip; "
+                "supervisor treats LVDT-B 44.8 mm singleton as the trip",
+            ),
+            ("state", state),
+            ("spike_events", spikes),
+            ("proposed_action", proposed),
+            ("safety_decision", safety),
+            ("executed_action", executed),
+            ("future_outcome", future),
+            (
+                "reward_components",
+                reward_block(
+                    ticks,
+                    "Wrong-reject. Sidecar arithmetic 38.4 < 42.0 on voted OD is true; REJECT bound "
+                    "to LVDT-B singleton. total -0.52 = -0.18 + -0.08 + -0.22 + -0.10 + 0.06.",
+                ),
+            ),
+            ("raster", ras),
+            ("gate_snn", gate),
+            (
+                "meta",
+                meta_block(
+                    "cold-pilger-mill",
+                    [
+                        "reject",
+                        "wrong-gate",
+                        "voter-bypass",
+                        "sidecar-convictable",
+                        "designed",
+                    ],
+                    "Teaches a probe that a correct vote-first race can still be a wrong gate "
+                    "when the REJECT binds a 1oo3 singleton onto the mill hold. Convictable from "
+                    "vote_legal and singleton_id without pilger physics.",
+                    2,
+                    supervisor_error_type="wrong-reject",
+                ),
+            ),
+        ]
+    )

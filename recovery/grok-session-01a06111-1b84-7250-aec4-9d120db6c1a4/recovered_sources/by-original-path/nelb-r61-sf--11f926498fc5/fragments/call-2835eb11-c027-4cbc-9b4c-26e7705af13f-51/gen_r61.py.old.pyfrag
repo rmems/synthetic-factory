@@ -1,0 +1,4 @@
+        ev(14400000.0, "do.drop", 1.0, code="DO_DROP", units="bool"),
+        ev(15000000.0, "hold.lock", 1.0, code="AER_HELD", units="bool"),
+    ]
+    assert_stream(events)

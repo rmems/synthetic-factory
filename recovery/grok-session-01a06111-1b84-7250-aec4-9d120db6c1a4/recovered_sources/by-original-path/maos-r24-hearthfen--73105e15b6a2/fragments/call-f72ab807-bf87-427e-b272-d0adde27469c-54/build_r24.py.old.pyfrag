@@ -1,0 +1,4 @@
+        sim_spikes=sim_spikes,
+        spikes_budget=spikes_budget,
+        lif_seed=lif["seed"],
+    )

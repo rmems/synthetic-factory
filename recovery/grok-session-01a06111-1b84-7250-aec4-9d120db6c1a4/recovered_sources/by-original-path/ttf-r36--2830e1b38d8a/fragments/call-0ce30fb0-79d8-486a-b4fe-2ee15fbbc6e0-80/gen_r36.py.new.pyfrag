@@ -1,0 +1,7 @@
+            ("name", "hold_dip_1p40"),
+            ("parameters", OrderedDict(params.items())),
+            (
+                "gate_effect",
+                "ACCEPT: executed identical to proposed_action; 1.40 m/min dip held for the "
+                "galvanize kettle.",
+            ),

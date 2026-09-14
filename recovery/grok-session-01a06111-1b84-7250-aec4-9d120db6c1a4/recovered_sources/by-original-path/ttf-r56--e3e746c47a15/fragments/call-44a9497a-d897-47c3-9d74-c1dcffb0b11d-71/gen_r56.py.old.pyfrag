@@ -1,0 +1,19 @@
+            (
+                "description",
+                "Absorber A-2 at Limestone-Linn is already pulling 92 percent ID-fan when a "
+                "gas-side Delta-P pulse arrives 230 us before the recycle-pH probe that still "
+                "reads a legal slurry. Pressure-first latches a process clamp under the 2.20 kPa "
+                "cap; pH-first would keep cruise fan. Stored mist-eliminator pack load is not "
+                "yet an observable of either race channel.",
+            ),
+            ("domain", "wet-FGD-absorber"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Keep A-2 on 92 percent ID-fan only while gas Delta-P stays <= 2.20 kPa, and "
+                "leave the mist-eliminator pack un-collapsed.",
+            ),
+            ("t0_us", 1762300000000257),
+            ("gate_latency_us", 880),
+            ("race_window_us", 380),
+            ("race_window_rel_ms", [4.620, 5.000]),

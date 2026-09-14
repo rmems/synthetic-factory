@@ -1,0 +1,5 @@
+                "Open-arc pot P-2 at Carbide-Quern CQ-7 is already at 18.2 vol percent CO against a "
+                "12.0 cap while electrode current still reads a legal 42.0 kA. CO-first clamps "
+                "current 42.0 -> 31.0 kA; kiloamp-first would keep cruise because shell PT 0.86 bar "
+                "is still under the 1.20 bar roof cap. A tap-hole clay plug already seated on the "
+                "east taphole does not appear on CO or current until the AE dump.",

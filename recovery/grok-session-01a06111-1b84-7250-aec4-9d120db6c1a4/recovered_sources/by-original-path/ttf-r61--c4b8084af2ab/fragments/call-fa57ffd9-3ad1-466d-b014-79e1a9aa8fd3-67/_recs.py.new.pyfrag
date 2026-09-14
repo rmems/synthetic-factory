@@ -1,0 +1,74 @@
+                "Wrong-MODIFY wrote the correct 3.40 kA clamp to SP.SHADOW. Live 4.62 kA "
+                "was over the 4.20 kA cap at t_gate; shadow already held 3.40. Peak 4.88 kA "
+                "tripped the cell-room. 14 min dump/reseat (abort_s=840). Correct gate was MODIFY "
+                "SP.LIVE 4.62 -> 3.40 kA at t_gate_us=5920.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("live_sp", "untouched 4.62 kA; peak 4.88 > 4.20 cap"),
+                        ("shadow", "wrote 3.40 kA onto a non-live tag"),
+                        ("reseat", "14 min dump/reseat, bank 4 reseed"),
+                        ("mission", "cell-room pass deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Live-first was the correct order and the current number was over cap; the MODIFY spent that win on SP.SHADOW.",
+                    "Delayed (abort_s=840): CH-5 holds 14 min while bank 4 is dumped and reseated; next pass 16 min late.",
+                ],
+            ),
+            (
+                "recovery",
+                OrderedDict(
+                    [
+                        (
+                            "correct_gate",
+                            "MODIFY SP.LIVE 4.62 -> 3.40 kA at t_gate_us=5920; extra_shadow_write=false; leave brine at 18.0 m3/h.",
+                        ),
+                        ("correct_actuator", "sp_live"),
+                        ("wrong_bind", "sp_shadow"),
+                        ("written_tag", "SP.SHADOW"),
+                        ("live_sp_kA", 4.62),
+                        (
+                            "wrong_edit_applied",
+                            OrderedDict(
+                                [
+                                    ("clamp_kA", 3.40),
+                                    ("written_tag", "SP.SHADOW"),
+                                    ("extra_shadow_write", True),
+                                ]
+                            ),
+                        ),
+                        (
+                            "cost",
+                            "14 min dump/reseat (task/efficiency); live header peaked 4.88 kA during the shadow-tag bind (safety near-miss of a correct-magnitude clamp on the non-live SP).",
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "ct.live.kA (5.400 ms, 4.62 kA)"),
+                        ("loser", "sp.shadow.kA (5.580 ms, 3.40 kA)"),
+                        ("margin_us", 180),
+                        (
+                            "counterfactual_if_reversed",
+                            "Shadow-first by < 180 us would still be a 3.40 kA non-live tag under the "
+                            "4.20 kA cap; a correct gate binds ct.live.kA to policy.live_sp at "
+                            "t_gate either way. The wrong MODIFY spent the live win on SP.SHADOW.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 5920),
+            (
+                "reward_inflection_note",
+                "Task, safety, and efficiency drop at the shadow-tag bind (5.920 ms, tick 4). "
+                "The 14 min dump/reseat is delayed surprise, not the inflection.",
+            ),

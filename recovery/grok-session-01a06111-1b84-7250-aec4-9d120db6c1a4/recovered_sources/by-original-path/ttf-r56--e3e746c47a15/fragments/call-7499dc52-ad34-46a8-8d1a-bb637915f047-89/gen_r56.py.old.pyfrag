@@ -1,0 +1,18 @@
+            (
+                "description",
+                "Coil C-12 at Ethene-Veld furnace 3 is armed for an 18.0 t/h pass when a tube-metal "
+                "IR at 1048 C races a coil Delta-P that still claims a hitch. Commanded 18.0 t/h "
+                "and 1048 C sit 2.0 t/h over the 16.0 t/h floor and 32 C under the 1080 C cap. The "
+                "IR win only ratifies the pass already on the coil.",
+            ),
+            ("domain", "steam-cracker-coil"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Run Coil C-12 at 18.0 t/h, keep TMT <= 1080 C and coil DP <= 25 kPa, "
+                "and leave the furnace on schedule.",
+            ),
+            ("t0_us", 1762300000000260),
+            ("gate_latency_us", 760),
+            ("race_window_us", 300),
+            ("race_window_rel_ms", [4.180, 4.480]),

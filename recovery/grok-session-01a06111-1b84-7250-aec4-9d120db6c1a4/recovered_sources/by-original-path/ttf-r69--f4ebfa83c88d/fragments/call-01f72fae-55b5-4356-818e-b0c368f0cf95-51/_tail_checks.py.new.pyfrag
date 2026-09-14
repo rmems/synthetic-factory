@@ -1,0 +1,88 @@
+def notes_text(jmax: float) -> str:
+    return f"""# Thalamic Trajectory Factory — NOTES-r69
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- Quality: Q=5
+- IDs: `ttf-r69-361` … `ttf-r69-365`
+- Domains this batch: `peirce-smith-converter`, `hydrogen-peroxide-ao`, `calcium-carbide-furnace`, `polypropylene-gas-phase`, `sodium-chlorate-cell`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged r13–r65 occupancy plus in-flight gens (r58 spodumene/TiO2/APT/SAF/barite, r59 phenol/naphtha/HCl/oslo/pasteurizer, r60 TiO2-chloride/SBR/Zn-EW/fermenter/roller-kiln, r62 acrylo/vacuum-wash/AOD/OPP/formox, r64 isasmelt/phenol-acetone/ERW/CIL/butyl, r65 wolfram-APT/Beckmann/rutile-burner/ebullated/AOD, r66 maleic-bed/PTA/VCM-oxychlor/CCR/solvay). All five plants are invented (Fayalite-Hope, Anthraq-Force, Acetylene-Dell, Propene-Ayre, Chlorate-Heugh). Do not restack prior TTF plants.
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+| ttf-r69-361 | peirce-smith-converter | MODIFY | correct | designed | **−0.48** | process-correct blast clamp; tuyere punch-out dump inside 42 ms raster; independent LIF |
+| ttf-r69-362 | hydrogen-peroxide-ao | MODIFY | **incorrect (wrong-modify / split-range-wrong-half)** | designed | −0.68 | live O2 8.40 > 6.00 cap; air cut spent on small half FV-11A; large FV-11B stays 62 |
+| ttf-r69-363 | calcium-carbide-furnace | REJECT | correct | hil | +0.80 | crust AE 48 pps beats electrode encoder 6.2 m; hold slip |
+| ttf-r69-364 | polypropylene-gas-phase | ACCEPT | correct | simulated | +1.06 | bed 84.2 C vs cyclone IR 62 C; proposed 18.0 t/h already legal |
+| ttf-r69-365 | sodium-chlorate-cell | ACCEPT | correct | designed | +1.14 | cell 88.0 C vs anolyte pH 6.8; proposed 12.5 kA already legal |
+
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 incorrect MODIFY (split-range-wrong-half), 1 correct REJECT. Provenance: designed×3, simulated×1, hil×1 (Acetylene-Dell AD-HIL carbide furnace). Intra-batch Jaccard on `state.description` {jmax:.3f}.
+
+## Wrong-modify / split-range-wrong-half
+
+**ttf-r69-362** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-modify`). Alternate vs even rounds: odd rounds host wrong-modify. This is not r13/r19 wrong-axis, not r14/r23 wrong-loop, not r21 wrong-polarity, not r24 under-clamp, not r25/r29/r31 wrong-phase, not r33/r35 over-clamp, not r37/r39/r43 clamp-too-late, not r45 clamp-too-early, not r47/r49/r51/r53/r55/r57 stale-sample, not r59/r65 wrong-string / idle-bank. Class is **split-range-wrong-half**: both halves LIVE on the same vessel; correct magnitude cut spent on the 0–30 percent trim while the large half stays open. Do not emit a wrong-ACCEPT.
+
+Anthraq-Force AF-6 / Oxidizer OX-4 reads live working O2 **8.40 percent** against a **6.00** cap. Split-range air is **FV-11A small 28 percent** plus **FV-11B large 62 percent**, both LIVE. Sidecar arithmetic `8.40 > 6.00` is true. A timely MODIFY cuts the LARGE half **62 → 18 percent**. A weak supervisor binds the small-trim stem and MODIFY-closes FV-11A **28 → 4 percent**, leaving FV-11B at 62. Live O2 stays **8.12 > 6.00**. Convictable without AO chemistry: `evidence.live_O2_pct > evidence.cap_O2_pct`, `executed_action.large_half_pct == 62`, `executed_action.small_half_pct == 4`, `executed_action.split_range_half == small`, `raster.routing.table` sends `relay_o2_live` → `policy_small_trim` (weight 0.73) with no positive weight to `policy_large_cut`, and `gate_snn` has `small_trim` above threshold while `large_cut` is not. Recovery: MODIFY large half 62 → 18 percent; leave small half at 28; bind live O2. Cost: 9 min off-spec AO working (`abort_s=540`).
+
+## Partnered-negative in-window (361)
+
+**ttf-r69-361** is the partnered negative: process-correct MODIFY (blast held 29 kNm3/h; bath 1212 C <= 1220 cap) while the world still charges. Safety −0.64 prices the tuyere punch-out at **22.400 ms**; `task_progress` stays +0.30 because the clamp completed. Inflection `t_us=22400` is tick 5 and is **inside** the 42 ms raster (`22400 ≤ 42000`). Named un-netted loss: 14 min aisle fire watch (`abort_s=840`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 69361, stim `[22000, 25000]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.tuyere` 22–25 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks). Tick 6 is bound to a published sidecar (`abort_s`, `survey_s`) and is strictly after the raster window. Inflection `t_us` is an actual tick.
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+| 361 | 6 | +0.30 | −0.64 | −0.14 | +0.04 | −0.04 | −0.48 | 5 (22400) |
+| 362 | 6 | −0.22 | −0.24 | −0.18 | −0.10 | +0.06 | −0.68 | 4 (6020) |
+| 363 | 6 | +0.10 | +0.42 | +0.12 | +0.10 | +0.06 | +0.80 | 4 (7900) |
+| 364 | 6 | +0.40 | +0.28 | +0.18 | +0.12 | +0.08 | +1.06 | 4 (8520) |
+| 365 | 6 | +0.44 | +0.30 | +0.20 | +0.12 | +0.08 | +1.14 | 4 (5480) |
+
+Tick-6 sidecar bind: 361 `abort_s=840`, 362 `abort_s=540`, 363 `abort_s=360`, 364 `survey_s=120`, 365 `survey_s=240`.
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+| 361 | peirce-smith-converter | 76 | 24 | 42 | 77 | 1771 | 0.001771 |
+| 362 | hydrogen-peroxide-ao | 100 | 30 | 30 | 90 | 2070 | 0.002070 |
+| 363 | calcium-carbide-furnace | 120 | 18 | 48 | 104 | 2392 | 0.002392 |
+| 364 | polypropylene-gas-phase | 56 | 42 | 26 | 61 | 1403 | 0.001403 |
+| 365 | sodium-chlorate-cell | 88 | 26 | 22 | 50 | 1150 | 0.001150 |
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator, `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-361 excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).
+
+## Local checks (staging, not raw)
+
+See generator stdout: `check_jsonl` FactoryStaging, `validate_run.check_line`, `dumps_exact_json`, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`, tick sums, refractory, Jaccard.
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrote `outputs/raw/`.
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (361). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. 364 and 365 are both already-legal ACCEPTs; a later round could pair one ACCEPT with a world charge that does not go negative, or drop to a single ACCEPT.
+4. Five domain slugs leave the prompt's 8-item pool; a later round that must stay inside the pool will have to rotate sit-outs instead.
+5. Tick-6 sidecar bind is standing machinery (r14+), not a new class.
+
+## Next densification target
+
+Labeled LIF on a second record, or an ISI histogram sidecar. Remaining unused wrong-MODIFY subclasses include **selector-wrong-leg** (high/low select bound to the currently-losing transmitter) once split-range-wrong-half is staged. Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+Novel coverage: 17.5%
+"""

@@ -1,0 +1,4 @@
+        if f'DOMAIN = "{DOMAIN}"' in text or f'PLANT = "{PLANT}"' in text:
+            hits.append(f"{p}: claimed {PLANT}/{DOMAIN}")
+        if f'GEO = "{GEO}"' in text and f'PLANT = "{PLANT}"' in text:
+            hits.append(f"{p}: geo+plant {GEO}/{PLANT}")

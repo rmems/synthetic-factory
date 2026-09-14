@@ -1,0 +1,7 @@
+        edge = {
+            "ttf-r90-466": "live type-K 86.0 C < 102.0 trip; leftover type-S table + ice-point CJ treated as process T",
+            "ttf-r90-467": "process-correct EO clamp; transfer-line freeze-plug rupture inside 44 ms raster; independent LIF",
+            "ttf-r90-468": "gel AE 48 pps beats agitator encoder 62 rpm; hold, do not speed",
+            "ttf-r90-469": "liquor 54.2 C vs bed-IR glint 71 C; proposed 2400 Nm3/h already legal",
+            "ttf-r90-470": "substrate 1620 C vs plasma IR glint 1810 C; proposed 1.8 kg/h already legal",
+        }[rec["id"]]

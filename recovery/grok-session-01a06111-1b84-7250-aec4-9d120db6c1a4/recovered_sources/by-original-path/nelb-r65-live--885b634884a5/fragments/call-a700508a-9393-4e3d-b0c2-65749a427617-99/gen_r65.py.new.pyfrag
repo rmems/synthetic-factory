@@ -1,0 +1,1 @@
+        ev(0.0, "brook.tau", 3.20, code="TAU_NMM", units="Nmm", note="HIL Brookfield rotational viscometer on a dummy paint kettle in BROOK-HIL-5; remaining-viscosity family, not Ubbelohde, not VW viscometer, not capillary-rheometer, not vibrating-tube, not Coriolis"),

@@ -1,0 +1,6 @@
+- IDs: `ttf-r22c-901` … `ttf-r22c-905` (106–110 occupy window `batch-r22.jsonl`; 126–130 occupy `/tmp/ttf-r22`)
+- Domains this batch: `gallium-nitride-hvpe`, `lutetium-oxyorthosilicate-czochralski`, `erbium-doped-fiber-preform`, `potassium-titanyl-phosphate-flux`, `triso-particle-coater`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged occupancy harvested from window jsonl (including existing r22 warehouse-amr/aerial-swarm/underwater-rov/industrial-assembly/autonomous-driving and r65 `indium-phosphide-movpe`) plus `/tmp/ttf-occupied-domains.txt` / r125 census. All five plants are invented (Hydride-Wick, Lutetia-Quay, Erbia-Skel, Ktpflux-Mire, Triso-Venn). Do not restack prior TTF plants. Original r22 wrong-reject class-transplant is not restacked.
+
+Existing `batch-r22.jsonl` was occupied by a parallel writer, so this round writes create-only `batch-r22c.jsonl` / `NOTES-r22c.md`.

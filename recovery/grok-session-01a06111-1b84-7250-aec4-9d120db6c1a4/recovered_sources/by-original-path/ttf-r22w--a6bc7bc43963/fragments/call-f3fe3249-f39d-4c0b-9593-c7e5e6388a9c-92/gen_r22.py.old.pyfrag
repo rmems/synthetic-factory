@@ -1,0 +1,12 @@
+            ("name", "clamped_tmin_feed"),
+            (
+                "parameters",
+                OrderedDict(
+                    [("tmin_slm", 0.26), ("sus_C", 608.0), ("ph3_slm", 2.8)]
+                ),
+            ),
+            (
+                "gate_effect",
+                "MODIFY: TMIn 0.42 -> 0.26 slm. Process-correct vs the 620 C InP-growth cap. "
+                "Injector clog still dumps at 23.400 ms.",
+            ),

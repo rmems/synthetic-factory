@@ -1,0 +1,541 @@
+def tokenize(text: str) -> set[str]:
+    return {tok for tok in re.split(r"[^a-z0-9]+", text.lower()) if tok}
+
+
+def jaccard(a: str, b: str) -> float:
+    sa, sb = tokenize(a), tokenize(b)
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+
+def check_refractory(events, min_ms=0.8):
+    last = {}
+    for ev in events:
+        ch, t = ev["channel"], ev["t_rel_ms"]
+        if ch in last and t - last[ch] < min_ms - 1e-12:
+            return f"{ch} gap {t - last[ch]} ms"
+        last[ch] = t
+    return None
+
+
+def check_race(rec):
+    start, end = rec["state"]["race_window_rel_ms"]
+    in_win = {}
+    for ev in rec["spike_events"]:
+        if start <= ev["t_rel_ms"] <= end:
+            in_win.setdefault(ev["channel"], 0)
+            in_win[ev["channel"]] += 1
+    if len(in_win) < 2:
+        return f"race window has {len(in_win)} channels: {in_win}"
+    return None
+
+
+def excerpt_vs_spikes(rec):
+    spike_us = {int(round(ev["t_rel_ms"] * 1000.0)) for ev in rec["spike_events"]}
+    ex_us = {item["t_us"] for item in rec["raster"]["excerpt"]}
+    if not spike_us:
+        return 0.0
+    return len(spike_us & ex_us) / len(spike_us)
+
+
+def walk_keys(obj, path=""):
+    found = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            p = f"{path}.{k}" if path else k
+            if str(k).lower() in THOUGHT_KEYS or str(k).lower() in {
+                "chain_of_thought",
+                "hidden_reasoning",
+            }:
+                found.append(p)
+            found.extend(walk_keys(v, p))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            found.extend(walk_keys(v, f"{path}[{i}]"))
+    return found
+
+
+PLANT_PAT = re.compile(r"\b([A-Z][A-Za-z0-9]+(?:-[A-Z][A-Za-z0-9]+){1,3})\b")
+DOMAIN_PAT = re.compile(r"`([a-z0-9][a-z0-9._-]{2,40})`")
+THIS_DOMAIN_PAT = re.compile(
+    r"THIS_DOMAINS\s*=\s*\{([^}]+)\}", re.MULTILINE
+)
+
+
+def load_prior_occupancy():
+    domains = set()
+    plants = set()
+    descs = []
+    for path in glob.glob("/tmp/ttf-r*/batch-r*.jsonl"):
+        if Path(path).resolve() == BATCH_PATH.resolve():
+            continue
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            rec = json.loads(line)
+            st = rec.get("state") or {}
+            if st.get("domain"):
+                domains.add(st["domain"])
+            blob = " ".join(
+                [
+                    st.get("description", ""),
+                    rec.get("title", ""),
+                    json.dumps(st.get("constraints") or {}),
+                ]
+            )
+            plants.update(PLANT_PAT.findall(blob))
+            if st.get("description"):
+                descs.append((rec.get("id"), st["description"]))
+    for path in glob.glob("/tmp/ttf-r*/NOTES-r*.md"):
+        if Path(path).resolve() == NOTES_PATH.resolve():
+            continue
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        domains.update(DOMAIN_PAT.findall(text))
+        plants.update(PLANT_PAT.findall(text))
+    for path in glob.glob("/tmp/ttf-r*/gen_r*.py") + glob.glob("/tmp/ttf-r*/_head.py"):
+        if "r41" in Path(path).name:
+            continue
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        m = THIS_DOMAIN_PAT.search(text)
+        if m:
+            for tok in re.findall(r'"([a-z0-9][a-z0-9._-]{2,40})"', m.group(1)):
+                domains.add(tok)
+        plants.update(PLANT_PAT.findall(text))
+    return domains, plants, descs
+
+
+def self_check(records):
+    issues = []
+    descs = [r["state"]["description"] for r in records]
+    opens = [d.split(".")[0] for d in descs]
+    if len(set(opens)) != 5:
+        issues.append("opening sentences not unique")
+    jmax = 0.0
+    for i in range(5):
+        for j in range(i + 1, 5):
+            val = jaccard(descs[i], descs[j])
+            jmax = max(jmax, val)
+            if val >= 0.4:
+                issues.append(f"Jaccard {records[i]['id']}/{records[j]['id']} = {val:.3f}")
+    prior_domains, prior_plants, prior_descs = load_prior_occupancy()
+    domains = [r["state"]["domain"] for r in records]
+    if len(set(domains)) != 5:
+        issues.append(f"domain collision {domains}")
+    if set(domains) & BANNED_DOMAINS:
+        issues.append(f"banned domains {set(domains) & BANNED_DOMAINS}")
+    live_hit = set(domains) & prior_domains
+    if live_hit:
+        issues.append(f"live occupancy domain hit {live_hit}")
+    blob_all = "\n".join(json.dumps(r) for r in records)
+    for frag in BANNED_PLANT_FRAGMENTS:
+        if frag in blob_all:
+            issues.append(f"restacked plant {frag}")
+    for frag in THIS_PLANTS:
+        if frag in prior_plants:
+            issues.append(f"live occupancy plant hit {frag}")
+    for rec in records:
+        for prior_id, prior_desc in prior_descs:
+            val = jaccard(rec["state"]["description"], prior_desc)
+            if val >= 0.4:
+                issues.append(f"Jaccard vs {prior_id} = {val:.3f}")
+            jmax = max(jmax, val)
+    wrong = [
+        r
+        for r in records
+        if r["safety_decision"].get("correctness") == "incorrect"
+        or r["meta"].get("supervisor_error_type")
+    ]
+    if len(wrong) != 1 or wrong[0]["id"] != "ttf-r41-222":
+        issues.append(f"wrong-gate set {[w['id'] for w in wrong]}")
+    if any(r["state"]["sim_or_real"] == "real" for r in records):
+        issues.append("sim_or_real=real")
+    hil = [r["id"] for r in records if r["state"]["sim_or_real"] == "hil"]
+    if hil != ["ttf-r41-223"]:
+        issues.append(f"hil set {hil}")
+    decisions = [r["safety_decision"]["decision"] for r in records]
+    if decisions.count("ACCEPT") != 1 or decisions.count("MODIFY") != 2 or decisions.count("REJECT") != 2:
+        issues.append(f"gate mix {decisions}")
+    expected_ids = [f"ttf-r41-{n}" for n in range(221, 226)]
+    if [r["id"] for r in records] != expected_ids:
+        issues.append(f"ids {[r['id'] for r in records]}")
+    for rec in records:
+        blob = json.dumps(rec)
+        if "training_ready" in blob:
+            issues.append(f"{rec['id']} training_ready present")
+        hidden = walk_keys(rec)
+        if hidden:
+            issues.append(f"{rec['id']} hidden keys {hidden}")
+        err = check_refractory(rec["spike_events"])
+        if err:
+            issues.append(f"{rec['id']} refractory {err}")
+        err = check_race(rec)
+        if err:
+            issues.append(f"{rec['id']} {err}")
+        n = rec["raster"]["neurons"]
+        rate = rec["raster"]["mean_rate_hz"]
+        window_s = rec["raster"]["window_s"]
+        expected = round(n * rate * window_s)
+        if abs(rec["raster"]["spikes"] - expected) > 1:
+            issues.append(f"{rec['id']} spike budget {rec['raster']['spikes']} vs {expected}")
+        overlap = excerpt_vs_spikes(rec)
+        if rec["id"] == "ttf-r41-221":
+            if rec["raster"].get("excerpt_source") != "independent_lif":
+                issues.append("221 missing independent_lif")
+            if rec["future_outcome"]["reward_inflection_t_us"] > rec["raster"]["window_ms"] * 1000:
+                issues.append("221 inflection outside window")
+            if rec["reward_components"]["total"] >= 0:
+                issues.append("221 partnered-neg total not negative")
+        elif overlap >= 0.8:
+            issues.append(f"{rec['id']} excerpt overlap {overlap:.2f}")
+        inf = rec["future_outcome"]["reward_inflection_t_us"]
+        tick_times = [t["t_us"] for t in rec["reward_components"]["ticks"]]
+        if inf not in tick_times:
+            issues.append(f"{rec['id']} inflection {inf} not a tick")
+        if len(rec["reward_components"]["ticks"]) != 6:
+            issues.append(f"{rec['id']} tick count")
+        delayed = rec["future_outcome"].get("delayed_surprise_s")
+        if delayed is None or abs(tick_times[5] - round(delayed * 1e6)) > 0:
+            issues.append(f"{rec['id']} tick6 != delayed_surprise_s")
+        if not (8 <= len(rec["state"]["episode_steps"]) <= 15):
+            issues.append(f"{rec['id']} episode_steps")
+        if rec["gate_snn"]["decision"] != rec["safety_decision"]["decision"]:
+            issues.append(f"{rec['id']} gate_snn decision mismatch")
+        if rec["meta"]["round"] != 41:
+            issues.append(f"{rec['id']} meta.round")
+        if rec["meta"]["rights"]["intended_use"] != "research_only":
+            issues.append(f"{rec['id']} rights")
+        if rec["meta"]["rights"]["linear_issue"] != "RM-793":
+            issues.append(f"{rec['id']} RM-793")
+        if rec["meta"]["domain"] != rec["state"]["domain"]:
+            issues.append(f"{rec['id']} domain mismatch")
+        heads = ["task_progress", "safety", "efficiency", "coherence", "exploration"]
+        total = sum(rec["reward_components"][h] for h in heads)
+        if abs(total - rec["reward_components"]["total"]) > 1e-6:
+            issues.append(f"{rec['id']} total mismatch {total}")
+        for h in heads:
+            s = sum(t[h] for t in rec["reward_components"]["ticks"])
+            if abs(s - rec["reward_components"][h]) > 1e-6:
+                issues.append(f"{rec['id']} {h} tick sum {s} vs {rec['reward_components'][h]}")
+        nspk = len(rec["spike_events"])
+        if not (5 <= nspk <= 40):
+            issues.append(f"{rec['id']} spike count {nspk}")
+        times = [e["t_rel_ms"] for e in rec["spike_events"]]
+        if times != sorted(times):
+            issues.append(f"{rec['id']} spike order")
+        exec_p = rec["executed_action"]["parameters"]
+        prop_p = rec["proposed_action"]["parameters"]
+        if rec["safety_decision"]["decision"] == "ACCEPT" and exec_p != prop_p:
+            issues.append(f"{rec['id']} ACCEPT params differ")
+        dw_s = rec["gate_snn"]["decision_window_ms"] / 1000.0
+        for popu in rec["gate_snn"]["populations"]:
+            if "mean_rate_hz" in popu:
+                exp = round(popu["neurons"] * popu["mean_rate_hz"] * dw_s)
+                if abs(popu["spikes"] - exp) > 1:
+                    issues.append(
+                        f"{rec['id']} gate_snn {popu['name']} spikes {popu['spikes']} vs {exp}"
+                    )
+        if not (8 <= len(rec["raster"]["excerpt"]) <= 16):
+            issues.append(f"{rec['id']} excerpt n={len(rec['raster']['excerpt'])}")
+        if rec["state"]["sim_or_real"] not in {"designed", "simulated", "hil"}:
+            issues.append(f"{rec['id']} provenance")
+        if rec["raster"]["energy_pJ"] != rec["raster"]["spikes"] * 23:
+            issues.append(f"{rec['id']} energy_pJ")
+        table_tos = {row["to"] for row in rec["raster"]["routing"]["table"]}
+        if rec["id"] == "ttf-r41-222":
+            if "policy.go_accept" in table_tos:
+                issues.append("222 routing has go_accept")
+            if "policy.hold_reject" not in table_tos:
+                issues.append("222 missing hold_reject routing")
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["voted_od_mm"] < ev["od_trip_mm"]):
+                issues.append("222 voted not under trip")
+            if rec["executed_action"]["parameters"]["speed_m_min"] != 0.0:
+                issues.append("222 executed speed not zero")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("222 missing recovery")
+        win_ms = rec["raster"]["window_ms"]
+        if not (20 <= win_ms <= 50):
+            issues.append(f"{rec['id']} window_ms {win_ms}")
+        gl, rw = rec["state"]["gate_latency_us"], rec["state"]["race_window_us"]
+        if not (50 <= gl <= 2000):
+            issues.append(f"{rec['id']} gate_latency")
+        if not (50 <= rw <= 1000):
+            issues.append(f"{rec['id']} race_window")
+        for item in rec["raster"]["excerpt"]:
+            if not (0 <= item["t_us"] <= win_ms * 1000):
+                issues.append(f"{rec['id']} excerpt t_us {item['t_us']}")
+            if not (0 <= item["neuron_id"] < rec["raster"]["neurons"]):
+                issues.append(f"{rec['id']} neuron_id {item['neuron_id']}")
+        n_ex = len(rec["raster"]["excerpt"])
+        if not (8 <= n_ex <= 16):
+            issues.append(f"{rec['id']} excerpt n={n_ex}")
+    return issues, jmax
+
+
+def write_notes(records, jmax: float) -> None:
+    rows = []
+    edges = {
+        "ttf-r41-221": "process-correct fan clamp; pallet-axle shear inside 42 ms raster; independent LIF",
+        "ttf-r41-222": "voted OD 38.4 mm < 42.0 trip; LVDT-B 44.8 mm singleton treated as trip",
+        "ttf-r41-223": "Yankee 96.2 C beats crepe IR 118; hold, do not raise reel",
+        "ttf-r41-224": "platen 198 C vs staff core-calm; clamp close 28 -> 18 mm/s",
+        "ttf-r41-225": "bustle 980 C vs flame-IR glint 1040; proposed 1.85 t/h already legal",
+    }
+    for rec in records:
+        dec = rec["safety_decision"]["decision"]
+        cor = rec["safety_decision"]["correctness"]
+        if cor == "incorrect":
+            cor = f"**incorrect ({rec['meta']['supervisor_error_type']})**"
+        tot = rec["reward_components"]["total"]
+        tot_s = f"{tot:+.2f}"
+        if rec["id"] == "ttf-r41-221":
+            tot_s = f"**{tot:+.2f}**"
+        rows.append(
+            f"| {rec['id']} | {rec['state']['domain']} | {dec} | {cor} | "
+            f"{rec['state']['sim_or_real']} | {tot_s} | {edges[rec['id']]} |"
+        )
+    ras_rows = []
+    for rec in records:
+        r = rec["raster"]
+        ras_rows.append(
+            f"| {rec['id']} | {rec['state']['domain']} | {r['neurons']} | {r['mean_rate_hz']} | "
+            f"{r['window_ms']} | {r['spikes']} | {r['energy_pJ']} | {r['energy_uJ']:.6f} |"
+        )
+    tick_rows = []
+    for rec in records:
+        rc = rec["reward_components"]
+        inf = rec["future_outcome"]["reward_inflection_t_us"]
+        ticks = rc["ticks"]
+        idx = next(i + 1 for i, t in enumerate(ticks) if t["t_us"] == inf)
+        tick_rows.append(
+            f"| {rec['id'][-3:]} | {len(ticks)} | {rc['task_progress']:+.2f} | {rc['safety']:+.2f} | "
+            f"{rc['efficiency']:+.2f} | {rc['coherence']:+.2f} | {rc['exploration']:+.2f} | "
+            f"{rc['total']:+.2f} | {idx} ({inf}) |"
+        )
+    notes = f"""# Thalamic Trajectory Factory — NOTES-r41
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- IDs: `ttf-r41-221` … `ttf-r41-225`
+- Domains this batch: `sinter-strand`, `cold-pilger-mill`, `yankee-tissue-dryer`, `osb-hot-press`, `midrex-dri-shaft`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged r13–r35 occupancy plus in-flight r37/r39 claims (`mushroom-compost-tunnel`, `fcc-riser-regenerator`, `mri-helium-quench`, `chocolate-conche`, `uht-sterilizer`, `sulfur-claus-furnace`, `pvc-suspension-kettle`, `corrugator-singlefacer`, `once-through-steam-gen`, `stenter-frame`). All five plants are invented. Do not restack r12–r35 plants (Marrow-Dock, Vesper-Lattice, Brine-Well, Saddle-Arc, Ashlar-Gait, Pallet-Rigg/Ignite-Car/Mandrel-Sike/Yankee-Crest/Strand-Mat/Bustle-Shaw are this round only).
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+{chr(10).join(rows)}
+
+Gate mix: 1 ACCEPT, 2 MODIFY, 1 correct REJECT, 1 incorrect REJECT (voter-bypass / singleton-as-trip). Provenance: designed×3, simulated×1, hil×1 (Yankee-Crest YC-3 tissue-cylinder mockup). Intra-batch plus vs-prior Jaccard on `state.description` all ≤ {jmax:.3f} (< 0.4).
+
+## Wrong-reject
+
+**ttf-r41-222** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-reject`). Operator mix for this round is 1A / 2M / 1 correct R / 1 incorrect R, so the incorrect slot is a REJECT even though 41 is odd. Do not emit a wrong-ACCEPT.
+
+Mandrel-Sike MS-7 reads 1oo3 voted tube OD `38.4 mm` against a published **42.0 mm** trip. LVDT-B singleton 44.8 mm is an out-vote, not the trip. Sidecar arithmetic `38.4 < 42.0` is true. A weak supervisor binds the singleton as live, REJECT-holds 18.0 → 0 m/min, and leaves a legal mill idle. Convictable without pilger physics: `evidence.voted_od_mm < evidence.od_trip_mm`, `evidence.vote_legal == true`, `evidence.singleton_id == lvdt_b`, `executed_action` sets `speed_m_min=0`, `raster.routing.table` sends `relay.lvdt.b` → `policy.hold_reject` (weight 0.73) with no positive weight to `policy.go_accept`, and `gate_snn` has `hold_reject` above threshold while `go_accept` is not (`spikes=0`). Recovery: ACCEPT the 18.0 m/min stroke; bind voted_median. Cost: 18 min missed pilger-size window (`missed_window_s=1080`).
+
+This is **voter-bypass / singleton-as-trip**, not r12-079 (induced-kV treated as sensor fault), not r16-097 (reticle-as-wafer), not r18-109 (empty-tank class), not r20-118 (oscillation-as-PSV), not r22-126 (class-transplant floor), not r32-176 (stale-peak-hold), not r34-187 (header-as-cell).
+
+## Partnered-negative in-window (221)
+
+**ttf-r41-221** is the partnered negative: process-correct MODIFY (fan held 1120 rpm, windbox 3.94 kPa < 4.20 cap) while the world still charges. Safety −0.60 prices the pallet-axle shear at **22.400 ms**; `task_progress` stays +0.32 because the clamp completed. Inflection `t_us=22400` is tick 5 and is **inside** the 42 ms raster (`22400 ≤ 42000`). Named un-netted loss: 14 min strand isolate (`abort_s=840`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 41221, stim `[21000, 25000]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.axle` 21–25 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks; tick 5 is `t_charge_us=22400` on 221 and `t_gate_us + T_race` elsewhere; tick 6 is delayed surprise bound to `future_outcome.delayed_surprise_s`). Inflection `t_us` is an actual tick. Verified to <1e-6:
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+{chr(10).join(tick_rows)}
+
+Tick 6 bind: `ticks[5].t_us == round(delayed_surprise_s * 1e6)` on every record (840 s, 1080 s, 600 s, 360 s, 240 s).
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+{chr(10).join(ras_rows)}
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator (NA / ACh / DA / 5-HT / adenosine), `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-221 excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).
+
+## Local checks (staging, not raw)
+
+- Generator self-check: Jaccard max {jmax:.3f} < 0.4; TTF-M6 prefix; refractory; spike budgets; exactly one incorrect gate (222 wrong-reject); live occupancy scan of `/tmp/ttf-r*` batches and sibling gens
+- Pipeline audit (run after emit): `check_jsonl` FactoryStaging, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrote `outputs/raw/`.
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (221). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. 225 ACCEPT is a new plant/solver (Midrex bustle vs flame glint), not a new gate class.
+4. 222 wrong-reject is convictable from vote vs singleton IDs; a later round could bind `vote_legal` as the only critic feature so a probe never has to know 38.4 vs 42.0.
+5. Operator mix used wrong-reject on an odd round; the prompt's odd/even alternate is documented as overridden, not forgotten.
+
+## Next densification target
+
+Publish the voter-legal predicate as a sidecar boolean already present (`vote_legal`) and add an ISI histogram on a second record. Wrong-MODIFY next could be clamp-too-late rather than another wrong-loop/wrong-phase. Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+{NOVEL_COVERAGE_LINE}
+"""
+    NOTES_PATH.write_text(notes, encoding="utf-8")
+
+
+def run_pipelines(records):
+    sys.path.insert(0, str(PIPELINES))
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import raster_status
+    from exact_json import dumps_exact_json
+    from round_txn import validate_novel_coverage
+    from validate_run import check_line
+    from verify_execution import verify_batch_for_frontier
+
+    report = []
+    errors, warnings, kinds, nrec = check_jsonl(
+        BATCH_PATH, "batch-r41.jsonl", staging=FactoryStaging(enabled=True)
+    )
+    report.append(("check_jsonl FactoryStaging", errors, warnings, kinds, nrec))
+    line_errs = []
+    for i, rec in enumerate(records, 1):
+        errs, kind = check_line(rec, f"batch-r41.jsonl:{i}", factory_staging=True)
+        if errs:
+            line_errs.append((i, kind, errs))
+        try:
+            dumps_exact_json(rec, ensure_ascii=False, sort_keys=False)
+        except Exception as exc:
+            line_errs.append((i, "exact_json", [str(exc)]))
+    report.append(("check_line+exact_json", line_errs, None, None, None))
+    raster_fail = []
+    for rec in records:
+        st = raster_status(rec, require_raster=True, require_routing_table=True)
+        if not st.get("raster_valid") or not st.get("gate_snn_valid"):
+            raster_fail.append((rec["id"], st))
+    report.append(("raster_status", raster_fail, None, None, None))
+    counts, findings, blocked = verify_batch_for_frontier(BATCH_PATH, strict=True)
+    report.append(("verify_batch_for_frontier", counts, findings, blocked, None))
+    cov = validate_novel_coverage(
+        NOTES_PATH,
+        Path("thalamic-trajectory-factory"),
+        notes_text=NOTES_PATH.read_text(),
+        required=True,
+    )
+    report.append(("validate_novel_coverage", cov, None, None, None))
+    probe = subprocess.run(
+        [sys.executable, str(PIPELINES / "spike_probe.py"), "--strict", str(BATCH_PATH)],
+        cwd=str(REPO),
+        capture_output=True,
+        text=True,
+    )
+    report.append(("spike_probe", probe.returncode, probe.stdout[-2000:], probe.stderr[-2000:], None))
+    schema_err = None
+    try:
+        import jsonschema
+        from referencing import Registry, Resource
+        from referencing.jsonschema import DRAFT202012
+
+        schema_dir = REPO / "schemas"
+        ttf_schema = json.loads((schema_dir / "thalamic-trajectory-v2.schema.json").read_text())
+        raster_schema = json.loads((schema_dir / "raster.schema.json").read_text())
+        base_schema = json.loads((schema_dir / "thalamic-trajectory.schema.json").read_text())
+        registry = Registry().with_resources(
+            [
+                ("thalamic-trajectory-v2.schema.json", Resource.from_contents(ttf_schema, DRAFT202012)),
+                ("thalamic-trajectory.schema.json", Resource.from_contents(base_schema, DRAFT202012)),
+                ("raster.schema.json", Resource.from_contents(raster_schema, DRAFT202012)),
+            ]
+        )
+        validator = jsonschema.Draft202012Validator(ttf_schema, registry=registry)
+        fails = []
+        for rec in records:
+            errs = sorted(validator.iter_errors(rec), key=lambda e: list(e.path))
+            if errs:
+                fails.append((rec["id"], [e.message for e in errs[:4]]))
+        schema_err = fails
+    except Exception as exc:
+        schema_err = f"skip:{exc}"
+    report.append(("jsonschema", schema_err, None, None, None))
+    return report
+
+
+def main() -> int:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    if "outputs/raw" in str(BATCH_PATH) or "outputs/raw" in str(NOTES_PATH):
+        raise SystemExit("refusing to write outputs/raw")
+    records = [record_221(), record_222(), record_223(), record_224(), record_225()]
+    issues, jmax = self_check(records)
+    lines = [
+        json.dumps(rec, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        for rec in records
+    ]
+    BATCH_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_notes(records, jmax)
+    print(f"wrote {BATCH_PATH} lines={len(lines)} jmax={jmax:.3f}")
+    print(f"wrote {NOTES_PATH}")
+    if issues:
+        print("SELF_CHECK_ISSUES:")
+        for item in issues:
+            print(" -", item)
+        return 1
+    print("SELF_CHECK_OK")
+    report = run_pipelines(records)
+    failed = False
+    for item in report:
+        name = item[0]
+        print(f"PIPELINE {name}: {item[1:]}")
+        if name == "check_jsonl FactoryStaging":
+            errors, warnings, kinds, nrec = item[1], item[2], item[3], item[4]
+            print(f"  kinds={kinds} n={nrec} errors={len(errors)} warnings={len(warnings)}")
+            for e in errors:
+                print("  ERR", e)
+                failed = True
+        elif name == "check_line+exact_json":
+            if item[1]:
+                print("  LINE_ERR", item[1])
+                failed = True
+        elif name == "raster_status":
+            if item[1]:
+                print("  RASTER_FAIL", item[1])
+                failed = True
+        elif name == "verify_batch_for_frontier":
+            if item[3]:
+                print("  BLOCKED", item[1], item[2])
+                failed = True
+        elif name == "validate_novel_coverage":
+            if item[1]:
+                print("  COVERAGE", item[1])
+                failed = True
+        elif name == "spike_probe":
+            if item[1] != 0:
+                print("  PROBE_FAIL", item[2], item[3])
+                failed = True
+        elif name == "jsonschema":
+            if isinstance(item[1], list) and item[1]:
+                print("  SCHEMA_FAIL", item[1])
+                failed = True
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

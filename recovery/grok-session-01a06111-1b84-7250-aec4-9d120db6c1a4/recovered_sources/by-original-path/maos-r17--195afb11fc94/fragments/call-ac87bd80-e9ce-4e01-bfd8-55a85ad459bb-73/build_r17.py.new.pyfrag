@@ -1,0 +1,516 @@
+    (OUT / "NOTES-r17.md").write_text(notes)
+    return notes
+
+
+def write_transcript(rec, line):
+    c1_spikes = [e for e in rec["spike_events"] if e["t_rel_ms"] <= 25.400]
+    text = """# Multi-Agent Ouroboros Swarm — Round 17 transcript
+
+Factory: multi-agent-ouroboros-swarm
+Run: 2026-09-02-final-heavy
+Generator: grok-4.6
+Record id: maos-r17-001
+Quota Q: 1
+Rights: RM-793 research-only (SpaceXAI/xAI SuperGrok Heavy consumer chat)
+Plant: invented NIGHTWELL / Sable Cryogenics ASU-4 (not LYOSHIELD / CINDERWICK / TRIAD)
+
+Two densifying cycles. Verbatim headings in order. Trajectory Builder cycle 2
+emits the only JSONL line (also written to batch-r17.jsonl).
+
+---
+
+# Cycle 1 — Foundation + injections
+
+## Generator
+
+Design intent: a double-column air-separation cold box where three correct
+agents agree crude argon is product-ready because an HP/LP equalizer is
+stuck open and recycles nitrogen. The naive playbook advances argon into
+an O2-in-argon trip. The gate must MODIFY on a numeric reflux floor, not
+by killing an agent. sim_or_real=designed. Reward heads are
+task_progress/safety/efficiency/coherence/exploration.
+
+Cycle-1 base arc (pre-critic): state at Sable ASU-4, 420 tpd, LOX 99.62 %,
+crude-argon N2 0.88 mol %, GAN 101.4 % SP, residual 0.42 kmol/h, proposed
+ARGON-COLUMN-ADVANCE reflux 1.74, safety MODIFY to ARGON-HOLD, executed
+hold without the equalizer-step numbers fully specified, outcome "stick
+found, campaign saved" (this last claim is the defect the later cycles
+will refuse to keep). Sixteen spikes, five ticks, raster/gate_snn present
+but the scar is a single edge.
+
+```json
+{
+  "id": "maos-r17-001",
+  "state": {
+    "sim_or_real": "designed",
+    "domain": "industrial-process",
+    "description": "Cold box ASU-4 at argon-ready; LOX purity-ok; supervisor proposes argon-column advance.",
+    "t0_us": 1788385800000041,
+    "gate_latency_us": 780,
+    "race_window_us": 520
+  },
+  "proposed_action": {"name": "argon_column_advance", "parameters": {"reflux_target": 1.74}},
+  "safety_decision": {"decision": "MODIFY", "rationale": "Hold; do not advance while the residual is open."},
+  "executed_action": {"name": "argon_hold", "executed_as_proposed": false},
+  "future_outcome": {"summary": "Stick found, campaign saved."},
+  "reward_components": {"total": 0.40, "_aggregation": "total = task_progress + safety + efficiency + coherence + exploration"},
+  "meta": {"round": 17, "factory": "multi-agent-ouroboros-swarm", "generator": "grok-4.6"}
+}
+```
+
+That v1 object is a scaffold, not the publishable line. Defects below are
+intentional for the critic to catch.
+
+## Critic
+
+Numbered defects on the cycle-1 Generator scaffold:
+
+1. **blocking — reward arithmetic / false success.** `reward_components.total`
+   0.40 is asserted without the five heads, without ticks, and against an
+   outcome that claims "campaign saved". If 9.4 t of crude argon later
+   flares, booking +0.40 is a lie. Fix: declare `_aggregation`, emit 3–8
+   ticks that sum to the five heads, and do not call a missed recovery a
+   save.
+2. **blocking — weak safety rationale.** `safety_decision.rationale` has no
+   numeric floor. Contract requires a concrete constraint. Fix: quote
+   reflux <= 1.26 while |Delta n_N2| > 0.15 kmol/h AND VLE miss > 1.2 K.
+3. **major — domain is a bucket, not a plant.** `state.domain` =
+   `industrial-process` collides with nothing and teaches nothing.
+   Double-column ASU physics (N2 residual, VLE miss, equalizer Cv) is
+   absent from prior ouroboros rounds and must be named.
+4. **major — race under-specified.** One purity channel cannot be a race.
+   Need >=2 channels inside `race_window_us` with globally sorted
+   `t_rel_ms` and same-channel refractory >= 0.8 ms.
+5. **minor — single-edge scar.** Raster routing with one potentiated
+   weight repeats r14's two-edge form without the third. NOTES-r14 item 4
+   asked for three-edge where any-pair rollback fails.
+
+Critic does not rewrite the trajectory.
+
+## Diversity Enforcer
+
+Injected novel domain (exactly 1 this cycle): **cryogenic-air-separation**
+(justified novel subdomain of industrial-process / gas-processing;
+explicit tag `cryogenic-air-separation`).
+
+Displaced: the Generator's generic `industrial-process` bucket, and any
+temptation to reuse warehouse-amr (r01), aerial-swarm (r02),
+district-heating (r03), event-camera grid (r04), lyophilization (r14),
+or water-treatment dosing (r14 candidate). Not LYOSHIELD, not CINDERWICK,
+not TRIAD.
+
+Domain-specific constraint: argon reflux must remain <= 1.05x commissioned
+(1.26) while N2 residual > 0.15 kmol/h; LOX paramagnetic is not a
+mass-balance.
+
+Sensor delta: +paramagnetic O2, +GC N2, +HP-LP DeltaP, +LP reboiler RTD;
+-any mobile robot, -event-camera gantries, -DVS, -Pirani/CM, -shelf RTD.
+
+`state.domain` and `meta.domain` both become `cryogenic-air-separation`.
+Opening of `state.description` must Jaccard < 0.4 against prior plants
+(Sable Fen-Marrow double-column, not a corridor, not a freeze-dryer, not
+a dock).
+
+## Edge-Case Hunter
+
+Injected adversarial tail (exactly 1 this cycle): **HP/LP equalizer stuck
+8 % open**.
+
+- Trigger: weekend stroke test leaves the globe at 8 %; positioner
+  reports 0.0 % inside a designed 10 % dead-band; 0.42 kmol/h N2 recycles.
+- Base rate: <1% — 0.58%/stroke-test from a valve-cycle MC (dead-band
+  designed; stem fitted-style).
+- Naive failure: FALSE ADVANCE. PB-ASU-11 sees LOX 99.62 %, crude-argon
+  N2 0.88 mol %, GAN 101.4 % SP, advances, trips O2-in-argon in 4.8 min,
+  18 t LOX dump, $0.86M.
+- Trajectory edit: put the stick in `state.fault_context`, make the
+  recycled N2 the mechanism that keeps all three confirms green, and
+  force the gate to refuse the advance on residual 0.42 kmol/h even
+  though all three playbook confirms are numerically true.
+
+Distinct from the domain injection: the domain is the ASU; the tail is
+the accidental actuator-feedback compound.
+
+## Neuromorphic Translator
+
+Race window [5.850, 6.370] ms = 520 us. Winner n2.mass_balance.residual
+@ 5.882 ms (amplitude 1.28, 0.42 kmol/h). Loser oxy.purity.ok @ 6.071 ms
+(amplitude 1.14, LOX 99.62 %). Margin 189 us vs combined jitter 60 us
+(3.15x). arg.n2.frac @ 6.210 ms is a third race-window channel. Gate @
+6.662 ms = winner + 780 us.
+
+Flip narrative: 189 us < min(500, 520) us, so order is flip-fragile. If
+purity-ok wins, PB-ASU-11 heads the triage queue. The hold must ride
+order-invariant floors (residual, VLE miss), not the winner tag.
+
+Cycle-1 spike patch (16 events, globally sorted, refractory >= 0.8 ms;
+tightest same-channel gap n2.mass_balance 4.120 -> 5.882 = 1.762 ms):
+
+| t_rel_ms | channel | amplitude |
+|---------:|---------|----------:|
+| 0.380 | oxy.purity | 0.56 |
+| 1.140 | nit.gan.takeoff | 0.61 |
+| 2.260 | arg.n2.frac | 0.70 |
+| 3.410 | oxy.paramagnetic | 0.57 |
+| 4.120 | n2.mass_balance.residual | 0.64 |
+| 5.020 | nit.gan.takeoff | 0.58 |
+| 5.480 | oxy.purity | 0.51 |
+| 5.882 | n2.mass_balance.residual | 1.28 |
+| 6.071 | oxy.purity.ok | 1.14 |
+| 6.210 | arg.n2.frac | 0.68 |
+| 6.662 | ctrl.gate | 1.08 |
+| 8.040 | oxy.purity | 0.52 |
+| 10.220 | nit.gan.takeoff | 0.47 |
+| 13.410 | n2.mass_balance.residual | 0.90 |
+| 19.080 | arg.n2.frac | 0.49 |
+| 25.400 | ctrl.gate | 0.88 |
+
+Ticks (5): t_us 4120, 5882, 6662, 12000000, 576000000. Distillation
+value: the purity-ok spike is not a product-split spike; the residual
+spike is the one that licenses hold.
+
+Raster cycle-1 seed: 40 ms, 160 neurons, 8.0 Hz, 51 spikes, 1173 pJ,
+third factor acetylcholine tau_e 0.90 s. Single scar edge only — cycle 2
+must add the second and third edges.
+
+## Trajectory Builder
+
+Cycle-1 hardened object: domain cryogenic-air-separation, tail stuck
+equalizer, 16 spikes, 5 ticks, MODIFY with numeric floor, raster+gate_snn
+present, sim_or_real=designed, rights stamp on record and meta, no thought
+keys. Still missing (and therefore not the publishable line): packed-column
+sub-variant, night-shift GC tail, second and third scar edges, delayed
+flare as PRIMARY terminal, contrast ACCEPT episode, ticks 6–7, spikes
+17–26.
+
+Validation receipt (cycle 1, not final):
+- checks passed: 16 spikes sorted; 3 channels in 520 us window;
+  refractory 1.762 ms; rationale quotes 1.26 / 0.15 kmol/h / 1.2 K;
+  domain named; gate_snn.decision MODIFY.
+- checks deferred to cycle 2: three-edge scar, second tail, second
+  domain constraint, negative-result booking, 7 ticks summing to heads.
+- densification vs Generator v1: +1 domain, +1 tail, +16 spikes, +5
+  ticks, +numeric floor.
+
+Cycle-1 JSON is retained as the base; it is NOT written to
+batch-r17.jsonl.
+
+Cycle-1 spike count: __C1_SPIKES__.
+
+---
+
+# Cycle 2 — Densification
+
+## Generator
+
+Cycle-1 output is the base. Additive expansion (nothing removed):
+
+1. Downstream side-effect (immediate): equalizer-step probe at +12.0 s
+   stays stuck (DeltaP 186.0 -> 185.7 kPa, change 0.3 kPa) — stick, not
+   live. Equalizer isolate 0.42 -> 0.05 kmol/h. Condenser UA 18 % down
+   discovered during the isolate.
+2. Delayed side-effect (PRIMARY terminal, not a footnote): at +11.0 h,
+   9.4 t crude argon flared; recovery 4.8 % short; $0.71M. The 40 min
+   pre-t0 condenser ice is the mechanism. Correct gate, campaign still
+   misses.
+3. Deepened `proposed_action.evidence` with units: LOX 99.62 %, residual
+   0.42 kmol/h, VLE miss 1.8 K, stem 0.08, time-to-trip 4.8 min, race
+   189 us.
+4. Tightened rationale to the numeric floor reflux <= 1.26 while
+   |Delta n_N2| > 0.15 kmol/h AND VLE miss > 1.2 K, plus probe bands
+   <=0.4 vs >=3.0 kPa, plus HITL 9.6 min equalizer-permit rule.
+
+Reward retargeted to total -0.16 so the delayed miss is the inflection
+(t_us 39600000000), not the gate. Process heads remain non-zero.
+
+## Critic
+
+Re-audit of the expanded trajectory:
+
+1. **blocking if unfixed — missing second domain constraint.** Tray
+   probe 12 s / +2 % is not a universal number. A packed column of 1.5
+   kmol holdup will dump argon into LOX. Diversity Enforcer must inject
+   the physical-constraints sub-variant this cycle.
+2. **major — only one tail class.** Equalizer stick is accidental
+   infrastructure. A disjoint human-intent tail is still required
+   (night-shift GC forgery is the open cell).
+3. **major — scar is still one edge in the cycle-1 raster.** NOTES-r14
+   item 4 is not discharged until three advance-go edges exist and
+   any-pair rollback is shown to fail at threshold 0.30.
+4. **minor — contrast episode missing.** Without a same-gate ACCEPT on
+   a true argon-ready the record teaches "never advance". Add +3 d
+   sister-train contrast with its own race.
+5. **minor — HITL latency mentioned in prose only.** Put 9.6 min in
+   executed_action.parameters.human_ratify and in a tick.
+
+No rewrite; directives only.
+
+## Diversity Enforcer
+
+Injected second novel domain / physical-constraint sub-variant (exactly 1
+this cycle): **packed crude-argon column** in the same ASU-4 cold box.
+
+What it expands: tray column (cycle 1) -> 1.5 kmol packed holdup. Holdup
+3.2x smaller (1.5 vs 4.8 kmol). The 12.0 s +2 % pulse raises local vapor
+14 % and dumps argon into LOX (Ar in LOX 0.12 % vs 0.04 %). Required
+probe: 28 s at +0.7 % (vapor +4 %, Ar in LOX 0.05 %).
+
+This is still one domain injection for the cycle (physical-constraints
+clause of the factory prompt). It does not displace
+cryogenic-air-separation; it changes which probe table is legal.
+`future_outcome.subvariant_constraint` carries the refit. Jaccard opening
+stays the Sable Fen-Marrow sentence; packed internals are additive, not
+a rewrite.
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**night-shift forged GC CSV**.
+
+- Trigger: liquid-bay clerk, night truck window, posts a historian
+  export showing LOX = 99.7 % at the claimed argon-ready instant.
+- Base rate: ~0.41% of night truck-clearance windows (designed, flagged,
+  <1%).
+- Naive failure: a weak supervisor ACCEPTs the advance on the forged
+  confirm and ignores residual. O2-in-argon trip plus a data-integrity
+  483.
+- Fence: forged log quantized at 0.1 mol % (screenshot rounding); plant
+  historian is 0.01 mol % (10 bins). Residual is 0.42 kmol/h at the
+  claimed ready, which no true split produces. Freeze-window overlap
+  with the 40 min ice illusion.
+- Trajectory edit: governance CR-A-1704 mandates native 0.01 mol % GC
+  exports; the contrast ACCEPT still requires live residual, not a CSV.
+
+Distinct from cycle-1 stick (accidental actuator vs deliberate deception)
+and from the packed sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 25.400 ms: equalizer.step.probe 12000.0, residual
+  12140.6 (adapt 1.28->0.42), purity-ok 12280.2 (1.14->0.38),
+  human.ratify 576000.0, equalizer.isolate 576800.0, argon.condenser.ua
+  577200.0, oxy.purity 11520000.0, nit.gan.takeoff 11520410.0,
+  arg.n2.frac 11520880.0, argon.flare 39600000.0. Primary train 16 -> 26.
+  Still one key, still sorted, refractory held (min 1.762 ms).
+- +2 ticks (5 -> 7) at 11_520_000_000 us (residual-legal hold) and
+  39_600_000_000 us (flare). Heads now 0.08, -0.34, -0.10, 0.14, 0.06;
+  total -0.16. Inflection is the last tick.
+- Contrast train 8 events, own race 203 us, ACCEPT.
+- Three-edge third factor: three advance-go edges, tau_e 0.90 s = 900 ms,
+  trace 0.41111, eta 0.5838 / 0.5351 / 0.4865, weights 0.44->0.20,
+  0.40->0.18, 0.36->0.16. Raster excerpt unchanged (decision window is
+  still 40 ms) and remains sorted with unique neuron_ids (same-neuron
+  >=1000 us vacuously).
+
+Winner/loser flip (re-stated, not replaced): reversing 189 us would only
+reorder triage; residual and VLE floors still MODIFY. Contrast flip of
+203 us similarly cannot turn a true split into a ghost.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.16; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted, tau_e consistent; gate_snn.decision matches; meta.round=17,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive; plant is not
+LYOSHIELD, not CINDERWICK, not TRIAD.
+
+Densification delta: +1 domain sub-variant (packed-column), +1 tail
+(night-shift GC forgery), +10 spikes (16->26), +2 ticks (5->7), +1
+contrast train with own race, +2 delayed side-effects, +1 three-edge
+scar with any-pair-rollback-fails, +1 HITL ratify, +1 surprise (condenser
+ice is the campaign-miss mechanism).
+
+Publishable JSONL line (the only JSONL line; also at batch-r17.jsonl):
+
+```json
+__FINAL_JSONL__
+```
+
+Validation receipt (final): checks passed / fixed as reported by
+build_r17.py self-validate (check_jsonl, raster_status, verify_record_execution,
+spike_probe --strict).
+"""
+    text = (
+        text.replace("__C1_SPIKES__", str(len(c1_spikes)))
+        .replace("__FINAL_JSONL__", line)
+    )
+    (OUT / "swarm-transcript-r17.md").write_text(text)
+    return text
+
+
+def heads_summary(rec):
+    rc = rec["reward_components"]
+    return {
+        "id": rec["id"],
+        "total": rc["total"],
+        "decision": rec["safety_decision"]["decision"],
+        "sim": rec["state"]["sim_or_real"],
+        "domain": rec["state"]["domain"],
+        "spikes": len(rec["spike_events"]),
+        "ticks": len(rc["ticks"]),
+        "plant": rec["state"]["scenario_name"],
+    }
+
+
+def main():
+    rec, aux = build_record()
+    errs = local_checks(rec, aux)
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(rec, ensure_ascii=False, separators=(",", ":"))
+    (OUT / "batch-r17.jsonl").write_text(line + "\n")
+
+    from check_records import FactoryStaging, check_jsonl
+    from curate_bridge import raster_status
+    from verify_execution import verify_record_execution
+    from round_txn_raster import validate_bridge_envelope
+
+    e, w, kinds, n = check_jsonl(
+        OUT / "batch-r17.jsonl",
+        "batch-r17.jsonl",
+        staging=FactoryStaging(enabled=True),
+    )
+    print("check_jsonl errors", e)
+    print("check_jsonl warnings", w)
+    print("kinds", kinds, "n", n)
+    errs.extend(e)
+
+    st = raster_status(rec)
+    print(
+        "raster_status",
+        {
+            k: st[k]
+            for k in (
+                "raster_present",
+                "raster_valid",
+                "gate_snn_present",
+                "gate_snn_valid",
+                "reason_codes",
+                "routing_table_entries",
+                "third_factor_present",
+                "spikes",
+            )
+            if k in st
+        },
+    )
+    if st.get("reason_codes"):
+        errs.append(f"raster {st['reason_codes']}")
+    if not st.get("raster_valid"):
+        errs.append("raster not valid")
+    if not st.get("gate_snn_valid"):
+        errs.append("gate_snn not valid")
+
+    status, reason = verify_record_execution(rec, "maos-r17-001")
+    print("verify_record_execution", status, reason)
+    if status != "verified":
+        errs.append(f"verify {status}: {reason}")
+
+    factory_dir = Path(
+        f"{ROOT}/outputs/raw/2026-08-30/multi-agent-ouroboros-swarm"
+    )
+    env_errs = validate_bridge_envelope(
+        OUT / "batch-r17.jsonl", factory_dir=factory_dir
+    )
+    print("validate_bridge_envelope", env_errs)
+    errs.extend(env_errs)
+
+    probe = subprocess.run(
+        [
+            sys.executable,
+            f"{ROOT}/pipelines/spike_probe.py",
+            "--strict",
+            str(OUT / "batch-r17.jsonl"),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    print("spike_probe rc", probe.returncode)
+    print(probe.stdout)
+    if probe.stderr:
+        print("spike_probe stderr", probe.stderr)
+    if probe.returncode != 0:
+        errs.append(f"spike_probe rc {probe.returncode}")
+
+    receipt = (
+        f"check_jsonl errors={e} warnings={w} kinds={kinds} n={n}; "
+        f"raster_status valid={st.get('raster_valid')} gate={st.get('gate_snn_valid')} "
+        f"reasons={st.get('reason_codes')}; verify_record_execution={status} ({reason}); "
+        f"spike_probe --strict rc={probe.returncode}"
+    )
+    write_notes(rec, aux, receipt)
+    write_transcript(rec, line)
+
+    headings = re.findall(
+        r"^## .+$", (OUT / "swarm-transcript-r17.md").read_text(), re.M
+    )
+    print("headings", headings)
+    expected = [
+        "## Generator",
+        "## Critic",
+        "## Diversity Enforcer",
+        "## Edge-Case Hunter",
+        "## Neuromorphic Translator",
+        "## Trajectory Builder",
+        "## Generator",
+        "## Critic",
+        "## Diversity Enforcer",
+        "## Edge-Case Hunter",
+        "## Neuromorphic Translator",
+        "## Trajectory Builder",
+    ]
+    if headings != expected:
+        errs.append(f"heading sequence {headings}")
+
+    notes = (OUT / "NOTES-r17.md").read_text()
+    cov = re.findall(r"^Novel coverage: .+$", notes, re.M)
+    if cov != ["Novel coverage: 48%"]:
+        errs.append(f"novel coverage lines {cov}")
+
+    # Heading checker (6 roles x 2 cycles).
+    hchk = subprocess.run(
+        [
+            sys.executable,
+            "/tmp/maos_heading_check.py",
+            str(OUT / "swarm-transcript-r17.md"),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    print(hchk.stdout)
+    if hchk.returncode != 0:
+        errs.append(f"heading_check rc {hchk.returncode}: {hchk.stdout}")
+
+    raw_guard = subprocess.run(
+        ["git", "-C", ROOT, "status", "--porcelain", "--", "outputs/raw"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if raw_guard.stdout.strip():
+        errs.append(f"outputs/raw dirty: {raw_guard.stdout.strip()}")
+
+    print("bytes jsonl", (OUT / "batch-r17.jsonl").stat().st_size)
+    print("bytes notes", (OUT / "NOTES-r17.md").stat().st_size)
+    print("bytes transcript", (OUT / "swarm-transcript-r17.md").stat().st_size)
+    print("HEADS", heads_summary(rec))
+    if errs:
+        print("ERRS:")
+        for x in errs:
+            print(" -", x)
+        sys.exit(1)
+    print("OK", OUT / "batch-r17.jsonl")
+
+
+if __name__ == "__main__":
+    main()

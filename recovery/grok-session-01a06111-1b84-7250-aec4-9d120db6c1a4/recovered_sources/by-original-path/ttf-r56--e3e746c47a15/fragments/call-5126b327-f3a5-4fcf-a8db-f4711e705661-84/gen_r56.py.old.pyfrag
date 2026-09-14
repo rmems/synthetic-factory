@@ -1,0 +1,24 @@
+                        (
+                            "contenders",
+                            [
+                                "ir.bed.c 1280 C pellet bed",
+                                "dp.hood.smear over-draft claim",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "IR-first confirms the already-legal 2.40 m/min / 1280 C pass; "
+                            "smear-first would have treated the IR as a smear echo and looked "
+                            "for an extra hold the grate does not need.",
+                        ),
+                        (
+                            "window_derivation",
+                            "360 us = one 1D-bed IR kernel step versus the hood-DP publisher "
+                            "on this rigid grate train.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 230 us vs combined jitter 70 us (IR 32 + DP 38): 3.3x over "
+                            "a 2.0x trust floor. Reversing order by < 230 us would not make the "
+                            "proposed pass illegal; it would only have delayed confirmation.",
+                        ),

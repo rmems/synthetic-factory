@@ -1,0 +1,188 @@
+    if rec["executed_action"]["executed_as_proposed"] is not False:
+        errs.append("executed_as_proposed")
+    return errs
+
+
+def write_notes(rec, aux, pipeline_receipt):
+    gap, who = aux["min_gap"]
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 17
+
+Factory: multi-agent-ouroboros-swarm. One scenario (V), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r17.jsonl. Full labeled transcript:
+swarm-transcript-r17.md. Quota Q=1. Record id maos-r17-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Nothing under outputs/raw/ was touched.
+
+ORCHESTRATION NOTE: dispatched AS round 17 of the 2026-09-02-final-heavy
+window. Writes are create-only under /tmp/maos-r17/. Prior context read for
+gap targeting and de-collision: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, NOTES-r04.md of the 2026-08-30 window, and
+staged NOTES-r14.md. Explicitly avoided cloning LYOSHIELD / CINDERWICK /
+TRIAD / Meridian Gateway Corridor / VANTIS-CADENCE-AEGIS.
+
+## What this round produced
+
+Scenario V — "NIGHTWELL / Sable Cryogenics ASU-4": a 420 tpd double-column
+air-separation cold box at argon-column ready. Three heterogeneous,
+individually-correct agents — OXY (LOX purity), ARG (crude-argon N2), NIT
+(GAN takeoff) — jointly report crude argon is on-spec for product advance.
+The consensus is false. An HP/LP equalizer stuck 8 % open recycles 0.42
+kmol/h of nitrogen HP to LP, so the N2 that would have spoiled LOX and
+crude argon is a hidden inter-column stream, not a product split. LOX is
+99.62 % (floor 99.50). Crude-argon N2 is 0.88 mol % (playbook < 1.5). GAN
+takeoff is 101.4 % of SP. N2 mass-balance residual is 0.42 kmol/h against
+a healthy 0.04. LP reboiler VLE miss is 1.8 K. The coordination-failure
+CLASS is new to this factory: MASS-BALANCE GHOST VIA STUCK EQUALIZER.
+Completes a different family than r01-r04 (livelock / synchrony-storm /
+arms-race / ring-with-no-faulty-pair) and r14 (false-consensus endpoint
+via compensated inleak). Here every agent is correct, the cycle is not
+unstable, and the playbook's three confirms are one recycled stream.
+
+The gate is a correct MODIFY (numeric floor: do not raise reflux above
+1.05x commissioned = 1.26 while |Delta n_N2| > 0.15 kmol/h AND VLE miss
+> 1.2 K). TG-ASU-4 strips PB-ASU-11's argon-column advance, holds reflux
+at 1.20, runs a 12.0 s +2 % equalizer-step probe (stuck keeps DeltaP
+change 0.3 kPa <= 0.4; live would drop >= 3.0 kPa), and isolates the
+equalizer after a 9.6 min cold-box human ratify. The LOX dump is avoided
+(0 t). The PRIMARY episode nonetheless FAILS: 40 min of unmonitored
+argon-condenser ice had already cut UA 18 %. Recovery is 4.8 % short;
+9.4 t crude argon is flared over 11.0 h; $0.71M designed. Reward total
+-0.16 with process heads honest and world loss un-netted.
+
+Three-edge scar (NOTES-r14 item 4): oxy_purity_ok -> argon_advance
+(0.17 commissioned -> 0.44 at illusion -> 0.20 after ACh-gated
+depression) AND argon_n2_low -> argon_advance (0.15 -> 0.40 -> 0.18)
+AND gan_takeoff_ok -> argon_advance (0.14 -> 0.36 -> 0.16). Eligibility
+trace e^{{-0.80/0.90}} = {aux['trace']:.5f}; eta {aux['eta1']:.4f} /
+{aux['eta2']:.4f} / {aux['eta3']:.4f}; dw -0.240 / -0.220 / -0.200.
+Rolling back any pair leaves the remaining edge above the 0.30 fire
+threshold — fitted to fail. Coordinated depression of all three is the
+cure.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **cryogenic-air-separation** — justified novel
+  subdomain, unused across 2026-08-17 and 2026-08-30 windows and staged
+  r14. Not warehouse-amr (r01), not aerial-swarm (r02), not
+  district-heating (r03), not event-camera grid (r04), not lyophilization
+  (r14), not water-treatment dosing (r14 candidate).
+- Cycle-1 tail: HP/LP equalizer stuck 8 % open. Positioner reports 0.0 %
+  inside a designed 10 % dead-band. Fitted-style base rate 0.58%/stroke-test
+  (dead-band designed, flagged). Naive = FALSE ADVANCE.
+- Cycle-2 domain sub-variant: packed crude-argon column, 3.2x less holdup
+  (1.5 vs 4.8 kmol); tray 12 s / +2 % pulse dumps argon into LOX on packed
+  internals; probe must move to 28 s / +0.7 %.
+- Cycle-2 tail: night-shift forged GC CSV at 0.1 mol % quantization vs
+  plant 0.01 mol % (10 bins) plus residual 0.42 kmol/h at the claimed
+  ready. Human-intent class, disjoint from cycle 1's accidental stick.
+  Base rate ~0.41% of night truck-clearance windows, DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+3 d sister train) with its own 203 us
+  race (residual vs purity-ok) and ACCEPT of the advance the primary
+  MODIFIED away.
+- Learned-weight provenance on THREE edges with any-pair-rollback-fails.
+- HITL equalizer-permit ratify 9.6 min (sim_or_real stays designed).
+- Governance CR-A-1704 prices retire-vs-probe-vs-status-quo and mandates
+  native 0.01 mol % GC exports (the fraud fence).
+- Flip-fragility extended to MASS-BALANCE: when three channels agree,
+  their race does not decide truth; a residual plus VLE miss does.
+
+## Self-critique of this round's batch
+
+### Strengths
+- The headline class is mechanistically tight: 0.42 kmol/h through 8 %
+  of a 5.25 kmol/h Cv is the arithmetic that makes OXY's success ARG's
+  blindness and NIT's on-spec takeoff.
+- Negative-result honesty: the gate does the right thing and the campaign
+  still misses for a reason the commissioned sensors could not see.
+  Total -0.16.
+- Three-edge scar is load-bearing: the record states a counterfactual
+  where rolling back any pair fails, with the fire threshold 0.30
+  exhibited on the remaining edge.
+- Contrast ACCEPT on a true argon-ready prevents "never advance" as the
+  lesson.
+
+### Weaknesses (honest)
+- Probe error bands (stuck <= 0.4 kPa, live >= 3.0 kPa), the 4.8 min
+  trip MC, the 0.58%/stroke-test stick rate, the $0.71M / $0.86M
+  figures, the 9.6 min LOTO latency, and the night-shift 0.41% base rate
+  are DESIGNED constants and are flagged. Closed-loop offsets (0.42
+  kmol/h, 1.8 K VLE miss, packed vapor +14 %) are derived from those
+  inputs, not discovered by an unauthored process.
+- Condenser ice model is a designed 0.031 g/h water leak mapped to 2.1 mm
+  and UA -18 %; no full film-growth fit shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil. The
+  NOTES-r14 HIL provenance cell remains open.
+- Cross-record arc is a hook (CR-A-1704 +18 d), not a serial igniter
+  into another round.
+
+### Realism of noise / latencies
+Ladder: 189 us race / 203 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap {gap:.3f} ms on {who}) / 520 us race
+window / 780 us gate latency / 20 ms bus epoch / 40 ms raster / 12.0 s
+probe / 9.6 min HITL / 4.8 min trip counterfactual / 40 min pre-t0 ice /
+3.2 h residual-legal hold / 11.0 h flare / +3 d contrast / +18 d
+governance. Adaptation decay on n2.mass_balance.residual
+(0.64->1.28->0.90->0.42), oxy.purity (0.56->0.51->0.52->0.31),
+arg.n2.frac (0.70->0.68->0.49->0.21).
+
+### Value for SNN distillation
+- MASS-BALANCE GHOST = THREE CORRECT LOOPS, ONE RECYCLED STREAM.
+- RESIDUAL + VLE MISS as the tie-break that is not in the consensus.
+- REVERSIBLE PROBE that moves HP-LP DeltaP iff the equalizer is live.
+- THREE-EDGE ELIGIBILITY: coordinated depression; any-pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum {rec['reward_components']['total']}
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.48 reconciles independently.
+- spike_events: primary {len(rec['spike_events'])} events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap {gap:.3f} ms >= 0.8 ms, 3
+  channels inside race_window_us 520 (residual 5.882, purity-ok 6.071,
+  arg.n2 6.210). Contrast 8 events, own race, min same-channel gap well
+  above 0.8 ms.
+- Sidecars: raster spikes 51 == round(160 x 8.0 x 0.040); energy 1173 pJ /
+  0.001173 uJ at 23 pJ/spike; excerpt 16 events inside [0, 40000] us,
+  neuron_id < 160, same-neuron gap unique-ids / >=1000 us; routing 4
+  entries with three scar edges' before/after pair; third factor tau 0.90 s
+  == 900 ms; gate_snn pools 51/14/6 == round(n x rate x 0.025) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: {pipeline_receipt}
+
+## Novel coverage
+The coordination-failure CLASS (mass-balance ghost via stuck equalizer),
+the domain (cryogenic air separation), the equalizer-step probe
+discriminant, the three-edge scar with any-pair-rollback-fails, the
+primary negative-result (correct MODIFY, campaign still flares on
+unmonitored condenser ice), the HITL equalizer-permit ratify, the
+packed-column probe-duration refit, and the night-shift 10-bin
+quantization fence are absent from prior committed ouroboros rounds and
+from staged r14. Repeated elements discounted: same-gate contrast
+(r02/r03/r04/r14), governance-pricing scaffold, flip-fragility series
+(extended to mass-balance, but the move rhymes), sequenced recovery
+shape, third-factor rollback form (here three edges rather than r14's
+two), negative-result primary (r14 viewport; here condenser ice).
+Weighing a new failure family + cure vocabulary + domain + three-edge
+first against those reused scaffolds:
+
+Novel coverage: 48%
+
+## What ROUND 18 should add
+1. FIT THE DESIGNED CONSTANTS: stick arrival, probe error bands,
+   condenser film-growth, night-shift claim process.
+2. HIL PROVENANCE CELL: put the equalizer LOTO on a hardware-in-loop
+   permit with fitted latency as state.sim_or_real=hil.
+3. CROSS-RECORD ARC: let CR-A-1704's condenser-UA alarm be the igniter
+   of the next round rather than a dangling +18 d leaf.
+4. Domain candidates (de-collided): distributed water-treatment dosing
+   (still unused if r15/r16 did not take it); AVOID air-separation (now
+   used), lyophilization, event-camera-traffic-grid, district-heating,
+   aerial-swarm, warehouse-amr, irrigation-canal, and any LYOSHIELD /
+   CINDERWICK / TRIAD plant.
+"""
+    (OUT / "NOTES-r17.md").write_text(notes)
+    return notes

@@ -1,0 +1,21 @@
+                "Tower-T6 completed the hold with prill 1.80 mm and draft 1.80 kPa; shower "
+                "unharmed. Optic-authoritative under draft-present mode confirmed.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("prill", "1.80 mm held; under 2.40 cap"),
+                        ("draft", "1.80 kPa; under 2.40 cap"),
+                        ("tower", "latched; production continues"),
+                        ("near_miss_log", "none"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "The 1.80 kPa draft PT was not a calibration fault: a stack-side pulse can raise apparent draft while prill size stays legal.",
+                    "Delayed (reseq_s=240): sister tower T7 logged the same optic-vs-draft disagreement; rack policy flipped optic-authoritative before the next melt.",
+                ],
+            ),

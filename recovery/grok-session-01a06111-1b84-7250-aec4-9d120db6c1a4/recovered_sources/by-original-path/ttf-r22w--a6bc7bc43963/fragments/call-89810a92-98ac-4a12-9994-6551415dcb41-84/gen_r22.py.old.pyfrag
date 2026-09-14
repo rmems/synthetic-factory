@@ -1,0 +1,14 @@
+                "Chamber C-9 at Phosphid-Wick PW-4 is already metering 0.42 slm of TMIn while "
+                "the InP susceptor sits at 648 C against a 620 C MOVPE growth cap. "
+                "Temperature-first cuts TMIn to 0.26 slm; alkyl-first would keep 0.42 slm because "
+                "the alkyl FT still looks like a wet-bubbler smear under 0.55 slm. An injector "
+                "nozzle clog already seated in the showerhead does not appear on susceptor T or "
+                "TMIn FT until the AE dump.",
+            ),
+            ("domain", "indium-phosphide-movpe"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Keep Chamber C-9 susceptor <= 620 C and finish the InP epilayer without dumping "
+                "alkyl condensate onto the showerhead floor.",
+            ),

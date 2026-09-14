@@ -1,0 +1,15 @@
+    if len(wrong) != 1 or wrong[0]["id"] != "ttf-r50-267":
+        issues.append(f"wrong-gate set {[w['id'] for w in wrong]}")
+    if any(r["state"]["sim_or_real"] == "real" for r in records):
+        issues.append("sim_or_real=real")
+    hil = [r["id"] for r in records if r["state"]["sim_or_real"] == "hil"]
+    if hil != ["ttf-r50-268"]:
+        issues.append(f"hil set {hil}")
+    decisions = [r["safety_decision"]["decision"] for r in records]
+    if decisions.count("ACCEPT") != 1 or decisions.count("MODIFY") != 2 or decisions.count("REJECT") != 2:
+        issues.append(f"gate mix {decisions}")
+    expected_ids = list(IDS)
+    if [r["id"] for r in records] != expected_ids:
+        issues.append(f"ids {[r['id'] for r in records]}")
+    if set(domains) != set(THIS_DOMAINS):
+        issues.append(f"unexpected domains {domains}")

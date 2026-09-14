@@ -1,0 +1,5 @@
+                "Kjellin-Slack KS-4 / KR-2 electrothermal carbon-disulfide retort publishes NDIR H2S at 188 ppm "
+                "against a 90 ppm stack limit while the furnace amps are still a lawful 17.6 kA (21.0 kA "
+                "ceiling). The H2S publisher arriving first is the only legal reason to drop current to "
+                "11.2 kA; brick 812 C never licensed a hold. The AE dump from a torn electrode gland is "
+                "invisible to both race channels until 22.6 ms.",

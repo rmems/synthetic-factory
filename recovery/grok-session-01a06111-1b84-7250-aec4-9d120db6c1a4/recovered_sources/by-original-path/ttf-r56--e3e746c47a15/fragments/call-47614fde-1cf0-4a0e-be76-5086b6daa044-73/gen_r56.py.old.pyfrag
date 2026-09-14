@@ -1,0 +1,68 @@
+                [
+                    "absorber gas DP, 1 kHz, 30 us timestamp jitter",
+                    "recycle-slurry pH, 1 kHz, 38 us jitter",
+                    "ID-fan encoder (context)",
+                    "mist-eliminator AE (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("dp_cap_kPa", 2.20),
+                        ("observed_dp_kPa", 2.48),
+                        ("proposed_fan_pct", 92.0),
+                        ("fan_floor_pct", 60.0),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. Absorber A-2 indexed; 92 percent ID-fan; gas DP 2.48 kPa > 2.20 cap.",
+                    "2. Cruise fan 92 percent armed; bed over the 2.20 kPa cap.",
+                    "3. Encoder precursor at 1.848 ms; gas-side warm-start 2.48 kPa.",
+                    "4. Race window [4.620, 5.000] ms opens on the absorber bus.",
+                    "5. Gas DP 2.48 kPa at 4.620 ms (winner).",
+                    "6. Recycle pH 5.60 at 4.850 ms (loser by 230 us).",
+                    "7. Gate at 5.500 ms (winner + 880 us): MODIFY clamp 92 -> 78 percent.",
+                    "8. Clamp executes; next-sample DP 1.64 kPa < 2.20 cap.",
+                    "9. At 22.400 ms stored pack load collapses a mist-eliminator bay.",
+                    "10. Emergency isolate 16 min + pack pull; named un-netted loss, not folded into process heads.",
+                ],
+            ),
+        ]
+    )
+    proposed = OrderedDict(
+        [
+            ("name", "cruise_id_fan"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("fan_pct", 92.0),
+                        ("dp_kPa", 2.48),
+                        ("hold", False),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("dp_kPa", 2.48),
+                        ("dp_cap_kPa", 2.20),
+                        ("predicted_unclamped_next_kPa", 2.31),
+                        ("fan_pct", 92.0),
+                        ("race_margin_us", 230),
+                        ("combined_jitter_us", 68),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 92 percent cruise: recycle pH looks like an open slurry, not a "
+                "plugged pack, and the 2.20 kPa DP cap is treated as still open.",
+            ),
+        ]
+    )

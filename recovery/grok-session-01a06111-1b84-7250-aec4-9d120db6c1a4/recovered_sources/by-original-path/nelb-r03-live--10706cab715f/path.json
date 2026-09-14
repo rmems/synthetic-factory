@@ -1,0 +1,63 @@
+{
+  "agent_ids": [
+    "01a064a7-40d3-78c3-b65f-94c60d91a5ab",
+    "01a064ab-4285-78e2-b961-824b5c680b68",
+    "01a064ab-4289-7260-b40b-4defbb59d3aa"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 1,
+  "original_basename": "gen_r03.py",
+  "original_path": "/tmp/nelb-r03-live/gen_r03.py",
+  "path_key": "nelb-r03-live--10706cab715f",
+  "terminal_event_ids": [
+    "01a064a7-40d3-78c3-b65f-94c60d91a5ab:call-e0e9017e-5184-483c-b4f1-2aeb9a5d2d6a-47",
+    "01a064ab-4285-78e2-b961-824b5c680b68:call-34c9a5b2-1a67-4ea2-be15-c4a59916a7b8-34",
+    "01a064ab-4285-78e2-b961-824b5c680b68:call-7c567b58-006e-41b2-84c7-1546f32a3d59-23",
+    "01a064ab-4289-7260-b40b-4defbb59d3aa:call-1a042fbd-1a43-4477-9949-fe367ccc77e9-37",
+    "01a064ac-ed8e-75e2-955a-04503156104a:call-cce5218a-fa8b-43df-b4e8-de76ee3b8c49-32",
+    "01a064ac-ed8e-75e2-955a-046a1c0c7610:call-1eeb3adb-6a40-453e-835a-fbbb4e74adaa-37",
+    "01a064ac-ed8e-75e2-955a-046a1c0c7610:call-604e868b-8f85-46d3-95bf-0eb9ee3d9cbc-25",
+    "01a064bc-04f8-7e61-a419-0635df5dec7f:call-0a7d113e-7e70-48c4-930b-c8be8174a0f2-32",
+    "01a064bc-04f8-7e61-a419-0635df5dec7f:call-705d8bd0-e6e9-4280-bee5-97a726abc737-35",
+    "01a064bc-04f8-7e61-a419-0635df5dec7f:call-78b6a7ad-de59-4ee2-98b7-baeb6958b4ad-41"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a064a7-40d3-78c3-b65f-94c60d91a5ab",
+      "basename_preserved": true,
+      "bytes": 105110,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 268,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a064a7-40d3-78c3-b65f-94c60d91a5ab/updates.jsonl",
+      "original_basename": "gen_r03.py",
+      "original_path": "/tmp/nelb-r03-live/gen_r03.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r03-live--10706cab715f/versions/v0001/gen_r03.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/nelb-r03-live--10706cab715f/versions/v0001/gen_r03.py",
+      "session_id": "01a064a7-40d3-78c3-b65f-94c60d91a5ab",
+      "sha256": "5572a51149df22a7fa2c2f6d0d694750747dd587c767e023c672bb79c6fe6855",
+      "source_channel": "structured",
+      "source_event_id": "01a064a7-40d3-78c3-b65f-94c60d91a5ab:call-b8b3a965-0371-4089-8409-f2876805b2a3-46",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788396139883,
+      "timestamp_utc": "2026-09-03T00:42:19.883Z",
+      "tool_call_id": "call-b8b3a965-0371-4089-8409-f2876805b2a3-46",
+      "version": 1,
+      "version_id": "nelb-r03-live--10706cab715f:v0001"
+    }
+  ]
+}

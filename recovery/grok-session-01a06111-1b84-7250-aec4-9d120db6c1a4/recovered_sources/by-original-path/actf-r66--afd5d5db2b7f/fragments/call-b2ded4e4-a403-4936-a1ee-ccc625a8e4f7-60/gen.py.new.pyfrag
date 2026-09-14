@@ -1,0 +1,1 @@
+            "reflection": "Fetch failed: GitHub returned 429 with retry-after 5 while fetching os.path docs. Wait, then use the vendored docs/commonprefix-lib64.md fixture.",

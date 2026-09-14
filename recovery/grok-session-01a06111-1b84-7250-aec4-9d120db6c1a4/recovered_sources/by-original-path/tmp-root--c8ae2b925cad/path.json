@@ -1,0 +1,59 @@
+{
+  "agent_ids": [
+    "01a0649c-a50a-75b2-8135-8b7201d6564f",
+    "01a064a7-40d2-7990-a372-f0c7ef708ad5",
+    "01a064a9-45af-7de3-b795-a4bd834d3a20"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 1,
+  "original_basename": "gen_ttf_r02.py",
+  "original_path": "/tmp/gen_ttf_r02.py",
+  "path_key": "tmp-root--c8ae2b925cad",
+  "terminal_event_ids": [
+    "01a0649c-a50a-75b2-8135-8b7201d6564f:call-13d52d9a-233d-4f8e-b987-724dbc21b228-77",
+    "01a064a7-40d2-7990-a372-f0c7ef708ad5:call-85bfeda0-1bc2-4fd8-b02d-89ebc2f9138d-43",
+    "01a064a7-40d2-7990-a372-f0c7ef708ad5:call-936ec932-abc7-4c55-a4d8-f4a8126610fe-29",
+    "01a064a7-40d2-7990-a372-f0c7ef708ad5:call-dee322a9-be46-4263-85ba-6c184f84f276-23",
+    "01a064a9-45af-7de3-b795-a4bd834d3a20:call-be8cf139-11e8-45f5-99c3-796b432a0c54-19",
+    "01a064a9-45af-7de3-b795-a4bd834d3a20:call-c5266b68-7f57-4583-b76e-4af87748fd8b-41"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a0649c-a50a-75b2-8135-8b7201d6564f",
+      "basename_preserved": true,
+      "bytes": 79218,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 417,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a0649c-a50a-75b2-8135-8b7201d6564f/updates.jsonl",
+      "original_basename": "gen_ttf_r02.py",
+      "original_path": "/tmp/gen_ttf_r02.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--c8ae2b925cad/versions/v0001/gen_ttf_r02.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/tmp-root--c8ae2b925cad/versions/v0001/gen_ttf_r02.py",
+      "session_id": "01a0649c-a50a-75b2-8135-8b7201d6564f",
+      "sha256": "abf5e140da613b77899983fd07e684395a8a9e0e97a756097e0a4d619cfd070e",
+      "source_channel": "structured",
+      "source_event_id": "01a0649c-a50a-75b2-8135-8b7201d6564f:call-9fb048d7-6a12-4ad0-b43a-7fc0ba42cd41-76",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788395238085,
+      "timestamp_utc": "2026-09-03T00:27:18.085Z",
+      "tool_call_id": "call-9fb048d7-6a12-4ad0-b43a-7fc0ba42cd41-76",
+      "version": 1,
+      "version_id": "tmp-root--c8ae2b925cad:v0001"
+    }
+  ]
+}

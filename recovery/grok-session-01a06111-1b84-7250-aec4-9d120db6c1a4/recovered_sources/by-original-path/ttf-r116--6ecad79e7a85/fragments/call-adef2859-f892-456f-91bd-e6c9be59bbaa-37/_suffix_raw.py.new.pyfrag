@@ -1,0 +1,14 @@
+        if rec["id"] == "ttf-r116-597":
+            if "policy.go_accept" in table_tos:
+                issues.append("597 routing has go_accept")
+            if "policy.hold_reject" not in table_tos:
+                issues.append("597 missing hold_reject routing")
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["live_C"] < ev["trip_C"]):
+                issues.append("597 live not under trip")
+            if ev.get("ne107_maintenance") is not True or ev.get("ne107_is_pv") is not False:
+                issues.append("597 leftover NE107 maintenance not tagged")
+            if rec["executed_action"]["parameters"]["adn_tph"] != 0.0:
+                issues.append("597 executed feed not zero")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("597 missing recovery")

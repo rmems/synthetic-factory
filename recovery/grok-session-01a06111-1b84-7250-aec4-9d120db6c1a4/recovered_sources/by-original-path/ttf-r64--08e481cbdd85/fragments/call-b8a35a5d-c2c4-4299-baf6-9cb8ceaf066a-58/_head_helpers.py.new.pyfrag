@@ -1,0 +1,6 @@
+    gens = list(Path("/tmp").glob("ttf-r*/gen_r*.py")) + list(
+        Path("/tmp").glob("ttf-r*/_head.py")
+    )
+    for path in sorted(gens):
+        if path.parent.name == "ttf-r64" or path.name == "gen_r64.py":
+            continue

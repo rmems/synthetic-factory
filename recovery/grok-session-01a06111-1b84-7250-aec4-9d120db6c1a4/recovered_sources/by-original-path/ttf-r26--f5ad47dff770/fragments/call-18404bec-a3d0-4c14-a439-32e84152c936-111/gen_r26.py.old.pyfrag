@@ -1,0 +1,8 @@
+                        ("winner", "faraday.beam.uA (6.140 ms, 14.2 uA)"),
+                        ("loser", "rf.vswr (6.322 ms, 1.12)"),
+                        ("margin_us", 182),
+                        (
+                            "counterfactual_if_reversed",
+                            "VSWR-first by < 182 us inside the 380 us window would have ACCEPTed "
+                            "a 40 nA ramp into 14.2 uA > 8.0 cap. Order selected the correct REJECT.",
+                        ),

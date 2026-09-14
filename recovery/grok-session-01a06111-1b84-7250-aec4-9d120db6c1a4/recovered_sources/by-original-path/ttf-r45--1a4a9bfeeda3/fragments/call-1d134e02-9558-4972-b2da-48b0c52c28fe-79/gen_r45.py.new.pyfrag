@@ -1,0 +1,38 @@
+                [
+                    "overhead H2S UV analyzer, 2 kHz, 30 us jitter",
+                    "rich-amine loading densitometer, 1 kHz, 32 us jitter",
+                    "sour-gas coriolis (context)",
+                    "lean-flash PT (context)",
+                ],
+            ),
+            (
+                "constraints",
+                OrderedDict(
+                    [
+                        ("rich_cap_mol", 0.42),
+                        ("observed_rich_mol", 0.28),
+                        ("slip_cap_ppm", 25.0),
+                        ("observed_slip_ppm", 8.4),
+                        ("predicted_next_slip_ppm", 12.1),
+                        ("feed_tph", 8.4),
+                        ("correct_feed_tph", 8.4),
+                        ("executed_wrong_feed_tph", 2.0),
+                        ("remaining_cycle_s", 420),
+                    ]
+                ),
+            ),
+            (
+                "episode_steps",
+                [
+                    "1. LG-4 Tower-T9 absorbing; feed 8.4 t/h; remaining cycle 420 s.",
+                    "2. Rich loading 0.28 < 0.42 cap; H2S slip 8.4 ppm < 25.0 trip.",
+                    "3. Header precursor at 0.980 ms.",
+                    "4. Race window [5.320, 5.660] ms.",
+                    "5. an.slip.ppm 8.4 ppm at 5.480 ms (winner, still under trip).",
+                    "6. load.rich.mol 0.28 at 5.640 ms (loser by 160 us, still under cap).",
+                    "7. Gate at 6.180 ms: WRONG-MODIFY dumps feed 8.4 -> 2.0 t/h.",
+                    "8. Absorb aborts 420 s early; predicted next slip 12.1 ppm still < 25.0.",
+                    "9. Treated gas stays 8.4 ppm under a 25.0 spec; no cap was crossed.",
+                    "10. Delayed (abort_s=660): 11 min unused absorb plus extra lean-flash.",
+                ],
+            ),

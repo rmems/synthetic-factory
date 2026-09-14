@@ -1,0 +1,128 @@
+# Cycle 2 — Densification
+
+## Generator
+
+Cycle-1 output is the base. Additive expansion (nothing removed):
+
+1. Downstream side-effect (immediate): speed-cut probe at +7.0 s
+   jumps fiber IR (7.1 C in 2.8 s, overlap band >= 6.0) —
+   overlap, not noise. Creel isolate r_hot 248 -> 221. Oxidation inventory
+   discovered during the isolate.
+2. Delayed side-effect (PRIMARY terminal, not a footnote): at +3.4 h,
+   dumped-creel strand tensile 4.8 GPa; $1.94M. The 16 min pre-t0 overlap
+   is the mechanism. Correct gate, campaign still misses.
+3. Deepened `proposed_action.evidence` with units: r_hot 248 C,
+   r_overlap 18 pct, ZMEAN 218 C, TENS 22 N, O2 19.4 vol%, race 192 us.
+4. Tightened rationale to the numeric floor no raise while r_hot >
+   230 C AND r_overlap > 2.0 pct, plus probe bands >=6.0 vs <=1.0
+   C, plus HITL 9.6 min creel-bay-interlock LOTO rule.
+
+Reward retargeted to total -0.15 so the delayed miss is the inflection
+(t_us 12240000000), not the gate. Process heads remain non-zero.
+
+## Critic
+
+Re-audit of the expanded trajectory:
+
+1. **blocking if unfixed — missing second domain constraint.** Production
+   24k probe 7.0 s / 12% is not a universal number. A 4.5k experimental
+   tow will over-oxidize. Diversity Enforcer must inject the
+   physical-constraints sub-variant this cycle.
+2. **major — only one tail class.** Creel overlap is accidental
+   infrastructure. A disjoint human-intent tail is still required
+   (Sunday-night IR-CSV forgery is the open cell).
+3. **major — scar is still one edge in the cycle-1 raster.** NOTES-r14
+   item 4 is not discharged until three raise-go edges exist and
+   any-pair rollback is shown to fail at threshold 0.30.
+4. **minor — contrast episode missing.** Without a same-gate ACCEPT on
+   a true single-tow the record teaches "never raise". Add +3 d
+   sister-line contrast with its own race.
+5. **minor — HITL latency mentioned in prose only.** Put 9.6 min in
+   executed_action.parameters.human_ratify and in a tick.
+
+No rewrite; directives only.
+
+## Diversity Enforcer
+
+Injected second novel domain / physical-constraint sub-variant (exactly 1
+this cycle): **4.5k experimental tow** on the same OX-6 oven bus.
+
+What it expands: 24k production tow (cycle 1) -> 4.5k experimental tow.
+Linear density 0.19x smaller. The 7.0 s 12% pulse over-oxidizes 41 K.
+Required probe: 22 s at 4% (rise 6 K).
+
+This is still one domain injection for the cycle (physical-constraints
+clause of the factory prompt). It does not displace
+carbon-fiber-oxidation-oven; it changes which probe table is legal.
+`future_outcome.subvariant_constraint` carries the refit. Jaccard opening
+stays the Rovingholt copse-spur bay sentence; 4.5k-tow internals are
+additive, not a rewrite.
+
+## Edge-Case Hunter
+
+Injected second adversarial tail (exactly 1 this cycle, disjoint class):
+**Sunday-night forged fiber-IR CSV**.
+
+- Trigger: shift lead, night carbonization window, posts a historian
+  export showing r_hot 218 C and r_overlap 0.3 pct at the claimed
+  single-tow instant.
+- Base rate: ~0.25% of Sunday-night holds (designed, flagged, <1%).
+- Naive failure: a weak supervisor ACCEPTs the raise on the forged
+  confirm and ignores live r_hot. Over-oxidized scrap plus a
+  data-integrity 483.
+- Fence: forged log quantized at 2.0 C (screenshot rounding); plant
+  historian is 0.08 C (25 bins). Live r_hot is 248 C at the claimed
+  single-tow, which no true single-tow oven produces.
+- Trajectory edit: governance CR-C-5304 mandates native 0.08 C
+  exports; the contrast ACCEPT still requires live r_hot, not a CSV.
+
+Distinct from cycle-1 overlap (accidental geometry vs deliberate deception)
+and from the 4.5k-tow sub-variant (physics vs fraud).
+
+## Neuromorphic Translator
+
+Re-densify (additive):
+
+- +10 spikes after 26.188 ms: hot.probe 7000.0, hot.ir 7140.6 (adapt
+  1.26->0.39), zmean-ok 7240.4 (1.09->0.35), human.ratify 576000.0,
+  creel.isolate 576800.0, ox.inventory 577400.0,
+  zmean.t 9000000.0, tens.n 9000460.0, hot.ir 9000920.0,
+  tow.reject 12240000.0. Primary train 16 -> 26. Still one key,
+  still sorted, refractory held (min 2.190 ms).
+- +2 ticks (5 -> 7) at 9_000_000_000 us (single-tow-legal hold) and
+  12_240_000_000 us (tensile assay). Heads now 0.08, -0.34, -0.11, 0.14,
+  0.08; total -0.15. Inflection is the last tick.
+- Contrast train 8 events, own race 192 us, ACCEPT.
+- Three-edge third factor: three raise-go edges, tau_e 7.0 s = 7000 ms,
+  trace __AUX_TRACE__, eta __AUX_ETA1__ / __AUX_ETA2__ / __AUX_ETA3__,
+  weights 0.46->0.22, 0.41->0.20, 0.38->0.19. Raster excerpt unchanged
+  (decision window is still 40 ms) and remains sorted with unique
+  neuron_ids (same-neuron >=1000 us vacuously).
+
+Winner/loser flip (re-stated, not replaced): reversing 192 us would only
+reorder triage; r_hot and r_overlap floors still MODIFY. Contrast flip of
+192 us similarly cannot turn a single-tow into an overlap.
+
+## Trajectory Builder
+
+Schema checks on the FINAL object: required Thalamic v2 keys present as
+objects; `state.sim_or_real`=designed; `safety_decision.decision`=MODIFY
+with numeric rationale; `reward_components.total` = sum of five heads =
+sum of 7 ticks = -0.15; `spike_events` globally non-decreasing on
+t_rel_ms, 26 events, refractory >=0.8 ms, 3 channels in race window;
+raster 20–50 ms, spikes=round(n*rate*window_s)+/-1, energy 23 pJ/spike,
+excerpt sorted, tau_e consistent; gate_snn.decision matches; meta.round=53,
+factory=multi-agent-ouroboros-swarm, generator=grok-4.6,
+run_label=2026-09-02-final-heavy; rights on record and meta; no thought
+keys; no training_ready; Diversity + Edge-Case injections from BOTH cycles
+present and non-trivial; cycle 2 strictly additive; plant is not
+LYOSHIELD, not CINDERWICK, not TRIAD, not NITROSTAITH, not BOGIRON, not
+CHROMLOOP, not ETHYNWOLD, not NITREVAULT, not RUNNELGATE, not SPARKHOLT, not DIPLEGAR, not OLEUMWEIR, not BRIMVAULT, not SKARVOLT, not GOBWOLD.
+
+Densification delta: +1 domain sub-variant (4.5k experimental tow), +1 tail
+(Sunday-night forgery), +10 spikes (16->26), +2 ticks (5->7), +1 contrast
+train with own race, +2 delayed side-effects, +1 three-edge scar with
+any-pair-rollback-fails, +1 HITL ratify, +1 surprise (strand tensile
+is the campaign-miss mechanism).
+
+Publishable JSONL line (the only JSONL line; also at batch-r53.jsonl):

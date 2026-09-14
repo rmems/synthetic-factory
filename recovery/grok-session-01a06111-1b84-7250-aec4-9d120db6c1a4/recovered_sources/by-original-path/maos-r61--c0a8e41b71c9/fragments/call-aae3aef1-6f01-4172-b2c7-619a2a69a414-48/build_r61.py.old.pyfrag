@@ -1,0 +1,7 @@
+        if p.parent.name == "maos-r54":
+            continue
+        try:
+            rec = json.loads(p.read_text().splitlines()[0])
+        except (OSError, json.JSONDecodeError, IndexError):
+            continue
+        desc = ""

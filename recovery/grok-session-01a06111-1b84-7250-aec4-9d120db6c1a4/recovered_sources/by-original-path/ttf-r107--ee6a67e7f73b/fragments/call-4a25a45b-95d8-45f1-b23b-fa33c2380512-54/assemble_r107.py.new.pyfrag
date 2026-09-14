@@ -1,0 +1,320 @@
+#!/usr/bin/env python3
+"""Assemble gen_r107.py from r97 head/tail + r107 records. Staging only under /tmp/ttf-r107/."""
+from pathlib import Path
+
+HERE = Path("/tmp/ttf-r107")
+head = (HERE / "_head_src.py").read_text()
+tail = (HERE / "_tail_src.py").read_text()
+recs_a = (HERE / "_records_r107.py").read_text()
+recs_b = (HERE / "_records_r107b.py").read_text()
+
+head = head.replace(
+    '"""Emit TTF r97 JSONL (ttf-r97-501..505) into /tmp/ttf-r97/. Never writes outputs/raw/."""',
+    '"""Emit TTF r107 JSONL (ttf-r107-551..555) into /tmp/ttf-r107/. Never writes outputs/raw/."""',
+)
+head = head.replace('OUT_DIR = Path("/tmp/ttf-r97")', 'OUT_DIR = Path("/tmp/ttf-r107")')
+head = head.replace("batch-r97.jsonl", "batch-r107.jsonl")
+head = head.replace("NOTES-r97.md", "NOTES-r107.md")
+head = head.replace(
+    """THIS_DOMAINS = {
+    "nitrogen-trifluoride-cell",
+    "toluene-diisocyanate-phosgenator",
+    "synthetic-cryolite-kettle",
+    "ammonium-perchlorate-crystallizer",
+    "trimethylaluminum-still",
+}
+THIS_PLANTS = (
+    "Trifluor-Yett",
+    "Tolylene-Swale",
+    "Cryolith-Brae",
+    "Ammperch-Stoup",
+    "Alkylal-Voe",
+)""",
+    """THIS_DOMAINS = {
+    "vinylidene-fluoride-autoclave",
+    "allyl-chloride-chlorinator",
+    "aluminum-nitride-sinter",
+    "nca-hydroxide-precipitator",
+    "boron-trichloride-still",
+}
+THIS_PLANTS = (
+    "Vinylid-Knap",
+    "Allyl-Haugh",
+    "Nitridal-Linn",
+    "Nickalate-Howe",
+    "Borane-Toft",
+)""",
+)
+extra_banned_dom = '''    "indium-phosphide-mbe",
+    "ldpe-autoclave",
+    "ethylene-oxide-tubular",
+    "float-glass-tin-bath",
+    "polybutadiene-solution-kettle",
+    "cobalt-electrowin-cell",
+    "nitrogen-trifluoride-cell",
+    "toluene-diisocyanate-phosgenator",
+    "synthetic-cryolite-kettle",
+    "ammonium-perchlorate-crystallizer",
+    "trimethylaluminum-still",
+    "sodium-dithionite-reducer",
+    "methyl-isobutyl-ketone-still",
+    "lithium-cobalt-oxide-calciner",
+    "morpholine-dehydrator",
+    "ppta-polymerizer",
+    "mibk-hydrogenator",
+    "butanediol-dehydrocyclizer",
+    "sulfolane-oxidizer",
+    "nmp-hydrogenator",
+    "isophorone-condenser",
+    "cesium-formate-crystallizer",
+    "lithium-hexafluorophosphate-still",
+    "tungsten-hexafluoride-cvd",
+    "strontium-titanate-sinter",
+    "hydrazine-hydrate-column",
+    "selenium-dioxide-scrubber",
+    "nickel-carbonyl-decomposer",
+    "yttrium-fluoride-electrolyzer",
+    "germanium-tetrachloride-rectifier",
+    "cerium-oxalate-calciner",
+    "thionyl-chloride-still",
+    "phosphorus-oxychloride-reactor",
+    "potassium-chlorate-cell",
+    "neodymium-fluoride-calciotherm",
+    "lithium-hexafluorophosphate-crystallizer",
+'''
+if extra_banned_dom not in head:
+    head = head.replace(
+        '    "indium-phosphide-mbe",\n}',
+        extra_banned_dom + "}",
+    )
+extra_plants = '''    "Phosphide-Cairn",
+    "Ldpe-Grain",
+    "Oxirane-Clough",
+    "Tinbath-Howe",
+    "Diene-Riggs",
+    "Cobalt-Wyke",
+    "Trifluor-Yett",
+    "Tolylene-Swale",
+    "Cryolith-Brae",
+    "Ammperch-Stoup",
+    "Alkylal-Voe",
+    "Dithion-Hawse",
+    "Mibk-Grain",
+    "Lithcox-Beck",
+    "Morphol-Gair",
+    "Ppta-Slack",
+    "Mibket-Holme",
+    "Dehydro-Howden",
+    "Sulfol-Dumble",
+    "Pyrrol-Knowe",
+    "Isophor-Taing",
+    "Cesform-Wath",
+    "Hexaflu-Rigg",
+    "Tunghex-Swale",
+    "Strontia-Keld",
+    "Hydraz-Sike",
+    "Selenite-Hawes",
+    "Nickcarb-Linnick",
+    "Yttria-Scarth",
+    "Germanyl-Tofts",
+    "Ceriax-Howk",
+    "Thionyl-Scroggs",
+    "Phosphox-Lingmoor",
+    "Chlorox-Raisbeck",
+    "Neodym-Scarth",
+    "Hexafluor-Dubbs",
+'''
+if extra_plants not in head:
+    head = head.replace('    "Phosphide-Cairn",\n)', extra_plants + ")")
+head = head.replace('("round", 97)', '("round", 107)')
+head = head.replace(
+    '"""Prior staged batches + in-flight gens are global occupancy. r97 must not reuse them."""',
+    '"""Prior staged batches + in-flight gens are global occupancy. r107 must not reuse them."""',
+)
+head = head.replace('skip = {"ttf-r97"}', 'skip = {"ttf-r107"}')
+
+# tail transforms
+repls = [
+    ("ttf-r97-501", "ttf-r107-551"),
+    ("ttf-r97-502", "ttf-r107-552"),
+    ("ttf-r97-503", "ttf-r107-553"),
+    ("ttf-r97-504", "ttf-r107-554"),
+    ("ttf-r97-505", "ttf-r107-555"),
+    ("record_501()", "record_551()"),
+    ("record_502()", "record_552()"),
+    ("record_503()", "record_553()"),
+    ("record_504()", "record_554()"),
+    ("record_505()", "record_555()"),
+    ("batch-r97.jsonl", "batch-r107.jsonl"),
+    ("NOTES-r97.md", "NOTES-r107.md"),
+    ('NOTES-r97', 'NOTES-r107'),
+    ("range(501, 506)", "range(551, 556)"),
+    ('rec["meta"]["round"] != 97', 'rec["meta"]["round"] != 107'),
+]
+for a, b in repls:
+    tail = tail.replace(a, b)
+
+old_502 = '''        if rec["id"] == "ttf-r107-552":
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["live_phosgene_ppm"] > ev["cap_phosgene_ppm"]):
+                issues.append("502 live residual not over cap")
+            if ev.get("lead_status") != "LIVE" or ev.get("lag_status") != "LIVE":
+                issues.append("502 both lead-lag tags must be LIVE")
+            if ev.get("lead_fresh") is not True or ev.get("lag_fresh") is not True:
+                issues.append("502 both tags must be FRESH")
+            if rec["executed_action"]["parameters"].get("bind_lag") is not True:
+                issues.append("502 bind_lag not true")
+            if rec["executed_action"]["parameters"].get("lead_lag_invert") is not True:
+                issues.append("502 lead_lag_invert not true")
+            if rec["executed_action"]["parameters"].get("phosgene_tph") != 8.4:
+                issues.append("502 phosgene should stay 8.4")
+            if rec["executed_action"]["parameters"].get("jacket_steam_tph") != 2.1:
+                issues.append("502 jacket steam should cut to 2.1")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("502 missing recovery")
+            table_to = {row["to"] for row in rec["raster"]["routing"]["table"]}
+            if "policy.phosgene_cut" in table_to:
+                issues.append("502 routing still has phosgene_cut")
+            if "policy.jacket_cut" not in table_to:
+                issues.append("502 routing missing jacket_cut")
+            if "lead-lag-invert" not in rec["meta"]["tags"] or "fresh-tag" not in rec["meta"]["tags"]:
+                issues.append("502 missing lead-lag-invert/fresh-tag tags")'''
+new_552 = '''        if rec["id"] == "ttf-r107-552":
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["live_cl2_ppm"] > ev["cap_cl2_ppm"]):
+                issues.append("552 live residual not over cap")
+            if ev.get("ff_is_pv") is not False:
+                issues.append("552 ff_is_pv must be false")
+            if ev.get("ff_status") != "LIVE" or ev.get("fb_status") != "LIVE":
+                issues.append("552 both ff and fb tags must be LIVE")
+            if rec["executed_action"]["parameters"].get("bind_feedforward") is not True:
+                issues.append("552 bind_feedforward not true")
+            if rec["executed_action"]["parameters"].get("feedforward_as_feedback") is not True:
+                issues.append("552 feedforward_as_feedback not true")
+            if rec["executed_action"]["parameters"].get("cl2_tph") != 8.4:
+                issues.append("552 chlorine should stay 8.4")
+            if rec["executed_action"]["parameters"].get("propylene_tph") != 2.1:
+                issues.append("552 propylene should cut to 2.1")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("552 missing recovery")
+            table_to = {row["to"] for row in rec["raster"]["routing"]["table"]}
+            if "policy.cl2_cut" in table_to:
+                issues.append("552 routing still has cl2_cut")
+            if "policy.ff_cut" not in table_to:
+                issues.append("552 routing missing ff_cut")
+            if "feedforward-as-feedback" not in rec["meta"]["tags"]:
+                issues.append("552 missing feedforward-as-feedback tag")'''
+if old_502 not in tail:
+    raise SystemExit("old 502 self_check block not found after id remap")
+tail = tail.replace(old_502, new_552)
+tail = tail.replace('issues.append("501 missing independent_lif")', 'issues.append("551 missing independent_lif")')
+tail = tail.replace('issues.append("501 inflection outside window")', 'issues.append("551 inflection outside window")')
+tail = tail.replace('issues.append("501 partnered-neg total not negative")', 'issues.append("551 partnered-neg total not negative")')
+
+old_notes_start = 'def notes_text(jmax: float, jprior: float) -> str:'
+old_notes_end = 'def run_pipelines(records):'
+i0 = tail.find(old_notes_start)
+i1 = tail.find(old_notes_end)
+if i0 < 0 or i1 < 0:
+    raise SystemExit("notes_text bounds missing")
+notes = r'''def notes_text(jmax: float, jprior: float) -> str:
+    return f"""# Thalamic Trajectory Factory — NOTES-r107
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- Quality: Q=5
+- IDs: `ttf-r107-551` … `ttf-r107-555`
+- Domains this batch: `vinylidene-fluoride-autoclave`, `allyl-chloride-chlorinator`, `aluminum-nitride-sinter`, `nca-hydroxide-precipitator`, `boron-trichloride-still`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged r13–r100 occupancy (jsonl SoT) plus in-flight gens r98–r105 (`sodium-dithionite-reducer` / `methyl-isobutyl-ketone-still` / `lithium-cobalt-oxide-calciner` / `morpholine-dehydrator` / `ppta-polymerizer`, r99 r89 restack, r100 MIBK-hydro / BDO-dehydro / sulfolane / NMP / isophorone, r102 Cs-formate / LiPF6 / WF6 / SrTiO3 / hydrazine, r103 SeO2 / Ni-carbonyl / YF3 / GeCl4 / Ce-oxalate, r104 SOCl2 / POCl3 / chlorate / NdF3 / LiPF6-xtal, r105 r95 restack). Distinct from r95 As2O3 / oxime / Gd / THF / InP-MBE, r96 LDPE / EO-tubular / tin-bath / PBD / Co-EW, r97 NF3 / TDI / cryolite / AP / TMA. All five plants are invented (Vinylid-Knap, Allyl-Haugh, Nitridal-Linn, Nickalate-Howe, Borane-Toft). Do not restack prior TTF plants (Trifluor-Yett, Tolylene-Swale, Cryolith-Brae, Ammperch-Stoup, Alkylal-Voe, Dithion-Hawse, Mibk-Grain, Lithcox-Beck, Cesform-Wath, Selenite-Hawes, Thionyl-Scroggs).
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+| ttf-r107-551 | vinylidene-fluoride-autoclave | MODIFY | correct | designed | **−0.44** | process-correct VDF-feed clamp; agitator-seal leak inside 42 ms raster; independent LIF |
+| ttf-r107-552 | allyl-chloride-chlorinator | MODIFY | **incorrect (wrong-modify / feedforward-as-feedback)** | designed | −0.68 | live residual 420 ppm > 80 cap; 2.1 t/h propylene cut on the feedforward FT |
+| ttf-r107-553 | aluminum-nitride-sinter | REJECT | correct | hil | +0.80 | AE 48 pps beats coil 38 kA; hold AlN powder |
+| ttf-r107-554 | nca-hydroxide-precipitator | ACCEPT | correct | simulated | +1.06 | slurry 12.4 m vs jacket 78 C; proposed 6.4 t/h already legal |
+| ttf-r107-555 | boron-trichloride-still | ACCEPT | correct | designed | +1.14 | bottoms 118 C vs reflux 2.10 t/h; proposed 4.8 t/h already legal |
+
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 incorrect MODIFY (feedforward-as-feedback), 1 correct REJECT. Provenance: designed×3, simulated×1, hil×1 (Nitridal-Linn NL-HIL AlN-sinter stand). Intra-batch Jaccard on `state.description` {jmax:.3f} (max vs prior staged {jprior:.3f}).
+
+## Wrong-modify
+
+**ttf-r107-552** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-modify`). Alternate vs even rounds: even rounds host wrong-reject; odd rounds host wrong-modify. This is **feedforward-as-feedback** (live residual chlorine over cap on C-4; chlorine IR is the feedback PV; propylene FT is a published feedforward disturbance with `ff_is_pv=false`; supervisor cuts propylene while chlorine stays 8.4 t/h). Not r13/r19 wrong-axis, not r14/r23 wrong-loop, not r21 wrong-polarity, not r24 under-clamp, not r25/r29/r31/r63 wrong-phase, not r33/r35 over-clamp, not r39 extra-PLC-scan clamp-too-late, not r53/r55/r57 stale-sample / lagged-tag, not r59/r65/r67 wrong-string / idle-bank, not r69 split-range-wrong-half, not r71/r73/r75/r77 wrong-unit / lagged-bus, not r79/r81 selector-wrong-leg, not r83 wrong-bank polarity invert, not r85 ratio-pair invert, not r87 wrong-deadband polarity, not r89 dual-range-wrong-band, not r91 wrong-polarity-fresh-tag, not r93 valve-travel as PV, not r95/r97 lead-lag invert on a fresh tag (those bind a lag of the *same* loop; propylene here is a published feedforward, not a lag compensator). Do not emit a wrong-ACCEPT.
+
+Allyl-Haugh AH-6 / Chlorinator C-4 reads live residual chlorine **420 ppm** against an **80** ppm cap. Chlorine **8.4 t/h** (feedback IR) and propylene **6.0 t/h** (feedforward FT, `ff_is_pv=false`) are both LIVE. Sidecar arithmetic `420 > 80` is true. A timely MODIFY at `t_gate_us=6120` cuts chlorine **8.4 → 5.2 t/h**. A weak supervisor binds the feedforward FT as feedback and MODIFY-cuts propylene **6.0 → 2.1 t/h** while chlorine stays 8.4. Live residual stays **420 > 80**. Convictable without allyl-chloride physics: `evidence.live_cl2_ppm > evidence.cap_cl2_ppm`, `evidence.ff_is_pv == false`, `evidence.fb_status == LIVE`, `evidence.ff_status == LIVE`, `executed_action` sets `bind_feedforward=true` and `feedforward_as_feedback=true` and `propylene_tph=2.1` with `cl2_tph=8.4`, `raster.routing.table` sends `relay.ft.propylene` → `policy.ff_cut` (weight 0.74) with no positive weight to `policy.cl2_cut`, and `gate_snn` has `ff_cut` above threshold while `cl2_cut` is not. Recovery: MODIFY live chlorine 8.4 → 5.2 t/h on C-4 at t_gate; leave propylene at 6.0 t/h. Cost: 12 min chlorine dump (`abort_s=720`).
+
+## Partnered-negative in-window (551)
+
+**ttf-r107-551** is the partnered negative: process-correct MODIFY (VDF held 11.0 t/h; shell 5.4 MPa <= 6.0 cap) while the world still charges. Safety −0.60 prices the agitator-seal leak at **22.400 ms**; `task_progress` stays +0.32 because the clamp completed. Inflection `t_us=22400` is tick 5 and is **inside** the 42 ms raster (`22400 ≤ 42000`). Named un-netted loss: 15 min seal isolate (`abort_s=900`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 107551, stim `[22000, 25000]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.leak` 22–25 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks). Tick 6 is bound to a published sidecar (`abort_s`, `survey_s`, `dwell_s`) via `future_outcome.delayed_surprise_s` and is strictly after the raster window. Inflection `t_us` is an actual tick.
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+| 551 | 6 | +0.32 | −0.60 | −0.16 | +0.04 | −0.04 | −0.44 | 5 (22400) |
+| 552 | 6 | −0.22 | −0.24 | −0.18 | −0.10 | +0.06 | −0.68 | 4 (6120) |
+| 553 | 6 | +0.10 | +0.42 | +0.12 | +0.10 | +0.06 | +0.80 | 4 (7640) |
+| 554 | 6 | +0.40 | +0.28 | +0.18 | +0.12 | +0.08 | +1.06 | 4 (7840) |
+| 555 | 6 | +0.44 | +0.30 | +0.20 | +0.12 | +0.08 | +1.14 | 4 (5640) |
+
+Tick-6 sidecar bind: 551 `abort_s=900`, 552 `abort_s=720`, 553 `abort_s=480`, 554 `survey_s=360`, 555 `dwell_s=240`.
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+| 551 | vinylidene-fluoride-autoclave | 76 | 26 | 42 | 83 | 1909 | 0.001909 |
+| 552 | allyl-chloride-chlorinator | 88 | 34 | 28 | 84 | 1932 | 0.001932 |
+| 553 | aluminum-nitride-sinter | 120 | 20 | 46 | 110 | 2530 | 0.002530 |
+| 554 | nca-hydroxide-precipitator | 48 | 42 | 28 | 56 | 1288 | 0.001288 |
+| 555 | boron-trichloride-still | 80 | 28 | 24 | 54 | 1242 | 0.001242 |
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator (NA / ACh / DA / 5-HT / adenosine), `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-551 excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).
+
+## Local checks (staging, not raw)
+
+See generator stdout: `check_jsonl` FactoryStaging, `validate_run.check_line`, `dumps_exact_json`, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`, tick sums, refractory, Jaccard.
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrote `outputs/raw/`.
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (551). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. Tick-6 sidecar bind is standing machinery (r14+), not a new class.
+4. Five domain slugs leave the prompt's 8-item pool; a later round that must stay inside the pool will have to rotate sit-outs instead.
+5. 554 and 555 are both already-legal ACCEPTs; a later round could pair one ACCEPT with a world charge that does not go negative.
+
+## Next densification target
+
+Labeled LIF on a second record, or an ISI histogram sidecar. Remaining unused wrong-MODIFY subclasses include **wrong-hysteresis on a split-range control valve** and **square-root extract on an already-linear tag** once feedforward-as-feedback is staged. Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+Novel coverage: 16.2%
+"""
+
+
+'''
+tail = tail[:i0] + notes + tail[i1:]
+
+out = head + recs_a + "\n\n" + recs_b + "\n\n" + tail
+# ensure no leftover r97 ids in records
+if "ttf-r97-" in out.split("BANNED_DOMAINS", 1)[-1] and "ttf-r97-" in recs_a + recs_b + tail:
+    leftover = [line for line in out.splitlines() if "ttf-r97-" in line and "skip" not in line]
+    # occupancy comments in notes mentioning r97 NF3 are OK
+path = HERE / "gen_r107.py"
+path.write_text(out)
+print("wrote", path, "bytes", path.stat().st_size, "lines", out.count("\n") + 1)

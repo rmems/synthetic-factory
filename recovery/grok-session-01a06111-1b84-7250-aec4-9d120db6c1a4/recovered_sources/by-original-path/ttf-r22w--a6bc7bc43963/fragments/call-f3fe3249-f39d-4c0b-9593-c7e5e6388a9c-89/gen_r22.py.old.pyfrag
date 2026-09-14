@@ -1,0 +1,27 @@
+            ("name", "cruise_tmin_feed"),
+            (
+                "parameters",
+                OrderedDict(
+                    [("tmin_slm", 0.42), ("sus_C", 648.0), ("ph3_slm", 2.8)]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("sus_C", 648.0),
+                        ("sus_cap_C", 620.0),
+                        ("predicted_unclamped_next_C", 656.0),
+                        ("tmin_slm", 0.42),
+                        ("alkyl_look_slm", 0.55),
+                        ("race_margin_us", 192),
+                        ("combined_jitter_us", 64),
+                        ("abort_s", 840),
+                    ]
+                ),
+            ),
+            (
+                "basis",
+                "Planner proposes 0.42 slm TMIn because alkyl look 0.42 is under 0.55, treating "
+                "the 648 C susceptor as a still-wet bubbler rather than an InP-growth miss.",
+            ),

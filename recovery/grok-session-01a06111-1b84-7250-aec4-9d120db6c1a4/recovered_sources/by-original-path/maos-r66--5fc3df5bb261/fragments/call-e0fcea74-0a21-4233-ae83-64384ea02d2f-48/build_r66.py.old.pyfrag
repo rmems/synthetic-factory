@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+"""Build and self-check MAOS round-64 JSONL (research-only; not published).
+
+Create-only emit into LIVE
+/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-09-02-final-heavy/multi-agent-ouroboros-swarm
+plus /tmp/maos-r64. Never 2026-08-17 / 2026-08-30. Never overwrite.
+"""

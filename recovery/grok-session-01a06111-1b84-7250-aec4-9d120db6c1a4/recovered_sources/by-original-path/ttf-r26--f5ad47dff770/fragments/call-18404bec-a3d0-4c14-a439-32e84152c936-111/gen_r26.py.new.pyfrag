@@ -1,0 +1,8 @@
+                        ("winner", "bpm.offset.mm (6.140 ms, 2.40 mm)"),
+                        ("loser", "kly.fwd.kW (6.322 ms, 18.0 kW)"),
+                        ("margin_us", 182),
+                        (
+                            "counterfactual_if_reversed",
+                            "Klystron-first by < 182 us inside the 380 us window would have ACCEPTed "
+                            "an 18 percent ramp into 2.40 mm > 0.80 cap. Order selected the correct REJECT.",
+                        ),

@@ -1,0 +1,1099 @@
+def occupancy_preflight():
+    banned = (
+        "copsebray",
+        "larkspire",
+        "flintmere",
+        "coatveil",
+        "spinveil",
+        "langveil",
+        "rory keld",
+        "mira quill",
+        "tamsin vale",
+        "srg-hil-8",
+        "lang-sim-3",
+        "nelb-r02c-001",
+        "nelb-r02c-002",
+        "nelb-r02c-003",
+    )
+    hits = []
+    for n in LIVE.glob("*"):
+        if n.suffix not in {".py", ".md", ".jsonl"}:
+            continue
+        text = n.read_text(encoding="utf-8", errors="replace").casefold()
+        for b in banned:
+            if b in text:
+                hits.append(f"{n.name}:{b}")
+    if hits:
+        raise RuntimeError(f"live-tree family/plant collision {hits}")
+
+
+def _snn_gate(decision, window_ms, code, note, decode_rule, populations):
+    w_s = window_ms / 1000.0
+    return {
+        "decision": decision,
+        "decision_window_ms": float(window_ms),
+        "decision_window_s": float(w_s),
+        "code": code,
+        "note": note,
+        "decode_rule": decode_rule,
+        "snn_tags": list(SNN_TAGS),
+        "tag_match": True,
+        "populations": populations,
+    }
+
+
+# ---------------------------------------------------------------------------
+# nelb-r02c-001 — GD-OES remaining Zn of a CGL pot, designed, REJECT / MODIFY
+# ---------------------------------------------------------------------------
+def rec_001():
+    k_g = 4.00
+    i_zn = 12.00
+    i_fe = 2.00
+    zn = k_g * i_zn / i_fe
+    r_iy = i_zn / i_fe
+    _exact(zn, 24.00)
+    _exact(r_iy, 6.00)
+    _exact(k_g * 8.00 / i_fe, 16.00)
+    _exact(k_g * 6.00 / i_fe, 12.00)
+    _exact(6000.0 + 1080.0, 7080.0)
+
+    raster = make_lif_raster(
+        neurons=20,
+        mean_rate_hz=50.0,
+        window_ms=40.0,
+        seed=202609020201,
+        source="cb5.gdoes.I_zn",
+        target="copsebray.pot_stop_core",
+        table=[
+            {"from": "gdoes_I_zn", "to": "zn_estimator", "weight": 1.40},
+            {"from": "gdoes_snr", "to": "gdoes_lock_core", "weight": 1.15},
+            {"from": "coatveil_zn", "to": "vendor_continue_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "da.gdoes_zn_conflict",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": (
+                "pre-post coincidence on continue-coat synapses; the plant GD-OES "
+                "modulator depresses continue-coat links when Zn I-line stays high "
+                "inside tau_e of an SNR lock so a Coatveil last-good cannot hide a "
+                "24.00 um over-zinc pot"
+            ),
+        },
+        channel_prefix="gdo.n",
+        anchor=(
+            "CB-5 GD-OES 40 ms frame at I_zn 12.00 / I_fe 2.00 / SNR 12.0 "
+            "(t_s 3000) reconstructing 24.00 um above the 16.00 isolate floor"
+        ),
+        kernel_ms=[0.0, 1.4, 8.5, 19.0],
+    )
+    w_s = 0.040
+    events = [
+        ev(80.0, "gdoes.I_zn", 6.00, code="I_ZN", units="1", note="plant-owned glow-discharge OES Zn I 213.856 / Fe I 371.994 internal-standard of CB-5 CGL pot P-2; remaining-coating family, not ICP-OES, not spark-OES, not LIBS, not XRF, not PGNAA, not handheld XRF"),
+        ev(300000.0, "gdoes.snr", 6.0, code="GDOES_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(600000.0, "recon.Zn", 12.00, code="ZN_UM", units="um", note="4.00*6.00/2.00=12.00 exact; still under the 16.00 isolate floor"),
+        ev(750000.0, "pot.T", 460.0, code="T_C", units="C", note="plant pot RTD on copper DCS; independent witness; unread by Coatveil"),
+        ev(900000.0, "gdoes.I_fe", 2.00, code="I_FE", units="1", note="iron matrix line; held"),
+        ev(1200000.0, "coatveil.Zn", 4.80, code="VENDOR_UM", units="um", note="Coatveil vendor GD-4 last-good cloud; infra owner; patched I-line timestamps"),
+        ev(1500000.0, "line.m_min", 90.0, code="LINE_MPM", units="m_min", note="plant line-speed encoder; independent witness"),
+        ev(1800000.0, "gdoes.I_zn", 8.00, code="I_ZN", units="1"),
+        ev(2100000.0, "recon.Zn", 16.00, code="ZN_UM", units="um", note="4.00*8.00/2.00=16.00; at the 16.00 isolate floor"),
+        ev(2250000.0, "air.kPa", 28.0, code="AIR_KPA", units="kPa", note="plant air-knife header; independent witness, not SoT"),
+        ev(2400000.0, "permit.slide", 40.00, code="PERM_S", units="s", note="night clerk slid the coating-permit clock 40.00 s; collusion party"),
+        ev(2550000.0, "line.m_min", 91.0, code="LINE_MPM", units="m_min"),
+        ev(2700000.0, "gdoes.I_fe", 2.00, code="I_FE", units="1"),
+        ev(2850000.0, "coatveil.Zn", 4.76, code="VENDOR_UM", units="um"),
+        ev(3000000.0, "gdoes.I_zn", 12.00, code="I_ZN", units="1", note="isolate-floor frame; raster sidecar kernel, not excerpt echo"),
+        ev(3000001.4, "gdoes.I_fe", 2.00, code="I_FE", units="1", note="1.4 ms iron line after Zn line"),
+        ev(3150000.0, "gdoes.snr", 12.0, code="GDOES_SNR", units="1", note="SNR 12.0 >= 8.0 lock"),
+        ev(3300000.0, "recon.Zn", 24.00, code="ZN_UM", units="um", note="4.00*12.00/2.00=24.00 exact; isolate 16.00"),
+        ev(3450000.0, "recon.R", 6.00, code="R_ZN_FE", units="1", note="12.00/2.00=6.00 exact intensity-ratio identity"),
+        ev(3600000.0, "pot.T", 462.0, code="T_C", units="C"),
+        ev(3750000.0, "line.m_min", 88.0, code="LINE_MPM", units="m_min", note="encoder tracks the plant GD-OES, not Coatveil 4.80"),
+        ev(3900000.0, "gdoes.drop", 1.0, code="GDOES_DROP", units="bool", note="vendor I-line packets dropped in Coatveil cloud for 40 s"),
+        ev(4200000.0, "recon.Zn", 24.00, code="ZN_UM", units="um"),
+        ev(4500000.0, "coatveil.Zn", 4.80, code="VENDOR_UM", units="um"),
+        ev(4800000.0, "ops.prop", 1.0, code="CONTINUE_COAT", units="bool", note="night operator Rory Keld: Coatveil is clean 4.80 um; keep P-2 coating"),
+        ev(5100000.0, "air.kPa", 27.0, code="AIR_KPA", units="kPa"),
+        ev(5400000.0, "gate.stop", 1.0, code="REJECT", units="decision", note="refuse continue-coat; 24.00 um and SNR 12.0; Coatveil not SoT"),
+        ev(5700000.0, "recon.R", 6.00, code="R_ZN_FE", units="1"),
+        ev(6000000.0, "hold.start", 1.0, code="POT_HOLD_START", units="bool", note="bookend 1 of the 18.0 min pot-hold floor"),
+        ev(6300000.0, "gdoes.snr", 12.0, code="GDOES_SNR", units="1"),
+        ev(6600000.0, "coatveil.Zn", 4.72, code="VENDOR_UM", units="um"),
+        ev(7080000.0, "hold.floor", 1.0, code="POT_HOLD_FLOOR", units="bool", note="6000 s + 1080 s = 7080 s = 18.0 min"),
+        ev(7500000.0, "pot.T", 455.0, code="T_C", units="C"),
+        ev(7800000.0, "ops.kill", 1.0, code="PLANT_ESD", units="bool", note="Keld: trip the whole Copsebray CGL hall until day-shift"),
+        ev(8100000.0, "line.m_min", 0.0, code="LINE_MPM", units="m_min"),
+        ev(8400000.0, "gate.hold", 1.0, code="MODIFY", units="decision", note="companion t2: pot-hold on plant GD-OES as live interlock; plant ESD refused"),
+        ev(9000000.0, "hold.set", 1.0, code="POT_HELD", units="bool"),
+        ev(9600000.0, "gdoes.I_zn", 8.00, code="I_ZN", units="1"),
+        ev(10200000.0, "recon.Zn", 16.00, code="ZN_UM", units="um", note="4.00*8.00/2.00=16.00; still at 16.00 so hold stands"),
+        ev(10800000.0, "coatveil.Zn", 4.68, code="VENDOR_UM", units="um"),
+        ev(11100000.0, "gdoes.I_fe", 2.00, code="I_FE", units="1"),
+        ev(11400000.0, "line.m_min", 0.0, code="LINE_MPM", units="m_min", note="held line; encoder tracks the plant GD-OES"),
+        ev(12000000.0, "hold.held", 1.0, code="POT_HELD", units="bool"),
+        ev(12600000.0, "plant.esd", 0.0, code="ESD_NOT_TAKEN", units="bool"),
+        ev(13200000.0, "permit.slide", 40.00, code="PERM_S", units="s"),
+        ev(13800000.0, "pot.T", 448.0, code="T_C", units="C"),
+        ev(14100000.0, "recon.R", 4.00, code="R_ZN_FE", units="1", note="8.00/2.00=4.00 post-stop ratio"),
+        ev(14400000.0, "gdoes.drop", 1.0, code="GDOES_DROP", units="bool"),
+        ev(14700000.0, "air.kPa", 26.0, code="AIR_KPA", units="kPa"),
+        ev(15000000.0, "hold.lock", 1.0, code="POT_HELD", units="bool"),
+        ev(15300000.0, "recon.Zn", 16.00, code="ZN_UM", units="um"),
+        ev(15600000.0, "coatveil.Zn", 4.64, code="VENDOR_UM", units="um"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r02c-001-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "CB-GDOES-2026-0902",
+            "domain": "gdoes_cgl_zinc_coating",
+            "setting": (
+                "Copsebray Galvanize CB-5 (invented), Glimmer Yard, CGL pot P-2. "
+                "Plant-owned glow-discharge OES Zn I / Fe I internal-standard is the coating SoT. "
+                "Coatveil / GD-4 vendor DAQ (infra owner) plus the coating-permit clock "
+                "are collusion parties, not witnesses. Invented plant; designed campaign. "
+                "Not ICP-OES (live r63), not spark-OES (live r66), not LIBS, not XRF, not PGNAA."
+            ),
+            "observables_at_decision": {
+                "I_zn": i_zn,
+                "I_fe": i_fe,
+                "k_g": k_g,
+                "Zn_um": zn,
+                "R": r_iy,
+                "gdoes_snr": 12.0,
+                "coatveil_um": 4.80,
+                "permit_slide_s": 40.00,
+                "isolate_floor_um": 16.00,
+            },
+            "margin_authority": (
+                "CB-5 CGL SOP rev C: if reconstructed Zn_um >= 16.00 AND GD-OES SNR >= 8.0, "
+                "continue-coat is forbidden even if Coatveil reports 4.80 um. Plant ESD is a different gate."
+            ),
+        },
+        "proposed_action": {
+            "actor": "night operator Rory Keld, citing Coatveil 4.80 um and a quiet GD-4 I-line",
+            "summary": "keep pot P-2 coating; 12.00 I_zn is a fouled-anode glitch on a healthy 4.80 um last-good",
+            "basis_claimed": "Coatveil is the only OEM zinc SoT and a night abort of P-2 is an energy miss",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": (
+                "Continue-coat is refused. Serialized reconstruction: Zn_um = k_g * I_zn / I_fe = "
+                "4.00 * 12.00 / 2.00 = 24.00 um, above the 16.00 isolate floor, and GD-OES SNR is 12.0 >= 8.0. "
+                "Intensity-ratio identity I_zn / I_fe = 12.00 / 2.00 = 6.00. Permit clock was slid 40.00 s and "
+                "vendor I-line packets were dropped, so Coatveil is a collusion party (zinc vendor plus operator "
+                "plus night clerk). Ordered: refuse continue-coat now. Scope: this REJECT does not ESD the CGL "
+                "hall (that is the companion question) and does not isolate the air-knife header."
+            ),
+            "threshold": "Zn_um>=16.00 AND gdoes_snr>=8.0 => refuse continue-coat; Coatveil is not SoT",
+            "stated_residuals": (
+                "pot-hold still required to hold the 24.00 um; 24.00 vs a true knife-fail event is a production cut; "
+                "Coatveil remains the only OEM zinc channel"
+            ),
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 5400: continue-coat refused; Coatveil not SoT; reconstruction locked",
+            "tool": "cb5-gdoes-pot-gate-cli",
+            "observation": "Zn 24.00 um recomputes from I_zn 12.00 and I_fe 2.00; plant GD-OES hashed; Coatveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "GD-OES I_zn 12.00 I_fe 2.00; raster frame; Zn 24.00 um"},
+                {"t_s": 4800.0, "event": "ops proposes continue-coat"},
+                {"t_s": 5400.0, "event": "REJECT continue-coat"},
+                {"t_s": 6000.0, "event": "18 min pot-hold bookend 1"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 8400.0, "event": "companion MODIFY pot-hold vs plant ESD"},
+            ],
+            "observed_effects": [
+                "zinc recomputes from the serialized GD-OES model at every recon.Zn event",
+                "a Coatveil-only head would have continued coating overnight",
+                "18 min pot-hold floor is in the stream (hold.start, hold.floor)",
+            ],
+            "surprises": [
+                "a clean vendor zinc corridor and a 40 s permit slide co-existed with a 24.00 um plant reconstruction",
+            ],
+            "new_state": {
+                "pot_p2": "continue-coat blocked",
+                "coatveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("gdoes_reconstruction", 0.14),
+                ("conjunctive_isolate_floor", 0.12),
+                ("coatveil_nonsubstitution", 0.10),
+                ("three_party_collusion", 0.10),
+                ("hold_time_cost", -0.03),
+            ],
+            "scored for a continue-coat REJECT on a recomputable GD-OES zinc while refusing a Coatveil last-good patch and a permit clock slide; 18 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "gdoes-zinc", "serialized-reconstruction", "operational-companion"],
+            distillation_note="GD-OES gate: serialized k_g*I_zn/I_fe plus SNR lock beats a vendor last-good patch; companion t2 is the pot-hold, not a referral vote",
+            distillation_value="Teaches an SNN to race a glow-discharge internal-standard emission ratio against a patched vendor zinc corridor under 1 ms refractory and amplitude adaptation.",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r02c-001-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "CB-GDOES-2026-0902-exec",
+            "domain": "pot_hold_gdoes_interlock_execution",
+            "setting": "Same CB-5 after the REJECT. Operator proposes a CGL-hall ESD. This companion is the operational pot-hold with the plant GD-OES as the live interlock, not a second zinc vote.",
+            "observables_at_decision": {
+                "Zn_um": 16.00,
+                "pot_hold_floor_s": 1080.0,
+                "plant_esd_proposed": True,
+                "pot_hold_set": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night operator Rory Keld",
+            "summary": "trip the whole Copsebray CGL hall until day-shift; 18 min already paid and Coatveil still shows 4.72 um",
+            "basis_claimed": "the REJECT already blocked coating, so a plant ESD is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": (
+                "Pot-hold plus plant GD-OES as the live interlock. The 18 min hold floor is complete and the isolate "
+                "tripwire (Zn_um >= 16.00) is still armed on the plant GD-OES head. MODIFY the default zinc-restore SOP "
+                "into a plant-GD-OES-only interlock. Do not ESD the CGL hall. Do not restore coating on Coatveil. "
+                "16.00 um post-stop is still the plant SoT until a new frame clears 16.00."
+            ),
+            "threshold": "pot_hold AND hold_floor_complete AND plant_esd_not_taken AND continue_not_restored",
+        },
+        "executed_action": {
+            "summary": "pot-hold held at t_s 8400; plant ESD not latched; Coatveil restore not taken",
+            "tool": "cb5-pot-hold-exec",
+            "observation": "recon.Zn 16.00 um after stop; hold line-up complete; Coatveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "pot-hold clock started after REJECT"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 7800.0, "event": "plant ESD proposed"},
+                {"t_s": 8400.0, "event": "MODIFY pot-hold; plant ESD refused"},
+            ],
+            "observed_effects": [
+                "Coatveil restore did not reopen the zinc call",
+                "plant ESD never fired; P-2 held pot on the plant GD-OES",
+            ],
+            "new_state": {"hold": "held", "plant": "in service", "pot_p2": "held"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("pot_hold", 0.12),
+                ("no_plant_esd", 0.10),
+                ("coatveil_nonsubstitution", 0.08),
+                ("hold_floor_complete", 0.06),
+                ("held_coat_cost", -0.02),
+            ],
+            "operational execution gate: pot-hold because Coatveil is not a restore license; not a zinc re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "pot-hold"]),
+    }
+    return {
+        "id": "nelb-r02c-001",
+        "snn_tags": list(SNN_TAGS),
+        "spike_events": events,
+        "language_view": {
+            "description": (
+                "Copsebray Galvanize CB-5. Plant-owned GD-OES reconstructs 24.00 um zinc from 12.00/2.00 "
+                "while Coatveil still reports 4.80 um. The gate REJECTs continue-coat. An 18 min pot-hold "
+                "floor is serialized in the stream. Companion t2 MODIFYs a plant ESD into a plant-GD-OES pot-hold."
+            ),
+            "trajectory": traj,
+            "trajectory_pot_hold": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "gdoes.I_zn / gdoes.I_fe / gdoes.snr": "Zn and Fe emission intensities and SNR; the physics channels the reconstruction consumes",
+                "recon.Zn / recon.R": "serialized zinc um and intensity-ratio identity",
+                "pot.T / air.kPa / coatveil.Zn / permit.slide / line.m_min / gdoes.drop": "pot witnesses, vendor last-good, permit clock slide, line speed, and dropped I-line packets",
+                "ops.prop / gate.stop / ops.kill / gate.hold": "continue-coat proposal, REJECT, plant-ESD proposal, companion MODIFY",
+                "hold.start / hold.floor / hold.set / hold.held / plant.esd / hold.lock": "operational companion channels plus the 18 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: coatveil.Zn 4.80 next to recon.Zn 24.00",
+                "reconstruction as event: recon.Zn 24.00 equals 4.00*12.00/2.00",
+                "REJECT then operational MODIFY: gate.stop at 5400 s, gate.hold at 8400 s",
+                "slow floor in-stream: hold.start 6000 s, hold.floor 7080 s (18.0 min)",
+                "tight GD-OES pair: gdoes.I_zn then gdoes.I_fe +1.4 ms at the raster frame (kernel, not excerpt echo)",
+            ],
+            "language_to_spike_mapping": (
+                "'Coatveil is 4.80 um' = coatveil.Zn 4.80; '24 um zinc' = recon.Zn 24.00; "
+                "'refuse continue-coat' = gate.stop REJECT; 'hold not plant ESD' = gate.hold MODIFY"
+            ),
+            "why_high_value": (
+                "New glow-discharge OES remaining-zinc family on a CGL pot (not ICP-OES live r63, not spark-OES live r66, "
+                "not LIBS, not XRF, not PGNAA). Lead REJECT of continue-coat on a recomputable over-zinc pot that a vendor "
+                "last-good patch and a permit clock slide would have cleared. Three-party collusion includes the GD-OES "
+                "infra owner. Companion t2 is operational pot-hold. Independent CUBA LIF raster. sim_or_real=designed."
+            ),
+            "encoder_spec": {
+                "prng": "CUBA LIF (lif_raster._calibrate_spikes) plus MT19937 amplitudes",
+                "seeds": {
+                    "raster": 202609020201,
+                    "stream_note": "stream amplitudes are authored constants (1, um, C, s, m_min, kPa, bool)",
+                },
+                "draw_order": "independent CUBA LIF full window; kernelized 0.0/1.4 ms physics pair is synaptic drive, not excerpt copy",
+                "thinning": "GD-OES Grimm source exists at ~1 Hz; stream keeps 4 I_zn points plus Fe pairs; recon keeps 5 of ~20 solver ticks",
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T01:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "GD-OES reconstruction head: Zn_um = k_g * I_zn / I_fe; R = I_zn / I_fe",
+                "conjunctive isolate floor vs continue-coat vs plant ESD",
+                "vendor-zinc nonsubstitution plus three-party collusion including the infra owner",
+                "operational companion: pot-hold without restoring on Coatveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "gdoes_internal_standard_zinc",
+            "formula": "Zn_um = k_g * I_zn / I_fe; R = I_zn / I_fe",
+            "parameters": {
+                "k_g": 4.00,
+                "isolate_floor_um": 16.00,
+                "snr_lock": 8.0,
+                "pot_hold_min": 18.0,
+            },
+            "worked_example": {"I_zn": 12.00, "I_fe": 2.00, "R": 6.00, "Zn_um": 24.00},
+            "check": "4.00 * 12.00 / 2.00 = 24.00 exactly; 12.00 / 2.00 = 6.00 exactly; 6000 s + 1080 s = 7080 s = 18.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": _snn_gate(
+            "REJECT",
+            40.0,
+            "cb5.gdoes_pot_gate",
+            "REJECT accumulator wins: plant GD-OES zinc evidence overpowers the Coatveil continue advocate",
+            "reject-continue if zn_estimator AND gdoes_lock fire; vendor_continue_advocate is below threshold by design",
+            [
+                gate_pop("zn_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("gdoes_lock", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("reject_latch", 80, 1.7, 62.5, w_s),
+            ],
+        ),
+        "gate_compute": gate_compute(
+            [
+                {"check": "cb5.gdoes_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "cb5.hold_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r02c-001",
+            clock_domain="cb5-gdoes-campaign-relative-ms-t0-2026-09-02T01:00:00Z",
+            tags=["gdoes-zinc", "REJECT", "MODIFY", "serialized-reconstruction", "operational-t2"],
+            distillation_value="Glow-discharge OES zinc-ratio head with independent CUBA LIF raster, 1 ms refractory, and adaptation for Spikenaut distillation.",
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# nelb-r02c-002 — spinning-rotor remaining vacuum, hil, MODIFY / ACCEPT
+# ---------------------------------------------------------------------------
+def rec_002():
+    k_s = 2.00
+    tau0 = 24.00
+    tau = 8.00
+    q = tau0 / tau - 1.00
+    p_pa = k_s * q
+    _exact(q, 2.00)
+    _exact(p_pa, 4.00)
+    _exact(k_s * (24.00 / 16.00 - 1.00), 1.00)
+    _exact(k_s * (24.00 / 12.00 - 1.00), 2.00)
+    _exact(k_s * (24.00 / 10.00 - 1.00), 2.80)
+    _exact(2820.0 + 1440.0, 4260.0)
+
+    raster = make_lif_raster(
+        neurons=25,
+        mean_rate_hz=50.0,
+        window_ms=32.0,
+        seed=202609020202,
+        source="ls7.srg.tau",
+        target="larkspire.chamber_isolate_core",
+        table=[
+            {"from": "srg_tau", "to": "p_estimator", "weight": 1.35},
+            {"from": "srg_snr", "to": "rotor_lock", "weight": 1.20},
+            {"from": "spinveil_P", "to": "vendor_keep_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "ach.srg_rotorzero_skip_salience",
+            "tau_e_s": 1.2,
+            "tau_e_ms": 1200.0,
+            "eligibility": (
+                "pre-post coincidence on keep-pumping synapses; the SRG modulator depresses keep-pumping "
+                "and referral links when rotor tau stays short inside tau_e of an SNR lock so a Spinveil "
+                "last-good cannot hide a 4.00 Pa remaining vacuum slip or name Mira Quill"
+            ),
+        },
+        channel_prefix="srg.n",
+        anchor=(
+            "LS-7 SRG 32 ms frame at tau 8.00 ms / tau0 24.00 ms / SNR 14.0 "
+            "(t_s 2100) reconstructing 4.00 Pa above the 2.40 isolate floor"
+        ),
+        kernel_ms=[0.0, 1.2, 7.0, 15.5],
+    )
+    w_s = 0.032
+    events = [
+        ev(90.0, "srg.tau", 16.00, code="TAU_MS", units="ms", note="HIL spinning-rotor gauge on LS-7 MBE chamber C-4 dummy in SRG-HIL-8; remaining-vacuum family, not CDG, not helium RGA, not Pirani, not thermal-mass, not katharometer"),
+        ev(240000.0, "srg.snr", 7.0, code="SRG_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(480000.0, "recon.P", 1.00, code="P_PA", units="Pa", note="2.00*(24.00/16.00-1)=1.00; under the 2.40 isolate floor"),
+        ev(720000.0, "ch.T", 18.0, code="T_C", units="C", note="plant chamber RTD; independent witness; unread by Spinveil"),
+        ev(960000.0, "spinveil.P", 0.80, code="VENDOR_PA", units="Pa", note="Spinveil vendor SR-3 last-good cloud; infra owner"),
+        ev(1200000.0, "srg.tau", 12.00, code="TAU_MS", units="ms"),
+        ev(1440000.0, "recon.P", 2.00, code="P_PA", units="Pa", note="2.00*(24.00/12.00-1)=2.00"),
+        ev(1680000.0, "n2.kPa", 120.0, code="N2_KPA", units="kPa", note="plant N2 purge header; independent witness"),
+        ev(1920000.0, "srg.tau", 10.00, code="TAU_MS", units="ms"),
+        ev(2100000.0, "srg.tau", 8.00, code="TAU_MS", units="ms", note="isolate-floor frame; raster sidecar kernel"),
+        ev(2100001.2, "srg.snr", 14.0, code="SRG_SNR", units="1", note="1.2 ms SNR after tau; isolate-frame SNR 14.0"),
+        ev(2250000.0, "recon.P", 4.00, code="P_PA", units="Pa", note="2.00*(24.00/8.00-1)=4.00 exact; isolate 2.40"),
+        ev(2400000.0, "recon.Q", 2.00, code="Q_DECEL", units="1", note="24.00/8.00-1=2.00 exact deceleration identity"),
+        ev(2550000.0, "spinveil.P", 0.76, code="VENDOR_PA", units="Pa"),
+        ev(2700000.0, "ch.T", 19.0, code="T_C", units="C"),
+        ev(2820000.0, "hold.start", 1.0, code="PURGE_START", units="bool", note="bookend 1 of the 24.0 min N2-purge floor"),
+        ev(3000000.0, "ops.prop", 1.0, code="KEEP_PUMPING", units="bool", note="shift lead: Spinveil is 0.80 Pa; keep C-4 on the cryo"),
+        ev(3180000.0, "srg.drop", 1.0, code="SRG_DROP", units="bool", note="vendor tau packets dropped 40 s"),
+        ev(3360000.0, "tech.ae", 0.0, code="ROTOR_ZERO_AE", units="bool", note="missing rotor-zero alarm-event; Mira Quill not last-to-badge"),
+        ev(3540000.0, "tz.skip", 2.0, code="TZ_H", units="h", note="UTC vs UTC+2 canteen clock; exoneration"),
+        ev(3720000.0, "n2.kPa", 118.0, code="N2_KPA", units="kPa"),
+        ev(3900000.0, "gate.iso", 1.0, code="MODIFY", units="decision", note="refuse keep-pumping; isolate C-4; Spinveil not SoT; do not shop-trip"),
+        ev(4080000.0, "recon.P", 4.00, code="P_PA", units="Pa"),
+        ev(4260000.0, "hold.floor", 1.0, code="PURGE_FLOOR", units="bool", note="2820 s + 1440 s = 4260 s = 24.0 min"),
+        ev(4440000.0, "ops.keep", 1.0, code="KEEP_WHOLE", units="bool", note="referral: keep the whole MBE; Quill last-to-badge"),
+        ev(4620000.0, "spinveil.P", 0.72, code="VENDOR_PA", units="Pa"),
+        ev(4800000.0, "srg.snr", 14.0, code="SRG_SNR", units="1"),
+        ev(5100000.0, "new.head", 1.0, code="NEW_ROTOR", units="bool", note="spare SRG rotor on the HIL dummy"),
+        ev(5400000.0, "gate.hold", 1.0, code="ACCEPT", units="decision", note="companion t2: new-rotor restart ACCEPT; shop-trip refused; Quill exonerated"),
+        ev(5700000.0, "hold.set", 1.0, code="ISO_HELD", units="bool"),
+        ev(6000000.0, "srg.tau", 10.00, code="TAU_MS", units="ms"),
+        ev(6300000.0, "recon.P", 2.80, code="P_PA", units="Pa", note="2.00*(24.00/10.00-1)=2.80; still over 2.40 so new-rotor stands"),
+        ev(6600000.0, "spinveil.P", 0.68, code="VENDOR_PA", units="Pa"),
+        ev(6900000.0, "ch.T", 17.0, code="T_C", units="C"),
+        ev(7200000.0, "n2.kPa", 110.0, code="N2_KPA", units="kPa"),
+        ev(7500000.0, "plant.trip", 0.0, code="SHOP_NOT_TAKEN", units="bool"),
+        ev(7800000.0, "tech.ae", 0.0, code="ROTOR_ZERO_AE", units="bool"),
+        ev(8100000.0, "tz.skip", 2.0, code="TZ_H", units="h"),
+        ev(8400000.0, "hold.held", 1.0, code="ISO_HELD", units="bool"),
+        ev(8700000.0, "recon.Q", 1.40, code="Q_DECEL", units="1", note="24.00/10.00-1=1.40 post-isolate Q"),
+        ev(9000000.0, "srg.drop", 1.0, code="SRG_DROP", units="bool"),
+        ev(9300000.0, "new.head", 1.0, code="NEW_ROTOR", units="bool"),
+        ev(9600000.0, "spinveil.P", 0.64, code="VENDOR_PA", units="Pa"),
+        ev(9900000.0, "srg.snr", 13.0, code="SRG_SNR", units="1"),
+        ev(10200000.0, "ch.T", 16.0, code="T_C", units="C"),
+        ev(10500000.0, "n2.kPa", 108.0, code="N2_KPA", units="kPa"),
+        ev(10800000.0, "hold.lock", 1.0, code="ISO_HELD", units="bool"),
+        ev(11100000.0, "recon.P", 2.80, code="P_PA", units="Pa"),
+        ev(11400000.0, "plant.trip", 0.0, code="SHOP_NOT_TAKEN", units="bool"),
+        ev(11700000.0, "tech.ae", 0.0, code="ROTOR_ZERO_AE", units="bool"),
+        ev(12000000.0, "tz.skip", 2.0, code="TZ_H", units="h"),
+        ev(12300000.0, "hold.held", 1.0, code="ISO_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r02c-002-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "LS-SRG-2026-0902",
+            "domain": "srg_mbe_remaining_vacuum",
+            "setting": (
+                "Larkspire MBE LS-7 (invented), chamber C-4 dummy in SRG-HIL-8. "
+                "Plant-owned spinning-rotor deceleration tau is the vacuum SoT. Spinveil / SR-3 vendor DAQ "
+                "(infra owner) is a collusion party. HIL coupon times an in-service isolate. "
+                "Not CDG (live r22), not helium RGA (leftover r24), not Pirani, not thermal-mass, not katharometer."
+            ),
+            "observables_at_decision": {
+                "tau_ms": tau,
+                "tau0_ms": tau0,
+                "k_s": k_s,
+                "P_Pa": p_pa,
+                "Q": q,
+                "srg_snr": 14.0,
+                "spinveil_Pa": 0.80,
+                "isolate_floor_Pa": 2.40,
+                "rotor_zero_ae": False,
+            },
+            "margin_authority": (
+                "LS-7 MBE SOP rev B: if reconstructed P_Pa >= 2.40 AND SRG SNR >= 8.0, "
+                "keep-pumping is forbidden even if Spinveil reports 0.80 Pa. Shop-trip is a different gate."
+            ),
+        },
+        "proposed_action": {
+            "actor": "shift lead citing Spinveil 0.80 Pa and a quiet SR-3 rotor",
+            "summary": "keep C-4 on the cryo; 8.00 ms tau is a fouled-rotor glitch on a healthy 0.80 Pa last-good",
+            "basis_claimed": "Spinveil is the only OEM vacuum SoT and a night isolate of C-4 is a restart miss",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": (
+                "Keep-pumping is refused; isolate C-4 on the plant SRG. Serialized reconstruction: "
+                "P_Pa = k_s * (tau0/tau - 1) = 2.00 * (24.00/8.00 - 1) = 4.00 Pa, above the 2.40 isolate floor, and "
+                "SRG SNR is 14.0 >= 8.0. Deceleration identity tau0/tau - 1 = 2.00. Missing rotor-zero AE plus UTC vs UTC+2 "
+                "canteen clock exonerate tech Mira Quill (not last-to-badge). Ordered: isolate C-4 now. Scope: this "
+                "MODIFY does not shop-trip the MBE (companion question) and does not condemn the N2 header."
+            ),
+            "threshold": "P_Pa>=2.40 AND srg_snr>=8.0 => refuse keep-pumping; Spinveil is not SoT",
+            "stated_residuals": "new-rotor restart still required; 4.00 vs a true leak is a production cut; Spinveil remains the only OEM vacuum channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 3900: keep-pumping refused; C-4 isolated on plant SRG; Spinveil not SoT",
+            "tool": "ls7-srg-chamber-gate-cli",
+            "observation": "P 4.00 Pa recomputes from tau 8.00 and tau0 24.00; plant SRG hashed; Quill exonerated",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 2100.0, "event": "SRG tau 8.00 tau0 24.00; raster frame; P 4.00 Pa; SNR 14.0"},
+                {"t_s": 3000.0, "event": "ops proposes keep-pumping"},
+                {"t_s": 3900.0, "event": "MODIFY isolate C-4"},
+                {"t_s": 2820.0, "event": "24 min N2-purge bookend 1"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 5400.0, "event": "companion ACCEPT new-rotor restart"},
+            ],
+            "observed_effects": [
+                "pressure recomputes from the serialized SRG model at every recon.P event",
+                "a Spinveil-only head would have kept the chamber on the cryo",
+                "24 min N2-purge floor is in the stream; Quill is not last-to-badge",
+            ],
+            "surprises": [
+                "a clean vendor vacuum corridor co-existed with a 4.00 Pa plant reconstruction and a skipped rotor-zero AE",
+            ],
+            "new_state": {
+                "chamber_c4": "isolated on plant SRG",
+                "spinveil": "not SoT",
+                "mira_quill": "exonerated",
+            },
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("srg_reconstruction", 0.14),
+                ("conjunctive_isolate_floor", 0.12),
+                ("spinveil_nonsubstitution", 0.10),
+                ("exoneration", 0.08),
+                ("isolate_time_cost", -0.04),
+            ],
+            "scored for a keep-pumping MODIFY on a recomputable SRG vacuum while refusing a Spinveil last-good and last-to-badge social pressure",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "srg-vacuum", "serialized-reconstruction", "exoneration"],
+            distillation_note="SRG gate: serialized k_s*(tau0/tau-1) plus SNR lock beats a vendor last-good; Quill exonerated by missing rotor-zero AE and timezone skip",
+            distillation_value="Teaches an SNN to race a spinning-rotor deceleration against a patched vendor corridor with isolate-frame SNR 14.0, refractory, and adaptation.",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r02c-002-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "LS-SRG-2026-0902-exec",
+            "domain": "new_rotor_srg_restart_execution",
+            "setting": "Same LS-7 HIL dummy after the isolate. Referral wants a shop-trip. Companion is the new-rotor restart with the plant SRG as live interlock.",
+            "observables_at_decision": {
+                "P_Pa": 2.80,
+                "purge_floor_s": 1440.0,
+                "shop_trip_proposed": True,
+                "new_rotor_set": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "shift lead",
+            "summary": "shop-trip the whole LS-7 MBE; 24 min already paid and Spinveil still shows 0.72 Pa; Quill last-to-badge",
+            "basis_claimed": "the isolate already blocked pumping, so a shop-trip is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": (
+                "New-rotor restart plus plant SRG as the live interlock. The 24 min N2-purge floor is complete and "
+                "the isolate tripwire (P_Pa >= 2.40) is still armed on the plant SRG. ACCEPT the spare-rotor restart. "
+                "Do not shop-trip. Do not restore on Spinveil. Mira Quill stays exonerated."
+            ),
+            "threshold": "new_rotor AND purge_floor_complete AND shop_trip_not_taken AND keep_not_restored",
+        },
+        "executed_action": {
+            "summary": "new-rotor restart ACCEPTed at t_s 5400; shop-trip not latched; Spinveil restore not taken",
+            "tool": "ls7-srg-newrotor-exec",
+            "observation": "recon.P 2.80 Pa after isolate; new rotor on HIL dummy; Quill still exonerated",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 2820.0, "event": "N2-purge clock started"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4440.0, "event": "shop-trip proposed"},
+                {"t_s": 5400.0, "event": "ACCEPT new-rotor restart; shop-trip refused"},
+            ],
+            "observed_effects": [
+                "Spinveil restore did not reopen the vacuum call",
+                "shop-trip never fired; C-4 held on the plant SRG with a new rotor",
+            ],
+            "new_state": {"hold": "new-rotor", "plant": "in service", "chamber_c4": "isolated"},
+            "latency_ms": 1500000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("new_rotor_restart", 0.12),
+                ("no_shop_trip", 0.10),
+                ("spinveil_nonsubstitution", 0.08),
+                ("exoneration_held", 0.07),
+                ("held_run_cost", -0.02),
+            ],
+            "operational execution gate: new-rotor restart because Spinveil is not a restore license; Quill stays exonerated",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "new-rotor"]),
+    }
+    return {
+        "id": "nelb-r02c-002",
+        "snn_tags": list(SNN_TAGS),
+        "spike_events": events,
+        "language_view": {
+            "description": (
+                "Larkspire MBE LS-7 HIL dummy SRG-HIL-8. Plant-owned spinning-rotor reconstructs 4.00 Pa remaining "
+                "vacuum from 2.00*(24.00/8.00-1) while Spinveil still reports 0.80 Pa. The gate MODIFYs keep-pumping into "
+                "an isolate. A 24 min N2-purge floor is serialized. Companion t2 ACCEPTs a new-rotor restart. "
+                "Tech Mira Quill is exonerated."
+            ),
+            "trajectory": traj,
+            "trajectory_new_rotor": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "srg.tau / srg.snr": "spinning-rotor deceleration tau and SNR; the physics channels the reconstruction consumes",
+                "recon.P / recon.Q": "serialized pressure Pa and deceleration identity",
+                "ch.T / n2.kPa / spinveil.P / srg.drop / tech.ae / tz.skip": "chamber and N2 witnesses, vendor last-good, dropped packets, missing AE, timezone skip",
+                "ops.prop / gate.iso / ops.keep / gate.hold": "keep-pumping proposal, MODIFY isolate, shop-trip proposal, companion ACCEPT",
+                "hold.start / hold.floor / hold.set / hold.held / plant.trip / new.head / hold.lock": "operational companion channels plus the 24 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: spinveil.P 0.80 next to recon.P 4.00",
+                "reconstruction as event: recon.P 4.00 equals 2.00*(24.00/8.00-1)",
+                "MODIFY then operational ACCEPT: gate.iso at 3900 s, gate.hold at 5400 s",
+                "slow floor in-stream: hold.start 2820 s, hold.floor 4260 s (24.0 min)",
+                "tight SRG pair: srg.tau then srg.snr +1.2 ms at the raster frame (kernel, not excerpt echo)",
+            ],
+            "language_to_spike_mapping": (
+                "'Spinveil is 0.80 Pa' = spinveil.P 0.80; '4 Pa remaining' = recon.P 4.00; "
+                "'isolate not keep-pumping' = gate.iso MODIFY; 'new-rotor not shop-trip' = gate.hold ACCEPT"
+            ),
+            "why_high_value": (
+                "New spinning-rotor remaining-vacuum family on an MBE chamber (not CDG live r22, not helium RGA leftover r24, "
+                "not Pirani, not thermal-mass, not katharometer leftover r64). Lead MODIFY of keep-pumping on a recomputable "
+                "4.00 Pa slip that a vendor last-good would have cleared, with a resolved-innocent rotor tech. Companion t2 "
+                "is operational new-rotor restart. Independent CUBA LIF raster. sim_or_real=hil."
+            ),
+            "encoder_spec": {
+                "prng": "CUBA LIF (lif_raster._calibrate_spikes) plus MT19937 amplitudes",
+                "seeds": {
+                    "raster": 202609020202,
+                    "stream_note": "stream amplitudes are authored constants (ms, Pa, C, kPa, h, bool)",
+                },
+                "draw_order": "independent CUBA LIF full window; kernelized 0.0/1.2 ms physics pair is synaptic drive, not excerpt copy",
+                "thinning": "SRG rotor exists at ~1 Hz; stream keeps 5 tau points; recon keeps 4 of ~20 solver ticks",
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T04:00:00Z HIL pad start",
+            },
+            "distillation_targets": [
+                "SRG reconstruction head: P_Pa = k_s * (tau0/tau - 1); Q = tau0/tau - 1",
+                "conjunctive isolate floor vs keep-pumping vs shop-trip",
+                "vendor-vacuum nonsubstitution plus timezone/rotor-zero exoneration",
+                "operational companion: new-rotor restart without restoring on Spinveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "spinning_rotor_remaining_vacuum",
+            "formula": "P_Pa = k_s * (tau0_ms / tau_ms - 1); Q = tau0_ms / tau_ms - 1",
+            "parameters": {
+                "k_s": 2.00,
+                "isolate_floor_Pa": 2.40,
+                "snr_lock": 8.0,
+                "purge_min": 24.0,
+            },
+            "worked_example": {"tau_ms": 8.00, "tau0_ms": 24.00, "Q": 2.00, "P_Pa": 4.00},
+            "check": "2.00 * (24.00 / 8.00 - 1) = 4.00 exactly; 24.00 / 8.00 - 1 = 2.00 exactly; 2820 s + 1440 s = 4260 s = 24.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": _snn_gate(
+            "MODIFY",
+            32.0,
+            "ls7.srg_chamber_gate",
+            "MODIFY accumulator wins: plant SRG vacuum evidence overpowers the Spinveil keep advocate",
+            "isolate if p_estimator AND rotor_lock fire; vendor_keep_advocate is below threshold by design",
+            [
+                gate_pop("p_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("rotor_lock", 64, 1.2, 39.0625, w_s),
+                gate_pop("vendor_keep_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("modify_latch", 80, 1.7, 62.5, w_s),
+            ],
+        ),
+        "gate_compute": gate_compute(
+            [
+                {"check": "ls7.srg_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 32.0},
+                {"check": "ls7.iso_scorer", "neurons": 50, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r02c-002",
+            clock_domain="ls7-srg-hil-relative-ms-t0-2026-09-02T04:00:00Z",
+            tags=["srg-vacuum", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2"],
+            distillation_value="Spinning-rotor vacuum head with independent CUBA LIF raster, isolate-frame SNR 14.0, refractory, and adaptation for Spikenaut distillation.",
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# nelb-r02c-003 — Langmuir remaining ion density, simulated, ACCEPT / REJECT
+# ---------------------------------------------------------------------------
+def rec_003():
+    k_l = 4.00
+    i_ma = 8.00
+    a_cm2 = 2.00
+    ni = k_l * i_ma / a_cm2
+    r_ia = i_ma / a_cm2
+    _exact(ni, 16.00)
+    _exact(r_ia, 4.00)
+    _exact(k_l * 6.00 / a_cm2, 12.00)
+    _exact(k_l * 4.00 / a_cm2, 8.00)
+    _exact(6000.0 + 720.0, 6720.0)
+
+    raster = make_lif_raster(
+        neurons=16,
+        mean_rate_hz=62.5,
+        window_ms=36.0,
+        seed=202609020203,
+        source="fm4.lang.I",
+        target="flintmere.chamber_accept_core",
+        table=[
+            {"from": "lang_I", "to": "ni_estimator", "weight": 1.30},
+            {"from": "lang_snr", "to": "probe_norm", "weight": 1.10},
+            {"from": "langveil_ni", "to": "vendor_skip_advocate", "weight": 0.42},
+        ],
+        third_factor={
+            "modulator": "na.langmuir_scope_eligibility",
+            "tau_e_s": 2.0,
+            "tau_e_ms": 2000.0,
+            "eligibility": (
+                "pre-post coincidence on skip-survey synapses; the Langmuir modulator depresses skip links "
+                "when ion-saturation current stays in-band inside tau_e of an SNR lock so a Langveil last-good "
+                "cannot hide a 16.00 e15/m3 C-8 remaining density or release C-1/C-7"
+            ),
+        },
+        channel_prefix="lng.n",
+        anchor=(
+            "FM-4 Langmuir 36 ms frame at I 8.00 mA / A 2.00 cm2 / SNR 12.0 "
+            "(t_s 3000) reconstructing 16.00 e15/m3 inside the 8.00-24.00 band"
+        ),
+        kernel_ms=[0.0, 1.5, 9.0, 21.0],
+    )
+    w_s = 0.036
+    events = [
+        ev(100.0, "lang.I", 4.00, code="I_MA", units="mA", note="simulated Langmuir ion-saturation of FM-4 PECVD chamber C-8 in LANG-SIM-3; remaining-ni family, not ellipsometry PECVD, not PALS, not microwave PCD, not ICP-OES, not spark-OES"),
+        ev(300000.0, "lang.snr", 7.0, code="LANG_SNR", units="1"),
+        ev(600000.0, "recon.ni", 8.00, code="NI_E15", units="e15_m3", note="4.00*4.00/2.00=8.00; at the 8.00 band floor"),
+        ev(900000.0, "ch.T", 42.0, code="T_C", units="C", note="plant chamber RTD; independent witness; unread by Langveil"),
+        ev(1200000.0, "langveil.ni", 4.80, code="VENDOR_E15", units="e15_m3", note="Langveil vendor LP-6 last-good cloud; infra owner; under-read skip advocate"),
+        ev(1500000.0, "lang.A", 2.00, code="A_CM2", units="cm2", note="probe area; held"),
+        ev(1800000.0, "lang.I", 6.00, code="I_MA", units="mA"),
+        ev(2100000.0, "recon.ni", 12.00, code="NI_E15", units="e15_m3", note="4.00*6.00/2.00=12.00; in band"),
+        ev(2400000.0, "ch.id", 8.0, code="CH_ID", units="1", note="C-8 in scope; C-1..C-7 out of scope"),
+        ev(2700000.0, "c17.present", 1.0, code="C17", units="bool", note="adjacent chambers present; out of this ACCEPT"),
+        ev(3000000.0, "lang.I", 8.00, code="I_MA", units="mA", note="in-band frame; raster sidecar kernel"),
+        ev(3000001.5, "lang.A", 2.00, code="A_CM2", units="cm2", note="1.5 ms probe-area after ion current"),
+        ev(3150000.0, "lang.snr", 12.0, code="LANG_SNR", units="1", note="SNR 12.0 >= 8.0 lock"),
+        ev(3300000.0, "recon.ni", 16.00, code="NI_E15", units="e15_m3", note="4.00*8.00/2.00=16.00 exact; band 8.00-24.00"),
+        ev(3450000.0, "recon.R", 4.00, code="R_IA", units="1", note="8.00/2.00=4.00 exact I/A identity"),
+        ev(3600000.0, "langveil.ni", 4.76, code="VENDOR_E15", units="e15_m3"),
+        ev(3900000.0, "ch.T", 43.0, code="T_C", units="C"),
+        ev(4200000.0, "rf.W", 48.00, code="RF_W", units="W", note="plant RF power tracks Langmuir not Langveil"),
+        ev(4500000.0, "lang.drop", 1.0, code="LANG_DROP", units="bool"),
+        ev(4800000.0, "ops.prop", 1.0, code="SKIP_SURVEY", units="bool", note="night planner Tamsin Vale: Langveil is 4.80 e15; skip C-8 survey and dump the cassette"),
+        ev(5100000.0, "dump.trip", 0.0, code="DUMP_ARMED", units="bool", note="dump would be a cassette kill; out of this ACCEPT"),
+        ev(5400000.0, "gate.comp", 1.0, code="ACCEPT", units="decision", note="bounded ACCEPT of C-8 only; 16.00 e15 in band; C-1..C-7 out of scope; Langveil not SoT"),
+        ev(5700000.0, "recon.ni", 16.00, code="NI_E15", units="e15_m3"),
+        ev(6000000.0, "surv.start", 1.0, code="SURV_START", units="bool", note="bookend 1 of the 12.0 min survey floor"),
+        ev(6300000.0, "lang.snr", 12.0, code="LANG_SNR", units="1"),
+        ev(6600000.0, "langveil.ni", 4.72, code="VENDOR_E15", units="e15_m3"),
+        ev(6720000.0, "surv.floor", 1.0, code="SURV_FLOOR", units="bool", note="6000 s + 720 s = 6720 s = 12.0 min"),
+        ev(7200000.0, "ops.skip", 1.0, code="SKIP_ISOLATE", units="bool", note="Vale: skip-isolate C-8; Langveil still 4.72; takt is late"),
+        ev(7500000.0, "c17.present", 1.0, code="C17", units="bool"),
+        ev(7800000.0, "takt.late", 1.0, code="TAKT", units="bool"),
+        ev(8100000.0, "gate.hold", 1.0, code="REJECT", units="decision", note="companion t2 REJECTS skip-isolate; C-8 stays the bounded ACCEPT; dump not taken"),
+        ev(8400000.0, "c8.held", 1.0, code="C8_HELD", units="bool"),
+        ev(8700000.0, "c17.skip", 0.0, code="C17_NOT_RELEASED", units="bool"),
+        ev(9000000.0, "dump.trip", 0.0, code="DUMP_NOT_TAKEN", units="bool"),
+        ev(9300000.0, "lang.I", 6.00, code="I_MA", units="mA"),
+        ev(9600000.0, "recon.ni", 12.00, code="NI_E15", units="e15_m3", note="4.00*6.00/2.00=12.00; still in band so C-8 hold stands"),
+        ev(9900000.0, "langveil.ni", 4.68, code="VENDOR_E15", units="e15_m3"),
+        ev(10200000.0, "ch.T", 41.0, code="T_C", units="C"),
+        ev(10500000.0, "lang.A", 2.00, code="A_CM2", units="cm2"),
+        ev(10800000.0, "surv.held", 1.0, code="SURV_HELD", units="bool"),
+        ev(11100000.0, "recon.R", 3.00, code="R_IA", units="1", note="6.00/2.00=3.00 post-accept ratio"),
+        ev(11400000.0, "lang.drop", 1.0, code="LANG_DROP", units="bool"),
+        ev(11700000.0, "ch.id", 8.0, code="CH_ID", units="1"),
+        ev(12000000.0, "c8.held", 1.0, code="C8_HELD", units="bool"),
+        ev(12300000.0, "dump.trip", 0.0, code="DUMP_NOT_TAKEN", units="bool"),
+        ev(12600000.0, "takt.late", 1.0, code="TAKT", units="bool"),
+        ev(12900000.0, "langveil.ni", 4.64, code="VENDOR_E15", units="e15_m3"),
+        ev(13200000.0, "recon.ni", 12.00, code="NI_E15", units="e15_m3"),
+        ev(13500000.0, "lang.snr", 11.0, code="LANG_SNR", units="1"),
+        ev(13800000.0, "ch.T", 40.0, code="T_C", units="C"),
+        ev(14100000.0, "c17.skip", 0.0, code="C17_NOT_RELEASED", units="bool"),
+        ev(14400000.0, "surv.held", 1.0, code="SURV_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r02c-003-t1",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "FM-LANG-2026-0902",
+            "domain": "langmuir_pecvd_ion_density",
+            "setting": (
+                "Flintmere PECVD FM-4 (invented), chamber C-8 digital twin in LANG-SIM-3. "
+                "Plant-owned Langmuir ion-saturation I / probe area A is the density SoT. "
+                "Langveil / LP-6 vendor DAQ (infra owner) under-reads 4.80 e15/m3 and wants a skip. "
+                "Not ellipsometry PECVD (leftover r30), not PALS (leftover r32), not microwave PCD (live r02), "
+                "not ICP-OES (live r63), not spark-OES (live r66)."
+            ),
+            "observables_at_decision": {
+                "I_mA": i_ma,
+                "A_cm2": a_cm2,
+                "k_l": k_l,
+                "ni_e15": ni,
+                "R": r_ia,
+                "lang_snr": 12.0,
+                "langveil_e15": 4.80,
+                "band_lo_e15": 8.00,
+                "band_hi_e15": 24.00,
+                "chamber_scope": "C-8",
+            },
+            "margin_authority": (
+                "FM-4 chamber SOP rev D: if reconstructed ni_e15 is inside 8.00-24.00 AND Langmuir SNR >= 8.0 "
+                "AND the tagged chamber is C-8, ACCEPT C-8 only. Langveil is not SoT. C-1..C-7 stay out of scope. "
+                "Cassette dump is a different gate."
+            ),
+        },
+        "proposed_action": {
+            "actor": "night planner Tamsin Vale, citing Langveil 4.80 e15 and a quiet LP-6 probe",
+            "summary": "skip C-8 survey and dump the cassette; 8.00 mA is a fouled-probe glitch on a healthy 4.80 last-good",
+            "basis_claimed": "Langveil is the only OEM density SoT and a night survey of C-8 is a takt miss",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": (
+                "Bounded ACCEPT of C-8 only. Serialized reconstruction: ni_e15 = k_l * I_mA / A_cm2 = "
+                "4.00 * 8.00 / 2.00 = 16.00 e15/m3, inside the 8.00-24.00 band, and Langmuir SNR is 12.0 >= 8.0. "
+                "I/A identity I_mA / A_cm2 = 8.00 / 2.00 = 4.00. Langveil 4.80 e15 is an under-read skip "
+                "advocate, not SoT. C-1..C-7 are out of this ACCEPT. Ordered: keep C-8 on the plant Langmuir. "
+                "Scope: this ACCEPT does not dump the cassette (companion question) and does not release C-1..C-7."
+            ),
+            "threshold": "8.00<=ni_e15<=24.00 AND lang_snr>=8.0 AND chamber==C-8 => ACCEPT C-8; Langveil is not SoT",
+            "stated_residuals": "survey floor still required; 16.00 vs a true arcing event is a later sample; Langveil remains the only OEM density channel",
+        },
+        "executed_action": {
+            "summary": "ACCEPT at t_s 5400: C-8 bounded in-band; Langveil not SoT; C-1..C-7 not released; dump not taken",
+            "tool": "fm4-lang-chamber-gate-cli",
+            "observation": "ni 16.00 e15 recomputes from I 8.00 mA and A 2.00 cm2; plant Langmuir hashed; Langveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "Langmuir I 8.00 A 2.00; raster frame; ni 16.00 e15"},
+                {"t_s": 4800.0, "event": "ops proposes skip-survey / dump"},
+                {"t_s": 5400.0, "event": "ACCEPT C-8 only"},
+                {"t_s": 6000.0, "event": "12 min survey bookend 1"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 8100.0, "event": "companion REJECT skip-isolate"},
+            ],
+            "observed_effects": [
+                "ion density recomputes from the serialized Langmuir model at every recon.ni event",
+                "a Langveil-only head would have skipped C-8 and dumped the cassette",
+                "12 min survey floor is in the stream; C-1..C-7 stay out of scope",
+            ],
+            "surprises": [
+                "a vendor under-read 4.80 e15 skip corridor co-existed with a 16.00 e15 in-band plant reconstruction",
+            ],
+            "new_state": {
+                "chamber_c8": "bounded ACCEPT",
+                "langveil": "not SoT",
+                "c1_c7": "out of scope",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.41,
+            [
+                ("langmuir_reconstruction", 0.14),
+                ("bounded_accept_scope", 0.12),
+                ("langveil_nonsubstitution", 0.10),
+                ("in_band_lock", 0.08),
+                ("survey_time_cost", -0.03),
+            ],
+            "scored for a bounded ACCEPT of C-8 on a recomputable Langmuir ion density while refusing a Langveil under-read skip and keeping C-1..C-7 out of scope",
+        ),
+        "meta": meta_common(
+            tags=["ACCEPT", "langmuir-ni", "serialized-reconstruction", "bounded-scope"],
+            distillation_note="Langmuir gate: serialized k_l*I/A plus SNR lock beats a vendor under-read skip; C-8 only",
+            distillation_value="Teaches an SNN to race a Langmuir I/A ion-density against a patched vendor skip with bounded chamber scope, refractory, and adaptation.",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r02c-003-t2",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "FM-LANG-2026-0902-exec",
+            "domain": "skip_isolate_refusal_execution",
+            "setting": "Same FM-4 after the bounded ACCEPT. Planner proposes skip-isolate of C-8 under late takt. Companion REJECTS the skip; dump stays down.",
+            "observables_at_decision": {
+                "ni_e15": 12.00,
+                "surv_floor_s": 720.0,
+                "skip_isolate_proposed": True,
+                "c8_held": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night planner Tamsin Vale",
+            "summary": "skip-isolate C-8; 12 min already paid and Langveil still shows 4.72 e15; takt is late",
+            "basis_claimed": "the ACCEPT already cleared C-8, so a skip-isolate is the cheapest takt recovery",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": (
+                "Skip-isolate is refused. The 12 min survey floor is complete and the in-band tripwire "
+                "(8.00 <= ni_e15 <= 24.00) is still armed on the plant Langmuir. REJECT skip-isolate. Do not dump "
+                "the cassette. Do not restore on Langveil. Do not release C-1..C-7. 12.00 e15 post-accept is still "
+                "the plant SoT until a new frame leaves the band."
+            ),
+            "threshold": "surv_held AND skip_isolate_not_taken AND dump_not_taken AND c17_not_released",
+        },
+        "executed_action": {
+            "summary": "skip-isolate REJECTED at t_s 8100; dump not latched; Langveil restore not taken; C-8 held",
+            "tool": "fm4-lang-skip-exec",
+            "observation": "recon.ni 12.00 e15 after ACCEPT; survey line-up complete; Langveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "survey clock started after ACCEPT"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7200.0, "event": "skip-isolate proposed"},
+                {"t_s": 8100.0, "event": "REJECT skip-isolate; dump refused"},
+            ],
+            "observed_effects": [
+                "Langveil restore did not reopen the density call",
+                "cassette dump never fired; C-8 held on the plant Langmuir",
+            ],
+            "new_state": {"hold": "survey-held", "plant": "in service", "chamber_c8": "held"},
+            "latency_ms": 1380000.0,
+        },
+        "reward_components": reward(
+            0.36,
+            [
+                ("skip_isolate_refusal", 0.12),
+                ("no_cassette_dump", 0.10),
+                ("langveil_nonsubstitution", 0.08),
+                ("scope_held", 0.08),
+                ("takt_cost", -0.02),
+            ],
+            "operational execution gate: refuse skip-isolate because Langveil is not a skip license; not a density re-vote",
+        ),
+        "meta": meta_common(tags=["REJECT", "operational-execution", "skip-refusal"]),
+    }
+    return {
+        "id": "nelb-r02c-003",
+        "snn_tags": list(SNN_TAGS),
+        "spike_events": events,
+        "language_view": {
+            "description": (
+                "Flintmere PECVD FM-4 LANG-SIM-3. Plant-owned Langmuir reconstructs 16.00 e15/m3 ion density from "
+                "8.00/2.00 while Langveil still reports 4.80 e15. The gate ACCEPTs C-8 only (C-1..C-7 out of "
+                "scope). A 12 min survey floor is serialized. Companion t2 REJECTs skip-isolate."
+            ),
+            "trajectory": traj,
+            "trajectory_skip_refusal": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "lang.I / lang.A / lang.snr": "ion-saturation current, probe area and SNR; the physics channels the reconstruction consumes",
+                "recon.ni / recon.R": "serialized ion density and I/A identity",
+                "ch.T / langveil.ni / ch.id / c17.present / lang.drop / rf.W": "chamber witnesses, vendor last-good, scope tags, dropped packets, RF power",
+                "ops.prop / gate.comp / ops.skip / gate.hold": "skip-survey proposal, ACCEPT, skip-isolate proposal, companion REJECT",
+                "surv.start / surv.floor / c8.held / c17.skip / dump.trip / takt.late / surv.held": "operational companion channels plus the 12 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-under while plant-in-band: langveil.ni 4.80 next to recon.ni 16.00",
+                "reconstruction as event: recon.ni 16.00 equals 4.00*8.00/2.00",
+                "ACCEPT then operational REJECT: gate.comp at 5400 s, gate.hold at 8100 s",
+                "slow floor in-stream: surv.start 6000 s, surv.floor 6720 s (12.0 min)",
+                "tight Langmuir pair: lang.I then lang.A +1.5 ms at the raster frame (kernel, not excerpt echo)",
+            ],
+            "language_to_spike_mapping": (
+                "'Langveil is 4.80 e15' = langveil.ni 4.80; '16 e15 ion density' = recon.ni 16.00; "
+                "'ACCEPT C-8 only' = gate.comp ACCEPT; 'refuse skip-isolate' = gate.hold REJECT"
+            ),
+            "why_high_value": (
+                "New Langmuir remaining-ion-density family on a PECVD chamber (not ellipsometry leftover r30, "
+                "not PALS leftover r32, not microwave PCD live r02, not ICP-OES live r63, not spark-OES live r66). "
+                "Lead bounded ACCEPT of C-8 on a recomputable 16.00 e15 in-band load that a vendor under-read would "
+                "have skipped. Companion t2 REJECTS skip-isolate. Independent CUBA LIF raster. sim_or_real=simulated."
+            ),
+            "encoder_spec": {
+                "prng": "CUBA LIF (lif_raster._calibrate_spikes) plus MT19937 amplitudes",
+                "seeds": {
+                    "raster": 202609020203,
+                    "stream_note": "stream amplitudes are authored constants (mA, cm2, e15, C, W, bool)",
+                },
+                "draw_order": "independent CUBA LIF full window; kernelized 0.0/1.5 ms physics pair is synaptic drive, not excerpt copy",
+                "thinning": "Langmuir sweep exists at ~10 Hz; stream keeps 4 I points plus A pairs; recon keeps 4 of ~20 solver ticks",
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T03:00:00Z simulated night start",
+            },
+            "distillation_targets": [
+                "Langmuir reconstruction head: ni_e15 = k_l * I_mA / A_cm2; R = I_mA / A_cm2",
+                "bounded ACCEPT head: in-band ni AND chamber scope AND c17-out-of-scope",
+                "operational companion: refuse skip-isolate without re-opening the last-good call",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "langmuir_ion_saturation_density",
+            "formula": "ni_e15 = k_l * I_mA / A_cm2; R = I_mA / A_cm2",
+            "parameters": {
+                "k_l": 4.00,
+                "band_lo_e15": 8.00,
+                "band_hi_e15": 24.00,
+                "surv_min": 12.0,
+            },
+            "worked_example": {"I_mA": 8.00, "A_cm2": 2.00, "R": 4.00, "ni_e15": 16.00},
+            "check": "4.00 * 8.00 / 2.00 = 16.00 exactly; 8.00 / 2.00 = 4.00 exactly; 6000 s + 720 s = 6720 s = 12.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": _snn_gate(
+            "ACCEPT",
+            36.0,
+            "fm4.lang_chamber_gate",
+            "ACCEPT accumulator wins: plant Langmuir ion-density evidence overpowers the Langveil skip advocate",
+            "accept if ni_estimator AND probe_norm fire inside the window; vendor_skip_advocate is necessary-but-not-sufficient and cannot release C-1..C-7",
+            [
+                gate_pop("ni_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("probe_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("chamber_margin", 40, 1.0, 50.0, w_s),
+                gate_pop("vendor_skip_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("accept_latch", 96, 1.8, 62.5, w_s),
+            ],
+        ),
+        "gate_compute": gate_compute(
+            [
+                {"check": "fm4.lang_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "fm4.chamber_scorer", "neurons": 40, "mean_rate_hz": 62.5, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r02c-003",
+            clock_domain="fm4-lang-sim-relative-ms-t0-2026-09-02T03:00:00Z",
+            tags=["langmuir-ni", "ACCEPT", "REJECT", "serialized-reconstruction", "operational-t2"],
+            distillation_value="Langmuir ion-density head with independent CUBA LIF raster, bounded chamber scope, refractory, and adaptation for Spikenaut distillation.",
+        ),
+    }

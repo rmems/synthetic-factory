@@ -1,0 +1,4 @@
+                "Bustle-Shaw BS-5 simulated Midrex shaft already sits at 980 C bustle while a "
+                "flame-IR glint still reports 1040 against a 1020 C trip that the bustle TC has "
+                "not crossed. Bustle-first should ACCEPT the already-legal 1.85 t/h reformer "
+                "take; glint-first would hold a legal take on lighting.",

@@ -1,0 +1,31 @@
+def record_259():
+    ticks = [
+        tick(2496, 0.06, 0.04, 0.03, 0.02, 0.01),
+        tick(6240, 0.10, 0.06, 0.04, 0.02, 0.02),
+        tick(6470, 0.06, 0.04, 0.02, 0.01, 0.01),
+        tick(7140, 0.12, 0.08, 0.05, 0.03, 0.02),
+        tick(7500, 0.05, 0.04, 0.02, 0.01, 0.01),
+        tick(600000000, 0.03, 0.02, 0.02, 0.01, 0.01),
+    ]
+    params = OrderedDict(
+        [
+            ("speed_m_min", 2.40),
+            ("bed_C", 1280.0),
+            ("grate_id", 4),
+            ("hold", False),
+        ]
+    )
+    spikes = [
+        spike("ft.feed.ctx", 1.480, 0.42),
+        spike("ir.bed.c", 3.120, 0.58),
+        spike("dp.hood.smear", 4.660, 0.50),
+        spike("ir.bed.c", 6.240, 1.28),
+        spike("dp.hood.smear", 6.470, 1.10),
+        spike("ctrl.gate", 7.140, 0.96),
+        spike("ir.bed.c", 9.200, 0.74),
+        spike("dp.hood.smear", 12.800, 0.60),
+        spike("ctrl.gate", 18.400, 0.82),
+        spike("ir.bed.c", 24.600, 0.55),
+        spike("ft.feed.ctx", 29.800, 0.40),
+    ]
+    excerpt = independent_excerpt(48259, 56, 30000, 12, spike_avoid_us(spikes))

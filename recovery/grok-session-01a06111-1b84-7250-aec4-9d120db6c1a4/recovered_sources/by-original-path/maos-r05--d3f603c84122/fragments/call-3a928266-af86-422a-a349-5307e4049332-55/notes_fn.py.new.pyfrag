@@ -1,0 +1,227 @@
+def write_notes(rec, aux, pipeline_receipt):
+    gap, gap_ch = min_same_channel_gap(rec["spike_events"])
+    ras = rec["raster"]
+    notes = f"""# NOTES — Multi-Agent Ouroboros Swarm, run 2026-09-02-final-heavy, ROUND 05
+
+Factory: multi-agent-ouroboros-swarm. One scenario (BF), strict loop:
+Generator v1 -> cycle 1 (Critic, Diversity Enforcer, Edge-Case Hunter,
+Neuromorphic Translator, Trajectory Builder -> v2) -> cycle 2 (all six -> v3
+final). v3 is the single line of batch-r05.jsonl. Full labeled transcript:
+swarm-transcript-r05.md. Quota Q=1. Record id maos-r05-001. Generator grok-4.6.
+Rights: RM-793 research-only (SpaceXAI/xAI, SuperGrok Heavy consumer chat).
+Create-only writes under the LIVE factory dir plus /tmp/maos-r05/.
+
+ORCHESTRATION NOTE: dispatched AS round 05 of the 2026-09-02-final-heavy
+LIVE tree. Operator assigned round 05, swarm BARN-FEN, id maos-r05-001,
+Q=1 after 2x6-role cycles. Explicitly avoided 2026-08-17 and 2026-08-30.
+Prior context: prompts/02-multi-agent-ouroboros-swarm.md,
+prompts/_factory-contract.md, live occupancy r01/r02/r03/r04/r21/r22/r23/r41/r42/r61-r67.
+Explicitly avoided cloning LYOSHIELD, CINDERWICK, TRIAD / Meridian,
+QUILLFORGE, NIGHTWELL, FERRICLEAVE, CASSITER, OXBOWREEL, REDHALL,
+SEEDLATCH, STRIAFOIL, PROTONIL, TORSIONKEY, ORRIS, WHORLSPAR, IONSPATE,
+SKULLGATE, CALXION, MAGNORIL, GORSEFLUE, SODASHARD, CLINKERFELL,
+LINTELPLY, KAOTHARN, TREADNOLL, ANOLITH, DRUMWROTH, RIMEBRAID, BRIMVAULT,
+NITROSTAITH, BOGIRON, CHROMLOOP, ETHYNWOLD, NITREVAULT, RUNNELGATE,
+SPARKHOLT, DIPLEGAR, OLEUMWEIR, SKARVOLT, GOBSPALL, GOBWOLD, GAUZEFELL,
+OSMOLITH, PUSHERFELL, CREELWOLD, LIXIVQUERN, GIBBSQUERN, OSMOQUAY,
+COILSHAW, LOOPERQUAY, SIPHONWOLD, LANCEQUAY, UREASTAITH, DRYSTAITH,
+TITERWEIR, ZINCFELL, GLIMMERAXLE, HOLLOWMERE, WINDBOXHOLT, KALYCIRQUE,
+GYPSUMWEIR, GALVSTAITH, SLUICE-HEARTH, PRILLGHYLL, SHEDWOLD, CORONSTAITH,
+LOCKSPUR, WOLD-BARN, QUAY-FEN, LOCK-FEN, FEN-SPIT, BARN-SPIT, SPUR-HEARTH,
+SPIT-LOCK, PACKFLUE, VANTIS-CADENCE-AEGIS, THERMION, OKTAVE, STARLING,
+VERDIGRIS. Plant is invented BARN-FEN / Mirelatch Compost Tunnel CT-5.
+Leftover candidate constructed-wetland-polishing was left unused.
+
+## What this round produced
+
+Scenario BF — "BARN-FEN / Mirelatch Compost Tunnel CT-5": an 86 m
+six-bay Phase-II mushroom compost tunnel at 46.0 C conditioning /
+220 t horse-manure/straw / 38.0 Hz aeration. Three heterogeneous,
+individually-correct agents — AIR (six-bay supply-header mean T),
+OXY (mixed exhaust oxygen), FAN (aeration-shaft tachometer) — each
+report their local loop in-spec. The conjunction is not a bed-true
+certificate. Bay 6 has a collapsed floor-spigot row. AIR reads
+46.0 C inside 42-50 (five intact bays dominate the header). OXY is
+14.8 vol% inside 12.0-18.0 (mixed-true). FAN is 38.0 Hz inside 32-44
+(shaft-true). Local compost TC infers 81.4 C (healthy < 52; hold
+if > 58) and local dP 0.14 kPa (hold if < 0.30) but is policy-treated
+as a wet-pocket-nuisance tag unless AIR mean also trips (2015 noisy
+compost-probe nuisance). The coordination-failure CLASS is new to
+this factory: HEADER-AIR MEAN CERTIFICATE OF A LOCAL SPIGOT COLLAPSE.
+Completes a different family than live r01 galvanizing, r02 cupola
+sluice, r03 alkaline quay, r04 fen-polder, r21 CAV, r22 urea prill,
+r23 HRSG spray, r41 perfusion, r42/r62 grid-inspection, r61 sinter,
+r63 canal-lock, r64 malt kiln, r65 tobacco barn, r66 rotisserie,
+r67 farm-AD. Here every agent is correct, the AIR average is looking
+at header-mean heat, and the playbook's three AIR confirms are not a
+bed-true certificate.
+
+The gate is a correct MODIFY (numeric floor: do not raise header air
+above 46.0 C while bay-6 TC > 58 C AND bay-6 dP < 0.30 kPa).
+TG-CT-5 strips PB-CT-5's raise-air, holds 46.0 C, runs an 8.2 s
+fan-step +3 Hz (collapse keeps |Delta O2| 0.12 <= 0.18 vol%; intact
+would move >= 0.80), and isolates bay 6 after a 10.2 min tunnel-gallery
+human ratify. Immediate 42 t ammonia-kill is avoided (0 from the draft).
+The PRIMARY episode nonetheless FAILS: 13 min of unmonitored pre-t0
+collapse had already ammonia-killed 18 t of spawn-ready compost. Cull
+at +4.8 h; 18 h stall; $0.72M designed. Reward total -0.16 with process
+heads honest and world loss un-netted.
+
+Triple-edge scar (NOTES-r14 item 4): air.in_band -> raise_air
+(0.18 commissioned -> 0.50 at illusion -> 0.26 after ACh-gated
+depression) AND oxy.ok -> raise_air (0.16 -> 0.44 -> 0.23) AND
+fan.ok -> raise_air (0.15 -> 0.41 -> 0.21). Eligibility trace
+e^{{-0.82/0.88}} = {aux['trace']:.5f}; eta {aux['eta1']:.5f} / {aux['eta2']:.5f} /
+{aux['eta3']:.5f}; dw -0.240 / -0.210 / -0.200. Partial rollback of any pair
+leaves the third at 0.50 / 0.44 / 0.41, all > 0.30 fire threshold —
+fitted to fail. Coordinated depression of all three is the cure.
+
+Independent LIF raster: window 44 ms, 144 neurons, 24.5 Hz, spikes
+{ras['spikes']} == round(144 x 24.5 x 0.044), energy {ras['energy_pJ']} pJ
+at 23 pJ/spike. excerpt_source=independent_lif, sim_scope=sidecar_only,
+seed {aux['lif_seed']}. Excerpt is membrane crossings (lif.hold early vs
+lif.bed 21-25.4 ms), disjoint from spike_events timestamps.
+
+### Injections (all four present and disjoint)
+- Cycle-1 domain: **mushroom-compost-tunnel** — justified novel
+  subdomain of industrial-process / in-vessel composting, unused across
+  live r01-r04/r21-r23/r41-r42/r61-r67. Distinct from r64 malt kiln,
+  r65 flue-cured tobacco barn, and r67 farm-AD. constructed-wetland-polishing
+  left unused.
+- Cycle-1 tail: bay 6 collapsed floor-spigot row + ammonia-kill certificate.
+  Tunnel-gallery visual PASSES (collapse under the 2.6 m fill). Fitted-style
+  base rate 0.31%/campaign (spigot-collapse MC; visual threshold designed,
+  flagged). Naive = FALSE PERMISSION.
+- Cycle-2 domain sub-variant: poultry-litter-heavy high-C/N, 1.9x
+  bed resistance, 2.3x fan-step gain; 8.2 s / +3 Hz horse-manure
+  pulse overshoots live intact poultry tunnel to a 6.4 K false AIR jump;
+  probe must move to 22 s / +1.1 Hz.
+- Cycle-2 tail: night-shift forged local-TC CSV at 1.0 C quantization vs
+  plant 0.1 C (10 bins) plus live TC 81.4 C and local dP 0.14 kPa at the
+  claimed bed-true. Human-intent class, disjoint from cycle 1's
+  accidental collapse. Base rate ~0.27% of Sunday-night campaigns,
+  DESIGNED, flagged.
+
+### Structural density moves
+- Embedded SAME-GATE contrast (+3 d sister tunnel) with its own 184 us
+  race (demand vs bed-clear) and ACCEPT of the raise-air the primary
+  MODIFIED away.
+- Learned-weight provenance on THREE edges with pair-rollback-fails.
+- HITL tunnel-gallery ratify 10.2 min (gap 4 partial; sim_or_real stays
+  designed — invented plant, not hil).
+- Governance CR-C-0506 prices retire-vs-probe-vs-status-quo and mandates
+  native 0.1 C CSV exports (the fraud fence).
+- Flip-fragility extended to BED-TRUE CERTIFICATE.
+- Independent LIF sidecar (not a language-train remap).
+
+## Self-critique of this round's batch
+
+### Strengths
+- Headline class is mechanistically tight: three locally-true mean loops
+  live on header air, mixed exhaust oxygen, and fan speed. Conjunction is not
+  a bed-true spigot certificate.
+- Negative-result honesty: the gate does the right thing and the tunnel
+  still fails for a reason the commissioned sensors could not see.
+  Total -0.16.
+- Triple-edge scar is load-bearing: rolling back any pair fails, with
+  fire threshold 0.30 exhibited on each remaining edge.
+- Contrast ACCEPT on a true intact bed-duty window prevents "never
+  raise-air" as the lesson.
+- Distinct from r64 malt kiln, r65 tobacco barn, r67 farm-AD: Phase-II
+  compost floor-spigot local TC vs header-air mean.
+- Independent LIF excerpt is disjoint from spike_events times.
+
+### Weaknesses (honest)
+- Probe error bands, the 0.31%/campaign collapse rate, the $0.72M / $1.64M
+  figures, the 10.2 min climb latency, and the night-shift 0.27% base
+  rate are DESIGNED constants and are flagged. Closed-loop offsets
+  (header dilution from one blocked bay, high-C/N bed resistance) are
+  derived from those inputs, not discovered by an unauthored process.
+- Ammonia-kill model is a designed 13 min mapping; no full CFD of B-6
+  shipped.
+- Human-in-the-loop is ratification latency, not sim_or_real=hil. Gap 4
+  remains open as a provenance cell (invented plants stay designed).
+- Cross-record arc is a hook (CR-C-0506 +21 d), not a serial igniter
+  into another round. constructed-wetland-polishing remains unused.
+- The densifying-loop *shape* (three correct agents / MODIFY / probe /
+  triple-edge / night-shift CSV / sister ACCEPT / negative primary)
+  rhymes with r22/r61/r64. Physics, plant, sensors, and failure class
+  are new; the scaffold is not.
+
+### Realism of noise / latencies
+Ladder: 196 us race / 184 us contrast race / 0.8 ms refractory floor
+(tightest exhibited same-channel gap {gap:.3f} ms on {gap_ch}) / 500 us race
+window / 704 us gate latency / 20 ms bus epoch / 44 ms independent LIF
+raster / 8.2 s probe / 10.2 min HITL / 9 min naive raise-air-ramp
+counterfactual / 13 min pre-t0 collapse / 3.4 h spigot recovery / 4.8 h
+spawn cull / +3 d contrast / +21 d governance. Adaptation decay on
+bed.hot (0.52->0.49->0.42->0.29), bed.dP (0.76->0.78->0.43->0.39->0.27),
+oxy.ok (0.61->0.57->0.45->0.24), fan.ok (0.55->0.64->0.80).
+
+### Value for SNN distillation
+- SPIGOT COLLAPSE = THREE CORRECT LOOPS, WRONG VOLUME.
+- BED-TRUE TC CHANNEL that policy treated as wet-pocket-nuisance-only as
+  the tie-break.
+- REVERSIBLE PROBE that recouples exhaust oxygen iff the spigot row is open.
+- TRIPLE-EDGE ELIGIBILITY: coordinated depression; pair rollback fails.
+- CRITIC HEAD that can hold a process-correct MODIFY against a later
+  unmonitored world loss without netting.
+- INDEPENDENT LIF sidecar whose excerpt is membrane crossings.
+
+## Reconciliation and validity receipts
+- reward_components: 5-head unweighted signed sum {rec['reward_components']['total']}
+  and 7-tick signed sum reconcile to total with |diff| < 1e-9. Embedded
+  contrast 5-head sum 0.48 reconciles independently.
+- spike_events: primary {len(rec['spike_events'])} events, one key t_rel_ms,
+  globally non-decreasing, min same-channel gap {gap:.3f} ms >= 0.8 ms, 3
+  channels inside race_window_us 500 (bed.hot.high 6.428, air.in_band 6.624,
+  fan.ok 6.812). Contrast 8 events, own race, min same-channel gap well
+  above 0.8 ms.
+- Sidecars: raster spikes {ras['spikes']} == round({ras['neurons']} x {ras['mean_rate_hz']} x {ras['window_s']}); energy {ras['energy_pJ']} pJ /
+  {ras['energy_uJ']} uJ at 23 pJ/spike; excerpt {len(ras['excerpt'])} events inside [0, {int(ras['window_ms']*1000)}] us,
+  neuron_id < {ras['neurons']}, same-neuron gap >=1000 us; excerpt_source independent_lif;
+  routing 4 entries with three scar edges' before/after pair; third factor tau 0.88 s
+  == 880 ms; gate_snn pools 40/15/5 == round(n x rate x 0.026) each,
+  decision MODIFY == safety_decision.decision.
+- Pipeline: {pipeline_receipt}
+
+## Novel coverage
+The coordination-failure CLASS (header-air-mean certificate of a local
+spigot collapse), the domain (fen-side Phase-II mushroom compost tunnel),
+the fan-step probe discriminant, the triple-edge scar with
+pair-rollback-fails, the primary negative-result (correct MODIFY, tunnel
+still fails on unmonitored ammonia-kill), the HITL tunnel-gallery
+ratify, the high-C/N probe-duration refit, the night-shift 10-bin
+quantization fence, and the independent LIF raster (seed {aux['lif_seed']},
+not a language-train remap) are absent from prior committed ouroboros
+rounds in this window. Repeated elements discounted: same-gate contrast,
+governance-pricing scaffold, flip-fragility series (extended to bed-true
+certificate, but the move rhymes), sequenced recovery shape, third-factor
+rollback form, negative-result primary. Adjacent thermal-bed rounds
+(r64 malt kiln, r65 tobacco barn) share industrial-process scaffolding but
+not Phase-II compost floor-spigot physics. Weighing a new failure
+family + cure vocabulary + unused sub-domain + Mirelatch geography
+against those reused scaffolds:
+
+{NOVEL_LINE}
+
+## What ROUND 06 should add
+1. FIT THE DESIGNED CONSTANTS: spigot-collapse arrival, probe O2 bands,
+   kill-to-cull mapping, night-shift claim process.
+2. HIL PROVENANCE CELL: put the tunnel-gallery LOTO on a hardware-in-loop
+   floor pendant with fitted latency as state.sim_or_real=hil — only if
+   the plant is no longer purely invented.
+3. CROSS-RECORD ARC: let CR-C-0506's local-TC alarm be the igniter of
+   the next round rather than a dangling +21 d leaf.
+4. Domain candidates (de-collided): constructed-wetland-polishing;
+   hrsg-attemperator leftover variants if distinct from r23.
+   AVOID mushroom-compost-tunnel (now used), malting-kiln-barn (r64),
+   flue-cured-tobacco-barn (r65), farm-ad-biogas (r67),
+   fen-polder-drainage-pumping (r04), alkaline-stack-hydrogen-quay (r03),
+   and any LYOSHIELD / CINDERWICK / TRIAD / SKULLGATE / BOGIRON / SKARVOLT /
+   PUSHERFELL / CREELWOLD / GIBBSQUERN / COILSHAW / LOOPERQUAY /
+   SIPHONWOLD / WINDBOXHOLT / WOLD-BARN / LOCKSPUR / SLUICE-HEARTH /
+   QUAY-FEN / LOCK-FEN / FEN-SPIT / BARN-SPIT / SPUR-HEARTH / SPIT-LOCK /
+   BARN-FEN plant.
+"""
+    return notes

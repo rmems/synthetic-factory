@@ -1,0 +1,5 @@
+OUT_DIR = Path("/tmp/nelb-r61")
+BATCH = OUT_DIR / "batch-r61.jsonl"
+NOTES = OUT_DIR / "NOTES-r61.md"
+PIPELINES = Path("/home/raulmc/rmems/synthetic-factory/pipelines")
+sys.path.insert(0, str(PIPELINES))

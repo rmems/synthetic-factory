@@ -1,0 +1,25 @@
+        if rec["id"] == "ttf-r65-342":
+            ev = rec["proposed_action"]["evidence"]
+            if not (ev["live_C"] > ev["jacket_cap_C"]):
+                issues.append("342 live jacket not over cap")
+            if not (ev["idle_C"] < ev["jacket_cap_C"]):
+                issues.append("342 idle jacket not under cap")
+            if ev.get("live_status") != "LIVE" or ev.get("idle_status") != "IDLE":
+                issues.append("342 LIVE/IDLE status missing")
+            if ev.get("selected_string_tag") != "K-B":
+                issues.append("342 selected_string_tag not idle K-B")
+            if rec["executed_action"]["parameters"].get("bind_idle_string") is not True:
+                issues.append("342 bind_idle_string not true")
+            if rec["executed_action"]["parameters"].get("target_string") != "K-B":
+                issues.append("342 executed target_string not K-B")
+            if rec["executed_action"]["parameters"].get("steam_tph") != 1.1:
+                issues.append("342 expected idle-string 1.1 t/h steam")
+            if "recovery" not in rec["future_outcome"]:
+                issues.append("342 missing recovery")
+            table_to = {row["to"] for row in rec["raster"]["routing"]["table"]}
+            if "policy.live_clamp" in table_to:
+                issues.append("342 routing still has live_clamp")
+            if "policy.idle_clamp" not in table_to:
+                issues.append("342 routing missing idle_clamp")
+            if "wrong-string" not in rec["meta"]["tags"] or "idle-bank" not in rec["meta"]["tags"]:
+                issues.append("342 missing wrong-string/idle-bank tags")

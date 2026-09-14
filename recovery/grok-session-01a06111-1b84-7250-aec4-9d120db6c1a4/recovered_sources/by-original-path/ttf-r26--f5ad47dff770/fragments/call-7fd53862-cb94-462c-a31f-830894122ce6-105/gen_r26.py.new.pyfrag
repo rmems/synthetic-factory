@@ -1,0 +1,22 @@
+                            [
+                                "bpm.offset.mm 2.40 mm",
+                                "kly.fwd.kW 18.0 kW",
+                            ],
+                        ),
+                        (
+                            "semantics",
+                            "BPM-first latches REJECT hold 0 percent drive; klystron-first would "
+                            "commit 18 percent on an apparent 18.0 kW under-read.",
+                        ),
+                        (
+                            "window_derivation",
+                            "380 us = one BPM sample slot versus waveguide coupler integration "
+                            "on this HIL injector bus.",
+                        ),
+                        (
+                            "order_evidence_note",
+                            "Margin 182 us vs combined jitter ~64 us (BPM 30 + kly 34): 2.8x "
+                            "over a 2.0x trust floor. Pad injects the dummy-load 90-130 us before "
+                            "the BPM volume (geometric lag, not a sensor fault); the apparent "
+                            "18.0 kW packet is still the loser in this 380 us window.",
+                        ),

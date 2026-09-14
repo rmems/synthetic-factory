@@ -1,0 +1,2 @@
+#!/usr/bin/env python3
+"""Generate NELB round-37 research-only bridge pairs (do not write outputs/raw/)."""

@@ -1,0 +1,26 @@
+                "Prill 1.80 mm won by 220 us; commanded 28 t/h is 6 t/h under the 34 t/h "
+                "shower cap; draft keeps the 2.40 kPa floor. ACCEPT the hold. A draft-led "
+                "extra-cut would abort a legal tower.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "prill_mm",
+                            OrderedDict(
+                                [
+                                    ("cap", 2.40),
+                                    ("observed", 1.80),
+                                ]
+                            ),
+                        ),
+                        (
+                            "draft_kPa",
+                            OrderedDict(
+                                [
+                                    ("cap", 2.40),
+                                    ("commanded", 1.80),
+                                ]
+                            ),
+                        ),

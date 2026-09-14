@@ -1,0 +1,18 @@
+- Generator self-check: Jaccard max {jmax:.3f} < 0.4; TTF-M6 prefix; refractory; spike budgets; exactly one incorrect gate (416 wrong-reject)
+- Pipeline audit (run after emit): `check_jsonl` FactoryStaging, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrote `outputs/raw/`.
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (417). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. 419 ACCEPT is a new plant/solver (1D acrylic-acid hotspot kernel), not a new gate class.
+4. 416 wrong-reject is convictable from HART PV-vs-SV tags; a later round could bind `hart_sv_as_pv && !hart_sv_is_pv` as the only critic boolean so a probe never has to know "CR-3".
+5. ISI histogram is still optional densification, not an r80 requirement.
+
+## Next densification target
+
+Publish the leftover-SV freshness predicate as a sidecar boolean (`hart_sv_is_pv`) so a HART-SV-as-PV REJECT is convictable without the carbonylation-name story. Optional: labeled LIF on a second record, or an ISI histogram sidecar. Remaining unused wrong-REJECT subclasses include **stale-handshake / heartbeat-as-PV**. Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+Novel coverage: 16.5%

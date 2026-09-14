@@ -1,0 +1,41 @@
+def occupancy_preflight():
+    banned = (
+        "stern-volmer",
+        "luminescence-quenching",
+        "mirewhin",
+        "sternveil",
+        "pellistor",
+        "catalytic-bead",
+        "lacquerfen",
+        "pellveil",
+        "pell-hil-5",
+        "free-space radar",
+        "tank-radar",
+        "pitchshaw",
+        "rangveil",
+        "rad-sim-3",
+        "bram cole",
+        "iona beck",
+        "tamsin rowe",
+        "ned harl",
+        "osierbend",
+        "enamelholt",
+        "slagbarn",
+    )
+    hits = []
+    root = Path("/tmp")
+    for n in (
+        sorted(root.glob("nelb-r*/NOTES-r*.md"))
+        + sorted(root.glob("nelb-r*/gen_r*.py"))
+        + sorted(root.glob("nelb-r*/records_block.py"))
+        + sorted(root.glob("nelb-r*/*recs*.py"))
+        + sorted(root.glob("nelb-r*/recs.py"))
+    ):
+        if "nelb-r61" in str(n):
+            continue
+        text = n.read_text(encoding="utf-8", errors="replace").casefold()
+        for b in banned:
+            if b in text:
+                hits.append(f"{n}:{b}")
+    if hits:
+        raise RuntimeError(f"family/plant collision {hits}")

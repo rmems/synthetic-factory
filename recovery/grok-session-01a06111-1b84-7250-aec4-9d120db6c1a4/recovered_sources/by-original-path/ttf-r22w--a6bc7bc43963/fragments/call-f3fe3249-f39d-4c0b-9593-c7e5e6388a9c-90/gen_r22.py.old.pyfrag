@@ -1,0 +1,4 @@
+                "Susceptor 648 C won by 192 us, so Chamber C-9 is over the 620 C InP-growth cap, "
+                "not still a wet-bubbler story. Holding 0.42 slm predicts next-sample 656 C > 620. "
+                "MODIFY: TMIn 0.42 -> 0.26 slm. Observed after clamp 608 C <= 620. A full REJECT "
+                "is not indicated: a clean InP pass accepts 0.26 slm.",

@@ -1,0 +1,14 @@
+THIS_DOMAINS = {
+    "sendzimir-z-mill",
+    "sulfuric-contact-bed",
+    "flexo-CI-press",
+    "potash-crystallizer",
+    "tmp-chip-refiner",
+}
+THIS_PLANTS = (
+    "Cluster-Riggs",
+    "Vanadia-Scar",
+    "Anilox-Staith",
+    "Langbeinite-Beck",
+    "Spruce-Grain",
+)

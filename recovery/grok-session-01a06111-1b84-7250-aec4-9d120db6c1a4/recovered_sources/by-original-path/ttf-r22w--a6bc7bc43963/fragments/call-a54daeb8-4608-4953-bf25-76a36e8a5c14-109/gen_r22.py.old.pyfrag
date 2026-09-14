@@ -1,0 +1,3 @@
+Independent LIF #1: `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 22801, stim `[22800, 26000]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.clog` 22.8–26 ms), not a 1:1 remap of `spike_events`.
+
+**ttf-r22c-905** is the second labeled LIF (flagged gap from r61). Success-path membrane crossings on an already-legal ACCEPT. Seed 22805, stim `[4000, 7200]` covering the race+gate inside the 22 ms raster.

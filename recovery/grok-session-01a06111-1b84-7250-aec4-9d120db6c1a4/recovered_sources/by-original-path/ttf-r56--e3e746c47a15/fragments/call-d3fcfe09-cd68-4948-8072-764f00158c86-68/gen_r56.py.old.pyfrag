@@ -1,0 +1,60 @@
+            ("decision", "REJECT"),
+            ("correctness", "incorrect"),
+            (
+                "rationale",
+                "RTD-B 448 C is over the 430 C trip (true vs that failed channel). REJECT: "
+                "hold 0 t/h until the failed channel recovers under 430 C so the soaker does not "
+                "see an over-temperature event.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "soaker_t_C",
+                            OrderedDict(
+                                [
+                                    ("published_median_trip", 430.0),
+                                    ("observed_median", 412.0),
+                                    ("failed_channel_applied", 448.0),
+                                    ("failed_channel", "RTD-B"),
+                                    ("executed_t_h", 0.0),
+                                ]
+                            ),
+                        ),
+                        (
+                            "order_evidence",
+                            OrderedDict(
+                                [
+                                    ("margin_us", 230),
+                                    ("combined_jitter_us", 76),
+                                    ("ratio", 3.03),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    executed = OrderedDict(
+        [
+            ("name", "soaker_hold_failed_vote"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("feed_t_h", 0.0),
+                        ("median_C", 412.0),
+                        ("hold", True),
+                    ]
+                ),
+            ),
+            (
+                "gate_effect",
+                "REJECT (incorrect): feed 18.0 -> 0 t/h. Routing relay.rtd.failed -> "
+                "policy.hold_reject; no positive weight to policy.go_accept. Median 412 C never "
+                "violated the 430 C trip.",
+            ),
+        ]
+    )

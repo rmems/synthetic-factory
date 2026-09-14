@@ -1,0 +1,46 @@
+{
+  "agent_ids": [
+    "01a0649c-a50a-75b2-8135-8b2698de5d29",
+    "01a064a7-40ce-71e3-82d4-d0619f7dfd91",
+    "01a064a7-40ce-71e3-82d4-d07cfb51b6ba",
+    "01a064a9-45b1-7b42-8eff-f69f0e8e303a"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations"
+  ],
+  "event_count": 1,
+  "final_state": "unknown",
+  "hunk_evidence_count": 1,
+  "original_basename": "build_r64.py",
+  "original_path": "/tmp/maos-r64/build_r64.py",
+  "path_key": "maos-r64--56b11208c872",
+  "terminal_event_ids": [
+    "01a0649c-a50a-75b2-8135-8b2698de5d29:call-10cc8428-62d1-4007-b998-64a905d6840a-65",
+    "01a064a7-40ce-71e3-82d4-d0619f7dfd91:call-2a4bf3bc-073e-43dc-9a0f-be483a8660fd-35",
+    "01a064a7-40ce-71e3-82d4-d07cfb51b6ba:call-187052c8-4368-4412-a5a6-d07f4a3f5cac-46",
+    "01a064a7-40ce-71e3-82d4-d07cfb51b6ba:call-31b6c42c-4c9b-4772-a9eb-d423852e06e9-34",
+    "01a064a9-45b1-7b42-8eff-f69f0e8e303a:call-2458ff8b-d607-4e8e-83d8-210d53ff3772-38",
+    "01a064a9-45b6-7620-90c4-3b40c32d6791:call-8e9c8a1f-cb10-4d24-90e6-eb89bb6f4041-30",
+    "01a064a9-45b6-7620-90c4-3b40c32d6791:call-c40f8444-a4d3-4373-b442-92b0a0b231a2-42",
+    "01a064a9-45b6-7620-90c4-3b40c32d6791:call-dc308e42-cb84-4afa-af19-5c1796f3cbfa-40",
+    "01a064ab-4286-7541-ad2d-366a159f82fd:call-ccd3dc3a-a4c2-4303-bfc2-d4159e38059d-21",
+    "01a064ac-ed8f-71b2-af77-6bca90a338e8:call-473a41dd-b946-4910-a164-23ea4f0643c2-20"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 1,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a50a-75b2-8135-8b2698de5d29:call-b7ba2ce6-0a67-46da-a11b-5ee7b513b224-64",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r64--56b11208c872/fragments/call-b7ba2ce6-0a67-46da-a11b-5ee7b513b224-64/build_r64.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/maos-r64--56b11208c872/fragments/call-b7ba2ce6-0a67-46da-a11b-5ee7b513b224-64/build_r64.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

@@ -1,0 +1,3 @@
+OUT_DIR = Path("/tmp/ttf-r48")
+BATCH_PATH = OUT_DIR / "batch-r48.jsonl"
+NOTES_PATH = OUT_DIR / "NOTES-r48.md"

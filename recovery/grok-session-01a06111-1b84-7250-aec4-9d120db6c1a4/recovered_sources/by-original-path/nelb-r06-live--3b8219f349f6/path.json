@@ -1,0 +1,45 @@
+{
+  "agent_ids": [
+    "01a064ac-ed8e-75e2-955a-046a1c0c7610"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 1,
+  "final_state": "unknown",
+  "hunk_evidence_count": 1,
+  "original_basename": "_head.py",
+  "original_path": "/tmp/nelb-r06-live/_head.py",
+  "path_key": "nelb-r06-live--3b8219f349f6",
+  "terminal_event_ids": [
+    "01a064ac-ed8e-75e2-955a-046a1c0c7610:call-0d055089-e31a-4b8b-aefa-32e01be8b617-44",
+    "01a064ac-ed8e-75e2-955a-046a1c0c7610:call-1eeb3adb-6a40-453e-835a-fbbb4e74adaa-37"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 2,
+  "unresolved_events": [
+    {
+      "channel": "terminal",
+      "event_id": "01a064ac-ed8e-75e2-955a-046a1c0c7610:call-1eeb3adb-6a40-453e-835a-fbbb4e74adaa-37",
+      "journal_line": 207,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a064ac-ed8e-75e2-955a-046a1c0c7610/updates.jsonl",
+      "operation": "inline_python_write_text",
+      "reason": "inline_python_write_text was recorded but is not conclusively reproducible without execution",
+      "timestamp_utc": "2026-09-03T00:56:07.938Z"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a064ac-ed8e-75e2-955a-046a1c0c7610:call-798aa259-527e-4837-9c2d-e59d4551e6b6-40",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r06-live--3b8219f349f6/fragments/call-798aa259-527e-4837-9c2d-e59d4551e6b6-40/_head.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r06-live--3b8219f349f6/fragments/call-798aa259-527e-4837-9c2d-e59d4551e6b6-40/_head.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

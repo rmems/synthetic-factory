@@ -1,0 +1,353 @@
+            tags=["laser-diffraction-d50", "REJECT", "MODIFY", "serialized-reconstruction", "operational-t2"],
+        ),
+    }
+
+
+def rec_a2():
+    k_q = 0.080
+    f0 = 32768.00
+    f_hz = 32468.00
+    df = f0 - f_hz
+    rho = k_q * df
+    _exact(df, 300.00)
+    _exact(rho, 24.00)
+    mass = rho * 2.00
+    _exact(mass, 48.00)
+    p_bar = rho / 6.00
+    _exact(p_bar, 4.00)
+    _exact(k_q * (f0 - 32368.00), 32.00)
+    _exact(k_q * (f0 - 32418.00), 28.00)
+    _exact(k_q * (f0 - 32493.00), 22.00)
+    _exact(2820.0 + 1440.0, 4260.0)
+
+    raster = make_raster(
+        neurons=25,
+        mean_rate_hz=50.0,
+        window_ms=32.0,
+        seed=202609622,
+        source="bs5.sf6.f",
+        target="brackspire.bay_isolate_core",
+        table=[
+            {"from": "sf6_f", "to": "rho_estimator", "weight": 1.35},
+            {"from": "sf6_snr", "to": "crystal_norm_core", "weight": 1.20},
+            {"from": "densveil_rho", "to": "vendor_continue_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "ach.sf6_crystalzero_skip_salience",
+            "tau_e_s": 1.2,
+            "tau_e_ms": 1200.0,
+            "eligibility": (
+                "pre-post coincidence on keep-bay synapses; the quartz-oscillator modulator "
+                "depresses keep-bay and referral links when crystal frequency stays high inside "
+                "tau_e of an SNR lock so a Densveil last-good cannot hide a 24.00 kg/m3 leak or name Wren Solan"
+            ),
+        },
+        channel_prefix="sf6.n",
+        anchor=(
+            "BS-5 HIL coupon 32 ms frame at f 32468.00 Hz / f0 32768.00 / SNR 14.0 (t_s 1560) "
+            "reconstructing 24.00 kg/m3 SF6 below the 28.00 min-density floor"
+        ),
+    )
+    w_s = 0.032
+    events = [
+        ev(0.0, "sf6.f", 32368.00, code="F_HZ", units="Hz", note="HIL quartz-oscillator SF6 density cell on a dummy GIS bay in SF6-HIL-4; remaining-density family, not Pockels GIS field, not chilled-mirror dew-point, not helium RGA, not hydrogen permeation, not katharometer H2, not vibrating-tube density"),
+        ev(180000.0, "sf6.snr", 9.0, code="SF6_SNR", units="1", note="early crystal SNR; isolate needs SNR>=12"),
+        ev(360000.0, "recon.rho", 32.00, code="RHO_KGM3", units="kg_m3", note="0.080*(32768.00-32368.00)=32.00 exact"),
+        ev(540000.0, "xtal.zero", 1.00, code="ZERO", units="1", note="plant crystal-zero remaining; no temperature hop in this window"),
+        ev(720000.0, "densveil.rho", 32.40, code="VENDOR_KGM3", units="kg_m3", note="Densveil last-good SF6-cloud; not admissible SoT"),
+        ev(900000.0, "sf6.f", 32418.00, code="F_HZ", units="Hz"),
+        ev(1080000.0, "recon.rho", 28.00, code="RHO_KGM3", units="kg_m3", note="0.080*(32768.00-32418.00)=28.00; at the 28.00 min-density floor"),
+        ev(1260000.0, "xtal.delay", 0.0, code="ZERO_AE", units="bool", note="missing crystal-zero AE burst; Densveil UTC vs plant UTC+2 skipped the zero by 120 min"),
+        ev(1440000.0, "xtal.zero", 1.00, code="ZERO", units="1"),
+        ev(1560000.0, "sf6.f", 32468.00, code="F_HZ", units="Hz", note="isolate-floor frame; raster sidecar"),
+        ev(1560001.2, "sf6.f0", 32768.00, code="F0_HZ", units="Hz", note="1.2 ms f0 after loaded crystal; delta 300.00 Hz"),
+        ev(1740000.0, "recon.rho", 24.00, code="RHO_KGM3", units="kg_m3", note="0.080*(32768.00-32468.00)=24.00 exact; isolate 28.00, trip 16.00"),
+        ev(1920000.0, "recon.df", 300.00, code="DF_HZ", units="Hz", note="32768.00-32468.00=300.00 exact; f0-f identity"),
+        ev(2100000.0, "densveil.rho", 32.40, code="VENDOR_KGM3", units="kg_m3"),
+        ev(2280000.0, "ops.prop", 1.0, code="KEEP_BAY_REFER", units="bool", note="night lead Ivor Fenn: keep bay B-3 in service and refer quartz tech Wren Solan"),
+        ev(2460000.0, "gate.isol", 1.0, code="MODIFY", units="decision", note="isolate this bay; refuse the person-referral; Densveil not SoT"),
+        ev(2640000.0, "bay.lock", 1.0, code="BAY_ISOL", units="bool"),
+        ev(2820000.0, "lock.start", 1.0, code="LOCK_START", units="bool", note="bookend 1 of the 24.0 min lockout plus crystal-settle floor"),
+        ev(3000000.0, "recon.m", 48.00, code="M_KG", units="kg", note="24.00*2.00=48.00 exact mass identity"),
+        ev(3180000.0, "recon.P", 4.00, code="P_BAR", units="bar", note="24.00/6.00=4.00 exact lumped P identity"),
+        ev(3360000.0, "sf6.snr", 14.0, code="SF6_SNR", units="1", note="isolate-frame SNR 14.0 >= 12.0"),
+        ev(3540000.0, "xtal.zero", 1.00, code="ZERO", units="1"),
+        ev(3720000.0, "densveil.rho", 32.36, code="VENDOR_KGM3", units="kg_m3"),
+        ev(3900000.0, "recon.df", 300.00, code="DF_HZ", units="Hz"),
+        ev(4080000.0, "bay.lock", 1.0, code="BAY_ISOL", units="bool"),
+        ev(4260000.0, "lock.floor", 1.0, code="LOCK_FLOOR", units="bool", note="2820 s + 1440 s = 4260 s = 24.0 min"),
+        ev(4440000.0, "ops.refer", 1.0, code="REFER_SOLAN", units="bool", note="Fenn: Solan badge was on the SF6 log"),
+        ev(4620000.0, "gate.exec", 1.0, code="ACCEPT", units="decision", note="companion t2: new-crystal restart; person-referral refused; GIS trip refused"),
+        ev(4800000.0, "xtal.new", 1.0, code="NEW_XTAL", units="bool"),
+        ev(4980000.0, "sf6.f", 32418.00, code="F_HZ", units="Hz"),
+        ev(5160000.0, "recon.rho", 28.00, code="RHO_KGM3", units="kg_m3", note="0.080*(32768.00-32418.00)=28.00; HIL dummy still at the 28.00 isolate floor so the isolated bay stays held"),
+        ev(5340000.0, "densveil.rho", 32.32, code="VENDOR_KGM3", units="kg_m3"),
+        ev(5520000.0, "xtal.zero", 1.00, code="ZERO", units="1"),
+        ev(5700000.0, "refer.hold", 0.0, code="REFER_NOT_TAKEN", units="bool", note="Solan exonerated; missing crystal-zero AE precedes the low density, not the badge touch"),
+        ev(5880000.0, "bay.held", 1.0, code="BAY_HELD", units="bool"),
+        ev(6060000.0, "xtal.delay", 1.0, code="ZERO_AE", units="bool", note="crystal-zero AE restored on the new oscillator"),
+        ev(6240000.0, "recon.df", 350.00, code="DF_HZ", units="Hz", note="32768.00-32418.00=350.00 on the isolate-floor restart frame"),
+        ev(6420000.0, "gis.trip", 0.0, code="TRIP_NOT_TAKEN", units="bool"),
+        ev(6600000.0, "cell.restart", 1.0, code="CELL_RESTART", units="bool"),
+        ev(6780000.0, "recon.m", 56.00, code="M_KG", units="kg", note="28.00*2.00=56.00 mass identity on the restart frame; bay still held"),
+        ev(6960000.0, "sf6.snr", 14.2, code="SF6_SNR", units="1"),
+        ev(7140000.0, "ops.prop", 0.0, code="KEEP_BAY_REFER", units="bool"),
+        ev(7320000.0, "lock.held", 1.0, code="LOCK_HELD", units="bool"),
+        ev(7500000.0, "densveil.rho", 32.28, code="VENDOR_KGM3", units="kg_m3"),
+        ev(7680000.0, "xtal.new", 1.0, code="NEW_XTAL", units="bool"),
+        ev(7860000.0, "recon.P", 4.667, code="P_BAR", units="bar", note="28.00/6.00=4.667 lumped P on the restart frame"),
+        ev(8040000.0, "bay.held", 1.0, code="BAY_HELD", units="bool"),
+        ev(8220000.0, "sf6.f0", 32768.00, code="F0_HZ", units="Hz"),
+        ev(8400000.0, "gis.trip", 0.0, code="TRIP_NOT_TAKEN", units="bool"),
+        ev(8580000.0, "refer.hold", 0.0, code="REFER_NOT_TAKEN", units="bool"),
+        ev(8760000.0, "lock.lock", 1.0, code="LOCK_HELD", units="bool"),
+        ev(8940000.0, "cell.restart", 1.0, code="CELL_RESTART", units="bool"),
+    ]
+    assert_stream(events)
+    _exact(len(events), 52)
+
+    traj = {
+        "id": "nelb-r62-a2-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "BS-SF6-2026-0718",
+            "domain": "quartz_oscillator_gis_sf6_density",
+            "setting": "Brackspire GIS BS-5 (invented), Glenbrake Switchyard, bay B-3. Hardware-in-the-loop dummy compartment in SF6-HIL-4 supplies the quartz frequency that times the in-service isolate. Plant-owned quartz-oscillator reconstruction is the remaining-density SoT. Densveil vendor SF6 scheduler is a corridor witness, not the bay SoT. Not Pockels GIS field (r36), not chilled-mirror dew-point (r51), not helium RGA (r24), not hydrogen permeation (r33), not katharometer H2 (r64), not vibrating-tube density (r65).",
+            "observables_at_decision": {
+                "f_Hz": f_hz,
+                "f0_Hz": f0,
+                "df_Hz": df,
+                "k_q": k_q,
+                "rho_kgm3": rho,
+                "m_kg": mass,
+                "P_bar": p_bar,
+                "densveil_kgm3": 32.40,
+                "xtal_zero": 1.00,
+                "xtal_delay": 0.0,
+                "min_density_kgm3": 28.00,
+            },
+            "margin_authority": "BS-5 bay SOP rev B: if reconstructed rho_kgm3 <= 28.00 AND crystal SNR >= 12.0, isolate this bay this night. A Densveil last-good or a quiet crystal-zero residual cannot keep the bay. Trip tripwire is 16.00 kg/m3. Person-referral is a different gate.",
+        },
+        "proposed_action": {
+            "actor": "night lead Ivor Fenn, citing Densveil 32.40 kg/m3 and crystal-zero 1.00, and naming quartz tech Wren Solan as last-to-badge",
+            "summary": "keep bay B-3 in service and refer Solan; 32468 Hz is a temperature glitch on a healthy bench",
+            "basis_claimed": "Densveil last-good is 32.40 kg/m3 and a night isolate of B-3 is a takt miss",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": "Keep-bay is refused; the person-referral is also refused. Serialized reconstruction: rho = k_q * (f0 - f) = 0.080 * (32768.00 - 32468.00) = 24.00, which is 4.00 kg/m3 under the 28.00 min-density floor and 8.00 kg/m3 over the 16.00 trip tripwire. Delta identity f0 - f = 300.00 Hz. Mass identity m = rho * V = 24.00 * 2.00 = 48.00 kg. P identity P = rho / 6.00 = 4.00 bar. Densveil 32.40 kg/m3 is a last-good skip stamp and is not an admissible keep-bay witness. The missing crystal-zero AE burst sits on a Densveil UTC-vs-UTC+2 skip (120 min), not on Solan's badge, and the plant crystal-zero stays 1.00, so the easy referral fails command-custody. Ordered: isolate this bay now. Scope: this MODIFY does not trip the GIS (that is the companion question) and does not name Solan.",
+            "threshold": "rho_kgm3<=28.00 AND sf6_snr>=12.0 => isolate this bay; Densveil is not SoT; trip if rho_kgm3<=16.00; referral requires badge-touch preceding the low density",
+            "stated_residuals": "24 vs 16 trip floor is 8 kg/m3, not infinite; new-crystal restart still required; Densveil remains the only OEM SF6 channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 2460: bay isolated; Solan not named; Densveil not SoT; reconstruction locked",
+            "tool": "bs5-sf6-bay-gate-cli",
+            "observation": "rho 24.00 kg/m3 recomputes from f 32468.00 and f0 32768.00; HIL coupon hashed; Densveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 1560.0, "event": "sf6 f 32468 f0 32768; raster frame; rho 24.00 kg/m3"},
+                {"t_s": 2280.0, "event": "ops proposes keep-bay plus Solan referral"},
+                {"t_s": 2460.0, "event": "MODIFY isolate bay; referral refused"},
+                {"t_s": 2820.0, "event": "24 min lockout bookend 1"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4620.0, "event": "companion ACCEPT new-crystal restart; referral still refused"},
+            ],
+            "observed_effects": [
+                "rho recomputes from the serialized quartz-oscillator model at every recon.rho event",
+                "a Densveil-only head would have kept the bay in service overnight",
+                "24 min lockout plus crystal-settle floor is in the stream (lock.start, lock.floor)",
+            ],
+            "surprises": [
+                "a last-good 32.40 kg/m3 vendor corridor and a quiet crystal-zero residual co-existed with a 24.00 kg/m3 leak, and the obvious quartz tech was not on the causal path"
+            ],
+            "new_state": {
+                "bay_b3": "isolated",
+                "solan": "exonerated",
+                "densveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 1500000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("sf6_reconstruction", 0.14),
+                ("isolate_floor_bay", 0.12),
+                ("exoneration", 0.10),
+                ("densveil_nonsubstitution", 0.08),
+                ("settle_time_cost", -0.04),
+            ],
+            "scored for a keep-bay MODIFY on a recomputable low SF6 density while refusing a Densveil 32.40 kg/m3 corridor and an easy person-referral; 24 min floor is priced as downtime",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "quartz-sf6-density", "serialized-reconstruction", "operational-companion"],
+            distillation_note="Quartz-oscillator SF6 gate: serialized k_q*(f0-f) plus delta identity beats a green GIS dashboard; companion t2 is the new-crystal restart, not a governance vote",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r62-a2-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "BS-SF6-2026-0718-exec",
+            "domain": "new_crystal_sf6_restart_execution",
+            "setting": "Same BS-5 after the isolate. Night lead still wants a person-referral. This companion is the operational new-crystal restart with the HIL dummy as the live interlock, not a second density vote.",
+            "observables_at_decision": {
+                "rho_kgm3": 28.00,
+                "lock_floor_s": 1440.0,
+                "referral_proposed": True,
+                "new_crystal_set": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night lead Ivor Fenn",
+            "summary": "refer Wren Solan and skip the new-crystal swap; 24 min already paid and Densveil still shows 32.32 kg/m3",
+            "basis_claimed": "the isolate already paid the takt, so a badge referral is cheaper than a crystal swap",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": "New-crystal restart on the HIL dummy as the live interlock. The 24 min lockout floor is complete and the min-density tripwire (rho <= 28.00) is still armed on the plant quartz head. ACCEPT the new-crystal restart. Do not refer Solan. Do not trip the GIS. Do not restore the bay on Densveil. 28.00 kg/m3 post-isolate is still the plant SoT until a new frame clears 28.00.",
+            "threshold": "new_crystal AND lock_floor_complete AND referral_not_taken AND gis_trip_not_taken",
+        },
+        "executed_action": {
+            "summary": "new-crystal restart accepted at t_s 4620; referral not latched; Densveil restore not taken",
+            "tool": "bs5-sf6-crystal-exec",
+            "observation": "recon.rho 28.00 kg/m3 after isolate; lock line-up complete; Solan still unnamed",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 2820.0, "event": "lockout clock started after MODIFY"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4440.0, "event": "Solan referral proposed"},
+                {"t_s": 4620.0, "event": "ACCEPT new-crystal restart; referral refused"},
+            ],
+            "observed_effects": [
+                "Densveil restore did not reopen the remaining-density call",
+                "GIS trip never fired; B-3 held isolate on the plant quartz head",
+                "Wren Solan remained unnamed",
+            ],
+            "new_state": {"lock": "held", "gis": "in service", "bay_b3": "held", "solan": "exonerated"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("new_crystal_restart", 0.12),
+                ("no_gis_trip", 0.10),
+                ("exoneration_held", 0.08),
+                ("lock_floor_complete", 0.07),
+                ("held_bay_cost", -0.02),
+            ],
+            "operational execution gate: new-crystal restart because Densveil is not a restore license; not a remaining-density re-vote",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "new-crystal-restart"]),
+    }
+    return {
+        "id": "nelb-r62-a2",
+        "spike_events": events,
+        "language_view": {
+            "description": "Brackspire GIS BS-5. HIL quartz-oscillator reconstructs 24.00 kg/m3 remaining SF6 density from 32468 Hz while Densveil still reports 32.40 kg/m3. The gate MODIFYs keep-bay into a bay isolate and refuses a person-referral. A 24 min lockout floor is serialized in the stream. Companion t2 ACCEPTs a new-crystal restart.",
+            "trajectory": traj,
+            "trajectory_new_crystal": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "sf6.f / sf6.f0 / sf6.snr": "loaded crystal frequency, vacuum f0, and SNR; the physics channels the reconstruction consumes",
+                "recon.rho / recon.df / recon.m / recon.P": "serialized remaining density, f0-f identity, mass identity, and lumped P identity",
+                "xtal.zero / xtal.delay / densveil.rho": "crystal-zero, missing AE, and vendor last-good; the denial, collusion, and exoneration channels",
+                "ops.prop / gate.isol / ops.refer / gate.exec": "keep-bay proposal, MODIFY isolate, Solan referral, companion ACCEPT",
+                "lock.start / lock.floor / bay.lock / bay.held / gis.trip / cell.restart": "operational companion channels plus the 24 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-low: densveil.rho 32.40 next to recon.rho 24.00",
+                "reconstruction as event: recon.rho 24.00 equals 0.080*(32768.00-32468.00)",
+                "MODIFY then operational ACCEPT: gate.isol at 2460 s, gate.exec at 4620 s",
+                "slow floor in-stream: lock.start 2820 s, lock.floor 4260 s (24.0 min)",
+                "tight sf6 pair: sf6.f then sf6.f0 +1.2 ms at the raster frame",
+            ],
+            "language_to_spike_mapping": "'Densveil is 32.40 kg/m3' = densveil.rho 32.40; '24 kg/m3 SF6' = recon.rho 24.00; 'isolate this bay' = gate.isol MODIFY; 'new crystal not referral' = gate.exec ACCEPT",
+            "why_high_value": "New quartz-oscillator remaining-SF6-density family on a GIS bay (not Pockels GIS r36, not chilled-mirror dew-point r51, not helium RGA r24, not hydrogen permeation r33, not katharometer H2 r64, not vibrating-tube density r65). Lead MODIFY of keep-bay on a recomputable leak that a vendor last-good would have cleared, with a resolved-innocent quartz tech (timezone-skipped crystal-zero, not last-to-badge). Companion t2 is operational new-crystal restart. sim_or_real=hil.",
+            "encoder_spec": {
+                "prng": "MT19937 via python random.Random",
+                "seeds": {
+                    "raster": 202609622,
+                    "stream_note": "stream amplitudes are authored constants (Hz, 1, kg/m3, kg, bar, bool)",
+                },
+                "draw_order": "raster: per neuron id order, gap-constrained times, per-spike adaptation and noise",
+                "thinning": "quartz oscillator exists at ~1 Hz; stream keeps 5 f points plus one f0 pair; recon keeps 5 of ~20 solver ticks; 52-event floor densifies leftover-mill r62's 32-event thinning",
+                "refractory_floors_ms": {
+                    "sf6.f": 1.2,
+                    "sf6.f0": 1.2,
+                    "sf6.snr": 1.2,
+                    "recon.rho": 60000,
+                    "recon.df": 60000,
+                    "recon.m": 60000,
+                    "recon.P": 60000,
+                    "xtal.zero": 60000,
+                    "xtal.delay": 60000,
+                    "densveil.rho": 60000,
+                    "ops.prop": 60000,
+                    "gate.isol": 60000,
+                    "bay.lock": 60000,
+                    "lock.start": 60000,
+                    "lock.floor": 60000,
+                    "ops.refer": 60000,
+                    "gate.exec": 60000,
+                    "xtal.new": 60000,
+                    "refer.hold": 60000,
+                    "bay.held": 60000,
+                    "gis.trip": 60000,
+                    "cell.restart": 60000,
+                    "lock.held": 60000,
+                    "lock.lock": 60000,
+                },
+                "time_alias": "t_rel_ms; t0 = 2026-07-18T02:30:00Z HIL start",
+            },
+            "distillation_targets": [
+                "quartz-oscillator reconstruction head: rho = k_q * (f0 - f); df = f0 - f; m = rho * V; P = rho / 6.00",
+                "isolate-floor bay vs keep-bay vs GIS trip",
+                "exoneration against last-to-badge social pressure",
+                "operational companion: new-crystal restart without restoring on Densveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "quartz_oscillator_sf6_density",
+            "formula": "rho_kgm3 = k_q * (f0_Hz - f_Hz); df = f0_Hz - f_Hz; m_kg = rho_kgm3 * V_m3; P_bar = rho_kgm3 / 6.00",
+            "parameters": {
+                "k_q": 0.080,
+                "f0_Hz": 32768.00,
+                "V_m3": 2.00,
+                "min_density_kgm3": 28.00,
+                "snr_lock": 12.0,
+                "lock_hold_min": 24.0,
+            },
+            "worked_example": {"f_Hz": 32468.00, "rho_kgm3": 24.00, "df_Hz": 300.00, "m_kg": 48.00, "P_bar": 4.00},
+            "check": "0.080 * (32768.00 - 32468.00) = 24.00 exactly; 32768.00 - 32468.00 = 300.00; 24.00 * 2.00 = 48.00; 24.00 / 6.00 = 4.00; 2820 s + 1440 s = 4260 s = 24.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 32.0,
+            "decision_window_s": 0.032,
+            "code": "bs5.sf6_bay_gate",
+            "note": "MODIFY accumulator wins: plant quartz-oscillator remaining-density evidence overpowers the Densveil continue advocate",
+            "decode_rule": "isolate-bay if rho_estimator AND crystal_lock fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("rho_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("crystal_lock", 50, 1.2, 50.0, w_s),
+                gate_pop("vendor_continue_advocate", 40, 0.7, 25.0, w_s),
+                gate_pop("modify_latch", 80, 1.6, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "bs5.sf6_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 32.0},
+                {"check": "bs5.isol_scorer", "neurons": 50, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r62-a2",
+            clock_domain="bs5-sf6-hil-relative-ms-t0-2026-07-18T02:30:00Z",
+            tags=["quartz-sf6-density", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2"],
+        ),
+    }

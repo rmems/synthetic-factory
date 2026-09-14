@@ -1,0 +1,185 @@
+{
+  "agent_ids": [
+    "01a0649c-a519-7cc0-942c-10993d61f5fa"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations"
+  ],
+  "event_count": 16,
+  "final_state": "unknown",
+  "hunk_evidence_count": 16,
+  "original_basename": "gen_r01.py",
+  "original_path": "/tmp/nelb-r01-window/gen_r01.py",
+  "path_key": "nelb-r01-window--de2617b3f7fa",
+  "terminal_event_ids": [
+    "01a0649c-a519-7cc0-942c-10993d61f5fa:call-20fe54aa-3916-4baf-89fa-468ee9bce91a-68",
+    "01a0649c-a519-7cc0-942c-10993d61f5fa:call-f6bac947-8961-4b30-a5e9-350f5ea56fb6-89"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 16,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a519-7cc0-942c-10993d61f5fa:call-749da4cd-a526-4a77-a6f3-c0fef8436f57-60",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-749da4cd-a526-4a77-a6f3-c0fef8436f57-60/gen_r01.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-749da4cd-a526-4a77-a6f3-c0fef8436f57-60/gen_r01.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a519-7cc0-942c-10993d61f5fa:call-bebfbcbc-12f1-438b-9c68-0e680d48cb42-66",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-bebfbcbc-12f1-438b-9c68-0e680d48cb42-66/gen_r01.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-bebfbcbc-12f1-438b-9c68-0e680d48cb42-66/gen_r01.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a519-7cc0-942c-10993d61f5fa:call-bebfbcbc-12f1-438b-9c68-0e680d48cb42-67",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-bebfbcbc-12f1-438b-9c68-0e680d48cb42-67/gen_r01.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-bebfbcbc-12f1-438b-9c68-0e680d48cb42-67/gen_r01.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a519-7cc0-942c-10993d61f5fa:call-011ee612-0bfe-4d80-8fc5-9afd18505917-75",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-011ee612-0bfe-4d80-8fc5-9afd18505917-75/gen_r01.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-011ee612-0bfe-4d80-8fc5-9afd18505917-75/gen_r01.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a519-7cc0-942c-10993d61f5fa:call-011ee612-0bfe-4d80-8fc5-9afd18505917-76",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-011ee612-0bfe-4d80-8fc5-9afd18505917-76/gen_r01.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-011ee612-0bfe-4d80-8fc5-9afd18505917-76/gen_r01.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a519-7cc0-942c-10993d61f5fa:call-011ee612-0bfe-4d80-8fc5-9afd18505917-77",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-011ee612-0bfe-4d80-8fc5-9afd18505917-77/gen_r01.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-011ee612-0bfe-4d80-8fc5-9afd18505917-77/gen_r01.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a519-7cc0-942c-10993d61f5fa:call-011ee612-0bfe-4d80-8fc5-9afd18505917-78",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-011ee612-0bfe-4d80-8fc5-9afd18505917-78/gen_r01.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-011ee612-0bfe-4d80-8fc5-9afd18505917-78/gen_r01.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a519-7cc0-942c-10993d61f5fa:call-011ee612-0bfe-4d80-8fc5-9afd18505917-79",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-011ee612-0bfe-4d80-8fc5-9afd18505917-79/gen_r01.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-011ee612-0bfe-4d80-8fc5-9afd18505917-79/gen_r01.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a519-7cc0-942c-10993d61f5fa:call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-81",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-81/gen_r01.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-81/gen_r01.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a519-7cc0-942c-10993d61f5fa:call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-82",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-82/gen_r01.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-82/gen_r01.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a519-7cc0-942c-10993d61f5fa:call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-83",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-83/gen_r01.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-83/gen_r01.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a519-7cc0-942c-10993d61f5fa:call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-84",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-84/gen_r01.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-84/gen_r01.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a519-7cc0-942c-10993d61f5fa:call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-85",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-85/gen_r01.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-85/gen_r01.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a519-7cc0-942c-10993d61f5fa:call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-86",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-86/gen_r01.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-b53e2f3d-5ed2-4924-8ddd-76ce5da90c42-86/gen_r01.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a519-7cc0-942c-10993d61f5fa:call-f6bac947-8961-4b30-a5e9-350f5ea56fb6-87",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-f6bac947-8961-4b30-a5e9-350f5ea56fb6-87/gen_r01.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-f6bac947-8961-4b30-a5e9-350f5ea56fb6-87/gen_r01.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a0649c-a519-7cc0-942c-10993d61f5fa:call-f6bac947-8961-4b30-a5e9-350f5ea56fb6-88",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-f6bac947-8961-4b30-a5e9-350f5ea56fb6-88/gen_r01.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/nelb-r01-window--de2617b3f7fa/fragments/call-f6bac947-8961-4b30-a5e9-350f5ea56fb6-88/gen_r01.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

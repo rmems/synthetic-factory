@@ -1,0 +1,54 @@
+{
+  "agent_ids": [
+    "01a06409-0d97-7132-b6e0-f4a8f402e5d0"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "post_gates.py",
+  "original_path": "/tmp/ffpc-r16-session-b-tools/post_gates.py",
+  "path_key": "ffpc-r16-session-b-tools--c77d4c7034d1",
+  "terminal_event_ids": [
+    "01a06409-0d97-7132-b6e0-f4a8f402e5d0:call-1746fdf9-f170-4c1b-bd23-acef408984a5-87",
+    "01a06409-0d97-7132-b6e0-f4a8f402e5d0:call-349964d7-b06f-4d5a-96f6-fdd79de19273-89",
+    "01a0640a-3690-74a3-b81e-f79a426f70c3:call-5e6d5e68-0c3f-4611-b41e-acdb846b0b92-40"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06409-0d97-7132-b6e0-f4a8f402e5d0",
+      "basename_preserved": true,
+      "bytes": 4002,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 479,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06409-0d97-7132-b6e0-f4a8f402e5d0/updates.jsonl",
+      "original_basename": "post_gates.py",
+      "original_path": "/tmp/ffpc-r16-session-b-tools/post_gates.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r16-session-b-tools--c77d4c7034d1/versions/v0001/post_gates.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r16-session-b-tools--c77d4c7034d1/versions/v0001/post_gates.py",
+      "session_id": "01a06409-0d97-7132-b6e0-f4a8f402e5d0",
+      "sha256": "bc39f70bf504a88888e8cd17bb4ddde10ee7aa9b37f864ee4bcd9f233aab6498",
+      "source_channel": "structured",
+      "source_event_id": "01a06409-0d97-7132-b6e0-f4a8f402e5d0:call-bf711893-1490-4637-9dde-56d185cee5d8-86",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788386781504,
+      "timestamp_utc": "2026-09-02T22:06:21.504Z",
+      "tool_call_id": "call-bf711893-1490-4637-9dde-56d185cee5d8-86",
+      "version": 1,
+      "version_id": "ffpc-r16-session-b-tools--c77d4c7034d1:v0001"
+    }
+  ]
+}

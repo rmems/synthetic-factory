@@ -1,0 +1,18 @@
+            (
+                "description",
+                "Contactor AC-7 at Alkylate-Merse is armed for a 22.0 m3/h olefin pass when an "
+                "acid-strength IR at 88.2 percent races a contactor Delta-P that still claims a hitch. "
+                "Commanded 22.0 m3/h and 88.2 percent sit 4.0 m3/h over the 18.0 m3/h floor and 6.8 "
+                "points under the 95.0 percent cap. The IR win only ratifies the pass already on the acid.",
+            ),
+            ("domain", "hf-alkylation-contactor"),
+            ("sim_or_real", "designed"),
+            (
+                "goal",
+                "Run Contactor AC-7 at 22.0 m3/h, keep acid strength <= 95.0 percent and I/O >= 6.0, "
+                "and leave the alkylation train on schedule.",
+            ),
+            ("t0_us", 1762300000000300),
+            ("gate_latency_us", 780),
+            ("race_window_us", 280),
+            ("race_window_rel_ms", [4.020, 4.300]),

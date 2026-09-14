@@ -1,0 +1,37 @@
+{
+  "agent_ids": [
+    "01a0640a-368a-7671-93ca-a624bfdb1823"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations"
+  ],
+  "event_count": 1,
+  "final_state": "unknown",
+  "hunk_evidence_count": 2,
+  "original_basename": "ffpc-r18-build-session-a.py",
+  "original_path": "/tmp/ffpc-r18-build-session-a.py",
+  "path_key": "tmp-root--c6e3dcba0e05",
+  "terminal_event_ids": [
+    "01a0640a-368a-7671-93ca-a624bfdb1823:call-371eea71-cd96-4677-a559-297e392994b4-33",
+    "01a0640b-474a-7da1-9cee-3e1eaf4bcb28:call-9e7b824a-7b56-4698-8332-0e7fce21a792-9",
+    "01a0640b-474a-7da1-9cee-3e2eae5a407d:call-5430ad9e-7960-4045-a7d7-2ba80551e042-29",
+    "01a0640b-476b-7910-95c7-cc7ae029da2f:call-2e61a3bd-1f68-4d5f-8291-53e1c4664296-14"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 1,
+  "unresolved_events": [
+    {
+      "channel": "structured",
+      "event_id": "01a0640a-368a-7671-93ca-a624bfdb1823:call-e9cf57ed-3851-403f-8b1e-e03b86d2812a-32",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--c6e3dcba0e05/fragments/call-e9cf57ed-3851-403f-8b1e-e03b86d2812a-32/ffpc-r18-build-session-a.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/tmp-root--c6e3dcba0e05/fragments/call-e9cf57ed-3851-403f-8b1e-e03b86d2812a-32/ffpc-r18-build-session-a.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

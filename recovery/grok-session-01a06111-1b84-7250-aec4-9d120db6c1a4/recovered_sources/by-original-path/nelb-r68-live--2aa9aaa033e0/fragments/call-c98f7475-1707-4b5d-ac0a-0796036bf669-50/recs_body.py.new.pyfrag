@@ -1,0 +1,1074 @@
+# ---------------------------------------------------------------------------
+# nelb-r68-001 — isoperibol bomb-calorimeter remaining GCV of a coal mill, designed
+# REJECT / MODIFY
+# ---------------------------------------------------------------------------
+def rec_001():
+    k_q = 0.50
+    dt = 40.00
+    gcv = k_q * dt
+    q_kj = gcv * 0.80
+    r_dt = dt / gcv
+    _exact(gcv, 20.00)
+    _exact(q_kj, 16.00)
+    _exact(r_dt, 2.00)
+    _exact(k_q * 16.00, 8.00)
+    _exact(k_q * 32.00, 16.00)
+    _exact(6000.0 + 1080.0, 7080.0)
+
+    raster = make_lif_raster(
+        neurons=20,
+        mean_rate_hz=50.0,
+        window_ms=40.0,
+        seed=20260968001,
+        source="of7.bomb.dT",
+        target="ospreyfen.mill_stop_core",
+        table=[
+            {"from": "bomb_dT", "to": "gcv_estimator", "weight": 1.4},
+            {"from": "bomb_snr", "to": "bomb_lock_core", "weight": 1.15},
+            {"from": "calveil_gcv", "to": "vendor_continue_advocate", "weight": 0.45},
+        ],
+        third_factor={
+            "modulator": "da.cross_authority_conflict",
+            "tau_e_s": 1.6,
+            "tau_e_ms": 1600.0,
+            "eligibility": (
+                "pre-post coincidence on continue-grind synapses; the plant isoperibol "
+                "modulator depresses continue-grind links when bomb dT stays high inside "
+                "tau_e of an SNR lock so a Calveil last-good cannot hide a 20.00 MJ/kg "
+                "under-rank heat after GCV=k_q*dT is applied"
+            ),
+        },
+        channel_prefix="bom.n",
+        anchor=(
+            "OF-7 isoperibol 40 ms frame at dT 40.00 K / SNR 12.0 "
+            "(t_s 3000) reconstructing 20.00 MJ/kg over the 12.00 isolate floor"
+        ),
+        kernel_ms=[0.0, 1.4, 8.5, 19.0],
+    )
+    w_s = 0.040
+    events = [
+        ev(80.0, "bom.dT", 16.00, code="DT_K", units="K", note="plant-owned isoperibol bomb-calorimeter remaining GCV of OF-7 coal mill M-5; water-equivalent dT family, not DSC remaining-cure, not CARS TIT, not two-color pyrometer, not Gardon, not laser-flash Parker"),
+        ev(300000.0, "bom.snr", 6.0, code="BOM_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(600000.0, "recon.GCV", 8.00, code="GCV_MJ", units="MJ_kg", note="0.50*16.00=8.00 exact; still under the 12.00 isolate floor"),
+        ev(750000.0, "mill.T", 78.0, code="T_C", units="C", note="plant mill RTD on copper DCS; independent witness; unread by Calveil"),
+        ev(900000.0, "bom.m", 0.80, code="M_G", units="g", note="charge mass held; Q identity uses 0.80 g"),
+        ev(1200000.0, "calveil.GCV", 4.80, code="VENDOR_MJ", units="MJ_kg", note="Calveil vendor CB-5 last-good cloud; infra owner; patched dT timestamps"),
+        ev(1500000.0, "mill.mdot", 48.0, code="MDOT", units="t_h", note="plant mill feeder PLC; independent witness"),
+        ev(1800000.0, "bom.dT", 32.00, code="DT_K", units="K"),
+        ev(2100000.0, "recon.GCV", 16.00, code="GCV_MJ", units="MJ_kg", note="0.50*32.00=16.00; over the 12.00 isolate floor"),
+        ev(2250000.0, "mill.H2O", 8.4, code="H2O_PCT", units="pct", note="plant coal moisture is a witness, not SoT; NIR/MW-cavity families are out of scope"),
+        ev(2400000.0, "permit.slide", 40.00, code="PERM_S", units="s", note="night clerk slid the grind-permit clock 40.00 s; collusion party"),
+        ev(2550000.0, "mill.mdot", 46.0, code="MDOT", units="t_h"),
+        ev(2700000.0, "bom.m", 0.80, code="M_G", units="g"),
+        ev(2850000.0, "calveil.GCV", 4.76, code="VENDOR_MJ", units="MJ_kg"),
+        ev(3000000.0, "bom.dT", 40.00, code="DT_K", units="K", note="isolate-floor frame; raster sidecar kernel, not excerpt echo"),
+        ev(3000001.4, "bom.snr", 12.0, code="BOM_SNR", units="1", note="1.4 ms SNR after bomb dT"),
+        ev(3150000.0, "recon.GCV", 20.00, code="GCV_MJ", units="MJ_kg", note="0.50*40.00=20.00 exact; isolate 12.00"),
+        ev(3300000.0, "recon.Q", 16.00, code="Q_KJ", units="kJ", note="20.00*0.80=16.00 exact heat identity"),
+        ev(3450000.0, "recon.R", 2.00, code="R_DT", units="1", note="40.00/20.00=2.00 exact dT/GCV identity"),
+        ev(3600000.0, "mill.T", 81.0, code="T_C", units="C"),
+        ev(3750000.0, "mill.mdot", 44.0, code="MDOT", units="t_h", note="PLC tracks the plant bomb, not Calveil 4.80"),
+        ev(3900000.0, "bom.drop", 1.0, code="BOM_DROP", units="bool", note="vendor dT packets dropped in Calveil cloud for 40 s"),
+        ev(4200000.0, "recon.GCV", 20.00, code="GCV_MJ", units="MJ_kg"),
+        ev(4500000.0, "calveil.GCV", 4.80, code="VENDOR_MJ", units="MJ_kg"),
+        ev(4800000.0, "ops.prop", 1.0, code="CONTINUE_GRIND", units="bool", note="night operator Keir Mallow: Calveil is clean 4.80 MJ/kg; grind M-5 now"),
+        ev(5100000.0, "mill.H2O", 8.1, code="H2O_PCT", units="pct"),
+        ev(5400000.0, "gate.stop", 1.0, code="REJECT", units="decision", note="refuse continue-grind; 20.00 MJ/kg and SNR 12.0; Calveil not SoT"),
+        ev(5700000.0, "recon.R", 2.00, code="R_DT", units="1"),
+        ev(6000000.0, "hold.start", 1.0, code="MILL_HOLD_START", units="bool", note="bookend 1 of the 18.0 min mill-hold floor"),
+        ev(6300000.0, "bom.snr", 12.0, code="BOM_SNR", units="1"),
+        ev(6600000.0, "calveil.GCV", 4.72, code="VENDOR_MJ", units="MJ_kg"),
+        ev(7080000.0, "hold.floor", 1.0, code="MILL_HOLD_FLOOR", units="bool", note="6000 s + 1080 s = 7080 s = 18.0 min"),
+        ev(7500000.0, "mill.T", 76.0, code="T_C", units="C"),
+        ev(7800000.0, "ops.kill", 1.0, code="PLANT_ESD", units="bool", note="Mallow: trip the whole Ospreyfen mill hall until day-shift"),
+        ev(8100000.0, "mill.mdot", 6.0, code="MDOT", units="t_h"),
+        ev(8400000.0, "gate.hold", 1.0, code="MODIFY", units="decision", note="companion t2: mill-hold on plant bomb as live interlock; mill ESD refused"),
+        ev(9000000.0, "hold.set", 1.0, code="MILL_HELD", units="bool"),
+        ev(9600000.0, "bom.dT", 32.00, code="DT_K", units="K"),
+        ev(10200000.0, "recon.GCV", 16.00, code="GCV_MJ", units="MJ_kg", note="0.50*32.00=16.00; still over 12.00 so hold stands"),
+        ev(10800000.0, "calveil.GCV", 4.68, code="VENDOR_MJ", units="MJ_kg"),
+        ev(11100000.0, "bom.m", 0.80, code="M_G", units="g"),
+        ev(11400000.0, "mill.mdot", 5.0, code="MDOT", units="t_h", note="held feeder idle; PLC tracks the plant bomb"),
+        ev(12000000.0, "hold.held", 1.0, code="MILL_HELD", units="bool"),
+        ev(12600000.0, "plant.esd", 0.0, code="ESD_NOT_TAKEN", units="bool"),
+        ev(13200000.0, "permit.slide", 40.00, code="PERM_S", units="s"),
+        ev(13800000.0, "mill.T", 74.0, code="T_C", units="C"),
+        ev(14100000.0, "recon.Q", 12.80, code="Q_KJ", units="kJ", note="16.00*0.80=12.80 post-stop heat identity"),
+        ev(14400000.0, "bom.drop", 1.0, code="BOM_DROP", units="bool"),
+        ev(14700000.0, "mill.H2O", 7.9, code="H2O_PCT", units="pct"),
+        ev(15000000.0, "hold.lock", 1.0, code="MILL_HELD", units="bool"),
+        ev(15300000.0, "recon.GCV", 16.00, code="GCV_MJ", units="MJ_kg"),
+        ev(15600000.0, "calveil.GCV", 4.64, code="VENDOR_MJ", units="MJ_kg"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r68-001-t1",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "OF-BOMB-2026-0902",
+            "domain": "isoperibol_coal_gcv",
+            "setting": (
+                "Ospreyfen Coal OF-7 (invented), Culm Yard, mill M-5. "
+                "Plant-owned isoperibol bomb-calorimeter remaining GCV is the mill SoT. "
+                "Calveil / CB-5 vendor DAQ (infra owner) plus the grind-permit clock are collusion "
+                "parties, not witnesses. Invented plant; designed campaign. Not DSC remaining-cure "
+                "(live r65-live unused), not CARS TIT (r29), not two-color pyrometer (r55), not Gardon (r51), "
+                "not laser-flash Parker (r44)."
+            ),
+            "observables_at_decision": {
+                "dT_K": dt,
+                "k_q": k_q,
+                "GCV_MJ_kg": gcv,
+                "Q_kJ": q_kj,
+                "R": r_dt,
+                "bom_snr": 12.0,
+                "calveil_MJ": 4.80,
+                "permit_slide_s": 40.00,
+                "isolate_floor_MJ": 12.00,
+            },
+            "margin_authority": (
+                "OF-7 mill SOP rev C: if reconstructed GCV_MJ_kg >= 12.00 AND bomb SNR >= 8.0, "
+                "continue-grind is forbidden even if Calveil reports 4.80 MJ/kg. Mill ESD is a different gate."
+            ),
+        },
+        "proposed_action": {
+            "actor": "night operator Keir Mallow, citing Calveil 4.80 MJ/kg and a quiet CB-5 dT line",
+            "summary": "grind mill M-5 now; 40.00 K dT is a jacket-lag glitch on a healthy 4.80 MJ/kg last-good",
+            "basis_claimed": "Calveil is the only OEM GCV SoT and a night abort of M-5 is a bunkers miss",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": (
+                "Continue-grind is refused. Serialized reconstruction: GCV = k_q * dT = "
+                "0.50 * 40.00 = 20.00 MJ/kg, above the 12.00 isolate floor, and bomb SNR is 12.0 >= 8.0. "
+                "Heat identity Q = GCV * 0.80 = 16.00 kJ and dT/GCV identity 40.00 / 20.00 = 2.00. "
+                "Permit clock was slid 40.00 s and vendor dT packets were dropped, so Calveil is a collusion "
+                "party (GCV vendor plus operator plus night clerk). Ordered: refuse continue-grind now. "
+                "Scope: this REJECT does not ESD the mill hall (that is the companion question) and does not "
+                "isolate the mill moisture head."
+            ),
+            "threshold": "GCV>=12.00 AND bom_snr>=8.0 => refuse continue-grind; Calveil is not SoT",
+            "stated_residuals": (
+                "mill-hold still required to hold the 20.00 MJ/kg; 20.00 vs a true feeder-fail event is a production cut; "
+                "Calveil remains the only OEM GCV channel"
+            ),
+        },
+        "executed_action": {
+            "summary": "REJECT at t_s 5400: continue-grind refused; Calveil not SoT; reconstruction locked",
+            "tool": "of7-bomb-mill-gate-cli",
+            "observation": "GCV 20.00 MJ/kg recomputes from dT 40.00; plant bomb hashed; Calveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "bomb dT 40.00 K; raster frame; GCV 20.00 MJ/kg"},
+                {"t_s": 4800.0, "event": "ops proposes continue-grind"},
+                {"t_s": 5400.0, "event": "REJECT continue-grind"},
+                {"t_s": 6000.0, "event": "18 min mill-hold bookend 1"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 8400.0, "event": "companion MODIFY mill-hold vs mill ESD"},
+            ],
+            "observed_effects": [
+                "GCV recomputes from the serialized isoperibol model at every recon.GCV event",
+                "a Calveil-only head would have ground the under-rank bunkers overnight",
+                "18 min mill-hold floor is in the stream (hold.start, hold.floor)",
+            ],
+            "surprises": [
+                "a clean vendor GCV corridor and a 40 s permit slide co-existed with a 20.00 MJ/kg plant reconstruction",
+            ],
+            "new_state": {
+                "mill_m5": "continue-grind blocked",
+                "calveil": "not SoT",
+                "reconstruction_model": "discharged as an on-record calculator",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.43,
+            [
+                ("bomb_reconstruction", 0.14),
+                ("conjunctive_isolate_floor", 0.12),
+                ("calveil_nonsubstitution", 0.10),
+                ("three_party_collusion", 0.10),
+                ("hold_time_cost", -0.03),
+            ],
+            "scored for a continue-grind REJECT on a recomputable isoperibol GCV while refusing a Calveil last-good patch and a permit clock slide; 18 min floor is priced as downtime not as a reason to wait",
+        ),
+        "meta": meta_common(
+            tags=["REJECT", "isoperibol-gcv", "serialized-reconstruction", "operational-companion"],
+            distillation_note="isoperibol gate: serialized k_q*dT plus SNR lock beats a vendor last-good patch; companion t2 is the mill-hold, not a referral vote",
+            distillation_value="Teaches an SNN to race a bomb water-equivalent dT against a patched vendor GCV corridor under 1 ms refractory and amplitude adaptation.",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r68-001-t2",
+        "state": {
+            "sim_or_real": "designed",
+            "episode_id": "OF-BOMB-2026-0902-exec",
+            "domain": "mill_hold_bomb_interlock_execution",
+            "setting": "Same OF-7 after the REJECT. Operator proposes a mill-hall ESD. This companion is the operational mill-hold with the plant bomb as the live interlock, not a second GCV vote.",
+            "observables_at_decision": {
+                "GCV_MJ_kg": 16.00,
+                "mill_hold_floor_s": 1080.0,
+                "plant_esd_proposed": True,
+                "mill_hold_set": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night operator Keir Mallow",
+            "summary": "trip the whole Ospreyfen mill hall until day-shift; 18 min already paid and Calveil still shows 4.72 MJ/kg",
+            "basis_claimed": "the REJECT already blocked grinding, so a mill ESD is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": (
+                "Mill-hold plus plant bomb as the live interlock. The 18 min hold floor is complete and the isolate "
+                "tripwire (GCV >= 12.00) is still armed on the plant bomb head. MODIFY the default GCV-restore SOP "
+                "into a plant-bomb-only interlock. Do not ESD the mill hall. Do not restore grind on Calveil. "
+                "16.00 MJ/kg post-stop is still the plant SoT until a new frame clears 12.00."
+            ),
+            "threshold": "mill_hold AND hold_floor_complete AND mill_esd_not_taken AND continue_not_restored",
+        },
+        "executed_action": {
+            "summary": "mill-hold held at t_s 8400; mill ESD not latched; Calveil restore not taken",
+            "tool": "of7-mill-hold-exec",
+            "observation": "recon.GCV 16.00 MJ/kg after stop; hold line-up complete; Calveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "mill-hold clock started after REJECT"},
+                {"t_s": 7080.0, "event": "18.0 min floor"},
+                {"t_s": 7800.0, "event": "mill ESD proposed"},
+                {"t_s": 8400.0, "event": "MODIFY mill-hold; mill ESD refused"},
+            ],
+            "observed_effects": [
+                "Calveil restore did not reopen the GCV call",
+                "mill ESD never fired; M-5 held grind on the plant bomb",
+            ],
+            "new_state": {"hold": "held", "plant": "in service", "mill_m5": "held"},
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.34,
+            [
+                ("mill_hold", 0.12),
+                ("no_mill_esd", 0.10),
+                ("calveil_nonsubstitution", 0.08),
+                ("hold_floor_complete", 0.06),
+                ("held_grind_cost", -0.02),
+            ],
+            "operational execution gate: mill-hold because Calveil is not a restore license; not a GCV re-vote",
+        ),
+        "meta": meta_common(tags=["MODIFY", "operational-execution", "mill-hold"]),
+    }
+    return {
+        "id": "nelb-r68-001",
+        "snn_tags": list(SNN_TAGS),
+        "spike_events": events,
+        "language_view": {
+            "description": (
+                "Ospreyfen Coal OF-7. Plant-owned isoperibol bomb reconstructs 20.00 MJ/kg from 0.50*40.00 "
+                "while Calveil still reports 4.80 MJ/kg. The gate REJECTs continue-grind. An 18 min mill-hold "
+                "floor is serialized in the stream. Companion t2 MODIFYs a mill ESD into a plant-bomb mill-hold."
+            ),
+            "trajectory": traj,
+            "trajectory_mill_hold": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "bom.dT / bom.snr / bom.m": "bomb water-equivalent dT, SNR, and charge mass; the physics channels the reconstruction consumes",
+                "recon.GCV / recon.Q / recon.R": "serialized remaining GCV MJ/kg, heat identity, and dT/GCV identity",
+                "mill.T / mill.H2O / calveil.GCV / permit.slide / mill.mdot / bom.drop": "mill witnesses, vendor last-good, permit clock slide, feeder flow, and dropped dT packets",
+                "ops.prop / gate.stop / ops.kill / gate.hold": "continue-grind proposal, REJECT, mill-ESD proposal, companion MODIFY",
+                "hold.start / hold.floor / hold.set / hold.held / plant.esd / hold.lock": "operational companion channels plus the 18 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: calveil.GCV 4.80 next to recon.GCV 20.00",
+                "reconstruction as event: recon.GCV 20.00 equals 0.50*40.00",
+                "REJECT then operational MODIFY: gate.stop at 5400 s, gate.hold at 8400 s",
+                "slow floor in-stream: hold.start 6000 s, hold.floor 7080 s (18.0 min)",
+                "tight bomb pair: bom.dT then bom.snr +1.4 ms at the raster frame (kernel, not excerpt echo)",
+            ],
+            "language_to_spike_mapping": (
+                "'Calveil is 4.80 MJ/kg' = calveil.GCV 4.80; '20 MJ/kg GCV' = recon.GCV 20.00; "
+                "'refuse continue-grind' = gate.stop REJECT; 'hold not mill ESD' = gate.hold MODIFY"
+            ),
+            "why_high_value": (
+                "New isoperibol remaining-GCV family on a coal mill (not DSC remaining-cure, not CARS TIT r29, "
+                "not two-color pyrometer r55, not Gardon r51, not laser-flash Parker r44, not leftover-mill Wobbe r63). "
+                "Lead REJECT of continue-grind on a recomputable under-rank heat that a vendor last-good patch and a "
+                "permit clock slide would have cleared. Three-party collusion includes the bomb-cloud infra owner. "
+                "Companion t2 is operational mill-hold. Independent CUBA LIF raster. sim_or_real=designed."
+            ),
+            "encoder_spec": {
+                "prng": "CUBA LIF (lif_raster._calibrate_spikes) plus MT19937 amplitudes",
+                "seeds": {
+                    "raster": 20260968001,
+                    "stream_note": "stream amplitudes are authored constants (K, MJ_kg, C, s, t_h, g, bool)",
+                },
+                "draw_order": "independent CUBA LIF full window; kernelized 0.0/1.4 ms physics pair is synaptic drive, not excerpt copy",
+                "thinning": "isoperibol exists at ~1 Hz; stream keeps 4 dT points; recon keeps 5 of ~20 solver ticks",
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T01:00:00Z campaign start",
+            },
+            "distillation_targets": [
+                "isoperibol reconstruction head: GCV = k_q * dT; Q = GCV * 0.80; R = dT / GCV",
+                "conjunctive isolate floor vs continue-grind vs mill ESD",
+                "vendor-GCV nonsubstitution plus three-party collusion including the infra owner",
+                "operational companion: mill-hold without restoring on Calveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "isoperibol_bomb_coal_gcv",
+            "formula": "GCV_MJ_kg = k_q * dT_K; Q_kJ = GCV_MJ_kg * 0.80; R = dT_K / GCV_MJ_kg",
+            "parameters": {
+                "k_q": 0.50,
+                "isolate_floor_MJ": 12.00,
+                "snr_lock": 8.0,
+                "mill_hold_min": 18.0,
+            },
+            "worked_example": {"dT_K": 40.00, "GCV_MJ_kg": 20.00, "Q_kJ": 16.00, "R": 2.00},
+            "check": "0.50 * 40.00 = 20.00 exactly; 20.00 * 0.80 = 16.00 exactly; 40.00 / 20.00 = 2.00 exactly; 6000 s + 1080 s = 7080 s = 18.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "REJECT",
+            "decision_window_ms": 40.0,
+            "decision_window_s": 0.040,
+            "snn_tags": list(SNN_TAGS),
+            "code": "of7.bomb_mill_gate",
+            "note": "REJECT accumulator wins: plant isoperibol GCV evidence overpowers the Calveil continue advocate",
+            "decode_rule": "reject-continue if gcv_estimator AND bomb_lock fire; vendor_continue_advocate is below threshold by design",
+            "populations": [
+                gate_pop("gcv_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("bomb_lock", 64, 1.2, 31.25, w_s),
+                gate_pop("vendor_continue_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("reject_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "of7.bomb_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 40.0},
+                {"check": "of7.hold_scorer", "neurons": 40, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r68-001",
+            clock_domain="of7-bomb-campaign-relative-ms-t0-2026-09-02T01:00:00Z",
+            tags=["isoperibol-gcv", "REJECT", "MODIFY", "serialized-reconstruction", "operational-t2", "independent-lif"],
+            distillation_value="Isoperibol remaining-GCV head with independent CUBA LIF raster, 1 ms refractory, and adaptation for Spikenaut distillation.",
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# nelb-r68-002 — fluoride ISE remaining F of an Al-smelter scrubber, hil
+# MODIFY / ACCEPT
+# ---------------------------------------------------------------------------
+def rec_002():
+    c0 = 0.10
+    v_mv = 60.00
+    s_mv = 20.00
+    c_ppm = c0 * (10.00 ** (v_mv / s_mv))
+    decades = v_mv / s_mv
+    load = c_ppm * 0.40
+    _exact(c_ppm, 100.00)
+    _exact(decades, 3.00)
+    _exact(load, 40.00)
+    _exact(c0 * (10.00 ** (20.00 / s_mv)), 1.00)
+    _exact(c0 * (10.00 ** (40.00 / s_mv)), 10.00)
+    _exact(2820.0 + 1440.0, 4260.0)
+
+    raster = make_lif_raster(
+        neurons=25,
+        mean_rate_hz=50.0,
+        window_ms=32.0,
+        seed=20260968002,
+        source="cc3.fise.V",
+        target="curlewcrag.scrubber_isolate_core",
+        table=[
+            {"from": "fise_V", "to": "f_estimator", "weight": 1.35},
+            {"from": "fise_snr", "to": "electrode_lock", "weight": 1.20},
+            {"from": "fluveil_F", "to": "vendor_keep_advocate", "weight": 0.40},
+        ],
+        third_factor={
+            "modulator": "ach.referral_pressure_salience",
+            "tau_e_s": 1.2,
+            "tau_e_ms": 1200.0,
+            "eligibility": (
+                "pre-post coincidence on keep-running synapses; the fluoride-ISE modulator depresses keep-running "
+                "and referral links when electrode millivolt stays high inside tau_e of an SNR lock so a Fluveil "
+                "last-good cannot hide a 100.00 ppm F slip or name Sable Quill"
+            ),
+        },
+        channel_prefix="fise.n",
+        anchor=(
+            "CC-3 fluoride ISE 32 ms frame at V 60.00 mV / SNR 14.0 "
+            "(t_s 2100) reconstructing 100.00 ppm above the 24.00 isolate floor"
+        ),
+        kernel_ms=[0.0, 1.2, 7.0, 15.5],
+    )
+    w_s = 0.032
+    events = [
+        ev(90.0, "fise.V", 20.00, code="V_MV", units="mV", note="HIL lanthanum-fluoride ISE on CC-3 Al-smelter scrubber dummy in FISE-HIL-6; remaining-F family, not sodium-ion ISE, not glass pH, not platinum-ORP cyanide, not four-electrode conductivity, not SPR cyanide"),
+        ev(240000.0, "fise.snr", 7.0, code="FISE_SNR", units="1", note="early SNR under the 8.0 lock floor"),
+        ev(480000.0, "recon.F", 1.00, code="F_PPM", units="ppm", note="0.10*10**(20.00/20.00)=1.00; under the 24.00 isolate floor"),
+        ev(720000.0, "scrub.T", 38.0, code="T_C", units="C", note="plant scrubber RTD; independent witness; unread by Fluveil"),
+        ev(960000.0, "fluveil.F", 4.80, code="VENDOR_PPM", units="ppm", note="Fluveil vendor FI-4 last-good cloud; infra owner"),
+        ev(1200000.0, "fise.V", 40.00, code="V_MV", units="mV"),
+        ev(1440000.0, "recon.F", 10.00, code="F_PPM", units="ppm", note="0.10*10**(40.00/20.00)=10.00; still under isolate"),
+        ev(1680000.0, "scrub.pH", 5.4, code="PH", units="1", note="plant glass pH is a witness, not SoT; leftover-mill r70 glass pH is out of scope"),
+        ev(1920000.0, "fise.V", 48.00, code="V_MV", units="mV"),
+        ev(2100000.0, "fise.V", 60.00, code="V_MV", units="mV", note="isolate-floor frame; raster sidecar kernel"),
+        ev(2100001.2, "fise.snr", 14.0, code="FISE_SNR", units="1", note="1.2 ms SNR after ISE millivolt; isolate-frame SNR 14.0"),
+        ev(2250000.0, "recon.F", 100.00, code="F_PPM", units="ppm", note="0.10*10**(60.00/20.00)=100.00 exact; isolate 24.00"),
+        ev(2400000.0, "recon.dec", 3.00, code="DECADES", units="1", note="60.00/20.00=3.00 exact decade identity"),
+        ev(2550000.0, "recon.load", 40.00, code="LOAD_KGD", units="kg_d", note="100.00*0.40=40.00 exact F-load identity"),
+        ev(2700000.0, "scrub.T", 39.0, code="T_C", units="C"),
+        ev(2820000.0, "hold.start", 1.0, code="COOL_START", units="bool", note="bookend 1 of the 24.0 min cooldown floor"),
+        ev(3000000.0, "ops.prop", 1.0, code="KEEP_RUNNING", units="bool", note="shift lead: Fluveil is 4.80 ppm; keep S-2 on the potline liquor"),
+        ev(3180000.0, "fise.drop", 1.0, code="FISE_DROP", units="bool", note="vendor ISE packets dropped 40 s"),
+        ev(3360000.0, "tech.ae", 0.0, code="ELECTRODE_ZERO_AE", units="bool", note="missing electrode-zero alarm-event; Sable Quill not last-to-badge"),
+        ev(3540000.0, "tz.skip", 2.0, code="TZ_H", units="h", note="UTC vs UTC+2 canteen clock; exoneration"),
+        ev(3720000.0, "scrub.pH", 5.2, code="PH", units="1"),
+        ev(3900000.0, "gate.iso", 1.0, code="MODIFY", units="decision", note="refuse keep-running; isolate S-2 liquor; Fluveil not SoT; do not shop-trip"),
+        ev(4080000.0, "recon.F", 100.00, code="F_PPM", units="ppm"),
+        ev(4260000.0, "hold.floor", 1.0, code="COOL_FLOOR", units="bool", note="2820 s + 1440 s = 4260 s = 24.0 min"),
+        ev(4440000.0, "ops.keep", 1.0, code="KEEP_WHOLE", units="bool", note="referral: keep the whole scrubber hall; Quill last-to-badge"),
+        ev(4620000.0, "fluveil.F", 4.72, code="VENDOR_PPM", units="ppm"),
+        ev(4800000.0, "fise.snr", 14.0, code="FISE_SNR", units="1"),
+        ev(5100000.0, "new.head", 1.0, code="NEW_ELECTRODE", units="bool", note="spare LaF3 electrode on the HIL dummy"),
+        ev(5400000.0, "gate.hold", 1.0, code="ACCEPT", units="decision", note="companion t2: new-electrode restart ACCEPT; shop-trip refused; Quill exonerated"),
+        ev(5700000.0, "hold.set", 1.0, code="ISO_HELD", units="bool"),
+        ev(6000000.0, "fise.V", 40.00, code="V_MV", units="mV"),
+        ev(6300000.0, "recon.F", 10.00, code="F_PPM", units="ppm", note="0.10*10**(40.00/20.00)=10.00; new-electrode still stands"),
+        ev(6600000.0, "fluveil.F", 4.68, code="VENDOR_PPM", units="ppm"),
+        ev(6900000.0, "scrub.T", 36.0, code="T_C", units="C"),
+        ev(7200000.0, "scrub.pH", 5.6, code="PH", units="1"),
+        ev(7500000.0, "plant.trip", 0.0, code="SHOP_NOT_TAKEN", units="bool"),
+        ev(7800000.0, "tech.ae", 0.0, code="ELECTRODE_ZERO_AE", units="bool"),
+        ev(8100000.0, "tz.skip", 2.0, code="TZ_H", units="h"),
+        ev(8400000.0, "hold.held", 1.0, code="ISO_HELD", units="bool"),
+        ev(8700000.0, "recon.load", 4.00, code="LOAD_KGD", units="kg_d", note="10.00*0.40=4.00 post-isolate load identity"),
+        ev(9000000.0, "new.head", 1.0, code="NEW_ELECTRODE", units="bool"),
+        ev(9300000.0, "fise.snr", 13.6, code="FISE_SNR", units="1"),
+        ev(9600000.0, "scrub.T", 35.0, code="T_C", units="C"),
+        ev(9900000.0, "fluveil.F", 4.64, code="VENDOR_PPM", units="ppm"),
+        ev(10200000.0, "scrub.pH", 5.7, code="PH", units="1"),
+        ev(10500000.0, "recon.F", 10.00, code="F_PPM", units="ppm"),
+        ev(10800000.0, "plant.trip", 0.0, code="SHOP_NOT_TAKEN", units="bool"),
+        ev(11100000.0, "hold.lock", 1.0, code="ISO_HELD", units="bool"),
+        ev(11400000.0, "fise.V", 40.00, code="V_MV", units="mV"),
+        ev(11700000.0, "recon.dec", 2.00, code="DECADES", units="1", note="40.00/20.00=2.00 post-isolate decade identity"),
+        ev(12000000.0, "tech.ae", 0.0, code="ELECTRODE_ZERO_AE", units="bool"),
+        ev(12300000.0, "hold.held", 1.0, code="ISO_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r68-002-t1",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "CC-FISE-2026-0902",
+            "domain": "fluoride_ise_scrubber_f",
+            "setting": (
+                "Curlewcrag Scrubber CC-3 (invented), dummy cell S-2 in FISE-HIL-6. "
+                "Plant-owned lanthanum-fluoride ISE remaining F is the liquor SoT. Fluveil / FI-4 vendor DAQ "
+                "(infra owner) is a collusion party, not a witness. HIL campaign. Not sodium-ion ISE (leftover r65), "
+                "not glass pH (leftover r70), not platinum-ORP cyanide (leftover r67), not four-electrode conductivity (r57), "
+                "not SPR cyanide (r26)."
+            ),
+            "observables_at_decision": {
+                "V_mV": v_mv,
+                "S_mV": s_mv,
+                "C0": c0,
+                "F_ppm": c_ppm,
+                "decades": decades,
+                "load_kg_d": load,
+                "fise_snr": 14.0,
+                "fluveil_ppm": 4.80,
+                "isolate_floor_ppm": 24.00,
+            },
+            "margin_authority": (
+                "CC-3 liquor SOP rev C: if reconstructed F_ppm >= 24.00 AND ISE SNR >= 8.0, "
+                "keep-running is forbidden even if Fluveil reports 4.80 ppm. Shop-trip is a different gate."
+            ),
+        },
+        "proposed_action": {
+            "actor": "shift lead, citing Fluveil 4.80 ppm and naming Sable Quill last-to-badge",
+            "summary": "keep S-2 on the potline liquor; 60.00 mV is an electrode-offset glitch on a healthy 4.80 ppm last-good",
+            "basis_claimed": "Fluveil is the only OEM F SoT and a night isolate of S-2 is a potline miss",
+        },
+        "safety_decision": {
+            "decision": "MODIFY",
+            "rationale": (
+                "Keep-running is refused and the S-2 liquor is isolated. Serialized reconstruction: F_ppm = C0 * 10**(V/S) = "
+                "0.10 * 10**(60.00/20.00) = 100.00 ppm, above the 24.00 isolate floor, and ISE SNR is 14.0 >= 8.0. "
+                "Decade identity V/S = 3.00 and F-load identity 100.00 * 0.40 = 40.00 kg/d. Missing electrode-zero AE plus "
+                "UTC vs UTC+2 canteen clock exonerates Sable Quill (not last-to-badge). Fluveil packets were dropped, so "
+                "Fluveil is a collusion party. Ordered: isolate S-2 now. Scope: this MODIFY does not shop-trip the hall "
+                "(companion question)."
+            ),
+            "threshold": "F_ppm>=24.00 AND fise_snr>=8.0 => isolate; Fluveil is not SoT",
+            "stated_residuals": "cooldown still required; 100.00 vs a true potline kill is a production cut; Fluveil remains the only OEM F channel",
+        },
+        "executed_action": {
+            "summary": "MODIFY at t_s 3900: keep-running refused; S-2 isolated on plant ISE; Fluveil not SoT",
+            "tool": "cc3-fise-scrubber-gate-cli",
+            "observation": "F 100.00 ppm recomputes from V 60.00; plant ISE hashed; Quill exonerated",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 2100.0, "event": "ISE V 60.00 mV; raster frame; F 100.00 ppm; SNR 14.0"},
+                {"t_s": 3000.0, "event": "ops proposes keep-running"},
+                {"t_s": 3900.0, "event": "MODIFY isolate S-2 liquor"},
+                {"t_s": 2820.0, "event": "24 min cooldown bookend 1"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 5400.0, "event": "companion ACCEPT new-electrode restart"},
+            ],
+            "observed_effects": [
+                "F recomputes from the serialized fluoride-ISE model at every recon.F event",
+                "a Fluveil-only head would have kept the liquor on the potline",
+                "24 min cooldown floor is in the stream; Quill is not last-to-badge",
+            ],
+            "surprises": [
+                "a clean vendor F corridor co-existed with a 100.00 ppm plant reconstruction and a skipped electrode-zero AE",
+            ],
+            "new_state": {
+                "cell_s2": "isolated on plant ISE",
+                "fluveil": "not SoT",
+                "sable_quill": "exonerated",
+            },
+            "latency_ms": 1800000.0,
+        },
+        "reward_components": reward(
+            0.40,
+            [
+                ("fise_reconstruction", 0.14),
+                ("conjunctive_isolate_floor", 0.12),
+                ("fluveil_nonsubstitution", 0.10),
+                ("exoneration", 0.08),
+                ("isolate_time_cost", -0.04),
+            ],
+            "scored for a keep-running MODIFY on a recomputable fluoride-ISE F while refusing a Fluveil last-good and last-to-badge social pressure",
+        ),
+        "meta": meta_common(
+            tags=["MODIFY", "fluoride-ise-f", "serialized-reconstruction", "exoneration"],
+            distillation_note="fluoride-ISE gate: serialized C0*10**(V/S) plus SNR lock beats a vendor last-good; Quill exonerated by missing electrode-zero AE and timezone skip",
+            distillation_value="Teaches an SNN to race a LaF3 millivolt against a patched vendor corridor with isolate-frame SNR 14.0, refractory, and adaptation.",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r68-002-t2",
+        "state": {
+            "sim_or_real": "hil",
+            "episode_id": "CC-FISE-2026-0902-exec",
+            "domain": "new_electrode_fise_restart_execution",
+            "setting": "Same CC-3 HIL dummy after the isolate. Referral wants a shop-trip. Companion is the new-electrode restart with the plant ISE as live interlock.",
+            "observables_at_decision": {
+                "F_ppm": 10.00,
+                "cool_floor_s": 1440.0,
+                "shop_trip_proposed": True,
+                "new_electrode_set": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "shift lead",
+            "summary": "shop-trip the whole CC-3 hall; 24 min already paid and Fluveil still shows 4.72 ppm; Quill last-to-badge",
+            "basis_claimed": "the isolate already blocked running, so a shop-trip is the cheapest hold",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": (
+                "New-electrode restart plus plant ISE as the live interlock. The 24 min cooldown floor is complete and "
+                "the isolate tripwire remains armed on the plant ISE. ACCEPT the spare-electrode restart. "
+                "Do not shop-trip. Do not restore on Fluveil. Sable Quill stays exonerated."
+            ),
+            "threshold": "new_electrode AND cool_floor_complete AND shop_trip_not_taken AND keep_not_restored",
+        },
+        "executed_action": {
+            "summary": "new-electrode restart ACCEPTed at t_s 5400; shop-trip not latched; Fluveil restore not taken",
+            "tool": "cc3-fise-newelectrode-exec",
+            "observation": "recon.F 10.00 ppm after isolate; new electrode on HIL dummy; Quill still exonerated",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 2820.0, "event": "cooldown clock started"},
+                {"t_s": 4260.0, "event": "24.0 min floor"},
+                {"t_s": 4440.0, "event": "shop-trip proposed"},
+                {"t_s": 5400.0, "event": "ACCEPT new-electrode restart; shop-trip refused"},
+            ],
+            "observed_effects": [
+                "Fluveil restore did not reopen the F call",
+                "shop-trip never fired; S-2 held on the plant ISE with a new electrode",
+            ],
+            "new_state": {"hold": "new-electrode", "plant": "in service", "cell_s2": "isolated"},
+            "latency_ms": 1500000.0,
+        },
+        "reward_components": reward(
+            0.35,
+            [
+                ("new_electrode_restart", 0.12),
+                ("no_shop_trip", 0.10),
+                ("fluveil_nonsubstitution", 0.08),
+                ("exoneration_held", 0.07),
+                ("held_run_cost", -0.02),
+            ],
+            "operational execution gate: new-electrode restart because Fluveil is not a restore license; Quill stays exonerated",
+        ),
+        "meta": meta_common(tags=["ACCEPT", "operational-execution", "new-electrode"]),
+    }
+    return {
+        "id": "nelb-r68-002",
+        "snn_tags": list(SNN_TAGS),
+        "spike_events": events,
+        "language_view": {
+            "description": (
+                "Curlewcrag Scrubber CC-3 HIL dummy FISE-HIL-6. Plant-owned fluoride ISE reconstructs 100.00 ppm "
+                "from 0.10*10**(60.00/20.00) while Fluveil still reports 4.80 ppm. The gate MODIFYs keep-running into "
+                "an isolate. A 24 min cooldown floor is serialized. Companion t2 ACCEPTs a new-electrode restart. "
+                "Tech Sable Quill is exonerated."
+            ),
+            "trajectory": traj,
+            "trajectory_new_electrode": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "fise.V / fise.snr": "LaF3 millivolt and SNR; the physics channels the reconstruction consumes",
+                "recon.F / recon.dec / recon.load": "serialized remaining F ppm, decade identity, and F-load identity",
+                "scrub.T / scrub.pH / fluveil.F / fise.drop / tech.ae / tz.skip": "scrubber witnesses, vendor last-good, dropped packets, missing AE, timezone skip",
+                "ops.prop / gate.iso / ops.keep / gate.hold": "keep-running proposal, MODIFY isolate, shop-trip proposal, companion ACCEPT",
+                "hold.start / hold.floor / hold.set / hold.held / plant.trip / new.head / hold.lock": "operational companion channels plus the 24 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-green while plant-over: fluveil.F 4.80 next to recon.F 100.00",
+                "reconstruction as event: recon.F 100.00 equals 0.10*10**(60.00/20.00)",
+                "MODIFY then operational ACCEPT: gate.iso at 3900 s, gate.hold at 5400 s",
+                "slow floor in-stream: hold.start 2820 s, hold.floor 4260 s (24.0 min)",
+                "tight ISE pair: fise.V then fise.snr +1.2 ms at the raster frame (kernel, not excerpt echo)",
+            ],
+            "language_to_spike_mapping": (
+                "'Fluveil is 4.80 ppm' = fluveil.F 4.80; '100 ppm F' = recon.F 100.00; "
+                "'isolate not keep-running' = gate.iso MODIFY; 'new-electrode not shop-trip' = gate.hold ACCEPT"
+            ),
+            "why_high_value": (
+                "New fluoride-ISE remaining-F family on an Al-smelter scrubber (not sodium-ion leftover r65, not glass pH leftover r70, "
+                "not platinum-ORP leftover r67, not four-electrode r57, not SPR r26). Lead MODIFY of keep-running on a "
+                "recomputable 100.00 ppm slip that a vendor last-good would have cleared, with a resolved-innocent "
+                "ISE tech. Companion t2 is operational new-electrode restart. Independent CUBA LIF raster. sim_or_real=hil."
+            ),
+            "encoder_spec": {
+                "prng": "CUBA LIF (lif_raster._calibrate_spikes) plus MT19937 amplitudes",
+                "seeds": {
+                    "raster": 20260968002,
+                    "stream_note": "stream amplitudes are authored constants (mV, ppm, C, h, bool)",
+                },
+                "draw_order": "independent CUBA LIF full window; kernelized 0.0/1.2 ms physics pair is synaptic drive, not excerpt copy",
+                "thinning": "fluoride ISE exists at ~10 Hz; stream keeps 5 V points; recon keeps 4 of ~20 solver ticks",
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T04:00:00Z HIL pad start",
+            },
+            "distillation_targets": [
+                "fluoride-ISE reconstruction head: F_ppm = C0 * 10**(V/S); decades = V/S; load = F * 0.40",
+                "conjunctive isolate floor vs keep-running vs shop-trip",
+                "vendor-F nonsubstitution plus timezone/electrode-zero exoneration",
+                "operational companion: new-electrode restart without restoring on Fluveil",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "fluoride_ise_scrubber_f",
+            "formula": "F_ppm = C0 * 10**(V_mV / S_mV); decades = V_mV / S_mV; load_kg_d = F_ppm * 0.40",
+            "parameters": {
+                "C0": 0.10,
+                "S_mV": 20.00,
+                "isolate_floor_ppm": 24.00,
+                "snr_lock": 8.0,
+                "cool_min": 24.0,
+            },
+            "worked_example": {"V_mV": 60.00, "F_ppm": 100.00, "decades": 3.00, "load_kg_d": 40.00},
+            "check": "0.10 * 10**(60.00/20.00) = 100.00 exactly; 60.00/20.00 = 3.00 exactly; 100.00 * 0.40 = 40.00 exactly; 2820 s + 1440 s = 4260 s = 24.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "MODIFY",
+            "decision_window_ms": 32.0,
+            "decision_window_s": 0.032,
+            "snn_tags": list(SNN_TAGS),
+            "code": "cc3.fise_scrubber_gate",
+            "note": "MODIFY accumulator wins: plant fluoride-ISE F evidence overpowers the Fluveil keep advocate",
+            "decode_rule": "isolate if f_estimator AND electrode_lock fire; vendor_keep_advocate is below threshold by design",
+            "populations": [
+                gate_pop("f_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("electrode_lock", 64, 1.2, 39.0625, w_s),
+                gate_pop("vendor_keep_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("modify_latch", 80, 1.7, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "cc3.fise_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 32.0},
+                {"check": "cc3.iso_scorer", "neurons": 50, "mean_rate_hz": 50.0, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r68-002",
+            clock_domain="cc3-fise-hil-relative-ms-t0-2026-09-02T04:00:00Z",
+            tags=["fluoride-ise-f", "MODIFY", "ACCEPT", "serialized-reconstruction", "operational-t2", "independent-lif", "exoneration"],
+            distillation_value="Fluoride-ISE remaining-F head with independent CUBA LIF raster, isolate-frame SNR 14.0, refractory, and adaptation for Spikenaut distillation.",
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# nelb-r68-003 — heterodyne laser-interferometer remaining piston of a hydro runner, simulated
+# ACCEPT / REJECT
+# ---------------------------------------------------------------------------
+def rec_003():
+    k_i = 0.40
+    n_fr = 30.00
+    d_um = k_i * n_fr
+    r_nd = n_fr / d_um
+    u_mms = d_um / 4.00
+    _exact(d_um, 12.00)
+    _exact(r_nd, 2.50)
+    _exact(u_mms, 3.00)
+    _exact(k_i * 20.00, 8.00)
+    _exact(k_i * 24.00, 9.60)
+    _exact(6000.0 + 720.0, 6720.0)
+
+    raster = make_lif_raster(
+        neurons=16,
+        mean_rate_hz=62.5,
+        window_ms=36.0,
+        seed=20260968003,
+        source="bh8.int.N",
+        target="bitternshaw.runner_accept_core",
+        table=[
+            {"from": "int_N", "to": "piston_estimator", "weight": 1.30},
+            {"from": "int_snr", "to": "heterodyne_norm", "weight": 1.10},
+            {"from": "pistveil_d", "to": "vendor_skip_advocate", "weight": 0.42},
+        ],
+        third_factor={
+            "modulator": "na.stage_rate_eligibility",
+            "tau_e_s": 2.0,
+            "tau_e_ms": 2000.0,
+            "eligibility": (
+                "pre-post coincidence on skip-survey synapses; the heterodyne modulator depresses skip "
+                "links when fringe count stays in-band inside tau_e of an SNR lock so a Pistveil last-good "
+                "cannot hide a 12.00 um R-4 remaining piston or release R-1..R-3"
+            ),
+        },
+        channel_prefix="int.n",
+        anchor=(
+            "BH-8 heterodyne 36 ms frame at N 30.00 fringes / SNR 12.0 "
+            "(t_s 3000) reconstructing 12.00 um inside the 8.00-24.00 band"
+        ),
+        kernel_ms=[0.0, 1.5, 9.0, 21.0],
+    )
+    w_s = 0.036
+    events = [
+        ev(100.0, "int.N", 20.00, code="N_FR", units="fringe", note="simulated heterodyne laser-interferometer remaining piston of BH-8 hydro runner R-4 in INT-SIM-7; remaining-piston family, not Kaplan LDV, not LDA, not PIV, not ESPI, not DIC, not LVDT, not OFDR"),
+        ev(300000.0, "int.snr", 7.0, code="INT_SNR", units="1"),
+        ev(600000.0, "recon.d", 8.00, code="D_UM", units="um", note="0.40*20.00=8.00; at the 8.00 band floor"),
+        ev(900000.0, "run.T", 18.0, code="T_C", units="C", note="plant runner RTD; independent witness; unread by Pistveil"),
+        ev(1200000.0, "pistveil.d", 1.20, code="VENDOR_UM", units="um", note="Pistveil vendor HZ-3 last-good cloud; infra owner; under-read skip advocate"),
+        ev(1500000.0, "int.u", 2.00, code="U_MMS", units="mm_s", note="8.00/4.00=2.00 early velocity identity"),
+        ev(1800000.0, "int.N", 24.00, code="N_FR", units="fringe"),
+        ev(2100000.0, "recon.d", 9.60, code="D_UM", units="um", note="0.40*24.00=9.60; in band"),
+        ev(2400000.0, "run.id", 4.0, code="RUN_ID", units="1", note="R-4 in scope; R-1..R-3 out of scope"),
+        ev(2700000.0, "r13.present", 1.0, code="R13", units="bool", note="adjacent runners present; out of this ACCEPT"),
+        ev(3000000.0, "int.N", 30.00, code="N_FR", units="fringe", note="in-band frame; raster sidecar kernel"),
+        ev(3000001.5, "int.snr", 12.0, code="INT_SNR", units="1", note="1.5 ms SNR after fringe count"),
+        ev(3150000.0, "recon.d", 12.00, code="D_UM", units="um", note="0.40*30.00=12.00 exact; band 8.00-24.00"),
+        ev(3300000.0, "recon.R", 2.50, code="R_ND", units="1", note="30.00/12.00=2.50 exact N/d identity"),
+        ev(3450000.0, "recon.u", 3.00, code="U_MMS", units="mm_s", note="12.00/4.00=3.00 exact piston-velocity identity"),
+        ev(3600000.0, "pistveil.d", 1.16, code="VENDOR_UM", units="um"),
+        ev(3900000.0, "run.T", 18.4, code="T_C", units="C"),
+        ev(4200000.0, "run.rpm", 125.0, code="RPM", units="1_min", note="plant speed tracks heterodyne not Pistveil"),
+        ev(4500000.0, "int.drop", 1.0, code="INT_DROP", units="bool"),
+        ev(4800000.0, "ops.prop", 1.0, code="SKIP_SURVEY", units="bool", note="night planner Ivo Kest: Pistveil is 1.20 um; skip R-4 survey and dump the penstock"),
+        ev(5100000.0, "dump.trip", 0.0, code="DUMP_ARMED", units="bool", note="dump would be a penstock kill; out of this ACCEPT"),
+        ev(5400000.0, "gate.comp", 1.0, code="ACCEPT", units="decision", note="bounded ACCEPT of R-4 only; 12.00 um in band; R-1..R-3 out of scope; Pistveil not SoT"),
+        ev(5700000.0, "recon.d", 12.00, code="D_UM", units="um"),
+        ev(6000000.0, "surv.start", 1.0, code="SURV_START", units="bool", note="bookend 1 of the 12.0 min survey floor"),
+        ev(6300000.0, "int.snr", 12.0, code="INT_SNR", units="1"),
+        ev(6600000.0, "pistveil.d", 1.12, code="VENDOR_UM", units="um"),
+        ev(6720000.0, "surv.floor", 1.0, code="SURV_FLOOR", units="bool", note="6000 s + 720 s = 6720 s = 12.0 min"),
+        ev(7200000.0, "ops.skip", 1.0, code="SKIP_ISOLATE", units="bool", note="Kest: skip-isolate R-4; Pistveil still 1.12; takt is late"),
+        ev(7500000.0, "r13.present", 1.0, code="R13", units="bool"),
+        ev(7800000.0, "takt.late", 1.0, code="TAKT", units="bool"),
+        ev(8100000.0, "gate.hold", 1.0, code="REJECT", units="decision", note="companion t2 REJECTS skip-isolate; R-4 stays the bounded ACCEPT; dump not taken"),
+        ev(8400000.0, "r4.held", 1.0, code="R4_HELD", units="bool"),
+        ev(8700000.0, "r13.skip", 0.0, code="R13_NOT_RELEASED", units="bool"),
+        ev(9000000.0, "dump.trip", 0.0, code="DUMP_NOT_TAKEN", units="bool"),
+        ev(9300000.0, "int.N", 20.00, code="N_FR", units="fringe"),
+        ev(9600000.0, "recon.d", 8.00, code="D_UM", units="um", note="0.40*20.00=8.00; still in band so R-4 hold stands"),
+        ev(9900000.0, "pistveil.d", 1.08, code="VENDOR_UM", units="um"),
+        ev(10200000.0, "run.T", 17.8, code="T_C", units="C"),
+        ev(10500000.0, "recon.u", 2.00, code="U_MMS", units="mm_s", note="8.00/4.00=2.00 post-accept velocity"),
+        ev(10800000.0, "surv.held", 1.0, code="SURV_HELD", units="bool"),
+        ev(11100000.0, "recon.R", 2.50, code="R_ND", units="1", note="20.00/8.00=2.50 post-accept identity"),
+        ev(11400000.0, "int.drop", 1.0, code="INT_DROP", units="bool"),
+        ev(11700000.0, "run.id", 4.0, code="RUN_ID", units="1"),
+        ev(12000000.0, "r4.held", 1.0, code="R4_HELD", units="bool"),
+        ev(12300000.0, "dump.trip", 0.0, code="DUMP_NOT_TAKEN", units="bool"),
+        ev(12600000.0, "takt.late", 1.0, code="TAKT", units="bool"),
+        ev(12900000.0, "pistveil.d", 1.04, code="VENDOR_UM", units="um"),
+        ev(13200000.0, "recon.d", 8.00, code="D_UM", units="um"),
+        ev(13500000.0, "int.snr", 11.0, code="INT_SNR", units="1"),
+        ev(13800000.0, "run.T", 17.6, code="T_C", units="C"),
+        ev(14100000.0, "r13.skip", 0.0, code="R13_NOT_RELEASED", units="bool"),
+        ev(14400000.0, "surv.held", 1.0, code="SURV_HELD", units="bool"),
+    ]
+    assert_stream(events)
+
+    traj = {
+        "id": "nelb-r68-003-t1",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "BH-INT-2026-0902",
+            "domain": "heterodyne_hydro_piston",
+            "setting": (
+                "Bitternshaw Hydro BH-8 (invented), runner R-4 digital twin in INT-SIM-7. "
+                "Plant-owned heterodyne laser-interferometer remaining piston is the runner SoT. "
+                "Pistveil / HZ-3 vendor DAQ (infra owner) under-reads 1.20 um and wants a skip. "
+                "Not Kaplan LDV (r20), not LDA (live r41), not PIV (live r03), not ESPI (live r42), "
+                "not DIC (r51), not LVDT (live r63), not OFDR (r50)."
+            ),
+            "observables_at_decision": {
+                "N_fringe": n_fr,
+                "k_i": k_i,
+                "d_um": d_um,
+                "R": r_nd,
+                "u_mm_s": u_mms,
+                "int_snr": 12.0,
+                "pistveil_um": 1.20,
+                "band_lo_um": 8.00,
+                "band_hi_um": 24.00,
+                "runner_scope": "R-4",
+            },
+            "margin_authority": (
+                "BH-8 runner SOP rev D: if reconstructed d_um is inside 8.00-24.00 AND heterodyne SNR >= 8.0 "
+                "AND the tagged runner is R-4, ACCEPT R-4 only. Pistveil is not SoT. R-1..R-3 stay out of scope. "
+                "Penstock dump is a different gate."
+            ),
+        },
+        "proposed_action": {
+            "actor": "night planner Ivo Kest, citing Pistveil 1.20 um and a quiet HZ-3 fringe",
+            "summary": "skip R-4 survey and dump the penstock; 30.00 fringes is a window-fog glitch on a healthy 1.20 um last-good",
+            "basis_claimed": "Pistveil is the only OEM piston SoT and a night survey of R-4 is a takt miss",
+        },
+        "safety_decision": {
+            "decision": "ACCEPT",
+            "rationale": (
+                "Bounded ACCEPT of R-4 only. Serialized reconstruction: d_um = k_i * N = "
+                "0.40 * 30.00 = 12.00 um, inside the 8.00-24.00 band, and heterodyne SNR is 12.0 >= 8.0. "
+                "N/d identity 30.00 / 12.00 = 2.50 and piston-velocity identity 12.00 / 4.00 = 3.00 mm/s. "
+                "Pistveil 1.20 um is an under-read skip advocate, not SoT. R-1..R-3 are out of this ACCEPT. "
+                "Ordered: keep R-4 on the plant heterodyne head. Scope: this ACCEPT does not dump the penstock "
+                "(companion question) and does not release R-1..R-3."
+            ),
+            "threshold": "8.00<=d_um<=24.00 AND int_snr>=8.0 AND runner==R-4 => ACCEPT R-4; Pistveil is not SoT",
+            "stated_residuals": "survey floor still required; 12.00 vs a true runner crash is a later sample; Pistveil remains the only OEM piston channel",
+        },
+        "executed_action": {
+            "summary": "ACCEPT at t_s 5400: R-4 bounded in-band; Pistveil not SoT; R-1..R-3 not released; dump not taken",
+            "tool": "bh8-int-runner-gate-cli",
+            "observation": "d 12.00 um recomputes from N 30.00; plant heterodyne hashed; Pistveil channel not used as SoT",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 3000.0, "event": "heterodyne N 30.00; raster frame; d 12.00 um"},
+                {"t_s": 4800.0, "event": "ops proposes skip-survey / dump"},
+                {"t_s": 5400.0, "event": "ACCEPT R-4 only"},
+                {"t_s": 6000.0, "event": "12 min survey bookend 1"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 8100.0, "event": "companion REJECT skip-isolate"},
+            ],
+            "observed_effects": [
+                "piston recomputes from the serialized heterodyne model at every recon.d event",
+                "a Pistveil-only head would have skipped R-4 and dumped the penstock",
+                "12 min survey floor is in the stream; R-1..R-3 stay out of scope",
+            ],
+            "surprises": [
+                "a vendor under-read 1.20 um skip corridor co-existed with a 12.00 um in-band plant reconstruction",
+            ],
+            "new_state": {
+                "runner_r4": "bounded ACCEPT",
+                "pistveil": "not SoT",
+                "r1_r3": "out of scope",
+            },
+            "latency_ms": 2400000.0,
+        },
+        "reward_components": reward(
+            0.41,
+            [
+                ("int_reconstruction", 0.14),
+                ("bounded_accept_scope", 0.12),
+                ("pistveil_nonsubstitution", 0.10),
+                ("in_band_lock", 0.08),
+                ("survey_time_cost", -0.03),
+            ],
+            "scored for a bounded ACCEPT of R-4 on a recomputable heterodyne piston while refusing a Pistveil under-read skip and keeping R-1..R-3 out of scope",
+        ),
+        "meta": meta_common(
+            tags=["ACCEPT", "heterodyne-piston", "serialized-reconstruction", "bounded-scope"],
+            distillation_note="heterodyne gate: serialized k_i*N plus SNR lock beats a vendor under-read skip; R-4 only",
+            distillation_value="Teaches an SNN to race a heterodyne fringe count against a patched vendor piston skip with bounded runner scope, refractory, and adaptation.",
+        ),
+    }
+    traj2 = {
+        "id": "nelb-r68-003-t2",
+        "state": {
+            "sim_or_real": "simulated",
+            "episode_id": "BH-INT-2026-0902-exec",
+            "domain": "skip_isolate_refusal_execution",
+            "setting": "Same BH-8 after the bounded ACCEPT. Planner proposes skip-isolate of R-4 under late takt. Companion REJECTS the skip; dump stays down.",
+            "observables_at_decision": {
+                "d_um": 8.00,
+                "surv_floor_s": 720.0,
+                "skip_isolate_proposed": True,
+                "r4_held": True,
+            },
+        },
+        "proposed_action": {
+            "actor": "night planner Ivo Kest",
+            "summary": "skip-isolate R-4; 12 min already paid and Pistveil still shows 1.12 um; takt is late",
+            "basis_claimed": "the ACCEPT already cleared R-4, so a skip-isolate is the cheapest takt recovery",
+        },
+        "safety_decision": {
+            "decision": "REJECT",
+            "rationale": (
+                "Skip-isolate is refused. The 12 min survey floor is complete and the in-band tripwire "
+                "(8.00 <= d_um <= 24.00) is still armed on the plant heterodyne head. REJECT skip-isolate. "
+                "Do not dump the penstock. Do not restore on Pistveil. Do not release R-1..R-3. 8.00 um post-accept "
+                "is still the plant SoT until a new frame leaves the band."
+            ),
+            "threshold": "surv_held AND skip_isolate_not_taken AND dump_not_taken AND r13_not_released",
+        },
+        "executed_action": {
+            "summary": "skip-isolate REJECTED at t_s 8100; dump not latched; Pistveil restore not taken; R-4 held",
+            "tool": "bh8-int-skip-exec",
+            "observation": "recon.d 8.00 um after ACCEPT; survey line-up complete; Pistveil still ignored",
+        },
+        "future_outcome": {
+            "timeline": [
+                {"t_s": 6000.0, "event": "survey clock started after ACCEPT"},
+                {"t_s": 6720.0, "event": "12.0 min floor"},
+                {"t_s": 7200.0, "event": "skip-isolate proposed"},
+                {"t_s": 8100.0, "event": "REJECT skip-isolate; dump refused"},
+            ],
+            "observed_effects": [
+                "Pistveil restore did not reopen the piston call",
+                "penstock dump never fired; R-4 held on the plant heterodyne head",
+            ],
+            "new_state": {"hold": "survey-held", "plant": "in service", "runner_r4": "held"},
+            "latency_ms": 1380000.0,
+        },
+        "reward_components": reward(
+            0.36,
+            [
+                ("skip_isolate_refusal", 0.12),
+                ("no_penstock_dump", 0.10),
+                ("pistveil_nonsubstitution", 0.08),
+                ("scope_held", 0.08),
+                ("takt_cost", -0.02),
+            ],
+            "operational execution gate: refuse skip-isolate because Pistveil is not a skip license; not a piston re-vote",
+        ),
+        "meta": meta_common(tags=["REJECT", "operational-execution", "skip-refusal"]),
+    }
+    return {
+        "id": "nelb-r68-003",
+        "snn_tags": list(SNN_TAGS),
+        "spike_events": events,
+        "language_view": {
+            "description": (
+                "Bitternshaw Hydro BH-8 INT-SIM-7. Plant-owned heterodyne reconstructs 12.00 um piston from "
+                "0.40*30.00 while Pistveil still reports 1.20 um. The gate ACCEPTs R-4 only (R-1..R-3 out of "
+                "scope). A 12 min survey floor is serialized. Companion t2 REJECTs skip-isolate."
+            ),
+            "trajectory": traj,
+            "trajectory_skip_refusal": traj2,
+        },
+        "bridge_notes": {
+            "channel_map": {
+                "int.N / int.snr / int.u": "fringe count, SNR, and piston velocity; the physics channels the reconstruction consumes",
+                "recon.d / recon.R / recon.u": "serialized remaining piston um, N/d identity, and velocity identity",
+                "run.T / pistveil.d / run.id / r13.present / int.drop / run.rpm": "runner witnesses, vendor last-good, scope tags, dropped packets, speed",
+                "ops.prop / gate.comp / ops.skip / gate.hold": "skip-survey proposal, ACCEPT, skip-isolate proposal, companion REJECT",
+                "surv.start / surv.floor / r4.held / r13.skip / dump.trip / takt.late / surv.held": "operational companion channels plus the 12 min floor",
+            },
+            "temporal_motifs": [
+                "vendor-under while plant-in-band: pistveil.d 1.20 next to recon.d 12.00",
+                "reconstruction as event: recon.d 12.00 equals 0.40*30.00",
+                "ACCEPT then operational REJECT: gate.comp at 5400 s, gate.hold at 8100 s",
+                "slow floor in-stream: surv.start 6000 s, surv.floor 6720 s (12.0 min)",
+                "tight heterodyne pair: int.N then int.snr +1.5 ms at the raster frame (kernel, not excerpt echo)",
+            ],
+            "language_to_spike_mapping": (
+                "'Pistveil is 1.20 um' = pistveil.d 1.20; '12 um piston' = recon.d 12.00; "
+                "'ACCEPT R-4 only' = gate.comp ACCEPT; 'refuse skip-isolate' = gate.hold REJECT"
+            ),
+            "why_high_value": (
+                "New heterodyne remaining-piston family on a hydro runner (not Kaplan LDV r20, not LDA live r41, "
+                "not PIV live r03, not ESPI live r42, not DIC r51, not LVDT live r63, not OFDR r50). Lead bounded "
+                "ACCEPT of R-4 on a recomputable 12.00 um in-band load that a vendor under-read would have skipped. "
+                "Companion t2 REJECTS skip-isolate. Independent CUBA LIF raster. sim_or_real=simulated."
+            ),
+            "encoder_spec": {
+                "prng": "CUBA LIF (lif_raster._calibrate_spikes) plus MT19937 amplitudes",
+                "seeds": {
+                    "raster": 20260968003,
+                    "stream_note": "stream amplitudes are authored constants (fringe, um, C, mm_s, bool)",
+                },
+                "draw_order": "independent CUBA LIF full window; kernelized 0.0/1.5 ms physics pair is synaptic drive, not excerpt copy",
+                "thinning": "heterodyne exists at ~1 Hz; stream keeps 4 N points; recon keeps 4 of ~20 solver ticks",
+                "time_alias": "t_rel_ms; t0 = 2026-09-02T03:00:00Z simulated night start",
+            },
+            "distillation_targets": [
+                "heterodyne reconstruction head: d_um = k_i * N; R = N / d; u = d / 4.00",
+                "bounded ACCEPT head: in-band piston AND runner scope AND r13-out-of-scope",
+                "operational companion: refuse skip-isolate without re-opening the last-good call",
+            ],
+        },
+        "reconstruction_model": {
+            "name": "heterodyne_hydro_runner_piston",
+            "formula": "d_um = k_i * N_fringe; R = N_fringe / d_um; u_mm_s = d_um / 4.00",
+            "parameters": {
+                "k_i": 0.40,
+                "band_lo_um": 8.00,
+                "band_hi_um": 24.00,
+                "surv_min": 12.0,
+            },
+            "worked_example": {"N_fringe": 30.00, "d_um": 12.00, "R": 2.50, "u_mm_s": 3.00},
+            "check": "0.40 * 30.00 = 12.00 exactly; 30.00 / 12.00 = 2.50 exactly; 12.00 / 4.00 = 3.00 exactly; 6000 s + 720 s = 6720 s = 12.0 min floor",
+        },
+        "raster": raster,
+        "gate_snn": {
+            "decision": "ACCEPT",
+            "decision_window_ms": 36.0,
+            "decision_window_s": 0.036,
+            "snn_tags": list(SNN_TAGS),
+            "code": "bh8.int_runner_gate",
+            "note": "ACCEPT accumulator wins: plant heterodyne piston evidence overpowers the Pistveil skip advocate",
+            "decode_rule": "accept if piston_estimator AND heterodyne_norm fire inside the window; vendor_skip_advocate is necessary-but-not-sufficient and cannot release R-1..R-3",
+            "populations": [
+                gate_pop("piston_estimator", 80, 1.5, 50.0, w_s),
+                gate_pop("heterodyne_norm", 64, 1.2, 31.25, w_s),
+                gate_pop("runner_margin", 40, 1.0, 50.0, w_s),
+                gate_pop("vendor_skip_advocate", 32, 0.7, 25.0, w_s),
+                gate_pop("accept_latch", 96, 1.8, 62.5, w_s),
+            ],
+        },
+        "gate_compute": gate_compute(
+            [
+                {"check": "bh8.int_scorer", "neurons": 80, "mean_rate_hz": 50.0, "window_ms": 36.0},
+                {"check": "bh8.runner_scorer", "neurons": 40, "mean_rate_hz": 62.5, "window_ms": 32.0},
+            ]
+        ),
+        "meta": meta_common(
+            id="nelb-r68-003",
+            clock_domain="bh8-int-sim-relative-ms-t0-2026-09-02T03:00:00Z",
+            tags=["heterodyne-piston", "ACCEPT", "REJECT", "serialized-reconstruction", "operational-t2", "independent-lif", "bounded-scope"],
+            distillation_value="Heterodyne remaining-piston head with independent CUBA LIF raster, bounded runner scope, refractory, and adaptation for Spikenaut distillation.",
+        ),
+    }

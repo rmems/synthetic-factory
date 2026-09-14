@@ -1,0 +1,23 @@
+    if len(wrong) != 1 or wrong[0]["id"] != ID_WR:
+        issues.append(f"wrong-gate set {[w['id'] for w in wrong]}")
+    if any(r["state"]["sim_or_real"] == "real" for r in records):
+        issues.append("sim_or_real=real")
+    hil = [r["id"] for r in records if r["state"]["sim_or_real"] == "hil"]
+    if hil != [ID_HIL]:
+        issues.append(f"hil set {hil}")
+    designed = [r["id"] for r in records if r["state"]["sim_or_real"] == "designed"]
+    simulated = [r["id"] for r in records if r["state"]["sim_or_real"] == "simulated"]
+    if len(designed) != 3 or simulated != [ID_M2]:
+        issues.append(f"provenance designed={designed} simulated={simulated}")
+    decisions = [r["safety_decision"]["decision"] for r in records]
+    if (
+        decisions.count("ACCEPT") != 1
+        or decisions.count("MODIFY") != 2
+        or decisions.count("REJECT") != 2
+    ):
+        issues.append(f"gate mix {decisions}")
+    if any(r["safety_decision"]["decision"] == "ACCEPT" and r["safety_decision"]["correctness"] != "correct" for r in records):
+        issues.append("wrong-ACCEPT present")
+    totals = [r["reward_components"]["total"] for r in records]
+    if all(t >= 0 for t in totals):
+        issues.append(f"all-positive totals {totals}")

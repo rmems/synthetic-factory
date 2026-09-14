@@ -1,0 +1,69 @@
+{
+  "agent_ids": [
+    "01a06411-a20b-7482-8db3-230dc4fce912"
+  ],
+  "classification": "unrecoverable",
+  "classification_evidence": [
+    "no complete source state could be established from successful recorded full writes or deterministic terminal operations",
+    "one or more later terminal-driven mutations were not conclusively reproducible"
+  ],
+  "event_count": 3,
+  "final_state": "unknown",
+  "hunk_evidence_count": 4,
+  "original_basename": "_prefix.py",
+  "original_path": "/tmp/ttf-r112/_prefix.py",
+  "path_key": "ttf-r112--ab088f5d74b5",
+  "terminal_event_ids": [
+    "01a06411-a20b-7482-8db3-230dc4fce912:call-c94f13f7-02cd-4273-901d-37bf6e370e3f-46",
+    "01a06411-a20b-7482-8db3-230dc4fce912:call-d490253f-ffa7-4756-8633-3297c0a887e8-31",
+    "01a06411-a20c-7513-87f1-5f2a8c7e8dce:call-2b36caaf-e1c3-4eac-965f-e68ea1a8a850-32",
+    "01a06411-a20d-7500-999c-9e09b551304f:call-863c2822-4a96-4d89-a2c4-eb6748ca6ee2-50",
+    "01a06411-a217-77a3-9c63-57c9f56e8bda:call-d80a3b83-4afd-43a2-acee-70368c66947c-21",
+    "01a06411-a218-7f80-adc3-846714ed4d3e:call-cd079a95-8ad2-4901-9a9b-a0d74e552c60-21"
+  ],
+  "terminal_final_state_uncertain": true,
+  "unresolved_event_count": 4,
+  "unresolved_events": [
+    {
+      "channel": "terminal",
+      "event_id": "01a06411-a20b-7482-8db3-230dc4fce912:call-d490253f-ffa7-4756-8633-3297c0a887e8-31",
+      "journal_line": 178,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06411-a20b-7482-8db3-230dc4fce912/updates.jsonl",
+      "operation": "inline_python_write_text",
+      "reason": "inline_python_write_text was recorded but is not conclusively reproducible without execution",
+      "timestamp_utc": "2026-09-02T23:40:48.773Z"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a06411-a20b-7482-8db3-230dc4fce912:call-08b21ae0-e51b-4cdf-aaed-7fa2c13ecd8b-37",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r112--ab088f5d74b5/fragments/call-08b21ae0-e51b-4cdf-aaed-7fa2c13ecd8b-37/_prefix.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r112--ab088f5d74b5/fragments/call-08b21ae0-e51b-4cdf-aaed-7fa2c13ecd8b-37/_prefix.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a06411-a20b-7482-8db3-230dc4fce912:call-08b21ae0-e51b-4cdf-aaed-7fa2c13ecd8b-38",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r112--ab088f5d74b5/fragments/call-08b21ae0-e51b-4cdf-aaed-7fa2c13ecd8b-38/_prefix.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r112--ab088f5d74b5/fragments/call-08b21ae0-e51b-4cdf-aaed-7fa2c13ecd8b-38/_prefix.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    },
+    {
+      "channel": "structured",
+      "event_id": "01a06411-a20b-7482-8db3-230dc4fce912:call-680c225c-44d2-4727-a3e5-303c277bd490-52",
+      "fragment_paths": [
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r112--ab088f5d74b5/fragments/call-680c225c-44d2-4727-a3e5-303c277bd490-52/_prefix.py.old.pyfrag",
+        "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ttf-r112--ab088f5d74b5/fragments/call-680c225c-44d2-4727-a3e5-303c277bd490-52/_prefix.py.new.pyfrag"
+      ],
+      "operation": "search_replace",
+      "reason": "successful edit has no known full base state"
+    }
+  ],
+  "version_count": 0,
+  "versions": []
+}

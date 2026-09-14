@@ -1,0 +1,15 @@
+THIS_DOMAINS = (
+    "nylon-66-salt-autoclave",
+    "methanol-to-olefins-riser",
+    "acrylic-acid-oxidation",
+    "pentane-isomerization-penex",
+    "fluorine-kf2hf-cell",
+)
+THIS_PLANTS = (
+    "Spinelle-Wath",
+    "Gorse-Keld",
+    "Propenoate-Dell",
+    "Isomer-Spurn",
+    "Cryolite-Force",
+)
+IDS = [f"ttf-r84-{n}" for n in range(436, 441)]

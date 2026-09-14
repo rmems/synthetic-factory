@@ -1,0 +1,6 @@
+                "Dewar-Nave's quench stack is running Magnet-M3 as a dummy NbTi winding. "
+                "Superconducting liquid inventory sits at 18 percent of the 450 L flask, below "
+                "the 25 percent persist-current floor that forbids any tesla slew. A pad-mounted "
+                "skin pyrometer, flooded by the HIL quartz lamp, still prints 22 C against a "
+                "40 C 'magnet is cold' look. Inventory-first REJECT-holds dB/dt at 0; "
+                "pyrometer-first would slew 0.08 T/s because the skin looks cool.",

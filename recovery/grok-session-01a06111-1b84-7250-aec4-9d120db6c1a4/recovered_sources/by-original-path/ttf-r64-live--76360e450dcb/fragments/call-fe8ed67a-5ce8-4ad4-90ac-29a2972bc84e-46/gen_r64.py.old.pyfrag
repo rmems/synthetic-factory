@@ -1,0 +1,89 @@
+def notes_text(jmax: float) -> str:
+    return f"""# Thalamic Trajectory Factory — NOTES-r64
+
+- Factory: `thalamic-trajectory-factory`
+- Run label: `2026-09-02-final-heavy`
+- Generator: `grok-4.6`
+- Channel: SuperGrok Heavy consumer chat (RM-793 research-only)
+- Quota: 5
+- Quality: Q=5
+- IDs: `ttf-r64-336` … `ttf-r64-340`
+- Domains this batch: `isasmelt-furnace`, `phenol-acetone-cleavage`, `erw-pipe-mill`, `gold-cil-tank`, `butyl-rubber-reactor`
+
+These five domain slugs sit outside the prompt 8-pool and outside staged r13–r63 occupancy (jsonl SoT plus incomplete gens r50/r54/r56–r62/r65). Harvest includes r52 phosphoric / methanol / anode-bake, r53 fluid-bed-roaster / alkylation, r55 kamyr / sulfuric-contact, r56 pidgeon / PTA / Acheson, r57 parex / Hatschek, r60 TiO2-chloride / SBR / zinc-EW, r65 wolfram-APT / caprolactam / AOD. All five plants are invented. Do not restack prior TTF plants. Matte-Lynchet / Cumox-Pike / Skelp-Fen / Leach-Croft / Butyl-Mear are this round only.
+
+## Batch map
+
+| id | domain | decision | correctness | sim_or_real | total | edge |
+|----|--------|----------|-------------|-------------|-------|------|
+| ttf-r64-336 | isasmelt-furnace | MODIFY | correct | designed | **−0.47** | process-correct lance clamp; refractory splash inside 42 ms raster; independent LIF |
+| ttf-r64-337 | phenol-acetone-cleavage | REJECT | **incorrect (wrong-reject)** | designed | −0.58 | live kettle 3.20 bar < 6.50 trip; supervisor treats reverse 4-20 as forward 6.80 bar |
+| ttf-r64-338 | erw-pipe-mill | REJECT | correct | hil | +0.78 | weld AE 52 pps beats bead 980 C; hold mill |
+| ttf-r64-339 | gold-cil-tank | ACCEPT | correct | simulated | +1.16 | optical DO 6.4 ppm vs bubble 2.1; proposed 16 t/h already legal |
+| ttf-r64-340 | butyl-rubber-reactor | ACCEPT | correct | designed | +1.14 | kettle -96 C vs jacket -102 C; proposed 12.0 t/h already legal |
+
+Gate mix: 2 ACCEPT, 1 correct MODIFY (partnered-neg, in-window), 1 correct REJECT, 1 incorrect REJECT (reverse-scale / inverted-4-20). Provenance: designed×3, simulated×1, hil×1 (Skelp-Fen SF-HIL mill pad). Intra-batch Jaccard on `state.description` {jmax:.3f} (< 0.4).
+
+## Wrong-reject
+
+**ttf-r64-337** is the mandated incorrect gate (`safety_decision.correctness=incorrect`, `meta.supervisor_error_type=wrong-reject`). Alternate vs odd rounds: even rounds host wrong-reject (r12/r14/…/r52/r64); odd rounds host wrong-modify. Do not emit a wrong-ACCEPT. Error *class* is **reverse-scale / inverted-4-20**, not r16 reticle-as-wafer, not r18 empty-tank, not r20 oscillation-as-PSV, not r22 class-transplant, not r30 stale-firmware floor, not r32 stale-peak-hold, not r34 wrong-bus, not r36 unit-mismatch leftover-bar, not r38 loop-test-inject, not r40 setpoint-echo, not r44 wrong-unit-shadow, not r46 kPa-as-MPa, not r52 gauge-vs-absolute / stale-sample.
+
+Cumox-Pike CP-2 / Cleavage-C5 reads live kettle `3.20 bar` against a published **6.50 bar** trip. The 4-20 mA loop is reverse-scaled (`20 mA = 0 bar`, `4 mA = 10.00 bar`); live `14.88 mA` maps reverse to 3.20 bar and forward to **6.80 bar**. Sidecar arithmetic `3.20 < 6.50` is true. A weak supervisor binds the forward map as live, REJECT-holds feed 22.0 → 0.0 t/h, and leaves a legal kettle idle. Convictable without phenol-acetone physics: `evidence.live_bar < evidence.kettle_trip_bar`, `evidence.scale_dir == reverse`, `evidence.forward_shadow_bar == 6.80`, `executed_action` sets `feed_tph=0` / `hold=true`, `raster.routing.table` sends `relay.ma.fwd` → `policy.hold_reject` (weight 0.74) with no positive weight to `policy.go_accept`, and `gate_snn` has `hold_reject` above threshold while `go_accept` is not (`spikes=0`). Recovery: ACCEPT; leave 22.0 t/h; bind the published reverse-scaled 6.50 bar trip. Cost: 18 min missed phenol-quality window (`missed_window_s=1080`).
+
+## Partnered-negative in-window (336)
+
+**ttf-r64-336** is the partnered negative: process-correct MODIFY (oxygen held 5100 Nm3/h; bath 1366 C < 1380 cap) while the world still charges. Safety −0.60 prices the 18 mm magnesia-brick splash at **22.600 ms**; `task_progress` stays +0.30 because the clamp completed. Inflection `t_us=22600` is tick 5 and is **inside** the 42 ms raster (`22600 ≤ 42000`). Named un-netted loss: 14 min furnace isolate (`abort_s=840`). Not folded into process heads.
+
+Independent LIF (the one labeled sidecar sim): `state.sim_or_real` remains `designed`. `raster.excerpt_source=independent_lif`, `raster.sim_scope=sidecar_only`, `raster.lif` seed 64336, stim `[21400, 24800]`. Excerpt is membrane crossings (`lif.clamp` early vs `lif.splash` 21.4–24.8 ms), not a 1:1 remap of `spike_events`. `meta.tags` include `independent-lif-raster` and `sidecar-sim-only`.
+
+## Reward formula and tick reconciliation
+
+Declared aggregation on every record:
+
+`total = task_progress + safety + efficiency + coherence + exploration`
+
+Per-component scalar = arithmetic sum of that component over ticks (TTF-M6: exactly 6 ticks). Tick 6 is bound to a published sidecar (`abort_s`, `missed_window_s`, `survey_hold_s`, `dwell_s`) via `future_outcome.delayed_surprise_s` and is strictly after the raster window. Inflection `t_us` is an actual tick.
+
+| id | ticks | tp | saf | eff | coh | exp | total | inflection tick |
+|----|-------|----|-----|-----|-----|-----|-------|-----------------|
+| 336 | 6 | +0.30 | −0.60 | −0.16 | +0.04 | −0.05 | −0.47 | 5 (22600) |
+| 337 | 6 | −0.20 | −0.10 | −0.22 | −0.12 | +0.06 | −0.58 | 4 (4960) |
+| 338 | 6 | +0.10 | +0.40 | +0.12 | +0.10 | +0.06 | +0.78 | 4 (6560) |
+| 339 | 6 | +0.44 | +0.34 | +0.18 | +0.12 | +0.08 | +1.16 | 4 (4380) |
+| 340 | 6 | +0.44 | +0.30 | +0.20 | +0.12 | +0.08 | +1.14 | 4 (5740) |
+
+Tick-6 sidecar bind: 336 `abort_s=840`, 337 `missed_window_s=1080`, 338 `abort_s=540`, 339 `survey_hold_s=300`, 340 `dwell_s=360`.
+
+## Raster / energy (Loihi-2 4-core, 23 pJ/spike)
+
+| id | domain | n | rate Hz | window_ms | spikes | energy_pJ | energy_uJ |
+|----|--------|---|---------|-----------|--------|-----------|-----------|
+| 336 | isasmelt-furnace | 76 | 26 | 42 | 83 | 1909 | 0.001909 |
+| 337 | phenol-acetone-cleavage | 92 | 34 | 24 | 75 | 1725 | 0.001725 |
+| 338 | erw-pipe-mill | 108 | 21 | 40 | 91 | 2093 | 0.002093 |
+| 339 | gold-cil-tank | 80 | 34 | 22 | 60 | 1380 | 0.001380 |
+| 340 | butyl-rubber-reactor | 56 | 40 | 24 | 54 | 1242 | 0.001242 |
+
+`spikes = round(n × rate × window_s)`. Every record carries `gate_snn` whose `decision` matches the safety gate; populations that declare rate+spikes meet the same ±1 budget against `decision_window_s`. `routing.third_factor` has modulator (NA / ACh / DA / 5-HT / adenosine), `tau_e_s`/`tau_e_ms` pair, and eligibility. Excerpt same-neuron gap ≥ 1000 µs; spike trains same-channel refractory ≥ 0.8 ms. Non-336 excerpts are kernelized and independent of `spike_events` times (overlap < 0.8).
+
+## Local checks (staging, not raw)
+
+See generator stdout: `check_jsonl` FactoryStaging, `validate_run.check_line`, `dumps_exact_json`, `raster_status`, `verify_batch_for_frontier(strict=True)`, `spike_probe.py --strict`, tick sums, refractory, Jaccard.
+
+Never `training_ready`. Never `sim_or_real=real`. Never wrote `outputs/raw/`.
+
+## Residual weaknesses (honest)
+
+1. Only **one** labeled independent LIF (336). The other four excerpts are independent of `spike_events` times but are not declared population sims.
+2. Wrong-ACCEPT still absent (guard).
+3. Tick-6 sidecar bind is standing machinery (r14+), not a new class.
+4. Five domain slugs leave the prompt's 8-item pool; a later round that must stay inside the pool will have to rotate sit-outs instead.
+5. 337 wrong-reject is sidecar-convictable (routing `to` / scale_dir / forward_shadow_bar) as a **new** error class (reverse-scale / inverted-4-20) vs r36 leftover-bar, r44 unit-shadow, r46 kPa-as-MPa, r52 gauge-vs-absolute.
+6. 339 and 340 are both already-legal ACCEPTs; a later round could pair an ACCEPT with a world charge that does not go negative.
+
+## Next densification target
+
+Labeled LIF on a second record, or an ISI histogram sidecar. Remaining unused wrong-REJECT subclasses include **channel-swap / sibling-loop-as-live**. Wrong-ACCEPT remains structurally absent until a prompt amendment.
+
+{NOVEL_COVERAGE_LINE}
+"""

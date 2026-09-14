@@ -1,0 +1,21 @@
+                "Bag vacuum 18.4 kPa abs won by 212 us, so the bag is leaking, not still sealed. "
+                "Holding 2.00 kW predicts next-sample 20.1 kPa > 8.0 cap. MODIFY: heater 2.00 -> "
+                "1.15 kW. Observed after clamp 7.2 kPa abs < 8.0. A full REJECT is not indicated: "
+                "a clean cure accepts 1.15 kW.",
+            ),
+            (
+                "constraint_checked",
+                OrderedDict(
+                    [
+                        (
+                            "bag_kPa_abs",
+                            OrderedDict(
+                                [
+                                    ("cap", 8.0),
+                                    ("observed", 18.4),
+                                    ("predicted_unclamped_next", 20.1),
+                                    ("clamped_heater_kW", 1.15),
+                                    ("observed_after_clamp", 7.2),
+                                ]
+                            ),
+                        ),

@@ -1,0 +1,1 @@
+"H2S reconstruction head: mdot_kg_d = k_s * (I - I0); dI = I - I0"

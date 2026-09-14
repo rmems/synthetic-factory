@@ -1,0 +1,7 @@
+    batch = directory / "batch-r65.jsonl"
+    notes = directory / "NOTES-r65.md"
+    tr = directory / "swarm-transcript-r65.md"
+    if batch.exists() or notes.exists() or tr.exists():
+        batch = directory / "batch-r65c.jsonl"
+        notes = directory / "NOTES-r65c.md"
+        tr = directory / "swarm-transcript-r65c.md"

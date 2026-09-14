@@ -1,0 +1,26 @@
+{
+  "added_path_count": 0,
+  "added_paths": [],
+  "after_record_count": 21532,
+  "all_evidence_unchanged": true,
+  "before_record_count": 21532,
+  "comparison_fields": [
+    "session_id",
+    "session_depth",
+    "type",
+    "size",
+    "mode",
+    "mtime_ns",
+    "sha256",
+    "link_target"
+  ],
+  "modified_path_count": 0,
+  "modified_paths": [],
+  "recovery_process_wrote_session_base": false,
+  "removed_path_count": 0,
+  "removed_paths": [],
+  "schema_version": "grok-temp-python-recovery-v1",
+  "top_level_session_id": "01a06111-1b84-7250-aec4-9d120db6c1a4",
+  "unchanged_record_count": 21532,
+  "verified_at": "2026-09-14T03:35:51.789165+00:00"
+}

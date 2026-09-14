@@ -1,0 +1,36 @@
+                "Correct REJECT held Crepe-Cap CC-6 at 0 m/min delta. Cylinder under floor this "
+                "cycle; adhesion floor held. Crepe IR apparent was not treated as a surface clearance.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("reel", "held; speed delta 0 m/min"),
+                        ("cylinder", "still under 102.0 C this cycle"),
+                        ("crepe_ir", "118 C unused as clearance"),
+                        ("mission", "raise deferred"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Geometric lag: lamp was injected 110-150 us before the RTD, yet surface still won the 380 us race.",
+                    "Delayed (abort_s=600): pad policy update forbids treating crepe IR apparent as a Yankee substitute after a 10 min cylinder retune.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "rtd.yankee.C (5.760 ms, 96.2 C)"),
+                        ("loser", "ir.crepe.glint (5.931 ms, 118 C apparent)"),
+                        ("margin_us", 171),
+                        (
+                            "counterfactual_if_reversed",
+                            "Glint-first by < 171 us inside the 380 us window would have committed "
+                            "+120 m/min with surface 96.2 < 102.0 floor. Order, not amplitude, selected the hold.",
+                        ),
+                    ]
+                ),
+            ),

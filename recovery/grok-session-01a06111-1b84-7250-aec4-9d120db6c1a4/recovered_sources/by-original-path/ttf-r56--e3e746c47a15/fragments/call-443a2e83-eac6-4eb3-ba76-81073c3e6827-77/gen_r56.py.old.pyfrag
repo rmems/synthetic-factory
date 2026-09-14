@@ -1,0 +1,18 @@
+            (
+                "description",
+                "Tow T-8 on the Precursor-Oxle oxidation HIL pad is pulling 18.4 m/min when an "
+                "IR skin burst at 268 C on the PAN tow races the line encoder that still looks "
+                "in-band for a speed step. Ramp is legal only if skin <= 240 C. IR-first latches "
+                "hold; encoder-first would treat in-band speed as oven clearance.",
+            ),
+            ("domain", "carbon-fiber-oxidation"),
+            ("sim_or_real", "hil"),
+            (
+                "goal",
+                "Do not ramp Tow T-8 unless skin <= 240 C; keep line speed 0 m/min until the "
+                "oven is quiet.",
+            ),
+            ("t0_us", 1762300000000258),
+            ("gate_latency_us", 1180),
+            ("race_window_us", 280),
+            ("race_window_rel_ms", [3.920, 4.200]),

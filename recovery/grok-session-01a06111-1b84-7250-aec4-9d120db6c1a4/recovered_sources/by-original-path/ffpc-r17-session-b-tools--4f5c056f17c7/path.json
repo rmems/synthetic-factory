@@ -1,0 +1,53 @@
+{
+  "agent_ids": [
+    "01a06409-6c70-72c2-b709-21cfce1ba4a1"
+  ],
+  "classification": "exact",
+  "classification_evidence": [
+    "latest state derives from a completed full structured write and uniquely replayed completed structured edits"
+  ],
+  "event_count": 1,
+  "final_state": "present_reconstructed",
+  "hunk_evidence_count": 2,
+  "original_basename": "verify_diagnosis_receipt.py",
+  "original_path": "/tmp/ffpc-r17-session-b-tools/verify_diagnosis_receipt.py",
+  "path_key": "ffpc-r17-session-b-tools--4f5c056f17c7",
+  "terminal_event_ids": [
+    "01a06409-6c70-72c2-b709-21cfce1ba4a1:call-0cc281df-4d02-4581-9e1f-42da7d91256a-65",
+    "01a06409-6c70-72c2-b709-21cfce1ba4a1:call-40e0549e-f6ec-4858-bbb6-ad00ce00dcc4-54"
+  ],
+  "terminal_final_state_uncertain": false,
+  "unresolved_event_count": 0,
+  "unresolved_events": [],
+  "version_count": 1,
+  "versions": [
+    {
+      "agent_id": "01a06409-6c70-72c2-b709-21cfce1ba4a1",
+      "basename_preserved": true,
+      "bytes": 3732,
+      "classification": "exact",
+      "classification_evidence": [
+        "full source string was recorded in structured write input",
+        "the structured write outcome was Completed",
+        "UTF-8 bytes preserve the recorded source string exactly"
+      ],
+      "file_mode": "0400",
+      "journal_line": 273,
+      "journal_path": "/home/raulmc/.grok/sessions/%2Fhome%2Fraulmc%2Frmems%2Fsynthetic-factory/01a06409-6c70-72c2-b709-21cfce1ba4a1/updates.jsonl",
+      "original_basename": "verify_diagnosis_receipt.py",
+      "original_path": "/tmp/ffpc-r17-session-b-tools/verify_diagnosis_receipt.py",
+      "recovered_path": "/home/raulmc/.codex/recovery-worktrees/synthetic-factory-grok-01a06111/recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path/ffpc-r17-session-b-tools--4f5c056f17c7/versions/v0001/verify_diagnosis_receipt.py",
+      "recovered_path_relative": "recovered_sources/by-original-path/ffpc-r17-session-b-tools--4f5c056f17c7/versions/v0001/verify_diagnosis_receipt.py",
+      "session_id": "01a06409-6c70-72c2-b709-21cfce1ba4a1",
+      "sha256": "b7d9d8023a4a1205d7901cf17510867239387b8d134b334c77aaa80e95a11b8a",
+      "source_channel": "structured",
+      "source_event_id": "01a06409-6c70-72c2-b709-21cfce1ba4a1:call-ce74cf71-dce7-42dc-a06e-f4fab2991479-51",
+      "source_operation": "full_write",
+      "timestamp_ms": 1788386843569,
+      "timestamp_utc": "2026-09-02T22:07:23.569Z",
+      "tool_call_id": "call-ce74cf71-dce7-42dc-a06e-f4fab2991479-51",
+      "version": 1,
+      "version_id": "ffpc-r17-session-b-tools--4f5c056f17c7:v0001"
+    }
+  ]
+}

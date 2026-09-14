@@ -1,0 +1,28 @@
+            ("name", "hold_absorb_84"),
+            (
+                "parameters",
+                OrderedDict(
+                    [
+                        ("feed_tph", 8.4),
+                        ("hold", False),
+                        ("lean_flash", False),
+                    ]
+                ),
+            ),
+            (
+                "evidence",
+                OrderedDict(
+                    [
+                        ("rich_mol", 0.28),
+                        ("rich_cap_mol", 0.42),
+                        ("slip_ppm", 8.4),
+                        ("slip_cap_ppm", 25.0),
+                        ("predicted_next_slip_ppm", 12.1),
+                        ("precursor_dppm_s", 0.18),
+                        ("correct_feed_tph", 8.4),
+                        ("race_margin_us", 160),
+                        ("combined_jitter_us", 62),
+                        ("abort_s", 660),
+                    ]
+                ),
+            ),

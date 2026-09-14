@@ -1,0 +1,107 @@
+            (
+                "summary",
+                "Correct ACCEPT left Roll HP-5 at 18.0 mm / 4.20 N/mm2. Gap DP smear did not justify a "
+                "hold. 9 min survey confirmed nipping-zone draft in spec.",
+            ),
+            (
+                "state_delta",
+                OrderedDict(
+                    [
+                        ("rolls", "still 18.0 mm / 4.20 N/mm2"),
+                        ("gap", "in spec after survey"),
+                        ("train", "HPGR continues"),
+                        ("hold", "none applied"),
+                    ]
+                ),
+            ),
+            (
+                "surprises",
+                [
+                    "Gap DP smear is a cheek-plate optical claim, not a specific-press violation.",
+                    "Delayed (9 min): survey restacks Roll HP-5 without a recovery hold.",
+                ],
+            ),
+            (
+                "race_result",
+                OrderedDict(
+                    [
+                        ("winner", "pt.press.nmm (5.880 ms, 4.20 N/mm2)"),
+                        ("loser", "dp.gap.smear (6.090 ms, over-compression claim)"),
+                        ("margin_us", 210),
+                        (
+                            "counterfactual_if_reversed",
+                            "Smear-first by < 210 us would only delay confirmation. The pass stays "
+                            "legal either way; ACCEPT is still required.",
+                        ),
+                    ]
+                ),
+            ),
+            ("reward_inflection_t_us", 6740),
+            (
+                "reward_inflection_note",
+                "Task credit lands at the ACCEPT (6.740 ms, tick 4). Survey is delayed surprise.",
+            ),
+            ("delayed_surprise_s", 540.0),
+            ("survey_s", 540),
+        ]
+    )
+    ras = raster_core(
+        32,
+        64,
+        36,
+        74,
+        routing(
+            "relay.pt.press",
+            "policy.go_accept",
+            [
+                ("relay.pt.press", "policy.go_accept", 0.68),
+                ("relay.dp.gap", "policy.smear_hold", 0.21),
+            ],
+            "serotonin",
+            0.07,
+            "legal_hpgr_stdp; 5-HT tags the go_accept bind at the specific-press win",
+        ),
+        excerpt,
+    )
+    gate = OrderedDict(
+        [
+            ("decision_window_ms", 0.34),
+            ("decision", "ACCEPT"),
+            (
+                "populations",
+                [
+                    pop("go_accept", 40, 0.50, 180.0, 2),
+                    pop("smear_hold", 40, 0.80, 10.0, 0),
+                    pop("press_cap_veto", 20, 0.75),
+                ],
+            ),
+        ]
+    )
+    return wrap_record(
+        "ttf-r56-299",
+        "Rollgap-Knap HPGR / HP-5: specific press 4.20 N/mm2 beats gap DP smear by 210 us; ACCEPT "
+        "already-legal 18.0 mm pass",
+        state,
+        spikes,
+        proposed,
+        safety,
+        executed,
+        future,
+        ticks,
+        "Correct ACCEPT of an already-legal 1D HPGR nipping-zone pass. total +1.06 = "
+        "0.42 + 0.28 + 0.18 + 0.10 + 0.08.",
+        ras,
+        gate,
+        "hpgr-ore-press",
+        [
+            "accept",
+            "already-legal",
+            "simulated-hpgr-train",
+            "pt-vs-dp",
+            "sidecar-convictable",
+            "simulated",
+        ],
+        "Teaches that a specific-press PT under cap can confirm an already-legal HPGR pass without "
+        "a gap-draft smear becoming a hold.",
+        4,
+    )

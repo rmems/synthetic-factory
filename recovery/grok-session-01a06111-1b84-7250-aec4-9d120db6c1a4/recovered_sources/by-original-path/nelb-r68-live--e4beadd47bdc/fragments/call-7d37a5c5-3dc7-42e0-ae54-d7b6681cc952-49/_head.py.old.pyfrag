@@ -1,0 +1,20 @@
+def occupancy_preflight():
+    banned = (
+        "nelb-r66-001",
+        "nelb-r66-002",
+        "nelb-r66-003",
+        "cinderwhin",
+        "brineholt chlor",
+        "ashspire cement",
+        "sparkveil",
+        "hallveil",
+        "diffractveil",
+        "calla wren",
+        "bram solis",
+        "nia holt",
+        "hall-hil-4",
+        "ld-sim-6",
+        "ubbelohde remaining",
+        "60-degree remaining gloss",
+        "rf-admittance remaining",
+    )
