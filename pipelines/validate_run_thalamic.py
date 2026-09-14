@@ -8,7 +8,7 @@ if __package__:
     _assert_direct_sibling("validate_run_thalamic")
     from . import validate_run_spikes as _validate_run_spikes
     from . import validate_run_provenance as _validate_run_provenance
-    from . import validate_run_rewards as _validate_run_rewards
+    from . import validate_run_reward_total as _validate_run_reward_total
 else:
     # Join a qualified twin without importing pipelines during normal CLI use.
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -16,7 +16,7 @@ else:
     )
     import validate_run_spikes as _validate_run_spikes
     import validate_run_provenance as _validate_run_provenance
-    import validate_run_rewards as _validate_run_rewards
+    import validate_run_reward_total as _validate_run_reward_total
 
 
 THALAMIC_SCHEMA = _validate_run_spikes.THALAMIC_SCHEMA
@@ -61,20 +61,27 @@ def _optional_nonempty_string_errors(obj, key, where):
     return []
 
 
-def _thalamic_shape_errors(obj, where):
-    """Validate required object fields and optional canonical string fields."""
+def _thalamic_shape_errors(obj, where, object_keys=None, string_keys=None):
+    """Validate required object fields and optional canonical string fields.
+
+    The key vocabularies default to this module's; the validate_run facade
+    passes its own live bindings so rebinding THALAMIC_OBJECT_KEYS or
+    THALAMIC_STRING_KEYS there keeps affecting validation.
+    """
+    object_keys = THALAMIC_OBJECT_KEYS if object_keys is None else object_keys
+    string_keys = THALAMIC_STRING_KEYS if string_keys is None else string_keys
     # Shape layer: the object-typed fields (incl. meta) are required here.
     # Canonical `id` presence/coverage is a deep-layer concern
     # (check_records / training_audit); at this layer it is only
     # type-checked when present.
     object_errors = [
         error
-        for key in THALAMIC_OBJECT_KEYS
+        for key in object_keys
         for error in _required_object_field_errors(obj, key, where)
     ]
     string_errors = [
         error
-        for key in THALAMIC_STRING_KEYS
+        for key in string_keys
         for error in _optional_nonempty_string_errors(obj, key, where)
     ]
     return object_errors + string_errors
@@ -127,32 +134,50 @@ def check_meta_round(obj, where):
     return errs
 
 
-def thalamic_core_errors(obj, where, safety_decisions=None):
+def thalamic_core_errors(
+    obj,
+    where,
+    safety_decisions=None,
+    reward_checker=None,
+    object_keys=None,
+    string_keys=None,
+):
     """Validate the thalamic-owned core layers: shape, safety decision, and
     reward arithmetic. Provenance and the meta/spike tail stay with the
     caller so layer order and vocabulary rebinding match the inline gate.
+
+    Every hook defaults to this module's own; the validate_run facade passes
+    its live bindings (``check_reward_total`` included) so patching the
+    facade-level compatibility names keeps flowing through.
     """
-    errs = _thalamic_shape_errors(obj, where)
+    errs = _thalamic_shape_errors(obj, where, object_keys, string_keys)
     errs += _safety_decision_errors(
         obj.get("safety_decision"), where, safety_decisions
     )
     rc = obj.get("reward_components")
     if isinstance(rc, dict):
-        errs += _validate_run_rewards.check_reward_total(rc, where)
+        checker = (
+            _validate_run_reward_total.check_reward_total
+            if reward_checker is None
+            else reward_checker
+        )
+        errs += checker(rc, where)
     return errs
 
 
-def thalamic_tail_errors(obj, where, meta_round_checker=None):
+def thalamic_tail_errors(obj, where, meta_round_checker=None, spike_checker=None):
     """Validate meta.round and the spike stream after the provenance layers.
 
-    ``meta_round_checker`` defaults to this module's check_meta_round; the
-    validate_run facade passes its own live binding so rebinding the
-    facade-level compatibility name keeps affecting validation.
+    The checkers default to this module's check_meta_round and the spike
+    sibling's check_spike_stream; the validate_run facade passes its own live
+    bindings so rebinding either facade-level compatibility name keeps
+    affecting validation.
     """
     checker = check_meta_round if meta_round_checker is None else meta_round_checker
     errs = checker(obj, where)
     # Optional trajectory-level spike train: same ordering contract as bridge.
-    errs += _validate_run_spikes.check_spike_stream(obj, where)
+    spikes = _validate_run_spikes.check_spike_stream if spike_checker is None else spike_checker
+    errs += spikes(obj, where)
     return errs
 
 

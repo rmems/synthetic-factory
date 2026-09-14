@@ -8,7 +8,6 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
     _assert_direct_sibling("validate_run_rewards")
     from . import validate_run_outcomes as _validate_run_outcomes
-    from . import validate_run_reward_total as _validate_run_reward_total
     from . import validate_run_spikes as _validate_run_spikes
 else:
     # Join a qualified twin without importing pipelines during normal CLI use.
@@ -16,7 +15,6 @@ else:
         "validate_run_rewards"
     )
     import validate_run_outcomes as _validate_run_outcomes
-    import validate_run_reward_total as _validate_run_reward_total
     import validate_run_spikes as _validate_run_spikes
 
 
@@ -48,7 +46,7 @@ REWARD_NON_COMPONENT_KEYS = frozenset(
 REWARD_TOL = 1e-6
 
 
-def _component_numeric(value):
+def component_numeric(value):
     """Extract numeric component value from plain number or {value: number}."""
     if isinstance(value, dict):
         value = value.get("value")
@@ -62,11 +60,15 @@ _SCALAR_CONTAINER_KEYS = frozenset(
 )
 
 
-def _scalar_items(rc):
-    """Yield the (key, value) pairs eligible as scalar arithmetic components."""
-    # Union per call so a rebound REWARD_NON_COMPONENT_KEYS keeps flowing
-    # through; both sets stay tiny.
-    skip = REWARD_NON_COMPONENT_KEYS | _SCALAR_CONTAINER_KEYS
+def _scalar_items(rc, non_component_keys=None):
+    """Yield the (key, value) pairs eligible as scalar arithmetic components.
+
+    ``non_component_keys`` defaults to this module's vocabulary; the
+    validate_run facade passes its own live binding so rebinding the
+    facade-level compatibility name keeps affecting validation.
+    """
+    keys = REWARD_NON_COMPONENT_KEYS if non_component_keys is None else non_component_keys
+    skip = keys | _SCALAR_CONTAINER_KEYS
     for k, v in rc.items():
         if k in skip:
             continue
@@ -86,12 +88,12 @@ REWARD_ARITHMETIC_MARKERS = (REWARD_UNWEIGHTED_MISMATCH, REWARD_WEIGHTED_MISMATC
 # and check_records' arithmetic-error dedup.
 
 
-def _sibling_component_sum(rc):
+def _sibling_component_sum(rc, non_component_keys=None):
     """Sum the numeric sibling components, skipping bookkeeping keys."""
     component_sum = 0.0
     has_component = False
-    for _, v in _scalar_items(rc):
-        num = _component_numeric(v)
+    for _, v in _scalar_items(rc, non_component_keys):
+        num = component_numeric(v)
         if num is not None:
             component_sum += num
             has_component = True
@@ -100,7 +102,7 @@ def _sibling_component_sum(rc):
 
 def _nonfinite_component_error(key, value, where):
     """Report one non-finite component, or None when it is valid."""
-    if _component_numeric(value) is not None:
+    if component_numeric(value) is not None:
         return None
     if isinstance(value, dict) and "value" in value:
         target, suffix = value.get("value"), ".value"
@@ -111,33 +113,34 @@ def _nonfinite_component_error(key, value, where):
     return None
 
 
-def _unweighted_mismatch(total, component_sum, has_component, where):
+def _unweighted_mismatch(total, component_sum, has_component, where, tolerance=None):
     """Report the sibling-sum mismatch, if the layout has components."""
     # Only enforce sum check when at least one numeric component exists
     # beyond total (otherwise total alone is allowed, e.g. minimal fixture).
     if not has_component:
         return []
-    if math.isclose(float(total), component_sum, rel_tol=0.0, abs_tol=REWARD_TOL):
+    tol = REWARD_TOL if tolerance is None else tolerance
+    if math.isclose(float(total), component_sum, rel_tol=0.0, abs_tol=tol):
         return []
     return [
-        f"{where}: reward_components.total {total} {REWARD_UNWEIGHTED_MISMATCH} {component_sum:.6g} (diff {abs(float(total) - component_sum):.6g} > {REWARD_TOL})"
+        f"{where}: reward_components.total {total} {REWARD_UNWEIGHTED_MISMATCH} {component_sum:.6g} (diff {abs(float(total) - component_sum):.6g} > {tol})"
     ]
 
 
-def _unweighted_errors(rc, total, where):
-    """Validate the unweighted layout against the sum of sibling components."""
+def unweighted_errors(rc, total, where, *, tolerance=None, non_component_keys=None):
+    """Validate the unweighted layout against the sum of sibling components.
+
+    ``tolerance`` and ``non_component_keys`` default to this module's
+    REWARD_TOL and REWARD_NON_COMPONENT_KEYS; validate_run_reward_total
+    threads the facade's live bindings through here.
+    """
     errs = []
-    component_sum, has_component = _sibling_component_sum(rc)
-    for k, v in _scalar_items(rc):
+    component_sum, has_component = _sibling_component_sum(rc, non_component_keys)
+    for k, v in _scalar_items(rc, non_component_keys):
         error = _nonfinite_component_error(k, v, where)
         if error is not None:
             errs.append(error)
-    return errs + _unweighted_mismatch(total, component_sum, has_component, where)
-
-
-# Total reconciliation moved to validate_run_reward_total; rebind here so
-# existing importers keep resolving validate_run_rewards.check_reward_total.
-check_reward_total = _validate_run_reward_total.check_reward_total
+    return errs + _unweighted_mismatch(total, component_sum, has_component, where, tolerance)
 
 
 def _container_children(path, value):
@@ -162,7 +165,7 @@ def _finite_number_errors(reward, where):
     return errors
 
 
-def _require_reward(obj, where):
+def require_reward(obj, where):
     reward = obj.get("reward")
     if not isinstance(reward, dict):
         return [f"{where}: reward must be an object with 'success'"]

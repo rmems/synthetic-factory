@@ -18,15 +18,20 @@ else:
     import validate_run_spikes as _validate_run_spikes
 
 
-def _declared_weights(rc):
+def _declared_weights(rc, non_component_keys=None):
     """Resolve declared weights, ignoring non-finite weights."""
     weights = rc.get("weights")
     if not isinstance(weights, dict) or not weights:
         return {}
+    keys = (
+        _validate_run_rewards.REWARD_NON_COMPONENT_KEYS
+        if non_component_keys is None
+        else non_component_keys
+    )
     return {
         k: float(v)
         for k, v in weights.items()
-        if k not in _validate_run_rewards.REWARD_NON_COMPONENT_KEYS
+        if k not in keys
         and _validate_run_spikes.is_number(v)
     }
 
@@ -35,12 +40,12 @@ def _search_weight_container(container, key, aliases):
     """Find one weight's numeric value inside a single container."""
     for candidate in aliases:
         if candidate in container:
-            value = _validate_run_rewards._component_numeric(container[candidate])
+            value = _validate_run_rewards.component_numeric(container[candidate])
             if value is not None:
                 return value
     # also try direct key in rc
     if key in container:
-        return _validate_run_rewards._component_numeric(container[key])
+        return _validate_run_rewards.component_numeric(container[key])
     return None
 
 
@@ -66,8 +71,9 @@ def _resolve_weighted_value(rc, key):
     return None
 
 
-def _weighted_errors(rc, declared, total, where):
+def _weighted_errors(rc, declared, total, where, tolerance=None):
     """Validate the weighted layout against the recomputed weighted sum."""
+    tol = _validate_run_rewards.REWARD_TOL if tolerance is None else tolerance
     recomputed = 0.0
     unresolved = []
     for key, weight in declared.items():
@@ -82,21 +88,24 @@ def _weighted_errors(rc, declared, total, where):
         # layout, so falling through would report a false mismatch;
         # check_records owns the unsupported-layout warning.
         return []
-    if not math.isclose(
-        float(total), recomputed, rel_tol=0.0, abs_tol=_validate_run_rewards.REWARD_TOL
-    ):
+    if not math.isclose(float(total), recomputed, rel_tol=0.0, abs_tol=tol):
         return [
-            f"{where}: reward_components.total {total} {_validate_run_rewards.REWARD_WEIGHTED_MISMATCH} {recomputed:.6g} (diff {abs(float(total) - recomputed):.6g} > {_validate_run_rewards.REWARD_TOL})"
+            f"{where}: reward_components.total {total} {_validate_run_rewards.REWARD_WEIGHTED_MISMATCH} {recomputed:.6g} (diff {abs(float(total) - recomputed):.6g} > {tol})"
         ]
     return []
 
 
-def check_reward_total(rc, where):
+def check_reward_total(rc, where, *, tolerance=None, non_component_keys=None):
     """Validate reward_components arithmetic: total == sum(component values).
 
     Strict gate: total must equal the arithmetic sum of all numeric components
     (excluding bookkeeping keys) within REWARD_TOL. Weighted aggregations are
     supported; interval/string totals are rejected as non-finite.
+
+    ``tolerance`` and ``non_component_keys`` default to validate_run_rewards'
+    REWARD_TOL and REWARD_NON_COMPONENT_KEYS; the validate_run facade passes
+    its own live bindings so rebinding the facade-level compatibility names
+    keeps affecting validation, exactly as when the check lived inline.
     """
     errs = []
     if not isinstance(rc, dict):
@@ -114,14 +123,16 @@ def check_reward_total(rc, where):
         if isinstance(total, (int, float)):
             errs.append(f"{where}: reward_components.total must be a finite number")
         return errs
-    declared = _declared_weights(rc)
+    declared = _declared_weights(rc, non_component_keys)
     if declared:
         # Weighted layout: total == sum(value_i * weight_i). A declared
         # weighted layout owns the verdict; the sibling-sum check below does
         # not model it.
-        return _weighted_errors(rc, declared, total, where)
+        return _weighted_errors(rc, declared, total, where, tolerance)
     # Unweighted: sum of numeric siblings (plain or {value: n}).
-    return _validate_run_rewards._unweighted_errors(rc, total, where)
+    return _validate_run_rewards.unweighted_errors(
+        rc, total, where, tolerance=tolerance, non_component_keys=non_component_keys
+    )
 
 
 if __package__:

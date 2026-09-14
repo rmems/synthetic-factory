@@ -98,6 +98,10 @@ NEW_SPLIT_MODULES = (
 RUN_SUPPORT_MODULES = (
     "compose_curated_run_cli",
     "compose_curated_run_facade",
+    # validate_run_rewards once re-exported check_reward_total from
+    # validate_run_reward_total, which imports validate_run_rewards back, so
+    # importing reward_total first raised AttributeError on a partial module.
+    "validate_run_reward_total",
 )
 
 
@@ -150,10 +154,6 @@ class SplitModuleIdentityContracts(unittest.TestCase):
             self.assertIs(
                 direct["validate_run_provenance"].check_provenance,
                 packaged["validate_run_provenance"].check_provenance,
-            )
-            self.assertIs(
-                direct["validate_run_rewards"].check_reward_total,
-                packaged["validate_run_rewards"].check_reward_total,
             )
             self.assertIs(
                 direct["validate_run_thalamic"].check_meta_round,

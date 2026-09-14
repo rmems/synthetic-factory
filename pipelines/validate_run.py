@@ -186,13 +186,25 @@ def check_spike_stream(obj, where):
     return _check_spike_stream(obj, where)
 
 
-_component_numeric = _validate_run_rewards._component_numeric
+_component_numeric = _validate_run_rewards.component_numeric
 REWARD_WEIGHTED_MISMATCH = _validate_run_rewards.REWARD_WEIGHTED_MISMATCH
 REWARD_UNWEIGHTED_MISMATCH = _validate_run_rewards.REWARD_UNWEIGHTED_MISMATCH
 REWARD_ARITHMETIC_MARKERS = _validate_run_rewards.REWARD_ARITHMETIC_MARKERS
 
 
-check_reward_total = _validate_run_reward_total.check_reward_total
+def check_reward_total(rc, where):
+    """Compatibility facade for reward arithmetic (see validate_run_reward_total).
+
+    The tolerance and bookkeeping vocabulary are this module's live bindings,
+    so rebinding REWARD_TOL or REWARD_NON_COMPONENT_KEYS here keeps flowing
+    through exactly as when the check lived inline.
+    """
+    return _validate_run_reward_total.check_reward_total(
+        rc,
+        where,
+        tolerance=REWARD_TOL,
+        non_component_keys=REWARD_NON_COMPONENT_KEYS,
+    )
 
 
 def _state_provenance_errors(obj, where):
@@ -231,13 +243,18 @@ def check_thalamic(obj, where):
     exactly as when the whole check lived inline.
     """
     errs = _validate_run_thalamic.thalamic_core_errors(
-        obj, where, SAFETY_DECISIONS
+        obj,
+        where,
+        SAFETY_DECISIONS,
+        reward_checker=check_reward_total,
+        object_keys=THALAMIC_OBJECT_KEYS,
+        string_keys=THALAMIC_STRING_KEYS,
     )
     errs += check_provenance(obj, where)
     # Deep publish-time provenance: any nested 'real' fails
     errs += [e for e in check_provenance_publish(obj, where) if e not in errs]
     errs += _validate_run_thalamic.thalamic_tail_errors(
-        obj, where, check_meta_round
+        obj, where, check_meta_round, spike_checker=check_spike_stream
     )
     return errs
 
@@ -400,7 +417,7 @@ def _staging_preference_goal_errors(obj, where):
     return errors
 
 
-_require_reward = _validate_run_rewards._require_reward
+_require_reward = _validate_run_rewards.require_reward
 
 
 terminal_outcome_agrees = _validate_run_rewards.terminal_outcome_agrees

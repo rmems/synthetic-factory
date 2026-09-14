@@ -298,6 +298,43 @@ class ValidateThalamicFacadeLiveHooks(unittest.TestCase):
                 errs,
             )
 
+    def test_facade_reward_tolerance_rebinding_flows_through(self):
+        rec = {"reward_components": {"total": 1.0, "task": 0.9}}
+        self.assertTrue(
+            any("!= sum of components" in e for e in validate_run.check_thalamic(rec, "r"))
+        )
+        with mock.patch.object(validate_run, "REWARD_TOL", 0.5):
+            self.assertFalse(
+                any("!= sum of components" in e for e in validate_run.check_thalamic(rec, "r"))
+            )
+            self.assertEqual(validate_run.check_reward_total(rec["reward_components"], "r"), [])
+
+    def test_facade_reward_vocabulary_rebinding_flows_through(self):
+        rc = {"total": 1.0, "task": 1.0, "note": 5.0}
+        self.assertNotEqual(validate_run.check_reward_total(rc, "r"), [])
+        keys = validate_run.REWARD_NON_COMPONENT_KEYS | {"note"}
+        with mock.patch.object(validate_run, "REWARD_NON_COMPONENT_KEYS", keys):
+            self.assertEqual(validate_run.check_reward_total(rc, "r"), [])
+
+    def test_facade_check_reward_total_rebinding_flows_through(self):
+        rec = {"reward_components": {"total": 1.0, "task": 1.0}}
+        with mock.patch.object(
+            validate_run, "check_reward_total", return_value=["rebound-reward-hook"]
+        ):
+            self.assertIn("rebound-reward-hook", validate_run.check_thalamic(rec, "r"))
+
+    def test_facade_check_spike_stream_rebinding_flows_through(self):
+        with mock.patch.object(
+            validate_run, "check_spike_stream", return_value=["rebound-spike-hook"]
+        ):
+            self.assertIn("rebound-spike-hook", validate_run.check_thalamic({}, "r"))
+
+    def test_facade_shape_vocabulary_rebinding_flows_through(self):
+        with mock.patch.object(validate_run, "THALAMIC_OBJECT_KEYS", ("only_this",)):
+            errs = validate_run.check_thalamic({}, "r")
+        self.assertIn("r: missing required key 'only_this'", errs)
+        self.assertNotIn("r: missing required key 'meta'", errs)
+
 
 if __name__ == "__main__":
     unittest.main()
