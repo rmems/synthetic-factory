@@ -14,6 +14,8 @@ from pathlib import Path
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
+
+from oracle_grounded import family_digest  # noqa: E402
 from neuro_oracle import digest  # noqa: E402
 from hardware_parity_terms import (  # noqa: E402
     CATALOG_AUTHORSHIP,
@@ -24,6 +26,9 @@ from hardware_parity_terms import (  # noqa: E402
 from hardware_parity_catalog import build_scenarios  # noqa: E402
 
 
+# Every source file this generator is made of; `family_digest` cross-checks it
+# against the directory each time the digest is computed, so a sibling can
+# never be added and silently left out.
 _FAMILY = (
     "hardware_parity.py",
     "hardware_parity_catalog.py",
@@ -48,28 +53,14 @@ _FAMILY = (
 
 
 def _family_sources():
-    """The family's source texts by path, or raise if the directory disagrees."""
-    found = tuple(sorted(path.name for path in _PIPELINES.glob("hardware_parity*.py")))
-    if found != tuple(sorted(_FAMILY)):
-        raise RuntimeError(
-            f"{VALIDATOR}: the hardware_parity family on disk is {found}, but "
-            f"_FAMILY declares {tuple(sorted(_FAMILY))}. generator_version must "
-            "cover every file that generates, so reconcile the two before running."
-        )
-    return [
-        {"path": f"pipelines/{name}", "text": (_PIPELINES / name).read_text(encoding="utf-8")}
-        for name in sorted(_FAMILY)
-    ]
+    """The family's source texts by path."""
+    return family_digest.family_sources(_PIPELINES, "hardware_parity*.py", _FAMILY, VALIDATOR)
 
 
 def _module_source_digest():
-    """Immutable source digest of the whole family, used as the generator_version.
+    """Immutable source digest of the whole family, used as generator_version."""
+    return family_digest.module_source_digest(_PIPELINES, "hardware_parity*.py", _FAMILY, VALIDATOR)
 
-    The family, not this file. The generator was one module and is now several
-    siblings; a digest over only this one would stop attesting the code that
-    actually builds records, which is the opposite of what the stamp is for.
-    """
-    return digest({"paths": _family_sources()})
 
 def _catalog_digest():
     """Digest of the scenario catalog identity (ids + models + stresses)."""
