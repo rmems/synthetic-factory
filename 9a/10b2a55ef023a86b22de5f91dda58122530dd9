@@ -1,0 +1,23 @@
+experiments/hopper_mill_g46.py
+  ai_agent 1-621
+experiments/hopper_plants_g46c.py
+  ai_agent 1-1284
+experiments/hopper_mill_g46c.py
+  ai_agent 1-621
+experiments/hopper_plants_g46b.py
+  ai_agent 1-1287
+experiments/hopper_mill_g46d.py
+  ai_agent 1-637
+experiments/hopper_plants_g46d.py
+  ai_agent 1-1590
+experiments/hopper_mill_g46b.py
+  ai_agent 1-621
+experiments/hopper_plants_g46.py
+  ai_agent 1-1938
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9a10b2a55ef023a86b22de5f91dda58122530dd9",
+  "prompts": {}
+}
