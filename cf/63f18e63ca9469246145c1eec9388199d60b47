@@ -1,0 +1,19 @@
+experiments/cei_r137_leftover3_mill.py
+  ai_agent 1-603
+experiments/cei_r42_mill.py
+  ai_agent 1-713
+experiments/cei-loop-r81.py
+  ai_agent 1-106
+experiments/cei-mill-r81.py
+  ai_agent 1-299
+experiments/cei_r48_mill.py
+  ai_agent 1-901
+experiments/cei_r65_leftover3_mill.py
+  ai_agent 1-612
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cf63f18e63ca9469246145c1eec9388199d60b47",
+  "prompts": {}
+}
