@@ -58,10 +58,11 @@ import sys
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 if __package__:
     from . import leftover_mill
+    from .operator_paths import operator_path
     from .preference_audit import (
         AUDIT_NAME,
         AUDIT_SCHEMA_VERSION,
@@ -110,6 +111,7 @@ else:
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
     import leftover_mill
+    from operator_paths import operator_path
     from preference_audit import (
         AUDIT_NAME,
         AUDIT_SCHEMA_VERSION,
@@ -591,7 +593,7 @@ def _render_human(run: CurationRun) -> str:
     return "\n".join(lines)
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -626,7 +628,35 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     curate.add_argument("source", type=Path)
     curate.add_argument("--output", type=Path, required=True)
     curate.add_argument("--manifest", type=Path, required=True)
-    return parser.parse_args(argv)
+    return parser
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    return _build_parser().parse_args(argv)
+
+
+class Inputs(NamedTuple):
+    """The operator's paths, each confined to the working, home and temp trees."""
+
+    source: Path | None
+    output: Path | None
+    manifest: Path | None
+    expect: Path | None
+    first: Path | None
+    second: Path | None
+
+
+def _inputs(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Inputs:
+    """Confine every path argument right after parsing; sinks never read ``args`` again."""
+
+    def optional(name: str) -> Path | None:
+        value = getattr(args, name, None)
+        return None if value is None else operator_path(str(value))
+
+    try:
+        return Inputs(*(optional(name) for name in Inputs._fields))
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
 
 
 def _print_audit_text(audit: dict[str, Any]) -> None:
@@ -671,7 +701,7 @@ def _report_audit_drift(expect: Path, audit: dict[str, Any]) -> int:
     return 1
 
 
-def _run_audit(args: argparse.Namespace, run: CurationRun) -> int:
+def _run_audit(args: argparse.Namespace, expect: Path | None, run: CurationRun) -> int:
     audit = build_audit(run)
     if args.markdown:
         print(render_audit_markdown(audit))
@@ -679,13 +709,13 @@ def _run_audit(args: argparse.Namespace, run: CurationRun) -> int:
         print(json.dumps(audit, indent=2, sort_keys=True, ensure_ascii=False))
     else:
         _print_audit_text(audit)
-    if args.expect is None:
+    if expect is None:
         return 0
-    return _report_audit_drift(args.expect, audit)
+    return _report_audit_drift(expect, audit)
 
 
-def _run_reconcile(args: argparse.Namespace) -> int:
-    differences = reconcile_runs(curate_source(args.first), curate_source(args.second))
+def _run_reconcile(args: argparse.Namespace, first: Path, second: Path) -> int:
+    differences = reconcile_runs(curate_source(first), curate_source(second))
     total = sum(len(values) for values in differences.values())
     if args.json:
         print(
@@ -697,9 +727,9 @@ def _run_reconcile(args: argparse.Namespace) -> int:
             )
         )
     elif not total:
-        print(f"{args.first} and {args.second} scan identically")
+        print(f"{first} and {second} scan identically")
     else:
-        print(f"{total} difference(s) between {args.first} and {args.second}")
+        print(f"{total} difference(s) between {first} and {second}")
         for label in sorted(differences):
             for difference in differences[label]:
                 print(f"- {label}: {difference}")
@@ -707,13 +737,15 @@ def _run_reconcile(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    paths = _inputs(parser, args)
     try:
         if args.command == "reconcile":
-            return _run_reconcile(args)
-        run = curate_source(args.source)
+            return _run_reconcile(args, paths.first, paths.second)
+        run = curate_source(paths.source)
         if args.command == "audit":
-            return _run_audit(args, run)
+            return _run_audit(args, paths.expect, run)
         if args.command == "scan":
             if args.json:
                 print(
@@ -728,7 +760,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(_render_human(run))
             return 0
 
-        write_run(run, args.source, args.output, args.manifest)
+        write_run(run, paths.source, paths.output, paths.manifest)
         print(json.dumps(run.summary, sort_keys=True))
         return 0
     except (OSError, PreferenceCurationError, ValueError) as exc:
