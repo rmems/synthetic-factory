@@ -1,0 +1,37 @@
+experiments/kcl-mill-pref.py
+  ai_agent 1-681
+experiments/kcl-mill-r1007.py
+  ai_agent 1-4357
+experiments/kcl-mill-r1216.py
+  ai_agent 1-1046
+experiments/kcl-mill-unique-r1092.py
+  ai_agent 1-656
+experiments/kcl-hop-mill-r1330.py
+  ai_agent 1-632
+experiments/kcl-mill-lll-r1379.py
+  ai_agent 1-808
+experiments/kcl-mill-r1152.py
+  ai_agent 1-2192
+experiments/kcl-mill-r1443.py
+  ai_agent 1-645
+experiments/kcl-mill-r1092.py
+  ai_agent 1-1227
+experiments/kcl-plants-r1443.py
+  ai_agent 1-206
+experiments/kcl-mill-r1236.py
+  ai_agent 1-4867
+experiments/kcl-loop-r1007.py
+  ai_agent 1-163
+experiments/kcl-mill-r1266.py
+  ai_agent 1-979
+experiments/kcl-mill-r1644.py
+  ai_agent 1-528
+experiments/kcl-plants-r1644.py
+  ai_agent 1-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5771ddb95686441c2a5add30d82ead63b74d3686",
+  "prompts": {}
+}
