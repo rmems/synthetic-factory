@@ -1,0 +1,11 @@
+experiments/ewr_leftover3_mill.py
+  ai_agent 1-108
+experiments/ewr_leftover3_plants.py
+  ai_agent 1-1027
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e1e3a79c2109d545f35d9cb9a3d7e021779522f4",
+  "prompts": {}
+}
