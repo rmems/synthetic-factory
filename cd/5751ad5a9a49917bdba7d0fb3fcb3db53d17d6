@@ -1,0 +1,11 @@
+experiments/cer_r1901_leftover3_mill.py
+  ai_agent 1-1169
+experiments/cer_r1958_leftover3_mill.py
+  ai_agent 1-1204
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cd5751ad5a9a49917bdba7d0fb3fcb3db53d17d6",
+  "prompts": {}
+}
