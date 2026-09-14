@@ -1,0 +1,19 @@
+.claude/skills/author-verified-references/SKILL.md
+  ai_agent 1-79
+.agents/skills/plan-github-issue/SKILL.md
+  ai_agent 1-133
+.claude/skills/run-synthetic-factory-windows-monitor/SKILL.md
+  ai_agent 1-44
+.claude/skills/synthesize-large-pr-decisions/SKILL.md
+  ai_agent 1-139
+.claude/agents/pr-shepherd.md
+  ai_agent 1-22
+.agents/skills/fable5-deep-research/SKILL.md
+  ai_agent 1-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2ab68e1d8b67c17cf55f2f32e6365eee56dbfc21",
+  "prompts": {}
+}
