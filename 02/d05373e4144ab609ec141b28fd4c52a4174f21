@@ -1,0 +1,21 @@
+experiments/lef-mill-r728.py
+  ai_agent 1-1663
+experiments/lef-mill-r968.py
+  ai_agent 1-876
+experiments/lef-loop-r629.py
+  ai_agent 1-146
+experiments/.lef-used-slugs.txt
+  ai_agent 1-2095
+experiments/lef-loop-r968.py
+  ai_agent 1-154
+experiments/lef-loop-r728.py
+  ai_agent 1-145
+experiments/lef-mill-r629.py
+  ai_agent 1-2042
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "02d05373e4144ab609ec141b28fd4c52a4174f21",
+  "prompts": {}
+}
