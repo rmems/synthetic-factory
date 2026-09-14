@@ -51,8 +51,10 @@ Today the identity lane (`pipelines/curate_identity.py`) enforces the policy
 when it loads the registry; wiring the same gate into compose, export, and
 promotion is [#167]. `training_ready` in an audit, `COMPOSE.json`, or
 `provenance.json` is the structural and quality verdict only — it never means
-training-eligible, which is `project_training_policy: allowed`, and no
-registry row carries that value yet. The contract every new generator must
+training-eligible, which is `project_training_policy: allowed` — carried
+today only by the procedural `python-function-repair-factory` row, whose
+policy bytes, source/catalog pins, and license evidence are independently
+sealed. Hosted-frontier rows remain blocked. The contract every new generator must
 meet is the "Generator rule" (formerly `AGENTS.md`, retired in [#184];
 preserved [at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md)).
 
@@ -126,7 +128,7 @@ same unit tests and operator smoke check.
 - `outputs/curated/` — gitignored compose destinations (`records/`, `manifest/`, `COMPOSE.json`) built by `pipelines/compose_curated.py`, exports written by `pipelines/export_hf.py`, plus reviewed promotion snapshots written by `pipelines/curate_gate.py promote`
 - `config/` — reviewed factory registry (`FACTORY-REGISTRY.json`). Identity authority is this file (exact `path_id` + `payload_factory`), not a slug allowlist. Onboard a generator by adding a registry row and its exact `(generator, generator_version)` provider/channel assignment to `_REVIEWED_GENERATOR_RIGHTS` in `pipelines/curate_identity.py`; both reviews are required.
 - `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, curation integration/promotion, compose, and export
-- `experiments/` — harvest notes (`2026-08-17-quality-report.md` is a mid-run snapshot; `2026-08-17-grok-census.md` is current)
+- `experiments/` — harvest notes (`2026-08-17-quality-report.md` is a mid-run snapshot; `2026-08-17-grok-census.md` is current). The 1,300-file procedural **mill corpus** that generated the `2026-08-19-agentic` campaigns is preserved on branch `legacy-mill-lane`, one commit per generator family, and lands on `main` family by family
 
 ## Historical prompt lane
 
@@ -140,7 +142,9 @@ git show legacy-prompt-factory-v0.2:prompts/01-thalamic-trajectory-factory.md
 ```
 
 Historical Fable/Grok provenance remains reproducible from Git history and the
-published Hugging Face artifacts above. Do not reintroduce hosted-model prompt
+published Hugging Face artifacts above. That covered the prompt lane only: the
+procedural mill lane had no git record at all until it was preserved on
+`legacy-mill-lane` (see `experiments/` under [Structure](#structure)). Do not reintroduce hosted-model prompt
 generation on `main`: new records come from registry-registered generators
 (see [Generator lanes and rights](#generator-lanes-and-rights) and the
 retired "Generator rule", preserved [at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md)).
