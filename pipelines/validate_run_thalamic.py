@@ -2,6 +2,7 @@
 """Thalamic-trajectory shape checks shared by the run validator's routes."""
 
 import sys
+from typing import NamedTuple
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -44,6 +45,35 @@ SAFETY_DECISIONS = frozenset(
 )
 
 
+class ThalamicHooks(NamedTuple):
+    """The vocabularies and checkers one thalamic validation runs under.
+
+    The validate_run facade builds this from its own live bindings, so
+    patching any of the facade-level compatibility names keeps flowing
+    through exactly as when the whole check lived inline. Siblings default
+    to this module's bindings via :func:`default_hooks`.
+    """
+
+    safety_decisions: frozenset
+    reward_checker: object
+    object_keys: tuple
+    string_keys: tuple
+    meta_round_checker: object
+    spike_checker: object
+
+
+def default_hooks():
+    """This module's own hooks, read at call time so patches here flow too."""
+    return ThalamicHooks(
+        SAFETY_DECISIONS,
+        _validate_run_reward_total.check_reward_total,
+        THALAMIC_OBJECT_KEYS,
+        THALAMIC_STRING_KEYS,
+        check_meta_round,
+        _validate_run_spikes.check_spike_stream,
+    )
+
+
 def _required_object_field_errors(obj, key, where):
     if key not in obj:
         return [f"{where}: missing required key '{key}'"]
@@ -61,15 +91,9 @@ def _optional_nonempty_string_errors(obj, key, where):
     return []
 
 
-def _thalamic_shape_errors(obj, where, object_keys=None, string_keys=None):
-    """Validate required object fields and optional canonical string fields.
-
-    The key vocabularies default to this module's; the validate_run facade
-    passes its own live bindings so rebinding THALAMIC_OBJECT_KEYS or
-    THALAMIC_STRING_KEYS there keeps affecting validation.
-    """
-    object_keys = THALAMIC_OBJECT_KEYS if object_keys is None else object_keys
-    string_keys = THALAMIC_STRING_KEYS if string_keys is None else string_keys
+def _thalamic_shape_errors(obj, where, hooks):
+    """Validate required object fields and optional canonical string fields."""
+    object_keys, string_keys = hooks.object_keys, hooks.string_keys
     # Shape layer: the object-typed fields (incl. meta) are required here.
     # Canonical `id` presence/coverage is a deep-layer concern
     # (check_records / training_audit); at this layer it is only
@@ -134,50 +158,37 @@ def check_meta_round(obj, where):
     return errs
 
 
-def thalamic_core_errors(
-    obj,
-    where,
-    safety_decisions=None,
-    reward_checker=None,
-    object_keys=None,
-    string_keys=None,
-):
+def thalamic_core_errors(obj, where, hooks=None):
     """Validate the thalamic-owned core layers: shape, safety decision, and
     reward arithmetic. Provenance and the meta/spike tail stay with the
     caller so layer order and vocabulary rebinding match the inline gate.
 
-    Every hook defaults to this module's own; the validate_run facade passes
-    its live bindings (``check_reward_total`` included) so patching the
-    facade-level compatibility names keeps flowing through.
+    ``hooks`` defaults to :func:`default_hooks`; the validate_run facade
+    passes its live bindings (``check_reward_total`` included) so patching
+    the facade-level compatibility names keeps flowing through.
     """
-    errs = _thalamic_shape_errors(obj, where, object_keys, string_keys)
+    hooks = default_hooks() if hooks is None else hooks
+    errs = _thalamic_shape_errors(obj, where, hooks)
     errs += _safety_decision_errors(
-        obj.get("safety_decision"), where, safety_decisions
+        obj.get("safety_decision"), where, hooks.safety_decisions
     )
     rc = obj.get("reward_components")
     if isinstance(rc, dict):
-        checker = (
-            _validate_run_reward_total.check_reward_total
-            if reward_checker is None
-            else reward_checker
-        )
-        errs += checker(rc, where)
+        errs += hooks.reward_checker(rc, where)
     return errs
 
 
-def thalamic_tail_errors(obj, where, meta_round_checker=None, spike_checker=None):
+def thalamic_tail_errors(obj, where, hooks=None):
     """Validate meta.round and the spike stream after the provenance layers.
 
-    The checkers default to this module's check_meta_round and the spike
-    sibling's check_spike_stream; the validate_run facade passes its own live
-    bindings so rebinding either facade-level compatibility name keeps
-    affecting validation.
+    ``hooks`` defaults to :func:`default_hooks`; the validate_run facade
+    passes its own live check_meta_round and check_spike_stream so rebinding
+    either facade-level compatibility name keeps affecting validation.
     """
-    checker = check_meta_round if meta_round_checker is None else meta_round_checker
-    errs = checker(obj, where)
+    hooks = default_hooks() if hooks is None else hooks
+    errs = hooks.meta_round_checker(obj, where)
     # Optional trajectory-level spike train: same ordering contract as bridge.
-    spikes = _validate_run_spikes.check_spike_stream if spike_checker is None else spike_checker
-    errs += spikes(obj, where)
+    errs += hooks.spike_checker(obj, where)
     return errs
 
 

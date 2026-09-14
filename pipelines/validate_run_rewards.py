@@ -3,6 +3,7 @@
 
 import math
 import sys
+from typing import NamedTuple
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -46,6 +47,25 @@ REWARD_NON_COMPONENT_KEYS = frozenset(
 REWARD_TOL = 1e-6
 
 
+class RewardSettings(NamedTuple):
+    """The arithmetic tolerance and bookkeeping vocabulary one check runs under.
+
+    The validate_run facade builds this from its own live REWARD_TOL and
+    REWARD_NON_COMPONENT_KEYS bindings, so rebinding either compatibility
+    name there keeps affecting validation exactly as when the check lived
+    inline. Siblings default to this module's bindings via
+    :func:`default_settings`.
+    """
+
+    tolerance: float
+    non_component_keys: frozenset
+
+
+def default_settings():
+    """This module's own settings, read at call time so patches here flow too."""
+    return RewardSettings(REWARD_TOL, REWARD_NON_COMPONENT_KEYS)
+
+
 def component_numeric(value):
     """Extract numeric component value from plain number or {value: number}."""
     if isinstance(value, dict):
@@ -60,15 +80,9 @@ _SCALAR_CONTAINER_KEYS = frozenset(
 )
 
 
-def _scalar_items(rc, non_component_keys=None):
-    """Yield the (key, value) pairs eligible as scalar arithmetic components.
-
-    ``non_component_keys`` defaults to this module's vocabulary; the
-    validate_run facade passes its own live binding so rebinding the
-    facade-level compatibility name keeps affecting validation.
-    """
-    keys = REWARD_NON_COMPONENT_KEYS if non_component_keys is None else non_component_keys
-    skip = keys | _SCALAR_CONTAINER_KEYS
+def _scalar_items(rc, settings):
+    """Yield the (key, value) pairs eligible as scalar arithmetic components."""
+    skip = settings.non_component_keys | _SCALAR_CONTAINER_KEYS
     for k, v in rc.items():
         if k in skip:
             continue
@@ -88,11 +102,11 @@ REWARD_ARITHMETIC_MARKERS = (REWARD_UNWEIGHTED_MISMATCH, REWARD_WEIGHTED_MISMATC
 # and check_records' arithmetic-error dedup.
 
 
-def _sibling_component_sum(rc, non_component_keys=None):
+def _sibling_component_sum(rc, settings):
     """Sum the numeric sibling components, skipping bookkeeping keys."""
     component_sum = 0.0
     has_component = False
-    for _, v in _scalar_items(rc, non_component_keys):
+    for _, v in _scalar_items(rc, settings):
         num = component_numeric(v)
         if num is not None:
             component_sum += num
@@ -113,13 +127,14 @@ def _nonfinite_component_error(key, value, where):
     return None
 
 
-def _unweighted_mismatch(total, component_sum, has_component, where, tolerance=None):
+def _unweighted_mismatch(rc, total, where, settings):
     """Report the sibling-sum mismatch, if the layout has components."""
+    component_sum, has_component = _sibling_component_sum(rc, settings)
     # Only enforce sum check when at least one numeric component exists
     # beyond total (otherwise total alone is allowed, e.g. minimal fixture).
     if not has_component:
         return []
-    tol = REWARD_TOL if tolerance is None else tolerance
+    tol = settings.tolerance
     if math.isclose(float(total), component_sum, rel_tol=0.0, abs_tol=tol):
         return []
     return [
@@ -127,20 +142,19 @@ def _unweighted_mismatch(total, component_sum, has_component, where, tolerance=N
     ]
 
 
-def unweighted_errors(rc, total, where, *, tolerance=None, non_component_keys=None):
+def unweighted_errors(rc, total, where, settings=None):
     """Validate the unweighted layout against the sum of sibling components.
 
-    ``tolerance`` and ``non_component_keys`` default to this module's
-    REWARD_TOL and REWARD_NON_COMPONENT_KEYS; validate_run_reward_total
-    threads the facade's live bindings through here.
+    ``settings`` defaults to this module's :func:`default_settings`;
+    validate_run_reward_total threads the facade's live settings through.
     """
+    settings = default_settings() if settings is None else settings
     errs = []
-    component_sum, has_component = _sibling_component_sum(rc, non_component_keys)
-    for k, v in _scalar_items(rc, non_component_keys):
+    for k, v in _scalar_items(rc, settings):
         error = _nonfinite_component_error(k, v, where)
         if error is not None:
             errs.append(error)
-    return errs + _unweighted_mismatch(total, component_sum, has_component, where, tolerance)
+    return errs + _unweighted_mismatch(rc, total, where, settings)
 
 
 def _container_children(path, value):

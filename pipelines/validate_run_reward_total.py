@@ -18,20 +18,15 @@ else:
     import validate_run_spikes as _validate_run_spikes
 
 
-def _declared_weights(rc, non_component_keys=None):
+def _declared_weights(rc, settings):
     """Resolve declared weights, ignoring non-finite weights."""
     weights = rc.get("weights")
     if not isinstance(weights, dict) or not weights:
         return {}
-    keys = (
-        _validate_run_rewards.REWARD_NON_COMPONENT_KEYS
-        if non_component_keys is None
-        else non_component_keys
-    )
     return {
         k: float(v)
         for k, v in weights.items()
-        if k not in keys
+        if k not in settings.non_component_keys
         and _validate_run_spikes.is_number(v)
     }
 
@@ -71,9 +66,10 @@ def _resolve_weighted_value(rc, key):
     return None
 
 
-def _weighted_errors(rc, declared, total, where, tolerance=None):
+def _weighted_errors(rc, declared, where, settings):
     """Validate the weighted layout against the recomputed weighted sum."""
-    tol = _validate_run_rewards.REWARD_TOL if tolerance is None else tolerance
+    total = rc["total"]
+    tol = settings.tolerance
     recomputed = 0.0
     unresolved = []
     for key, weight in declared.items():
@@ -95,18 +91,19 @@ def _weighted_errors(rc, declared, total, where, tolerance=None):
     return []
 
 
-def check_reward_total(rc, where, *, tolerance=None, non_component_keys=None):
+def check_reward_total(rc, where, settings=None):
     """Validate reward_components arithmetic: total == sum(component values).
 
     Strict gate: total must equal the arithmetic sum of all numeric components
     (excluding bookkeeping keys) within REWARD_TOL. Weighted aggregations are
     supported; interval/string totals are rejected as non-finite.
 
-    ``tolerance`` and ``non_component_keys`` default to validate_run_rewards'
-    REWARD_TOL and REWARD_NON_COMPONENT_KEYS; the validate_run facade passes
-    its own live bindings so rebinding the facade-level compatibility names
-    keeps affecting validation, exactly as when the check lived inline.
+    ``settings`` (a validate_run_rewards.RewardSettings) defaults to that
+    module's REWARD_TOL and REWARD_NON_COMPONENT_KEYS; the validate_run facade
+    passes its own live bindings so rebinding the facade-level compatibility
+    names keeps affecting validation, exactly as when the check lived inline.
     """
+    settings = _validate_run_rewards.default_settings() if settings is None else settings
     errs = []
     if not isinstance(rc, dict):
         return errs
@@ -123,16 +120,14 @@ def check_reward_total(rc, where, *, tolerance=None, non_component_keys=None):
         if isinstance(total, (int, float)):
             errs.append(f"{where}: reward_components.total must be a finite number")
         return errs
-    declared = _declared_weights(rc, non_component_keys)
+    declared = _declared_weights(rc, settings)
     if declared:
         # Weighted layout: total == sum(value_i * weight_i). A declared
         # weighted layout owns the verdict; the sibling-sum check below does
         # not model it.
-        return _weighted_errors(rc, declared, total, where, tolerance)
+        return _weighted_errors(rc, declared, where, settings)
     # Unweighted: sum of numeric siblings (plain or {value: n}).
-    return _validate_run_rewards.unweighted_errors(
-        rc, total, where, tolerance=tolerance, non_component_keys=non_component_keys
-    )
+    return _validate_run_rewards.unweighted_errors(rc, total, where, settings)
 
 
 if __package__:

@@ -199,12 +199,8 @@ def check_reward_total(rc, where):
     so rebinding REWARD_TOL or REWARD_NON_COMPONENT_KEYS here keeps flowing
     through exactly as when the check lived inline.
     """
-    return _validate_run_reward_total.check_reward_total(
-        rc,
-        where,
-        tolerance=REWARD_TOL,
-        non_component_keys=REWARD_NON_COMPONENT_KEYS,
-    )
+    settings = _validate_run_rewards.RewardSettings(REWARD_TOL, REWARD_NON_COMPONENT_KEYS)
+    return _validate_run_reward_total.check_reward_total(rc, where, settings)
 
 
 def _state_provenance_errors(obj, where):
@@ -242,20 +238,19 @@ def check_thalamic(obj, where):
     rebinding (mock.patch.object on this module) keeps flowing through,
     exactly as when the whole check lived inline.
     """
-    errs = _validate_run_thalamic.thalamic_core_errors(
-        obj,
-        where,
+    hooks = _validate_run_thalamic.ThalamicHooks(
         SAFETY_DECISIONS,
-        reward_checker=check_reward_total,
-        object_keys=THALAMIC_OBJECT_KEYS,
-        string_keys=THALAMIC_STRING_KEYS,
+        check_reward_total,
+        THALAMIC_OBJECT_KEYS,
+        THALAMIC_STRING_KEYS,
+        check_meta_round,
+        check_spike_stream,
     )
+    errs = _validate_run_thalamic.thalamic_core_errors(obj, where, hooks)
     errs += check_provenance(obj, where)
     # Deep publish-time provenance: any nested 'real' fails
     errs += [e for e in check_provenance_publish(obj, where) if e not in errs]
-    errs += _validate_run_thalamic.thalamic_tail_errors(
-        obj, where, check_meta_round, spike_checker=check_spike_stream
-    )
+    errs += _validate_run_thalamic.thalamic_tail_errors(obj, where, hooks)
     return errs
 
 
