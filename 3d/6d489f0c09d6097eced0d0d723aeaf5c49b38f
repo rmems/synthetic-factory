@@ -1,0 +1,71 @@
+experiments/mac_r3267_leftover3_swcoord_mill.py
+  ai_agent 1-542
+experiments/mac-mill-r3466.py
+  ai_agent 1-168
+experiments/mac-mill-r3543.py
+  ai_agent 1-183
+experiments/mac-mill-r4001.py
+  ai_agent 1-128
+experiments/mac-mill-r3297.py
+  ai_agent 1-223
+experiments/mac-mill-r4271.py
+  ai_agent 1-110
+experiments/mac-mill-r4219.py
+  ai_agent 1-118
+experiments/mac-mill-r4291.py
+  ai_agent 1-110
+experiments/mac-mill-r4371.py
+  ai_agent 1-110
+experiments/mac-mill-r4187.py
+  ai_agent 1-122
+experiments/mac-mill-r4391.py
+  ai_agent 1-123
+experiments/mac-mill-r3715.py
+  ai_agent 1-162
+experiments/mac-mill-r4039.py
+  ai_agent 1-134
+experiments/mac-mill-r3847.py
+  ai_agent 1-148
+experiments/mac-mill-r4119.py
+  ai_agent 1-126
+experiments/mac-mill-r3905.py
+  ai_agent 1-142
+experiments/mac-mill-r4351.py
+  ai_agent 1-110
+experiments/mac-mill-r3957.py
+  ai_agent 1-134
+experiments/mac-mill-r3205.py
+  ai_agent 1-274
+experiments/mac-mill-r3787.py
+  ai_agent 1-150
+experiments/mac_r3311_leftover3_swcoord_mill.py
+  ai_agent 1-567
+experiments/mac-hop-loop-r3034.py
+  ai_agent 1-180
+experiments/mac-mill-r4083.py
+  ai_agent 1-126
+experiments/mac-mill-r4247.py
+  ai_agent 1-114
+experiments/mac-mill-r4331.py
+  ai_agent 1-110
+experiments/mac-mill-leftover-r3117.py
+  ai_agent 1-548
+experiments/mac-mill-r3034.py
+  ai_agent 1-1351
+experiments/mac-mill-r4311.py
+  ai_agent 1-110
+experiments/mac-mill-r4155.py
+  ai_agent 1-122
+experiments/mac-mill-leftover-r3038.py
+  ai_agent 1-660
+experiments/mac-mill-r3391.py
+  ai_agent 1-209
+experiments/mac-mill-r3635.py
+  ai_agent 1-170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3d6d489f0c09d6097eced0d0d723aeaf5c49b38f",
+  "prompts": {}
+}
