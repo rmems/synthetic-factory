@@ -31,8 +31,6 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "hardware_parity_provenance"
     )
-    if str(_PIPELINES) not in sys.path:
-        sys.path.insert(0, str(_PIPELINES))
     from oracle_grounded import family_digest  # noqa: E402
     from neuro_oracle import digest  # noqa: E402
     from hardware_parity_terms import (  # noqa: E402

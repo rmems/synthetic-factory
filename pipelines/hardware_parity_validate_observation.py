@@ -10,9 +10,6 @@ from __future__ import annotations
 
 import math
 import sys
-from pathlib import Path
-
-_PIPELINES = Path(__file__).resolve().parent
 
 if __package__:
     # Import-twin helpers join the package import lock; import-order tests cover this edge.
@@ -28,8 +25,6 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "hardware_parity_validate_observation"
     )
-    if str(_PIPELINES) not in sys.path:
-        sys.path.insert(0, str(_PIPELINES))
     from hardware_parity_terms import contract  # noqa: E402
     from hardware_parity_validate_quantization import (  # noqa: E402
         _matrix_errors,

@@ -10,14 +10,12 @@ import json
 import sys
 from pathlib import Path
 
-_PIPELINES = Path(__file__).resolve().parent
-
 if __package__:
     # Import-twin helpers join the package import lock; import-order tests cover this edge.
     from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("nir_equivalence_cli")
-    from .exact_json import dumps_exact_json  # noqa: E402
+    from .oracle_grounded.parity_jsonl import read_jsonl, write_jsonl  # noqa: E402,F401
     from .nir_equivalence_catalog import MINIMUM_STEPS  # noqa: E402
     from .nir_equivalence_record import generate_records  # noqa: E402
     from .nir_equivalence_runtimes import availability_report  # noqa: E402
@@ -31,9 +29,7 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "nir_equivalence_cli"
     )
-    if str(_PIPELINES) not in sys.path:
-        sys.path.insert(0, str(_PIPELINES))
-    from exact_json import dumps_exact_json  # noqa: E402
+    from oracle_grounded.parity_jsonl import read_jsonl, write_jsonl  # noqa: E402,F401
     from nir_equivalence_catalog import MINIMUM_STEPS  # noqa: E402
     from nir_equivalence_record import generate_records  # noqa: E402
     from nir_equivalence_runtimes import availability_report  # noqa: E402
@@ -43,58 +39,6 @@ else:
     )
     from nir_equivalence_validate_result import validate_records  # noqa: E402
     from nir_equivalence_views import build_training_views  # noqa: E402
-
-def read_jsonl(path):
-    records = []
-    errors = []
-    source = Path(path)
-    try:
-        # Bytes, not read_text(): universal-newline translation would turn a
-        # bare CR into a line break and frame one physical line as two records,
-        # where validate_run's byte reader rejects the extra value.
-        text = source.read_bytes().decode("utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        return [], [f"{source}: cannot read file: {exc}"]
-    for lineno, raw_line in enumerate(text.split("\n"), 1):
-        line = raw_line[:-1] if raw_line.endswith("\r") else raw_line
-        if not line.strip():
-            continue
-        try:
-            records.append(
-                json.loads(
-                    line,
-                    parse_constant=contract.reject_json_constant,
-                    parse_float=contract.reject_nonfinite_float,
-                )
-            )
-        # RecursionError: a syntactically valid but absurdly nested line must
-        # be a line-level parse error, not a traceback that aborts the scan.
-        # json.JSONDecodeError and the reject_* hooks both raise ValueError.
-        except (ValueError, RecursionError) as exc:
-            errors.append(f"{Path(path).name}:{lineno}: JSON parse error: {exc}")
-    return records, errors
-
-
-def write_jsonl(path, records):
-    """Write one round as JSONL, through the repository's exact encoder.
-
-    `dumps_exact_json`, not `json.dumps`: a round file is evidence other
-    tools digest, and `json.dumps` renders an `ExactJSONFloat` through
-    `repr`, silently dropping the decimal token it was read with. Nothing in
-    these families produces such a value today, so this changes no number
-    now; it keeps the writer honest if one ever reaches it. Its compact form
-    also makes each written line the same text `contract.canonical_json`
-    hashes, rather than a spaced variant of it.
-    """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = "".join(
-        dumps_exact_json(record, ensure_ascii=False, sort_keys=True) + "\n"
-        for record in records
-    )
-    with path.open("x", encoding="utf-8") as handle:
-        handle.write(payload)
-
 
 def _window_steps(text):
     """`--steps`: an integer no shorter than the catalog's divergence window.

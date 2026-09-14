@@ -36,9 +36,6 @@ Usage:
 from __future__ import annotations
 
 import sys
-from pathlib import Path
-
-_PIPELINES = Path(__file__).resolve().parent
 
 if __package__:
     # Import-twin helpers join the package import lock; import-order tests cover this edge.
@@ -109,8 +106,6 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "hardware_parity"
     )
-    if str(_PIPELINES) not in sys.path:
-        sys.path.insert(0, str(_PIPELINES))
     from hardware_parity_terms import (  # noqa: E402,F401
         CATALOG_AUTHORSHIP,
         FACTORY_SLUG,

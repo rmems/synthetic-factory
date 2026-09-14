@@ -8,11 +8,8 @@ ran under.
 
 from __future__ import annotations
 
-from pathlib import Path
 import math
 import sys
-
-_PIPELINES = Path(__file__).resolve().parent
 
 if __package__:
     # Import-twin helpers join the package import lock; import-order tests cover this edge.
@@ -23,8 +20,6 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "neuro_oracle_q88"
     )
-    if str(_PIPELINES) not in sys.path:
-        sys.path.insert(0, str(_PIPELINES))
 
 Q88_FRACTIONAL_BITS = 8
 Q88_SCALE = 1 << Q88_FRACTIONAL_BITS

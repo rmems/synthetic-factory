@@ -8,9 +8,6 @@ ragged or mis-sized grid is a stated reason, never a silent zero.
 from __future__ import annotations
 
 import sys
-from pathlib import Path
-
-_PIPELINES = Path(__file__).resolve().parent
 
 if __package__:
     # Import-twin helpers join the package import lock; import-order tests cover this edge.
@@ -21,8 +18,6 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "hardware_parity_metrics_spikes"
     )
-    if str(_PIPELINES) not in sys.path:
-        sys.path.insert(0, str(_PIPELINES))
 
 def _first_spike_steps(spike_grid, neurons):
     firsts = [None] * neurons

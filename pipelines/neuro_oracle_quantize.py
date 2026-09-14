@@ -8,10 +8,7 @@ re-derives the whole conversion from `scenario.model_float` and compares.
 
 from __future__ import annotations
 
-from pathlib import Path
 import sys
-
-_PIPELINES = Path(__file__).resolve().parent
 
 if __package__:
     # Import-twin helpers join the package import lock; import-order tests cover this edge.
@@ -34,8 +31,6 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "neuro_oracle_quantize"
     )
-    if str(_PIPELINES) not in sys.path:
-        sys.path.insert(0, str(_PIPELINES))
     from neuro_oracle_digest import digest  # noqa: E402
     from neuro_oracle_model import normalize_model  # noqa: E402
     from neuro_oracle_q88 import (  # noqa: E402

@@ -29,8 +29,6 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "nir_equivalence_provenance"
     )
-    if str(_PIPELINES) not in sys.path:
-        sys.path.insert(0, str(_PIPELINES))
     from oracle_grounded import family_digest  # noqa: E402
     from nir_equivalence_catalog import _catalog_digest  # noqa: E402
     from nir_equivalence_terms import (  # noqa: E402

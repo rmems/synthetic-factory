@@ -8,10 +8,7 @@ a parity comparison are always describing the same kind of thing.
 
 from __future__ import annotations
 
-from pathlib import Path
 import sys
-
-_PIPELINES = Path(__file__).resolve().parent
 
 if __package__:
     # Import-twin helpers join the package import lock; import-order tests cover this edge.
@@ -22,8 +19,6 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "neuro_oracle_observation"
     )
-    if str(_PIPELINES) not in sys.path:
-        sys.path.insert(0, str(_PIPELINES))
 
 def _spike_events(spike_grid, dt_ms):
     events = []

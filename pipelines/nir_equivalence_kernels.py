@@ -10,9 +10,6 @@ are worth reading without the traversal around them.
 from __future__ import annotations
 
 import sys
-from pathlib import Path
-
-_PIPELINES = Path(__file__).resolve().parent
 
 if __package__:
     # Import-twin helpers join the package import lock; import-order tests cover this edge.
@@ -26,8 +23,6 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "nir_equivalence_kernels"
     )
-    if str(_PIPELINES) not in sys.path:
-        sys.path.insert(0, str(_PIPELINES))
     from nir_equivalence_graph import (  # noqa: E402
         GraphError,
     )

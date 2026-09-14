@@ -9,8 +9,6 @@ import json
 import sys
 from pathlib import Path
 
-_PIPELINES = Path(__file__).resolve().parent
-
 if __package__:
     # Import-twin helpers join the package import lock; import-order tests cover this edge.
     from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
@@ -19,11 +17,10 @@ if __package__:
     from . import neuro_oracle  # noqa: E402
     from .neuro_oracle import (  # noqa: E402
         FixedPointReferenceAdapter,
-        Path,
         RecordedCaptureAdapter,
         get_adapter,
     )
-    from .exact_json import dumps_exact_json  # noqa: E402
+    from .oracle_grounded.parity_jsonl import read_jsonl, write_jsonl  # noqa: E402,F401
     from .hardware_parity_terms import (  # noqa: E402
         FACTORY_SLUG,
         contract,
@@ -35,16 +32,13 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "hardware_parity_cli"
     )
-    if str(_PIPELINES) not in sys.path:
-        sys.path.insert(0, str(_PIPELINES))
     import neuro_oracle  # noqa: E402
     from neuro_oracle import (  # noqa: E402
         FixedPointReferenceAdapter,
-        Path,
         RecordedCaptureAdapter,
         get_adapter,
     )
-    from exact_json import dumps_exact_json  # noqa: E402
+    from oracle_grounded.parity_jsonl import read_jsonl, write_jsonl  # noqa: E402,F401
     from hardware_parity_terms import (  # noqa: E402
         FACTORY_SLUG,
         contract,
@@ -60,59 +54,6 @@ def availability_report(**kwargs):
 
 
 _ERROR_PREFIX = "ERROR:"
-
-
-def read_jsonl(path):
-    records = []
-    errors = []
-    source = Path(path)
-    try:
-        # Bytes, not read_text(): universal-newline translation would turn a
-        # bare CR into a line break and frame one physical line as two records,
-        # where validate_run's byte reader rejects the extra value.
-        text = source.read_bytes().decode("utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        return [], [f"{source}: cannot read file: {exc}"]
-    for lineno, raw_line in enumerate(text.split("\n"), 1):
-        line = raw_line[:-1] if raw_line.endswith("\r") else raw_line
-        if not line.strip():
-            continue
-        try:
-            records.append(
-                json.loads(
-                    line,
-                    parse_constant=contract.reject_json_constant,
-                    parse_float=contract.reject_nonfinite_float,
-                )
-            )
-        # ValueError covers json.JSONDecodeError, which derives from it, and
-        # the non-finite/constant refusals the two parse hooks raise directly.
-        # RecursionError: a syntactically valid but absurdly nested line must
-        # be a line-level parse error, not a traceback that aborts the scan.
-        except (ValueError, RecursionError) as exc:
-            errors.append(f"{Path(path).name}:{lineno}: JSON parse error: {exc}")
-    return records, errors
-
-
-def write_jsonl(path, records):
-    """Write one round as JSONL, through the repository's exact encoder.
-
-    `dumps_exact_json`, not `json.dumps`: a round file is evidence other
-    tools digest, and `json.dumps` renders an `ExactJSONFloat` through
-    `repr`, silently dropping the decimal token it was read with. Nothing in
-    these families produces such a value today, so this changes no number
-    now; it keeps the writer honest if one ever reaches it. Its compact form
-    also makes each written line the same text `contract.canonical_json`
-    hashes, rather than a spaced variant of it.
-    """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = "".join(
-        dumps_exact_json(record, ensure_ascii=False, sort_keys=True) + "\n"
-        for record in records
-    )
-    with path.open("x", encoding="utf-8") as handle:
-        handle.write(payload)
 
 
 def _load_deployment_adapter(target, capture):
