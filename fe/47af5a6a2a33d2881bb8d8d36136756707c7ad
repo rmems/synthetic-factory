@@ -1,0 +1,35 @@
+pipelines/__init__.py
+  ai_agent 538-555,662-664
+pipelines/curate_gate_records.py
+  ai_agent 1-64
+pipelines/curate_gate.py
+  ai_agent 19-23,117,122,129,133,141,146,153,157,292-294,299-300,302-305,307-308,508
+tests/test_pipeline_split_module_identity.py
+  ai_agent 95-97
+pipelines/curate_gate_manifests.py
+  ai_agent 12-16,24,26,50-54,57,173-302
+pipelines/curate_gate_evidence_verify.py
+  ai_agent 1-375
+tests/pipeline_import_catalog_foundation.py
+  ai_agent 225-260,833-843
+pipelines/curate_gate_bindings.py
+  s_af31ed7264ce5b::t_02edefdffa1498 1-336
+pipelines/curate_gate_evidence.py
+  ai_agent 11-16,24,32,45,51-56,59-60,104-195
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fe47af5a6a2a33d2881bb8d8d36136756707c7ad",
+  "prompts": {},
+  "sessions": {
+    "s_af31ed7264ce5b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e13fca7-977d-487d-a447-9e9097e762ad",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
