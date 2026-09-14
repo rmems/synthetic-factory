@@ -1,0 +1,1883 @@
+"""Unique eval-flakiness plants r621–r628."""
+
+from mill_plants import _ok, _bad
+
+MORE = []
+
+# ---------------------------------------------------------------------------
+# r621 annotator id not in cache / stratified vs iid bootstrap
+# ---------------------------------------------------------------------------
+MORE.append(
+    (
+        _ok(
+            slug="annotator-id-unkeyed",
+            seed=(
+                "rater-A 0.91 vs rater-B 0.22 on the same item; cache keyed input|actual. "
+                "Pin rater-A rejected. Key includes annotator_id."
+            ),
+            avoided=(
+                "r11 judge-hparams-not-in-key (temp/seed/steps). "
+                "This is human annotator_id omitted from the score cache"
+            ),
+            dump="annotator cache key, rater-A 0.91, and rater-B 0.22",
+            first_apply="pin rater-A in the env so the cache always hits 0.91",
+            plan="Set ANNOTATOR=rater-A so CI cannot pick rater-B.",
+            plan_change="include annotator_id in the cache key; never reuse across raters",
+            goal=(
+                "lantern-eval reuses 0.91 from rater-A when rater-B scored 0.22 because the "
+                "cache key is input|actual. Put annotator_id in the key. Do not pin rater-A. "
+                "tests/test_annot_key.py is the gate."
+            ),
+            outcome=(
+                "Cache keyed input|actual so rater-B reused rater-A's 0.91. Pinning rater-A "
+                "hid the second rater. Plan change: key includes annotator_id. Tests 1/1 + "
+                "8/8. Residual: src/faith.py still keys input|actual."
+            ),
+            rg="annotator_id|rater-A|rater-B|cache_key",
+            rg_obs=(
+                "TICKET.md: rater-B 0.22 overwritten by cache hit 0.91 from rater-A\n"
+                "tests/test_annot_key.py: def test_rater_busts_cache\n"
+                "src/annot_key.py: key = f\"{input}|{actual}\"\n"
+                "goldens/raters.json: A=0.91 B=0.22 on cl12-40d"
+            ),
+            test="tests/test_annot_key.py",
+            test_name="rater-busts-cache",
+            test_body=(
+                "def test_rater_busts_cache():\n"
+                "    ka = cache_key(ITEM, actual='deny', annotator='rater-A')\n"
+                "    kb = cache_key(ITEM, actual='deny', annotator='rater-B')\n"
+                "    assert ka != kb\n"
+                "    assert 'rater-B' in kb\n"
+            ),
+            gate_want="rater-A and rater-B keys differ",
+            fail_obs=(
+                "FAILED tests/test_annot_key.py::test_rater_busts_cache"
+                " - AssertionError: ka == kb == 'cl12-40d|deny'\n"
+                "0 passed, 1 failed"
+            ),
+            fail_short="key omits annotator_id",
+            src="src/annot_key.py",
+            src_body=(
+                "def cache_key(item, actual, annotator=None):\n"
+                "    return f\"{item['id']}|{actual}\"\n"
+            ),
+            obs5="same key for 0.91 and 0.22",
+            stats_cmd=(
+                "python3 - <<'PY'\n"
+                "print('A', 0.91, 'B', 0.22, 'key', 'cl12-40d|deny')\n"
+                "PY"
+            ),
+            stats_obs="A 0.91 B 0.22 key cl12-40d|deny",
+            wrong_old="    return f\"{item['id']}|{actual}\"",
+            wrong_new="    return f\"{item['id']}|{actual}|rater-A\"  # pinned",
+            wrong_label="pin-rater-A",
+            wrong_still="rater-B still collides if caller omits annotator",
+            still_fail=(
+                "FAILED tests/test_annot_key.py::test_rater_busts_cache"
+                " - AssertionError: kb pinned rater-A\n"
+                "0 passed, 1 failed"
+            ),
+            fix_src=(
+                "def cache_key(item, actual, annotator=None):\n"
+                "    if not annotator:\n"
+                "        raise ValueError('annotator_id required')\n"
+                "    return f\"{item['id']}|{actual}|{annotator}\"\n"
+            ),
+            rewrite_obs="annotator_id required in key",
+            helper="src/annot_req.py",
+            fix_helper=(
+                "def require_annotator(annotator):\n"
+                "    if not annotator or annotator in {'latest', 'default'}:\n"
+                "        raise ValueError('annotator_id required')\n"
+                "    return annotator\n"
+            ),
+            helper_obs="require_annotator rejects latest",
+            pass_obs="1 passed in 0.12s",
+            suite_ok="8 passed in 1.5s",
+            suite_short="8/8",
+            test2="tests/test_annot_key_second.py",
+            test2_body=(
+                "def test_missing_annotator_raises():\n"
+                "    with pytest.raises(ValueError):\n"
+                "        cache_key(ITEM, actual='deny', annotator=None)\n"
+            ),
+            test2_pass="1 passed in 0.08s",
+            residual="src/faith.py still keys input|actual",
+            residual_path="src/faith.py",
+            residual_pat="cache_key|annotator",
+            residual_obs="src/faith.py: key = f\"{tc.input}|{tc.actual_output}\"\n",
+            gate_again="1 passed in 0.11s",
+            confirm="annotator in key",
+            final_obs="    return f\"{item['id']}|{actual}|{annotator}\"\n",
+            tests_passed=8,
+        ),
+        _bad(
+            slug="strat-vs-iid-bootstrap",
+            seed=(
+                "iid bootstrap CI [0.71, 0.79] hides a cluster of 12 CL-12 fails; "
+                "stratified-by-policy CI [0.54, 0.81]. More samples rejected. "
+                "Use cluster/stratified bootstrap. Nightly still iid."
+            ),
+            avoided=(
+                "r613 bootstrap mean CI (iid). "
+                "This is stratified/cluster bootstrap vs iid on policy clusters"
+            ),
+            dump="iid bootstrap CI, CL-12 cluster, and stratified helper",
+            first_apply="increase iid resamples from 400 to 4000",
+            plan="Run 4000 iid resamples so the CI tightens around 0.75.",
+            plan_change="stratify/cluster bootstrap by policy_id",
+            goal=(
+                "lantern-eval iid bootstrap CI [0.71, 0.79] greens 0.70 while a "
+                "policy-stratified bootstrap is [0.54, 0.81] because 12 CL-12 fails "
+                "cluster. Stratify. Do not just add more iid draws. "
+                "tests/test_strat_boot.py is the gate."
+            ),
+            outcome=(
+                "iid CI [0.71, 0.79] hid the CL-12 cluster. 4000 iid draws still [0.72, 0.78]. "
+                "Plan change: stratified bootstrap by policy_id. Gate 1/1. Partial: nightly "
+                "still iid (xfail)."
+            ),
+            rg="stratified_bootstrap|policy_id|iid|cluster",
+            rg_obs=(
+                "TICKET.md: iid CI [0.71,0.79]; CL-12 cluster 12 fails; strat CI [0.54,0.81]\n"
+                "tests/test_strat_boot.py: def test_strat_lo_blocks\n"
+                "src/strat_boot.py: lo,hi = iid_bootstrap(scores)\n"
+                "goldens/by_policy.json: CL-12 n=12 mean 0.16"
+            ),
+            test="tests/test_strat_boot.py",
+            test_name="strat-lo-blocks",
+            test_body=(
+                "def test_strat_lo_blocks():\n"
+                "    rep = report_ci(ROWS, threshold=0.70)\n"
+                "    assert 0.50 <= rep['ci'][0] <= 0.58\n"
+                "    assert rep['gate'] == 'fail'\n"
+                "    assert rep['method'] == 'stratified'\n"
+            ),
+            gate_want="strat CI lo ~0.54 fail",
+            fail_obs=(
+                "FAILED tests/test_strat_boot.py::test_strat_lo_blocks"
+                " - AssertionError: ci=(0.71,0.79) gate=pass method=iid\n"
+                "0 passed, 1 failed"
+            ),
+            fail_short="iid CI [0.71,0.79] greens",
+            src="src/strat_boot.py",
+            src_body=(
+                "from statistics import mean\n"
+                "\n"
+                "def report_ci(rows, threshold=0.70):\n"
+                "    scores = [r['score'] for r in rows]\n"
+                "    lo, hi = iid_bootstrap(scores, n=400)\n"
+                "    mu = mean(scores)\n"
+                "    return {'mean': mu, 'ci': (lo, hi), 'method': 'iid', 'gate': 'pass' if lo >= threshold else 'fail'}\n"
+            ),
+            obs5="iid lo 0.71; strat lo 0.54",
+            stats_cmd=(
+                "python3 - <<'PY'\n"
+                "print('iid', 0.71, 0.79)\n"
+                "print('strat', 0.54, 0.81)\n"
+                "print('cl12_mean', 0.16, 'n', 12)\n"
+                "PY"
+            ),
+            stats_obs="iid 0.71 0.79\nstrat 0.54 0.81\ncl12_mean 0.16 n 12",
+            wrong_old="    lo, hi = iid_bootstrap(scores, n=400)",
+            wrong_new="    lo, hi = iid_bootstrap(scores, n=4000)",
+            wrong_label="more-iid-draws",
+            wrong_still="CI still iid [0.72,0.78]",
+            still_fail=(
+                "FAILED tests/test_strat_boot.py::test_strat_lo_blocks"
+                " - AssertionError: ci=(0.72,0.78) method=iid\n"
+                "0 passed, 1 failed"
+            ),
+            fix_src=(
+                "from statistics import mean\n"
+                "from src.strat_boot_stats import stratified_bootstrap\n"
+                "\n"
+                "def report_ci(rows, threshold=0.70):\n"
+                "    lo, hi = stratified_bootstrap(rows, key='policy_id', seed=7)\n"
+                "    mu = mean(r['score'] for r in rows)\n"
+                "    return {'mean': mu, 'ci': (lo, hi), 'method': 'stratified',\n"
+                "            'gate': 'pass' if lo >= threshold else 'fail'}\n"
+            ),
+            rewrite_obs="stratified bootstrap by policy_id",
+            helper="src/strat_boot_stats.py",
+            fix_helper=(
+                "import random\n"
+                "from collections import defaultdict\n"
+                "from statistics import mean\n"
+                "\n"
+                "def stratified_bootstrap(rows, key, n=400, seed=7):\n"
+                "    buckets = defaultdict(list)\n"
+                "    for r in rows:\n"
+                "        buckets[r[key]].append(r['score'])\n"
+                "    rng = random.Random(seed)\n"
+                "    means = []\n"
+                "    for _ in range(n):\n"
+                "        samp = []\n"
+                "        for scores in buckets.values():\n"
+                "            samp.extend(rng.choice(scores) for _ in scores)\n"
+                "        means.append(mean(samp))\n"
+                "    means.sort()\n"
+                "    return means[int(0.025*n)], means[int(0.975*n)]\n"
+            ),
+            helper_obs="stratified_bootstrap helper",
+            pass_obs="1 passed in 0.40s",
+            suite_fail=(
+                "FAILED tests/test_nightly_strat.py::test_nightly_strat"
+                " - AssertionError: nightly method=iid ci=(0.71,0.79)\n"
+                "7 passed, 1 failed"
+            ),
+            nightly="src/nightly_strat.py",
+            nightly_test="tests/test_nightly_strat.py",
+            nightly_body=(
+                "def nightly_ci(rows):\n"
+                "    scores = [r['score'] for r in rows]\n"
+                "    return {'ci': iid_bootstrap(scores), 'method': 'iid'}\n"
+            ),
+            xfail_old="def test_nightly_strat():",
+            xfail_new=(
+                '@pytest.mark.xfail(reason="handoff: src/nightly_strat.py still iid", strict=False)\n'
+                "def test_nightly_strat():"
+            ),
+            handoff="nightly iid bootstrap",
+            xfail_obs="1 passed, 1 xfailed",
+            leftover_obs="    return {'ci': iid_bootstrap(scores), 'method': 'iid'}\n",
+            gate_again="1 passed in 0.36s",
+            tests_passed=1,
+        ),
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# r622 model-generated gold / embedding near-dup leak
+# ---------------------------------------------------------------------------
+MORE.append(
+    (
+        _ok(
+            slug="model-generated-gold",
+            seed=(
+                "expected_output from gpt-4o-mini same family as the bot; tautology 0.96. "
+                "Use gpt-4o gold rejected. Human gold only; reject model-as-gold."
+            ),
+            avoided=(
+                "r05 synth-expected-is-source copies retrieval context into expected. "
+                "This is model-family generated gold tautology"
+            ),
+            dump="gold generator model id, bot model id, and 0.96 tautology",
+            first_apply="switch gold generation to gpt-4o",
+            plan="Generate goldens with gpt-4o so they are a stronger teacher than mini.",
+            plan_change="accept only human gold; reject model-as-gold",
+            goal=(
+                "lantern-eval GEval 0.96 because expected_output is gpt-4o-mini, the same "
+                "family as the bot. Use human gold only. Do not switch the teacher to "
+                "gpt-4o. tests/test_model_gold.py is the gate."
+            ),
+            outcome=(
+                "Mini-as-gold tautology 0.96. gpt-4o gold was still a model and scored 0.91. "
+                "Plan change: human gold only; reject model-as-gold. Tests 1/1 + 8/8. "
+                "Residual: src/synth_gold.py still calls chat.completions."
+            ),
+            rg="expected_output|gpt-4o-mini|human_gold|teacher",
+            rg_obs=(
+                "TICKET.md: goldens from gpt-4o-mini; bot gpt-4o-mini; GEval 0.96\n"
+                "tests/test_model_gold.py: def test_rejects_model_gold\n"
+                "src/model_gold.py: expected = teacher.generate(prompt)\n"
+                "goldens/meta.json: teacher=gpt-4o-mini"
+            ),
+            test="tests/test_model_gold.py",
+            test_name="rejects-model-gold",
+            test_body=(
+                "def test_rejects_model_gold():\n"
+                "    with pytest.raises(ValueError, match='human gold'):\n"
+                "        load_gold('goldens/eval.jsonl')\n"
+                "    rows = load_gold('goldens/human.jsonl')\n"
+                "    assert all(r['source']=='human' for r in rows)\n"
+            ),
+            gate_want="model gold rejected; human jsonl loads",
+            fail_obs=(
+                "FAILED tests/test_model_gold.py::test_rejects_model_gold"
+                " - Failed: DID NOT RAISE ValueError; loaded teacher=gpt-4o-mini\n"
+                "0 passed, 1 failed"
+            ),
+            fail_short="model gold loaded, 0.96 tautology",
+            src="src/model_gold.py",
+            src_body=(
+                "import json\n"
+                "\n"
+                "def load_gold(path):\n"
+                "    return [json.loads(l) for l in open(path)]  # no source check\n"
+            ),
+            obs5="teacher and bot both gpt-4o-mini",
+            stats_cmd=(
+                "python3 - <<'PY'\n"
+                "import json\n"
+                "print(json.load(open('goldens/meta.json')))\n"
+                "print('bot', open('configs/bot.env').read())\n"
+                "PY"
+            ),
+            stats_obs="{'teacher': 'gpt-4o-mini', 'n': 80}\nbot OPENAI_MODEL=gpt-4o-mini\n",
+            wrong_old="    return [json.loads(l) for l in open(path)]  # no source check",
+            wrong_new=(
+                "    rows=[json.loads(l) for l in open(path)]\n"
+                "    for r in rows:\n"
+                "        r['teacher']='gpt-4o'\n"
+                "    return rows"
+            ),
+            wrong_label="relabel-teacher-gpt-4o",
+            wrong_still="still model gold",
+            still_fail=(
+                "FAILED tests/test_model_gold.py::test_rejects_model_gold"
+                " - Failed: DID NOT RAISE; teacher relabeled gpt-4o\n"
+                "0 passed, 1 failed"
+            ),
+            fix_src=(
+                "import json\n"
+                "from src.gold_source import require_human\n"
+                "\n"
+                "def load_gold(path):\n"
+                "    rows = [json.loads(l) for l in open(path)]\n"
+                "    require_human(rows)\n"
+                "    return rows\n"
+            ),
+            rewrite_obs="require_human on every golden",
+            helper="src/gold_source.py",
+            fix_helper=(
+                "MODEL_MARKERS = {'gpt-', 'claude', 'teacher', 'synthetic'}\n"
+                "\n"
+                "def require_human(rows):\n"
+                "    for r in rows:\n"
+                "        src = (r.get('source') or r.get('teacher') or '').lower()\n"
+                "        if r.get('source') != 'human' or any(m in src for m in ('gpt', 'claude')):\n"
+                "            raise ValueError('human gold required')\n"
+            ),
+            helper_obs="require_human rejects gpt/claude teachers",
+            pass_obs="1 passed in 0.15s",
+            suite_ok="8 passed in 1.6s",
+            suite_short="8/8",
+            test2="tests/test_model_gold_second.py",
+            test2_body=(
+                "def test_human_file_ok():\n"
+                "    assert len(load_gold('goldens/human.jsonl')) == 40\n"
+            ),
+            test2_pass="1 passed in 0.08s",
+            residual="src/synth_gold.py still calls chat.completions",
+            residual_path="src/synth_gold.py",
+            residual_pat="chat.completions|teacher",
+            residual_obs="src/synth_gold.py: teacher.chat.completions.create(\n",
+            gate_again="1 passed in 0.14s",
+            confirm="require_human",
+            final_obs="    require_human(rows)\n    return rows\n",
+            tests_passed=8,
+        ),
+        _bad(
+            slug="embed-neardup-leak",
+            seed=(
+                "eval items cosine>0.95 vs train via text-embedding-3-small; GEval 0.93. "
+                "Jaccard rejected. Embedding near-dup drop. Nightly still includes near-dups."
+            ),
+            avoided=(
+                "r614 8-gram lexical contamination; r615 id-set leak. "
+                "This is embedding near-duplicate leakage"
+            ),
+            dump="embedding near-dup helper, cosine>0.95 pairs, and train ids",
+            first_apply="drop items with Jaccard>0.8 instead",
+            plan="Use token Jaccard so we do not pay for embeddings.",
+            plan_change="drop eval items with cosine>0.95 against train embeddings",
+            goal=(
+                "lantern-eval GEval 0.93 because eval items are cosine>0.95 near-dups of "
+                "train via text-embedding-3-small. Drop near-dups. Do not switch to Jaccard. "
+                "tests/test_embed_dup.py is the gate."
+            ),
+            outcome=(
+                "Near-dup eval/train pairs (cos 0.97) scored 0.93. Jaccard 0.41 kept them. "
+                "Plan change: cosine>0.95 drop. Gate 1/1. Partial: nightly still includes "
+                "e22 (xfail)."
+            ),
+            rg="cosine|near.dup|text-embedding-3-small|e22",
+            rg_obs=(
+                "TICKET.md: e22 cos 0.97 vs train ft-2211; GEval 0.93\n"
+                "tests/test_embed_dup.py: def test_drops_near_dup\n"
+                "src/embed_dup.py: return rows  # no embedding check\n"
+                "goldens/e22.json: paraphrase of ft-2211"
+            ),
+            test="tests/test_embed_dup.py",
+            test_name="drops-near-dup",
+            test_body=(
+                "def test_drops_near_dup():\n"
+                "    kept, report = filter_near(EVAL, TRAIN, thresh=0.95)\n"
+                "    assert 'e22' not in {r['id'] for r in kept}\n"
+                "    assert report['dropped'] >= 1\n"
+                "    assert report['method'] == 'cosine'\n"
+            ),
+            gate_want="e22 dropped by cosine",
+            fail_obs=(
+                "FAILED tests/test_embed_dup.py::test_drops_near_dup"
+                " - AssertionError: e22 kept; method missing\n"
+                "0 passed, 1 failed"
+            ),
+            fail_short="e22 kept, no embedding check",
+            src="src/embed_dup.py",
+            src_body=(
+                "def filter_near(eval_rows, train_rows, thresh=0.95):\n"
+                "    return eval_rows, {'n': len(eval_rows)}\n"
+            ),
+            obs5="e22 cosine 0.97 vs ft-2211",
+            stats_cmd=(
+                "python3 - <<'PY'\n"
+                "print('cos', 0.97, 'jaccard', 0.41, 'pair', ('e22','ft-2211'))\n"
+                "PY"
+            ),
+            stats_obs="cos 0.97 jaccard 0.41 pair ('e22', 'ft-2211')",
+            wrong_old="    return eval_rows, {'n': len(eval_rows)}",
+            wrong_new=(
+                "    def jac(a,b):\n"
+                "        sa,sb=set(a.split()), set(b.split())\n"
+                "        return len(sa&sb)/len(sa|sb)\n"
+                "    kept=[r for r in eval_rows if max(jac(r['input'], t['text']) for t in train_rows) < 0.8]\n"
+                "    return kept, {'method': 'jaccard', 'dropped': len(eval_rows)-len(kept)}"
+            ),
+            wrong_label="jaccard-instead",
+            wrong_still="e22 Jaccard 0.41 kept",
+            still_fail=(
+                "FAILED tests/test_embed_dup.py::test_drops_near_dup"
+                " - AssertionError: e22 kept method=jaccard\n"
+                "0 passed, 1 failed"
+            ),
+            fix_src=(
+                "from src.embed_cos import cosine_pairs\n"
+                "\n"
+                "def filter_near(eval_rows, train_rows, thresh=0.95):\n"
+                "    hits = cosine_pairs(eval_rows, train_rows, thresh)\n"
+                "    drop = {h['eval_id'] for h in hits}\n"
+                "    kept = [r for r in eval_rows if r['id'] not in drop]\n"
+                "    return kept, {'dropped': len(drop), 'method': 'cosine', 'hits': hits}\n"
+            ),
+            rewrite_obs="cosine>0.95 drop; e22 out",
+            helper="src/embed_cos.py",
+            fix_helper=(
+                "def cosine_pairs(eval_rows, train_rows, thresh):\n"
+                "    # fixture: e22 vs ft-2211 is 0.97\n"
+                "    hits = [{'eval_id': 'e22', 'train_id': 'ft-2211', 'cos': 0.97}]\n"
+                "    return [h for h in hits if h['cos'] >= thresh]\n"
+            ),
+            helper_obs="cosine_pairs fixture helper",
+            pass_obs="1 passed in 0.24s",
+            suite_fail=(
+                "FAILED tests/test_nightly_embed.py::test_nightly_drops_e22"
+                " - AssertionError: nightly scored e22 0.93\n"
+                "7 passed, 1 failed"
+            ),
+            nightly="src/nightly_embed.py",
+            nightly_test="tests/test_nightly_embed.py",
+            nightly_body=(
+                "def nightly():\n"
+                "    return score_all(load_eval())  # includes e22\n"
+            ),
+            xfail_old="def test_nightly_drops_e22():",
+            xfail_new=(
+                '@pytest.mark.xfail(reason="handoff: src/nightly_embed.py still scores e22", strict=False)\n'
+                "def test_nightly_drops_e22():"
+            ),
+            handoff="nightly e22 near-dup",
+            xfail_obs="1 passed, 1 xfailed",
+            leftover_obs="    return score_all(load_eval())  # includes e22\n",
+            gate_again="1 passed in 0.22s",
+            tests_passed=1,
+        ),
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# r623 Bradley-Terry vs mean winrate / macro vs micro F1
+# ---------------------------------------------------------------------------
+MORE.append(
+    (
+        _ok(
+            slug="bt-vs-mean-winrate",
+            seed=(
+                "pairwise arena mean winrate 0.62 but BT skill 0.41 after position; "
+                "published mean. Swap-average rejected. BT with position feature; "
+                "publish skill not mean winrate."
+            ),
+            avoided=(
+                "r244 arena-swap-not-averaged (no swap at all); r128 arenageval-same-model. "
+                "This is Bradley-Terry skill vs mean winrate after position"
+            ),
+            dump="arena win table, position bias, and BT helper",
+            first_apply="average A-first and B-first winrates",
+            plan="Average the two position directions so mean winrate is debiased.",
+            plan_change="fit Bradley-Terry with a position feature; publish skill",
+            goal=(
+                "lantern-eval publishes arena winrate 0.62 while Bradley-Terry skill after "
+                "a position feature is 0.41. Publish BT skill. Do not only average swaps. "
+                "tests/test_bt.py is the gate."
+            ),
+            outcome=(
+                "Mean winrate 0.62 hid position-adjusted BT skill 0.41. Swap-average was "
+                "0.55 and still a winrate. Plan change: BT with position; publish skill. "
+                "Tests 1/1 + 8/8. Residual: src/arena_dash.py still prints winrate."
+            ),
+            rg="bradley|winrate|position|skill|arena",
+            rg_obs=(
+                "TICKET.md: winrate 0.62; A-first 0.78 B-first 0.31; BT skill 0.41 unused\n"
+                "tests/test_bt.py: def test_publishes_bt_skill\n"
+                "src/bt.py: score = wins/n\n"
+                "goldens/arena.jsonl: 200 pairwise"
+            ),
+            test="tests/test_bt.py",
+            test_name="publishes-bt-skill",
+            test_body=(
+                "def test_publishes_bt_skill():\n"
+                "    rep = arena_report(PAIRS)\n"
+                "    assert 0.38 <= rep['skill'] <= 0.44\n"
+                "    assert rep['gate'] == 'fail'  # skill 0.41 < 0.5\n"
+                "    assert 'swap_avg' not in rep\n"
+            ),
+            gate_want="BT skill ~0.41 fail",
+            fail_obs=(
+                "FAILED tests/test_bt.py::test_publishes_bt_skill"
+                " - AssertionError: skill missing; winrate=0.62 gate=pass\n"
+                "0 passed, 1 failed"
+            ),
+            fail_short="mean winrate 0.62 published",
+            src="src/bt.py",
+            src_body=(
+                "def arena_report(pairs):\n"
+                "    wins = sum(p['winner']=='bot' for p in pairs)\n"
+                "    wr = wins/len(pairs)\n"
+                "    return {'winrate': wr, 'gate': 'pass' if wr >= 0.5 else 'fail'}\n"
+            ),
+            obs5="A-first 0.78 / B-first 0.31 / BT 0.41",
+            stats_cmd=(
+                "python3 - <<'PY'\n"
+                "print('winrate', 0.62)\n"
+                "print('A_first', 0.78, 'B_first', 0.31)\n"
+                "print('bt_skill', 0.41)\n"
+                "PY"
+            ),
+            stats_obs="winrate 0.62\nA_first 0.78 B_first 0.31\nbt_skill 0.41",
+            wrong_old="    wr = wins/len(pairs)\n    return {'winrate': wr, 'gate': 'pass' if wr >= 0.5 else 'fail'}",
+            wrong_new=(
+                "    a = mean(p['winner']=='bot' for p in pairs if p['pos']=='A')\n"
+                "    b = mean(p['winner']=='bot' for p in pairs if p['pos']=='B')\n"
+                "    wr = 0.5*(a+b)\n"
+                "    return {'swap_avg': wr, 'gate': 'pass' if wr >= 0.5 else 'fail'}"
+            ),
+            wrong_label="swap-average-winrate",
+            wrong_still="swap_avg 0.55 still a winrate",
+            still_fail=(
+                "FAILED tests/test_bt.py::test_publishes_bt_skill"
+                " - AssertionError: skill missing; swap_avg=0.545 gate=pass\n"
+                "0 passed, 1 failed"
+            ),
+            fix_src=(
+                "from src.bt_fit import fit_bt_skill\n"
+                "\n"
+                "def arena_report(pairs):\n"
+                "    skill = fit_bt_skill(pairs, position=True)\n"
+                "    return {'skill': skill, 'gate': 'pass' if skill >= 0.5 else 'fail'}\n"
+            ),
+            rewrite_obs="BT skill with position feature",
+            helper="src/bt_fit.py",
+            fix_helper=(
+                "def fit_bt_skill(pairs, position=True):\n"
+                "    # fixture: position-aware BT skill is 0.41\n"
+                "    return 0.41 if position else 0.62\n"
+            ),
+            helper_obs="fit_bt_skill fixture 0.41",
+            pass_obs="1 passed in 0.18s",
+            suite_ok="8 passed in 1.7s",
+            suite_short="8/8",
+            test2="tests/test_bt_second.py",
+            test2_body=(
+                "def test_position_true_required():\n"
+                "    assert fit_bt_skill(PAIRS, position=True) < 0.5\n"
+            ),
+            test2_pass="1 passed in 0.08s",
+            residual="src/arena_dash.py still prints winrate",
+            residual_path="src/arena_dash.py",
+            residual_pat="winrate|skill",
+            residual_obs="src/arena_dash.py: print(f'winrate={wr:.2f}')\n",
+            gate_again="1 passed in 0.16s",
+            confirm="skill key",
+            final_obs="    return {'skill': skill, 'gate': 'pass' if skill >= 0.5 else 'fail'}\n",
+            tests_passed=8,
+        ),
+        _bad(
+            slug="macro-vs-micro-f1",
+            seed=(
+                "micro-F1 0.81 hides policy-class F1 0.12; gate uses micro. "
+                "Weighted-F1 rejected. Fail if any class F1 < 0.5. Nightly still micro."
+            ),
+            avoided=(
+                "r28 recall-precision-alias-swap. "
+                "This is macro/per-class F1 vs micro-F1 hiding CL-12"
+            ),
+            dump="micro-F1 0.81, per-class table, and CL-12 F1 0.12",
+            first_apply="switch the gate to weighted-F1",
+            plan="Publish weighted-F1 so rare classes still count by support.",
+            plan_change="fail if any class F1 is below 0.5",
+            goal=(
+                "lantern-eval micro-F1 0.81 greens while CL-12 class F1 is 0.12. Fail if "
+                "any class F1 < 0.5. Do not switch to weighted-F1. "
+                "tests/test_macro_f1.py is the gate."
+            ),
+            outcome=(
+                "micro-F1 0.81 hid CL-12 F1 0.12. Weighted-F1 0.74 still greened 0.70. Plan "
+                "change: per-class floor 0.5. Gate 1/1. Partial: nightly still micro (xfail)."
+            ),
+            rg="micro.F1|macro|class_f1|CL-12|weighted",
+            rg_obs=(
+                "TICKET.md: micro-F1 0.81 pass; CL-12 F1 0.12 unused\n"
+                "tests/test_macro_f1.py: def test_class_floor\n"
+                "src/macro_f1.py: gate = micro >= 0.70\n"
+                "goldens/classes.json: CL-12 support 24 f1 0.12"
+            ),
+            test="tests/test_macro_f1.py",
+            test_name="class-floor",
+            test_body=(
+                "def test_class_floor():\n"
+                "    rep = report_f1(PREDS, GOLD)\n"
+                "    assert rep['micro'] == pytest.approx(0.81, abs=0.02)\n"
+                "    assert rep['per_class']['CL-12'] == pytest.approx(0.12, abs=0.02)\n"
+                "    assert rep['gate'] == 'fail'\n"
+                "    assert 'weighted' not in rep\n"
+            ),
+            gate_want="CL-12 F1 0.12 fails the floor",
+            fail_obs=(
+                "FAILED tests/test_macro_f1.py::test_class_floor"
+                " - AssertionError: gate=pass micro=0.81; per_class missing\n"
+                "0 passed, 1 failed"
+            ),
+            fail_short="micro 0.81 is the only number",
+            src="src/macro_f1.py",
+            src_body=(
+                "def report_f1(preds, gold):\n"
+                "    micro = f1_micro(preds, gold)\n"
+                "    return {'micro': micro, 'gate': 'pass' if micro >= 0.70 else 'fail'}\n"
+            ),
+            obs5="micro 0.81; CL-12 0.12; weighted 0.74",
+            stats_cmd=(
+                "python3 - <<'PY'\n"
+                "print({'micro':0.81,'CL-12':0.12,'refund':0.90,'chitchat':0.88,'weighted':0.74})\n"
+                "PY"
+            ),
+            stats_obs="{'micro': 0.81, 'CL-12': 0.12, 'refund': 0.9, 'chitchat': 0.88, 'weighted': 0.74}",
+            wrong_old="    micro = f1_micro(preds, gold)\n    return {'micro': micro, 'gate': 'pass' if micro >= 0.70 else 'fail'}",
+            wrong_new=(
+                "    micro = f1_micro(preds, gold)\n"
+                "    w = f1_weighted(preds, gold)\n"
+                "    return {'micro': micro, 'weighted': w, 'gate': 'pass' if w >= 0.70 else 'fail'}"
+            ),
+            wrong_label="weighted-f1-gate",
+            wrong_still="weighted 0.74 still passes",
+            still_fail=(
+                "FAILED tests/test_macro_f1.py::test_class_floor"
+                " - AssertionError: gate=pass weighted=0.74; per_class missing\n"
+                "0 passed, 1 failed"
+            ),
+            fix_src=(
+                "from src.class_f1 import f1_micro, per_class_f1\n"
+                "\n"
+                "def report_f1(preds, gold):\n"
+                "    micro = f1_micro(preds, gold)\n"
+                "    pc = per_class_f1(preds, gold)\n"
+                "    gate = 'fail' if min(pc.values()) < 0.5 else ('pass' if micro >= 0.70 else 'fail')\n"
+                "    return {'micro': micro, 'per_class': pc, 'gate': gate}\n"
+            ),
+            rewrite_obs="per-class floor 0.5",
+            helper="src/class_f1.py",
+            fix_helper=(
+                "def f1_micro(preds, gold):\n"
+                "    return 0.81\n"
+                "\n"
+                "def per_class_f1(preds, gold):\n"
+                "    return {'CL-12': 0.12, 'refund': 0.90, 'chitchat': 0.88}\n"
+            ),
+            helper_obs="per_class_f1 fixture",
+            pass_obs="1 passed in 0.14s",
+            suite_fail=(
+                "FAILED tests/test_nightly_macro.py::test_nightly_class_floor"
+                " - AssertionError: nightly gate=pass micro=0.81\n"
+                "7 passed, 1 failed"
+            ),
+            nightly="src/nightly_macro.py",
+            nightly_test="tests/test_nightly_macro.py",
+            nightly_body=(
+                "def nightly_f1(preds, gold):\n"
+                "    micro = f1_micro(preds, gold)\n"
+                "    return {'micro': micro, 'gate': 'pass' if micro >= 0.70 else 'fail'}\n"
+            ),
+            xfail_old="def test_nightly_class_floor():",
+            xfail_new=(
+                '@pytest.mark.xfail(reason="handoff: src/nightly_macro.py still micro-only", strict=False)\n'
+                "def test_nightly_class_floor():"
+            ),
+            handoff="nightly micro-F1",
+            xfail_obs="1 passed, 1 xfailed",
+            leftover_obs="    return {'micro': micro, 'gate': 'pass' if micro >= 0.70 else 'fail'}\n",
+            gate_again="1 passed in 0.13s",
+            tests_passed=1,
+        ),
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# r624 promptfoo transform unkeyed / ECE vs accuracy
+# ---------------------------------------------------------------------------
+MORE.append(
+    (
+        _ok(
+            slug="pfoo-transform-unkeyed",
+            seed=(
+                "promptfoo transform yaml.score v1 10-scale vs v2 unit interval; cache "
+                "uses prompt+output. Pin v1 rejected. Hash transform source in key."
+            ),
+            avoided=(
+                "r18 ten-scale-first-float (parser); r35 prompt-template-hash. "
+                "This is promptfoo transform function omitted from the cache key"
+            ),
+            dump="promptfoo transform yaml.score, v1 vs v2, and cache key",
+            first_apply="pin transform: yaml.score@v1",
+            plan="Pin the transform alias so v2 cannot load.",
+            plan_change="hash transform source into the cache key",
+            goal=(
+                "lantern-eval reuses 8.0/10 as 0.80 after transform v2 switched to unit "
+                "interval because the cache key is prompt+output. Hash the transform "
+                "source. Do not pin v1. tests/test_pfoo_xform.py is the gate."
+            ),
+            outcome=(
+                "v1 10-scale cached 8.0 reused as v2 0.80. Pinning v1 hid the switch. Plan "
+                "change: sha256(transform src) in key. Tests 1/1 + 8/8. Residual: "
+                "src/pfoo_other.py still keys prompt+output."
+            ),
+            rg="transform:|yaml.score|cache_key|10-scale",
+            rg_obs=(
+                "TICKET.md: transform v2 unit interval; cache hit 8.0 from v1 treated as 0.80>=0.7\n"
+                "tests/test_pfoo_xform.py: def test_xform_busts_cache\n"
+                "src/pfoo_xform.py: key = f\"{prompt}|{output}\"\n"
+                "promptfooconfig.yaml: transform: file://transforms/score.py"
+            ),
+            test="tests/test_pfoo_xform.py",
+            test_name="xform-busts-cache",
+            test_body=(
+                "def test_xform_busts_cache():\n"
+                "    k1 = cache_key(PROMPT, OUT, xform='transforms/score_v1.py')\n"
+                "    k2 = cache_key(PROMPT, OUT, xform='transforms/score_v2.py')\n"
+                "    assert k1 != k2\n"
+                "    assert sha_of('transforms/score_v2.py') in k2\n"
+            ),
+            gate_want="v1 and v2 transform keys differ",
+            fail_obs=(
+                "FAILED tests/test_pfoo_xform.py::test_xform_busts_cache"
+                " - AssertionError: k1 == k2 == prompt|output\n"
+                "0 passed, 1 failed"
+            ),
+            fail_short="key is prompt|output",
+            src="src/pfoo_xform.py",
+            src_body=(
+                "def cache_key(prompt, output, xform=None):\n"
+                "    return f\"{prompt}|{output}\"\n"
+            ),
+            obs5="v1 returns 8.0; v2 returns 0.80; same key",
+            stats_cmd=(
+                "python3 - <<'PY'\n"
+                "import hashlib, pathlib\n"
+                "for p in ['transforms/score_v1.py','transforms/score_v2.py']:\n"
+                "    print(p, hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()[:12])\n"
+                "print('v1_out', 8.0, 'v2_out', 0.80)\n"
+                "PY"
+            ),
+            stats_obs="transforms/score_v1.py 0aa11bb22cc\ntransforms/score_v2.py 99fe00ab12\nv1_out 8.0 v2_out 0.80",
+            wrong_old="    return f\"{prompt}|{output}\"",
+            wrong_new="    return f\"{prompt}|{output}|yaml.score@v1\"",
+            wrong_label="pin-v1-alias",
+            wrong_still="v2 caller still hits if xform omitted",
+            still_fail=(
+                "FAILED tests/test_pfoo_xform.py::test_xform_busts_cache"
+                " - AssertionError: k2 pinned v1 alias\n"
+                "0 passed, 1 failed"
+            ),
+            fix_src=(
+                "from src.xform_hash import sha_of\n"
+                "\n"
+                "def cache_key(prompt, output, xform=None):\n"
+                "    if not xform:\n"
+                "        raise ValueError('transform path required')\n"
+                "    return f\"{prompt}|{output}|{sha_of(xform)}\"\n"
+            ),
+            rewrite_obs="transform sha256 in key; required",
+            helper="src/xform_hash.py",
+            fix_helper=(
+                "import hashlib\n"
+                "from pathlib import Path\n"
+                "\n"
+                "def sha_of(path):\n"
+                "    return hashlib.sha256(Path(path).read_bytes()).hexdigest()\n"
+            ),
+            helper_obs="sha_of helper",
+            pass_obs="1 passed in 0.16s",
+            suite_ok="8 passed in 1.6s",
+            suite_short="8/8",
+            test2="tests/test_pfoo_xform_second.py",
+            test2_body=(
+                "def test_missing_xform_raises():\n"
+                "    with pytest.raises(ValueError):\n"
+                "        cache_key('p', 'o', xform=None)\n"
+            ),
+            test2_pass="1 passed in 0.07s",
+            residual="src/pfoo_other.py still keys prompt+output",
+            residual_path="src/pfoo_other.py",
+            residual_pat="cache_key|transform",
+            residual_obs="src/pfoo_other.py: key = f\"{prompt}|{output}\"\n",
+            gate_again="1 passed in 0.14s",
+            confirm="sha in key",
+            final_obs="    return f\"{prompt}|{output}|{sha_of(xform)}\"\n",
+            tests_passed=8,
+        ),
+        _bad(
+            slug="ece-vs-accuracy",
+            seed=(
+                "accuracy 0.78, ECE 0.31 overconfident; gate accuracy only. "
+                "Brier rejected. Fail if ECE>0.1. Nightly still accuracy."
+            ),
+            avoided=(
+                "r08 strictmode binary cluster; r618 Platt vs raw. "
+                "This is ECE vs accuracy on a classification gate"
+            ),
+            dump="accuracy 0.78, reliability diagram ECE 0.31, and gate",
+            first_apply="switch the gate to Brier score",
+            plan="Publish Brier so overconfidence is a proper scoring rule.",
+            plan_change="fail if ECE > 0.1 even when accuracy clears 0.70",
+            goal=(
+                "lantern-eval accuracy 0.78 greens while ECE is 0.31 (overconfident). "
+                "Fail if ECE>0.1. Do not only switch to Brier. "
+                "tests/test_ece.py is the gate."
+            ),
+            outcome=(
+                "Accuracy 0.78 hid ECE 0.31. Brier 0.18 has no floor in the ticket. Plan "
+                "change: ECE>0.1 fail-closed. Gate 1/1. Partial: nightly still accuracy "
+                "(xfail)."
+            ),
+            rg="ECE|reliability|accuracy|brier|overconf",
+            rg_obs=(
+                "TICKET.md: acc 0.78 pass; ECE 0.31 unused; bins overconfident on CL-12\n"
+                "tests/test_ece.py: def test_ece_blocks\n"
+                "src/ece.py: gate = acc >= 0.70\n"
+                "goldens/probs.jsonl: 80 rows"
+            ),
+            test="tests/test_ece.py",
+            test_name="ece-blocks",
+            test_body=(
+                "def test_ece_blocks():\n"
+                "    rep = report_cal(PROBS, Y)\n"
+                "    assert rep['acc'] == pytest.approx(0.78, abs=0.02)\n"
+                "    assert 0.28 <= rep['ece'] <= 0.34\n"
+                "    assert rep['gate'] == 'fail'\n"
+                "    assert 'brier' not in rep\n"
+            ),
+            gate_want="ECE ~0.31 fail",
+            fail_obs=(
+                "FAILED tests/test_ece.py::test_ece_blocks"
+                " - AssertionError: gate=pass acc=0.78; ece missing\n"
+                "0 passed, 1 failed"
+            ),
+            fail_short="accuracy-only gate",
+            src="src/ece.py",
+            src_body=(
+                "def report_cal(probs, y):\n"
+                "    acc = mean(int(p>=0.5)==yi for p,yi in zip(probs,y))\n"
+                "    return {'acc': acc, 'gate': 'pass' if acc >= 0.70 else 'fail'}\n"
+            ),
+            obs5="acc 0.78; ECE 0.31; Brier 0.18",
+            stats_cmd=(
+                "python3 - <<'PY'\n"
+                "print('acc', 0.78, 'ece', 0.31, 'brier', 0.18)\n"
+                "PY"
+            ),
+            stats_obs="acc 0.78 ece 0.31 brier 0.18",
+            wrong_old="    acc = mean(int(p>=0.5)==yi for p,yi in zip(probs,y))\n    return {'acc': acc, 'gate': 'pass' if acc >= 0.70 else 'fail'}",
+            wrong_new=(
+                "    acc = mean(int(p>=0.5)==yi for p,yi in zip(probs,y))\n"
+                "    brier = mean((p-yi)**2 for p,yi in zip(probs,y))\n"
+                "    return {'acc': acc, 'brier': brier, 'gate': 'pass' if brier <= 0.25 else 'fail'}"
+            ),
+            wrong_label="brier-gate",
+            wrong_still="brier 0.18 passes 0.25; ECE unused",
+            still_fail=(
+                "FAILED tests/test_ece.py::test_ece_blocks"
+                " - AssertionError: brier=0.18 gate=pass; ece missing\n"
+                "0 passed, 1 failed"
+            ),
+            fix_src=(
+                "from statistics import mean\n"
+                "from src.ece_bins import expected_calibration_error\n"
+                "\n"
+                "def report_cal(probs, y):\n"
+                "    acc = mean(int((p>=0.5)==yi) for p,yi in zip(probs,y))\n"
+                "    ece = expected_calibration_error(probs, y)\n"
+                "    return {'acc': acc, 'ece': ece, 'gate': 'fail' if ece > 0.1 else ('pass' if acc >= 0.70 else 'fail')}\n"
+            ),
+            rewrite_obs="ECE>0.1 fail-closed",
+            helper="src/ece_bins.py",
+            fix_helper=(
+                "def expected_calibration_error(probs, y, bins=10):\n"
+                "    # fixture reliability gap 0.31\n"
+                "    return 0.31\n"
+            ),
+            helper_obs="ECE fixture 0.31",
+            pass_obs="1 passed in 0.13s",
+            suite_fail=(
+                "FAILED tests/test_nightly_ece.py::test_nightly_ece"
+                " - AssertionError: nightly gate=pass acc=0.78\n"
+                "7 passed, 1 failed"
+            ),
+            nightly="src/nightly_ece.py",
+            nightly_test="tests/test_nightly_ece.py",
+            nightly_body=(
+                "def nightly_cal(probs, y):\n"
+                "    acc = mean(int((p>=0.5)==yi) for p,yi in zip(probs,y))\n"
+                "    return {'acc': acc, 'gate': 'pass' if acc >= 0.70 else 'fail'}\n"
+            ),
+            xfail_old="def test_nightly_ece():",
+            xfail_new=(
+                '@pytest.mark.xfail(reason="handoff: src/nightly_ece.py still accuracy-only", strict=False)\n'
+                "def test_nightly_ece():"
+            ),
+            handoff="nightly accuracy-only",
+            xfail_obs="1 passed, 1 xfailed",
+            leftover_obs="    return {'acc': acc, 'gate': 'pass' if acc >= 0.70 else 'fail'}\n",
+            gate_again="1 passed in 0.12s",
+            tests_passed=1,
+        ),
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# r625 turn kappa vs ConversationalGEval / HF evaluate version drift
+# ---------------------------------------------------------------------------
+MORE.append(
+    (
+        _ok(
+            slug="turn-kappa-vs-convo",
+            seed=(
+                "ConversationalGEval 0.84 vs per-turn human kappa 0.22 on turn 2 SKU lie. "
+                "Weight last turn rejected. Min turn-level kappa; don't hide turn 2."
+            ),
+            avoided=(
+                "r10 turn-relevancy-last-only; r18 convo-geval-flat-transcript. "
+                "This is per-turn human kappa vs ConversationalGEval"
+            ),
+            dump="ConversationalGEval 0.84, turn-2 kappa 0.22, and human turns",
+            first_apply="weight the last turn 2x in ConversationalGEval",
+            plan="Upweight the last turn so the SKU lie cannot hide in the middle.",
+            plan_change="gate on min turn-level kappa; do not let convo metric hide turn 2",
+            goal=(
+                "lantern-eval ConversationalGEval 0.84 greens while per-turn human kappa on "
+                "turn 2 (SKU lie) is 0.22. Gate on min turn kappa. Do not only upweight the "
+                "last turn. tests/test_turn_kappa.py is the gate."
+            ),
+            outcome=(
+                "Convo GEval 0.84 hid turn-2 kappa 0.22. Last-turn 2x still 0.79. Plan "
+                "change: min turn kappa. Tests 1/1 + 8/8. Residual: src/turn_rel.py still "
+                "means turns."
+            ),
+            rg="ConversationalGEval|turn_kappa|turn 2|min_kappa",
+            rg_obs=(
+                "TICKET.md: convo GEval 0.84; turn2 human kappa 0.22 on SKU lie\n"
+                "tests/test_turn_kappa.py: def test_min_turn_kappa\n"
+                "src/turn_kappa.py: score = convo.measure(turns)\n"
+                "goldens/dialog.json: turn2 claims SKU in stock"
+            ),
+            test="tests/test_turn_kappa.py",
+            test_name="min-turn-kappa",
+            test_body=(
+                "def test_min_turn_kappa():\n"
+                "    rep = report_dialog(TURNS, HUMAN)\n"
+                "    assert rep['convo'] == pytest.approx(0.84, abs=0.02)\n"
+                "    assert 0.18 <= rep['min_kappa'] <= 0.26\n"
+                "    assert rep['gate'] == 'fail'\n"
+                "    assert 'last_weight' not in rep\n"
+            ),
+            gate_want="min kappa ~0.22 fail",
+            fail_obs=(
+                "FAILED tests/test_turn_kappa.py::test_min_turn_kappa"
+                " - AssertionError: gate=pass convo=0.84; min_kappa missing\n"
+                "0 passed, 1 failed"
+            ),
+            fail_short="convo 0.84 only",
+            src="src/turn_kappa.py",
+            src_body=(
+                "from deepeval.metrics import ConversationalGEval\n"
+                "\n"
+                "def report_dialog(turns, human):\n"
+                "    m = ConversationalGEval(name='dialog', threshold=0.7)\n"
+                "    m.measure(turns)\n"
+                "    return {'convo': m.score, 'gate': 'pass' if m.score >= 0.7 else 'fail'}\n"
+            ),
+            obs5="turn kappas 0.80, 0.22, 0.77; convo 0.84",
+            stats_cmd=(
+                "python3 - <<'PY'\n"
+                "print('turns', [0.80, 0.22, 0.77], 'convo', 0.84, 'last2x', 0.79)\n"
+                "PY"
+            ),
+            stats_obs="turns [0.8, 0.22, 0.77] convo 0.84 last2x 0.79",
+            wrong_old="    return {'convo': m.score, 'gate': 'pass' if m.score >= 0.7 else 'fail'}",
+            wrong_new=(
+                "    m.turn_weights = [1,1,2]\n"
+                "    return {'convo': 0.79, 'last_weight': 2, 'gate': 'pass' if 0.79 >= 0.7 else 'fail'}"
+            ),
+            wrong_label="last-turn-2x",
+            wrong_still="0.79 still passes; min kappa unused",
+            still_fail=(
+                "FAILED tests/test_turn_kappa.py::test_min_turn_kappa"
+                " - AssertionError: last_weight=2 gate=pass; min_kappa missing\n"
+                "0 passed, 1 failed"
+            ),
+            fix_src=(
+                "from deepeval.metrics import ConversationalGEval\n"
+                "from src.turn_k import per_turn_kappa\n"
+                "\n"
+                "def report_dialog(turns, human):\n"
+                "    m = ConversationalGEval(name='dialog', threshold=0.7)\n"
+                "    m.measure(turns)\n"
+                "    k = per_turn_kappa(turns, human)\n"
+                "    mn = min(k)\n"
+                "    return {'convo': m.score, 'min_kappa': mn, 'turn_kappa': k,\n"
+                "            'gate': 'fail' if mn < 0.6 else ('pass' if m.score >= 0.7 else 'fail')}\n"
+            ),
+            rewrite_obs="min turn kappa gates the dialog",
+            helper="src/turn_k.py",
+            fix_helper=(
+                "def per_turn_kappa(turns, human):\n"
+                "    return [0.80, 0.22, 0.77]\n"
+            ),
+            helper_obs="per_turn_kappa fixture",
+            pass_obs="1 passed in 0.55s",
+            suite_ok="8 passed in 2.8s",
+            suite_short="8/8",
+            test2="tests/test_turn_kappa_second.py",
+            test2_body=(
+                "def test_all_turns_listed():\n"
+                "    assert report_dialog(TURNS, HUMAN)['turn_kappa'][1] < 0.3\n"
+            ),
+            test2_pass="1 passed in 0.20s",
+            residual="src/turn_rel.py still means turns",
+            residual_path="src/turn_rel.py",
+            residual_pat="mean\\(|min\\(",
+            residual_obs="src/turn_rel.py: score = mean(turn_scores)\n",
+            gate_again="1 passed in 0.50s",
+            confirm="min_kappa",
+            final_obs="            'gate': 'fail' if mn < 0.6 else ('pass' if m.score >= 0.7 else 'fail')}\n",
+            tests_passed=8,
+        ),
+        _bad(
+            slug="hf-eval-version-drift",
+            seed=(
+                "evaluate.load('rouge') 0.4.3 vs 0.4.11 rougeLsum newline; 0.89 vs 0.41. "
+                "Pin 0.4.3 rejected. Pin version + rouge_type in key. Nightly unpinned."
+            ),
+            avoided=(
+                "r114 tiktoken cl100k vs o200k; r30 cache-schema-version-miss. "
+                "This is HuggingFace evaluate rouge version + rougeLsum newline"
+            ),
+            dump="evaluate.load rouge version, rougeL vs rougeLsum, and scores",
+            first_apply="pin evaluate==0.4.3 in constraints",
+            plan="Pin evaluate 0.4.3 so rougeLsum newline handling stays old.",
+            plan_change="put evaluate version and rouge_type in the cache key",
+            goal=(
+                "lantern-eval rougeL 0.89 after evaluate 0.4.11 because rougeLsum newline "
+                "changed and the key is metric|hyp|ref. Key version+rouge_type. Do not pin "
+                "0.4.3. tests/test_hf_rouge.py is the gate."
+            ),
+            outcome=(
+                "0.4.3 rougeLsum 0.89 vs 0.4.11 0.41 on the same hyp. Pinning 0.4.3 hid the "
+                "switch. Plan change: key evaluate_ver|rouge_type. Gate 1/1. Partial: "
+                "nightly unpinned (xfail)."
+            ),
+            rg="evaluate.load|rougeLsum|0.4.11|rouge_type",
+            rg_obs=(
+                "TICKET.md: evaluate 0.4.11 rougeLsum 0.41; cache hit 0.89 from 0.4.3\n"
+                "tests/test_hf_rouge.py: def test_ver_in_key\n"
+                "src/hf_rouge.py: key = f\"rouge|{hyp}|{ref}\"\n"
+                "requirements.txt: evaluate==0.4.11"
+            ),
+            test="tests/test_hf_rouge.py",
+            test_name="ver-in-key",
+            test_body=(
+                "def test_ver_in_key():\n"
+                "    k1 = cache_key(HYP, REF, ver='0.4.3', rouge_type='rougeLsum')\n"
+                "    k2 = cache_key(HYP, REF, ver='0.4.11', rouge_type='rougeLsum')\n"
+                "    assert k1 != k2 and '0.4.11' in k2 and 'rougeLsum' in k2\n"
+            ),
+            gate_want="version+type in key",
+            fail_obs=(
+                "FAILED tests/test_hf_rouge.py::test_ver_in_key"
+                " - AssertionError: keys equal rouge|hyp|ref\n"
+                "0 passed, 1 failed"
+            ),
+            fail_short="key omits evaluate version",
+            src="src/hf_rouge.py",
+            src_body=(
+                "def cache_key(hyp, ref, ver=None, rouge_type='rougeL'):\n"
+                "    return f\"rouge|{hyp}|{ref}\"\n"
+            ),
+            obs5="0.4.3 0.89 vs 0.4.11 0.41",
+            stats_cmd=(
+                "python3 - <<'PY'\n"
+                "import evaluate, inspect\n"
+                "print('evaluate', evaluate.__version__)\n"
+                "print('rougeLsum newline note: 0.4.11 splits on \\\\n')\n"
+                "PY"
+            ),
+            stats_obs="evaluate 0.4.11\nrougeLsum newline note: 0.4.11 splits on \\n",
+            wrong_old="    return f\"rouge|{hyp}|{ref}\"",
+            wrong_new="    return f\"rouge|0.4.3|{hyp}|{ref}\"  # pinned",
+            wrong_label="pin-0.4.3-in-key",
+            wrong_still="0.4.11 caller still collides if ver omitted",
+            still_fail=(
+                "FAILED tests/test_hf_rouge.py::test_ver_in_key"
+                " - AssertionError: k2 pinned 0.4.3\n"
+                "0 passed, 1 failed"
+            ),
+            fix_src=(
+                "from src.rouge_ver import require_ver\n"
+                "\n"
+                "def cache_key(hyp, ref, ver=None, rouge_type='rougeL'):\n"
+                "    ver = require_ver(ver)\n"
+                "    return f\"rouge|{ver}|{rouge_type}|{hash(hyp)}|{hash(ref)}\"\n"
+            ),
+            rewrite_obs="evaluate ver + rouge_type in key",
+            helper="src/rouge_ver.py",
+            fix_helper=(
+                "def require_ver(ver):\n"
+                "    if not ver:\n"
+                "        raise ValueError('evaluate version required')\n"
+                "    return ver\n"
+            ),
+            helper_obs="require_ver helper",
+            pass_obs="1 passed in 0.18s",
+            suite_fail=(
+                "FAILED tests/test_nightly_rouge.py::test_nightly_keys_ver"
+                " - AssertionError: nightly key=rouge|hyp|ref\n"
+                "7 passed, 1 failed"
+            ),
+            nightly="src/nightly_rouge.py",
+            nightly_test="tests/test_nightly_rouge.py",
+            nightly_body=(
+                "def nightly_key(hyp, ref):\n"
+                "    return f\"rouge|{hyp}|{ref}\"\n"
+            ),
+            xfail_old="def test_nightly_keys_ver():",
+            xfail_new=(
+                '@pytest.mark.xfail(reason="handoff: src/nightly_rouge.py still unpinned", strict=False)\n'
+                "def test_nightly_keys_ver():"
+            ),
+            handoff="nightly unpinned rouge key",
+            xfail_obs="1 passed, 1 xfailed",
+            leftover_obs="    return f\"rouge|{hyp}|{ref}\"\n",
+            gate_again="1 passed in 0.16s",
+            tests_passed=1,
+        ),
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# r626 self-consistency maj vs min / HF dataset split leak
+# ---------------------------------------------------------------------------
+MORE.append(
+    (
+        _ok(
+            slug="selfcons-maj-vs-min",
+            seed=(
+                "n=5 GEval majority 0.80 hides two 0.12 policy fails across temperatures. "
+                "Mean rejected. Min of n; require all >= threshold."
+            ),
+            avoided=(
+                "r113 majority-vote-hides-012 is 3 samples of one judge at one temp. "
+                "This is self-consistency across temperatures, min vs majority"
+            ),
+            dump="self-consistency n=5 table, majority 0.80, and two 0.12 fails",
+            first_apply="publish the mean of the five GEval scores",
+            plan="Mean the five temperatures so a 0.12 cannot dominate.",
+            plan_change="min of n; require all scores >= threshold",
+            goal=(
+                "lantern-eval self-consistency majority 0.80 hides two temperature runs at "
+                "0.12. Gate on min of n. Do not publish the mean. "
+                "tests/test_selfcons.py is the gate."
+            ),
+            outcome=(
+                "Majority of 5 greened 0.80 with two 0.12 fails. Mean 0.54 still passed 0.50. "
+                "Plan change: min of n. Tests 1/1 + 8/8. Residual: src/sc_faith.py still "
+                "majority."
+            ),
+            rg="self.consist|majority|temperatures|min\\(scores",
+            rg_obs=(
+                "TICKET.md: temps [0,0.2,0.4,0.7,1.0] scores [0.82,0.80,0.81,0.12,0.12]; maj 0.80\n"
+                "tests/test_selfcons.py: def test_min_of_n\n"
+                "src/selfcons.py: score = majority(scores)\n"
+                "configs/sc.yml: n: 5"
+            ),
+            test="tests/test_selfcons.py",
+            test_name="min-of-n",
+            test_body=(
+                "def test_min_of_n():\n"
+                "    rep = selfcons(SCORES)\n"
+                "    assert rep['min'] == pytest.approx(0.12)\n"
+                "    assert rep['gate'] == 'fail'\n"
+                "    assert 'mean' not in rep\n"
+            ),
+            gate_want="min 0.12 fail",
+            fail_obs=(
+                "FAILED tests/test_selfcons.py::test_min_of_n"
+                " - AssertionError: gate=pass score=0.80; min missing\n"
+                "0 passed, 1 failed"
+            ),
+            fail_short="majority 0.80 published",
+            src="src/selfcons.py",
+            src_body=(
+                "def selfcons(scores):\n"
+                "    maj = sorted(scores)[len(scores)//2]\n"
+                "    return {'score': maj, 'gate': 'pass' if maj >= 0.7 else 'fail'}\n"
+            ),
+            obs5="scores 0.82,0.80,0.81,0.12,0.12; maj 0.80; mean 0.534",
+            stats_cmd=(
+                "python3 - <<'PY'\n"
+                "s=[0.82,0.80,0.81,0.12,0.12]\n"
+                "print('maj', sorted(s)[2], 'mean', sum(s)/5, 'min', min(s))\n"
+                "PY"
+            ),
+            stats_obs="maj 0.81 mean 0.534 min 0.12",
+            wrong_old="    maj = sorted(scores)[len(scores)//2]\n    return {'score': maj, 'gate': 'pass' if maj >= 0.7 else 'fail'}",
+            wrong_new=(
+                "    mu = sum(scores)/len(scores)\n"
+                "    return {'mean': mu, 'gate': 'pass' if mu >= 0.5 else 'fail'}"
+            ),
+            wrong_label="mean-of-n",
+            wrong_still="mean 0.53 passes 0.50",
+            still_fail=(
+                "FAILED tests/test_selfcons.py::test_min_of_n"
+                " - AssertionError: mean=0.534 gate=pass; min missing\n"
+                "0 passed, 1 failed"
+            ),
+            fix_src=(
+                "def selfcons(scores):\n"
+                "    mn = min(scores)\n"
+                "    return {'min': mn, 'all': scores, 'gate': 'pass' if all(s >= 0.7 for s in scores) else 'fail'}\n"
+            ),
+            rewrite_obs="min of n; all must clear 0.7",
+            helper="src/selfcons_agg.py",
+            fix_helper=(
+                "def require_all(scores, threshold=0.7):\n"
+                "    return all(s >= threshold for s in scores)\n"
+            ),
+            helper_obs="require_all helper",
+            pass_obs="1 passed in 0.12s",
+            suite_ok="8 passed in 1.4s",
+            suite_short="8/8",
+            test2="tests/test_selfcons_second.py",
+            test2_body=(
+                "def test_all_pass_ok():\n"
+                "    assert selfcons([0.8,0.81,0.79,0.84,0.83])['gate']=='pass'\n"
+            ),
+            test2_pass="1 passed in 0.07s",
+            residual="src/sc_faith.py still majority",
+            residual_path="src/sc_faith.py",
+            residual_pat="majority|min\\(",
+            residual_obs="src/sc_faith.py: score = majority(scores)\n",
+            gate_again="1 passed in 0.11s",
+            confirm="min key",
+            final_obs="    return {'min': mn, 'all': scores, 'gate': 'pass' if all(s >= 0.7 for s in scores) else 'fail'}\n",
+            tests_passed=8,
+        ),
+        _bad(
+            slug="hf-split-name-leak",
+            seed=(
+                "HF dataset 'test' split includes train IDs because card splits were "
+                "misnamed. Distinct from local jsonl id leak. Nightly still split=test."
+            ),
+            avoided=(
+                "r615 train-eval-id-leak on local jsonl. "
+                "This is HuggingFace dataset card split=test containing train ids"
+            ),
+            dump="dataset card splits, test ids vs train ids, and load_dataset",
+            first_apply="rename the split to test_v2 in load_dataset",
+            plan="Load split='test_v2' so we are not on the leaked test.",
+            plan_change="assert HF test ids disjoint from train; fail closed",
+            goal=(
+                "lantern-eval GEval 0.92 because datasets.load_dataset(..., split='test') "
+                "includes train ids from a misnamed card. Assert disjoint. Do not rename "
+                "the split. tests/test_hf_split.py is the gate."
+            ),
+            outcome=(
+                "HF test split contained ft-0041 from train. Renaming to test_v2 still "
+                "pointed at the leaked card. Plan change: disjoint id assert. Gate 1/1. "
+                "Partial: nightly still split=test (xfail)."
+            ),
+            rg="load_dataset|split=.test.|dataset_card|ft-0041",
+            rg_obs=(
+                "TICKET.md: load_dataset acme/refund split=test includes ft-0041\n"
+                "tests/test_hf_split.py: def test_hf_test_disjoint\n"
+                "src/hf_split.py: ds = load_dataset('acme/refund', split='test')\n"
+                "README.md splits: test: 80 (includes train ids)"
+            ),
+            test="tests/test_hf_split.py",
+            test_name="hf-test-disjoint",
+            test_body=(
+                "def test_hf_test_disjoint():\n"
+                "    test, train, report = load_strict('acme/refund')\n"
+                "    assert report['overlap'] == ['ft-0041']\n"
+                "    assert report['gate'] == 'fail'\n"
+                "    assert 'ft-0041' not in {r['id'] for r in test}\n"
+            ),
+            gate_want="overlap reported and dropped",
+            fail_obs=(
+                "FAILED tests/test_hf_split.py::test_hf_test_disjoint"
+                " - AssertionError: ft-0041 in test; overlap missing\n"
+                "0 passed, 1 failed"
+            ),
+            fail_short="split=test includes train ids",
+            src="src/hf_split.py",
+            src_body=(
+                "from datasets import load_dataset\n"
+                "\n"
+                "def load_strict(name):\n"
+                "    test = list(load_dataset(name, split='test'))\n"
+                "    train = list(load_dataset(name, split='train'))\n"
+                "    return test, train, {'n': len(test), 'gate': 'pass'}\n"
+            ),
+            obs5="ft-0041 in both HF splits",
+            stats_cmd=(
+                "python3 - <<'PY'\n"
+                "print('test_ids_head', ['ft-0041','e01','e02'])\n"
+                "print('train_ids_head', ['ft-0041','ft-0042'])\n"
+                "PY"
+            ),
+            stats_obs="test_ids_head ['ft-0041', 'e01', 'e02']\ntrain_ids_head ['ft-0041', 'ft-0042']",
+            wrong_old="    test = list(load_dataset(name, split='test'))",
+            wrong_new="    test = list(load_dataset(name, split='test_v2'))",
+            wrong_label="rename-split",
+            wrong_still="test_v2 still the leaked card alias",
+            still_fail=(
+                "FAILED tests/test_hf_split.py::test_hf_test_disjoint"
+                " - AssertionError: ft-0041 still in test_v2\n"
+                "0 passed, 1 failed"
+            ),
+            fix_src=(
+                "from datasets import load_dataset\n"
+                "from src.hf_ids import overlap_ids\n"
+                "\n"
+                "def load_strict(name):\n"
+                "    test = list(load_dataset(name, split='test'))\n"
+                "    train = list(load_dataset(name, split='train'))\n"
+                "    ov = overlap_ids(test, train)\n"
+                "    kept = [r for r in test if r['id'] not in ov]\n"
+                "    gate = 'fail' if ov else 'pass'\n"
+                "    return kept, train, {'overlap': sorted(ov), 'gate': gate}\n"
+            ),
+            rewrite_obs="HF split disjoint assert",
+            helper="src/hf_ids.py",
+            fix_helper=(
+                "def overlap_ids(test, train):\n"
+                "    return {r['id'] for r in test} & {r['id'] for r in train}\n"
+            ),
+            helper_obs="overlap_ids helper",
+            pass_obs="1 passed in 0.30s",
+            suite_fail=(
+                "FAILED tests/test_nightly_hf.py::test_nightly_disjoint"
+                " - AssertionError: nightly split=test includes ft-0041\n"
+                "7 passed, 1 failed"
+            ),
+            nightly="src/nightly_hf.py",
+            nightly_test="tests/test_nightly_hf.py",
+            nightly_body=(
+                "def nightly():\n"
+                "    return load_dataset('acme/refund', split='test')\n"
+            ),
+            xfail_old="def test_nightly_disjoint():",
+            xfail_new=(
+                '@pytest.mark.xfail(reason="handoff: src/nightly_hf.py still split=test", strict=False)\n'
+                "def test_nightly_disjoint():"
+            ),
+            handoff="nightly split=test",
+            xfail_obs="1 passed, 1 xfailed",
+            leftover_obs="    return load_dataset('acme/refund', split='test')\n",
+            gate_again="1 passed in 0.28s",
+            tests_passed=1,
+        ),
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# r627 position bias max vs BT / GEval-as-probability ECE
+# ---------------------------------------------------------------------------
+MORE.append(
+    (
+        _ok(
+            slug="pos-bias-max-vs-bt",
+            seed=(
+                "pairwise swap exists but published score is max(A-first,B-first)=0.78; "
+                "|A-B|=0.47. Mean-of-two rejected. Position-adjusted BT; fail if |A-B|>0.2 "
+                "without adjustment."
+            ),
+            avoided=(
+                "r244 arena-swap-not-averaged (no swap); r623 BT vs mean winrate. "
+                "This is taking max of swapped pairwise scores"
+            ),
+            dump="A-first 0.78, B-first 0.31, and max-of-swap publisher",
+            first_apply="publish the mean of the two directions",
+            plan="Mean A-first and B-first so max 0.78 cannot dominate.",
+            plan_change="position-adjusted BT; fail if |A-B|>0.2 without adjustment",
+            goal=(
+                "lantern-eval pairwise publishes max(A-first 0.78, B-first 0.31)=0.78. "
+                "Use position-adjusted BT and fail large unadjusted gaps. Do not only mean "
+                "the two. tests/test_pos_max.py is the gate."
+            ),
+            outcome=(
+                "Max-of-swap 0.78 hid |A-B|=0.47. Mean 0.545 still ignored position as a "
+                "feature. Plan change: BT with position; fail |A-B|>0.2 raw. Tests 1/1 + "
+                "8/8. Residual: src/pair_dash.py still prints max."
+            ),
+            rg="A-first|B-first|max\\(|position_gap|bt_pos",
+            rg_obs=(
+                "TICKET.md: A-first 0.78 B-first 0.31 published max 0.78\n"
+                "tests/test_pos_max.py: def test_gap_fails_unadjusted\n"
+                "src/pos_max.py: score = max(a,b)\n"
+                "goldens/pair.json: same item swapped"
+            ),
+            test="tests/test_pos_max.py",
+            test_name="gap-fails-unadjusted",
+            test_body=(
+                "def test_gap_fails_unadjusted():\n"
+                "    rep = pairwise(ITEM)\n"
+                "    assert abs(rep['a_first']-rep['b_first']) > 0.2\n"
+                "    assert 0.38 <= rep['skill'] <= 0.46\n"
+                "    assert rep['gate'] == 'fail'\n"
+                "    assert 'mean_swap' not in rep\n"
+            ),
+            gate_want="gap>0.2 and BT skill fail",
+            fail_obs=(
+                "FAILED tests/test_pos_max.py::test_gap_fails_unadjusted"
+                " - AssertionError: score=0.78 gate=pass; skill missing\n"
+                "0 passed, 1 failed"
+            ),
+            fail_short="max of swaps published",
+            src="src/pos_max.py",
+            src_body=(
+                "def pairwise(item):\n"
+                "    a = score_a_first(item)  # 0.78\n"
+                "    b = score_b_first(item)  # 0.31\n"
+                "    s = max(a,b)\n"
+                "    return {'score': s, 'gate': 'pass' if s >= 0.7 else 'fail'}\n"
+            ),
+            obs5="A 0.78 B 0.31 max 0.78 mean 0.545",
+            stats_cmd=(
+                "python3 - <<'PY'\n"
+                "print('A',0.78,'B',0.31,'max',0.78,'mean',0.545,'bt',0.41)\n"
+                "PY"
+            ),
+            stats_obs="A 0.78 B 0.31 max 0.78 mean 0.545 bt 0.41",
+            wrong_old="    s = max(a,b)\n    return {'score': s, 'gate': 'pass' if s >= 0.7 else 'fail'}",
+            wrong_new=(
+                "    s = 0.5*(a+b)\n"
+                "    return {'mean_swap': s, 'gate': 'pass' if s >= 0.5 else 'fail'}"
+            ),
+            wrong_label="mean-of-two",
+            wrong_still="mean 0.545 passes 0.5; gap unused",
+            still_fail=(
+                "FAILED tests/test_pos_max.py::test_gap_fails_unadjusted"
+                " - AssertionError: mean_swap=0.545 gate=pass; skill missing\n"
+                "0 passed, 1 failed"
+            ),
+            fix_src=(
+                "from src.bt_pos import fit_bt_position\n"
+                "\n"
+                "def pairwise(item):\n"
+                "    a = score_a_first(item)\n"
+                "    b = score_b_first(item)\n"
+                "    skill = fit_bt_position(a, b)\n"
+                "    gap = abs(a-b)\n"
+                "    gate = 'fail' if gap > 0.2 else ('pass' if skill >= 0.5 else 'fail')\n"
+                "    return {'a_first': a, 'b_first': b, 'skill': skill, 'gap': gap, 'gate': gate}\n"
+            ),
+            rewrite_obs="gap>0.2 fail; BT skill published",
+            helper="src/bt_pos.py",
+            fix_helper=(
+                "def fit_bt_position(a, b):\n"
+                "    return 0.41\n"
+            ),
+            helper_obs="fit_bt_position fixture 0.41",
+            pass_obs="1 passed in 0.17s",
+            suite_ok="8 passed in 1.6s",
+            suite_short="8/8",
+            test2="tests/test_pos_max_second.py",
+            test2_body=(
+                "def test_small_gap_uses_skill():\n"
+                "    # fixture not used; ensure gap key exists\n"
+                "    assert 'gap' in pairwise(ITEM)\n"
+            ),
+            test2_pass="1 passed in 0.08s",
+            residual="src/pair_dash.py still prints max",
+            residual_path="src/pair_dash.py",
+            residual_pat="max\\(|skill",
+            residual_obs="src/pair_dash.py: print(max(a,b))\n",
+            gate_again="1 passed in 0.15s",
+            confirm="gap and skill",
+            final_obs="    return {'a_first': a, 'b_first': b, 'skill': skill, 'gap': gap, 'gate': gate}\n",
+            tests_passed=8,
+        ),
+        _bad(
+            slug="geval-score-as-prob-ece",
+            seed=(
+                "GEval 0.86 treated as P(pass); reliability ECE 0.28. Distinct from "
+                "class-accuracy ECE. Nightly still uses GEval as calibrated."
+            ),
+            avoided=(
+                "r624 ece-vs-accuracy on classifiers. "
+                "This is GEval score treated as a calibrated probability"
+            ),
+            dump="GEval 0.86 as P(pass), reliability bins, and ECE 0.28",
+            first_apply="temperature-scale GEval until ECE drops",
+            plan="Fit a temperature on GEval so 0.86 is less overconfident.",
+            plan_change="do not treat GEval as P(pass); report ECE and gate on it",
+            goal=(
+                "lantern-eval treats GEval 0.86 as P(pass) with ECE 0.28. Stop using GEval "
+                "as a probability; fail if ECE>0.1. Do not temperature-scale the judge. "
+                "tests/test_geval_ece.py is the gate."
+            ),
+            outcome=(
+                "GEval-as-prob ECE 0.28. Temperature scaling landed ECE 0.19 and still "
+                "treated GEval as P(pass). Plan change: report ECE; fail >0.1. Gate 1/1. "
+                "Partial: nightly still uses GEval as calibrated (xfail)."
+            ),
+            rg="GEval|P\\(pass\\)|ece|temperature.scale",
+            rg_obs=(
+                "TICKET.md: dashboard P(pass)=GEval 0.86; ECE 0.28 on reliability\n"
+                "tests/test_geval_ece.py: def test_geval_not_prob\n"
+                "src/geval_ece.py: p_pass = m.score\n"
+                "goldens/reliab.jsonl: 80 items"
+            ),
+            test="tests/test_geval_ece.py",
+            test_name="geval-not-prob",
+            test_body=(
+                "def test_geval_not_prob():\n"
+                "    rep = report(SCORES, Y)\n"
+                "    assert 0.24 <= rep['ece'] <= 0.32\n"
+                "    assert rep['gate'] == 'fail'\n"
+                "    assert 'p_pass' not in rep\n"
+                "    assert 'temperature' not in rep\n"
+            ),
+            gate_want="ECE ~0.28 fail; no p_pass",
+            fail_obs=(
+                "FAILED tests/test_geval_ece.py::test_geval_not_prob"
+                " - AssertionError: p_pass=0.86 gate=pass; ece missing\n"
+                "0 passed, 1 failed"
+            ),
+            fail_short="GEval published as P(pass)",
+            src="src/geval_ece.py",
+            src_body=(
+                "def report(scores, y):\n"
+                "    p_pass = mean(scores)\n"
+                "    return {'p_pass': p_pass, 'gate': 'pass' if p_pass >= 0.7 else 'fail'}\n"
+            ),
+            obs5="mean GEval 0.86; ECE 0.28",
+            stats_cmd=(
+                "python3 - <<'PY'\n"
+                "print('mean_geval', 0.86, 'ece', 0.28, 'temp_scaled_ece', 0.19)\n"
+                "PY"
+            ),
+            stats_obs="mean_geval 0.86 ece 0.28 temp_scaled_ece 0.19",
+            wrong_old="    p_pass = mean(scores)\n    return {'p_pass': p_pass, 'gate': 'pass' if p_pass >= 0.7 else 'fail'}",
+            wrong_new=(
+                "    t = 1.7\n"
+                "    scaled = [s/t for s in scores]\n"
+                "    return {'p_pass': mean(scaled), 'temperature': t, 'gate': 'pass'}"
+            ),
+            wrong_label="temperature-scale-geval",
+            wrong_still="still P(pass); ECE 0.19",
+            still_fail=(
+                "FAILED tests/test_geval_ece.py::test_geval_not_prob"
+                " - AssertionError: temperature=1.7 p_pass present\n"
+                "0 passed, 1 failed"
+            ),
+            fix_src=(
+                "from statistics import mean\n"
+                "from src.geval_cal import ece_from_scores\n"
+                "\n"
+                "def report(scores, y):\n"
+                "    ece = ece_from_scores(scores, y)\n"
+                "    return {'ece': ece, 'geval_mean': mean(scores),\n"
+                "            'gate': 'fail' if ece > 0.1 else 'pass'}\n"
+            ),
+            rewrite_obs="ECE on GEval-as-prob; fail >0.1; no p_pass",
+            helper="src/geval_cal.py",
+            fix_helper=(
+                "def ece_from_scores(scores, y):\n"
+                "    return 0.28\n"
+            ),
+            helper_obs="ece_from_scores fixture 0.28",
+            pass_obs="1 passed in 0.14s",
+            suite_fail=(
+                "FAILED tests/test_nightly_gece.py::test_nightly_not_prob"
+                " - AssertionError: nightly p_pass=0.86\n"
+                "7 passed, 1 failed"
+            ),
+            nightly="src/nightly_gece.py",
+            nightly_test="tests/test_nightly_gece.py",
+            nightly_body=(
+                "def nightly(scores, y):\n"
+                "    return {'p_pass': mean(scores), 'gate': 'pass'}\n"
+            ),
+            xfail_old="def test_nightly_not_prob():",
+            xfail_new=(
+                '@pytest.mark.xfail(reason="handoff: src/nightly_gece.py still P(pass)=GEval", strict=False)\n'
+                "def test_nightly_not_prob():"
+            ),
+            handoff="nightly GEval as P(pass)",
+            xfail_obs="1 passed, 1 xfailed",
+            leftover_obs="    return {'p_pass': mean(scores), 'gate': 'pass'}\n",
+            gate_again="1 passed in 0.13s",
+            tests_passed=1,
+        ),
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# r628 Fleiss vs two-rater Cohen / ordinal Krippendorff
+# ---------------------------------------------------------------------------
+MORE.append(
+    (
+        _ok(
+            slug="fleiss-vs-two-rater",
+            seed=(
+                "reported kappa 0.81 is Cohen of rater1 vs GEval; Fleiss among 4 humans "
+                "is 0.19. Average pairwise Cohen rejected. Fleiss among humans separately."
+            ),
+            avoided=(
+                "r613 Cohen kappa vs GEval-as-alignment. "
+                "This is Fleiss among 4 humans vs Cohen(rater1, GEval)"
+            ),
+            dump="Cohen rater1-vs-GEval 0.81, Fleiss 0.19, and 4-rater table",
+            first_apply="average pairwise Cohen among all rater pairs including GEval",
+            plan="Average all pairwise Cohen so GEval is one more rater.",
+            plan_change="Fleiss among humans only; report judge-human separately",
+            goal=(
+                "lantern-eval publishes kappa=0.81 which is Cohen(rater1, GEval) while "
+                "Fleiss among four humans is 0.19. Publish Fleiss. Do not average pairwise "
+                "Cohen. tests/test_fleiss.py is the gate."
+            ),
+            outcome=(
+                "Cohen(rater1,GEval)=0.81 hid Fleiss=0.19. Mean pairwise Cohen (incl GEval) "
+                "was 0.44. Plan change: Fleiss on humans only. Tests 1/1 + 8/8. Residual: "
+                "src/kappa_dash.py still prints Cohen(r1,GEval)."
+            ),
+            rg="fleiss|cohen|rater1|four humans",
+            rg_obs=(
+                "TICKET.md: kappa 0.81 is Cohen(r1,GEval); Fleiss humans 0.19 unused\n"
+                "tests/test_fleiss.py: def test_fleiss_humans\n"
+                "src/fleiss.py: kappa = cohen(r1, geval_labels)\n"
+                "goldens/four_raters.jsonl: 80 items x 4"
+            ),
+            test="tests/test_fleiss.py",
+            test_name="fleiss-humans",
+            test_body=(
+                "def test_fleiss_humans():\n"
+                "    rep = report_kappa(RATERS4, GEVAL)\n"
+                "    assert 0.15 <= rep['fleiss'] <= 0.24\n"
+                "    assert rep['cohen_r1_geval'] == pytest.approx(0.81, abs=0.02)\n"
+                "    assert rep['gate'] == 'fail'\n"
+                "    assert 'pairwise_mean' not in rep\n"
+            ),
+            gate_want="Fleiss ~0.19 fail",
+            fail_obs=(
+                "FAILED tests/test_fleiss.py::test_fleiss_humans"
+                " - AssertionError: kappa=0.81 gate=pass; fleiss missing\n"
+                "0 passed, 1 failed"
+            ),
+            fail_short="Cohen(r1,GEval) published as kappa",
+            src="src/fleiss.py",
+            src_body=(
+                "def report_kappa(raters, geval):\n"
+                "    k = cohen(raters[0], geval)\n"
+                "    return {'kappa': k, 'gate': 'pass' if k >= 0.6 else 'fail'}\n"
+            ),
+            obs5="Cohen r1-GEval 0.81; Fleiss 0.19; pairwise mean 0.44",
+            stats_cmd=(
+                "python3 - <<'PY'\n"
+                "print('cohen_r1_geval', 0.81)\n"
+                "print('fleiss_humans', 0.19)\n"
+                "print('pairwise_mean_incl_geval', 0.44)\n"
+                "PY"
+            ),
+            stats_obs="cohen_r1_geval 0.81\nfleiss_humans 0.19\npairwise_mean_incl_geval 0.44",
+            wrong_old="    k = cohen(raters[0], geval)\n    return {'kappa': k, 'gate': 'pass' if k >= 0.6 else 'fail'}",
+            wrong_new=(
+                "    pairs = pairwise_cohen(raters+[geval])\n"
+                "    mu = mean(pairs)\n"
+                "    return {'pairwise_mean': mu, 'gate': 'pass' if mu >= 0.4 else 'fail'}"
+            ),
+            wrong_label="mean-pairwise-cohen",
+            wrong_still="0.44 includes GEval; Fleiss unused",
+            still_fail=(
+                "FAILED tests/test_fleiss.py::test_fleiss_humans"
+                " - AssertionError: pairwise_mean=0.44; fleiss missing\n"
+                "0 passed, 1 failed"
+            ),
+            fix_src=(
+                "from src.fleiss_stats import fleiss_kappa, cohen\n"
+                "\n"
+                "def report_kappa(raters, geval):\n"
+                "    fl = fleiss_kappa(raters)\n"
+                "    c = cohen(raters[0], geval)\n"
+                "    return {'fleiss': fl, 'cohen_r1_geval': c,\n"
+                "            'gate': 'pass' if fl >= 0.6 else 'fail'}\n"
+            ),
+            rewrite_obs="Fleiss on humans; Cohen sidecar",
+            helper="src/fleiss_stats.py",
+            fix_helper=(
+                "def fleiss_kappa(raters):\n"
+                "    return 0.19\n"
+                "\n"
+                "def cohen(a, b):\n"
+                "    return 0.81\n"
+            ),
+            helper_obs="fleiss 0.19 fixture",
+            pass_obs="1 passed in 0.16s",
+            suite_ok="8 passed in 1.6s",
+            suite_short="8/8",
+            test2="tests/test_fleiss_second.py",
+            test2_body=(
+                "def test_geval_not_in_fleiss_input():\n"
+                "    src = open('src/fleiss.py').read()\n"
+                "    assert 'fleiss_kappa(raters)' in src\n"
+            ),
+            test2_pass="1 passed in 0.07s",
+            residual="src/kappa_dash.py still prints Cohen(r1,GEval)",
+            residual_path="src/kappa_dash.py",
+            residual_pat="cohen|fleiss",
+            residual_obs="src/kappa_dash.py: print(cohen(r1, geval))\n",
+            gate_again="1 passed in 0.14s",
+            confirm="fleiss key",
+            final_obs="    return {'fleiss': fl, 'cohen_r1_geval': c,\n            'gate': 'pass' if fl >= 0.6 else 'fail'}\n",
+            tests_passed=8,
+        ),
+        _bad(
+            slug="krippendorff-ordinal",
+            seed=(
+                "ordinal 1-5 ratings treated as nominal alpha 0.72 vs ordinal 0.28. "
+                "Interval rejected. Ordinal Krippendorff; fail if alpha<0.6. Nightly still "
+                "nominal."
+            ),
+            avoided=(
+                "r613 Cohen; r628 Fleiss (nominal labels). "
+                "This is Krippendorff alpha level=ordinal vs nominal"
+            ),
+            dump="Krippendorff nominal 0.72 vs ordinal 0.28 on 1-5 scores",
+            first_apply="treat ratings as interval level",
+            plan="Switch Krippendorff level from nominal to interval.",
+            plan_change="use ordinal Krippendorff; fail if alpha<0.6",
+            goal=(
+                "lantern-eval Krippendorff alpha 0.72 treats 1-5 rubric scores as nominal; "
+                "ordinal alpha is 0.28. Use ordinal. Do not switch to interval. "
+                "tests/test_kripp.py is the gate."
+            ),
+            outcome=(
+                "Nominal alpha 0.72 hid ordinal 0.28. Interval 0.33 still unused as the gate. "
+                "Plan change: ordinal alpha; fail <0.6. Gate 1/1. Partial: nightly still "
+                "nominal (xfail)."
+            ),
+            rg="krippendorff|ordinal|nominal|alpha",
+            rg_obs=(
+                "TICKET.md: alpha 0.72 nominal on 1-5; ordinal 0.28 unused\n"
+                "tests/test_kripp.py: def test_ordinal_alpha\n"
+                "src/kripp.py: alpha = krippendorff(level='nominal')\n"
+                "goldens/ratings_1_5.jsonl: 4 raters"
+            ),
+            test="tests/test_kripp.py",
+            test_name="ordinal-alpha",
+            test_body=(
+                "def test_ordinal_alpha():\n"
+                "    rep = report_alpha(RATINGS)\n"
+                "    assert 0.24 <= rep['alpha'] <= 0.32\n"
+                "    assert rep['level'] == 'ordinal'\n"
+                "    assert rep['gate'] == 'fail'\n"
+                "    assert 'interval' not in rep\n"
+            ),
+            gate_want="ordinal alpha ~0.28 fail",
+            fail_obs=(
+                "FAILED tests/test_kripp.py::test_ordinal_alpha"
+                " - AssertionError: alpha=0.72 level=nominal gate=pass\n"
+                "0 passed, 1 failed"
+            ),
+            fail_short="nominal alpha 0.72",
+            src="src/kripp.py",
+            src_body=(
+                "def report_alpha(ratings):\n"
+                "    a = krippendorff(ratings, level='nominal')\n"
+                "    return {'alpha': a, 'level': 'nominal', 'gate': 'pass' if a >= 0.6 else 'fail'}\n"
+            ),
+            obs5="nominal 0.72; ordinal 0.28; interval 0.33",
+            stats_cmd=(
+                "python3 - <<'PY'\n"
+                "print('nominal', 0.72, 'ordinal', 0.28, 'interval', 0.33)\n"
+                "PY"
+            ),
+            stats_obs="nominal 0.72 ordinal 0.28 interval 0.33",
+            wrong_old="    a = krippendorff(ratings, level='nominal')\n    return {'alpha': a, 'level': 'nominal', 'gate': 'pass' if a >= 0.6 else 'fail'}",
+            wrong_new=(
+                "    a = krippendorff(ratings, level='interval')\n"
+                "    return {'alpha': a, 'interval': True, 'level': 'interval', 'gate': 'pass' if a >= 0.3 else 'fail'}"
+            ),
+            wrong_label="interval-level",
+            wrong_still="interval 0.33; ordinal unused",
+            still_fail=(
+                "FAILED tests/test_kripp.py::test_ordinal_alpha"
+                " - AssertionError: level=interval interval=True; alpha=0.33\n"
+                "0 passed, 1 failed"
+            ),
+            fix_src=(
+                "from src.kripp_ord import krippendorff\n"
+                "\n"
+                "def report_alpha(ratings):\n"
+                "    a = krippendorff(ratings, level='ordinal')\n"
+                "    return {'alpha': a, 'level': 'ordinal', 'gate': 'pass' if a >= 0.6 else 'fail'}\n"
+            ),
+            rewrite_obs="ordinal Krippendorff; fail <0.6",
+            helper="src/kripp_ord.py",
+            fix_helper=(
+                "def krippendorff(ratings, level='ordinal'):\n"
+                "    return {'nominal': 0.72, 'ordinal': 0.28, 'interval': 0.33}[level]\n"
+            ),
+            helper_obs="krippendorff level map",
+            pass_obs="1 passed in 0.15s",
+            suite_fail=(
+                "FAILED tests/test_nightly_kripp.py::test_nightly_ordinal"
+                " - AssertionError: nightly level=nominal alpha=0.72\n"
+                "7 passed, 1 failed"
+            ),
+            nightly="src/nightly_kripp.py",
+            nightly_test="tests/test_nightly_kripp.py",
+            nightly_body=(
+                "def nightly_alpha(ratings):\n"
+                "    a = krippendorff(ratings, level='nominal')\n"
+                "    return {'alpha': a, 'level': 'nominal'}\n"
+            ),
+            xfail_old="def test_nightly_ordinal():",
+            xfail_new=(
+                '@pytest.mark.xfail(reason="handoff: src/nightly_kripp.py still nominal", strict=False)\n'
+                "def test_nightly_ordinal():"
+            ),
+            handoff="nightly nominal alpha",
+            xfail_obs="1 passed, 1 xfailed",
+            leftover_obs="    return {'alpha': a, 'level': 'nominal'}\n",
+            gate_again="1 passed in 0.14s",
+            tests_passed=1,
+        ),
+    )
+)
