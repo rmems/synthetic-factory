@@ -13,12 +13,24 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from nir_equivalence_graph import (  # noqa: E402
-    GraphError,
-)
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
+
+    _assert_direct_sibling("nir_equivalence_kernels")
+    from .nir_equivalence_graph import (  # noqa: E402
+        GraphError,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "nir_equivalence_kernels"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from nir_equivalence_graph import (  # noqa: E402
+        GraphError,
+    )
 
 def _step_affine(name, node, drive):
     """Affine/Linear node: weight @ drive + bias."""
@@ -62,3 +74,7 @@ def _integrate_membrane(name, node, membrane, drive, dt_s):
         membrane[index] += factor * (
             (v_leak - membrane[index]) + resistance * drive[index]
         )
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -10,30 +10,49 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-import neuro_oracle  # noqa: E402
-from neuro_oracle import (  # noqa: E402
-    FixedPointReferenceAdapter,
-    Path,
-    RecordedCaptureAdapter,
-    get_adapter,
-)
-from exact_json import dumps_exact_json  # noqa: E402
-from hardware_parity_terms import (  # noqa: E402
-    FACTORY_SLUG,
-    contract,
-)
-from hardware_parity_record import generate_records  # noqa: E402
-from hardware_parity_validate_result import validate_records  # noqa: E402
-from hardware_parity_views import build_training_views  # noqa: E402
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
-# `availability_report` is read off the `neuro_oracle` module at call time, not
-# bound at import, because it is a live probe of this host: tests fake an
-# available FPGA by patching `neuro_oracle.availability_report`, and a bound
-# copy here would keep answering the real one. The same reason the validator
-# re-probes rather than trusting a record's snapshot.
+    _assert_direct_sibling("hardware_parity_cli")
+    from . import neuro_oracle  # noqa: E402
+    from .neuro_oracle import (  # noqa: E402
+        FixedPointReferenceAdapter,
+        Path,
+        RecordedCaptureAdapter,
+        get_adapter,
+    )
+    from .exact_json import dumps_exact_json  # noqa: E402
+    from .hardware_parity_terms import (  # noqa: E402
+        FACTORY_SLUG,
+        contract,
+    )
+    from .hardware_parity_record import generate_records  # noqa: E402
+    from .hardware_parity_validate_result import validate_records  # noqa: E402
+    from .hardware_parity_views import build_training_views  # noqa: E402
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "hardware_parity_cli"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    import neuro_oracle  # noqa: E402
+    from neuro_oracle import (  # noqa: E402
+        FixedPointReferenceAdapter,
+        Path,
+        RecordedCaptureAdapter,
+        get_adapter,
+    )
+    from exact_json import dumps_exact_json  # noqa: E402
+    from hardware_parity_terms import (  # noqa: E402
+        FACTORY_SLUG,
+        contract,
+    )
+    from hardware_parity_record import generate_records  # noqa: E402
+    from hardware_parity_validate_result import validate_records  # noqa: E402
+    from hardware_parity_views import build_training_views  # noqa: E402
+
 def availability_report(**kwargs):
     """The oracle's availability probe, resolved through its module each call."""
     return neuro_oracle.availability_report(**kwargs)
@@ -204,3 +223,7 @@ def main(argv=None):
     if args.command == "validate":
         return _cmd_validate(records, parse_errors, Path(args.path).name)
     return _cmd_training_view(records, parse_errors, Path(args.path).name)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

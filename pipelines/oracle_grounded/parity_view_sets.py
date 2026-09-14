@@ -9,6 +9,8 @@ of records must cover the fixed scenario catalog exactly once.
 
 from __future__ import annotations
 
+from .import_twins import bind_import_twin
+
 from collections import Counter
 
 
@@ -155,3 +157,6 @@ def _round_coverage_error(round_number, got, expected, where):
         f"exactly once ({'; '.join(detail)}); a filtered batch cannot be "
         "projected into training views [TRAINING_VIEW_HIDES_FAILURE]"
     )
+
+
+bind_import_twin(__name__)

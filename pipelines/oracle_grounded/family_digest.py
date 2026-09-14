@@ -15,6 +15,8 @@ and silently left out of it.
 
 from __future__ import annotations
 
+from .import_twins import bind_import_twin
+
 import sys
 from pathlib import Path
 
@@ -46,3 +48,6 @@ def module_source_digest(root, glob, family, validator):
     """Immutable digest of the whole family, used as the in-repo generator_version."""
 
     return digest({"paths": family_sources(root, glob, family, validator)})
+
+
+bind_import_twin(__name__)

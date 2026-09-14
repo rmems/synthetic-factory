@@ -12,23 +12,37 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from oracle_grounded import family_digest  # noqa: E402
-from neuro_oracle import digest  # noqa: E402
-from hardware_parity_terms import (  # noqa: E402
-    CATALOG_AUTHORSHIP,
-    FACTORY_SLUG,
-    GENERATOR_BLOCK,
-    VALIDATOR,
-)
-from hardware_parity_catalog import build_scenarios  # noqa: E402
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
+    _assert_direct_sibling("hardware_parity_provenance")
+    from .oracle_grounded import family_digest  # noqa: E402
+    from .neuro_oracle import digest  # noqa: E402
+    from .hardware_parity_terms import (  # noqa: E402
+        CATALOG_AUTHORSHIP,
+        FACTORY_SLUG,
+        GENERATOR_BLOCK,
+        VALIDATOR,
+    )
+    from .hardware_parity_catalog import build_scenarios  # noqa: E402
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "hardware_parity_provenance"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from oracle_grounded import family_digest  # noqa: E402
+    from neuro_oracle import digest  # noqa: E402
+    from hardware_parity_terms import (  # noqa: E402
+        CATALOG_AUTHORSHIP,
+        FACTORY_SLUG,
+        GENERATOR_BLOCK,
+        VALIDATOR,
+    )
+    from hardware_parity_catalog import build_scenarios  # noqa: E402
 
-# Every source file this generator is made of; `family_digest` cross-checks it
-# against the directory each time the digest is computed, so a sibling can
-# never be added and silently left out.
 _FAMILY = (
     "hardware_parity.py",
     "hardware_parity_catalog.py",
@@ -85,3 +99,7 @@ def _catalog_provenance_stamps():
         "catalog_digest": _catalog_digest(),
         "catalog_authorship": copy.deepcopy(CATALOG_AUTHORSHIP),
     }
+
+
+if __package__:
+    _expose_package_sibling(__name__)

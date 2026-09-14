@@ -12,21 +12,40 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from neuro_oracle import digest  # noqa: E402
-from nir_equivalence_graph import GraphError  # noqa: E402
-from nir_equivalence_runtimes import (  # noqa: E402
-    UnsupportedConstruct,
-    _RUNTIME_BY_NAME,
-)
-from nir_equivalence_terms import (  # noqa: E402
-    STATUS_EXECUTED,
-    STATUS_UNSUPPORTED,
-    contract,
-)
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
+    _assert_direct_sibling("nir_equivalence_validate_replay")
+    from .neuro_oracle import digest  # noqa: E402
+    from .nir_equivalence_graph import GraphError  # noqa: E402
+    from .nir_equivalence_runtimes import (  # noqa: E402
+        UnsupportedConstruct,
+        _RUNTIME_BY_NAME,
+    )
+    from .nir_equivalence_terms import (  # noqa: E402
+        STATUS_EXECUTED,
+        STATUS_UNSUPPORTED,
+        contract,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "nir_equivalence_validate_replay"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from neuro_oracle import digest  # noqa: E402
+    from nir_equivalence_graph import GraphError  # noqa: E402
+    from nir_equivalence_runtimes import (  # noqa: E402
+        UnsupportedConstruct,
+        _RUNTIME_BY_NAME,
+    )
+    from nir_equivalence_terms import (  # noqa: E402
+        STATUS_EXECUTED,
+        STATUS_UNSUPPORTED,
+        contract,
+    )
 
 def _reexecute_in_repo_runtimes(record, where):
     """Re-run every in-repo runtime and compare digests with what was recorded.
@@ -174,3 +193,7 @@ def _roundtrip_replay_errors(runtime, entry, graph, label):
         f"{label}: recorded parse/write parity does not match this runtime's "
         "adapter [ROUNDTRIP_STRUCTURE_MISMATCH]"
     ]
+
+
+if __package__:
+    _expose_package_sibling(__name__)

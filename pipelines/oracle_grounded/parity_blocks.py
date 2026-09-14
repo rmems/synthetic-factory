@@ -9,6 +9,8 @@ validators and the envelope check can concatenate them without re-sorting.
 
 from __future__ import annotations
 
+from .import_twins import bind_import_twin
+
 from .envelope import PROVENANCE_KINDS, is_enum_value, strict_json_equal
 from .parity_terms import (
     ORACLE_ONLY_KEYS,
@@ -209,3 +211,6 @@ def check_validation_block(validation, where):
     if not isinstance(checks, list) or not checks:
         errors.append(f"{where}.validation.checks must list the checks that were applied")
     return errors
+
+
+bind_import_twin(__name__)

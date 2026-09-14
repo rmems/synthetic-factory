@@ -10,21 +10,38 @@ import json
 import sys
 from pathlib import Path
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
 from pathlib import Path  # noqa: E402
-from exact_json import dumps_exact_json  # noqa: E402
-from nir_equivalence_record import generate_records  # noqa: E402
-from nir_equivalence_runtimes import availability_report  # noqa: E402
-from nir_equivalence_terms import (  # noqa: E402
-    FACTORY_SLUG,
-    contract,
-)
-from nir_equivalence_validate_result import validate_records  # noqa: E402
-from nir_equivalence_views import build_training_views  # noqa: E402
+_PIPELINES = Path(__file__).resolve().parent
 
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
+
+    _assert_direct_sibling("nir_equivalence_cli")
+    from .exact_json import dumps_exact_json  # noqa: E402
+    from .nir_equivalence_record import generate_records  # noqa: E402
+    from .nir_equivalence_runtimes import availability_report  # noqa: E402
+    from .nir_equivalence_terms import (  # noqa: E402
+        FACTORY_SLUG,
+        contract,
+    )
+    from .nir_equivalence_validate_result import validate_records  # noqa: E402
+    from .nir_equivalence_views import build_training_views  # noqa: E402
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "nir_equivalence_cli"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from exact_json import dumps_exact_json  # noqa: E402
+    from nir_equivalence_record import generate_records  # noqa: E402
+    from nir_equivalence_runtimes import availability_report  # noqa: E402
+    from nir_equivalence_terms import (  # noqa: E402
+        FACTORY_SLUG,
+        contract,
+    )
+    from nir_equivalence_validate_result import validate_records  # noqa: E402
+    from nir_equivalence_views import build_training_views  # noqa: E402
 
 def read_jsonl(path):
     records = []
@@ -164,3 +181,7 @@ def main(argv=None):
     if args.command == "validate":
         return _cmd_validate(records, parse_errors, Path(args.path).name)
     return _cmd_training_view(records, parse_errors, Path(args.path).name)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -39,76 +39,138 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-# The family is one module split by responsibility, and this is its front door:
-# `python3 pipelines/hardware_parity.py ...` still runs from here, and every
-# name the driver, `check_records` and the tests reach for stays reachable as
-# `hardware_parity.<name>`. Nothing below imports this module back -- the
-# siblings layer terms -> catalog/metrics -> provenance -> record -> validators
-# -> views -> cli, so the front door can depend on all of them and none of them
-# on it.
-from hardware_parity_terms import (  # noqa: E402,F401
-    CATALOG_AUTHORSHIP,
-    FACTORY_SLUG,
-    GENERATOR_BLOCK,
-    MEMBRANE_TOLERANCE,
-    METRIC_TOL,
-    ORACLE_PAIRING,
-    RECORD_KIND,
-    REQUIRED_HARDWARE_FIELDS,
-    SCHEMA_VERSION,
-    VALIDATION_DATA_ERRORS,
-    VALIDATOR,
-    contract,
-)
-from hardware_parity_catalog import (  # noqa: E402,F401
-    SCENARIO_SPECS,
-    build_scenario,
-    build_scenarios,
-)
-from hardware_parity_metrics import (  # noqa: E402,F401
-    MEMBRANE_UNITS,
-    compute_parity,
-    membrane_metrics,
-    quantization_metrics,
-    repeatability_metrics,
-    spike_bitmap_metrics,
-    timing_metrics,
-)
-from hardware_parity_provenance import (  # noqa: E402,F401
-    _FAMILY,
-    _catalog_digest,
-    _catalog_provenance_stamps,
-    _family_sources,
-    _module_source_digest,
-)
-from hardware_parity_record import (  # noqa: E402,F401
-    _capture_evidence_digest,
-    _expected_summary,
-    _summarize,
-    _unavailable_evidence_digest,
-    build_record,
-    generate_records,
-    run_pair,
-)
-from hardware_parity_validate_result import (  # noqa: E402,F401
-    validate_record,
-    validate_records,
-)
-from hardware_parity_views import (  # noqa: E402,F401
-    build_training_views,
-    training_view,
-    training_view_errors,
-)
-from hardware_parity_cli import (  # noqa: E402,F401
-    availability_report,
-    main,
-    parse_args,
-    read_jsonl,
-    write_jsonl,
-)
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
+
+    _assert_direct_sibling("hardware_parity")
+    from .hardware_parity_terms import (  # noqa: E402,F401
+        CATALOG_AUTHORSHIP,
+        FACTORY_SLUG,
+        GENERATOR_BLOCK,
+        MEMBRANE_TOLERANCE,
+        METRIC_TOL,
+        ORACLE_PAIRING,
+        RECORD_KIND,
+        REQUIRED_HARDWARE_FIELDS,
+        SCHEMA_VERSION,
+        VALIDATION_DATA_ERRORS,
+        VALIDATOR,
+        contract,
+    )
+    from .hardware_parity_catalog import (  # noqa: E402,F401
+        SCENARIO_SPECS,
+        build_scenario,
+        build_scenarios,
+    )
+    from .hardware_parity_metrics import (  # noqa: E402,F401
+        MEMBRANE_UNITS,
+        compute_parity,
+        membrane_metrics,
+        quantization_metrics,
+        repeatability_metrics,
+        spike_bitmap_metrics,
+        timing_metrics,
+    )
+    from .hardware_parity_provenance import (  # noqa: E402,F401
+        _FAMILY,
+        _catalog_digest,
+        _catalog_provenance_stamps,
+        _family_sources,
+        _module_source_digest,
+    )
+    from .hardware_parity_record import (  # noqa: E402,F401
+        _capture_evidence_digest,
+        _expected_summary,
+        _summarize,
+        _unavailable_evidence_digest,
+        build_record,
+        generate_records,
+        run_pair,
+    )
+    from .hardware_parity_validate_result import (  # noqa: E402,F401
+        validate_record,
+        validate_records,
+    )
+    from .hardware_parity_views import (  # noqa: E402,F401
+        build_training_views,
+        training_view,
+        training_view_errors,
+    )
+    from .hardware_parity_cli import (  # noqa: E402,F401
+        availability_report,
+        main,
+        parse_args,
+        read_jsonl,
+        write_jsonl,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "hardware_parity"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from hardware_parity_terms import (  # noqa: E402,F401
+        CATALOG_AUTHORSHIP,
+        FACTORY_SLUG,
+        GENERATOR_BLOCK,
+        MEMBRANE_TOLERANCE,
+        METRIC_TOL,
+        ORACLE_PAIRING,
+        RECORD_KIND,
+        REQUIRED_HARDWARE_FIELDS,
+        SCHEMA_VERSION,
+        VALIDATION_DATA_ERRORS,
+        VALIDATOR,
+        contract,
+    )
+    from hardware_parity_catalog import (  # noqa: E402,F401
+        SCENARIO_SPECS,
+        build_scenario,
+        build_scenarios,
+    )
+    from hardware_parity_metrics import (  # noqa: E402,F401
+        MEMBRANE_UNITS,
+        compute_parity,
+        membrane_metrics,
+        quantization_metrics,
+        repeatability_metrics,
+        spike_bitmap_metrics,
+        timing_metrics,
+    )
+    from hardware_parity_provenance import (  # noqa: E402,F401
+        _FAMILY,
+        _catalog_digest,
+        _catalog_provenance_stamps,
+        _family_sources,
+        _module_source_digest,
+    )
+    from hardware_parity_record import (  # noqa: E402,F401
+        _capture_evidence_digest,
+        _expected_summary,
+        _summarize,
+        _unavailable_evidence_digest,
+        build_record,
+        generate_records,
+        run_pair,
+    )
+    from hardware_parity_validate_result import (  # noqa: E402,F401
+        validate_record,
+        validate_records,
+    )
+    from hardware_parity_views import (  # noqa: E402,F401
+        build_training_views,
+        training_view,
+        training_view_errors,
+    )
+    from hardware_parity_cli import (  # noqa: E402,F401
+        availability_report,
+        main,
+        parse_args,
+        read_jsonl,
+        write_jsonl,
+    )
 
 __all__ = [
     "FACTORY_SLUG",
@@ -139,6 +201,9 @@ __all__ = [
     "validate_records",
     "write_jsonl",
 ]
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

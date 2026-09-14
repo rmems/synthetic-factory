@@ -14,20 +14,38 @@ import os
 import sys
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from neuro_oracle_adapter import (  # noqa: E402
-    OracleAdapter,
-    OracleUnavailable,
-    TARGET_FPGA_HARDWARE,
-)
-from neuro_oracle_capture import RecordedCaptureAdapter  # noqa: E402
-from neuro_oracle_reference import (  # noqa: E402
-    FixedPointReferenceAdapter,
-    SoftwareFloatAdapter,
-)
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
+    _assert_direct_sibling("neuro_oracle_availability")
+    from .neuro_oracle_adapter import (  # noqa: E402
+        OracleAdapter,
+        OracleUnavailable,
+        TARGET_FPGA_HARDWARE,
+    )
+    from .neuro_oracle_capture import RecordedCaptureAdapter  # noqa: E402
+    from .neuro_oracle_reference import (  # noqa: E402
+        FixedPointReferenceAdapter,
+        SoftwareFloatAdapter,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "neuro_oracle_availability"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from neuro_oracle_adapter import (  # noqa: E402
+        OracleAdapter,
+        OracleUnavailable,
+        TARGET_FPGA_HARDWARE,
+    )
+    from neuro_oracle_capture import RecordedCaptureAdapter  # noqa: E402
+    from neuro_oracle_reference import (  # noqa: E402
+        FixedPointReferenceAdapter,
+        SoftwareFloatAdapter,
+    )
 
 FPGA_DEVICE_ENV = "SPIKENAUT_FPGA_DEVICE"
 FPGA_BITSTREAM_ENV = "SPIKENAUT_FPGA_BITSTREAM"
@@ -120,3 +138,7 @@ def main():
     """``python3 pipelines/neuro_oracle.py`` prints the availability report."""
     print(json.dumps(availability_report(), indent=2, sort_keys=True))
     return 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)

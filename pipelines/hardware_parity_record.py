@@ -13,36 +13,61 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-import neuro_oracle  # noqa: E402
-from neuro_oracle import (  # noqa: E402
-    FixedPointReferenceAdapter,
-    OracleUnavailable,
-    PHYSICAL_TARGETS,
-    RecordedCaptureAdapter,
-    SoftwareFloatAdapter,
-    digest,
-)
-from hardware_parity_terms import (  # noqa: E402
-    FACTORY_SLUG,
-    GENERATOR_BLOCK,
-    ORACLE_PAIRING,
-    RECORD_KIND,
-    SCHEMA_VERSION,
-    VALIDATOR,
-    contract,
-)
-from hardware_parity_catalog import build_scenarios  # noqa: E402
-from hardware_parity_metrics import compute_parity  # noqa: E402
-from hardware_parity_provenance import _catalog_provenance_stamps  # noqa: E402
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
-# `availability_report` is read off the `neuro_oracle` module at call time, not
-# bound at import, because it is a live probe of this host: tests fake an
-# available FPGA by patching `neuro_oracle.availability_report`, and a bound
-# copy here would keep answering the real one. The same reason the validator
-# re-probes rather than trusting a record's snapshot.
+    _assert_direct_sibling("hardware_parity_record")
+    from . import neuro_oracle  # noqa: E402
+    from .neuro_oracle import (  # noqa: E402
+        FixedPointReferenceAdapter,
+        OracleUnavailable,
+        PHYSICAL_TARGETS,
+        RecordedCaptureAdapter,
+        SoftwareFloatAdapter,
+        digest,
+    )
+    from .hardware_parity_terms import (  # noqa: E402
+        FACTORY_SLUG,
+        GENERATOR_BLOCK,
+        ORACLE_PAIRING,
+        RECORD_KIND,
+        SCHEMA_VERSION,
+        VALIDATOR,
+        contract,
+    )
+    from .hardware_parity_catalog import build_scenarios  # noqa: E402
+    from .hardware_parity_metrics import compute_parity  # noqa: E402
+    from .hardware_parity_provenance import _catalog_provenance_stamps  # noqa: E402
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "hardware_parity_record"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    import neuro_oracle  # noqa: E402
+    from neuro_oracle import (  # noqa: E402
+        FixedPointReferenceAdapter,
+        OracleUnavailable,
+        PHYSICAL_TARGETS,
+        RecordedCaptureAdapter,
+        SoftwareFloatAdapter,
+        digest,
+    )
+    from hardware_parity_terms import (  # noqa: E402
+        FACTORY_SLUG,
+        GENERATOR_BLOCK,
+        ORACLE_PAIRING,
+        RECORD_KIND,
+        SCHEMA_VERSION,
+        VALIDATOR,
+        contract,
+    )
+    from hardware_parity_catalog import build_scenarios  # noqa: E402
+    from hardware_parity_metrics import compute_parity  # noqa: E402
+    from hardware_parity_provenance import _catalog_provenance_stamps  # noqa: E402
+
 def availability_report(**kwargs):
     """The oracle's availability probe, resolved through its module each call."""
     return neuro_oracle.availability_report(**kwargs)
@@ -351,3 +376,7 @@ def generate_records(round_number=1, steps=12, deployment_adapter=None, repeats=
             )
         )
     return records
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -13,14 +13,28 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-from hardware_parity_terms import contract  # noqa: E402
-from hardware_parity_validate_quantization import (  # noqa: E402
-    _matrix_errors,
-    _q88_raw_correspondence_errors,
-)
 
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
+
+    _assert_direct_sibling("hardware_parity_validate_observation")
+    from .hardware_parity_terms import contract  # noqa: E402
+    from .hardware_parity_validate_quantization import (  # noqa: E402
+        _matrix_errors,
+        _q88_raw_correspondence_errors,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "hardware_parity_validate_observation"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from hardware_parity_terms import contract  # noqa: E402
+    from hardware_parity_validate_quantization import (  # noqa: E402
+        _matrix_errors,
+        _q88_raw_correspondence_errors,
+    )
 
 def _expected_spike_events(spikes, dt_ms):
     return [
@@ -191,3 +205,7 @@ def _physical_observation_errors(observation, scenario, path, where):
     )
     errors += _observed_arithmetic_errors(observation.get("arithmetic"), path, where)
     return errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

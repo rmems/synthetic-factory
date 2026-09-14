@@ -11,25 +11,48 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from nir_equivalence_base import (  # noqa: E402
-    _safe_digest,
-    _strict_json_equal,
-)
-from nir_equivalence_catalog import (  # noqa: E402
-    _GRAPH_CATALOG_BY_ID,
-    _catalog_entry,
-    _catalog_stimulus,
-)
-from nir_equivalence_compare import _summarize  # noqa: E402
-from nir_equivalence_terms import (  # noqa: E402
-    VALIDATION_DATA_ERRORS,
-    contract,
-)
-from nir_equivalence_validate_result import validate_records  # noqa: E402
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
+    _assert_direct_sibling("nir_equivalence_views")
+    from .nir_equivalence_base import (  # noqa: E402
+        _safe_digest,
+        _strict_json_equal,
+    )
+    from .nir_equivalence_catalog import (  # noqa: E402
+        _GRAPH_CATALOG_BY_ID,
+        _catalog_entry,
+        _catalog_stimulus,
+    )
+    from .nir_equivalence_compare import _summarize  # noqa: E402
+    from .nir_equivalence_terms import (  # noqa: E402
+        VALIDATION_DATA_ERRORS,
+        contract,
+    )
+    from .nir_equivalence_validate_result import validate_records  # noqa: E402
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "nir_equivalence_views"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from nir_equivalence_base import (  # noqa: E402
+        _safe_digest,
+        _strict_json_equal,
+    )
+    from nir_equivalence_catalog import (  # noqa: E402
+        _GRAPH_CATALOG_BY_ID,
+        _catalog_entry,
+        _catalog_stimulus,
+    )
+    from nir_equivalence_compare import _summarize  # noqa: E402
+    from nir_equivalence_terms import (  # noqa: E402
+        VALIDATION_DATA_ERRORS,
+        contract,
+    )
+    from nir_equivalence_validate_result import validate_records  # noqa: E402
 
 def _catalog_prompt_identity(scenario):
     """Return prompt identity from the catalog, never mutable record prose."""
@@ -133,3 +156,7 @@ def build_training_views(records, source="record"):
         errors += training_view_errors(record, view, f"{source}:{index}")
     errors += contract.view_set_errors(records, views, source)
     return views, errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

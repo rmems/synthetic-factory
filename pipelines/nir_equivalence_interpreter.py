@@ -12,26 +12,50 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from nir_equivalence_kernels import (  # noqa: E402
-    _integrate_membrane,
-    _step_affine,
-    _step_delay,
-)
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
-from nir_equivalence_graph import (  # noqa: E402
-    GraphError,
-    _roundtrip_with_codec,
-    evaluation_order,
-    parse,
-    serialize,
-)
-from nir_equivalence_terms import (  # noqa: E402
-    ALL_KNOWN_TYPES,
-    STATEFUL_TYPES,
-)
+    _assert_direct_sibling("nir_equivalence_interpreter")
+    from .nir_equivalence_kernels import (  # noqa: E402
+        _integrate_membrane,
+        _step_affine,
+        _step_delay,
+    )
+    from .nir_equivalence_graph import (  # noqa: E402
+        GraphError,
+        _roundtrip_with_codec,
+        evaluation_order,
+        parse,
+        serialize,
+    )
+    from .nir_equivalence_terms import (  # noqa: E402
+        ALL_KNOWN_TYPES,
+        STATEFUL_TYPES,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "nir_equivalence_interpreter"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from nir_equivalence_kernels import (  # noqa: E402
+        _integrate_membrane,
+        _step_affine,
+        _step_delay,
+    )
+    from nir_equivalence_graph import (  # noqa: E402
+        GraphError,
+        _roundtrip_with_codec,
+        evaluation_order,
+        parse,
+        serialize,
+    )
+    from nir_equivalence_terms import (  # noqa: E402
+        ALL_KNOWN_TYPES,
+        STATEFUL_TYPES,
+    )
 
 class UnsupportedConstruct(Exception):
     """A runtime refusing a construct on purpose. This is a diagnostic, not a bug."""
@@ -241,3 +265,7 @@ class NirReferenceRuntime:
             "evaluation_order": list(order),
             "recurrent_edges": sorted([source, target] for source, target in recurrent),
         }
+
+
+if __package__:
+    _expose_package_sibling(__name__)

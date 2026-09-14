@@ -11,11 +11,20 @@ from pathlib import Path
 import sys
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from neuro_oracle_digest import digest  # noqa: E402
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
+    _assert_direct_sibling("neuro_oracle_model")
+    from .neuro_oracle_digest import digest  # noqa: E402
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "neuro_oracle_model"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from neuro_oracle_digest import digest  # noqa: E402
 
 RESET_MODES = ("zero", "subtract")
 DEFAULT_ACTION_LABELS = ("hold", "advance", "retreat", "halt")
@@ -136,3 +145,7 @@ def stimulus_fixture(stimulus):
         "dt_ms": stimulus["dt_ms"],
         "sha256": digest(stimulus["events"]),
     }
+
+
+if __package__:
+    _expose_package_sibling(__name__)

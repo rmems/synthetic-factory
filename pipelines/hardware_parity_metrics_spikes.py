@@ -11,9 +11,18 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
+
+    _assert_direct_sibling("hardware_parity_metrics_spikes")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "hardware_parity_metrics_spikes"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
 
 def _first_spike_steps(spike_grid, neurons):
     firsts = [None] * neurons
@@ -143,3 +152,7 @@ def timing_metrics(software, hardware, dt_ms):
         "neurons_firing_software_only": only_software,
         "neurons_firing_hardware_only": only_hardware,
     }
+
+
+if __package__:
+    _expose_package_sibling(__name__)

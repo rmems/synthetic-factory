@@ -8,35 +8,68 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from neuro_oracle import digest  # noqa: E402
-from nir_equivalence_base import _strict_json_equal  # noqa: E402
-from nir_equivalence_catalog import _catalog_stimulus  # noqa: E402
-from nir_equivalence_compare import (  # noqa: E402
-    _summarize,
-    compare_runtimes,
-    verdict_for,
-)
-from nir_equivalence_record import (  # noqa: E402
-    _evidence_lineage,
-    _evidence_scope,
-)
-from nir_equivalence_terms import (  # noqa: E402
-    ORACLE_PAIRING,
-    RECORD_KIND,
-    VALIDATION_DATA_ERRORS,
-    contract,
-)
-from nir_equivalence_validate_envelope import (  # noqa: E402
-    _check_envelope_identity,
-    _check_graph_structure,
-)
-from nir_equivalence_validate_replay import _reexecute_in_repo_runtimes  # noqa: E402
-from nir_equivalence_validate_runtimes import _check_runtimes  # noqa: E402
-from nir_equivalence_validate_stimulus import _check_stimulus_shape  # noqa: E402
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
+    _assert_direct_sibling("nir_equivalence_validate_result")
+    from .neuro_oracle import digest  # noqa: E402
+    from .nir_equivalence_base import _strict_json_equal  # noqa: E402
+    from .nir_equivalence_catalog import _catalog_stimulus  # noqa: E402
+    from .nir_equivalence_compare import (  # noqa: E402
+        _summarize,
+        compare_runtimes,
+        verdict_for,
+    )
+    from .nir_equivalence_record import (  # noqa: E402
+        _evidence_lineage,
+        _evidence_scope,
+    )
+    from .nir_equivalence_terms import (  # noqa: E402
+        ORACLE_PAIRING,
+        RECORD_KIND,
+        VALIDATION_DATA_ERRORS,
+        contract,
+    )
+    from .nir_equivalence_validate_envelope import (  # noqa: E402
+        _check_envelope_identity,
+        _check_graph_structure,
+    )
+    from .nir_equivalence_validate_replay import _reexecute_in_repo_runtimes  # noqa: E402
+    from .nir_equivalence_validate_runtimes import _check_runtimes  # noqa: E402
+    from .nir_equivalence_validate_stimulus import _check_stimulus_shape  # noqa: E402
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "nir_equivalence_validate_result"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from neuro_oracle import digest  # noqa: E402
+    from nir_equivalence_base import _strict_json_equal  # noqa: E402
+    from nir_equivalence_catalog import _catalog_stimulus  # noqa: E402
+    from nir_equivalence_compare import (  # noqa: E402
+        _summarize,
+        compare_runtimes,
+        verdict_for,
+    )
+    from nir_equivalence_record import (  # noqa: E402
+        _evidence_lineage,
+        _evidence_scope,
+    )
+    from nir_equivalence_terms import (  # noqa: E402
+        ORACLE_PAIRING,
+        RECORD_KIND,
+        VALIDATION_DATA_ERRORS,
+        contract,
+    )
+    from nir_equivalence_validate_envelope import (  # noqa: E402
+        _check_envelope_identity,
+        _check_graph_structure,
+    )
+    from nir_equivalence_validate_replay import _reexecute_in_repo_runtimes  # noqa: E402
+    from nir_equivalence_validate_runtimes import _check_runtimes  # noqa: E402
+    from nir_equivalence_validate_stimulus import _check_stimulus_shape  # noqa: E402
 
 def _check_stimulus_and_fixture(scenario, oracle, where):
     """Bind the stimulus and both input-fixture digests to the validated catalog.
@@ -231,3 +264,7 @@ def validate_records(records, source="record"):
     for index, record in enumerate(records, 1):
         errors += validate_record(record, f"{source}:{index}")
     return errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

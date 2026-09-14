@@ -12,23 +12,44 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from hardware_parity_validate_determinism import (  # noqa: E402,F401
-    _check_determinism,
-    _determinism_claim_errors,
-    _record_oracle_digests,
-    _repeat_digest_evidence_errors,
-)
-from neuro_oracle import (  # noqa: E402
-    FixedPointReferenceAdapter,
-    SoftwareFloatAdapter,
-    TARGET_FIXED_POINT_MODEL,
-    run_digest,
-)
-from hardware_parity_validate_equality import _metrics_equal  # noqa: E402
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
+    _assert_direct_sibling("hardware_parity_validate_oracle")
+    from .hardware_parity_validate_determinism import (  # noqa: E402,F401
+        _check_determinism,
+        _determinism_claim_errors,
+        _record_oracle_digests,
+        _repeat_digest_evidence_errors,
+    )
+    from .neuro_oracle import (  # noqa: E402
+        FixedPointReferenceAdapter,
+        SoftwareFloatAdapter,
+        TARGET_FIXED_POINT_MODEL,
+        run_digest,
+    )
+    from .hardware_parity_validate_equality import _metrics_equal  # noqa: E402
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "hardware_parity_validate_oracle"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from hardware_parity_validate_determinism import (  # noqa: E402,F401
+        _check_determinism,
+        _determinism_claim_errors,
+        _record_oracle_digests,
+        _repeat_digest_evidence_errors,
+    )
+    from neuro_oracle import (  # noqa: E402
+        FixedPointReferenceAdapter,
+        SoftwareFloatAdapter,
+        TARGET_FIXED_POINT_MODEL,
+        run_digest,
+    )
+    from hardware_parity_validate_equality import _metrics_equal  # noqa: E402
 
 def _compare_side(recorded, fresh, label, where):
     """Compare one recorded oracle run against a fresh re-simulation."""
@@ -160,3 +181,7 @@ def _reexecute_reference_sides(record, where):
                 ]
             errors += _compare_side(deployment, fresh, "deployment", where)
     return errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

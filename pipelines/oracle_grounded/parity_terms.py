@@ -12,6 +12,8 @@ the three shape predicates the block checks are written against.
 from __future__ import annotations
 
 
+from .import_twins import bind_import_twin
+
 CONTRACT_VERSION = "1.0.0"
 
 KIND_HARDWARE_PARITY = "hardware_parity"
@@ -145,3 +147,6 @@ def _nonempty_str(value):
 def _is_positive_round(value):
     """A round is a true int >= 1; bool is not an acceptable round."""
     return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
+bind_import_twin(__name__)

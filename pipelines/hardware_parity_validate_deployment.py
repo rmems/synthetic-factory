@@ -13,29 +13,54 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from hardware_parity_validate_availability import (  # noqa: E402,F401
-    _check_fpga_environment,
-    _check_unavailable_deployment,
-    _replayed_adapter_probe,
-    availability_report,
-)
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
-from neuro_oracle import (  # noqa: E402
-    FpgaHardwareAdapter,
-    PHYSICAL_TARGETS,
-    RecordedCaptureAdapter,
-    TARGET_FIXED_POINT_MODEL,
-    TARGET_FPGA_HARDWARE,
-)
-from hardware_parity_terms import (  # noqa: E402
-    REQUIRED_HARDWARE_FIELDS,
-)
-from hardware_parity_validate_capture import _check_capture_chain  # noqa: E402
-from hardware_parity_validate_observation import _physical_observation_errors  # noqa: E402
-
+    _assert_direct_sibling("hardware_parity_validate_deployment")
+    from .hardware_parity_validate_availability import (  # noqa: E402,F401
+        _check_fpga_environment,
+        _check_unavailable_deployment,
+        _replayed_adapter_probe,
+        availability_report,
+    )
+    from .neuro_oracle import (  # noqa: E402
+        FpgaHardwareAdapter,
+        PHYSICAL_TARGETS,
+        RecordedCaptureAdapter,
+        TARGET_FIXED_POINT_MODEL,
+        TARGET_FPGA_HARDWARE,
+    )
+    from .hardware_parity_terms import (  # noqa: E402
+        REQUIRED_HARDWARE_FIELDS,
+    )
+    from .hardware_parity_validate_capture import _check_capture_chain  # noqa: E402
+    from .hardware_parity_validate_observation import _physical_observation_errors  # noqa: E402
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "hardware_parity_validate_deployment"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from hardware_parity_validate_availability import (  # noqa: E402,F401
+        _check_fpga_environment,
+        _check_unavailable_deployment,
+        _replayed_adapter_probe,
+        availability_report,
+    )
+    from neuro_oracle import (  # noqa: E402
+        FpgaHardwareAdapter,
+        PHYSICAL_TARGETS,
+        RecordedCaptureAdapter,
+        TARGET_FIXED_POINT_MODEL,
+        TARGET_FPGA_HARDWARE,
+    )
+    from hardware_parity_terms import (  # noqa: E402
+        REQUIRED_HARDWARE_FIELDS,
+    )
+    from hardware_parity_validate_capture import _check_capture_chain  # noqa: E402
+    from hardware_parity_validate_observation import _physical_observation_errors  # noqa: E402
 
 def _is_canonical_sha256(value):
     """True only for the canonical lowercase ``sha256:<64hex>`` spelling."""
@@ -158,3 +183,7 @@ def _check_physical_claim(record, where):
     )
     errors += _check_capture_chain(record, deployment, where)
     return errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

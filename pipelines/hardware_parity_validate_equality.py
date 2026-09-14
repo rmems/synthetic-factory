@@ -13,10 +13,20 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-from hardware_parity_terms import METRIC_TOL  # noqa: E402
 
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
+
+    _assert_direct_sibling("hardware_parity_validate_equality")
+    from .hardware_parity_terms import METRIC_TOL  # noqa: E402
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "hardware_parity_validate_equality"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from hardware_parity_terms import METRIC_TOL  # noqa: E402
 
 def _metric_mismatch(path, where, recorded, recomputed):
     """The one mismatch message shared by every scalar branch below."""
@@ -96,3 +106,7 @@ def _metrics_equal(recorded, recomputed, path, where):
     if isinstance(recomputed, list):
         return _metrics_equal_list(recorded, recomputed, path, where)
     return _metrics_equal_scalar(recorded, recomputed, path, where)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

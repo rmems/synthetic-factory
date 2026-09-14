@@ -14,21 +14,38 @@ from pathlib import Path
 import sys
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from neuro_oracle_observation import _decode_action, _spike_events  # noqa: E402
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
-from neuro_oracle_model import (  # noqa: E402
-    normalize_model,
-    normalize_stimulus,
-)
-from neuro_oracle_q88 import (  # noqa: E402
-    q88_mul,
-    q88_saturate,
-    q88_to_float,
-)
-
+    _assert_direct_sibling("neuro_oracle_simulate")
+    from .neuro_oracle_observation import _decode_action, _spike_events  # noqa: E402
+    from .neuro_oracle_model import (  # noqa: E402
+        normalize_model,
+        normalize_stimulus,
+    )
+    from .neuro_oracle_q88 import (  # noqa: E402
+        q88_mul,
+        q88_saturate,
+        q88_to_float,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "neuro_oracle_simulate"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from neuro_oracle_observation import _decode_action, _spike_events  # noqa: E402
+    from neuro_oracle_model import (  # noqa: E402
+        normalize_model,
+        normalize_stimulus,
+    )
+    from neuro_oracle_q88 import (  # noqa: E402
+        q88_mul,
+        q88_saturate,
+        q88_to_float,
+    )
 
 def _lif_step_neuron_float(i, row, model, membrane, refractory, previous, neurons):
     """One neuron's float64 LIF update for one timestep.
@@ -178,3 +195,7 @@ def simulate_fixed_point(q_model, stimulus):
         "action": _decode_action(spike_grid, q_model["action_labels"]),
         "arithmetic": {"format": "Q8.8", "saturation_events": saturation_events},
     }
+
+
+if __package__:
+    _expose_package_sibling(__name__)

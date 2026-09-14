@@ -8,6 +8,8 @@ own rules on top of the findings this module returns.
 
 from __future__ import annotations
 
+from .import_twins import bind_import_twin
+
 from .parity_blocks import (
     check_candidate_prediction,
     check_generator,
@@ -121,3 +123,6 @@ def check_envelope(record, where, oracle_digests=None):
     errors += check_validation_block(record.get("validation"), where)
     errors += _check_envelope_meta(record.get("meta"), where)
     return errors
+
+
+bind_import_twin(__name__)

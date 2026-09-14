@@ -12,22 +12,40 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from hardware_parity_metrics_spikes import (  # noqa: E402,F401
-    _first_spike_steps,
-    _rectangular,
-    _spike_cell_tally,
-    _spike_cells,
-    _spike_grid_shape_reason,
-    spike_bitmap_metrics,
-    timing_metrics,
-)
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
-from neuro_oracle import PHYSICAL_TARGETS  # noqa: E402
-from hardware_parity_terms import MEMBRANE_TOLERANCE, contract  # noqa: E402
-
+    _assert_direct_sibling("hardware_parity_metrics")
+    from .hardware_parity_metrics_spikes import (  # noqa: E402,F401
+        _first_spike_steps,
+        _rectangular,
+        _spike_cell_tally,
+        _spike_cells,
+        _spike_grid_shape_reason,
+        spike_bitmap_metrics,
+        timing_metrics,
+    )
+    from .neuro_oracle import PHYSICAL_TARGETS  # noqa: E402
+    from .hardware_parity_terms import MEMBRANE_TOLERANCE, contract  # noqa: E402
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "hardware_parity_metrics"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from hardware_parity_metrics_spikes import (  # noqa: E402,F401
+        _first_spike_steps,
+        _rectangular,
+        _spike_cell_tally,
+        _spike_cells,
+        _spike_grid_shape_reason,
+        spike_bitmap_metrics,
+        timing_metrics,
+    )
+    from neuro_oracle import PHYSICAL_TARGETS  # noqa: E402
+    from hardware_parity_terms import MEMBRANE_TOLERANCE, contract  # noqa: E402
 
 MEMBRANE_UNITS = "mV_model"
 
@@ -227,3 +245,7 @@ def compute_parity(scenario, software_run, hardware_run):
     )
     verdict = contract.VERDICT_MISMATCH if behavioural_mismatch else contract.VERDICT_MATCH
     return parity, verdict, sorted(set(reason_codes))
+
+
+if __package__:
+    _expose_package_sibling(__name__)

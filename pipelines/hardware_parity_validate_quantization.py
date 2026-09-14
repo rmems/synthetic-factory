@@ -13,17 +13,34 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-from neuro_oracle import (  # noqa: E402
-    Q88_MAX_RAW,
-    Q88_MIN_RAW,
-    q88_to_float,
-    quantize_model,
-)
-from hardware_parity_terms import contract  # noqa: E402
-from hardware_parity_validate_equality import _metrics_equal  # noqa: E402
 
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
+
+    _assert_direct_sibling("hardware_parity_validate_quantization")
+    from .neuro_oracle import (  # noqa: E402
+        Q88_MAX_RAW,
+        Q88_MIN_RAW,
+        q88_to_float,
+        quantize_model,
+    )
+    from .hardware_parity_terms import contract  # noqa: E402
+    from .hardware_parity_validate_equality import _metrics_equal  # noqa: E402
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "hardware_parity_validate_quantization"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from neuro_oracle import (  # noqa: E402
+        Q88_MAX_RAW,
+        Q88_MIN_RAW,
+        q88_to_float,
+        quantize_model,
+    )
+    from hardware_parity_terms import contract  # noqa: E402
+    from hardware_parity_validate_equality import _metrics_equal  # noqa: E402
 
 def _check_quantization(record, where):
     """Re-derive the Q8.8 conversion from the float model and compare."""
@@ -140,3 +157,7 @@ def _q88_raw_correspondence_errors(trace, raw, path, where):
                     "raw/256 of the retained Q8.8 integer [Q88_PROVENANCE_MISMATCH]"
                 )
     return errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

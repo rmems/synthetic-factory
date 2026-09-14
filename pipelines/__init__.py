@@ -487,6 +487,306 @@ def _load_curate_bridge():
     return curate_bridge
 
 
+def _load_hardware_parity():
+    from . import hardware_parity
+
+    return hardware_parity
+
+
+def _load_hardware_parity_catalog():
+    from . import hardware_parity_catalog
+
+    return hardware_parity_catalog
+
+
+def _load_hardware_parity_cli():
+    from . import hardware_parity_cli
+
+    return hardware_parity_cli
+
+
+def _load_hardware_parity_metrics():
+    from . import hardware_parity_metrics
+
+    return hardware_parity_metrics
+
+
+def _load_hardware_parity_metrics_spikes():
+    from . import hardware_parity_metrics_spikes
+
+    return hardware_parity_metrics_spikes
+
+
+def _load_hardware_parity_provenance():
+    from . import hardware_parity_provenance
+
+    return hardware_parity_provenance
+
+
+def _load_hardware_parity_record():
+    from . import hardware_parity_record
+
+    return hardware_parity_record
+
+
+def _load_hardware_parity_terms():
+    from . import hardware_parity_terms
+
+    return hardware_parity_terms
+
+
+def _load_hardware_parity_validate_availability():
+    from . import hardware_parity_validate_availability
+
+    return hardware_parity_validate_availability
+
+
+def _load_hardware_parity_validate_capture():
+    from . import hardware_parity_validate_capture
+
+    return hardware_parity_validate_capture
+
+
+def _load_hardware_parity_validate_deployment():
+    from . import hardware_parity_validate_deployment
+
+    return hardware_parity_validate_deployment
+
+
+def _load_hardware_parity_validate_determinism():
+    from . import hardware_parity_validate_determinism
+
+    return hardware_parity_validate_determinism
+
+
+def _load_hardware_parity_validate_equality():
+    from . import hardware_parity_validate_equality
+
+    return hardware_parity_validate_equality
+
+
+def _load_hardware_parity_validate_identity():
+    from . import hardware_parity_validate_identity
+
+    return hardware_parity_validate_identity
+
+
+def _load_hardware_parity_validate_observation():
+    from . import hardware_parity_validate_observation
+
+    return hardware_parity_validate_observation
+
+
+def _load_hardware_parity_validate_oracle():
+    from . import hardware_parity_validate_oracle
+
+    return hardware_parity_validate_oracle
+
+
+def _load_hardware_parity_validate_quantization():
+    from . import hardware_parity_validate_quantization
+
+    return hardware_parity_validate_quantization
+
+
+def _load_hardware_parity_validate_result():
+    from . import hardware_parity_validate_result
+
+    return hardware_parity_validate_result
+
+
+def _load_hardware_parity_views():
+    from . import hardware_parity_views
+
+    return hardware_parity_views
+
+
+def _load_neuro_oracle():
+    from . import neuro_oracle
+
+    return neuro_oracle
+
+
+def _load_neuro_oracle_adapter():
+    from . import neuro_oracle_adapter
+
+    return neuro_oracle_adapter
+
+
+def _load_neuro_oracle_availability():
+    from . import neuro_oracle_availability
+
+    return neuro_oracle_availability
+
+
+def _load_neuro_oracle_capture():
+    from . import neuro_oracle_capture
+
+    return neuro_oracle_capture
+
+
+def _load_neuro_oracle_digest():
+    from . import neuro_oracle_digest
+
+    return neuro_oracle_digest
+
+
+def _load_neuro_oracle_model():
+    from . import neuro_oracle_model
+
+    return neuro_oracle_model
+
+
+def _load_neuro_oracle_observation():
+    from . import neuro_oracle_observation
+
+    return neuro_oracle_observation
+
+
+def _load_neuro_oracle_q88():
+    from . import neuro_oracle_q88
+
+    return neuro_oracle_q88
+
+
+def _load_neuro_oracle_quantize():
+    from . import neuro_oracle_quantize
+
+    return neuro_oracle_quantize
+
+
+def _load_neuro_oracle_reference():
+    from . import neuro_oracle_reference
+
+    return neuro_oracle_reference
+
+
+def _load_neuro_oracle_simulate():
+    from . import neuro_oracle_simulate
+
+    return neuro_oracle_simulate
+
+
+def _load_nir_equivalence():
+    from . import nir_equivalence
+
+    return nir_equivalence
+
+
+def _load_nir_equivalence_base():
+    from . import nir_equivalence_base
+
+    return nir_equivalence_base
+
+
+def _load_nir_equivalence_catalog():
+    from . import nir_equivalence_catalog
+
+    return nir_equivalence_catalog
+
+
+def _load_nir_equivalence_cli():
+    from . import nir_equivalence_cli
+
+    return nir_equivalence_cli
+
+
+def _load_nir_equivalence_compare():
+    from . import nir_equivalence_compare
+
+    return nir_equivalence_compare
+
+
+def _load_nir_equivalence_compare_pair():
+    from . import nir_equivalence_compare_pair
+
+    return nir_equivalence_compare_pair
+
+
+def _load_nir_equivalence_execute():
+    from . import nir_equivalence_execute
+
+    return nir_equivalence_execute
+
+
+def _load_nir_equivalence_graph():
+    from . import nir_equivalence_graph
+
+    return nir_equivalence_graph
+
+
+def _load_nir_equivalence_interpreter():
+    from . import nir_equivalence_interpreter
+
+    return nir_equivalence_interpreter
+
+
+def _load_nir_equivalence_kernels():
+    from . import nir_equivalence_kernels
+
+    return nir_equivalence_kernels
+
+
+def _load_nir_equivalence_provenance():
+    from . import nir_equivalence_provenance
+
+    return nir_equivalence_provenance
+
+
+def _load_nir_equivalence_record():
+    from . import nir_equivalence_record
+
+    return nir_equivalence_record
+
+
+def _load_nir_equivalence_runtimes():
+    from . import nir_equivalence_runtimes
+
+    return nir_equivalence_runtimes
+
+
+def _load_nir_equivalence_terms():
+    from . import nir_equivalence_terms
+
+    return nir_equivalence_terms
+
+
+def _load_nir_equivalence_validate_envelope():
+    from . import nir_equivalence_validate_envelope
+
+    return nir_equivalence_validate_envelope
+
+
+def _load_nir_equivalence_validate_replay():
+    from . import nir_equivalence_validate_replay
+
+    return nir_equivalence_validate_replay
+
+
+def _load_nir_equivalence_validate_result():
+    from . import nir_equivalence_validate_result
+
+    return nir_equivalence_validate_result
+
+
+def _load_nir_equivalence_validate_runtimes():
+    from . import nir_equivalence_validate_runtimes
+
+    return nir_equivalence_validate_runtimes
+
+
+def _load_nir_equivalence_validate_stimulus():
+    from . import nir_equivalence_validate_stimulus
+
+    return nir_equivalence_validate_stimulus
+
+
+def _load_nir_equivalence_views():
+    from . import nir_equivalence_views
+
+    return nir_equivalence_views
+
+
 _PACKAGE_SIBLING_LOADERS = {
     "exact_json_encoding": _load_exact_json_encoding,
     "exact_json": _load_exact_json,
@@ -556,6 +856,56 @@ _PACKAGE_SIBLING_LOADERS = {
     "training_audit_snapshot": _load_training_audit_snapshot,
     "validate_run": _load_validate_run,
     "curate_bridge": _load_curate_bridge,
+    "hardware_parity": _load_hardware_parity,
+    "hardware_parity_catalog": _load_hardware_parity_catalog,
+    "hardware_parity_cli": _load_hardware_parity_cli,
+    "hardware_parity_metrics": _load_hardware_parity_metrics,
+    "hardware_parity_metrics_spikes": _load_hardware_parity_metrics_spikes,
+    "hardware_parity_provenance": _load_hardware_parity_provenance,
+    "hardware_parity_record": _load_hardware_parity_record,
+    "hardware_parity_terms": _load_hardware_parity_terms,
+    "hardware_parity_validate_availability": _load_hardware_parity_validate_availability,
+    "hardware_parity_validate_capture": _load_hardware_parity_validate_capture,
+    "hardware_parity_validate_deployment": _load_hardware_parity_validate_deployment,
+    "hardware_parity_validate_determinism": _load_hardware_parity_validate_determinism,
+    "hardware_parity_validate_equality": _load_hardware_parity_validate_equality,
+    "hardware_parity_validate_identity": _load_hardware_parity_validate_identity,
+    "hardware_parity_validate_observation": _load_hardware_parity_validate_observation,
+    "hardware_parity_validate_oracle": _load_hardware_parity_validate_oracle,
+    "hardware_parity_validate_quantization": _load_hardware_parity_validate_quantization,
+    "hardware_parity_validate_result": _load_hardware_parity_validate_result,
+    "hardware_parity_views": _load_hardware_parity_views,
+    "neuro_oracle": _load_neuro_oracle,
+    "neuro_oracle_adapter": _load_neuro_oracle_adapter,
+    "neuro_oracle_availability": _load_neuro_oracle_availability,
+    "neuro_oracle_capture": _load_neuro_oracle_capture,
+    "neuro_oracle_digest": _load_neuro_oracle_digest,
+    "neuro_oracle_model": _load_neuro_oracle_model,
+    "neuro_oracle_observation": _load_neuro_oracle_observation,
+    "neuro_oracle_q88": _load_neuro_oracle_q88,
+    "neuro_oracle_quantize": _load_neuro_oracle_quantize,
+    "neuro_oracle_reference": _load_neuro_oracle_reference,
+    "neuro_oracle_simulate": _load_neuro_oracle_simulate,
+    "nir_equivalence": _load_nir_equivalence,
+    "nir_equivalence_base": _load_nir_equivalence_base,
+    "nir_equivalence_catalog": _load_nir_equivalence_catalog,
+    "nir_equivalence_cli": _load_nir_equivalence_cli,
+    "nir_equivalence_compare": _load_nir_equivalence_compare,
+    "nir_equivalence_compare_pair": _load_nir_equivalence_compare_pair,
+    "nir_equivalence_execute": _load_nir_equivalence_execute,
+    "nir_equivalence_graph": _load_nir_equivalence_graph,
+    "nir_equivalence_interpreter": _load_nir_equivalence_interpreter,
+    "nir_equivalence_kernels": _load_nir_equivalence_kernels,
+    "nir_equivalence_provenance": _load_nir_equivalence_provenance,
+    "nir_equivalence_record": _load_nir_equivalence_record,
+    "nir_equivalence_runtimes": _load_nir_equivalence_runtimes,
+    "nir_equivalence_terms": _load_nir_equivalence_terms,
+    "nir_equivalence_validate_envelope": _load_nir_equivalence_validate_envelope,
+    "nir_equivalence_validate_replay": _load_nir_equivalence_validate_replay,
+    "nir_equivalence_validate_result": _load_nir_equivalence_validate_result,
+    "nir_equivalence_validate_runtimes": _load_nir_equivalence_validate_runtimes,
+    "nir_equivalence_validate_stimulus": _load_nir_equivalence_validate_stimulus,
+    "nir_equivalence_views": _load_nir_equivalence_views,
 }
 
 

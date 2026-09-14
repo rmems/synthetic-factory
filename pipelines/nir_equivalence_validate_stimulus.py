@@ -9,10 +9,18 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
+    _assert_direct_sibling("nir_equivalence_validate_stimulus")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "nir_equivalence_validate_stimulus"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
 
 def _check_stimulus_shape(stimulus, where):
     """Validate the execution window before any runtime indexes into it."""
@@ -93,3 +101,7 @@ def _stimulus_row_errors(row, index, channels, where):
             "numbers [ENVELOPE_MALFORMED]"
         )
     return errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

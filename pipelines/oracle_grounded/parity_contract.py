@@ -54,6 +54,8 @@ keeps one surface:
 
 from __future__ import annotations
 
+from .import_twins import bind_import_twin
+
 from . import envelope as _envelope
 from . import parity_blocks as _blocks
 from . import parity_destination as _destination
@@ -181,3 +183,6 @@ __all__ = [
     "training_view_errors",
     "view_set_errors",
 ]
+
+
+bind_import_twin(__name__)

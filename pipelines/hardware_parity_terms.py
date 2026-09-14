@@ -12,11 +12,22 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from oracle_grounded import parity_contract as contract  # noqa: E402
-from neuro_oracle import Q88_STEP  # noqa: E402
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
+
+    _assert_direct_sibling("hardware_parity_terms")
+    from .oracle_grounded import parity_contract as contract  # noqa: E402
+    from .neuro_oracle import Q88_STEP  # noqa: E402
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "hardware_parity_terms"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from oracle_grounded import parity_contract as contract  # noqa: E402
+    from neuro_oracle import Q88_STEP  # noqa: E402
 
 SCHEMA_VERSION = "1.0.0"
 VALIDATOR = "pipelines/hardware_parity.py"
@@ -78,3 +89,7 @@ REQUIRED_HARDWARE_FIELDS = (
     ("bitstream", "toolchain"),
     ("capture", "manifest_sha256"),
 )
+
+
+if __package__:
+    _expose_package_sibling(__name__)

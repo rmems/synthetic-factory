@@ -12,13 +12,26 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from nir_equivalence_execute import _executed  # noqa: E402
-from nir_equivalence_terms import (  # noqa: E402
-    NUMERIC_TOL,
-)
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
+
+    _assert_direct_sibling("nir_equivalence_compare_pair")
+    from .nir_equivalence_execute import _executed  # noqa: E402
+    from .nir_equivalence_terms import (  # noqa: E402
+        NUMERIC_TOL,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "nir_equivalence_compare_pair"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from nir_equivalence_execute import _executed  # noqa: E402
+    from nir_equivalence_terms import (  # noqa: E402
+        NUMERIC_TOL,
+    )
 
 def convention_delta(entries):
     """Which declared conventions differ between the executed runtimes."""
@@ -229,3 +242,7 @@ def _pair_reason_codes(pair, events_agree, max_error):
     if not pair["state_agree"]:
         reason_codes.append("DIVERGENCE_INTERNAL_STATE")
     return reason_codes
+
+
+if __package__:
+    _expose_package_sibling(__name__)

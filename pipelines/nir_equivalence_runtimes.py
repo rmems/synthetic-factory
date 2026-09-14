@@ -14,21 +14,38 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from nir_equivalence_interpreter import (  # noqa: E402,F401
-    NirReferenceRuntime,
-    UnsupportedConstruct,
-    _integrate_membrane,
-    _step_affine,
-    _step_delay,
-)
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
-from nir_equivalence_terms import (  # noqa: E402
-    ALL_KNOWN_TYPES,
-)
-
+    _assert_direct_sibling("nir_equivalence_runtimes")
+    from .nir_equivalence_interpreter import (  # noqa: E402,F401
+        NirReferenceRuntime,
+        UnsupportedConstruct,
+        _integrate_membrane,
+        _step_affine,
+        _step_delay,
+    )
+    from .nir_equivalence_terms import (  # noqa: E402
+        ALL_KNOWN_TYPES,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "nir_equivalence_runtimes"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from nir_equivalence_interpreter import (  # noqa: E402,F401
+        NirReferenceRuntime,
+        UnsupportedConstruct,
+        _integrate_membrane,
+        _step_affine,
+        _step_delay,
+    )
+    from nir_equivalence_terms import (  # noqa: E402
+        ALL_KNOWN_TYPES,
+    )
 
 class UnavailableRuntime:
     """An upstream runtime that is not present. It has no fallback path."""
@@ -150,3 +167,7 @@ ALL_RUNTIMES = (*IN_REPO_RUNTIMES, *UPSTREAM_RUNTIMES)
 EXPECTED_RUNTIME_NAMES = tuple(runtime.name for runtime in ALL_RUNTIMES)
 _RUNTIME_BY_NAME = {runtime.name: runtime for runtime in IN_REPO_RUNTIMES}
 _ALL_RUNTIME_BY_NAME = {runtime.name: runtime for runtime in ALL_RUNTIMES}
+
+
+if __package__:
+    _expose_package_sibling(__name__)

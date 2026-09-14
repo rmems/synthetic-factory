@@ -12,9 +12,18 @@ from pathlib import Path
 import sys
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
+
+    _assert_direct_sibling("neuro_oracle_observation")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "neuro_oracle_observation"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
 
 def _spike_events(spike_grid, dt_ms):
     events = []
@@ -41,3 +50,7 @@ def _decode_action(spike_grid, labels):
         if counts[index] > counts[best]:
             best = index
     return {"index": best, "label": labels[best], "counts": counts, "rule": "argmax_count"}
+
+
+if __package__:
+    _expose_package_sibling(__name__)

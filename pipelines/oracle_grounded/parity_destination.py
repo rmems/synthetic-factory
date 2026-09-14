@@ -7,6 +7,8 @@ beneath the immutable corpus before writing anything.
 
 from __future__ import annotations
 
+from .import_twins import bind_import_twin
+
 from pathlib import Path
 
 
@@ -36,3 +38,6 @@ def raw_tree_destination_error(destination):
                 f"{destination}"
             )
     return None
+
+
+bind_import_twin(__name__)

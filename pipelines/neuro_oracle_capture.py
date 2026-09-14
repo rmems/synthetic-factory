@@ -16,26 +16,50 @@ import stat
 import sys
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from neuro_oracle_adapter import (  # noqa: E402
-    CAPTURE_DETERMINISM_MEANING,
-    EXECUTION_TARGETS,
-    OracleAdapter,
-    OracleUnavailable,
-    run_digest,
-)
-from neuro_oracle_digest import (  # noqa: E402
-    canonical_json,
-    digest,
-)
-from neuro_oracle_model import (  # noqa: E402
-    normalize_model,
-    normalize_stimulus,
-    stimulus_fixture,
-)
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
+    _assert_direct_sibling("neuro_oracle_capture")
+    from .neuro_oracle_adapter import (  # noqa: E402
+        CAPTURE_DETERMINISM_MEANING,
+        EXECUTION_TARGETS,
+        OracleAdapter,
+        OracleUnavailable,
+        run_digest,
+    )
+    from .neuro_oracle_digest import (  # noqa: E402
+        canonical_json,
+        digest,
+    )
+    from .neuro_oracle_model import (  # noqa: E402
+        normalize_model,
+        normalize_stimulus,
+        stimulus_fixture,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "neuro_oracle_capture"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from neuro_oracle_adapter import (  # noqa: E402
+        CAPTURE_DETERMINISM_MEANING,
+        EXECUTION_TARGETS,
+        OracleAdapter,
+        OracleUnavailable,
+        run_digest,
+    )
+    from neuro_oracle_digest import (  # noqa: E402
+        canonical_json,
+        digest,
+    )
+    from neuro_oracle_model import (  # noqa: E402
+        normalize_model,
+        normalize_stimulus,
+        stimulus_fixture,
+    )
 
 MAX_CAPTURE_BYTES = 16 * 1024 * 1024
 
@@ -411,3 +435,7 @@ class RecordedCaptureAdapter(OracleAdapter):
                 "source": capture,
             },
         }
+
+
+if __package__:
+    _expose_package_sibling(__name__)

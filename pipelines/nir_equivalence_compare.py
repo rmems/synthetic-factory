@@ -13,31 +13,58 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from nir_equivalence_compare_pair import (  # noqa: E402,F401
-    _candidate_causes,
-    _compare_pair,
-    _incomparable_pair,
-    _pair_identity,
-    _pair_reason_codes,
-    _spike_events_agree,
-    _state_error,
-    _trace_divergence,
-    _trace_shapes_differ,
-    convention_delta,
-    relevant_conventions,
-)
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
-from nir_equivalence_execute import _executed  # noqa: E402
-from nir_equivalence_terms import (  # noqa: E402
-    NUMERIC_TOL,
-    STATUS_UNAVAILABLE,
-    STATUS_UNSUPPORTED,
-    contract,
-)
-
+    _assert_direct_sibling("nir_equivalence_compare")
+    from .nir_equivalence_compare_pair import (  # noqa: E402,F401
+        _candidate_causes,
+        _compare_pair,
+        _incomparable_pair,
+        _pair_identity,
+        _pair_reason_codes,
+        _spike_events_agree,
+        _state_error,
+        _trace_divergence,
+        _trace_shapes_differ,
+        convention_delta,
+        relevant_conventions,
+    )
+    from .nir_equivalence_execute import _executed  # noqa: E402
+    from .nir_equivalence_terms import (  # noqa: E402
+        NUMERIC_TOL,
+        STATUS_UNAVAILABLE,
+        STATUS_UNSUPPORTED,
+        contract,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "nir_equivalence_compare"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from nir_equivalence_compare_pair import (  # noqa: E402,F401
+        _candidate_causes,
+        _compare_pair,
+        _incomparable_pair,
+        _pair_identity,
+        _pair_reason_codes,
+        _spike_events_agree,
+        _state_error,
+        _trace_divergence,
+        _trace_shapes_differ,
+        convention_delta,
+        relevant_conventions,
+    )
+    from nir_equivalence_execute import _executed  # noqa: E402
+    from nir_equivalence_terms import (  # noqa: E402
+        NUMERIC_TOL,
+        STATUS_UNAVAILABLE,
+        STATUS_UNSUPPORTED,
+        contract,
+    )
 
 def compare_runtimes(scenario, entries):
     """Compare every executed runtime pairwise and classify what differs."""
@@ -245,3 +272,7 @@ def _summarize(scenario, comparison, verdict):
         f"{scenario['name']}: executed on [{executed}]."
         f"{detail} verdict {verdict}."
     )
+
+
+if __package__:
+    _expose_package_sibling(__name__)

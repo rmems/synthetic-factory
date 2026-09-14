@@ -11,13 +11,28 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-from hardware_parity_record import (  # noqa: E402
-    _capture_evidence_digest,
-    _unavailable_evidence_digest,
-)
-from hardware_parity_validate_deployment import _is_canonical_sha256  # noqa: E402
+
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
+
+    _assert_direct_sibling("hardware_parity_validate_determinism")
+    from .hardware_parity_record import (  # noqa: E402
+        _capture_evidence_digest,
+        _unavailable_evidence_digest,
+    )
+    from .hardware_parity_validate_deployment import _is_canonical_sha256  # noqa: E402
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "hardware_parity_validate_determinism"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from hardware_parity_record import (  # noqa: E402
+        _capture_evidence_digest,
+        _unavailable_evidence_digest,
+    )
+    from hardware_parity_validate_deployment import _is_canonical_sha256  # noqa: E402
 
 def _check_determinism(
     run, label, where, require_rederived_repeats=False, expected_meaning=None
@@ -155,3 +170,7 @@ def _record_oracle_digests(oracle):
         if capture_digest is not None:
             digests.append(capture_digest)
     return digests
+
+
+if __package__:
+    _expose_package_sibling(__name__)

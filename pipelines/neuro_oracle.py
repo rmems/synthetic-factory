@@ -28,83 +28,154 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-# The oracle layer is one module split by responsibility, and this is its front
-# door: `from neuro_oracle import ...` keeps working, including from a fresh
-# interpreter, which `tests/test_hardware_parity_capture.py` relies on when it
-# builds capture fixtures in a subprocess. Nothing below imports this module
-# back -- the siblings layer digest/q88 -> model -> quantize/simulate ->
-# adapter -> reference/capture -> availability.
-from neuro_oracle_digest import (  # noqa: E402,F401
-    canonical_json,
-    digest,
-)
-from neuro_oracle_q88 import (  # noqa: E402,F401
-    Q88_FRACTIONAL_BITS,
-    Q88_MAX_RAW,
-    Q88_MAX_VALUE,
-    Q88_MIN_RAW,
-    Q88_MIN_VALUE,
-    Q88_ROUNDING,
-    Q88_SATURATION_POLICY,
-    Q88_SCALE,
-    Q88_STEP,
-    q88_mul,
-    q88_quantize,
-    q88_saturate,
-    q88_to_float,
-)
-from neuro_oracle_model import (  # noqa: E402,F401
-    DEFAULT_ACTION_LABELS,
-    RESET_MODES,
-    normalize_model,
-    normalize_stimulus,
-    stimulus_fixture,
-)
-from neuro_oracle_quantize import (  # noqa: E402,F401
-    quantize_model,
-)
-from neuro_oracle_observation import (  # noqa: E402,F401
-    _decode_action,
-    _spike_events,
-)
-from neuro_oracle_simulate import (  # noqa: E402,F401
-    simulate_fixed_point,
-    simulate_float,
-)
-from neuro_oracle_adapter import (  # noqa: E402,F401
-    CAPTURE_DETERMINISM_MEANING,
-    EXECUTION_TARGETS,
-    OracleAdapter,
-    OracleUnavailable,
-    PHYSICAL_TARGETS,
-    REFERENCE_DETERMINISM_MEANING,
-    SCHEMA_VERSION,
-    TARGET_FIXED_POINT_MODEL,
-    TARGET_FPGA_HARDWARE,
-    TARGET_RECORDED_CAPTURE,
-    TARGET_SOFTWARE_FLOAT,
-    run_digest,
-)
-from neuro_oracle_reference import (  # noqa: E402,F401
-    FixedPointReferenceAdapter,
-    SoftwareFloatAdapter,
-)
-from neuro_oracle_capture import (  # noqa: E402,F401
-    MAX_CAPTURE_BYTES,
-    RecordedCaptureAdapter,
-)
-from neuro_oracle_availability import (  # noqa: E402,F401
-    ADAPTERS,
-    FPGA_BITSTREAM_ENV,
-    FPGA_DEVICE_ENV,
-    FpgaHardwareAdapter,
-    availability_report,
-    get_adapter,
-    main,
-)
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
+
+    _assert_direct_sibling("neuro_oracle")
+    from .neuro_oracle_digest import (  # noqa: E402,F401
+        canonical_json,
+        digest,
+    )
+    from .neuro_oracle_q88 import (  # noqa: E402,F401
+        Q88_FRACTIONAL_BITS,
+        Q88_MAX_RAW,
+        Q88_MAX_VALUE,
+        Q88_MIN_RAW,
+        Q88_MIN_VALUE,
+        Q88_ROUNDING,
+        Q88_SATURATION_POLICY,
+        Q88_SCALE,
+        Q88_STEP,
+        q88_mul,
+        q88_quantize,
+        q88_saturate,
+        q88_to_float,
+    )
+    from .neuro_oracle_model import (  # noqa: E402,F401
+        DEFAULT_ACTION_LABELS,
+        RESET_MODES,
+        normalize_model,
+        normalize_stimulus,
+        stimulus_fixture,
+    )
+    from .neuro_oracle_quantize import (  # noqa: E402,F401
+        quantize_model,
+    )
+    from .neuro_oracle_observation import (  # noqa: E402,F401
+        _decode_action,
+        _spike_events,
+    )
+    from .neuro_oracle_simulate import (  # noqa: E402,F401
+        simulate_fixed_point,
+        simulate_float,
+    )
+    from .neuro_oracle_adapter import (  # noqa: E402,F401
+        CAPTURE_DETERMINISM_MEANING,
+        EXECUTION_TARGETS,
+        OracleAdapter,
+        OracleUnavailable,
+        PHYSICAL_TARGETS,
+        REFERENCE_DETERMINISM_MEANING,
+        SCHEMA_VERSION,
+        TARGET_FIXED_POINT_MODEL,
+        TARGET_FPGA_HARDWARE,
+        TARGET_RECORDED_CAPTURE,
+        TARGET_SOFTWARE_FLOAT,
+        run_digest,
+    )
+    from .neuro_oracle_reference import (  # noqa: E402,F401
+        FixedPointReferenceAdapter,
+        SoftwareFloatAdapter,
+    )
+    from .neuro_oracle_capture import (  # noqa: E402,F401
+        MAX_CAPTURE_BYTES,
+        RecordedCaptureAdapter,
+    )
+    from .neuro_oracle_availability import (  # noqa: E402,F401
+        ADAPTERS,
+        FPGA_BITSTREAM_ENV,
+        FPGA_DEVICE_ENV,
+        FpgaHardwareAdapter,
+        availability_report,
+        get_adapter,
+        main,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "neuro_oracle"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from neuro_oracle_digest import (  # noqa: E402,F401
+        canonical_json,
+        digest,
+    )
+    from neuro_oracle_q88 import (  # noqa: E402,F401
+        Q88_FRACTIONAL_BITS,
+        Q88_MAX_RAW,
+        Q88_MAX_VALUE,
+        Q88_MIN_RAW,
+        Q88_MIN_VALUE,
+        Q88_ROUNDING,
+        Q88_SATURATION_POLICY,
+        Q88_SCALE,
+        Q88_STEP,
+        q88_mul,
+        q88_quantize,
+        q88_saturate,
+        q88_to_float,
+    )
+    from neuro_oracle_model import (  # noqa: E402,F401
+        DEFAULT_ACTION_LABELS,
+        RESET_MODES,
+        normalize_model,
+        normalize_stimulus,
+        stimulus_fixture,
+    )
+    from neuro_oracle_quantize import (  # noqa: E402,F401
+        quantize_model,
+    )
+    from neuro_oracle_observation import (  # noqa: E402,F401
+        _decode_action,
+        _spike_events,
+    )
+    from neuro_oracle_simulate import (  # noqa: E402,F401
+        simulate_fixed_point,
+        simulate_float,
+    )
+    from neuro_oracle_adapter import (  # noqa: E402,F401
+        CAPTURE_DETERMINISM_MEANING,
+        EXECUTION_TARGETS,
+        OracleAdapter,
+        OracleUnavailable,
+        PHYSICAL_TARGETS,
+        REFERENCE_DETERMINISM_MEANING,
+        SCHEMA_VERSION,
+        TARGET_FIXED_POINT_MODEL,
+        TARGET_FPGA_HARDWARE,
+        TARGET_RECORDED_CAPTURE,
+        TARGET_SOFTWARE_FLOAT,
+        run_digest,
+    )
+    from neuro_oracle_reference import (  # noqa: E402,F401
+        FixedPointReferenceAdapter,
+        SoftwareFloatAdapter,
+    )
+    from neuro_oracle_capture import (  # noqa: E402,F401
+        MAX_CAPTURE_BYTES,
+        RecordedCaptureAdapter,
+    )
+    from neuro_oracle_availability import (  # noqa: E402,F401
+        ADAPTERS,
+        FPGA_BITSTREAM_ENV,
+        FPGA_DEVICE_ENV,
+        FpgaHardwareAdapter,
+        availability_report,
+        get_adapter,
+        main,
+    )
 
 __all__ = [
     "ADAPTERS",
@@ -154,6 +225,9 @@ __all__ = [
     "simulate_float",
     "stimulus_fixture",
 ]
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

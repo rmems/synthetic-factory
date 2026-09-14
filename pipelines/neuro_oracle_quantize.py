@@ -12,22 +12,42 @@ from pathlib import Path
 import sys
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from neuro_oracle_digest import digest  # noqa: E402
-from neuro_oracle_model import normalize_model  # noqa: E402
-from neuro_oracle_q88 import (  # noqa: E402
-    Q88_FRACTIONAL_BITS,
-    Q88_MAX_VALUE,
-    Q88_MIN_VALUE,
-    Q88_ROUNDING,
-    Q88_SATURATION_POLICY,
-    Q88_STEP,
-    q88_quantize,
-    q88_to_float,
-)
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
+    _assert_direct_sibling("neuro_oracle_quantize")
+    from .neuro_oracle_digest import digest  # noqa: E402
+    from .neuro_oracle_model import normalize_model  # noqa: E402
+    from .neuro_oracle_q88 import (  # noqa: E402
+        Q88_FRACTIONAL_BITS,
+        Q88_MAX_VALUE,
+        Q88_MIN_VALUE,
+        Q88_ROUNDING,
+        Q88_SATURATION_POLICY,
+        Q88_STEP,
+        q88_quantize,
+        q88_to_float,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "neuro_oracle_quantize"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from neuro_oracle_digest import digest  # noqa: E402
+    from neuro_oracle_model import normalize_model  # noqa: E402
+    from neuro_oracle_q88 import (  # noqa: E402
+        Q88_FRACTIONAL_BITS,
+        Q88_MAX_VALUE,
+        Q88_MIN_VALUE,
+        Q88_ROUNDING,
+        Q88_SATURATION_POLICY,
+        Q88_STEP,
+        q88_quantize,
+        q88_to_float,
+    )
 
 def quantize_model(model):
     """Quantize a float model to Q8.8 and record full conversion provenance.
@@ -103,3 +123,7 @@ def quantize_model(model):
         "source_model_sha256": digest(model),
     }
     return q_model, provenance
+
+
+if __package__:
+    _expose_package_sibling(__name__)

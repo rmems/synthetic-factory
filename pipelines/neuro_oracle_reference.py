@@ -11,20 +11,38 @@ from pathlib import Path
 import sys
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from neuro_oracle_adapter import (  # noqa: E402
-    OracleAdapter,
-    TARGET_FIXED_POINT_MODEL,
-    TARGET_SOFTWARE_FLOAT,
-)
-from neuro_oracle_quantize import quantize_model  # noqa: E402
-from neuro_oracle_simulate import (  # noqa: E402
-    simulate_fixed_point,
-    simulate_float,
-)
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
+    _assert_direct_sibling("neuro_oracle_reference")
+    from .neuro_oracle_adapter import (  # noqa: E402
+        OracleAdapter,
+        TARGET_FIXED_POINT_MODEL,
+        TARGET_SOFTWARE_FLOAT,
+    )
+    from .neuro_oracle_quantize import quantize_model  # noqa: E402
+    from .neuro_oracle_simulate import (  # noqa: E402
+        simulate_fixed_point,
+        simulate_float,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "neuro_oracle_reference"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from neuro_oracle_adapter import (  # noqa: E402
+        OracleAdapter,
+        TARGET_FIXED_POINT_MODEL,
+        TARGET_SOFTWARE_FLOAT,
+    )
+    from neuro_oracle_quantize import quantize_model  # noqa: E402
+    from neuro_oracle_simulate import (  # noqa: E402
+        simulate_fixed_point,
+        simulate_float,
+    )
 
 class SoftwareFloatAdapter(OracleAdapter):
     """The software side of the parity pair."""
@@ -75,3 +93,7 @@ class FixedPointReferenceAdapter(OracleAdapter):
         return self._envelope(
             outcome, repeats, latency, {"quantization": provenance, "q_model": q_model}
         )
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -11,24 +11,46 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from neuro_oracle import digest  # noqa: E402
-from nir_equivalence_base import _strict_json_equal  # noqa: E402
-from nir_equivalence_catalog import _catalog_entry  # noqa: E402
-from nir_equivalence_compare import _expected_verdict  # noqa: E402
-from nir_equivalence_graph import structural_digest  # noqa: E402
-from nir_equivalence_provenance import _catalog_provenance_stamps  # noqa: E402
-from nir_equivalence_terms import (  # noqa: E402
-    CANONICAL_DATA_ERRORS,
-    FACTORY_SLUG,
-    GENERATOR_BLOCK,
-    SCHEMA_VERSION,
-    VALIDATOR,
-    contract,
-)
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
+    _assert_direct_sibling("nir_equivalence_validate_envelope")
+    from .neuro_oracle import digest  # noqa: E402
+    from .nir_equivalence_base import _strict_json_equal  # noqa: E402
+    from .nir_equivalence_catalog import _catalog_entry  # noqa: E402
+    from .nir_equivalence_compare import _expected_verdict  # noqa: E402
+    from .nir_equivalence_graph import structural_digest  # noqa: E402
+    from .nir_equivalence_provenance import _catalog_provenance_stamps  # noqa: E402
+    from .nir_equivalence_terms import (  # noqa: E402
+        CANONICAL_DATA_ERRORS,
+        FACTORY_SLUG,
+        GENERATOR_BLOCK,
+        SCHEMA_VERSION,
+        VALIDATOR,
+        contract,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "nir_equivalence_validate_envelope"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from neuro_oracle import digest  # noqa: E402
+    from nir_equivalence_base import _strict_json_equal  # noqa: E402
+    from nir_equivalence_catalog import _catalog_entry  # noqa: E402
+    from nir_equivalence_compare import _expected_verdict  # noqa: E402
+    from nir_equivalence_graph import structural_digest  # noqa: E402
+    from nir_equivalence_provenance import _catalog_provenance_stamps  # noqa: E402
+    from nir_equivalence_terms import (  # noqa: E402
+        CANONICAL_DATA_ERRORS,
+        FACTORY_SLUG,
+        GENERATOR_BLOCK,
+        SCHEMA_VERSION,
+        VALIDATOR,
+        contract,
+    )
 
 def _check_envelope_identity(record, scenario, where):
     """id/meta/generator/provenance/validation must match their canonical values."""
@@ -230,3 +252,7 @@ def _catalog_claim_errors(record, catalog_entry, scenario_id, where):
                 "[COMPARISON_MISMATCH]"
             )
     return errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -13,16 +13,32 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from neuro_oracle import (  # noqa: E402
-    digest,
-    normalize_model,
-    normalize_stimulus,
-    stimulus_fixture,
-)
-from hardware_parity_terms import FACTORY_SLUG  # noqa: E402
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
+
+    _assert_direct_sibling("hardware_parity_catalog")
+    from .neuro_oracle import (  # noqa: E402
+        digest,
+        normalize_model,
+        normalize_stimulus,
+        stimulus_fixture,
+    )
+    from .hardware_parity_terms import FACTORY_SLUG  # noqa: E402
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "hardware_parity_catalog"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from neuro_oracle import (  # noqa: E402
+        digest,
+        normalize_model,
+        normalize_stimulus,
+        stimulus_fixture,
+    )
+    from hardware_parity_terms import FACTORY_SLUG  # noqa: E402
 
 def _grid(steps, channels, pattern):
     """Build a binary event grid from a per-channel period/offset pattern."""
@@ -291,3 +307,6 @@ def build_scenario(spec, steps=12):
 def build_scenarios(steps=12):
     return [build_scenario(spec, steps=steps) for spec in SCENARIO_SPECS]
 
+
+if __package__:
+    _expose_package_sibling(__name__)

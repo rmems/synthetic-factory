@@ -12,40 +12,80 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-from neuro_oracle import (  # noqa: E402
-    CAPTURE_DETERMINISM_MEANING,
-    REFERENCE_DETERMINISM_MEANING,
-    TARGET_FIXED_POINT_MODEL,
-    digest,
-)
-from hardware_parity_terms import (  # noqa: E402
-    ORACLE_PAIRING,
-    RECORD_KIND,
-    VALIDATION_DATA_ERRORS,
-    contract,
-)
-from hardware_parity_metrics import compute_parity  # noqa: E402
-from hardware_parity_record import _expected_summary  # noqa: E402
-from hardware_parity_validate_deployment import (  # noqa: E402
-    _check_fpga_environment,
-    _check_physical_claim,
-    _check_unavailable_deployment,
-)
-from hardware_parity_validate_equality import _metrics_equal  # noqa: E402
-from hardware_parity_validate_identity import (  # noqa: E402
-    _check_catalog_scenario,
-    _check_input_fixture,
-    _check_record_identity,
-)
-from hardware_parity_validate_oracle import (  # noqa: E402
-    _check_determinism,
-    _record_oracle_digests,
-    _reexecute_reference_sides,
-)
-from hardware_parity_validate_quantization import _check_quantization  # noqa: E402
 
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
+
+    _assert_direct_sibling("hardware_parity_validate_result")
+    from .neuro_oracle import (  # noqa: E402
+        CAPTURE_DETERMINISM_MEANING,
+        REFERENCE_DETERMINISM_MEANING,
+        TARGET_FIXED_POINT_MODEL,
+        digest,
+    )
+    from .hardware_parity_terms import (  # noqa: E402
+        ORACLE_PAIRING,
+        RECORD_KIND,
+        VALIDATION_DATA_ERRORS,
+        contract,
+    )
+    from .hardware_parity_metrics import compute_parity  # noqa: E402
+    from .hardware_parity_record import _expected_summary  # noqa: E402
+    from .hardware_parity_validate_deployment import (  # noqa: E402
+        _check_fpga_environment,
+        _check_physical_claim,
+        _check_unavailable_deployment,
+    )
+    from .hardware_parity_validate_equality import _metrics_equal  # noqa: E402
+    from .hardware_parity_validate_identity import (  # noqa: E402
+        _check_catalog_scenario,
+        _check_input_fixture,
+        _check_record_identity,
+    )
+    from .hardware_parity_validate_oracle import (  # noqa: E402
+        _check_determinism,
+        _record_oracle_digests,
+        _reexecute_reference_sides,
+    )
+    from .hardware_parity_validate_quantization import _check_quantization  # noqa: E402
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "hardware_parity_validate_result"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from neuro_oracle import (  # noqa: E402
+        CAPTURE_DETERMINISM_MEANING,
+        REFERENCE_DETERMINISM_MEANING,
+        TARGET_FIXED_POINT_MODEL,
+        digest,
+    )
+    from hardware_parity_terms import (  # noqa: E402
+        ORACLE_PAIRING,
+        RECORD_KIND,
+        VALIDATION_DATA_ERRORS,
+        contract,
+    )
+    from hardware_parity_metrics import compute_parity  # noqa: E402
+    from hardware_parity_record import _expected_summary  # noqa: E402
+    from hardware_parity_validate_deployment import (  # noqa: E402
+        _check_fpga_environment,
+        _check_physical_claim,
+        _check_unavailable_deployment,
+    )
+    from hardware_parity_validate_equality import _metrics_equal  # noqa: E402
+    from hardware_parity_validate_identity import (  # noqa: E402
+        _check_catalog_scenario,
+        _check_input_fixture,
+        _check_record_identity,
+    )
+    from hardware_parity_validate_oracle import (  # noqa: E402
+        _check_determinism,
+        _record_oracle_digests,
+        _reexecute_reference_sides,
+    )
+    from hardware_parity_validate_quantization import _check_quantization  # noqa: E402
 
 def _scenario_binding_errors(record, oracle, scenario, where):
     """provenance.scenario_sha256 must identify the recorded model+stimulus."""
@@ -275,3 +315,7 @@ def validate_records(records, source="record"):
     for index, record in enumerate(records, 1):
         errors += validate_record(record, f"{source}:{index}")
     return errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

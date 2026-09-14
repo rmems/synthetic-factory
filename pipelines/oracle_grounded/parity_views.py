@@ -9,6 +9,8 @@ or relabels what the oracles found.
 
 from __future__ import annotations
 
+from .import_twins import bind_import_twin
+
 from .envelope import strict_json_equal
 from .parity_blocks import check_reason_codes
 from .parity_terms import (
@@ -283,3 +285,6 @@ def training_view_errors(record, view, where):
     errors += _check_view_reason_codes(record, view, where)
     errors += _check_view_provenance(record, view, where)
     return errors
+
+
+bind_import_twin(__name__)

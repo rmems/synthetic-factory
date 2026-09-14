@@ -12,41 +12,80 @@ import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-from neuro_oracle import digest  # noqa: E402
-from nir_equivalence_base import _safe_digest  # noqa: E402
-from nir_equivalence_catalog import build_scenarios  # noqa: E402
-from nir_equivalence_compare import (  # noqa: E402
-    _expected_verdict,
-    _summarize,
-    compare_runtimes,
-    verdict_for,
-)
-from nir_equivalence_execute import (  # noqa: E402
-    _executed,
-    execute_runtime,
-)
-from nir_equivalence_provenance import _catalog_provenance_stamps  # noqa: E402
-from nir_equivalence_runtimes import (  # noqa: E402
-    IN_REPO_RUNTIMES,
-    UPSTREAM_RUNTIMES,
-    _runtime_capability,
-)
-from nir_equivalence_terms import (  # noqa: E402
-    FACTORY_SLUG,
-    GENERATOR_BLOCK,
-    ORACLE_PAIRING,
-    RECORD_KIND,
-    SCHEMA_VERSION,
-    STATUS_EXECUTED,
-    STATUS_UNAVAILABLE,
-    STATUS_UNSUPPORTED,
-    VALIDATOR,
-    contract,
-)
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
+    _assert_direct_sibling("nir_equivalence_record")
+    from .neuro_oracle import digest  # noqa: E402
+    from .nir_equivalence_base import _safe_digest  # noqa: E402
+    from .nir_equivalence_catalog import build_scenarios  # noqa: E402
+    from .nir_equivalence_compare import (  # noqa: E402
+        _expected_verdict,
+        _summarize,
+        compare_runtimes,
+        verdict_for,
+    )
+    from .nir_equivalence_execute import (  # noqa: E402
+        _executed,
+        execute_runtime,
+    )
+    from .nir_equivalence_provenance import _catalog_provenance_stamps  # noqa: E402
+    from .nir_equivalence_runtimes import (  # noqa: E402
+        IN_REPO_RUNTIMES,
+        UPSTREAM_RUNTIMES,
+        _runtime_capability,
+    )
+    from .nir_equivalence_terms import (  # noqa: E402
+        FACTORY_SLUG,
+        GENERATOR_BLOCK,
+        ORACLE_PAIRING,
+        RECORD_KIND,
+        SCHEMA_VERSION,
+        STATUS_EXECUTED,
+        STATUS_UNAVAILABLE,
+        STATUS_UNSUPPORTED,
+        VALIDATOR,
+        contract,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "nir_equivalence_record"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    from neuro_oracle import digest  # noqa: E402
+    from nir_equivalence_base import _safe_digest  # noqa: E402
+    from nir_equivalence_catalog import build_scenarios  # noqa: E402
+    from nir_equivalence_compare import (  # noqa: E402
+        _expected_verdict,
+        _summarize,
+        compare_runtimes,
+        verdict_for,
+    )
+    from nir_equivalence_execute import (  # noqa: E402
+        _executed,
+        execute_runtime,
+    )
+    from nir_equivalence_provenance import _catalog_provenance_stamps  # noqa: E402
+    from nir_equivalence_runtimes import (  # noqa: E402
+        IN_REPO_RUNTIMES,
+        UPSTREAM_RUNTIMES,
+        _runtime_capability,
+    )
+    from nir_equivalence_terms import (  # noqa: E402
+        FACTORY_SLUG,
+        GENERATOR_BLOCK,
+        ORACLE_PAIRING,
+        RECORD_KIND,
+        SCHEMA_VERSION,
+        STATUS_EXECUTED,
+        STATUS_UNAVAILABLE,
+        STATUS_UNSUPPORTED,
+        VALIDATOR,
+        contract,
+    )
 
 def _evidence_scope(entries):
     executed = [entry.get("runtime") for entry in _executed(entries)]
@@ -205,3 +244,7 @@ def generate_records(round_number=1, steps=10):
         entries = [execute_runtime(runtime, scenario) for runtime in runtimes]
         records.append(build_record(scenario, entries, round_number))
     return records
+
+
+if __package__:
+    _expose_package_sibling(__name__)

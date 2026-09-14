@@ -13,10 +13,18 @@ import math
 import sys
 
 _PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
+if __package__:
+    # Import-twin helpers join the package import lock; import-order tests cover this edge.
+    from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
+    _assert_direct_sibling("neuro_oracle_q88")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "neuro_oracle_q88"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
 
 Q88_FRACTIONAL_BITS = 8
 Q88_SCALE = 1 << Q88_FRACTIONAL_BITS
@@ -77,3 +85,7 @@ def q88_mul(a_raw, b_raw):
     else:
         shifted = -((-product + half) >> Q88_FRACTIONAL_BITS)
     return q88_saturate(shifted)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
