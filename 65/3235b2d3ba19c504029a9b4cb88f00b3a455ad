@@ -1,0 +1,13 @@
+experiments/ffd-mill-hop-r102.py
+  ai_agent 1-738
+experiments/ffd-mill-lll-r61.py
+  ai_agent 1-223
+experiments/ffd-mill-leftover3-r41.py
+  ai_agent 1-1921
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "653235b2d3ba19c504029a9b4cb88f00b3a455ad",
+  "prompts": {}
+}
