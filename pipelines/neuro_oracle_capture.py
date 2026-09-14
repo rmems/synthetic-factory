@@ -100,7 +100,15 @@ class RecordedCaptureAdapter(OracleAdapter):
         # raise directly for non-standard and non-finite numbers.
         except ValueError as exc:
             self._error = ("CAPTURE_UNREADABLE", str(exc))
-        if self._capture is not None:
+        # Keyed on the error, not on `self._capture`: a capture file whose
+        # whole content is `null` parses to None, which is also the "nothing
+        # loaded" value set above. Testing the capture would skip the binding
+        # for it, leaving no error behind -- `availability()` would call such a
+        # capture available and `run()` would reach `None.get` instead of
+        # raising CAPTURE_UNREADABLE. No error means the parse returned
+        # something, and `_bind_execution_target` decides whether that
+        # something is a capture.
+        if self._error is None:
             self._bind_execution_target()
 
     def _read_capture_bytes(self):

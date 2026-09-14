@@ -144,6 +144,36 @@ class RecordedCapturePath(unittest.TestCase):
         self.assertEqual(status["reason_code"], "CAPTURE_UNREADABLE")
         self.assertIn("limit", status["detail"])
 
+    def test_capture_reader_refuses_every_json_value_that_is_not_an_object(self):
+        """A bare JSON scalar is a diagnosis, never an available capture.
+
+        `null` is the one that used to escape: it parses to None, the same
+        value the adapter starts `_capture` at, so the binding step was
+        skipped and no error was recorded. The adapter then reported itself
+        available and `run()` raised AttributeError deep inside the manifest
+        read -- an uncaught crash where `run_pair` expects OracleUnavailable.
+        """
+        for label, content in (
+            ("null", "null"),
+            ("false", "false"),
+            ("number", "7"),
+            ("string", '"capture"'),
+            ("array", "[]"),
+        ):
+            with self.subTest(capture=label), tempfile.TemporaryDirectory() as tmp:
+                capture = Path(tmp) / "capture.json"
+                capture.write_text(content, encoding="utf-8")
+                adapter = oracle.RecordedCaptureAdapter(capture)
+
+                status = adapter.availability()
+                self.assertFalse(status["available"])
+                self.assertEqual(status["reason_code"], "CAPTURE_UNREADABLE")
+                self.assertIn("must be a JSON object", status["detail"])
+
+                with self.assertRaises(oracle.OracleUnavailable) as caught:
+                    adapter.run({}, {})
+                self.assertEqual(caught.exception.reason_code, "CAPTURE_UNREADABLE")
+
     def _capture_adapter(self, tmp, scenario, **mutations):
         unknown = set(mutations) - set(CAPTURE_MUTATIONS)
         if unknown:
