@@ -33,17 +33,32 @@ MAX_CAPTURE_CHARS = 65_536
 
 
 def _apply_limits(spec: dict) -> bool:
+    """Whether every required limit is in force; a limit it cannot apply returns False.
+
+    A refused ``setrlimit``, a constant this platform does not define, or a spec
+    that cannot be read is reported here rather than thrown, so ``_run`` still
+    writes an ``environment`` block saying the limits are off and the parent
+    refuses the run on that evidence. Raising instead would reach ``main``'s
+    catch-all, whose report carries no environment at all, and a systemically
+    unsandboxed run would look like one crashed candidate.
+    """
+
+    # One handler for every way a limit can fail to go on -- no `resource` module
+    # (non-POSIX), no such constant on this platform, an unusable spec, or a
+    # refused `setrlimit`. They are one outcome to the caller, and splitting them
+    # would put this file over its total-complexity budget for no gain.
     try:
         import resource
-    except ImportError:  # pragma: no cover - POSIX only
+        limits = (
+            (resource.RLIMIT_CPU, int(spec["cpu_seconds"])),
+            (resource.RLIMIT_AS, int(spec["address_space_bytes"])),
+            (resource.RLIMIT_FSIZE, int(spec["file_size_bytes"])),
+        )
+        for name, value in limits:
+            resource.setrlimit(name, (value, value))
+    except (AttributeError, ImportError, KeyError, OSError,
+            OverflowError, TypeError, ValueError):
         return False
-    limits = (
-        (resource.RLIMIT_CPU, int(spec["cpu_seconds"])),
-        (resource.RLIMIT_AS, int(spec["address_space_bytes"])),
-        (resource.RLIMIT_FSIZE, int(spec["file_size_bytes"])),
-    )
-    for name, value in limits:
-        resource.setrlimit(name, (value, value))
     return True
 
 
@@ -312,8 +327,11 @@ def main(argv: list[str], *, _dumps=json.dumps) -> int:
             spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
             report = _run(workdir, spec)
         except Exception as exc:
-            error = f"HarnessError: {exc}"
-            report = {"protocol": PROTOCOL, "load": {"status": "error", "error": error}}
+            # Name the type: an empty-message exception (MemoryError under the
+            # address-space limit is the common one) otherwise reports as a
+            # bare "HarnessError: " with no cause to act on.
+            detail = _scrub_workdir(f"HarnessError: {type(exc).__name__}: {exc}", str(workdir))
+            report = {"protocol": PROTOCOL, "load": {"status": "error", "error": detail}}
         finally:
             real_stdout.flush()
             real_stderr.flush()

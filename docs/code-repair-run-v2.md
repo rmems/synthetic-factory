@@ -30,7 +30,21 @@ The new `original_repeat` phase executes the same original source in a fresh
 process before mutants run. Differing stable observations reject with
 `SOURCE_NONDETERMINISTIC`; a restored repair must also reproduce those observations.
 Reference checks certify hidden wants independently. Resource limits must be
-reported as applied before generation continues.
+reported as applied before generation continues: a child that states
+`limits_applied` as anything but true refuses the run with
+`SANDBOX_UNAVAILABLE`. A child that states nothing — no `environment` block, or
+one without that key — is a harness error for that phase only, not a sandbox
+failure. The limits are applied before the program is read or imported, so such
+a child either never reached program code or reached it under the limits, and
+no phase can be certified on unlimited execution either way. The key, not the
+block, is the test, and the executor and the generator read it identically.
+The claim can only be forged downward, never upward: the limits go on before
+the program is read, so nothing that executed can claim they were on. Forging
+it downward is not harmless -- a program that reaches its own child's report
+and writes false there refuses the whole run, which is a denial of service on
+the operator, not a cost to that one candidate. Closing that needs an
+attestation the child cannot rewrite, tracked separately (#213) with the
+isolation boundary (#201).
 
 Stored evidence is locally checked by re-deriving the decision and public
 projection. This is an integrity check, not authentication of a consistently

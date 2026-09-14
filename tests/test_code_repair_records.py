@@ -26,7 +26,10 @@ from code_repair_test_support import (  # noqa: E402
 # exact-integer harness (Codex on #196) and the executed reference phase (Codex on #197), then
 # for digests on passing rows (Codex on #196, round 3).
 # S3 adds policy_sha256 to split_lineage. Removing exactly that field reproduces the S2 pin.
-GOLDEN_SHA256 = "1b977de64ba94d655b92fa8d0d06aad56aa15cedd4aa372fe1e1d9ff11b14de0"
+# Re-pinned again for the harness that reports an unappliable limit instead of raising and names
+# the exception type in its catch-all: with harness_sha256 and record_sha256 removed, the records
+# are byte-identical to the S3 pin, so only the fingerprint moved.
+GOLDEN_SHA256 = "22b41c0a85d7ea2e9e5ae40c79d04c06f6bf2f556cc2e077fd56d64a3d922a50"
 
 
 def accepting_executor():
