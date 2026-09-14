@@ -1,0 +1,55 @@
+experiments/tup-mill-r1848.py
+  ai_agent 1-132
+experiments/tup-mill-r1600.py
+  ai_agent 1-467
+experiments/tup-mill-r1485.py
+  ai_agent 1-1015
+experiments/tup-mill-leftover-triples.py
+  ai_agent 1-266
+experiments/tup-mill-leftover4-r1576.py
+  ai_agent 1-1388
+experiments/tup-mill-r1743.py
+  ai_agent 1-193
+experiments/tup-mill-r2335.py
+  ai_agent 1-155
+experiments/tup-mill-leftover-lll-r1594.py
+  ai_agent 1-485
+experiments/tup-mill-r1782.py
+  ai_agent 1-160
+experiments/tup-mill-r2133.py
+  ai_agent 1-144
+experiments/tup-mill-r2153.py
+  ai_agent 1-125
+experiments/tup-mill-r2065.py
+  ai_agent 1-246
+experiments/tup-mill-r1866.py
+  ai_agent 1-382
+experiments/tup-mill-r2170.py
+  ai_agent 1-383
+experiments/tup-mill-r1600b.py
+  ai_agent 1-240
+experiments/tup-mill-r2257.py
+  ai_agent 1-321
+experiments/tup-mill-r2014.py
+  ai_agent 1-285
+experiments/tup-mill-r1951.py
+  ai_agent 1-318
+experiments/tup-mill-r2106.py
+  ai_agent 1-176
+experiments/tup_r1594_leftover3_mill.py
+  ai_agent 1-314
+experiments/tup-mill-r1349.py
+  ai_agent 1-1727
+experiments/tup-mill-r1810.py
+  ai_agent 1-137
+experiments/tup-mill-r1830.py
+  ai_agent 1-132
+experiments/tup-mill-r1566.py
+  ai_agent 1-409
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "dba9f9a1d0e984e58fc14c992228f09534c26d57",
+  "prompts": {}
+}
