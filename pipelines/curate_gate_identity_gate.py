@@ -9,6 +9,11 @@ The identity lane's manifest claims which original ids and provenance fields
 each source record carried. This module rederives that evidence from the
 immutable source record itself and refuses an entry whose claims differ, so
 the retained mapping is authenticated rather than trusted.
+
+``_canonical_identity_output_id`` belongs to the same responsibility: it is
+the deterministic id a source coordinate and owner pointer must produce, and
+it is derived through ``curate_identity`` rather than restated here. The
+manifest-wide walk that consumes it lives in ``curate_gate_identity_mapping``.
 """
 
 from __future__ import annotations
@@ -280,6 +285,22 @@ def _authenticate_identity_source_claims(
             f"{label} original identity evidence does not match the source record or is incomplete"
         )
     return record_sha256(expected)
+
+
+def _canonical_identity_output_id(
+    source_path: str, source_line: int, kind: str, owner_path: str
+) -> str:
+    """The canonical id a retained owner pointer must carry for its source."""
+    factory = source_path.split("/", 1)[0]
+    source = curate_identity.SourceIdentity(
+        source_path,
+        source_line,
+        factory,
+        "0" * 64,
+        "source-coordinate",
+        None,
+    )
+    return curate_identity.canonical_id(source, kind, owner_path)
 
 
 if __package__:

@@ -20,10 +20,11 @@ manifest-entry parsing and the manifest fold (``curate_gate_manifests``),
 governance-evidence loading and sealing (``curate_gate_evidence``), the
 re-verification of sealed evidence (``curate_gate_evidence_verify``), corpus
 record iteration (``curate_gate_records``), the final-output bindings
-(``curate_gate_bindings``), and identity source-claim authentication
-(``curate_gate_identity_gate``) live in siblings. Every name they own is
-re-exported here, so an existing ``curate_gate.X`` call site resolves
-unchanged.
+(``curate_gate_bindings``), identity source-claim authentication
+(``curate_gate_identity_gate``), the retained identity/provenance mapping gate
+(``curate_gate_identity_mapping``), and the stratified review sample
+(``curate_gate_review``) live in siblings. Every name they own is re-exported
+here, so an existing ``curate_gate.X`` call site resolves unchanged.
 
 Composition order and evidence
 ------------------------------
@@ -103,7 +104,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -121,17 +122,16 @@ if __package__:
     from . import curate_gate_evidence as _evidence
     from . import curate_gate_evidence_verify as _evidence_verify
     from . import curate_gate_identity_gate as _identity_gate
+    from . import curate_gate_identity_mapping as _identity_mapping
     from . import curate_gate_lanes as _lanes
     from . import curate_gate_manifests as _manifests
     from . import curate_gate_merge as _merge
     from . import curate_gate_paths as _paths
     from . import curate_gate_plan as _plan
     from . import curate_gate_records as _records
-    from . import curate_identity
+    from . import curate_gate_review as _review
     from . import curate_rewards
     from . import training_audit
-    from .check_records import canonical_record_id
-    from .validate_run import check_line
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "curate_gate"
@@ -145,17 +145,16 @@ else:
     import curate_gate_evidence as _evidence  # noqa: E402
     import curate_gate_evidence_verify as _evidence_verify  # noqa: E402
     import curate_gate_identity_gate as _identity_gate  # noqa: E402
+    import curate_gate_identity_mapping as _identity_mapping  # noqa: E402
     import curate_gate_lanes as _lanes  # noqa: E402
     import curate_gate_manifests as _manifests  # noqa: E402
     import curate_gate_merge as _merge  # noqa: E402
     import curate_gate_paths as _paths  # noqa: E402
     import curate_gate_plan as _plan  # noqa: E402
     import curate_gate_records as _records  # noqa: E402
-    import curate_identity  # noqa: E402
+    import curate_gate_review as _review  # noqa: E402
     import curate_rewards  # noqa: E402
     import training_audit  # noqa: E402
-    from check_records import canonical_record_id  # noqa: E402
-    from validate_run import check_line  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # shared contract, re-exported so every ``curate_gate.X`` call site still works
@@ -308,8 +307,9 @@ _normalize_record_bindings = _bindings._normalize_record_bindings
 _output_evidence_gate = _bindings._output_evidence_gate
 
 
-# The identity source-claim authentication lives in curate_gate_identity_gate;
-# the mapping gate below and the test fixtures reach these through the facade.
+# Identity source-claim authentication (curate_gate_identity_gate) and the
+# manifest-wide mapping gate that consumes it (curate_gate_identity_mapping);
+# the test fixtures reach these through the facade.
 _mapping_value = _identity_gate._mapping_value
 _mapping_pointer = _identity_gate._mapping_pointer
 _identity_owner_specs = _identity_gate._identity_owner_specs
@@ -319,431 +319,22 @@ _claimed_identity_source_evidence = _identity_gate._claimed_identity_source_evid
 _authenticate_identity_source_claims = _identity_gate._authenticate_identity_source_claims
 
 
-def _canonical_identity_output_id(
-    source_path: str, source_line: int, kind: str, owner_path: str
-) -> str:
-    factory = source_path.split("/", 1)[0]
-    source = curate_identity.SourceIdentity(
-        source_path,
-        source_line,
-        factory,
-        "0" * 64,
-        "source-coordinate",
-        None,
-    )
-    return curate_identity.canonical_id(source, kind, owner_path)
-
-
-def _identity_mapping_gate(
-    identity_entries: Sequence[dict[str, Any]],
-    records_by_source: dict[tuple[str, int], Any],
-) -> dict[str, Any]:
-    errors: list[dict[str, str]] = []
-    checked_ids = 0
-    checked_provenance = 0
-    checked_source_originals = 0
-    identity_source_keys: set[tuple[str, int]] = set()
-    for entry_index, entry in enumerate(identity_entries, 1):
-        source_key = (entry.get("source_path"), entry.get("source_line"))
-        identity_source_keys.add(source_key)
-        where = f"{source_key[0]}:{source_key[1]}"
-        record = records_by_source.get(source_key)
-        if not isinstance(record, dict):
-            errors.append({"source": where, "error": "retained identity mapping has no output"})
-            continue
-        if entry.get("output_id") != canonical_record_id(record):
-            errors.append({"source": where, "error": "identity output_id mismatches final record"})
-
-        try:
-            claimed_originals = _claimed_identity_source_evidence(
-                entry,
-                f"identity_mappings[{entry_index}]",
-            )
-            expected_originals_sha256 = _normalized_sha256(
-                entry.get("source_originals_sha256"),
-                f"identity_mappings[{entry_index}].source_originals_sha256",
-            )
-            if record_sha256(claimed_originals) != expected_originals_sha256:
-                raise GateError("original identity evidence mismatches authenticated source")
-            checked_source_originals += 1
-        except GateError as exc:
-            errors.append({"source": where, "error": str(exc)})
-
-        id_mappings = entry.get("id_mappings")
-        if not isinstance(id_mappings, list) or not id_mappings:
-            errors.append({"source": where, "error": "id_mappings must be non-empty"})
-        else:
-            seen_owners: set[str] = set()
-            try:
-                kind = curate_identity.record_kind(record)
-            except curate_identity.IdentityCurationError as exc:
-                errors.append(
-                    {
-                        "source": where,
-                        "error": f"{where} output has no supported identity shape: {exc}",
-                    }
-                )
-                continue
-            for mapping_index, mapping in enumerate(id_mappings, 1):
-                label = f"identity_mappings[{entry_index}].id_mappings[{mapping_index}]"
-                try:
-                    if not isinstance(mapping, dict):
-                        raise GateError(f"{label} must be an object")
-                    owner_path = mapping.get("owner_path")
-                    if owner_path in seen_owners:
-                        raise GateError(f"{label} duplicates owner_path {owner_path!r}")
-                    seen_owners.add(owner_path)
-                    owner = _mapping_value(record, owner_path, f"{label}.owner_path")
-                    output_id = mapping.get("output_id")
-                    if (
-                        not isinstance(owner, dict)
-                        or not isinstance(output_id, str)
-                        or owner.get("id") != output_id
-                    ):
-                        raise GateError(f"{label}.output_id does not match output owner")
-                    source_path = entry.get("source_path")
-                    source_line = entry.get("source_line")
-                    if not isinstance(source_path, str) or not isinstance(source_line, int):
-                        raise GateError(f"{label} is missing an authenticated source coordinate")
-                    expected_id = _canonical_identity_output_id(
-                        source_path,
-                        source_line,
-                        kind,
-                        owner_path,
-                    )
-                    if output_id is not None and output_id != expected_id:
-                        raise GateError(
-                            f"{label}.output_id is not the deterministic canonical identity"
-                        )
-                    checked_ids += 1
-                except GateError as exc:
-                    errors.append({"source": where, "error": str(exc)})
-
-        provenance_mappings = entry.get("provenance_mappings")
-        if not isinstance(provenance_mappings, list) or not provenance_mappings:
-            errors.append({"source": where, "error": "provenance_mappings must be non-empty"})
-        else:
-            for mapping_index, mapping in enumerate(provenance_mappings, 1):
-                label = f"identity_mappings[{entry_index}].provenance_mappings[{mapping_index}]"
-                try:
-                    if not isinstance(mapping, dict):
-                        raise GateError(f"{label} must be an object")
-                    canonical = mapping.get("canonical")
-                    if not isinstance(canonical, dict):
-                        raise GateError(f"{label}.canonical must be an object")
-                    owner = _mapping_value(record, mapping.get("owner_path"), f"{label}.owner_path")
-                    if not isinstance(owner, dict) or not _same_json(
-                        owner.get("provenance", _MISSING), canonical
-                    ):
-                        raise GateError(f"{label}.canonical does not match output provenance")
-                    state_path = mapping.get("state_path")
-                    if state_path is not None:
-                        state = _mapping_value(record, state_path, f"{label}.state_path")
-                        if (
-                            not isinstance(state, dict)
-                            or not _same_json(state.get("provenance", _MISSING), canonical)
-                            or state.get("sim_or_real") != canonical.get("kind")
-                        ):
-                            raise GateError(f"{label}.canonical does not match output state")
-                    checked_provenance += 1
-                except GateError as exc:
-                    errors.append({"source": where, "error": str(exc)})
-
-    for source_path, source_line in sorted(set(records_by_source) - identity_source_keys):
-        errors.append(
-            {
-                "source": f"{source_path}:{source_line}",
-                "error": "retained record has no authenticated identity mapping",
-            }
-        )
-
-    return {
-        "tool": "curate_gate retained identity/provenance mapping verifier",
-        "passed": not errors,
-        "retained_entries": len(identity_entries),
-        "id_mappings": checked_ids,
-        "provenance_mappings": checked_provenance,
-        "source_originals": checked_source_originals,
-        "invalid_mappings": len(errors),
-        "examples": errors[:5],
-    }
+_canonical_identity_output_id = _identity_gate._canonical_identity_output_id
+_identity_mapping_gate = _identity_mapping._identity_mapping_gate
 
 
 # ---------------------------------------------------------------------------
-# stratified review sample
+# stratified review sample (curate_gate_review)
 # ---------------------------------------------------------------------------
 
-
-def _primary_decision(obj: Any, kind: str) -> str:
-    if not isinstance(obj, dict):
-        return "none"
-    decisions: dict[str, str] = {}
-    for role, view in training_audit.thalamic_views(obj, kind):
-        decision = training_audit.dict_field(view, "safety_decision").get("decision")
-        if isinstance(decision, str) and decision.strip():
-            decisions[role] = decision.strip()
-    for role in DECISION_ROLE_PRIORITY:
-        if role in decisions:
-            return decisions[role]
-    if decisions:
-        return decisions[sorted(decisions)[0]]
-    return "none"
-
-
-def _repair_action(obj: Any) -> str:
-    """Repair marker a curation lane left on the record, when there is one."""
-    if not isinstance(obj, dict):
-        return "none"
-    meta = obj.get("meta")
-    if isinstance(meta, dict):
-        for key in ("curation_action", "transform_action", "repair_action"):
-            value = meta.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        if meta.get("spike_events_resorted"):
-            return "spike_events_resorted"
-    return "none"
-
-
+_primary_decision = _review._primary_decision
+_repair_action = _review._repair_action
 iter_records = _records.iter_records
-
-
-def _review_candidates_from_manifest(cleaned: Path) -> list[dict[str, Any]]:
-    manifest_path = cleaned / MANIFEST_FILENAME
-    if not manifest_path.is_file():
-        return []
-    manifest = _load_json(manifest_path)
-    if not isinstance(manifest, dict):
-        raise GateError(f"{manifest_path}: manifest must be a JSON object")
-    candidates = manifest.get("review_candidates", [])
-    if not isinstance(candidates, list) or not all(
-        isinstance(candidate, dict) for candidate in candidates
-    ):
-        raise GateError(f"{manifest_path}: review_candidates must be a list of objects")
-    return candidates
-
-
-def _manifest_factory(source_path: Any, transform: Any) -> str:
-    if isinstance(source_path, str) and source_path.strip():
-        parts = Path(source_path).parts
-        if "raw" in parts:
-            index = parts.index("raw")
-            if len(parts) > index + 2:
-                return parts[index + 2]
-        if len(parts) > 1:
-            return parts[0]
-    return str(transform or "_manifest")
-
-
-def build_sample(
-    cleaned: Path,
-    per_stratum: int = DEFAULT_PER_STRATUM,
-    review_candidates: Sequence[dict[str, Any]] | None = None,
-    *,
-    evidence_digest: str | None = None,
-) -> dict[str, Any]:
-    """Stratify corpus and manifest decisions, then sample deterministically."""
-    cleaned = Path(cleaned).resolve()
-    if per_stratum < 1:
-        raise GateError("--per-stratum must be at least 1")
-    if review_candidates is None:
-        review_candidates = _review_candidates_from_manifest(cleaned)
-        manifest_path = cleaned / MANIFEST_FILENAME
-        if evidence_digest is None and manifest_path.is_file():
-            manifest = _load_json(manifest_path)
-            if isinstance(manifest, dict):
-                value = manifest.get("evidence_digest")
-                if isinstance(value, str):
-                    evidence_digest = value
-    if not all(isinstance(candidate, dict) for candidate in review_candidates):
-        raise GateError("review candidates must be objects")
-
-    buckets: dict[tuple[str, str, str, str, str, str], list[dict[str, Any]]] = defaultdict(list)
-    for rel, number, obj in iter_records(cleaned):
-        where = f"{rel}:{number}"
-        factory = rel.split("/")[0] if "/" in rel else "_root"
-        if obj is None:
-            kind = "unparsable"
-            decision = "none"
-            repair = "none"
-            digest = sha256_hex(where.encode("utf-8"))
-            record_id = None
-        else:
-            _errors, kind = check_line(obj, where)
-            decision = _primary_decision(obj, kind)
-            repair = _repair_action(obj)
-            digest = sha256_hex(training_audit.canonical_blob(obj).encode("utf-8"))
-            record_id = canonical_record_id(obj) if isinstance(obj, dict) else None
-        buckets[("corpus", factory, kind, decision, repair, "none")].append(
-            {
-                "source": where,
-                "record_id": record_id,
-                "record_sha256": digest,
-            }
-        )
-
-    for candidate in review_candidates:
-        declared_action = str(candidate.get("action") or "unspecified").strip().lower()
-        action = str(candidate.get("review_action") or declared_action).strip().lower()
-        reasons = candidate.get("reason_codes")
-        if not isinstance(reasons, list):
-            reasons = []
-        exclusion_reason = "none"
-        if action in EXCLUSION_ACTIONS or action in QUARANTINE_ACTIONS:
-            exclusion_reason = "+".join(sorted(str(reason) for reason in reasons)) or "UNSPECIFIED"
-        transform = candidate.get("transform")
-        source_path = candidate.get("source_path")
-        source_line = candidate.get("source_line")
-        digest = sha256_hex(training_audit.canonical_blob(candidate).encode("utf-8"))
-        source = (
-            f"manifest:{candidate.get('lane_order')}:{transform}:"
-            f"{source_path}:{source_line}:{digest[:16]}"
-        )
-        repair = action if action in REPAIR_ACTIONS else "none"
-        factory = _manifest_factory(source_path, transform)
-        kind = str(candidate.get("record_kind") or "manifest_decision")
-        buckets[("manifest", factory, kind, action, repair, exclusion_reason)].append(
-            {
-                "source": source,
-                "record_id": candidate.get("output_id"),
-                "record_sha256": digest,
-                "manifest_entry": candidate,
-            }
-        )
-
-    strata: list[dict[str, Any]] = []
-    items: list[dict[str, Any]] = []
-    for key in sorted(buckets):
-        evidence, factory, kind, decision, repair, exclusion_reason = key
-        population = buckets[key]
-        # Content-derived order: stable across runs, independent of file order.
-        chosen = sorted(
-            population,
-            key=lambda sampled: (sampled["record_sha256"], sampled["source"]),
-        )[:per_stratum]
-        strata.append(
-            {
-                "evidence": evidence,
-                "factory": factory,
-                "kind": kind,
-                "decision": decision,
-                "repair_action": repair,
-                "exclusion_reason": exclusion_reason,
-                "population": len(population),
-                "sampled": len(chosen),
-            }
-        )
-        for item in chosen:
-            items.append(
-                {
-                    "evidence": evidence,
-                    "factory": factory,
-                    "kind": kind,
-                    "decision": decision,
-                    "repair_action": repair,
-                    "exclusion_reason": exclusion_reason,
-                    **item,
-                }
-            )
-
-    return {
-        "schema": SAMPLE_SCHEMA,
-        "generated_by": f"{TOOL_NAME}/{TOOL_VERSION}",
-        "cleaned_dir": str(cleaned),
-        "corpus_digest": corpus_digest(cleaned),
-        "evidence_digest": evidence_digest,
-        "per_stratum": per_stratum,
-        "strata_count": len(strata),
-        "sampled_records": len(items),
-        "strata": strata,
-        "items": items,
-    }
-
-
-def review_template(sample: dict[str, Any]) -> dict[str, Any]:
-    """A fill-in-the-blanks verdict file for the recorded sample."""
-    return {
-        "schema": REVIEW_SCHEMA,
-        "reviewer": "",
-        "reviewed_at": "",
-        "corpus_digest": sample["corpus_digest"],
-        "evidence_digest": sample.get("evidence_digest"),
-        "verdicts": {item["source"]: {"verdict": "", "notes": ""} for item in sample["items"]},
-    }
-
-
-def check_review(
-    sample: dict[str, Any], review: Any, digest: str, evidence_digest: str
-) -> tuple[list[str], dict[str, Any]]:
-    """Return ``(blockers, summary)`` for a reviewed stratified sample."""
-    blockers: list[str] = []
-    if not isinstance(review, dict):
-        return ["REVIEW_NOT_AN_OBJECT"], {"recorded": False}
-    schema = review.get("schema")
-    if schema is not None and schema != REVIEW_SCHEMA:
-        blockers.append(f"REVIEW_SCHEMA_UNSUPPORTED:{schema}")
-
-    reviewer = review.get("reviewer")
-    if not isinstance(reviewer, str) or not reviewer.strip():
-        blockers.append("REVIEW_REVIEWER_MISSING")
-
-    declared = review.get("corpus_digest")
-    if declared != digest:
-        blockers.append("REVIEW_CORPUS_MISMATCH")
-    if sample.get("corpus_digest") != digest:
-        blockers.append("SAMPLE_CORPUS_MISMATCH")
-    if sample.get("evidence_digest") != evidence_digest:
-        blockers.append("SAMPLE_EVIDENCE_MISMATCH")
-    if review.get("evidence_digest") != evidence_digest:
-        blockers.append("REVIEW_EVIDENCE_MISMATCH")
-
-    verdicts = review.get("verdicts")
-    if not isinstance(verdicts, dict):
-        blockers.append("REVIEW_VERDICTS_MISSING")
-        verdicts = {}
-
-    expected = [item["source"] for item in sample.get("items", [])]
-    counts: Counter[str] = Counter()
-    missing: list[str] = []
-    rejected: list[str] = []
-    unknown: list[str] = []
-    for source in expected:
-        entry = verdicts.get(source)
-        verdict = entry.get("verdict") if isinstance(entry, dict) else entry
-        if not isinstance(verdict, str) or not verdict.strip():
-            missing.append(source)
-            continue
-        lowered = verdict.strip().lower()
-        counts[lowered] += 1
-        if lowered in REJECT_VERDICTS:
-            rejected.append(source)
-        elif lowered not in ACCEPT_VERDICTS:
-            unknown.append(source)
-    extra = sorted(set(verdicts) - set(expected))
-
-    if missing:
-        blockers.append(
-            f"REVIEW_INCOMPLETE:{len(missing)}/{len(expected)} sampled records unreviewed"
-        )
-    if unknown:
-        blockers.append(f"REVIEW_VERDICT_UNRECOGNIZED:{len(unknown)}")
-    if rejected:
-        blockers.append(f"REVIEW_REJECTED:{len(rejected)}")
-
-    summary = {
-        "recorded": True,
-        "reviewer": reviewer if isinstance(reviewer, str) else None,
-        "reviewed_at": review.get("reviewed_at"),
-        "corpus_digest": declared,
-        "evidence_digest": review.get("evidence_digest"),
-        "sampled_records": len(expected),
-        "verdict_counts": dict(sorted(counts.items())),
-        "missing": missing[:20],
-        "rejected": rejected[:20],
-        "unrecognized": unknown[:20],
-        "not_in_sample": extra[:20],
-    }
-    return blockers, summary
+_review_candidates_from_manifest = _review._review_candidates_from_manifest
+_manifest_factory = _review._manifest_factory
+build_sample = _review.build_sample
+review_template = _review.review_template
+check_review = _review.check_review
 
 
 # ---------------------------------------------------------------------------

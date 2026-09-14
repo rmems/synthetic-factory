@@ -270,6 +270,30 @@ def _package_curate_gate_identity_gate() -> ModuleType:
     return module
 
 
+def _direct_curate_gate_identity_mapping() -> ModuleType:
+    import curate_gate_identity_mapping as module
+
+    return module
+
+
+def _package_curate_gate_identity_mapping() -> ModuleType:
+    import pipelines.curate_gate_identity_mapping as module
+
+    return module
+
+
+def _direct_curate_gate_review() -> ModuleType:
+    import curate_gate_review as module
+
+    return module
+
+
+def _package_curate_gate_review() -> ModuleType:
+    import pipelines.curate_gate_review as module
+
+    return module
+
+
 def _direct_curate_gate_lanes() -> ModuleType:
     import curate_gate_lanes as module
 
@@ -905,6 +929,14 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "curate_gate_identity_gate": (
         _direct_curate_gate_identity_gate,
         _package_curate_gate_identity_gate,
+    ),
+    "curate_gate_identity_mapping": (
+        _direct_curate_gate_identity_mapping,
+        _package_curate_gate_identity_mapping,
+    ),
+    "curate_gate_review": (
+        _direct_curate_gate_review,
+        _package_curate_gate_review,
     ),
     "curate_gate_lanes": (
         _direct_curate_gate_lanes,
