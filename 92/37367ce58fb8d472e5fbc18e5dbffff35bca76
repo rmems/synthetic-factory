@@ -1,0 +1,49 @@
+experiments/crp-loop-r729.py
+  ai_agent 1-201
+experiments/crp-mill-leftover3.py
+  ai_agent 1-466
+experiments/crp-mill-r538.py
+  ai_agent 1-3653
+experiments/_gen_crp_plants_r1590.py
+  ai_agent 1-204
+experiments/_gen_crp_plants_r1351.py
+  ai_agent 1-200
+experiments/_gen_crp_plants_r1051.py
+  ai_agent 1-376
+experiments/_gen_crp_plants_r1171.py
+  ai_agent 1-200
+experiments/_gen_crp_plants_r1231.py
+  ai_agent 1-200
+experiments/crp-mill-r729.py
+  ai_agent 1-1505
+experiments/crp-mill-r995.py
+  ai_agent 1-12029
+experiments/crp-loop-r432.py
+  ai_agent 1-160
+experiments/crp-mill-r432.py
+  ai_agent 1-3029
+experiments/crp-loop-r817.py
+  ai_agent 1-200
+experiments/crp-mill-r817.py
+  ai_agent 1-3429
+experiments/_gen_crp_plants_r1531.py
+  ai_agent 1-200
+experiments/_gen_crp_plants_r1111.py
+  ai_agent 1-210
+experiments/_gen_crp_plants_r1411.py
+  ai_agent 1-200
+experiments/crp-loop-r538.py
+  ai_agent 1-156
+experiments/_gen_crp_plants_r1291.py
+  ai_agent 1-200
+experiments/_gen_crp_plants_r1471.py
+  ai_agent 1-200
+experiments/crp-loop-r995.py
+  ai_agent 1-200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9237367ce58fb8d472e5fbc18e5dbffff35bca76",
+  "prompts": {}
+}
