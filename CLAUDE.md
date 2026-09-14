@@ -36,7 +36,7 @@ python3 -m unittest discover -s tests -p 'test_rights_*.py'   # one family of mo
 python -m compileall -q pipelines scripts tests .claude/skills/run-synthetic-factory/driver.py
 python3 pipelines/census.py tests/fixtures/mini-run   # validate_run.py on this fixture exits nonzero by design
 
-# Lint: ruff is configured in pyproject.toml (py312, line length 100) but not run in CI
+# Lint: ruff is configured in pyproject.toml (py314, line length 100) but not run in CI
 ruff check pipelines tests
 
 # Operator audits on a run tree (read-only)
@@ -51,12 +51,11 @@ python3 scripts/publish_grok46_hub.py schemas            # --strict exits nonzer
 python3 pipelines/verify_hf_release.py [--repo rmems/<dataset>]
 ```
 
-CI runs the unit suite with branch coverage on Python 3.14 (`pyproject.toml`
-still says `>=3.12`), the smoke check, Qodana (`qodana.yaml` documents the
-deliberate inspection exclusions), and a scheduled, path-filtered Hub release
-verification. CodeScene, Codacy, qlty (`.qlty/qlty.toml`, `smells.mode =
-"block"`) and Codecov review every PR; the owner wants findings fixed by
-refactoring, not suppressed.
+CI runs the unit suite with branch coverage on Python 3.14, the smoke check,
+Qodana (`qodana.yaml` documents the deliberate inspection exclusions), and a
+scheduled, path-filtered Hub release verification. CodeScene, Codacy, qlty
+(`.qlty/qlty.toml`, `smells.mode = "block"`) and Codecov review every PR; the
+owner wants findings fixed by refactoring, not suppressed.
 
 ## Architecture
 
