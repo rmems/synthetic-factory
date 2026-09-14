@@ -10,7 +10,6 @@ import json
 import sys
 from pathlib import Path
 
-from pathlib import Path  # noqa: E402
 _PIPELINES = Path(__file__).resolve().parent
 
 if __package__:
@@ -19,6 +18,7 @@ if __package__:
 
     _assert_direct_sibling("nir_equivalence_cli")
     from .exact_json import dumps_exact_json  # noqa: E402
+    from .nir_equivalence_catalog import MINIMUM_STEPS  # noqa: E402
     from .nir_equivalence_record import generate_records  # noqa: E402
     from .nir_equivalence_runtimes import availability_report  # noqa: E402
     from .nir_equivalence_terms import (  # noqa: E402
@@ -34,6 +34,7 @@ else:
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
     from exact_json import dumps_exact_json  # noqa: E402
+    from nir_equivalence_catalog import MINIMUM_STEPS  # noqa: E402
     from nir_equivalence_record import generate_records  # noqa: E402
     from nir_equivalence_runtimes import availability_report  # noqa: E402
     from nir_equivalence_terms import (  # noqa: E402
@@ -92,6 +93,24 @@ def write_jsonl(path, records):
         handle.write(payload)
 
 
+def _window_steps(text):
+    """`--steps`: an integer no shorter than the catalog's divergence window.
+
+    Checked here, at the argument boundary, so `generate` never builds a
+    round whose window is too short to show the divergences it catalogues.
+    """
+    try:
+        steps = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"steps must be an integer, got {text!r}") from None
+    if steps < MINIMUM_STEPS:
+        raise argparse.ArgumentTypeError(
+            f"steps must be >= {MINIMUM_STEPS}; a shorter window reports catalogued "
+            "divergences as matches [WINDOW_TOO_SHORT]"
+        )
+    return steps
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -99,7 +118,7 @@ def parse_args(argv=None):
     gen = sub.add_parser("generate", help="write one round of cross-runtime records")
     gen.add_argument("out_dir")
     gen.add_argument("--round", type=int, default=1)
-    gen.add_argument("--steps", type=int, default=10)
+    gen.add_argument("--steps", type=_window_steps, default=10)
     val = sub.add_parser("validate", help="validate a JSONL file of records")
     val.add_argument("path")
     view = sub.add_parser("training-view", help="emit training views for a JSONL file")
@@ -126,11 +145,7 @@ def _cmd_generate(args):
             file=sys.stderr,
         )
         return 2
-    try:
-        records = generate_records(round_number=args.round, steps=args.steps)
-    except ValueError as exc:
-        print(f"nir_equivalence: {exc} [WINDOW_TOO_SHORT]", file=sys.stderr)
-        return 2
+    records = generate_records(round_number=args.round, steps=args.steps)
     errors = validate_records(records, source="generated")
     if errors:
         _print_errors(errors)

@@ -11,7 +11,6 @@ import copy
 import sys
 from pathlib import Path
 
-from pathlib import Path  # noqa: E402
 _PIPELINES = Path(__file__).resolve().parent
 
 if __package__:

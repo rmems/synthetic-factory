@@ -142,9 +142,9 @@ class Validation(unittest.TestCase):
         self.assertIn("mismatch", {verdict for _, verdict in floor})
         with tempfile.TemporaryDirectory() as tmp:
             stderr = io.StringIO()
-            with redirect_stderr(stderr):
-                code = nir.main(["generate", tmp, "--steps", str(MINIMUM_STEPS - 1)])
-            self.assertEqual(code, 2)
+            with redirect_stderr(stderr), self.assertRaises(SystemExit) as refused:
+                nir.main(["generate", tmp, "--steps", str(MINIMUM_STEPS - 1)])
+            self.assertEqual(refused.exception.code, 2)
             self.assertIn("[WINDOW_TOO_SHORT]", stderr.getvalue())
             self.assertEqual(list(PathType(tmp).rglob("*.jsonl")), [])
 
