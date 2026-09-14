@@ -1,0 +1,33 @@
+pipelines/curate_gate_identity_mapping.py
+  s_af31ed7264ce5b::t_48a30a374fa8a2 79,160,164,195,211
+  s_af31ed7264ce5b::t_5b55993ea80938 1-78,80-159,161-163,165-194,196-210,212-266
+tests/pipeline_import_catalog_foundation.py
+  s_af31ed7264ce5b::t_48a30a374fa8a2 273-296,873-879
+tests/test_pipeline_split_module_identity.py
+  s_af31ed7264ce5b::t_48a30a374fa8a2 99-100
+pipelines/__init__.py
+  s_af31ed7264ce5b::t_48a30a374fa8a2 562-573,678-679
+pipelines/curate_gate_review.py
+  s_af31ed7264ce5b::t_48a30a374fa8a2 39,52,54-55
+  s_af31ed7264ce5b::t_3670ec5882c536 1-38,40-51,53,56-408
+pipelines/curate_gate.py
+  s_af31ed7264ce5b::t_48a30a374fa8a2 23-27,107,125,132,148,155,310-312,322-323,327,330-331,333-337
+pipelines/curate_gate_identity_gate.py
+  s_af31ed7264ce5b::t_48a30a374fa8a2 12-16,290-303
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7ea3f98370949f760cd6b402d47be19be27d9d93",
+  "prompts": {},
+  "sessions": {
+    "s_af31ed7264ce5b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e13fca7-977d-487d-a447-9e9097e762ad",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
