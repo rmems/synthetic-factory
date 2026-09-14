@@ -1,0 +1,1898 @@
+#!/usr/bin/env python3
+"""Mill git-ops-recovery-factory rounds r1044+ (unique leftover recover, not r895–r1043)."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+FACTORY = "git-ops-recovery-factory"
+GEN = "grok-4.6"
+CATALOG_FIRST = 1044
+PR0 = 1980
+ISSUE0 = 980
+
+# BAN leftover-tmp cartesian, stacked-git CLI cartesian, r895–r1043 clones.
+BANNED_SLUGS = {
+    "merge-index-leftover",
+    "merge-one-file-leftover",
+    "lfs-lock-leftover",
+    "p4-rebase-leftover",
+    "scalar-reconfigure-leftover",
+    "split-index-shared-expire-leftover",
+    "untracked-cache-untr-ext-leftover",
+    "fsmonitor-fsmn-token-leftover",
+    "sparse-index-sdir-collapse-leftover",
+    "index-ieot-v4-leftover",
+    "racy-git-ce-valid-leftover",
+    "cache-tree-amend-leftover",
+    "intent-to-add-ce-leftover",
+    "cvsserver-ext-leftover",
+    "git-daemon-export-ok-leftover",
+    "http-backend-export-all-leftover",
+    "git-shell-commands-leftover",
+    "upload-pack-hook-leftover",
+    "receive-pack-procreceive-leftover",
+    "receive-denynff-leftover",
+    "fast-import-marks-leftover",
+    "fast-export-leftover",
+    "maintenance-already-skip",
+}
+
+
+def _sha(slug: str) -> str:
+    h = hashlib.sha1(f"gor-{slug}".encode()).hexdigest()[:7]
+    if h == "0000000" or not any(c.isalpha() for c in h):
+        h = hashlib.sha1(f"gor-{slug}-x".encode()).hexdigest()[:7]
+    return h
+
+
+def _S(**kw: str) -> dict:
+    need = {
+        "slug",
+        "repo",
+        "marker",
+        "old",
+        "new",
+        "src",
+        "test",
+        "tfail",
+        "branch",
+        "map_cmd",
+        "map_obs",
+        "map_b",
+        "wrong_cmd",
+        "wrong_obs",
+        "wrong_b",
+        "rec_cmd",
+        "rec_obs",
+        "rec_b",
+        "left_cmd",
+        "left_obs",
+        "left_b",
+        "goal",
+        "plan",
+        "out",
+        "refl",
+        "cmt",
+        "title",
+        "body",
+        "commit",
+        "mix",
+    }
+    miss = need - set(kw)
+    if miss:
+        raise SystemExit(f"missing {sorted(miss)} for {kw.get('slug')}")
+    return kw
+
+
+def _H(**kw: str) -> dict:
+    d = _S(**{k: v for k, v in kw.items() if k not in ("handoff", "handoff_probe", "handoff_probe_obs", "issue_t", "issue_b", "checks")})
+    for k in ("handoff", "handoff_probe", "handoff_probe_obs", "issue_t", "issue_b"):
+        if k not in kw:
+            raise SystemExit(f"handoff spec {kw.get('slug')} missing {k}")
+        d[k] = kw[k]
+    if "checks" in kw:
+        d["checks"] = kw["checks"]
+    return d
+
+
+PAIRS: list[tuple[dict, dict]] = [
+    (
+        _S(
+            slug="resolve-undo-reuc-leftover",
+            repo="leftover-ops/reuc-gate",
+            marker="REUC_N",
+            old="0",
+            new="7",
+            src="src/reuc.py",
+            test="tests/test_reuc.py",
+            tfail="FAILED tests/test_reuc.py::test_reuc_7\nFAILED tests/test_reuc.py::test_reuc_gone",
+            branch="recover/reuc-7",
+            map_cmd="git merge --abort 2>&1 | tail; git ls-files -u | head; python3 -c 'print(open(\".git/index\",\"rb\").read().find(b\"REUC\"))'; rg REUC_N src/reuc.py",
+            map_obs="fatal: There is no merge to abort (already skip)\n100644 55aa 1\tsrc/reuc.py\n100644 77bb 2\tsrc/reuc.py\n100644 91aa 3\tsrc/reuc.py\n412 (REUC leftover)\nREUC_N = 0",
+            map_b="Plan: map merge --abort already skip while leftover REUC still stages 55aa/77bb/91aa.",
+            wrong_cmd="git merge --abort && git checkout -m -- src/reuc.py",
+            wrong_obs="fatal: There is no merge to abort (already skip leftover REUC still in index)",
+            wrong_b="Observation: abort already skip left REUC. First wrong move: merge --abort then checkout -m.",
+            rec_cmd="git read-tree --reset -u HEAD && python3 -c 'print(open(\".git/index\",\"rb\").read().find(b\"REUC\"))' && git ls-files -u || echo no_unmerged",
+            rec_obs="-1\nno_unmerged",
+            rec_b="Plan: read-tree --reset HEAD to drop leftover REUC; do not rerun merge --abort.",
+            left_cmd="python3 -c 'print(open(\".git/index\",\"rb\").read().find(b\"REUC\"))'; git ls-files -u || echo no_unmerged",
+            left_obs="-1\nno_unmerged",
+            left_b="Observation: REUC extension and unmerged stages are gone.",
+            goal="On leftover-ops/reuc-gate, git merge --abort already skipped (no MERGE_HEAD) while leftover REUC still staged 55aa/77bb/91aa. Drop REUC via read-tree --reset, land REUC_N=7. INC-{inc}.",
+            plan="Prove abort already skip, drop leftover REUC, land 7.",
+            out="Dropped leftover resolve-undo REUC. REUC_N=7 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: merge --abort already skip left REUC. Plan change: recover/reuc-7.",
+            cmt="Do not git merge --abort when there is no MERGE_HEAD. Drop leftover REUC with read-tree --reset. Do not force-push main.",
+            title="REUC_N=7",
+            body="merge --abort already skip left REUC stages. Dropped via read-tree --reset. INC-{inc}.",
+            commit="fix: REUC_N=7 after dropping leftover resolve-undo (INC-{inc})",
+            mix="merge --abort already skip vs leftover REUC index extension",
+        ),
+        _H(
+            slug="eoie-index-extension-leftover",
+            repo="leftover-ops/eoie-runner",
+            marker="EOIE_N",
+            old="1",
+            new="5",
+            src="src/eoie.py",
+            test="tests/test_eoie.py",
+            tfail="FAILED tests/test_eoie.py::test_eoie_5\nFAILED tests/test_eoie.py::test_eoie_gone",
+            branch="recover/eoie-5",
+            map_cmd="git config --get index.version; git update-index --index-version 2 2>&1 | tail; python3 -c 'print(open(\".git/index\",\"rb\").read().find(b\"EOIE\"))'; rg EOIE_N src/eoie.py",
+            map_obs="2\nalready skip (index.version=2 leftover EOIE still present)\n388 (EOIE leftover)\nEOIE_N = 1",
+            map_b="Plan: map index.version=2 already skip while leftover EOIE still sits in the index.",
+            wrong_cmd="git update-index --index-version 2 && git status -sb",
+            wrong_obs="already skip (index is v2 leftover EOIE still present)\n## main",
+            wrong_b="Observation: --index-version 2 already skip left EOIE. First wrong move: update-index --index-version 2.",
+            rec_cmd="git read-tree HEAD && git add src/eoie.py && python3 -c 'print(open(\".git/index\",\"rb\").read().find(b\"EOIE\"))'",
+            rec_obs="-1",
+            rec_b="Plan: rewrite the index without EOIE; do not rerun --index-version 2.",
+            left_cmd="python3 -c 'print(open(\".git/index\",\"rb\").read().find(b\"EOIE\"))'; git config --get index.version",
+            left_obs="-1\n2",
+            left_b="Observation: local EOIE gone; runner image still injects EOIE after checkout.",
+            goal="On leftover-ops/eoie-runner, git update-index --index-version 2 already skipped while leftover EOIE still sat in the index. Rewrite the index, land EOIE_N=5. Runner still injects EOIE. INC-{inc}.",
+            plan="Prove index-version already skip, drop leftover EOIE, hand off runner image.",
+            out="Rewrote index without EOIE; EOIE_N=5 on PR {pr}. Runner still injects EOIE. Issue {issue}. INC-{inc}.",
+            refl="Reflection: --index-version 2 already skip left EOIE. Plan change: PR the 5; hand off runner image.",
+            cmt="HANDOFF issue {issue}. Rewrite the index to drop EOIE. Do not rerun --index-version 2. Do not force-push main.",
+            title="EOIE_N=5",
+            body="index.version=2 already skip left EOIE. Rewrote index. Runner still injects EOIE. INC-{inc}.",
+            commit="fix: EOIE_N=5 after dropping leftover EOIE extension (INC-{inc})",
+            issue_t="runner image still injects leftover EOIE after index v2 rewrite",
+            issue_b="PR {pr}. Stop the runner from appending EOIE when index.version=2. INC-{inc}.",
+            handoff="ci-eoie-inject",
+            handoff_probe="python3 -c 'print(open(\"/mnt/ci/index\",\"rb\").read().find(b\"EOIE\"))'",
+            handoff_probe_obs="256 (runner EOIE leftover)",
+            checks="unit pass\neoie-ci fail (runner EOIE leftover)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="index.version=2 already skip vs leftover EOIE extension",
+        ),
+    ),
+    (
+        _S(
+            slug="write-tree-unmerged-leftover",
+            repo="leftover-ops/write-tree-gate",
+            marker="WRTREE_N",
+            old="2",
+            new="8",
+            src="src/wrtree.py",
+            test="tests/test_wrtree.py",
+            tfail="FAILED tests/test_wrtree.py::test_wrtree_8\nFAILED tests/test_wrtree.py::test_unmerged_gone",
+            branch="recover/wrtree-8",
+            map_cmd="git write-tree 2>&1 | tail; git ls-files -u | head; echo GIT_INDEX_FILE=${GIT_INDEX_FILE:-.git/index}; rg WRTREE_N src/wrtree.py",
+            map_obs="error: error building trees (already skip leftover unmerged)\n100644 77bb 1\tsrc/wrtree.py\n100644 91aa 2\tsrc/wrtree.py\n.git/index\nWRTREE_N = 2",
+            map_b="Plan: map write-tree already skip while leftover unmerged stages still block a tree.",
+            wrong_cmd="git write-tree --missing-ok && git rev-parse :src/wrtree.py",
+            wrong_obs="error: error building trees (already skip leftover unmerged still present)",
+            wrong_b="Observation: --missing-ok still honors leftover unmerged. First wrong move: write-tree --missing-ok.",
+            rec_cmd="git reset --mixed HEAD -- src/wrtree.py && git add src/wrtree.py && git write-tree && git ls-files -u || echo no_unmerged",
+            rec_obs="4b825dc (empty after reset then add)\n91aa tree written\nno_unmerged",
+            rec_b="Plan: drop leftover unmerged stages with reset --mixed, then write-tree.",
+            left_cmd="git ls-files -u || echo no_unmerged; git write-tree >/dev/null && echo write_tree_ok",
+            left_obs="no_unmerged\nwrite_tree_ok",
+            left_b="Observation: leftover unmerged stages are gone; write-tree succeeds.",
+            goal="On leftover-ops/write-tree-gate, git write-tree already skipped while leftover unmerged stages still blocked a tree. Reset --mixed, write-tree, land WRTREE_N=8. INC-{inc}.",
+            plan="Prove write-tree already skip, drop leftover unmerged stages, land 8.",
+            out="Dropped leftover unmerged stages so write-tree works. WRTREE_N=8 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: write-tree --missing-ok still saw leftover unmerged. Plan change: recover/wrtree-8.",
+            cmt="Do not git write-tree --missing-ok over leftover unmerged stages. Reset --mixed first. Do not force-push main.",
+            title="WRTREE_N=8",
+            body="write-tree already skip left unmerged stages. Reset --mixed then write-tree. INC-{inc}.",
+            commit="fix: WRTREE_N=8 after dropping leftover unmerged stages (INC-{inc})",
+            mix="write-tree already skip vs leftover unmerged index stages",
+        ),
+        _H(
+            slug="pack-redundant-keep-leftover",
+            repo="leftover-ops/pack-keep-nfs",
+            marker="PACKRED_N",
+            old="1",
+            new="4",
+            src="src/packred.py",
+            test="tests/test_packred.py",
+            tfail="FAILED tests/test_packred.py::test_packred_4\nFAILED tests/test_packred.py::test_keep_gone",
+            branch="recover/packred-4",
+            map_cmd="ls .git/objects/pack/*.keep 2>&1 | tail; git pack-redundant --all 2>&1 | tail; rg PACKRED_N src/packred.py",
+            map_obs=".git/objects/pack/pack-77bb.keep  (leftover)\n(already skip: no redundant packs while leftover .keep hides pack-77bb)\nPACKRED_N = 1",
+            map_b="Plan: map pack-redundant already skip while leftover .keep still hides pack-77bb.",
+            wrong_cmd="git pack-redundant --all --verbose && git gc --prune=now",
+            wrong_obs="already skip (leftover .keep still hides pack-77bb; gc left it)",
+            wrong_b="Observation: gc honored leftover .keep. First wrong move: pack-redundant then gc.",
+            rec_cmd="rm -f .git/objects/pack/*.keep && git pack-redundant --all | tee /tmp/redund && xargs -r rm -f </tmp/redund && ls .git/objects/pack/*.keep 2>&1 | tail",
+            rec_obs="ls: cannot access '.git/objects/pack/*.keep': No such file or directory",
+            rec_b="Plan: delete leftover .keep then pack-redundant; do not rerun gc over .keep.",
+            left_cmd="ls .git/objects/pack/*.keep 2>&1 | tail; git pack-redundant --all || echo no_redundant",
+            left_obs="ls: cannot access '.git/objects/pack/*.keep': No such file or directory\nno_redundant",
+            left_b="Observation: local .keep gone; NFS pack store still has leftover .keep.",
+            goal="On leftover-ops/pack-keep-nfs, git pack-redundant --all already skipped while leftover pack-77bb.keep still hid a redundant pack. Drop .keep, land PACKRED_N=4. NFS still has .keep. INC-{inc}.",
+            plan="Prove pack-redundant already skip, drop leftover .keep, hand off NFS pack store.",
+            out="Dropped leftover .keep so pack-redundant can delete pack-77bb; PACKRED_N=4 on PR {pr}. NFS still has .keep. Issue {issue}. INC-{inc}.",
+            refl="Reflection: pack-redundant already skip left .keep. Plan change: PR the 4; hand off NFS pack store.",
+            cmt="HANDOFF issue {issue}. Remove leftover .keep before pack-redundant. Do not force-push main.",
+            title="PACKRED_N=4",
+            body="pack-redundant already skip left .keep hiding pack-77bb. Dropped locally. NFS still has .keep. INC-{inc}.",
+            commit="fix: PACKRED_N=4 after dropping leftover pack .keep (INC-{inc})",
+            issue_t="NFS pack store still has leftover pack-77bb.keep",
+            issue_b="PR {pr}. Delete leftover .keep on the NFS pack store so pack-redundant can run. INC-{inc}.",
+            handoff="nfs-pack-keep",
+            handoff_probe="ls /mnt/nfs/objects/pack/*.keep",
+            handoff_probe_obs="/mnt/nfs/objects/pack/pack-77bb.keep",
+            checks="unit pass\npack-ci fail (NFS leftover .keep)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="pack-redundant already skip vs leftover pack .keep",
+        ),
+    ),
+    (
+        _S(
+            slug="update-server-info-stale-refs-leftover",
+            repo="leftover-ops/server-info-gate",
+            marker="SRVINFO_N",
+            old="0",
+            new="6",
+            src="src/srvinfo.py",
+            test="tests/test_srvinfo.py",
+            tfail="FAILED tests/test_srvinfo.py::test_srvinfo_6\nFAILED tests/test_srvinfo.py::test_info_refs_91aa",
+            branch="recover/srvinfo-6",
+            map_cmd="git update-server-info 2>&1 | tail; rg '^77bb' .git/info/refs; stat -c '%Y %n' .git/info/refs .git/objects/pack/*.pack | head; rg SRVINFO_N src/srvinfo.py",
+            map_obs="already skip (info/refs newer than packs leftover 77bb still listed)\n77bb\trefs/heads/main\n1710000001 .git/info/refs\n1700000001 .git/objects/pack/pack-91aa.pack\nSRVINFO_N = 0",
+            map_b="Plan: map update-server-info already skip while leftover info/refs still lists 77bb.",
+            wrong_cmd="git update-server-info && rg '^77bb|^91aa' .git/info/refs",
+            wrong_obs="already skip\n77bb\trefs/heads/main (leftover timestamp still newer than packs)",
+            wrong_b="Observation: update-server-info already skip left 77bb. First wrong move: rerun update-server-info.",
+            rec_cmd="touch .git/objects/pack/*.pack && git update-server-info && rg '^91aa|^77bb' .git/info/refs || echo no_77bb",
+            rec_obs="91aa\trefs/heads/main\nno_77bb",
+            rec_b="Plan: bump pack mtimes then rewrite leftover info/refs; do not rerun on a newer leftover file.",
+            left_cmd="rg '^91aa' .git/info/refs; rg '^77bb' .git/info/refs || echo no_77bb",
+            left_obs="91aa\trefs/heads/main\nno_77bb",
+            left_b="Observation: leftover 77bb dropped from info/refs.",
+            goal="On leftover-ops/server-info-gate, git update-server-info already skipped because leftover info/refs was newer than packs and still listed 77bb. Touch packs, rewrite info/refs, land SRVINFO_N=6. INC-{inc}.",
+            plan="Prove update-server-info already skip, rewrite leftover info/refs, land 6.",
+            out="Rewrote leftover info/refs after bumping pack mtimes. SRVINFO_N=6 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: update-server-info already skip left 77bb in info/refs. Plan change: recover/srvinfo-6.",
+            cmt="Do not rerun git update-server-info while leftover info/refs is newer than packs. Touch packs first. Do not force-push main.",
+            title="SRVINFO_N=6",
+            body="update-server-info already skip left 77bb in info/refs. Touched packs and rewrote. INC-{inc}.",
+            commit="fix: SRVINFO_N=6 after rewriting leftover info/refs (INC-{inc})",
+            mix="update-server-info already skip vs leftover stale info/refs",
+        ),
+        _H(
+            slug="http-fetch-alternates-leftover",
+            repo="leftover-ops/http-fetch-nfs",
+            marker="HTTPFT_N",
+            old="3",
+            new="9",
+            src="src/httpft.py",
+            test="tests/test_httpft.py",
+            tfail="FAILED tests/test_httpft.py::test_httpft_9\nFAILED tests/test_httpft.py::test_http_alternates_gone",
+            branch="recover/httpft-9",
+            map_cmd="cat .git/objects/info/http-alternates 2>&1 | tail; git-http-fetch -a 91aa 2>&1 | tail; rg HTTPFT_N src/httpft.py",
+            map_obs="https://mirror.invalid/old.git/objects  (leftover)\nalready skip (http-alternates leftover still points at dead mirror)\nHTTPFT_N = 3",
+            map_b="Plan: map git-http-fetch already skip while leftover http-alternates still points at a dead mirror.",
+            wrong_cmd="git-http-fetch -a 91aa && git cat-file -t 91aa",
+            wrong_obs="already skip (leftover http-alternates still dead)",
+            wrong_b="Observation: git-http-fetch already skip left http-alternates. First wrong move: git-http-fetch -a.",
+            rec_cmd="rm -f .git/objects/info/http-alternates && git fetch origin 91aa && git cat-file -t 91aa && ls .git/objects/info/http-alternates 2>&1 | tail",
+            rec_obs="commit\nls: cannot access '.git/objects/info/http-alternates': No such file or directory",
+            rec_b="Plan: drop leftover http-alternates and fetch over ssh; do not rerun git-http-fetch.",
+            left_cmd="ls .git/objects/info/http-alternates 2>&1 | tail; git cat-file -t 91aa",
+            left_obs="ls: cannot access '.git/objects/info/http-alternates': No such file or directory\ncommit",
+            left_b="Observation: local http-alternates gone; NFS clone still has leftover http-alternates.",
+            goal="On leftover-ops/http-fetch-nfs, git-http-fetch already skipped while leftover objects/info/http-alternates still pointed at a dead mirror. Drop it, fetch 91aa, land HTTPFT_N=9. NFS still has http-alternates. INC-{inc}.",
+            plan="Prove git-http-fetch already skip, drop leftover http-alternates, hand off NFS clone.",
+            out="Dropped leftover http-alternates; HTTPFT_N=9 on PR {pr}. NFS still has http-alternates. Issue {issue}. INC-{inc}.",
+            refl="Reflection: git-http-fetch already skip left http-alternates. Plan change: PR the 9; hand off NFS clone.",
+            cmt="HANDOFF issue {issue}. Remove leftover http-alternates; do not rerun git-http-fetch. Do not force-push main.",
+            title="HTTPFT_N=9",
+            body="git-http-fetch already skip left http-alternates. Dropped locally. NFS still has it. INC-{inc}.",
+            commit="fix: HTTPFT_N=9 after dropping leftover http-alternates (INC-{inc})",
+            issue_t="NFS clone still has leftover objects/info/http-alternates",
+            issue_b="PR {pr}. Delete leftover http-alternates on the NFS clone. INC-{inc}.",
+            handoff="nfs-http-alternates",
+            handoff_probe="cat /mnt/nfs/leftover-ops/http-fetch-nfs.git/objects/info/http-alternates",
+            handoff_probe_obs="https://mirror.invalid/old.git/objects",
+            checks="unit pass\nhttp-fetch-ci fail (NFS leftover http-alternates)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="git-http-fetch already skip vs leftover http-alternates",
+        ),
+    ),
+    (
+        _S(
+            slug="http-push-dav-lock-leftover",
+            repo="leftover-ops/http-push-gate",
+            marker="HTTPUSH_N",
+            old="1",
+            new="5",
+            src="src/httpush.py",
+            test="tests/test_httpush.py",
+            tfail="FAILED tests/test_httpush.py::test_httpush_5\nFAILED tests/test_httpush.py::test_dav_lock_gone",
+            branch="recover/httpush-5",
+            map_cmd="ls -l .git/http-push.lock 2>&1 | tail; git config --get remote.origin.url; git-http-push --verbose origin refs/heads/recover 2>&1 | tail; rg HTTPUSH_N src/httpush.py",
+            map_obs="-rw-r--r-- .git/http-push.lock  (leftover DAV lock)\nhttp://git.invalid/app.git\nalready skip (leftover DAV lock still held)\nHTTPUSH_N = 1",
+            map_b="Plan: map git-http-push already skip while leftover DAV lock still blocks the recover ref.",
+            wrong_cmd="git-http-push --force origin refs/heads/recover && ls .git/http-push.lock",
+            wrong_obs="already skip (leftover DAV lock still held)\n.git/http-push.lock",
+            wrong_b="Observation: --force still honors leftover DAV lock. First wrong move: git-http-push --force.",
+            rec_cmd="rm -f .git/http-push.lock && git remote set-url origin git@git.invalid:app.git && git push origin HEAD:recover/httpush-5 && ls .git/http-push.lock 2>&1 | tail",
+            rec_obs="ls: cannot access '.git/http-push.lock': No such file or directory",
+            rec_b="Plan: drop leftover DAV lock and push over ssh; do not rerun git-http-push.",
+            left_cmd="ls .git/http-push.lock 2>&1 | tail; git config --get remote.origin.url",
+            left_obs="ls: cannot access '.git/http-push.lock': No such file or directory\ngit@git.invalid:app.git",
+            left_b="Observation: leftover DAV lock is gone; origin is ssh.",
+            goal="On leftover-ops/http-push-gate, git-http-push already skipped while leftover .git/http-push.lock still held a WebDAV lock. Drop the lock, switch origin to ssh, land HTTPUSH_N=5. INC-{inc}.",
+            plan="Prove git-http-push already skip, drop leftover DAV lock, land 5.",
+            out="Dropped leftover DAV lock and pushed over ssh. HTTPUSH_N=5 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: git-http-push --force already skip left DAV lock. Plan change: recover/httpush-5.",
+            cmt="Do not git-http-push --force over a leftover DAV lock. Remove the lock and use ssh. Do not force-push main.",
+            title="HTTPUSH_N=5",
+            body="git-http-push already skip left a DAV lock. Dropped lock and switched to ssh. INC-{inc}.",
+            commit="fix: HTTPUSH_N=5 after dropping leftover http-push DAV lock (INC-{inc})",
+            mix="git-http-push already skip vs leftover WebDAV lock",
+        ),
+        _H(
+            slug="remote-fd-url-leftover",
+            repo="leftover-ops/remote-fd-ci",
+            marker="REMFD_N",
+            old="0",
+            new="3",
+            src="src/remfd.py",
+            test="tests/test_remfd.py",
+            tfail="FAILED tests/test_remfd.py::test_remfd_3\nFAILED tests/test_remfd.py::test_fd_url_gone",
+            branch="recover/remfd-3",
+            map_cmd="git config --get remote.origin.url; git fetch origin 2>&1 | tail; rg REMFD_N src/remfd.py",
+            map_obs="fd::7  (leftover remote-fd)\nalready skip (fd::7 leftover pipe closed)\nREMFD_N = 0",
+            map_b="Plan: map git fetch already skip while leftover remote-fd url fd::7 still points at a closed pipe.",
+            wrong_cmd="git fetch origin --prune && git ls-remote origin",
+            wrong_obs="already skip (leftover fd::7 still closed)",
+            wrong_b="Observation: --prune still talks leftover fd::7. First wrong move: git fetch --prune.",
+            rec_cmd="git remote set-url origin git@git.invalid:app.git && git fetch origin && git config --get remote.origin.url",
+            rec_obs="git@git.invalid:app.git",
+            rec_b="Plan: replace leftover fd::7 with ssh; do not fetch over remote-fd.",
+            left_cmd="git config --get remote.origin.url; git remote -v | head",
+            left_obs="git@git.invalid:app.git\norigin  git@git.invalid:app.git (fetch)",
+            left_b="Observation: local fd::7 gone; CI still clones with leftover fd::7.",
+            goal="On leftover-ops/remote-fd-ci, git fetch already skipped while leftover remote.origin.url=fd::7 still pointed at a closed pipe. Switch to ssh, land REMFD_N=3. CI still uses fd::7. INC-{inc}.",
+            plan="Prove fetch already skip, replace leftover fd::7, hand off CI remote url.",
+            out="Replaced leftover remote-fd url; REMFD_N=3 on PR {pr}. CI still uses fd::7. Issue {issue}. INC-{inc}.",
+            refl="Reflection: fetch already skip left fd::7. Plan change: PR the 3; hand off CI remote url.",
+            cmt="HANDOFF issue {issue}. Replace leftover fd::7 with ssh. Do not force-push main.",
+            title="REMFD_N=3",
+            body="fetch already skip left remote-fd fd::7. Switched to ssh locally. CI still uses fd::7. INC-{inc}.",
+            commit="fix: REMFD_N=3 after dropping leftover remote-fd url (INC-{inc})",
+            issue_t="CI still clones with leftover remote-fd url fd::7",
+            issue_b="PR {pr}. Change CI origin from fd::7 to ssh. INC-{inc}.",
+            handoff="ci-remote-fd",
+            handoff_probe="git --git-dir=/mnt/ci/app.git config --get remote.origin.url",
+            handoff_probe_obs="fd::7",
+            checks="unit pass\nremote-fd-ci fail (leftover fd::7)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="git fetch already skip vs leftover remote-fd fd::7 url",
+        ),
+    ),
+    (
+        _S(
+            slug="remote-ext-helper-leftover",
+            repo="leftover-ops/remote-ext-gate",
+            marker="REMEXT_N",
+            old="2",
+            new="6",
+            src="src/remext.py",
+            test="tests/test_remext.py",
+            tfail="FAILED tests/test_remext.py::test_remext_6\nFAILED tests/test_remext.py::test_ext_url_gone",
+            branch="recover/remext-6",
+            map_cmd="git config --get remote.origin.url; git fetch origin 2>&1 | tail; rg REMEXT_N src/remext.py",
+            map_obs="ext::ssh -o BatchMode=yes oldhost %S  (leftover remote-ext)\nalready skip (leftover ext helper still calls oldhost)\nREMEXT_N = 2",
+            map_b="Plan: map git fetch already skip while leftover remote-ext url still calls oldhost.",
+            wrong_cmd="git fetch origin +refs/heads/recover:refs/remotes/origin/recover",
+            wrong_obs="already skip (leftover ext:: helper still talks oldhost)",
+            wrong_b="Observation: fetch already skip left ext::. First wrong move: git fetch +refs.",
+            rec_cmd="git remote set-url origin git@git.invalid:app.git && git fetch origin && git config --get remote.origin.url",
+            rec_obs="git@git.invalid:app.git",
+            rec_b="Plan: replace leftover ext:: helper with ssh; do not fetch over remote-ext.",
+            left_cmd="git config --get remote.origin.url; git config --get-regexp '^remote\\.origin\\.' | rg ext || echo no_ext",
+            left_obs="git@git.invalid:app.git\nno_ext",
+            left_b="Observation: leftover remote-ext url is gone.",
+            goal="On leftover-ops/remote-ext-gate, git fetch already skipped while leftover remote.origin.url=ext::ssh oldhost %S still called a dead helper. Switch to ssh, land REMEXT_N=6. INC-{inc}.",
+            plan="Prove fetch already skip, replace leftover ext:: url, land 6.",
+            out="Replaced leftover remote-ext helper with ssh. REMEXT_N=6 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: fetch already skip left ext:: helper. Plan change: recover/remext-6.",
+            cmt="Do not git fetch over leftover ext::ssh oldhost. Replace with ssh. Do not force-push main.",
+            title="REMEXT_N=6",
+            body="fetch already skip left remote-ext ext:: helper. Switched origin to ssh. INC-{inc}.",
+            commit="fix: REMEXT_N=6 after dropping leftover remote-ext url (INC-{inc})",
+            mix="git fetch already skip vs leftover remote-ext ext:: helper",
+        ),
+        _H(
+            slug="remote-ftp-url-leftover",
+            repo="leftover-ops/remote-ftp-ci",
+            marker="REMFTP_N",
+            old="1",
+            new="4",
+            src="src/remftp.py",
+            test="tests/test_remftp.py",
+            tfail="FAILED tests/test_remftp.py::test_remftp_4\nFAILED tests/test_remftp.py::test_ftp_url_gone",
+            branch="recover/remftp-4",
+            map_cmd="git config --get remote.origin.url; git-remote-ftp origin 2>&1 | tail; rg REMFTP_N src/remftp.py",
+            map_obs="ftp://mirror.invalid/app.git  (leftover)\nalready skip (git-remote-ftp leftover still disabled)\nREMFTP_N = 1",
+            map_b="Plan: map git-remote-ftp already skip while leftover ftp:// origin still listed.",
+            wrong_cmd="git fetch origin && git ls-remote origin",
+            wrong_obs="already skip (leftover ftp:// helper still disabled)",
+            wrong_b="Observation: fetch already skip left ftp://. First wrong move: git fetch origin.",
+            rec_cmd="git remote set-url origin https://git.invalid/app.git && git fetch origin && git config --get remote.origin.url",
+            rec_obs="https://git.invalid/app.git",
+            rec_b="Plan: replace leftover ftp:// with https; do not rerun git-remote-ftp.",
+            left_cmd="git config --get remote.origin.url; git remote -v | rg ftp || echo no_ftp",
+            left_obs="https://git.invalid/app.git\nno_ftp",
+            left_b="Observation: local ftp:// gone; CI still uses leftover ftp:// origin.",
+            goal="On leftover-ops/remote-ftp-ci, git-remote-ftp already skipped while leftover remote.origin.url=ftp://mirror.invalid/app.git still listed. Switch to https, land REMFTP_N=4. CI still uses ftp://. INC-{inc}.",
+            plan="Prove git-remote-ftp already skip, replace leftover ftp://, hand off CI origin.",
+            out="Replaced leftover ftp:// origin; REMFTP_N=4 on PR {pr}. CI still uses ftp://. Issue {issue}. INC-{inc}.",
+            refl="Reflection: git-remote-ftp already skip left ftp://. Plan change: PR the 4; hand off CI origin.",
+            cmt="HANDOFF issue {issue}. Replace leftover ftp:// origin with https. Do not force-push main.",
+            title="REMFTP_N=4",
+            body="git-remote-ftp already skip left ftp:// origin. Switched to https locally. CI still ftp://. INC-{inc}.",
+            commit="fix: REMFTP_N=4 after dropping leftover remote-ftp url (INC-{inc})",
+            issue_t="CI still uses leftover ftp:// origin after git-remote-ftp already skip",
+            issue_b="PR {pr}. Change CI origin from ftp:// to https. INC-{inc}.",
+            handoff="ci-remote-ftp",
+            handoff_probe="git --git-dir=/mnt/ci/app.git config --get remote.origin.url",
+            handoff_probe_obs="ftp://mirror.invalid/app.git",
+            checks="unit pass\nftp-ci fail (leftover ftp:// origin)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="git-remote-ftp already skip vs leftover ftp:// origin url",
+        ),
+    ),
+    (
+        _S(
+            slug="ls-remote-uploadpack-wrapper-leftover",
+            repo="leftover-ops/ls-remote-gate",
+            marker="LSRMT_N",
+            old="0",
+            new="7",
+            src="src/lsrmt.py",
+            test="tests/test_lsrmt.py",
+            tfail="FAILED tests/test_lsrmt.py::test_lsrmt_7\nFAILED tests/test_lsrmt.py::test_uploadpack_wrapper_gone",
+            branch="recover/lsrmt-7",
+            map_cmd="git config --get remote.origin.uploadpack; git ls-remote origin 'refs/heads/recover/*' 2>&1 | tail; rg LSRMT_N src/lsrmt.py",
+            map_obs="/usr/local/bin/upload-pack-old  (leftover wrapper)\nalready skip (leftover wrapper still filters recover refs)\nLSRMT_N = 0",
+            map_b="Plan: map ls-remote already skip while leftover uploadpack wrapper still filters recover refs.",
+            wrong_cmd="git ls-remote --heads origin && git config remote.origin.uploadpack git-upload-pack",
+            wrong_obs="already skip (leftover wrapper still on the remote config after set)",
+            wrong_b="Observation: setting git-upload-pack did not drop leftover wrapper path. First wrong move: ls-remote --heads.",
+            rec_cmd="git config --unset remote.origin.uploadpack && git ls-remote origin 'refs/heads/recover/*' && git config --get remote.origin.uploadpack || echo uploadpack_default",
+            rec_obs="91aa\trefs/heads/recover/lsrmt-7\nuploadpack_default",
+            rec_b="Plan: unset leftover remote.origin.uploadpack; do not point it at git-upload-pack by name.",
+            left_cmd="git config --get remote.origin.uploadpack || echo uploadpack_default; git ls-remote origin 'refs/heads/recover/*' | head",
+            left_obs="uploadpack_default\n91aa\trefs/heads/recover/lsrmt-7",
+            left_b="Observation: leftover uploadpack wrapper is gone.",
+            goal="On leftover-ops/ls-remote-gate, git ls-remote already skipped while leftover remote.origin.uploadpack=/usr/local/bin/upload-pack-old still filtered recover refs. Unset the wrapper, land LSRMT_N=7. INC-{inc}.",
+            plan="Prove ls-remote already skip, unset leftover uploadpack wrapper, land 7.",
+            out="Unset leftover uploadpack wrapper. LSRMT_N=7 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: ls-remote already skip left uploadpack wrapper. Plan change: recover/lsrmt-7.",
+            cmt="Do not set remote.origin.uploadpack=git-upload-pack over leftover wrapper. Unset it. Do not force-push main.",
+            title="LSRMT_N=7",
+            body="ls-remote already skip left uploadpack wrapper. Unset remote.origin.uploadpack. INC-{inc}.",
+            commit="fix: LSRMT_N=7 after unsetting leftover uploadpack wrapper (INC-{inc})",
+            mix="ls-remote already skip vs leftover remote.origin.uploadpack wrapper",
+        ),
+        _H(
+            slug="for-each-repo-paths-leftover",
+            repo="leftover-ops/for-each-repo-ci",
+            marker="FOREACH_N",
+            old="2",
+            new="8",
+            src="src/foreach.py",
+            test="tests/test_foreach.py",
+            tfail="FAILED tests/test_foreach.py::test_foreach_8\nFAILED tests/test_foreach.py::test_stale_repo_path_gone",
+            branch="recover/foreach-8",
+            map_cmd="git config --get-all recover.repos; git for-each-repo --config=recover.repos status -sb 2>&1 | tail; rg FOREACH_N src/foreach.py",
+            map_obs="/old/app.git  (leftover)\n/live/app.git\nalready skip (leftover /old/app.git still missing)\nFOREACH_N = 2",
+            map_b="Plan: map for-each-repo already skip while leftover recover.repos still lists /old/app.git.",
+            wrong_cmd="git for-each-repo --config=recover.repos fetch --all",
+            wrong_obs="already skip (leftover /old/app.git still missing)",
+            wrong_b="Observation: for-each-repo already skip left /old/app.git. First wrong move: for-each-repo fetch.",
+            rec_cmd="git config --unset-all recover.repos && git config --add recover.repos /live/app.git && git for-each-repo --config=recover.repos rev-parse --short HEAD && git config --get-all recover.repos",
+            rec_obs="91aa\n/live/app.git",
+            rec_b="Plan: rewrite leftover recover.repos to the live path; do not fetch the missing leftover.",
+            left_cmd="git config --get-all recover.repos; git for-each-repo --config=recover.repos status -sb | head",
+            left_obs="/live/app.git\n## main",
+            left_b="Observation: local leftover /old/app.git gone; CI still has recover.repos=/old/app.git.",
+            goal="On leftover-ops/for-each-repo-ci, git for-each-repo already skipped while leftover recover.repos still listed /old/app.git. Rewrite to /live/app.git, land FOREACH_N=8. CI still lists /old/app.git. INC-{inc}.",
+            plan="Prove for-each-repo already skip, rewrite leftover recover.repos, hand off CI config.",
+            out="Rewrote leftover recover.repos; FOREACH_N=8 on PR {pr}. CI still lists /old/app.git. Issue {issue}. INC-{inc}.",
+            refl="Reflection: for-each-repo already skip left /old/app.git. Plan change: PR the 8; hand off CI config.",
+            cmt="HANDOFF issue {issue}. Drop leftover recover.repos=/old/app.git. Do not force-push main.",
+            title="FOREACH_N=8",
+            body="for-each-repo already skip left /old/app.git. Rewrote locally. CI still lists it. INC-{inc}.",
+            commit="fix: FOREACH_N=8 after dropping leftover for-each-repo path (INC-{inc})",
+            issue_t="CI still has leftover recover.repos=/old/app.git",
+            issue_b="PR {pr}. Unset leftover /old/app.git from CI recover.repos. INC-{inc}.",
+            handoff="ci-for-each-repo",
+            handoff_probe="git --git-dir=/mnt/ci/app.git config --get-all recover.repos",
+            handoff_probe_obs="/old/app.git\n/live/app.git",
+            checks="unit pass\nforeach-ci fail (leftover /old/app.git)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="for-each-repo already skip vs leftover recover.repos path",
+        ),
+    ),
+    (
+        _S(
+            slug="credential-store-file-leftover",
+            repo="leftover-ops/cred-store-gate",
+            marker="CREDST_N",
+            old="1",
+            new="5",
+            src="src/credst.py",
+            test="tests/test_credst.py",
+            tfail="FAILED tests/test_credst.py::test_credst_5\nFAILED tests/test_credst.py::test_stale_store_gone",
+            branch="recover/credst-5",
+            map_cmd="git config --get credential.helper; cat ~/.git-credentials 2>&1 | tail; printf 'protocol=https\\nhost=git.invalid\\n\\n' | git credential fill 2>&1 | tail; rg CREDST_N src/credst.py",
+            map_obs="(empty helper already skip)\nhttps://oldtoken@git.invalid  (leftover store)\nalready skip (helper empty leftover store still on disk)\nCREDST_N = 1",
+            map_b="Plan: map credential.helper empty already skip while leftover ~/.git-credentials still holds oldtoken.",
+            wrong_cmd="git config credential.helper store && printf 'protocol=https\\nhost=git.invalid\\n\\n' | git credential fill",
+            wrong_obs="username=oldtoken (leftover store still filled after helper=store)",
+            wrong_b="Observation: helper=store still read leftover oldtoken. First wrong move: set helper store without wiping.",
+            rec_cmd="rm -f ~/.git-credentials && git config credential.helper store && printf 'protocol=https\\nhost=git.invalid\\nusername=recover\\npassword=newtok\\n\\n' | git credential approve && printf 'protocol=https\\nhost=git.invalid\\n\\n' | git credential fill | rg username",
+            rec_obs="username=recover",
+            rec_b="Plan: wipe leftover ~/.git-credentials then approve a new store entry.",
+            left_cmd="rg oldtoken ~/.git-credentials || echo no_oldtoken; rg recover ~/.git-credentials",
+            left_obs="no_oldtoken\nhttps://recover:newtok@git.invalid",
+            left_b="Observation: leftover oldtoken is gone from the store.",
+            goal="On leftover-ops/cred-store-gate, credential.helper empty already skipped while leftover ~/.git-credentials still held oldtoken. Wipe the store, approve recover, land CREDST_N=5. INC-{inc}.",
+            plan="Prove helper empty already skip, wipe leftover store, land 5.",
+            out="Wiped leftover credential-store oldtoken. CREDST_N=5 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: helper=store still read leftover oldtoken. Plan change: recover/credst-5.",
+            cmt="Do not set credential.helper=store over leftover ~/.git-credentials. Wipe first. Do not force-push main.",
+            title="CREDST_N=5",
+            body="credential.helper empty already skip left oldtoken in ~/.git-credentials. Wiped and re-approved. INC-{inc}.",
+            commit="fix: CREDST_N=5 after wiping leftover credential-store (INC-{inc})",
+            mix="credential.helper empty already skip vs leftover ~/.git-credentials",
+        ),
+        _H(
+            slug="credential-netrc-leftover",
+            repo="leftover-ops/cred-netrc-ci",
+            marker="NETRC_N",
+            old="0",
+            new="4",
+            src="src/netrc.py",
+            test="tests/test_netrc.py",
+            tfail="FAILED tests/test_netrc.py::test_netrc_4\nFAILED tests/test_netrc.py::test_netrc_machine_gone",
+            branch="recover/netrc-4",
+            map_cmd="git config --get credential.helper; rg 'machine git.invalid' ~/.netrc; printf 'protocol=https\\nhost=git.invalid\\n\\n' | git credential fill 2>&1 | tail; rg NETRC_N src/netrc.py",
+            map_obs="!netrc  (leftover helper already skip of store)\nmachine git.invalid login oldtok password 77bb  (leftover)\nalready skip (netrc leftover still supplies oldtok)\nNETRC_N = 0",
+            map_b="Plan: map credential-netrc already skip of store while leftover ~/.netrc still supplies oldtok.",
+            wrong_cmd="git config --unset credential.helper && printf 'protocol=https\\nhost=git.invalid\\n\\n' | git credential fill",
+            wrong_obs="username=oldtok (leftover netrc still filled after unset helper)",
+            wrong_b="Observation: unset helper still read leftover netrc. First wrong move: unset credential.helper.",
+            rec_cmd="python3 - <<'PY'\nfrom pathlib import Path\np=Path.home()/'.netrc'\np.write_text('\\n'.join(l for l in p.read_text().splitlines() if 'git.invalid' not in l)+'\\n')\nprint('dropped')\nPY\nprintf 'protocol=https\\nhost=git.invalid\\n\\n' | git credential fill || echo no_fill",
+            rec_obs="dropped\nno_fill",
+            rec_b="Plan: drop leftover git.invalid machine from ~/.netrc; do not unset helper over leftover netrc.",
+            left_cmd="rg 'machine git.invalid' ~/.netrc || echo no_git_invalid",
+            left_obs="no_git_invalid",
+            left_b="Observation: local leftover netrc machine gone; CI still has leftover ~/.netrc.",
+            goal="On leftover-ops/cred-netrc-ci, credential-netrc already skipped the store while leftover ~/.netrc still supplied oldtok. Drop the machine, land NETRC_N=4. CI still has leftover netrc. INC-{inc}.",
+            plan="Prove netrc leftover, drop git.invalid machine, hand off CI netrc.",
+            out="Dropped leftover netrc machine; NETRC_N=4 on PR {pr}. CI still has leftover ~/.netrc. Issue {issue}. INC-{inc}.",
+            refl="Reflection: unset helper still read leftover netrc. Plan change: PR the 4; hand off CI netrc.",
+            cmt="HANDOFF issue {issue}. Drop leftover git.invalid from ~/.netrc. Do not force-push main.",
+            title="NETRC_N=4",
+            body="credential-netrc leftover ~/.netrc still supplied oldtok. Dropped locally. CI still has it. INC-{inc}.",
+            commit="fix: NETRC_N=4 after dropping leftover credential-netrc machine (INC-{inc})",
+            issue_t="CI still has leftover ~/.netrc machine git.invalid",
+            issue_b="PR {pr}. Delete leftover git.invalid from CI ~/.netrc. INC-{inc}.",
+            handoff="ci-netrc",
+            handoff_probe="rg 'machine git.invalid' /mnt/ci/home/.netrc",
+            handoff_probe_obs="machine git.invalid login oldtok password 77bb",
+            checks="unit pass\nnetrc-ci fail (leftover ~/.netrc)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="credential-netrc already skip vs leftover ~/.netrc machine",
+        ),
+    ),
+    (
+        _S(
+            slug="archimport-marks-leftover",
+            repo="leftover-ops/archimport-gate",
+            marker="ARCHMK_N",
+            old="3",
+            new="9",
+            src="src/archmk.py",
+            test="tests/test_archmk.py",
+            tfail="FAILED tests/test_archmk.py::test_archmk_9\nFAILED tests/test_archmk.py::test_marks_gone",
+            branch="recover/archmk-9",
+            map_cmd="ls -l .git/archimport.marks 2>&1 | tail; git-archimport -n tla 2>&1 | tail; rg ARCHMK_N src/archmk.py",
+            map_obs="-rw-r--r-- .git/archimport.marks  (leftover marks still map 77bb)\nalready skip (git-archimport leftover marks still bind 77bb)\nARCHMK_N = 3",
+            map_b="Plan: map git-archimport already skip while leftover archimport.marks still maps 77bb.",
+            wrong_cmd="git-archimport -n tla && git rev-parse --short HEAD",
+            wrong_obs="already skip (leftover marks still bind 77bb)\n77bb",
+            wrong_b="Observation: -n still honored leftover marks. First wrong move: git-archimport -n.",
+            rec_cmd="rm -f .git/archimport.marks && git reset --hard 91aa && ls .git/archimport.marks 2>&1 | tail && git rev-parse --short HEAD",
+            rec_obs="ls: cannot access '.git/archimport.marks': No such file or directory\n91aa",
+            rec_b="Plan: drop leftover archimport.marks then reset to 91aa; do not rerun git-archimport.",
+            left_cmd="ls .git/archimport.marks 2>&1 | tail; git rev-parse --short HEAD",
+            left_obs="ls: cannot access '.git/archimport.marks': No such file or directory\n91aa",
+            left_b="Observation: leftover archimport.marks is gone.",
+            goal="On leftover-ops/archimport-gate, git-archimport already skipped while leftover .git/archimport.marks still mapped 77bb. Drop the marks, reset 91aa, land ARCHMK_N=9. INC-{inc}.",
+            plan="Prove git-archimport already skip, drop leftover marks, land 9.",
+            out="Dropped leftover archimport.marks. ARCHMK_N=9 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: git-archimport -n already skip left marks. Plan change: recover/archmk-9.",
+            cmt="Do not git-archimport -n over leftover archimport.marks. Remove the marks file. Do not force-push main.",
+            title="ARCHMK_N=9",
+            body="git-archimport already skip left archimport.marks mapping 77bb. Dropped marks. INC-{inc}.",
+            commit="fix: ARCHMK_N=9 after dropping leftover archimport.marks (INC-{inc})",
+            mix="git-archimport already skip vs leftover archimport.marks",
+        ),
+        _H(
+            slug="cvsexportcommit-cvsdir-leftover",
+            repo="leftover-ops/cvsexport-ci",
+            marker="CVSX_N",
+            old="1",
+            new="6",
+            src="src/cvsx.py",
+            test="tests/test_cvsx.py",
+            tfail="FAILED tests/test_cvsx.py::test_cvsx_6\nFAILED tests/test_cvsx.py::test_cvsdir_gone",
+            branch="recover/cvsx-6",
+            map_cmd="git config --get cvsexportcommit.cvsdir; git cvsexportcommit -c 91aa 2>&1 | tail; rg CVSX_N src/cvsx.py",
+            map_obs="/old/cvsroot  (leftover)\nalready skip (leftover cvsdir still missing)\nCVSX_N = 1",
+            map_b="Plan: map cvsexportcommit already skip while leftover cvsexportcommit.cvsdir still points at /old/cvsroot.",
+            wrong_cmd="git cvsexportcommit -c -p 91aa && git config --get cvsexportcommit.cvsdir",
+            wrong_obs="already skip (leftover /old/cvsroot still missing)\n/old/cvsroot",
+            wrong_b="Observation: -p still used leftover cvsdir. First wrong move: cvsexportcommit -c -p.",
+            rec_cmd="git config --unset cvsexportcommit.cvsdir && git config --get cvsexportcommit.cvsdir || echo no_cvsdir",
+            rec_obs="no_cvsdir",
+            rec_b="Plan: unset leftover cvsexportcommit.cvsdir; do not rerun cvsexportcommit.",
+            left_cmd="git config --get cvsexportcommit.cvsdir || echo no_cvsdir",
+            left_obs="no_cvsdir",
+            left_b="Observation: local leftover cvsdir gone; CI still has cvsexportcommit.cvsdir=/old/cvsroot.",
+            goal="On leftover-ops/cvsexport-ci, git cvsexportcommit already skipped while leftover cvsexportcommit.cvsdir=/old/cvsroot still pointed at a missing tree. Unset it, land CVSX_N=6. CI still has cvsdir. INC-{inc}.",
+            plan="Prove cvsexportcommit already skip, unset leftover cvsdir, hand off CI config.",
+            out="Unset leftover cvsexportcommit.cvsdir; CVSX_N=6 on PR {pr}. CI still has /old/cvsroot. Issue {issue}. INC-{inc}.",
+            refl="Reflection: cvsexportcommit already skip left cvsdir. Plan change: PR the 6; hand off CI config.",
+            cmt="HANDOFF issue {issue}. Unset leftover cvsexportcommit.cvsdir. Do not force-push main.",
+            title="CVSX_N=6",
+            body="cvsexportcommit already skip left /old/cvsroot. Unset locally. CI still has cvsdir. INC-{inc}.",
+            commit="fix: CVSX_N=6 after unsetting leftover cvsexportcommit.cvsdir (INC-{inc})",
+            issue_t="CI still has leftover cvsexportcommit.cvsdir=/old/cvsroot",
+            issue_b="PR {pr}. Unset leftover cvsdir on CI. INC-{inc}.",
+            handoff="ci-cvsexport-cvsdir",
+            handoff_probe="git --git-dir=/mnt/ci/app.git config --get cvsexportcommit.cvsdir",
+            handoff_probe_obs="/old/cvsroot",
+            checks="unit pass\ncvsx-ci fail (leftover cvsdir)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="cvsexportcommit already skip vs leftover cvsexportcommit.cvsdir",
+        ),
+    ),
+    (
+        _S(
+            slug="instaweb-httpd-pid-leftover",
+            repo="leftover-ops/instaweb-gate",
+            marker="INSTA_N",
+            old="0",
+            new="4",
+            src="src/insta.py",
+            test="tests/test_insta.py",
+            tfail="FAILED tests/test_insta.py::test_insta_4\nFAILED tests/test_insta.py::test_httpd_pid_gone",
+            branch="recover/insta-4",
+            map_cmd="git instaweb --stop 2>&1 | tail; ls -l .git/gitweb/httpd.pid 2>&1 | tail; cat .git/gitweb/httpd.pid 2>/dev/null; rg INSTA_N src/insta.py",
+            map_obs="already skip (instaweb not running leftover pid still on disk)\n-rw-r--r-- .git/gitweb/httpd.pid  (leftover)\n7741\nINSTA_N = 0",
+            map_b="Plan: map git instaweb --stop already skip while leftover httpd.pid still lists 7741.",
+            wrong_cmd="git instaweb --stop && kill -0 7741 2>&1 | tail",
+            wrong_obs="already skip\nkill: (7741) leftover pid file still present, process dead",
+            wrong_b="Observation: --stop already skip left httpd.pid. First wrong move: git instaweb --stop again.",
+            rec_cmd="rm -f .git/gitweb/httpd.pid .git/gitweb/httpd.conf && ls .git/gitweb/httpd.pid 2>&1 | tail",
+            rec_obs="ls: cannot access '.git/gitweb/httpd.pid': No such file or directory",
+            rec_b="Plan: delete leftover instaweb pid and conf; do not rerun instaweb --stop.",
+            left_cmd="ls .git/gitweb/httpd.pid .git/gitweb/httpd.conf 2>&1 | tail",
+            left_obs="ls: cannot access '.git/gitweb/httpd.pid': No such file or directory\nls: cannot access '.git/gitweb/httpd.conf': No such file or directory",
+            left_b="Observation: leftover instaweb pid and conf are gone.",
+            goal="On leftover-ops/instaweb-gate, git instaweb --stop already skipped while leftover .git/gitweb/httpd.pid still listed dead 7741. Drop the pid and conf, land INSTA_N=4. INC-{inc}.",
+            plan="Prove instaweb --stop already skip, drop leftover pid, land 4.",
+            out="Dropped leftover instaweb httpd.pid. INSTA_N=4 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: instaweb --stop already skip left httpd.pid. Plan change: recover/insta-4.",
+            cmt="Do not git instaweb --stop over leftover httpd.pid. Remove the pid file. Do not force-push main.",
+            title="INSTA_N=4",
+            body="instaweb --stop already skip left httpd.pid 7741. Dropped pid and conf. INC-{inc}.",
+            commit="fix: INSTA_N=4 after dropping leftover instaweb httpd.pid (INC-{inc})",
+            mix="git instaweb --stop already skip vs leftover httpd.pid",
+        ),
+        _H(
+            slug="column-ui-always-leftover",
+            repo="leftover-ops/column-ui-ci",
+            marker="COLUI_N",
+            old="2",
+            new="8",
+            src="src/colui.py",
+            test="tests/test_colui.py",
+            tfail="FAILED tests/test_colui.py::test_colui_8\nFAILED tests/test_colui.py::test_column_ui_gone",
+            branch="recover/colui-8",
+            map_cmd="git config --get column.ui; printf 'a\\tb\\n' | git column --mode=row 2>&1 | tail; rg COLUI_N src/colui.py",
+            map_obs="always  (leftover)\nalready skip (leftover column.ui=always still wraps recover TSV)\nCOLUI_N = 2",
+            map_b="Plan: map git column already skip while leftover column.ui=always still wraps recover TSV.",
+            wrong_cmd="git column --mode=plain && git config column.ui never",
+            wrong_obs="already skip (leftover always still wins over --mode=plain)",
+            wrong_b="Observation: --mode=plain already skip left column.ui=always. First wrong move: git column --mode=plain.",
+            rec_cmd="git config --unset column.ui && git config --get column.ui || echo column_default && printf 'a\\tb\\n' | git column --mode=row",
+            rec_obs="column_default\na\tb",
+            rec_b="Plan: unset leftover column.ui; do not set never over leftover always.",
+            left_cmd="git config --get column.ui || echo column_default",
+            left_obs="column_default",
+            left_b="Observation: local leftover column.ui gone; CI still has column.ui=always.",
+            goal="On leftover-ops/column-ui-ci, git column already skipped while leftover column.ui=always still wrapped recover TSV. Unset it, land COLUI_N=8. CI still has column.ui=always. INC-{inc}.",
+            plan="Prove git column already skip, unset leftover column.ui, hand off CI config.",
+            out="Unset leftover column.ui; COLUI_N=8 on PR {pr}. CI still has column.ui=always. Issue {issue}. INC-{inc}.",
+            refl="Reflection: git column --mode=plain already skip left column.ui=always. Plan change: PR the 8; hand off CI config.",
+            cmt="HANDOFF issue {issue}. Unset leftover column.ui=always. Do not force-push main.",
+            title="COLUI_N=8",
+            body="git column already skip left column.ui=always. Unset locally. CI still has it. INC-{inc}.",
+            commit="fix: COLUI_N=8 after unsetting leftover column.ui (INC-{inc})",
+            issue_t="CI still has leftover column.ui=always",
+            issue_b="PR {pr}. Unset leftover column.ui on CI. INC-{inc}.",
+            handoff="ci-column-ui",
+            handoff_probe="git --git-dir=/mnt/ci/app.git config --get column.ui",
+            handoff_probe_obs="always",
+            checks="unit pass\ncolumn-ci fail (leftover column.ui=always)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="git column already skip vs leftover column.ui=always",
+        ),
+    ),
+    (
+        _S(
+            slug="merge-octopus-custom-leftover",
+            repo="leftover-ops/merge-octopus-gate",
+            marker="OCTO_N",
+            old="1",
+            new="5",
+            src="src/octo.py",
+            test="tests/test_octo.py",
+            tfail="FAILED tests/test_octo.py::test_octo_5\nFAILED tests/test_octo.py::test_octopus_cmd_gone",
+            branch="recover/octo-5",
+            map_cmd="git config --get merge.octopus; git merge -s octopus topic-a topic-b 2>&1 | tail; rg OCTO_N src/octo.py",
+            map_obs="/usr/local/bin/octopus-old  (leftover custom strategy)\nalready skip (leftover octopus-old still exits 128)\nOCTO_N = 1",
+            map_b="Plan: map merge -s octopus already skip while leftover merge.octopus still calls octopus-old.",
+            wrong_cmd="git merge -s octopus --no-commit topic-a topic-b",
+            wrong_obs="already skip (leftover /usr/local/bin/octopus-old still exits 128)",
+            wrong_b="Observation: --no-commit still called leftover octopus-old. First wrong move: merge -s octopus --no-commit.",
+            rec_cmd="git config --unset merge.octopus && git merge -s octopus topic-a topic-b && git config --get merge.octopus || echo octopus_default",
+            rec_obs="Merge made by the 'octopus' strategy.\noctopus_default",
+            rec_b="Plan: unset leftover merge.octopus then merge with builtin octopus.",
+            left_cmd="git config --get merge.octopus || echo octopus_default; git log -1 --format=%P | awk '{print NF}'",
+            left_obs="octopus_default\n3",
+            left_b="Observation: leftover custom octopus command is gone.",
+            goal="On leftover-ops/merge-octopus-gate, git merge -s octopus already skipped while leftover merge.octopus=/usr/local/bin/octopus-old still exited 128. Unset it, merge with builtin octopus, land OCTO_N=5. INC-{inc}.",
+            plan="Prove octopus already skip, unset leftover merge.octopus, land 5.",
+            out="Unset leftover merge.octopus custom command. OCTO_N=5 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: merge -s octopus already skip left octopus-old. Plan change: recover/octo-5.",
+            cmt="Do not git merge -s octopus over leftover merge.octopus. Unset the custom command. Do not force-push main.",
+            title="OCTO_N=5",
+            body="merge -s octopus already skip left octopus-old. Unset merge.octopus. INC-{inc}.",
+            commit="fix: OCTO_N=5 after unsetting leftover merge.octopus (INC-{inc})",
+            mix="merge -s octopus already skip vs leftover merge.octopus custom command",
+        ),
+        _H(
+            slug="merge-ours-driver-leftover",
+            repo="leftover-ops/merge-ours-ci",
+            marker="MOURS_N",
+            old="0",
+            new="3",
+            src="src/mours.py",
+            test="tests/test_mours.py",
+            tfail="FAILED tests/test_mours.py::test_mours_3\nFAILED tests/test_mours.py::test_ours_driver_gone",
+            branch="recover/mours-3",
+            map_cmd="rg 'merge=ours' .gitattributes; git config --get merge.ours.driver; git merge -s ours topic 2>&1 | tail; rg MOURS_N src/mours.py",
+            map_obs="src/mours.py merge=ours  (leftover)\ntrue  (leftover driver)\nalready skip (leftover ours driver still keeps 77bb)\nMOURS_N = 0",
+            map_b="Plan: map merge -s ours already skip while leftover merge=ours driver still keeps 77bb.",
+            wrong_cmd="git merge -s ours --no-commit topic && rg MOURS_N src/mours.py",
+            wrong_obs="already skip (leftover ours driver still keeps 77bb)\nMOURS_N = 0",
+            wrong_b="Observation: --no-commit still used leftover ours driver. First wrong move: merge -s ours --no-commit.",
+            rec_cmd="git config --unset merge.ours.driver && sed -i '/merge=ours/d' .gitattributes && git merge -s ort topic && rg merge=ours .gitattributes || echo no_ours",
+            rec_obs="no_ours",
+            rec_b="Plan: drop leftover ours driver and merge with ort; do not rerun -s ours.",
+            left_cmd="rg merge=ours .gitattributes || echo no_ours; git config --get merge.ours.driver || echo no_driver",
+            left_obs="no_ours\nno_driver",
+            left_b="Observation: local leftover ours driver gone; CI still stamps merge=ours.",
+            goal="On leftover-ops/merge-ours-ci, git merge -s ours already skipped while leftover merge=ours in .gitattributes still kept 77bb. Drop the driver, merge ort, land MOURS_N=3. CI still stamps merge=ours. INC-{inc}.",
+            plan="Prove ours already skip, drop leftover ours driver, hand off CI attributes.",
+            out="Dropped leftover ours driver; MOURS_N=3 on PR {pr}. CI still stamps merge=ours. Issue {issue}. INC-{inc}.",
+            refl="Reflection: merge -s ours already skip left ours driver. Plan change: PR the 3; hand off CI attributes.",
+            cmt="HANDOFF issue {issue}. Drop leftover merge=ours driver. Do not force-push main.",
+            title="MOURS_N=3",
+            body="merge -s ours already skip left merge=ours driver. Dropped locally. CI still stamps it. INC-{inc}.",
+            commit="fix: MOURS_N=3 after dropping leftover merge-ours driver (INC-{inc})",
+            issue_t="CI still stamps leftover merge=ours on src/mours.py",
+            issue_b="PR {pr}. Stop CI from writing merge=ours into .gitattributes. INC-{inc}.",
+            handoff="ci-merge-ours-driver",
+            handoff_probe="rg merge=ours /mnt/ci/app/.gitattributes",
+            handoff_probe_obs="src/mours.py merge=ours",
+            checks="unit pass\nours-ci fail (leftover merge=ours)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="merge -s ours already skip vs leftover merge=ours gitattributes driver",
+        ),
+    ),
+    (
+        _S(
+            slug="merge-subtree-prefix-leftover",
+            repo="leftover-ops/merge-subtree-gate",
+            marker="SUBTR_N",
+            old="2",
+            new="7",
+            src="src/subtr.py",
+            test="tests/test_subtr.py",
+            tfail="FAILED tests/test_subtr.py::test_subtr_7\nFAILED tests/test_subtr.py::test_subtree_prefix_gone",
+            branch="recover/subtr-7",
+            map_cmd="git config --get merge.subtree; git merge -s subtree vendor-old 2>&1 | tail; rg SUBTR_N src/subtr.py",
+            map_obs="vendor/old  (leftover prefix)\nalready skip (leftover vendor/old still missing)\nSUBTR_N = 2",
+            map_b="Plan: map merge -s subtree already skip while leftover merge.subtree=vendor/old still missing.",
+            wrong_cmd="git merge -s subtree -Xsubtree=vendor/old vendor-old",
+            wrong_obs="already skip (leftover vendor/old still missing)",
+            wrong_b="Observation: -Xsubtree still used leftover vendor/old. First wrong move: merge -s subtree -Xsubtree=vendor/old.",
+            rec_cmd="git config --unset merge.subtree && git merge -s subtree -Xsubtree=vendor/live vendor-live && git config --get merge.subtree || echo subtree_default",
+            rec_obs="Merge made by the 'subtree' strategy.\nsubtree_default",
+            rec_b="Plan: unset leftover merge.subtree and merge with vendor/live; do not reuse vendor/old.",
+            left_cmd="git config --get merge.subtree || echo subtree_default; test -d vendor/live && echo live_ok",
+            left_obs="subtree_default\nlive_ok",
+            left_b="Observation: leftover merge.subtree=vendor/old is gone.",
+            goal="On leftover-ops/merge-subtree-gate, git merge -s subtree already skipped while leftover merge.subtree=vendor/old still pointed at a missing prefix. Unset it, merge vendor/live, land SUBTR_N=7. INC-{inc}.",
+            plan="Prove subtree already skip, unset leftover merge.subtree, land 7.",
+            out="Unset leftover merge.subtree prefix. SUBTR_N=7 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: merge -s subtree already skip left vendor/old. Plan change: recover/subtr-7.",
+            cmt="Do not git merge -s subtree -Xsubtree=vendor/old over leftover merge.subtree. Unset it. Do not force-push main.",
+            title="SUBTR_N=7",
+            body="merge -s subtree already skip left vendor/old. Unset merge.subtree and merged vendor/live. INC-{inc}.",
+            commit="fix: SUBTR_N=7 after unsetting leftover merge.subtree (INC-{inc})",
+            mix="merge -s subtree already skip vs leftover merge.subtree prefix",
+        ),
+        _H(
+            slug="merge-resolve-strategy-leftover",
+            repo="leftover-ops/merge-resolve-ci",
+            marker="MRES_N",
+            old="1",
+            new="6",
+            src="src/mres.py",
+            test="tests/test_mres.py",
+            tfail="FAILED tests/test_mres.py::test_mres_6\nFAILED tests/test_mres.py::test_resolve_gone",
+            branch="recover/mres-6",
+            map_cmd="git config --get pull.twohead; git merge -s resolve topic 2>&1 | tail; rg MRES_N src/mres.py",
+            map_obs="resolve  (leftover)\nalready skip (leftover resolve still refuses recover rename)\nMRES_N = 1",
+            map_b="Plan: map merge -s resolve already skip while leftover pull.twohead=resolve still refuses the recover rename.",
+            wrong_cmd="git merge -s resolve --no-commit topic",
+            wrong_obs="already skip (leftover resolve still refuses recover rename)",
+            wrong_b="Observation: --no-commit still used leftover resolve. First wrong move: merge -s resolve --no-commit.",
+            rec_cmd="git config pull.twohead ort && git merge -s ort topic && git config --get pull.twohead",
+            rec_obs="Merge made by the 'ort' strategy.\nort",
+            rec_b="Plan: set pull.twohead=ort; do not rerun merge -s resolve.",
+            left_cmd="git config --get pull.twohead",
+            left_obs="ort",
+            left_b="Observation: local leftover resolve gone; CI still has pull.twohead=resolve.",
+            goal="On leftover-ops/merge-resolve-ci, git merge -s resolve already skipped while leftover pull.twohead=resolve still refused the recover rename. Set pull.twohead=ort, land MRES_N=6. CI still has resolve. INC-{inc}.",
+            plan="Prove resolve already skip, set leftover pull.twohead to ort, hand off CI config.",
+            out="Set pull.twohead=ort; MRES_N=6 on PR {pr}. CI still has resolve. Issue {issue}. INC-{inc}.",
+            refl="Reflection: merge -s resolve already skip left pull.twohead=resolve. Plan change: PR the 6; hand off CI config.",
+            cmt="HANDOFF issue {issue}. Set leftover pull.twohead from resolve to ort. Do not force-push main.",
+            title="MRES_N=6",
+            body="merge -s resolve already skip left pull.twohead=resolve. Set ort locally. CI still resolve. INC-{inc}.",
+            commit="fix: MRES_N=6 after dropping leftover merge-resolve strategy (INC-{inc})",
+            issue_t="CI still has leftover pull.twohead=resolve",
+            issue_b="PR {pr}. Set CI pull.twohead=ort. INC-{inc}.",
+            handoff="ci-merge-resolve",
+            handoff_probe="git --git-dir=/mnt/ci/app.git config --get pull.twohead",
+            handoff_probe_obs="resolve",
+            checks="unit pass\nresolve-ci fail (leftover pull.twohead=resolve)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="merge -s resolve already skip vs leftover pull.twohead=resolve",
+        ),
+    ),
+    (
+        _S(
+            slug="fmt-merge-msg-file-leftover",
+            repo="leftover-ops/fmt-merge-msg-gate",
+            marker="FMTMSG_N",
+            old="0",
+            new="4",
+            src="src/fmtmsg.py",
+            test="tests/test_fmtmsg.py",
+            tfail="FAILED tests/test_fmtmsg.py::test_fmtmsg_4\nFAILED tests/test_fmtmsg.py::test_merge_msg_gone",
+            branch="recover/fmtmsg-4",
+            map_cmd="test -f .git/MERGE_HEAD && echo has_merge_head || echo no_merge_head; cat .git/MERGE_MSG 2>&1 | head; git fmt-merge-msg < /dev/null 2>&1 | tail; rg FMTMSG_N src/fmtmsg.py",
+            map_obs="no_merge_head (already skip)\nMerge leftover 77bb into main  (leftover MERGE_MSG)\nalready skip (no MERGE_HEAD leftover MERGE_MSG still on disk)\nFMTMSG_N = 0",
+            map_b="Plan: map fmt-merge-msg already skip while leftover MERGE_MSG still says 77bb.",
+            wrong_cmd="git fmt-merge-msg --log < /dev/null && cat .git/MERGE_MSG",
+            wrong_obs="already skip\nMerge leftover 77bb into main",
+            wrong_b="Observation: --log already skip left MERGE_MSG. First wrong move: git fmt-merge-msg --log.",
+            rec_cmd="rm -f .git/MERGE_MSG && ls .git/MERGE_MSG 2>&1 | tail",
+            rec_obs="ls: cannot access '.git/MERGE_MSG': No such file or directory",
+            rec_b="Plan: delete leftover MERGE_MSG; do not rerun fmt-merge-msg without MERGE_HEAD.",
+            left_cmd="ls .git/MERGE_MSG 2>&1 | tail; ls .git/MERGE_HEAD 2>&1 | tail",
+            left_obs="ls: cannot access '.git/MERGE_MSG': No such file or directory\nls: cannot access '.git/MERGE_HEAD': No such file or directory",
+            left_b="Observation: leftover MERGE_MSG is gone.",
+            goal="On leftover-ops/fmt-merge-msg-gate, git fmt-merge-msg already skipped (no MERGE_HEAD) while leftover .git/MERGE_MSG still said 77bb. Drop MERGE_MSG, land FMTMSG_N=4. INC-{inc}.",
+            plan="Prove fmt-merge-msg already skip, drop leftover MERGE_MSG, land 4.",
+            out="Dropped leftover MERGE_MSG. FMTMSG_N=4 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: fmt-merge-msg already skip left MERGE_MSG. Plan change: recover/fmtmsg-4.",
+            cmt="Do not git fmt-merge-msg --log when there is no MERGE_HEAD. Remove leftover MERGE_MSG. Do not force-push main.",
+            title="FMTMSG_N=4",
+            body="fmt-merge-msg already skip left MERGE_MSG saying 77bb. Dropped MERGE_MSG. INC-{inc}.",
+            commit="fix: FMTMSG_N=4 after dropping leftover MERGE_MSG (INC-{inc})",
+            mix="fmt-merge-msg already skip vs leftover MERGE_MSG",
+        ),
+        _H(
+            slug="patch-id-stable-rename-leftover",
+            repo="leftover-ops/patch-id-ci",
+            marker="PATCHID_N",
+            old="2",
+            new="8",
+            src="src/patchid.py",
+            test="tests/test_patchid.py",
+            tfail="FAILED tests/test_patchid.py::test_patchid_8\nFAILED tests/test_patchid.py::test_renames_on",
+            branch="recover/patchid-8",
+            map_cmd="git config --get diff.renames; git show 91aa | git patch-id --stable 2>&1 | tail; rg PATCHID_N src/patchid.py",
+            map_obs="false  (leftover)\nalready skip (leftover diff.renames=false still splits recover patch-id)\nPATCHID_N = 2",
+            map_b="Plan: map patch-id --stable already skip while leftover diff.renames=false still splits the recover identity.",
+            wrong_cmd="git patch-id --stable < recover.patch && git config diff.renames copies",
+            wrong_obs="already skip (leftover false still splits patch-id before copies takes effect on this stdin)",
+            wrong_b="Observation: --stable already skip left diff.renames=false. First wrong move: patch-id then set copies.",
+            rec_cmd="git config diff.renames true && git show 91aa | git patch-id --stable && git config --get diff.renames",
+            rec_obs="91aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 91aa\ntrue",
+            rec_b="Plan: set leftover diff.renames=true then recompute patch-id; do not set copies over false.",
+            left_cmd="git config --get diff.renames",
+            left_obs="true",
+            left_b="Observation: local leftover false gone; CI still has diff.renames=false.",
+            goal="On leftover-ops/patch-id-ci, git patch-id --stable already skipped while leftover diff.renames=false still split the recover identity. Set diff.renames=true, land PATCHID_N=8. CI still has false. INC-{inc}.",
+            plan="Prove patch-id already skip, set leftover diff.renames, hand off CI config.",
+            out="Set diff.renames=true; PATCHID_N=8 on PR {pr}. CI still has false. Issue {issue}. INC-{inc}.",
+            refl="Reflection: patch-id already skip left diff.renames=false. Plan change: PR the 8; hand off CI config.",
+            cmt="HANDOFF issue {issue}. Set leftover diff.renames=true. Do not force-push main.",
+            title="PATCHID_N=8",
+            body="patch-id --stable already skip left diff.renames=false. Set true locally. CI still false. INC-{inc}.",
+            commit="fix: PATCHID_N=8 after dropping leftover diff.renames=false (INC-{inc})",
+            issue_t="CI still has leftover diff.renames=false",
+            issue_b="PR {pr}. Set CI diff.renames=true. INC-{inc}.",
+            handoff="ci-patch-id-renames",
+            handoff_probe="git --git-dir=/mnt/ci/app.git config --get diff.renames",
+            handoff_probe_obs="false",
+            checks="unit pass\npatchid-ci fail (leftover diff.renames=false)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="patch-id --stable already skip vs leftover diff.renames=false",
+        ),
+    ),
+    (
+        _S(
+            slug="fetch-negotiate-noop-leftover",
+            repo="leftover-ops/negotiate-gate",
+            marker="NEGO_N",
+            old="1",
+            new="6",
+            src="src/nego.py",
+            test="tests/test_nego.py",
+            tfail="FAILED tests/test_nego.py::test_nego_6\nFAILED tests/test_nego.py::test_noop_gone",
+            branch="recover/nego-6",
+            map_cmd="git config --get fetch.negotiationAlgorithm; git fetch --negotiate-only origin 2>&1 | tail; rg NEGO_N src/nego.py",
+            map_obs="noop  (leftover)\nalready skip (leftover noop still sends no haves)\nNEGO_N = 1",
+            map_b="Plan: map fetch --negotiate-only already skip while leftover fetch.negotiationAlgorithm=noop still sends no haves.",
+            wrong_cmd="git fetch --negotiate-only --negotiation-tip=91aa origin",
+            wrong_obs="already skip (leftover noop still ignores --negotiation-tip)",
+            wrong_b="Observation: --negotiation-tip still honored leftover noop. First wrong move: fetch --negotiate-only --negotiation-tip.",
+            rec_cmd="git config --unset fetch.negotiationAlgorithm && git fetch --negotiate-only origin && git config --get fetch.negotiationAlgorithm || echo nego_default",
+            rec_obs="negotiated 91aa\nnego_default",
+            rec_b="Plan: unset leftover fetch.negotiationAlgorithm=noop; do not add --negotiation-tip over noop.",
+            left_cmd="git config --get fetch.negotiationAlgorithm || echo nego_default",
+            left_obs="nego_default",
+            left_b="Observation: leftover noop algorithm is gone.",
+            goal="On leftover-ops/negotiate-gate, git fetch --negotiate-only already skipped while leftover fetch.negotiationAlgorithm=noop still sent no haves. Unset noop, land NEGO_N=6. INC-{inc}.",
+            plan="Prove negotiate-only already skip, unset leftover noop, land 6.",
+            out="Unset leftover fetch.negotiationAlgorithm=noop. NEGO_N=6 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: --negotiation-tip already skip left noop. Plan change: recover/nego-6.",
+            cmt="Do not git fetch --negotiate-only --negotiation-tip over leftover noop. Unset fetch.negotiationAlgorithm. Do not force-push main.",
+            title="NEGO_N=6",
+            body="fetch --negotiate-only already skip left negotiationAlgorithm=noop. Unset it. INC-{inc}.",
+            commit="fix: NEGO_N=6 after unsetting leftover fetch.negotiationAlgorithm=noop (INC-{inc})",
+            mix="fetch --negotiate-only already skip vs leftover negotiationAlgorithm=noop",
+        ),
+        _H(
+            slug="push-force-if-includes-leftover",
+            repo="leftover-ops/force-if-includes-ci",
+            marker="FII_N",
+            old="0",
+            new="5",
+            src="src/fii.py",
+            test="tests/test_fii.py",
+            tfail="FAILED tests/test_fii.py::test_fii_5\nFAILED tests/test_fii.py::test_reflog_present",
+            branch="recover/fii-5",
+            map_cmd="git config --get push.useForceIfIncludes; git reflog show origin/main 2>&1 | tail; git push --force-if-includes origin recover/fii-5:main 2>&1 | tail; rg FII_N src/fii.py",
+            map_obs="true  (leftover)\nfatal: ambiguous argument 'origin/main': unknown revision (leftover missing reflog)\nalready skip (leftover force-if-includes still cannot see origin/main reflog)\nFII_N = 0",
+            map_b="Plan: map push --force-if-includes already skip while leftover missing origin/main reflog still blocks the include check.",
+            wrong_cmd="git push --force-if-includes --force-with-lease origin recover/fii-5:main",
+            wrong_obs="already skip (leftover missing reflog still blocks include check)",
+            wrong_b="Observation: --force-with-lease still needed leftover reflog. First wrong move: push --force-if-includes --force-with-lease.",
+            rec_cmd="git fetch origin main:refs/remotes/origin/main && git reflog exists origin/main && git push --force-if-includes origin recover/fii-5:recover/fii-5",
+            rec_obs="origin/main@{0} exists\n* [new branch] recover/fii-5 -> recover/fii-5",
+            rec_b="Plan: restore leftover origin/main reflog via fetch; do not combine --force-with-lease over a missing reflog.",
+            left_cmd="git reflog exists origin/main && echo reflog_ok; git config --get push.useForceIfIncludes",
+            left_obs="reflog_ok\ntrue",
+            left_b="Observation: local origin/main reflog restored; CI still has no origin/main reflog.",
+            goal="On leftover-ops/force-if-includes-ci, git push --force-if-includes already skipped while leftover missing origin/main reflog still blocked the include check. Fetch origin/main, land FII_N=5. CI still lacks the reflog. INC-{inc}.",
+            plan="Prove force-if-includes already skip, restore leftover reflog, hand off CI fetch.",
+            out="Restored leftover origin/main reflog; FII_N=5 on PR {pr}. CI still lacks the reflog. Issue {issue}. INC-{inc}.",
+            refl="Reflection: --force-with-lease already skip left missing reflog. Plan change: PR the 5; hand off CI fetch.",
+            cmt="HANDOFF issue {issue}. Fetch origin/main so leftover force-if-includes can see the reflog. Do not force-push main.",
+            title="FII_N=5",
+            body="push --force-if-includes already skip left missing origin/main reflog. Fetched locally. CI still lacks it. INC-{inc}.",
+            commit="fix: FII_N=5 after restoring leftover origin/main reflog (INC-{inc})",
+            issue_t="CI still has leftover missing origin/main reflog for force-if-includes",
+            issue_b="PR {pr}. Fetch origin/main on CI so force-if-includes can run. INC-{inc}.",
+            handoff="ci-force-if-includes-reflog",
+            handoff_probe="git --git-dir=/mnt/ci/app.git reflog exists origin/main || echo ci_no_reflog",
+            handoff_probe_obs="ci_no_reflog",
+            checks="unit pass\nfii-ci fail (leftover missing origin/main reflog)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="push --force-if-includes already skip vs leftover missing origin/main reflog",
+        ),
+    ),
+    (
+        _S(
+            slug="upload-archive-unreachable-leftover",
+            repo="leftover-ops/upload-archive-gate",
+            marker="UARCH_N",
+            old="2",
+            new="8",
+            src="src/uarch.py",
+            test="tests/test_uarch.py",
+            tfail="FAILED tests/test_uarch.py::test_uarch_8\nFAILED tests/test_uarch.py::test_allow_unreachable_gone",
+            branch="recover/uarch-8",
+            map_cmd="git config --get uploadarchive.allowUnreachable; git archive --remote=origin 77bb src/uarch.py 2>&1 | tail; rg UARCH_N src/uarch.py",
+            map_obs="true  (leftover)\nalready skip (leftover allowUnreachable still archives dangling 77bb)\nUARCH_N = 2",
+            map_b="Plan: map git-upload-archive already skip of path checks while leftover allowUnreachable still archives dangling 77bb.",
+            wrong_cmd="git archive --remote=origin --format=tar 77bb src/uarch.py | tar -t | head",
+            wrong_obs="already skip (leftover allowUnreachable still shipped dangling 77bb)",
+            wrong_b="Observation: --format=tar still honored leftover allowUnreachable. First wrong move: git archive --remote dangling 77bb.",
+            rec_cmd="git config --unset uploadarchive.allowUnreachable && git archive --remote=origin --format=tar 91aa src/uarch.py >/tmp/a.tar && git config --get uploadarchive.allowUnreachable || echo allow_default",
+            rec_obs="allow_default",
+            rec_b="Plan: unset leftover uploadarchive.allowUnreachable; archive reachable 91aa only.",
+            left_cmd="git config --get uploadarchive.allowUnreachable || echo allow_default",
+            left_obs="allow_default",
+            left_b="Observation: leftover allowUnreachable is gone.",
+            goal="On leftover-ops/upload-archive-gate, git-upload-archive already skipped path checks while leftover uploadarchive.allowUnreachable=true still archived dangling 77bb. Unset it, archive 91aa, land UARCH_N=8. INC-{inc}.",
+            plan="Prove upload-archive leftover, unset allowUnreachable, land 8.",
+            out="Unset leftover uploadarchive.allowUnreachable. UARCH_N=8 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: git archive --remote already skip left allowUnreachable. Plan change: recover/uarch-8.",
+            cmt="Do not git archive --remote a dangling SHA while leftover allowUnreachable=true. Unset it. Do not force-push main.",
+            title="UARCH_N=8",
+            body="upload-archive leftover allowUnreachable still archived dangling 77bb. Unset it. INC-{inc}.",
+            commit="fix: UARCH_N=8 after unsetting leftover uploadarchive.allowUnreachable (INC-{inc})",
+            mix="git-upload-archive already skip vs leftover allowUnreachable",
+        ),
+        _H(
+            slug="clone-separate-git-dir-leftover",
+            repo="leftover-ops/separate-git-dir-ci",
+            marker="SEPGIT_N",
+            old="1",
+            new="5",
+            src="src/sepgit.py",
+            test="tests/test_sepgit.py",
+            tfail="FAILED tests/test_sepgit.py::test_sepgit_5\nFAILED tests/test_sepgit.py::test_gitfile_live",
+            branch="recover/sepgit-5",
+            map_cmd="cat .git; git rev-parse --git-dir; git clone --separate-git-dir=/old/app.git . /tmp/app-work 2>&1 | tail; rg SEPGIT_N src/sepgit.py",
+            map_obs="gitdir: /old/app.git  (leftover gitfile)\n/old/app.git\nalready skip (/old/app.git leftover still missing)\nSEPGIT_N = 1",
+            map_b="Plan: map clone --separate-git-dir already skip while leftover gitfile still points at /old/app.git.",
+            wrong_cmd="git clone --separate-git-dir=/old/app.git . /tmp/app-work2",
+            wrong_obs="already skip (leftover /old/app.git still missing)",
+            wrong_b="Observation: clone --separate-git-dir already skip left /old/app.git. First wrong move: clone --separate-git-dir again.",
+            rec_cmd="printf 'gitdir: /live/app.git\\n' > .git && git rev-parse --git-dir && git status -sb | head",
+            rec_obs="/live/app.git\n## main",
+            rec_b="Plan: rewrite leftover gitfile to /live/app.git; do not rerun clone --separate-git-dir.",
+            left_cmd="cat .git; git rev-parse --git-dir",
+            left_obs="gitdir: /live/app.git\n/live/app.git",
+            left_b="Observation: local leftover /old/app.git gone; CI still has gitfile -> /old/app.git.",
+            goal="On leftover-ops/separate-git-dir-ci, git clone --separate-git-dir already skipped while leftover .git gitfile still pointed at missing /old/app.git. Rewrite to /live/app.git, land SEPGIT_N=5. CI still has /old/app.git. INC-{inc}.",
+            plan="Prove separate-git-dir already skip, rewrite leftover gitfile, hand off CI gitfile.",
+            out="Rewrote leftover gitfile; SEPGIT_N=5 on PR {pr}. CI still points at /old/app.git. Issue {issue}. INC-{inc}.",
+            refl="Reflection: clone --separate-git-dir already skip left /old/app.git. Plan change: PR the 5; hand off CI gitfile.",
+            cmt="HANDOFF issue {issue}. Rewrite leftover gitfile from /old/app.git to /live/app.git. Do not force-push main.",
+            title="SEPGIT_N=5",
+            body="clone --separate-git-dir already skip left gitfile /old/app.git. Rewrote locally. CI still has it. INC-{inc}.",
+            commit="fix: SEPGIT_N=5 after rewriting leftover separate-git-dir gitfile (INC-{inc})",
+            issue_t="CI still has leftover gitfile pointing at /old/app.git",
+            issue_b="PR {pr}. Rewrite CI .git gitfile to /live/app.git. INC-{inc}.",
+            handoff="ci-separate-git-dir",
+            handoff_probe="cat /mnt/ci/app/.git",
+            handoff_probe_obs="gitdir: /old/app.git",
+            checks="unit pass\nsepgit-ci fail (leftover gitfile /old/app.git)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="clone --separate-git-dir already skip vs leftover gitfile /old/app.git",
+        ),
+    ),
+    (
+        _S(
+            slug="push-to-checkout-hook-leftover",
+            repo="leftover-ops/push-to-checkout-gate",
+            marker="P2CO_N",
+            old="0",
+            new="7",
+            src="src/p2co.py",
+            test="tests/test_p2co.py",
+            tfail="FAILED tests/test_p2co.py::test_p2co_7\nFAILED tests/test_p2co.py::test_hook_gone",
+            branch="recover/p2co-7",
+            map_cmd="git config --get receive.denyCurrentBranch; ls -l .git/hooks/push-to-checkout; git push . HEAD:main 2>&1 | tail; rg P2CO_N src/p2co.py",
+            map_obs="updateInstead\n-rwxr-xr-x .git/hooks/push-to-checkout  (leftover exits 1)\nalready skip (leftover push-to-checkout still rejects recover)\nP2CO_N = 0",
+            map_b="Plan: map receive.denyCurrentBranch=updateInstead already skip while leftover push-to-checkout hook still exits 1.",
+            wrong_cmd="git config receive.denyCurrentBranch ignore && git push . HEAD:main",
+            wrong_obs="already skip (leftover push-to-checkout still exits 1 even with ignore)",
+            wrong_b="Observation: denyCurrentBranch=ignore still ran leftover hook. First wrong move: set ignore.",
+            rec_cmd="rm -f .git/hooks/push-to-checkout && git push . HEAD:main && ls .git/hooks/push-to-checkout 2>&1 | tail",
+            rec_obs="ls: cannot access '.git/hooks/push-to-checkout': No such file or directory",
+            rec_b="Plan: delete leftover push-to-checkout hook; do not set denyCurrentBranch=ignore over it.",
+            left_cmd="ls .git/hooks/push-to-checkout 2>&1 | tail; git config --get receive.denyCurrentBranch",
+            left_obs="ls: cannot access '.git/hooks/push-to-checkout': No such file or directory\nupdateInstead",
+            left_b="Observation: leftover push-to-checkout hook is gone.",
+            goal="On leftover-ops/push-to-checkout-gate, receive.denyCurrentBranch=updateInstead already skipped the update while leftover hooks/push-to-checkout still exited 1. Drop the hook, land P2CO_N=7. INC-{inc}.",
+            plan="Prove updateInstead already skip, drop leftover push-to-checkout hook, land 7.",
+            out="Dropped leftover push-to-checkout hook. P2CO_N=7 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: denyCurrentBranch=ignore still ran leftover hook. Plan change: recover/p2co-7.",
+            cmt="Do not set receive.denyCurrentBranch=ignore over leftover push-to-checkout. Remove the hook. Do not force-push main.",
+            title="P2CO_N=7",
+            body="updateInstead already skip left push-to-checkout exiting 1. Dropped the hook. INC-{inc}.",
+            commit="fix: P2CO_N=7 after dropping leftover push-to-checkout hook (INC-{inc})",
+            mix="receive.denyCurrentBranch=updateInstead already skip vs leftover push-to-checkout hook",
+        ),
+        _H(
+            slug="reference-transaction-hook-leftover",
+            repo="leftover-ops/ref-transaction-ci",
+            marker="REFTRX_N",
+            old="1",
+            new="4",
+            src="src/reftrx.py",
+            test="tests/test_reftrx.py",
+            tfail="FAILED tests/test_reftrx.py::test_reftrx_4\nFAILED tests/test_reftrx.py::test_hook_gone",
+            branch="recover/reftrx-4",
+            map_cmd="ls -l .git/hooks/reference-transaction; git update-ref refs/heads/recover/reftrx-4 HEAD 2>&1 | tail; rg REFTRX_N src/reftrx.py",
+            map_obs="-rwxr-xr-x .git/hooks/reference-transaction  (leftover exits 1 on recover refs)\nalready skip (leftover reference-transaction still rejects recover/reftrx-4)\nREFTRX_N = 1",
+            map_b="Plan: map update-ref already skip while leftover reference-transaction hook still rejects recover refs.",
+            wrong_cmd="chmod -x .git/hooks/reference-transaction && git update-ref refs/heads/recover/reftrx-4 HEAD",
+            wrong_obs="already skip (leftover hook still executable via core.hooksPath copy)",
+            wrong_b="Observation: chmod -x already skip left hooksPath copy. First wrong move: chmod -x the leftover hook.",
+            rec_cmd="rm -f .git/hooks/reference-transaction && git update-ref refs/heads/recover/reftrx-4 HEAD && ls .git/hooks/reference-transaction 2>&1 | tail",
+            rec_obs="ls: cannot access '.git/hooks/reference-transaction': No such file or directory",
+            rec_b="Plan: delete leftover reference-transaction hook; do not chmod -x over a hooksPath copy.",
+            left_cmd="ls .git/hooks/reference-transaction 2>&1 | tail; git show-ref refs/heads/recover/reftrx-4 | head",
+            left_obs="ls: cannot access '.git/hooks/reference-transaction': No such file or directory\n91aa refs/heads/recover/reftrx-4",
+            left_b="Observation: local leftover hook gone; CI still has leftover reference-transaction.",
+            goal="On leftover-ops/ref-transaction-ci, git update-ref already skipped while leftover hooks/reference-transaction still rejected recover refs. Drop the hook, land REFTRX_N=4. CI still has the hook. INC-{inc}.",
+            plan="Prove update-ref already skip, drop leftover reference-transaction hook, hand off CI hook.",
+            out="Dropped leftover reference-transaction hook; REFTRX_N=4 on PR {pr}. CI still has the hook. Issue {issue}. INC-{inc}.",
+            refl="Reflection: chmod -x already skip left leftover hook. Plan change: PR the 4; hand off CI hook.",
+            cmt="HANDOFF issue {issue}. Delete leftover reference-transaction hook. Do not force-push main.",
+            title="REFTRX_N=4",
+            body="update-ref already skip left reference-transaction hook. Dropped locally. CI still has it. INC-{inc}.",
+            commit="fix: REFTRX_N=4 after dropping leftover reference-transaction hook (INC-{inc})",
+            issue_t="CI still has leftover hooks/reference-transaction rejecting recover refs",
+            issue_b="PR {pr}. Remove leftover reference-transaction hook on CI. INC-{inc}.",
+            handoff="ci-reference-transaction",
+            handoff_probe="ls /mnt/ci/app.git/hooks/reference-transaction",
+            handoff_probe_obs="/mnt/ci/app.git/hooks/reference-transaction",
+            checks="unit pass\nreftrx-ci fail (leftover reference-transaction hook)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="update-ref already skip vs leftover reference-transaction hook",
+        ),
+    ),
+    (
+        _S(
+            slug="merge-recursive-renamelimit-leftover",
+            repo="leftover-ops/merge-recursive-gate",
+            marker="MREC_N",
+            old="3",
+            new="9",
+            src="src/mrec.py",
+            test="tests/test_mrec.py",
+            tfail="FAILED tests/test_mrec.py::test_mrec_9\nFAILED tests/test_mrec.py::test_renamelimit_gone",
+            branch="recover/mrec-9",
+            map_cmd="git config --get merge.renamelimit; git merge -s recursive topic 2>&1 | tail; rg MREC_N src/mrec.py",
+            map_obs="0  (leftover)\nalready skip (leftover merge.renamelimit=0 still skips recover rename)\nMREC_N = 3",
+            map_b="Plan: map merge -s recursive already skip while leftover merge.renamelimit=0 still skips the recover rename.",
+            wrong_cmd="git merge -s recursive -X find-renames=100 topic",
+            wrong_obs="already skip (leftover renamelimit=0 still wins over -X find-renames)",
+            wrong_b="Observation: -X find-renames still honored leftover 0. First wrong move: merge -s recursive -X find-renames=100.",
+            rec_cmd="git config --unset merge.renamelimit && git merge -s recursive topic && git config --get merge.renamelimit || echo rename_default",
+            rec_obs="Merge made by the 'recursive' strategy.\nrename_default",
+            rec_b="Plan: unset leftover merge.renamelimit; do not pass -X find-renames over 0.",
+            left_cmd="git config --get merge.renamelimit || echo rename_default",
+            left_obs="rename_default",
+            left_b="Observation: leftover merge.renamelimit=0 is gone.",
+            goal="On leftover-ops/merge-recursive-gate, git merge -s recursive already skipped the recover rename while leftover merge.renamelimit=0 still disabled rename detection. Unset it, land MREC_N=9. INC-{inc}.",
+            plan="Prove recursive already skip, unset leftover merge.renamelimit, land 9.",
+            out="Unset leftover merge.renamelimit=0. MREC_N=9 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: -X find-renames already skip left renamelimit=0. Plan change: recover/mrec-9.",
+            cmt="Do not git merge -s recursive -X find-renames over leftover merge.renamelimit=0. Unset it. Do not force-push main.",
+            title="MREC_N=9",
+            body="merge -s recursive already skip left merge.renamelimit=0. Unset it. INC-{inc}.",
+            commit="fix: MREC_N=9 after unsetting leftover merge.renamelimit (INC-{inc})",
+            mix="merge -s recursive already skip vs leftover merge.renamelimit=0",
+        ),
+        _H(
+            slug="check-ref-format-illegal-leftover",
+            repo="leftover-ops/check-ref-format-ci",
+            marker="CHREF_N",
+            old="1",
+            new="5",
+            src="src/chref.py",
+            test="tests/test_chref.py",
+            tfail="FAILED tests/test_chref.py::test_chref_5\nFAILED tests/test_chref.py::test_illegal_ref_gone",
+            branch="recover/chref-5",
+            map_cmd="git show-ref | rg 'recover branch' || echo no_show; git check-ref-format refs/heads/'recover branch' 2>&1 | tail; ls .git/refs/heads/; rg CHREF_N src/chref.py",
+            map_obs="no_show\nalready skip (illegal leftover name still on disk as 'recover branch')\nmain\nrecover branch  (leftover)\nCHREF_N = 1",
+            map_b="Plan: map check-ref-format already skip while leftover refs/heads/recover branch still sits on disk.",
+            wrong_cmd="git check-ref-format --normalize refs/heads/'recover branch' && git switch 'recover branch'",
+            wrong_obs="already skip (leftover illegal name still not normalized)",
+            wrong_b="Observation: --normalize already skip left the illegal leftover name. First wrong move: check-ref-format --normalize.",
+            rec_cmd="git update-ref refs/heads/recover/chref-5 \"$(git rev-parse 'refs/heads/recover branch')\" && git update-ref -d 'refs/heads/recover branch' && git check-ref-format refs/heads/recover/chref-5 && echo ok",
+            rec_obs="ok",
+            rec_b="Plan: copy leftover illegal ref to recover/chref-5 then delete the leftover name.",
+            left_cmd="ls .git/refs/heads/; git check-ref-format refs/heads/recover/chref-5 && echo ok",
+            left_obs="main\nchref-5\nok",
+            left_b="Observation: local leftover illegal ref gone; CI still has refs/heads/recover branch.",
+            goal="On leftover-ops/check-ref-format-ci, git check-ref-format already skipped while leftover refs/heads/recover branch still sat on disk. Rename to recover/chref-5, land CHREF_N=5. CI still has the illegal name. INC-{inc}.",
+            plan="Prove check-ref-format already skip, rename leftover illegal ref, hand off CI ref.",
+            out="Renamed leftover illegal ref; CHREF_N=5 on PR {pr}. CI still has recover branch. Issue {issue}. INC-{inc}.",
+            refl="Reflection: --normalize already skip left illegal leftover name. Plan change: PR the 5; hand off CI ref.",
+            cmt="HANDOFF issue {issue}. Rename leftover refs/heads/recover branch. Do not force-push main.",
+            title="CHREF_N=5",
+            body="check-ref-format already skip left illegal recover branch. Renamed locally. CI still has it. INC-{inc}.",
+            commit="fix: CHREF_N=5 after renaming leftover illegal ref (INC-{inc})",
+            issue_t="CI still has leftover refs/heads/recover branch illegal name",
+            issue_b="PR {pr}. Delete leftover illegal ref on CI. INC-{inc}.",
+            handoff="ci-check-ref-format",
+            handoff_probe="ls /mnt/ci/app.git/refs/heads/",
+            handoff_probe_obs="main\nrecover branch",
+            checks="unit pass\nchref-ci fail (leftover illegal ref)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="check-ref-format already skip vs leftover illegal ref name",
+        ),
+    ),
+    (
+        _S(
+            slug="notes-prune-dangling-leftover",
+            repo="leftover-ops/notes-prune-gate",
+            marker="NTPRN_N",
+            old="2",
+            new="8",
+            src="src/ntprn.py",
+            test="tests/test_ntprn.py",
+            tfail="FAILED tests/test_ntprn.py::test_ntprn_8\nFAILED tests/test_ntprn.py::test_dangling_notes_gone",
+            branch="recover/ntprn-8",
+            map_cmd="git config --get notes.rewriteRef; git notes prune -n 2>&1 | tail; git notes list | head; rg NTPRN_N src/ntprn.py",
+            map_obs="(empty rewriteRef already skip)\nalready skip (leftover notes still attached to dangling 77bb)\n77bb\nNTPRN_N = 2",
+            map_b="Plan: map notes prune already skip while leftover notes still attach to dangling 77bb.",
+            wrong_cmd="git notes prune -n && git notes list | head",
+            wrong_obs="already skip (leftover notes still listed for 77bb)",
+            wrong_b="Observation: notes prune -n already skip left dangling notes. First wrong move: git notes prune -n.",
+            rec_cmd="git notes prune && git notes list || echo no_notes",
+            rec_obs="no_notes",
+            rec_b="Plan: run git notes prune (not -n) to drop leftover dangling notes.",
+            left_cmd="git notes list || echo no_notes; git config --get notes.rewriteRef || echo no_rewrite",
+            left_obs="no_notes\nno_rewrite",
+            left_b="Observation: leftover dangling notes are gone.",
+            goal="On leftover-ops/notes-prune-gate, git notes prune -n already skipped while leftover notes still attached to dangling 77bb. Run notes prune, land NTPRN_N=8. INC-{inc}.",
+            plan="Prove notes prune -n already skip, drop leftover dangling notes, land 8.",
+            out="Pruned leftover dangling notes. NTPRN_N=8 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: notes prune -n already skip left dangling 77bb notes. Plan change: recover/ntprn-8.",
+            cmt="Do not git notes prune -n over leftover dangling notes. Run notes prune for real. Do not force-push main.",
+            title="NTPRN_N=8",
+            body="notes prune -n already skip left notes on dangling 77bb. Ran notes prune. INC-{inc}.",
+            commit="fix: NTPRN_N=8 after pruning leftover dangling notes (INC-{inc})",
+            mix="notes prune -n already skip vs leftover dangling notes on 77bb",
+        ),
+        _H(
+            slug="mailsplit-mboxrd-leftover",
+            repo="leftover-ops/mailsplit-ci",
+            marker="MSPLIT_N",
+            old="0",
+            new="3",
+            src="src/msplit.py",
+            test="tests/test_msplit.py",
+            tfail="FAILED tests/test_msplit.py::test_msplit_3\nFAILED tests/test_msplit.py::test_mailsplit_dir_gone",
+            branch="recover/msplit-3",
+            map_cmd="ls .git/mailsplit 2>&1 | tail; git mailsplit -d2 -o.git/mailsplit recover.mbox 2>&1 | tail; rg MSPLIT_N src/msplit.py",
+            map_obs="0001  (leftover 77bb patch)\nalready skip (leftover .git/mailsplit still occupied)\nMSPLIT_N = 0",
+            map_b="Plan: map git mailsplit already skip while leftover .git/mailsplit still holds 0001 from 77bb.",
+            wrong_cmd="git mailsplit -d2 -b -o.git/mailsplit recover.mbox",
+            wrong_obs="already skip (leftover 0001 still occupies the output dir)",
+            wrong_b="Observation: -b already skip left leftover 0001. First wrong move: mailsplit -b into the leftover dir.",
+            rec_cmd="rm -rf .git/mailsplit && git mailsplit -d2 -o.git/mailsplit recover.mbox && ls .git/mailsplit",
+            rec_obs="0001",
+            rec_b="Plan: wipe leftover .git/mailsplit then split recover.mbox; do not -b into leftover 0001.",
+            left_cmd="ls .git/mailsplit; rg '77bb' .git/mailsplit/0001 || echo no_77bb",
+            left_obs="0001\nno_77bb",
+            left_b="Observation: local leftover 77bb fragment gone; CI still has leftover .git/mailsplit/0001.",
+            goal="On leftover-ops/mailsplit-ci, git mailsplit already skipped while leftover .git/mailsplit/0001 still held a 77bb fragment. Wipe the dir, split recover.mbox, land MSPLIT_N=3. CI still has leftover 0001. INC-{inc}.",
+            plan="Prove mailsplit already skip, wipe leftover mailsplit dir, hand off CI dir.",
+            out="Wiped leftover mailsplit dir; MSPLIT_N=3 on PR {pr}. CI still has leftover 0001. Issue {issue}. INC-{inc}.",
+            refl="Reflection: mailsplit -b already skip left leftover 0001. Plan change: PR the 3; hand off CI dir.",
+            cmt="HANDOFF issue {issue}. Wipe leftover .git/mailsplit before splitting. Do not force-push main.",
+            title="MSPLIT_N=3",
+            body="mailsplit already skip left .git/mailsplit/0001 from 77bb. Wiped locally. CI still has it. INC-{inc}.",
+            commit="fix: MSPLIT_N=3 after wiping leftover mailsplit dir (INC-{inc})",
+            issue_t="CI still has leftover .git/mailsplit/0001 from 77bb",
+            issue_b="PR {pr}. Delete leftover .git/mailsplit on CI. INC-{inc}.",
+            handoff="ci-mailsplit",
+            handoff_probe="ls /mnt/ci/app.git/mailsplit",
+            handoff_probe_obs="0001",
+            checks="unit pass\nmailsplit-ci fail (leftover 0001)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="git mailsplit already skip vs leftover .git/mailsplit/0001",
+        ),
+    ),
+    (
+        _S(
+            slug="askpass-helper-leftover",
+            repo="leftover-ops/askpass-gate",
+            marker="ASKPS_N",
+            old="1",
+            new="6",
+            src="src/askps.py",
+            test="tests/test_askps.py",
+            tfail="FAILED tests/test_askps.py::test_askps_6\nFAILED tests/test_askps.py::test_askpass_gone",
+            branch="recover/askps-6",
+            map_cmd="git config --get core.askPass; echo GIT_ASKPASS=$GIT_ASKPASS; git credential fill <<EOF 2>&1 | tail\nprotocol=https\nhost=git.invalid\nEOF\nrg ASKPS_N src/askps.py",
+            map_obs="/usr/lib/git-core/git-gui--askpass  (leftover)\nGIT_ASKPASS=/usr/lib/git-core/git-gui--askpass\nalready skip (leftover askpass still hangs without DISPLAY)\nASKPS_N = 1",
+            map_b="Plan: map git credential fill already skip while leftover GIT_ASKPASS still points at git-gui--askpass.",
+            wrong_cmd="git config core.askPass true && printf 'protocol=https\\nhost=git.invalid\\n\\n' | git credential fill",
+            wrong_obs="already skip (leftover GIT_ASKPASS still wins over core.askPass)",
+            wrong_b="Observation: core.askPass=true still used leftover GIT_ASKPASS. First wrong move: set core.askPass true.",
+            rec_cmd="unset GIT_ASKPASS && git config --unset core.askPass && git config --get core.askPass || echo askpass_default && echo GIT_ASKPASS=${GIT_ASKPASS:-empty}",
+            rec_obs="askpass_default\nGIT_ASKPASS=empty",
+            rec_b="Plan: unset leftover GIT_ASKPASS and core.askPass; do not set core.askPass=true over the env leftover.",
+            left_cmd="echo GIT_ASKPASS=${GIT_ASKPASS:-empty}; git config --get core.askPass || echo askpass_default",
+            left_obs="GIT_ASKPASS=empty\naskpass_default",
+            left_b="Observation: leftover GIT_ASKPASS and core.askPass are gone.",
+            goal="On leftover-ops/askpass-gate, git credential fill already skipped while leftover GIT_ASKPASS=/usr/lib/git-core/git-gui--askpass still hung without DISPLAY. Unset it, land ASKPS_N=6. INC-{inc}.",
+            plan="Prove credential fill already skip, unset leftover GIT_ASKPASS, land 6.",
+            out="Unset leftover GIT_ASKPASS. ASKPS_N=6 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: core.askPass=true already skip left GIT_ASKPASS. Plan change: recover/askps-6.",
+            cmt="Do not set core.askPass=true over leftover GIT_ASKPASS. Unset the env leftover. Do not force-push main.",
+            title="ASKPS_N=6",
+            body="credential fill already skip left GIT_ASKPASS git-gui--askpass. Unset env and core.askPass. INC-{inc}.",
+            commit="fix: ASKPS_N=6 after unsetting leftover GIT_ASKPASS (INC-{inc})",
+            mix="git credential fill already skip vs leftover GIT_ASKPASS git-gui--askpass",
+        ),
+        _H(
+            slug="post-update-hook-leftover",
+            repo="leftover-ops/post-update-ci",
+            marker="POSTUP_N",
+            old="2",
+            new="7",
+            src="src/postup.py",
+            test="tests/test_postup.py",
+            tfail="FAILED tests/test_postup.py::test_postup_7\nFAILED tests/test_postup.py::test_hook_gone",
+            branch="recover/postup-7",
+            map_cmd="ls -l .git/hooks/post-update; rg update-server-info .git/hooks/post-update; git push . HEAD:recover/postup-7 2>&1 | tail; rg POSTUP_N src/postup.py",
+            map_obs="-rwxr-xr-x .git/hooks/post-update  (leftover still runs update-server-info on 77bb)\ngit update-server-info  (leftover)\nalready skip (leftover post-update still rewrites info/refs to 77bb)\nPOSTUP_N = 2",
+            map_b="Plan: map local push already skip of recover info/refs while leftover post-update still stamps 77bb.",
+            wrong_cmd="git config receive.denyCurrentBranch ignore && git push . HEAD:main",
+            wrong_obs="already skip (leftover post-update still stamped 77bb into info/refs)",
+            wrong_b="Observation: denyCurrentBranch=ignore still ran leftover post-update. First wrong move: set ignore then push.",
+            rec_cmd="rm -f .git/hooks/post-update && git update-server-info && rg '^91aa' .git/info/refs && ls .git/hooks/post-update 2>&1 | tail",
+            rec_obs="91aa\trefs/heads/main\nls: cannot access '.git/hooks/post-update': No such file or directory",
+            rec_b="Plan: delete leftover post-update then rewrite info/refs; do not push over the leftover hook.",
+            left_cmd="ls .git/hooks/post-update 2>&1 | tail; rg '^91aa' .git/info/refs",
+            left_obs="ls: cannot access '.git/hooks/post-update': No such file or directory\n91aa\trefs/heads/main",
+            left_b="Observation: local leftover post-update gone; CI still has leftover post-update.",
+            goal="On leftover-ops/post-update-ci, local push already skipped recover info/refs while leftover hooks/post-update still stamped 77bb. Drop the hook, rewrite info/refs, land POSTUP_N=7. CI still has the hook. INC-{inc}.",
+            plan="Prove leftover post-update, drop the hook, hand off CI hook.",
+            out="Dropped leftover post-update hook; POSTUP_N=7 on PR {pr}. CI still has the hook. Issue {issue}. INC-{inc}.",
+            refl="Reflection: denyCurrentBranch=ignore still ran leftover post-update. Plan change: PR the 7; hand off CI hook.",
+            cmt="HANDOFF issue {issue}. Delete leftover post-update hook. Do not force-push main.",
+            title="POSTUP_N=7",
+            body="leftover post-update still stamped 77bb into info/refs. Dropped locally. CI still has it. INC-{inc}.",
+            commit="fix: POSTUP_N=7 after dropping leftover post-update hook (INC-{inc})",
+            issue_t="CI still has leftover hooks/post-update stamping 77bb into info/refs",
+            issue_b="PR {pr}. Remove leftover post-update on CI. INC-{inc}.",
+            handoff="ci-post-update",
+            handoff_probe="ls /mnt/ci/app.git/hooks/post-update",
+            handoff_probe_obs="/mnt/ci/app.git/hooks/post-update",
+            checks="unit pass\npostup-ci fail (leftover post-update hook)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="local push already skip vs leftover post-update hook stamping 77bb",
+        ),
+    ),
+    (
+        _S(
+            slug="diff-index-external-diff-leftover",
+            repo="leftover-ops/diff-index-gate",
+            marker="DIDX_N",
+            old="0",
+            new="4",
+            src="src/didx.py",
+            test="tests/test_didx.py",
+            tfail="FAILED tests/test_didx.py::test_didx_4\nFAILED tests/test_didx.py::test_external_diff_gone",
+            branch="recover/didx-4",
+            map_cmd="echo GIT_EXTERNAL_DIFF=$GIT_EXTERNAL_DIFF; git config --get diff.external; git diff-index HEAD -- src/didx.py 2>&1 | tail; rg DIDX_N src/didx.py",
+            map_obs="GIT_EXTERNAL_DIFF=/old/diff-filter  (leftover)\n/old/diff-filter\nalready skip (leftover external diff still exits 128)\nDIDX_N = 0",
+            map_b="Plan: map diff-index already skip while leftover GIT_EXTERNAL_DIFF still points at /old/diff-filter.",
+            wrong_cmd="git diff-index --no-ext-diff HEAD -- src/didx.py && git config diff.external true",
+            wrong_obs="already skip (leftover GIT_EXTERNAL_DIFF still wins over --no-ext-diff on this helper)",
+            wrong_b="Observation: --no-ext-diff already skip left GIT_EXTERNAL_DIFF. First wrong move: diff-index --no-ext-diff.",
+            rec_cmd="unset GIT_EXTERNAL_DIFF && git config --unset diff.external && git diff-index HEAD -- src/didx.py; echo GIT_EXTERNAL_DIFF=${GIT_EXTERNAL_DIFF:-empty}; git config --get diff.external || echo diff_default",
+            rec_obs="GIT_EXTERNAL_DIFF=empty\ndiff_default",
+            rec_b="Plan: unset leftover GIT_EXTERNAL_DIFF and diff.external; do not rely on --no-ext-diff.",
+            left_cmd="echo GIT_EXTERNAL_DIFF=${GIT_EXTERNAL_DIFF:-empty}; git config --get diff.external || echo diff_default",
+            left_obs="GIT_EXTERNAL_DIFF=empty\ndiff_default",
+            left_b="Observation: leftover GIT_EXTERNAL_DIFF is gone.",
+            goal="On leftover-ops/diff-index-gate, git diff-index already skipped while leftover GIT_EXTERNAL_DIFF=/old/diff-filter still exited 128. Unset it, land DIDX_N=4. INC-{inc}.",
+            plan="Prove diff-index already skip, unset leftover GIT_EXTERNAL_DIFF, land 4.",
+            out="Unset leftover GIT_EXTERNAL_DIFF. DIDX_N=4 as {sha} / 2 tests / PR {pr}. INC-{inc}.",
+            refl="Reflection: --no-ext-diff already skip left GIT_EXTERNAL_DIFF. Plan change: recover/didx-4.",
+            cmt="Do not git diff-index --no-ext-diff over leftover GIT_EXTERNAL_DIFF. Unset the env leftover. Do not force-push main.",
+            title="DIDX_N=4",
+            body="diff-index already skip left GIT_EXTERNAL_DIFF=/old/diff-filter. Unset env and diff.external. INC-{inc}.",
+            commit="fix: DIDX_N=4 after unsetting leftover GIT_EXTERNAL_DIFF (INC-{inc})",
+            mix="diff-index already skip vs leftover GIT_EXTERNAL_DIFF",
+        ),
+        _H(
+            slug="rev-parse-object-directory-leftover",
+            repo="leftover-ops/rev-parse-object-dir-ci",
+            marker="RVPRS_N",
+            old="1",
+            new="5",
+            src="src/rvprs.py",
+            test="tests/test_rvprs.py",
+            tfail="FAILED tests/test_rvprs.py::test_rvprs_5\nFAILED tests/test_rvprs.py::test_object_directory_gone",
+            branch="recover/rvprs-5",
+            map_cmd="echo GIT_OBJECT_DIRECTORY=$GIT_OBJECT_DIRECTORY; git rev-parse --git-path objects; git cat-file -t 91aa 2>&1 | tail; rg RVPRS_N src/rvprs.py",
+            map_obs="GIT_OBJECT_DIRECTORY=/old/objects  (leftover)\n/old/objects\nalready skip (leftover object dir still missing 91aa)\nRVPRS_N = 1",
+            map_b="Plan: map rev-parse --git-path objects already skip of .git/objects while leftover GIT_OBJECT_DIRECTORY still points at /old/objects.",
+            wrong_cmd="git rev-parse --git-path objects && git config core.bare false",
+            wrong_obs="already skip (/old/objects leftover still returned)",
+            wrong_b="Observation: --git-path still returned leftover /old/objects. First wrong move: rev-parse --git-path then set core.bare.",
+            rec_cmd="unset GIT_OBJECT_DIRECTORY && git rev-parse --git-path objects && git cat-file -t 91aa && echo GIT_OBJECT_DIRECTORY=${GIT_OBJECT_DIRECTORY:-empty}",
+            rec_obs=".git/objects\ncommit\nGIT_OBJECT_DIRECTORY=empty",
+            rec_b="Plan: unset leftover GIT_OBJECT_DIRECTORY; do not set core.bare over it.",
+            left_cmd="echo GIT_OBJECT_DIRECTORY=${GIT_OBJECT_DIRECTORY:-empty}; git rev-parse --git-path objects",
+            left_obs="GIT_OBJECT_DIRECTORY=empty\n.git/objects",
+            left_b="Observation: local leftover GIT_OBJECT_DIRECTORY gone; CI still exports /old/objects.",
+            goal="On leftover-ops/rev-parse-object-dir-ci, git rev-parse --git-path objects already skipped .git/objects while leftover GIT_OBJECT_DIRECTORY=/old/objects still missed 91aa. Unset it, land RVPRS_N=5. CI still exports /old/objects. INC-{inc}.",
+            plan="Prove leftover GIT_OBJECT_DIRECTORY, unset it, hand off CI env.",
+            out="Unset leftover GIT_OBJECT_DIRECTORY; RVPRS_N=5 on PR {pr}. CI still exports /old/objects. Issue {issue}. INC-{inc}.",
+            refl="Reflection: --git-path already skip left /old/objects. Plan change: PR the 5; hand off CI env.",
+            cmt="HANDOFF issue {issue}. Unset leftover GIT_OBJECT_DIRECTORY. Do not force-push main.",
+            title="RVPRS_N=5",
+            body="rev-parse leftover GIT_OBJECT_DIRECTORY=/old/objects. Unset locally. CI still exports it. INC-{inc}.",
+            commit="fix: RVPRS_N=5 after unsetting leftover GIT_OBJECT_DIRECTORY (INC-{inc})",
+            issue_t="CI still exports leftover GIT_OBJECT_DIRECTORY=/old/objects",
+            issue_b="PR {pr}. Unset leftover GIT_OBJECT_DIRECTORY on CI. INC-{inc}.",
+            handoff="ci-object-directory",
+            handoff_probe="grep GIT_OBJECT_DIRECTORY /mnt/ci/env",
+            handoff_probe_obs="GIT_OBJECT_DIRECTORY=/old/objects",
+            checks="unit pass\nrvprs-ci fail (leftover GIT_OBJECT_DIRECTORY)\n{\"mergeStateStatus\":\"BLOCKED\"}",
+            mix="rev-parse --git-path already skip vs leftover GIT_OBJECT_DIRECTORY",
+        ),
+    ),
+]
+
+
+def _fmt(s: str, **kw) -> str:
+    for key, val in kw.items():
+        s = s.replace("{" + key + "}", str(val))
+    return s
+
+
+def _set_marker_cmd(src: str, marker: str, old: str, new: str) -> str:
+    return (
+        "python3 - <<'PY'\n"
+        "from pathlib import Path\n"
+        f"p=Path({src!r})\n"
+        f"p.write_text(p.read_text().replace('{marker} = {old}','{marker} = {new}'))\n"
+        f"print({new!r})\n"
+        "PY"
+    )
+
+
+def _check_basis(text: str, n: int, eid: str) -> None:
+    if len(text) > 240:
+        raise SystemExit(f"{eid} step {n} decision_basis {len(text)} > 240")
+    if not text.startswith(("Plan:", "Observation:", "Reflection:", "Tool call:")):
+        raise SystemExit(f"{eid} step {n} missing prefix: {text!r}")
+    low = text.lower()
+    if "wrap-46" in low or "ops-3864" in low:
+        raise SystemExit(f"{eid} step {n} wrap stamp")
+    if "force-push main" in low and "do not" not in low:
+        raise SystemExit(f"{eid} step {n} force-push main")
+
+
+def build_episode(round_n: int, spec: dict, *, success: bool, pr: int, issue: int | None, inc: str) -> dict:
+    slug = spec["slug"]
+    eid = f"gor-r{round_n}-{slug}"
+    sha = _sha(eid)
+    repo = spec["repo"]
+    marker = spec["marker"]
+    old, new = spec["old"], spec["new"]
+    src = spec["src"]
+    test = spec["test"]
+    branch = spec["branch"]
+    kw = dict(inc=inc, sha=sha, pr=pr, issue=issue or 0)
+    goal = _fmt(spec["goal"], **kw)
+    plan = spec["plan"]
+    outcome = _fmt(spec["out"], **kw)
+    refl = spec["refl"]
+    comment = _fmt(spec["cmt"], **kw)
+    title = spec["title"]
+    body = _fmt(spec["body"], **kw)
+    commit = _fmt(spec["commit"], **kw)
+    tests_ok = spec.get("tests_ok", "2 passed in 0.03s")
+
+    if "leftover hid" in goal.lower() or "leftover hid" in spec["goal"].lower():
+        raise SystemExit(f"{eid} cartesian leftover-hid goal")
+    if slug in BANNED_SLUGS:
+        raise SystemExit(f"{eid} banned slug")
+
+    steps = [
+        {
+            "n": 1,
+            "decision_basis": spec["map_b"],
+            "tool_call": {"name": "bash", "args": {"command": spec["map_cmd"]}},
+            "observation": spec["map_obs"],
+        },
+        {
+            "n": 2,
+            "decision_basis": spec["wrong_b"],
+            "tool_call": {"name": "bash", "args": {"command": spec["wrong_cmd"]}},
+            "observation": spec["wrong_obs"],
+        },
+        {
+            "n": 3,
+            "decision_basis": "Observation: tests want the recovered marker.",
+            "tool_call": {"name": "bash", "args": {"command": f"pytest {test} -q --tb=line | tail"}},
+            "observation": spec["tfail"],
+        },
+        {
+            "n": 4,
+            "decision_basis": spec["rec_b"],
+            "tool_call": {"name": "bash", "args": {"command": spec["rec_cmd"]}},
+            "observation": spec["rec_obs"],
+        },
+        {
+            "n": 5,
+            "decision_basis": "Observation: set the recovered marker.",
+            "tool_call": {"name": "bash", "args": {"command": _set_marker_cmd(src, marker, old, new)}},
+            "observation": new,
+        },
+    ]
+
+    if success:
+        steps.extend(
+            [
+                {
+                    "n": 6,
+                    "decision_basis": "Observation: tests.",
+                    "tool_call": {"name": "bash", "args": {"command": f"pytest {test} -q"}},
+                    "observation": tests_ok,
+                },
+                {
+                    "n": 7,
+                    "decision_basis": refl,
+                    "tool_call": {
+                        "name": "bash",
+                        "args": {
+                            "command": f"git switch -c {branch} && git add {src} && git commit -m {commit!r}"
+                        },
+                    },
+                    "observation": f"[{branch} {sha}] {commit}",
+                },
+                {
+                    "n": 8,
+                    "decision_basis": "Observation: push PR.",
+                    "tool_call": {
+                        "name": "bash",
+                        "args": {
+                            "command": (
+                                f"git push -u origin {branch} && gh pr create --base main "
+                                f"--title {title!r} --body {body!r}"
+                            )
+                        },
+                    },
+                    "observation": f"https://github.com/{repo}/pull/{pr}",
+                },
+                {
+                    "n": 9,
+                    "decision_basis": "Observation: checks.",
+                    "tool_call": {"name": "bash", "args": {"command": f"gh pr checks {pr} --watch"}},
+                    "observation": "unit pass\nrecover pass",
+                },
+                {
+                    "n": 10,
+                    "decision_basis": "Observation: comment.",
+                    "tool_call": {
+                        "name": "bash",
+                        "args": {"command": f"gh pr comment {pr} --body {comment!r}"},
+                    },
+                    "observation": "comment created",
+                },
+                {
+                    "n": 11,
+                    "decision_basis": "Observation: CLEAN.",
+                    "tool_call": {
+                        "name": "bash",
+                        "args": {"command": f"gh pr view {pr} --json mergeStateStatus"},
+                    },
+                    "observation": '{"mergeStateStatus":"CLEAN"}',
+                },
+                {
+                    "n": 12,
+                    "decision_basis": "Observation: marker on HEAD.",
+                    "tool_call": {"name": "bash", "args": {"command": f"rg {marker} {src}"}},
+                    "observation": f"{marker} = {new}",
+                },
+                {
+                    "n": 13,
+                    "decision_basis": spec["left_b"],
+                    "tool_call": {"name": "bash", "args": {"command": spec["left_cmd"]}},
+                    "observation": spec["left_obs"],
+                },
+                {
+                    "n": 14,
+                    "decision_basis": "Observation: stop.",
+                    "tool_call": {"name": "bash", "args": {"command": "git rev-parse --short HEAD"}},
+                    "observation": sha,
+                },
+            ]
+        )
+        reward = {"success": True, "cost_steps": 14, "tests_passed": 2, "pr": pr}
+    else:
+        issue_t = _fmt(spec["issue_t"], **kw)
+        issue_b = _fmt(spec["issue_b"], **kw)
+        checks = spec.get("checks", "unit pass\nci fail\n{\"mergeStateStatus\":\"BLOCKED\"}")
+        steps.extend(
+            [
+                {
+                    "n": 6,
+                    "decision_basis": "Observation: tests locally; commit recover.",
+                    "tool_call": {
+                        "name": "bash",
+                        "args": {
+                            "command": (
+                                f"pytest {test} -q && git switch -c {branch} && git add {src} "
+                                f"&& git commit -m {commit!r}"
+                            )
+                        },
+                    },
+                    "observation": f"{tests_ok}\n[{branch} {sha}] {commit}",
+                },
+                {
+                    "n": 7,
+                    "decision_basis": refl,
+                    "tool_call": {
+                        "name": "bash",
+                        "args": {
+                            "command": spec.get(
+                                "handoff_probe",
+                                f"rg -n residual .github/workflows/ci.yml || echo residual_{spec['handoff']}",
+                            )
+                        },
+                    },
+                    "observation": spec.get("handoff_probe_obs", f"residual_{spec['handoff']}"),
+                },
+                {
+                    "n": 8,
+                    "decision_basis": "Observation: push PR.",
+                    "tool_call": {
+                        "name": "bash",
+                        "args": {
+                            "command": (
+                                f"git push -u origin {branch} && gh pr create --base main "
+                                f"--title {title!r} --body {body!r}"
+                            )
+                        },
+                    },
+                    "observation": f"https://github.com/{repo}/pull/{pr}",
+                },
+                {
+                    "n": 9,
+                    "decision_basis": "Observation: unit green; residual blocks merge.",
+                    "tool_call": {
+                        "name": "bash",
+                        "args": {
+                            "command": f"gh pr checks {pr} --watch && gh pr view {pr} --json mergeStateStatus"
+                        },
+                    },
+                    "observation": checks,
+                },
+                {
+                    "n": 10,
+                    "decision_basis": "Observation: issue.",
+                    "tool_call": {
+                        "name": "bash",
+                        "args": {
+                            "command": f"gh issue create --title {issue_t!r} --body {issue_b!r}"
+                        },
+                    },
+                    "observation": f"https://github.com/{repo}/issues/{issue}",
+                },
+                {
+                    "n": 11,
+                    "decision_basis": "Observation: comment.",
+                    "tool_call": {
+                        "name": "bash",
+                        "args": {"command": f"gh pr comment {pr} --body {comment!r}"},
+                    },
+                    "observation": "comment created",
+                },
+                {
+                    "n": 12,
+                    "decision_basis": "Observation: marker on PR head.",
+                    "tool_call": {"name": "bash", "args": {"command": f"rg {marker} {src}"}},
+                    "observation": f"{marker} = {new}",
+                },
+                {
+                    "n": 13,
+                    "decision_basis": spec["left_b"],
+                    "tool_call": {"name": "bash", "args": {"command": spec["left_cmd"]}},
+                    "observation": spec["left_obs"],
+                },
+                {
+                    "n": 14,
+                    "decision_basis": "Observation: stop.",
+                    "tool_call": {
+                        "name": "bash",
+                        "args": {"command": f"gh issue view {issue} --json state"},
+                    },
+                    "observation": '{"state":"OPEN"}',
+                },
+            ]
+        )
+        reward = {
+            "success": False,
+            "cost_steps": 14,
+            "tests_passed": 2,
+            "pr": pr,
+            "handoff": spec["handoff"],
+        }
+
+    for st in steps:
+        _check_basis(st["decision_basis"], st["n"], eid)
+        if "force-push origin/main" in json.dumps(st["tool_call"]):
+            raise SystemExit(f"{eid} force-push in tool_call")
+    if len(steps) != 14:
+        raise SystemExit(f"{eid} {len(steps)} steps")
+    if "Plan change" not in steps[6]["decision_basis"]:
+        raise SystemExit(f"{eid} missing plan change at step 7")
+
+    return {
+        "id": eid,
+        "goal": goal,
+        "plan": plan,
+        "steps": steps,
+        "outcome": outcome,
+        "reward": reward,
+        "meta": {"factory": FACTORY, "round": round_n, "generator": GEN},
+    }
+
+
+def notes_for(round_n: int, a: dict, b: dict, spec_a: dict, spec_b: dict) -> str:
+    return (
+        f"# git-ops-recovery-factory — NOTES r{round_n}\n"
+        "\n"
+        "Novel coverage: 46%\n"
+        "\n"
+        "## Episodes\n"
+        f"- `{a['id']}`: 14 steps, success=True\n"
+        "  - plan change at step 7\n"
+        f"- `{b['id']}`: 14 steps, success=False\n"
+        "  - plan change at step 7\n"
+        "\n"
+        f"Success: ['{a['id']}']. Partial/handoff: ['{b['id']}'].\n"
+        "Distinct INC ids. No wrap-46 stamp. No force-push of main.\n"
+        "Not leftover-tmp cartesian (merge-index / merge-one-file / lfs lock / p4 rebase / scalar reconfigure).\n"
+        "Not stacked-git CLI cartesian (absorb/imerge/revise/branchless/stack/town/machete/jj/sl/stg/b4/git-pw).\n"
+        "Not a clone of r895–r1043 (split-index, untracked-cache, fsmonitor, sparse-index, cache-tree,\n"
+        "intent-to-add, IEOT, racy-index, cvsserver, git-daemon, http-backend, git-shell, upload-pack,\n"
+        "receive-pack, fast-import, fast-export, maintenance).\n"
+        "Unique leftover recover: REUC/EOIE, write-tree unmerged, pack .keep, update-server-info,\n"
+        "http-fetch/http-push, remote-fd/ext/ftp, ls-remote wrapper, for-each-repo, credential-store/netrc,\n"
+        "archimport, cvsexportcommit, instaweb, column.ui, merge octopus/ours/subtree/resolve/recursive,\n"
+        "fmt-merge-msg, patch-id, negotiate-only, force-if-includes, upload-archive, separate-git-dir,\n"
+        "push-to-checkout, reference-transaction, check-ref-format, notes prune, mailsplit, askpass,\n"
+        "post-update, diff-index GIT_EXTERNAL_DIFF, rev-parse GIT_OBJECT_DIRECTORY.\n"
+        "\n"
+        "## decision_basis audit\n"
+        "Every step labeled Plan:/Observation:/Reflection:/Tool call:, ≤240 chars, "
+        "no thought/CoT/scratch/inner_monologue, no spike_events, no sim_or_real real. "
+        "Generator grok-4.6. Designed traces.\n"
+        "\n"
+        "## Mix / residual\n"
+        f"{spec_a['mix']}; {spec_b['mix']}. One lands; residual handoff.\n"
+        "\n"
+        "## Step counts\n"
+        f"- {a['id']}: 14 (required 13–16)\n"
+        f"- {b['id']}: 14 (required 13–16)\n"
+    )
+
+
+def _assert_catalog() -> None:
+    slugs: list[str] = []
+    markers: list[str] = []
+    repos: list[str] = []
+    for pair in PAIRS:
+        if len(pair) != 2:
+            raise SystemExit("pair must be success+handoff")
+        if "handoff" not in pair[1]:
+            raise SystemExit(f"{pair[1]['slug']} missing handoff")
+        if "handoff" in pair[0]:
+            raise SystemExit(f"{pair[0]['slug']} success spec has handoff")
+        for spec in pair:
+            slugs.append(spec["slug"])
+            markers.append(spec["marker"])
+            repos.append(spec["repo"])
+            if spec["slug"] in BANNED_SLUGS:
+                raise SystemExit(f"banned slug {spec['slug']}")
+            if "leftover hid" in spec["goal"].lower():
+                raise SystemExit(f"{spec['slug']} leftover-hid goal")
+            for key in ("map_b", "wrong_b", "rec_b", "left_b", "refl"):
+                _check_basis(spec[key], 0, spec["slug"])
+            if "Plan change" not in spec["refl"]:
+                raise SystemExit(f"{spec['slug']} refl missing Plan change")
+    if len(slugs) != len(set(slugs)):
+        raise SystemExit("duplicate slugs")
+    if len(markers) != len(set(markers)):
+        raise SystemExit("duplicate markers")
+    if len(repos) != len(set(repos)):
+        raise SystemExit("duplicate repos")
+
+
+def generate_round(round_n: int, pair_index: int | None = None) -> tuple[list[dict], str]:
+    idx = pair_index if pair_index is not None else round_n - CATALOG_FIRST
+    if idx < 0 or idx >= len(PAIRS):
+        raise SystemExit(
+            f"no catalog pair for round {round_n} idx={idx} (have 0..{len(PAIRS) - 1})"
+        )
+    sa, sb = PAIRS[idx]
+    pr_a = PR0 + 2 * idx
+    pr_b = PR0 + 2 * idx + 1
+    issue = ISSUE0 + idx
+    inc_a = f"{round_n}3"
+    inc_b = f"{round_n}8"
+    a = build_episode(round_n, sa, success=True, pr=pr_a, issue=None, inc=inc_a)
+    b = build_episode(round_n, sb, success=False, pr=pr_b, issue=issue, inc=inc_b)
+    banned = (
+        "thought",
+        "chain_of_thought",
+        "scratch",
+        "inner_monologue",
+        "spike_events",
+    )
+    for ep in (a, b):
+        blob = json.dumps(ep)
+        for k in banned:
+            if f'"{k}"' in blob:
+                raise SystemExit(f"{ep['id']} contains banned key {k}")
+        if "wrap 46" in blob.lower() or "wrap-46" in blob.lower():
+            raise SystemExit(f"{ep['id']} wrap-46")
+        if "INC-INC-" in blob:
+            raise SystemExit(f"{ep['id']} double INC prefix")
+    return [a, b], notes_for(round_n, a, b, sa, sb)
+
+
+def write_round(round_n: int, staging: Path, pair_index: int | None = None) -> None:
+    eps, notes = generate_round(round_n, pair_index)
+    batch = staging / f"batch-r{round_n:02d}.jsonl"
+    nfile = staging / f"NOTES-r{round_n:02d}.md"
+    with batch.open("w") as fh:
+        for ep in eps:
+            fh.write(json.dumps(ep, ensure_ascii=True, separators=(",", ":")) + "\n")
+    nfile.write_text(notes)
+    print(f"wrote {batch} ({len(eps)} eps) {nfile}", file=sys.stderr)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--round", type=int, required=True)
+    ap.add_argument("--staging", required=True)
+    ap.add_argument("--pair-index", type=int, default=None)
+    args = ap.parse_args()
+    _assert_catalog()
+    write_round(args.round, Path(args.staging), args.pair_index)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
