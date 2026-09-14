@@ -1,0 +1,77 @@
+experiments/brw-mill-r395-extra3.py
+  ai_agent 1-273
+experiments/brw-mill-r395-extra2.py
+  ai_agent 1-426
+experiments/brw-loop-r395-extra6.py
+  ai_agent 1-108
+experiments/brw-loop-r212.py
+  ai_agent 1-67
+experiments/brw-mill-r395-extra14.py
+  ai_agent 1-190
+experiments/brw-mill-r193.py
+  ai_agent 1-1530
+experiments/brw-mill-r395-extra4.py
+  ai_agent 1-144
+experiments/brw-mill-r395-extra12.py
+  ai_agent 1-177
+experiments/brw-mill-r395-extra5.py
+  ai_agent 1-280
+experiments/_gen_brw_extra12.py
+  ai_agent 1-503
+experiments/_gen_brw_extra17.py
+  ai_agent 1-156
+experiments/_gen_brw_extra13.py
+  ai_agent 1-751
+experiments/brw-loop-r395.py
+  ai_agent 1-106
+experiments/brw-mill-r395-extra8.py
+  ai_agent 1-111
+experiments/_gen_brw_extra11.py
+  ai_agent 1-383
+experiments/brw-loop-r193.py
+  ai_agent 1-163
+experiments/_gen_brw_extra15.py
+  ai_agent 1-157
+experiments/_gen_brw_extra16.py
+  ai_agent 1-488
+experiments/brw-mill-r395-extra10.py
+  ai_agent 1-121
+experiments/brw-mill-r395-extra6.py
+  ai_agent 1-140
+experiments/brw-mill-r395-extra9.py
+  ai_agent 1-121
+experiments/_gen_brw_extra10.py
+  ai_agent 1-405
+experiments/brw-mill-r395.py
+  ai_agent 1-944
+experiments/_gen_brw_extra14.py
+  ai_agent 1-171
+experiments/brw-mill-r395-extra13.py
+  ai_agent 1-190
+experiments/brw-mill-r395-extra.py
+  ai_agent 1-429
+experiments/brw-mill-r395-extra7.py
+  ai_agent 1-90
+experiments/_gen_brw_extra8.py
+  ai_agent 1-685
+experiments/brw-mill-r383.py
+  ai_agent 1-225
+experiments/brw-mill-r395-extra16.py
+  ai_agent 1-210
+experiments/brw-mill-r212.py
+  ai_agent 1-2472
+experiments/brw-mill-r395-extra11.py
+  ai_agent 1-122
+experiments/_gen_brw_extra9.py
+  ai_agent 1-738
+experiments/brw-mill-r395-extra17.py
+  ai_agent 1-111
+experiments/brw-mill-r395-extra15.py
+  ai_agent 1-130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6d530df77acc70a3dc98fa6b19e31fb2447fd0c2",
+  "prompts": {}
+}
