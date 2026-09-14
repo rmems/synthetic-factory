@@ -72,69 +72,70 @@ from neuro_oracle import (  # noqa: E402
     stimulus_fixture,
 )
 
-SCHEMA_VERSION = "1.0.0"
-VALIDATOR = "pipelines/hardware_parity.py"
-FACTORY_SLUG = "hardware-parity-spike-trajectories"
-RECORD_KIND = contract.KIND_HARDWARE_PARITY
-
-# A membrane difference larger than four Q8.8 least-significant bits is worth a
-# reason code even when the spike trains agree: it says the two datapaths are
-# drifting and the agreement may not survive a longer window.
-MEMBRANE_TOLERANCE = 4 * Q88_STEP
-# Float comparison tolerance when re-deriving recorded metrics.
-METRIC_TOL = 1e-9
-VALIDATION_DATA_ERRORS = (
-    TypeError,
-    ValueError,
-    OverflowError,
-    RecursionError,
-    UnicodeError,
-    KeyError,
-    IndexError,
-    AttributeError,
+from hardware_parity_terms import (  # noqa: E402
+    CATALOG_AUTHORSHIP,
+    FACTORY_SLUG,
+    GENERATOR_BLOCK,
+    MEMBRANE_TOLERANCE,
+    METRIC_TOL,
+    ORACLE_PAIRING,
+    RECORD_KIND,
+    SCHEMA_VERSION,
+    VALIDATION_DATA_ERRORS,
+    VALIDATOR,
+)
+from hardware_parity_catalog import (  # noqa: E402
+    SCENARIO_SPECS,
+    _SCENARIO_SPEC_BY_ID,
+    _grid,
+    build_scenario,
+    build_scenarios,
+)
+from hardware_parity_metrics import (  # noqa: E402
+    MEMBRANE_UNITS,
+    compute_parity,
+    membrane_metrics,
+    quantization_metrics,
+    repeatability_metrics,
+    spike_bitmap_metrics,
+    timing_metrics,
 )
 
-# The one pairing this family measures. Free text here would let a record
-# advertise an execution (e.g. a live FPGA) that its adapter legs do not
-# substantiate, so validation pins it to this canonical value.
-ORACLE_PAIRING = "software_simulator <-> deployment_target"
-
-GENERATOR_BLOCK = {
-    "name": "synthetic-factory.hardware_parity.scenario_catalog",
-    "model": "deterministic-stdlib-catalog",
-    "role": "proposes test configurations and perturbations",
-    "produced": ["scenario", "intervention", "candidate_prediction"],
-    "may_certify_oracle_result": False,
-    "note": (
-        "Scenarios in this fixture are authored by a deterministic in-repo catalog, "
-        "not by a language model. Whoever authors them, the generator block never "
-        "supplies result fields."
-    ),
-}
+# Every source file the generator is made of. Declared rather than discovered so
+# that adding a sibling is a deliberate, reviewable act, and cross-checked
+# against the directory at import so a sibling can never be added and silently
+# left out of the digest below.
+_FAMILY = (
+    "hardware_parity.py",
+    "hardware_parity_catalog.py",
+    "hardware_parity_metrics.py",
+    "hardware_parity_terms.py",
+)
 
 
-# Frontier-session catalogs inherit research-only disposition (#173). Stamps are
-# required on every record so training-view consumers cannot strip the signal.
-CATALOG_AUTHORSHIP = {
-    "mode": "frontier_session",
-    "intended_use": "research_only",
-    "project_training_policy": "blocked",
-    "attestation": (
-        "Hardware-parity scenario catalogs were authored in a frontier-model "
-        "session; every resulting record is research-only."
-    ),
-}
+def _family_sources():
+    """The family's source texts by path, or raise if the directory disagrees."""
+    found = tuple(sorted(path.name for path in _PIPELINES.glob("hardware_parity*.py")))
+    if found != tuple(sorted(_FAMILY)):
+        raise RuntimeError(
+            f"{VALIDATOR}: the hardware_parity family on disk is {found}, but "
+            f"_FAMILY declares {tuple(sorted(_FAMILY))}. generator_version must "
+            "cover every file that generates, so reconcile the two before running."
+        )
+    return [
+        {"path": f"pipelines/{name}", "text": (_PIPELINES / name).read_text(encoding="utf-8")}
+        for name in sorted(_FAMILY)
+    ]
 
 
 def _module_source_digest():
-    """Immutable source digest used as the in-repo generator_version."""
-    return digest(
-        {
-            "path": "pipelines/hardware_parity.py",
-            "text": Path(__file__).read_text(encoding="utf-8"),
-        }
-    )
+    """Immutable source digest of the whole family, used as the generator_version.
 
+    The family, not this file. The generator was one module and is now several
+    siblings; a digest over only this one would stop attesting the code that
+    actually builds records, which is the opposite of what the stamp is for.
+    """
+    return digest({"paths": _family_sources()})
 
 def _catalog_digest():
     """Digest of the scenario catalog identity (ids + models + stresses)."""
@@ -159,611 +160,6 @@ def _catalog_provenance_stamps():
         "catalog_digest": _catalog_digest(),
         "catalog_authorship": copy.deepcopy(CATALOG_AUTHORSHIP),
     }
-
-
-# ── Scenario catalog ──────────────────────────────────────────────────
-
-
-def _grid(steps, channels, pattern):
-    """Build a binary event grid from a per-channel period/offset pattern."""
-    rows = []
-    for step in range(steps):
-        row = []
-        for channel in range(channels):
-            period, offset = pattern[channel]
-            row.append(1 if period and (step - offset) >= 0 and (step - offset) % period == 0
-                       else 0)
-        rows.append(row)
-    return rows
-
-
-SCENARIO_SPECS = (
-    {
-        "id": "hp-representable-margin",
-        "name": "exactly representable margin",
-        "stress": "none",
-        "description": (
-            "Every weight, bias and threshold is an exact multiple of 1/256 and the "
-            "leak is zero, so the Q8.8 datapath has no rounding to do. This is the "
-            "control case: if it ever diverges, the divergence is not quantization."
-        ),
-        "hypothesis": "spike trains and action agree exactly",
-        "model": {
-            "name": "relay-gate-4",
-            "neurons": 4,
-            "inputs": 3,
-            "w_in": [
-                [0.5, 0.25, 0.0],
-                [0.25, 0.5, 0.0],
-                [0.0, 0.25, 0.5],
-                [0.125, 0.125, 0.125],
-            ],
-            "w_rec": None,
-            "bias": [0.0625, 0.0625, 0.0625, 0.0625],
-            "threshold": [0.5625, 0.75, 0.5625, 0.375],
-            "decay": [0.0, 0.0, 0.0, 0.0],
-            "refractory_steps": 0,
-            "reset": "subtract",
-            "dt_ms": 1.0,
-        },
-        "pattern": [(1, 0), (2, 0), (3, 0)],
-        "intervention": None,
-    },
-    {
-        "id": "hp-knife-edge-threshold",
-        "name": "knife-edge threshold",
-        "stress": "quantization_rounding",
-        "description": (
-            "Neurons 0 and 3 have a weight that rounds down and a threshold that rounds "
-            "up, so the float membrane reaches threshold one timestep before the Q8.8 "
-            "membrane does. Neurons 1 and 2 use exactly representable values as an "
-            "in-scenario control."
-        ),
-        "hypothesis": "first-spike timing diverges on neurons 0 and 3 only",
-        "model": {
-            "name": "knife-edge-4",
-            "neurons": 4,
-            "inputs": 3,
-            "w_in": [
-                [0.501, 0.0, 0.0],
-                [0.5, 0.0, 0.0],
-                [0.25, 0.0, 0.0],
-                [0.126, 0.0, 0.0],
-            ],
-            "w_rec": None,
-            "bias": [0.0, 0.0, 0.0, 0.0],
-            "threshold": [1.002, 1.0, 0.75, 0.504],
-            "decay": [1.0, 1.0, 1.0, 1.0],
-            "refractory_steps": 0,
-            "reset": "subtract",
-            "dt_ms": 1.0,
-        },
-        "pattern": [(1, 0), (0, 0), (0, 0)],
-        "intervention": {
-            "kind": "parameter_perturbation",
-            "detail": (
-                "w=0.501 quantizes down to 128/256 while threshold 1.002 quantizes up "
-                "to 257/256, opening a one-LSB gap at the decision boundary"
-            ),
-            "applies_to": "threshold",
-        },
-    },
-    {
-        "id": "hp-weight-saturation",
-        "name": "weight range saturation",
-        "stress": "q88_range_overflow",
-        "description": (
-            "Neuron 0 has an excitatory weight outside the Q8.8 range, so export clamps "
-            "it and the deployed neuron receives far less drive than the trained one. "
-            "Neurons 2 and 3 stay inside the range as a control."
-        ),
-        "hypothesis": "clamped export silences a neuron that fires in software",
-        "model": {
-            "name": "wide-dynamic-range-4",
-            "neurons": 4,
-            "inputs": 3,
-            "w_in": [
-                [190.0, -70.0, 0.0],
-                [64.0, -16.0, 0.0],
-                [0.5, 0.25, 0.0],
-                [0.125, 0.125, 0.125],
-            ],
-            "w_rec": None,
-            "bias": [0.0, 0.0, 0.0, 0.0],
-            "threshold": [100.0, 40.0, 0.5, 0.25],
-            "decay": [0.0, 0.0, 0.0, 0.0],
-            "refractory_steps": 0,
-            "reset": "subtract",
-            "dt_ms": 1.0,
-        },
-        "pattern": [(1, 0), (1, 0), (2, 0)],
-        "intervention": {
-            "kind": "parameter_perturbation",
-            "detail": "w_in[0][0]=190.0 exceeds the Q8.8 maximum 127.99609375",
-            "applies_to": "w_in",
-        },
-    },
-    {
-        "id": "hp-accumulator-saturation",
-        "name": "accumulator ordering saturation",
-        "stress": "q88_accumulator_overflow",
-        "description": (
-            "Neuron 0 sums two large excitatory inputs before a large inhibitory one. "
-            "Each weight is individually representable, but the partial sum saturates, "
-            "so the inhibition subtracts from a clamped accumulator. Order of "
-            "accumulation, not the weights, is what breaks parity."
-        ),
-        "hypothesis": "the deployed neuron loses drive that the float neuron keeps",
-        "model": {
-            "name": "accumulator-order-4",
-            "neurons": 4,
-            "inputs": 3,
-            "w_in": [
-                [120.0, 120.0, -120.0],
-                [40.0, 40.0, -40.0],
-                [0.5, 0.25, 0.0],
-                [0.125, 0.125, 0.125],
-            ],
-            "w_rec": None,
-            "bias": [0.0, 0.0, 0.0, 0.0],
-            "threshold": [100.0, 35.0, 0.5, 0.25],
-            "decay": [0.0, 0.0, 0.0, 0.0],
-            "refractory_steps": 0,
-            "reset": "subtract",
-            "dt_ms": 1.0,
-        },
-        "pattern": [(1, 0), (1, 0), (1, 0)],
-        "intervention": {
-            "kind": "parameter_perturbation",
-            "detail": "120 + 120 = 240 exceeds the Q8.8 accumulator range before -120 lands",
-            "applies_to": "w_in",
-        },
-    },
-    {
-        "id": "hp-recurrent-inhibition",
-        "name": "recurrent lateral inhibition",
-        "stress": "recurrent_feedback",
-        "description": (
-            "Lateral inhibition feeds each timestep's quantization residue back into the "
-            "next one, so a sub-LSB difference has a path by which it can compound "
-            "instead of washing out."
-        ),
-        "hypothesis": "error accumulates across the recurrent loop",
-        "model": {
-            "name": "lateral-inhibition-4",
-            "neurons": 4,
-            "inputs": 3,
-            "w_in": [
-                [0.4003, 0.1001, 0.0],
-                [0.0, 0.4003, 0.1001],
-                [0.1001, 0.0, 0.4003],
-                [0.2002, 0.2002, 0.0],
-            ],
-            "w_rec": [
-                [0.0, -0.3007, -0.3007, 0.0],
-                [-0.3007, 0.0, -0.3007, 0.0],
-                [-0.3007, -0.3007, 0.0, 0.0],
-                [0.0, 0.0, 0.0, 0.0],
-            ],
-            "bias": [0.0503, 0.0503, 0.0503, 0.0],
-            "threshold": [0.7001, 0.7001, 0.7001, 1.0],
-            "decay": [0.8501, 0.8501, 0.8501, 0.5],
-            "refractory_steps": 1,
-            "reset": "subtract",
-            "dt_ms": 1.0,
-        },
-        "pattern": [(1, 0), (2, 1), (3, 2)],
-        "intervention": {
-            "kind": "topology_perturbation",
-            "detail": "lateral inhibition enabled between neurons 0-2",
-            "applies_to": "w_rec",
-        },
-    },
-    {
-        "id": "hp-refractory-boundary",
-        "name": "refractory boundary",
-        "stress": "refractory_state_machine",
-        "description": (
-            "Drive reaches threshold in float one timestep before it does in Q8.8, and a "
-            "two-step refractory window then propagates that single shift through the "
-            "rest of the train instead of letting it be reabsorbed."
-        ),
-        "hypothesis": "a one-step timing error becomes a whole shifted train",
-        "model": {
-            "name": "refractory-gate-4",
-            "neurons": 4,
-            "inputs": 3,
-            "w_in": [
-                [0.201, 0.0, 0.0],
-                [0.25, 0.0, 0.0],
-                [0.0, 0.201, 0.0],
-                [0.0, 0.0, 0.25],
-            ],
-            "w_rec": None,
-            "bias": [0.0, 0.0, 0.0, 0.0],
-            "threshold": [0.603, 0.75, 0.603, 0.75],
-            "decay": [1.0, 1.0, 1.0, 1.0],
-            "refractory_steps": 2,
-            "reset": "zero",
-            "dt_ms": 1.0,
-        },
-        "pattern": [(1, 0), (1, 0), (1, 0)],
-        "intervention": {
-            "kind": "parameter_perturbation",
-            "detail": "refractory_steps raised from 0 to 2 so a timing shift cannot be reabsorbed",
-            "applies_to": "refractory_steps",
-        },
-    },
-)
-
-
-_SCENARIO_SPEC_BY_ID = {spec["id"]: spec for spec in SCENARIO_SPECS}
-
-
-def build_scenario(spec, steps=12):
-    """Materialise one scenario, including the encoded input fixture."""
-    model = normalize_model(spec["model"])
-    stimulus = normalize_stimulus(
-        {
-            "name": f"{spec['id']}-stimulus",
-            "encoding": "binary_event_grid",
-            "dt_ms": model["dt_ms"],
-            "steps": steps,
-            "events": _grid(steps, model["inputs"], spec["pattern"]),
-        },
-        model["inputs"],
-    )
-    return {
-        "id": spec["id"],
-        "name": spec["name"],
-        "family": FACTORY_SLUG,
-        "stress": spec["stress"],
-        "description": spec["description"],
-        "hypothesis": spec["hypothesis"],
-        "model_float": model,
-        "model_sha256": digest(model),
-        "stimulus": stimulus,
-        "input_fixture": stimulus_fixture(stimulus),
-        "intervention": spec["intervention"],
-    }
-
-
-def build_scenarios(steps=12):
-    return [build_scenario(spec, steps=steps) for spec in SCENARIO_SPECS]
-
-
-# ── Parity metrics ────────────────────────────────────────────────────
-
-
-def _first_spike_steps(spike_grid, neurons):
-    firsts = [None] * neurons
-    for step, row in enumerate(spike_grid):
-        for neuron in range(neurons):
-            if row[neuron] and firsts[neuron] is None:
-                firsts[neuron] = step
-    return firsts
-
-
-def _rectangular(grid):
-    """True when `grid` is a non-empty list of equal-length non-empty rows.
-
-    Ragged grids are rejected up front rather than indexed into: a short row
-    would otherwise raise mid-comparison and take down the scan of an entire
-    run directory instead of reporting one bad record.
-    """
-    if not isinstance(grid, list) or not grid:
-        return False
-    if not all(isinstance(row, list) for row in grid):
-        return False
-    width = len(grid[0])
-    return width > 0 and all(len(row) == width for row in grid)
-
-
-def _spike_grid_shape_reason(software, hardware):
-    """Why two spike grids cannot be laid over each other, or None if they can.
-
-    Shape only. An empty grid is reported separately by the bitmap metric
-    under its own reason, so the caller decides whether emptiness deserves a
-    distinct report before asking about shape.
-    """
-    if not _rectangular(software) or not _rectangular(hardware):
-        return "spike grid is ragged or malformed"
-    if len(software) != len(hardware) or len(software[0]) != len(hardware[0]):
-        return "spike grids have different shapes"
-    return None
-
-
-def _spike_cells(software, hardware):
-    """The two grids paired cell by cell in (timestep, neuron) order.
-
-    Both grids are rectangular and identically shaped by the time this runs,
-    so the pairing visits every cell exactly once, in the order nested
-    (step, neuron) indexing would have visited them.
-    """
-    for software_row, hardware_row in zip(software, hardware):
-        yield from zip(software_row, hardware_row)
-
-
-def _spike_cell_tally(software, hardware):
-    """Per-cell agreement counts over two identically shaped spike grids."""
-    matches = 0
-    false_positive = 0
-    false_negative = 0
-    both = 0
-    either = 0
-    for a, b in _spike_cells(software, hardware):
-        if a == b:
-            matches += 1
-        elif b and not a:
-            false_positive += 1
-        else:
-            false_negative += 1
-        if a or b:
-            either += 1
-        if a and b:
-            both += 1
-    return matches, false_positive, false_negative, both, either
-
-
-def spike_bitmap_metrics(software, hardware):
-    """Cell-by-cell agreement over the (timestep, neuron) spike bitmap."""
-    if not software or not hardware:
-        return {"comparable": False, "reason": "empty spike grid"}
-    reason = _spike_grid_shape_reason(software, hardware)
-    if reason is not None:
-        return {"comparable": False, "reason": reason}
-    matches, false_positive, false_negative, both, either = _spike_cell_tally(
-        software, hardware
-    )
-    cells = len(software) * len(software[0])
-    return {
-        "comparable": True,
-        "cells": cells,
-        "matching_cells": matches,
-        "agreement": matches / cells,
-        "hamming_distance": false_positive + false_negative,
-        "hardware_only_spikes": false_positive,
-        "software_only_spikes": false_negative,
-        "jaccard": (both / either) if either else 1.0,
-        "software_spike_count": sum(sum(row) for row in software),
-        "hardware_spike_count": sum(sum(row) for row in hardware),
-    }
-
-
-def timing_metrics(software, hardware, dt_ms):
-    """First-spike timing error over neurons that fired on both sides."""
-    reason = _spike_grid_shape_reason(software, hardware)
-    if reason is not None:
-        return {"comparable": False, "reason": reason}
-    neurons = len(software[0])
-    soft_first = _first_spike_steps(software, neurons)
-    hard_first = _first_spike_steps(hardware, neurons)
-    deltas = []
-    only_software = 0
-    only_hardware = 0
-    for neuron in range(neurons):
-        a = soft_first[neuron]
-        b = hard_first[neuron]
-        if a is None and b is None:
-            continue
-        if a is None:
-            only_hardware += 1
-        elif b is None:
-            only_software += 1
-        else:
-            deltas.append(abs(a - b))
-    return {
-        "comparable": True,
-        "unit": "timesteps",
-        "dt_ms": dt_ms,
-        "compared_neurons": len(deltas),
-        "max_abs_step_error": max(deltas) if deltas else 0,
-        "mean_abs_step_error": (sum(deltas) / len(deltas)) if deltas else 0.0,
-        "max_abs_ms_error": (max(deltas) * dt_ms) if deltas else 0.0,
-        "neurons_firing_software_only": only_software,
-        "neurons_firing_hardware_only": only_hardware,
-    }
-
-
-MEMBRANE_UNITS = "mV_model"
-
-
-def _membrane_incomparable_reason(software_membrane, hardware_membrane, soft, hard):
-    """Why the two membrane traces cannot be compared, or None if they can."""
-    if not (software_membrane or {}).get("observable") or not (
-        hardware_membrane or {}
-    ).get("observable"):
-        return "at least one side does not expose membrane state"
-    if (
-        (software_membrane or {}).get("units") != MEMBRANE_UNITS
-        or (hardware_membrane or {}).get("units") != MEMBRANE_UNITS
-    ):
-        # A recorded capture is untrusted input and may label its observable
-        # trace with another unit (or omit it). Comparing numeric values
-        # across units would produce a numerically valid but dimensionally
-        # meaningless error, so treat a unit mismatch the same as a missing
-        # trace rather than silently comparing raw numbers.
-        return f"both membrane traces must be {MEMBRANE_UNITS!r} units"
-    if (
-        not _rectangular(soft)
-        or not _rectangular(hard)
-        or len(soft) != len(hard)
-        or len(soft[0]) != len(hard[0])
-    ):
-        # Carries a reason code for the same purpose as the branch above:
-        # deleting membrane evidence must never be quieter than reporting it.
-        return "membrane traces have different shapes"
-    return None
-
-
-def membrane_metrics(software_membrane, hardware_membrane):
-    """Membrane error where both sides expose an observable trace."""
-    soft = (software_membrane or {}).get("trace")
-    hard = (hardware_membrane or {}).get("trace")
-    reason = _membrane_incomparable_reason(
-        software_membrane, hardware_membrane, soft, hard
-    )
-    if reason is not None:
-        return {
-            "observable": False,
-            "reason_code": "MEMBRANE_DIVERGENCE",
-            "reason": reason,
-        }
-    diffs = [abs(a - b) for row_a, row_b in zip(soft, hard) for a, b in zip(row_a, row_b)]
-    return {
-        "observable": True,
-        "units": MEMBRANE_UNITS,
-        "samples": len(diffs),
-        "max_abs_error": max(diffs) if diffs else 0.0,
-        "mean_abs_error": (sum(diffs) / len(diffs)) if diffs else 0.0,
-        "tolerance": MEMBRANE_TOLERANCE,
-        "within_tolerance": (max(diffs) if diffs else 0.0) <= MEMBRANE_TOLERANCE,
-    }
-
-
-def quantization_metrics(deployment_run):
-    """Restate the recorded Q8.8 conversion error as parity evidence.
-
-    Two independent kinds of saturation matter and are counted separately:
-    *export* saturation, where a parameter does not fit the format, and
-    *runtime* saturation, where every parameter fits but a partial sum does
-    not. The second kind leaves the exported weights looking perfectly
-    faithful, so it has to be reported from the run rather than the export.
-    """
-    provenance = (deployment_run or {}).get("quantization")
-    runtime_saturation = ((deployment_run or {}).get("arithmetic") or {}).get(
-        "saturation_events"
-    )
-    if not provenance:
-        return {
-            "available": False,
-            "reason": "deployment side did not report a quantization provenance",
-            "runtime_saturation_events": runtime_saturation,
-        }
-    return {
-        "available": True,
-        "format": provenance.get("format"),
-        "parameter_count": provenance.get("parameter_count"),
-        "max_abs_error": provenance.get("max_abs_error"),
-        "mean_abs_error": provenance.get("mean_abs_error"),
-        "saturated_parameter_count": provenance.get("saturated_parameter_count"),
-        "runtime_saturation_events": runtime_saturation,
-        "step": provenance.get("step"),
-    }
-
-
-def repeatability_metrics(software_run, hardware_run):
-    """Determinism of each side, kept distinct from hardware repeatability."""
-    software_det = software_run.get("determinism", {})
-    hardware_det = hardware_run.get("determinism", {})
-    physical = hardware_run.get("execution_target") in PHYSICAL_TARGETS
-    return {
-        "software": {
-            "repeats": software_run.get("repeats"),
-            "distinct_digests": software_det.get("distinct_digests"),
-            "identical_repeats": software_det.get("identical_repeats"),
-        },
-        "deployment": {
-            "repeats": hardware_run.get("repeats"),
-            "distinct_digests": hardware_det.get("distinct_digests"),
-            "identical_repeats": hardware_det.get("identical_repeats"),
-        },
-        "hardware_repeatability_measured": physical,
-        "meaning": hardware_det.get("meaning"),
-    }
-
-
-def _parity_metrics(scenario, software_run, hardware_run):
-    """Every parity measurement for one paired run, before any verdict."""
-    dt_ms = scenario["stimulus"]["dt_ms"]
-    bitmap = spike_bitmap_metrics(software_run.get("spikes"), hardware_run.get("spikes"))
-    timing = timing_metrics(
-        software_run.get("spikes"), hardware_run.get("spikes"), dt_ms
-    )
-    membrane = membrane_metrics(software_run.get("membrane"), hardware_run.get("membrane"))
-    quantization = quantization_metrics(hardware_run)
-    repeatability = repeatability_metrics(software_run, hardware_run)
-    software_action = software_run.get("action", {})
-    hardware_action = hardware_run.get("action", {})
-    return {
-        "spike_bitmap": bitmap,
-        "action": {
-            "software": software_action.get("label"),
-            "deployment": hardware_action.get("label"),
-            "software_counts": software_action.get("counts"),
-            "deployment_counts": hardware_action.get("counts"),
-            "agree": software_action.get("label") == hardware_action.get("label"),
-            "decode_rule": software_action.get("rule"),
-        },
-        "timing": timing,
-        "membrane": membrane,
-        "quantization": quantization,
-        "repeatability": repeatability,
-        "verdict_rule": (
-            "verdict is `mismatch` iff the spike bitmaps differ or the decoded actions "
-            "differ; membrane, quantization, repeatability and latency findings are "
-            "always carried as reason codes even when the verdict is `match`"
-        ),
-    }
-
-
-def _deployment_qualification_codes(repeatability, hardware_run):
-    """What the deployment side leaves unproven, whatever its traces show."""
-    codes = []
-    if not repeatability["hardware_repeatability_measured"]:
-        codes.append("REPEATABILITY_UNPROVEN")
-    if not (hardware_run.get("latency") or {}).get("measured"):
-        codes.append("LATENCY_NOT_MEASURED")
-    if hardware_run.get("execution_target") not in PHYSICAL_TARGETS:
-        codes.append("ORACLE_UNAVAILABLE")
-    else:
-        # A physical run is not reproducible from software -- that is why it
-        # was run on hardware. Its traces therefore rest on the integrity of
-        # the capture and on the board provenance, and were not re-derived.
-        # This code makes that limitation visible on every hardware-claiming
-        # record instead of leaving such a record looking unqualified.
-        codes.append("DEPLOYMENT_TRACE_NOT_REDERIVABLE")
-    return codes
-
-
-def _parity_reason_codes(parity, hardware_run):
-    """Every finding one paired run carries, in the order they are raised.
-
-    The two behavioural disagreements come first because the verdict is
-    drawn from them; the deployment qualifications that follow are carried
-    even on a `match`, so silence is never mistaken for evidence.
-    """
-    bitmap = parity["spike_bitmap"]
-    membrane = parity["membrane"]
-    quantization = parity["quantization"]
-    codes = []
-    if not bitmap.get("comparable") or bitmap.get("hamming_distance", 1) > 0:
-        codes.append("SPIKE_BITMAP_DISAGREEMENT")
-    if not parity["action"]["agree"]:
-        codes.append("ACTION_DISAGREEMENT")
-    if membrane.get("observable") and not membrane.get("within_tolerance"):
-        codes.append("MEMBRANE_DIVERGENCE")
-    if not membrane.get("observable") and membrane.get("reason_code"):
-        codes.append(membrane["reason_code"])
-    if quantization.get("saturated_parameter_count") or quantization.get(
-        "runtime_saturation_events"
-    ):
-        codes.append("QUANTIZATION_SATURATION")
-    return codes + _deployment_qualification_codes(
-        parity["repeatability"], hardware_run
-    )
-
-
-def compute_parity(scenario, software_run, hardware_run):
-    """All parity metrics for one paired run, plus the verdict they support."""
-    parity = _parity_metrics(scenario, software_run, hardware_run)
-    reason_codes = _parity_reason_codes(parity, hardware_run)
-    behavioural_mismatch = (
-        "SPIKE_BITMAP_DISAGREEMENT" in reason_codes or "ACTION_DISAGREEMENT" in reason_codes
-    )
-    verdict = contract.VERDICT_MISMATCH if behavioural_mismatch else contract.VERDICT_MATCH
-    return parity, verdict, sorted(set(reason_codes))
-
 
 # ── Record construction ───────────────────────────────────────────────
 
@@ -2965,3 +2361,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
